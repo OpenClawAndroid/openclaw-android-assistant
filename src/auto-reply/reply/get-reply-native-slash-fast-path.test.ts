@@ -191,29 +191,14 @@ describe("maybeResolveNativeSlashCommandFastReply", () => {
   });
 
   it.each([
-    { command: "/queue Can you diagnose this?", expected: 'Unrecognized queue mode "Can".' },
-    { command: "/queue /think high", expected: 'Unrecognized queue mode "/think"' },
-    {
-      command: "/think about my deployment plan",
-      expected: 'Unrecognized thinking level "about".',
-    },
-    {
-      command: "/verbose explain quantum computing",
-      expected: 'Unrecognized verbose level "explain".',
-    },
-    {
-      command: "/trace banana please",
-      expected: 'Unrecognized trace level "banana".',
-    },
-    {
-      command: "/fast bananas please",
-      expected: 'Unrecognized fast mode "bananas".',
-    },
-    {
-      command: "/reasoning nonsense please",
-      expected: 'Unrecognized reasoning level "nonsense".',
-    },
-  ])("validates every native directive argument: $command", async ({ command, expected }) => {
+    ["/queue Can you diagnose this?", 'Unrecognized queue mode "Can".'],
+    ["/queue /think high", 'Unrecognized queue mode "/think"'],
+    ["/think about my deployment plan", 'Unrecognized thinking level "about".'],
+    ["/verbose explain quantum computing", 'Unrecognized verbose level "explain".'],
+    ["/trace banana please", 'Unrecognized trace level "banana".'],
+    ["/fast bananas please", 'Unrecognized fast mode "bananas".'],
+    ["/reasoning nonsense please", 'Unrecognized reasoning level "nonsense".'],
+  ])("validates every native directive argument: %s", async (command, expected) => {
     const { result } = await resolveNativeDirectiveCommand(command);
 
     expect(result).toEqual({
@@ -223,34 +208,25 @@ describe("maybeResolveNativeSlashCommandFastReply", () => {
   });
 
   it.each([
-    { command: "/queue collect please help", expected: 'Unexpected argument "please" for /queue.' },
-    { command: "/think high please", expected: 'Unexpected argument "please" for /think.' },
-    { command: "/verbose on please", expected: 'Unexpected argument "please" for /verbose.' },
-    { command: "/fast on please", expected: 'Unexpected argument "please" for /fast.' },
-    {
-      command: "/reasoning on please",
-      expected: 'Unexpected argument "please" for /reasoning.',
-    },
-    { command: "/exec host=node please", expected: 'Unexpected argument "please" for /exec.' },
-    {
-      command: "/model openai/gpt-5.5 --runtime codex --runtime acp",
-      expected: 'Unexpected argument "--runtime" for /model.',
-    },
-    {
-      command: "/model openai/gpt-5.5 -slow",
-      expected: 'Unexpected argument "-slow" for /model.',
-    },
-  ])(
-    "rejects trailing prose instead of dropping native command $command",
-    async ({ command, expected }) => {
-      const { result } = await resolveNativeDirectiveCommand(command);
+    ["/queue collect please help", 'Unexpected argument "please" for /queue.'],
+    ["/think high please", 'Unexpected argument "please" for /think.'],
+    ["/verbose on please", 'Unexpected argument "please" for /verbose.'],
+    ["/fast on please", 'Unexpected argument "please" for /fast.'],
+    ["/reasoning on please", 'Unexpected argument "please" for /reasoning.'],
+    ["/exec host=node please", 'Unexpected argument "please" for /exec.'],
+    [
+      "/model openai/gpt-5.5 --runtime codex --runtime acp",
+      'Unexpected argument "--runtime" for /model.',
+    ],
+    ["/model openai/gpt-5.5 -slow", 'Unexpected argument "-slow" for /model.'],
+  ])("rejects trailing prose instead of dropping native command %s", async (command, expected) => {
+    const { result } = await resolveNativeDirectiveCommand(command);
 
-      expect(result).toEqual({
-        handled: true,
-        reply: expect.objectContaining({ text: expected }),
-      });
-    },
-  );
+    expect(result).toEqual({
+      handled: true,
+      reply: expect.objectContaining({ text: expected }),
+    });
+  });
 
   it.each(["--runtime codex -s", "-s --runtime codex"])(
     "applies native /model runtime and session options from %s",

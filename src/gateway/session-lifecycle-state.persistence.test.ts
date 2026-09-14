@@ -281,6 +281,7 @@ it.each(["success", "failed-write"])(
       const sessionEventSubscribers = createSessionEventSubscriberRegistry();
       sessionEventSubscribers.subscribe("session-observer");
       subscriptions = startGatewayEventSubscriptions({
+        signal: new AbortController().signal,
         log: silentLog,
         broadcast,
         broadcastToConnIds,
@@ -294,6 +295,7 @@ it.each(["success", "failed-write"])(
         chatAbortControllers: context.chatAbortControllers,
         restartRecoveryCandidates,
         terminalSessions: { closeTaskSessions: vi.fn() },
+        refreshConnectedUserProfiles: vi.fn(),
       });
       const persistLifecycleEvent = lifecycleState.persistGatewaySessionLifecycleEvent;
       persistenceSpy = vi
@@ -483,6 +485,7 @@ it.each([
       const markFinal = vi.spyOn(chatRunState.toolEventRecipients, "markFinal");
       const agentRunSeq = new Map<string, number>();
       subscriptions = startGatewayEventSubscriptions({
+        signal: new AbortController().signal,
         log: silentLog,
         broadcast: vi.fn(),
         broadcastToConnIds: vi.fn(),
@@ -496,6 +499,7 @@ it.each([
         chatAbortControllers: new Map(),
         restartRecoveryCandidates: new Map(),
         terminalSessions: { closeTaskSessions: vi.fn() },
+        refreshConnectedUserProfiles: vi.fn(),
       });
 
       emitAgentEventForOwner(

@@ -17,7 +17,7 @@ type CodexContextProjection = {
   promptContextRange?: CodexProjectedContextRange;
   assembledMessages: AgentMessage[];
   prePromptMessageCount: number;
-  images?: ImageContent[];
+  imageGroups?: CodexProjectedImageGroup[];
 };
 
 type PrepareContextFile = (
@@ -31,6 +31,11 @@ export class CodexContextAttachmentError extends Error {}
 export type CodexProjectedContextRange = {
   start: number;
   end: number;
+};
+
+/** Images follow their complete historical message span in the projected prompt. */
+export type CodexProjectedImageGroup = CodexProjectedContextRange & {
+  images: ImageContent[];
 };
 
 const CONTEXT_HEADER = "OpenClaw assembled context for this turn:";
@@ -116,7 +121,15 @@ export async function projectContextEngineAssemblyForCodex(params: {
     ...(promptContextRange ? { promptContextRange } : {}),
     assembledMessages: params.assembledMessages,
     prePromptMessageCount: params.originalHistoryMessages.length,
-    ...(context.images.length ? { images: context.images } : {}),
+    ...(context.imageGroups.length && promptPrefix
+      ? {
+          imageGroups: context.imageGroups.map((group) => ({
+            images: group.images,
+            start: group.start + promptPrefix.length,
+            end: group.end + promptPrefix.length,
+          })),
+        }
+      : {}),
   };
 }
 
@@ -248,14 +261,36 @@ export function fitCodexProjectedContextForTurnStart(params: {
   contextRange?: CodexProjectedContextRange;
   requestRange?: CodexProjectedContextRange;
   preservedRange?: CodexProjectedContextRange;
+  imageGroups?: CodexProjectedImageGroup[];
   maxChars?: number;
-}): string {
+}): { promptText: string; imageGroups?: CodexProjectedImageGroup[] } {
+  const slice = (start: number, end: number, budget = end - start) => {
+    const retained = truncateOlderContext(params.promptText.slice(start, end), budget);
+    return { ...retained, sourceStart: start + retained.retainedStart, sourceEnd: end };
+  };
+  const finish = (...parts: ReturnType<typeof slice>[]) => {
+    const imageGroups: CodexProjectedImageGroup[] = [];
+    let offset = 0;
+    for (const part of parts) {
+      for (const group of params.imageGroups ?? []) {
+        if (group.start >= part.sourceStart && group.end <= part.sourceEnd) {
+          const shift = offset + part.prefixLength - part.sourceStart;
+          imageGroups.push({ ...group, start: group.start + shift, end: group.end + shift });
+        }
+      }
+      offset += part.text.length;
+    }
+    return {
+      promptText: parts.map((part) => part.text).join(""),
+      ...(imageGroups.length ? { imageGroups } : {}),
+    };
+  };
   const maxChars =
     typeof params.maxChars === "number" && Number.isFinite(params.maxChars)
       ? Math.max(0, Math.floor(params.maxChars))
       : CODEX_TURN_START_TEXT_INPUT_MAX_CHARS;
   if (params.promptText.length <= maxChars) {
-    return params.promptText;
+    return finish(slice(0, params.promptText.length));
   }
   const range = normalizeProjectedContextRange(params.contextRange, params.promptText.length);
   if (!range) {
@@ -264,21 +299,22 @@ export function fitCodexProjectedContextForTurnStart(params: {
       params.promptText.length,
     );
     if (!preservedRange) {
-      return params.promptText;
+      return finish(slice(0, params.promptText.length));
     }
     const preservedText = params.promptText.slice(preservedRange.start, preservedRange.end);
     if (!preservedText) {
-      return truncateOlderContext(params.promptText, maxChars);
+      return finish(slice(0, params.promptText.length, maxChars));
     }
     if (preservedText.length >= maxChars) {
-      return truncateOlderContext(preservedText, maxChars);
+      return finish(slice(preservedRange.start, preservedRange.end, maxChars));
     }
-    const beforeRange = params.promptText.slice(0, preservedRange.start);
-    return `${truncateOlderContext(beforeRange, maxChars - preservedText.length)}${preservedText}`;
+    return finish(
+      slice(0, preservedRange.start, maxChars - preservedText.length),
+      slice(preservedRange.start, preservedRange.end),
+    );
   }
 
   const beforeContext = params.promptText.slice(0, range.start);
-  const context = params.promptText.slice(range.start, range.end);
   const afterContext = params.promptText.slice(range.end);
   const requestRange = normalizeProjectedContextRange(
     params.requestRange,
@@ -291,31 +327,41 @@ export function fitCodexProjectedContextForTurnStart(params: {
   ) {
     const request = params.promptText.slice(requestRange.start, requestRange.end);
     if (request.length >= maxChars) {
-      return truncateOlderContext(request, maxChars);
+      return finish(slice(requestRange.start, requestRange.end, maxChars));
     }
-    const appendedContext = params.promptText.slice(requestRange.end);
     // Hook-appended context is newer than the projected history. Retain it
     // before trimming the projection, while the full current request remains
     // the hard boundary that must survive a bounded turn/start input.
-    const fittedAppendedContext = truncateOlderContext(appendedContext, maxChars - request.length);
-    const contextBudget = maxChars - request.length - fittedAppendedContext.length;
-    const fittedContext = truncateOlderContext(context, contextBudget);
+    const fittedAppendedContext = slice(
+      requestRange.end,
+      params.promptText.length,
+      maxChars - request.length,
+    );
+    const contextBudget = maxChars - request.length - fittedAppendedContext.text.length;
+    const fittedContext = slice(range.start, range.end, contextBudget);
     const beforeContextBudget =
-      maxChars - fittedContext.length - request.length - fittedAppendedContext.length;
-    return `${truncateOlderContext(beforeContext, beforeContextBudget)}${fittedContext}${request}${fittedAppendedContext}`;
+      maxChars - fittedContext.text.length - request.length - fittedAppendedContext.text.length;
+    return finish(
+      slice(0, range.start, beforeContextBudget),
+      fittedContext,
+      slice(requestRange.start, requestRange.end),
+      fittedAppendedContext,
+    );
   }
   const contextBudget = maxChars - beforeContext.length - afterContext.length;
   if (contextBudget > 0) {
-    const fittedContext = truncateOlderContext(context, contextBudget);
-    return `${beforeContext}${fittedContext}${afterContext}`;
+    return finish(
+      slice(0, range.start),
+      slice(range.start, range.end, contextBudget),
+      slice(range.end, params.promptText.length),
+    );
   }
   // Hook-added prefixes can make the non-context text exceed the limit. Keep
   // the current context tail before the user's request; dropping it would make
   // a duplicated earlier projection crowd out the newest assembled context.
-  const afterContextText = truncateOlderContext(afterContext, maxChars);
-  const contextBudgetAfterRequest = maxChars - afterContextText.length;
-  const fittedContext = truncateOlderContext(context, contextBudgetAfterRequest);
-  return `${fittedContext}${afterContextText}`;
+  const afterContextText = slice(range.end, params.promptText.length, maxChars);
+  const contextBudgetAfterRequest = maxChars - afterContextText.text.length;
+  return finish(slice(range.start, range.end, contextBudgetAfterRequest), afterContextText);
 }
 
 function normalizeProjectedContextRange(
@@ -366,9 +412,8 @@ async function renderMessagesForCodexContext(
     prepareFileContext?: PrepareContextFile;
     currentUserTurnIdempotencyKey?: string;
   },
-): Promise<{ text: string; images: ImageContent[] }> {
-  const tail: string[] = [];
-  const images: ImageContent[] = [];
+): Promise<{ text: string; imageGroups: CodexProjectedImageGroup[] }> {
+  const tail: Array<{ text: string; separatorLength: number; images?: ImageContent[] }> = [];
   let retainedImageChars = 0;
   let totalChars = 0;
   let retainedChars = 0;
@@ -406,29 +451,48 @@ async function renderMessagesForCodexContext(
     if (!text && acceptedImageChars === 0) {
       continue;
     }
-    const chunk = `[${message.role}]\n${text}${totalChars > 0 ? "\n\n" : ""}`;
+    const separator = totalChars > 0 ? "\n\n" : "";
+    const chunk = `[${message.role}]\n${text}${separator}`;
     totalChars += chunk.length;
     if (remaining > 0) {
       // The final truncation below owns the surrogate-safe boundary after adding its marker.
       const retained = neutralizeCodexExplicitMentionSigils(chunk).slice(
         -(remaining - acceptedImageChars),
       );
-      tail.push(retained);
+      tail.push({
+        text: retained,
+        separatorLength: separator.length,
+        ...(imagesFit && files?.images.length && retained.length === chunk.length
+          ? { images: files.images }
+          : {}),
+      });
       retainedChars += retained.length + acceptedImageChars;
       retainedImageChars += acceptedImageChars;
-      if (imagesFit && files?.images.length) {
-        images.unshift(...files.images);
-      }
     }
   }
-  const retainedContext = tail.toReversed().join("");
+  const ordered = tail.toReversed();
+  const retainedContext = ordered.map((entry) => entry.text).join("");
+  const fitted = truncateOlderContext(
+    retainedContext,
+    options.maxRenderedContextChars - retainedImageChars,
+    totalChars,
+  );
+  const imageGroups: CodexProjectedImageGroup[] = [];
+  let offset = 0;
+  for (const entry of ordered) {
+    if (entry.images && offset >= fitted.retainedStart) {
+      const start = offset - fitted.retainedStart + fitted.prefixLength;
+      imageGroups.push({
+        start,
+        end: start + entry.text.length - entry.separatorLength,
+        images: entry.images,
+      });
+    }
+    offset += entry.text.length;
+  }
   return {
-    text: truncateOlderContext(
-      retainedContext,
-      options.maxRenderedContextChars - retainedImageChars,
-      totalChars,
-    ),
-    images,
+    text: fitted.text,
+    imageGroups,
   };
 }
 
@@ -645,12 +709,16 @@ function truncateText(text: string, maxChars: number): string {
   return `${truncated}\n[truncated ${text.length - truncated.length} chars]`;
 }
 
-function truncateOlderContext(text: string, maxChars: number, totalChars = text.length): string {
+function truncateOlderContext(
+  text: string,
+  maxChars: number,
+  totalChars = text.length,
+): { text: string; retainedStart: number; prefixLength: number } {
   if (totalChars <= maxChars) {
-    return text;
+    return { text, retainedStart: 0, prefixLength: 0 };
   }
   if (maxChars <= 0) {
-    return "";
+    return { text: "", retainedStart: text.length, prefixLength: 0 };
   }
 
   const buildMarker = (omittedChars: number): string =>
@@ -659,8 +727,17 @@ function truncateOlderContext(text: string, maxChars: number, totalChars = text.
   let tailChars = Math.max(0, maxChars - marker.length);
   marker = buildMarker(totalChars - tailChars);
   if (marker.length >= maxChars) {
-    return marker.slice(0, maxChars);
+    return {
+      text: marker.slice(0, maxChars),
+      retainedStart: text.length,
+      prefixLength: maxChars,
+    };
   }
   tailChars = maxChars - marker.length;
-  return `${marker}${sliceUtf16Safe(text, -tailChars).trimStart()}`;
+  const tail = sliceUtf16Safe(text, -tailChars).trimStart();
+  return {
+    text: `${marker}${tail}`,
+    retainedStart: text.length - tail.length,
+    prefixLength: marker.length,
+  };
 }

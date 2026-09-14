@@ -12,6 +12,7 @@ import type { UpdateRunRecord } from "../../../src/infra/update-run-record.ts";
 import type { UpdateAvailable, UpdateScheduleState } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
 import { registerUpdateActionsEnglish } from "../i18n/locales/en-update-actions.ts";
+import { formatUiError } from "../lib/format-error.ts";
 import "../components/modal-dialog.ts";
 import "../components/update-run-view.ts";
 import { postNativeUpdate } from "./native-link-routing.ts";
@@ -97,6 +98,10 @@ export async function confirmAndStartUpdateRuntime(
     let stopWatching: (() => void) | undefined;
     let acceptTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
     let sawBusy = false;
+    let latestProgress: UpdateProgress | undefined;
+    let checkingStatus = false;
+    let statusChecked = false;
+    let statusCheckError: string | null = null;
 
     const close = () => {
       if (settled) {
@@ -127,6 +132,7 @@ export async function confirmAndStartUpdateRuntime(
         if (settled) {
           return;
         }
+        latestProgress = progress;
         // Restart retains the scoped row; its removal retires permission to display it.
         if (phase.kind === "run" && !progress.run) {
           close();
@@ -155,6 +161,8 @@ export async function confirmAndStartUpdateRuntime(
         current.kind === "failed" ||
         (run !== null && run.status !== "running" && run.status !== "succeeded");
       const finished = run !== null && run.status !== "running";
+      const hasStatusCheck = checkingStatus || statusChecked || statusCheckError !== null;
+      const disconnected = latestProgress?.connected === false;
       const body =
         current.kind === "run"
           ? (readError ?? "")
@@ -173,6 +181,16 @@ export async function confirmAndStartUpdateRuntime(
                   <div class="exec-approval-sub" style="white-space: pre-line">${body}</div>
                 </div>
               </div>
+              <div role="status" aria-live="polite" class="exec-approval-sub">
+                ${
+                  disconnected && (failed || readError || hasStatusCheck)
+                    ? t("updates.dialog.checkStatusDisconnected")
+                    : statusChecked && !readError && !statusCheckError
+                      ? t("updates.dialog.statusRefreshed")
+                      : nothing
+                }
+              </div>
+              ${statusCheckError ? html`<div role="alert" class="exec-approval-sub">${statusCheckError}</div>` : nothing}
               ${
                 details && current.kind === "confirm"
                   ? html`<div class="exec-approval-command mono">${details}</div>`
@@ -188,15 +206,35 @@ export async function confirmAndStartUpdateRuntime(
               }
               <div class="exec-approval-actions">
                 ${
-                  failed || finished || readError
-                    ? html` ${(failed || readError) && params.onCheckStatus ? html`<button type="button" class="btn" @click=${() => void params.onCheckStatus?.()}>${t("updates.dialog.checkStatus")}</button>` : nothing}
+                  failed || finished || readError || hasStatusCheck
+                    ? html` ${
+                          (failed || readError || hasStatusCheck) && params.onCheckStatus
+                            ? html`<button
+                                type="button"
+                                class="btn ${checkingStatus ? "btn--busy" : ""}"
+                                ?disabled=${checkingStatus || disconnected}
+                                @click=${checkStatus}
+                              >
+                                ${
+                                  checkingStatus
+                                    ? html`<span class="btn__spinner" aria-hidden="true"></span>${t(
+                                          "updates.dialog.checkingStatus",
+                                        )}`
+                                    : t("updates.dialog.checkStatus")
+                                }
+                              </button>`
+                            : nothing
+                        }
                         ${
                           failed
                             ? html`<button
                                 type="button"
                                 class="btn primary"
+                                ?disabled=${checkingStatus || disconnected}
                                 @click=${() => {
                                   phase = { kind: "confirm" };
+                                  statusChecked = false;
+                                  statusCheckError = null;
                                   stopWatching?.();
                                   draw();
                                 }}
@@ -249,6 +287,27 @@ export async function confirmAndStartUpdateRuntime(
         host,
       );
     };
+
+    async function checkStatus() {
+      if (checkingStatus || latestProgress?.connected === false || !params.onCheckStatus) {
+        return;
+      }
+      checkingStatus = true;
+      statusChecked = false;
+      statusCheckError = null;
+      draw();
+      try {
+        statusChecked = await params.onCheckStatus();
+        if (!statusChecked && !latestProgress?.readError) {
+          statusCheckError = t("updates.dialog.statusNotRefreshed");
+        }
+      } catch (error) {
+        statusCheckError = formatUiError(error);
+      } finally {
+        checkingStatus = false;
+        draw();
+      }
+    }
 
     function confirm() {
       if (phase.kind !== "confirm") {

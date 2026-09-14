@@ -17,13 +17,20 @@ import {
   truncateLine,
 } from "../../../shared/subagents-format.js";
 import { resolveModelDisplayName, resolveModelDisplayRef } from "../../model-selection-display.js";
+import {
+  observeSubagentExecution,
+  type SubagentExecutionObservation,
+} from "./subagent-execution-observation.js";
 import { subagentRuns } from "./subagent-registry-memory.js";
 import { buildSubagentRunReadIndexFromRuns } from "./subagent-registry-queries.js";
 import {
   getSubagentSessionRuntimeMs,
   getSubagentSessionStartedAt,
 } from "./subagent-registry-read.js";
-import { getSubagentSessionListRunsSnapshotForRead } from "./subagent-registry-state.js";
+import {
+  getSubagentRunsSnapshotForSession,
+  getSubagentSessionListRunsSnapshotForRead,
+} from "./subagent-registry-state.js";
 import type { SubagentRunReadRecord, SubagentRunRecord } from "./subagent-registry.types.js";
 import { shouldKeepSubagentRunChildLink } from "./subagent-run-liveness.js";
 import { buildSubagentRunView } from "./subagent-run-view.js";
@@ -46,6 +53,9 @@ type SubagentListItem = {
   totalTokens?: number;
   startedAt?: number;
   endedAt?: number;
+  execution: SubagentExecutionObservation;
+  deliveryStatus?: NonNullable<SubagentRunRecord["delivery"]>["status"];
+  resume?: { method: "sessions.send"; sessionKey: string };
 };
 
 type BuiltSubagentList = {
@@ -207,7 +217,16 @@ export function buildSubagentList(params: {
     const totalTokens = resolveTotalTokens(sessionEntry);
     const usageText = formatTokenUsageDisplay(sessionEntry);
     const pendingDescendants = pendingDescendantCount(entry.childSessionKey);
-    const status = resolveSubagentDisplayStatus(entry, pendingDescendants);
+    const execution = observeSubagentExecution(
+      entry,
+      entry.pauseReason === "sessions_yield"
+        ? getSubagentRunsSnapshotForSession(subagentRuns, entry.childSessionKey).values()
+        : [],
+    );
+    const status = resolveSubagentDisplayStatus(
+      entry,
+      execution.state === "waiting" ? (execution.wait?.pendingCount ?? 0) : pendingDescendants,
+    );
     const childSessions = childSessionsByController.get(entry.childSessionKey) ?? [];
     const runtime = formatDurationCompact(runtimeMs) ?? "n/a";
     const label = truncateLine(resolveSubagentLabel(entry), 48);
@@ -224,6 +243,11 @@ export function buildSubagentList(params: {
       label,
       task,
       status,
+      execution,
+      ...(execution.wait?.kind === "external"
+        ? { resume: { method: "sessions.send" as const, sessionKey: entry.childSessionKey } }
+        : {}),
+      ...(entry.delivery ? { deliveryStatus: entry.delivery.status } : {}),
       pendingDescendants,
       runtime,
       runtimeMs,

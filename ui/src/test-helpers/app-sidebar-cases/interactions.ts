@@ -294,7 +294,7 @@ describe("AppSidebar multi-select", () => {
     expect(harness.refreshReplacement).not.toHaveBeenCalled();
   });
 
-  it("keeps an archiving current thread visible until confirmation without navigating away", async () => {
+  it("hides an archiving current thread immediately without navigating away", async () => {
     const gatewayHarness = createGatewayHarness({} as GatewayBrowserClient);
     const setSessionKeySpy = vi.spyOn(gatewayHarness.gateway, "setSessionKey");
     const harness = createSessionsHarness("main", [
@@ -316,9 +316,7 @@ describe("AppSidebar multi-select", () => {
 
     await waitForFast(() => expect(harness.patch).toHaveBeenCalledOnce());
     await sidebar.updateComplete;
-    const pendingRow = sidebar.querySelector('[data-session-key="agent:main:a"]');
-    expect(pendingRow).not.toBeNull();
-    expect(pendingRow?.querySelector('[role="status"]')?.textContent?.trim()).toBe("Archiving…");
+    expect(sidebar.querySelector('[data-session-key="agent:main:a"]')).toBeNull();
     expect(setSessionKeySpy).not.toHaveBeenCalled();
 
     const result = harness.sessions.state.result;

@@ -205,13 +205,9 @@ export function createSessionActivitySummaries(deps: {
     });
     return state;
   };
-  const assertCurrent = (state: Tracked, expectedModel: string) => {
-    const entry = current(state) ? read(state) : undefined;
+  const assertCurrentOwner = (state: Tracked, expectedModel: string) => {
     if (
-      !entry ||
-      entry.initializationPending ||
-      entry.sessionId !== state.sessionId ||
-      entry.lifecycleRevision !== state.lifecycleRevision ||
+      !current(state) ||
       // Deletion and reset retain exact-row snapshots across awaited preparation.
       isSessionLifecycleMutationActive(state.storePath, [state.key, state.sessionId]) ||
       modelRef(state) !== expectedModel ||
@@ -219,6 +215,21 @@ export function createSessionActivitySummaries(deps: {
     ) {
       throw new Error("Activity recap lifecycle or utility model changed");
     }
+  };
+  const assertCurrentEntry = (state: Tracked, entry: ReturnType<typeof read>) => {
+    if (
+      !entry ||
+      entry.initializationPending ||
+      entry.sessionId !== state.sessionId ||
+      entry.lifecycleRevision !== state.lifecycleRevision
+    ) {
+      throw new Error("Activity recap lifecycle or utility model changed");
+    }
+    return entry;
+  };
+  const assertCurrent = (state: Tracked, expectedModel: string) => {
+    assertCurrentOwner(state, expectedModel);
+    return assertCurrentEntry(state, read(state));
   };
   const schedule = (state: Tracked, immediate: boolean) => {
     if (!current(state)) {
@@ -273,8 +284,7 @@ export function createSessionActivitySummaries(deps: {
         publish(state, "unavailable");
         return;
       }
-      assertCurrent(state, ref);
-      const entry = read(state)!;
+      const entry = assertCurrent(state, ref);
       const transcriptScope = { ...scope(state), sessionId: state.sessionId };
       const source = await readActivitySummarySource({
         scope: transcriptScope,
@@ -375,18 +385,15 @@ export function createSessionActivitySummaries(deps: {
       const committed = await patchSessionEntryCore(
         scope(state),
         (fresh) => {
-          if (
-            fresh.sessionId !== state.sessionId ||
-            fresh.lifecycleRevision !== state.lifecycleRevision
-          ) {
-            return null;
-          }
+          assertCurrentEntry(state, fresh);
           return { activitySummary: summary };
         },
         {
           preserveActivity: true,
           shouldCommit: () => {
-            assertCurrent(state, ref);
+            // The accessor revalidates the prepared row in this transaction.
+            // A separate read-only entry probe would rescan the store on a fresh connection.
+            assertCurrentOwner(state, ref);
             const latest = readSessionTranscriptWatermark(transcriptScope);
             if (
               latest.generation !== summary.generation ||

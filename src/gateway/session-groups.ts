@@ -450,6 +450,9 @@ export function resolveSessionGroupMutationTargetsByName(
     for (const { sessionKey, entry } of listSessionEntriesReadOnly({
       agentId: storeTarget.agentId,
       storePath: storeTarget.storePath,
+      // Membership only borrows category metadata; full reads decode every saved prompt.
+      projection: "list",
+      clone: false,
     })) {
       const groupName = normalizeOptionalString(entry.category);
       if (!groupName) {

@@ -298,7 +298,7 @@ function resolveSendBufferMaxBytes(params: {
   );
 }
 
-function decodeBoundedBase64Attachment(params: { base64: string; maxBytes: number }): Buffer {
+function validateBoundedBase64Attachment(params: { base64: string; maxBytes: number }): string {
   const estimatedBytes = estimateBase64DecodedBytes(params.base64);
   if (estimatedBytes > params.maxBytes) {
     throw new Error(`Media too large: ${estimatedBytes} bytes (limit: ${params.maxBytes} bytes)`);
@@ -307,13 +307,7 @@ function decodeBoundedBase64Attachment(params: { base64: string; maxBytes: numbe
   if (!canonicalBase64) {
     throw new Error("message.send buffer has invalid base64 data");
   }
-  const buffer = Buffer.from(canonicalBase64, "base64");
-  if (buffer.byteLength > params.maxBytes) {
-    throw new Error(
-      `Media too large: ${buffer.byteLength} bytes (limit: ${params.maxBytes} bytes)`,
-    );
-  }
-  return buffer;
+  return canonicalBase64;
 }
 
 async function hydrateSendBufferMediaParams(params: {
@@ -348,11 +342,11 @@ async function hydrateSendBufferMediaParams(params: {
       contentType: normalized.contentType,
     });
   const maxBytes = resolveSendBufferMaxBytes(params);
+  const canonicalBase64 = validateBoundedBase64Attachment({
+    base64: normalized.base64,
+    maxBytes,
+  });
   if (params.dryRun || params.preserveBuffer) {
-    decodeBoundedBase64Attachment({
-      base64: normalized.base64,
-      maxBytes,
-    });
     params.args.media = SEND_BUFFER_DRY_RUN_MEDIA_URL;
     params.args.mediaUrl = SEND_BUFFER_DRY_RUN_MEDIA_URL;
     params.args.mediaUrls = [SEND_BUFFER_DRY_RUN_MEDIA_URL];
@@ -368,10 +362,7 @@ async function hydrateSendBufferMediaParams(params: {
     return;
   }
   const staged = await resolveOutboundAttachmentFromBuffer(
-    decodeBoundedBase64Attachment({
-      base64: normalized.base64,
-      maxBytes,
-    }),
+    Buffer.from(canonicalBase64, "base64"),
     maxBytes,
     {
       contentType: normalized.contentType,

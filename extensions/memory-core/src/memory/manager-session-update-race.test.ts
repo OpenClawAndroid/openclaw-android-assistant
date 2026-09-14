@@ -27,7 +27,10 @@ import {
 } from "../memory-entry-origins.js";
 import { forgetMemoryEntries } from "../memory-forget.js";
 import { memoryCpuProcessEntrypoints } from "./manager-cpu-entrypoints.js";
-import { createManagerIndexFixture } from "./manager-index.test-support.js";
+import {
+  createManagerIndexFixture,
+  readPublishedSessionIndex,
+} from "./manager-index.test-support.js";
 
 const { closeAllMemorySearchManagers, getMemorySearchManager } = await import("./index.js");
 
@@ -103,23 +106,7 @@ describe("memory session update sync", () => {
     const observer = new DatabaseSync(resolveOpenClawAgentSqlitePath({ agentId: "main" }), {
       readOnly: true,
     });
-    const snapshot = () => ({
-      source: observer
-        .prepare(
-          "SELECT path, hash, mtime, size FROM memory_index_sources WHERE path = ? AND source = 'sessions'",
-        )
-        .get(sessionPath),
-      chunks: observer
-        .prepare(
-          "SELECT id, hash, text, embedding, updated_at FROM memory_index_chunks WHERE path = ? AND source = 'sessions' ORDER BY id",
-        )
-        .all(sessionPath),
-      search: observer
-        .prepare(
-          "SELECT text, id, path, model, start_line, end_line FROM memory_index_chunks_fts WHERE memory_index_chunks_fts MATCH ? AND path = ? ORDER BY id",
-        )
-        .all("violet", sessionPath),
-    });
+    const snapshot = () => readPublishedSessionIndex(observer, sessionPath, "violet");
     const before = snapshot();
     expect(before.source).toBeDefined();
     expect(before.chunks).toHaveLength(1);

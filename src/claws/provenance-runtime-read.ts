@@ -3,7 +3,7 @@ import {
   assertOpenClawStateDatabaseOwner,
   resolveDatabasePath,
 } from "../state/openclaw-state-db-maintenance.js";
-import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
+import { withExistingOpenClawStateDatabaseArtifactPreservingReadOnly } from "../state/openclaw-state-db-readonly.js";
 import {
   registerOpenClawStateDatabaseLifecycleListener,
   type OpenClawStateDatabaseOptions,
@@ -147,10 +147,13 @@ export function initializeCachedClawInstallSchemaVersions(
   const path = resolveSnapshotPath(options);
   const previous = snapshotsByPath.get(path);
   try {
-    const snapshot = withExistingOpenClawStateDatabaseReadOnly(({ db, path: pathname }) => {
-      assertOpenClawStateDatabaseOwner(db, { pathname });
-      return readSchemaVersions(db);
-    }, options);
+    const snapshot = withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(
+      ({ db, path: pathname }) => {
+        assertOpenClawStateDatabaseOwner(db, { pathname });
+        return readSchemaVersions(db);
+      },
+      options,
+    );
     if (snapshot) {
       snapshotsByPath.set(path, snapshot);
     } else {

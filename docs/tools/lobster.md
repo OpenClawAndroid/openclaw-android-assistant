@@ -340,8 +340,11 @@ inspect the persisted flow rather than assuming the failure write succeeded.
 This mode requires a non-sandboxed tool context with a bound session. It records
 a managed flow, not detached ACP/subagent tasks for each shell step. Flow state
 persists in OpenClaw SQLite; Lobster's approval checkpoint is separate and must
-also remain available for resume. After a restart, the controller must inspect
-the latest flow and explicitly resume it with the matching approval token or ID.
+also remain available for resume. After a restart, inspect the latest flow and
+explicitly resume it with `flowId`, its current `flowExpectedRevision`, and the
+user's `approve` decision. Omit `token` and `approvalId` to recover the saved
+checkpoint from that flow; explicit credentials must match it. Finished or
+cancelled flows and stale revisions are rejected before workflow execution.
 Neither Task Flow nor a skill automatically replays arbitrary JavaScript. See
 [Task Flow](/automation/taskflow) for the runnable examples and child-linking
 contract.

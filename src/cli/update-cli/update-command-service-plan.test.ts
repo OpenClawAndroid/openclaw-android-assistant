@@ -12,7 +12,7 @@ vi.mock("../../../node-sqlite.mjs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../node-sqlite.mjs")>();
   return {
     ...actual,
-    detectCurrentSqliteCapabilities: () => ({
+    detectCurrentSqliteCapabilities: async () => ({
       available: true,
       version: "3.51.3",
       text: probeState.text,

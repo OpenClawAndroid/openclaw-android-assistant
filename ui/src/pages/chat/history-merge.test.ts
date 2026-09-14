@@ -7,6 +7,7 @@ import {
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it } from "vitest";
 import { createChatSubmissions } from "../../app/chat-submissions.ts";
+import { chatOutboxDeliveryKey } from "../../lib/chat/outbox-store.ts";
 import {
   admitChatSubmission,
   getChatRunOwner,
@@ -219,6 +220,43 @@ describe("pane-owned canonical session projection", () => {
       agentId: "main",
       activeLeafEntryId: "selected-leaf",
     });
+  });
+
+  it("does not revive a consumed delivered copy from the cache or consume foreign provenance", () => {
+    const { client, chatSubmissions, owner, sessionKey } = createInitialHandoffFixture();
+    const initial = expectDefined(chatSubmissions.readInitial(sessionKey, client), "cached source");
+    chatSubmissions.clearInitial(sessionKey);
+    const delivered = expectDefined(
+      chatSubmissions.retain({
+        kind: "delivered",
+        owner: client,
+        sessionKey,
+        sessionId: owner.currentSessionId,
+        deliveryKey: chatOutboxDeliveryKey(owner, { sessionKey, agentId: "main" }, "initial-run"),
+        pendingRunId: "initial-run",
+        message: initial.message,
+      }),
+      "delivered source",
+    );
+    delivered.pending = false;
+    const imported = {
+      ...initial.message,
+      __openclaw: { ...initial.message["__openclaw"], importedFrom: "cli", externalId: "peer" },
+    };
+    reduceChatSessionProjection(owner, {
+      type: "snapshotLoaded",
+      messages: [structuredClone(initial.message), imported],
+    });
+    expect(owner.chatMessages).toEqual([imported]);
+
+    reduceChatSessionProjection(
+      owner,
+      { type: "snapshotLoaded", messages: [initial.message] },
+      {
+        scope: { sessionKey, sessionId: "replacement-session" },
+      },
+    );
+    expect(owner.chatMessages).toEqual([initial.message]);
   });
 
   it("publishes each pane reducer transition and displayed transcript together", () => {

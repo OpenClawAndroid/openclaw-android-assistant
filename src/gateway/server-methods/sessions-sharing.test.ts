@@ -354,6 +354,7 @@ describe("session sharing handlers", () => {
         const listFor = async (client: GatewayClient) => {
           const responses: Parameters<RespondFn>[] = [];
           await sessionReadHandlers["sessions.list"]?.({
+            req: { type: "req", id: "session-list-test", method: "sessions.list" },
             params: { search },
             client,
             context: {
@@ -543,6 +544,7 @@ describe("session sharing handlers", () => {
       ).toBe(true);
       const responses: Parameters<RespondFn>[] = [];
       await sessionReadHandlers["sessions.list"]?.({
+        req: { type: "req", id: "session-list-test", method: "sessions.list" },
         params: { agentId: "main" },
         client: identifiedClient(memberIdentity.id, memberIdentity.label),
         context: {
@@ -593,6 +595,7 @@ describe("session sharing handlers", () => {
           invalidateSessionSharingSnapshot(sessionKey);
           const responses: Parameters<RespondFn>[] = [];
           await sessionReadHandlers["sessions.list"]?.({
+            req: { type: "req", id: "session-list-test", method: "sessions.list" },
             params: { agentId: "main", search },
             client,
             context: {
@@ -670,6 +673,7 @@ describe("session sharing handlers", () => {
       const responses: Parameters<RespondFn>[] = [];
 
       await sessionReadHandlers["sessions.list"]?.({
+        req: { type: "req", id: "session-list-test", method: "sessions.list" },
         params: { agentId: "main", limit: 1 },
         client: identifiedClient("outsider@example.com"),
         context: {

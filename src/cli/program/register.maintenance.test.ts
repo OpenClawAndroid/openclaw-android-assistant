@@ -113,8 +113,9 @@ describe("registerMaintenanceCommands doctor action", () => {
 
   it.each(["22.23.2", "26.0.0"])("keeps plain doctor read-only on Node %s", async (node) => {
     vi.stubGlobal("process", { ...process, versions: { ...process.versions, node } });
-    vi.spyOn(nodeSqlite, "detectCurrentSqliteCapabilities").mockReturnValue({
-      ...nodeSqlite.detectCurrentSqliteCapabilities(),
+    const capabilities = await nodeSqlite.detectCurrentSqliteCapabilities();
+    vi.spyOn(nodeSqlite, "detectCurrentSqliteCapabilities").mockResolvedValue({
+      ...capabilities,
       text: false,
     });
     runDoctorLintCli.mockResolvedValue(1);

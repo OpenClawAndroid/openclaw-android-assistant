@@ -10,6 +10,7 @@ import { renderAssistantTranscriptPlainTextFallback } from "./markdown-assistant
 import { renderMarkdownCodeBlock } from "./markdown-code-blocks.ts";
 import { isHostLocalMarkdownFileHref } from "./markdown-file-links.ts";
 import { createMarkdownParser } from "./markdown-parser.ts";
+import { stripProgressCardRawContentBlocks } from "./markdown-raw-content.ts";
 import {
   normalizeMarkdownRenderOptions,
   type MarkdownRenderEnv,
@@ -96,8 +97,6 @@ const progressSanitizeOptions = {
   ALLOWED_TAGS: [...allowedTags, "progress"],
   ALLOWED_ATTR: [...allowedAttrs, "value", "max"],
 };
-const PROGRESS_CARD_RAW_CONTENT_BLOCK_RE =
-  /<(script|style|iframe|object|template)\b[^>]*>[\s\S]*?<\/\1\s*>/giu;
 
 let hooksInstalled = false;
 const MARKDOWN_CHAR_LIMIT = 140_000;
@@ -553,7 +552,7 @@ function renderSanitizedMarkdown(renderInput: string, renderOptions: MarkdownRen
     ? { text: renderInput, truncated: false, total: renderInput.length }
     : truncateText(renderInput, MARKDOWN_CHAR_LIMIT);
   const input = renderOptions.progressBars
-    ? appendMarkdownTruncationNotice(truncated).replace(PROGRESS_CARD_RAW_CONTENT_BLOCK_RE, "")
+    ? stripProgressCardRawContentBlocks(appendMarkdownTruncationNotice(truncated))
     : appendMarkdownTruncationNotice(truncated);
   if (isMarkdownBlockArtText(truncated.text)) {
     return DOMPurify.sanitize(

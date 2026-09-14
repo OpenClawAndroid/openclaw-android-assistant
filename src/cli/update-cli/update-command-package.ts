@@ -1,9 +1,7 @@
 import path from "node:path";
-import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { hashConfigRaw } from "../../config/io.read-helpers.js";
 import { resolveConfigPath } from "../../config/paths.js";
 import { resolveGatewayInstallEntrypoint } from "../../daemon/gateway-entrypoint.js";
-import { createLowDiskSpaceWarning } from "../../infra/disk-space.js";
 import {
   markPackagePostInstallDoctorAdvisory,
   runGlobalPackageUpdateSteps,
@@ -38,7 +36,6 @@ import {
   type UpdateStepResult,
 } from "../../infra/update-runner.js";
 import { runCommandWithTimeout, runUtf8CommandWithTimeout } from "../../process/exec.js";
-import { defaultRuntime } from "../../runtime.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { CLI_NAME } from "../cli-name.js";
 import { createUpdateProgress } from "./progress.js";
@@ -85,7 +82,7 @@ type PackageDoctorOptions = {
         requester?: Readonly<UpdateRequester>;
         inputHash: string;
         changes: UpdateDoctorConfigChange[];
-        assertCurrent: () => void;
+        assertRequesterCurrent: () => void;
       }
     | undefined;
 };
@@ -98,6 +95,7 @@ export function preparePackageDoctorContext(params: {
   inputHash?: string | null;
   changes: UpdateDoctorConfigChange[];
   assertCurrent: () => void;
+  assertRequesterCurrent: () => void;
 }) {
   params.assertCurrent();
   if (!params.capable) {
@@ -112,13 +110,15 @@ export function preparePackageDoctorContext(params: {
     requester: params.requester,
     inputHash: params.inputHash ?? hashConfigRaw(null),
     changes: params.changes,
-    assertCurrent: params.assertCurrent,
+    // Delegation suspends the parent's mutation fence. Requester checks must
+    // remain usable until the child owner hands input to its bound process.
+    assertRequesterCurrent: params.assertRequesterCurrent,
   };
 }
 
 export async function runPackageUpdateDoctor(params: PackageDoctorOptions) {
   const context = params.getDoctorContext?.();
-  context?.assertCurrent();
+  context?.assertRequesterCurrent();
   const entryPath = await resolveGatewayInstallEntrypoint(params.root);
   if (!entryPath) {
     return null;
@@ -161,7 +161,7 @@ export async function runPackageUpdateDoctor(params: PackageDoctorOptions) {
     ? await readUpdateConfigSnapshot(resolveConfigPath(doctorEnv))
     : undefined;
   const runDoctor = (executor?: UpdateCommandChildGrant, beforeInput?: (pid: number) => void) => {
-    context?.assertCurrent();
+    context?.assertRequesterCurrent();
     const input: UpdateDoctorInput | undefined =
       context && executor
         ? {
@@ -211,7 +211,7 @@ export async function runPackageUpdateDoctor(params: PackageDoctorOptions) {
   const doctorStep = context
     ? await withUpdateCommandExecutorChild(context.executorFence, params.root, (grant, bindChild) =>
         runDoctor(grant, (pid) => {
-          context.assertCurrent();
+          context.assertRequesterCurrent();
           bindChild(pid);
         }),
       )
@@ -339,7 +339,6 @@ export type PackageInstallUpdateParams = {
   timeoutMs: number;
   startedAt: number;
   progress: ReturnType<typeof createUpdateProgress>["progress"];
-  jsonMode: boolean;
   managedServiceEnv?: NodeJS.ProcessEnv;
   invocationCwd?: string;
   honorPackageRoot?: boolean;
@@ -459,18 +458,6 @@ export async function runPackageInstallUpdate(
     });
 
   const before = pkgRoot ? await readPackageUpdateIdentity(pkgRoot) : { version: null };
-
-  const diskWarning = createLowDiskSpaceWarning({
-    targetPath: pkgRoot ? path.dirname(pkgRoot) : params.root,
-    purpose: "global package update",
-  });
-  if (diskWarning) {
-    if (params.jsonMode) {
-      defaultRuntime.error(`Warning: ${diskWarning}`);
-    } else {
-      defaultRuntime.log(theme.warn(diskWarning));
-    }
-  }
 
   const packageUpdate = await runGlobalPackageUpdateSteps({
     localOverrides: {

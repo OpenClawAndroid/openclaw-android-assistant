@@ -10,11 +10,9 @@ import {
   type UpsertDeliveryQueueEntryParams,
 } from "./delivery-queue-sqlite-bound.js";
 import {
-  completeDeliveryQueueEntryInDatabase,
   countFailedDeliveryQueueEntriesInDatabase,
   countPendingDeliveryQueueEntriesInDatabase,
   deleteDeliveryQueueEntryInDatabase,
-  deliveryQueueEntryNotFoundError,
   expireStagingAndLoadDeliveryQueueEntriesInDatabase,
   getDeliveryQueueEntryOwnersInDatabase,
   loadDeliveryQueueEntriesInDatabase,
@@ -164,11 +162,6 @@ export function deleteDeliveryQueueEntry(
   deleteDeliveryQueueEntryInDatabase(openStateDatabase(stateDir, context), queueName, id);
 }
 
-/** Retain a delivered row as a durable idempotency tombstone. */
-export function completeDeliveryQueueEntry(queueName: string, id: string, stateDir?: string): void {
-  completeDeliveryQueueEntryInDatabase(openStateDatabase(stateDir), queueName, id);
-}
-
 /** Load, transform, and persist a pending delivery queue entry. */
 export function updateDeliveryQueueEntry(
   queueName: string,
@@ -228,27 +221,6 @@ export function countPendingDeliveryQueueEntries(
 /** Physically expire age-bounded delivery queue tombstones. */
 export function pruneExpiredDeliveryQueueTombstones(stateDir?: string): void {
   pruneExpiredDeliveryQueueTombstonesInDatabase(openStateDatabase(stateDir));
-}
-
-/** Terminalize one pending row using its failure-retention ownership fact. */
-export function moveDeliveryQueueEntryToFailed(
-  queueName: string,
-  id: string,
-  stateDir?: string,
-): void {
-  const current = loadDeliveryQueueEntry(queueName, id, stateDir);
-  if (!current) {
-    throw deliveryQueueEntryNotFoundError(queueName, id);
-  }
-  const result = terminalizePendingDeliveryQueueEntry({
-    queueName,
-    id,
-    entry: current,
-    stateDir,
-  });
-  if (result.status !== "terminalized") {
-    throw deliveryQueueEntryNotFoundError(queueName, id);
-  }
 }
 
 /** Atomically delete or tombstone a pending row only while its value is unchanged. */

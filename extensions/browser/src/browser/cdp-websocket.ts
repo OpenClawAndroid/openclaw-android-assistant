@@ -6,7 +6,7 @@ import net from "node:net";
 import { toStringifiedError } from "openclaw/plugin-sdk/error-runtime";
 import { sleepWithAbort } from "openclaw/plugin-sdk/runtime-env";
 import { rawDataToString } from "openclaw/plugin-sdk/webhook-ingress";
-import WebSocket from "ws";
+import { WebSocket } from "openclaw/plugin-sdk/websocket-runtime";
 import { getHeadersWithAuth, stripCdpUrlCredentials } from "./cdp-auth.js";
 import { getDirectAgentForCdp, withManagedProxyForCdpUrl } from "./cdp-proxy-bypass.js";
 import { CDP_WS_HANDSHAKE_TIMEOUT_MS } from "./cdp-timeouts.js";

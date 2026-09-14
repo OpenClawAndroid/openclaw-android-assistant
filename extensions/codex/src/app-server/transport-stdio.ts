@@ -3,6 +3,7 @@
  * Windows spawn normalization and environment filtering.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import path from "node:path";
 import {
   materializeWindowsSpawnProgram,
   resolveWindowsSpawnProgram,
@@ -25,12 +26,14 @@ type CodexAppServerSpawnRuntime = {
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
   execPath: string;
+  isBun: boolean;
 };
 
 const DEFAULT_SPAWN_RUNTIME: CodexAppServerSpawnRuntime = {
   platform: process.platform,
   env: process.env,
   execPath: process.execPath,
+  isBun: typeof process.versions.bun === "string",
 };
 
 /** Resolves the concrete command/argv/shell settings used to spawn Codex app-server. */
@@ -50,6 +53,20 @@ function resolveCodexAppServerSpawnInvocation(
   });
   const args = normalizeCodexAppServerArgs(options.args);
   const resolved = materializeWindowsSpawnProgram(program, args);
+  if (
+    runtime.isBun &&
+    options.commandSource === "resolved-managed" &&
+    resolved.resolution === "direct" &&
+    [".cjs", ".js", ".mjs"].includes(path.extname(resolved.command).toLowerCase())
+  ) {
+    // The managed package launcher owns package selection, environment markers, signals, and
+    // exit status. Run that exact launcher with Bun when a child-only PATH has no Node binary.
+    return {
+      command: runtime.execPath,
+      args: [resolved.command, ...resolved.argv],
+      windowsHide: resolved.windowsHide,
+    };
+  }
   return {
     command: resolved.command,
     args: resolved.argv,
@@ -138,6 +155,7 @@ export async function createStdioTransport(
     platform: process.platform,
     env,
     execPath: process.execPath,
+    isBun: typeof process.versions.bun === "string",
   });
   const register = await prepareCodexAppServerProcessRegistration();
   assertCurrent?.();

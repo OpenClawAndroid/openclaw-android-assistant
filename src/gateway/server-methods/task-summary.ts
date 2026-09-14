@@ -1,6 +1,7 @@
 // Public task summaries keep task-registry internals and unbounded status text
 // out of gateway responses and events.
 import type { TaskSummary } from "../../../packages/gateway-protocol/src/index.js";
+import { getTaskExecutionObservation } from "../../tasks/task-execution-observation.js";
 import { hasTaskTranscript } from "../../tasks/task-history.js";
 import { getTaskActivitySnapshot } from "../../tasks/task-registry-activity.js";
 import type { TaskRecord, TaskStatus } from "../../tasks/task-registry.types.js";
@@ -49,6 +50,7 @@ function sanitizeOptionalTaskText(
 
 export function mapTaskSummary(task: TaskRecord, opts?: { includePrompt?: boolean }): TaskSummary {
   const activity = getTaskActivitySnapshot(task.taskId);
+  const execution = getTaskExecutionObservation(task);
   const lastActivity = sanitizeOptionalTaskText(activity?.lastActivity);
   const progressResult = sanitizeTaskStatusText(task.progressSummary);
   const terminalResult = sanitizeTaskStatusText(task.terminalSummary, { errorContext: true });
@@ -76,6 +78,7 @@ export function mapTaskSummary(task: TaskRecord, opts?: { includePrompt?: boolea
     kind: task.taskKind ?? task.runtime,
     runtime: task.runtime,
     status: TASK_STATUS_TO_LEDGER_STATUS[task.status],
+    execution,
     title: formatTaskStatusTitle(task),
     ...(task.agentId ? { agentId: task.agentId } : {}),
     sessionKey: task.requesterSessionKey,
@@ -87,7 +90,7 @@ export function mapTaskSummary(task: TaskRecord, opts?: { includePrompt?: boolea
     ...(task.parentTaskId ? { parentTaskId: task.parentTaskId } : {}),
     ...(task.sourceId ? { sourceId: task.sourceId } : {}),
     createdAt: task.createdAt,
-    updatedAt: taskUpdatedAt(task),
+    updatedAt: Math.max(taskUpdatedAt(task), activity?.lastActivityAt ?? 0),
     ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
     ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
     ...(toolUseCount !== undefined ? { toolUseCount } : {}),

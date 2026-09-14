@@ -289,6 +289,31 @@ _openclaw_root_completion
 
   itWithPowerShell.each([
     {
+      name: "an option after a shell value",
+      prefix: "openclaw completion --shell f",
+      suffix: " --yes",
+      expected: ["fish"],
+    },
+    {
+      name: "a shared command name after the root command",
+      prefix: "openclaw g",
+      suffix: " status --json",
+      expected: ["gateway"],
+    },
+  ])(
+    "ignores real PowerShell words after the cursor: $name",
+    async ({ prefix, suffix, expected }) => {
+      const program = createDocumentedCompletionProgram();
+      program.command("status").description("Root status").option("--json", "JSON output");
+
+      expect(
+        await powerShellCompletion.complete(program, `${prefix}${suffix}`, prefix.length),
+      ).toEqual(expected);
+    },
+  );
+
+  itWithPowerShell.each([
+    {
       name: "an omitted optional value",
       commandLine: "openclaw --mode --j",
       expected: ["--json"],

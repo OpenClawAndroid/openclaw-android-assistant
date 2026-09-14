@@ -365,11 +365,12 @@ export function createChannelIngressDrain<
         }
       },
       onDeferredHeartbeat: () => {
-        // Abort also covers disposal; retired callbacks cannot restart the watchdog.
-        if (state.phase === "deferred" && !state.abortController.signal.aborted) {
+        // A cleared watchdog marks adoption finalization or retired ownership.
+        if (state.phase === "deferred" && state.stallTimer) {
           armStallWatchdog(state);
         }
       },
+      deferredHeartbeatIntervalMs: Math.max(1, Math.floor(adoptionStallTimeoutMs / 3)),
       onAdoptionFinalizing: () => {
         if (state.phase !== "dispatching" && state.phase !== "deferred") {
           return;

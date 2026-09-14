@@ -328,7 +328,9 @@ export function createApplicationUpdateOverlays(
   const updateCampaignPoller = createUpdateCampaignStatusPoller({
     canPoll: () =>
       Boolean(activeClient && isCurrentClient(activeClient) && snapshot.updateSchedule?.campaign),
-    refresh: () => refreshUpdateStatus("background"),
+    refresh: async () => {
+      await refreshUpdateStatus("background");
+    },
   });
   const runConnectionBootstrap = (key: string, task: () => Promise<unknown>) =>
     hooks.connectionBootstrap?.run(key, task) ?? task();

@@ -20,8 +20,8 @@ vi.mock("../../node-sqlite.mjs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../node-sqlite.mjs")>();
   return {
     ...actual,
-    detectCurrentSqliteCapabilities: () => ({
-      ...actual.detectCurrentSqliteCapabilities(),
+    detectCurrentSqliteCapabilities: async () => ({
+      ...(await actual.detectCurrentSqliteCapabilities()),
       text: state.lossless,
     }),
   };

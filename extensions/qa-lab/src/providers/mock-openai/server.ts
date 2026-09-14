@@ -928,6 +928,12 @@ function buildMemoryGetArgs(result: Record<string, unknown>) {
   return { path: result.path, from, lines: 4 };
 }
 
+function extractFollowthroughEvidenceText(input: ResponsesInputItem[]): string {
+  return [extractAllToolOutputText(input), extractUserTextAfterLatestToolOutput(input)]
+    .filter(Boolean)
+    .join("\n");
+}
+
 async function buildResponsesPayload(
   body: Record<string, unknown>,
   scenarioState: MockScenarioState,
@@ -2099,12 +2105,7 @@ async function buildResponsesPayload(
     }
   }
   if (/personal no-fake-progress check/i.test(allInputText)) {
-    const progressEvidenceText = [
-      extractAllToolOutputText(input),
-      extractUserTextAfterLatestToolOutput(input),
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const progressEvidenceText = extractFollowthroughEvidenceText(input);
     if (/successfully (?:wrote|created|updated|replaced)/i.test(progressEvidenceText)) {
       return buildAssistantEvents(
         [
@@ -2141,12 +2142,7 @@ async function buildResponsesPayload(
     }
   }
   if (/personal failure recovery check/i.test(allInputText)) {
-    const recoveryEvidenceText = [
-      extractAllToolOutputText(input),
-      extractUserTextAfterLatestToolOutput(input),
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const recoveryEvidenceText = extractFollowthroughEvidenceText(input);
     if (/successfully (?:wrote|created|updated|replaced)/i.test(recoveryEvidenceText)) {
       return buildAssistantEvents(
         [
@@ -2529,12 +2525,7 @@ async function buildResponsesPayload(
     return buildToolCallEventsWithArgs("read", { path: "QA_KICKOFF_TASK.md" });
   }
   if (/repo contract followthrough check/i.test(allInputText)) {
-    const repoEvidenceText = [
-      extractAllToolOutputText(input),
-      extractUserTextAfterLatestToolOutput(input),
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const repoEvidenceText = extractFollowthroughEvidenceText(input);
     if (
       /successfully (?:wrote|created|updated|replaced)/i.test(repoEvidenceText) ||
       /status:\s*complete/i.test(repoEvidenceText)
@@ -2571,12 +2562,7 @@ async function buildResponsesPayload(
     }
   }
   if (/personal task followthrough check/i.test(allInputText)) {
-    const taskEvidenceText = [
-      extractAllToolOutputText(input),
-      extractUserTextAfterLatestToolOutput(input),
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const taskEvidenceText = extractFollowthroughEvidenceText(input);
     if (/successfully (?:wrote|created|updated|replaced)/i.test(taskEvidenceText)) {
       return buildAssistantEvents(
         [

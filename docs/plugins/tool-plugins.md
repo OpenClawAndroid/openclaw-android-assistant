@@ -280,6 +280,13 @@ marks the call failed unless `ok` or `success` is explicitly `true`, even when
 uses one of those names belongs under a wrapper key, such as `{ card }`,
 instead of at the top level of `details`.
 
+For a tool-owned timeout, return `timedOut: true` and a positive integer
+`timeoutMs` in `details`. If the agent provides no final reply, OpenClaw includes
+that duration in the fallback warning without exposing raw error text. Return
+`partial: true` with a nonempty `results` array when usable partial results are
+available; the warning includes their count. These diagnostics do not turn an
+incomplete operation into a successful call.
+
 ## Configuration
 
 `configSchema` is optional. Omit it and OpenClaw applies a strict empty object

@@ -340,12 +340,12 @@ export function copyStaticExtensionAssetsToRuntimeOverlay(
 ) {
   const rootDir = params.rootDir ?? process.cwd();
   const fsImpl = params.fs ?? fs;
-  const assets = discoverStaticExtensionRuntimeOverlayAssets({ ...params, rootDir, fs: fsImpl });
   const runtimeRoot = params.runtimeRoot ?? path.join(rootDir, "dist-runtime");
   const runtimeExtensionsRoot = path.join(runtimeRoot, "extensions");
   if (!fsImpl.existsSync(runtimeExtensionsRoot)) {
     return;
   }
+  const assets = discoverStaticExtensionRuntimeOverlayAssets({ ...params, rootDir, fs: fsImpl });
   const warn = params.warn ?? console.warn;
   for (const { src, dest } of assets) {
     const normalizedDest = toPosixPath(dest);

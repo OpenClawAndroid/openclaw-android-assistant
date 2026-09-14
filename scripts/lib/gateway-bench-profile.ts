@@ -1,8 +1,9 @@
 import type { ChildProcess } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { HeapProfiler, Profiler } from "node:inspector";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { startGatewayBenchDiagnostics } from "./gateway-bench-diagnostics.ts";
 
 export const GATEWAY_PROFILE_CHANNEL = "openclaw-gateway-bench-profile";
 export const GATEWAY_HEAP_SAMPLE_INTERVAL = 32 * 1024;
@@ -55,14 +56,26 @@ export type GatewayHeapProfile = {
     sampledBytes: number;
     stack: string[];
   }>;
-};
+} & GatewayProfileArtifacts;
 
 export type GatewayCpuProfile = {
   profilePath: string;
   samplingIntervalMicros: number;
   durationMs: number;
   sampleCount: number;
+} & GatewayProfileArtifacts;
+
+type GatewayProfileArtifacts = {
+  diagnosticsPath?: string;
+  diagnostics?: ReturnType<ReturnType<typeof startGatewayBenchDiagnostics>>;
 };
+
+function readProfileArtifacts(profilePath: string): GatewayProfileArtifacts {
+  const diagnosticsPath = `${profilePath}.diagnostics.json`;
+  return existsSync(diagnosticsPath)
+    ? { diagnosticsPath, diagnostics: JSON.parse(readFileSync(diagnosticsPath, "utf8")) }
+    : {};
+}
 
 export async function controlGatewayProfile(
   child: ChildProcess,
@@ -171,6 +184,7 @@ async function sendGatewayBenchCommand(
 export function readGatewayCpuProfile(profilePath: string): GatewayCpuProfile {
   const profile: Profiler.Profile = JSON.parse(readFileSync(profilePath, "utf8"));
   return {
+    ...readProfileArtifacts(profilePath),
     profilePath,
     samplingIntervalMicros: GATEWAY_CPU_SAMPLE_INTERVAL_MICROS,
     durationMs: (profile.endTime - profile.startTime) / 1_000,
@@ -199,6 +213,7 @@ export function readGatewayHeapProfile(profilePath: string): GatewayHeapProfile 
   };
   visit(profile.head, []);
   return {
+    ...readProfileArtifacts(profilePath),
     profilePath,
     samplingIntervalBytes: GATEWAY_HEAP_SAMPLE_INTERVAL,
     includesCollectedObjects: true,

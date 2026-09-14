@@ -30,15 +30,21 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -72,6 +78,7 @@ class ChatCompletedWorkLayoutTest {
   private lateinit var app: NodeApp
   private lateinit var runtime: NodeRuntime
   private lateinit var model: MainViewModel
+  private lateinit var controller: ChatController
   private var previousRuntime: NodeRuntime? = null
   private var restoreAnimatorScale: (() -> Unit)? = null
 
@@ -120,7 +127,7 @@ class ChatCompletedWorkLayoutTest {
     drainWithMainLooper {
       ReflectionHelpers.getField<AndroidClientDatabases>(runtime, "clientDatabases").clientStateDatabase()
     }
-    val controller = ReflectionHelpers.getField<ChatController>(runtime, "chat")
+    controller = ReflectionHelpers.getField(runtime, "chat")
     val requestField = ChatController::class.java.getDeclaredField("requestGatewayForGateway").apply { isAccessible = true }
 
     @Suppress("UNCHECKED_CAST")
@@ -133,6 +140,13 @@ class ChatCompletedWorkLayoutTest {
             .jsonObject["sessionKey"]
             ?.jsonPrimitive
             ?.content == SESSION -> historyResponse
+
+        method == "chat.history" &&
+          Json
+            .parseToJsonElement(checkNotNull(params))
+            .jsonObject["sessionKey"]
+            ?.jsonPrimitive
+            ?.content == OTHER_SESSION -> OTHER_HISTORY
 
         method == "question.list" -> """{"questions":[]}"""
 
@@ -262,6 +276,117 @@ class ChatCompletedWorkLayoutTest {
     }
   }
 
+  @Test
+  fun earlierTextAndToolResultReplacementRefreshesAnUnchangedTail() {
+    val original = composeRule.runOnIdle { model.chatMessages.value }
+    val worked = composeRule.onNode(hasText(nativeString("Worked for \$duration", "4s")) and hasClickAction())
+    val command = composeRule.onNode(hasText(COMMAND) and hasClickAction())
+    worked.performClick()
+    command.performClick()
+    composeRule.onNodeWithText(OUTPUT).assertIsDisplayed()
+    capture("replacement-before")
+
+    val response = Json.parseToJsonElement(HISTORY).jsonObject
+    val revised =
+      response.getValue("messages").jsonArray.mapIndexed { index, message ->
+        when (index) {
+          1 -> JsonObject(message.jsonObject + ("content" to JsonPrimitive(REVISED_EARLIER)))
+          3 -> JsonObject(message.jsonObject + ("content" to JsonPrimitive(REVISED_OUTPUT)))
+          else -> message
+        }
+      }
+    historyResponse = JsonObject(response + ("messages" to JsonArray(revised))).toString()
+    composeRule.runOnIdle { model.refreshChat() }
+    composeRule.waitUntil {
+      composeRule.runOnIdle {
+        !model.chatHistoryLoading.value &&
+          model.chatMessages.value
+            .getOrNull(1)
+            ?.content
+            ?.singleOrNull()
+            ?.text == REVISED_EARLIER &&
+          model.chatMessages.value
+            .getOrNull(3)
+            ?.content
+            ?.singleOrNull()
+            ?.toolActivity
+            ?.result == REVISED_OUTPUT
+      }
+    }
+    composeRule.runOnIdle {
+      val replacement = model.chatMessages.value
+      assertEquals(original.map { it.id }, replacement.map { it.id })
+      assertEquals(original.map { it.entryId }, replacement.map { it.entryId })
+      assertEquals(original.size, replacement.size)
+      assertEquals(original.last(), replacement.last())
+    }
+    capture("replacement-after")
+    worked.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, nativeString("Expanded")))
+    composeRule.onNodeWithText(REVISED_EARLIER).assertIsDisplayed()
+    composeRule.onNodeWithText(REVISED_OUTPUT).assertIsDisplayed()
+    composeRule.onNodeWithText(EARLIER, useUnmergedTree = true).assertDoesNotExist()
+    composeRule.onNodeWithText(OUTPUT, useUnmergedTree = true).assertDoesNotExist()
+    composeRule.onNodeWithText(FINAL).assertIsDisplayed()
+  }
+
+  @Test
+  fun earlierCompletedDisclosureSurvivesLaterLiveUpdates() {
+    val response = Json.parseToJsonElement(HISTORY).jsonObject
+    val nextUser =
+      Json.parseToJsonElement(
+        """{"role":"user","content":"Check the next item.","timestamp":1783555005000,"__openclaw":{"id":"next-user"}}""",
+      )
+    historyResponse =
+      JsonObject(response + ("messages" to JsonArray(response.getValue("messages").jsonArray + nextUser))).toString()
+    composeRule.runOnIdle { model.refreshChat() }
+    composeRule.waitUntil {
+      composeRule.runOnIdle { !model.chatHistoryLoading.value && model.chatMessages.value.size == 6 }
+    }
+    val workedMatcher = hasText(nativeString("Worked for \$duration", "4s")) and hasClickAction()
+    composeRule.onNode(workedMatcher).performClick()
+    for (text in listOf("Checking next.", "Checking the next result.")) {
+      composeRule.runOnIdle {
+        controller.handleGatewayEvent("agent", """{"sessionKey":"$SESSION","stream":"assistant","data":{"text":"$text"}}""")
+        controller.handleGatewayEvent(
+          "agent",
+          """{"sessionKey":"$SESSION","stream":"tool","data":{"phase":"start","name":"read","toolCallId":"next-tool"}}""",
+        )
+      }
+      composeRule.waitUntil {
+        composeRule.runOnIdle { model.chatStreamingAssistantText.value == text && model.chatPendingToolCalls.value.size == 1 }
+      }
+      composeRule.onNode(hasScrollToIndexAction()).performScrollToNode(workedMatcher)
+      composeRule.onNode(workedMatcher).assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, nativeString("Expanded")))
+      composeRule.onNodeWithText(EARLIER).assertIsDisplayed()
+    }
+    capture("earlier-expanded-during-stream")
+    composeRule.onNode(workedMatcher).performClick()
+    composeRule.onNode(workedMatcher).assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, nativeString("Collapsed")))
+    composeRule.onNodeWithText(EARLIER, useUnmergedTree = true).assertDoesNotExist()
+  }
+
+  @Test
+  fun sessionSwitchResetsDisclosureEvenWhenHistoryKeysMatch() {
+    val worked = composeRule.onNode(hasText(nativeString("Worked for \$duration", "4s")) and hasClickAction())
+    worked.performClick()
+    worked.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, nativeString("Expanded")))
+    for (session in listOf(OTHER_SESSION, SESSION)) {
+      composeRule.runOnIdle { model.switchChatSession(session, "main") }
+      composeRule.waitUntil {
+        composeRule.runOnIdle {
+          model.chatSessionKey.value == session && !model.chatHistoryLoading.value &&
+            model.chatMessages.value.size == 5 && model.chatMessages.value
+              .last()
+              .entryId == "work-final"
+        }
+      }
+      worked.assertIsDisplayed().assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, nativeString("Collapsed")))
+      composeRule.onNodeWithText(FINAL).assertIsDisplayed()
+      composeRule.onNodeWithText(EARLIER, useUnmergedTree = true).assertDoesNotExist()
+    }
+    capture("session-disclosure-reset")
+  }
+
   private fun capture(name: String) {
     val directory = System.getenv("OPENCLAW_CHAT_WORK_PROOF_DIR") ?: return
     val folder = File(directory)
@@ -275,10 +400,13 @@ class ChatCompletedWorkLayoutTest {
 
   private companion object {
     const val SESSION = "agent:main:dashboard:completed-work-proof"
+    const val OTHER_SESSION = "agent:main:dashboard:completed-work-other"
     const val EARLIER = "I will check the dashboard."
     const val MIXED = "I am checking the build status."
     const val COMMAND = "printf dashboard-ready"
     const val OUTPUT = "dashboard-ready"
+    const val REVISED_EARLIER = "I checked the dashboard configuration."
+    const val REVISED_OUTPUT = "dashboard-rechecked"
     const val FINAL = "The dashboard is ready."
     const val FIRST_FINAL = "The first check is complete."
     const val SECOND_FINAL = "The second check is complete."
@@ -301,7 +429,7 @@ class ChatCompletedWorkLayoutTest {
         "sessionInfo":{"key":"$SESSION","sessionId":"completed-work-proof","displayName":"Dashboard check","ownerAgentId":"main","archived":false},
         "messages":[
           {"role":"user","content":"Check the dashboard status.","timestamp":1783555000000,"__openclaw":{"id":"work-user"}},
-          {"role":"assistant","content":"$EARLIER","timestamp":1783555001000,"__openclaw":{"id":"work-earlier"}},
+          {"role":"assistant","content":"$EARLIER","timestamp":1783555001000,"idempotencyKey":"work-earlier:assistant","__openclaw":{"id":"work-earlier"}},
           {
             "role":"assistant","timestamp":1783555002000,"__openclaw":{"id":"work-mixed"},
             "content":[
@@ -314,5 +442,19 @@ class ChatCompletedWorkLayoutTest {
         ]
       }
       """.trimIndent()
+    val OTHER_HISTORY =
+      Json.parseToJsonElement(HISTORY).jsonObject.let { history ->
+        JsonObject(
+          history +
+            mapOf(
+              "sessionId" to JsonPrimitive("completed-work-other"),
+              "sessionInfo" to
+                JsonObject(
+                  history.getValue("sessionInfo").jsonObject +
+                    mapOf("key" to JsonPrimitive(OTHER_SESSION), "sessionId" to JsonPrimitive("completed-work-other")),
+                ),
+            ),
+        ).toString()
+      }
   }
 }

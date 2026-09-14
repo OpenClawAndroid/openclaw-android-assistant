@@ -15,6 +15,7 @@ import {
 import { resolveCreatorSandbox } from "../operator-role-policy.js";
 import { resolveGatewayInputParticipant } from "../session-input-participant.js";
 import { prepareSkillLibrarySessionCreation } from "../skill-library-session.js";
+import { captureGatewayUiCommandTarget } from "../ui-command-target.js";
 import { isAcpBridgeClient } from "./chat-origin-routing.js";
 import type { AdmittedChatSend } from "./chat-send-admission.js";
 import type { prepareChatSendAttachments } from "./chat-send-attachments.js";
@@ -176,6 +177,7 @@ export function prepareChatSendUserTurn(params: {
     : attachments.parsedMessage;
   const queuedFollowupOwnerDeviceId = normalizeOptionalChatText(client?.connect?.device?.id);
   const queuedFollowupOwnerConnId = normalizeOptionalChatText(client?.connId);
+  const gatewayUiCommandTarget = captureGatewayUiCommandTarget(client);
   const queuedFollowupOwnerKey = queuedFollowupOwnerDeviceId
     ? `device:${queuedFollowupOwnerDeviceId}`
     : queuedFollowupOwnerConnId
@@ -226,6 +228,7 @@ export function prepareChatSendUserTurn(params: {
     SessionCreation: { ...creation, ...(sandbox ? { sandbox } : {}) },
     ...resolveChatSendCallerContext(client, request.clientInfo, originatingChannel),
     GatewayRunToolBindings: request.toolBindings,
+    GatewayUiCommandTarget: gatewayUiCommandTarget,
   };
   if (attachments.mediaPathOffloadPaths.length > 0) {
     // Pre-staged offloads must use structured facts and marker text so the

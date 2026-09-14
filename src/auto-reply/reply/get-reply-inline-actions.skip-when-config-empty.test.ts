@@ -217,6 +217,36 @@ function mockCallArgs(mock: ReturnType<typeof vi.fn>, label: string, callIndex =
   return call;
 }
 
+function createInlineToolDispatchFixture<T>(params: {
+  body: string;
+  toolName: string;
+  execute: () => Promise<T>;
+  skill: Pick<SkillCommandSpec, "name" | "skillName" | "description" | "skillSource">;
+  sourceFilePath: string;
+  nativeChannelId?: string;
+}) {
+  const typing = createTypingController();
+  const toolExecute = vi.fn(params.execute);
+  createOpenClawToolsMock.mockReturnValue([{ name: params.toolName, execute: toolExecute }]);
+  const ctx = buildTestCtx({
+    Body: params.body,
+    CommandBody: params.body,
+    ...(params.nativeChannelId === undefined ? {} : { NativeChannelId: params.nativeChannelId }),
+  });
+  const skillCommands: SkillCommandSpec[] = [
+    {
+      ...params.skill,
+      dispatch: {
+        kind: "tool",
+        toolName: params.toolName,
+        argMode: "raw",
+      },
+      sourceFilePath: params.sourceFilePath,
+    },
+  ];
+  return { typing, toolExecute, ctx, skillCommands };
+}
+
 function mockToolDispatchedSkillCommand() {
   const toolExecute = vi.fn(async () => ({ text: "sent" }));
   createOpenClawToolsMock.mockReturnValue([
@@ -1509,32 +1539,17 @@ describe("handleInlineActions", () => {
   });
 
   it("passes requesterAgentIdOverride into inline tool runtimes", async () => {
-    const typing = createTypingController();
-    const toolExecute = vi.fn(async () => ({ text: "spawned" }));
-    createOpenClawToolsMock.mockReturnValue([
-      {
-        name: "sessions_spawn",
-        execute: toolExecute,
-      },
-    ]);
-
-    const ctx = buildTestCtx({
-      Body: "/spawn_subagent investigate",
-      CommandBody: "/spawn_subagent investigate",
-    });
-    const skillCommands: SkillCommandSpec[] = [
-      {
+    const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+      body: "/spawn_subagent investigate",
+      toolName: "sessions_spawn",
+      execute: async () => ({ text: "spawned" }),
+      skill: {
         name: "spawn_subagent",
         skillName: "spawn-subagent",
         description: "Spawn a subagent",
-        dispatch: {
-          kind: "tool",
-          toolName: "sessions_spawn",
-          argMode: "raw",
-        },
-        sourceFilePath: "/tmp/plugin/commands/spawn-subagent.md",
       },
-    ];
+      sourceFilePath: "/tmp/plugin/commands/spawn-subagent.md",
+    });
 
     const result = await runTestInlineActions({
       ctx,
@@ -1562,34 +1577,19 @@ describe("handleInlineActions", () => {
   });
 
   it("passes sender identity into inline tool runtimes", async () => {
-    const typing = createTypingController();
-    const toolExecute = vi.fn(async () => ({ text: "updated" }));
-    createOpenClawToolsMock.mockReturnValue([
-      {
-        name: "message",
-        execute: toolExecute,
-      },
-    ]);
-
-    const ctx = buildTestCtx({
-      Body: "/set_profile display name",
-      CommandBody: "/set_profile display name",
-      NativeChannelId: "oc_native_chat",
-    });
-    const skillCommands: SkillCommandSpec[] = [
-      {
+    const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+      body: "/set_profile display name",
+      toolName: "message",
+      execute: async () => ({ text: "updated" }),
+      skill: {
         name: "set_profile",
         skillName: "matrix-profile",
         description: "Set Matrix profile",
         skillSource: "workspace",
-        dispatch: {
-          kind: "tool",
-          toolName: "message",
-          argMode: "raw",
-        },
-        sourceFilePath: "/tmp/plugin/commands/set-profile.md",
       },
-    ];
+      sourceFilePath: "/tmp/plugin/commands/set-profile.md",
+      nativeChannelId: "oc_native_chat",
+    });
 
     const result = await runTestInlineActions({
       ctx,
@@ -1633,40 +1633,25 @@ describe("handleInlineActions", () => {
   });
 
   it("honors construction-time before-tool-call blocks for inline tool dispatch", async () => {
-    const typing = createTypingController();
     const abortController = new AbortController();
-    const toolExecute = vi.fn(async () => ({
-      content: [{ type: "text", text: "denied by policy" }],
-      details: {
-        status: "blocked",
-        deniedReason: "plugin-before-tool-call",
-        reason: "denied by policy",
-      },
-    }));
-    createOpenClawToolsMock.mockReturnValue([
-      {
-        name: "message",
-        execute: toolExecute,
-      },
-    ]);
-
-    const ctx = buildTestCtx({
-      Body: "/set_profile display name",
-      CommandBody: "/set_profile display name",
-    });
-    const skillCommands: SkillCommandSpec[] = [
-      {
+    const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+      body: "/set_profile display name",
+      toolName: "message",
+      execute: async () => ({
+        content: [{ type: "text", text: "denied by policy" }],
+        details: {
+          status: "blocked",
+          deniedReason: "plugin-before-tool-call",
+          reason: "denied by policy",
+        },
+      }),
+      skill: {
         name: "set_profile",
         skillName: "matrix-profile",
         description: "Set Matrix profile",
-        dispatch: {
-          kind: "tool",
-          toolName: "message",
-          argMode: "raw",
-        },
-        sourceFilePath: "/tmp/plugin/commands/set-profile.md",
       },
-    ];
+      sourceFilePath: "/tmp/plugin/commands/set-profile.md",
+    });
 
     const result = await runTestInlineActions({
       ctx,
@@ -1723,32 +1708,17 @@ describe("handleInlineActions", () => {
   });
 
   it("does not execute inline tool dispatch targets denied by tool policy", async () => {
-    const typing = createTypingController();
-    const toolExecute = vi.fn(async () => ({ content: "sent" }));
-    createOpenClawToolsMock.mockReturnValue([
-      {
-        name: "message",
-        execute: toolExecute,
-      },
-    ]);
-
-    const ctx = buildTestCtx({
-      Body: "/send_status hello",
-      CommandBody: "/send_status hello",
-    });
-    const skillCommands: SkillCommandSpec[] = [
-      {
+    const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+      body: "/send_status hello",
+      toolName: "message",
+      execute: async () => ({ content: "sent" }),
+      skill: {
         name: "send_status",
         skillName: "send-status",
         description: "Send a status update",
-        dispatch: {
-          kind: "tool",
-          toolName: "message",
-          argMode: "raw",
-        },
-        sourceFilePath: "/tmp/plugin/commands/send-status.md",
       },
-    ];
+      sourceFilePath: "/tmp/plugin/commands/send-status.md",
+    });
 
     const result = await runTestInlineActions({
       ctx,
@@ -1833,32 +1803,17 @@ describe("handleInlineActions", () => {
   });
 
   it("applies sender-specific tool policy to inline tool dispatch", async () => {
-    const typing = createTypingController();
-    const toolExecute = vi.fn(async () => ({ content: "sent" }));
-    createOpenClawToolsMock.mockReturnValue([
-      {
-        name: "message",
-        execute: toolExecute,
-      },
-    ]);
-
-    const ctx = buildTestCtx({
-      Body: "/send_status hello",
-      CommandBody: "/send_status hello",
-    });
-    const skillCommands: SkillCommandSpec[] = [
-      {
+    const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+      body: "/send_status hello",
+      toolName: "message",
+      execute: async () => ({ content: "sent" }),
+      skill: {
         name: "send_status",
         skillName: "send-status",
         description: "Send a status update",
-        dispatch: {
-          kind: "tool",
-          toolName: "message",
-          argMode: "raw",
-        },
-        sourceFilePath: "/tmp/plugin/commands/send-status.md",
       },
-    ];
+      sourceFilePath: "/tmp/plugin/commands/send-status.md",
+    });
 
     const result = await runTestInlineActions({
       ctx,
@@ -1888,32 +1843,17 @@ describe("handleInlineActions", () => {
   });
 
   it("does not expose owner-only tools to authorized non-owner skill dispatch", async () => {
-    const typing = createTypingController();
-    const toolExecute = vi.fn(async () => ({ content: "sent" }));
-    createOpenClawToolsMock.mockReturnValue([
-      {
-        name: "conversations_send",
-        execute: toolExecute,
-      },
-    ]);
-
-    const ctx = buildTestCtx({
-      Body: "/send_conversation hello",
-      CommandBody: "/send_conversation hello",
-    });
-    const skillCommands: SkillCommandSpec[] = [
-      {
+    const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+      body: "/send_conversation hello",
+      toolName: "conversations_send",
+      execute: async () => ({ content: "sent" }),
+      skill: {
         name: "send_conversation",
         skillName: "send-conversation",
         description: "Send a conversation message",
-        dispatch: {
-          kind: "tool",
-          toolName: "conversations_send",
-          argMode: "raw",
-        },
-        sourceFilePath: "/tmp/plugin/commands/send-conversation.md",
       },
-    ];
+      sourceFilePath: "/tmp/plugin/commands/send-conversation.md",
+    });
 
     const result = await runTestInlineActions({
       ctx,
@@ -1956,32 +1896,17 @@ describe("handleInlineActions", () => {
         },
       });
 
-      const typing = createTypingController();
-      const toolExecute = vi.fn(async () => ({ content: "spawned" }));
-      createOpenClawToolsMock.mockReturnValue([
-        {
-          name: "sessions_spawn",
-          execute: toolExecute,
-        },
-      ]);
-
-      const ctx = buildTestCtx({
-        Body: "/spawn_subagent investigate",
-        CommandBody: "/spawn_subagent investigate",
-      });
-      const skillCommands: SkillCommandSpec[] = [
-        {
+      const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+        body: "/spawn_subagent investigate",
+        toolName: "sessions_spawn",
+        execute: async () => ({ content: "spawned" }),
+        skill: {
           name: "spawn_subagent",
           skillName: "spawn-subagent",
           description: "Spawn a subagent",
-          dispatch: {
-            kind: "tool",
-            toolName: "sessions_spawn",
-            argMode: "raw",
-          },
-          sourceFilePath: "/tmp/plugin/commands/spawn-subagent.md",
         },
-      ];
+        sourceFilePath: "/tmp/plugin/commands/spawn-subagent.md",
+      });
 
       const result = await runTestInlineActions({
         ctx,
@@ -2016,32 +1941,17 @@ describe("handleInlineActions", () => {
   });
 
   it("passes sandboxed runtime state into inline tool construction", async () => {
-    const typing = createTypingController();
-    const toolExecute = vi.fn(async () => ({ content: "listed" }));
-    createOpenClawToolsMock.mockReturnValue([
-      {
-        name: "sessions_list",
-        execute: toolExecute,
-      },
-    ]);
-
-    const ctx = buildTestCtx({
-      Body: "/list_sessions now",
-      CommandBody: "/list_sessions now",
-    });
-    const skillCommands: SkillCommandSpec[] = [
-      {
+    const { typing, toolExecute, ctx, skillCommands } = createInlineToolDispatchFixture({
+      body: "/list_sessions now",
+      toolName: "sessions_list",
+      execute: async () => ({ content: "listed" }),
+      skill: {
         name: "list_sessions",
         skillName: "list-sessions",
         description: "List sessions",
-        dispatch: {
-          kind: "tool",
-          toolName: "sessions_list",
-          argMode: "raw",
-        },
-        sourceFilePath: "/tmp/plugin/commands/list-sessions.md",
       },
-    ];
+      sourceFilePath: "/tmp/plugin/commands/list-sessions.md",
+    });
 
     const result = await runTestInlineActions({
       ctx,

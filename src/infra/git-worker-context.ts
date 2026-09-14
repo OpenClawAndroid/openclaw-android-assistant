@@ -96,6 +96,11 @@ async function requestHost(request: GitWorkerHostRequest): Promise<unknown> {
     throw new Error("Git operation requires its worker host");
   }
   const transfers: Transferable[] = [];
+  if (request.type === "workspace.inventory.write") {
+    const bytes = ownedGitWorkerBytes(request.input.bytes);
+    request.input.bytes = bytes;
+    transfers.push(bytes.buffer);
+  }
   if (
     (request.type === "git.text" || request.type === "git.buffer") &&
     request.input.options.input instanceof Uint8Array

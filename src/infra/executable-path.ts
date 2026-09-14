@@ -72,7 +72,8 @@ export function isRegularFile(filePath: string): boolean {
 
 const WINDOWS_NATIVE_EXECUTABLE_EXTENSIONS = new Set([".com", ".exe", ".bat", ".cmd"]);
 
-function isExecutableFile(filePath: string, options?: { env?: NodeJS.ProcessEnv }): boolean {
+/** Checks a supplied path without PATH lookup or lexical normalization. */
+export function isExecutableFile(filePath: string, options?: { env?: NodeJS.ProcessEnv }): boolean {
   if (!isRegularFile(filePath)) {
     return false;
   }

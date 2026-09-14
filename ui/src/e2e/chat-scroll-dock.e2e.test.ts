@@ -60,6 +60,144 @@ function expectDockClear(report: Record<string, DockGeometry>): void {
 }
 
 suite.define(() => {
+  it.each([
+    { reducedMotion: "reduce", paragraphs: 1 },
+    { reducedMotion: "no-preference", paragraphs: 1 },
+    { reducedMotion: "reduce", paragraphs: 48 },
+    { reducedMotion: "no-preference", paragraphs: 48 },
+  ] as const)(
+    "keeps a resize-clamped progress reader stable through streaming newlines ($reducedMotion, $paragraphs paragraphs)",
+    async ({ reducedMotion, paragraphs }) => {
+      const proofDir = captureUiProofEnabled
+        ? createControlUiE2eArtifactDir(
+            "progress-stream-feedback-" + reducedMotion + "-" + paragraphs,
+          )
+        : null;
+      const context = await suite.newBrowserContext({
+        ...createControlUiE2eContextOptions(),
+        reducedMotion,
+      });
+      const page = await context.newPage();
+      const sessionKey = "agent:main:main";
+      const runId = "progress-stream-run";
+      const initialText = Array.from({ length: paragraphs }, () => "Current findings.").join(
+        "\n\n",
+      );
+      const gateway = await installMockGateway(page, {
+        sessionKey,
+        featureMethods: ["chat.metadata", "chat.startup", "progressCard.get"],
+        historyMessages: Array.from({ length: 30 }, (_, index) => ({
+          role: index % 2 ? "assistant" : "user",
+          content: [
+            {
+              type: "text",
+              text: "Reading context " + index + "\n" + "Earlier findings.\n".repeat(3),
+            },
+          ],
+          timestamp: index + 1,
+        })),
+        inFlightRun: { runId, text: initialText },
+        sessionInfo: { key: sessionKey, activeRunIds: [runId], hasActiveRun: true },
+        methodResponses: {
+          "progressCard.get": {
+            card: {
+              sessionKey,
+              revision: 1,
+              updatedAt: Date.now(),
+              markdown:
+                "Reviewing the synthetic workspace.\n\n" +
+                "- A detailed finding to verify before finishing the task.\n".repeat(8),
+              steps: [
+                { step: "Inspect the workspace", status: "completed" },
+                { step: "Verify the findings", status: "in_progress" },
+                { step: "Summarize the result", status: "pending" },
+              ],
+            },
+          },
+        },
+      });
+      const card = page.locator('[data-progress-card-placement="composer"]');
+      const thread = page.locator(".chat-pane-cache__pane--active .chat-thread");
+      const samples: Array<{ open: boolean; top: number; height: number; distance: number }> = [];
+      const sample = async () => {
+        const geometry = await thread.evaluate((element) => ({
+          top: element.scrollTop,
+          height: element.clientHeight,
+          distance: element.scrollHeight - element.clientHeight - element.scrollTop,
+        }));
+        samples.push({ ...geometry, open: (await card.getAttribute("open")) !== null });
+      };
+      let text = initialText;
+      const streamLine = async (line: number) => {
+        text += "\n\nStreaming finding " + line + ".";
+        await gateway.emitGatewayEvent("chat", {
+          sessionKey,
+          runId,
+          state: "delta",
+          message: { role: "assistant", content: [{ type: "text", text }] },
+        });
+      };
+      try {
+        await page.goto(suite.server.baseUrl + "chat");
+        await card.locator(".session-progress-card__body").waitFor();
+        await waitForChatScrollIdle(page);
+        expect(await card.getAttribute("open")).toBe("");
+        expect(
+          await card.evaluate((element) => element.getBoundingClientRect().height),
+        ).toBeGreaterThan(200);
+        if (proofDir) {
+          await page.screenshot({ path: path.join(proofDir, "01-following.png") });
+        }
+        await thread.hover();
+        await page.mouse.wheel(0, -32);
+        await expect.poll(() => card.getAttribute("open")).toBeNull();
+        // Emit real deltas while the native fold is still changing the viewport.
+        for (let line = 1; line <= 12; line++) {
+          await streamLine(line);
+          await page.waitForTimeout(40);
+          await sample();
+        }
+        await expect.poll(() => thread.textContent()).toContain("Streaming finding 12.");
+        await waitForChatScrollIdle(page);
+        if (proofDir) {
+          await page.screenshot({ path: path.join(proofDir, "02-after-stream.png") });
+        }
+        expect(
+          samples.every((entry) => !entry.open),
+          JSON.stringify(samples),
+        ).toBe(true);
+        const settledTop = await thread.evaluate((element) => element.scrollTop);
+        for (let line = 13; line <= 16; line++) {
+          await streamLine(line);
+          await waitForChatScrollIdle(page);
+          expect(await card.getAttribute("open")).toBeNull();
+          expect(await thread.evaluate((element) => element.scrollTop)).toBe(settledTop);
+        }
+        await page.locator('.chat-scroll-to-bottom[data-visible="true"]').click();
+        await waitForChatScrollIdle(page);
+        expect(await card.getAttribute("open")).toBe("");
+        if (proofDir) {
+          await page.screenshot({ path: path.join(proofDir, "03-latest.png") });
+        }
+        // An explicit return resumes normal streaming without another card toggle.
+        for (let line = 17; line <= 20; line++) {
+          await streamLine(line);
+          await waitForChatScrollIdle(page);
+          expect(await card.getAttribute("open")).toBe("");
+          expect(await chatThreadDistanceFromBottom(page)).toBeLessThanOrEqual(
+            CHAT_TRANSCRIPT_END_THRESHOLD_PX,
+          );
+        }
+      } finally {
+        if (proofDir) {
+          await page.screenshot({ path: path.join(proofDir, "04-final-state.png") });
+          writeFileSync(path.join(proofDir, "samples.json"), JSON.stringify(samples, null, 2));
+        }
+        await context.close();
+      }
+    },
+  );
+
   it("keeps the transcript end visible when the composer dock grows", async () => {
     const context = await suite.newBrowserContext(createControlUiE2eContextOptions());
     const page = await context.newPage();

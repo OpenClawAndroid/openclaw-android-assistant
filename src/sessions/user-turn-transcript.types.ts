@@ -191,6 +191,8 @@ export type CreateUserTurnTranscriptRecorderParams = {
   updateMode?: UserTurnTranscriptUpdateMode;
   beforeMessageWrite?: UserTurnBeforeMessageWrite;
   errorContext?: string;
+  /** Revalidate the original input at fresh commit, not at ACK or preparation. */
+  assertOriginalInputCommit?: () => void;
   onPersistenceError?: (error: unknown) => void;
   onMessagePersisted?: (message: PersistedUserTurnMessage) => void | Promise<void>;
   /** Fresh original input only, after durable append and before transcript publication. */
@@ -202,10 +204,13 @@ export type CreateUserTurnTranscriptRecorderParams = {
 export type UserTurnTranscriptRecorder = {
   readonly message: PersistedUserTurnMessage | undefined;
   resolveMessage: () => Promise<PersistedUserTurnMessage | undefined>;
+  /** Committed input, accepted pending custody, and blocked notices are exempt. */
+  assertOriginalInputCommit?: () => void;
   /** Durable input custody leaves the active transcript unchanged until execution owns it. */
   stageApproved?: (options: {
     runId: string;
     assertCurrent: () => void;
+    assertAdmittedCurrent?: () => void;
     assertCompletionCurrent?: () => void;
   }) => Promise<boolean>;
   getProcessingCompletion?: () => AgentRunTerminalOutcome | undefined;

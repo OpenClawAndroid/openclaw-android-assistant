@@ -18,6 +18,11 @@ import {
   listSessionParticipantsReadOnly,
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.js";
+import {
+  drainSystemEventEntries,
+  peekSystemEventEntries,
+  resetSystemEventsForTest,
+} from "../infra/system-events.js";
 import { createSessionVisibilityChecker } from "../plugin-sdk/session-visibility.js";
 import {
   GatewayDrainingError,
@@ -71,7 +76,7 @@ import {
 } from "./sessions/agent-session-loop-correctness.test-support.js";
 import { SessionManager } from "./sessions/session-manager.js";
 import { textAssistant } from "./test-helpers/sparse-transcript.test-support.js";
-import { compactToolOutputHint } from "./tool-schema-hints.js";
+import { compactToolOutputHint, toolSchemaDeclaration } from "./tool-schema-hints.js";
 import { testing as agentStepTesting } from "./tools/agent-step.test-support.js";
 import { withGatewayToolCallerIdentity } from "./tools/gateway-caller-context.js";
 import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
@@ -307,6 +312,111 @@ describe("sessions tools", () => {
     });
   });
   afterEach(resetGatewayWorkAdmission);
+  afterEach(resetSystemEventsForTest);
+
+  it("sessions_send notify queues next-turn context without starting or steering work", async () => {
+    const targetKey = "agent:main:dashboard:notification-target";
+    callGatewayMock.mockImplementation(async () => ({}));
+    const tool = getSessionTool("sessions_send", { agentSessionKey: "agent:main:main" });
+    const result = await tool.execute("notify", {
+      sessionKey: targetKey,
+      message: "Evidence is ready",
+      mode: "notify",
+    });
+    expect(result.details).toMatchObject({
+      status: "queued",
+      sessionKey: targetKey,
+      durability: "process",
+      runStarted: false,
+    });
+    expect(Value.Check(tool.outputSchema!, result.details)).toBe(true);
+    const queuedReceipt = {
+      status: "queued",
+      sessionKey: targetKey,
+      notificationId: "notification-fixture",
+      durability: "process",
+      runStarted: false,
+    };
+    expect(Value.Check(tool.outputSchema!, { ...queuedReceipt, durability: "durable" })).toBe(
+      false,
+    );
+    expect(Value.Check(tool.outputSchema!, { ...queuedReceipt, runStarted: true })).toBe(false);
+    expect(callGatewayMock.mock.calls.some(([request]) => request.method === "agent")).toBe(false);
+    const queued = peekSystemEventEntries(targetKey);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.text).toContain("Evidence is ready");
+    expect(drainSystemEventEntries(targetKey)).toEqual(queued);
+    expect(peekSystemEventEntries(targetKey)).toEqual([]);
+  });
+
+  it("sessions_send steer refuses idle work and followup bypasses an active steering route", async () => {
+    const targetKey = "agent:main:cron:followup:run:active";
+    const calls: GatewayCall[] = [];
+    callGatewayMock.mockImplementation(async (request: GatewayCall) => {
+      calls.push(request);
+      if (request.method === "agent") {
+        return { runId: "followup-run", status: "accepted" };
+      }
+      if (request.method === "agent.wait") {
+        return { status: "ok", terminalReply: { disposition: "empty" } };
+      }
+      return {};
+    });
+    const tool = getSessionTool("sessions_send", { agentSessionKey: "agent:main:main" });
+    const idle = await tool.execute("idle-steer", {
+      sessionKey: targetKey,
+      message: "Adjust this",
+      mode: "steer",
+    });
+    expect(idle.details).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("no active run"),
+    });
+    expect(calls.some((request) => request.method === "agent")).toBe(false);
+    const queueMessage = vi.fn(async () => {});
+    setActiveEmbeddedRun(
+      "active-target",
+      {
+        queueMessage,
+        isStreaming: () => true,
+        isCompacting: () => false,
+        supportsTranscriptCommitWait: true,
+        sourceReplyDeliveryMode: "automatic",
+        abort: () => {},
+      },
+      targetKey,
+    );
+    const followup = await tool.execute("followup", {
+      sessionKey: targetKey,
+      message: "Do this next",
+      mode: "followup",
+      timeoutSeconds: 0,
+    });
+    expect(followup.details).toMatchObject({ status: "accepted", targetDisposition: "queued" });
+    expect(queueMessage).not.toHaveBeenCalled();
+    expect(calls.filter((request) => request.method === "agent")).toHaveLength(1);
+  });
+
+  it("sessions_send does not enqueue a notification beyond an exact session grant", async () => {
+    const targetKey = "agent:main:dashboard:notification-target";
+    callGatewayMock.mockImplementation(async () => ({}));
+    const tool = createSessionsSendTool({
+      agentSessionKey: "agent:main:main",
+      expectedTargetSessionId: "exact-incarnation",
+      config: TEST_CONFIG,
+      callGateway: callGatewayMock,
+    });
+    const result = await tool.execute("notify", {
+      sessionKey: targetKey,
+      message: "Evidence is ready",
+      mode: "notify",
+    });
+    expect(result.details).toMatchObject({
+      status: "forbidden",
+      error: expect.stringContaining("exact-session access grant"),
+    });
+    expect(peekSystemEventEntries(targetKey)).toEqual([]);
+  });
 
   it("uses integer schemas for session count and window parameters", () => {
     const tools = createOpenClawTools();
@@ -1116,9 +1226,17 @@ describe("sessions tools", () => {
         extra: true,
       }),
     ).toBe(false);
-    expect(compactToolOutputHint(tool.outputSchema)).toBe(
-      '{ error: string; runId: string; status: "error" | "forbidden"; sentBeforeError?: true; sessionKey?: string; watched?: boolean } | { delivery: { mode: "announce"; status: "pending" | "skipped" }; runId: string; sessionKey: string; status: "accepted"; targetDisposition: "queued" | "steered"; watched?: boolean } | { error: string; runId: string; sentBeforeError: true; sessionKey: string; status: "timeout"; delivery?: { mode: "announce"; status: "pending" | "skipped" }; watched?: boolean } | { message: string; runId: string; sessionKey: string; status: "no_reply"; watched?: boolean } | { delivery: { mode: "announce"; status: "pending" | "skipped" }; reply: string; runId: string; sessionKey: string; status: "ok"; watched?: boolean }',
-    );
+    // Six result variants exceed the compact catalog budget; full tool discovery
+    // and Code Mode must still describe every outcome without guessing fields.
+    expect(compactToolOutputHint(tool.outputSchema)).toBeUndefined();
+    const declaration = toolSchemaDeclaration(tool.outputSchema);
+    expect(declaration).not.toBe("unknown");
+    expect(declaration).toContain('durability: "process"');
+    expect(declaration).toContain("runStarted: false");
+    expect(declaration).toContain('status: "queued"');
+    expect(declaration).toContain('targetDisposition: "queued" | "steered"');
+    expect(declaration).toContain('status: "no_reply"');
+    expect(declaration).toContain('status: "timeout"');
     await waitForCalls(() => agentCallCount, 6);
     await waitForCalls(() => waitCallCount, 6);
 
@@ -2117,11 +2235,18 @@ describe("sessions tools", () => {
     expect(calls.some((call) => call.method === "agent")).toBe(false);
   });
 
-  it.each([true, false])(
-    "sessions_send persists steered provenance with transcript wait support %s",
-    async (supportsTranscriptCommitWait) => {
+  it.each([
+    { supportsTranscriptCommitWait: true },
+    { supportsTranscriptCommitWait: false },
+    { supportsTranscriptCommitWait: true, mode: "steer" as const },
+  ])(
+    "sessions_send persists steered provenance with transcript wait support $supportsTranscriptCommitWait and mode $mode",
+    async ({ supportsTranscriptCommitWait, mode }) => {
       const calls: Array<{ method?: string }> = [];
-      const runScopedCallerKey = "agent:leasing-ops:cron:monthly-utility:run:run-fast";
+      const runScopedCallerKey =
+        mode === "steer"
+          ? "agent:leasing-ops:dashboard:active-target"
+          : "agent:leasing-ops:cron:monthly-utility:run:run-fast";
       const requesterKey = "agent:re-portal:main";
       const dir = tempDirs.make("openclaw-sessions-steered-provenance-");
       const scope = {
@@ -2164,7 +2289,7 @@ describe("sessions tools", () => {
           isStreaming: () => true,
           isCompacting: () => false,
           supportsTranscriptCommitWait,
-          sourceReplyDeliveryMode: "message_tool_only",
+          sourceReplyDeliveryMode: mode === "steer" ? "automatic" : "message_tool_only",
           abort: () => {},
         },
         runScopedCallerKey,
@@ -2185,6 +2310,7 @@ describe("sessions tools", () => {
       });
 
       const send = tool.execute("call-run-scoped-caller", {
+        mode,
         sessionKey: runScopedCallerKey,
         message: "[TASK-COMPLETE] re-portal occupancy ready",
         timeoutSeconds: 0,

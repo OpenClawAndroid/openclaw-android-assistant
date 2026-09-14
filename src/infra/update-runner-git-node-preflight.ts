@@ -31,7 +31,10 @@ export async function checkGitCandidateNodeRuntime(
   }
   const engine = await readCandidateNodeEngine(root);
   const currentVersion = process.versions.node;
-  const capabilityError = nodeRuntimeFailure(currentVersion, detectCurrentSqliteCapabilities());
+  const capabilityError = nodeRuntimeFailure(
+    currentVersion,
+    await detectCurrentSqliteCapabilities(),
+  );
   if (!capabilityError && nodeVersionSatisfiesEngine(currentVersion, engine) !== false) {
     return null;
   }

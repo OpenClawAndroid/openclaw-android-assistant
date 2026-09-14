@@ -121,6 +121,32 @@ Use JSON output or `--output` when comparing changes. Use `--cpu-prof-dir` only 
 
 </Accordion>
 
+<Accordion title="Workspace computation (scripts/bench-workspace-computation.ts)">
+
+Compare workspace inventory, manifest capture, and result preparation against a
+frozen source checkout with its own installed dependencies:
+
+```bash
+node --import ./scripts/tsx.mjs scripts/bench-workspace-computation.ts \
+  --baseline /path/to/baseline-checkout \
+  --scenarios inventory,manifest,delta,unchanged \
+  --sizes 1000,32000,100000 --concurrency 1,4 \
+  --runs 3 --warmup 1 --output .artifacts/workspace-computation.json
+```
+
+Use `--changed-files 2000 --scenarios delta --sizes 32000` to include a larger
+changed payload, and `--file-bytes` to vary the content hashed during capture.
+The default workload is smaller: 1,000 entries and one concurrent operation.
+
+The benchmark checks identical inventory bytes, manifest references, and changed
+payloads. Separate processes measure first invocation and warm throughput, CPU,
+event-loop delay, memory, and HTTP latency from an external probe. Worker task
+diagnostics distinguish queueing, input preparation, transfer, and execution.
+The HTTP probe measures responsiveness of the computation's owning process;
+paired-node wire tests provide the full Gateway dispatch and reconciliation proof.
+
+</Accordion>
+
 <Accordion title="Gateway concurrency (scripts/bench-gateway-concurrency.ts)">
 
 Runs synthetic streaming agent turns in parallel sessions on one isolated
@@ -235,9 +261,10 @@ after startup, session seeding, and probe warmup. Sampling ends after the load
 and its final memory probe, before profile serialization and teardown. It uses
 a 32 KiB sampling interval and includes objects collected by both minor and
 major GC, so `sampledAllocatedBytes` estimates gross allocations rather than
-retained heap. Native allocations and separate worker isolates are outside this
-profile. Each run records its `.heapprofile` path and the twenty largest
-allocation stacks; open the raw file in the Chrome DevTools Memory panel.
+retained heap. Each run records its `.heapprofile` path and the twenty largest
+allocation stacks with `scope: "main-isolate"`; open the raw file in the Chrome
+DevTools Memory panel. Worker isolates have separate profiles, described below.
+Native allocations are outside these V8 profiles.
 
 The summary includes sampled allocation bytes per run and per completed turn.
 The per-turn figure also includes concurrent probes and session mutations;
@@ -256,11 +283,65 @@ main V8 isolate at a 1 ms sampling interval after setup and through the final
 memory probe. The private benchmark IPC channel stops the profiler and writes
 the `.cpuprofile` before process teardown, without depending on signal-driven
 profile flushing. Each run's `loadCpuProfile` records its path, duration, and
-sample count; open the raw profile in Chrome DevTools. Worker isolates are not
-included. Profiled runs add overhead, so keep them separate from latency
+sample count with `scope: "main-isolate"`; open the raw profile in Chrome
+DevTools. Profiled runs add overhead, so keep them separate from latency
 comparisons. `--cpu-prof-dir` retains its startup-inclusive native profiling
 behavior. `--load-cpu-prof-dir` and `--heap-prof-dir` require separate runs so
 exporting one profile cannot contaminate the other capture.
+
+Both load-profile flags also capture observed Worker isolates over the existing
+private inspector connection. The main profile summary links
+`workersManifestPath`, a `.workers.json` manifest beside the main profile. Its
+rows distinguish native `threadId` from `inspectorWorkerId` and link each
+Worker's profile. `completed: true` means that profile was written; inspect
+row-level errors for missing identity, retired Workers, or other incomplete
+captures. A successful profiling command does not mean every Worker produced a
+usable profile. Workers are not paused at birth, so profiling can miss their
+earliest work. These files exclude separate child processes.
+
+The Worker manifest's samples use `performance.now` in the Gateway process, with
+timestamps taken before asynchronous Worker reads. The 100 ms cadence is
+nominal; overlapping reads are coalesced. CPU counters are cumulative
+microseconds: difference observations for the same thread identity instead of
+summing samples. Those deltas cover each Worker's observed interval and can
+miss work before its first or after its last successful sample. The sample's
+`memory.rss` covers the process; other `memory` fields describe the main isolate,
+while each Worker's `heap` contains its own V8 heap statistics.
+
+Capture windows differ: load CPU counters end before the final memory probe;
+the main V8 profile includes that probe; Worker profiles and samples also extend
+through main-profile serialization before their own stop. Use the raw CPU
+profiles' timestamps and manifest observations for attribution, and keep these
+windows separate from `cpuUsage`. Main-thread CPU plus observed Worker CPU does
+not account for every native thread or unobserved Worker interval. Profiling and
+periodic Worker inspection add overhead; compare equally instrumented runs.
+
+Both load-phase profile modes also attach `diagnostics` and a `diagnosticsPath`
+to the run report. The private benchmark preload subscribes only during capture
+and aggregates the main isolate's redaction, session writer, session list, and
+worker-task completion records, including fast work below slow-log thresholds.
+It records counts, totals, and maxima in at most 256 groups; `droppedEvents`
+and `collectionErrors` report incomplete collection. No per-call record history,
+session or agent IDs, paths, message text, regex patterns, or exception text is
+retained in these aggregates. Worker artifact basenames identify task groups.
+
+Redaction reports synchronous thread CPU separately from elapsed time and input
+UTF-16 character counts. These are inclusive measurements: nested redaction
+operations overlap, so do not add their times. Session writer timing separates
+queue wait, writer-held elapsed time, and completion delay. List records
+distinguish `sessions.list` from the initial `sessions.subscribe` snapshot and
+separate projection owners, in-flight followers, and completed cache hits.
+Worker-task records separate queue, preparation, run, and transfer measurements.
+Elapsed intervals can overlap across concurrent work and do not measure CPU.
+
+The capture also aggregates main-isolate GC pause entries. Allocation profiles
+identify allocation sites, including collected objects; they do not establish
+which objects remain reachable or prove a leak. Raw profiles contain function
+names and source locations and need inspection before sharing.
+
+These diagnostics channels have no collector in an ordinary Gateway. The
+benchmark uses isolated synthetic state, private process IPC, and no inspector
+listener. It does not attach to or modify an existing operator Gateway.
 
 </Accordion>
 

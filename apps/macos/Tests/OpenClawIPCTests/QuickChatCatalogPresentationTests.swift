@@ -233,7 +233,7 @@ private actor QuickChatCatalogFixture {
         switch method {
         case "health": payload = "{}"
         case "agents.list":
-            payload = #"{"defaultId":"main","mainKey":"main","scope":"per-agent","agents":[{"id":"main","kind":"agent","name":"Fixture"}]}"#
+            payload = #"{"defaultId":"main","mainKey":"main","scope":"per-sender","agents":[{"id":"main","kind":"agent","name":"Fixture"}]}"#
         case "models.list":
             let params = try XCTUnwrap(request["params"] as? [String: Any])
             XCTAssertEqual(params["sessionKey"] as? String, "agent:main:main")

@@ -62,7 +62,7 @@ type UpdatesViewProps = {
   onAutomaticUpdatesChange: (enabled: boolean) => void;
   onUpdateNow: () => void;
   onHoldUpdate: () => Promise<boolean>;
-  onCheckStatus: () => Promise<void>;
+  onCheckStatus: () => Promise<boolean>;
   onReportFailure: (attemptId: string) => Promise<void>;
 };
 

@@ -288,11 +288,9 @@ function renderFieldRow(params: {
   wide?: boolean;
 }) {
   const controlClass = params.wide ? "cron-control cron-control--wide" : "cron-control";
-  const control = params.error
-    ? html`<div class=${controlClass}>
-        ${params.control}${renderFieldError(params.error, params.errorId)}
-      </div>`
-    : html`<div class=${controlClass}>${params.control}</div>`;
+  const control = html`<div class=${controlClass}>
+    ${params.control}${renderFieldError(params.error, params.errorId)}
+  </div>`;
   return html`
     <div class=${params.stacked ? "settings-row settings-row--stacked" : "settings-row"}>
       <label class="settings-row__text" for=${ifDefined(params.controlId || undefined)}>

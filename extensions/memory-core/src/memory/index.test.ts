@@ -1656,6 +1656,8 @@ describe("memory index", () => {
 
       expect(ftsMatchCount(markers.retained)).toBe(0);
       expect(ftsMatchCount(markers.trigger)).toBe(0);
+      // Hand ordinary dirty state to maintenance so recovery must use the retained queue.
+      manager.takeReindexRetryStateForMaintenance();
       const recoveryState = manager as unknown as {
         syncing: Promise<void> | null;
         queuedSessions: Map<string, unknown>;

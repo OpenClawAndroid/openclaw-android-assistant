@@ -2,6 +2,7 @@ import {
   patchConfigHealthEntryInDatabase,
   readConfigHealthSnapshotInDatabase,
 } from "../config/io.health-state.kernel.js";
+import { executeSessionDeliveryCommand } from "../infra/session-delivery-queue.worker.js";
 import { createSqliteAuditRecordKernel } from "../infra/sqlite-audit-record.kernel.js";
 import {
   readStableSqliteFileGeneration,
@@ -251,6 +252,23 @@ function createSharedStateWorkerBackend(
         );
       }
       const database = open();
+      if (
+        command.type === "sessionDelivery.enqueue" ||
+        command.type === "sessionDelivery.enqueueClaimed" ||
+        command.type === "sessionDelivery.releaseClaim" ||
+        command.type === "sessionDelivery.defer" ||
+        command.type === "sessionDelivery.advanceAgentRun" ||
+        command.type === "sessionDelivery.mergePreparedMedia" ||
+        command.type === "sessionDelivery.markAttemptStarted" ||
+        command.type === "sessionDelivery.markSettlement" ||
+        command.type === "sessionDelivery.complete" ||
+        command.type === "sessionDelivery.fail" ||
+        command.type === "sessionDelivery.load" ||
+        command.type === "sessionDelivery.list" ||
+        command.type === "sessionDelivery.moveToFailed"
+      ) {
+        return executeSessionDeliveryCommand(command, database);
+      }
       const writeOptions = {
         database,
         path: context.databasePath,

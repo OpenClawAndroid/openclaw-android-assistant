@@ -357,6 +357,44 @@ describe("config cli integration", () => {
     );
   });
 
+  it("does not publish user-authored enum hints from custom validation errors", async () => {
+    const raw = JSON.stringify({ talk: { agentId: 'expected one of "bogus"' } });
+    await withConfigFileHarness(
+      "openclaw-config-cli-custom-diagnostic-",
+      raw,
+      async ({ configPath }) => {
+        await expect(runRegisteredConfigCommand(["config", "validate"])).rejects.toMatchObject({
+          name: "ExitError",
+          code: 1,
+        });
+        expect(registeredRuntimeErrors.join(" ")).toContain("Unknown agent id");
+        expect(registeredRuntimeLogs).toEqual([]);
+        registeredRuntimeErrors.length = 0;
+
+        await expect(
+          runRegisteredConfigCommand(["config", "validate", "--json"]),
+        ).rejects.toMatchObject({
+          name: "ExitError",
+          code: 1,
+        });
+        expect(registeredRuntimeErrors).toEqual([]);
+        expect(registeredRuntimeLogs).toHaveLength(1);
+        expect(JSON.parse(registeredRuntimeLogs[0] ?? "")).toMatchObject({
+          valid: false,
+          path: configPath,
+          issues: [
+            {
+              path: "talk.agentId",
+              message: 'Unknown agent id "expected one of "bogus"" (not in agents.entries).',
+            },
+          ],
+        });
+        expect(registeredRuntimeLogs[0]).not.toContain("allowedValues");
+        expect(fs.readFileSync(configPath, "utf8")).toBe(raw);
+      },
+    );
+  });
+
   it("renders actionable paths for real dotted model-key validation failures", async () => {
     const configForAlias = (alias: string | number) => ({
       agents: {

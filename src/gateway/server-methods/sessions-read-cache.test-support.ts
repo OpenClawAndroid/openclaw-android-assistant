@@ -47,6 +47,7 @@ export async function listSessions(params: {
 }) {
   const responses: Parameters<RespondFn>[] = [];
   await sessionReadHandlers["sessions.list"]?.({
+    req: { type: "req", id: "session-list-test", method: "sessions.list" },
     params: params.request,
     client: params.client,
     context: params.context,

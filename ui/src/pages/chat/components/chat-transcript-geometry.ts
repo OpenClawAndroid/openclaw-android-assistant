@@ -1,4 +1,4 @@
-import type { Virtualizer } from "@tanstack/virtual-core";
+import { measureElement, type Virtualizer } from "@tanstack/virtual-core";
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 
 function transcriptScrollMargin(element: Element | null): number {
@@ -61,8 +61,28 @@ export function measureConnectedTranscriptRows(
   }
 }
 
+export function measureTranscriptRow(
+  element: HTMLElement,
+  entry: ResizeObserverEntry | undefined,
+  virtualizer: Virtualizer<HTMLDivElement, HTMLElement>,
+): number {
+  const size = measureElement(element, entry, virtualizer);
+  if (size === 0 && virtualizer.scrollElement?.clientHeight === 0) {
+    // A hidden panel has no row geometry. Retain the last measurement instead
+    // of replacing it with zero and moving the restored viewport.
+    const index = virtualizer.indexFromElement(element);
+    return (
+      virtualizer.itemSizeCache.get(virtualizer.options.getItemKey(index)) ??
+      virtualizer.options.estimateSize(index)
+    );
+  }
+  return size;
+}
+
 export function maxTranscriptScrollOffset(element: HTMLElement | null): number | null {
-  return element ? Math.max(0, element.scrollHeight - element.clientHeight) : null;
+  return element && element.clientHeight > 0
+    ? Math.max(0, element.scrollHeight - element.clientHeight)
+    : null;
 }
 
 export class PositionRailGutterController implements ReactiveController {

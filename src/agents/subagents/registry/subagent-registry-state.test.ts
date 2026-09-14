@@ -156,6 +156,36 @@ describe("subagent registry state read cache", () => {
     expect(mocks.loadSubagentSessionListRunsFromSqlite).not.toHaveBeenCalled();
   });
 
+  it("scopes compact reads while preserving shared freshness and live controller moves", () => {
+    const parent = "agent:main:parent";
+    const selected = { ...createRun("selected"), controllerSessionKey: parent };
+    const unrelated = createRun("unrelated");
+    mocks.loadSubagentSessionListRunsFromSqlite.mockReturnValueOnce(
+      new Map([selected, unrelated].map((entry) => [entry.runId, entry])),
+    );
+    getSubagentSessionListRunsSnapshotForRead(new Map());
+
+    expect([...getSubagentSessionListRunsSnapshotForRead(new Map(), [parent]).keys()]).toEqual([
+      "selected",
+    ]);
+    expect(mocks.loadSubagentSessionListRunsFromSqlite).toHaveBeenCalledOnce();
+    const moved = { ...selected, controllerSessionKey: "agent:main:other" };
+    expect(
+      getSubagentSessionListRunsSnapshotForRead(new Map([[moved.runId, moved]]), [parent]),
+    ).toEqual(new Map());
+
+    vi.advanceTimersByTime(500);
+    const refreshed = { ...selected, model: "updated-model" };
+    mocks.loadSubagentSessionListRunsFromSqlite.mockReturnValueOnce(
+      new Map([[refreshed.runId, refreshed]]),
+    );
+    expect(
+      getSubagentSessionListRunsSnapshotForRead(new Map(), [parent]).get("selected")?.model,
+    ).toBe("updated-model");
+    expect(mocks.loadSubagentSessionListRunsFromSqlite).toHaveBeenCalledTimes(2);
+    expect(getSubagentSessionListRunsSnapshotForRead(new Map(), [" "])).toEqual(new Map());
+  });
+
   it("preserves unrelated projected rows across incremental writes", () => {
     const retained = createRun("retained");
     const changed = createRun("changed");

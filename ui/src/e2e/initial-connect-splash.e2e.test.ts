@@ -314,7 +314,8 @@ describeControlUiE2e("Control UI initial connect splash E2E", () => {
     const workspaceModules = new Set([
       "/src/components/app-sidebar.ts",
       "/src/components/browser/browser-panel.ts",
-      "/src/components/assistant-panel.ts",
+      "/src/components/assistant-panel-content.ts",
+      "/src/pages/debug/debug-overlay-content.ts",
       "/src/components/desktop/desktop-panel.ts",
       "/src/components/terminal/terminal-panel-registration.ts",
       "/src/pages/chat/chat-page.ts",

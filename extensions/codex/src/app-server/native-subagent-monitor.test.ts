@@ -117,6 +117,7 @@ function createClient() {
     addNotificationHandler: fixture.client.addNotificationHandler.bind(fixture.client),
     addRequestHandler: fixture.client.addRequestHandler.bind(fixture.client),
     addCloseHandler: fixture.client.addCloseHandler.bind(fixture.client),
+    getTransportPid: fixture.client.getTransportPid.bind(fixture.client),
     notify: (notification: CodexServerNotification) => fixture.notify(notification),
     close: () => fixture.close(),
   };
@@ -434,6 +435,25 @@ function taskRecord(params: {
 }
 
 describe("CodexNativeSubagentMonitor", () => {
+  it.each([4321, undefined])(
+    "passes the transport process identity (%s) to task ownership",
+    (pid) => {
+      const fixture = createFakeCodexAppServerClient();
+      vi.spyOn(fixture.client, "getTransportPid").mockReturnValue(pid);
+      const runtime = createRuntime();
+      const monitor = new CodexNativeSubagentMonitor(fixture.client, runtime);
+      onTestFinished(() => fixture.close());
+
+      registerParent(monitor);
+
+      expect(runtime.createAgentHarnessTaskRuntime).toHaveBeenCalledWith(
+        pid === undefined
+          ? expect.not.objectContaining({ executionPid: expect.any(Number) })
+          : expect.objectContaining({ executionPid: pid }),
+      );
+    },
+  );
+
   describe("native completion delivery ownership", () => {
     registerCodexEventProjectorTestLifecycle();
 
@@ -1599,6 +1619,143 @@ describe("CodexNativeSubagentMonitor", () => {
     }
   });
 
+  it("publishes native attention and idle observations without finalizing the task", async () => {
+    const events: Parameters<Parameters<typeof onAgentEvent>[0]>[0][] = [];
+    const unsubscribe = onAgentEvent((event) => events.push(event));
+    const client = createClient();
+    const runtime = createRuntime();
+    const monitor = new CodexNativeSubagentMonitor(client as never, runtime);
+    try {
+      await registerDetachedChild(client, monitor);
+      const nativeStatuses: JsonObject[] = [
+        { type: "active", activeFlags: [] },
+        { type: "active", activeFlags: ["waitingOnApproval"] },
+        { type: "active", activeFlags: ["waitingOnUserInput"] },
+        { type: "idle" },
+        { type: "notLoaded" },
+      ];
+      for (const nativeStatus of nativeStatuses) {
+        await client.notify({
+          method: "thread/status/changed",
+          params: { threadId: "child-thread", status: nativeStatus },
+        });
+      }
+      const sourceId = events.find((event) => event.stream === "execution")?.data.sourceId;
+      expect(sourceId).toEqual(expect.any(String));
+      expect(
+        events.filter((event) => event.stream === "execution").map((event) => event.data),
+      ).toEqual(
+        [
+          { state: "running" },
+          { state: "waiting", wait: { kind: "approval" } },
+          { state: "waiting", wait: { kind: "user_input" } },
+          { state: "unknown" },
+          { state: "unknown" },
+        ].map((observation) => Object.assign(observation, { sourceId })),
+      );
+      client.close();
+      expect(events.at(-1)?.data).toEqual({ state: "unknown", sourceId, invalidate: true });
+      expect(runtime.finalizeTaskRunByRunId).not.toHaveBeenCalled();
+      expect(runtime.deliverAgentHarnessTaskCompletion).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+      client.close();
+    }
+  });
+
+  it("observes native mailbox waits and replacement turns without inventing child targets", async () => {
+    const events: Parameters<Parameters<typeof onAgentEvent>[0]>[0][] = [];
+    const unsubscribe = onAgentEvent((event) => events.push(event));
+    const client = createClient();
+    const runtime = createRuntime();
+    const monitor = new CodexNativeSubagentMonitor(client as never, runtime);
+    try {
+      await registerDetachedChild(client, monitor);
+      const startTurn = async (turnId: string) => {
+        await client.notify({
+          method: "turn/started",
+          params: { threadId: "child-thread", turn: { id: turnId, status: "inProgress" } },
+        });
+      };
+      const waitItem = async (
+        phase: "started" | "completed",
+        turnId: string,
+        receiverThreadIds: string[] = [],
+      ) => {
+        await client.notify({
+          method: `item/${phase}`,
+          params: {
+            threadId: "child-thread",
+            turnId,
+            item: {
+              type: "collabAgentToolCall",
+              id: `wait-${turnId}`,
+              tool: "wait",
+              senderThreadId: "child-thread",
+              receiverThreadIds,
+              status: phase === "started" ? "inProgress" : "completed",
+            },
+          },
+        });
+      };
+      await startTurn("first-turn");
+      await waitItem("started", "first-turn");
+      await waitItem("completed", "first-turn");
+      await startTurn("next-turn");
+      await waitItem("started", "next-turn");
+      const beforeLateEvents = events.length;
+      await waitItem("completed", "first-turn");
+      await client.notify({
+        method: "item/agentMessage/delta",
+        params: { threadId: "child-thread", turnId: "first-turn", delta: "stale progress" },
+      });
+      expect(events).toHaveLength(beforeLateEvents);
+      await client.notify(
+        childTurnCompletedNotification({ status: "interrupted", turnId: "next-turn" }),
+      );
+      const afterTurnEnd = events.length;
+      await waitItem("completed", "next-turn");
+      expect(events).toHaveLength(afterTurnEnd);
+      const sourceId = events.find((event) => event.stream === "execution")?.data.sourceId;
+      expect(sourceId).toEqual(expect.any(String));
+      expect(
+        events.filter((event) => event.stream === "execution").map((event) => event.data),
+      ).toEqual(
+        [
+          { state: "running", executionId: "first-turn" },
+          { state: "waiting", executionId: "first-turn", wait: { kind: "agent_messages" } },
+          { state: "running", executionId: "first-turn" },
+          { state: "running", executionId: "next-turn" },
+          { state: "waiting", executionId: "next-turn", wait: { kind: "agent_messages" } },
+          { state: "unknown", executionId: "next-turn" },
+        ].map((observation) => Object.assign(observation, { sourceId })),
+      );
+      await startTurn("legacy-turn");
+      const receivers = Array.from({ length: 35 }, (_, index) => `grandchild-${index}`);
+      await waitItem("started", "legacy-turn", receivers);
+      expect(events.at(-1)?.data).toEqual({
+        state: "waiting",
+        sourceId,
+        executionId: "legacy-turn",
+        wait: {
+          kind: "children",
+          pendingCount: 35,
+          dependencies: receivers.slice(0, 32).map((id) => ({ runId: `codex-thread:${id}` })),
+        },
+      });
+      await waitItem("completed", "legacy-turn", receivers);
+      expect(events.at(-1)?.data).toEqual({
+        state: "running",
+        sourceId,
+        executionId: "legacy-turn",
+      });
+      expect(runtime.finalizeTaskRunByRunId).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+      client.close();
+    }
+  });
+
   it("does not retroactively assign a newly registered parent agent to an existing child", async () => {
     const events: Parameters<Parameters<typeof onAgentEvent>[0]>[0][] = [];
     const unsubscribe = onAgentEvent((event) => events.push(event));
@@ -1619,7 +1776,9 @@ describe("CodexNativeSubagentMonitor", () => {
       }
 
       expect(
-        events.map(({ runId, agentId, sessionKey }) => ({ runId, agentId, sessionKey })),
+        events
+          .filter((event) => event.stream === "assistant")
+          .map(({ runId, agentId, sessionKey }) => ({ runId, agentId, sessionKey })),
       ).toEqual([
         { runId: "codex-thread:ownerless-child", agentId: undefined, sessionKey: undefined },
         { runId: "codex-thread:owned-child", agentId: "research", sessionKey: undefined },

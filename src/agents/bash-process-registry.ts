@@ -101,6 +101,10 @@ export interface ProcessSession {
   exitCode?: number | null;
   exitSignal?: NodeJS.Signals | number | null;
   exitReason?: TerminationReason;
+  /** Explicit process/task stop intent; the terminal reason still owns confirmation. */
+  cancellationRequested?: boolean;
+  /** Cleanup failure prevents an intentional stop from being treated as successful observation. */
+  finalizationFailed?: boolean;
   /** Preserve the lifecycle owner's verdict for polls that captured the running session. */
   terminalStatus?: Exclude<ProcessStatus, "running">;
   noOutputTimedOut?: boolean;

@@ -22,7 +22,6 @@ const enNewSessionSetup = {
     autoDeviceHintEligible: "Chooses the first eligible connected device",
     autoDeviceInfo: "About automatic device selection",
     autoDeviceScope: "Connected devices only",
-    cloudRequiresWorktree: "Cloud needs a Git checkout",
     restoringPreferences: "Restoring your last session setup…",
     checkingPlace: "Checking the selected place…",
     agentsUnavailable: "No agents are available on this Gateway yet.",

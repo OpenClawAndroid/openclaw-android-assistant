@@ -806,6 +806,7 @@ describe("sessions.list single-flight", () => {
       const respond = vi.fn();
 
       await sessionReadHandlers["sessions.list"]?.({
+        req: { type: "req", id: "session-list-test", method: "sessions.list" },
         params: { activeMinutes: 0 },
         client: identifiedClient("owner@example.com"),
         context: requestContext(config),

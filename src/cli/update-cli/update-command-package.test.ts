@@ -99,7 +99,6 @@ it.each([
         timeoutMs: 1000,
         startedAt: Date.now(),
         progress: {},
-        jsonMode: true,
         installEnv: tag.startsWith("openclaw@") ? { OPENCLAW_UPDATE_PACKAGE_SPEC: tag } : {},
         installTarget: target,
         validateCandidate,
@@ -142,7 +141,6 @@ it.each(["package", "git"] as const)(
         timeoutMs: 1000,
         startedAt: Date.now(),
         progress: {},
-        jsonMode: true,
         installEnv: {},
         installTarget: target,
         validateCandidate,
@@ -190,7 +188,6 @@ it.each(
         timeoutMs: 1000,
         startedAt: Date.now(),
         progress: {},
-        jsonMode: true,
         installEnv: {},
         installTarget: target,
       };
@@ -290,7 +287,6 @@ it("runs package post-update doctor from the verified package root after a stage
         timeoutMs: 1000,
         startedAt: Date.now(),
         progress: {},
-        jsonMode: true,
         validateCandidate: async () => [],
         beforeActivate: async () => {},
         onTransaction: (retained) => {

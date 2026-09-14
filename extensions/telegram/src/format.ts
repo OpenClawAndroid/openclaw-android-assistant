@@ -395,6 +395,9 @@ function preserveSupportedTelegramHtmlTags(
   html: string,
   support: TelegramHtmlTagSupport = TELEGRAM_LEGACY_HTML_TAG_SUPPORT,
 ): string {
+  if (!html.includes("&lt;")) {
+    return html;
+  }
   let codeDepth = 0;
   let preDepth = 0;
   let result = "";

@@ -304,27 +304,18 @@ describe("assistant failure recovery", () => {
   );
 
   it.each([
-    { terminal: { kind: "ok" }, expected: {} },
-    { terminal: { kind: "timeout", phase: "compaction", source: "observation" }, expected: {} },
-    {
-      terminal: { kind: "timeout", phase: "compaction", source: "runtime" },
-      expected: { stopReason: "timeout" },
-    },
-    {
-      terminal: { kind: "timeout", phase: "tool_execution", source: "runtime" },
-      expected: { stopReason: "timeout" },
-    },
-    {
-      terminal: { kind: "timeout", phase: "prompt", source: "idle" },
-      expected: { stopReason: "timeout", timeoutPhase: "provider", providerStarted: true },
-    },
-    {
-      terminal: { kind: "timeout", phase: "compaction", source: "idle" },
-      expected: { stopReason: "timeout" },
-    },
-  ] satisfies Array<{ terminal: AgentRunAttemptTerminal; expected: object }>)(
-    "keeps recorded timeout facts independent of provider status: $terminal",
-    async ({ terminal, expected }) => {
+    [{ kind: "ok" }, {}],
+    [{ kind: "timeout", phase: "compaction", source: "observation" }, {}],
+    [{ kind: "timeout", phase: "compaction", source: "runtime" }, { stopReason: "timeout" }],
+    [{ kind: "timeout", phase: "tool_execution", source: "runtime" }, { stopReason: "timeout" }],
+    [
+      { kind: "timeout", phase: "prompt", source: "idle" },
+      { stopReason: "timeout", timeoutPhase: "provider", providerStarted: true },
+    ],
+    [{ kind: "timeout", phase: "compaction", source: "idle" }, { stopReason: "timeout" }],
+  ] satisfies Array<readonly [AgentRunAttemptTerminal, object]>)(
+    "keeps recorded timeout facts independent of provider status: %s",
+    async (terminal, expected) => {
       const input = makeInput("500 injected provider failure", { terminal });
       const failure = await expectFailure(input);
       expect(failure.status).toBe(500);

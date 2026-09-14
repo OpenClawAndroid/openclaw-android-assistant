@@ -472,6 +472,7 @@ describe("prepareChatSendUserTurn", () => {
           updatedAt: 1,
         },
         connect: {
+          client: createClientInfo({ id: GATEWAY_CLIENT_IDS.CONTROL_UI }),
           device: { id: "device-1" },
           scopes: ["operator.admin"],
           caps: ["tool-events"],
@@ -500,6 +501,7 @@ describe("prepareChatSendUserTurn", () => {
       ],
       GatewayClientScopes: ["operator.admin"],
       GatewayClientCaps: ["tool-events"],
+      GatewayUiCommandTarget: { connId: "conn-1", profileId: "profile-ada" },
       SessionCreation: {
         via: "operator",
         actor: { type: "human", id: "profile-ada" },

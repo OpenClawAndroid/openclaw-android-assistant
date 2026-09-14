@@ -53,6 +53,14 @@ export function buildSubagentSessionListReadIndex(
   });
 }
 
+/** Direct-child discovery needs only its controllers, without building global topology. */
+export function listSubagentSessionListRunsForControllers(
+  controllerSessionKeys: readonly string[],
+): SubagentRunReadRecord[] {
+  const runs = getSubagentSessionListRunsSnapshotForRead(subagentRuns, controllerSessionKeys);
+  return controllerSessionKeys.flatMap((key) => listRunsForControllerFromRuns(runs, key));
+}
+
 /** Builds an O(1) latest-run lookup from one persisted and in-memory snapshot. */
 export function buildLatestSubagentRunReadIndex(): LatestSubagentRunReadIndex {
   return buildLatestSubagentRunReadIndexFromRuns(getSubagentRunsSnapshotForRead(subagentRuns));

@@ -1650,19 +1650,7 @@ private fun ChatMessageList(
   header: @Composable ((() -> Unit)?, Boolean, Boolean) -> Unit,
   composer: @Composable ((() -> Unit)?, Boolean, Boolean) -> Unit,
 ) {
-  val baseTimeline =
-    remember(messages, activeRunCount, pendingToolCalls, subagentActivities, questions, streamingAssistantText, outboxItems, recoveryOutboxItems) {
-      buildChatTimeline(
-        messages = messages,
-        pendingRunCount = activeRunCount,
-        pendingToolCalls = pendingToolCalls,
-        streamingAssistantText = streamingAssistantText,
-        subagentActivities = subagentActivities,
-        outboxItems = outboxItems,
-        recoveryOutboxItems = recoveryOutboxItems,
-        questions = questions,
-      )
-    }
+  val history = remember(messages, sessionKey) { prepareChatHistory(messages, sessionKey) }
   val indicatorVisible = activeRunCount > 0
   val workingRunTracker = remember(sessionKey) { ChatWorkingRunTracker(sessionKey) }
   val workingRun =
@@ -1689,8 +1677,18 @@ private fun ChatMessageList(
     )
   var expandedWorkKeys by remember(sessionKey) { mutableStateOf(emptySet<String>()) }
   val timeline =
-    remember(baseTimeline, turnRecap, expandedWorkKeys, activeRunCount, sessionKey) {
-      baseTimeline.withCompletedWorkGroups(messages, activeRunCount > 0, expandedWorkKeys, sessionKey).withTurnRecap(turnRecap)
+    remember(history, turnRecap, expandedWorkKeys, activeRunCount, pendingToolCalls, subagentActivities, questions, streamingAssistantText, outboxItems, recoveryOutboxItems) {
+      history
+        .buildTimeline(
+          pendingRunCount = activeRunCount,
+          pendingToolCalls = pendingToolCalls,
+          streamingAssistantText = streamingAssistantText,
+          subagentActivities = subagentActivities,
+          outboxItems = outboxItems,
+          recoveryOutboxItems = recoveryOutboxItems,
+          questions = questions,
+          expandedWorkKeys = expandedWorkKeys,
+        ).withTurnRecap(turnRecap)
     }
   val readerScroll =
     rememberChatReaderScrollController(

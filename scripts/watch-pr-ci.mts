@@ -763,10 +763,16 @@ export async function pollUntilDeadline<T>({
     await wait(Math.min(interval * 1000, remaining));
   }
 }
-const retry = (phase: string, error: unknown) =>
-  console.log(
-    `RETRY phase=${phase} error=${(error instanceof Error ? error.message : String(error)).replaceAll(/\s+/gu, " ")}`,
-  );
+function retry(phase: string, error: unknown) {
+  const message = (error instanceof Error ? error.message : String(error)).replaceAll(/\s+/gu, " ");
+  // Run-scoped proxy credentials cannot recover while this process keeps polling.
+  if (/\bProxy Authentication Required\b/iu.test(message)) {
+    throw new Error(
+      `PROXY-AUTH-FAILED phase=${phase} status=407 hint="Restart the watcher in an active run with valid proxy authentication; run-scoped credentials expire when their owning run closes."`,
+    );
+  }
+  console.log(`RETRY phase=${phase} error=${message}`);
+}
 
 function precheck(pr: RollupPage, sha: string, midWait = false) {
   const state = (pr.state ?? "MISSING").toUpperCase();

@@ -257,3 +257,89 @@ describe("Doctor CLI migration refusal", () => {
     60_000,
   );
 });
+
+describe("Doctor CLI config recovery", () => {
+  it("repairs retired and unknown keys and migrates legacy state with the system agent in one run", () => {
+    const root = fs.realpathSync(tempDirs.make("openclaw-doctor-config-state-"));
+    const stateDir = path.join(root, "state");
+    const workspaceDir = path.join(root, "workspace");
+    const configPath = path.join(root, "openclaw.json");
+    const sessionsDir = path.join(stateDir, "sessions");
+    const workspaceSource = path.join(workspaceDir, ".openclaw", "workspace-state.json");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.mkdirSync(path.dirname(workspaceSource), { recursive: true });
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        agents: {
+          ownership: "explicit",
+          defaults: { systemAgent: { agentId: "digest" } },
+          entries: { other: {}, digest: { workspace: workspaceDir } },
+        },
+        browser: { relayBindHost: "127.0.0.1", obsoleteSetting: true },
+        commands: { modelsWrite: true },
+        gateway: { mode: "local", auth: { mode: "none" } },
+        plugins: { enabled: false },
+      }),
+    );
+    const completedAt = "2026-09-01T12:00:00.000Z";
+    fs.writeFileSync(
+      workspaceSource,
+      JSON.stringify({ version: 1, setupCompletedAt: completedAt }),
+    );
+    fs.writeFileSync(
+      path.join(sessionsDir, "sessions.json"),
+      JSON.stringify({ legacy: { sessionId: "legacy-session", updatedAt: 1 } }),
+    );
+    fs.writeFileSync(path.join(sessionsDir, "legacy-session.jsonl"), "{}\n");
+    const runtimeRoot = createBuiltRuntime(root);
+    const result = runBuiltRuntime(
+      runtimeRoot,
+      {
+        PATH: process.env.PATH,
+        HOME: root,
+        USERPROFILE: root,
+        OPENCLAW_STATE_DIR: stateDir,
+        OPENCLAW_CONFIG_PATH: configPath,
+        OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+        OPENCLAW_SERVICE_REPAIR_POLICY: "external",
+        NO_COLOR: "1",
+        CI: "1",
+      },
+      ["doctor", "--fix", "--non-interactive", "--no-workspace-suggestions"],
+      60_000,
+    );
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.error, output).toBeUndefined();
+    expect(result.status, output).toBe(0);
+    expect(output).toContain("Doctor complete.");
+    const repaired = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    expect(repaired.browser).not.toHaveProperty("relayBindHost");
+    expect(repaired.browser).not.toHaveProperty("obsoleteSetting");
+    expect(repaired.commands).not.toHaveProperty("modelsWrite");
+    expect(repaired.agents.defaults.systemAgent.agentId).toBe("digest");
+    expect(fs.existsSync(workspaceSource)).toBe(false);
+    expect(fs.existsSync(path.join(sessionsDir, "sessions.json"))).toBe(false);
+    const agentDb = new DatabaseSync(
+      path.join(stateDir, "agents", "digest", "agent", "openclaw-agent.sqlite"),
+      { readOnly: true },
+    );
+    try {
+      expect(agentDb.prepare("SELECT current_session_id FROM session_nodes").all()).toContainEqual({
+        current_session_id: "legacy-session",
+      });
+    } finally {
+      agentDb.close();
+    }
+    const db = new DatabaseSync(path.join(stateDir, "state", "openclaw.sqlite"), {
+      readOnly: true,
+    });
+    try {
+      expect(db.prepare("SELECT setup_completed_at FROM workspace_setup_state").all()).toEqual([
+        { setup_completed_at: completedAt },
+      ]);
+    } finally {
+      db.close();
+    }
+  }, 75_000);
+});

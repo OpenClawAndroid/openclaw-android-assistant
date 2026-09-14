@@ -1,3 +1,4 @@
+import type { ChannelIngressDispatchLifecycle } from "./ingress-drain-lifecycle.js";
 import type { CreateChannelIngressDrainOptions } from "./ingress-drain.js";
 import type { ChannelIngressQueue, ChannelIngressQueueClaim } from "./ingress-queue.js";
 
@@ -8,16 +9,8 @@ export type ChannelIngressMonitorFacts = { eventId: string; laneKey: string };
 type ChannelIngressPayloadEnvelope<TBody> = { version: number; body: TBody };
 
 /** Claim ownership lifecycle handed to one channel delivery. */
-export type ChannelIngressMonitorLifecycle = {
+export type ChannelIngressMonitorLifecycle = ChannelIngressDispatchLifecycle & {
   admission: "exclusive";
-  abortSignal: AbortSignal;
-  onAdopted: () => void | Promise<void>;
-  onDeferred: () => void;
-  onDeferredHeartbeat?: () => void;
-  onAdoptionFinalizing: () => void;
-  onFailed?: (error: unknown) => void | Promise<void>;
-  onCancelled?: () => void | Promise<void>;
-  onAbandoned: () => void | Promise<void>;
 };
 
 /** Optional explicit outcome from a channel delivery. */

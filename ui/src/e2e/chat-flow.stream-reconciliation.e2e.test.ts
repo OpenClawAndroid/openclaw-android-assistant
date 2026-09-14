@@ -232,6 +232,75 @@ suite.define(() => {
     });
   });
 
+  it("keeps persisted commentary once when its replay items were evicted", async () => {
+    await suite.withPage(createControlUiE2eContextOptions(), async ({ page }) => {
+      const runId = "evicted-commentary-run";
+      const commentary = ["Checking the workspace.", "The focused tests are green."];
+      const historyMessages = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Inspect the workspace." }],
+          __openclaw: { id: "user", seq: 1, idempotencyKey: `${runId}:user` },
+        },
+        ...commentary.map((text, index) => ({
+          role: "assistant",
+          content: [{ type: "text", text }],
+          __openclaw: { id: `commentary-${index}`, runId, seq: index + 2 },
+          openclawStreamFallback: {
+            itemId: `preamble-${index}`,
+            replacementText: text,
+            source: "segment",
+          },
+        })),
+      ];
+      const sessionInfo = {
+        activeRunIds: [runId],
+        hasActiveRun: true,
+        key: "agent:main:main",
+      };
+      await installMockGateway(page, {
+        historyMessages,
+        inFlightRun: {
+          runId,
+          startedAt: 1_000,
+          text: `${commentary.join("\n\n")}\n\nStill working.`,
+          events: [
+            {
+              runId,
+              seq: 51,
+              stream: "tool",
+              ts: 2_000,
+              sessionKey: "agent:main:main",
+              data: {
+                phase: "result",
+                toolCallId: "focused-tests",
+                name: "exec",
+                result: { content: [{ type: "text", text: "Tests passed." }] },
+              },
+            },
+          ],
+        },
+        sessionInfo,
+      });
+
+      await page.goto(`${suite.server.baseUrl}chat`);
+      await page.getByRole("button", { name: "Stop generating" }).waitFor();
+      const assistantTexts = async () =>
+        (await page.locator(".chat-group.assistant .chat-text").allTextContents()).map((value) =>
+          value.trim(),
+        );
+      await expect.poll(assistantTexts).toEqual([...commentary, "Still working."]);
+      expect(await page.locator(".chat-tool-msg-summary").count()).toBe(1);
+
+      if (process.env.OPENCLAW_CAPTURE_UI_PROOF === "1") {
+        await page.screenshot({
+          fullPage: true,
+          path: path.join(suite.artifactDir, "evicted-commentary-after.png"),
+        });
+      }
+    });
+  });
+
   it.each([
     { persistence: "between deltas", terminal: "final" },
     { persistence: "before streaming", terminal: "error" },

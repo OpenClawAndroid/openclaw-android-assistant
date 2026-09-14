@@ -189,65 +189,17 @@ it.each(["canonical", "managed"] as const)(
 );
 
 it.each([
-  {
-    replace: true,
-    priorChildKill: false,
-    completeDuringDrain: false,
-    handoff: false,
-    provisional: false,
-  },
-  {
-    replace: true,
-    priorChildKill: true,
-    completeDuringDrain: false,
-    handoff: false,
-    provisional: false,
-  },
-  {
-    replace: false,
-    priorChildKill: false,
-    completeDuringDrain: false,
-    handoff: false,
-    provisional: false,
-  },
-  {
-    replace: false,
-    priorChildKill: false,
-    completeDuringDrain: true,
-    handoff: false,
-    provisional: false,
-  },
-  {
-    replace: true,
-    priorChildKill: false,
-    completeDuringDrain: true,
-    handoff: false,
-    provisional: false,
-  },
-  {
-    replace: true,
-    priorChildKill: false,
-    completeDuringDrain: false,
-    handoff: true,
-    provisional: false,
-  },
-  {
-    replace: true,
-    priorChildKill: true,
-    completeDuringDrain: false,
-    handoff: true,
-    provisional: false,
-  },
-  {
-    replace: true,
-    priorChildKill: true,
-    completeDuringDrain: false,
-    handoff: true,
-    provisional: true,
-  },
+  [true, false, false, false, false],
+  [true, true, false, false, false],
+  [false, false, false, false, false],
+  [false, false, true, false, false],
+  [true, false, true, false, false],
+  [true, false, false, true, false],
+  [true, true, false, true, false],
+  [true, true, false, true, true],
 ])(
-  "fences task publication (replace=$replace, priorChildKill=$priorChildKill, completeDuringDrain=$completeDuringDrain, handoff=$handoff, provisional=$provisional)",
-  async ({ replace, priorChildKill, completeDuringDrain, handoff, provisional }) => {
+  "fences task publication (replace=%s, priorChildKill=%s, completeDuringDrain=%s, handoff=%s, provisional=%s)",
+  async (replace, priorChildKill, completeDuringDrain, handoff, provisional) => {
     testing.setDepsForTest({
       ...subagentRegistryDeps,
       cleanupBrowserSessionsForLifecycleEnd: async () => {},

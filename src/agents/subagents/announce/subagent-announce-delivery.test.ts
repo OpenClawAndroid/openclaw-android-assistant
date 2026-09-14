@@ -2,7 +2,7 @@
 // runs report progress or completion back to the requester session.
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateAgentParams } from "../../../../packages/gateway-protocol/src/index.js";
 import { formatValidationErrors } from "../../../../packages/gateway-protocol/src/validation-errors.js";
 import { useAutoCleanupTempDirTracker } from "../../../../test/helpers/temp-dir.js";
@@ -27,6 +27,8 @@ import {
 import { sendMessage as runtimeSendMessage } from "../../../infra/outbound/message.js";
 import { setActivePluginRegistry } from "../../../plugins/runtime.js";
 import { createDeferredCore } from "../../../shared/deferred.js";
+import { captureOpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.js";
+import type { OpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.types.js";
 import {
   createChannelTestPluginBase,
   createTestRegistry,
@@ -57,26 +59,54 @@ import {
 import { runDescendantWake } from "./subagent-announce-descendant-wake.js";
 
 const sessionDeliveryQueueMocks = vi.hoisted(() => ({
-  enqueueClaimedSessionDelivery: vi.fn((_payload: unknown, _leaseMs: number) => ({
-    id: "session-delivery-media",
-    claimed: true,
-    status: "pending" as "pending" | "failed" | "completed" | "unknown",
-  })),
+  enqueueClaimedSessionDelivery: vi.fn(
+    (_payload: unknown, _leaseMs: number, _queueContext: OpenClawStateWorkerContext) => ({
+      id: "session-delivery-media",
+      claimed: true,
+      status: "pending" as "pending" | "failed" | "completed" | "unknown",
+    }),
+  ),
   releaseSessionDeliveryClaim: vi.fn(async () => {}),
   scheduleSessionDelivery: vi.fn(async () => true),
 }));
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+let fixtureQueueContext: OpenClawStateWorkerContext;
+
+beforeEach(() => {
+  fixtureQueueContext = captureOpenClawStateWorkerContext();
+});
+
+function expectQueueContext() {
+  const queuedContext =
+    sessionDeliveryQueueMocks.enqueueClaimedSessionDelivery.mock.calls.at(-1)?.[2];
+  if (!queuedContext) {
+    throw new Error("Expected the durable handoff to capture its queue context");
+  }
+  return expect.objectContaining({
+    environment: fixtureQueueContext.environment,
+    admission: expect.objectContaining({
+      databasePath: fixtureQueueContext.admission.databasePath,
+      identity: queuedContext.admission.identity,
+    }),
+  });
+}
 
 vi.mock("../completion/subagent-completion-delivery.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../completion/subagent-completion-delivery.js")>()),
   admitCorrelatedSubagentSessionDelivery: (params: { payload: Record<string, unknown> }) =>
-    sessionDeliveryQueueMocks.enqueueClaimedSessionDelivery(params.payload, 125_000),
+    sessionDeliveryQueueMocks.enqueueClaimedSessionDelivery(
+      params.payload,
+      125_000,
+      captureOpenClawStateWorkerContext(),
+    ),
 }));
 
 vi.mock("../../../infra/session-delivery-queue-storage.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../infra/session-delivery-queue-storage.js")>()),
-  enqueueClaimedSessionDelivery: sessionDeliveryQueueMocks.enqueueClaimedSessionDelivery,
+  enqueueClaimedSessionDelivery: async (
+    ...args: Parameters<typeof sessionDeliveryQueueMocks.enqueueClaimedSessionDelivery>
+  ) => sessionDeliveryQueueMocks.enqueueClaimedSessionDelivery(...args),
   releaseSessionDeliveryClaim: sessionDeliveryQueueMocks.releaseSessionDeliveryClaim,
 }));
 
@@ -3417,12 +3447,15 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
           idempotencyKey: "announce-dm-fallback-empty:agent-loop",
         }),
         expect.any(Number),
+        expectQueueContext(),
       );
       expect(sessionDeliveryQueueMocks.releaseSessionDeliveryClaim).toHaveBeenCalledWith(
         "session-delivery-media",
+        expectQueueContext(),
       );
       expect(sessionDeliveryQueueMocks.scheduleSessionDelivery).toHaveBeenCalledWith(
         "session-delivery-media",
+        expectQueueContext(),
       );
     },
   );
@@ -3622,7 +3655,7 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
     expect(sendMessage).not.toHaveBeenCalled();
     const scheduleExpectation = expect(sessionDeliveryQueueMocks.scheduleSessionDelivery);
     if (schedulesRetry) {
-      scheduleExpectation.toHaveBeenCalledWith("session-delivery-media");
+      scheduleExpectation.toHaveBeenCalledWith("session-delivery-media", expectQueueContext());
     } else {
       scheduleExpectation.not.toHaveBeenCalled();
     }
@@ -3650,9 +3683,11 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
     expect(callGateway).not.toHaveBeenCalled();
     expect(sessionDeliveryQueueMocks.releaseSessionDeliveryClaim).toHaveBeenCalledWith(
       "session-delivery-media",
+      expectQueueContext(),
     );
     expect(sessionDeliveryQueueMocks.scheduleSessionDelivery).toHaveBeenCalledWith(
       "session-delivery-media",
+      expectQueueContext(),
     );
   });
 
@@ -3694,6 +3729,7 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
         expectedMediaUrls: ["/tmp/generated-corgi.mp4"],
       }),
       expect.any(Number),
+      expectQueueContext(),
     );
     expect(callGateway).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
@@ -3721,6 +3757,7 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(sessionDeliveryQueueMocks.scheduleSessionDelivery).toHaveBeenCalledWith(
       "session-delivery-media",
+      expectQueueContext(),
     );
   });
 
@@ -3788,9 +3825,11 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
         sourceReplyDeliveryMode: "automatic",
       }),
       expect.any(Number),
+      expectQueueContext(),
     );
     expect(sessionDeliveryQueueMocks.scheduleSessionDelivery).toHaveBeenCalledWith(
       "session-delivery-media",
+      expectQueueContext(),
     );
   });
 
@@ -3847,9 +3886,11 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
         idempotencyKey: "announce-channel-media-handoff-locked:agent-loop",
       }),
       expect.any(Number),
+      expectQueueContext(),
     );
     expect(sessionDeliveryQueueMocks.scheduleSessionDelivery).toHaveBeenCalledWith(
       "session-delivery-media",
+      expectQueueContext(),
     );
   });
 
@@ -3876,6 +3917,7 @@ describe("deliverSubagentAnnouncement completion delivery", () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(sessionDeliveryQueueMocks.scheduleSessionDelivery).toHaveBeenCalledWith(
       "session-delivery-media",
+      expectQueueContext(),
     );
   });
 

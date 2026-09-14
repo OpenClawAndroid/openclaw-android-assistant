@@ -167,6 +167,11 @@ openclaw-session-owner-chip {
   font-size: inherit;
 }
 
+.sidebar-recent-session .session-owner-chip--row {
+  border: 0;
+  box-shadow: none;
+}
+
 .session-owner-stack {
   position: relative;
   display: inline-flex;
@@ -206,6 +211,42 @@ openclaw-session-owner-chip {
   z-index: 1;
   width: 18px;
   height: 18px;
+}
+
+.sidebar-recent-session .session-owner-stack__front,
+.sidebar-recent-session .session-owner-stack__back .viewer-avatar,
+.sidebar-recent-session .session-owner-stack__overflow {
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Compose the row's translucent fill over its surface, outside the front face's
+   away filter/opacity. The mask leaves only the 1px cutout. */
+.sidebar-recent-session .session-owner-stack::before,
+.sidebar-recent-session .session-owner-stack::after {
+  content: "";
+  position: absolute;
+  inset-block: 1px;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 18px;
+  border: 1px solid var(--session-row-bg);
+  border-radius: var(--radius-full);
+  background: var(--sidebar-bg, var(--bg));
+  mask:
+    linear-gradient(white 0 0) padding-box,
+    linear-gradient(white 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  transition: border-color var(--duration-fast) ease;
+}
+
+.sidebar-recent-session .session-owner-stack::before {
+  left: 0;
+}
+
+.sidebar-recent-session .session-owner-stack::after {
+  right: 0;
 }
 
 /* Leading slot shared by every sidebar row: the row's own artwork plus a run
@@ -5895,8 +5936,9 @@ td.data-table-key-col {
 }
 
 .session-row-host--draft-other {
+  --session-row-bg: color-mix(in srgb, var(--bg-muted) 44%, transparent);
   --draft-row-opacity: 0.58;
-  background: color-mix(in srgb, var(--bg-muted) 44%, transparent);
+  background: var(--session-row-bg);
 }
 
 .session-row-host--draft-other:hover,

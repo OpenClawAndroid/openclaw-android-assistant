@@ -3,18 +3,16 @@
    ============================================= */
 
 /* Chat Group Layout - default (assistant/other on left). Groups without a
-   footer keep the shared turn gap directly. Footer-bearing groups split
-   message content and footer into separate rows so each row keeps the avatar
-   gutter while only the message row controls avatar alignment. */
+   footer keep the shared turn gap directly. Footer-bearing groups reserve that
+   gap in the footer row, which grows for wrapped metadata and touch controls
+   without subtracting an assumed footer height. */
 .chat-group {
   --chat-avatar-column: 36px;
   --chat-avatar-gap: 10px;
   --chat-avatar-gutter: calc(var(--chat-avatar-column) + var(--chat-avatar-gap));
-  --chat-footer-row-offset: 26px;
   --chat-message-column-max: var(--chat-message-max-width, min(900px, 68%));
-  --chat-run-block-gap: 12px;
-  --chat-touch-row-margin: 14px;
-  --chat-turn-gap: 50px;
+  --chat-run-block-gap: 8px;
+  --chat-turn-gap: 28px;
   display: flex;
   gap: var(--chat-avatar-gap);
   align-items: flex-start;
@@ -60,10 +58,10 @@
   --chat-group-content-column: 2;
   display: grid;
   grid-template-columns: var(--chat-avatar-column) minmax(0, var(--chat-message-column-max));
-  grid-template-rows: auto auto;
+  grid-template-rows: auto minmax(calc(var(--chat-turn-gap) - 2px), auto);
   gap: 2px var(--chat-avatar-gap);
   justify-content: start;
-  padding-bottom: calc(var(--chat-turn-gap) - var(--chat-footer-row-offset));
+  padding-bottom: 0;
 }
 
 .chat-group.user.chat-group--with-footer {
@@ -144,8 +142,10 @@
   padding-inline-start: var(--chat-avatar-gutter);
 }
 
+/* Tool groups have no footer; attach their activity to the following reply. */
 .chat-group.tool.chat-group--with-footer {
   display: block;
+  padding-bottom: var(--chat-run-block-gap);
 }
 
 .chat-group.tool.chat-group--with-footer > .chat-group-messages {
@@ -846,24 +846,11 @@ img.chat-avatar {
   /* Shared message renderers stay touch-readable by default. Transcript rows
      opt into one-at-a-time disclosure through their owning thread. */
   .chat-group {
-    --chat-footer-row-offset: 44px;
     --chat-footer-disclosure-opacity: 1;
     --chat-footer-disclosure-pointer-events: auto;
     --chat-footer-detail-position: static;
     --chat-message-action-opacity: var(--chat-footer-disclosure-opacity, 0);
     --chat-message-action-pointer-events: var(--chat-footer-disclosure-pointer-events, none);
-    padding-bottom: calc(var(--chat-turn-gap) - var(--chat-touch-row-margin));
-    margin-bottom: var(--chat-touch-row-margin);
-  }
-
-  .chat-group.chat-group--with-footer:has(
-      .chat-group-footer:not(.chat-group-footer--persistent-identity) .chat-group-footer-actions
-    ),
-  .chat-group.chat-group--with-footer:is(.chat-group--meta-revealed, :focus-within):has(
-      .chat-group-footer--persistent-identity .chat-group-footer-actions
-    ) {
-    padding-bottom: 0;
-    margin-bottom: 0;
   }
 
   .chat-group-footer {
@@ -1061,6 +1048,76 @@ img.chat-avatar {
 
 :root[data-theme-mode="light"] .chat-group.user.chat-group--sender-tint .chat-sender-name {
   color: hsl(var(--chat-sender-hue) 60% 36%);
+}
+
+/* Ephemeral drafts share sent-turn geometry, typography, and identity tint. */
+.agent-chat__typing-indicator {
+  display: grid;
+  min-width: 0;
+}
+
+.chat-group.user.chat-group--typing .chat-bubble {
+  background: color-mix(in srgb, var(--chat-bubble-background) 65%, var(--bg));
+}
+
+.agent-chat__typing-state {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.agent-chat__typing-preview-text {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.agent-chat__typing-preview-text::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-inline-start: 2px;
+  background: currentColor;
+  vertical-align: -0.12em;
+  animation: chat-typing-pulse 1s step-end infinite;
+}
+
+.agent-chat__typing-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: calc(var(--chat-text-size) * 1.5);
+  color: var(--muted);
+}
+
+.agent-chat__typing-bubble > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: chat-typing-pulse 1.2s ease-in-out infinite;
+}
+
+.agent-chat__typing-bubble > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.agent-chat__typing-bubble > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chat-typing-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat__typing-preview-text::after,
+  .agent-chat__typing-bubble > span {
+    animation: none;
+  }
 }
 
 .chat-message-avatar-anchor {

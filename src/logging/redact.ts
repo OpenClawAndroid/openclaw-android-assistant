@@ -54,6 +54,7 @@ import {
   TOOL_PAYLOAD_REDACT_PATTERNS,
 } from "./redact-patterns.js";
 import { PEM_REDACT_MATCHER, PEM_REDACT_PATTERN_SOURCE } from "./redact-pem.js";
+import { startRedactionMeasurement } from "./redact-performance.js";
 import {
   captureSecretRedactionRegistrySnapshot,
   createSecretValueRedactor,
@@ -778,21 +779,28 @@ export function redactText(
     preserveSourceAssignment?: (text: string, offset: number) => boolean;
   },
 ): string {
-  let next = redactFormBody(
-    redactAssignmentValues(redactStructuredAuthHeaders(text, "***"), "url"),
-  );
-  let pattern: ResolvedRedactPattern;
-  const replace = (match: RedactMatch) =>
-    redactMatch(match, pattern, options?.preserveSourceAssignment);
-  const replaceRegex = (...args: unknown[]) => replace(readRedactMatch(args));
-  // Each replacement finishes synchronously before this invocation advances its pattern.
-  for (pattern of patterns) {
-    next =
-      pattern instanceof RegExp && !options?.fullContext && !chunkUnsafePatterns.has(pattern)
-        ? replacePatternBounded(next, pattern, replaceRegex)
-        : replaceRedactPattern(next, pattern, replace, replaceRegex);
+  const finishMeasurement = startRedactionMeasurement("text");
+  let outcome: "ok" | "error" = "error";
+  try {
+    let next = redactFormBody(
+      redactAssignmentValues(redactStructuredAuthHeaders(text, "***"), "url"),
+    );
+    let pattern: ResolvedRedactPattern;
+    const replace = (match: RedactMatch) =>
+      redactMatch(match, pattern, options?.preserveSourceAssignment);
+    const replaceRegex = (...args: unknown[]) => replace(readRedactMatch(args));
+    // Each replacement finishes synchronously before this invocation advances its pattern.
+    for (pattern of patterns) {
+      next =
+        pattern instanceof RegExp && !options?.fullContext && !chunkUnsafePatterns.has(pattern)
+          ? replacePatternBounded(next, pattern, replaceRegex)
+          : replaceRedactPattern(next, pattern, replace, replaceRegex);
+    }
+    outcome = "ok";
+    return next;
+  } finally {
+    finishMeasurement?.(outcome, text.length, patterns.length);
   }
-  return next;
 }
 
 function couldMatchDefaultRedactPatterns(text: string): boolean {
@@ -1497,102 +1505,115 @@ export function redactLogRecordForTransport(
     decodedOptions?: ResolvedRedactOptions;
   } = {},
 ): Record<string, unknown> {
-  const resolved = resolveRedactOptions();
-  const prepared =
-    options.format === "console"
-      ? { record, decoded: new WeakSet<object>() }
-      : prepareFileToJsonReceivers(record, options.decodedOptions?.patterns ?? resolved.patterns);
-  const ordinary = { structured: true, primitiveMask: false };
-  const origins: RedactionOrigins = { value: ordinary, children: new Map() };
-  const ancestors: {
-    value: object;
-    path: string[];
-    key: string;
-    origins: RedactionOrigins;
-    structured: boolean;
-  }[] = [];
-  const json = JSON.stringify(prepared.record, function (this: object, key, value: unknown) {
-    while (ancestors.length > 0 && ancestors.at(-1)?.value !== this) {
-      ancestors.pop();
+  const finishMeasurement = startRedactionMeasurement("log-record");
+  let outcome: "ok" | "error" = "error";
+  let inputChars: number | undefined;
+  try {
+    const resolved = resolveRedactOptions();
+    const prepared =
+      options.format === "console"
+        ? { record, decoded: new WeakSet<object>() }
+        : prepareFileToJsonReceivers(record, options.decodedOptions?.patterns ?? resolved.patterns);
+    const ordinary = { structured: true, primitiveMask: false };
+    const origins: RedactionOrigins = { value: ordinary, children: new Map() };
+    const ancestors: {
+      value: object;
+      path: string[];
+      key: string;
+      origins: RedactionOrigins;
+      structured: boolean;
+    }[] = [];
+    const json = JSON.stringify(prepared.record, function (this: object, key, value: unknown) {
+      while (ancestors.length > 0 && ancestors.at(-1)?.value !== this) {
+        ancestors.pop();
+      }
+      const parent = ancestors.at(-1);
+      const array = Array.isArray(this);
+      const fieldKey = array && parent ? parent.key : key;
+      const path = array && parent ? parent.path : parent ? [...parent.path, key] : [];
+      // Prepared plain holders contain data properties; native holders need no legacy field walk.
+      const source: unknown = !parent
+        ? prepared.record
+        : parent.structured && options.format !== "console"
+          ? Reflect.get(this, key)
+          : value;
+      const structured =
+        (parent?.structured ?? true) &&
+        (source === null ||
+          typeof source !== "object" ||
+          (!prepared.decoded.has(source) &&
+            source === value &&
+            (Array.isArray(source) || isPlainRedactableObject(source))));
+      const primitiveMask =
+        structured &&
+        ["number", "boolean", "bigint"].includes(typeof source) &&
+        classifyLogFieldProtection(fieldKey, path, !array, undefined) === "legacy";
+      const circular =
+        value !== null &&
+        typeof value === "object" &&
+        ancestors.some((frame) => frame.value === value);
+      const emitted = circular ? "[Circular]" : typeof value === "bigint" ? String(value) : value;
+      const container = emitted !== null && typeof emitted === "object";
+      let node = origins;
+      if (parent && parent.structured && (container || !structured || primitiveMask || circular)) {
+        node = {
+          value: { structured: structured && !circular, primitiveMask },
+          children: new Map(),
+        };
+        parent.origins.children.set(key, node);
+      } else if (parent) {
+        node = parent.origins;
+      } else {
+        origins.value = { structured, primitiveMask };
+      }
+      if (container) {
+        ancestors.push({ value: emitted, path, key: fieldKey, origins: node, structured });
+      }
+      return emitted;
+    });
+    inputChars = json.length;
+    let materialized: Record<string, unknown> = JSON.parse(json);
+    const message = options.deriveMessage?.(materialized);
+    if (message) {
+      origins.children.set("message", { value: ordinary, children: new Map() });
+      if (Object.hasOwn(materialized, "message")) {
+        materialized.message = message.text;
+      } else {
+        // Serialized-context rules observe the file message immediately after hostname.
+        const entries = Object.entries(materialized);
+        entries.splice(entries.findIndex(([key]) => key === "hostname") + 1, 0, [
+          "message",
+          message.text,
+        ]);
+        materialized = Object.fromEntries(entries);
+      }
     }
-    const parent = ancestors.at(-1);
-    const array = Array.isArray(this);
-    const fieldKey = array && parent ? parent.key : key;
-    const path = array && parent ? parent.path : parent ? [...parent.path, key] : [];
-    // Prepared plain holders contain data properties; native holders need no legacy field walk.
-    const source: unknown = !parent
-      ? prepared.record
-      : parent.structured && options.format !== "console"
-        ? Reflect.get(this, key)
-        : value;
-    const structured =
-      (parent?.structured ?? true) &&
-      (source === null ||
-        typeof source !== "object" ||
-        (!prepared.decoded.has(source) &&
-          source === value &&
-          (Array.isArray(source) || isPlainRedactableObject(source))));
-    const primitiveMask =
-      structured &&
-      ["number", "boolean", "bigint"].includes(typeof source) &&
-      classifyLogFieldProtection(fieldKey, path, !array, undefined) === "legacy";
-    const circular =
-      value !== null &&
-      typeof value === "object" &&
-      ancestors.some((frame) => frame.value === value);
-    const emitted = circular ? "[Circular]" : typeof value === "bigint" ? String(value) : value;
-    const container = emitted !== null && typeof emitted === "object";
-    let node = origins;
-    if (parent && parent.structured && (container || !structured || primitiveMask || circular)) {
-      node = { value: { structured: structured && !circular, primitiveMask }, children: new Map() };
-      parent.origins.children.set(key, node);
-    } else if (parent) {
-      node = parent.origins;
-    } else {
-      origins.value = { structured, primitiveMask };
-    }
-    if (container) {
-      ancestors.push({ value: emitted, path, key: fieldKey, origins: node, structured });
-    }
-    return emitted;
-  });
-  let materialized: Record<string, unknown> = JSON.parse(json);
-  const message = options.deriveMessage?.(materialized);
-  if (message) {
-    origins.children.set("message", { value: ordinary, children: new Map() });
-    if (Object.hasOwn(materialized, "message")) {
-      materialized.message = message.text;
-    } else {
-      // Serialized-context rules observe the file message immediately after hostname.
-      const entries = Object.entries(materialized);
-      entries.splice(entries.findIndex(([key]) => key === "hostname") + 1, 0, [
-        "message",
-        message.text,
-      ]);
-      materialized = Object.fromEntries(entries);
-    }
+    const result: Record<string, unknown> = JSON.parse(
+      redactJsonRecord(
+        message ? JSON.stringify(materialized) : json,
+        origins,
+        [
+          options.decodedOptions?.patterns ?? resolved.patterns,
+          [...preparationPatterns, ...resolved.patterns],
+        ],
+        (match, pattern, project) => getRedactionEdit(match, pattern, undefined, project),
+        options.format === "console" ? () => [] : getLegacyFieldRecordEdits,
+        (field) => getFieldRecordEdits(field, resolved.mode),
+        (field) => getTextRecordEdits(field, resolved.mode, options.format !== "console"),
+        (field) =>
+          options.format === "console"
+            ? field.path.length === 1 && CONSOLE_STRUCTURAL_FIELDS.has(field.key)
+            : !field.origin.structured ||
+              field.origin.primitiveMask ||
+              isPublicShareIdPath(field.path),
+        message,
+      ),
+    );
+    outcome = "ok";
+    return result;
+  } finally {
+    finishMeasurement?.(outcome, inputChars);
   }
-  return JSON.parse(
-    redactJsonRecord(
-      message ? JSON.stringify(materialized) : json,
-      origins,
-      [
-        options.decodedOptions?.patterns ?? resolved.patterns,
-        [...preparationPatterns, ...resolved.patterns],
-      ],
-      (match, pattern, project) => getRedactionEdit(match, pattern, undefined, project),
-      options.format === "console" ? () => [] : getLegacyFieldRecordEdits,
-      (field) => getFieldRecordEdits(field, resolved.mode),
-      (field) => getTextRecordEdits(field, resolved.mode, options.format !== "console"),
-      (field) =>
-        options.format === "console"
-          ? field.path.length === 1 && CONSOLE_STRUCTURAL_FIELDS.has(field.key)
-          : !field.origin.structured ||
-            field.origin.primitiveMask ||
-            isPublicShareIdPath(field.path),
-      message,
-    ),
-  );
 }
 
 export function redactModelVisibleSecrets<T>(value: T): T {

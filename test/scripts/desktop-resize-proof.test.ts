@@ -62,6 +62,7 @@ const viewerFailure = {
   snapshotFramebuffer: { width: 900, height: 500 },
   socketCount: 2,
   latestReadyState: 1,
+  socketCloses: [{ socketIndex: 0, code: 4000, wasClean: true, category: "takeover" }],
 };
 const proof = (carrier: "node" | "ssh" = "node") => ({
   carrier,
@@ -236,6 +237,21 @@ describe("desktop proof identity and public evidence", () => {
       override: { canvasCount: 0, lastFramebuffer: null, snapshotFramebuffer: null },
     },
     { label: "multiple canvases", override: { canvasCount: 2, snapshotFramebuffer: null } },
+    { label: "no closed sockets", override: { socketCloses: [] } },
+    {
+      label: "closed reconnect",
+      override: {
+        canvasCount: 0,
+        snapshotFramebuffer: null,
+        socketCount: 3,
+        latestReadyState: 3,
+        socketCloses: [
+          { socketIndex: 0, code: 1000, wasClean: true, category: "unknown" },
+          { socketIndex: 1, code: 4000, wasClean: true, category: "takeover" },
+          { socketIndex: 2, code: 1006, wasClean: false, category: "unknown" },
+        ],
+      },
+    },
     {
       label: "zero framebuffer",
       override: {
@@ -252,6 +268,7 @@ describe("desktop proof identity and public evidence", () => {
         snapshotFramebuffer: null,
         socketCount: null,
         latestReadyState: null,
+        socketCloses: null,
       },
     },
     {
@@ -262,6 +279,7 @@ describe("desktop proof identity and public evidence", () => {
         snapshotFramebuffer: null,
         socketCount: null,
         latestReadyState: null,
+        socketCloses: null,
       },
     },
   ])("retains bounded viewer failure diagnostics: $label", async ({ override }) => {
@@ -275,6 +293,12 @@ describe("desktop proof identity and public evidence", () => {
           desktopViewerResizeFailure: {
             ...diagnostics,
             expected: { ...diagnostics.expected, privateText: "private-token" },
+            socketCloses:
+              diagnostics.socketCloses?.map((event) => ({
+                ...event,
+                reason: "control-taken:private-operator",
+                url: "https://example.invalid/private-token",
+              })) ?? null,
             html: "private-dom",
             socketUrl: "https://example.invalid/private-token",
             error: "private-error",
@@ -294,6 +318,17 @@ describe("desktop proof identity and public evidence", () => {
     { canvasCount: 10_001 },
     { socketCount: Number.NaN },
     { latestReadyState: 4 },
+    { socketCloses: undefined },
+    { socketCloses: "private-token" },
+    { socketCloses: Array.from({ length: 9 }, () => viewerFailure.socketCloses[0]) },
+    ...[
+      { socketIndex: -1 },
+      { socketIndex: 10_000 },
+      { code: 65_536 },
+      { code: 1000.5 },
+      { wasClean: 1 },
+      { category: "control-taken:private-operator" },
+    ].map((event) => ({ socketCloses: [{ ...viewerFailure.socketCloses[0], ...event }] })),
     { expected: { width: Infinity, height: 850 } },
     { lastFramebuffer: { width: 0.5, height: 0 } },
     { snapshotFramebuffer: { width: 8193, height: 0 } },

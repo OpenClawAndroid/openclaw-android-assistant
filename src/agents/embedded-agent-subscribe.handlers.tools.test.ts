@@ -2675,8 +2675,11 @@ describe("handleToolExecutionEnd timeout metadata", () => {
       const { ctx } = createTestContext();
       await executeProcessResult(ctx, { details });
 
-      expect(ctx.state.lastToolError?.terminalDiagnostic).toMatchObject({ reason });
-      expect(ctx.state.lastToolError?.terminalDiagnostic?.reason).not.toHaveProperty("exitCode");
+      expect(ctx.state.lastToolError?.terminalDiagnostic).toEqual({
+        kind: "process",
+        sessionId: "wild-lagoon",
+        reason,
+      });
     },
   );
 

@@ -238,7 +238,7 @@ describePosix("native worktree cleanup preserves merge evidence", () => {
   );
 
   it.each([false, true])(
-    "preserves orphan entry before pruning/provisioning (stale registration=%s)",
+    "preserves orphan evidence before scoped removal/provisioning (stale registration=%s)",
     (stale) => {
       const f = fixture();
       const dir = f.add(910001, "empty", stale);
@@ -264,7 +264,9 @@ describePosix("native worktree cleanup preserves merge evidence", () => {
       expect(f.branches()).toBe(branches);
       expect(result.status, result.output).not.toBe(0);
       expect(result.output).not.toContain("unexpected-entry-completed");
-      expect(result.output).toContain("reconcile the earlier request manually");
+      expect(result.output).toContain(
+        "Refusing PR worktree cleanup: unregistered or ambiguous PR worktree; scripts/pr refuses to mutate the shared canonical checkout",
+      );
       expect(existsSync(join(f.root, "trash"))).toBe(false);
       expect(f.outcomes()).toBe("");
     },
@@ -340,5 +342,22 @@ describePosix("native worktree cleanup preserves merge evidence", () => {
     expect(
       f.git(["for-each-ref", "--format=%(refname)", "refs/openclaw/pr-operation-locks/"]),
     ).toBe("");
+  });
+
+  it("retains an unregistered orphan even when its merge outcome is valid", () => {
+    const f = fixture();
+    const dir = f.add(910001, "populated", false);
+    f.record(910001, "complete");
+    const before = evidence(dir);
+    const branches = f.branches();
+    const outcomes = f.outcomes();
+    const result = f.run(["gc_pr_worktrees false"]);
+    expect(result.status, result.output).toBe(0);
+    expect(result.output).toContain("cleanup incomplete");
+    expect(result.output).not.toContain("removed .worktrees/pr-910001");
+    expect(evidence(dir)).toEqual(before);
+    expect(f.branches()).toBe(branches);
+    expect(f.outcomes()).toBe(outcomes);
+    expect(existsSync(join(f.root, "trash"))).toBe(false);
   });
 });

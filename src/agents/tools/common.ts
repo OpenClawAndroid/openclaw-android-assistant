@@ -10,7 +10,7 @@ import {
   parseStrictFiniteNumber,
 } from "@openclaw/normalization-core/number-coercion";
 import { asNonArrayRecord } from "@openclaw/normalization-core/record-coerce";
-import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
+import { normalizeSingleOrTrimmedStringList } from "@openclaw/normalization-core/string-normalization";
 import type { TSchema } from "typebox";
 import type {
   AgentTool,
@@ -324,26 +324,9 @@ export function readStringArrayParam(
   options: StringParamOptions = {},
 ) {
   const { required = false, label = key } = options;
-  const raw = readSnakeCaseParamRaw(params, key);
-  if (Array.isArray(raw)) {
-    const values = normalizeStringEntries(raw.filter((entry) => typeof entry === "string"));
-    if (values.length === 0) {
-      if (required) {
-        throw new ToolInputError(`${label} required`);
-      }
-      return undefined;
-    }
+  const values = normalizeSingleOrTrimmedStringList(readSnakeCaseParamRaw(params, key));
+  if (values.length > 0) {
     return values;
-  }
-  if (typeof raw === "string") {
-    const value = raw.trim();
-    if (!value) {
-      if (required) {
-        throw new ToolInputError(`${label} required`);
-      }
-      return undefined;
-    }
-    return [value];
   }
   if (required) {
     throw new ToolInputError(`${label} required`);

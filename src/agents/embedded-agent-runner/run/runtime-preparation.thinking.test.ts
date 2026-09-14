@@ -156,107 +156,102 @@ describe("selected route thinking metadata at runtime preparation", () => {
   });
 
   it.each([
-    { route: "platform", capability: "absent" },
-    { route: "platform", capability: "platform" },
-    { route: "platform", capability: "subscription" },
-    { route: "subscription", capability: "absent" },
-    { route: "subscription", capability: "platform" },
-    { route: "subscription", capability: "subscription" },
-  ] as const)(
-    "preserves $route disablement with $capability prepared capability",
-    async ({ route, capability }) => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(() => {
-          throw new Error("unexpected network request");
-        }),
-      );
-      const catalog = await provider.catalog!.run({
-        config: {},
-        env: {},
-        resolveProviderAuth: () => ({ apiKey: "fixture-token", mode: "token", source: "profile" }),
-        resolveProviderApiKey: () => ({ apiKey: undefined }),
-      });
-      if (!catalog || !("providers" in catalog)) {
-        throw new Error("missing subscription catalog fixture");
-      }
-      const subscriptionRow = catalog.providers.openai?.models.find(
-        (model) => model.id === MODEL_ID,
-      );
-      if (!subscriptionRow) {
-        throw new Error("missing subscription model fixture");
-      }
-      const subscriptionModel = { ...subscriptionRow, provider: "openai" };
-      expect(subscriptionModel.thinkingLevelMap?.off).toBeNull();
-      expect(subscriptionModel.compat?.supportedReasoningEfforts).not.toContain("none");
-      const capabilityModel = capability === "platform" ? platformModel : subscriptionModel;
-      const capabilityApi =
-        capability === "platform" ? "openai-responses" : "openai-chatgpt-responses";
-      expect(capabilityModel.api).toBe(capabilityApi);
-      const capabilityEntry = {
-        ...capabilityModel,
-        api: capabilityApi,
-      } satisfies ModelCatalogEntry;
-      const modelThinkingCapability =
-        capability === "absent"
-          ? undefined
-          : prepareModelRunCapabilities([[capabilityEntry], []], ["openai", MODEL_ID, "codex"])
-              .modelThinkingCapability;
-      const runId = `effort-${route}-${capability}`;
-      const runtime = await prepareEmbeddedRunRuntime({
-        runParams: {
-          runId,
-          admittedRunContext: createTestAdmittedRunContext(runId),
-          sessionId: "effort-session",
-          sessionKey: "agent:main:effort-session",
-          agentId: "main",
-          prompt: "Reply briefly.",
-          workspaceDir: root,
-          timeoutMs: 5_000,
-          config: preparedModelRuntime.config,
-          authProfileId: `openai:${route}`,
-          authProfileIdSource: "user",
-          thinkLevel: "off",
-          modelThinkingCapability,
-        },
-        provider: "openai",
-        modelId: MODEL_ID,
-        agentDir: preparedModelRuntime.agentDir,
+    ["platform", "absent"],
+    ["platform", "platform"],
+    ["platform", "subscription"],
+    ["subscription", "absent"],
+    ["subscription", "platform"],
+    ["subscription", "subscription"],
+  ] as const)("preserves %s disablement with %s prepared capability", async (route, capability) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        throw new Error("unexpected network request");
+      }),
+    );
+    const catalog = await provider.catalog!.run({
+      config: {},
+      env: {},
+      resolveProviderAuth: () => ({ apiKey: "fixture-token", mode: "token", source: "profile" }),
+      resolveProviderApiKey: () => ({ apiKey: undefined }),
+    });
+    if (!catalog || !("providers" in catalog)) {
+      throw new Error("missing subscription catalog fixture");
+    }
+    const subscriptionRow = catalog.providers.openai?.models.find((model) => model.id === MODEL_ID);
+    if (!subscriptionRow) {
+      throw new Error("missing subscription model fixture");
+    }
+    const subscriptionModel = { ...subscriptionRow, provider: "openai" };
+    expect(subscriptionModel.thinkingLevelMap?.off).toBeNull();
+    expect(subscriptionModel.compat?.supportedReasoningEfforts).not.toContain("none");
+    const capabilityModel = capability === "platform" ? platformModel : subscriptionModel;
+    const capabilityApi =
+      capability === "platform" ? "openai-responses" : "openai-chatgpt-responses";
+    expect(capabilityModel.api).toBe(capabilityApi);
+    const capabilityEntry = {
+      ...capabilityModel,
+      api: capabilityApi,
+    } satisfies ModelCatalogEntry;
+    const modelThinkingCapability =
+      capability === "absent"
+        ? undefined
+        : prepareModelRunCapabilities([[capabilityEntry], []], ["openai", MODEL_ID, "codex"])
+            .modelThinkingCapability;
+    const runId = `effort-${route}-${capability}`;
+    const runtime = await prepareEmbeddedRunRuntime({
+      runParams: {
+        runId,
+        admittedRunContext: createTestAdmittedRunContext(runId),
+        sessionId: "effort-session",
+        sessionKey: "agent:main:effort-session",
+        agentId: "main",
+        prompt: "Reply briefly.",
         workspaceDir: root,
-        globalLane: "test",
-        hookRunner: undefined,
-        hookContext: { sessionId: "effort-session", workspaceDir: root },
-        markStartupStage: () => {},
-        notifyExecutionPhase: () => {},
-        fallbackConfigured: false,
-        preparedModelRuntime,
-      });
-      try {
-        const { effectiveModel, activePreparedAuthPlan } = runtime.snapshot();
-        expect(activePreparedAuthPlan.modelRoute?.authRequirement).toBe(
-          route === "platform" ? "api-key" : "subscription",
+        timeoutMs: 5_000,
+        config: preparedModelRuntime.config,
+        authProfileId: `openai:${route}`,
+        authProfileIdSource: "user",
+        thinkLevel: "off",
+        modelThinkingCapability,
+      },
+      provider: "openai",
+      modelId: MODEL_ID,
+      agentDir: preparedModelRuntime.agentDir,
+      workspaceDir: root,
+      globalLane: "test",
+      hookRunner: undefined,
+      hookContext: { sessionId: "effort-session", workspaceDir: root },
+      markStartupStage: () => {},
+      notifyExecutionPhase: () => {},
+      fallbackConfigured: false,
+      preparedModelRuntime,
+    });
+    try {
+      const { effectiveModel, activePreparedAuthPlan } = runtime.snapshot();
+      expect(activePreparedAuthPlan.modelRoute?.authRequirement).toBe(
+        route === "platform" ? "api-key" : "subscription",
+      );
+      expect(effectiveModel.baseUrl).toBe(route === "platform" ? PLATFORM : SUBSCRIPTION);
+      expect(effectiveModel.thinkingLevelMap?.off).toBe(route === "platform" ? "none" : null);
+      const efforts = effectiveModel.compat?.supportedReasoningEfforts ?? [];
+      if (modelThinkingCapability) {
+        expect(modelThinkingCapability.route).toBeUndefined();
+        expect(efforts).toEqual(
+          expect.arrayContaining(
+            modelThinkingCapability.compat.supportedReasoningEfforts?.filter(
+              (effort) => effort !== "none",
+            ) ?? [],
+          ),
         );
-        expect(effectiveModel.baseUrl).toBe(route === "platform" ? PLATFORM : SUBSCRIPTION);
-        expect(effectiveModel.thinkingLevelMap?.off).toBe(route === "platform" ? "none" : null);
-        const efforts = effectiveModel.compat?.supportedReasoningEfforts ?? [];
-        if (modelThinkingCapability) {
-          expect(modelThinkingCapability.route).toBeUndefined();
-          expect(efforts).toEqual(
-            expect.arrayContaining(
-              modelThinkingCapability.compat.supportedReasoningEfforts?.filter(
-                (effort) => effort !== "none",
-              ) ?? [],
-            ),
-          );
-        }
-        if (route === "platform") {
-          expect(efforts).toContain("none");
-        } else {
-          expect(efforts).not.toContain("none");
-        }
-      } finally {
-        runtime.stopRuntimeAuthRefreshTimer();
       }
-    },
-  );
+      if (route === "platform") {
+        expect(efforts).toContain("none");
+      } else {
+        expect(efforts).not.toContain("none");
+      }
+    } finally {
+      runtime.stopRuntimeAuthRefreshTimer();
+    }
+  });
 });

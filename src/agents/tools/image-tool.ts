@@ -420,6 +420,7 @@ function resolveCompressionModelCandidates(params: {
   cfg?: OpenClawConfig;
   imageModelConfig?: ImageModelConfig | null;
   modelOverride?: string;
+  preparedModelRuntime?: PreparedModelRuntimeSnapshot;
 }): Array<{ provider: string; model: string }> {
   const overrideConfig = resolveImageModelConfigForOverride({
     cfg: params.cfg,
@@ -435,7 +436,10 @@ function resolveCompressionModelCandidates(params: {
   const effectiveCfg = effectiveImageModelConfig
     ? applyImageModelConfigDefaults(params.cfg, effectiveImageModelConfig)
     : params.cfg;
-  return resolveImageFallbackCandidates({ cfg: effectiveCfg });
+  return resolveImageFallbackCandidates({
+    cfg: effectiveCfg,
+    manifestPlugins: params.preparedModelRuntime?.metadataSnapshot,
+  });
 }
 
 async function resolveCompressionModelPolicyWithHooks(params: {
@@ -601,6 +605,7 @@ async function runImagePrompt(params: {
 
   const result = await runWithImageModelFallback({
     cfg: effectiveCfg,
+    manifestPlugins: params.preparedModelRuntime?.metadataSnapshot,
     modelOverride: params.modelOverride,
     abortSignal: params.signal,
     run: async (provider, modelId) => {

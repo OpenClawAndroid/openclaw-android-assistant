@@ -72,14 +72,19 @@ async function runSessionSweep(params: {
     readSessions,
     ...(now === undefined ? {} : { now: () => now }),
   });
-  await service.start({ logger: { warn: vi.fn() } } as never);
-  service.onGatewayStart();
-  await vi.waitFor(() => expect(readSessions).toHaveBeenCalledOnce());
-  await new Promise((resolve) => {
-    setTimeout(resolve, 0);
-  });
-  service.onGatewayStop();
-  await service.stop?.({ logger: { warn: vi.fn() } } as never);
+  const runOperation = vi.spyOn(params.store, "runOperation");
+  try {
+    await service.start({ logger: { warn: vi.fn() } } as never);
+    service.onGatewayStart();
+    // The admitted operation spans the full sweep, including SQLite worker writes.
+    expect(runOperation).toHaveBeenCalled();
+    await runOperation.mock.results[0]?.value;
+    expect(readSessions).toHaveBeenCalledOnce();
+  } finally {
+    service.onGatewayStop();
+    await service.stop?.({ logger: { warn: vi.fn() } } as never);
+    runOperation.mockRestore();
+  }
 }
 
 describe("Workboard gateway lifecycle sync", () => {

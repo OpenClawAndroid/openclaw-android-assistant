@@ -1081,7 +1081,7 @@ extensions/slack/src/channel-actions.ts	1
 extensions/slack/src/channel-type.ts	1
 extensions/slack/src/channel.ts	7
 extensions/slack/src/client-delivery.ts	4
-extensions/slack/src/client-options.ts	5
+extensions/slack/src/client-options.ts	2
 extensions/slack/src/directory-live.ts	2
 extensions/slack/src/doctor.ts	1
 extensions/slack/src/group-policy.ts	1
@@ -1570,7 +1570,7 @@ src/agents/agent-run-terminal-error.ts	1
 src/agents/agent-run-terminal-outcome.ts	2
 src/agents/agent-run-terminal-receipt.ts	1
 src/agents/agent-runtime-config.ts	1
-src/agents/agent-scope-config.ts	7
+src/agents/agent-scope-config.ts	3
 src/agents/agent-tool-definition-adapter.ts	4
 src/agents/agent-tool-metadata.ts	2
 src/agents/agent-tools.abort.ts	1
@@ -1653,7 +1653,6 @@ src/agents/compaction-planning.worker.ts	1
 src/agents/compaction-real-conversation.ts	9
 src/agents/compaction-usage.ts	3
 src/agents/compaction.ts	5
-src/agents/config.ts	1
 src/agents/content-blocks.ts	1
 src/agents/context-cache-projection.ts	1
 src/agents/context-cache.ts	1
@@ -1967,7 +1966,7 @@ src/agents/tools/in-process-gateway.ts	1
 src/agents/tools/media-generate-tool-actions-shared.ts	1
 src/agents/tools/message-tool-discovery.ts	3
 src/agents/tools/message-tool-execution.ts	3
-src/agents/tools/message-tool-visible-content.ts	9
+src/agents/tools/message-tool-visible-content.ts	6
 src/agents/tools/mobile-ui-tool.ts	5
 src/agents/tools/music-generate-tool.ts	2
 src/agents/tools/nodes-tool.ts	2
@@ -2321,7 +2320,6 @@ src/commands/channels/list.ts	1
 src/commands/channels/status.runtime.ts	9
 src/commands/cleanup-utils.ts	1
 src/commands/configure.channels.ts	1
-src/commands/configure.commands.ts	1
 src/commands/configure.daemon.ts	1
 src/commands/configure.gateway.ts	1
 src/commands/configure.shared.ts	2
@@ -2996,7 +2994,6 @@ src/infra/session-cost-usage-cache.sqlite.ts	1
 src/infra/session-cost-usage-collection.ts	3
 src/infra/session-cost-usage-pricing.ts	6
 src/infra/session-cost-usage-reporting.ts	5
-src/infra/session-delivery-queue-storage.ts	6
 src/infra/shell-env.ts	1
 src/infra/sqlite-coordinator.ts	2
 src/infra/sqlite-file-generation.ts	9
@@ -3173,7 +3170,6 @@ src/plugin-sdk/facade-runtime.ts	1
 src/plugin-sdk/file-lock.ts	10
 src/plugin-sdk/inbound-reply-dispatch.ts	1
 src/plugin-sdk/lazy-value.ts	1
-src/plugin-sdk/memory-core-bundled-runtime.ts	11
 src/plugin-sdk/memory-host-core.ts	26
 src/plugin-sdk/migration-runtime.ts	4
 src/plugin-sdk/migration.ts	8
@@ -3480,7 +3476,7 @@ src/state/openclaw-state-db-maintenance.ts	3
 src/state/openclaw-state-db-operator-approval-migration.ts	1
 src/state/openclaw-state-db-readonly.ts	1
 src/state/openclaw-state-db-schema-additive.ts	1
-src/state/openclaw-state-db-schema-helpers.ts	4
+src/state/openclaw-state-db-schema-helpers.ts	3
 src/state/openclaw-state-db-schema-repair.ts	2
 src/state/openclaw-state-ownership.ts	1
 src/state/openclaw-state-snapshot-sanitizer.ts	1

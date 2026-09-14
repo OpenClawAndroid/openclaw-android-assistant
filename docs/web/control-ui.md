@@ -23,18 +23,21 @@ It speaks **directly to the Gateway WebSocket** on the same port.
 
 If the Gateway's request queue is full, the Control UI shows "The server is busy. Please try again in a moment." Wait briefly, then retry the action.
 
-While the initial connection or a route loads, shimmer placeholders reserve the chat layout. Opening a lazy panel such as Home or System busyness shows a compact loading card naming the destination, with a Close button to cancel opening it. Loading indicators respect your theme and reduced-motion preference; Gateway startup progress remains visible when available.
+While the initial connection or a route loads, shimmer placeholders reserve the chat layout. Home and System busyness open directly in their destination panels, with working headers and Close controls while the content loads. Brief loads do not flash placeholders; slower loads show placeholders inside the panel, and load errors offer Retry in the same place. The rest of the page stays usable. Loading indicators respect your theme and reduced-motion preference; Gateway startup progress remains visible when available.
 
 The selected chat loads before automatic sidebar task lists refresh. Live events remain subscribed during startup, and explicit sidebar actions remain available. Background lists resume after the transcript loads or reports an error.
 
-Closed Terminal, Browser, Desktop, and Home/Ask OpenClaw panels initialize when you open them rather than during initial navigation. Panels saved as open still restore after a reload.
+Closed Terminal, Browser, and Desktop panels initialize when you open them rather than during initial navigation. Home/Ask OpenClaw and System busyness keep lightweight frames ready and defer their conversation or diagnostic contents until opened. Home preserves its saved dock position and size throughout loading. Panels saved as open still restore after a reload. Settings does not automatically reopen Ask OpenClaw; its control and diagnostic actions can still open it explicitly.
 
 Hidden retained chats defer command and model metadata refreshes until you return to them. Repeated background changes share the current metadata read and refresh once more after it finishes, instead of issuing overlapping requests.
 
 Subagent activity rows lead with the child task's display title, using its configured
-`label` when present. Status and the latest activity appear separately, so parallel
-children remain easy to identify as they finish or fail. Tasks without a display
-title keep the generic **Subagent** label. Select a row to open its details.
+`label` when present, followed by the latest activity. The leading claw moves only
+while running; queued and cancelled tasks stay still, and completion briefly turns
+the claw green. Failed tasks have a warning badge and timed-out tasks a clock badge.
+Hover the row or focus it with the keyboard for a tooltip explaining the exact
+status. Reduced motion keeps the claw still. Tasks without a display title keep
+the generic **Subagent** label. Select a row to open its details.
 
 Choose **New agent** in the sidebar or Agents home to open the custodian chat.
 It recommends a chief of staff, researcher, writer, reviewer, or a small team

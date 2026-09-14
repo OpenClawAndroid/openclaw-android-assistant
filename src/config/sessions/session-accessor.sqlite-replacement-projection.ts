@@ -1,5 +1,6 @@
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
-import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
+import { executeSqliteQuerySync, sqliteStringSet } from "../../infra/kysely-sync.js";
+import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import { isInternalSessionEffectsKey } from "./internal-session-key.js";
 import type {
   SessionEntryReplacementSnapshot,
@@ -14,7 +15,7 @@ import { sqliteSessionEntriesEqual } from "./session-accessor.sqlite-entry-equal
 import {
   deleteLegacySessionEntryRows,
   readExactSessionEntryRow,
-  readSessionEntryStore,
+  iterateSessionEntryKeys,
   type ResolvedSessionEntryRow,
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
@@ -32,8 +33,8 @@ import {
   toDatabaseOptions,
   withSqliteSessionDatabase,
 } from "./session-accessor.sqlite-scope.js";
-import { readSessionEntriesByStatus } from "./session-accessor.sqlite-status.js";
 import type { SessionEntryReplacement } from "./session-accessor.types.js";
+import { assertCanonicalSqliteSessionKeysCurrent } from "./session-canonical-key.js";
 import type { SessionEntry } from "./types.js";
 
 export type SessionEntryCanonicalReplacement = SessionEntryReplacement & {
@@ -65,6 +66,34 @@ type ReplacementProjectionParams<T, TReplacement> = ReplacementProjectionOptions
     | { result: T; replacements?: Iterable<TReplacement> };
 };
 
+function selectReplacementKeys(
+  database: OpenClawAgentDatabase,
+  params: ReplacementProjectionOptions,
+  labelOwnerKeys: readonly string[],
+): string[] {
+  if (params.statuses) {
+    if (params.statuses.length === 0) {
+      return [];
+    }
+    let query = getSessionKysely(database.db)
+      .selectFrom("session_nodes")
+      .select("session_key")
+      .where("status", "in", params.statuses);
+    if (params.sessionKeys) {
+      query = query.where("session_key", "in", sqliteStringSet(params.sessionKeys));
+    }
+    return executeSqliteQuerySync(database.db, query)
+      .rows.map((row) => row.session_key)
+      .toSorted((left, right) => left.localeCompare(right));
+  }
+  if (params.sessionKeys) {
+    return uniqueStrings([...params.sessionKeys, ...labelOwnerKeys]);
+  }
+  assertCanonicalSqliteSessionKeysCurrent(database);
+  // Enumeration needs identities only; the exact row below owns payload decoding and CAS bytes.
+  return [...iterateSessionEntryKeys(database)];
+}
+
 async function applySqliteSessionEntryReplacementProjection<T, TReplacement>(
   params: ReplacementProjectionParams<T, TReplacement>,
   normalize: (replacements: Iterable<TReplacement> | undefined) => SqliteSessionEntryReplacement[],
@@ -94,15 +123,9 @@ async function applySqliteSessionEntryReplacementProjection<T, TReplacement>(
         // Label owners join the read snapshot, never the caller's mutation authority.
         // Reading only their keys avoids hydrating unrelated sessions on every rename.
         const labelOwnerKeys = readLabelOwnerKeys();
-        const selected = selectedStatuses
-          ? readSessionEntriesByStatus(database, [...selectedStatuses], params.sessionKeys)
-          : selectedKeys
-            ? uniqueStrings([...selectedKeys, ...labelOwnerKeys]).map((sessionKey) => ({
-                sessionKey,
-              }))
-            : Object.keys(readSessionEntryStore(database)).map((sessionKey) => ({ sessionKey }));
+        const selected = selectReplacementKeys(database, params, labelOwnerKeys);
         const expectedRows = new Map<string, ResolvedSessionEntryRow>();
-        const entries = selected.flatMap(({ sessionKey }) => {
+        const entries = selected.flatMap((sessionKey) => {
           const row = readExactSessionEntryRow(database, sessionKey);
           if (!row) {
             if (!selectedKeys || selectedStatuses) {
@@ -250,6 +273,8 @@ async function applySqliteSessionEntryReplacementProjection<T, TReplacement>(
                       {
                         ...(params.consumePendingReset ? { consumePendingReset: true } : {}),
                         previousEntry: selectedBefore ?? null,
+                        canonicalPreviousEntry:
+                          transactionEntries.get(replacement.sessionKey) ?? null,
                       },
                     );
                     deleteLegacySessionEntryRows(

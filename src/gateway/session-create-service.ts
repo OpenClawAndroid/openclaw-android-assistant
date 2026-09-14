@@ -98,6 +98,7 @@ import type {
 import { ModelAccountConnectAuthorityError } from "./model-account-connect.js";
 import { authorizeGatewaySessionCreation, resolveCreatorSandbox } from "./operator-role-policy.js";
 import { ADMIN_SCOPE } from "./operator-scopes.js";
+import { prepareSessionCreateFilesystemRoot } from "./server-methods/session-create-root.js";
 import type { GatewayOperatorRoleActor } from "./server-methods/shared-types.js";
 import { buildForkedGatewaySessionEntry } from "./session-create-fork-entry.js";
 import { resolveSessionCreateModelSelection } from "./session-create-model-selection.js";
@@ -999,6 +1000,27 @@ export async function createGatewaySession(params: {
         return { ok: false, error: creationError };
       }
     }
+    const creationSandbox =
+      creation?.sandbox ?? (creation ? resolveCreatorSandbox(params.cfg, creation) : undefined);
+    const sandboxRequired =
+      currentTargetEntry?.sandbox === "required" || creationSandbox === "required";
+    const requestedRoot = normalizeOptionalString(params.spawnedCwd ?? params.sessionRoot);
+    // The parent lock has resolved inherited policy; validate direct roots before binding
+    // a child or allowing transcript/baseline preparation to process the selected checkout.
+    if (sandboxRequired && requestedRoot && !params.execNode) {
+      const root = prepareSessionCreateFilesystemRoot({
+        cfg: params.cfg,
+        enforceSandboxContainment: true,
+        sandboxRequired,
+        requestedProjectId: projectId,
+        sessionCwd: requestedRoot,
+        sessionKey: target.canonicalKey,
+        targetAgentId: target.agentId,
+      });
+      if (!root.ok) {
+        return { ok: false, error: root.error };
+      }
+    }
     const titleModelSelection = resolveSessionCreateModelSelection(
       params.cfg,
       target.agentId,
@@ -1013,6 +1035,8 @@ export async function createGatewaySession(params: {
           key: target.canonicalKey,
           storePath: target.storePath,
           titleModelSelection,
+          projectId,
+          sandboxRequired,
         })
       : undefined;
     if (preparationResult && !preparationResult.ok) {

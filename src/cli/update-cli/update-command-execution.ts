@@ -86,11 +86,14 @@ export async function executeMutableUpdate(
   const { opts, updateStepTimeoutMs } = params;
   const originalRun = opts.run;
   const requesterAuthority = originalRun?.requesterAuthority;
-  const assertExecutionCurrent = () => {
-    assertUpdateCommandRecovery(opts);
+  const assertRequesterCurrent = () => {
     if (opts.run !== originalRun || requesterAuthority?.isCurrent() === false) {
       throw new UpdateRequesterRevokedError();
     }
+  };
+  const assertExecutionCurrent = () => {
+    assertUpdateCommandRecovery(opts);
+    assertRequesterCurrent();
   };
   const mode: UpdateRunResult["mode"] =
     params.updateInstallKind === "git"
@@ -180,6 +183,7 @@ export async function executeMutableUpdate(
       inputHash: validatedConfigSnapshot?.hash,
       changes: doctorConfigChanges,
       assertCurrent: assertExecutionCurrent,
+      assertRequesterCurrent,
     });
   const originalRecovery = () =>
     params.installKind === "git"
@@ -579,7 +583,6 @@ export async function executeMutableUpdate(
         timeoutMs: updateStepTimeoutMs,
         startedAt: params.startedAt,
         progress: params.progress,
-        jsonMode: Boolean(opts.json),
         invocationCwd: params.invocationCwd,
         honorPackageRoot:
           params.managedServiceRootRedirect !== null ||

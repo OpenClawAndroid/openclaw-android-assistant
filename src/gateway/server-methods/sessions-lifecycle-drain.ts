@@ -33,6 +33,7 @@ import {
 import { asWorkerInferenceControl } from "../worker-environments/inference-control.js";
 import type { WorkerSessionPlacementStore } from "../worker-environments/placement-store.js";
 import {
+  prepareSessionWorkerPlacementArchiveCheck,
   prepareSessionWorkerPlacementMutationCheck,
   prepareSessionWorkerPlacementStop,
 } from "../worker-environments/session-placement-lifecycle.js";
@@ -250,15 +251,17 @@ export async function prepareSessionLifecycleDrain(
     if (!drains.every(Boolean)) {
       throw new Error("Session work is still active after the lifecycle drain");
     }
-    // Safe reclaim must finish before the archive or delete can commit.
+    // Failed placements keep cleanup custody without delaying archive visibility.
+    // Other placements and destructive deletion still require safe reclaim.
     await (reclaimed ?? prepared.workerStop.stop());
     // Provider settlement keeps its placement custody and deadline. Only after reclaim
     // finishes does the ordinary admission bound apply, including for local sessions.
     await withTimeout(admittedWork, timeoutMs, "session work admission lifecycle drain");
-    const assertPlacementCurrent = prepareSessionWorkerPlacementMutationCheck({
-      context: params.context,
-      sessionId: params.sessionId,
-    });
+    const placementTarget = { context: params.context, sessionId: params.sessionId };
+    const assertPlacementCurrent =
+      params.action === "archive"
+        ? prepareSessionWorkerPlacementArchiveCheck(placementTarget).assertCurrent
+        : prepareSessionWorkerPlacementMutationCheck(placementTarget);
     return {
       // Only the caller's active mutation may replace this mutex-free ingress lease.
       handoffToMutation: () => releaseAdmissions(),

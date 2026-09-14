@@ -514,10 +514,13 @@ export function loadPluginRegistrySnapshotWithMetadata(
       ),
     );
   if (persistedIndex && contentMatches) {
-    const packageMetadataMatches = isDeepStrictEqual(
-      resolvePluginRegistryContent(persistedIndex, true),
-      resolvePluginRegistryContent(derived.index, true),
-    );
+    // Including package paths also prevents exclusions, so the first comparison is complete.
+    const packageMetadataMatches =
+      comparePackageJsonPath ||
+      isDeepStrictEqual(
+        resolvePluginRegistryContent(persistedIndex, true),
+        resolvePluginRegistryContent(derived.index, true),
+      );
     return {
       snapshot: persistedIndex,
       source: "persisted",

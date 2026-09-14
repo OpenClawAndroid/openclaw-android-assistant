@@ -508,32 +508,51 @@ describe("buildChildCompletionFindings", () => {
   it.each([
     {
       name: "timeout with its preserved failure cause",
+      endedReason: undefined,
       outcome: { status: "timeout", error: "  provider rejected the request  " },
       expected: "timeout: provider rejected the request",
     },
     {
       name: "timeout without a failure cause",
+      endedReason: undefined,
       outcome: { status: "timeout" },
       expected: "timeout",
     },
     {
       name: "ordinary failure with its cause",
+      endedReason: undefined,
       outcome: { status: "error", error: "  provider rejected the request  " },
       expected: "error: provider rejected the request",
     },
-  ] as const)("describes a $name in parent-visible findings", ({ outcome, expected }) => {
-    const findings = buildChildCompletionFindings([
-      {
-        childSessionKey: "agent:main:subagent:child",
-        task: "child task",
-        createdAt: 1,
-        completion: { resultText: "captured findings" },
-        execution: { outcome },
-      },
-    ]);
+    {
+      name: "cancelled child with an authoritative kill reason",
+      endedReason: "subagent-killed",
+      outcome: { status: "error", error: "killed" },
+      expected: "cancelled: killed",
+    },
+    {
+      name: "ordinary failure whose error text mentions a kill",
+      endedReason: undefined,
+      outcome: { status: "error", error: "killed" },
+      expected: "error: killed",
+    },
+  ] as const)(
+    "describes a $name in parent-visible findings",
+    ({ outcome, endedReason, expected }) => {
+      const findings = buildChildCompletionFindings([
+        {
+          childSessionKey: "agent:main:subagent:child",
+          task: "child task",
+          createdAt: 1,
+          completion: { resultText: "captured findings" },
+          endedReason,
+          execution: { outcome },
+        },
+      ]);
 
-    expect(findings).toContain(`status: ${expected}`);
-  });
+      expect(findings).toContain(`status: ${expected}`);
+    },
+  );
 
   it("hard-bounds each child result and the aggregate parent prompt", () => {
     const findings = buildChildCompletionFindings(
@@ -569,7 +588,9 @@ describe("buildChildCompletionFindings", () => {
       },
     ]);
 
-    const block = findings?.match(/<prompt-data>\n([\s\S]*?)\n<\/prompt-data>/)?.[1];
+    const block = findings?.match(
+      /Child result[^\n]*\n<prompt-data>\n([\s\S]*?)\n<\/prompt-data>/,
+    )?.[1];
     expect(block).toBeDefined();
     expect(block!.length).toBeLessThanOrEqual(512);
     expect(block!.endsWith("[child result truncated]")).toBe(true);
@@ -622,11 +643,11 @@ describe("buildChildCompletionFindings", () => {
   });
 
   it("prioritizes an oversized failed completion over a competing oversized success", () => {
-    // 6 oversized successes alone just fit the 4096-char aggregate cap; an
+    // Five separately quoted titles/results fit the aggregate cap; an
     // oversized failure appended after them must still win its slot,
     // displacing the lowest-priority (chronologically last) success.
     const findings = buildChildCompletionFindings([
-      ...Array.from({ length: 6 }, (_, index) => ({
+      ...Array.from({ length: 5 }, (_, index) => ({
         childSessionKey: `agent:main:subagent:success-${index}`,
         task: `large result ${index + 1}`,
         createdAt: index + 1,
@@ -647,7 +668,7 @@ describe("buildChildCompletionFindings", () => {
     expect(findings!.length).toBeLessThanOrEqual(4_096);
     expect(findings).toContain("later oversized failure");
     expect(findings).toContain("status: error: Writable session authorization required.");
-    expect(findings).not.toContain("large result 6");
+    expect(findings).not.toContain("large result 5");
     expect(findings).toContain("[1 additional child completion result omitted");
   });
 
@@ -857,8 +878,8 @@ describe("buildChildCompletionFindings", () => {
       },
     ]);
 
-    expect(findings).toContain("1. visible task");
-    expect(findings).not.toContain("2. visible task");
+    expect(findings).toMatch(/1\. Child task[^\n]*\n<prompt-data>\nvisible task\n/);
+    expect(findings).not.toContain("2. Child task");
   });
 
   it("orders same-timestamp child completions by stable session identity", () => {
@@ -880,7 +901,7 @@ describe("buildChildCompletionFindings", () => {
     const reverse = buildChildCompletionFindings([earlierKey, laterKey]);
 
     expect(forward).toBe(reverse);
-    expect(forward).toMatch(/1\. A task[\s\S]*2\. Z task/);
+    expect(forward).toMatch(/1\. Child task[\s\S]*A task[\s\S]*2\. Child task[\s\S]*Z task/);
   });
 });
 

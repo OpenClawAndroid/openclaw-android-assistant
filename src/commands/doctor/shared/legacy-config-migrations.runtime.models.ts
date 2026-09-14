@@ -234,24 +234,13 @@ export const LEGACY_CONFIG_MIGRATIONS_RUNTIME_MODELS = [
             vllm.listExistingVllmModelTargets(raw),
             vllm.createVllmModelTargets(raw, providerModelIds),
           );
-          if (targets.length === 0) {
-            vllm.removeUntargetedLegacyVllmQwenThinkingFormat({
-              sourcePath: "models.providers.vllm.params",
-              legacyParams: providerParams,
-              legacyFormat: providerLegacyFormat,
-              changes,
-            });
-          } else {
-            for (const target of targets) {
-              vllm.applyLegacyVllmQwenThinkingFormat({
-                sourcePath: "models.providers.vllm.params",
-                legacyParams: providerParams,
-                target,
-                legacyFormat: providerLegacyFormat,
-                changes,
-              });
-            }
-          }
+          vllm.applyLegacyVllmQwenThinkingFormatToTargets({
+            sourcePath: "models.providers.vllm.params",
+            legacyParams: providerParams,
+            targets,
+            legacyFormat: providerLegacyFormat,
+            changes,
+          });
           if (Object.keys(providerParams).length === 0) {
             delete vllmProvider?.params;
           }
@@ -267,24 +256,13 @@ export const LEGACY_CONFIG_MIGRATIONS_RUNTIME_MODELS = [
             defaultModelIds.length > 0
               ? vllm.createVllmModelTargets(raw, defaultModelIds)
               : vllm.listExistingVllmModelTargets(raw);
-          if (targets.length === 0) {
-            vllm.removeUntargetedLegacyVllmQwenThinkingFormat({
-              sourcePath: "agents.defaults.params",
-              legacyParams: defaultParams,
-              legacyFormat: defaultLegacyFormat,
-              changes,
-            });
-          } else {
-            for (const target of targets) {
-              vllm.applyLegacyVllmQwenThinkingFormat({
-                sourcePath: "agents.defaults.params",
-                legacyParams: defaultParams,
-                target,
-                legacyFormat: defaultLegacyFormat,
-                changes,
-              });
-            }
-          }
+          vllm.applyLegacyVllmQwenThinkingFormatToTargets({
+            sourcePath: "agents.defaults.params",
+            legacyParams: defaultParams,
+            targets,
+            legacyFormat: defaultLegacyFormat,
+            changes,
+          });
           if (Object.keys(defaultParams).length === 0) {
             delete agentsDefaults?.params;
           }
@@ -309,24 +287,13 @@ export const LEGACY_CONFIG_MIGRATIONS_RUNTIME_MODELS = [
           agentModelIds.length > 0
             ? vllm.createVllmModelTargets(raw, agentModelIds)
             : vllm.listExistingVllmModelTargets(raw);
-        if (targets.length === 0) {
-          vllm.removeUntargetedLegacyVllmQwenThinkingFormat({
-            sourcePath: `${path}.params`,
-            legacyParams: agentParams,
-            legacyFormat: agentLegacyFormat,
-            changes,
-          });
-        } else {
-          for (const target of targets) {
-            vllm.applyLegacyVllmQwenThinkingFormat({
-              sourcePath: `${path}.params`,
-              legacyParams: agentParams,
-              target,
-              legacyFormat: agentLegacyFormat,
-              changes,
-            });
-          }
-        }
+        vllm.applyLegacyVllmQwenThinkingFormatToTargets({
+          sourcePath: `${path}.params`,
+          legacyParams: agentParams,
+          targets,
+          legacyFormat: agentLegacyFormat,
+          changes,
+        });
         if (Object.keys(agentParams).length === 0) {
           delete agentRecord.params;
         }

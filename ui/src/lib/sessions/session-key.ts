@@ -261,19 +261,22 @@ export function uiConversationMatches(
   selectedKey: string | undefined | null,
   candidateKey: string | undefined | null,
   candidateAgentId?: string | null,
+  selectedAgentId?: string | null,
 ): boolean {
   const selected = normalizeOptionalString(selectedKey);
   const candidate = normalizeOptionalString(candidateKey);
   if (!selected || !candidate) {
     return false;
   }
-  const current = resolveUiConversationIdentity(host, selected);
+  const explicitSelectedAgent = normalizeOptionalString(selectedAgentId);
+  const current = resolveUiConversationIdentity(host, selected, explicitSelectedAgent);
   const explicitAgent = normalizeOptionalString(candidateAgentId);
   const defaultAgent = resolveUiDefaultAgentId(host);
   const other = resolveUiConversationIdentity(host, candidate, explicitAgent ?? defaultAgent);
   const currentAgent = current.agentId ?? defaultAgent;
   const otherAgent = other.agentId ?? defaultAgent;
   return (
+    (!explicitSelectedAgent || normalizeAgentId(explicitSelectedAgent) === currentAgent) &&
     (!explicitAgent || normalizeAgentId(explicitAgent) === otherAgent) &&
     current.sessionKey === other.sessionKey &&
     currentAgent === otherAgent

@@ -608,16 +608,20 @@ describe("createImageGenerateTool", () => {
         },
       ],
     });
+    const firstId = "output---a1b2c3d4-e5f6-4789-abcd-ef1234567890.png";
+    const secondId = "output---b2c3d4e5-f6a7-4890-bcde-f12345678901.png";
+    const firstPath = `/tmp/${firstId}`;
+    const secondPath = `/tmp/${secondId}`;
     const saveMediaBuffer = vi.spyOn(mediaStore, "saveMediaBuffer");
     saveMediaBuffer.mockResolvedValueOnce({
-      path: "/tmp/generated-1.png",
-      id: "generated-1.png",
+      path: firstPath,
+      id: firstId,
       size: 5,
       contentType: "image/png",
     });
     saveMediaBuffer.mockResolvedValueOnce({
-      path: "/tmp/generated-2.png",
-      id: "generated-2.png",
+      path: secondPath,
+      id: secondId,
       size: 5,
       contentType: "image/png",
     });
@@ -690,12 +694,17 @@ describe("createImageGenerateTool", () => {
     expect(details.provider).toBe("openai");
     expect(details.model).toBe("gpt-image-1");
     expect(details.count).toBe(2);
-    expect(media.mediaUrls).toEqual(["/tmp/generated-1.png", "/tmp/generated-2.png"]);
-    expect(details.paths).toEqual(["/tmp/generated-1.png", "/tmp/generated-2.png"]);
+    expect(media.mediaUrls).toEqual([firstPath, secondPath]);
+    expect(details.paths).toEqual([firstPath, secondPath]);
+    expect(media.attachments).toMatchObject([
+      { path: firstPath, name: "output.png" },
+      { path: secondPath, name: "output.png" },
+    ]);
     expect(details.filename).toBe("cats/output.png");
     expect(details.revisedPrompts).toEqual(["A more cinematic cat"]);
-    expect(text).toContain('path="/tmp/generated-1.png"');
-    expect(text).toContain('path="/tmp/generated-2.png"');
+    expect(text).toContain(`path="${firstPath}"`);
+    expect(text).toContain(`path="${secondPath}"`);
+    expect(text).toContain('name="output.png"');
     expect(text).not.toMatch(/^MEDIA:/m);
   });
 
@@ -846,7 +855,7 @@ describe("createImageGenerateTool", () => {
     expect(resultDetails(result).timeoutMs).toBe(180_000);
   });
 
-  it("starts image generation asynchronously when a session delivery context is available", async () => {
+  it("starts image generation asynchronously and keeps the selected filename on completion", async () => {
     stubImageGenerationProviders();
     vi.stubEnv("OPENAI_API_KEY", "openai-test");
     const generateImage = vi.spyOn(imageGenerationRuntime, "generateImage").mockResolvedValue({
@@ -861,6 +870,14 @@ describe("createImageGenerateTool", () => {
           fileName: "cat.png",
         },
       ],
+    });
+    const savedId = "poster---a1b2c3d4-e5f6-4789-abcd-ef1234567890.png";
+    const savedPath = `/tmp/${savedId}`;
+    const save = vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValueOnce({
+      path: savedPath,
+      id: savedId,
+      size: 7,
+      contentType: "image/png",
     });
     taskRuntimeMocks.createRunningTaskRun.mockReturnValue({
       taskId: "task-image-123",
@@ -894,6 +911,7 @@ describe("createImageGenerateTool", () => {
     const result = await tool.execute("call-async", {
       prompt: "A cat wearing sunglasses",
       model: "openai/gpt-image-1",
+      filename: "poster.png",
     });
 
     expect(generateImage).not.toHaveBeenCalled();
@@ -920,6 +938,7 @@ describe("createImageGenerateTool", () => {
     const duplicateResult = await tool.execute("call-async-duplicate", {
       prompt: "A cat wearing sunglasses",
       model: "openai/gpt-image-1",
+      filename: "poster.png",
     });
 
     expect(scheduled).toHaveLength(1);
@@ -928,6 +947,24 @@ describe("createImageGenerateTool", () => {
       "Image generation task task-image-123 is already running",
     );
     expect(resultDetails(duplicateResult).duplicateGuard).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+
+    await scheduled[0]!();
+
+    expect(generateImage).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledOnce();
+    expect(taskRuntimeMocks.completeTaskRunByRunId).toHaveBeenCalledOnce();
+    expect(subagentAnnounceDeliveryMocks.deliverSubagentAnnouncement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        internalEvents: [
+          expect.objectContaining({
+            attachments: [expect.objectContaining({ path: savedPath, name: "poster.png" })],
+            mediaUrls: [savedPath],
+            result: expect.stringContaining('name="poster.png"'),
+          }),
+        ],
+      }),
+    );
   });
 
   defineMediaGenerationCancellationTests({

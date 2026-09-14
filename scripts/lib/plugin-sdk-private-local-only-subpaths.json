@@ -209,6 +209,5 @@
   "video-generation-runtime",
   "web-content-extractor",
   "webhook-targets",
-  "websocket-runtime",
   "windows-spawn"
 ]

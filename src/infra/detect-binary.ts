@@ -1,9 +1,9 @@
 // Detects safe executable names or paths without shell evaluation.
-import fs from "node:fs/promises";
 import path from "node:path";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { resolveUserPath } from "../utils.js";
 import { isSafeExecutableValue } from "./exec-safety.js";
+import { isExecutableFile } from "./executable-path.js";
 import { getWindowsSystem32ExePath } from "./windows-install-roots.js";
 
 // Binary detection accepts safe executable names or explicit paths and avoids
@@ -23,12 +23,9 @@ export async function detectBinary(name: string): Promise<boolean> {
     resolved.includes("/") ||
     resolved.includes("\\")
   ) {
-    try {
-      await fs.access(resolved);
-      return true;
-    } catch {
-      return false;
-    }
+    // Callers execute this path as supplied. Let the filesystem resolve symlink/..
+    // and trailing separators instead of changing their meaning with path.resolve.
+    return isExecutableFile(resolved);
   }
 
   const command =

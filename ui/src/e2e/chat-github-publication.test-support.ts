@@ -17,6 +17,7 @@ export const publicationOptions = {
     pending: null,
   },
   pendingPersonal: null,
+  latestShared: null,
 };
 export const publicationMethods = [
   "chat.metadata",
@@ -39,7 +40,7 @@ export async function showPublicationBranch(
         pullRequests: [],
         branch: { owner: "openclaw", repo: "openclaw", branch, additions: 7, deletions: 2 },
         rateLimited: false,
-        status: "ok",
+        status: "ready",
       },
     },
   });

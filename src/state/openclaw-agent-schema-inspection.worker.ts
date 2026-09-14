@@ -1,6 +1,6 @@
 import { once } from "node:events";
-import { formatErrorMessage } from "../infra/errors.js";
 import { tryInspectSqliteReadOnlyInProcess } from "../infra/sqlite-readonly-inspection.js";
+import { serializeAgentSchemaInspectionError } from "./openclaw-agent-schema-inspection-response.js";
 import {
   inspectAgentDatabaseSchema,
   type AgentSchemaInspectionInput,
@@ -14,10 +14,28 @@ const disconnect = process.disconnect.bind(process);
 // SAFETY: Only the schema preflight owner sends this private IPC input.
 const [input] = (await once(process, "message")) as [AgentSchemaInspectionInput];
 try {
-  const inspected = tryInspectSqliteReadOnlyInProcess(input.pathname, (database) =>
-    inspectAgentDatabaseSchema(database, input),
+  const inspected = tryInspectSqliteReadOnlyInProcess(input.pathname, (database) => {
+    if (input.requireStartupMigrationReadiness) {
+      // sqlite-allow-raw -- Match the disposable integrity child's connection-local cache budget.
+      database.exec("PRAGMA cache_size = -65536;");
+    }
+    return inspectAgentDatabaseSchema(database, input);
+  });
+  const inspection = inspected?.value;
+  send(
+    {
+      ok: true,
+      inspection: inspection
+        ? {
+            ...inspection,
+            ...(inspection.failure
+              ? { failure: serializeAgentSchemaInspectionError(inspection.failure) }
+              : {}),
+          }
+        : null,
+    },
+    disconnect,
   );
-  send({ ok: true, inspection: inspected?.value ?? null }, disconnect);
 } catch (error) {
-  send({ ok: false, message: formatErrorMessage(error) }, disconnect);
+  send({ ok: false, error: serializeAgentSchemaInspectionError(error) }, disconnect);
 }

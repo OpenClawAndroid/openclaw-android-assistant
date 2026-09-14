@@ -1,3 +1,4 @@
+import { scheduleYieldedSubagentRunProgress } from "../../../tasks/task-registry-progress.js";
 /** Settles durable child ownership when the spawning requester turn ends. */
 import type { AcceptedSessionSpawn } from "../../accepted-session-spawn.js";
 import {
@@ -213,6 +214,11 @@ export function settleRequesterTurnAfterSessionSpawns(params: {
       batchRunIds,
       rearmGeneration,
     });
+  }
+  if (rearmGeneration !== undefined) {
+    for (const entry of entries) {
+      scheduleYieldedSubagentRunProgress(entry);
+    }
   }
   if (
     rearmGeneration !== undefined &&

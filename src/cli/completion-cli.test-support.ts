@@ -180,7 +180,7 @@ while (($encodedRequest = [Console]::In.ReadLine()) -ne $null) {
     $completions = @(
       [System.Management.Automation.CommandCompletion]::CompleteInput(
         $commandLine,
-        $commandLine.Length,
+        [int]$request.cursorPosition,
         $null
       ).CompletionMatches | ForEach-Object { [string]$_.CompletionText }
     )
@@ -249,15 +249,23 @@ export class PowerShellCompletionRunner {
   private readyPromise: Promise<void> | undefined;
   private stdoutLines: ReadlineInterface | undefined;
 
-  complete(program: Command, commandLine: string): Promise<string[]> {
+  complete(
+    program: Command,
+    commandLine: string,
+    cursorPosition = commandLine.length,
+  ): Promise<string[]> {
     const script = getCompletionScript("powershell", program);
     const caseId = createHash("sha256")
       .update(script)
       .update("\0")
       .update(commandLine)
+      .update("\0")
+      .update(String(cursorPosition))
       .digest("hex")
       .slice(0, 20);
-    const result = this.queue.then(() => this.completeCase(caseId, script, commandLine));
+    const result = this.queue.then(() =>
+      this.completeCase(caseId, script, commandLine, cursorPosition),
+    );
     this.queue = result.then(
       () => undefined,
       () => undefined,
@@ -307,6 +315,7 @@ export class PowerShellCompletionRunner {
     caseId: string,
     script: string,
     commandLine: string,
+    cursorPosition: number,
   ): Promise<string[]> {
     await this.start();
     if (this.failure) {
@@ -322,6 +331,7 @@ export class PowerShellCompletionRunner {
         id: caseId,
         script: Buffer.from(script, "utf8").toString("base64"),
         commandLine: Buffer.from(commandLine, "utf8").toString("base64"),
+        cursorPosition,
       }),
       "utf8",
     ).toString("base64");

@@ -128,6 +128,23 @@ Each request fetches current quotas for the selected saved subscription login.
 The request requires `operator.admin` and rejects changed or removed credentials.
 Proxy launch arguments are rejected to avoid changing a shared daemon's login.
 
+## Native subagent status
+
+Native Codex subagents appear under their parent in OpenClaw's task view.
+Their current execution, task result, and result delivery are separate facts.
+An approval or input request shows what needs attention. A native mailbox wait
+shows that the agent is waiting for messages; it does not invent a list of child
+dependencies. Idle, interrupted, or unloaded native threads do not prove that
+the delegated task succeeded. A resumed native turn clears the previous turn's
+current tool activity while retaining the task identity.
+
+Codex owns native subagent execution and controls. Follow up through the parent
+session, which can use Codex's native collaboration tools. OpenClaw's task view
+observes those children and delivers results after a parent yields. The native
+foreground parent already receives completion messages, so OpenClaw does not
+send another continuation for a result it has consumed. Explicit OpenClaw or ACP
+delegation continues to use `sessions_spawn`.
+
 ## Requirements
 
 - The official `@openclaw/codex` plugin installed. Include `codex` in

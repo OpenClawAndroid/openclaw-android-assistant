@@ -1,9 +1,7 @@
-import { asOptionalRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { executeSqliteQueryTakeFirstSync } from "../../infra/kysely-sync.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
-import { extractAssistantPhaseText } from "../../shared/chat-message-content.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import {
   readOpenClawAgentDatabaseIdentity,
@@ -15,9 +13,8 @@ import {
   type OpenClawAgentReadOnlyDatabase,
 } from "../../state/openclaw-agent-db-readonly.js";
 import { registerOpenClawAgentDatabaseAsyncResource } from "../../state/openclaw-agent-db-resources.js";
-import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
+import { readSessionBranchSummaries } from "./session-accessor.sqlite-branch-summaries.js";
 import { readSessionEntryRow } from "./session-accessor.sqlite-entry-store.js";
-import { loadTranscriptEventsFromDatabase } from "./session-accessor.sqlite-read.js";
 import {
   getSessionKysely,
   normalizeSqliteSessionKey,
@@ -31,13 +28,7 @@ import type {
 } from "./session-accessor.types.js";
 import { readRestoredSessionTranscript } from "./session-cold-storage-read.js";
 import { assertSessionTranscriptHot } from "./session-cold-storage-state.js";
-import {
-  isSessionTranscriptLeafControl,
-  scanSessionTranscriptTree,
-  type SessionTranscriptTree,
-} from "./transcript-tree.js";
 
-const BRANCH_HEADLINE_MAX_CHARS = 120;
 const SESSION_BRANCH_CACHE_MAX_ENTRIES = 32;
 
 type SessionBranchWatermark = { generation: string | null; maxSeq: number | null };
@@ -45,7 +36,6 @@ type SessionBranchCacheEntry = SessionBranchWatermark & {
   branches: SessionBranchSummary[];
   identity: OpenClawAgentDatabaseIdentity;
 };
-type SessionBranchPathSummary = Pick<SessionBranchSummary, "headline" | "messageCount">;
 
 export type SessionBranchSummaryReadRequest = {
   database: { agentId: string; path: string };
@@ -159,9 +149,7 @@ function readSessionBranchSnapshot(
       // The watermark and rows must describe the same snapshot, even when a peer appends.
       const watermark = readSessionBranchWatermark(database, expected.sessionId);
       const cached = readCachedSessionBranchSummaries(database, expected.sessionId, watermark);
-      const branches =
-        cached ??
-        summarizeSessionBranches(loadTranscriptEventsFromDatabase(database, expected.sessionId));
+      const branches = cached ?? readSessionBranchSummaries(database, expected.sessionId);
       if (!cached) {
         cacheSessionBranchSummaries(database, expected.sessionId, { ...watermark, branches });
       }
@@ -282,113 +270,4 @@ export async function listSessionBranches(
   } catch {
     return { status: "failed" };
   }
-}
-
-function summarizeSessionBranches(events: readonly TranscriptEvent[]): SessionBranchSummary[] {
-  const tree = scanSessionTranscriptTree(events);
-  const pathSummaries = new Map<string, SessionBranchPathSummary>();
-  return (
-    sessionBranchTipNodes(tree)
-      .toSorted(
-        (left, right) =>
-          Number(right.id === tree.leafId) - Number(left.id === tree.leafId) ||
-          right.index - left.index,
-      )
-      // SAFETY: scanSessionTranscriptTree inserts every returned node into byId.
-      .map((node) => summarizeSessionBranch(tree, tree.byId.get(node.id)!, pathSummaries))
-  );
-}
-
-export function sessionBranchTipNodes(tree: SessionTranscriptTree<TranscriptEvent>) {
-  const referencedParents = new Set(
-    tree.nodes.flatMap((node) =>
-      isSessionTranscriptLeafControl(node.entry) || node.parentId === null ? [] : [node.parentId],
-    ),
-  );
-  return tree.nodes.filter(
-    (node) =>
-      !isSessionTranscriptLeafControl(node.entry) &&
-      (node.id === tree.leafId || !referencedParents.has(node.id)),
-  );
-}
-
-function summarizeSessionBranch(
-  tree: SessionTranscriptTree<TranscriptEvent>,
-  leaf: SessionTranscriptTree<TranscriptEvent>["nodes"][number],
-  summaries: Map<string, SessionBranchPathSummary>,
-): SessionBranchSummary {
-  const uncachedPath: typeof tree.nodes = [];
-  const seen = new Set<string>();
-  let current = leaf;
-  // Stop at the first cached ancestor so every shared prefix is summarized once.
-  // A cycle still produces the empty summary returned by the path selector.
-  while (!summaries.has(current.id)) {
-    if (seen.has(current.id)) {
-      uncachedPath.length = 0;
-      break;
-    }
-    seen.add(current.id);
-    uncachedPath.push(current);
-    const parent = current.parentId === null ? undefined : tree.byId.get(current.parentId);
-    if (!parent) {
-      break;
-    }
-    current = parent;
-  }
-
-  let summary = summaries.get(current.id);
-  for (const node of uncachedPath.toReversed()) {
-    const record = asRecord(node.entry);
-    const headline = record?.type === "message" ? extractHeadlineText(record.message) : undefined;
-    summary = {
-      headline: headline ?? summary?.headline ?? "",
-      messageCount: (summary?.messageCount ?? 0) + (record?.type === "message" ? 1 : 0),
-    };
-    summaries.set(node.id, summary);
-  }
-
-  const timestamp = asRecord(leaf.entry)?.timestamp;
-  return {
-    leafEntryId: leaf.id,
-    headline: truncateBranchHeadline(summary?.headline ?? ""),
-    messageCount: summary?.messageCount ?? 0,
-    ...(typeof timestamp === "string" && timestamp.trim() ? { updatedAt: timestamp } : {}),
-    active: tree.leafId === leaf.id,
-  };
-}
-
-function extractHeadlineText(messageValue: unknown): string | undefined {
-  const message = asRecord(messageValue);
-  if (message?.role !== "user" && message?.role !== "assistant") {
-    return undefined;
-  }
-  const text =
-    message.role === "assistant"
-      ? extractAssistantPhaseText(message)
-      : extractEditorText(message.content ?? message.text);
-  const normalized = text?.replace(/\s+/g, " ").trim();
-  return normalized || undefined;
-}
-
-function truncateBranchHeadline(value: string): string {
-  const characters = Array.from(value);
-  return characters.length <= BRANCH_HEADLINE_MAX_CHARS
-    ? value
-    : `${characters.slice(0, BRANCH_HEADLINE_MAX_CHARS - 1).join("")}…`;
-}
-
-export function extractEditorText(content: unknown): string | undefined {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-  const text = content
-    .flatMap((block) => {
-      const record = asRecord(block);
-      return record?.type === "text" && typeof record.text === "string" ? [record.text] : [];
-    })
-    .join("");
-  return text || undefined;
 }

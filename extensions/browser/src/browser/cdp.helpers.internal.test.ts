@@ -2,8 +2,8 @@
 import http, { createServer } from "node:http";
 import type { Socket } from "node:net";
 import { rawDataToString } from "openclaw/plugin-sdk/webhook-ingress";
+import { WebSocketServer } from "openclaw/plugin-sdk/websocket-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WebSocketServer } from "ws";
 import { toErrorObject } from "../infra/errors.js";
 
 const fetchWithSsrFGuardMock = vi.hoisted(() => vi.fn());

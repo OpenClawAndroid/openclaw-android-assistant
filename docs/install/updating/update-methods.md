@@ -315,5 +315,8 @@ different npm prefix alone does not isolate operator state.
   </Accordion>
   <Accordion title="Disk-space preflight">
     Before package updates and explicit plugin installs, OpenClaw tries a best-effort disk-space check for the target volume. Low space produces a warning with the checked path, but does not block the update because filesystem quotas, snapshots, and network volumes can change after the check. The actual package-manager install and post-install verification remain authoritative.
+
+    For package updates, the check runs before registry lookups and database-schema validation. Managed update runs retain the warning in update history so it also appears in the Control UI.
+
   </Accordion>
 </AccordionGroup>

@@ -20,7 +20,7 @@ class ChatToolResultProjectionTest {
     role: String = "assistant",
   ) = ChatMessage(id, role, listOf(ChatMessageContent(type = "text", text = id)), 1)
 
-  private fun timeline(messages: List<ChatMessage>) = buildChatTimeline(messages, 0, emptyList(), null)
+  private fun timeline(messages: List<ChatMessage>) = prepareChatHistory(messages, "agent:main:main").buildTimeline(0, emptyList(), null)
 
   @Test
   fun resultAcrossCommentaryUpdatesOriginalInvocationWithoutGenericRow() {
@@ -139,7 +139,7 @@ class ChatToolResultProjectionTest {
       assertEquals(2, groups.size)
       assertEquals(listOf(output, call), groups.flatMap { it.tools })
       assertEquals(forwarded.content.isNotEmpty(), built.items.filterIsInstance<ChatTimelineItem.Message>().any { it.message.id == "forwarded" })
-      val collapsed = built.withCompletedWorkGroups(history, false, emptySet(), "agent:main:dashboard:test")
+      val collapsed = prepareChatHistory(history, "agent:main:dashboard:test").buildTimeline(0, emptyList(), null)
       assertEquals(
         listOf("new-final", "previous-final"),
         collapsed.items

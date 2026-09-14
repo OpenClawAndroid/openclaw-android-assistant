@@ -6,6 +6,7 @@ import type {
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ModelCatalogResult } from "../../api/types.ts";
 import { invalidateModelCatalogCache } from "../model-catalog-cache.ts";
+import { readSessionChangedEvent } from "../sessions/reconcile.ts";
 import type { UiSessionDefaultsHost } from "../sessions/session-key.ts";
 
 export type ChatMetadataResult = CommandsListResult;
@@ -59,10 +60,10 @@ export const chatMetadataCache = new WeakMap<
   GatewayBrowserClient,
   {
     entries: Map<string, ChatMetadataEntry>;
-    invalidate: (scope?: ChatMetadataParams, sessionDefaults?: UiSessionDefaultsHost) => void;
-    invalidateSession: (
-      source: Record<string, unknown> | null,
-      sessionDefaults: UiSessionDefaultsHost,
+    invalidate: (
+      scope?: ChatMetadataParams,
+      sessionDefaults?: UiSessionDefaultsHost,
+      sessionEvent?: Record<string, unknown> | null,
     ) => void;
   }
 >();
@@ -73,10 +74,7 @@ export function invalidateChatMetadataStore(
   sessionDefaults?: UiSessionDefaultsHost,
 ): void {
   // Catalog readers share this lifecycle; retire their copies before metadata listeners reload.
-  invalidateModelCatalogCache(
-    client,
-    sessionDefaults && scope?.sessionKey ? { agentId: scope.agentId, sessionsOnly: true } : scope,
-  );
+  invalidateModelCatalogCache(client, scope, sessionDefaults);
   chatMetadataCache.get(client)?.invalidate(scope, sessionDefaults);
 }
 
@@ -86,8 +84,10 @@ export function invalidateChatMetadataForSessionEvent(
   sessionDefaults: UiSessionDefaultsHost,
 ): void {
   const source = asNullableRecord(payload);
+  const changed = readSessionChangedEvent(source);
   const agentId = typeof source?.agentId === "string" ? source.agentId : undefined;
-  // Session aliases are resolved by the Gateway; retire saved model projections for this agent.
-  invalidateModelCatalogCache(client, { agentId, sessionsOnly: true });
-  chatMetadataCache.get(client)?.invalidateSession(source, sessionDefaults);
+  const scope = changed ? { agentId, sessionKey: changed.key } : undefined;
+  // Coalesced events can replace a mutation's reason with later activity.
+  invalidateModelCatalogCache(client, scope ?? { agentId, sessionsOnly: true }, sessionDefaults);
+  chatMetadataCache.get(client)?.invalidate(scope, sessionDefaults, source);
 }

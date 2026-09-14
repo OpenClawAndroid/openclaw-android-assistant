@@ -90,6 +90,12 @@ export const SessionsCreateParamsSchema = closedObject({
   /** Remote-owned source; create, dispatch, then send the initial turn. */
   repository: Type.Optional(SessionRepositorySourceSchema),
   worktree: Type.Optional(Type.Boolean()),
+  worktreeSource: Type.Optional(
+    Type.Literal("empty", {
+      description:
+        "Start a fresh isolated workspace without copying a repository or agent workspace. Requires worktree=true; cannot be combined with cwd, project, repository, catalog, execNode, or worktreeBaseRef.",
+    }),
+  ),
   worktreeBaseRef: Type.Optional(
     Type.String({
       minLength: 1,

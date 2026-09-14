@@ -605,7 +605,7 @@ struct ChatSidebarAgentAvatar: View {
 
     var body: some View {
         Text(self.avatarText)
-            .font(.system(size: self.size * 0.5, weight: .medium))
+            .font(OpenClawChatTypography.navigationAvatar(size: self.size * 0.5))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .frame(width: self.size, height: self.size)

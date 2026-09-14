@@ -64,7 +64,7 @@ export type ConfirmAndStartUpdateParams = {
   updateAvailable: UpdateAvailable | null;
   updateSchedule: UpdateScheduleState | null;
   existingRun?: UpdateRunRecord;
-  onCheckStatus?: () => Promise<void>;
+  onCheckStatus?: () => Promise<boolean>;
   onReviewUpdate?: () => void;
   onAcknowledge?: () => void;
   /**

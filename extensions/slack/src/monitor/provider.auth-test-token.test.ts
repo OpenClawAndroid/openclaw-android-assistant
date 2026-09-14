@@ -339,7 +339,7 @@ describe("auth.test boot call", () => {
       expect(events).toContain("auth-settled");
       expect(events.indexOf("auth-settled")).toBeLessThan(events.indexOf("app-start"));
       expect(runtimeLog).toHaveBeenCalledWith(
-        expect.stringMatching(/slack auth\.test failed at boot .*timeout/i),
+        expect.stringMatching(/slack auth\.test failed at boot .*(?:timeout|timed out)/i),
       );
     } finally {
       monitor.controller.abort();

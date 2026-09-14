@@ -19,6 +19,7 @@ import type { SessionEntry, SessionToolOverrides } from "../../../config/session
 import type { ReplyToMode } from "../../../config/types.base.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import type { GroupToolPolicyConfig } from "../../../config/types.tools.js";
+import type { GatewayUiCommandTarget } from "../../../gateway/ui-command-target.types.js";
 import type { MediaFact } from "../../../media/media-facts.js";
 import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
 import type { PluginHookChannelContext } from "../../../plugins/hook-types.js";
@@ -195,6 +196,7 @@ export type FollowupRun = {
     runtimePolicySessionKey?: string;
     messageProvider?: string;
     clientCaps?: string[];
+    gatewayUiCommandTarget?: GatewayUiCommandTarget;
     toolBindings?: Readonly<Record<string, unknown>>;
     chatType?: ChatType;
     agentAccountId?: string;
@@ -305,8 +307,42 @@ const admittingTurnAdoptionLifecycles = new WeakMap<TurnAdoptionLifecycle, Promi
 const retiredTurnAdoptionCancellationLifecycles = new WeakSet<TurnAdoptionLifecycle>();
 const completedTurnAdoptionLifecycles = new WeakSet<TurnAdoptionLifecycle>();
 const completedTurnAdoptionLifecycleCallbacks = new WeakSet<TurnAdoptionLifecycle>();
+const deferredHeartbeatStops = new WeakMap<TurnAdoptionLifecycle, () => void>();
 
 type FollowupLifecycleRun = Pick<FollowupRun, "steerPending" | "turnAdoptionLifecycle">;
+
+function startFollowupRunDeferredHeartbeat(lifecycle: TurnAdoptionLifecycle): void {
+  const intervalMs = lifecycle.deferredHeartbeatIntervalMs;
+  const heartbeat = lifecycle.onDeferredHeartbeat;
+  if (
+    !heartbeat ||
+    intervalMs === undefined ||
+    !Number.isFinite(intervalMs) ||
+    intervalMs <= 0 ||
+    lifecycle.abortSignal?.aborted ||
+    admittedTurnAdoptionLifecycles.has(lifecycle) ||
+    completedTurnAdoptionLifecycles.has(lifecycle)
+  ) {
+    return;
+  }
+  const pulse = () => {
+    try {
+      heartbeat();
+    } catch {
+      // Leave recovery to the ingress watchdog when its liveness callback fails.
+      deferredHeartbeatStops.get(lifecycle)?.();
+    }
+  };
+  const timer = setInterval(pulse, intervalMs).unref();
+  const stop = () => {
+    clearInterval(timer);
+    lifecycle.abortSignal?.removeEventListener("abort", stop);
+    deferredHeartbeatStops.delete(lifecycle);
+  };
+  deferredHeartbeatStops.set(lifecycle, stop);
+  lifecycle.abortSignal?.addEventListener("abort", stop, { once: true });
+  pulse();
+}
 
 export function markFollowupRunEnqueued(run: FollowupLifecycleRun): boolean {
   const lifecycle = run.turnAdoptionLifecycle;
@@ -315,6 +351,7 @@ export function markFollowupRunEnqueued(run: FollowupLifecycleRun): boolean {
       return false;
     }
     enqueuedTurnAdoptionLifecycles.add(lifecycle);
+    startFollowupRunDeferredHeartbeat(lifecycle);
   }
   return true;
 }
@@ -346,6 +383,7 @@ export async function admitFollowupRunLifecycle(run: FollowupLifecycleRun): Prom
     if (!admittedTurnAdoptionLifecycles.has(lifecycle)) {
       await lifecycle.onAdopted();
       admittedTurnAdoptionLifecycles.add(lifecycle);
+      deferredHeartbeatStops.get(lifecycle)?.();
     }
   });
 
@@ -381,6 +419,7 @@ export function completeFollowupRunLifecycle(
   };
 
   if (lifecycle && !completedTurnAdoptionLifecycles.has(lifecycle)) {
+    deferredHeartbeatStops.get(lifecycle)?.();
     completedTurnAdoptionLifecycles.add(lifecycle);
   }
 

@@ -38,6 +38,58 @@ beforeEach(() => {
 });
 
 describe("buildSubagentList", () => {
+  it("keeps a yielded child visible with its real wait and independent delivery state", () => {
+    const now = Date.now();
+    const parent: SubagentRunRecord = {
+      runId: "yielded-parent",
+      childSessionKey: "agent:main:subagent:yielded-parent",
+      requesterSessionKey: "agent:main:main",
+      requesterDisplayKey: "main",
+      task: "Wait for remote evidence",
+      cleanup: "keep",
+      createdAt: now - 3_600_000,
+      pauseReason: "sessions_yield",
+      execution: { status: "terminal", endedAt: now - 3_500_000, outcome: { status: "ok" } },
+      delivery: { status: "pending" },
+    };
+    addSubagentRunForTests(parent);
+    const list = () => buildSubagentList({ cfg: {}, runs: [parent], recentMinutes: 30 });
+    expect(list().active[0]).toMatchObject({
+      status: "waiting for external continuation",
+      execution: { state: "waiting", wait: { kind: "external" } },
+      deliveryStatus: "pending",
+    });
+
+    const child: SubagentRunRecord = {
+      ...parent,
+      runId: "evidence-child",
+      childSessionKey: "agent:main:subagent:evidence-child",
+      requesterSessionKey: parent.childSessionKey,
+      createdAt: now,
+      pauseReason: undefined,
+      execution: { status: "running", startedAt: now },
+      expectsCompletionMessage: true,
+    };
+    addSubagentRunForTests(child);
+    expect(list().active[0]?.execution).toEqual({
+      state: "waiting",
+      wait: {
+        kind: "children",
+        pendingCount: 1,
+        dependencies: [{ runId: child.runId, sessionKey: child.childSessionKey }],
+      },
+    });
+    addSubagentRunForTests({ ...child, expectsCompletionMessage: false });
+    expect(list().active[0]).toMatchObject({
+      status: "waiting for external continuation",
+      execution: { state: "waiting", wait: { kind: "external" } },
+    });
+    resetSubagentRegistryForTests();
+    const killed = { ...parent, endedReason: SUBAGENT_ENDED_REASON_KILLED };
+    addSubagentRunForTests(killed);
+    expect(buildSubagentList({ cfg: {}, runs: [killed], recentMinutes: 30 }).active).toEqual([]);
+  });
+
   it("builds the subagent list without decoding unrelated saved prompts", async () => {
     const stateDir = await fs.mkdtemp(path.join(testWorkspaceDir, "metadata-"));
     await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {

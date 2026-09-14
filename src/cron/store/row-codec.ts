@@ -341,7 +341,8 @@ export function replaceCronRows(
     db,
     getCronStoreKysely(db)
       .selectFrom("cron_jobs")
-      .select(["job_id", "job_json"])
+      .select("job_id")
+      .$if(opts?.preserveRuntimeState === true, (query) => query.select("job_json"))
       .where("store_key", "=", storeKey),
   ).rows;
   const normalizedJobs: CronStoredJob[] = [];
@@ -353,7 +354,7 @@ export function replaceCronRows(
   const legacyAuthorityJobIds = new Set<string>();
   for (const row of existingRows) {
     existingJobIds.add(row.job_id);
-    const storedJob = tryParseJsonObject(row.job_json);
+    const storedJob = row.job_json === undefined ? undefined : tryParseJsonObject(row.job_json);
     if (
       storedJob &&
       (Object.hasOwn(storedJob, "runtimeAuthority") ||

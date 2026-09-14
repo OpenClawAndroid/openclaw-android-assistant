@@ -357,7 +357,6 @@ const portableScripts = [
   "scripts/e2e/sandbox-browser-sidecar-docker.sh",
   "scripts/e2e/session-runtime-context-docker.sh",
   "scripts/e2e/skill-install-docker.sh",
-  "scripts/e2e/status-corrupt-plugin-deps.sh",
   "scripts/e2e/system-agent-first-run-docker.sh",
   "scripts/e2e/system-agent-rescue-docker.sh",
   "scripts/e2e/systemd-sealed-service-definition.sh",

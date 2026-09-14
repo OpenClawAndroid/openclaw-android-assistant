@@ -53,7 +53,7 @@ function createProps(overrides: Partial<UpdatesViewProps> = {}): UpdatesViewProp
     onAutomaticUpdatesChange: vi.fn(),
     onUpdateNow: vi.fn(),
     onHoldUpdate: vi.fn(async () => true),
-    onCheckStatus: vi.fn(async () => undefined),
+    onCheckStatus: vi.fn(async () => true),
     onReportFailure: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -621,7 +621,7 @@ describe("renderUpdates", () => {
     "renders the durable %s report and only offers recovery for unsuccessful runs",
     async (status) => {
       const onUpdateNow = vi.fn();
-      const onCheckStatus = vi.fn(async () => undefined);
+      const onCheckStatus = vi.fn(async () => true);
       render(
         renderUpdates(
           createProps({

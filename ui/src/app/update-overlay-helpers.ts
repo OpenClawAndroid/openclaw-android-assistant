@@ -216,7 +216,7 @@ export function createUpdateStatusRefresher(params: {
 }) {
   let generation = 0;
   let manualIsCurrent: (() => boolean) | null = null;
-  return async (mode: "manual" | "background" | "completion" = "manual") => {
+  return async (mode: "manual" | "background" | "completion" = "manual"): Promise<boolean> => {
     const client = params.getClient();
     const epoch = params.getEpoch();
     if (
@@ -225,7 +225,7 @@ export function createUpdateStatusRefresher(params: {
       !params.isCurrent(client, epoch) ||
       (mode === "background" && manualIsCurrent?.())
     ) {
-      return;
+      return false;
     }
     const refreshCheckout = mode === "manual";
     const operationGeneration = ++generation;
@@ -252,7 +252,9 @@ export function createUpdateStatusRefresher(params: {
         });
       if (response && isCurrent()) {
         params.onStatus(response);
+        return true;
       }
+      return false;
     } finally {
       if (ownsRequest()) {
         manualIsCurrent = null;

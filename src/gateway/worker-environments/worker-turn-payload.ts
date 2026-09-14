@@ -67,6 +67,7 @@ function buildWorkerAgentRuntimeIdentity(params: {
     | "currentChannelId"
     | "currentMessagingTarget"
     | "currentThreadTs"
+    | "gatewayUiCommandTarget"
     | "messageChannel"
     | "messageProvider"
   >;
@@ -84,6 +85,7 @@ function buildWorkerAgentRuntimeIdentity(params: {
     turnSourceTo: turn.currentMessagingTarget ?? turn.currentChannelId,
     turnSourceAccountId: turn.agentAccountId,
     turnSourceThreadId: turn.currentThreadTs,
+    gatewayUiCommandTarget: turn.gatewayUiCommandTarget,
     workerTurnClaim: params.turnClaim,
   };
 }

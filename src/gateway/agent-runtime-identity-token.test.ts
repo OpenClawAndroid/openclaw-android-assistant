@@ -265,7 +265,7 @@ describe("agent runtime identity token", () => {
   });
 
   it.each(["signed", "direct"] as const)(
-    "preserves the %s plugin owner and turn-source route",
+    "preserves the %s plugin owner, turn-source route, and requesting UI",
     async (mode) => {
       useTempHome();
       const runtimeToken = await importRuntimeTokenModule();
@@ -278,6 +278,7 @@ describe("agent runtime identity token", () => {
         turnSourceTo: " chat-1 ",
         turnSourceAccountId: " Work ",
         turnSourceThreadId: " thread-1 ",
+        gatewayUiCommandTarget: { connId: " ui-connection-1 ", profileId: " profile-1 " },
       });
 
       expect(identity).toMatchObject({
@@ -290,6 +291,7 @@ describe("agent runtime identity token", () => {
         turnSourceTo: "chat-1",
         turnSourceAccountId: "work",
         turnSourceThreadId: "thread-1",
+        gatewayUiCommandTarget: { connId: "ui-connection-1", profileId: "profile-1" },
       });
     },
   );
@@ -345,6 +347,18 @@ describe("agent runtime identity token", () => {
     await expect(
       runtimeToken.verifyAgentRuntimeIdentityToken(withInvalidKnownField),
     ).resolves.toBeUndefined();
+
+    for (const gatewayUiCommandTarget of [
+      { connId: "" },
+      { connId: "ui-connection-1", profileId: 1 },
+    ]) {
+      const withInvalidUiTarget = rewriteSignedPayload(token, (payload) => {
+        payload.gatewayUiCommandTarget = gatewayUiCommandTarget;
+      });
+      await expect(
+        runtimeToken.verifyAgentRuntimeIdentityToken(withInvalidUiTarget),
+      ).resolves.toBeUndefined();
+    }
   });
 
   it("omits execution identity from a different operational run", async () => {
@@ -522,17 +536,28 @@ describe("agent runtime identity token", () => {
     expect(readExecApprovalsSnapshot().exists).toBe(false);
   });
 
-  it("rejects a token with a shortened signature", async () => {
+  it("rejects a shortened signature or a changed requesting UI", async () => {
     useTempHome();
     const runtimeToken = await importRuntimeTokenModule();
     const token = await runtimeToken.mintAgentRuntimeIdentityToken({
       agentId: "main",
       sessionKey: "session-1",
       ...operationalRun(),
+      gatewayUiCommandTarget: { connId: "ui-connection-1", profileId: "profile-1" },
     });
 
     await expect(
       runtimeToken.verifyAgentRuntimeIdentityToken(token.slice(0, -1)),
+    ).resolves.toBeUndefined();
+    const [payloadPart, signature] = token.split(".");
+    const payload = JSON.parse(Buffer.from(payloadPart!, "base64url").toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    payload.gatewayUiCommandTarget = { connId: "another-connection", profileId: "profile-2" };
+    const changedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    await expect(
+      runtimeToken.verifyAgentRuntimeIdentityToken(`${changedPayload}.${signature}`),
     ).resolves.toBeUndefined();
   });
 

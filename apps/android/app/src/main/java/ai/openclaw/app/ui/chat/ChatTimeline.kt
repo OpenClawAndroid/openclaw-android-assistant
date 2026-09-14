@@ -96,8 +96,48 @@ internal data class ChatTimeline(
   val latestContentVersion: String,
 )
 
-internal fun buildChatTimeline(
+internal data class PreparedChatHistory(
+  val rows: List<ChatTimelineItem>,
+  val latestUserMessageId: String?,
+  val latestUserMessageVersion: String?,
+  val rawHistoryVersionPrefix: String,
+  val workSpans: List<PreparedChatWorkSpan>,
+)
+
+internal fun prepareChatHistory(
   messages: List<ChatMessage>,
+  sessionKey: String,
+): PreparedChatHistory {
+  val rows = buildTranscriptTimeline(messages)
+  val latestUser =
+    rows.asReversed().firstNotNullOfOrNull { item ->
+      (item as? ChatTimelineItem.Message)?.message?.takeIf {
+        it.role.trim().equals("user", ignoreCase = true)
+      }
+    }
+  val latest = messages.lastOrNull()
+  return PreparedChatHistory(
+    rows = rows,
+    latestUserMessageId = latestUser?.id,
+    latestUserMessageVersion = latestUser?.let(::stableMessageVersion),
+    rawHistoryVersionPrefix =
+      buildString {
+        append(messages.size)
+        append(':')
+        append(latest?.id.orEmpty())
+        append(':')
+        append(latest?.role.orEmpty())
+        append(':')
+        append(latest?.timestampMs ?: "")
+        latest?.content?.forEach { appendContentVersion(it) }
+        append(":turnBoundary=")
+        append(latest?.turnBoundary ?: false)
+      },
+    workSpans = prepareCompletedWorkSpans(rows, messages, sessionKey),
+  )
+}
+
+internal fun PreparedChatHistory.buildTimeline(
   pendingRunCount: Int,
   pendingToolCalls: List<ChatPendingToolCall>,
   streamingAssistantText: String?,
@@ -105,11 +145,21 @@ internal fun buildChatTimeline(
   outboxItems: List<ChatOutboxItem> = emptyList(),
   recoveryOutboxItems: List<ChatOutboxItem> = emptyList(),
   questions: List<ChatQuestionPrompt> = emptyList(),
+  expandedWorkKeys: Set<String> = emptySet(),
 ): ChatTimeline {
   val stream = streamingAssistantText?.trim()?.takeIf { it.isNotEmpty() }
   val visibleSubagents = visibleSubagentActivities(subagentActivities.values)
+  val latestTurnLive = pendingRunCount > 0 || pendingToolCalls.isNotEmpty() || stream != null
+  var latestUserIndex: Int? = null
   val items =
     buildList {
+      fun appendHistoryRow(item: ChatTimelineItem) {
+        if (latestUserIndex == null && item is ChatTimelineItem.Message && item.message.id == latestUserMessageId) {
+          latestUserIndex = size
+        }
+        add(item)
+      }
+
       // reverseLayout: index 0 renders bottom-most; queued commands are the newest user input.
       questions.asReversed().forEach { prompt -> add(ChatTimelineItem.QuestionPrompt(prompt)) }
       outboxItems.asReversed().forEach { item -> add(ChatTimelineItem.OutboxCommand(item)) }
@@ -126,7 +176,22 @@ internal fun buildChatTimeline(
         )
       }
       if (pendingRunCount > 0) add(ChatTimelineItem.Thinking)
-      addAll(buildTranscriptTimeline(messages).asReversed())
+      var rowIndex = rows.lastIndex
+      var spanIndex = workSpans.lastIndex
+      while (rowIndex >= 0) {
+        val span = workSpans.getOrNull(spanIndex)
+        if (span != null && rowIndex == span.endExclusive - 1) {
+          val live = (span.inLatestTurn && latestTurnLive) || (span.inLatestRunChain && pendingRunCount > 0)
+          if (live || span.key in expandedWorkKeys) {
+            for (index in rowIndex downTo span.start) appendHistoryRow(rows[index])
+          }
+          if (!live) add(ChatTimelineItem.WorkedSummary(span.key, span.durationMs, span.key in expandedWorkKeys))
+          rowIndex = span.start - 1
+          spanIndex--
+        } else {
+          appendHistoryRow(rows[rowIndex--])
+        }
+      }
     }
   if (items.isEmpty()) {
     return ChatTimeline(
@@ -139,30 +204,20 @@ internal fun buildChatTimeline(
     )
   }
 
-  val latestUserMessage =
-    items.firstNotNullOfOrNull { item ->
-      val message = (item as? ChatTimelineItem.Message)?.message ?: return@firstNotNullOfOrNull null
-      message.takeIf { it.role.trim().equals("user", ignoreCase = true) }
-    }
-  val latestUserIndex =
-    items.indexOfFirst { item ->
-      item is ChatTimelineItem.Message &&
-        item.message.id == latestUserMessage?.id
-    }
   val latestContentIndex = 0
   // In reverseLayout, index 0 is bottom-most. Keep the latest prompt as a stable
   // reader anchor even after streaming rows collapse into a finished reply.
-  val readAnchorIndex = latestUserIndex.takeIf { it >= 0 } ?: latestContentIndex
+  val readAnchorIndex = latestUserIndex ?: latestContentIndex
 
   return ChatTimeline(
     items = items,
     readAnchorIndex = readAnchorIndex,
     latestContentIndex = latestContentIndex,
-    latestUserMessageId = latestUserMessage?.id,
-    latestUserMessageVersion = latestUserMessage?.let(::stableMessageVersion),
+    latestUserMessageId = latestUserMessageId,
+    latestUserMessageVersion = latestUserMessageVersion,
     latestContentVersion =
       latestContentVersion(
-        messages,
+        rawHistoryVersionPrefix,
         pendingRunCount,
         pendingToolCalls,
         visibleSubagents.activities,
@@ -336,7 +391,7 @@ internal fun ChatTimeline.withTurnRecap(recap: TurnRecap?): ChatTimeline {
 // Reader restoration only needs to detect changes at the live edge. Avoid hashing
 // the full transcript whenever a streamed response updates.
 private fun latestContentVersion(
-  messages: List<ChatMessage>,
+  rawHistoryVersionPrefix: String,
   pendingRunCount: Int,
   pendingToolCalls: List<ChatPendingToolCall>,
   subagentActivities: Collection<ChatSubagentActivity>,
@@ -344,19 +399,9 @@ private fun latestContentVersion(
   stream: String?,
   outboxItems: List<ChatOutboxItem> = emptyList(),
   questions: List<ChatQuestionPrompt> = emptyList(),
-): String {
-  val latest = messages.lastOrNull()
-  return buildString {
-    append(messages.size)
-    append(':')
-    append(latest?.id.orEmpty())
-    append(':')
-    append(latest?.role.orEmpty())
-    append(':')
-    append(latest?.timestampMs ?: "")
-    latest?.content?.forEach { appendContentVersion(it) }
-    append(":turnBoundary=")
-    append(latest?.turnBoundary ?: false)
+): String =
+  buildString {
+    append(rawHistoryVersionPrefix)
     append(":runs=")
     append(pendingRunCount)
     append(":tools=")
@@ -412,7 +457,6 @@ private fun latestContentVersion(
       append(';')
     }
   }
-}
 
 internal fun chatTimelineItemKey(item: ChatTimelineItem): String =
   when (item) {

@@ -378,6 +378,13 @@ function fixture(
     uploadFault?: "failure" | "wrong-descriptor" | "late-admission";
     fault?:
       | "readme"
+      | "size-missing"
+      | "size-wrong-oid"
+      | "size-unterminated"
+      | "size-extra"
+      | "size-individual-limit"
+      | "size-total-limit"
+      | "size-limit-before-truncated"
       | "candidate-object"
       | "tooling-object"
       | "bootstrap"
@@ -515,6 +522,30 @@ const { appendFileSync } = await import("node:fs");
 const { basename } = await import("node:path");
 const record = (value) => appendFileSync(${JSON.stringify(registryCalls)}, JSON.stringify(value) + "\\n");
 const worker = basename(process.argv[1] ?? "") === "full-release-publication-observations.mts";
+const sizeFault = ${JSON.stringify(options.fault)};
+if (sizeFault?.startsWith("size-")) {
+  const childProcess = (await import("node:child_process")).default;
+  const original = childProcess.execFileSync;
+  childProcess.execFileSync = (file, args, ...rest) => {
+    if (file === "git" && args.includes("pack-objects")) record({ kind: "source-pack" });
+    const output = original(file, args, ...rest);
+    if (file !== "git" || !args.includes("--batch-check=%(objectname) %(objectsize)")) return output;
+    record({ kind: "object-size-batch" });
+    const rows = output.toString().split("\\n");
+    const oid = rows[0].split(" ")[0];
+    if (sizeFault === "size-missing") rows[0] = oid + " missing";
+    if (sizeFault === "size-wrong-oid") rows[0] = (oid[0] === "0" ? "1" : "0") + rows[0].slice(1);
+    if (sizeFault === "size-unterminated") rows.pop();
+    if (sizeFault === "size-extra") rows.push(rows[0], "");
+    if (["size-individual-limit", "size-limit-before-truncated"].includes(sizeFault)) rows[0] = oid + " 16777217";
+    if (sizeFault === "size-limit-before-truncated") rows.splice(-2);
+    if (sizeFault === "size-total-limit") {
+      for (let i = 0; i < rows.length - 1; i++) rows[i] = rows[i].split(" ")[0] + " 16777216";
+    }
+    return Buffer.from(rows.join("\\n"));
+  };
+  (await import("node:module")).syncBuiltinESMExports();
+}
 record({
   kind: "runtime",
   worker,
@@ -1674,6 +1705,30 @@ describe("FRV observation worker boundary", () => {
 });
 
 describe("FRV publication source admission", () => {
+  it.each([
+    ["size-missing", "invalid publication source object-size response"],
+    ["size-wrong-oid", "invalid publication source object-size response"],
+    ["size-unterminated", "invalid publication source object-size response"],
+    ["size-extra", "invalid publication source object-size response"],
+    ["size-individual-limit", "metadata exceeds byte limit"],
+    ["size-total-limit", "metadata exceeds byte limit"],
+    ["size-limit-before-truncated", "metadata exceeds byte limit"],
+  ] as const)(
+    "rejects %s before packing or registry reads",
+    (fault, error) => {
+      const result = fixture({ fault, registry: "healthy" });
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr).toContain(error);
+      expect(result.fact).toBeUndefined();
+      expect(
+        result.registryCalls.filter((entry) => entry.kind === "object-size-batch"),
+      ).toHaveLength(1);
+      expect(result.registryCalls.filter((entry) => entry.kind === "source-pack")).toEqual([]);
+      expect(result.registryCalls.filter((entry) => entry.kind === "request")).toEqual([]);
+      expect(result.firstHopJobs).toEqual([]);
+    },
+    30_000,
+  );
   it.each([
     ["2026.9.9", "normal", false],
     ["2026.9.9-1", "normal", false],

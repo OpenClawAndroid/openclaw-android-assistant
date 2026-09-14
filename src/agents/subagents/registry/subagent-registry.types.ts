@@ -340,6 +340,7 @@ export type SubagentRunReadRecord = Pick<
   | "accumulatedRuntimeMs"
   | "runTimeoutSeconds"
   | "endedReason"
+  | "pauseReason"
   | "cleanupCompletedAt"
   | "delivery"
 > & {

@@ -5,7 +5,7 @@ import type { AgentMessage } from "openclaw/plugin-sdk/agent-core";
 import { SessionManager } from "openclaw/plugin-sdk/agent-sessions";
 import { upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
 import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, describe, expect, it, vi } from "vitest";
 import { transformMessages } from "../../packages/ai/src/transcript-transform.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { makeTextToolResult } from "../../test/helpers/text-tool-result.js";
@@ -232,6 +232,53 @@ describe("guardSessionManager transcript updates", () => {
       ambient.finishPendingInput?.("interrupted");
       resetGlobalHookRunner();
     }
+  });
+
+  it("combines explicit redaction with one fresh SQLite admission across replay", async () => {
+    const { root, target, sessionEntry, sessionManager } = await openPersistedSessionManager();
+    const message = {
+      role: "user" as const,
+      content: "private-note=fixture-only-redaction-value",
+      idempotencyKey: "redacted-admission:user",
+      timestamp: 1,
+    };
+    const assertOriginalInputCommit = vi.fn(() => {
+      expect(
+        SessionManager.open(target, root)
+          .getBranch()
+          .filter((entry) => entry.type === "message"),
+      ).toHaveLength(0);
+    });
+    const recorder = createUserTurnTranscriptRecorder({
+      message,
+      target: { ...target, sessionEntry },
+      assertOriginalInputCommit,
+    });
+    const admitted = vi.fn();
+    assert(recorder.setAdmissionHandler);
+    recorder.setAdmissionHandler(admitted);
+    const guarded = guardSessionManager(sessionManager, {
+      agentId: target.agentId,
+      sessionKey: target.sessionKey,
+      config: { logging: { redactPatterns: [String.raw`private-note=([^\s]+)`] } },
+      preparedUserTurnMessage: message,
+      preparedUserTurnTranscriptRecorder: recorder,
+    });
+
+    const entryId = guarded.appendMessage({ ...message });
+    expect(guarded.appendMessage({ ...message })).toBe(entryId);
+    expect(assertOriginalInputCommit).toHaveBeenCalledOnce();
+    expect(admitted).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ entryId, idempotencyKey: message.idempotencyKey }),
+    );
+    closeOpenClawAgentDatabasesForTest();
+    const persisted = SessionManager.open(target, root)
+      .getBranch()
+      .filter((entry) => entry.type === "message");
+    expect(persisted).toMatchObject([
+      { id: entryId, message: { role: "user", content: "private-note=***" } },
+    ]);
+    expect(JSON.stringify(persisted)).not.toContain(message.content);
   });
 
   it.each([

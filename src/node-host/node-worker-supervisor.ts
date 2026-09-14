@@ -705,7 +705,7 @@ class NodeWorkerSupervisor {
 
   private async stopChild(
     active: NodeWorkerRunningChild,
-    state: NodeWorkerStopState,
+    state?: NodeWorkerStopState,
   ): Promise<void> {
     active.stopState ??= state;
     if (active.container) {

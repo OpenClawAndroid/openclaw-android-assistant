@@ -61,6 +61,110 @@ describe("waitForAgentJob settled execution", () => {
   });
 
   it.each(["ok", "error", "timeout"] as const)(
+    "returns recorded reply evidence only after chat settles: %s",
+    async (status) => {
+      const runId = `chat-recorded-reply-${runSequence++}`;
+      const terminalReply = { disposition: "visible", text: "The requested answer" } as const;
+      const terminalReceipt = {
+        runId,
+        sessionId: "session-a",
+        turnId: "turn-a",
+        requested: { provider: "test", model: "test-model" },
+        effective: { provider: "test", model: "test-model", responseModel: "test-model" },
+        successfulToolNames: [],
+        rerouted: false,
+        terminalDisposition: "visible",
+      };
+      const waiter = waitForAgentJob({ runId, source: "chat", timeoutMs: 60_000 });
+      emitAgentEvent({
+        runId,
+        stream: "lifecycle",
+        data: { phase: "end", executionSettled: true, terminalReply, terminalReceipt },
+      });
+      // Runtime completion must not release the chat delivery barrier.
+      await expect(waitForAgentJob({ runId, source: "chat", timeoutMs: 0 })).resolves.toBeNull();
+      setGatewayDedupeEntry({
+        dedupe: new Map<string, DedupeEntry>(),
+        key: `chat:${runId}`,
+        entry: { ts: Date.now(), ok: status === "ok", payload: { runId, status } },
+      });
+      await expect(waiter).resolves.toMatchObject({ status, terminalReply, terminalReceipt });
+      await expect(waitForAgentJob({ runId, source: "chat", timeoutMs: 0 })).resolves.toMatchObject(
+        {
+          status,
+          terminalReply,
+          terminalReceipt,
+        },
+      );
+    },
+  );
+
+  it.each([
+    { disposition: "visible", text: "Recorded reply" },
+    { disposition: "silent" },
+    { disposition: "empty", code: "message-tool-not-called" },
+  ] as const)("preserves late lifecycle reply disposition: $disposition", async (terminalReply) => {
+    const runId = `chat-late-reply-${runSequence++}`;
+    setGatewayDedupeEntry({
+      dedupe: new Map<string, DedupeEntry>(),
+      key: `chat:${runId}`,
+      entry: { ts: Date.now(), ok: true, payload: { runId, status: "ok" } },
+    });
+    emitAgentEvent({
+      runId,
+      stream: "lifecycle",
+      data: {
+        phase: "end",
+        executionSettled: true,
+        terminalReply,
+      },
+    });
+    await expect(waitForAgentJob({ runId, source: "chat", timeoutMs: 0 })).resolves.toMatchObject({
+      status: "ok",
+      terminalReply,
+    });
+  });
+
+  it.each([
+    { status: "timeout", stopReason: "timeout", timeoutPhase: "provider", providerStarted: true },
+    { status: "error", stopReason: "rpc" },
+  ] as const)("preserves lifecycle $stopReason after the chat barrier", async (outcome) => {
+    for (const lifecycleFirst of [true, false]) {
+      const runId = `chat-sticky-reply-${runSequence++}`;
+      const terminalReply = { disposition: "visible", text: "Partial output" } as const;
+      const recordLifecycle = () =>
+        emitAgentEvent({
+          runId,
+          stream: "lifecycle",
+          data: { phase: "end", executionSettled: true, endedAt: 100, ...outcome, terminalReply },
+        });
+      const waiter = lifecycleFirst
+        ? waitForAgentJob({ runId, source: "chat", timeoutMs: 60_000 })
+        : undefined;
+      if (lifecycleFirst) {
+        recordLifecycle();
+      }
+      setGatewayDedupeEntry({
+        dedupe: new Map<string, DedupeEntry>(),
+        key: `chat:${runId}`,
+        entry: { ts: Date.now(), ok: true, payload: { runId, status: "ok", endedAt: 200 } },
+      });
+      if (!lifecycleFirst) {
+        recordLifecycle();
+      }
+      if (waiter) {
+        await expect(waiter).resolves.toMatchObject({ ...outcome, terminalReply });
+      }
+      await expect(waitForAgentJob({ runId, source: "chat", timeoutMs: 0 })).resolves.toMatchObject(
+        {
+          ...outcome,
+          terminalReply,
+        },
+      );
+    }
+  });
+
+  it.each(["ok", "error", "timeout"] as const)(
     "preserves yielded execution only when chat settles successfully: %s",
     async (status) => {
       const runId = `chat-yielded-execution-${runSequence++}`;

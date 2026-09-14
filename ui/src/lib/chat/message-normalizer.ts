@@ -26,6 +26,7 @@ import { getMediaFileExtension } from "../media-file-extension.ts";
 import type { NormalizedMessage, MessageContentItem } from "./chat-types.ts";
 import { projectImportedMessageForDisplay } from "./imported-message-display.ts";
 import { normalizeAttachmentContentBlock } from "./message-normalizer-attachments.ts";
+import { normalizeImageContentBlock } from "./message-normalizer-images.ts";
 import { formatSenderLabel, normalizeSenderIdentity, type SenderIdentity } from "./sender-label.ts";
 
 // Keep legacy labels readable without treating their UUID suffix as profile evidence.
@@ -493,6 +494,10 @@ export function normalizeMessage(message: unknown): NormalizedMessage {
       const omittedMedia = normalizeOmittedMediaContentBlock(item);
       if (omittedMedia) {
         return [omittedMedia];
+      }
+      const image = normalizeImageContentBlock(item);
+      if (image) {
+        return [image];
       }
       const type = item.type;
       if (type === "clawhub") {

@@ -207,6 +207,11 @@ compatible state before the updater records history. The selected release's
 Doctor runs before activation, including when npm's install hooks already created
 the database. Existing databases retain their downgrade protections.
 
+If database schema preflight cannot inspect the configured paths because the
+config is invalid, its refusal lists the config file and invalid fields. Run
+`openclaw doctor --fix` to repair retired or unrecognized fields, correct any
+remaining errors, and retry the update. Preflight leaves the config unchanged.
+
 Explicit package specs on a fresh profile first stage with a temporary OpenClaw
 profile. The updater inspects the staged runtime's declared schema and Node
 requirements before admitting changes to the selected profile. Artifacts without

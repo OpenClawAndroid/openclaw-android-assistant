@@ -67,6 +67,7 @@ postures and maintenance modes documented on the other pages.
 - Doctor warns when no command owner is configured. The command owner is the human operator account allowed to run owner-only commands and approve dangerous actions. DM pairing only lets someone talk to the bot; if you approved a sender before first-owner bootstrap existed, set `commands.ownerAllowFrom` explicitly.
 - Doctor reports an info note when Codex-mode agents are configured and personal Codex CLI assets exist in the operator's Codex home. Local Codex app-server launches use isolated per-agent homes; install the Codex plugin first if needed, then use `openclaw migrate plan codex` to inventory assets that should be promoted deliberately.
 - Doctor warns when skills allowed for the default agent are unavailable in the current runtime environment (missing bins, env vars, config, or OS requirements). `doctor --fix` can disable those unavailable skills with `skills.entries.<skill>.enabled=false` and lists the changes without asking you to repeat the repair. Updater-driven repair leaves optional skill enablement unchanged. Install/configure the missing requirement instead if you want to keep the skill active.
+- If an older Doctor run disabled a working `sag` skill, re-enable it with `openclaw config set skills.entries.sag.enabled true`.
 
 ## Sandbox
 

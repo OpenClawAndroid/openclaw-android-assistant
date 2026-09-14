@@ -8,6 +8,7 @@ import type { TaskRegistryControlRuntime } from "./task-registry-control.types.j
 import { ensureLinkedTaskFlowRegistryReady } from "./task-registry-flow-link.js";
 import {
   cloneTaskRecord,
+  listTasksFromIndex,
   cloneTaskRecordForObserver,
   normalizeTaskTimestamps,
   compareTasksNewestFirst,
@@ -331,27 +332,6 @@ export function findTaskByRunId(runId: string): TaskRecord | undefined {
   return task ? cloneTaskRecord(task) : undefined;
 }
 
-function listTasksFromIndex(index: Map<string, Set<string>>, key: string): TaskRecord[] {
-  const ids = index.get(key);
-  if (!ids || ids.size === 0) {
-    return [];
-  }
-  return [...ids]
-    .map((taskId, insertionIndex) => {
-      const task = tasks.get(taskId);
-      return task ? Object.assign({}, cloneTaskRecord(task), { insertionIndex }) : null;
-    })
-    .filter(
-      (
-        task,
-      ): task is TaskRecord & {
-        insertionIndex: number;
-      } => Boolean(task),
-    )
-    .toSorted(compareTasksNewestFirst)
-    .map(({ insertionIndex: _insertionIndex, ...task }) => task);
-}
-
 export function listTasksForAgentId(agentId: string): TaskRecord[] {
   ensureTaskRegistryReady();
   const lookup = agentId.trim();
@@ -363,18 +343,13 @@ export function listTasksForAgentId(agentId: string): TaskRecord[] {
     .toSorted(compareTasksNewestFirst);
 }
 
-export function findLatestTaskForFlowId(flowId: string): TaskRecord | undefined {
-  const task = listTasksForFlowId(flowId)[0];
-  return task ? cloneTaskRecord(task) : undefined;
-}
-
 export function listTasksForOwnerKey(ownerKey: string): TaskRecord[] {
   ensureTaskRegistryReady();
   const key = normalizeOptionalString(ownerKey);
   if (!key) {
     return [];
   }
-  return listTasksFromIndex(taskIdsByOwnerKey, key);
+  return listTasksFromIndex(tasks, taskIdsByOwnerKey, key);
 }
 
 export async function listFreshTasksForOwnerKey(ownerKey: string): Promise<TaskRecord[]> {
@@ -402,7 +377,7 @@ export async function listFreshTasksForOwnerKey(ownerKey: string): Promise<TaskR
     }
   }
 
-  return listTasksFromIndex(taskIdsByOwnerKey, key);
+  return listTasksFromIndex(tasks, taskIdsByOwnerKey, key);
 }
 
 export function listTasksForFlowId(flowId: string): TaskRecord[] {
@@ -411,7 +386,7 @@ export function listTasksForFlowId(flowId: string): TaskRecord[] {
   if (!key) {
     return [];
   }
-  return listTasksFromIndex(taskIdsByParentFlowId, key);
+  return listTasksFromIndex(tasks, taskIdsByParentFlowId, key);
 }
 
 function findLatestTaskForRelatedSessionKey(sessionKey: string): TaskRecord | undefined {
@@ -428,7 +403,7 @@ export function listTasksForRelatedSessionKey(
   if (!key) {
     return [];
   }
-  return listTasksFromIndex(taskIdsByRelatedSessionKey, key).filter((task) =>
+  return listTasksFromIndex(tasks, taskIdsByRelatedSessionKey, key).filter((task) =>
     taskMatchesRelatedSession(task, key, sessionAgentId),
   );
 }

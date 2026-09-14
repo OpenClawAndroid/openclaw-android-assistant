@@ -7,8 +7,8 @@ import {
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { withOpenClawTestState } from "openclaw/plugin-sdk/test-state";
 import { rawDataToString } from "openclaw/plugin-sdk/webhook-ingress";
+import { WebSocketServer } from "openclaw/plugin-sdk/websocket-runtime";
 import { expect, it } from "vitest";
-import { WebSocketServer } from "ws";
 import { closeTrackedBrowserTabsForSessions } from "./browser-maintenance.js";
 import { resolveCdpTabOwnership } from "./src/browser/cdp.helpers.js";
 import { resolveBrowserConfig } from "./src/browser/config.js";

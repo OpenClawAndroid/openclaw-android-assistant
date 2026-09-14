@@ -64,6 +64,15 @@ function serviceInspectionBlockMessage(state: GatewayServiceState): string {
   if (state.inspectionReason) {
     return formatServiceInspectionReason(state.inspectionReason);
   }
+  if (process.platform === "freebsd") {
+    return (
+      "Gateway service inspection is not supported by this CLI on FreeBSD. " +
+      "Refusing maintenance because service-owned state directories cannot be verified. " +
+      "Have the installation owner manage Gateway shutdown and state maintenance. " +
+      "For updates, use the original package manager or installer; " +
+      "keep pkg-owned files under pkg management."
+    );
+  }
   const runtime = state.runtime;
   const tasksCurrent = runtime?.systemd?.tasksCurrent;
   if (

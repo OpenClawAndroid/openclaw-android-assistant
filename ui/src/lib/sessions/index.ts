@@ -174,6 +174,7 @@ export function createSessionCapability(
       }
       if (previousError !== null && error === null) {
         // Observer outages do not replay events; every held query must close the gap.
+        githubPublication.invalidate();
         void roster.refreshAutomatic({
           ...roster.lastOptions(),
           backgroundHydrate: true,

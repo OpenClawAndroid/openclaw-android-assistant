@@ -1,18 +1,16 @@
-import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { html, noChange, nothing, type TemplateResult } from "lit";
 import { AsyncDirective, directive } from "lit/async-directive.js";
 import { Directive } from "lit/directive.js";
 import { keyed } from "lit/directives/keyed.js";
 import { repeat } from "lit/directives/repeat.js";
 import { normalizeBasePath } from "../../../app-route-paths.ts";
-import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
-import { beginClipboardCopy } from "../../../lib/clipboard.ts";
 import {
   reserveExternalWindowForDeferredNavigation,
   resolveSafeExternalUrl,
 } from "../../../lib/open-external-url.ts";
 import { showToast } from "../../../lib/toast.ts";
+import { renderChatImageActions } from "./chat-image-actions.ts";
 import {
   isManagedOutgoingMediaSource,
   resolveAssistantAttachmentAvailability,
@@ -171,20 +169,28 @@ class MessageImageResourceDirective extends AsyncDirective {
           : decodeFailed
             ? t("chat.imageLightbox.loadFailed")
             : undefined;
-      return renderAssistantAttachmentStatusCard({
-        label: image.fileName ?? image.alt ?? t("chat.imageLightbox.untitled"),
-        badge: reason === undefined ? "" : t("chat.attachments.unavailable"),
-        reason,
-        path: isLocalAssistantAttachmentSource(image.url) ? image.url : undefined,
-        onAllow:
-          !decodeFailed && availability.status === "unavailable" && availability.canAllow
-            ? () => retryAssistantAttachmentAvailability(image.url, subscriptionOptions, true)
-            : undefined,
-        onRetry:
-          !decodeFailed && availability.status === "unavailable" && availability.recoverable
-            ? () => retryAssistantAttachmentAvailability(image.url, subscriptionOptions)
-            : undefined,
-      });
+      if (reason === undefined) {
+        return this.present(this.renderImagePlaceholder(image));
+      }
+      return this.present(
+        this.renderImageFrame(
+          image,
+          renderAssistantAttachmentStatusCard({
+            label: image.fileName ?? image.alt ?? t("chat.imageLightbox.untitled"),
+            badge: t("chat.attachments.unavailable"),
+            reason,
+            path: isLocalAssistantAttachmentSource(image.url) ? image.url : undefined,
+            onAllow:
+              !decodeFailed && availability.status === "unavailable" && availability.canAllow
+                ? () => retryAssistantAttachmentAvailability(image.url, subscriptionOptions, true)
+                : undefined,
+            onRetry:
+              !decodeFailed && availability.status === "unavailable" && availability.recoverable
+                ? () => retryAssistantAttachmentAvailability(image.url, subscriptionOptions)
+                : undefined,
+          }),
+        ),
+      );
     }
     if (!this.managed) {
       const retained = this.retained;
@@ -216,14 +222,21 @@ class MessageImageResourceDirective extends AsyncDirective {
           this.pendingPreview = undefined;
           this.setValue(
             this.present(
-              previewUrl ? this.renderImageElement(this.image, previewUrl, this.options) : nothing,
+              previewUrl
+                ? this.renderImageElement(this.image, previewUrl, this.options)
+                : this.renderImagePlaceholder(this.image, t("chat.imageLightbox.loadFailed")),
             ),
           );
         }
       });
     }
     return this.present(
-      resource.value ? this.renderImageElement(image, resource.value, options) : nothing,
+      resource.value
+        ? this.renderImageElement(image, resource.value, options)
+        : this.renderImagePlaceholder(
+            image,
+            resource.value === null ? t("chat.imageLightbox.loadFailed") : undefined,
+          ),
     );
   }
 
@@ -233,14 +246,9 @@ class MessageImageResourceDirective extends AsyncDirective {
     opts: ImageRenderOptions | undefined,
   ) {
     const title = img.alt?.trim() || t("chat.imageLightbox.untitled");
-    // Upscale genuinely tiny sources enough to read and operate without
-    // stretching every transcript image into a fixed-size tile.
-    const imageClass =
-      img.width !== undefined && img.width < MIN_CHAT_IMAGE_PREVIEW_WIDTH
-        ? "chat-message-image chat-message-image--small"
-        : "chat-message-image";
-    return html`
-      <span class="chat-image-frame ${this.managed ? "chat-image-frame--managed" : ""}">
+    return this.renderImageFrame(
+      img,
+      html`
         <button
           type="button"
           class="chat-message-image-button"
@@ -255,14 +263,87 @@ class MessageImageResourceDirective extends AsyncDirective {
             @error=${(event: Event) => this.onSettled(event, img.url)}
             src=${previewUrl}
             alt=${title}
-            class=${imageClass}
+            class="chat-message-image"
             width=${img.width ?? nothing}
             height=${img.height ?? nothing}
           />
         </button>
-        ${this.managed ? renderManagedImageActions(img, opts) : nothing}
-      </span>
-    `;
+        ${
+          this.managed
+            ? renderChatImageActions(title, () =>
+                readManagedOutgoingImageBlob(img.url, opts, img.artifactId),
+              )
+            : nothing
+        }
+      `,
+    );
+  }
+
+  private renderImageFrame(
+    img: ImageBlock,
+    content: TemplateResult | typeof nothing,
+    loading = false,
+  ) {
+    const sized =
+      Number.isFinite(img.width) &&
+      img.width! > 0 &&
+      Number.isFinite(img.height) &&
+      img.height! > 0;
+    const ratio = sized ? img.width! / img.height! : 3 / 2;
+    const width = sized
+      ? img.width! < MIN_CHAT_IMAGE_PREVIEW_WIDTH
+        ? MIN_CHAT_IMAGE_PREVIEW_WIDTH
+        : Math.min(img.width!, 400, 360 * ratio)
+      : 400;
+    const height = Math.min(360, width / ratio);
+    // Frame geometry survives metadata, fetch, and IMG decode. CSS gallery
+    // dimensions still override these single-image presentation values.
+    return html`<span
+      class="chat-image-frame chat-image-frame--image ${this.managed ? "chat-image-frame--managed" : ""}"
+      style=${`--chat-image-width: ${width}px; --chat-image-ratio: ${width} / ${height}`}
+      aria-busy=${loading ? "true" : "false"}
+      role=${loading ? "status" : nothing}
+      aria-label=${loading ? t("common.loading") : nothing}
+      >${content}</span
+    >`;
+  }
+
+  private renderImagePlaceholder(image: ImageBlock, reason?: string) {
+    if (reason === undefined) {
+      return this.renderImageFrame(
+        image,
+        html`<span class="chat-image-skeleton skeleton" aria-hidden="true"></span>`,
+        true,
+      );
+    }
+    return this.renderImageFrame(
+      image,
+      html`<span class="chat-image-status" role="status">
+        <span>${reason}</span>
+        ${
+          this.managed
+            ? html`<button
+                type="button"
+                class="btn btn--sm"
+                @click=${() => {
+                  resolveManagedOutgoingImageResource(
+                    image.url,
+                    this.options?.onRequestUpdate
+                      ? { ...this.options, onRequestUpdate: this.requestUpdate }
+                      : this.options,
+                    image.artifactId,
+                    "thumbnail",
+                    true,
+                  );
+                  this.refreshImage();
+                }}
+              >
+                ${t("common.retry")}
+              </button>`
+            : nothing
+        }
+      </span>`,
+    );
   }
 
   private releaseRetainedImage() {
@@ -604,103 +685,6 @@ async function readManagedOutgoingImageBlob(
     throw new Error("managed image is unavailable");
   }
   return blob;
-}
-
-function imageDownloadFileName(title: string, mimeType: string): string {
-  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/", 2)[1] || "img";
-  const rawStem = Array.from(title, (character) =>
-    character.codePointAt(0)! <= 0x1f || '<>:"/\\|?*'.includes(character) ? "-" : character,
-  )
-    .join("")
-    .replace(/\.[a-z0-9]{1,10}$/iu, "")
-    .replace(/[. -]+$/u, "");
-  const stem = truncateUtf16Safe(rawStem, 120);
-  return `${stem || "generated-image"}.${/^[a-z0-9.+-]{1,12}$/u.test(extension) ? extension : "img"}`;
-}
-
-function downloadImageBlob(blob: Blob, fileName: string): void {
-  const blobUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = blobUrl;
-  anchor.download = fileName;
-  anchor.click();
-  globalThis.setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
-}
-
-async function convertImageBlobToPng(blob: Blob): Promise<Blob> {
-  if (blob.type === "image/png") {
-    return blob;
-  }
-  const bitmap = await createImageBitmap(blob);
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("image conversion context is unavailable");
-    }
-    context.drawImage(bitmap, 0, 0);
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (converted) =>
-          converted ? resolve(converted) : reject(new Error("image conversion failed")),
-        "image/png",
-      );
-    });
-  } finally {
-    bitmap.close();
-  }
-}
-
-function renderManagedImageActions(image: ImageBlock, opts: ImageRenderOptions | undefined) {
-  const title = image.alt?.trim() || t("chat.imageLightbox.untitled");
-  const download = async () => {
-    try {
-      const blob = await readManagedOutgoingImageBlob(image.url, opts, image.artifactId);
-      downloadImageBlob(blob, imageDownloadFileName(title, blob.type));
-    } catch {
-      showToast({ message: t("chat.imageLightbox.downloadFailed") });
-    }
-  };
-  const copy = async () => {
-    beginClipboardCopy();
-    try {
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-        throw new Error("image clipboard is unavailable");
-      }
-      const png = readManagedOutgoingImageBlob(image.url, opts, image.artifactId).then(
-        convertImageBlobToPng,
-      );
-      void png.catch(() => {});
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
-      showToast({ message: t("common.copied") });
-    } catch {
-      showToast({ message: t("chat.imageLightbox.copyFailed") });
-    }
-  };
-  return html`
-    <span class="chat-image-actions">
-      <button
-        type="button"
-        class="chat-image-action"
-        title=${t("chat.imageLightbox.download")}
-        aria-label=${t("chat.imageLightbox.download")}
-        @click=${() => void download()}
-      >
-        ${icons.download}
-      </button>
-      <button
-        type="button"
-        class="chat-image-action"
-        title=${t("chat.imageLightbox.copy")}
-        aria-label=${t("chat.imageLightbox.copy")}
-        @click=${() => void copy()}
-      >
-        ${icons.copy}
-      </button>
-    </span>
-  `;
 }
 
 function markManagedOutgoingImageUnavailable(resource: ChatMediaResource<string | null>): null {

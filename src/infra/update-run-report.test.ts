@@ -346,6 +346,36 @@ describe("update run report", () => {
     ]);
   });
 
+  it.each([
+    "Update refused: agent database /state/agents/main/agent.sqlite has schema 20; target supports 19; writer build 2026.9.4.",
+    "Update refused: could not inspect state database /state/state.sqlite: ENOSPC: no space left on device; retry once the gateway releases it.",
+  ])("keeps the schema preflight cause instead of its generic footer: %s", (cause) => {
+    const report = renderUpdateRunReport(
+      updateRunReportInputFromResult({
+        status: "error",
+        reason: "database-schema-preflight",
+        mode: "npm",
+        durationMs: 1,
+        steps: [
+          {
+            name: "database-schema-preflight",
+            command: "openclaw update",
+            cwd: "/tmp",
+            durationMs: 1,
+            exitCode: 1,
+            stderrTail: [
+              cause,
+              "https://docs.openclaw.ai/reference/database-schemas",
+              "Installing manually via npm bypasses this guard; back up first and verify compatibility.",
+            ].join("\n"),
+          },
+        ],
+      }),
+    );
+    expect(report.markdown).toContain(cause);
+    expect(report.markdown).not.toContain("Installing manually via npm");
+  });
+
   it("reports pending work, verification, and repair facts without inferring success", () => {
     const report = renderUpdateRunReport(
       run({

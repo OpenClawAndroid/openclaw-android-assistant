@@ -9,6 +9,7 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { codexSandboxPolicyForTurn, type CodexAppServerRuntimeOptions } from "./config.js";
+import type { CodexProjectedImageGroup } from "./context-engine-projection.js";
 import type {
   CodexSandboxPolicy,
   CodexTurnEnvironmentParams,
@@ -63,6 +64,7 @@ export function buildTurnStartParams(
     cwd: string;
     appServer: CodexAppServerRuntimeOptions;
     promptText?: string;
+    contextImageGroups?: CodexProjectedImageGroup[];
     explicitSkillInputs?: Array<Extract<CodexUserInput, { type: "skill" }>>;
     sandboxPolicy?: CodexSandboxPolicy;
     environmentSelection?: CodexTurnEnvironmentParams[];
@@ -147,7 +149,11 @@ export function buildTurnStartParams(
     // UserInput::Skill; skills/src/selection.rs:60-92 blocks those names from duplicate text
     // selection while leaving unmatched Codex-native-only names scannable.
     input: [
-      ...buildCodexUserInput(options.promptText ?? params.prompt, params.images),
+      ...buildCodexUserInput(
+        options.promptText ?? params.prompt,
+        params.images,
+        options.contextImageGroups,
+      ),
       ...(options.explicitSkillInputs ?? []),
     ],
     ...(additionalContext ? { additionalContext } : {}),

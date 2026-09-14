@@ -56,6 +56,99 @@ describe("GitHub hovercard prefetch subscriptions", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+  it("projects fetched merged state onto only matching inline PR chips without extra requests", async () => {
+    const { provider, anchor, request } = createIssueLink();
+    anchor.href = "https://github.com/openclaw/openclaw/pull/142276";
+    anchor.className = "markdown-github-link markdown-github-item";
+    const other = anchor.cloneNode(true) as HTMLAnchorElement;
+    other.href = "https://github.com/another/project/pull/142276";
+    provider.append(other);
+    request.mockResolvedValue(
+      issuePreviewResponse({
+        kind: "pull",
+        number: 142276,
+        state: "closed",
+        mergedAt: "2026-09-12T00:00:00Z",
+      }),
+    );
+    await provider.prefetch(parseGitHubLinkTarget(anchor.href)!, new AbortController().signal);
+    expect(anchor.dataset.githubState).toBe("merged");
+    expect(other.dataset.githubState).toBeUndefined();
+    await hover(anchor);
+    expect(request).toHaveBeenCalledTimes(1);
+    provider.agentId = "other";
+    expect(anchor.dataset.githubState).toBeUndefined();
+  });
+
+  it.each(["connection", "principal"])(
+    "does not paint a late preview after %s changes",
+    async (change) => {
+      const { provider, anchor, request } = createIssueLink();
+      anchor.className = "markdown-github-item";
+      const client = { request, connected: true, connectionGeneration: 1, recoveryScope: "first" };
+      provider.client = client as unknown as GatewayBrowserClient;
+      const pending = createDeferred<ReturnType<typeof issuePreviewResponse>>();
+      request.mockReturnValueOnce(pending.promise);
+      const loading = provider.prefetch(
+        parseGitHubLinkTarget(anchor.href)!,
+        new AbortController().signal,
+      );
+      if (change === "connection") {
+        client.connectionGeneration++;
+      } else {
+        client.recoveryScope = "next";
+      }
+      pending.resolve(issuePreviewResponse());
+      await loading;
+      expect(anchor.dataset.githubState).toBeUndefined();
+      await provider.prefetch(parseGitHubLinkTarget(anchor.href)!, new AbortController().signal);
+      expect(anchor.dataset.githubState).toBe("open");
+      expect(request).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["connection", "principal"] as const)(
+    "retires already-cached inline state before projecting a new %s context",
+    async (change) => {
+      const { provider, anchor, request } = createIssueLink();
+      anchor.className = "markdown-github-item";
+      const client = { request, connected: true, connectionGeneration: 1, recoveryScope: "first" };
+      provider.client = client as unknown as GatewayBrowserClient;
+      const target = parseGitHubLinkTarget(anchor.href)!;
+      await provider.prefetch(target, new AbortController().signal);
+      expect(anchor.dataset.githubState).toBe("open");
+      if (change === "connection") {
+        client.connectionGeneration++;
+      } else {
+        client.recoveryScope = "next";
+      }
+      const replacement = anchor.cloneNode(true) as HTMLAnchorElement;
+      provider.replaceChildren(replacement);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(replacement.dataset.githubState).toBeUndefined();
+      expect(replacement.hasAttribute("aria-description")).toBe(false);
+      expect(request).toHaveBeenCalledTimes(1);
+      await provider.prefetch(target, new AbortController().signal);
+      expect(replacement.dataset.githubState).toBe("open");
+      expect(request).toHaveBeenCalledTimes(2);
+    },
+  );
+  it("projects cached facts into rerendered chips and retires them when the destination changes", async () => {
+    const { provider, anchor, request } = createIssueLink();
+    anchor.className = "markdown-github-item";
+    await provider.prefetch(parseGitHubLinkTarget(anchor.href)!, new AbortController().signal);
+    const replacement = anchor.cloneNode(true) as HTMLAnchorElement;
+    delete replacement.dataset.githubState;
+    provider.replaceChildren(replacement);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(replacement.dataset.githubState).toBe("open");
+    replacement.href = "https://github.com/other/repo/issues/99815";
+    await vi.advanceTimersByTimeAsync(0);
+    expect(replacement.dataset.githubState).toBeUndefined();
+    expect(replacement.hasAttribute("aria-description")).toBe(false);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it("shares a pending prefetch with hover without aborting it on dismissal", async () => {
     const deferred = createDeferred<ReturnType<typeof issuePreviewResponse>>();
     const { anchor, provider, request } = createIssueLink();

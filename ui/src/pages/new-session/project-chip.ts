@@ -46,6 +46,7 @@ export function resolveProjectChip(params: {
   projects: readonly ProjectRecord[];
   recents: readonly ProjectRecent[];
   projectQuery: string;
+  freshWorkspace?: boolean;
 }): ProjectChipState {
   const folder = params.folder.trim();
   const selectedProject = params.projects.find((project) => project.id === params.projectId);
@@ -59,13 +60,15 @@ export function resolveProjectChip(params: {
       )
     : params.projects;
   return {
-    label: selectedProject
-      ? selectedProject.displayName
-      : params.selectedRemoteProject?.identity
-        ? params.selectedRemoteProject.identity
-        : folder
-          ? folderDisplayName(folder)
-          : folderDisplayName(params.workspace) || t("newSession.folderPlaceholder"),
+    label: params.freshWorkspace
+      ? t("newSession.newWorkspace")
+      : selectedProject
+        ? selectedProject.displayName
+        : params.selectedRemoteProject?.identity
+          ? params.selectedRemoteProject.identity
+          : folder
+            ? folderDisplayName(folder)
+            : folderDisplayName(params.workspace) || t("newSession.folderPlaceholder"),
     localProjects,
     recents: normalizedQuery ? [] : params.recents.filter((recent) => recent.kind !== "project"),
     showWorkspace:
@@ -94,6 +97,8 @@ export function renderProjectChip(params: {
   projectSearchLoading: boolean;
   projectSearchError: string | null;
   projectId: string;
+  freshWorkspace?: boolean;
+  onNewWorkspace?: () => void;
   gatewayLabel: string;
   submitting: boolean;
   pendingPlacement: boolean;
@@ -213,13 +218,31 @@ export function renderProjectChip(params: {
                 <div class="new-session-page__menu-title">${t("newSession.projects")}</div>
                 ${html`
                   ${
+                    params.onNewWorkspace && !query
+                      ? renderSessionMenuItem(
+                          {
+                            value: "new-workspace",
+                            label: t("newSession.newWorkspace"),
+                            icon: icons.folder,
+                            sub: t("newSession.newWorkspaceDescription"),
+                            checked: params.freshWorkspace === true,
+                            onSelect: params.onNewWorkspace,
+                          },
+                          params.submitting || params.pendingPlacement,
+                        )
+                      : nothing
+                  }
+                  ${
                     params.workspace && params.state.showWorkspace
                       ? renderSessionMenuItem(
                           {
                             value: "workspace",
                             label: folderDisplayName(params.workspace),
                             icon: icons.folder,
-                            checked: !params.projectId && folder === params.workspace,
+                            checked:
+                              !params.freshWorkspace &&
+                              !params.projectId &&
+                              folder === params.workspace,
                             onSelect: () => params.onApplyFolder(params.workspace),
                           },
                           params.submitting,
@@ -357,7 +380,9 @@ export function renderProjectChip(params: {
                                   ? params.projectId === recent.projectId
                                   : recent.kind === "repository"
                                     ? params.selectedRemoteProject?.cloneUrl === recent.url
-                                    : !params.projectId && folder === recent.folder,
+                                    : !params.freshWorkspace &&
+                                      !params.projectId &&
+                                      folder === recent.folder,
                               title:
                                 recent.kind === "project"
                                   ? undefined

@@ -5,15 +5,17 @@ import type { UpdateStepResult } from "./update-runner-types.js";
 
 /** A bounded diagnostic excerpt for a failed update step, never its command log or cwd. */
 export function summarizeUpdateStepFailure(
-  step: Pick<UpdateStepResult, "exitCode" | "termination" | "stdoutTail" | "stderrTail">,
+  step: Pick<UpdateStepResult, "name" | "exitCode" | "termination" | "stdoutTail" | "stderrTail">,
 ): string {
+  // Schema refusals lead with the cause, followed by documentation and generic recovery advice.
+  const excerpts =
+    step.name === "database-schema-preflight"
+      ? [(step.stderrTail?.trim() || step.stdoutTail?.trim())?.split(/\r?\n/u)[0]]
+      : [step.stdoutTail, step.stderrTail].map((tail) =>
+          sliceUtf16Safe(tail?.trim().split(/\r?\n/u).at(-1) ?? "", -120),
+        );
   return truncateUtf16Safe(
-    [
-      step.termination ?? `Exit code: ${step.exitCode ?? "unknown"}`,
-      ...[step.stdoutTail, step.stderrTail].map((tail) =>
-        sliceUtf16Safe(tail?.trim().split(/\r?\n/u).at(-1) ?? "", -120),
-      ),
-    ]
+    [step.termination ?? `Exit code: ${step.exitCode ?? "unknown"}`, ...excerpts]
       .filter(Boolean)
       .join("; "),
     300,

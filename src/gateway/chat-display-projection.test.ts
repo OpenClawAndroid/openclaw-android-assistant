@@ -7,7 +7,6 @@ import {
   projectChatDisplayMessages,
   sanitizeChatHistoryMessages,
 } from "./chat-display-projection.js";
-import { mirrorMessageToolVisibleReplies } from "./chat-display-projection.message-tool.js";
 import { CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES } from "./server-methods/chat-history-budget.js";
 import { SessionHistorySseState } from "./session-history-state.js";
 
@@ -955,7 +954,7 @@ describe("current user profile display projection", () => {
 describe("chat display message-tool projection", () => {
   it("mirrors an automatic-mode send confirmed for the current source", () => {
     const sourceReply = "Visible reply delivered to Slack.";
-    const projected = mirrorMessageToolVisibleReplies([
+    const projected = projectChatDisplayMessages([
       {
         role: "assistant",
         content: [

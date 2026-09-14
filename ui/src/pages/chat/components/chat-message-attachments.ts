@@ -445,7 +445,7 @@ export function renderMessageAttachment(
     (inferTypeFromExtension &&
       (isSvgImageMediaPath(attachment.url, undefined) ||
         isSvgImageMediaPath(attachment.label, undefined)));
-  if (imageAttachment && !svgImage && !isManagedOutgoingMediaSource(attachment.url)) {
+  if (imageAttachment && !svgImage) {
     return renderMessageImages(
       [{ ...attachment, alt: attachment.label, fileName: attachment.label }],
       options,
@@ -527,31 +527,18 @@ export function renderMessageAttachment(
       : undefined;
   if (imageAttachment) {
     const title = attachment.label.trim() || t("chat.imageLightbox.untitled");
-    if (svgImage) {
-      return html`<openclaw-chat-svg-attachment
-        .src=${attachmentUrl}
-        .sourceIdentity=${attachment.url}
-        .label=${title}
-        .mimeType=${attachment.mimeType ?? "image/svg+xml"}
-        .sizeBytes=${media.sizeBytes}
-        .downloadHref=${safeAttachmentHref(attachmentUrl)}
-        .onOpen=${(src: string, release: () => void) =>
-          openResolvedImage(onOpenImage, src, title, release, onRequestOpenImage?.())}
-        .onExpand=${openAttachmentSidebar}
-        .onMediaLoaded=${onAssistantAttachmentLoaded}
-      ></openclaw-chat-svg-attachment>`;
-    }
-    return html`
-      <button
-        type="button"
-        class="chat-message-image-button"
-        aria-label=${t("chat.imageLightbox.open", { title })}
-        @click=${() =>
-          openResolvedImage(onOpenImage, attachmentUrl, title, undefined, onRequestOpenImage?.())}
-      >
-        <img src=${attachmentUrl} alt=${title} class="chat-message-image" />
-      </button>
-    `;
+    return html`<openclaw-chat-svg-attachment
+      .src=${attachmentUrl}
+      .sourceIdentity=${attachment.url}
+      .label=${title}
+      .mimeType=${attachment.mimeType ?? "image/svg+xml"}
+      .sizeBytes=${media.sizeBytes}
+      .downloadHref=${safeAttachmentHref(attachmentUrl)}
+      .onOpen=${(src: string, release: () => void) =>
+        openResolvedImage(onOpenImage, src, title, release, onRequestOpenImage?.())}
+      .onExpand=${openAttachmentSidebar}
+      .onMediaLoaded=${onAssistantAttachmentLoaded}
+    ></openclaw-chat-svg-attachment>`;
   }
   if ((attachment.kind === "audio" || attachment.kind === "video") && !safeAttachmentUrl) {
     return renderAssistantAttachmentStatusCard({

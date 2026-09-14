@@ -24,7 +24,7 @@ import {
   normalizeNativePathSeparators,
   type IgnoreMatcher,
 } from "../../shared/ignore-rules.js";
-import { CONFIG_DIR_NAME } from "../config.js";
+import { CONFIG_DIR_NAME } from "../package-metadata.js";
 import { type GitSource, parseGitUrl } from "../utils/git.js";
 import { canonicalizePath, isLocalPath } from "../utils/paths.js";
 import type { PackageSource, SettingsManager } from "./settings-manager.js";

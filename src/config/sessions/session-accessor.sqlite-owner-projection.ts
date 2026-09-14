@@ -2,8 +2,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { sql } from "kysely";
 import {
-  executeSqliteQuerySync,
-  executeSqliteQueryTakeFirstSync,
+  prepareSqliteQuerySync,
+  prepareSqliteQueryTakeFirstSync,
 } from "../../infra/kysely-sync.js";
 import { FIRST_USE_ADDITIVE_AGENT_COLUMN_DEFINITIONS } from "../../state/openclaw-agent-db-additive-columns.js";
 import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
@@ -18,9 +18,27 @@ export type SqliteSessionOwnerRow = {
   owner_assigned_at?: number | null;
 };
 
+function prepareOwnerColumnReads(database: DatabaseSync) {
+  const db = getSessionKysely(database);
+  return {
+    schemaVersion: prepareSqliteQueryTakeFirstSync(database, () =>
+      db
+        .selectFrom(sql`pragma_schema_version`.as("pragma_schema"))
+        .select(sql`schema_version`.as("schema_version")),
+    ),
+    columns: prepareSqliteQuerySync(database, () =>
+      db
+        .selectFrom(sql`pragma_table_info('session_nodes')`.as("pragma_columns"))
+        .select(sql`name`.as("name")),
+    ),
+  };
+}
+
 const ownerColumnAvailability = new WeakMap<
   DatabaseSync,
-  { available: boolean; schemaVersion: number }
+  ReturnType<typeof prepareOwnerColumnReads> & {
+    availability?: { available: boolean; schemaVersion: number };
+  }
 >();
 
 function actorFromColumns(type: unknown, id: unknown): SessionActor | undefined {
@@ -53,30 +71,24 @@ export function projectSqliteSessionOwner(
 }
 
 export function hasSqliteSessionOwnerColumns(database: DatabaseSync): boolean {
-  const db = getSessionKysely(database);
-  const schema = executeSqliteQueryTakeFirstSync(
-    database,
-    db
-      .selectFrom(sql`pragma_schema_version`.as("pragma_schema"))
-      .select(sql`schema_version`.as("schema_version")),
-  );
+  let reads = ownerColumnAvailability.get(database);
+  if (!reads) {
+    reads = prepareOwnerColumnReads(database);
+    ownerColumnAvailability.set(database, reads);
+  }
+  const schema = reads.schemaVersion(undefined);
   const schemaVersion = typeof schema?.schema_version === "number" ? schema.schema_version : -1;
-  const cached = ownerColumnAvailability.get(database);
+  const cached = reads.availability;
   if (cached?.schemaVersion === schemaVersion) {
     return cached.available;
   }
-  const tableInfoRows = executeSqliteQuerySync(
-    database,
-    db
-      .selectFrom(sql`pragma_table_info('session_nodes')`.as("pragma_columns"))
-      .select(sql`name`.as("name")),
-  ).rows;
+  const tableInfoRows = reads.columns(undefined).rows;
   const columns = new Set(
     tableInfoRows.flatMap((row) => (typeof row.name === "string" ? [row.name] : [])),
   );
   const available = FIRST_USE_ADDITIVE_AGENT_COLUMN_DEFINITIONS.every(({ columnName }) =>
     columns.has(columnName),
   );
-  ownerColumnAvailability.set(database, { available, schemaVersion });
+  reads.availability = { available, schemaVersion };
   return available;
 }

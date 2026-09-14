@@ -12,7 +12,7 @@ import {
   isHeartbeatHistoryTurnBoundaryMessage,
   projectChatDisplayMessages,
   projectChatDisplayMessagesWithState,
-  projectChatHistoryRecovery,
+  createChatHistoryRecoveryProjection,
   augmentChatHistoryWithCanvasBlocks,
   createCurrentUserProfileMessageProjector,
 } from "../chat-display-projection.js";
@@ -402,8 +402,11 @@ export async function readChatHistoryPageLocal(
     ) {
       const recoveryContext = await readChatHistoryRecoveryContext({
         messages: localMessages,
-        projectRecovery: (messages) =>
-          projectChatHistoryRecovery(messages, { maxChars: effectiveMaxChars }),
+        createRecovery: (messages) => {
+          const recovery = createChatHistoryRecoveryProjection({ maxChars: effectiveMaxChars });
+          recovery.append(messages);
+          return recovery;
+        },
         readScope,
         displaySource: readPage.displaySource,
         maxBytes: maxHistoryBytes,

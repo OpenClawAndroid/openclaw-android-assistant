@@ -5,6 +5,7 @@ import {
   replaceSessionEntry,
   replaceTranscriptEvents,
 } from "../../config/sessions/session-accessor.js";
+import * as nestedActivity from "../../sessions/nested-tool-activity.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import * as historySanitize from "../chat-display-projection.sanitize.js";
 import { readChatHistoryMessageId } from "../session-history-tail.js";
@@ -156,7 +157,7 @@ describe("historical page recovery context", () => {
     "finds recovery across multiple newer pages without repeatedly rendering them (%s)",
     async (mode) => {
       const progress: Array<[string, Record<string, unknown>]> = Array.from(
-        { length: 250 },
+        { length: 1000 },
         (_, index) => [
           `progress-${index}`,
           { role: "toolResult", content: "Still working", toolCallId: `tool-${index}` },
@@ -168,16 +169,26 @@ describe("historical page recovery context", () => {
           const original = await raw();
           const sanitize = historySanitize.sanitizeChatHistoryMessages;
           let renderedMessages = 0;
+          let decodedMessages = 0;
+          const readActivity = nestedActivity.readNestedToolActivity;
+          const activityReads = vi
+            .spyOn(nestedActivity, "readNestedToolActivity")
+            .mockImplementation((message) => {
+              decodedMessages++;
+              return readActivity(message);
+            });
           vi.spyOn(historySanitize, "sanitizeChatHistoryMessages").mockImplementation((...args) => {
             renderedMessages += args[0].length;
             return sanitize(...args);
           });
-          const page = await read(
-            mode === "offset"
+          const page = await read({
+            ...(mode === "offset"
               ? { offset: progress.length + 1, messageId: undefined }
-              : { offset: undefined, messageId: "failed" },
-          );
+              : { offset: undefined, messageId: "failed" }),
+            maxHistoryBytes: 8 * 1024 * 1024,
+          });
 
+          activityReads.mockRestore();
           expect(page.messages.map(readChatHistoryMessageId)).toEqual(
             mode === "offset" ? ["user"] : [],
           );
@@ -192,6 +203,7 @@ describe("historical page recovery context", () => {
           }
           expect(await raw()).toEqual(original);
           expect(renderedMessages).toBeLessThanOrEqual(original.length * 5);
+          expect(decodedMessages).toBeLessThanOrEqual(original.length * 8);
         },
       );
     },

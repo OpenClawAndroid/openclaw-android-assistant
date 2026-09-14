@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { gitNullConfigPath } from "../infra/git-exec.js";
+import { retryableGitNetworkOperation, withGitNetworkRetry } from "../infra/git-network-retry.js";
 import { runCommandBuffered } from "../process/exec.js";
 import { githubPublicationUnsafeConfigArgs } from "./github-publication-base.js";
 
@@ -10,24 +11,30 @@ type GitCommandOptions = {
   env?: NodeJS.ProcessEnv;
   input?: string;
   maxOutputBytes?: number;
+  beforeRun?: () => void;
 };
 type GitCommandResult = { code: number | null; stdout: Buffer };
 
 export async function runPublicationCommand(argv: string[], options: GitCommandOptions = {}) {
-  return await runCommandBuffered(argv, {
-    ...(options.cwd ? { cwd: options.cwd } : {}),
-    env: {
-      ...(options.env ?? process.env),
-      GIT_NO_REPLACE_OBJECTS: "1",
-      // Pin every command against repository hooks; explicit hook-disabling -c flags stay stronger.
-      GIT_CONFIG_COUNT: "1",
-      GIT_CONFIG_KEY_0: "core.hooksPath",
-      GIT_CONFIG_VALUE_0: os.devNull,
-    },
-    ...(options.input !== undefined ? { input: options.input } : {}),
-    timeoutMs: 60_000,
-    maxOutputBytes: options.maxOutputBytes ?? 256 * 1024,
-  });
+  return await withGitNetworkRetry(
+    argv[0] === "git" ? retryableGitNetworkOperation(argv.slice(1)) : undefined,
+    { timeoutMs: 60_000, beforeRun: options.beforeRun },
+    (timeoutMs) =>
+      runCommandBuffered(argv, {
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+        env: {
+          ...(options.env ?? process.env),
+          GIT_NO_REPLACE_OBJECTS: "1",
+          // Pin every command against repository hooks; explicit hook-disabling -c flags stay stronger.
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "core.hooksPath",
+          GIT_CONFIG_VALUE_0: os.devNull,
+        },
+        ...(options.input !== undefined ? { input: options.input } : {}),
+        timeoutMs,
+        maxOutputBytes: options.maxOutputBytes ?? 256 * 1024,
+      }),
+  );
 }
 
 export async function requirePublicationCommand(
@@ -50,12 +57,22 @@ export function createGitHubPublicationCommandRunner(assertCurrent?: () => void)
     assertCurrent?.();
     return result;
   };
+  const run = async (argv: string[], options: GitCommandOptions = {}) => {
+    const result = await runPublicationCommand(argv, { ...options, beforeRun: assertCurrent });
+    assertCurrent?.();
+    return result;
+  };
   return {
     step,
-    run: (...args: Parameters<typeof runPublicationCommand>) =>
-      step(() => runPublicationCommand(...args)),
-    require: (...args: Parameters<typeof requirePublicationCommand>) =>
-      step(() => requirePublicationCommand(...args)),
+    run,
+    require: async (argv: string[], options: GitCommandOptions = {}) => {
+      const result = await requirePublicationCommand(argv, {
+        ...options,
+        beforeRun: assertCurrent,
+      });
+      assertCurrent?.();
+      return result;
+    },
   };
 }
 

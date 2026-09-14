@@ -6,16 +6,21 @@ import { recoverPendingSessionDeliveries } from "../../../infra/session-delivery
 import {
   moveSessionDeliveryToFailed,
   releaseSessionDeliveryClaim,
+} from "../../../infra/session-delivery-queue-storage.js";
+import {
   SessionDeliveryDeadLetteredError,
   SessionDeliveryDeferredError,
   type QueuedSessionDelivery,
-} from "../../../infra/session-delivery-queue-storage.js";
+} from "../../../infra/session-delivery-queue.records.js";
 import { resolvePreferredOpenClawTmpDir } from "../../../infra/tmp-openclaw-dir.js";
 import {
+  closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
   type OpenClawStateDatabase,
 } from "../../../state/openclaw-state-db.js";
+import { captureOpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.js";
+import type { OpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.types.js";
 import { ensureTaskRegistryReady, getTaskById } from "../../../tasks/runtime-internal.js";
 import { publishTaskRecordAfterAtomicStore } from "../../../tasks/task-registry.js";
 import type { TaskRecord } from "../../../tasks/task-registry.types.js";
@@ -34,6 +39,7 @@ import {
 import {
   armRequesterWake,
   failedRecords,
+  expectLinkedGenerationTransaction,
   records,
   requesterWakeDriver,
 } from "./subagent-completion-admission.test-helpers.js";
@@ -55,13 +61,19 @@ vi.mock("../registry/subagent-registry.js", () => ({ resumeSubagentRun }));
 describe("atomic subagent completion admission store", () => {
   let tempDir: string;
   let database: OpenClawStateDatabase;
+  let queueContext: OpenClawStateWorkerContext;
 
   beforeEach(() => {
     tempDir = tempDirs.make("openclaw-subagent-admission-", resolvePreferredOpenClawTmpDir());
     database = openOpenClawStateDatabase({ path: path.join(tempDir, "state.sqlite") });
+    queueContext = captureOpenClawStateWorkerContext({
+      path: database.path,
+      env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+    });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await closeOpenClawStateDatabaseAsync();
     subagentRuns.clear();
     resetTaskRegistryForTests({ persist: false });
     closeOpenClawStateDatabaseForTest();
@@ -105,24 +117,41 @@ describe("atomic subagent completion admission store", () => {
     );
   }
 
-  function resetOwners(): void {
+  async function resetOwners(): Promise<void> {
+    const previousPath = database.path;
+    await closeOpenClawStateDatabaseAsync();
+    database = openOpenClawStateDatabase({ path: previousPath });
     clearRows();
     subagentRuns.clear();
     resetTaskRegistryForTests({ persist: false });
     database = openOpenClawStateDatabase({ path: path.join(tempDir, "state.sqlite") });
+    queueContext = captureOpenClawStateWorkerContext({
+      path: database.path,
+      env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+    });
   }
 
-  function useDefaultDatabase(): void {
+  async function useDefaultDatabase(): Promise<void> {
+    await closeOpenClawStateDatabaseAsync();
     closeOpenClawStateDatabaseForTest();
     vi.stubEnv("OPENCLAW_STATE_DIR", tempDir);
     database = openOpenClawStateDatabase();
+    queueContext = captureOpenClawStateWorkerContext({
+      path: database.path,
+      env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+    });
   }
 
-  function reopenOwners() {
+  async function reopenOwners() {
+    await closeOpenClawStateDatabaseAsync();
     closeOpenClawStateDatabaseForTest();
     subagentRuns.clear();
     resetTaskRegistryForTests({ persist: false });
     database = openOpenClawStateDatabase();
+    queueContext = captureOpenClawStateWorkerContext({
+      path: database.path,
+      env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+    });
     for (const [runId, entry] of loadSubagentRegistryFromSqlite()) {
       subagentRuns.set(runId, entry);
     }
@@ -138,7 +167,7 @@ describe("atomic subagent completion admission store", () => {
   ] as const)(
     "durably settles a rejected $name wake without rewriting the child outcome",
     async ({ status, outcome }) => {
-      useDefaultDatabase();
+      await useDefaultDatabase();
       const input = persistOwner(failedRecords(status, outcome));
       const originalTask = structuredClone(input.task);
       const originalExecution = structuredClone(input.subagent.execution);
@@ -156,7 +185,7 @@ describe("atomic subagent completion admission store", () => {
         expect(input.subagent.requesterSettleWake).toBeUndefined();
         expect(systemEvents()).toEqual([]);
 
-        reopenOwners();
+        await reopenOwners();
         const restored = subagentRuns.get(input.subagent.runId)!;
         expect(restored.requesterSettleWake).toBeUndefined();
         expect(restored.delivery).toMatchObject({
@@ -179,6 +208,7 @@ describe("atomic subagent completion admission store", () => {
         const deliver = vi.fn(async () => {});
         await expect(
           recoverPendingSessionDeliveries({
+            queueContext,
             deliver,
             log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
           }),
@@ -194,7 +224,7 @@ describe("atomic subagent completion admission store", () => {
   it.each(["successful generation", "successful task run", "cancelled delivered"] as const)(
     "rejects a stale %s requester-settle owner without changing durable records",
     async (change) => {
-      useDefaultDatabase();
+      await useDefaultDatabase();
       const input = persistOwner(
         change === "cancelled delivered"
           ? failedRecords("cancelled", { status: "error" })
@@ -230,7 +260,7 @@ describe("atomic subagent completion admission store", () => {
           }),
         );
         expect(systemEvents()).toEqual([]);
-        reopenOwners();
+        await reopenOwners();
         expect(subagentRuns.get(input.subagent.runId)).toEqual(durable.subagent);
         expect(getTaskById(input.task.taskId)).toMatchObject({
           runId: durable.task.runId,
@@ -245,7 +275,7 @@ describe("atomic subagent completion admission store", () => {
   );
 
   it("rolls a non-success wake settlement back when its task write fails", async () => {
-    useDefaultDatabase();
+    await useDefaultDatabase();
     const input = persistOwner(failedRecords("cancelled", { status: "error" }));
     const before = structuredClone(input);
     database.db.exec(
@@ -267,7 +297,7 @@ describe("atomic subagent completion admission store", () => {
       expect(getTaskById(input.task.taskId)).toMatchObject(before.task);
       expect(systemEvents()).toEqual([]);
       database.db.exec("DROP TRIGGER reject_nonsuccess_task");
-      reopenOwners();
+      await reopenOwners();
       expect(subagentRuns.get(input.subagent.runId)).toEqual(before.subagent);
       expect(getTaskById(input.task.taskId)).toMatchObject(before.task);
     } finally {
@@ -275,8 +305,8 @@ describe("atomic subagent completion admission store", () => {
     }
   });
 
-  it("does not suspend a cancelled completion as a blocked success", () => {
-    useDefaultDatabase();
+  it("does not suspend a cancelled completion as a blocked success", async () => {
+    await useDefaultDatabase();
     const input = persistOwner(failedRecords("cancelled", { status: "error" }));
     expect(
       blockSubagentCompletionDelivery({
@@ -288,13 +318,13 @@ describe("atomic subagent completion admission store", () => {
       }),
     ).toBe(false);
     expect(systemEvents()).toEqual([]);
-    reopenOwners();
+    await reopenOwners();
     expect(subagentRuns.get(input.subagent.runId)).toEqual(input.subagent);
     expect(getTaskById(input.task.taskId)).toMatchObject(input.task);
   });
 
   it.each([false, true])("settles a mixed batch with success first: %s", async (successFirst) => {
-    useDefaultDatabase();
+    await useDefaultDatabase();
     const cancelled = failedRecords("cancelled", { status: "error" });
     const success = records();
     success.task.taskId = "task-success";
@@ -315,7 +345,7 @@ describe("atomic subagent completion admission store", () => {
         expect.any(Object),
       );
       expect(systemEvents()).toHaveLength(1);
-      reopenOwners();
+      await reopenOwners();
       for (const input of inputs) {
         expect(subagentRuns.get(input.subagent.runId)?.requesterSettleWake).toBeUndefined();
         expect(subagentRuns.get(input.subagent.runId)?.delivery?.status).toBe("failed");
@@ -367,65 +397,12 @@ describe("atomic subagent completion admission store", () => {
   );
 
   it("commits one linked generation and rejects asynchronous transaction hooks", () => {
-    const input = records();
-    const phases: string[] = [];
-    const first = admitSubagentCompletionDelivery({
-      ...input,
-      databaseOptions: { database },
-      testHooks: {
-        afterMutation: (phase, exactDatabase) => {
-          expect(exactDatabase).toBe(database);
-          expect(exactDatabase.db.isTransaction).toBe(true);
-          phases.push(phase);
-        },
-      },
-    });
-    expect(first.claimed).toBe(true);
-    expect(phases).toEqual(["queue", "subagent", "task"]);
-    expect(rowCount("delivery_queue_entries")).toBe(1);
-    expect(rowCount("subagent_runs")).toBe(1);
-    expect(rowCount("task_runs")).toBe(1);
-
-    const second = admitSubagentCompletionDelivery({
-      ...input,
-      databaseOptions: { database },
-    });
-    expect(second.claimed).toBe(false);
-    expect(rowCount("delivery_queue_entries")).toBe(1);
-
-    const settledSubagent: SubagentRunRecord = structuredClone(input.subagent);
-    settledSubagent.delivery!.status = "delivered";
-    settledSubagent.delivery!.disposition = "delivered";
-    const settledTask: TaskRecord = {
-      ...input.task,
-      deliveryStatus: "delivered",
-    };
-    settleSubagentCompletionDelivery({
-      subagent: settledSubagent,
-      task: settledTask,
-      databaseOptions: { database },
-    });
-    const storedTask = database.db
-      .prepare("SELECT delivery_status FROM task_runs WHERE task_id = ?")
-      .get(input.task.taskId) as { delivery_status: string };
-    expect(storedTask.delivery_status).toBe("delivered");
-
-    clearRows();
-    expect(() =>
-      admitSubagentCompletionDelivery({
-        ...records(),
-        databaseOptions: { database },
-        testHooks: { afterMutation: async () => undefined },
-      }),
-    ).toThrow("transaction hooks must be synchronous");
-    expect(rowCount("delivery_queue_entries")).toBe(0);
-    expect(rowCount("subagent_runs")).toBe(0);
-    expect(rowCount("task_runs")).toBe(0);
+    expectLinkedGenerationTransaction({ database, rowCount, clearRows });
   });
 
   it.each(["queue", "subagent", "task"] as const)(
     "rolls blocked state and its durable alert back after the %s mutation",
-    (cut) => {
+    async (cut) => {
       const input = persistOwner();
       const table =
         cut === "queue"
@@ -466,7 +443,7 @@ describe("atomic subagent completion admission store", () => {
           .get(input.task.taskId),
       ).toMatchObject({ delivery_status: "session_queued", terminal_outcome: "succeeded" });
       database.db.exec(`DROP TRIGGER fail_blocked_${cut}`);
-      resetOwners();
+      await resetOwners();
     },
   );
 
@@ -522,7 +499,7 @@ describe("atomic subagent completion admission store", () => {
     expect(block()).toBe(true);
     expect(new Set(systemEvents().map((event) => event.id)).size).toBe(2);
 
-    resetOwners();
+    await resetOwners();
     const global = records();
     global.task.requesterSessionKey = "global";
     global.task.ownerKey = "global";
@@ -544,7 +521,7 @@ describe("atomic subagent completion admission store", () => {
       agentId: "main",
     });
 
-    resetOwners();
+    await resetOwners();
     const silent = records();
     silent.task.notifyPolicy = "silent";
     persistOwner(silent);
@@ -577,7 +554,7 @@ describe("atomic subagent completion admission store", () => {
   });
 
   it("uses the same blocked intent for ordinary and correlated exhaustion", async () => {
-    useDefaultDatabase();
+    await useDefaultDatabase();
     const ordinary = persistOwner();
     suspendPendingFinalDelivery(
       {
@@ -597,8 +574,8 @@ describe("atomic subagent completion admission store", () => {
     );
     const ordinaryId = systemEvents()[0]?.id;
 
-    resetOwners();
-    useDefaultDatabase();
+    await resetOwners();
+    await useDefaultDatabase();
     const correlated = persistOwner();
     await settleCorrelatedSubagentDelivery(correlated.queueEntry, "moved-to-failed");
     expect(systemEvents()).toHaveLength(1);
@@ -606,7 +583,7 @@ describe("atomic subagent completion admission store", () => {
   });
 
   it("recovers a committed blocked alert once and leaves a completed tombstone", async () => {
-    useDefaultDatabase();
+    await useDefaultDatabase();
     const input = persistOwner();
     expect(
       blockSubagentCompletionDelivery({
@@ -624,10 +601,14 @@ describe("atomic subagent completion admission store", () => {
     const deliver = vi.fn(async () => undefined);
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
-    await expect(recoverPendingSessionDeliveries({ deliver, log })).resolves.toMatchObject({
+    await expect(
+      recoverPendingSessionDeliveries({ queueContext, deliver, log }),
+    ).resolves.toMatchObject({
       recovered: 1,
     });
-    await expect(recoverPendingSessionDeliveries({ deliver, log })).resolves.toMatchObject({
+    await expect(
+      recoverPendingSessionDeliveries({ queueContext, deliver, log }),
+    ).resolves.toMatchObject({
       recovered: 0,
     });
     expect(deliver).toHaveBeenCalledTimes(1);
@@ -664,6 +645,10 @@ describe("atomic subagent completion admission store", () => {
     await withEnvAsync({ OPENCLAW_STATE_DIR: tempDir }, async () => {
       closeOpenClawStateDatabaseForTest();
       database = openOpenClawStateDatabase();
+      queueContext = captureOpenClawStateWorkerContext({
+        path: database.path,
+        env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+      });
       const input = records();
       input.subagent.delivery = {
         status: "pending",
@@ -714,7 +699,7 @@ describe("atomic subagent completion admission store", () => {
         queueId: undefined,
         payload: expect.objectContaining({ childRunId: input.subagent.runId }),
       });
-      await moveSessionDeliveryToFailed(first.id, tempDir);
+      await moveSessionDeliveryToFailed(first.id, queueContext);
 
       await expect(
         retrySubagentCompletionDelivery(input.task.taskId, { database }),
@@ -738,11 +723,16 @@ describe("atomic subagent completion admission store", () => {
         retainOnFailure: true,
       });
 
-      await releaseSessionDeliveryClaim(second.id);
+      await releaseSessionDeliveryClaim(second.id, queueContext);
+      await closeOpenClawStateDatabaseAsync();
       resetTaskRegistryForTests({ persist: false });
       subagentRuns.clear();
       closeOpenClawStateDatabaseForTest();
       database = openOpenClawStateDatabase();
+      queueContext = captureOpenClawStateWorkerContext({
+        path: database.path,
+        env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+      });
       for (const [runId, entry] of loadSubagentRegistryFromSqlite()) {
         subagentRuns.set(runId, entry);
       }
@@ -755,7 +745,7 @@ describe("atomic subagent completion admission store", () => {
       const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
       const onSettled = vi.fn(settleCorrelatedSubagentDelivery);
       await expect(
-        recoverPendingSessionDeliveries({ deliver, log, onSettled }),
+        recoverPendingSessionDeliveries({ queueContext, deliver, log, onSettled }),
       ).resolves.toMatchObject({ recovered: 2, failed: 0 });
       const recovered = delivered.find((entry) => entry.id === second.id);
       expect(recovered).toMatchObject({
@@ -782,7 +772,7 @@ describe("atomic subagent completion admission store", () => {
         expect(message).toContain("new user authority or an unavailable external decision");
       }
       await expect(
-        recoverPendingSessionDeliveries({ deliver, log, onSettled }),
+        recoverPendingSessionDeliveries({ queueContext, deliver, log, onSettled }),
       ).resolves.toMatchObject({ recovered: 0 });
       expect(delivered.filter((entry) => entry.id === second.id)).toHaveLength(1);
       expect(onSettled.mock.calls.filter(([entry]) => entry.id === second.id)).toHaveLength(1);
@@ -803,6 +793,10 @@ describe("atomic subagent completion admission store", () => {
     await withEnvAsync({ OPENCLAW_STATE_DIR: tempDir }, async () => {
       closeOpenClawStateDatabaseForTest();
       database = openOpenClawStateDatabase();
+      queueContext = captureOpenClawStateWorkerContext({
+        path: database.path,
+        env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+      });
       const input = records();
       const now = Date.now();
       input.subagent.delivery = {
@@ -862,6 +856,10 @@ describe("atomic subagent completion admission store", () => {
       subagentRuns.clear();
       closeOpenClawStateDatabaseForTest();
       database = openOpenClawStateDatabase();
+      queueContext = captureOpenClawStateWorkerContext({
+        path: database.path,
+        env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
+      });
       for (const [runId, entry] of loadSubagentRegistryFromSqlite()) {
         subagentRuns.set(runId, entry);
       }

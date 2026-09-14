@@ -14,57 +14,15 @@ import {
 } from "./quota-reset.test-support.js";
 
 describe.each([
-  {
-    source: "wham",
-    expiresDuringBlock: false,
-    scopedCooldown: false,
-    availableProbeCooldown: false,
-    staleUsageAfterSuccess: false,
-  },
-  {
-    source: "codex_rate_limits",
-    expiresDuringBlock: false,
-    scopedCooldown: false,
-    availableProbeCooldown: false,
-    staleUsageAfterSuccess: false,
-  },
-  {
-    source: "wham",
-    expiresDuringBlock: true,
-    scopedCooldown: false,
-    availableProbeCooldown: false,
-    staleUsageAfterSuccess: false,
-  },
-  {
-    source: "codex_rate_limits",
-    expiresDuringBlock: false,
-    scopedCooldown: true,
-    availableProbeCooldown: false,
-    staleUsageAfterSuccess: false,
-  },
-  {
-    source: "codex_rate_limits",
-    expiresDuringBlock: false,
-    scopedCooldown: true,
-    availableProbeCooldown: true,
-    staleUsageAfterSuccess: false,
-  },
-  {
-    source: "codex_rate_limits",
-    expiresDuringBlock: false,
-    scopedCooldown: true,
-    availableProbeCooldown: false,
-    staleUsageAfterSuccess: true,
-  },
+  ["wham", false, false, false, false],
+  ["codex_rate_limits", false, false, false, false],
+  ["wham", true, false, false, false],
+  ["codex_rate_limits", false, true, false, false],
+  ["codex_rate_limits", false, true, true, false],
+  ["codex_rate_limits", false, true, false, true],
 ] as const)(
-  "Gateway quota reset ($source, expired=$expiresDuringBlock, scoped=$scopedCooldown, available=$availableProbeCooldown, stale-success=$staleUsageAfterSuccess)",
-  ({
-    source,
-    expiresDuringBlock,
-    scopedCooldown,
-    availableProbeCooldown,
-    staleUsageAfterSuccess,
-  }) => {
+  "Gateway quota reset (%s, expired=%s, scoped=%s, available=%s, stale-success=%s)",
+  (source, expiresDuringBlock, scopedCooldown, availableProbeCooldown, staleUsageAfterSuccess) => {
     it(
       "recovers the next chat after upstream capacity returns without admitting exhausted or revoked auth",
       { timeout: 600_000 },

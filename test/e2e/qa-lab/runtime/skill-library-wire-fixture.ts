@@ -145,7 +145,12 @@ export class SkillLibraryWireClient {
     }
   }
 
-  async request<T>(method: string, params: unknown, timeoutMs = 30_000): Promise<T> {
+  async request<T>(
+    method: string,
+    params: unknown,
+    timeoutMs = 30_000,
+    options?: { expectedProfileId?: string },
+  ): Promise<T> {
     const id = randomUUID();
     return await new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -153,7 +158,15 @@ export class SkillLibraryWireClient {
         reject(new Error(`${method} timed out`));
       }, timeoutMs);
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
-      this.socket.send(JSON.stringify({ type: "req", id, method, params }));
+      this.socket.send(
+        JSON.stringify({
+          type: "req",
+          id,
+          method,
+          params,
+          expectedProfileId: options?.expectedProfileId,
+        }),
+      );
     });
   }
 

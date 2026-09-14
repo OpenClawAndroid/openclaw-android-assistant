@@ -40,6 +40,7 @@ export type ChannelBindingProof = {
 
 export type InstanceBindingProbeCoordinator = {
   channelName: string;
+  reportReloadSettlement?: boolean;
   channel?: ChannelPlugin;
   onLifecycleEvent?: (event: { registryId: number; port: number; kind: "start" | "stop" }) => void;
   identify: (value: object) => number;
@@ -95,12 +96,14 @@ export async function withPluginServiceStopDeadline<T>(
 export function installInstanceBindingProbeCoordinator(options?: {
   serviceStopFailure?: InstanceBindingProbeCoordinator["serviceStopFailure"];
   channels?: boolean;
+  reportReloadSettlement?: boolean;
 }): InstanceBindingProbeCoordinator {
   const ids = new WeakMap<object, number>();
   let nextId = 1;
   const channelName = `openclaw.test.gatewayInstanceBindingProbe.${randomUUID()}`;
   const coordinator: InstanceBindingProbeCoordinator = {
     channelName,
+    ...(options?.reportReloadSettlement ? { reportReloadSettlement: true } : {}),
     identify(value) {
       const existing = ids.get(value);
       if (existing !== undefined) {
@@ -164,7 +167,7 @@ export async function writeInstanceBindingProbePlugin(
     const request = {};
     require("node:diagnostics_channel").channel(${JSON.stringify(channelName)}).publish(request);
     const coordinator = request.coordinator;
-    const reportReloadSettlement = Boolean(coordinator.channelProof || coordinator.channel);
+    const reportReloadSettlement = Boolean(coordinator.reportReloadSettlement || coordinator.channelProof || coordinator.channel);
     const registryId = coordinator.nextRegistryId++;
     coordinator.runtimes.push(api.runtime);
     api.on("gateway_stop", () => { coordinator.gatewayStops.push(registryId); });

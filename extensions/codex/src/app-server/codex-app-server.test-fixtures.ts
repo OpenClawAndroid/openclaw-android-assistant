@@ -14,6 +14,7 @@ export function mockClientRuntimeMethods() {
   const getServerVersion = () => CODEX_APP_SERVER_VERSION;
   return {
     getInstanceId: () => "test-client-1",
+    getTransportPid: (): number | undefined => undefined,
     getRuntimeIdentity: () => ({ serverVersion: getServerVersion() }),
     getServerVersion,
   };

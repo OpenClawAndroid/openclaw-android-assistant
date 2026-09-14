@@ -116,9 +116,6 @@ describe("workspace hash memo", () => {
       directories: ["parent"],
     };
     const metrics = hashMetrics();
-    const open = vi.spyOn(fs, "open");
-    const parentPath = path.join(root, "parent");
-    const parentSnapshots = () => open.mock.calls.filter(([file]) => file === parentPath).length;
 
     const first = await withWorkspaceHashMemo(
       new Map(),
@@ -130,16 +127,14 @@ describe("workspace hash memo", () => {
       "parent/child.txt",
       "parent/sibling.txt",
     ]);
-    expect(metrics.contentHashCount).toBe(1);
-    expect(parentSnapshots()).toBe(1);
+    expect(metrics).toMatchObject({ contentHashCount: 1, memoHitCount: 0 });
 
     await withWorkspaceHashMemo(
       new Map(),
       async () => await preflightWorkspaceApply({ root, base, current }),
       metrics,
     );
-    expect(metrics.contentHashCount).toBe(2);
-    expect(parentSnapshots()).toBe(2);
+    expect(metrics).toMatchObject({ contentHashCount: 2, memoHitCount: 0 });
   });
 
   it("aggregates remote metrics and bounds a maximum-entry memo envelope", () => {

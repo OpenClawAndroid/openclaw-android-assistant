@@ -7,6 +7,7 @@ import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-
 import { createAgentHarnessTaskRuntimeScope } from "../tasks/agent-harness-task-runtime-scope.js";
 import { createRunningTaskRun, finalizeTaskRunByRunId } from "../tasks/detached-task-runtime.js";
 import { listTaskRecords } from "../tasks/runtime-internal.js";
+import { captureTaskExecutionOwner } from "../tasks/task-execution-owner.js";
 import {
   createAgentHarnessTaskRuntime,
   deliverAgentHarnessTaskCompletion,
@@ -36,6 +37,10 @@ vi.mock("../tasks/runtime-internal.js", () => ({
   listTaskRecords: vi.fn(() => []),
 }));
 
+vi.mock("../tasks/task-execution-owner.js", () => ({
+  captureTaskExecutionOwner: vi.fn(),
+}));
+
 describe("agent-harness-task-runtime", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,6 +50,39 @@ describe("agent-harness-task-runtime", () => {
   function createScope(requesterSessionKey = "agent:main:channel:C123") {
     return createAgentHarnessTaskRuntimeScope({ requesterSessionKey });
   }
+
+  it("records the scoped harness process identity without recapturing a reused PID", () => {
+    const executionOwner = { host: "gateway-host", pid: 4321, startIdentity: 100 };
+    vi.mocked(captureTaskExecutionOwner).mockReturnValue(executionOwner);
+    const runtime = createAgentHarnessTaskRuntime({
+      runtime: "subagent",
+      taskKind: "example-harness",
+      scope: createScope(),
+      executionPid: executionOwner.pid,
+    });
+    vi.mocked(captureTaskExecutionOwner).mockReturnValue({
+      ...executionOwner,
+      startIdentity: 200,
+    });
+
+    for (const runId of ["child-1", "child-2"]) {
+      const task = runtime.createRunningTaskRun({ runId, task: "do work" });
+      expect(task.executionOwner).toEqual(executionOwner);
+    }
+    expect(captureTaskExecutionOwner).toHaveBeenCalledExactlyOnceWith(executionOwner.pid);
+  });
+
+  it("keeps an unidentified or remote harness owner unknown", () => {
+    const runtime = createAgentHarnessTaskRuntime({
+      runtime: "subagent",
+      taskKind: "example-harness",
+      scope: createScope(),
+    });
+    const task = runtime.createRunningTaskRun({ runId: "child-1", task: "remote work" });
+
+    expect(task.executionOwner).toBeUndefined();
+    expect(captureTaskExecutionOwner).not.toHaveBeenCalled();
+  });
 
   it("scopes task lifecycle mutations to the owning requester session", () => {
     const runtime = createAgentHarnessTaskRuntime({

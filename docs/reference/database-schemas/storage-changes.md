@@ -70,6 +70,9 @@ classification from one read-only SQLite snapshot, then prepare text and
 provenance off the Gateway thread. The caller carries its current exact-secret
 redaction snapshot and rejects results prepared against an obsolete registry.
 Reset-recall metadata crosses the worker boundary with the prepared content.
+If secret registration invalidates both preparation attempts, the export rejects
+for retry instead of reading SQLite on the Gateway thread. Failed index rebuilds
+preserve the published index and retained retry state.
 Incognito databases, archive materialization, and caller-owned transcript
 observers retain their existing local execution. Index publication and
 restoration remain with their existing database and lifecycle owners.
@@ -160,6 +163,15 @@ retain that context; SDK reconnect requests capture it before waiting for Gatewa
 admission or loading the delivery runtime. A recovery root applies to an existing
 queue entry, while fresh sends use their selected default root. This context stays
 internal and is not added to durable payloads or plugin callback inputs.
+
+Standalone session-delivery queue operations run in the shared-state worker.
+Producers, recovery, generated-media preparation, and the retry scheduler carry
+one captured database context through enqueue, retry bookkeeping, and settlement.
+The scheduler stops admission and joins its reads and active drains before the
+database closes. Queue payloads retain their JSON serialization boundary before
+worker transport. Compound task/subagent admission and settlement retain their
+existing synchronous transaction owner; the outbound queue and its media custody
+operations remain separate migration work.
 
 Conversation sends, turns, and queue completion retain their logical agent and
 physical store while waiting for agent write admission. Retry validation reads

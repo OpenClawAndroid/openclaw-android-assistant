@@ -229,7 +229,6 @@ async function initializeAndRunUpdate(
               timeoutMs: prepared.timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS,
               startedAt: prepared.startedAt,
               progress,
-              jsonMode: Boolean(opts.json),
               managedServiceEnv: env,
               invocationCwd,
               honorPackageRoot:

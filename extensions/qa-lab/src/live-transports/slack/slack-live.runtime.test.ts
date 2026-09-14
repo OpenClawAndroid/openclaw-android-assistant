@@ -703,9 +703,11 @@ describe("Slack live QA runtime helpers", () => {
       if (!commentaryMarker || !toolMarker || !outputMarker || !finalMarker || !verifyObserved) {
         throw new Error(`missing Slack progress verifier: ${testCase.id}`);
       }
-      // Progress cards compact command details from the middle, so the QA marker
-      // stays at the command suffix where the real Slack presentation preserves it.
-      expect(input).toContain(`sleep 5; printf '%s\\n' '${outputMarker}' # ${toolMarker}`);
+      // Compact progress cards retain the leading command segment, so keep the
+      // QA marker there instead of in a trailing shell comment that Slack drops.
+      expect(input).toContain(
+        `printf '%s' '${toolMarker}' >/dev/null; sleep 5; printf '%s\\n' '${outputMarker}'`,
+      );
       const messages = [
         {
           channelId: "C123456789",

@@ -1,9 +1,9 @@
 // Browser tests cover managed Playwright CDP transport behavior.
 import { createServer } from "node:http";
 import { rawDataToString } from "openclaw/plugin-sdk/webhook-ingress";
+import { type Data, type WebSocket, WebSocketServer } from "openclaw/plugin-sdk/websocket-runtime";
 import { chromium } from "playwright-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocketServer } from "ws";
 import * as chromeModule from "./chrome.js";
 import { pwAi } from "./pw-ai.js";
 import { connectOverCdpTransport } from "./pw-session-cdp-transport.js";
@@ -24,7 +24,7 @@ const connectOverCdpSpy = vi.spyOn(chromium, "connectOverCDP");
 const getChromeWebSocketEndpointSpy = vi.spyOn(chromeModule, "getChromeWebSocketEndpoint");
 const TEST_CDP_WS_MAX_PAYLOAD_BYTES = 1024 * 1024;
 
-function webSocketMessageToString(data: import("ws").Data): string {
+function webSocketMessageToString(data: Data): string {
   return typeof data === "string" ? data : rawDataToString(data);
 }
 
@@ -88,7 +88,7 @@ describe("pw-session Playwright CDP transport", () => {
     const port = (server.address() as { port: number }).port;
     const cdpUrl = `http://127.0.0.1:${port}`;
     const transportUrl = `ws://127.0.0.1:${port}/devtools/browser/test`;
-    const serverSocket = new Promise<import("ws").WebSocket>((resolve) => {
+    const serverSocket = new Promise<WebSocket>((resolve) => {
       server.on("connection", (socket) => resolve(socket));
     });
     const commands: Array<{ id: number; method: string; params?: unknown; sessionId?: string }> =
@@ -451,7 +451,7 @@ describe("pw-session Playwright CDP transport", () => {
     });
     const port = (server.address() as { port: number }).port;
     const cdpUrl = `ws://127.0.0.1:${port}/devtools/browser/test`;
-    const serverSocket = new Promise<import("ws").WebSocket>((resolve) => {
+    const serverSocket = new Promise<WebSocket>((resolve) => {
       server.on("connection", (socket) => resolve(socket));
     });
     getChromeWebSocketEndpointSpy.mockResolvedValue({
@@ -489,7 +489,7 @@ describe("pw-session Playwright CDP transport", () => {
     });
     const port = (server.address() as { port: number }).port;
     const cdpUrl = `ws://127.0.0.1:${port}/devtools/browser/test`;
-    const serverSocket = new Promise<import("ws").WebSocket>((resolve) => {
+    const serverSocket = new Promise<WebSocket>((resolve) => {
       server.on("connection", (socket) => resolve(socket));
     });
     getChromeWebSocketEndpointSpy.mockResolvedValue({
@@ -543,7 +543,7 @@ describe("pw-session Playwright CDP transport", () => {
     });
     const port = (server.address() as { port: number }).port;
     const cdpUrl = `ws://127.0.0.1:${port}/devtools/browser/test`;
-    const serverSocket = new Promise<import("ws").WebSocket>((resolve) => {
+    const serverSocket = new Promise<WebSocket>((resolve) => {
       server.on("connection", (socket) => resolve(socket));
     });
     getChromeWebSocketEndpointSpy.mockResolvedValue({
@@ -585,7 +585,7 @@ describe("pw-session Playwright CDP transport", () => {
     });
     const port = (server.address() as { port: number }).port;
     const cdpUrl = `ws://127.0.0.1:${port}/devtools/browser/test`;
-    const serverSocket = new Promise<import("ws").WebSocket>((resolve) => {
+    const serverSocket = new Promise<WebSocket>((resolve) => {
       server.on("connection", (socket) => resolve(socket));
     });
     getChromeWebSocketEndpointSpy.mockResolvedValue({

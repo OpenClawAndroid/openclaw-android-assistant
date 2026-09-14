@@ -231,6 +231,10 @@
     "./video-generation": {
       "types": "./dist/src/plugin-sdk/video-generation.d.ts",
       "default": "./src/video-generation.ts"
+    },
+    "./websocket-runtime": {
+      "types": "./dist/src/plugin-sdk/websocket-runtime.d.ts",
+      "default": "./src/websocket-runtime.ts"
     }
   }
 }

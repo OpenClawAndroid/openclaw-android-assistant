@@ -143,7 +143,7 @@ esac
 }
 
 function runScript(args: string[], env: NodeJS.ProcessEnv = {}) {
-  return spawnSync("bash", [scriptPath, ...args], {
+  return spawnSync("/bin/bash", [scriptPath, ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
     env: { ...process.env, ...env },

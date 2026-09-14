@@ -657,7 +657,7 @@ export async function recoverNodeRuntime({
     !process.argv[1] ||
     isForegroundGmailRunInvocation(process.argv) ||
     (process.platform !== "win32" && isNativeHookRelayInvocation(process.argv)) ||
-    !nodeRuntimeFailure(process.versions.node, detectCurrentSqliteCapabilities())
+    !nodeRuntimeFailure(process.versions.node, await detectCurrentSqliteCapabilities())
   ) {
     return false;
   }

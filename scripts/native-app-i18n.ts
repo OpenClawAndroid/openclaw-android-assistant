@@ -409,11 +409,16 @@ function lineNumber(source: string, offset: number): number {
   return source.slice(0, offset).split("\n").length;
 }
 
-function findClosingBrace(source: string, openingBrace: number): number | null {
+function findClosingDelimiter(
+  source: string,
+  openingIndex: number,
+  opening: string,
+  closing: string,
+): number | null {
   let depth = 0;
   let quoted = false;
   let escaped = false;
-  for (let index = openingBrace; index < source.length; index += 1) {
+  for (let index = openingIndex; index < source.length; index += 1) {
     const character = source[index];
     if (escaped) {
       escaped = false;
@@ -430,9 +435,9 @@ function findClosingBrace(source: string, openingBrace: number): number | null {
     if (quoted) {
       continue;
     }
-    if (character === "{") {
+    if (character === opening) {
       depth += 1;
-    } else if (character === "}") {
+    } else if (character === closing) {
       depth -= 1;
       if (depth === 0) {
         return index;
@@ -458,28 +463,8 @@ function readSwiftStringLiteral(
         return null;
       }
       if (next === "(") {
-        let depth = 1;
-        let quoted = false;
-        let escaped = false;
-        let end = index + 2;
-        for (; end < source.length; end += 1) {
-          const interpolationCharacter = source[end];
-          if (escaped) {
-            escaped = false;
-          } else if (quoted && interpolationCharacter === "\\") {
-            escaped = true;
-          } else if (interpolationCharacter === '"') {
-            quoted = !quoted;
-          } else if (!quoted && interpolationCharacter === "(") {
-            depth += 1;
-          } else if (!quoted && interpolationCharacter === ")") {
-            depth -= 1;
-            if (depth === 0) {
-              break;
-            }
-          }
-        }
-        if (depth !== 0) {
+        const end = findClosingDelimiter(source, index + 1, "(", ")");
+        if (end === null) {
           return null;
         }
         raw += source.slice(index, end + 1);
@@ -519,28 +504,8 @@ function readKotlinStringLiteral(
   for (let index = openingQuote + 1; index < source.length; index += 1) {
     const character = source[index];
     if (character === "$" && source[index + 1] === "{") {
-      let depth = 1;
-      let quoted = false;
-      let escaped = false;
-      let end = index + 2;
-      for (; end < source.length; end += 1) {
-        const interpolationCharacter = source[end];
-        if (escaped) {
-          escaped = false;
-        } else if (quoted && interpolationCharacter === "\\") {
-          escaped = true;
-        } else if (interpolationCharacter === '"') {
-          quoted = !quoted;
-        } else if (!quoted && interpolationCharacter === "{") {
-          depth += 1;
-        } else if (!quoted && interpolationCharacter === "}") {
-          depth -= 1;
-          if (depth === 0) {
-            break;
-          }
-        }
-      }
-      if (depth !== 0) {
+      const end = findClosingDelimiter(source, index + 1, "{", "}");
+      if (end === null) {
         return null;
       }
       raw += source.slice(index, end + 1);
@@ -987,7 +952,7 @@ export function extractNativeI18nCandidates(
     for (const property of source.matchAll(APPLE_STRING_PROPERTY)) {
       const name = property[1];
       const openingBrace = (property.index ?? 0) + property[0].lastIndexOf("{");
-      const closingBrace = findClosingBrace(source, openingBrace);
+      const closingBrace = findClosingDelimiter(source, openingBrace, "{", "}");
       if (!name || !UI_STRING_NAME_RE.test(name) || closingBrace === null) {
         continue;
       }
@@ -1040,7 +1005,7 @@ export function extractNativeI18nCandidates(
       const bodyStart = (helper.index ?? 0) + helper[0].length;
       if (bodyKind === "{") {
         const openingBrace = bodyStart - 1;
-        const closingBrace = findClosingBrace(source, openingBrace);
+        const closingBrace = findClosingDelimiter(source, openingBrace, "{", "}");
         if (closingBrace === null) {
           continue;
         }
@@ -1068,7 +1033,7 @@ export function extractNativeI18nCandidates(
       const whenMatch = expression.match(/^\s*when\s*\([^)]*\)\s*\{/u);
       if (whenMatch) {
         const openingBrace = bodyStart + whenMatch[0].lastIndexOf("{");
-        const closingBrace = findClosingBrace(source, openingBrace);
+        const closingBrace = findClosingDelimiter(source, openingBrace, "{", "}");
         if (closingBrace === null) {
           continue;
         }

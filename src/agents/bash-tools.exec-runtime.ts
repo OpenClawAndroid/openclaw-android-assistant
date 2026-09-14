@@ -811,6 +811,7 @@ export async function runExecProcess({
         timedOut: outcome.timedOut,
       });
     } catch (error) {
+      session.finalizationFailed = true;
       recordAgentCleanupFailure();
       if (outcome.status === "completed") {
         finalOutcome = buildExecRuntimeErrorOutcome({
@@ -844,6 +845,7 @@ export async function runExecProcess({
           maybeNotifyOnExit(session, finalOutcome.status);
         }
       } catch (error) {
+        session.finalizationFailed = true;
         // Recover before yielding: scope joins queued by markExited must not
         // outrun the task's failed outcome or restore its environment state.
         finalOutcome = buildExecRuntimeErrorOutcome({

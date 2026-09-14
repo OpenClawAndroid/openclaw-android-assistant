@@ -52,6 +52,7 @@ import {
 } from "./tool-call-id.js";
 import {
   copyCodeModeSourceAppend,
+  copyCodeModeSourceAppendOptions,
   prepareCodeModeSourceAppend,
   withCodeModeSourceAppend,
   type CodeModeSourceAppend,
@@ -718,21 +719,28 @@ export function installSessionToolResultGuard(
     const runOwnedMessage = attachSessionTranscriptRunId(message, transcriptRunId);
     copyCodeModeSourceAppend(message, runOwnedMessage, sourceAppend);
     const parentEntryId = sessionManager.getLeafId();
-    // SQLite redacts again, so it must resolve the guard's same policy.
-    const appendOptions = opts?.config ? { ...options, config: opts.config } : options;
     const {
       entryId,
       anchor,
       appended,
       message: persistedMessage,
-    } = withRuntimeUserTurnTranscriptRecorder(runOwnedMessage, () =>
-      originalAppendWithTranscriptAnchor(
+    } = withRuntimeUserTurnTranscriptRecorder(runOwnedMessage, (beforeFreshMessageCommit) => {
+      // SQLite redacts again, so it must resolve the guard's same policy.
+      const appendOptions =
+        opts?.config || beforeFreshMessageCommit
+          ? copyCodeModeSourceAppendOptions(options, {
+              ...options,
+              ...(opts?.config ? { config: opts.config } : {}),
+              ...(beforeFreshMessageCommit ? { beforeFreshMessageCommit } : {}),
+            })
+          : options;
+      return originalAppendWithTranscriptAnchor(
         runOwnedMessage as never,
         sourceAppend
           ? prepareCodeModeSourceAppend(appendOptions ?? {}, runOwnedMessage, sourceAppend)
           : appendOptions,
-      ),
-    );
+      );
+    });
     // Destructive tool-side state commits only after this exact result is durable.
     acknowledgeInternalToolResult(acknowledgementSource);
     const persistedId =

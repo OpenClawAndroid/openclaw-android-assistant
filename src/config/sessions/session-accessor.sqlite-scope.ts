@@ -1,5 +1,6 @@
 // Sanctioned low-level scope/Kysely entry point for doctor, migrations, and infrastructure.
 // Runtime feature code imports the session accessor barrel instead of this module.
+import { channel } from "node:diagnostics_channel";
 import { performance } from "node:perf_hooks";
 import { isMainThread, threadId } from "node:worker_threads";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
@@ -109,6 +110,7 @@ export type SessionSqliteTargetResolutionCache = Map<
 const SQLITE_SESSION_SLOW_WRITE_MS = 1_000;
 const SQLITE_SESSION_WRITE_ERROR_MAX_CHARS = 2_048;
 const SQLITE_TRANSCRIPT_READ_QUERY_CHUNK_SIZE = 400;
+const sessionWriteDiagnostics = channel("openclaw.session.write");
 
 /** Checks the freshly read identity and lifecycle before a synchronous transcript mutation. */
 export function transcriptWriteScopeIsCurrent(
@@ -241,12 +243,6 @@ export async function runExclusiveSqliteSessionWrite<T>(
     ...(diagnostics?.workerThreadId !== undefined
       ? { workerThreadId: diagnostics.workerThreadId }
       : {}),
-    ...(diagnostics?.reclamationAdmission
-      ? {
-          reclamationAdmissionId: diagnostics.reclamationAdmission.admissionId,
-          reclamationAdmissionReleaseCause: diagnostics.reclamationAdmission.releaseCause,
-        }
-      : {}),
     ...(diagnostics?.artifactPreparation
       ? { artifactPreparation: artifactPreparationLogFields(diagnostics.artifactPreparation) }
       : {}),
@@ -262,30 +258,47 @@ export async function runExclusiveSqliteSessionWrite<T>(
         }
       : {}),
   });
+  const logFields = (completedAt: number) => ({
+    agentId: scope.agentId,
+    ...timingFields(completedAt),
+    ...(diagnostics?.reclamationAdmission
+      ? {
+          reclamationAdmissionId: diagnostics.reclamationAdmission.admissionId,
+          reclamationAdmissionReleaseCause: diagnostics.reclamationAdmission.releaseCause,
+        }
+      : {}),
+    storePath,
+  });
+  let completedAt = startedAt;
+  let outcome: "ok" | "error" = "ok";
   try {
     const result = await (writer === "worker"
       ? runOpenClawAgentWorkerWrite(databaseOptions, fn, timing)
       : runOpenClawAgentWriteAdmission(databaseOptions, fn, false, timing));
-    const completedAt = performance.now();
+    completedAt = performance.now();
     if (completedAt - startedAt >= SQLITE_SESSION_SLOW_WRITE_MS) {
-      getChildLogger({ subsystem: "session-sqlite" }).warn("slow SQLite session write", {
-        agentId: scope.agentId,
-        ...timingFields(completedAt),
-        storePath,
-      });
+      getChildLogger({ subsystem: "session-sqlite" }).warn(
+        "slow SQLite session write",
+        logFields(completedAt),
+      );
     }
     return result;
   } catch (error) {
+    outcome = "error";
+    completedAt = performance.now();
     getChildLogger({ subsystem: "session-sqlite" }).warn("SQLite session write failed", {
-      agentId: scope.agentId,
-      ...timingFields(performance.now()),
+      ...logFields(completedAt),
       error: truncateUtf16Safe(
         formatErrorMessageWithCode(error),
         SQLITE_SESSION_WRITE_ERROR_MAX_CHARS,
       ),
-      storePath,
     });
     throw error;
+  } finally {
+    if (sessionWriteDiagnostics.hasSubscribers) {
+      // Profiling retains fixed owner categories and timings, never database or admission identities.
+      sessionWriteDiagnostics.publish({ ...timingFields(completedAt), writer, outcome });
+    }
   }
 }
 

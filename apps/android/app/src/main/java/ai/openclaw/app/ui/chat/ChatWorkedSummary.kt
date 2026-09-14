@@ -26,22 +26,29 @@ import androidx.compose.ui.unit.dp
 
 // Match web assistantGroupIsForwardedBoundary: attribution labels do not establish turn ownership.
 
-/** Mirror web collapseCompletedTurnWork: only the contiguous work preceding a final reply folds. */
-internal fun ChatTimeline.withCompletedWorkGroups(
+internal data class PreparedChatWorkSpan(
+  val start: Int,
+  val endExclusive: Int,
+  val key: String,
+  val durationMs: Long?,
+  val inLatestTurn: Boolean,
+  val inLatestRunChain: Boolean,
+)
+
+/** Mirror web collapseCompletedTurnWork; retain ranges, not the temporary turn graph. */
+internal fun prepareCompletedWorkSpans(
+  rows: List<ChatTimelineItem>,
   messages: List<ChatMessage>,
-  runWorking: Boolean,
-  expandedKeys: Set<String>,
   sessionKey: String,
-): ChatTimeline {
+): List<PreparedChatWorkSpan> {
   val sessionParts = sessionKey.trim().lowercase().split(':')
   if (sessionParts.size != 4 || sessionParts[0] != "agent" || sessionParts[1].isBlank() ||
     sessionParts[2] != "dashboard" || sessionParts[3].isBlank()
   ) {
-    return this
+    return emptyList()
   }
-  val chronological = items.asReversed()
   val turns = mutableListOf<MutableList<ChatTimelineItem>>()
-  chronological.forEach { item ->
+  rows.forEach { item ->
     val startsTurn =
       when (item) {
         is ChatTimelineItem.Message -> {
@@ -131,52 +138,46 @@ internal fun ChatTimeline.withCompletedWorkGroups(
   for (index in turns.lastIndex - 1 downTo 0) {
     if (terminalReplies[index] == null) continuations[index]?.let { terminalReplies[index] = terminalReplies[it] }
   }
-  val liveTurns = mutableSetOf<Int>()
-  if (runWorking) {
-    var index = turns.lastIndex
-    while (index >= 0 && liveTurns.add(index)) index = preceding[index] ?: break
-  }
-  val rendered =
-    buildList {
-      turns.forEachIndexed { turnIndex, turn ->
-        val live =
-          turnIndex in liveTurns ||
-            turn.any {
-              it is ChatTimelineItem.StreamingAssistant || it is ChatTimelineItem.PendingTools || it == ChatTimelineItem.Thinking
-            }
-        val finalIndex = finalIndexes[turnIndex]
-        val terminal = terminalReplies[turnIndex]
-        val end = if (finalIndex >= 0) finalIndex else turn.size
-        var start = end
-        while (start > 0 && isWork(turn[start - 1])) start--
-        if (live || terminal == null || start == end) {
-          addAll(turn)
-        } else {
-          val continuationBoundary = continuations[turnIndex]?.let { turns[it].firstOrNull() } as? ChatTimelineItem.Message
-          val identity = if (finalIndex >= 0) terminal.message else continuationBoundary?.message ?: terminal.message
-          val key = identity.entryId ?: identity.idempotencyKey ?: identity.id
-          val boundary = turn.firstOrNull() as? ChatTimelineItem.Message
-          val startTime =
-            boundary
-              ?.takeIf {
-                it.message.role
-                  .trim()
-                  .equals("user", ignoreCase = true)
-              }?.message
-              ?.timestampMs ?: timestamp(turn[start])
-          val endTime = terminal.message.timestampMs
-          val duration = if (startTime != null && endTime != null && endTime > startTime) endTime - startTime else null
-          addAll(turn.take(start))
-          add(ChatTimelineItem.WorkedSummary(key, duration, key in expandedKeys))
-          if (key in expandedKeys) addAll(turn.subList(start, end))
-          addAll(turn.drop(end))
-        }
+  val latestRunChain = mutableSetOf<Int>()
+  var index = turns.lastIndex
+  while (index >= 0 && latestRunChain.add(index)) index = preceding[index] ?: break
+  return buildList {
+    var offset = 0
+    turns.forEachIndexed { turnIndex, turn ->
+      val finalIndex = finalIndexes[turnIndex]
+      val terminal = terminalReplies[turnIndex]
+      val end = if (finalIndex >= 0) finalIndex else turn.size
+      var start = end
+      while (start > 0 && isWork(turn[start - 1])) start--
+      if (terminal != null && start != end) {
+        val continuationBoundary = continuations[turnIndex]?.let { turns[it].firstOrNull() } as? ChatTimelineItem.Message
+        val identity = if (finalIndex >= 0) terminal.message else continuationBoundary?.message ?: terminal.message
+        val key = identity.entryId ?: identity.idempotencyKey ?: identity.id
+        val boundary = turn.firstOrNull() as? ChatTimelineItem.Message
+        val startTime =
+          boundary
+            ?.takeIf {
+              it.message.role
+                .trim()
+                .equals("user", ignoreCase = true)
+            }?.message
+            ?.timestampMs ?: timestamp(turn[start])
+        val endTime = terminal.message.timestampMs
+        val duration = if (startTime != null && endTime != null && endTime > startTime) endTime - startTime else null
+        add(
+          PreparedChatWorkSpan(
+            start = offset + start,
+            endExclusive = offset + end,
+            key = key,
+            durationMs = duration,
+            inLatestTurn = turnIndex == turns.lastIndex,
+            inLatestRunChain = turnIndex in latestRunChain,
+          ),
+        )
       }
-    }.asReversed()
-  return copy(
-    items = rendered,
-    readAnchorIndex = rendered.indexOfFirst { it is ChatTimelineItem.Message && it.message.id == latestUserMessageId }.takeIf { it >= 0 } ?: latestContentIndex,
-  )
+      offset += turn.size
+    }
+  }
 }
 
 internal fun workedSummaryLabel(durationMs: Long?): String {

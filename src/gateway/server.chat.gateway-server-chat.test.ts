@@ -1690,6 +1690,27 @@ describe("gateway server chat", () => {
       visible: true,
     },
     {
+      name: "chat.history hides failed delivery encoded in a result text block",
+      content: [{ type: "text", text: JSON.stringify({ ok: false }) }],
+      visible: false,
+    },
+    {
+      name: "chat.history honors a dry-run result after an earlier success block",
+      content: [
+        { type: "text", text: JSON.stringify({ ok: true }) },
+        { type: "message", content: JSON.stringify({ dryRun: true }) },
+      ],
+      visible: false,
+    },
+    {
+      name: "chat.history honors suppressed delivery after an earlier success block",
+      content: [
+        { type: "text", text: JSON.stringify({ ok: true }) },
+        { type: "message", content: JSON.stringify({ deliveryStatus: "suppressed" }) },
+      ],
+      visible: false,
+    },
+    {
       name: "chat.history hides suppressed delivery encoded in a result text block",
       content: [{ type: "text", text: JSON.stringify({ ok: true, deliveryStatus: "suppressed" }) }],
       visible: false,

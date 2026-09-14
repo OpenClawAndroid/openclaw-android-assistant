@@ -9,12 +9,22 @@ import {
   sql as kyselySql,
   SqliteDialect,
 } from "kysely";
+import { isNodeVersionAtLeast, parseNodeReleaseVersion } from "../../node-version.mjs";
 import {
   executeWithCachedStatement,
   installStatementInvalidation,
   kyselyByDatabase,
   queryErrorHandlerByDatabase,
 } from "./kysely-sync-cache-state.js";
+
+// Node 26.6 fixed all() column counts after statement reprepare (nodejs/node#64219).
+const supportsRepreparedAll =
+  !process.versions.bun &&
+  isNodeVersionAtLeast(parseNodeReleaseVersion(process.versions.node), {
+    major: 26,
+    minor: 6,
+    patch: 0,
+  });
 
 // Sync query helpers execute compiled Kysely SQL against node:sqlite without
 // going through Kysely's async driver path.
@@ -85,7 +95,11 @@ function executeCompiledSqliteQuerySync<Row>(
       // SELECT already guarantees a reader; avoid allocating native column metadata
       // just to classify it. Raw SQL and other roots still need native classification.
       if (SelectQueryNode.is(compiledQuery.query) || statement.columns().length > 0) {
-        // Node's all() snapshots the column count before SQLite can reprepare
+        if (supportsRepreparedAll) {
+          // SAFETY: the compiled Kysely query defines the native result row shape.
+          return { rows: statement.all(...parameters) as Row[] };
+        }
+        // Older Node all() snapshots the column count before SQLite can reprepare
         // an expired statement. Eagerly consuming iterate() reads it after step.
         const iterator = statement.iterate(...parameters);
         try {
@@ -164,6 +178,17 @@ export function prepareSqliteQuerySync<Params, Row = unknown>(
       ...compiled,
       parameters: bind(params),
     });
+}
+
+/** Compile a fixed first-row read once and bind fresh values on every execution. */
+export function prepareSqliteQueryTakeFirstSync<Params, Row = unknown>(
+  db: DatabaseSync,
+  build: SqliteQueryBindingBuilder<Params, Row>,
+): (params: Params) => Row | undefined {
+  const { compiled, bind } = compileSqliteQueryBindings(build);
+  return (params) =>
+    executeCompiledSqliteQuerySync<Row>(db, { ...compiled, parameters: bind(params) }, true)
+      .rows[0];
 }
 
 /** Compile once and capture fresh bindings before lazily opening each private iterator. */

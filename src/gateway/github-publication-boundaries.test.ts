@@ -1,5 +1,6 @@
 import os from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import { insertRegistryWorktree } from "../agents/worktrees/registry.js";
 import { readGitHubPublicationSessionLifecycle } from "../state/github-publication-session-lifecycles.js";
 import {
   closeOpenClawStateDatabaseForTest,
@@ -548,6 +549,78 @@ describe("Gateway GitHub publication boundaries", () => {
     await expect(coordinator.requestForSession(request)).resolves.toMatchObject({
       status: "published",
     });
+  });
+
+  it("continues settling other receipts when one workspace still needs Git recovery", async () => {
+    const database = openOpenClawStateDatabase({ env: { OPENCLAW_STATE_DIR: root } });
+    const coordinator = createTestGitHubPublicationCoordinator({
+      placements: createWorkerSessionPlacementStore({ database }),
+    });
+    coordinator.read("create-schema");
+    seedLocalPublication(database, { requestId: "blocked", status: "publishing" });
+    seedLocalPublication(database, { requestId: "following", status: "requested" });
+    seedLocalPublication(database, {
+      requestId: "stale",
+      status: "publishing",
+      repositoryFingerprint: "replaced-fingerprint",
+    });
+    database.db
+      .prepare("UPDATE github_publication_requests SET created_at_ms = ? WHERE request_id = ?")
+      .run(1_001, "following");
+    database.db
+      .prepare("UPDATE github_publication_requests SET created_at_ms = ? WHERE request_id = ?")
+      .run(1_002, "stale");
+    const otherSession = "agent:main:other-publication";
+    const otherWorktree = {
+      ...mocks.findWorktree("session", otherSession),
+      id: "worktree-2",
+      path: "/repo/other-worktree",
+    };
+    insertRegistryWorktree(process.env, {
+      ...otherWorktree,
+      name: "other",
+      createdAt: 1,
+      lastActiveAt: 1,
+    });
+    database.db
+      .prepare(
+        "UPDATE github_publication_requests SET worktree_id = ?, session_id = ?, session_key = ? WHERE request_id = ?",
+      )
+      .run(otherWorktree.id, "session-other", otherSession, "stale");
+    const loadSession = mocks.loadSession.getMockImplementation()!;
+    mocks.loadSession.mockImplementation((key: string) => {
+      const loaded = loadSession(key);
+      return key === otherSession
+        ? {
+            ...loaded,
+            entry: {
+              ...loaded.entry,
+              sessionId: "session-other",
+              worktree: { id: otherWorktree.id, branch: BRANCH, repoRoot: "/repo" },
+            },
+          }
+        : loaded;
+    });
+    const findWorktree = mocks.findWorktree.getMockImplementation()!;
+    mocks.findWorktree.mockImplementation((kind: string, key: string) =>
+      key === otherSession ? otherWorktree : findWorktree(kind, key),
+    );
+    mocks.updateIndex.mockImplementationOnce(async () => {
+      const { GitHubPublicationRecoveryPendingError } = await vi.importActual<
+        typeof import("./github-publication-git-index.js")
+      >("./github-publication-git-index.js");
+      throw new GitHubPublicationRecoveryPendingError("workspace recovery is pending");
+    });
+    await expect(coordinator.resumeSessionRequests()).rejects.toThrow(
+      "workspace recovery is pending",
+    );
+    expect(coordinator.read("blocked")).toMatchObject({ status: "publishing" });
+    expect(coordinator.read("following")).toMatchObject({ status: "requested" });
+    expect(coordinator.read("stale")).toMatchObject({
+      status: "failed",
+      code: "workspace_changed",
+    });
+    expect(commands.some((argv) => argv.includes("push") || argv.includes("POST"))).toBe(false);
   });
 
   it("reports missing managed credentials as an identity failure after admission", async () => {

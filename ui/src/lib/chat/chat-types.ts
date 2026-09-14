@@ -267,9 +267,30 @@ export type MessageGroup = {
   runId?: string;
 };
 
+export type MessageImageSource = {
+  url?: string;
+  dataUrl?: string;
+  preferData?: true;
+  mimeType?: string;
+  artifactId?: string;
+  fileName?: string;
+  openUrl?: string;
+  alt?: string;
+  sizeBytes?: number;
+  width?: number;
+  height?: number;
+};
+
 /** Content item types in a normalized message */
 export type MessageContentItem =
   | ClawHubRecommendation
+  | {
+      type: "image";
+      sources: MessageImageSource[];
+      /** Canonical image blocks consume a persisted inline-layout slot, even if empty. */
+      inlineSlot?: true;
+      expiresAtMs?: number;
+    }
   | {
       type: "text" | "tool_call" | "tool_result";
       text?: string;

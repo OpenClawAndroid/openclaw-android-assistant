@@ -2,6 +2,7 @@
 import type { OpenClawConfig, TelegramAccountConfig } from "openclaw/plugin-sdk/config-contracts";
 import { resolveTextChunkLimit } from "openclaw/plugin-sdk/reply-chunking";
 import { DEFAULT_GROUP_HISTORY_LIMIT } from "openclaw/plugin-sdk/reply-history";
+import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import {
   createSubsystemLogger,
   danger,
@@ -272,14 +273,7 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
       await turnContext.onDispatchStart?.();
     }
     const runTelegramDispatch = async (params: {
-      turnAdoptionLifecycle?: {
-        admission?: "exclusive" | "cancel-only";
-        onAdopted: () => void | Promise<void>;
-        onDeferred?: () => void;
-        onDeferredHeartbeat?: () => void;
-        onAbandoned?: () => void;
-        abortSignal?: AbortSignal;
-      };
+      turnAdoptionLifecycle?: GetReplyOptions["turnAdoptionLifecycle"];
     }): Promise<TelegramMessageProcessingResult> => {
       try {
         const dispatchResult = await dispatchTelegramMessage({
@@ -438,6 +432,7 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
               drainLifecycle?.onDeferred();
             },
             onDeferredHeartbeat: () => drainLifecycle?.onDeferredHeartbeat?.(),
+            deferredHeartbeatIntervalMs: drainLifecycle?.deferredHeartbeatIntervalMs,
             onAbandoned: () => {
               if (!adopted) {
                 void settle({ kind: "failed-retryable", error: "turn-abandoned" }, "terminal");

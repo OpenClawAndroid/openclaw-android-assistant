@@ -49,7 +49,7 @@ const ensureSupportedRuntimeVersion = async () => {
     );
     return process.exit(1);
   }
-  const probe = detectCurrentSqliteCapabilities();
+  const probe = await detectCurrentSqliteCapabilities();
   const failure = nodeRuntimeFailure(process.versions.node, probe);
   if (!failure) {
     const note = nodeRuntimeNote(process.versions.node, probe);
@@ -626,7 +626,7 @@ const tryOutputPrecomputedCommandHelp = () => {
 const waitingForNodeUpdateRespawn = await ensureSupportedRuntimeVersion();
 const currentNodeRuntimeFailure = process.versions.bun
   ? null
-  : nodeRuntimeFailure(process.versions.node, detectCurrentSqliteCapabilities());
+  : nodeRuntimeFailure(process.versions.node, await detectCurrentSqliteCapabilities());
 
 if (!waitingForNodeUpdateRespawn) {
   // Diagnostics must not replay package lifecycle scripts under an unsupported Node.

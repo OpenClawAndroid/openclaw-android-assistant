@@ -5,7 +5,6 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import { resolveStateDir } from "../config/paths.js";
 import { createAbortError } from "../infra/abort-signal.js";
 import {
-  type ExecHost,
   loadExecApprovals,
   maxAsk,
   minSecurity,
@@ -308,7 +307,7 @@ export function createExecTool(
         sandboxAvailable: Boolean(defaults?.sandbox),
         sandboxRequired: defaults?.sandboxRequired,
       });
-      const host: ExecHost = target.effectiveHost;
+      const host = target.effectiveHost;
 
       const explicitSecurity = defaults?.security;
       const configuredSecurity = explicitSecurity ?? (host === "sandbox" ? "deny" : "full");
@@ -689,6 +688,7 @@ export function createExecTool(
         // that settles before this timer fires must stay out of the task ledger.
         settlement.backgroundTask = createBackgroundExecTask({
           processSessionId: run.session.id,
+          command: run.session.command,
           sessionKey: notifySessionKey,
           agentId,
           startedAt: run.startedAt,

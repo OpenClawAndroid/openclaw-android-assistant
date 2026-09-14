@@ -36,6 +36,8 @@ export async function selectSessionMenuValue(sidebar: SidebarLifecycleState, val
     }),
   );
   await sidebar.updateComplete;
+  await waitForFast(() => expect(sidebar.sessionData.sessionsLoading).toBe(false));
+  await sidebar.updateComplete;
 }
 
 async function selectSort(sidebar: SidebarLifecycleState, mode: string) {
@@ -314,39 +316,82 @@ describe("AppSidebar session ownership", () => {
     expect(ownerRows[0]?.querySelector("openclaw-session-owner-chip")).not.toBeNull();
   });
 
-  it("shows and requests Involving me for a participant session", async () => {
-    // SAFETY: this sidebar fixture only needs the Gateway client surface supplied by its harness.
-    const gateway = createGatewayHarness({} as GatewayBrowserClient);
-    gateway.publish({ selfUser: { id: "profile-ada", name: "Ada" } });
-    const harness = createSessionsHarness("main", ["agent:main:main", "agent:main:collab"]);
-    const result = harness.sessions.state.result;
-    const collab = result?.sessions.find((row) => row.key.endsWith(":collab"));
-    if (!result || !collab) {
-      throw new Error("expected participant row");
-    }
-    setEffectiveOwner(collab, { type: "human", id: "profile-bob", label: "Bob" });
-    collab.participants = [{ identity: { type: "profile", id: "profile-ada" }, label: "Ada" }];
-    collab.participantCount = 1;
-    result.owners = [{ type: "human", id: "profile-bob", label: "Bob" }];
+  it.each([
+    { identity: "unqualified", selfUser: { id: "profile-ada", name: "Ada" } },
+    {
+      identity: "qualified",
+      selfUser: {
+        id: "raw-login",
+        identity: { type: "profile", id: "profile-ada" },
+        name: "Ada",
+      },
+    },
+  ] as const)(
+    "hides only solo self avatars under self filters with $identity self identity",
+    async ({ selfUser }) => {
+      // SAFETY: this sidebar fixture only needs the Gateway client surface supplied by its harness.
+      const gateway = createGatewayHarness({} as GatewayBrowserClient);
+      gateway.publish({ selfUser });
+      const harness = createSessionsHarness("main", [
+        "agent:main:main",
+        "agent:main:solo",
+        "agent:main:shared",
+        "agent:main:collab",
+      ]);
+      const result = harness.sessions.state.result;
+      const solo = result?.sessions.find((row) => row.key.endsWith(":solo"));
+      const shared = result?.sessions.find((row) => row.key.endsWith(":shared"));
+      const collab = result?.sessions.find((row) => row.key.endsWith(":collab"));
+      if (!result || !solo || !shared || !collab) {
+        throw new Error("expected participant rows");
+      }
+      setEffectiveOwner(solo, { type: "human", id: "profile-ada", label: "Ada" });
+      solo.hasActiveRun = true;
+      solo.status = "running";
+      setEffectiveOwner(shared, { type: "human", id: "profile-ada", label: "Ada" });
+      shared.participants = [{ identity: { type: "profile", id: "profile-bob" }, label: "Bob" }];
+      shared.participantCount = 1;
+      setEffectiveOwner(collab, { type: "human", id: "profile-bob", label: "Bob" });
+      collab.participants = [{ identity: { type: "profile", id: "profile-ada" }, label: "Ada" }];
+      collab.participantCount = 1;
+      result.owners = [
+        { type: "human", id: "profile-ada", label: "Ada" },
+        { type: "human", id: "profile-bob", label: "Bob" },
+      ];
 
-    const { sidebar } = await mountSidebar(gateway.gateway, harness.sessions);
-    harness.publishList({ result, agentId: "main" });
-    await sidebar.updateComplete;
-    expect(
-      sidebar.querySelector('[data-session-key="agent:main:collab"] .session-owner-stack'),
-    ).not.toBeNull();
+      const { sidebar } = await mountSidebar(gateway.gateway, harness.sessions);
+      harness.publishList({ result, agentId: "main" });
+      await sidebar.updateComplete;
+      expect(
+        sidebar.querySelector('[data-session-key="agent:main:collab"] .session-owner-stack'),
+      ).not.toBeNull();
 
-    const menu = await openOwnerMenu(sidebar);
-    expect(menu.querySelector('[value="involving-me"]')?.textContent).toContain("Involving me");
-    menu.dispatchEvent(
-      new CustomEvent("wa-select", {
-        bubbles: true,
-        detail: { item: { value: "involving-me" } },
-      }),
-    );
-    await sidebar.updateComplete;
-    expect(harness.list).toHaveBeenCalledWith(expect.objectContaining({ involvingMe: true }));
-  });
+      await selectSessionMenuValue(sidebar, "involving-me");
+      expect(harness.list).toHaveBeenCalledWith(expect.objectContaining({ involvingMe: true }));
+      const soloRow = () => sidebar.querySelector(`[data-session-key="${solo.key}"]`)!;
+      const sharedRow = () => sidebar.querySelector(`[data-session-key="${shared.key}"]`)!;
+      expect(soloRow().querySelector("openclaw-session-owner-chip")).toBeNull();
+      expect(soloRow().querySelector('[aria-label="Active run"]')).not.toBeNull();
+      expect(sharedRow().querySelector(".session-owner-stack")).not.toBeNull();
+      expect(
+        sidebar.querySelector(`[data-session-key="${collab.key}"] .session-owner-stack`),
+      ).not.toBeNull();
+
+      await selectSessionMenuValue(sidebar, "owner:profile-ada");
+      expect(soloRow().querySelector("openclaw-session-owner-chip")).toBeNull();
+      expect(sharedRow().querySelector(".session-owner-stack")).not.toBeNull();
+
+      // The complete count, not just the bounded sample, preserves collaboration.
+      shared.participants = [];
+      shared.participantCount = 5;
+      harness.publishList({ result, agentId: "main" });
+      await sidebar.updateComplete;
+      expect(sharedRow().querySelector(".session-owner-stack__overflow")?.textContent).toBe("+5");
+
+      await selectSessionMenuValue(sidebar, "owner:");
+      expect(soloRow().querySelector("openclaw-session-owner-chip")).not.toBeNull();
+    },
+  );
 
   it("traces the run around a stacked owner row and rings a solo owner row", async () => {
     const gateway = createGatewayHarness({} as GatewayBrowserClient);
@@ -442,7 +487,7 @@ describe("AppSidebar session ownership", () => {
     },
   );
 
-  it("renders no ownership chrome when the listed sessions have fewer than two owners", async () => {
+  it("renders no ownership chrome when owners and participants resolve to one identity", async () => {
     const gateway = createGatewayHarness({} as GatewayBrowserClient);
     gateway.publish({
       selfUser: {
@@ -462,6 +507,8 @@ describe("AppSidebar session ownership", () => {
     }
     for (const row of result.sessions) {
       setEffectiveOwner(row, { type: "human", id: "profile-ada", label: "Ada" });
+      row.participants = [{ identity: { type: "profile", id: "profile-ada" }, label: "Ada" }];
+      row.participantCount = 1;
     }
     const { sidebar } = await mountSidebar(gateway.gateway, harness.sessions);
     harness.publishList({ result, agentId: "main" });
@@ -666,12 +713,9 @@ describe("AppSidebar session ownership", () => {
       "agent:main:collaborator",
     ]);
     const result = harness.sessions.state.result;
-    if (!result) {
-      throw new Error("expected session list");
-    }
-    const archived = result.sessions.find((row) => row.key.endsWith(":archived"));
-    const collaborator = result.sessions.find((row) => row.key.endsWith(":collaborator"));
-    if (!archived || !collaborator) {
+    const archived = result?.sessions.find((row) => row.key.endsWith(":archived"));
+    const collaborator = result?.sessions.find((row) => row.key.endsWith(":collaborator"));
+    if (!result || !archived || !collaborator) {
       throw new Error("expected archive attribution rows");
     }
     archived.archived = true;

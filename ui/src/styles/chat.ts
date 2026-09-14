@@ -8,6 +8,7 @@ import "./chat/grouped.css";
 import "./chat/working-indicator.css";
 import "./chat/tool-cards.css";
 import "./chat/question-card.css";
+import "./rail-header.css";
 import "./chat/sidebar.css";
 import "./chat/split-view.css";
 import "./chat/board.css";

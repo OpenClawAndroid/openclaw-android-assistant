@@ -165,13 +165,13 @@ export function scheduleFilteredSidebarSessions(
     refreshSidebarSessions(): Promise<void>;
   },
   readSubscription: () => (() => void) | null,
-): void {
+): Promise<void> {
   const context = owner.context;
   const subscription = readSubscription();
   if (!context || !subscription) {
-    return;
+    return Promise.resolve();
   }
-  void context.connectionBootstrap.run(
+  return context.connectionBootstrap.run(
     subscription,
     async () => {
       if (

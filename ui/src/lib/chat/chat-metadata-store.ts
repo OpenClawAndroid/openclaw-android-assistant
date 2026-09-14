@@ -13,7 +13,6 @@ import {
   settleModelCatalogRequests,
   subscribeModelCatalogCache,
 } from "../model-catalog-store.ts";
-import { readSessionChangedEvent } from "../sessions/reconcile.ts";
 import { uiConversationMatches, type UiSessionDefaultsHost } from "../sessions/session-key.ts";
 import {
   chatMetadataCache,
@@ -52,15 +51,30 @@ function metadataEntryFor(
   let cache = chatMetadataCache.get(client);
   if (!cache) {
     const entries = new Map<string, ChatMetadataEntry>();
-    const invalidate = (scope?: ChatMetadataParams, sessionDefaults?: UiSessionDefaultsHost) => {
+    const invalidate = (
+      scope?: ChatMetadataParams,
+      sessionDefaults?: UiSessionDefaultsHost,
+      sessionEvent?: Record<string, unknown> | null,
+    ) => {
+      if (
+        sessionEvent !== undefined &&
+        (!scope ||
+          (sessionEvent?.reason !== "reset" &&
+            sessionEvent?.phase !== "reset" &&
+            sessionEvent?.reason !== "command-metadata" &&
+            sessionEvent?.reason !== "patch"))
+      ) {
+        return;
+      }
       const invalidated = Array.from(entries.values()).filter(
         (entry) =>
           (sessionDefaults && scope?.sessionKey
             ? uiConversationMatches(
-                { ...sessionDefaults, assistantAgentId: entry.scope.agentId },
+                sessionDefaults,
                 entry.scope.sessionKey,
                 scope.sessionKey,
                 scope.agentId,
+                entry.scope.agentId,
               )
             : (!scope?.agentId || entry.scope.agentId === scope.agentId) &&
               (!scope?.sessionKey || entry.scope.sessionKey === scope.sessionKey)) &&
@@ -84,25 +98,6 @@ function metadataEntryFor(
     cache = {
       entries,
       invalidate,
-      invalidateSession: (source, sessionDefaults) => {
-        if (
-          source?.reason === "reset" ||
-          source?.phase === "reset" ||
-          source?.reason === "command-metadata" ||
-          source?.reason === "patch"
-        ) {
-          const changed = readSessionChangedEvent(source);
-          if (changed) {
-            invalidate(
-              {
-                agentId: typeof source?.agentId === "string" ? source.agentId : undefined,
-                sessionKey: changed.key,
-              },
-              sessionDefaults,
-            );
-          }
-        }
-      },
     };
     chatMetadataCache.set(client, cache);
   }

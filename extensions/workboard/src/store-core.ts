@@ -13,9 +13,9 @@ import type {
   PersistedWorkboardAttachment,
   PersistedWorkboardBoard,
   PersistedWorkboardCard,
-  PersistedWorkboardNotificationSubscription,
   WorkboardCardStore,
   WorkboardKeyedStore,
+  WorkboardSubscriptionStore,
 } from "./persistence-types.js";
 import { normalizeAutomationPatch, normalizeCardAutomation } from "./store-automation.js";
 import {
@@ -98,14 +98,14 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   private compensationJournal?: WorkboardMutationJournalEntry[];
   protected readonly store: WorkboardCardStore;
   protected readonly boardStore: WorkboardKeyedStore<PersistedWorkboardBoard>;
-  protected readonly subscriptionStore: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
+  protected readonly subscriptionStore: WorkboardSubscriptionStore;
   protected readonly attachmentStore: WorkboardKeyedStore<PersistedWorkboardAttachment>;
 
   constructor(
     store: WorkboardCardStore,
     stores: {
       boards: WorkboardKeyedStore<PersistedWorkboardBoard>;
-      subscriptions: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
+      subscriptions: WorkboardSubscriptionStore;
       attachments: WorkboardKeyedStore<PersistedWorkboardAttachment>;
       ready?: Promise<number>;
       dataVersion?: () => number | Promise<number>;
@@ -115,7 +115,10 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     super(stores.dataVersion, stores.close, stores.ready);
     this.store = this.trackCardStore(store);
     this.boardStore = this.track(stores.boards);
-    this.subscriptionStore = this.track(stores.subscriptions, { notifyChanges: false });
+    this.subscriptionStore = {
+      ...this.track(stores.subscriptions, { notifyChanges: false }),
+      entries: (options) => this.runOperation(() => stores.subscriptions.entries(options)),
+    };
     this.attachmentStore = this.track(stores.attachments, { notifyChanges: false });
   }
 

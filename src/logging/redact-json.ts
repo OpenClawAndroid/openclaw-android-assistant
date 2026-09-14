@@ -446,10 +446,10 @@ export function redactJsonRecord(
   };
   for (const [phase, patterns] of patternPhases.entries()) {
     for (const pattern of patterns) {
-      const pending = new Set<ScalarToken>();
+      let pending: Set<ScalarToken> | undefined;
       const add = (token: ScalarToken, edit: RedactionEdit) => {
         (token.pending ??= []).push(edit);
-        pending.add(token);
+        (pending ??= new Set()).add(token);
       };
       if (phase === 0) {
         for (const token of decodedTokens) {
@@ -546,6 +546,9 @@ export function redactJsonRecord(
             add(token, { ...edit, replacement });
           }
         }
+      }
+      if (!pending) {
+        continue;
       }
       for (const token of pending) {
         if (!commitPatternEdits(input, token)) {

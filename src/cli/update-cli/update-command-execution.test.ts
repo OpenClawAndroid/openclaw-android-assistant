@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import * as configFile from "../../config/config.js";
 import * as gatewayService from "../../daemon/service.js";
+import { mockSystemAccountHome } from "../../daemon/service.test-helpers.js";
 import * as gatewayCall from "../../gateway/call.js";
 import { gatewayHealthResponse } from "../../gateway/health-response.test-support.js";
 import * as portInspection from "../../infra/ports-inspect.js";
@@ -16,6 +17,7 @@ import * as tempRoot from "../../infra/tmp-openclaw-dir.js";
 import { UpdateRequesterRevokedError } from "../../infra/update-requester-authority.js";
 import { createUpdateRun } from "../../infra/update-run-ledger.js";
 import { withTestDir } from "../../test-helpers/temp-dir.js";
+import { withEnvAsync } from "../../test-utils/env.js";
 import { mockProcessPlatform } from "../../test-utils/vitest-spies.js";
 import * as utils from "../../utils.js";
 import * as restartProbe from "../daemon-cli/restart-health-probe.js";
@@ -347,6 +349,49 @@ describe("mutable update execution", () => {
     expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
     expect(mocks.serviceStopped).toBe(false);
   });
+
+  it.each(
+    (["package", "git"] as const).flatMap((kind) =>
+      [false, true].map((shouldRestart) => ({ kind, shouldRestart })),
+    ),
+  )(
+    "explains FreeBSD $kind refusal before mutation with restart=$shouldRestart",
+    async ({ kind, shouldRestart }) =>
+      withEnvAsync({ OPENCLAW_SUPERVISOR_MODE: undefined }, async () => {
+        mockProcessPlatform("freebsd");
+        mockSystemAccountHome();
+        const maintenance = await vi.importActual<
+          typeof import("./update-command-service-maintenance.js")
+        >("./update-command-service-maintenance.js");
+        mocks.maybeStopService.mockImplementation(
+          maintenance.maybeStopManagedServiceBeforeMutableUpdate,
+        );
+
+        const execution = await executeMutableUpdate({
+          ...executionParams(kind),
+          shouldRestart,
+          opts: { json: true, restart: shouldRestart },
+        });
+
+        expect(execution).toMatchObject({
+          mutationStarted: false,
+          result: { status: "error", reason: "managed-service-preflight" },
+        });
+        expect(execution?.failure?.detail).toContain(
+          "Gateway service inspection is not supported by this CLI on FreeBSD",
+        );
+        expect(execution?.failure?.detail).toContain("service-owned state directories");
+        expect(execution?.failure?.detail).toContain(
+          "For updates, use the original package manager or installer",
+        );
+        expect(execution?.failure?.detail).toContain("keep pkg-owned files under pkg management");
+        expect(execution?.failure?.detail).not.toContain("gateway status");
+        expect(mocks.captureSchemaContext).not.toHaveBeenCalled();
+        expect(mocks.prepareMutableUpdate).not.toHaveBeenCalled();
+        expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
+        expect(mocks.runGitUpdate).not.toHaveBeenCalled();
+      }),
+  );
 
   it.each(["admission", "execution"] as const)(
     "preserves native inspection reasons through %s refusal",

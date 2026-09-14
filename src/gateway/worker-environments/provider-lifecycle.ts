@@ -365,7 +365,7 @@ export function createWorkerProviderLifecycle(options: WorkerProviderLifecycleOp
         lease,
         provider,
         patch,
-        preparedInstallation,
+        enrollmentOperation?.installation ?? preparedInstallation,
         cancellation,
         projectOperation?.getPreparedWorkspace(),
         beforeProvision,

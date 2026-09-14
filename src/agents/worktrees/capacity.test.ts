@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import * as gitExec from "../../infra/git-exec.js";
+import * as execRunner from "../../process/exec-runner.js";
 import * as commandExec from "../../process/exec.js";
 import { estimateWorktreeCheckoutTransitionBytes, estimateWorktreeGitBytes } from "./capacity.js";
 import { runGit } from "./git.js";
@@ -144,6 +145,32 @@ describe("worktree Git size estimates", () => {
       changedBytes: 0,
       requiresFullCheckout: false,
     });
+  });
+
+  it("recovers a transient missing-object fetch before estimating the checkout", async () => {
+    const { clone, commit, missing } = await partialClone();
+    const run = execRunner.runCommandBuffersWithTimeout;
+    let attempts = 0;
+    vi.spyOn(execRunner, "runCommandBuffersWithTimeout").mockImplementation((argv, options) => {
+      if (argv.includes("fetch") && ++attempts === 1) {
+        return Promise.resolve({
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.from("error: origin did not send all necessary objects\n"),
+          code: 1,
+          signal: null,
+          killed: false,
+          termination: "exit",
+          windowsEncoding: null,
+        });
+      }
+      return run(argv, options);
+    });
+
+    await expect(estimateWorktreeGitBytes(clone, commit)).resolves.toBe(16_384);
+    expect(attempts).toBe(2);
+    for (const object of missing) {
+      await expect(runGit(clone, ["cat-file", "-e", object])).resolves.toMatchObject({ code: 0 });
+    }
   });
 
   it("budgets each changed destination path with raw names and without credit for source deletions", async () => {

@@ -190,6 +190,30 @@ describe("native app i18n inventory", () => {
     },
   );
 
+  it.each([
+    { surface: "apple", value: "Before \\(outer(inner(value))) after" },
+    { surface: "apple", value: 'Before \\(format(")", "escaped \\")")) after' },
+    { surface: "android", value: "Before ${outer({ inner(value) })} after" },
+    { surface: "android", value: 'Before ${format("}", "escaped \\"}")} after' },
+  ] as const)(
+    "preserves $surface nested and quoted interpolation delimiters: $value",
+    ({ surface, value }) => {
+      const repoPath = `apps/${surface}/Fixture.${surface === "apple" ? "swift" : "kt"}`;
+      const source = `// fixture\nText("${value}")`;
+      expect(extractNativeI18nCandidates(surface, repoPath, source)).toEqual([
+        { kind: "ui-call", line: 2, path: repoPath, source: value, sourceContext: source, surface },
+      ]);
+    },
+  );
+
+  it.each([
+    { surface: "apple", value: "Before \\(outer(value)" },
+    { surface: "android", value: "Before ${outer(value)" },
+  ] as const)("rejects $surface unclosed interpolation", ({ surface, value }) => {
+    const repoPath = `apps/${surface}/Fixture.${surface === "apple" ? "swift" : "kt"}`;
+    expect(extractNativeI18nCandidates(surface, repoPath, `Text("${value}")`)).toEqual([]);
+  });
+
   it.each(["apple", "android"] as const)(
     "preserves compact %s prose and the candidate length boundary",
     (surface) => {

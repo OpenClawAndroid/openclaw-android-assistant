@@ -11,6 +11,7 @@ import {
 import { createMockPluginRegistry } from "../../plugins/hooks.test-fixtures.js";
 import { captureEnv } from "../../test-utils/env.js";
 import { createFixtureSuite } from "../../test-utils/fixture-suite.js";
+import { withMockedPlatform } from "../../test-utils/vitest-spies.js";
 import { buildWorkspaceSkillStatus } from "../discovery/status.js";
 import { loadWorkspaceSkills } from "../loading/workspace-skill-loader.js";
 import { runCommandWithTimeoutMock } from "../test-support/install-test-mocks.js";
@@ -142,6 +143,87 @@ describe("installSkill before_install hooks", () => {
       expect(options.env).not.toHaveProperty("PATH");
       const stat = await fs.stat(npmPrefix);
       expect(stat.isDirectory()).toBe(true);
+    });
+  });
+
+  it.each([
+    {
+      platform: "darwin" as const,
+      guidance: "Homebrew is not installed. Install it from https://brew.sh",
+    },
+    {
+      platform: "linux" as const,
+      guidance:
+        'Homebrew is not installed. Install it from https://brew.sh or install "vendor/tap/tool" manually using your system package manager (e.g. apt, dnf, pacman).',
+    },
+  ])("preserves supported-platform missing-brew guidance on $platform", async (testCase) => {
+    await withWorkspaceCase(async ({ workspaceDir }) => {
+      await writeInstallableSkill(workspaceDir, "brew-tool", {
+        id: "brew",
+        kind: "brew",
+        formula: "vendor/tap/tool",
+      });
+      skillsInstallTesting.setDepsForTest({
+        loadWorkspaceSkills: loadTestWorkspaceSkillEntries,
+        hasBinary: () => false,
+        resolveBrewExecutable: () => undefined,
+        isContainerEnvironment: () => false,
+      });
+      const result = await withMockedPlatform(testCase.platform, () =>
+        installSkill({ workspaceDir, skillName: "brew-tool", installId: "brew" }),
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        message: `brew not installed — ${testCase.guidance}`,
+        code: null,
+      });
+      expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it("reports FreeBSD manual recovery over RPC without running an installer", async () => {
+    const { skillsHandlers } = await import("../../gateway/server-methods/skills.js");
+    await withWorkspaceCase(async ({ workspaceDir }) => {
+      const skillName = "brew-manual-recovery";
+      await writeInstallableSkill(workspaceDir, skillName, {
+        id: "brew",
+        kind: "brew",
+        formula: "vendor/tap/tool",
+      });
+      const config: OpenClawConfig = {
+        agents: { ownership: "explicit", list: [{ id: "ops", workspace: workspaceDir }] },
+      };
+      skillsInstallTesting.setDepsForTest({
+        loadWorkspaceSkills: loadTestWorkspaceSkillEntries,
+        hasBinary: () => false,
+        resolveBrewExecutable: () => undefined,
+      });
+      await withMockedPlatform("freebsd", async () => {
+        const result = await callGatewayHandler(
+          skillsHandlers,
+          "skills.install",
+          { agentId: "ops", name: skillName, installId: "brew" },
+          { context: { getRuntimeConfig: () => config } },
+        );
+        expect(result.ok).toBe(false);
+        expect(result.error).toMatchObject({
+          code: "UNAVAILABLE",
+          message: expect.stringContaining("Homebrew is not supported on FreeBSD"),
+        });
+        expect(result.response).toMatchObject({
+          ok: false,
+          message: expect.stringContaining("pkg or Ports"),
+          code: null,
+        });
+        const message = (result.error as { message: string }).message;
+        expect(message).toContain("Gateway host");
+        expect(message).toContain("openclaw skills check");
+        expect(message).toContain("--agent <id>");
+        expect(message).not.toContain("brew.sh");
+        expect(message).not.toContain("vendor/tap/tool");
+        expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
+      });
     });
   });
 

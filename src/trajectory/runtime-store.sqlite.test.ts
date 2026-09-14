@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { trackSqliteStatementExecutions } from "../../test/helpers/sqlite-statement-execution-counter.js";
 import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../state/openclaw-agent-db.generated.js";
@@ -41,20 +42,23 @@ describe("SQLite trajectory runtime store", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("appends events in database order without trusting recorder-local seq", async () => {
-    appendSqliteTrajectoryRuntimeEvents({ sessionId: "session-1", storePath }, [
-      createTrajectoryEvent({ seq: 1, type: "model.started" }),
-      createTrajectoryEvent({ seq: 1, type: "model.completed" }),
-    ]);
-
+  it("appends batches in database order without trusting recorder-local seq", async () => {
+    const events = Array.from({ length: 201 }, (_, index) =>
+      createTrajectoryEvent({ seq: 1, type: `event-${index}` }),
+    );
+    const database = openOpenClawAgentDatabase({ agentId: "main", path: sqlitePath() });
+    const counter = trackSqliteStatementExecutions(database.db, ["append"], (sql) =>
+      /^insert into "trajectory_runtime_events"/i.test(sql) ? "append" : null,
+    );
+    try {
+      appendSqliteTrajectoryRuntimeEvents({ sessionId: "session-1", storePath }, events);
+      expect(counter.counts.append).toBeLessThan(10);
+    } finally {
+      counter.restore();
+    }
     await expect(
       loadSqliteTrajectoryRuntimeEvents({ sessionId: "session-1", storePath }),
-    ).resolves.toEqual([
-      expect.objectContaining({ seq: 1, type: "model.started" }),
-      expect.objectContaining({ seq: 1, type: "model.completed" }),
-    ]);
-
-    const database = openOpenClawAgentDatabase({ agentId: "main", path: sqlitePath() });
+    ).resolves.toEqual(events);
     const db = getNodeSqliteKysely<TrajectoryRuntimeTestDatabase>(database.db);
     const rows = executeSqliteQuerySync(
       database.db,
@@ -64,10 +68,32 @@ describe("SQLite trajectory runtime store", () => {
         .where("session_id", "=", "session-1")
         .orderBy("seq", "asc"),
     ).rows;
-    expect(rows).toEqual([
-      { run_id: "run-1", seq: 0 },
-      { run_id: "run-1", seq: 1 },
-    ]);
+    expect(rows).toEqual(events.map((_, seq) => ({ run_id: "run-1", seq })));
+  });
+
+  it("rolls back a later batch failure and retries without losing or duplicating events", async () => {
+    const scope = { sessionId: "session-1", storePath };
+    const existing = createTrajectoryEvent({ type: "existing" });
+    appendSqliteTrajectoryRuntimeEvents(scope, [existing]);
+    const events = Array.from({ length: 100 }, (_, index) =>
+      createTrajectoryEvent({ type: `pending-${index}` }),
+    );
+    const database = openOpenClawAgentDatabase({ agentId: "main", path: sqlitePath() });
+    database.db.exec(`CREATE TEMP TRIGGER reject_trajectory_append
+      BEFORE INSERT ON trajectory_runtime_events WHEN NEW.seq = 65
+      BEGIN SELECT RAISE(ABORT, 'synthetic later append failure'); END`);
+    try {
+      expect(() => appendSqliteTrajectoryRuntimeEvents(scope, events)).toThrow(
+        "synthetic later append failure",
+      );
+      await expect(loadSqliteTrajectoryRuntimeEvents(scope)).resolves.toEqual([existing]);
+    } finally {
+      database.db.exec("DROP TRIGGER reject_trajectory_append");
+    }
+    appendSqliteTrajectoryRuntimeEvents(scope, events);
+    expect(loadSqliteTrajectoryRuntimeEventRowsSync(scope)).toEqual(
+      [existing, ...events].map((event, seq) => ({ event, seq })),
+    );
   });
 
   it.each(["2026", "0", "1969-12-31T23:59:59.000Z"])(

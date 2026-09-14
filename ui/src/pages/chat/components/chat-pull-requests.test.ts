@@ -16,7 +16,7 @@ import {
 
 function publication(overrides: Partial<GitHubPublicationView> = {}): GitHubPublicationView {
   return {
-    busy: false,
+    activity: null,
     canWrite: true,
     locked: false,
     options: null,
@@ -77,11 +77,48 @@ describe("renderChatPullRequests", () => {
     container.remove();
   });
 
+  it("does not call account discovery Publishing before any publication is admitted", () => {
+    render(
+      renderChatPullRequests({
+        pullRequests: [],
+        branch: sessionBranch(),
+        status: "ready",
+        expanded: false,
+        onExpand: () => {},
+        onDismiss: () => {},
+        publication: publication({ activity: "read", selection: null }),
+      }),
+      container,
+    );
+    expect(container.textContent).not.toContain("Publishing");
+    expect(container.querySelector<HTMLButtonElement>(".chat-pr__create")?.disabled).toBe(true);
+  });
+
+  it.each(["open", "draft", "closed", "merged"] as const)(
+    "marks retained %s PR status unavailable without pretending it is rate limited",
+    (state) => {
+      render(
+        renderChatPullRequests({
+          pullRequests: [pullRequest({ state })],
+          status: "unavailable",
+          expanded: false,
+          onExpand: () => {},
+          onDismiss: () => {},
+        }),
+        container,
+      );
+      const warning = container.querySelector(".chat-pr__warning");
+      expect(warning?.getAttribute("aria-label")).toContain("could not be refreshed");
+      expect(warning?.getAttribute("aria-label")).not.toContain("rate limit");
+      expect(container.querySelector(".chat-pr__number")?.textContent).toBe("#103469");
+    },
+  );
+
   it("renders nothing without pull requests", () => {
     render(
       renderChatPullRequests({
         pullRequests: [],
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -95,7 +132,7 @@ describe("renderChatPullRequests", () => {
     render(
       renderChatPullRequests({
         pullRequests: [pullRequest()],
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -128,7 +165,7 @@ describe("renderChatPullRequests", () => {
             checks: { state: "failing", passed: 65, failed: 2, skipped: 31, running: 0 },
           }),
         ],
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -162,7 +199,7 @@ describe("renderChatPullRequests", () => {
     render(
       renderChatPullRequests({
         pullRequests,
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand,
         onDismiss: () => {},
@@ -182,7 +219,7 @@ describe("renderChatPullRequests", () => {
     render(
       renderChatPullRequests({
         pullRequests,
-        rateLimited: false,
+        status: "ready",
         expanded: true,
         onExpand,
         onDismiss: () => {},
@@ -205,7 +242,7 @@ describe("renderChatPullRequests", () => {
             checksUrl: undefined,
           }),
         ],
-        rateLimited: true,
+        status: "rate-limited",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -225,7 +262,7 @@ describe("renderChatPullRequests", () => {
     render(
       renderChatPullRequests({
         pullRequests: [pullRequest()],
-        rateLimited: true,
+        status: "rate-limited",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -240,7 +277,7 @@ describe("renderChatPullRequests", () => {
       renderChatPullRequests({
         pullRequests: [],
         branch: sessionBranch(),
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -274,7 +311,7 @@ describe("renderChatPullRequests", () => {
       renderChatPullRequests({
         pullRequests: [],
         branch: sessionBranch(),
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -296,7 +333,7 @@ describe("renderChatPullRequests", () => {
         // Unpushed branch with local changed files: the gateway omits
         // createUrl because GitHub's pull/new page would 404.
         branch: sessionBranch({ createUrl: undefined, additions: 12, deletions: 3 }),
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -313,10 +350,10 @@ describe("renderChatPullRequests", () => {
 
   it("shows Gateway publication request and terminal URL states", () => {
     const onPublish = vi.fn();
-    const props = {
+    const props: Parameters<typeof renderChatPullRequests>[0] = {
       pullRequests: [],
       branch: sessionBranch(),
-      rateLimited: false,
+      status: "ready",
       expanded: false,
       onExpand: () => {},
       onDismiss: () => {},
@@ -402,12 +439,12 @@ describe("renderChatPullRequests", () => {
         renderChatPullRequests({
           pullRequests: [],
           branch: sessionBranch(),
-          rateLimited: false,
+          status: "ready",
           expanded: false,
           onExpand: () => {},
           onDismiss: () => {},
           publication: publication({
-            options: { shared, personal: null, pendingPersonal: null },
+            options: { shared, personal: null, pendingPersonal: null, latestShared: null },
             selection: { source: "shared", expected: shared },
             onSelect,
           }),
@@ -428,7 +465,7 @@ describe("renderChatPullRequests", () => {
       renderChatPullRequests({
         pullRequests: [],
         branch: sessionBranch(),
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -449,7 +486,7 @@ describe("renderChatPullRequests", () => {
       renderChatPullRequests({
         pullRequests: [],
         branch: sessionBranch(),
-        rateLimited: true,
+        status: "rate-limited",
         expanded: false,
         onExpand: () => {},
         onDismiss: () => {},
@@ -468,7 +505,7 @@ describe("renderChatPullRequests", () => {
     render(
       renderChatPullRequests({
         pullRequests: [pullRequest()],
-        rateLimited: false,
+        status: "ready",
         expanded: false,
         onExpand: () => {},
         onDismiss,

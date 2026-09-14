@@ -595,9 +595,11 @@ describe("createVideoGenerateTool", () => {
       ],
       metadata: { taskId: "task-1" },
     });
+    const savedId = "lobster---a1b2c3d4-e5f6-4789-abcd-ef1234567890.mp4";
+    const savedPath = `/tmp/${savedId}`;
     const saveSpy = vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValueOnce({
-      path: "/tmp/generated-lobster.mp4",
-      id: "generated-lobster.mp4",
+      path: savedPath,
+      id: savedId,
       size: 11,
       contentType: "video/mp4",
     });
@@ -631,21 +633,20 @@ describe("createVideoGenerateTool", () => {
       "lobster.mp4",
     );
     expect(text).toContain("Generated 1 video with qwen/wan2.6-t2v.");
-    expect(text).toContain('path="/tmp/generated-lobster.mp4"');
+    expect(text).toContain(`path="${savedPath}"`);
+    expect(text).toContain('name="lobster.mp4"');
     expect(text).not.toContain("MEDIA:");
     const details = resultDetails(result);
     expect(details.provider).toBe("qwen");
     expect(details.model).toBe("wan2.6-t2v");
     expect(details.count).toBe(1);
-    expect((details.media as { mediaUrls?: string[] }).mediaUrls).toEqual([
-      "/tmp/generated-lobster.mp4",
-    ]);
+    expect((details.media as { mediaUrls?: string[] }).mediaUrls).toEqual([savedPath]);
     expect((details.media as { attachments?: unknown }).attachments).toEqual([
       {
         type: "video",
-        path: "/tmp/generated-lobster.mp4",
+        path: savedPath,
         mimeType: "video/mp4",
-        name: "generated-lobster.mp4",
+        name: "lobster.mp4",
         sizeBytes: 11,
         durationMs: 3250,
         width: 1280,
@@ -653,10 +654,10 @@ describe("createVideoGenerateTool", () => {
       },
     ]);
     expect(probeMediaFilesWithinBudgetMock).toHaveBeenCalledWith(
-      [{ filePath: "/tmp/generated-lobster.mp4", kind: "video" }],
+      [{ filePath: savedPath, kind: "video" }],
       { budgetMs: 3000, concurrency: 2, maxProbes: 8 },
     );
-    expect(details.paths).toEqual(["/tmp/generated-lobster.mp4"]);
+    expect(details.paths).toEqual([savedPath]);
     expect(details.metadata).toEqual({ taskId: "task-1" });
     expect(taskExecutorMocks.createRunningTaskRun).not.toHaveBeenCalled();
     expect(taskExecutorMocks.completeTaskRunByRunId).not.toHaveBeenCalled();
@@ -882,9 +883,11 @@ describe("createVideoGenerateTool", () => {
         },
       ],
     });
+    const savedId = "middle---a1b2c3d4-e5f6-4789-abcd-ef1234567890.mp4";
+    const savedPath = `/tmp/${savedId}`;
     vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValueOnce({
-      path: "/tmp/middle.mp4",
-      id: "middle.mp4",
+      path: savedPath,
+      id: savedId,
       size: 12,
       contentType: "video/mp4",
     });
@@ -901,7 +904,7 @@ describe("createVideoGenerateTool", () => {
     const details = resultDetails(result);
     const expectedPaths = [
       "https://example.com/first.mp4",
-      "/tmp/middle.mp4",
+      savedPath,
       "https://example.com/last.mp4",
     ];
 
@@ -1097,7 +1100,7 @@ describe("createVideoGenerateTool", () => {
     expect(details.paths).toEqual(["https://fal.run/files/first.mp4", "/tmp/second.mp4"]);
   });
 
-  it("starts background generation and wakes the session with url-only MEDIA lines", async () => {
+  it("starts background generation and wakes the session with URL and saved video names", async () => {
     taskExecutorMocks.createRunningTaskRun.mockReturnValue({
       taskId: "task-123",
       runtime: "cli",
@@ -1113,7 +1116,15 @@ describe("createVideoGenerateTool", () => {
     const wakeSpy = vi
       .spyOn(videoGenerateBackground.videoGenerationTaskLifecycle, "wakeTaskCompletion")
       .mockResolvedValue({ status: "delivered" });
-    const saveSpy = vi.spyOn(mediaStore, "saveMediaBuffer");
+    const savedId = "saved-lobster---a1b2c3d4-e5f6-4789-abcd-ef1234567890.mp4";
+    const savedPath = `/tmp/${savedId}`;
+    const savedVideo = Buffer.from("saved-video-bytes");
+    const saveSpy = vi.spyOn(mediaStore, "saveMediaBuffer").mockResolvedValueOnce({
+      path: savedPath,
+      id: savedId,
+      size: savedVideo.byteLength,
+      contentType: "video/mp4",
+    });
     vi.spyOn(videoGenerationRuntime, "generateVideo").mockResolvedValue({
       provider: "vydra",
       model: "veo3",
@@ -1124,6 +1135,11 @@ describe("createVideoGenerateTool", () => {
           url: "https://example.com/generated-lobster.mp4",
           mimeType: "video/mp4",
           fileName: "lobster.mp4",
+        },
+        {
+          buffer: savedVideo,
+          mimeType: "video/mp4",
+          fileName: "saved-lobster.mp4",
         },
       ],
       metadata: { taskId: "task-1" },
@@ -1170,8 +1186,16 @@ describe("createVideoGenerateTool", () => {
     if (!scheduledWork) {
       throw new Error("expected scheduled video generation work");
     }
-    await scheduledWork();
     expect(saveSpy).not.toHaveBeenCalled();
+    await scheduledWork();
+    expect(saveSpy).toHaveBeenCalledOnce();
+    expect(saveSpy).toHaveBeenCalledWith(
+      savedVideo,
+      "video/mp4",
+      "tool-video-generation",
+      MAX_VIDEO_BYTES,
+      "saved-lobster.mp4",
+    );
     const progress = firstMockCallArg(taskExecutorMocks.recordTaskRunProgressByRunId) as {
       runId: string;
       progressSummary: string;
@@ -1186,6 +1210,7 @@ describe("createVideoGenerateTool", () => {
       handle: { taskId?: string };
       status: string;
       attachments: unknown[];
+      mediaUrls: string[];
       result: string;
     };
     expect(wake.handle.taskId).toBe("task-123");
@@ -1197,8 +1222,18 @@ describe("createVideoGenerateTool", () => {
         mimeType: "video/mp4",
         name: "lobster.mp4",
       },
+      {
+        type: "video",
+        path: savedPath,
+        mimeType: "video/mp4",
+        name: "saved-lobster.mp4",
+        sizeBytes: savedVideo.byteLength,
+      },
     ]);
+    expect(wake.mediaUrls).toEqual(["https://example.com/generated-lobster.mp4", savedPath]);
     expect(wake.result).toContain('mediaUrl="https://example.com/generated-lobster.mp4"');
+    expect(wake.result).toContain(`path="${savedPath}"`);
+    expect(wake.result).toContain('name="saved-lobster.mp4"');
     expect(wake.result).not.toContain("MEDIA:");
   });
 

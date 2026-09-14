@@ -135,7 +135,7 @@ export function registerMaintenanceCommands(program: Command) {
         typeof opts.sessionSqlite !== "string";
       const unsupportedNode =
         !process.versions.bun &&
-        Boolean(nodeRuntimeFailure(process.versions.node, detectCurrentSqliteCapabilities()));
+        Boolean(nodeRuntimeFailure(process.versions.node, await detectCurrentSqliteCapabilities()));
       const lintMode =
         opts.lint === true || unsupportedNode ? "--lint" : jsonImpliesLint ? "--json" : undefined;
       const mutationOption =

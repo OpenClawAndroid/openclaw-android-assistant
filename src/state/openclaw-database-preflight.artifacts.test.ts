@@ -575,6 +575,13 @@ describe("schema preflight source artifacts", () => {
         for (const inspect of [
           () => preflightOpenClawDatabaseSchemas({ env: fixture.env, supportedVersions }),
           () =>
+            preflightOpenClawDatabaseSchemas({
+              env: fixture.env,
+              supportedVersions,
+              verifyCurrentSchemaShape: true,
+              requireStartupMigrationReadiness: true,
+            }),
+          () =>
             checkTargetDatabaseSchemasForContexts(supportedVersions, [
               { env: fixture.env, config: {} },
             ]),

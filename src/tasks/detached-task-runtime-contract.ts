@@ -39,6 +39,7 @@ export type DetachedTaskCreateParams = {
 };
 
 export type DetachedRunningTaskCreateParams = DetachedTaskCreateParams & {
+  executionOwner?: TaskRecord["executionOwner"];
   startedAt?: number;
   lastEventAt?: number;
   progressSummary?: string | null;

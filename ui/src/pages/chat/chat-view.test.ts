@@ -807,7 +807,7 @@ describe("chat typing status", () => {
         { id: "zoe", label: "Zoe" },
       ],
       expectedText: "Ayaan, Liam, Maya, Zoe are typing…",
-      expectedAvatars: 3,
+      expectedAvatars: 4,
     },
   ])("renders $expectedText in the transcript", ({ actors, expectedText, expectedAvatars }) => {
     const container = renderChatView({ typingActors: actors });
@@ -815,9 +815,14 @@ describe("chat typing status", () => {
 
     expect(indicator?.closest('[data-virtual-row-key="presence:typing"]')).not.toBeNull();
     expect(indicator?.closest(".agent-chat__composer-shell")).toBeNull();
-    expect(indicator?.querySelectorAll(".chat-avatar")).toHaveLength(expectedAvatars);
     expect(
-      indicator?.querySelector(".agent-chat__typing-avatars")?.getAttribute("aria-hidden"),
+      indicator?.querySelectorAll(
+        ".chat-message-avatar-anchor > :is(.chat-avatar, .chat-avatar-slot), .chat-group-footer .chat-author-avatar",
+      ),
+    ).toHaveLength(expectedAvatars);
+    expect(indicator?.querySelectorAll(".agent-chat__typing-state")).toHaveLength(actors.length);
+    expect(
+      indicator?.querySelector(".agent-chat__typing-bubble")?.getAttribute("aria-hidden"),
     ).toBe("true");
     expect(indicator?.textContent).toContain(expectedText);
   });
@@ -877,7 +882,7 @@ function createBackgroundTasks(
     activeCount: 0,
     subagentActivity: {
       rows: [],
-      overflowWorking: 0,
+      overflowCount: 0,
       taskIds: new Set<string>(),
       nextExpiryAt: null,
     },
@@ -10124,32 +10129,45 @@ describe("right-click Reply", () => {
     );
   });
 
-  it("opens context menu and calls onSetReply when Reply is selected", () => {
+  it("keeps Reply and composer focus available when the pane rerenders with its menu open", () => {
     const onSetReply = vi.fn();
-    const { bubble } = renderChatBubble(
-      { onSetReply },
+    const transcript = createTestTranscript();
+    const { container, bubble } = renderChatBubble(
+      { onSetReply, transcript },
       {
         messageId: "msg-stable-1",
         senderLabel: "User",
         text: "hello world",
       },
     );
+    document.body.appendChild(container);
+    transcript.hostConnected();
 
-    dispatchContextMenu(bubble);
+    try {
+      dispatchContextMenu(bubble);
 
-    const menu = document.querySelector(".chat-reply-context-menu");
-    expect(menu).not.toBeNull();
-    menu!.querySelector("button")!.click();
+      const menu = document.querySelector(".chat-reply-context-menu");
+      expect(menu).not.toBeNull();
+      renderChatInto(container, { onSetReply, transcript, draft: "A draft update" });
+      menu!.querySelector("button")!.click();
 
-    expect(onSetReply).toHaveBeenCalledTimes(1);
-    const target = itemAt(
-      itemAt(onSetReply.mock.calls, 0, "reply callback call"),
-      0,
-      "reply target",
-    );
-    expect(target.messageId).toBe("msg-stable-1");
-    expect(target.text).toBe("hello world");
-    expect(target.senderLabel).toBe("User");
+      expect(onSetReply).toHaveBeenCalledTimes(1);
+      const target = itemAt(
+        itemAt(onSetReply.mock.calls, 0, "reply callback call"),
+        0,
+        "reply target",
+      );
+      expect(target.messageId).toBe("msg-stable-1");
+      expect(target.text).toBe("hello world");
+      expect(target.senderLabel).toBe("User");
+      expect(document.activeElement).toBe(
+        container.querySelector(".agent-chat__composer-combobox textarea"),
+      );
+    } finally {
+      transcript.hostDisconnected();
+      render(null, container);
+      container.remove();
+    }
   });
 
   it("backs off before an emoji that crosses the reply target limit", () => {

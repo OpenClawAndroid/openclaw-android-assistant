@@ -176,6 +176,13 @@ describe("schema-header native reader lifetime", () => {
       const before = [pathname, pathname + "-journal"].map((file) => fs.readFileSync(file));
       const cacheRoot = dirs.make("sqlite-header-journal-cache-");
       vi.stubEnv("XDG_CACHE_HOME", cacheRoot);
+      await expect(
+        inspectAgentDatabaseSchemaInWorker({
+          pathname,
+          supportedVersion: 7,
+          requireStartupMigrationReadiness: true,
+        }),
+      ).resolves.toBeNull();
       expect(await inspectSqliteSchemaHeader(pathname)).toEqual({
         userVersion: 7,
         writerAppVersion: "committed",
@@ -206,6 +213,15 @@ describe("schema-header native reader lifetime", () => {
         writer.close();
       }
       const before = [pathname, pathname + "-wal"].map((file) => fs.readFileSync(file));
+      if (!includeShm) {
+        await expect(
+          inspectAgentDatabaseSchemaInWorker({
+            pathname,
+            supportedVersion: 9,
+            requireStartupMigrationReadiness: true,
+          }),
+        ).resolves.toBeNull();
+      }
       expect(await inspectSqliteSchemaHeader(pathname)).toEqual({
         userVersion: 9,
         writerAppVersion: "from-wal",

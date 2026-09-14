@@ -35,7 +35,7 @@ vi.mock("./status-json-command.ts", () => ({
 }));
 
 function mockCliRuntime(version: string, text = true) {
-  vi.spyOn(runtimeGuard, "detectRuntime").mockReturnValue({
+  vi.spyOn(runtimeGuard, "detectRuntime").mockResolvedValue({
     kind: "node",
     version,
     execPath: "/fixture/node",

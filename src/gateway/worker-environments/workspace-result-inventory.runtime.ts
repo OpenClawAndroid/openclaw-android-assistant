@@ -1,15 +1,12 @@
 import { createHash } from "node:crypto";
 import { runGitBuffered } from "../../agents/worktrees/git.js";
 import { WORKSPACE_PREVIEW_MAX_BYTES } from "../server-methods/workspace-fs.js";
+import { parseChangedWorkspaceResult } from "./workspace-manifest-comparison.js";
 import {
-  MAX_RECONCILIATION_ENTRIES,
   MAX_RECONCILIATION_FILE_BYTES,
-  MAX_RECONCILIATION_TOTAL_BYTES,
   parseWorkerWorkspaceManifest,
-  type WorkerWorkspaceManifest,
   type WorkerWorkspaceManifestEntry,
 } from "./workspace-manifest.js";
-import { manifestNodes } from "./workspace-reconcile-core.js";
 import { reconciliationEntries } from "./workspace-reconcile-derived-paths.js";
 import { WORKSPACE_RESULT_GIT_TIMEOUT_MS as PATCH_TIMEOUT_MS } from "./workspace-result-git.js";
 import {
@@ -21,43 +18,6 @@ import {
 } from "./workspace-result-inventory.js";
 
 const STAGED_RESULT_METADATA_LIMIT = 128 * 1024 * 1024 + 4_096;
-
-export function parseChangedWorkspaceResult(
-  base: WorkerWorkspaceManifest,
-  current: WorkerWorkspaceManifest,
-  enforceRecordLimit = true,
-): { changed: boolean; entries: WorkerWorkspaceManifestEntry[] } {
-  const baseNodes = manifestNodes(base);
-  const currentNodes = manifestNodes(current);
-  const changed = new Set(
-    [...new Set([...baseNodes.keys(), ...currentNodes.keys()])].filter(
-      (entryPath) =>
-        JSON.stringify(baseNodes.get(entryPath)) !== JSON.stringify(currentNodes.get(entryPath)),
-    ),
-  );
-  const recordCount = [...changed].reduce(
-    (count, entryPath) =>
-      count + Number(baseNodes.has(entryPath)) + Number(currentNodes.has(entryPath)),
-    0,
-  );
-  if (enforceRecordLimit && recordCount > MAX_RECONCILIATION_ENTRIES) {
-    throw new Error(
-      `Cloud workspace reconciliation exceeds the ${MAX_RECONCILIATION_ENTRIES} entry limit`,
-    );
-  }
-  let totalBytes = 0;
-  const entries = reconciliationEntries(current.entries).filter((entry) => changed.has(entry.path));
-  for (const entry of entries) {
-    if (entry.type === "file" && entry.size > MAX_RECONCILIATION_FILE_BYTES) {
-      throw new Error(`Cloud workspace result is too large: ${entry.path}`);
-    }
-    totalBytes += entry.type === "file" ? entry.size : Buffer.byteLength(entry.target);
-    if (totalBytes > MAX_RECONCILIATION_TOTAL_BYTES) {
-      throw new Error("Cloud workspace staged result exceeds its byte limit");
-    }
-  }
-  return { changed: recordCount > 0, entries };
-}
 
 async function readGitBlob(params: {
   root: string;

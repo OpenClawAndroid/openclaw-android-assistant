@@ -24,6 +24,8 @@ import {
   shouldIncludeSecretsToolForOpenClawTools,
 } from "./openclaw-tools.registration.js";
 import { textResult, type AnyAgentTool } from "./tools/common.js";
+import { getGatewayToolCallerIdentity } from "./tools/gateway-caller-context.js";
+import * as inProcessGateway from "./tools/in-process-gateway.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
 
 vi.mock("./openclaw-plugin-tools.js", () => ({
@@ -552,7 +554,7 @@ describe("sessions_yield completion ownership", () => {
       expect(result.details).toMatchObject({
         status: "error",
         error:
-          "No pending child completion is owned by this turn. Continue working because independent background operations complete separately.",
+          'No pending child completion is owned by this turn. If the assigned work is complete, return its result normally. An unfinished subagent waiting for an incoming continuation must explicitly set waitFor: "message".',
       });
       expect(markRequesterTurnYielded).toHaveBeenCalledOnce();
       expect(onYield).not.toHaveBeenCalled();
@@ -561,7 +563,7 @@ describe("sessions_yield completion ownership", () => {
     }
   });
 
-  it("accepts a subagent self-yield without a pending child completion", async () => {
+  it("accepts an explicit incoming-message wait without a pending child completion", async () => {
     const registry = await import("./subagents/registry/subagent-registry.js");
     const markRequesterTurnYielded = vi
       .spyOn(registry, "markRequesterTurnYielded")
@@ -582,7 +584,7 @@ describe("sessions_yield completion ownership", () => {
         "sessions_yield",
       );
 
-      await expect(tool.execute("yield-subagent", {})).resolves.toMatchObject({
+      await expect(tool.execute("yield-subagent", { waitFor: "message" })).resolves.toMatchObject({
         details: { status: "yielded" },
       });
       expect(markRequesterTurnYielded).toHaveBeenCalledExactlyOnceWith({
@@ -914,6 +916,32 @@ describe("gateway client capability tool filtering", () => {
   it("only exposes screen to UI-command clients", () => {
     expect(hasTool(createOpenClawTools(), "screen")).toBe(false);
     expect(hasTool(createOpenClawTools({ clientCaps: ["ui-commands"] }), "screen")).toBe(true);
+  });
+
+  it("retains the requesting browser through coding tool assembly", async () => {
+    const gatewayUiCommandTarget = { connId: "requester-tab", profileId: "requester" };
+    const targets: unknown[] = [];
+    const call = vi
+      .spyOn(inProcessGateway, "callInProcessGatewayTool")
+      .mockImplementation(async () => {
+        targets.push(getGatewayToolCallerIdentity()?.gatewayUiCommandTarget);
+        return { ok: true } as never;
+      });
+    try {
+      const tools = createOpenClawCodingTools({
+        config: withDefaultRoster(undefined),
+        sessionKey: "agent:main:main",
+        clientCaps: ["ui-commands"],
+        gatewayUiCommandTarget,
+      });
+      await expectToolNamed(tools, "screen").execute("select", {
+        action: "navigate",
+        sessionKey: "agent:main:other",
+      });
+      expect(targets).toEqual([gatewayUiCommandTarget]);
+    } finally {
+      call.mockRestore();
+    }
   });
 
   it("exposes GitHub publication only from a prepared session capability", () => {

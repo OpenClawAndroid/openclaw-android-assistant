@@ -637,6 +637,8 @@ describe("sessions_spawn tool", () => {
     expect(schema.properties?.visible?.description).toBe(
       "Persistent sidebar session only when the user requests a separate session or needs to revisit and steer it independently. Internal QA/coding/review/test workers: omit or false. Subagent runtime only; default run mode and empty attachments accepted; no thread/thinking/lightContext or attachment staging.",
     );
+    expect(schema.properties?.projectId?.description).toContain("Registered project");
+    expect(schema.properties?.projectGitUrl?.description).toContain("managed clone");
     expect(schema.properties?.cwd?.description).toContain(
       "outside configured agent workspaces require operator.admin",
     );
@@ -882,7 +884,7 @@ describe("sessions_spawn tool", () => {
 
       expect(result.details).toMatchObject({
         status: "forbidden",
-        error: `Visible session cwd "${outside}" is outside configured agent workspaces and requires operator.admin. Omit cwd to use the target agent workspace, or ask the operator to start the session from a registered project. Do not substitute the synchronous \`openclaw agent\` CLI for a persistent visible session.`,
+        error: `Visible session cwd "${outside}" is outside configured agent workspaces and requires operator.admin. Omit cwd to use the target agent workspace, or select a registered project with projectId or a GitHub repository with projectGitUrl. Do not substitute the synchronous \`openclaw agent\` CLI for a persistent visible session.`,
       });
       expect(callGateway).toHaveBeenCalledOnce();
     });
@@ -1032,6 +1034,8 @@ describe("sessions_spawn tool", () => {
 
     it.each([
       { group: "Projects" },
+      { projectId: "registered-project" },
+      { projectGitUrl: "https://github.com/openclaw/openclaw.git" },
       { worktree: true },
       { worktreeName: "repair" },
       { worktreeBaseRef: "main" },

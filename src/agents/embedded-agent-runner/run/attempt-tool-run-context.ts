@@ -10,6 +10,7 @@ import type { EmbeddedRunTrigger, RunEmbeddedAgentParams } from "./params.js";
 type AttemptToolRunFacts = Pick<
   RunEmbeddedAgentParams,
   | "clientCaps"
+  | "gatewayUiCommandTarget"
   | "pinnedWidgetAuthoring"
   | "toolBindings"
   | "chatType"
@@ -68,6 +69,7 @@ export function buildEmbeddedAttemptToolRunContext(
   });
   return {
     clientCaps: params.clientCaps,
+    gatewayUiCommandTarget: params.gatewayUiCommandTarget,
     pinnedWidgetAuthoring: params.pinnedWidgetAuthoring,
     toolBindings: params.toolBindings,
     chatType: params.chatType,

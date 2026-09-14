@@ -1,20 +1,23 @@
 import { fork } from "node:child_process";
-import fs from "node:fs";
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
 import { z } from "zod";
 import { resolveRuntimeProcessEntrypointUrl } from "../infra/runtime-process-url.js";
 import { resolveRuntimeWorkerArgv } from "../infra/runtime-worker-url.js";
 import {
-  resolveSqliteInspectionBudget,
+  readSqliteInspectionBudget,
   sqliteInspectionTimeoutError,
 } from "../infra/sqlite-readonly-worker.js";
+import {
+  agentSchemaInspectionErrorSchema,
+  restoreAgentSchemaInspectionError,
+} from "./openclaw-agent-schema-inspection-response.js";
 import type {
   AgentSchemaInspection,
   AgentSchemaInspectionInput,
 } from "./openclaw-agent-schema-inspection.js";
 
 const inspectionResponse = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(false), message: z.string() }),
+  z.object({ ok: z.literal(false), error: agentSchemaInspectionErrorSchema }),
   z.object({
     ok: z.literal(true),
     inspection: z
@@ -22,6 +25,7 @@ const inspectionResponse = z.discriminatedUnion("ok", [
         version: z.number().int().safe(),
         writerAppVersion: z.string().optional(),
         reason: z.string().optional(),
+        failure: agentSchemaInspectionErrorSchema.optional(),
         agentSchemaMeta: z
           .object({
             agentId: z.string().nullable(),
@@ -41,10 +45,9 @@ export function inspectAgentDatabaseSchemaInWorker(
   signal?: AbortSignal,
 ): Promise<AgentSchemaInspection | null> {
   signal?.throwIfAborted();
-  const { timeoutMs, size } = resolveSqliteInspectionBudget(
-    "schema inspection",
+  const { timeoutMs, size } = readSqliteInspectionBudget(
+    input.requireStartupMigrationReadiness ? "startup readiness" : "schema inspection",
     input.pathname,
-    fs.statSync(input.pathname).size,
   );
   const entry = resolveRuntimeProcessEntrypointUrl("agentSchemaInspection");
   const child = fork(entry, [], {
@@ -62,9 +65,17 @@ export function inspectAgentDatabaseSchemaInWorker(
       if (!parsed.success) {
         failure = new Error("Invalid agent schema inspection response");
       } else if (!parsed.data.ok) {
-        failure = new Error(parsed.data.message);
+        failure = restoreAgentSchemaInspectionError(parsed.data.error);
       } else {
-        result = parsed.data.inspection;
+        const inspection = parsed.data.inspection;
+        result = inspection
+          ? {
+              ...inspection,
+              failure: inspection.failure
+                ? restoreAgentSchemaInspectionError(inspection.failure)
+                : undefined,
+            }
+          : null;
       }
     });
     child.on("error", (error) => {

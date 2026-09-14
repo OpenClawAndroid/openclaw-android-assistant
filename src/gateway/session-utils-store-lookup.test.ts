@@ -353,7 +353,13 @@ describe("global session lookup ownership", () => {
 
   it("routes GitHub options and its access recheck to the qualified alias owner", async () => {
     await withGlobalSessions("main", async (cfg) => {
-      const context = { getRuntimeConfig: () => cfg } as GatewayRequestContext;
+      const latestShared = vi.fn<
+        NonNullable<GatewayRequestContext["githubPublicationService"]>["latestShared"]
+      >(() => null);
+      const context = {
+        getRuntimeConfig: () => cfg,
+        githubPublicationService: { latestShared },
+      } as unknown as GatewayRequestContext;
       for (const agentId of ["research", "main", "research"]) {
         const respond = vi.fn<RespondFn>();
         await handleGatewayRequest({
@@ -374,6 +380,7 @@ describe("global session lookup ownership", () => {
         expect(respond.mock.calls[0]?.[1]).toEqual({
           personal: null,
           pendingPersonal: null,
+          latestShared: null,
           shared: {
             source: "system",
             accountId: `account-${agentId}`,
@@ -381,6 +388,14 @@ describe("global session lookup ownership", () => {
           },
         });
         expect(prepareCurrentGitHubPublicationIdentity).toHaveBeenLastCalledWith(agentId);
+        expect(latestShared).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            agentId,
+            sessionKey: "global",
+            sessionId: agentId + "-global",
+          }),
+          undefined,
+        );
       }
     });
   });

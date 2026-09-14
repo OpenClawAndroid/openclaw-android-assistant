@@ -70,6 +70,36 @@ function nullableFramebuffer(value: unknown) {
   };
 }
 
+function desktopSocketCloses(value: unknown) {
+  if (value === null) {
+    return null;
+  }
+  if (!Array.isArray(value) || value.length > 8) {
+    throw new Error("Invalid desktop socket close diagnostics");
+  }
+  return value.map((event) => {
+    const category = (
+      [
+        "takeover",
+        "authority-revoked",
+        "stream-close",
+        "authentication",
+        "other",
+        "unknown",
+      ] as const
+    ).find((candidate) => isRecord(event) && candidate === event.category);
+    if (!isRecord(event) || typeof event.wasClean !== "boolean" || !category) {
+      throw new Error("Invalid desktop socket close diagnostic");
+    }
+    return {
+      socketIndex: reportInteger(event.socketIndex, 9_999),
+      code: reportInteger(event.code, 65_535),
+      wasClean: event.wasClean,
+      category,
+    };
+  });
+}
+
 function desktopViewerResizeFailure(value: unknown) {
   if (!isRecord(value) || typeof value.pageClosed !== "boolean") {
     throw new Error("Invalid desktop viewer diagnostic");
@@ -97,6 +127,7 @@ function desktopViewerResizeFailure(value: unknown) {
     snapshotFramebuffer: nullableFramebuffer(value.snapshotFramebuffer),
     socketCount: value.socketCount === null ? null : reportInteger(value.socketCount, 10_000),
     latestReadyState,
+    socketCloses: desktopSocketCloses(value.socketCloses),
   };
 }
 

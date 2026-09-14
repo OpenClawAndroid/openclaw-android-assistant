@@ -1,3 +1,4 @@
+import { channel } from "node:diagnostics_channel";
 import { performance } from "node:perf_hooks";
 import { isMainThread, threadId } from "node:worker_threads";
 import { areDiagnosticsEnabledForProcess } from "../../infra/diagnostic-events.js";
@@ -24,11 +25,16 @@ type Phase =
   | "response"
   | "handlerExit";
 type CacheRole = "unreached" | "completed-hit" | "in-flight-follower" | "projection-owner";
+const sessionListDiagnostics = channel("openclaw.session.list");
 
 export type SessionListDiagnostics = NonNullable<ReturnType<typeof startSessionListDiagnostics>>;
 
-function startSessionListDiagnostics(respond: RespondFn) {
-  if (!areDiagnosticsEnabledForProcess() || !sessionLog.isEnabled("warn")) {
+function startSessionListDiagnostics(
+  respond: RespondFn,
+  operation: "sessions.list" | "sessions.subscribe",
+) {
+  const logEnabled = areDiagnosticsEnabledForProcess() && sessionLog.isEnabled("warn");
+  if (!logEnabled && !sessionListDiagnostics.hasSubscribers) {
     return undefined;
   }
   let checkpoint = performance.now();
@@ -91,7 +97,9 @@ function startSessionListDiagnostics(respond: RespondFn) {
     finish(handlerOutcome: "returned" | "threw") {
       mark("handlerExit");
       const handlerElapsedMs = checkpoint - startedAt;
-      if (handlerElapsedMs < 1_000 || !areDiagnosticsEnabledForProcess()) {
+      const shouldLog =
+        logEnabled && handlerElapsedMs >= 1_000 && areDiagnosticsEnabledForProcess();
+      if (!shouldLog && !sessionListDiagnostics.hasSubscribers) {
         return;
       }
       try {
@@ -100,26 +108,37 @@ function startSessionListDiagnostics(respond: RespondFn) {
         for (const stage of timing.snapshot().stages) {
           phaseDurationsMs[stage.name] = (phaseDurationsMs[stage.name] ?? 0) + stage.durationMs;
         }
-        runWithDiagnosticTraceContext(trace, () =>
-          sessionLog.warn("slow session list", {
-            operation: "sessions.list",
-            pid: process.pid,
-            threadId,
-            isMainThread,
-            handlerElapsedMs: Math.round(handlerElapsedMs),
-            cacheRole,
-            ...(workTrace ? { workTraceId: workTrace.traceId, workSpanId: workTrace.spanId } : {}),
-            phaseDurationsMs,
-            ...(projection
-              ? Object.fromEntries(
-                  Object.entries(projection).map(([key, value]) => [key, Math.round(value)]),
-                )
-              : {}),
-            ...(selectedRowCount === undefined ? {} : { selectedRowCount }),
-            handlerOutcome,
-            responseOutcome,
-          }),
-        );
+        const fields = {
+          operation,
+          pid: process.pid,
+          threadId,
+          isMainThread,
+          handlerElapsedMs: Math.round(handlerElapsedMs),
+          cacheRole,
+          phaseDurationsMs,
+          ...(projection
+            ? Object.fromEntries(
+                Object.entries(projection).map(([key, value]) => [key, Math.round(value)]),
+              )
+            : {}),
+          ...(selectedRowCount === undefined ? {} : { selectedRowCount }),
+          handlerOutcome,
+          responseOutcome,
+        };
+        if (sessionListDiagnostics.hasSubscribers) {
+          sessionListDiagnostics.publish(fields);
+        }
+        if (shouldLog) {
+          runWithDiagnosticTraceContext(trace, () =>
+            sessionLog.warn("slow session list", {
+              ...fields,
+              operation: "sessions.list",
+              ...(workTrace
+                ? { workTraceId: workTrace.traceId, workSpanId: workTrace.spanId }
+                : {}),
+            }),
+          );
+        }
       } catch {
         // Diagnostic sinks cannot replace the response or original exception.
       }
@@ -134,7 +153,10 @@ export function withSessionListDiagnostics(
   ) => Promise<void>,
 ): GatewayRequestHandler {
   return async (args) => {
-    const diagnostics = startSessionListDiagnostics(args.respond);
+    const diagnostics = startSessionListDiagnostics(
+      args.respond,
+      args.req.method === "sessions.subscribe" ? "sessions.subscribe" : "sessions.list",
+    );
     let outcome: "returned" | "threw" = "returned";
     try {
       await handler(diagnostics ? { ...args, respond: diagnostics.respond } : args, diagnostics);

@@ -200,6 +200,9 @@ describe("subagent registry sqlite store", () => {
           },
           delivery: { status },
         });
+        expect([
+          ...loadSubagentSessionListRunsFromSqlite(["agent:main:controller"]).values(),
+        ]).toMatchObject([{ runId: run.runId, delivery: { status } }]);
         const stateDb = getNodeSqliteKysely<SubagentRegistryDatabase>(database.db);
         const releasedRows = executeSqliteQuerySync(
           database.db,
@@ -723,6 +726,16 @@ describe("subagent registry sqlite store", () => {
           ?.controllerSessionKey,
       ).toBe("agent:main:controller");
       expect(loadSubagentRunsForControllerFromSqlite("   ")).toEqual([]);
+      expect([
+        ...loadSubagentSessionListRunsFromSqlite([" agent:main:controller ", " "]).keys(),
+      ]).toEqual(["empty-controller", "explicit", "fallback", "padded-controller"]);
+      expect([
+        ...loadSubagentSessionListRunsFromSqlite([
+          "agent:main:controller",
+          "agent:main:other-controller",
+        ]).keys(),
+      ]).toEqual(["empty-controller", "explicit", "fallback", "other", "padded-controller"]);
+      expect(loadSubagentSessionListRunsFromSqlite(["   "])).toEqual(new Map());
     });
   });
 

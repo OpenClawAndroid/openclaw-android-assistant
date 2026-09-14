@@ -25,6 +25,8 @@ const commonScript = join(repoRoot, "scripts/pr-lib/common.sh");
 const worktreeScript = join(repoRoot, "scripts/pr-lib/worktree.sh");
 const reviewScript = join(repoRoot, "scripts/pr-lib/review.sh");
 const describePosix = process.platform === "win32" ? describe.skip : describe;
+// Directly sourced helpers need the same Darwin heredoc protection as scripts/pr.
+const bash = process.platform === "darwin" ? "/bin/bash" : "bash";
 
 type Fixture = {
   root: string;
@@ -136,7 +138,7 @@ function makeStaleWorktreeDir(fixture: Fixture) {
 
 function runShell(fixture: Fixture, commands: string[], env?: NodeJS.ProcessEnv) {
   return spawnSync(
-    "bash",
+    bash,
     [
       "-c",
       [
@@ -248,7 +250,7 @@ describePosix("scripts/pr worktree containment", () => {
           (pr) =>
             new Promise<{ code: number | null; output: string }>((resolve, reject) => {
               const child = spawn(
-                "bash",
+                bash,
                 [
                   "-c",
                   `set -euo pipefail\nsource "$1"\nsource "$2"\nsource "$3"\nscript_parent_dir="$4"\ngh_plain() { printf 'HTTP/2.0 200 OK\\n\\n{"data":{"viewer":{"login":"fixture-user"}}}\\n'; }\nmark_pr_operation_side_effects_started() { :; }\nreview_checkout_main "$5"`,
@@ -371,8 +373,8 @@ describePosix("scripts/pr worktree containment", () => {
       setup: [],
     },
     {
-      name: "stale registration prune",
-      failure: '[ "$*" = "git -C $fixture_root worktree prune" ]',
+      name: "stale target removal",
+      failure: '[[ "$*" == "git worktree remove "* ]]',
       setup: [
         "git worktree add .worktrees/pr-42 -b temp/pr-42 origin/main",
         "rm -rf .worktrees/pr-42",
@@ -392,6 +394,16 @@ describePosix("scripts/pr worktree containment", () => {
       name: "worktree cd",
       failure: '[ "$*" = "cd $fixture_root/.worktrees/pr-42" ] && [ "$BASH_SUBSHELL" = 0 ]',
       setup: [],
+    },
+    {
+      name: "warm registration read",
+      failure: '[ "$*" = "git worktree list --porcelain -z" ]',
+      setup: ["git worktree add .worktrees/pr-42 -b temp/pr-42 origin/main"],
+    },
+    {
+      name: "warm Git identity read",
+      failure: '[ "$*" = "git rev-parse --path-format=absolute --git-dir --git-common-dir" ]',
+      setup: ["git worktree add .worktrees/pr-42 -b temp/pr-42 origin/main"],
     },
     {
       name: "sparse conversion",
@@ -418,18 +430,20 @@ describePosix("scripts/pr worktree containment", () => {
     expect(existsSync(join(fixture.root, ".worktrees", "pr-42", ".local"))).toBe(false);
   });
 
-  it("refuses provisioning when best-effort cleanup leaves the stale directory", () => {
+  it("preserves an unregistered orphan instead of trashing it during provisioning", () => {
     const fixture = createFixture();
     makeStaleWorktreeDir(fixture);
     const marker = join(fixture.root, ".worktrees", "pr-42", "foreign-note");
     writeFileSync(marker, "preserve me\n");
     const result = runShell(fixture, [
-      ...traceEntryCommands('[ "$1" = trash ]'),
+      ...traceEntryCommands("false"),
       "enter_worktree 42 true || exit $?",
     ]);
-    expectEntryStopped(fixture, result);
-    expect(result.stdout).toContain("failed to trash orphaned worktree dir");
-    expect(result.stderr).toContain("could not be cleared");
+    expect(result.status, `${result.stdout}\n${result.stderr}`).not.toBe(0);
+    const commands = readFileSync(join(fixture.root, "commands.log"), "utf8");
+    expect(commands).not.toMatch(/(?:worktree (?:prune|remove|add)|trash| fetch )/);
+    expect(result.stderr).toContain("unregistered or ambiguous PR worktree");
+    expectCanonicalCheckoutUnchanged(fixture);
     expect(readFileSync(marker, "utf8")).toBe("preserve me\n");
   });
 
@@ -488,7 +502,7 @@ describePosix("scripts/pr worktree containment", () => {
     const result = runShell(fixture, ["enter_worktree 42 true"]);
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("refuses to mutate the shared canonical checkout");
+    expect(result.stderr).toContain("non-canonical PR-worktree path");
     expect(git(join(worktrees, "pr-99"), "branch", "--show-current")).toBe("temp/pr-99");
     expectCanonicalCheckoutUnchanged(fixture);
   });
@@ -524,6 +538,123 @@ describePosix("scripts/pr worktree containment", () => {
     expect(readFileSync(fetchHead, "utf8")).toContain(fixture.mainSha);
     expectCanonicalCheckoutUnchanged(fixture);
   });
+
+  for (const operation of [
+    { name: "ordinary entry", command: "enter_worktree 42 false", target: true, success: true },
+    { name: "reset entry", command: "enter_worktree 42 true", target: true, success: true },
+    { name: "review entry", command: "review_init 42", target: true, success: true },
+    {
+      name: "destructive cleanup",
+      command: 'remove_worktree_if_present ".worktrees/pr-42"',
+      target: true,
+      success: false,
+    },
+    { name: "cold entry", command: "enter_worktree 42 false", target: false, success: false },
+  ]) {
+    it.each(["missing", "empty", "unreadable"])(
+      `${operation.name} preserves an unrelated worktree with a %s backlink`,
+      (damage) => {
+        const fixture = createReviewFixture();
+        const worktree = join(fixture.root, ".worktrees", "pr-42");
+        const sibling = join(fixture.root, ".worktrees", "pr-99");
+        if (operation.target) {
+          git(fixture.root, "worktree", "add", "-b", "temp/pr-42", worktree, fixture.mainSha);
+        }
+        git(fixture.root, "worktree", "add", "-b", "temp/pr-99", sibling, fixture.mainSha);
+        const admin = git(sibling, "rev-parse", "--absolute-git-dir");
+        const backlink = join(admin, "gitdir");
+        writeFileSync(join(sibling, "marker"), "preserve sibling\n");
+        if (damage === "missing") {
+          rmSync(backlink);
+        } else if (damage === "empty") {
+          writeFileSync(backlink, "");
+        } else {
+          // Inject EACCES so this guard is also exercised when tests run as root.
+          writeFileSync(
+            join(fixture.root, "deny-backlink.cjs"),
+            [
+              'const fs = require("node:fs");',
+              "const readFileSync = fs.readFileSync;",
+              "fs.readFileSync = function(file, ...args) {",
+              `  if (file === ${JSON.stringify(backlink)}) {`,
+              '    throw Object.assign(new Error("fixture denied backlink"), { code: "EACCES" });',
+              "  }",
+              "  return readFileSync.call(this, file, ...args);",
+              "};",
+            ].join("\n"),
+          );
+        }
+        const retainedBacklink = existsSync(backlink) ? readFileSync(backlink) : null;
+        const result = runShell(fixture, [
+          ...traceEntryCommands("false"),
+          ...(damage === "unreadable"
+            ? ['node() { command node --require "$fixture_root/deny-backlink.cjs" "$@"; }']
+            : []),
+          `${operation.command} || exit $?`,
+          "echo operation-completed",
+        ]);
+        expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(operation.success ? 0 : 1);
+        expect(result.stdout.includes("operation-completed")).toBe(operation.success);
+        const commands = readFileSync(join(fixture.root, "commands.log"), "utf8");
+        expect(commands).not.toMatch(/worktree (?:prune|remove|add)|trash|branch -D/u);
+        if (operation.success) {
+          expect(commands).toContain("git worktree list --porcelain -z");
+          expect(commands).toContain(
+            "git rev-parse --path-format=absolute --git-dir --git-common-dir",
+          );
+          expect(git(worktree, "rev-parse", "HEAD")).toBe(fixture.mainSha);
+        } else {
+          expect(commands).not.toContain(" fetch ");
+          expect(result.stderr).toContain(
+            damage === "unreadable" ? "EACCES" : "damaged worktree metadata",
+          );
+        }
+        expect(existsSync(worktree)).toBe(operation.target);
+        expect(existsSync(admin)).toBe(true);
+        expect(existsSync(backlink) ? readFileSync(backlink) : null).toEqual(retainedBacklink);
+        expect(git(sibling, "rev-parse", "HEAD")).toBe(fixture.mainSha);
+        expect(git(sibling, "branch", "--show-current")).toBe("temp/pr-99");
+        expect(readFileSync(join(sibling, "marker"), "utf8")).toBe("preserve sibling\n");
+        expectCanonicalCheckoutUnchanged(fixture);
+      },
+    );
+  }
+
+  it.each(["gitfile-symlink", "other-admin", "backlink", "commondir"])(
+    "refuses warm entry with invalid target-local identity (%s)",
+    (fault) => {
+      const fixture = createFixture();
+      const worktree = join(fixture.root, ".worktrees", "pr-42");
+      const sibling = join(fixture.root, ".worktrees", "pr-99");
+      git(fixture.root, "worktree", "add", "-b", "temp/pr-42", worktree, fixture.mainSha);
+      git(fixture.root, "worktree", "add", "-b", "temp/pr-99", sibling, fixture.mainSha);
+      const admin = git(worktree, "rev-parse", "--absolute-git-dir");
+      const siblingGitfile = readFileSync(join(sibling, ".git"));
+      if (fault === "gitfile-symlink") {
+        rmSync(join(worktree, ".git"));
+        symlinkSync(join(sibling, ".git"), join(worktree, ".git"));
+      } else if (fault === "other-admin") {
+        writeFileSync(join(worktree, ".git"), siblingGitfile);
+      } else if (fault === "backlink") {
+        writeFileSync(join(admin, "gitdir"), `${sibling}/.git\n`);
+      } else {
+        writeFileSync(join(admin, "commondir"), `${fixture.root}/unrelated.git\n`);
+      }
+      const result = runShell(fixture, [
+        ...traceEntryCommands("false"),
+        "enter_worktree 42 true || exit $?",
+        "echo unexpected-entry-completed",
+      ]);
+      expect(result.status, `${result.stdout}\n${result.stderr}`).not.toBe(0);
+      expect(result.stdout).not.toContain("unexpected-entry-completed");
+      expect(readFileSync(join(fixture.root, "commands.log"), "utf8")).not.toMatch(
+        /worktree (?:prune|remove|add)|trash| fetch |checkout /u,
+      );
+      expect(readFileSync(join(sibling, ".git"))).toEqual(siblingGitfile);
+      expect(git(sibling, "branch", "--show-current")).toBe("temp/pr-99");
+      expectCanonicalCheckoutUnchanged(fixture);
+    },
+  );
 
   it("recovers an interrupted transition before repeated init, main, and PR checkout", () => {
     const fixture = createReviewFixture();

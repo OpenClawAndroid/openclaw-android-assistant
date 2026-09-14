@@ -243,7 +243,9 @@ export async function readCurrentStoredChatHistory(
       sessionRunProvesQueuedDelivery(history.sessionInfo, item))
   ) {
     const retired =
-      (await retireDeliveredQueuedUserTurn(host, item.sendRunId, outbox)) === "retired";
+      (await retireDeliveredQueuedUserTurn(host, item.sendRunId, outbox, {
+        inputConsumed: requiresChatInputConsumption(item),
+      })) === "retired";
     if (
       !retired ||
       host.client !== client ||

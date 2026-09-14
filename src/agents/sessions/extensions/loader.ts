@@ -23,7 +23,7 @@ import {
   buildPluginLoaderAliasMap,
   buildPluginLoaderJitiOptions,
 } from "../../../plugins/sdk-alias.js";
-import { isBunBinary } from "../../config.js";
+import { isBunBinary } from "../../package-metadata.js";
 import { createEventBus, type EventBus } from "../event-bus.js";
 import type { ExecOptions } from "../exec.js";
 import { execCommand } from "../exec.js";

@@ -48,7 +48,7 @@ type NodeWorkerLaunchContext = {
   active: Map<string, NodeWorkerActiveOwnership>;
   isClosed: () => boolean;
   observeChild: (active: NodeWorkerRunningChild) => Promise<void>;
-  stopChild: (active: NodeWorkerRunningChild, state: NodeWorkerStopState) => Promise<void>;
+  stopChild: (active: NodeWorkerRunningChild, state?: NodeWorkerStopState) => Promise<void>;
 };
 
 /** Starts one physical owner behind the durable journal gate, independent of turn reuse. */
@@ -207,7 +207,13 @@ export async function startNodeWorkerChild(
         active.turn?.cancelled === false,
     });
   } catch {
-    await context.stopChild(active, active.turn?.cancelled ? "cancelled" : "interrupted");
+    // Only cancellation and shutdown override the child's observed exit.
+    const stopState = context.isClosed()
+      ? "interrupted"
+      : params.signal?.aborted || active.turn?.cancelled
+        ? "cancelled"
+        : undefined;
+    await context.stopChild(active, stopState);
     return context.store.get(active.launchId) ?? running;
   }
   return context.turns.get(params.input.launchId) ?? running;

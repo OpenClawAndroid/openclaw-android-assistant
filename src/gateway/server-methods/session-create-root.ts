@@ -21,6 +21,8 @@ export function prepareSessionCreateFilesystemRoot(params: {
   requestedExecNode?: string;
   requestedProjectId?: string;
   enforceSandboxContainment: boolean;
+  /** Effective requirement from the locked creation owner before the child is persisted. */
+  sandboxRequired?: boolean;
   sessionCwd?: string;
   sessionKey?: string;
   targetAgentId: string;
@@ -46,7 +48,10 @@ export function prepareSessionCreateFilesystemRoot(params: {
       });
       // Canonical paths admit workspace aliases while rejecting links that
       // resolve outside the selected agent's workspace.
-      if (targetRuntime.sandboxed && !isPathInside(fs.realpathSync(workspaceDir), sessionRoot)) {
+      if (
+        (params.sandboxRequired || targetRuntime.sandboxed) &&
+        !isPathInside(fs.realpathSync(workspaceDir), sessionRoot)
+      ) {
         return err(
           errorShape(
             ErrorCodes.INVALID_REQUEST,

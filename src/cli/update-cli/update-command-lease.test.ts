@@ -24,11 +24,13 @@ import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-
 import { seedInstalledPluginIndex } from "../../plugins/test-helpers/installed-plugin-index.js";
 import { runExec } from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
+import { runRegisteredCli } from "../../test-utils/command-runner.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
 import { VERSION } from "../../version.js";
+import { registerUpdateCli } from "../update-cli.js";
 
 const mocks = vi.hoisted(() => ({
   entrypoint: vi.fn(),
@@ -221,6 +223,30 @@ async function invokeReportedFailure(
   );
   expect(defaultRuntime.exit).not.toHaveBeenCalled();
 }
+
+it("passes standalone repair ownership to both fresh Doctor phases through the public command", async () => {
+  await writeScenario("repair", { verifyRepairOwner: true });
+
+  await runRegisteredCli({
+    register: registerUpdateCli,
+    argv: ["update", "repair", "--yes", "--json", "--timeout", "15"],
+  });
+
+  expect(
+    defaultRuntime.exit,
+    vi.mocked(defaultRuntime.error).mock.calls.flat().join("\n"),
+  ).not.toHaveBeenCalledWith(1);
+  expectSuccess("repair");
+  expect(listUpdateRuns()).toEqual([
+    expect.objectContaining({
+      status: "succeeded",
+      steps: expect.arrayContaining([
+        expect.objectContaining({ step: "finalize:repair-continuation", status: "completed" }),
+      ]),
+    }),
+  ]);
+  expect(process.env.OPENCLAW_UPDATE_RUN_ID).toBeUndefined();
+});
 
 async function events(): Promise<string[]> {
   return (await fs.readFile(state.statePath("events.jsonl"), "utf8"))

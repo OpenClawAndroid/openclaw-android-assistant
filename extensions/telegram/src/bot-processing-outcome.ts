@@ -1,5 +1,6 @@
 // Telegram plugin module tracks per-update processing outcomes.
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { ChannelIngressMonitorLifecycle } from "openclaw/plugin-sdk/channel-outbound";
 
 export type TelegramMessageProcessingResult =
   | { kind: "completed" }
@@ -10,14 +11,12 @@ type TelegramUpdateProcessingFrame = {
   result?: TelegramMessageProcessingResult;
 };
 
-type TelegramSpooledReplayLifecycle = {
-  abortSignal: AbortSignal;
-  onAdopted: () => void | Promise<void>;
-  onDeferred: () => void;
-  onDeferredHeartbeat?: () => void;
+type TelegramSpooledReplayLifecycle = Omit<
+  ChannelIngressMonitorLifecycle,
+  "admission" | "onFailed" | "onCancelled" | "onAdoptionFinalizing"
+> & {
   /** Clears pre-adoption stall while durable adoption finalization is held. */
   onAdoptionFinalizing?: () => void;
-  onAbandoned: () => void | Promise<void>;
 };
 
 type TelegramSpooledReplayFrame = {

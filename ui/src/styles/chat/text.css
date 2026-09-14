@@ -402,28 +402,28 @@
   font-size: calc(1em + 1px);
 }
 
+/* Authored disclosures stay in the prose flow. Reserving the marker column on
+   the owner also indents expanded content and nested disclosures without boxes. */
 :is(.chat-text, .chat-thinking) :where(details) {
-  width: 100%;
-  padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: transparent;
+  padding-inline-start: var(--space-6);
 }
-
-:is(.chat-text, .chat-thinking) :where(details details) {
-  width: calc(100% - var(--space-3));
-  margin-top: var(--space-3);
-  margin-inline-start: var(--space-3);
-}
-
-/* Authored disclosures are complete content surfaces; fenced code carries its own
-   reveal control inside the code-block wrapper instead. */
 :is(.chat-text, .chat-thinking) :where(details > summary) {
   position: relative;
-  min-height: var(--space-5);
+  margin-inline-start: calc(-1 * var(--space-6));
+  padding-block: 6px;
   padding-inline-start: var(--space-6);
+  border-radius: var(--radius-sm);
   list-style: none;
   cursor: var(--cursor-action);
+}
+
+:is(.chat-text, .chat-thinking) :where(details > summary:hover) {
+  background: var(--bg-hover);
+}
+
+:is(.chat-text, .chat-thinking) :where(details > summary:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 :is(.chat-text, .chat-thinking) :where(details > summary)::-webkit-details-marker {
@@ -433,7 +433,7 @@
 :is(.chat-text, .chat-thinking) :where(details > summary)::before {
   position: absolute;
   content: "";
-  inset-block-start: calc((1lh - var(--space-4)) / 2);
+  inset-block-start: calc(6px + (1lh - var(--space-4)) / 2);
   inset-inline-start: 0;
   inline-size: var(--space-4);
   block-size: var(--space-4);
@@ -557,13 +557,27 @@
   padding: 0.08em 0.45em 0.08em 0.4em;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent-subtle) 72%, var(--bg-muted));
-  color: var(--link);
+  /* Unknown state must not imply an open pull request. */
+  color: var(--muted);
   font-weight: 600;
   line-height: 1.25;
   text-decoration: none;
   vertical-align: baseline;
   white-space: nowrap;
   line-break: auto;
+}
+
+.chat-text a.markdown-github-item[data-github-state="open"] {
+  color: var(--ok);
+}
+
+.chat-text a.markdown-github-item[data-github-kind="issue"][data-github-state="closed"],
+.chat-text a.markdown-github-item[data-github-state="merged"] {
+  color: var(--pr-merged);
+}
+
+.chat-text a.markdown-github-item[data-github-kind="pull"][data-github-state="closed"] {
+  color: var(--danger);
 }
 
 .chat-text a.markdown-github-item:hover,

@@ -183,7 +183,7 @@ describe("application update campaign overlays", () => {
           },
           schedule: AUTO_UPDATE_SCHEDULE,
         });
-        await refresh;
+        expect(await refresh).toBe(source === "manual refresh" ? false : undefined);
         await flushMicrotasks();
 
         expect(overlays.snapshot.updateSchedule?.campaign?.state).toBe("applying");
@@ -249,7 +249,7 @@ describe("application update campaign overlays", () => {
       expect(overlays.snapshot.updateStatusRefreshing).toBe(true);
 
       manualStatus.reject(new Error("manual status unavailable"));
-      await refresh;
+      expect(await refresh).toBe(false);
 
       expect(overlays.snapshot.updateStatusRefreshing).toBe(false);
       expect(overlays.snapshot.updateStatusBanner?.text).toContain("manual status unavailable");
@@ -312,7 +312,7 @@ describe("application update campaign overlays", () => {
             stats: { reason: "admin-only-attempt" },
           },
         });
-        await refresh;
+        expect(await refresh).toBe(false);
 
         expect(overlays.snapshot.updateStatusBanner).toBeNull();
         expect(overlays.snapshot.recordedUpdateAttempt).toBeNull();

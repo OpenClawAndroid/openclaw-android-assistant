@@ -104,7 +104,7 @@ budget. Permanent quota errors without a cooldown hint stop that operation.
 The verbose output shows each retry wait.
 
 Interactive `memory_search` keeps three attempts and at most eight seconds of
-total retry sleep within the agent tool's 15-second deadline. A cancelled caller
+total retry sleep within the agent tool's 30-second deadline. A cancelled caller
 interrupts its retry wait.
 
 After an OpenClaw index-format upgrade, the first search rebuilds the index before

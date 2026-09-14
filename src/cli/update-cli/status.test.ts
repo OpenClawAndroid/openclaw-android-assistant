@@ -104,7 +104,7 @@ describe("update status Node runtime findings", () => {
           );
         });
       const freshGuard = await import("../../infra/runtime-guard.js");
-      vi.spyOn(freshGuard, "detectRuntime").mockReturnValue({
+      vi.spyOn(freshGuard, "detectRuntime").mockResolvedValue({
         kind: "node",
         version: process.versions.node,
         execPath: "/fixture/node",
@@ -164,7 +164,7 @@ describe("update status Node runtime findings", () => {
     "renders admitted %s runtime information without a missing hint",
     async (source) => {
       if (source === "cli") {
-        vi.spyOn(runtimeGuard, "detectRuntime").mockReturnValue({
+        vi.spyOn(runtimeGuard, "detectRuntime").mockResolvedValue({
           kind: "node",
           version: "24.15.0",
           execPath: "/fixture/node",
@@ -200,7 +200,7 @@ describe("update status Node runtime findings", () => {
         versions: { ...process.versions, node: source === "cli" ? version : "26.8.1" },
       });
       if (source === "cli") {
-        vi.spyOn(runtimeGuard, "detectRuntime").mockReturnValue({
+        vi.spyOn(runtimeGuard, "detectRuntime").mockResolvedValue({
           kind: "node",
           version,
           execPath: "/fixture/node",

@@ -23,7 +23,7 @@ function appendImportEdges(source, importerPath, imports) {
   const sourceFile = ts.createSourceFile(
     importerPath,
     source,
-    ts.ScriptTarget.Latest,
+    { languageVersion: ts.ScriptTarget.Latest, jsDocParsingMode: ts.JSDocParsingMode.ParseNone },
     false,
     ts.ScriptKind.JS,
   );

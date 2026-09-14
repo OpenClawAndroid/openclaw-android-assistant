@@ -15,6 +15,8 @@ const ArtifactQueryParamsProperties = {
   runId: Type.Optional(NonEmptyString),
   taskId: Type.Optional(NonEmptyString),
   agentId: Type.Optional(NonEmptyString),
+  /** Assistant-delivered artifacts only; omit to include uploaded inputs and tool observations. */
+  messageRole: Type.Optional(Type.Literal("assistant")),
 };
 
 /** Shared artifact filter payload used by list-style requests. */

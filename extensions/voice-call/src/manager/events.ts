@@ -33,6 +33,7 @@ type EventContext = Pick<
   | "config"
   | "coreSession"
   | "storePath"
+  | "stateRuntime"
   | "transcriptWaiters"
   | "maxDurationTimers"
   | "notifyHangupTimers"
@@ -126,7 +127,7 @@ async function createWebhookCall(params: {
     },
   };
 
-  await persistCallRecord(params.ctx.storePath, callRecord);
+  await persistCallRecord(params.ctx.storePath, callRecord, params.ctx.stateRuntime);
   params.ctx.activeCalls.set(callId, callRecord);
   params.ctx.providerCallIdMap.set(params.providerCallId, callId);
 
@@ -159,7 +160,7 @@ async function persistRejectedInboundCall(params: {
     processedEventIds: [params.dedupeKey],
     metadata: { rejectionReason: "inbound-policy" },
   };
-  await persistCallRecord(params.ctx.storePath, rejectedCall);
+  await persistCallRecord(params.ctx.storePath, rejectedCall, params.ctx.stateRuntime);
 }
 
 export function processEvent(
@@ -187,9 +188,9 @@ async function processEventInQueue(
   let providerCallId = event.providerCallId;
   let retained: CallRecord | undefined;
   if (!call) {
-    retained = await findCallInStore(ctx.storePath, event.callId);
+    retained = await findCallInStore(ctx.storePath, event.callId, ctx.stateRuntime);
     if (!retained && providerCallId && providerCallId !== event.callId) {
-      retained = await findCallInStore(ctx.storePath, providerCallId);
+      retained = await findCallInStore(ctx.storePath, providerCallId, ctx.stateRuntime);
     }
     // A policy rejection records an attempt, not confirmed carrier termination.
     if (retained && retained.metadata?.rejectionReason !== "inbound-policy") {
@@ -205,7 +206,7 @@ async function processEventInQueue(
     const providerOwner =
       providerCallId === event.callId && retained
         ? retained
-        : await findCallInStore(ctx.storePath, providerCallId);
+        : await findCallInStore(ctx.storePath, providerCallId, ctx.stateRuntime);
     // Known aliases cannot replace the live owner's newer provider ID.
     if (providerOwner?.callId === call.callId) {
       providerCallId = call.providerCallId;
@@ -449,7 +450,7 @@ async function processEventInQueue(
   }
 
   // Persist reversible call mutations before publishing dedupe, timers, or waiters.
-  await persistCallRecord(ctx.storePath, activeCall);
+  await persistCallRecord(ctx.storePath, activeCall, ctx.stateRuntime);
   Object.assign(call, activeCall);
   publishProviderCallId();
   if (shouldCommitReplayKey) {

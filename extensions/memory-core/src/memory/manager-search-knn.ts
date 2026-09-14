@@ -158,16 +158,19 @@ export function runVectorKnnQuery(
   const candidateLimit = Math.min(request.limit * VECTOR_KNN_OVERSAMPLE_FACTOR, MAX_VECTOR_KNN_K);
   let rows = runVectorQuery(candidateLimit);
   if (rows.length < request.limit) {
+    // Only the widening/fallback thresholds matter; stop counting once they are known.
     const matchingChunkCountRow = db
       .prepare(
-        `SELECT COUNT(*) AS count FROM memory_index_chunks c WHERE ${vectorModelFilter}${request.sourceFilter.sql}`,
+        `SELECT COUNT(*) AS count FROM (\n` +
+          `  SELECT 1 FROM memory_index_chunks c WHERE ${vectorModelFilter}${request.sourceFilter.sql} LIMIT ?\n` +
+          `)`,
       )
-      .get(...request.providerModels, ...request.sourceFilter.params);
+      .get(...request.providerModels, ...request.sourceFilter.params, request.limit);
     const matchingChunkCount = readCount(matchingChunkCountRow);
     if (matchingChunkCount > rows.length) {
       const vectorCountRow = db
-        .prepare(`SELECT COUNT(*) AS count FROM ${request.vectorTable}`)
-        .get();
+        .prepare(`SELECT COUNT(*) AS count FROM (SELECT 1 FROM ${request.vectorTable} LIMIT ?)`)
+        .get(MAX_VECTOR_KNN_K + 1);
       const vectorCount = readCount(vectorCountRow);
       const widenedLimit = Math.min(vectorCount, MAX_VECTOR_KNN_K);
       if (widenedLimit > candidateLimit) {

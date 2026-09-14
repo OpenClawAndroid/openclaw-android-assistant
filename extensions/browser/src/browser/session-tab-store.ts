@@ -188,10 +188,15 @@ export function getOptionalBrowserSessionTabStore() {
   return getOptionalBrowserStateRuntime()?.sessionTabs;
 }
 
-export function readBrowserDashboardTabs(): Array<
-  BrowserSessionTabRecord & { storageKey: string }
-> {
-  return (getOptionalBrowserSessionTabStore()?.entries() ?? []).flatMap(({ key, value }) => {
+export function readBrowserDashboardTabs(
+  storageKey?: string,
+): Array<BrowserSessionTabRecord & { storageKey: string }> {
+  const store = getOptionalBrowserSessionTabStore();
+  const entries =
+    storageKey === undefined
+      ? (store?.entries() ?? [])
+      : [{ key: storageKey, value: store?.lookup(storageKey) }];
+  return entries.flatMap(({ key, value }) => {
     const record = parseBrowserSessionTabRecord(value);
     return record?.dashboard && browserSessionTabStorageKey(record) === key
       ? [{ ...record, storageKey: key }]

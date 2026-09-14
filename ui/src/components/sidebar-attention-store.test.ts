@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MentionInboxItem } from "../../../packages/gateway-protocol/src/index.js";
 import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { CronJobsListResult, CronStatus, ModelAuthStatusResult } from "../api/types.ts";
+import { createConnectionBootstrapCoordinator } from "../app/connection-bootstrap.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { client as mockClient, createGatewayHarness } from "../app/overlays-access.test-support.ts";
 import {
@@ -55,7 +56,10 @@ describe("sidebar attention source publication", () => {
     vi.unstubAllGlobals();
   });
 
-  function createStore(gateway: ApplicationContext["gateway"]) {
+  function createStore(
+    gateway: ApplicationContext["gateway"],
+    connectionBootstrap?: ApplicationContext["connectionBootstrap"],
+  ) {
     const agentSelection = {
       state: { selectedId: "main", scopeId: null },
       subscribe: () => () => undefined,
@@ -72,8 +76,62 @@ describe("sidebar attention source publication", () => {
         subscribe: () => () => undefined,
       } as unknown as ApplicationContext["overlays"],
       scopeUpgrade: hiddenScopeUpgradeCapability,
+      connectionBootstrap,
     });
   }
+
+  it.each(["ready", "hidden", "disposed"] as const)(
+    "holds automatic cron inventory until chat is ready and respects a %s owner",
+    async (boundary) => {
+      let visibility: DocumentVisibilityState = "visible";
+      vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+      const bootstrap = createConnectionBootstrapCoordinator();
+      const offsets: number[] = [];
+      const request = vi.fn(async (method: string, params?: unknown) => {
+        if (method === "cron.list") {
+          const offset = isRecord(params) ? Number(params.offset ?? 0) : 0;
+          offsets.push(offset);
+          return offset === 0
+            ? {
+                ...cronPage("first"),
+                snapshotRevision: "inventory",
+                total: 2,
+                hasMore: true,
+                nextOffset: 1,
+              }
+            : { ...cronPage("later"), snapshotRevision: "inventory", total: 2, offset: 1 };
+        }
+        return method === "cron.status"
+          ? { enabled: true, triggersEnabled: true, jobs: 2 }
+          : { ts: 1, providers: [] };
+      });
+      const client = mockClient(request);
+      const harness = createGatewayHarness(client);
+      bootstrap.setForegroundRoute("agent:main:current");
+      bootstrap.synchronize({ client, connected: true });
+      store = createStore(harness.gateway, bootstrap);
+      try {
+        store.activate(SidebarAttentionStoreController);
+        expect(request.mock.calls.filter(([method]) => method.startsWith("cron."))).toEqual([]);
+        if (boundary === "hidden") {
+          visibility = "hidden";
+        } else if (boundary === "disposed") {
+          store.dispose();
+        }
+        bootstrap.setForegroundPane({}, { sessionKey: "agent:main:current", client, ready: true });
+        if (boundary === "ready") {
+          await waitForFast(() => expect(offsets).toEqual([0, 1]));
+          await waitForFast(() => expect(store?.entries).toHaveLength(2));
+        } else {
+          await Promise.resolve();
+          expect(offsets).toEqual([]);
+          expect(request.mock.calls.filter(([method]) => method === "cron.status")).toEqual([]);
+        }
+      } finally {
+        bootstrap.reset();
+      }
+    },
+  );
 
   it("includes failed automations beyond the first inventory page", async () => {
     const healthy = cronPage("healthy").jobs[0]!;

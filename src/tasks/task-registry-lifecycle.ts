@@ -13,6 +13,7 @@ import {
   maybeDeliverTaskTerminalUpdate,
 } from "./task-registry-delivery.js";
 import { updateTask } from "./task-registry-mutation.js";
+import { scheduleYieldedSubagentTaskProgress } from "./task-registry-progress.js";
 import {
   withTaskRegistryMutation,
   claimTaskRegistryListenerStart,
@@ -69,11 +70,12 @@ function ensureListener() {
           continue;
         }
         const phase = evt.stream === "lifecycle" ? evt.data?.phase : undefined;
+        recordTaskActivityEvent(current, evt);
+        scheduleYieldedSubagentTaskProgress(current, evt);
         // An abort event starts cancellation; only the live producer knows when work has settled.
         if ((phase === "end" || phase === "error") && getTaskRunOwner(current)) {
           continue;
         }
-        recordTaskActivityEvent(current, evt);
         const patch: Partial<TaskRecord> = {};
         if (evt.stream === "lifecycle") {
           const eventStartedAt = evt.data?.startedAt;

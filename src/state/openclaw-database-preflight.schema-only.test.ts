@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import { requireNodeSqlite, resolveImmutableSqliteFileUri } from "../infra/node-sqlite.js";
+import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import * as snapshots from "../infra/sqlite-snapshot-source.js";
 import { acquireStateDatabaseHandleExclusion } from "../infra/state-database-coordinator.js";
 import {
@@ -48,7 +48,7 @@ describe("schema-only agent preflight", () => {
         },
       );
       const config = { agents: { list: [{ id: "worker", default: true }] } };
-      const ready = (operation: "doctor" | "gateway-restart") =>
+      const ready = (operation: "doctor" | "gateway-restart" | "gateway-startup") =>
         assertOpenClawDatabasesReady({
           env,
           config,
@@ -68,6 +68,7 @@ describe("schema-only agent preflight", () => {
       try {
         await expect(ready("doctor")).resolves.toBeUndefined();
         await expect(ready("gateway-restart")).resolves.toBeUndefined();
+        await expect(ready("gateway-startup")).resolves.toBeUndefined();
         expect(await inspect()).toEqual({ incompatible: [], indeterminate: [] });
         writer.exec(`PRAGMA user_version=${OPENCLAW_AGENT_SCHEMA_VERSION + 1};`);
         expect(await inspect()).toMatchObject({
@@ -87,6 +88,7 @@ describe("schema-only agent preflight", () => {
           .run("foreign");
         await expect(ready("doctor")).rejects.toThrow("belongs to agent foreign");
         await expect(ready("gateway-restart")).rejects.toThrow("belongs to agent foreign");
+        await expect(ready("gateway-startup")).rejects.toThrow("belongs to agent foreign");
         writer
           .prepare("UPDATE schema_meta SET agent_id = ? WHERE meta_key = 'primary'")
           .run("worker");
@@ -108,41 +110,45 @@ describe("schema-only agent preflight", () => {
   );
 });
 
-it("uses the mutation owner's snapshot while that owner excludes source readers", async () => {
-  const env = { OPENCLAW_STATE_DIR: tempDirs.make("schema-owned-snapshot-") };
-  const agentPath = openOpenClawAgentDatabase({ agentId: "worker", env }).path;
-  closeOpenClawAgentDatabasesForTest();
-  closeOpenClawStateDatabaseForTest();
-  const snapshotPath = path.join(tempDirs.make("schema-owned-copy-"), "snapshot.sqlite");
-  fs.copyFileSync(agentPath, snapshotPath);
-  const exclusion = acquireStateDatabaseHandleExclusion({ databasePath: agentPath });
-  const cleanup = vi.fn(() => true);
-  try {
-    await exclusion.runWithCanonicalMutation(
-      () => exclusion.assertCurrent(),
-      async () => {
-        expect(
-          await preflightOpenClawDatabaseSchemas({
-            env,
-            verifyCurrentSchemaShape: true,
-            supportedVersions: {
-              state: OPENCLAW_STATE_SCHEMA_VERSION,
-              agent: OPENCLAW_AGENT_SCHEMA_VERSION,
-            },
-          }),
-        ).toEqual({ incompatible: [], indeterminate: [] });
-      },
-      async (assertCurrent) => {
-        assertCurrent();
-        return {
-          location: resolveImmutableSqliteFileUri(snapshotPath),
-          cleanup,
-          cleanupAsync: async () => cleanup(),
-        };
-      },
-    );
-  } finally {
-    exclusion.release();
-  }
-  expect(cleanup).toHaveBeenCalledOnce();
-});
+it.each([false, true])(
+  "uses the mutation owner's snapshot while excluding source readers (startup=%s)",
+  async (requireStartupMigrationReadiness) => {
+    const env = { OPENCLAW_STATE_DIR: tempDirs.make("schema-owned-snapshot-") };
+    const agentPath = openOpenClawAgentDatabase({ agentId: "worker", env }).path;
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
+    const snapshotPath = path.join(tempDirs.make("schema-owned-copy-"), "snapshot.sqlite");
+    fs.copyFileSync(agentPath, snapshotPath);
+    const exclusion = acquireStateDatabaseHandleExclusion({ databasePath: agentPath });
+    const cleanup = vi.fn(() => true);
+    try {
+      await exclusion.runWithCanonicalMutation(
+        () => exclusion.assertCurrent(),
+        async () => {
+          expect(
+            await preflightOpenClawDatabaseSchemas({
+              env,
+              verifyCurrentSchemaShape: true,
+              requireStartupMigrationReadiness,
+              supportedVersions: {
+                state: OPENCLAW_STATE_SCHEMA_VERSION,
+                agent: OPENCLAW_AGENT_SCHEMA_VERSION,
+              },
+            }),
+          ).toEqual({ incompatible: [], indeterminate: [] });
+        },
+        async (assertCurrent) => {
+          assertCurrent();
+          return {
+            location: snapshotPath,
+            cleanup,
+            cleanupAsync: async () => cleanup(),
+          };
+        },
+      );
+    } finally {
+      exclusion.release();
+    }
+    expect(cleanup).toHaveBeenCalledOnce();
+  },
+);

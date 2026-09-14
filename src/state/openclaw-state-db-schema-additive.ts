@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { deferSqlitePostCommitPublication } from "../infra/sqlite-post-commit.js";
 import { extractSqliteTableSchema } from "../infra/sqlite-schema-sql.js";
 import {
   ORDERED_STARTUP_ADDITIVE_STATE_COLUMNS as columns,
@@ -20,10 +21,38 @@ import {
   repairLegacySubagentSuspensionReasons,
   repairLegacySubagentTaskBindings,
 } from "./openclaw-state-db-legacy-backfills.js";
-import { ensureColumn, tableHasColumn } from "./openclaw-state-db-schema-helpers.js";
+import {
+  ensureColumn,
+  tableHasColumn,
+  tableHasColumns,
+} from "./openclaw-state-db-schema-helpers.js";
 import { OPENCLAW_STATE_SCHEMA_SQL } from "./openclaw-state-schema.js";
 
 const repositoryWorkspacePendingSchemas = new WeakSet<DatabaseSync>();
+const taskExecutionOwnerSchemas = new WeakSet<DatabaseSync>();
+
+export function ensureTaskExecutionOwnerSchema(database: DatabaseSync): void {
+  if (taskExecutionOwnerSchemas.has(database)) {
+    return;
+  }
+  const ownerColumns = [
+    "execution_owner_host",
+    "execution_owner_pid",
+    "execution_owner_start_identity",
+  ];
+  if (!tableHasColumns(database, "task_runs", ownerColumns)) {
+    ensureColumn(database, "task_runs", "execution_owner_host TEXT");
+    ensureColumn(database, "task_runs", "execution_owner_pid INTEGER");
+    ensureColumn(database, "task_runs", "execution_owner_start_identity INTEGER");
+  }
+  const rememberSchema = () => taskExecutionOwnerSchemas.add(database);
+  if (database.isTransaction) {
+    // An outer transaction can still roll back its first-use DDL.
+    deferSqlitePostCommitPublication(database, rememberSchema);
+  } else {
+    rememberSchema();
+  }
+}
 
 export function hasRepositoryWorkspacePendingResultSchema(database: DatabaseSync): boolean {
   if (repositoryWorkspacePendingSchemas.has(database)) {

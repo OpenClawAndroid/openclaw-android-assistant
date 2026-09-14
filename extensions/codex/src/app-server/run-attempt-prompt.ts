@@ -5,7 +5,6 @@ import {
   formatErrorMessage,
   resolveAgentHarnessBeforePromptBuildResult,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
-import type { ImageContent } from "openclaw/plugin-sdk/llm";
 import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   buildCodexSystemPromptReport,
@@ -19,6 +18,7 @@ import {
   CodexContextAttachmentError,
   isCodexDurableCustomMessage,
   projectContextEngineAssemblyForCodex,
+  type CodexProjectedImageGroup,
   type CodexProjectedContextRange,
 } from "./context-engine-projection.js";
 import { flattenCodexDynamicToolFunctions } from "./protocol.js";
@@ -81,7 +81,8 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
     sandbox,
   } = connection;
   const { toolBridge } = attemptTools;
-  let contextImages: ImageContent[] = [];
+  let contextImageGroups: CodexProjectedImageGroup[] = [];
+  let turnContextImageGroups: CodexProjectedImageGroup[] = [];
   // A refreshed native thread receives the original admitted user as historical context.
   const currentUserTurnIdempotencyKey = params.pluginRuntimeRefreshMessages
     ? undefined
@@ -133,7 +134,7 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
       currentUserTurnIdempotencyKey,
     });
     assertProjectionCurrent();
-    contextImages = projection.images ?? [];
+    contextImageGroups = projection.imageGroups ?? [];
     promptState.promptText = projection.promptText;
     promptState.promptContextRange = projection.promptContextRange;
     promptState.prePromptMessageCount = projection.prePromptMessageCount;
@@ -198,7 +199,7 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
       currentUserTurnIdempotencyKey,
     });
     assertProjectionCurrent();
-    contextImages = projectionDecision.project ? (projection.images ?? []) : [];
+    contextImageGroups = projectionDecision.project ? (projection.imageGroups ?? []) : [];
     const decisionBinding = decisionStartupBinding;
     embeddedAgentLog.info("codex app-server context-engine projection decision", {
       sessionId: params.sessionId,
@@ -367,12 +368,26 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
         promptInputRange: promptBuildResult.promptInputRange,
         decoratedPrompt: turnPromptText,
       });
-    return fitCodexProjectedContextForTurnStart({
+    const imageOffset =
+      projectedRanges && promptState.promptContextRange
+        ? projectedRanges.contextRange.start - promptState.promptContextRange.start
+        : undefined;
+    const fitted = fitCodexProjectedContextForTurnStart({
       promptText: turnPromptText,
       contextRange: projectedRanges?.contextRange,
       requestRange: projectedRanges?.requestRange,
       preservedRange,
+      imageGroups:
+        imageOffset === undefined
+          ? []
+          : contextImageGroups.map((group) => ({
+              images: group.images,
+              start: group.start + imageOffset,
+              end: group.end + imageOffset,
+            })),
     });
+    turnContextImageGroups = fitted.imageGroups ?? [];
+    return fitted.promptText;
   };
   const firstPromptBuild = await buildPromptFromCurrentInputs();
   const turnState = {
@@ -577,8 +592,8 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
   let workspaceReferencesIncluded = true;
   return {
     context,
-    get contextImages() {
-      return contextImages;
+    get contextImageGroups() {
+      return turnContextImageGroups;
     },
     codexModelInputHistoryMessages,
     turnState,

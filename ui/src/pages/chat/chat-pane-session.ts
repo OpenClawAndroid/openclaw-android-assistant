@@ -66,7 +66,7 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
       this.sessionPullRequests = [];
       this.sessionPullRequestsBranch = undefined;
       this.githubRepo = null;
-      this.sessionPullRequestsRateLimited = false;
+      this.sessionPullRequestsStatus = "ready";
       this.requestUpdate();
       return false;
     }
@@ -76,7 +76,7 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
       this.sessionPullRequests = [];
       this.sessionPullRequestsBranch = undefined;
       this.githubRepo = null;
-      this.sessionPullRequestsRateLimited = false;
+      this.sessionPullRequestsStatus = "ready";
       this.requestUpdate();
       return false;
     }
@@ -100,7 +100,7 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
       this.sessionPullRequests = [];
       this.sessionPullRequestsBranch = undefined;
       this.githubRepo = null;
-      this.sessionPullRequestsRateLimited = false;
+      this.sessionPullRequestsStatus = "ready";
       this.dismissedSessionPullRequestIds = new Set();
       this.requestUpdate();
       return refreshAdmitted;
@@ -138,7 +138,7 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
       this.githubPublication?.reset();
     }
     this.sessionPullRequestsBranch = result.branch;
-    this.sessionPullRequestsRateLimited = result.rateLimited;
+    this.sessionPullRequestsStatus = result.status;
     this.dismissedSessionPullRequestIds = listDismissedChatPullRequests(sessionKey);
     this.requestUpdate();
     return refreshAdmitted;
@@ -152,7 +152,7 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
     this.sessionPullRequests = [];
     this.sessionPullRequestsBranch = undefined;
     this.githubRepo = null;
-    this.sessionPullRequestsRateLimited = false;
+    this.sessionPullRequestsStatus = "ready";
     this.sessionPullRequestsExpanded = false;
     this.githubPublication?.detach();
     this.githubPublication = null;
@@ -213,6 +213,9 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
           this.deferredSessionHydrationActive = false;
           if (historyCommitted) {
             this.markSessionRead(selectedChatSessionRow(state));
+          }
+          if (client) {
+            void this.loadHeaderPlatform(client, connectionGeneration);
           }
           void loadChatBranches(state);
           void this.probeSessionDiscussion(sessionKey);

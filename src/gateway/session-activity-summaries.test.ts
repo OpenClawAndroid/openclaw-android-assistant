@@ -13,6 +13,8 @@ import {
   persistSessionTranscriptTurn,
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.js";
+import { writeSessionEntry } from "../config/sessions/session-accessor.sqlite-entry-store.js";
+import { runExclusiveSqliteSessionWrite } from "../config/sessions/session-accessor.sqlite-scope.js";
 import {
   getSessionColdStorageStatus,
   runSessionColdStorageMaintenance,
@@ -27,6 +29,7 @@ import {
   openOpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
 } from "../state/openclaw-agent-db.js";
+import { SQLITE_SESSION_WRITER_QUEUES } from "../state/openclaw-agent-write-admission.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -181,6 +184,30 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     expect(complete).toHaveBeenCalledTimes(2);
   });
 
+  it("commits a recap without decoding unrelated retained session entries", async () => {
+    await messages(2);
+    const unrelatedLabel = "Unrelated retained recap inventory marker";
+    await upsertSessionEntryCore(
+      { agentId: "main", sessionKey: "agent:main:unrelated-recap" },
+      {
+        sessionId: "unrelated-recap-session",
+        updatedAt: Date.now(),
+        label: unrelatedLabel,
+        skillsSnapshot: { prompt: "Unrelated saved prompt. ".repeat(1024), skills: [] },
+      },
+    );
+    read();
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      service.ensure(target);
+      await vi.waitFor(() => expect(view()?.state).toBe("current"));
+      expect(read()?.activitySummary?.coveredMessages).toBe(2);
+      expect(parse.mock.calls.some(([json]) => json.includes(unrelatedLabel))).toBe(false);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
   it("refreshes new work, catches up after archiving, and makes no calls for idle metadata changes", async () => {
     await messages(2);
     terminal(service);
@@ -243,6 +270,60 @@ describe("Activity recap lifecycle with the canonical session store", () => {
       finish(result("Stale outcome must never be published."));
       await vi.waitFor(() => expect(view()?.state).not.toBe("updating"));
       expect(read()?.activitySummary).toBeUndefined();
+    },
+  );
+
+  it.each(["initialization", "lifecycle", "utility-model"] as const)(
+    "rejects a recap when %s changes while its write is queued",
+    async (change) => {
+      await messages(2);
+      const completion = createDeferred<ReturnType<typeof result>>();
+      complete.mockImplementationOnce(() => completion.promise);
+      service.ensure(target);
+      await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
+
+      const database = openOpenClawAgentDatabase({ agentId: scope.agentId });
+      const before = read()!;
+      const releaseWriter = createDeferred();
+      const writerScope = { agentId: scope.agentId, path: database.path };
+      const blocker = runExclusiveSqliteSessionWrite(
+        writerScope,
+        async () => {
+          await releaseWriter.promise;
+          if (change === "utility-model") {
+            cfg = { agents: { defaults: { utilityModel: "test/replacement-utility" } } };
+          } else {
+            runOpenClawAgentWriteTransaction((current) => {
+              writeSessionEntry(current, target.key, {
+                ...before,
+                ...(change === "initialization"
+                  ? { initializationPending: true }
+                  : { lifecycleRevision: "lifecycle-2" }),
+              });
+            }, writerScope);
+          }
+        },
+        "session-entry.patch",
+      );
+      try {
+        completion.resolve(result("Outdated recap must not be stored."));
+        await vi.waitFor(() =>
+          expect(SQLITE_SESSION_WRITER_QUEUES.get(database.path)?.pending.length).toBeGreaterThan(
+            0,
+          ),
+        );
+        const beforeSettlement = changed.mock.calls.length;
+        releaseWriter.resolve();
+        await blocker;
+        await vi.waitFor(() => expect(changed.mock.calls.length).toBeGreaterThan(beforeSettlement));
+        expect(read()?.activitySummary).toBeUndefined();
+        expect(view()?.state).not.toBe("current");
+        expect(complete).toHaveBeenCalledTimes(1);
+      } finally {
+        completion.resolve(result("Outdated recap must not be stored."));
+        releaseWriter.resolve();
+        await blocker;
+      }
     },
   );
 

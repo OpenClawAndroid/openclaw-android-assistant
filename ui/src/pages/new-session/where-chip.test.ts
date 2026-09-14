@@ -71,7 +71,6 @@ function renderPicker(
       cloudProfileId: selection.cloudProfileId ?? "",
       deviceId: selection.deviceId ?? "",
       autoDevice: selection.autoDevice,
-      worktreeAvailable: true,
       submitting: false,
       pendingPlacement: false,
       popoverOpen: true,
@@ -327,11 +326,13 @@ describe("Where chip", () => {
     ).not.toBeNull();
   });
 
-  it("explains the checkout requirement instead of provider details", () => {
-    const container = renderPicker(true, undefined, {}, { worktreeAvailable: false });
-    expect(hoverDetails(container.querySelector('[data-value="cloud:aws"]'))).toBe(
-      "Cloud needs a Git checkout",
-    );
+  it("offers cloud profiles without requiring a Git source", () => {
+    const onSelectCloudProfile = vi.fn();
+    const container = renderPicker(true, undefined, {}, { onSelectCloudProfile });
+    const cloud = container.querySelector<HTMLButtonElement>('[data-value="cloud:aws"]');
+    expect(cloud?.disabled).toBe(false);
+    cloud?.click();
+    expect(onSelectCloudProfile).toHaveBeenCalledWith("aws", true);
   });
 
   it("places usable devices before disabled devices while preserving each group's order", () => {

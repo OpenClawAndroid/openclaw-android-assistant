@@ -338,24 +338,21 @@ describe("Control UI GitHub failures", () => {
   );
 
   it.each([
-    { status: 401, reason: /authentication/i, action: /Settings/ },
-    { status: 403, reason: /access denied/i, action: /repository access/i },
-    { status: 404, reason: /unavailable or not public/i, action: /open the link/i },
-    { status: 500, reason: /HTTP 500/, action: /retry/i },
-  ])(
-    "explains HTTP $status without exposing the response body",
-    async ({ status, reason, action }) => {
-      const error = await readGitHubJsonResponse(
-        new Response('{"message":"secret-upstream-body"}', { status }),
-      ).catch((failure: unknown) => failure);
-      const display = formatControlUiGitHubPreviewError(error);
+    [401, /authentication/i, /Settings/],
+    [403, /access denied/i, /repository access/i],
+    [404, /unavailable or not public/i, /open the link/i],
+    [500, /HTTP 500/, /retry/i],
+  ])("explains HTTP %s without exposing the response body", async (status, reason, action) => {
+    const error = await readGitHubJsonResponse(
+      new Response('{"message":"secret-upstream-body"}', { status }),
+    ).catch((failure: unknown) => failure);
+    const display = formatControlUiGitHubPreviewError(error);
 
-      expect(display.message).toMatch(reason);
-      expect(display.message).toMatch(action);
-      expect(display.message).not.toContain("secret-upstream-body");
-      expect(display.retryable).toBe(status === 500);
-    },
-  );
+    expect(display.message).toMatch(reason);
+    expect(display.message).toMatch(action);
+    expect(display.message).not.toContain("secret-upstream-body");
+    expect(display.retryable).toBe(status === 500);
+  });
 
   it("does not distinguish private repositories from missing items", async () => {
     const missing = await readGitHubJsonResponse(new Response(null, { status: 404 })).catch(

@@ -59,7 +59,9 @@ suite.define(() => {
           await page.goto(`${suite.server.baseUrl}chat/main`);
           const bubble = page.locator(".chat-bubble").filter({ hasText: "Reference one." });
           const card = bubble.locator(".chat-assistant-attachment-card");
-          const blocks = bubble.locator(".chat-text > *");
+          const blocks = bubble
+            .locator(".chat-text > *")
+            .filter({ hasNot: page.locator(".chat-assistant-attachments") });
           await blocks.last().waitFor();
           const reference = await gap(blocks.nth(1), blocks.nth(2));
           expect(reference).toBeGreaterThan(0);

@@ -221,9 +221,6 @@ describe("chat media resource lifecycle", () => {
         count === 2 || count === 4,
       );
       expect(gallery?.classList.contains("chat-message-images--five")).toBe(count === 5);
-      if (count === 1) {
-        expect(container.querySelector(".chat-message-image--small")).not.toBeNull();
-      }
     }
   });
 

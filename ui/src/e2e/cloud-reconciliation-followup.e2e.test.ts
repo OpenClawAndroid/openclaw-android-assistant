@@ -161,7 +161,7 @@ suite.define(() => {
         }
 
         const active = session("active");
-        await gateway.setMethodResponse("chat.history", {
+        const activeHistory = {
           inFlightRun: null,
           messages: [
             { role: "assistant", content: "Cloud edits are ready to apply." },
@@ -174,7 +174,8 @@ suite.define(() => {
           sessionId: active.sessionId,
           sessionInfo: active,
           thinkingLevel: null,
-        });
+        };
+        await gateway.setMethodResponse("chat.history", activeHistory);
         await gateway.setSessionsListResponse(chatSessionListResponse([active]));
         await gateway.emitGatewayEvent("sessions.changed", { reason: "placement" });
         await gateway.emitGatewayEvent("session.message", {
@@ -207,6 +208,7 @@ suite.define(() => {
         }
 
         const failed = session("failed");
+        await gateway.setMethodResponse("chat.history", { ...activeHistory, sessionInfo: failed });
         await gateway.setSessionsListResponse(chatSessionListResponse([failed]));
         await gateway.emitGatewayEvent("sessions.changed", { reason: "placement" });
         await page.getByText("Runner failed", { exact: true }).waitFor();

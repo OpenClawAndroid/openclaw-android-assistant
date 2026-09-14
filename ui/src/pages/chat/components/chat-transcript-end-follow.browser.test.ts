@@ -7,7 +7,10 @@ import { ChatTranscriptController } from "./chat-transcript-controller.ts";
 import type { TranscriptRow } from "./chat-transcript-layout.ts";
 
 class EndFollowFixture extends LitElement {
-  readonly transcript = new ChatTranscriptController(this);
+  followEnabled = true;
+  readonly transcript = new ChatTranscriptController(this, {
+    canFollowEnd: () => this.followEnabled,
+  });
   lastRowHeight = 900;
 
   protected override createRenderRoot() {
@@ -169,4 +172,30 @@ it("keeps a reader observed at the end pinned when a row grows without a follow"
   await settleFrames();
   expect(distance()).toBe(0);
   expect(host.transcript.isProgrammaticScroll).toBe(false);
+});
+
+it("does not turn a resize-clamped reader into permission to follow", async () => {
+  const { host, thread, sizer, distance } = await mountEndFollowFixture();
+  host.transcript.scrollToEnd();
+  await expect.poll(distance).toBe(0);
+  await settleFrames();
+  await commitTask(host, () => {
+    host.followEnabled = false;
+    thread.dispatchEvent(new WheelEvent("wheel", { deltaY: -32 }));
+    thread.scrollTop -= 32;
+    thread.style.height = "600px";
+  });
+  await expect.poll(distance).toBe(0);
+  const clamped = thread.scrollTop;
+  expect(host.transcript.scrollToEnd({ source: "auto" })).toBe(false);
+  await commitTask(host, () => {
+    host.lastRowHeight += 48;
+  });
+  await expect.poll(() => sizer.offsetHeight).toBe(1348);
+  await settleFrames();
+  expect(Math.abs(thread.scrollTop - clamped)).toBeLessThanOrEqual(1);
+  expect(distance()).toBe(48);
+  expect(host.transcript.scrollToEnd({ source: "manual" })).toBe(true);
+  host.followEnabled = true;
+  await expect.poll(distance).toBe(0);
 });

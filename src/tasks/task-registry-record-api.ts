@@ -17,7 +17,7 @@ import {
   maybeDeliverTaskTerminalUpdate,
 } from "./task-registry-delivery.js";
 import { assertParentFlowLinkAllowed } from "./task-registry-flow-link.js";
-import { syncFlowFromTaskAfterTaskMutation, updateTask } from "./task-registry-mutation.js";
+import { updateTask } from "./task-registry-mutation.js";
 import {
   buildTaskRecordForCreate,
   resolveTaskCreateIdentity,
@@ -27,6 +27,7 @@ import {
 } from "./task-registry-records.js";
 import {
   withTaskRegistryMutation,
+  syncFlowFromTaskAfterTaskMutation,
   addOwnerKeyIndex,
   addParentFlowIdIndex,
   addRelatedSessionKeyIndex,

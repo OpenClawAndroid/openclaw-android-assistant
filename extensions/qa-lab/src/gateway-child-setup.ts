@@ -439,6 +439,10 @@ export async function prepareQaGatewayChild(
       if (!env) {
         throw new Error("qa gateway runtime env not initialized");
       }
+      // Child-owned CLI commands must resolve the same ephemeral Gateway as the
+      // fixture process. Otherwise commands without their own connection flags
+      // can silently fall back to the operator's ambient local Gateway.
+      env.OPENCLAW_GATEWAY_PORT = String(gatewayPort);
 
       // Packaged repair must inspect the configured port without our placeholder listener.
       await lifetime.portReservation?.release();

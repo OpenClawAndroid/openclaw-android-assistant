@@ -27,6 +27,11 @@ import {
   collectWorktreeTemplates,
   WORKTREE_TEMPLATE_DIRECTORY,
 } from "./checkout.js";
+import {
+  ensureEmptyWorktreeSource,
+  removeUnusedEmptyWorktreeSource,
+  resolveEmptyWorktreeSourceRoot,
+} from "./empty-source.js";
 import { WorktreeRepositoryError } from "./errors.js";
 import { lockState, lockWorktreeForProcess, unlockWorktree } from "./git-lock.js";
 import {
@@ -416,34 +421,90 @@ export class ManagedWorktreeService {
   async create(params: CreateManagedWorktreeParams): Promise<ManagedWorktreeRecord> {
     params.signal?.throwIfAborted();
     const repository = await resolveRepository(params.repoRoot);
-    return await this.withAllocationLease(params, async (guard) => {
-      if (params.ownerId) {
-        const existing = findLiveRegistryWorktreeByOwner(
-          this.env,
-          params.ownerKind ?? "manual",
-          params.ownerId,
+    return await this.withAllocationLease(
+      params,
+      async (guard) => await this.createForOwner({ ...params, ...guard }, repository),
+    );
+  }
+
+  async createEmpty(
+    params: Omit<CreateManagedWorktreeParams, "repoRoot" | "baseRef" | "checkoutCommit"> & {
+      ownerKind: "session";
+      ownerId: string;
+    },
+  ): Promise<ManagedWorktreeRecord> {
+    let sourceRoot: string | undefined;
+    try {
+      return await this.withAllocationLease(params, async (guard) => {
+        const repoRoot = await ensureEmptyWorktreeSource({
+          env: this.env,
+          ownerId: params.ownerId,
+          signal: guard.signal,
+          commitGuard: () => guard.commitGuard?.(),
+        });
+        sourceRoot = repoRoot;
+        const repository = await resolveRepository(repoRoot);
+        return await this.createForOwner(
+          { ...params, ...guard, repoRoot, baseRef: "main", runSetupScript: false },
+          repository,
         );
-        if (existing && (await worktreePathExists(existing.path))) {
-          const validated = await this.rebindLiveRepository(existing, guard);
-          if (validated.repoRoot !== repository.repoRoot) {
-            throw new Error(
-              `worktree owner ${params.ownerKind ?? "manual"} ${params.ownerId} is already bound to another repository`,
-            );
-          }
-          guard.commitGuard?.();
-          return validated;
-        }
-        if (existing) {
-          guard.commitGuard?.();
-          updateRegistryWorktree(this.env, existing.id, { removedAt: this.now() });
+      });
+    } catch (error) {
+      if (sourceRoot) {
+        const repoRoot = sourceRoot;
+        try {
+          // Cancellation retires caller authority. Reacquire allocation ownership
+          // before cleaning a source that never received a registry record.
+          await this.withAllocationLease({}, async (guard) => {
+            await removeUnusedEmptyWorktreeSource({
+              env: this.env,
+              record: { repoRoot, ownerKind: "session", ownerId: params.ownerId },
+              signal: guard.signal,
+              commitGuard: () => guard.commitGuard?.(),
+            });
+          });
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            `${String(error)}\nEmpty workspace cleanup failed: ${String(cleanupError)}`,
+            { cause: cleanupError },
+          );
         }
       }
-      return await this.createForRepository(
-        { ...params, ...guard },
-        repository,
-        params.name ?? params.suggestedName ?? createCrustaceanSlug(),
+      throw error;
+    }
+  }
+
+  private async createForOwner(
+    params: CreateManagedWorktreeParams,
+    repository: ResolvedRepository,
+  ): Promise<ManagedWorktreeRecord> {
+    if (params.ownerId) {
+      const existing = findLiveRegistryWorktreeByOwner(
+        this.env,
+        params.ownerKind ?? "manual",
+        params.ownerId,
       );
-    });
+      if (existing && (await worktreePathExists(existing.path))) {
+        const validated = await this.rebindLiveRepository(existing, params);
+        if (validated.repoRoot !== repository.repoRoot) {
+          throw new Error(
+            `worktree owner ${params.ownerKind ?? "manual"} ${params.ownerId} is already bound to another repository`,
+          );
+        }
+        params.commitGuard?.();
+        return validated;
+      }
+      if (existing) {
+        params.commitGuard?.();
+        updateRegistryWorktree(this.env, existing.id, { removedAt: this.now() });
+      }
+    }
+    return await this.createForRepository(
+      params,
+      repository,
+      params.name ?? params.suggestedName ?? createCrustaceanSlug(),
+    );
   }
 
   private async withAllocationLease<T>(
@@ -1298,11 +1359,41 @@ export class ManagedWorktreeService {
         continue;
       }
       try {
-        if (record.snapshotRef && (await worktreePathExists(record.repoRoot))) {
-          await requireGit(record.repoRoot, ["update-ref", "-d", record.snapshotRef]);
+        const emptySource = await resolveEmptyWorktreeSourceRoot({ env: this.env, record });
+        const pruneSnapshot = async (guard: WorktreeMutationGuard = {}) => {
+          const current = getRegistryWorktree(this.env, record.id);
+          if (
+            !current ||
+            current.removedAt === undefined ||
+            now - current.removedAt <= SNAPSHOT_RETENTION_MS
+          ) {
+            return;
+          }
+          if (emptySource) {
+            await removeUnusedEmptyWorktreeSource({
+              env: this.env,
+              record: current,
+              signal: guard.signal,
+              commitGuard: () => guard.commitGuard?.(),
+            });
+          }
+          if (current.snapshotRef && (await worktreePathExists(current.repoRoot))) {
+            await requireGit(current.repoRoot, ["update-ref", "-d", current.snapshotRef], {
+              signal: guard.signal,
+              beforeRun: guard.commitGuard,
+            });
+          }
+          guard.commitGuard?.();
+          deleteRegistryWorktree(this.env, current.id);
+          snapshotsPruned += 1;
+        };
+        // Only owned source deletion must serialize against checkout allocation.
+        // Ordinary snapshot expiry must still work when allocation is unavailable.
+        if (emptySource) {
+          await this.withAllocationLease({}, pruneSnapshot);
+        } else {
+          await pruneSnapshot();
         }
-        deleteRegistryWorktree(this.env, record.id);
-        snapshotsPruned += 1;
       } catch (error) {
         log.warn(`snapshot retention failed for ${record.id}: ${String(error)}`);
       }

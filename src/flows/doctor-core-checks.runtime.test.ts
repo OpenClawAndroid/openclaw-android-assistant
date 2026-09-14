@@ -1032,7 +1032,7 @@ describe("doctor gateway runtime checks", () => {
   ])(
     "reports current Node $version probe outcome as $severity",
     async ({ version, text, severity, message }) => {
-      mocks.detectRuntime.mockReturnValue({
+      mocks.detectRuntime.mockResolvedValue({
         kind: "node",
         version,
         execPath: "/opt/runtime/bin/node",

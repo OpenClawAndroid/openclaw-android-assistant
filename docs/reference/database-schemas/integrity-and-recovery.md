@@ -82,7 +82,15 @@ Update schema inspection and candidate snapshots use this same allowance as an i
 
 The synchronous byte-neutral snapshot strategy is for small or quiescent databases. Inspections of a live agent database, including memory-core readiness, use the asynchronous online-backup worker.
 
-Full startup readiness runs the agent integrity and foreign-key scan against its private snapshot in the existing integrity child. It waits for native close before checking schema compatibility and releasing the snapshot. The source database and WAL remain unchanged. Admission before the migration lease and the fresh check before migration writes remain separate.
+Full startup readiness checks agent ownership, integrity, foreign keys, and schema
+in one fresh read-only transaction in a disposable child. Complete WAL families
+and rollback-mode databases without journals do not need a full private copy.
+Empty files, incomplete WAL families, rollback recovery, and source-exclusion or
+canonical-mutation scopes retain private snapshot inspection. The parent waits
+for native close before accepting the result or releasing its scope. The source
+database and WAL remain unchanged; native WAL readers may update SHM read marks.
+Admission before the migration lease and the fresh check before migration writes
+remain separate, with no cached readiness result shared between them.
 
 Integrity-child timeout and incomplete-exit errors include `lastObservedPhase`:
 

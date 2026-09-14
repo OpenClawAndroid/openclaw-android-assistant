@@ -36,6 +36,9 @@ const lazyColumns = [
   ["web_push_subscriptions", "device_id", "TEXT", true],
   ["web_push_subscriptions", "user_profile_id", "TEXT", true],
   ["web_push_subscriptions", "preferences_json", "TEXT", true],
+  ["task_runs", "execution_owner_host", "TEXT", true],
+  ["task_runs", "execution_owner_pid", "INTEGER", true],
+  ["task_runs", "execution_owner_start_identity", "INTEGER", true],
 ] as const satisfies readonly LazyColumn[];
 
 function lazyColumnDefinitions(firstUseOnly?: boolean) {

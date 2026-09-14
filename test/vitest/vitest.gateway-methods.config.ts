@@ -1,5 +1,6 @@
 // Vitest gateway methods config wires the gateway methods test shard.
 import {
+  gatewayDatabaseWorkerTestFiles,
   gatewayMethodsIsolatedTestFiles,
   gatewayPluginTestFiles,
 } from "./vitest.gateway-server-paths.mjs";
@@ -11,7 +12,7 @@ export function createGatewayMethodsVitestConfig(env?: Record<string, string | u
     {
       dir: ".",
       env,
-      exclude: gatewayMethodsIsolatedTestFiles,
+      exclude: [...gatewayDatabaseWorkerTestFiles, ...gatewayMethodsIsolatedTestFiles],
       // Gateway child projects share one include file; preserve this project's ownership.
       intersectIncludeFile: true,
       name: "gateway-methods",

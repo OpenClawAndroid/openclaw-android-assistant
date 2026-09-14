@@ -6,6 +6,7 @@ import type {
   GatewayContextResolver,
   GatewayRequestContext,
 } from "../../gateway/server-methods/types.js";
+import type { GatewayUiCommandTarget } from "../../gateway/ui-command-target.types.js";
 import type { WorkerSessionTurnClaim } from "../../gateway/worker-environments/placement-record.js";
 import type { WorkerTurnExecutionIdentityCapability } from "../../gateway/worker-environments/placement-turn-claim-events.js";
 import type { AgentRunDelegatedAuthority } from "../../infra/agent-run-registry.js";
@@ -26,6 +27,7 @@ import type { AnyAgentTool } from "./common.js";
 type GatewayToolCallerIdentity = {
   agentId: string;
   sessionKey: string;
+  gatewayUiCommandTarget?: GatewayUiCommandTarget;
   /** Prepared requesting-tool posture; absent authority never bypasses approvals. */
   fullPermission?: boolean;
   operationalRunInstance?: OperationalRunInstanceRef;
@@ -66,6 +68,7 @@ type GatewayToolCallerIdentity = {
 
 type GatewayToolCallerSource = {
   agentSessionKey?: string;
+  gatewayUiCommandTarget?: GatewayUiCommandTarget;
   agentChannel?: string;
   currentMessagingTarget?: string;
   currentChannelId?: string;
@@ -240,6 +243,8 @@ export async function withGatewayToolCallerIdentity<T>(
   const turnSourceAccountId =
     inheritedOwner?.turnSourceAccountId ?? identity.turnSourceAccountId?.trim();
   const turnSourceThreadId = inheritedOwner?.turnSourceThreadId ?? identity.turnSourceThreadId;
+  const gatewayUiCommandTarget =
+    inheritedOwner?.gatewayUiCommandTarget ?? identity.gatewayUiCommandTarget;
   return await gatewayToolCallerStorage.run(
     {
       agentId: inheritedOwner?.agentId ?? identity.agentId.trim(),
@@ -266,6 +271,7 @@ export async function withGatewayToolCallerIdentity<T>(
       ...(workerTurnClaim ? { workerTurnClaim } : {}),
       ...(workerTurnExecutionIdentityCapability ? { workerTurnExecutionIdentityCapability } : {}),
       ...(gatewayContextResolver ? { gatewayContextResolver } : {}),
+      ...(gatewayUiCommandTarget ? { gatewayUiCommandTarget } : {}),
       ...(turnSourceChannel ? { turnSourceChannel } : {}),
       ...(turnSourceLocal === true ? { turnSourceLocal: true } : {}),
       ...(turnSourceTo ? { turnSourceTo } : {}),
@@ -327,6 +333,7 @@ export function createGatewayToolCallerWrapper(
       ? {
           agentId,
           sessionKey: source.agentSessionKey.trim(),
+          gatewayUiCommandTarget: source.gatewayUiCommandTarget,
           turnSourceChannel: source.agentChannel,
           turnSourceTo: source.currentMessagingTarget ?? source.currentChannelId ?? source.agentTo,
           turnSourceAccountId: source.agentAccountId,

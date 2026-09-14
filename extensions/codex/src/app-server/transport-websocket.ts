@@ -7,7 +7,7 @@ import net from "node:net";
 import path from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
-import WebSocket, { type RawData } from "ws";
+import { type ClientOptions, type RawData, WebSocket } from "openclaw/plugin-sdk/websocket-runtime";
 import { resolveCodexAppServerUserHomeDir, type CodexAppServerStartOptions } from "./config.js";
 import type { CodexAppServerTransport } from "./transport.js";
 
@@ -32,7 +32,7 @@ export function createWebSocketTransport(
     ...options.headers,
     ...(options.authToken ? { Authorization: `Bearer ${options.authToken}` } : {}),
   };
-  const websocketOptions: WebSocket.ClientOptions = {
+  const websocketOptions: ClientOptions = {
     headers,
     // Codex app-server closes Unix upgrade handshakes that offer compression.
     perMessageDeflate: false,

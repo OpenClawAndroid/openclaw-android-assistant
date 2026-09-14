@@ -374,6 +374,10 @@ describe("chat transcript controller", () => {
     const container = document.body.appendChild(document.createElement("div"));
     const props = threadProps("pane-short-scroll", "agent:main:session-a");
     render(renderChatThread(props, transcript), container);
+    Object.defineProperty(container.querySelector(".chat-thread")!, "clientHeight", {
+      configurable: true,
+      value: 600,
+    });
     transcript.hostConnected();
     transcript.hostUpdated();
     const onSettled = vi.fn();
@@ -671,6 +675,7 @@ describe("chat transcript controller", () => {
         },
         {
           onViewportResize,
+          canFollowEnd: () => !policy.chatFollowLocked,
           onReaderScroll: (towardEnd) => handleChatScrollTakeover(policy, towardEnd),
         },
       );
@@ -855,9 +860,15 @@ describe("chat transcript controller", () => {
     }
   });
 
-  it.each([0, 8, 50])(
-    "follows appended typing only within 8px of the real end (distance=%s)",
-    async (distance) => {
+  it.each([
+    { distance: 0, followEnabled: true },
+    { distance: 8, followEnabled: true },
+    { distance: 50, followEnabled: true },
+    { distance: 0, followEnabled: false },
+    { distance: 8, followEnabled: false },
+  ])(
+    "follows appended typing only when permitted near the real end ($distance, $followEnabled)",
+    async ({ distance, followEnabled }) => {
       const rows: TestContentRow[] = Array.from({ length: 12 }, (_, index) => ({
         kind: "content",
         key: `row:${index}`,
@@ -866,6 +877,15 @@ describe("chat transcript controller", () => {
       const { container, renderRows, transcript } = await mountTestTranscript(
         `typing-distance-${distance}`,
         rows,
+        new ChatTranscriptController(
+          {
+            addController: () => undefined,
+            removeController: () => undefined,
+            requestUpdate: () => undefined,
+            updateComplete: Promise.resolve(true),
+          },
+          { canFollowEnd: () => followEnabled },
+        ),
       );
       try {
         const total = transcriptSize(container);
@@ -885,7 +905,7 @@ describe("chat transcript controller", () => {
           ...rows,
           { kind: "content", key: "presence:typing", content: html`<div>Typing</div>` },
         ]);
-        if (distance <= 8) {
+        if (followEnabled && distance <= 8) {
           expect(scrollTo).toHaveBeenCalledWith({ top: total + 84 - 600, behavior: "auto" });
         } else {
           expect(scrollTo).not.toHaveBeenCalled();
@@ -1062,22 +1082,32 @@ describe("chat transcript controller", () => {
     transcript.hostConnected();
     transcript.hostUpdated();
     await flushDeferredRowPrune();
+    // Commit initial row measurements before recording the visible extent.
+    render(renderChatThread(props, transcript), container);
+    transcript.hostUpdated();
     const scrollElement = container.querySelector<HTMLElement>(".chat-thread");
     expect(scrollElement).not.toBeNull();
     expect(transcriptRows(container).length).toBeGreaterThan(0);
 
-    // A pane cache or face switch hiding the transcript reports a 0x0 rect.
-    // It must not become the virtualizer's viewport (an empty range renders a
-    // blank transcript) nor count as a width change that wipes measurements.
+    // Hiding reports zero sizes for both the viewport and its connected rows.
+    // Neither observation may replace the last measurable transcript geometry.
+    const visibleSize = transcriptSize(container);
+    Object.defineProperty(scrollElement!, "clientHeight", { configurable: true, value: 0 });
     for (const observer of resizeObservers) {
       if (observer.observes(scrollElement!)) {
         observer.emit(0, 0);
+      }
+      for (const row of transcriptRows(container)) {
+        if (observer.observes(row)) {
+          observer.emitTarget(row, 0, 0);
+        }
       }
     }
     render(renderChatThread(props, transcript), container);
     transcript.hostUpdated();
 
     expect(transcriptRows(container).length).toBeGreaterThan(0);
+    expect(transcriptSize(container)).toBe(visibleSize);
     transcript.hostDisconnected();
   });
 });

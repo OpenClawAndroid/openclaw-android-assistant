@@ -500,10 +500,7 @@ describe("session list requests", () => {
   });
 
   it("discards a list rejection from a retired same-client connection", async () => {
-    let rejectStale!: (error: Error) => void;
-    const staleRequest = new Promise<SessionsListResult>((_resolve, reject) => {
-      rejectStale = reject;
-    });
+    const { promise: staleRequest, reject: rejectStale } = createDeferred<SessionsListResult>();
     const request = vi.fn(async () => staleRequest);
     const { sessions, reconnect } = sessionHarness(request);
     const retiredRequest = sessions.list({ boardFace: "dashboard" });
@@ -545,10 +542,8 @@ describe("session list requests", () => {
   });
 
   it("coalesces concurrent managed-list demand while preserving later forced refreshes", async () => {
-    let resolveRequest!: (result: SessionsListResult) => void;
-    const pendingResult = new Promise<SessionsListResult>((resolve) => {
-      resolveRequest = resolve;
-    });
+    const { promise: pendingResult, resolve: resolveRequest } =
+      createDeferred<SessionsListResult>();
     const request = vi
       .fn()
       .mockImplementationOnce(async () => pendingResult)
@@ -585,10 +580,8 @@ describe("session list requests", () => {
   ])(
     "honors a forced $description refresh requested during an existing load",
     async ({ query }) => {
-      let resolveRequest!: (result: SessionsListResult) => void;
-      const pendingResult = new Promise<SessionsListResult>((resolve) => {
-        resolveRequest = resolve;
-      });
+      const { promise: pendingResult, resolve: resolveRequest } =
+        createDeferred<SessionsListResult>();
       const request = vi
         .fn()
         .mockImplementationOnce(async () => pendingResult)
@@ -689,10 +682,8 @@ describe("session list requests", () => {
   );
 
   it("does not queue forced filtered pagination behind an in-flight replacement", async () => {
-    let resolveRequest!: (result: SessionsListResult) => void;
-    const pendingResult = new Promise<SessionsListResult>((resolve) => {
-      resolveRequest = resolve;
-    });
+    const { promise: pendingResult, resolve: resolveRequest } =
+      createDeferred<SessionsListResult>();
     const firstPage = listResult(["agent:main:first", "agent:main:second"], 4);
     const request = vi
       .fn()
@@ -721,10 +712,8 @@ describe("session list requests", () => {
   });
 
   it("retains an in-flight managed query while its route subscriber is replaced", async () => {
-    let resolveRequest!: (result: SessionsListResult) => void;
-    const pendingResult = new Promise<SessionsListResult>((resolve) => {
-      resolveRequest = resolve;
-    });
+    const { promise: pendingResult, resolve: resolveRequest } =
+      createDeferred<SessionsListResult>();
     const request = vi.fn(async () => pendingResult);
     const { sessions } = sessionHarness(request);
     const query = { agentId: "main", archivedFilter: "all" as const, limit: 50 };
@@ -875,10 +864,7 @@ describe("session list requests", () => {
   });
 
   it("retires stale filtered snapshots across same-client reconnects without losing subscribers", async () => {
-    let resolveStale!: (result: SessionsListResult) => void;
-    const staleResult = new Promise<SessionsListResult>((resolve) => {
-      resolveStale = resolve;
-    });
+    const { promise: staleResult, resolve: resolveStale } = createDeferred<SessionsListResult>();
     let archivedRequests = 0;
     const request = vi.fn(async (method: string, params?: { archived?: boolean }) => {
       if (method === "sessions.subscribe") {

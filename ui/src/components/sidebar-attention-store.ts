@@ -225,7 +225,7 @@ export class SidebarAttentionStoreController implements StoreController {
       const refresh = { generation, requested: true };
       this.cronRefresh = refresh;
       const canRefreshCron = () => current() && document.visibilityState !== "hidden";
-      void (async () => {
+      const run = async () => {
         try {
           // One scope owns both reads. Events during either read request one
           // trailing inventory; retired scopes never drain queued network work.
@@ -275,7 +275,8 @@ export class SidebarAttentionStoreController implements StoreController {
             this.cronRefresh = null;
           }
         }
-      })();
+      };
+      void (this.sources.connectionBootstrap?.run(refresh, run, { background: true }) ?? run());
     }
     if (
       (refreshModelAuth || agentScope.selectedId !== this.modelAuthAgentId) &&

@@ -55,6 +55,19 @@ export const VISIBLE_SESSIONS_SPAWN_SCHEMA = {
         "Custom sidebar group for a visible session; a new name creates the group. Omit or pass an empty string to leave it ungrouped.",
     }),
   ),
+  projectId: Type.Optional(
+    Type.String({
+      description:
+        "Registered project for a visible session; mutually exclusive with projectGitUrl and cwd.",
+    }),
+  ),
+  projectGitUrl: Type.Optional(
+    Type.String({
+      description:
+        "GitHub HTTPS or git@github.com repository URL for a visible session's managed clone; mutually exclusive with projectId and cwd. Local paths and file URLs are not accepted.",
+      maxLength: 2048,
+    }),
+  ),
   worktree: Type.Optional(Type.Boolean({ description: "Visible session worktree" })),
   worktreeName: Type.Optional(Type.String({ description: "Worktree name" })),
   worktreeBaseRef: Type.Optional(Type.String({ description: "Worktree base ref" })),
@@ -105,9 +118,13 @@ export async function maybeSpawnVisibleSession(params: {
   const worktreeName = readToolStringParam(params.raw, "worktreeName");
   const worktreeBaseRef = readToolStringParam(params.raw, "worktreeBaseRef");
   const group = readToolStringParam(params.raw, "group");
+  const projectId = readToolStringParam(params.raw, "projectId");
+  const projectGitUrl = readToolStringParam(params.raw, "projectGitUrl");
   if (params.raw.visible !== true) {
     const visibleOnlyParams = [
       ["group", group],
+      ["projectId", projectId],
+      ["projectGitUrl", projectGitUrl],
       ["worktree", worktree],
       ["worktreeName", worktreeName],
       ["worktreeBaseRef", worktreeBaseRef],
@@ -352,6 +369,8 @@ export async function maybeSpawnVisibleSession(params: {
           : {}),
         ...(params.raw.context === "fork" ? { fork: true } : {}),
         ...(spawnedCwd ? { cwd: spawnedCwd } : {}),
+        ...(projectId ? { projectId } : {}),
+        ...(projectGitUrl ? { projectGitUrl } : {}),
         ...(worktree ? { worktree: true } : {}),
         ...(worktreeName ? { worktreeName } : {}),
         ...(worktreeBaseRef ? { worktreeBaseRef } : {}),
@@ -368,7 +387,7 @@ export async function maybeSpawnVisibleSession(params: {
       ) {
         return {
           status: "forbidden",
-          error: `Visible session cwd "${spawnedCwd}" is outside configured agent workspaces and requires operator.admin. Omit cwd to use the target agent workspace, or ask the operator to start the session from a registered project. Do not substitute the synchronous \`openclaw agent\` CLI for a persistent visible session.`,
+          error: `Visible session cwd "${spawnedCwd}" is outside configured agent workspaces and requires operator.admin. Omit cwd to use the target agent workspace, or select a registered project with projectId or a GitHub repository with projectGitUrl. Do not substitute the synchronous \`openclaw agent\` CLI for a persistent visible session.`,
         };
       }
       throw error;

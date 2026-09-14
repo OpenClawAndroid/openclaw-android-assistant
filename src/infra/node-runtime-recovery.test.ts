@@ -48,7 +48,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 vi.mock("../../node-sqlite.mjs", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../node-sqlite.mjs")>()),
-  detectCurrentSqliteCapabilities: () => ({
+  detectCurrentSqliteCapabilities: async () => ({
     available: true,
     version: "3.51.3",
     text: mocks.currentAdmitted,

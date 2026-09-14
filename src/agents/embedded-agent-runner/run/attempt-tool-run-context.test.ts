@@ -5,6 +5,7 @@ describe("buildEmbeddedAttemptToolRunContext", () => {
   it("projects originating capabilities without copying execution or session ownership", () => {
     const input = {
       clientCaps: ["inline-widgets"],
+      gatewayUiCommandTarget: { connId: "requester-tab", profileId: "requester" },
       pinnedWidgetAuthoring: true,
       toolBindings: { browser: { kind: "tab", tabId: 7 } },
       memberRoleIds: ["maintainer-role"],
@@ -20,6 +21,7 @@ describe("buildEmbeddedAttemptToolRunContext", () => {
 
     expect(context).toMatchObject({
       clientCaps: ["inline-widgets"],
+      gatewayUiCommandTarget: input.gatewayUiCommandTarget,
       pinnedWidgetAuthoring: true,
       toolBindings: input.toolBindings,
       memberRoleIds: ["maintainer-role"],

@@ -233,7 +233,10 @@ async function resolvePackageRuntimeForPreflight(params: {
   const nodeRunner = normalizeOptionalString(params.nodeRunner);
   if (!nodeRunner) {
     const version = process.versions.node ?? null;
-    return { version, failure: nodeRuntimeFailure(version, detectCurrentSqliteCapabilities()) };
+    return {
+      version,
+      failure: nodeRuntimeFailure(version, await detectCurrentSqliteCapabilities()),
+    };
   }
   const runtime = await resolveNodeRuntimeInfo(
     nodeRunner,

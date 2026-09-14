@@ -1885,6 +1885,8 @@ export default {
         await fixture.run.waitForOutput(`opening auth flow for ${providerId}`);
         await fixture.run.waitForOutput("Enter T05 local auth API key");
         await fixture.run.write(`${sentinel}\r`, { delay: false });
+        await fixture.run.waitForOutput("Keep current restrictions");
+        await fixture.run.write("\r", { delay: false });
         await fixture.run.waitForOutput(`auth flow finished for ${providerId}`);
         expect(fixture.run.output().includes(sentinel)).toBe(false);
 

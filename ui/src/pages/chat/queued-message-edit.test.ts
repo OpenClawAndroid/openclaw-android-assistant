@@ -224,6 +224,43 @@ describe("queued message edit round-trip", () => {
     expect(isQueuedMessageBeingEdited(host as never, "queued-2")).toBe(false);
   });
 
+  it.each(["steer", "interrupt"] as const)(
+    "keeps an explicitly queued edit behind earlier messages while the composer defaults to %s",
+    async (chatFollowUpMode) => {
+      const sendRequest = vi.fn(() => ({ status: "started" as const }));
+      const { host } = queueHost(
+        [
+          { sendState: "waiting-idle" },
+          { sendState: "waiting-idle" },
+          { sendState: "waiting-idle" },
+        ],
+        {
+          connected: true,
+          chatRunId: "run-active",
+          chatFollowUpMode,
+          requestHandlers: {
+            "chat.send": sendRequest,
+            "chat.history": {
+              messages: [],
+              sessionInfo: { key: SESSION_KEY, hasActiveRun: false },
+            },
+          },
+        },
+      );
+      moveQueuedChatMessage(host, "queued-3", "queued-2");
+      host.chatMessage = "independent composer draft";
+      expect(beginQueuedMessageEdit(host, "queued-2")).toBe("started");
+      updateQueuedMessageEdit(host, "message 2, corrected");
+
+      await submitQueuedEdit(host);
+
+      expect(sendRequest).not.toHaveBeenCalled();
+      expect(storedOrder(host)).toEqual(["message 1", "message 3", "message 2, corrected"]);
+      expect(host.chatQueuedEdit).toBeNull();
+      expect(host.chatMessage).toBe("independent composer draft");
+    },
+  );
+
   it.each(["/stop", "/compact", "stop"])(
     "keeps the source row and rejects a command-like inline edit: %s",
     async (command) => {

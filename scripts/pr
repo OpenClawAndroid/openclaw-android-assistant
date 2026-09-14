@@ -240,6 +240,10 @@ EOF_NODE
   fi
 fi
 
+# Keep the verified owner available after cleanup removes a linked wrapper.
+canonical_repo_root="$(cd "$canonical_repo_root" && pwd -P)"
+readonly canonical_repo_root
+
 is_locked_pr_command() {
   # Advisory trust classification permits local dogfood, but dispatches still
   # serialize with landing operations because the remote mutation is not atomic.

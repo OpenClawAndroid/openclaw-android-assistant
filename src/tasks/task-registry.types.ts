@@ -144,6 +144,12 @@ export type TaskDeliveryState = {
   lastNotifiedEventAt?: number;
 };
 
+export type TaskExecutionOwner = {
+  host: string;
+  pid: number;
+  startIdentity: number;
+};
+
 export type TaskRecord = {
   taskId: string;
   runtime: TaskRuntime;
@@ -160,6 +166,7 @@ export type TaskRecord = {
    * Task authorization remains keyed by ownerKey. */
   requesterAgentId?: string;
   runId?: string;
+  executionOwner?: TaskExecutionOwner;
   label?: string;
   task: string;
   status: TaskStatus;

@@ -35,6 +35,7 @@ import {
   setDetachedTaskDeliveryStatusByRunId,
 } from "../tasks/detached-task-runtime.js";
 import { listTaskRecords, type TaskRecord } from "../tasks/runtime-internal.js";
+import { captureTaskExecutionOwner } from "../tasks/task-execution-owner.js";
 
 export type { TaskRecord as AgentHarnessTaskRecord };
 export type { AgentHarnessTaskRuntimeScope };
@@ -49,6 +50,8 @@ type SetDeliveryStatusParams = Parameters<typeof setDetachedTaskDeliveryStatusBy
 export type AgentHarnessTaskRuntimeScopeParams = {
   scope: AgentHarnessTaskRuntimeScope;
   runIdPrefix?: string;
+  /** Local harness process PID, when the transport owns and reports one. */
+  executionPid?: number;
 } & (
   | {
       // Core identifies harness-owned subagent rows by the taskKind stamped here
@@ -66,7 +69,7 @@ export type AgentHarnessTaskRuntimeScopeParams = {
 /** Create-task params with runtime and requester scope supplied by the scoped task runtime. */
 export type AgentHarnessScopedCreateRunningTaskRunParams = Omit<
   CreateRunningTaskRunParams,
-  "runtime" | "taskKind" | "requesterSessionKey" | "ownerKey" | "scopeKind"
+  "runtime" | "taskKind" | "requesterSessionKey" | "ownerKey" | "scopeKind" | "executionOwner"
 > & {
   runId: string;
 };
@@ -120,6 +123,9 @@ export function createAgentHarnessTaskRuntime(
   const requesterSessionKey = scope.requesterSessionKey;
   const taskKind = normalizeOptionalString(params.taskKind);
   const runIdPrefix = normalizeOptionalString(params.runIdPrefix);
+  // Remote and unidentified harnesses must not inherit the Gateway's identity.
+  const executionOwner =
+    params.executionPid === undefined ? undefined : captureTaskExecutionOwner(params.executionPid);
   const assertRunId = (runId: string) => assertScopedRunId(runId, runIdPrefix);
   const tryCreateRunningTaskRun = (
     taskParams: AgentHarnessScopedCreateRunningTaskRunParams,
@@ -132,6 +138,7 @@ export function createAgentHarnessTaskRuntime(
       requesterSessionKey,
       ownerKey: requesterSessionKey,
       scopeKind: "session",
+      executionOwner,
     });
   };
   return {

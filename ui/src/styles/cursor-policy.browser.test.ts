@@ -7,7 +7,7 @@ import postcss from "postcss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readStyleSheet } from "../../../test/helpers/ui-style-fixtures.js";
 import { controlUiHoverGuardPlugin } from "../../config/control-ui-hover-guard.ts";
-import { dockPanelStyles } from "../components/dock-layout-controller.ts";
+import { dockPanelStyles } from "../components/dock-panel-styles.ts";
 import { withBrowserPage } from "../test-helpers/browser-page.ts";
 import {
   canRunPlaywrightChromium,

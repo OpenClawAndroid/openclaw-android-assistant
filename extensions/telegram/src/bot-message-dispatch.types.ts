@@ -11,6 +11,7 @@ import type {
   TelegramAccountConfig,
 } from "openclaw/plugin-sdk/config-contracts";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
+import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import type { SessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
 import type { TelegramBotDeps } from "./bot-deps.js";
@@ -45,14 +46,7 @@ export type DispatchTelegramMessageParams = {
    * Canonical turn ownership lifecycle from the durable ingress drain
    * (or a test double). Pre-adoption abort + adopt/defer/abandon.
    */
-  turnAdoptionLifecycle?: {
-    admission?: "exclusive" | "cancel-only";
-    onAdopted: () => void | Promise<void>;
-    onDeferred?: () => void;
-    onDeferredHeartbeat?: () => void;
-    onAbandoned?: () => void;
-    abortSignal?: AbortSignal;
-  };
+  turnAdoptionLifecycle?: GetReplyOptions["turnAdoptionLifecycle"];
 };
 
 export type TelegramDispatchResult =

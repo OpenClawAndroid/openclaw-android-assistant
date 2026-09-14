@@ -33,7 +33,7 @@ import { resolveOperatorSessionCreation } from "./session-creation-provenance.js
 import * as sessionUnreadAck from "./session-unread-ack.js";
 import {
   prepareSessionPatchArchive,
-  prepareSessionPatchWorktreeTransition,
+  prepareSessionPatchArchiveTransition,
   releaseSessionPatchArchive,
   type SessionPatchArchivePreparation,
   type SessionPatchArchiveTarget,
@@ -76,11 +76,10 @@ type MutationOutcome =
       applied: boolean;
       accessChanged: boolean;
       entry: SessionEntry;
-      cleanupError?: ErrorShape;
     }
   | { ok: false; error: ErrorShape };
 
-type WorktreeTransition = Awaited<ReturnType<typeof prepareSessionPatchWorktreeTransition>>;
+type ArchiveTransition = Awaited<ReturnType<typeof prepareSessionPatchArchiveTransition>>;
 type GroupMutationOperation = {
   replacements?: SessionEntryCanonicalReplacement[];
   result: GroupMutationResult;
@@ -338,7 +337,7 @@ export async function executeSessionPatchMutations(params: {
                     ...target.initialStoreKeys,
                   ]);
                   const requestedLabel = parseSessionLabel(first.fullPatch.label);
-                  const worktreeTransitions = new Map<number, WorktreeTransition>();
+                  const archiveTransitions = new Map<number, ArchiveTransition>();
                   const commitGuards = new Set<() => ErrorShape | undefined>();
                   const projectGroup = async (
                     entries: SqliteLifecycleTargetSnapshot,
@@ -508,13 +507,16 @@ export async function executeSessionPatchMutations(params: {
                           continue;
                         }
                         if (
-                          existingEntry?.worktree &&
-                          typeof target.fullPatch.archived === "boolean"
+                          existingEntry &&
+                          typeof target.fullPatch.archived === "boolean" &&
+                          (existingEntry.worktree ||
+                            existingEntry.archivedAt !== undefined ||
+                            target.fullPatch.archived)
                         ) {
                           const worktreeTiming = params.diagnostics?.scope("worktree");
-                          let transition: WorktreeTransition;
+                          let transition: ArchiveTransition;
                           try {
-                            transition = await prepareSessionPatchWorktreeTransition({
+                            transition = await prepareSessionPatchArchiveTransition({
                               archived: target.fullPatch.archived,
                               entry: existingEntry,
                               context: params.context,
@@ -529,7 +531,7 @@ export async function executeSessionPatchMutations(params: {
                           } finally {
                             worktreeTiming?.finish();
                           }
-                          worktreeTransitions.set(target.index, transition);
+                          archiveTransitions.set(target.index, transition);
                         }
                         if (permissionRuntime && existingEntry?.sessionId) {
                           const permission = permissionRuntime.prepareSessionPatchPermissionChange({
@@ -593,7 +595,7 @@ export async function executeSessionPatchMutations(params: {
                           throw new SessionMutationAuthorizationChangedError(error);
                         }
                       }
-                      for (const transition of worktreeTransitions.values()) {
+                      for (const transition of archiveTransitions.values()) {
                         transition.assertCommitAllowed();
                       }
                     },
@@ -644,10 +646,10 @@ export async function executeSessionPatchMutations(params: {
                   for (const [groupIndex, target] of group.entries()) {
                     const outcome = groupOutcomes[groupIndex]!;
                     outcomes[target.index] = outcome;
-                    const afterCommit = worktreeTransitions.get(target.index)?.afterCommit;
+                    const afterCommit = archiveTransitions.get(target.index)?.afterCommit;
                     if (outcome.ok && outcome.applied && afterCommit) {
                       groupTiming?.mark("worktreeCleanup");
-                      outcome.cleanupError = await afterCommit(outcome.entry);
+                      await afterCommit(outcome.entry);
                     }
                   }
                 } catch (error) {
@@ -715,10 +717,7 @@ export async function executeSessionPatchMutations(params: {
   return {
     ok: true,
     cfg,
-    // Publish committed hooks/events/cron changes even when only checkout cleanup failed.
-    outcomes: outcomes.map((outcome) =>
-      outcome?.ok && outcome.cleanupError ? { ok: false, error: outcome.cleanupError } : outcome,
-    ) as MutationOutcome[],
+    outcomes: outcomes as MutationOutcome[],
     preparedByIndex,
     catalogs,
   };

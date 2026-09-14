@@ -37,6 +37,8 @@ export type { AgentWaitResult };
 
 type GatewayCaller = typeof callGateway;
 
+const AGENT_RUN_DRAIN_RETRY_DELAY_MS = 100;
+
 function resolveRunWaitTimeoutMs(value: number | undefined): number {
   return clampTimerTimeoutMs(parseFiniteNumber(value) ?? 1) ?? 1;
 }
@@ -281,7 +283,22 @@ export async function waitForAgentRunsToDrain(params: {
         }),
       ),
     );
+    const previousRunIds = pendingRunIds;
     pendingRunIds = new Set<string>(normalizePendingRunIds(params.getPendingRunIds()));
+    const retryDelayMs = Math.min(AGENT_RUN_DRAIN_RETRY_DELAY_MS, deadlineAtMs - Date.now());
+    if (
+      retryDelayMs > 0 &&
+      pendingRunIds.size > 0 &&
+      pendingRunIds.size === previousRunIds.size &&
+      [...pendingRunIds].every((runId) => previousRunIds.has(runId))
+    ) {
+      // Queued or cached waits can resolve immediately. Let completion callbacks
+      // run instead of repeatedly scanning an unchanged registry in microtasks.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, retryDelayMs);
+      });
+      pendingRunIds = new Set<string>(normalizePendingRunIds(params.getPendingRunIds()));
+    }
   }
 
   return {

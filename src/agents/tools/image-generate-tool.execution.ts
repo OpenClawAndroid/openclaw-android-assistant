@@ -14,7 +14,7 @@ import type {
 import type { SsrFPolicy } from "../../infra/net/ssrf.js";
 import { resolveGeneratedMediaMaxBytes } from "../../media/configured-max-bytes.js";
 import { getImageMetadata } from "../../media/media-services.js";
-import { saveMediaBuffer } from "../../media/store.js";
+import { extractOriginalFilename, saveMediaBuffer } from "../../media/store.js";
 import {
   formatGeneratedAttachmentLines,
   sanitizeGeneratedMediaDisplayText,
@@ -163,7 +163,7 @@ export async function executeImageGenerationJob(params: {
     type: "image" as const,
     path: image.path,
     mimeType: image.contentType,
-    name: image.id,
+    name: extractOriginalFilename(image.path),
     sizeBytes: image.size,
   }));
   const lines = [

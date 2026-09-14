@@ -8,18 +8,20 @@ import {
   prepareClaimedSessionDelivery,
   SESSION_DELIVERY_QUEUE_NAME,
   type QueuedSessionDelivery,
-} from "../../../infra/session-delivery-queue-storage.js";
+} from "../../../infra/session-delivery-queue.records.js";
 import { deferSqlitePostCommitPublication } from "../../../infra/sqlite-post-commit.js";
+import { createSubsystemLogger } from "../../../logging/subsystem.js";
 import { resolveEventSessionKey } from "../../../routing/session-key.js";
 import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabase,
   type OpenClawStateDatabaseOptions,
 } from "../../../state/openclaw-state-db.js";
+import { captureOpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.js";
 import { publishTaskRecordAfterAtomicStore } from "../../../tasks/runtime-internal.js";
 import { resolveRequiredCompletionDeliveryFailureTerminalResult } from "../../../tasks/task-completion-contract.js";
 import { formatTaskBlockedFollowupMessage } from "../../../tasks/task-executor-policy.js";
-import { syncFlowFromTaskAfterTaskMutation } from "../../../tasks/task-registry-mutation.js";
+import { syncFlowFromTaskAfterTaskMutation } from "../../../tasks/task-registry-state.js";
 import {
   bindTaskRecord,
   findTaskRecordByRunIdForViewInDatabase,
@@ -44,6 +46,8 @@ import {
 } from "../registry/subagent-registry.store.sqlite.js";
 import type { SubagentRunRecord } from "../registry/subagent-registry.types.js";
 import { compareSubagentRunGeneration } from "../registry/subagent-run-generation.js";
+
+const log = createSubsystemLogger("subagents/completion");
 
 export const SUSPENDED_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
@@ -392,7 +396,18 @@ export function blockSubagentCompletionDelivery(params: {
     deferSqlitePostCommitPublication(database.db, () => {
       publishCommittedRecords(subagent, task);
       if (queued) {
-        void scheduleSessionDelivery(queued.id);
+        void (async () => {
+          const queueContext = captureOpenClawStateWorkerContext({
+            path: database.path,
+            env: params.databaseOptions?.env,
+          });
+          await scheduleSessionDelivery(queued.id, queueContext);
+        })().catch((error: unknown) => {
+          log.warn("Subagent completion remains queued after scheduling failed", {
+            queueId: queued.id,
+            error,
+          });
+        });
       }
     });
     return true;

@@ -47,7 +47,7 @@ function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function formatMegabytes(bytes: number): string {
+function formatGatewayMemory(bytes: number): string {
   return t("debug.overlay.memoryMb", { value: String(Math.round(bytes / 1_048_576)) });
 }
 
@@ -55,45 +55,61 @@ function formatDelayMs(value: number): string {
   return formatDurationCompact(value) ?? t("common.na");
 }
 
-export function renderGatewayVitals(
+export function renderGatewayCpuVital(
   status: GatewayStatusSnapshot,
   history: readonly GatewayStatusSample[],
 ): TemplateResult {
   const eventLoop = status.eventLoop;
   const reasons = eventLoop?.reasons ?? [];
   const cpuDegraded = reasons.includes("cpu") || reasons.includes("event_loop_utilization");
-  const delayDegraded = reasons.includes("event_loop_delay");
   const loopSub =
     typeof eventLoop?.utilization === "number"
       ? t("debug.overlay.loopShort", { value: formatPercent(eventLoop.utilization) })
       : "";
+  return html`<openclaw-sparkline
+    class="gateway-vital gateway-vital--cpu"
+    data-degraded=${cpuDegraded ? "" : nothing}
+    .label=${t("debug.overlay.cpu")}
+    .sub=${loopSub}
+    .samples=${collectGatewayStatusSamples(history, (sample) => sample.eventLoop?.cpuCoreRatio)}
+    .format=${formatPercent}
+    .floorMax=${1}
+  ></openclaw-sparkline>`;
+}
+
+export function renderGatewayMemoryVital(
+  status: GatewayStatusSnapshot,
+  history: readonly GatewayStatusSample[],
+): TemplateResult {
   const heapSub =
     typeof status.processMemory?.heapUsedBytes === "number"
-      ? t("debug.overlay.heapShort", { value: formatMegabytes(status.processMemory.heapUsedBytes) })
+      ? t("debug.overlay.heapShort", {
+          value: formatGatewayMemory(status.processMemory.heapUsedBytes),
+        })
       : "";
+  return html`<openclaw-sparkline
+    class="gateway-vital gateway-vital--memory"
+    .label=${t("debug.overlay.memory")}
+    .sub=${heapSub}
+    .samples=${collectGatewayStatusSamples(history, (sample) => sample.processMemory?.rssBytes)}
+    .format=${formatGatewayMemory}
+    autorange
+  ></openclaw-sparkline>`;
+}
+
+export function renderGatewayVitals(
+  status: GatewayStatusSnapshot,
+  history: readonly GatewayStatusSample[],
+): TemplateResult {
+  const eventLoop = status.eventLoop;
+  const delayDegraded = eventLoop?.reasons?.includes("event_loop_delay");
   const maxSub =
     typeof eventLoop?.delayMaxMs === "number"
       ? t("debug.overlay.maxShort", { value: formatDelayMs(eventLoop.delayMaxMs) })
       : "";
   return html`
     <div class="gateway-vitals">
-      <openclaw-sparkline
-        class="gateway-vital gateway-vital--cpu"
-        data-degraded=${cpuDegraded ? "" : nothing}
-        .label=${t("debug.overlay.cpu")}
-        .sub=${loopSub}
-        .samples=${collectGatewayStatusSamples(history, (sample) => sample.eventLoop?.cpuCoreRatio)}
-        .format=${formatPercent}
-        .floorMax=${1}
-      ></openclaw-sparkline>
-      <openclaw-sparkline
-        class="gateway-vital gateway-vital--memory"
-        .label=${t("debug.overlay.memory")}
-        .sub=${heapSub}
-        .samples=${collectGatewayStatusSamples(history, (sample) => sample.processMemory?.rssBytes)}
-        .format=${formatMegabytes}
-        autorange
-      ></openclaw-sparkline>
+      ${renderGatewayCpuVital(status, history)} ${renderGatewayMemoryVital(status, history)}
       <openclaw-sparkline
         class="gateway-vital gateway-vital--delay"
         data-degraded=${delayDegraded ? "" : nothing}

@@ -16,7 +16,6 @@ import {
 } from "./app-host.test-support.ts";
 import "./app-host.ts";
 import {
-  DEBUG_OVERLAY_ELEMENT,
   KEYBOARD_SHORTCUTS_ELEMENT,
   type LazyCustomElementRequestController,
 } from "./lazy-custom-element.ts";
@@ -276,7 +275,7 @@ describe("shell lazy events", () => {
     const shell = document.createElement("openclaw-app-shell") as unknown as ShellKeyboardState &
       ShellLifecycle &
       HTMLElement;
-    const overlay = document.createElement(DEBUG_OVERLAY_ELEMENT.tagName) as HTMLElement & {
+    const overlay = document.createElement("openclaw-debug-overlay") as HTMLElement & {
       toggle: () => void;
     };
     overlay.toggle = toggled;

@@ -69,7 +69,7 @@ it.each([
       type: "toolCall",
       id: "yield-first",
       name: "sessions_yield",
-      arguments: {},
+      arguments: { waitFor: "message" },
       ...(asyncYield ? { async: true } : {}),
     };
     const lookup: AgentTool = {

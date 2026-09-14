@@ -30,6 +30,7 @@ const TRAJECTORY_RUNTIME_RETENTION_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1_000;
 const TRAJECTORY_RUNTIME_GLOBAL_MAX_BYTES = 512 * 1024 * 1024;
 const TRAJECTORY_RUNTIME_GLOBAL_SWEEP_INTERVAL_MS = 60 * 60 * 1_000;
 const TRAJECTORY_RUNTIME_DELETE_RUN_BATCH_SIZE = 100;
+const TRAJECTORY_RUNTIME_INSERT_BATCH_SIZE = 32;
 
 export type SqliteTrajectoryRuntimeScope = {
   agentId?: string;
@@ -83,19 +84,22 @@ export function appendSqliteTrajectoryRuntimeEvents(
   runOpenClawAgentWriteTransaction((database) => {
     const db = getTrajectoryKysely(database.db);
     let seq = readNextTrajectorySeq(database, scope.sessionId);
-    for (const event of events) {
-      const eventJson = JSON.stringify(event);
-      executeSqliteQuerySync(
-        database.db,
-        db.insertInto("trajectory_runtime_events").values({
-          session_id: scope.sessionId,
-          seq,
-          run_id: event.runId ?? null,
-          event_json: eventJson,
-          created_at: readTrajectoryEventTimestamp(event) ?? Date.now(),
-        }),
-      );
-      seq += 1;
+    // Bound both native bindings and serialized payloads while keeping the full
+    // flush atomic. Canonical recorder events are at most 256 KiB each.
+    for (let index = 0; index < events.length; index += TRAJECTORY_RUNTIME_INSERT_BATCH_SIZE) {
+      const rows = events
+        .slice(index, index + TRAJECTORY_RUNTIME_INSERT_BATCH_SIZE)
+        .map((event) => {
+          const eventJson = JSON.stringify(event);
+          return {
+            session_id: scope.sessionId,
+            seq: seq++,
+            run_id: event.runId ?? null,
+            event_json: eventJson,
+            created_at: readTrajectoryEventTimestamp(event) ?? Date.now(),
+          };
+        });
+      executeSqliteQuerySync(database.db, db.insertInto("trajectory_runtime_events").values(rows));
     }
     trimSqliteTrajectoryRuntimeWindow(database, scope.sessionId, maxRuntimeBytes);
     const lastSweptAt = lastGlobalSweepAtByDatabase.get(database);

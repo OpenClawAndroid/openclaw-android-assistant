@@ -19,6 +19,7 @@ import {
   heartbeatUpdateRun,
   recordUpdateRunDiagnostic,
   recordUpdateRunPhase,
+  recordUpdateRunRepairContinuation,
   recordUpdateRunStep,
 } from "../../infra/update-run-ledger.js";
 import {
@@ -71,7 +72,7 @@ export class UpdateFinalizationLifecycle {
     private readonly stopChildren: () => void,
   ) {}
 
-  attachLedger(): string {
+  attachLedger(repair = false): string {
     this.driver = readUpdateRunDriver();
     const inherited = process.env[UPDATE_RUN_ID_ENV]?.trim();
     this.ledgerOptions = { env: { ...process.env } };
@@ -81,6 +82,9 @@ export class UpdateFinalizationLifecycle {
     ).runId;
     this.ownsRun = !inherited;
     adoptUpdateRun(this.runId, this.ledgerOptions);
+    if (repair && this.ownsRun) {
+      recordUpdateRunRepairContinuation(this.runId, this.runId, this.ledgerOptions);
+    }
     if (this.active) {
       recordUpdateRunStep(
         this.runId,

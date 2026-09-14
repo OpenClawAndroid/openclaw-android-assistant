@@ -83,26 +83,40 @@ with its scheduler-owned continuation.
 
 ## Progress after yield
 
-Channel-visible progress across yield remains follow-up work. The old agent
-turn closes its admission authority and channel dispatch cleans up its draft.
-Keeping those callbacks alive would write through a closed owner.
+The old agent turn closes its admission authority and channel dispatch cleans
+up its draft. Task notifications can continue after this handoff: opt a child
+into `state_changes` with `openclaw tasks notify <lookup> state_changes`.
+The default `done_only` and `silent` policies produce no progress notifications.
 
-A future publisher belongs to the registry settlement lifecycle while the
-requester is paused, then hands presentation to the admitted successor. It must
-bind publications to the current requester, batch generation, and channel
-delivery owner; coalesce bounded updates in deterministic child order; reject
-stale callbacks after cancellation or reset; and transfer or close a draft once.
-It must reuse channel presentation policy without adding channel-specific
-behavior to the registry. This repair adds neither that publisher nor a public
-harness capability.
+The existing task delivery owner coalesces host-observed child activity into a
+single update per requester batch over 15 seconds. It uses the original
+channel, account, recipient, and thread, and mirrors the update to the requester
+transcript. Updates show bounded task labels, execution or wait state, and tool
+activity counts. Private child prose, tool arguments, and results stay out of
+these notifications. A batch shows at most eight tasks in creation order;
+additional activity remains available in Tasks.
 
-Cron's existing observer follows active descendant run IDs and a bounded
-synthesis grace period. It does not wait for every registry settlement phase.
-A delay between the last worker ending and successor admission can therefore
-reach its existing fallback policy. Making cron wait on full task settlement,
-and resolving reports of indefinitely pending delivery after a finalized cron
-run, require separate scheduler-lifecycle proof; this repair does not redefine
-those contracts.
+Progress does not start a requester turn or mark a result delivered. A resumed
+requester, changed batch generation, cancellation, reset, muted task, or closed
+Gateway invalidates queued progress. The delivery owner rechecks authority
+after loading the transport and immediately before the adapter sends. It never
+reuses the closed turn's callbacks or drafts.
+
+Progress is best effort and process-local: up to 128 batches retain at most 32
+task references each. An overflowing queue leaves activity in Tasks; transport
+failure does not affect completion. Progress without a concrete channel target
+remains visible in Tasks and does not wake the parent just to narrate activity.
+Restart discards queued progress while the existing durable completion owner
+continues to own the final result.
+
+Cron observes the registry's descendant settlement boundary before starting
+its bounded synthesis grace period. A yielded task remains pending between the
+last worker ending and successor admission; the successor and its completion
+delivery must settle before cron selects the final result. Execution waits,
+settlement observation, and synthesis share the existing follow-up deadline
+and stop on cron cancellation. Suspended or permanently failed child delivery
+retains the registry's terminal semantics, allowing cron's existing fallback
+policy to resolve the scheduled result without retrying that delivery.
 
 See [Subagents](/tools/subagents#tool-sessions_yield) for tool behavior and
 [Progress drafts](/concepts/progress-drafts) for channel presentation.

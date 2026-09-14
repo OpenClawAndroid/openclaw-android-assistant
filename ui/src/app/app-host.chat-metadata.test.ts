@@ -45,7 +45,7 @@ it.each([
   { mode: "picker", hidden: false, reject: false, replacementFails: false },
   { mode: "picker", hidden: false, reject: false, replacementFails: true },
 ])(
-  "preserves cold catalog demand across an unrelated session event ($mode, hidden: $hidden, rejection: $reject, replacement failure: $replacementFails)",
+  "preserves cold catalog demand across a matching session event ($mode, hidden: $hidden, rejection: $reject, replacement failure: $replacementFails)",
   async ({ mode, hidden, reject, replacementFails }) => {
     const pendingCatalog = createDeferred<ModelCatalogResult>();
     const fresh = { id: "fresh", name: "Fresh model", provider: "example" };
@@ -83,7 +83,7 @@ it.each([
       expect(catalogReads).toBe(1);
       shell.handleGatewayEvent({
         event: "sessions.changed",
-        payload: { key: "agent:main:other", agentId: "main", reason: "message" },
+        payload: { key: state.sessionKey, agentId: "main", reason: "message" },
       });
       presented = !hidden;
       if (reject) {
@@ -117,6 +117,51 @@ it.each([
     }
   },
 );
+
+it("keeps the pending catalog across unrelated session changes", async () => {
+  const pendingCatalog = createDeferred<ModelCatalogResult>();
+  const model = { id: "first", name: "First model", provider: "example" };
+  const request = createGatewayRequestMock((method) =>
+    method === "models.list" ? pendingCatalog.promise : Promise.resolve({ commands: [] }),
+  );
+  const client = createTestGatewayClient(request);
+  const state = makeChatHost({ client }) as ChatPageHost;
+  state.connected = true;
+  state.sessionKey = "agent:main:cold";
+  state.chatMessage = "Keep this draft";
+  const shell = document.createElement("openclaw-app-shell") as unknown as ChatMetadataShell;
+  shell.runtime = {
+    context: {
+      gateway: { snapshot: { client, phase: "connected" } },
+      agents: { state: { agentsList: null } },
+      sessions: state.sessions,
+    } as unknown as ApplicationContext,
+  };
+  const loading = refreshChatMetadata(state, { automatic: true });
+  try {
+    for (const payload of [
+      { key: "agent:main:other", agentId: "main", reason: "message" },
+      { key: "agent:main:other", agentId: "main", reason: "patch" },
+      { key: "agent:other:cold", agentId: "other", reason: "reset" },
+    ]) {
+      shell.handleGatewayEvent({ event: "sessions.changed", payload });
+    }
+    pendingCatalog.resolve({ models: [model] });
+    await loading;
+
+    expect(request.mock.calls.filter(([method]) => method === "models.list")).toHaveLength(1);
+    expect(request.mock.calls.filter(([method]) => method === "chat.metadata")).toHaveLength(1);
+    expect(state.chatModelCatalog).toEqual([model]);
+    expect(state.chatModelsLoading).toBe(false);
+    expect(state.chatModelCatalogError).toBeNull();
+    expect(state.chatMessage).toBe("Keep this draft");
+  } finally {
+    pendingCatalog.resolve({ models: [] });
+    await loading;
+    retireChatMetadataRequests(state);
+    state.sessions.dispose();
+  }
+});
 
 it.each(["config.changed", "chat.metadata.changed"])(
   "refreshes the retained pane after repair without changing conversation state (%s)",
@@ -359,6 +404,7 @@ it("retires an unmounted session catalog on session changes without evicting dra
   const client = { request } as unknown as GatewayBrowserClient;
   const session = { agentId: "main", sessionKey: "main" };
   const otherAgent = { agentId: "writer", sessionKey: "main" };
+  const otherSession = { agentId: "main", sessionKey: "agent:main:other" };
   const draft = { agentId: "main" };
   const shell = document.createElement("openclaw-app-shell") as unknown as ChatMetadataShell;
   shell.runtime = {
@@ -371,6 +417,7 @@ it("retires an unmounted session catalog on session changes without evicting dra
   await Promise.all([
     loadModelCatalog(client, session),
     loadModelCatalog(client, otherAgent),
+    loadModelCatalog(client, otherSession),
     loadModelCatalog(client, draft),
   ]);
   shell.handleGatewayEvent({
@@ -379,6 +426,7 @@ it("retires an unmounted session catalog on session changes without evicting dra
   });
   expect(peekModelCatalog(client, session)).toBeUndefined();
   expect(peekModelCatalog(client, otherAgent)).toEqual({ models: [] });
+  expect(peekModelCatalog(client, otherSession)).toEqual({ models: [] });
   expect(peekModelCatalog(client, draft)).toEqual({ models: [] });
 });
 
@@ -392,6 +440,7 @@ describe.each(["command-metadata", "patch", "reset"])("session metadata event %s
     },
     { key: "global", eventKey: "global", otherKey: "global", agentId: "work" },
     { key: "main", eventKey: "agent:main:main", otherKey: "agent:other:main", agentId: "main" },
+    { key: "main", eventKey: "agent:work:main", otherKey: "agent:other:main", agentId: "work" },
   ])(
     "refreshes only the matching $agentId/$key scope",
     async ({ key, eventKey, otherKey, agentId }) => {
@@ -435,11 +484,24 @@ describe.each(["command-metadata", "patch", "reset"])("session metadata event %s
       try {
         await Promise.all(states.map((state) => refreshChatMetadata(state)));
         const before = request.mock.calls.filter(([method]) => method === "chat.metadata").length;
+        const catalogsBefore = request.mock.calls.filter(
+          ([method]) => method === "models.list",
+        ).length;
         for (const payload of [
           { key: "agent:work:not-open", agentId: "work", reason },
           { key: eventKey, agentId, reason: "message" },
         ]) {
           shell.handleGatewayEvent({ event: "sessions.changed", payload });
+          if (payload.key === "agent:work:not-open") {
+            for (const state of states) {
+              expect(
+                peekModelCatalog(client, {
+                  agentId: state.assistantAgentId ?? undefined,
+                  sessionKey: state.sessionKey,
+                })?.models,
+              ).toEqual([]);
+            }
+          }
         }
         expect(request.mock.calls.filter(([method]) => method === "chat.metadata")).toHaveLength(
           before,
@@ -457,6 +519,9 @@ describe.each(["command-metadata", "patch", "reset"])("session metadata event %s
           agentId,
           sessionKey: key,
         });
+        expect(request.mock.calls.filter(([method]) => method === "models.list")).toHaveLength(
+          catalogsBefore + 1,
+        );
         for (const invalidate of invalidations) {
           expect(invalidate).not.toHaveBeenCalled();
         }

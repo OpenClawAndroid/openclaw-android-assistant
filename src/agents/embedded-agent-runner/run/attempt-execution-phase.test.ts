@@ -298,17 +298,17 @@ beforeEach(() => {
 
 describe("runEmbeddedAttemptExecutionPhase", () => {
   it.each([
-    { stopReason: "stop", cacheRead: 10_000, completion: "event" },
-    { stopReason: "stop", cacheRead: 0, completion: "event" },
-    { stopReason: "toolUse", cacheRead: 10_000, completion: "event" },
-    { stopReason: "error", cacheRead: 10_000, completion: "event" },
-    { stopReason: "aborted", cacheRead: 10_000, completion: "event" },
-    { stopReason: "stop", cacheRead: 10_000, completion: "result" },
-    { stopReason: "stop", cacheRead: 0, completion: "result" },
-    { stopReason: "error", cacheRead: 10_000, completion: "result" },
+    ["stop", 10_000, "event"],
+    ["stop", 0, "event"],
+    ["toolUse", 10_000, "event"],
+    ["error", 10_000, "event"],
+    ["aborted", 10_000, "event"],
+    ["stop", 10_000, "result"],
+    ["stop", 0, "result"],
+    ["error", 10_000, "result"],
   ] as const)(
-    "observes terminal $stopReason usage once across async-tool fragments (cacheRead=$cacheRead, completion=$completion)",
-    async ({ stopReason, cacheRead, completion }) => {
+    "observes terminal %s usage once across async-tool fragments (cacheRead=%s, completion=%s)",
+    async (stopReason, cacheRead, completion) => {
       const fixture = await createFixture();
       const recordStage = vi.fn();
       const runtime = fixture.input.prepared.sessionRuntime;
@@ -444,172 +444,167 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
   );
 
   it.each([
-    { owner: "active", phase: "during summarization" },
-    { owner: "replaced", phase: "during summarization" },
-    { owner: "closed", phase: "during summarization" },
-    { owner: "replaced", phase: "before installation" },
-    { owner: "closed", phase: "before installation" },
-    { owner: "cancelled", phase: "before installation" },
-  ] as const)(
-    "fences automatic memory compaction with admission $owner $phase",
-    async ({ owner, phase }) => {
-      const fixture = await createFixture({ exerciseTerminalMerges: false });
-      const { admission } = fixture;
-      const replacement = prepareSystemAgentRunAdmission({}, "run-1", "main", "compaction-test");
-      const admittedRunContext = await admission.admit("embedded");
-      const model = { ...testModel, api: "compaction-test-api", contextWindow: 4_096 };
-      const settingsManager = createAutoCompactionSettings();
-      applyAgentCompactionSettingsFromConfig({ settingsManager, contextTokenBudget: 4_096 });
-      applyAgentAutoCompactionGuard({ settingsManager, compactionMode: "default" });
-      const sessionManager = guardSessionManager(SessionManager.inMemory(), { runId: "run-1" });
-      sessionManager.appendMessage({ role: "user", content: "Remember Blue Heron", timestamp: 1 });
-      sessionManager.appendMessage({
-        ...createAssistant(model, [{ type: "text", text: "Blue Heron is the project." }]),
-        timestamp: 2,
-      });
-      const { session } = await createTestSession({
-        model,
-        sessionManager,
-        settingsManager,
-        contextOverflowRecoveryOwner: "caller",
-      });
-      session.agent.streamFn = resolveEmbeddedAgentStream({
-        currentStreamFn: session.agent.streamFn,
-        model,
-        sessionId: session.sessionId,
-        signal: fixture.input.runAbortController.signal,
-      }).streamFn;
-      const summaryStarted = createDeferred();
-      const releaseSummary = createDeferred();
-      const events: EmbeddedContextAccountingEvent[] = [];
-      const ends: AgentSessionEvent[] = [];
-      session.subscribe((event) => {
-        if (event.type === "compaction_end") {
-          ends.push(event);
-          if (event.outcome.status === "completed") {
-            expect(events).toHaveLength(1);
-            expect(fixture.skillInstructionDeliveryCache.size).toBe(0);
-          }
+    ["active", "during summarization"],
+    ["replaced", "during summarization"],
+    ["closed", "during summarization"],
+    ["replaced", "before installation"],
+    ["closed", "before installation"],
+    ["cancelled", "before installation"],
+  ] as const)("fences automatic memory compaction with admission %s %s", async (owner, phase) => {
+    const fixture = await createFixture({ exerciseTerminalMerges: false });
+    const { admission } = fixture;
+    const replacement = prepareSystemAgentRunAdmission({}, "run-1", "main", "compaction-test");
+    const admittedRunContext = await admission.admit("embedded");
+    const model = { ...testModel, api: "compaction-test-api", contextWindow: 4_096 };
+    const settingsManager = createAutoCompactionSettings();
+    applyAgentCompactionSettingsFromConfig({ settingsManager, contextTokenBudget: 4_096 });
+    applyAgentAutoCompactionGuard({ settingsManager, compactionMode: "default" });
+    const sessionManager = guardSessionManager(SessionManager.inMemory(), { runId: "run-1" });
+    sessionManager.appendMessage({ role: "user", content: "Remember Blue Heron", timestamp: 1 });
+    sessionManager.appendMessage({
+      ...createAssistant(model, [{ type: "text", text: "Blue Heron is the project." }]),
+      timestamp: 2,
+    });
+    const { session } = await createTestSession({
+      model,
+      sessionManager,
+      settingsManager,
+      contextOverflowRecoveryOwner: "caller",
+    });
+    session.agent.streamFn = resolveEmbeddedAgentStream({
+      currentStreamFn: session.agent.streamFn,
+      model,
+      sessionId: session.sessionId,
+      signal: fixture.input.runAbortController.signal,
+    }).streamFn;
+    const summaryStarted = createDeferred();
+    const releaseSummary = createDeferred();
+    const events: EmbeddedContextAccountingEvent[] = [];
+    const ends: AgentSessionEvent[] = [];
+    session.subscribe((event) => {
+      if (event.type === "compaction_end") {
+        ends.push(event);
+        if (event.outcome.status === "completed") {
+          expect(events).toHaveLength(1);
+          expect(fixture.skillInstructionDeliveryCache.size).toBe(0);
         }
-      });
-      let requests = 0;
-      streamMocks.streamSimple.mockImplementation(async (activeModel, _context, options) => {
-        if (++requests === 1) {
-          return createAssistantResultStream(
-            createAssistant(
-              activeModel,
-              [{ type: "text", text: "Blue Heron answer" }],
-              "stop",
-              4_090,
-            ),
-          );
-        }
-        summaryStarted.resolve();
-        await releaseSummary.promise;
-        expect(options?.signal?.aborted).toBe(false);
+      }
+    });
+    let requests = 0;
+    streamMocks.streamSimple.mockImplementation(async (activeModel, _context, options) => {
+      if (++requests === 1) {
         return createAssistantResultStream(
-          createAssistant(activeModel, [{ type: "text", text: "Blue Heron summary" }]),
+          createAssistant(
+            activeModel,
+            [{ type: "text", text: "Blue Heron answer" }],
+            "stop",
+            4_090,
+          ),
         );
-      });
-      const network = vi
-        .spyOn(globalThis, "fetch")
-        .mockRejectedValue(new Error("Unexpected network request"));
-      Object.assign(fixture.input.attempt, {
-        admittedRunContext,
-        model,
-        modelId: model.id,
-        provider: model.provider,
-        sessionManager,
-        onContextAccountingEvent: (event: EmbeddedContextAccountingEvent) => events.push(event),
-      });
-      Object.assign(fixture.input.prepared.sessionRuntime, {
-        sessionManager,
-        cacheTrace: undefined,
-        anthropicPayloadLogger: undefined,
-        isOpenAIResponsesApi: false,
-      });
-      Object.assign(fixture.input.prepared.sessionRuntime.agentSession, {
-        activeSession: session,
-        settingsManager,
-      });
-      const { installEmbeddedAttemptStreamGuards } =
-        await vi.importActual<typeof import("./attempt-stream.js")>("./attempt-stream.js");
-      mocks.installStreamGuards.mockImplementation(installEmbeddedAttemptStreamGuards);
-      mocks.runSettledPhase.mockImplementation(async ({ preparedStreamRuntime }) => {
-        await preparedStreamRuntime.promptActiveSession("Continue Blue Heron");
-        return fixture.result;
-      });
-      const retireAdmission = async () => {
-        if (owner === "replaced") {
-          await replacement.admit("embedded");
-        } else if (owner === "closed" || owner === "cancelled") {
-          admission.close();
-          if (owner === "cancelled") {
-            fixture.input.runAbortController.abort(cancelled);
-          }
+      }
+      summaryStarted.resolve();
+      await releaseSummary.promise;
+      expect(options?.signal?.aborted).toBe(false);
+      return createAssistantResultStream(
+        createAssistant(activeModel, [{ type: "text", text: "Blue Heron summary" }]),
+      );
+    });
+    const network = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("Unexpected network request"));
+    Object.assign(fixture.input.attempt, {
+      admittedRunContext,
+      model,
+      modelId: model.id,
+      provider: model.provider,
+      sessionManager,
+      onContextAccountingEvent: (event: EmbeddedContextAccountingEvent) => events.push(event),
+    });
+    Object.assign(fixture.input.prepared.sessionRuntime, {
+      sessionManager,
+      cacheTrace: undefined,
+      anthropicPayloadLogger: undefined,
+      isOpenAIResponsesApi: false,
+    });
+    Object.assign(fixture.input.prepared.sessionRuntime.agentSession, {
+      activeSession: session,
+      settingsManager,
+    });
+    const { installEmbeddedAttemptStreamGuards } =
+      await vi.importActual<typeof import("./attempt-stream.js")>("./attempt-stream.js");
+    mocks.installStreamGuards.mockImplementation(installEmbeddedAttemptStreamGuards);
+    mocks.runSettledPhase.mockImplementation(async ({ preparedStreamRuntime }) => {
+      await preparedStreamRuntime.promptActiveSession("Continue Blue Heron");
+      return fixture.result;
+    });
+    const retireAdmission = async () => {
+      if (owner === "replaced") {
+        await replacement.admit("embedded");
+      } else if (owner === "closed" || owner === "cancelled") {
+        admission.close();
+        if (owner === "cancelled") {
+          fixture.input.runAbortController.abort(cancelled);
         }
-      };
-      const cancelled = new Error("caller stopped during preparation");
-      let entriesBefore = structuredClone(sessionManager.getEntries());
-      let messagesBefore = structuredClone(session.messages);
-      if (phase === "before installation") {
+      }
+    };
+    const cancelled = new Error("caller stopped during preparation");
+    let entriesBefore = structuredClone(sessionManager.getEntries());
+    let messagesBefore = structuredClone(session.messages);
+    if (phase === "before installation") {
+      await retireAdmission();
+    }
+    const work = runEmbeddedAttemptExecutionPhase(fixture.input);
+    const outcome = work.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    try {
+      expect(session.autoCompactionEnabled).toBe(true);
+      if (phase === "during summarization") {
+        await Promise.race([summaryStarted.promise, work]);
+        expect(session.isCompacting).toBe(true);
+        entriesBefore = structuredClone(sessionManager.getEntries());
+        messagesBefore = structuredClone(session.messages);
         await retireAdmission();
       }
-      const work = runEmbeddedAttemptExecutionPhase(fixture.input);
-      const outcome = work.then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      try {
-        expect(session.autoCompactionEnabled).toBe(true);
-        if (phase === "during summarization") {
-          await Promise.race([summaryStarted.promise, work]);
-          expect(session.isCompacting).toBe(true);
-          entriesBefore = structuredClone(sessionManager.getEntries());
-          messagesBefore = structuredClone(session.messages);
-          await retireAdmission();
-        }
-        releaseSummary.resolve();
-        const error = await outcome;
-        const compacted = sessionManager
-          .getEntries()
-          .filter((entry) => entry.type === "compaction");
-        expect(compacted).toHaveLength(owner === "active" ? 1 : 0);
-        if (phase === "before installation") {
-          if (owner === "cancelled") {
-            expect(error).toBe(cancelled);
-          } else {
-            expect(error).toMatchObject({
-              message: expect.stringContaining("active admitted run"),
-            });
-          }
-          expect(requests).toBe(0);
-          expect(ends).toEqual([]);
+      releaseSummary.resolve();
+      const error = await outcome;
+      const compacted = sessionManager.getEntries().filter((entry) => entry.type === "compaction");
+      expect(compacted).toHaveLength(owner === "active" ? 1 : 0);
+      if (phase === "before installation") {
+        if (owner === "cancelled") {
+          expect(error).toBe(cancelled);
         } else {
-          expect(error).toBeUndefined();
-          expect(ends).toMatchObject([
-            {
-              type: "compaction_end",
-              reason: "threshold",
-              outcome: { status: owner === "active" ? "completed" : "failed" },
-            },
-          ]);
+          expect(error).toMatchObject({
+            message: expect.stringContaining("active admitted run"),
+          });
         }
-        expect(events).toHaveLength(owner === "active" ? 1 : 0);
-        expect(fixture.skillInstructionDeliveryCache.size).toBe(owner === "active" ? 0 : 1);
-        if (owner !== "active") {
-          expect(sessionManager.getEntries()).toEqual(entriesBefore);
-          expect(session.messages).toEqual(messagesBefore);
-        }
-        expect(network).not.toHaveBeenCalled();
-      } finally {
-        releaseSummary.resolve();
-        await Promise.allSettled([work]);
-        admission.close();
-        replacement.close();
+        expect(requests).toBe(0);
+        expect(ends).toEqual([]);
+      } else {
+        expect(error).toBeUndefined();
+        expect(ends).toMatchObject([
+          {
+            type: "compaction_end",
+            reason: "threshold",
+            outcome: { status: owner === "active" ? "completed" : "failed" },
+          },
+        ]);
       }
-    },
-  );
+      expect(events).toHaveLength(owner === "active" ? 1 : 0);
+      expect(fixture.skillInstructionDeliveryCache.size).toBe(owner === "active" ? 0 : 1);
+      if (owner !== "active") {
+        expect(sessionManager.getEntries()).toEqual(entriesBefore);
+        expect(session.messages).toEqual(messagesBefore);
+      }
+      expect(network).not.toHaveBeenCalled();
+    } finally {
+      releaseSummary.resolve();
+      await Promise.allSettled([work]);
+      admission.close();
+      replacement.close();
+    }
+  });
 
   it("prepares guarded history, stream handling, deadlines, and settlement in order", async () => {
     const fixture = await createFixture();

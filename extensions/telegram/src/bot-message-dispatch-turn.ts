@@ -156,12 +156,8 @@ export async function runTelegramDispatchTurn(turn: Turn) {
             abortSignal: turn.turnAdoptionLifecycle?.abortSignal,
             turnAdoptionLifecycle: turn.turnAdoptionLifecycle
               ? {
+                  ...turn.turnAdoptionLifecycle,
                   admission: turn.turnAdoptionLifecycle.admission ?? "exclusive",
-                  onAdopted: turn.turnAdoptionLifecycle.onAdopted,
-                  onDeferred: turn.turnAdoptionLifecycle.onDeferred,
-                  onDeferredHeartbeat: turn.turnAdoptionLifecycle.onDeferredHeartbeat,
-                  onAbandoned: turn.turnAdoptionLifecycle.onAbandoned,
-                  abortSignal: turn.turnAdoptionLifecycle.abortSignal,
                 }
               : undefined,
             sourceReplyDeliveryMode: isRoomEvent ? "message_tool_only" : undefined,

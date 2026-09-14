@@ -329,37 +329,52 @@ common_repo_root() {
   git -C "$base_dir" rev-parse --show-toplevel
 }
 
-worktree_path_for_branch() {
+worktree_path_for_branch() (
+  set -o pipefail
   local branch="$1"
   local ref="refs/heads/$branch"
-  local field worktree="" match=""
+  local field worktree="" match="" records=0 pipeline_status
   # Drain foreground Git before the supervisor checks for leftover children.
   git worktree list --porcelain -z | {
     while IFS= read -r -d '' field; do
       case "$field" in
-        worktree\ *) worktree="${field#worktree }" ;;
+        worktree\ *) worktree="${field#worktree }"; records=$((records + 1)) ;;
         "branch $ref") match="$worktree" ;;
         "") worktree="" ;;
       esac
     done
-    [ -n "$match" ] || return 1
-    printf '%s\n' "$match"
+    [ -z "$field" ] && [ -z "$worktree" ] && [ "$records" -gt 0 ] || return 1
+    [ -z "$match" ] || printf '%s\n' "$match"
+  } || {
+    pipeline_status=("${PIPESTATUS[@]}")
+    [ "${pipeline_status[0]}" -eq 0 ] || return "${pipeline_status[0]}"
+    return "${pipeline_status[1]}"
   }
-}
+)
 
-worktree_is_registered() {
+worktree_registration_state() (
+  set -o pipefail
   local path="$1"
-  local field found=false
+  local field found=0 records=0 open=false pipeline_status
   # Git must finish before a successful operation can release its lock.
   git worktree list --porcelain -z | {
     while IFS= read -r -d '' field; do
       case "$field" in
-        worktree\ *) [ "${field#worktree }" != "$path" ] || found=true ;;
+        worktree\ *)
+          records=$((records + 1)); open=true
+          [ "${field#worktree }" != "$path" ] || found=$((found + 1))
+          ;;
+        "") open=false ;;
       esac
     done
-    [ "$found" = true ]
+    [ -z "$field" ] && [ "$open" = false ] && [ "$records" -gt 0 ] && [ "$found" -le 1 ] || return 1
+    if [ "$found" -eq 1 ]; then printf 'registered\n'; else printf 'absent\n'; fi
+  } || {
+    pipeline_status=("${PIPESTATUS[@]}")
+    [ "${pipeline_status[0]}" -eq 0 ] || return "${pipeline_status[0]}"
+    return "${pipeline_status[1]}"
   }
-}
+)
 
 resolve_existing_dir_path() {
   local path="$1"
@@ -373,30 +388,85 @@ resolve_existing_dir_path() {
   )
 }
 
-is_repo_pr_worktree_dir() {
-  local path="$1"
-  local root
-  root=$(common_repo_root)
-
-  local worktrees_dir="$root/.worktrees"
-  local resolved_path
-  resolved_path=$(resolve_existing_dir_path "$path" 2>/dev/null || true)
-  if [ -z "$resolved_path" ]; then
-    return 1
-  fi
-
-  local resolved_worktrees_dir
-  resolved_worktrees_dir=$(resolve_existing_dir_path "$worktrees_dir" 2>/dev/null || true)
-  if [ -z "$resolved_worktrees_dir" ]; then
-    return 1
-  fi
-
-  case "$resolved_path" in
-    "$resolved_worktrees_dir"/pr-*)
-      return 0
-      ;;
-  esac
-  return 1
+pr_worktree_state() {
+  local root common_dir
+  root=$(common_repo_root) || return $?
+  common_dir=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir) || return $?
+  # Git omits damaged admin entries from its listing. Bind the exact backlink
+  # separately, and distinguish genuine absence from an unreadable path.
+  node - "$root" "$common_dir" "$1" "${2:-}" "${3:-cleanup}" <<'EOF_NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const [root, common, requested, previousAdmin, purpose] = process.argv.slice(2);
+function stat(file) {
+  try { return fs.lstatSync(file); } catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+function read(file) {
+  if (!stat(file)?.isFile()) throw new Error("damaged worktree metadata");
+  return fs.readFileSync(file, "utf8").trimEnd();
+}
+try {
+  const canonicalParent = path.join(fs.realpathSync(root), ".worktrees");
+  const parent = stat(canonicalParent) ? fs.realpathSync(canonicalParent) : canonicalParent;
+  const input = path.resolve(requested);
+  const inputParent = path.dirname(input);
+  const resolvedParent = stat(inputParent) ? fs.realpathSync(inputParent) : inputParent;
+  const leaf = path.basename(input);
+  if (!/^pr-[1-9][0-9]*$/.test(leaf) || resolvedParent !== parent) {
+    throw new Error("non-canonical PR-worktree path");
+  }
+  const target = path.join(parent, leaf);
+  const targetStat = stat(target);
+  if (targetStat && !targetStat.isDirectory()) throw new Error("non-canonical PR-worktree path");
+  const commonDir = fs.realpathSync(common);
+  const adminRoot = path.join(commonDir, "worktrees");
+  const adminStat = stat(adminRoot);
+  if (adminStat && !adminStat.isDirectory()) throw new Error("damaged worktree metadata");
+  const matches = [];
+  let ids;
+  // Reusing a healthy worktree needs its own identity, not proof that unrelated
+  // admin entries are readable. Destruction still requires the complete scan.
+  if (purpose === "entry" && targetStat) {
+    const gitfile = path.join(target, ".git");
+    if (!stat(gitfile)?.isFile()) {
+      throw new Error("unregistered or ambiguous PR worktree; scripts/pr refuses to mutate the shared canonical checkout");
+    }
+    const pointer = read(gitfile);
+    if (!pointer.startsWith("gitdir: ")) throw new Error("damaged worktree metadata");
+    const admin = path.resolve(target, pointer.slice(8));
+    if (path.dirname(admin) !== adminRoot) throw new Error("damaged worktree metadata");
+    ids = [path.basename(admin)];
+  } else {
+    ids = adminStat ? fs.readdirSync(adminRoot) : [];
+  }
+  // Git preserves admin IDs across moves. Only readable, valid backlinks can
+  // attribute entries; an unknown backlink cannot establish target absence.
+  for (const id of ids) {
+    const admin = path.join(adminRoot, id);
+    if (!stat(admin)?.isDirectory()) throw new Error("damaged worktree metadata");
+    const backlink = read(path.join(admin, "gitdir"));
+    if (!backlink.endsWith("/.git")) throw new Error("damaged worktree metadata");
+    if (path.resolve(admin, backlink) !== path.join(target, ".git")) continue;
+    if (path.resolve(admin, read(path.join(admin, "commondir"))) !== commonDir) {
+      throw new Error("damaged worktree metadata");
+    }
+    matches.push(admin);
+  }
+  if (matches.length > 1 || (purpose === "entry" && targetStat && matches.length !== 1)) {
+    throw new Error("ambiguous worktree metadata");
+  }
+  process.stdout.write(JSON.stringify({
+    path: target, present: Boolean(targetStat), admin: matches[0] ?? "", common: commonDir,
+    previousAdminPresent: previousAdmin ? Boolean(stat(previousAdmin)) : false,
+  }) + "\n");
+} catch (error) {
+  console.error(`Refusing PR worktree cleanup: ${error.code ?? error.message}`);
+  process.exitCode = 1;
+}
+EOF_NODE
 }
 
 has_worktree_merge_output() {
@@ -422,109 +492,69 @@ require_worktree_cleanup_evidence() (
 )
 
 remove_worktree_if_present() {
-  local path="$1"
-  local registered_path=""
-  local registered_parent=""
-  registered_parent=$(resolve_existing_dir_path "$(dirname "$path")" 2>/dev/null || true)
-  if [ -n "$registered_parent" ]; then
-    registered_path="$registered_parent/$(basename "$path")"
-  fi
-
-  if [ ! -e "$path" ]; then
-    # A torn-down PR worktree once left a stale registration that poisoned
-    # every later worktree add until the registration was pruned.
-    if [ -n "$registered_path" ] && worktree_is_registered "$registered_path"; then
-      git worktree prune || true
-      if worktree_is_registered "$registered_path"; then
-        echo "Warning: failed to remove registered worktree $path"
-      fi
-    fi
+  local path="$1" state registered_path registration admin
+  state=$(pr_worktree_state "$path") || return $?
+  registered_path=$(printf '%s\n' "$state" | jq -r '.path') || return $?
+  admin=$(printf '%s\n' "$state" | jq -r '.admin') || return $?
+  registration=$(worktree_registration_state "$registered_path") || return $?
+  require_worktree_cleanup_evidence "$path" || return $?
+  if [ "$registration" = absent ] &&
+    printf '%s\n' "$state" | jq -e '.present == false and .admin == ""' >/dev/null; then
     return 0
   fi
-
-  if [ -L "$path" ] || ! is_repo_pr_worktree_dir "$path"; then
-    echo "Warning: refusing to remove non-canonical PR-worktree path $path"
-    return 0
+  if [ "$registration" != registered ] || [ -z "$admin" ]; then
+    echo "Preserving $path: unregistered or ambiguous PR worktree; scripts/pr refuses to mutate the shared canonical checkout." >&2
+    return 1
   fi
-
-  require_worktree_cleanup_evidence "$path" || return 1
-
-  if [ -n "$registered_path" ] && worktree_is_registered "$registered_path"; then
-    local remove_error
-    if ! remove_error=$(git worktree remove --force "$registered_path" 2>&1); then
-      echo "Warning: git worktree remove failed for $path: $remove_error"
-    fi
+  # One native removal owns both the path and its exact admin entry. A partial
+  # deletion still fails; neither repository-wide prune nor orphan trash is safe.
+  git worktree remove --force -- "$registered_path" || return $?
+  state=$(pr_worktree_state "$path" "$admin") || return $?
+  registration=$(worktree_registration_state "$registered_path") || return $?
+  if [ "$registration" != absent ] ||
+    ! printf '%s\n' "$state" | jq -e --arg path "$registered_path" \
+      '.path == $path and .present == false and .admin == "" and .previousAdminPresent == false' >/dev/null; then
+    echo "Preserving cleanup state for $path: worktree removal is incomplete." >&2
+    return 1
   fi
-
-  if [ ! -e "$path" ]; then
-    # See the stale-registration recovery above: removal can delete the path
-    # while leaving Git's linked-worktree metadata behind.
-    if [ -n "$registered_path" ] && worktree_is_registered "$registered_path"; then
-      git worktree prune || true
-      if worktree_is_registered "$registered_path"; then
-        echo "Warning: failed to remove registered worktree $path"
-      fi
-    fi
-    return 0
-  fi
-
-  if [ -n "$registered_path" ] && worktree_is_registered "$registered_path"; then
-    echo "Warning: failed to remove registered worktree $path"
-    return 0
-  fi
-
-  if [ -L "$path" ] || ! is_repo_pr_worktree_dir "$path"; then
-    echo "Warning: refusing to trash non-PR-worktree path $path"
-    return 0
-  fi
-
-  if command -v trash >/dev/null 2>&1; then
-    trash "$path" >/dev/null 2>&1 || {
-      echo "Warning: failed to trash orphaned worktree dir $path"
-      return 0
-    }
-    return 0
-  fi
-
-  echo "Warning: orphaned worktree dir remains and trash is unavailable: $path"
-  return 0
 }
 
 delete_local_branch_if_safe() {
   local branch="$1"
   local ref="refs/heads/$branch"
 
-  if ! git show-ref --verify --quiet "$ref"; then
-    return 0
-  fi
+  local existing status
+  # for-each-ref can warn about a broken ref with status zero. Such a warning
+  # is not proof of absence, so retain diagnostics in the validated result.
+  existing=$(git for-each-ref --format="%(if:equals=$ref)%(refname)%(then)%(refname)%(end)" -- "$ref" 2>&1) || {
+    status=$?; printf '%s\n' "$existing" >&2; return "$status"
+  }
+  [ -n "$existing" ] || return 0
+  [ "$existing" = "$ref" ] || { printf '%s\n' "$existing" >&2; return 1; }
 
   local branch_worktree=""
-  branch_worktree=$(worktree_path_for_branch "$branch" 2>/dev/null || true)
+  branch_worktree=$(worktree_path_for_branch "$branch") || return $?
   if [ -n "$branch_worktree" ]; then
     echo "Skipping local branch delete for $branch; checked out in worktree $branch_worktree"
-    return 0
+    return 1
   fi
 
-  if git branch -D "$branch" >/dev/null 2>&1; then
-    return 0
-  fi
-  if git update-ref -d "$ref" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  echo "Warning: failed to delete local branch $branch"
-  return 0
+  # Git's branch owner rejects checked-out branches even with -D. Never bypass
+  # that protection with raw ref deletion when a query or deletion fails.
+  git branch -D -- "$branch" || return $?
+  existing=$(git for-each-ref --format="%(if:equals=$ref)%(refname)%(then)%(refname)%(end)" -- "$ref" 2>&1) || {
+    status=$?; printf '%s\n' "$existing" >&2; return "$status"
+  }
+  [ -z "$existing" ] || { printf 'Branch cleanup incomplete: %s\n' "$existing" >&2; return 1; }
 }
 
 cleanup_pr_worktree() {
-  local path="$1" pr branch complete=true
+  local path="$1" pr branch
   pr=$(pr_number_from_worktree_dir "$path") || return 1
-  remove_worktree_if_present "$path" || return 1
+  remove_worktree_if_present "$path" || return $?
   # Refusal or incomplete removal preserves the branches with the worktree.
   [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
   for branch in "temp/pr-$pr" "pr-$pr" "pr-$pr-prep"; do
-    delete_local_branch_if_safe "$branch" || return 1
-    if git show-ref --verify --quiet "refs/heads/$branch"; then complete=false; fi
+    delete_local_branch_if_safe "$branch" || return $?
   done
-  [ "$complete" = true ]
 }

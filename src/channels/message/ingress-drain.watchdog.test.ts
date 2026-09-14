@@ -92,12 +92,34 @@ describe("channel ingress drain watchdog", () => {
     });
   });
 
+  it("keeps adoption finalization paused across deferred heartbeats", async () => {
+    await withTempState(async (stateDir) => {
+      const queue = createTestIngressQueue(stateDir);
+      await queue.enqueue("finalizing", { text: "x" }, { laneKey: "l1" });
+      const { drain, lifecycle, heartbeat } = await deferNext(queue);
+      lifecycle.onAdoptionFinalizing();
+      try {
+        await vi.advanceTimersByTimeAsync(333);
+        heartbeat();
+        await vi.advanceTimersByTimeAsync(1_100);
+        expect(lifecycle.abortSignal.aborted).toBe(false);
+        expect(await queue.listClaims()).toMatchObject([{ id: "finalizing", attempts: 0 }]);
+        await lifecycle.onAdopted();
+        expect(await queue.listClaims()).toEqual([]);
+        expect(await queue.listPending({ limit: "all" })).toEqual([]);
+      } finally {
+        drain.dispose();
+      }
+    });
+  });
+
   it("rearms a live deferred wait, then guillotines silence", async () => {
     await withTempState(async (stateDir) => {
       let clock = 30_000;
       const queue = createTestIngressQueue(stateDir, { now: () => clock });
       await queue.enqueue("evt-def-stall", { text: "x" }, { laneKey: "l1" });
       let heartbeat: (() => void) | undefined;
+      let heartbeatIntervalMs: number | undefined;
 
       const drain = createChannelIngressDrain<Payload>({
         queue,
@@ -106,6 +128,7 @@ describe("channel ingress drain watchdog", () => {
         dispatchClaimedEvent: async (_event, lifecycle) => {
           lifecycle.onDeferred();
           heartbeat = lifecycle.onDeferredHeartbeat;
+          heartbeatIntervalMs = lifecycle.deferredHeartbeatIntervalMs;
           // Stay deferred without adoption -- watchdog must still fire.
           await new Promise(() => {});
         },
@@ -113,6 +136,7 @@ describe("channel ingress drain watchdog", () => {
 
       await drain.drainOnce();
       expect(await queue.listClaims()).toHaveLength(1);
+      expect(heartbeatIntervalMs).toBe(1_666);
       clock += 4_000;
       await vi.advanceTimersByTimeAsync(4_000);
       heartbeat?.();

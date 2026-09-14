@@ -88,6 +88,7 @@ function createPublicationPane(scope?: "global" | "per-sender") {
     shared,
     personal: { state: "connected", generation, account },
     pendingPersonal: null,
+    latestShared: null,
   };
   const request = vi.fn(async (method: string, _params?: unknown): Promise<unknown> => {
     if (method === "sessions.github.options") {
@@ -180,7 +181,7 @@ function createPublicationPane(scope?: "global" | "per-sender") {
   const settled = async () => {
     await vi.waitFor(() => {
       pane.render();
-      expect(pane.chatProps?.githubPublication?.busy).toBe(false);
+      expect(pane.chatProps?.githubPublication?.activity).toBeNull();
     });
     return pane.chatProps!.githubPublication!;
   };
@@ -241,25 +242,30 @@ describe("chat pane pushed pull request state", () => {
     },
   );
 
-  it("passes repository-only session context to chat rendering and clears it on a session switch", async () => {
-    const { pane, state, emitGatewayEvent } = createPublicationPane();
-    pane.refreshSessionPullRequests();
-    await Promise.resolve();
-    emitSnapshot(emitGatewayEvent, state.sessionKey, {
-      repository: { owner: "openclaw", repo: "openclaw" },
-      pullRequests: [],
-      rateLimited: false,
-      status: "ready",
-    });
-    pane.refreshSessionPullRequests();
-    pane.render();
-    expect(pane.chatProps?.githubRepo).toEqual({ owner: "openclaw", repo: "openclaw" });
+  it.each(["ready", "unavailable", "rate-limited"] as const)(
+    "passes repository context and %s status to chat rendering and clears both on a session switch",
+    async (status) => {
+      const { pane, state, emitGatewayEvent } = createPublicationPane();
+      pane.refreshSessionPullRequests();
+      await Promise.resolve();
+      emitSnapshot(emitGatewayEvent, state.sessionKey, {
+        repository: { owner: "openclaw", repo: "openclaw" },
+        pullRequests: [],
+        rateLimited: status === "rate-limited",
+        status,
+      });
+      pane.refreshSessionPullRequests();
+      pane.render();
+      expect(pane.chatProps?.githubRepo).toEqual({ owner: "openclaw", repo: "openclaw" });
+      expect(pane.chatProps?.pullRequestsStatus).toBe(status);
 
-    state.sessionKey = "agent:main:another-checkout";
-    pane.refreshSessionPullRequests();
-    pane.render();
-    expect(pane.chatProps?.githubRepo).toBeNull();
-  });
+      state.sessionKey = "agent:main:another-checkout";
+      pane.refreshSessionPullRequests();
+      pane.render();
+      expect(pane.chatProps?.githubRepo).toBeNull();
+      expect(pane.chatProps?.pullRequestsStatus).toBe("ready");
+    },
+  );
 
   it.each(["global", "per-sender"] as const)(
     "preserves the selected raw-global owner through publication RPCs in %s scope",

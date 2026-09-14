@@ -41,6 +41,7 @@ import {
   prepareSessionWorktree,
   resolveSessionWorktreeBase,
   resolveSpawnParentWorktreeSource,
+  validateSessionWorktreeSelection,
 } from "../session-worktree-preparation.js";
 import { prepareSkillLibrarySessionCreation } from "../skill-library-session.js";
 import { createAgentRuntimeAuthorityGuard } from "./agent-runtime-authority.js";
@@ -86,6 +87,12 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       return;
     }
     const p = params;
+    const emptyWorkspace = p.worktreeSource === "empty";
+    const worktreeSelectionError = validateSessionWorktreeSelection(p);
+    if (worktreeSelectionError) {
+      respond(false, undefined, worktreeSelectionError);
+      return;
+    }
     const parentSessionKey = normalizeOptionalString(p.parentSessionKey);
     const sessionCreation = prepareSkillLibrarySessionCreation(
       client,
@@ -297,27 +304,8 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       }
       requestedCwd = containment.path;
     }
-    if (requestedExecNode && p.worktree === true) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "sessions.create worktree cannot target execNode"),
-      );
-      return;
-    }
     const worktreeBaseRef = normalizeOptionalString(p.worktreeBaseRef);
     const requestedWorktreeName = normalizeOptionalString(p.worktreeName);
-    if ((worktreeBaseRef || requestedWorktreeName) && p.worktree !== true) {
-      respond(
-        false,
-        undefined,
-        errorShape(
-          ErrorCodes.INVALID_REQUEST,
-          "sessions.create worktreeBaseRef/worktreeName require worktree=true",
-        ),
-      );
-      return;
-    }
     const explicitSessionLabel = normalizeOptionalString(p.label);
     const preparedDisplayName = normalizeOptionalString(p.displayName);
     const titleAgentId = explicitlyRequestedAgent.agentId;
@@ -335,7 +323,8 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const deferWorktree = p.worktree === true && hasInitialTurn && !existingTargetEntry;
+    const deferWorktree =
+      p.worktree === true && !emptyWorkspace && hasInitialTurn && !existingTargetEntry;
     let projectRoot: string | undefined;
     if (requestedProjectId) {
       const project = resolveProjectRegistry(cfg, requestedProjectId);
@@ -377,19 +366,20 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
     const sessionExecCwd = requestedExecNode ? requestedCwd : undefined;
     let sessionCwd = requestedExecNode ? undefined : (projectRoot ?? requestedCwd);
     let prepareLifecycle: Parameters<typeof createGatewaySession>[0]["prepareLifecycle"];
-    const preparedRoot = repository
-      ? undefined
-      : prepareSessionCreateFilesystemRoot({
-          cfg,
-          enforceSandboxContainment: Boolean(
-            sessionCwd && !requestedExecNode && (requestedProjectId || p.worktree !== true),
-          ),
-          requestedExecNode,
-          requestedProjectId,
-          sessionCwd,
-          sessionKey,
-          targetAgentId: sessionAgentId,
-        });
+    const preparedRoot =
+      repository || emptyWorkspace
+        ? undefined
+        : prepareSessionCreateFilesystemRoot({
+            cfg,
+            enforceSandboxContainment: Boolean(
+              sessionCwd && !requestedExecNode && (requestedProjectId || p.worktree !== true),
+            ),
+            requestedExecNode,
+            requestedProjectId,
+            sessionCwd,
+            sessionKey,
+            targetAgentId: sessionAgentId,
+          });
     if (preparedRoot && !preparedRoot.ok) {
       respond(false, undefined, preparedRoot.error);
       return;
@@ -403,8 +393,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       });
     }
     if (p.worktree === true) {
-      // Workspace-contained cwd and registry-authorized projects stay at operator.write;
-      // arbitrary host paths still require operator.admin before reaching this block.
+      // Raw cwd authorization and project-registry selection have already been checked.
       const agentId = explicitlyRequestedAgent.agentId;
       let targetKey = sessionKey;
       let preservesUnspecifiedKey = false;
@@ -437,6 +426,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       sessionKey = preservesUnspecifiedKey ? undefined : targetKey;
       sessionAgentId = target.agentId;
       const inheritParentWorktree =
+        !emptyWorkspace &&
         !projectRoot &&
         !requestedCwd &&
         !requestedProjectGitUrl &&
@@ -448,13 +438,18 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
         ? resolveSpawnParentWorktreeSource(spawnRequesterSessionKey, target.agentId, commitGuard)
         : undefined;
       commitGuard = inheritedSource?.assertCurrent ?? commitGuard;
-      const workspace =
-        projectRoot ??
-        requestedCwd ??
-        inheritedSource?.workspace ??
-        resolveAgentWorkspaceDir(cfg, target.agentId);
+      const workspace = emptyWorkspace
+        ? { kind: "empty" as const }
+        : (projectRoot ??
+          requestedCwd ??
+          inheritedSource?.workspace ??
+          resolveAgentWorkspaceDir(cfg, target.agentId));
       // Git discovery permits subdirectory workspaces with an ancestor .git entry.
-      if (!requestedProjectGitUrl && !insideGitCheckout(workspace)) {
+      if (
+        typeof workspace === "string" &&
+        !requestedProjectGitUrl &&
+        !insideGitCheckout(workspace)
+      ) {
         respond(
           false,
           undefined,
@@ -464,14 +459,17 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       }
       // Reuse validates the binding, not a selected ref that may have since disappeared.
       const resolvedBase =
-        worktreeBaseRef && !requestedProjectGitUrl && !existingTargetEntry?.worktree
+        typeof workspace === "string" &&
+        worktreeBaseRef &&
+        !requestedProjectGitUrl &&
+        !existingTargetEntry?.worktree
           ? await resolveSessionWorktreeBase(workspace, worktreeBaseRef, signal)
           : undefined;
       if (resolvedBase && !resolvedBase.ok) {
         return respond(false, undefined, resolvedBase.error);
       }
       const baseCommit = resolvedBase?.value;
-      if (deferWorktree) {
+      if (deferWorktree && typeof workspace === "string") {
         // Persist intent before setup so the admitted turn can retry in this session.
         pendingWorktree = {
           ...(requestedProjectGitUrl ? {} : { workspace }),
@@ -521,6 +519,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
                 })
               : undefined;
           const prepared = await prepareSessionWorktree({
+            cfg,
             target: lifecycleTarget,
             workspace,
             name: requestedWorktreeName,
@@ -533,6 +532,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
               resolveExplicitSessionName(lifecycleTarget.entry) ??
               source,
             runSetupScript: clientScopes.includes(ADMIN_SCOPE),
+            signal,
             commitGuard,
           });
           if (prepared.ok) {

@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as subagentRegistryState from "../agents/subagents/registry/subagent-registry-state.js";
@@ -25,12 +26,16 @@ import {
   closeOpenClawAgentDatabasesForTest,
   resolveIncognitoOpenClawAgentSqlitePath,
 } from "../state/openclaw-agent-db.js";
-import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import {
+  closeOpenClawStateDatabaseForTest,
+  openOpenClawStateDatabase,
+} from "../state/openclaw-state-db.js";
 import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { listSessionFixture } from "./session-list.test-support.js";
 import {
   loadCombinedSessionStoreForGatewayCore,
+  loadGatewaySessionEntryReadOnly,
   loadGatewaySessionLifecycleSnapshot,
   resolveGatewayModelSupportsImages,
 } from "./session-utils.js";
@@ -63,6 +68,71 @@ describe("session list subagent metadata", () => {
     session: { mainKey: "main" },
     agents: { list: [{ id: "main", default: true }] },
   } as OpenClawConfig;
+
+  test("loads direct children without inspecting unrelated retained registry payloads", async () => {
+    await withStateDirEnv("openclaw-controller-registry-projection-", async () => {
+      await withEnvAsync({ OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" }, async () => {
+        const parentKey = "agent:main:main";
+        const storePath = resolveSessionStorePathCore(undefined, { agentId: "main" });
+        const runs = new Map<string, SubagentRunFixture>();
+        setRuntimeConfigSnapshot(cfg, cfg);
+        const nativeJson = new DatabaseSync(":memory:");
+        try {
+          await seedSessionEntry(storePath, parentKey, { sessionId: "parent", updatedAt: 1 });
+          for (const runId of ["explicit", "fallback", "redirected", "unrelated", "alias"]) {
+            const childSessionKey = `agent:main:subagent:${runId}`;
+            await seedSessionEntry(storePath, childSessionKey, { sessionId: runId, updatedAt: 1 });
+            runs.set(runId, {
+              runId,
+              childSessionKey,
+              requesterSessionKey:
+                runId === "explicit" ? "agent:main:other" : runId === "alias" ? "main" : parentKey,
+              controllerSessionKey:
+                runId === "fallback" || runId === "alias"
+                  ? undefined
+                  : runId === "explicit"
+                    ? parentKey
+                    : "agent:main:other",
+              requesterDisplayKey: "parent",
+              task: runId === "unrelated" ? "unrelated-retained-payload".repeat(1_024) : runId,
+              cleanup: "keep",
+              createdAt: runId === "alias" ? 0 : 1,
+              startedAt: 2,
+            });
+          }
+          saveSubagentRegistryToSqlite(canonicalSubagentRunFixtures(runs));
+          subagentRegistryState.clearSubagentRunsReadCacheForTest();
+          const validateJson = nativeJson.prepare("SELECT json_valid(?) AS value");
+          let unrelatedInspections = 0;
+          openOpenClawStateDatabase().db.function(
+            "json_valid",
+            { deterministic: true },
+            (value) => {
+              if (typeof value === "string" && value.includes("unrelated-retained-payload")) {
+                unrelatedInspections += 1;
+              }
+              return validateJson.get(value)?.value ?? 0;
+            },
+          );
+
+          const { store } = loadGatewaySessionEntryReadOnly("main", {
+            includeStoreChildEntries: true,
+          });
+          expect(Object.keys(store)).toEqual([
+            parentKey,
+            "agent:main:subagent:explicit",
+            "agent:main:subagent:fallback",
+            "agent:main:subagent:alias",
+          ]);
+          expect(unrelatedInspections).toBe(0);
+        } finally {
+          closeOpenClawStateDatabaseForTest();
+          nativeJson.close();
+          resetConfigRuntimeState();
+        }
+      });
+    });
+  });
 
   test("projects lifecycle ownership and lineage without parsing retained task payloads", async () => {
     await withStateDirEnv("openclaw-lifecycle-registry-projection-", async () => {

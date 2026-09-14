@@ -27,6 +27,14 @@ history dividers. Find in Conversation expands the transcript while searching.
 This presentation applies to primary agent conversations and new threads without
 changing stored history or transcript exports.
 
+Subagent activity uses one claw shape throughout its lifecycle: muted and still
+while queued, animated while running, briefly green after completion, and dimmed
+after cancellation. Failed tasks add a small warning badge; timed-out tasks add
+an amber clock. Hover for the exact status, which is also available to VoiceOver.
+Names stay free of status suffixes, and unnamed tasks appear as **Subagent**.
+Reduced Motion keeps the running claw still. Existing detail expansion and
+completed-task retention are unchanged.
+
 ## Diagrams
 
 Completed fenced blocks labeled `mermaid` render as diagrams in native chat,

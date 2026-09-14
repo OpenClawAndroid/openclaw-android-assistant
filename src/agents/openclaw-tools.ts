@@ -619,6 +619,7 @@ export function createOpenClawTools(options?: OpenClawToolsOptions): AnyAgentToo
         requesterTurnRunId: options?.runId,
         swarmCollector: options?.swarmCollector,
         claimYieldCompletion: options?.claimYieldCompletion,
+        processScopeKey: options?.processScopeKey,
       }),
       onYield: options?.onYield,
     }),

@@ -12,6 +12,7 @@ import {
   UPDATE_EFFECTIVE_CHANNEL_ENV,
 } from "../../infra/update-channels.js";
 import { resolveUpdateInstallKind } from "../../infra/update-check.js";
+import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
 import { normalizeUpdatePostInstallDoctorWarnings } from "../../infra/update-doctor-result.js";
 import { POST_CORE_UPDATE_SOURCE_CONFIG_PATH_ENV } from "../../infra/update-post-core-context.js";
 import {
@@ -61,7 +62,7 @@ import { UpdateFinalizationLifecycle } from "./update-finalization-lifecycle.js"
 
 export async function updateFinalizeCommand(
   opts: UpdateFinalizeOptions,
-  recoveryRunIds: readonly string[] = [],
+  recoveryRunIds?: readonly string[],
 ): Promise<void> {
   const invocationCwd = tryResolveInvocationCwd();
   suppressDeprecations();
@@ -93,7 +94,8 @@ export async function updateFinalizeCommand(
             recoverOrphanedSidecars: false,
           });
           await retainCliProcessJobUntilExit();
-          const admittedRunId = lifecycle.attachLedger();
+          // Public repair supplies a recovery selection, even when it is empty.
+          const admittedRunId = lifecycle.attachLedger(recoveryRunIds !== undefined);
           const resolvedRoot = await resolveUpdateRoot();
           const resolvedInstallKind = await resolveUpdateInstallKind(resolvedRoot, {
             timeoutMs: lifecycle.budget("preflight"),
@@ -103,7 +105,13 @@ export async function updateFinalizeCommand(
         }),
       );
       lifecycle.root = root;
-      const target = { root, env: resolveServiceRefreshEnv(process.env, invocationCwd) };
+      const target = {
+        root,
+        env: {
+          ...resolveServiceRefreshEnv(process.env, invocationCwd),
+          [UPDATE_RUN_ID_ENV]: runId,
+        },
+      };
       await withUpdateFailureTriage(
         { ...opts, invocationCwd, run: { runId, env: target.env } },
         target,
@@ -113,7 +121,13 @@ export async function updateFinalizeCommand(
               const prepared = await lifecycle.run("targetConfigValidation", () =>
                 prepareUpdateFinalization(opts, root, installKind, requestedChannel),
               );
-              await updateFinalizeCommandInternal(opts, prepared, lifecycle, recoveryRunIds);
+              await updateFinalizeCommandInternal(
+                opts,
+                prepared,
+                lifecycle,
+                recoveryRunIds ?? [],
+                runId,
+              );
             } catch (error) {
               if (error instanceof UpdateCommandFailure) {
                 lifecycle.complete(error.exitCode);
@@ -201,6 +215,7 @@ async function updateFinalizeCommandInternal(
   prepared: Awaited<ReturnType<typeof prepareUpdateFinalization>>,
   lifecycle: UpdateFinalizationLifecycle,
   recoveryRunIds: readonly string[],
+  invokingRunId: string,
 ): Promise<void> {
   const { root, preFinalizeConfig, requestedChannel, storedChannel, effectiveChannel, channel } =
     prepared;
@@ -224,6 +239,7 @@ async function updateFinalizeCommandInternal(
       runUpdateFinalizationDoctorInFreshProcess({
         phase: "pre-plugin",
         root,
+        runId: invokingRunId,
         yes: opts.yes === true,
         json: opts.json === true,
         workspaceSuggestions: true,
@@ -269,6 +285,7 @@ async function updateFinalizeCommandInternal(
     async () => {
       const result = await completePostCorePluginUpdate({
         root,
+        runId: invokingRunId,
         pluginUpdate: initialPluginUpdate,
         freshDoctorRequired: initialPluginUpdate.changed,
         yes: opts.yes === true,

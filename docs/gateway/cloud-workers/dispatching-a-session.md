@@ -8,16 +8,17 @@ How an authorized session reaches a cloud destination, what the Control UI requi
 
 ## Dispatching a session
 
-Administrators can run an authorized repository or managed-worktree session on a configured cloud profile. Session ownership and participation checks are revalidated before placement lifecycle changes commit.
+Administrators can run an authorized session on a configured cloud profile, including a fresh workspace without a repository. Session ownership and participation checks are revalidated before placement lifecycle changes commit.
 
-In the Control UI, open **New Session** and use the unified **Place** picker to choose both the working folder and a **Cloud · profile** destination. A cloud destination appears only when all four eligibility gates pass:
+In the Control UI, open **New Session** and choose a **Cloud** destination. A cloud destination is available when these eligibility gates pass:
 
 1. The connected operator has `operator.admin` scope.
 2. `environments.list` advertises at least one configured profile.
-3. A GitHub repository is selected, or the selected Gateway folder is a Git checkout that can use a managed worktree.
-4. The selected agent runtime advertises cloud placement support.
+3. The selected agent runtime advertises cloud placement support.
 
-With a GitHub repository selected, **Remote checkout** lets you choose the source ref without cloning on the Gateway. With a Gateway folder selected, cloud selection enables its managed worktree. The Gateway creates the session, finishes dispatch, and only then sends the first turn. The server badge in the session sidebar shows the durable placement state. Startup recovery retains the repository URL and ref along with the destination and first message.
+Without an explicitly selected folder, project, or worktree, remote sessions default to **New workspace**: an empty, isolated working directory. You can also choose **New workspace** from the project picker. No repository, initial commit, or Gateway folder is required. OpenClaw uses a private backing repository for each fresh session so workspace snapshots, recovery, and cleanup keep their normal behavior; sessions do not share Git remotes or history. Existing local files are not copied into the new workspace.
+
+With a GitHub repository selected, **Remote checkout** lets you choose the source ref without cloning on the Gateway. With a Gateway folder selected, cloud selection enables its managed worktree and still requires that folder to be a usable Git checkout. Selecting a destination does not discard an explicit source while Git discovery is pending; choose **New workspace** to start empty instead. The Gateway creates the session, finishes dispatch, and only then sends the first turn. The server badge in the session sidebar shows the durable placement state. Startup recovery retains the workspace selection along with the destination and first message.
 
 If the Gateway restarts during provisioning, the pending first message waits for recovery and continues automatically when its worker is ready. Temporary startup or suspension errors do not cancel setup. The first message stays before later recovery notices in the chat, including after reconnecting.
 

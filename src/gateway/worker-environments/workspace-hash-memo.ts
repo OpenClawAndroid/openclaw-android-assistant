@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
 import { MAX_RECONCILIATION_ENTRIES } from "./workspace-manifest.js";
 
-type WorkspaceHashMetrics = {
+export type WorkspaceHashMetrics = {
   contentHashCount: number;
   contentHashDurationMs: number;
   memoHitCount: number;
@@ -127,13 +127,18 @@ export async function withWorkspaceHashMemo<T>(
 export async function withWorkerWorkspaceHashMemo<T>(
   memo: WorkspaceHashMemo,
   operation: () => Promise<T>,
+  metrics?: WorkspaceHashMetrics,
 ): Promise<T> {
-  return await workspaceHashContext.run({ memo, owner: "worker" }, operation);
+  return await workspaceHashContext.run({ memo, owner: "worker", metrics }, operation);
 }
 
 export async function withWorkspaceHashContext<T>(operation: () => Promise<T>): Promise<T> {
   const active = workspaceHashContext.getStore();
   return await withWorkspaceHashMemo(active?.memo ?? new Map(), operation, active?.metrics);
+}
+
+export async function withoutWorkspaceHashContext<T>(operation: () => Promise<T>): Promise<T> {
+  return await workspaceHashContext.exit(operation);
 }
 
 // A placement-lifetime memo self-bounds its worker entries (each remote capture

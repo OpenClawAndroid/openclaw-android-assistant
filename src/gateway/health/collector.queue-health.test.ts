@@ -46,16 +46,27 @@ describe("queue health collector", () => {
       prefix: "openclaw-health-dq-",
     });
     try {
-      const { moveDeliveryQueueEntryToFailed, upsertDeliveryQueueEntry } =
-        await import("../../infra/delivery-queue-sqlite.js");
+      const { upsertDeliveryQueueEntry } = await import("../../infra/delivery-queue-sqlite.js");
+      const { prepareDeliveryQueueTerminalEntry, terminalizePendingDeliveryQueueEntryInDatabase } =
+        await import("../../infra/delivery-queue-sqlite.kernel.js");
+      const { openOpenClawStateDatabase } = await import("../../state/openclaw-state-db.js");
       const clean = await collectHealth();
       expect(clean.deliveryQueues).toBeUndefined();
 
-      upsertDeliveryQueueEntry({
-        queueName: "outbound",
-        entry: { id: "dead-1", enqueuedAt: 1_000, retryCount: 5, retainOnFailure: true },
-      });
-      moveDeliveryQueueEntryToFailed("outbound", "dead-1");
+      const entry = {
+        id: "dead-1",
+        enqueuedAt: 1_000,
+        retryCount: 5,
+        retainOnFailure: true as const,
+      };
+      upsertDeliveryQueueEntry({ queueName: "outbound", entry });
+      const database = openOpenClawStateDatabase();
+      expect(
+        terminalizePendingDeliveryQueueEntryInDatabase(
+          database,
+          prepareDeliveryQueueTerminalEntry({ queueName: "outbound", id: entry.id, entry }),
+        ),
+      ).toMatchObject({ status: "terminalized" });
       const { createChannelIngressQueue } = await import("../../channels/message/ingress-queue.js");
       const ingressQueue = createChannelIngressQueue<{ text: string }>({
         channelId: "telegram",

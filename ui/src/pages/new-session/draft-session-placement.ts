@@ -13,6 +13,7 @@ export type PendingPlacementPlace = {
   machineClass?: string;
   cwd?: string;
   repository?: SessionCreateParams["repository"];
+  worktreeSource?: SessionCreateParams["worktreeSource"];
 };
 
 export function resolveDraftSessionPlacement(
@@ -57,6 +58,9 @@ export function projectDraftSessionPlacementRecovery(recovery: SessionPlacementR
         ? { deviceId: recovery.target.deviceId }
         : { autoDevice: true }),
     cwd: recovery.createParams?.cwd,
+    ...(recovery.createParams?.worktreeSource
+      ? { worktreeSource: recovery.createParams.worktreeSource }
+      : {}),
     ...(recovery.createParams?.repository
       ? { repository: { ...recovery.createParams.repository } }
       : {}),

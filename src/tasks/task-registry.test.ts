@@ -1082,6 +1082,10 @@ describe("task-registry", () => {
       expect(getTaskActivitySnapshot(task.taskId)).toEqual({
         lastActivity: "Editing the native child path",
         diffStat: { files: 2, added: 13, removed: 2 },
+        executionRunId: runId,
+        executionState: "running",
+        lastActivityAt: expect.any(Number),
+        currentTool: { name: "bash", startedAt: expect.any(Number) },
       });
     });
   });

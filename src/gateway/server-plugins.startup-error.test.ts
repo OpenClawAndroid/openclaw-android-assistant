@@ -12,7 +12,11 @@ import {
   INSTANCE_BINDING_PROBE_METHOD,
   writeInstanceBindingProbePlugin,
 } from "./server-plugins.lifecycle.test-fixtures.js";
-import { installInstanceBindingConfigIo } from "./server-plugins.lifecycle.test-support.js";
+import {
+  installInstanceBindingConfigIo,
+  requestSettledInstanceBindingProbe,
+  requireBoundRuntime,
+} from "./server-plugins.lifecycle.test-support.js";
 import {
   connectWebchatClient,
   installGatewayTestHooks,
@@ -38,7 +42,7 @@ it(
   "keeps startup errors diagnostic while healthy plugins reload and disable",
   { timeout: 120_000 },
   async () => {
-    const coordinator = installInstanceBindingProbeCoordinator();
+    const coordinator = installInstanceBindingProbeCoordinator({ reportReloadSettlement: true });
     const bundledRoot = tempDirs.make("openclaw-startup-error-");
     await writeInstanceBindingProbePlugin(bundledRoot, coordinator.channelName);
     const brokenDir = path.join(bundledRoot, "startup-broken");
@@ -95,6 +99,8 @@ it(
     try {
       await server.startupSettled;
       socket = await connectWebchatClient({ port, scopes: ["operator.admin"] });
+      const { runtime } = await requireBoundRuntime(coordinator.runtimes, "startup-error");
+      await requestSettledInstanceBindingProbe(runtime);
       const initial = getActivePluginRegistry();
       assert(initial);
       const broken = initial.plugins.find((record) => record.id === "startup-broken");

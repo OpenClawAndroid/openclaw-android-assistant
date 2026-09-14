@@ -285,14 +285,43 @@ test -d "$OPENCLAW_PLUGINS_TMP_DIR"
     }
   });
 
-  it.each(
-    (["capture", "logged"] as const).flatMap((mode) =>
+  it.each([
+    ...(["capture", "logged"] as const).flatMap((mode) =>
       [0, 23, 124].flatMap((status) =>
-        [false, true].map((traceEnabled) => ({ mode, status, traceEnabled })),
+        [false, true].map((traceEnabled) => ({
+          mode,
+          status,
+          traceEnabled,
+          traceValue: traceEnabled ? "1" : "0",
+          changeAfterSource: false,
+        })),
       ),
     ),
-  )(
-    "bounds $mode diagnostics with exit $status and lifecycle tracing $traceEnabled",
+    ...(
+      [
+        ["1", true],
+        ["true", true],
+        ["TRUE", true],
+        ["yes", true],
+        ["YES", true],
+        [undefined, false],
+        ["", false],
+        ["0", false],
+        ["True", false],
+        ["Yes", false],
+        ["on", false],
+        [" true ", false],
+        ["1 ", false],
+      ] as const
+    ).map(([traceValue, traceEnabled]) => ({
+      mode: "logged" as const,
+      status: 0,
+      traceEnabled,
+      traceValue,
+      changeAfterSource: true,
+    })),
+  ])(
+    "bounds $mode diagnostics with exit $status and lifecycle tracing $traceEnabled ($traceValue, changed after source: $changeAfterSource)",
     (testCase) => {
       const root = mkdtempSync(path.join(tmpdir(), "openclaw-plugin-sweep-diagnostics-"));
       const outputFile = path.join(root, "plugins-git-inspect.json");
@@ -323,6 +352,13 @@ export OPENCLAW_PLUGINS_TMP_DIR="$SCRATCH_ROOT"
 export OPENCLAW_PLUGINS_CLI_TIMEOUT=1s
 export OPENCLAW_ENTRY=fixture-entry
 source scripts/e2e/lib/plugins/sweep.sh
+${
+  testCase.changeAfterSource
+    ? testCase.traceValue === undefined
+      ? "unset OPENCLAW_PLUGIN_LIFECYCLE_TRACE"
+      : `export OPENCLAW_PLUGIN_LIFECYCLE_TRACE=${shellQuote(testCase.traceValue)}`
+    : ""
+}
 umask 000
 openclaw_e2e_maybe_timeout() {
   local raw_stderr_file
@@ -352,7 +388,11 @@ ${command}
             CAPTURED_STDERR: capturedError,
             CAPTURE_STATUS: String(testCase.status),
             OPENCLAW_DOCKER_E2E_LOG_PRINT_BYTES: "192",
-            OPENCLAW_PLUGIN_LIFECYCLE_TRACE: testCase.traceEnabled ? "1" : "0",
+            OPENCLAW_PLUGIN_LIFECYCLE_TRACE: testCase.changeAfterSource
+              ? testCase.traceEnabled
+                ? "0"
+                : "1"
+              : testCase.traceValue,
             OUTPUT_FILE: outputFile,
             SCRATCH_ROOT: root,
           },
@@ -394,7 +434,7 @@ ${command}
         } else {
           expect(result.stderr).toBe("");
         }
-        if (testCase.traceEnabled) {
+        if (testCase.traceValue === "1") {
           expect(result.stderr).toContain("[plugins:lifecycle]");
         } else {
           expect(result.stderr).not.toContain("[plugins:lifecycle]");

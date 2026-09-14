@@ -3,18 +3,24 @@ import "../../../components/elapsed-time.ts";
 import { icons } from "../../../components/icons.ts";
 import "../../../components/tooltip.ts";
 import { t } from "../../../i18n/index.ts";
+import { registerBackgroundTasksEnglish } from "../../../i18n/locales/en-background-tasks.ts";
 import { formatRelativeTimestamp } from "../../../lib/format.ts";
 import {
   isActiveTask,
   partitionTasks,
-  taskStatusLabel,
   taskTimestampMs,
   taskTitle,
 } from "../../../lib/tasks/data.ts";
 import type { TaskSummary } from "../../../lib/tasks/task-summary.ts";
-import { STATUS_TONES } from "./chat-background-tasks-shared.ts";
+import {
+  backgroundTaskIsExecuting,
+  backgroundTaskStatusLabel,
+  STATUS_TONES,
+} from "./chat-background-tasks-shared.ts";
 import type { BackgroundTasksProps } from "./chat-background-tasks.types.ts";
 import { renderSubagentActivity } from "./chat-subagent-activity.ts";
+
+registerBackgroundTasksEnglish();
 
 type BackgroundTasksStatus = { count: number; startedMs: number | null };
 
@@ -48,14 +54,14 @@ function renderStatusPreviewRow(task: TaskSummary): TemplateResult {
   return html`
     <div class="chat-tasks-preview__row">
       ${
-        task.status === "running"
+        backgroundTaskIsExecuting(task)
           ? html`<span class="chat-tasks-rail__task-pulse" aria-hidden="true"></span>`
           : nothing
       }
       <span class="chat-tasks-preview__title">${taskTitle(task)}</span>
       <span class="chat-tasks-preview__meta">
         <span class="chat-tasks-rail__task-status chat-tasks-rail__task-status--${tone}"
-          >${taskStatusLabel(task.status)}</span
+          >${backgroundTaskStatusLabel(task)}</span
         >
         ${
           timeMs > 0

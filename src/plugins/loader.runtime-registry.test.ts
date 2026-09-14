@@ -81,7 +81,12 @@ it.each(["cjs", "ts"])(
     const bundledDir = path.join(root, "bundled");
     const observed = path.join(root, "observed.json");
     const registration = `{ id: "state-cli", register(api) {
+      const runtimeStore = createPluginRuntimeStore({
+        pluginId: "state-cli-${extension}",
+        errorMessage: "state-cli runtime not initialized",
+      });
       const sync = api.runtime.state.openSyncKeyedStore({ namespace: "registration", maxEntries: 2 });
+      runtimeStore.setRuntime(api.runtime);
       const entries = sync.entries();
       const modelConfig = api.runtime.modelConfig;
       const selection = modelConfig.resolveAllowedModelRef({
@@ -97,11 +102,12 @@ it.each(["cjs", "ts"])(
       const asyncStore = api.runtime.state.openKeyedStore({ namespace: "registration", maxEntries: 2 });
       fs.writeFileSync(${JSON.stringify(observed)}, JSON.stringify({ entries, selection, runtimePolicy, provider, config: api.runtime.config.current() }));
       api.registerCli(({ program }) => program.command("state-proof").action(async () => {
+        const runtime = runtimeStore.getRuntime();
         sync.register("before", { value: "retained" });
-        const chunks = api.runtime.channel.text.chunkText("channel runtime works", 100);
-        const version = api.runtime.version;
-        api.runtime.system.enqueueSystemEvent("materialized", { sessionKey: "prepared-runtime-system" });
-        api.runtime.system.requestHeartbeat({ source: "other", intent: "immediate", reason: "materialized", coalesceMs: 0 });
+        const chunks = runtime.channel.text.chunkText("channel runtime works", 100);
+        const version = runtime.version;
+        runtime.system.enqueueSystemEvent("materialized", { sessionKey: "prepared-runtime-system" });
+        runtime.system.requestHeartbeat({ source: "other", intent: "immediate", reason: "materialized", coalesceMs: 0 });
         const row = await asyncStore.lookup("before");
         fs.writeFileSync(${JSON.stringify(observed)}, JSON.stringify({ chunks, version, row }));
       }), { commands: ["state-proof"] });
@@ -110,11 +116,15 @@ it.each(["cjs", "ts"])(
       id: "state-cli",
       dir: path.join(bundledDir, "state-cli"),
       filename: `index.${extension}`,
-      body: `${extension === "ts" ? 'import fs from "node:fs"; export default' : 'const fs = require("node:fs"); module.exports ='} ${registration}`,
+      body: `${
+        extension === "ts"
+          ? 'import fs from "node:fs"; import { createPluginRuntimeStore } from "openclaw/plugin-sdk/runtime-store"; export default'
+          : 'const fs = require("node:fs"); const { createPluginRuntimeStore } = require("openclaw/plugin-sdk/runtime-store"); module.exports ='
+      } ${registration}`,
     });
     fs.writeFileSync(
       path.join(plugin.dir, "cli-metadata.cjs"),
-      `const fs = require("node:fs"); module.exports = ${registration}`,
+      `const fs = require("node:fs"); const { createPluginRuntimeStore } = require("openclaw/plugin-sdk/runtime-store"); module.exports = ${registration}`,
     );
     await withEnvAsync(
       {

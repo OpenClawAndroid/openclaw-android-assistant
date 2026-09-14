@@ -21,6 +21,7 @@ import {
 } from "../../../infra/diagnostic-trace-context.js";
 import { runOutsideGatewayRootWorkAdmission } from "../../../process/gateway-work-admission.js";
 import { createLazyPromise } from "../../../shared/lazy-runtime.js";
+import { createExpectedProfileBinding } from "../../expected-profile.js";
 import type { GatewayRequestEntry } from "../../server-request-entry.js";
 import { classifyGatewayStaleInstall } from "../../stale-install.js";
 import { formatForLog, logWs } from "../../ws-log.js";
@@ -106,6 +107,7 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
     const diagnostics = createGatewayRpcDiagnostics(req.method, getMethodRegistry, extraHandlers);
     logWs("in", "req", { connId, id: req.id, method: req.method });
     const context = buildRequestContext();
+    const expectedProfileBinding = createExpectedProfileBinding(req.expectedProfileId, client);
     const hasCurrentClientAuthority = () => {
       if (closeInvalidatedClient(client, req.method)) {
         return false;
@@ -128,7 +130,7 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
       }
       return true;
     };
-    const respond = (
+    const publishResponse = (
       ok: boolean,
       payload?: unknown,
       error?: ErrorShape,
@@ -199,6 +201,7 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
       }
     };
 
+    const respond = expectedProfileBinding?.guardResponse(publishResponse) ?? publishResponse;
     const agentRuntimeIdentity = client.internal?.agentRuntimeIdentity;
     const hasCurrentRuntimeAuthority = () => {
       if (
@@ -310,6 +313,7 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
               client,
               isWebchatConnect: params.isWebchatConnect,
               hasCurrentClientAuthority,
+              expectedProfileBinding,
               extraHandlers,
               methodRegistry: getMethodRegistry?.(),
               context,

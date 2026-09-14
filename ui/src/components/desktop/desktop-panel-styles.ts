@@ -1,6 +1,6 @@
 import { css } from "lit";
 import { scrollbarShadowStyles } from "../../lit/scrollbar-styles.ts";
-import { dockPanelStyles } from "../dock-layout-controller.ts";
+import { dockPanelStyles } from "../dock-panel-styles.ts";
 import { desktopDocumentStyles } from "./desktop-document-styles.ts";
 import { desktopPanelLauncherStyles } from "./desktop-panel-launcher-styles.ts";
 

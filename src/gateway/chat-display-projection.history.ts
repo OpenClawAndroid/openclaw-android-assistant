@@ -201,38 +201,45 @@ function isChatHistoryAssistantMessage(message: unknown): boolean {
   return readRecord(message)?.role === "assistant";
 }
 
+export function createPreSessionStartAnnouncePairFilter(sessionStartedAt: number | undefined) {
+  let precedingAnnounce = false;
+  return (messages: unknown[]): unknown[] => {
+    if (sessionStartedAt === undefined || messages.length === 0) {
+      return messages;
+    }
+    let changed = false;
+    const kept: unknown[] = [];
+    for (const current of messages) {
+      if (precedingAnnounce) {
+        precedingAnnounce = false;
+        const ts = isChatHistoryAssistantMessage(current)
+          ? readChatHistoryRecordTimestampMs(current)
+          : undefined;
+        if (typeof ts === "number" && ts < sessionStartedAt) {
+          changed = true;
+          continue;
+        }
+      }
+      if (isSubagentAnnounceInterSessionUserChatHistoryMessage(current)) {
+        const ts = readChatHistoryRecordTimestampMs(current);
+        if (typeof ts === "number" && ts < sessionStartedAt) {
+          // The adjacent assistant may arrive in the next appended chunk.
+          precedingAnnounce = true;
+          changed = true;
+          continue;
+        }
+      }
+      kept.push(current);
+    }
+    return changed ? kept : messages;
+  };
+}
+
 export function dropPreSessionStartAnnouncePairs(
   messages: unknown[],
   sessionStartedAt: number | undefined,
 ): unknown[] {
-  if (sessionStartedAt === undefined || messages.length === 0) {
-    return messages;
-  }
-  let changed = false;
-  const kept: unknown[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const current = messages[i];
-    if (isSubagentAnnounceInterSessionUserChatHistoryMessage(current)) {
-      const ts = readChatHistoryRecordTimestampMs(current);
-      if (typeof ts === "number" && ts < sessionStartedAt) {
-        const next = messages[i + 1];
-        const nextTs = readChatHistoryRecordTimestampMs(next);
-        if (
-          isChatHistoryAssistantMessage(next) &&
-          typeof nextTs === "number" &&
-          nextTs < sessionStartedAt
-        ) {
-          // Skip only an assistant reply that is also pre-session-start; recent
-          // or timestampless assistants may be real fresh-session context.
-          i++;
-        }
-        changed = true;
-        continue;
-      }
-    }
-    kept.push(current);
-  }
-  return changed ? kept : messages;
+  return createPreSessionStartAnnouncePairFilter(sessionStartedAt)(messages);
 }
 
 function isDisplayHiddenProjectedMessage(message: Record<string, unknown>): boolean {

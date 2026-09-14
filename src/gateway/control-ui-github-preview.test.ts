@@ -93,19 +93,19 @@ describe("parseControlUiGitHubPreviewTarget", () => {
   });
 
   it.each([
-    { field: "kind", value: "comment" },
-    { field: "owner", value: "openclaw/evil" },
-    { field: "repo", value: "." },
-    { field: "repo", value: ".." },
-    { field: "repo", value: "repo.git" },
-    { field: "repo", value: "repo.atom" },
-    { field: "number", value: 0 },
-    { field: "number", value: 1.5 },
-    { field: "number", value: 10_000_000_000 },
-    { field: "number", value: "1" },
-    { field: "agentId", value: " " },
-    { field: "agentId", value: 1 },
-  ])("rejects invalid $field: $value", ({ field, value }) => {
+    ["kind", "comment"],
+    ["owner", "openclaw/evil"],
+    ["repo", "."],
+    ["repo", ".."],
+    ["repo", "repo.git"],
+    ["repo", "repo.atom"],
+    ["number", 0],
+    ["number", 1.5],
+    ["number", 10_000_000_000],
+    ["number", "1"],
+    ["agentId", " "],
+    ["agentId", 1],
+  ])("rejects invalid %s: %s", (field, value) => {
     expect(parseControlUiGitHubPreviewTarget({ ...target, [field]: value })).toBeNull();
   });
 });
@@ -158,15 +158,15 @@ describe("loadControlUiGitHubPreview", () => {
   });
 
   it.each([
-    { stage: "repository", stopAfter: 1, redirect: false },
-    { stage: "item", stopAfter: 2, redirect: false },
-    { stage: "final visibility check", stopAfter: 3, redirect: false },
-    { stage: "repository redirect", stopAfter: 1, redirect: true },
-    { stage: "item redirect", stopAfter: 2, redirect: true },
-    { stage: "commits redirect", stopAfter: 4, redirect: true },
+    ["repository", 1, false],
+    ["item", 2, false],
+    ["final visibility check", 3, false],
+    ["repository redirect", 1, true],
+    ["item redirect", 2, true],
+    ["commits redirect", 4, true],
   ])(
-    "blocks later GitHub dispatches after identity changes during $stage",
-    async ({ stopAfter, redirect, stage }) => {
+    "blocks later GitHub dispatches after identity changes during %s",
+    async (stage, stopAfter, redirect) => {
       let changed = false;
       const assertSelected = () => {
         if (changed) {
@@ -478,23 +478,11 @@ describe("loadControlUiGitHubPreview", () => {
   });
 
   it.each([
-    { avatarUrl: "https://example.com/avatar.png", number: 70001, repo: "avatar-host" },
-    {
-      avatarUrl: "https://avatars.githubusercontent.com/u/58493?v=4#fragment",
-      number: 70002,
-      repo: "avatar-fragment",
-    },
-    {
-      avatarUrl: "https://avatars.githubusercontent.com/u/../58493?v=4",
-      number: 70003,
-      repo: "avatar-dot-segment",
-    },
-    {
-      avatarUrl: "https://avatars.githubusercontent.com/u\\58493?v=4",
-      number: 70004,
-      repo: "avatar-backslash",
-    },
-  ])("does not fetch unsafe avatar URL $avatarUrl", async ({ avatarUrl, number, repo }) => {
+    ["https://example.com/avatar.png", 70001, "avatar-host"],
+    ["https://avatars.githubusercontent.com/u/58493?v=4#fragment", 70002, "avatar-fragment"],
+    ["https://avatars.githubusercontent.com/u/../58493?v=4", 70003, "avatar-dot-segment"],
+    ["https://avatars.githubusercontent.com/u\\58493?v=4", 70004, "avatar-backslash"],
+  ])("does not fetch unsafe avatar URL %s", async (avatarUrl, number, repo) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       githubJson(
         previewPayload({

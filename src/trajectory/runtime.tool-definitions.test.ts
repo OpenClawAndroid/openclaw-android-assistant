@@ -1,0 +1,66 @@
+import { describe, expect, it, vi } from "vitest";
+import { toTrajectoryToolDefinitions } from "./runtime.js";
+
+function arrayReturning(value: unknown): unknown[] {
+  return Object.defineProperty([], "slice", {
+    value: () => ({ map: () => value }),
+  });
+}
+
+describe("trajectory tool definition preparation", () => {
+  it("preserves native retry metadata returned by custom array operations", () => {
+    const headers = new Headers({
+      "retry-after": "7",
+      authorization: "Bearer synthetic-credential",
+    });
+
+    expect(
+      toTrajectoryToolDefinitions([
+        {
+          name: "sample",
+          parameters: { ordinary: "kept", nested: arrayReturning(headers) },
+        },
+      ]),
+    ).toEqual([
+      {
+        name: "sample",
+        description: undefined,
+        parameters: { ordinary: "kept", nested: { "retry-after-ms": 7_000 } },
+      },
+    ]);
+  });
+
+  it("preserves prototype traps when a copied field changes the prepared record prototype", () => {
+    const getPrototypeOf = vi.fn(() => null);
+    const prototype = new Proxy({}, { getPrototypeOf });
+    const parameters = {
+      ["__proto__"]: arrayReturning(prototype),
+      ordinary: "kept",
+    };
+
+    expect(toTrajectoryToolDefinitions([{ name: "sample", parameters }])).toEqual([
+      { name: "sample", description: undefined, parameters: { ordinary: "kept" } },
+    ]);
+    expect(getPrototypeOf).toHaveBeenCalledTimes(2);
+    expect(Object.getPrototypeOf(parameters)).toBe(Object.prototype);
+  });
+
+  it("reads source getters once while preserving inert serialization hooks", () => {
+    const toJSON = vi.fn(() => ({ unexpected: true }));
+    const readNested = vi.fn(() => ({ ordinary: "kept", password: "synthetic-secret", toJSON }));
+    const parameters = Object.defineProperty({}, "nested", {
+      enumerable: true,
+      get: readNested,
+    });
+
+    expect(toTrajectoryToolDefinitions([{ name: "sample", parameters }])).toEqual([
+      {
+        name: "sample",
+        description: undefined,
+        parameters: { nested: { ordinary: "kept", toJSON } },
+      },
+    ]);
+    expect(readNested).toHaveBeenCalledOnce();
+    expect(toJSON).not.toHaveBeenCalled();
+  });
+});

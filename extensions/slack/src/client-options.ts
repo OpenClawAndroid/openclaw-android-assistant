@@ -1,27 +1,16 @@
 // Slack plugin module implements client options behavior.
-import { createRequire } from "node:module";
 import { WebAPIRateLimitedError, type RetryOptions, type WebClientOptions } from "@slack/web-api";
 import {
-  addActiveManagedProxyTlsOptions,
+  createHttp1EnvHttpProxyAgent,
   resolveFetch,
   resolveEnvHttpProxyAgentOptions,
 } from "openclaw/plugin-sdk/fetch-runtime";
 import { isDebugProxyGlobalFetchPatchInstalled } from "openclaw/plugin-sdk/proxy-capture";
 import { parseRetryAfterHeaderSeconds, retryAsync } from "openclaw/plugin-sdk/retry-runtime";
 import { sleepWithAbort } from "openclaw/plugin-sdk/runtime-env";
-import type { EnvHttpProxyAgent } from "undici";
+import { fetchWithRuntimeDispatcher } from "openclaw/plugin-sdk/runtime-fetch";
 
-type SlackUndiciRuntime = Pick<typeof import("undici"), "EnvHttpProxyAgent" | "fetch">;
-type SlackProxyDispatcher = EnvHttpProxyAgent;
-
-const requireFromSlackSocketMode = (() => {
-  const require = createRequire(import.meta.url);
-  return createRequire(require.resolve("@slack/socket-mode/package.json"));
-})();
-
-function loadSlackUndiciRuntime(): SlackUndiciRuntime {
-  return requireFromSlackSocketMode("undici") as SlackUndiciRuntime;
-}
+export type SlackProxyDispatcher = ReturnType<typeof createHttp1EnvHttpProxyAgent>;
 export type SlackLookupClientOptions = Pick<
   WebClientOptions,
   "fetch" | "slackApiUrl" | "teamId" | "timeout"
@@ -62,11 +51,27 @@ export function resolveSlackProxyDispatcher(): SlackProxyDispatcher | undefined 
     return undefined;
   }
   try {
-    const { EnvHttpProxyAgent } = loadSlackUndiciRuntime();
-    return new EnvHttpProxyAgent(addActiveManagedProxyTlsOptions(options));
+    return createHttp1EnvHttpProxyAgent(options, undefined, process.env);
   } catch {
     // Malformed proxy URL; degrade gracefully to direct connections.
     return undefined;
+  }
+}
+
+const DIRECT_SLACK_DISPATCHER_OPTIONS = {
+  httpProxy: "",
+  httpsProxy: "",
+  noProxy: "*",
+};
+
+/** Create a probe-owned dispatcher so timeout cleanup can retire every socket. */
+export function createSlackProbeDispatcher(timeoutMs: number): SlackProxyDispatcher {
+  const options = resolveEnvHttpProxyAgentOptions() ?? DIRECT_SLACK_DISPATCHER_OPTIONS;
+  try {
+    return createHttp1EnvHttpProxyAgent(options, timeoutMs, process.env);
+  } catch {
+    // Invalid ambient proxy settings must not prevent a direct health check.
+    return createHttp1EnvHttpProxyAgent(DIRECT_SLACK_DISPATCHER_OPTIONS, timeoutMs, {});
   }
 }
 
@@ -83,15 +88,11 @@ function buildSlackFetch(
     return ((input: RequestInfo | URL, init?: RequestInit) =>
       slackFetch(input, normalizeSlackFetchInit(init))) as NonNullable<WebClientOptions["fetch"]>;
   }
-  const { fetch: slackFetch } = loadSlackUndiciRuntime();
   return ((input: RequestInfo | URL, init?: RequestInit) => {
-    // Slack Web API invokes this hook with URL/string inputs. The cast only bridges
-    // duplicate Undici Request types while the package-owned fetch and dispatcher stay paired.
-    const slackInput = input as Parameters<typeof slackFetch>[0];
-    const slackInit = { ...normalizeSlackFetchInit(init), dispatcher } as Parameters<
-      typeof slackFetch
-    >[1];
-    return slackFetch(slackInput, slackInit);
+    return fetchWithRuntimeDispatcher(input, {
+      ...normalizeSlackFetchInit(init),
+      dispatcher,
+    });
   }) as NonNullable<WebClientOptions["fetch"]>;
 }
 

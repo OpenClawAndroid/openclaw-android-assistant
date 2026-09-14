@@ -9,6 +9,7 @@ import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-run
 import {
   createPluginStateSyncKeyedStoreForTests,
   createPluginStateKeyedStoreForTests,
+  openOpenClawStateDatabase,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
 import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
@@ -34,6 +35,7 @@ vi.mock("./browser/cdp.helpers.js", () => ({
 
 import {
   inspectBrowserDashboard,
+  reconcileBrowserDashboards,
   requestBrowserDashboard,
   stopBrowserDashboard,
   assertBrowserDashboardTargetCurrent,
@@ -52,6 +54,8 @@ import {
 } from "./browser/session-tab-registry.js";
 import {
   assertBrowserDashboardTabCanClose,
+  browserSessionTabStorageKey,
+  type BrowserSessionTabRecord,
   getBrowserSessionTabStore,
   parseBrowserSessionTabRecord,
   readBrowserDashboardTabs,
@@ -674,6 +678,135 @@ describe("Browser dashboard lifetime", () => {
       expect(fixture.tabs).toEqual([]);
       expect(readBrowserDashboardTabs()).toEqual([]);
       expect(browser.closeOwned).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("bounds retained-tab materialization while reconciling unrelated dashboard removals", async () => {
+    const store = getBrowserSessionTabStore();
+    const retained = [];
+    for (let index = 0; index < 15; index++) {
+      const record: BrowserSessionTabRecord = {
+        version: 1,
+        sessionKey,
+        nativeTargetId: `seeded-${index}`,
+        profile: "openclaw",
+        profileFingerprint: "profile-one",
+        browserInstanceFingerprint: "browser-one",
+        interactionTargetKind: "native",
+        trackedAt: 1000 + index,
+        lastUsedAt: 2000 + index,
+        ...(index < 5
+          ? {
+              dashboard: {
+                sessionKey,
+                agentId: "main",
+                name: `removed-${index}`,
+                instanceId: `instance-${index}`,
+                url: "http://service.example/",
+                state: "active" as const,
+              },
+            }
+          : {}),
+      };
+      const key = browserSessionTabStorageKey(record);
+      const clock = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000 + index);
+      try {
+        store.register(key, record);
+      } finally {
+        clock.mockRestore();
+      }
+      if (index >= 5) {
+        retained.push({ key, value: record, createdAt: 1_700_000_000_000 + index });
+      }
+    }
+    const entries = store.entries.bind(store);
+    let fetchedRows = 0;
+    const scans = vi.spyOn(store, "entries").mockImplementation(() => {
+      const rows = entries();
+      fetchedRows += rows.length;
+      return rows;
+    });
+    try {
+      expect(await reconcileBrowserDashboards()).toBe(5);
+      expect(browser.closeOwned.mock.calls.map(([params]) => params.nativeTargetId)).toEqual(
+        Array.from({ length: 5 }, (_, index) => `seeded-${index}`),
+      );
+      expect(fetchedRows).toBeLessThanOrEqual(30);
+    } finally {
+      scans.mockRestore();
+    }
+    expect(store.entries()).toEqual(retained);
+  });
+
+  it.each(["definition identity", "storage hash"] as const)(
+    "refuses a retained dashboard whose %s changes during ownership lookup",
+    async (change) => {
+      await requestBrowserDashboard(request);
+      const tab = readBrowserDashboardTabs()[0];
+      if (!tab?.dashboard) {
+        throw new Error("Expected the registered dashboard tab");
+      }
+      const { storageKey, ...record } = tab;
+      browser.ownership.mockImplementationOnce(async () => {
+        getBrowserSessionTabStore().register(
+          storageKey,
+          change === "storage hash"
+            ? { ...record, profileFingerprint: "changed-profile" }
+            : { ...record, dashboard: { ...tab.dashboard, name: "another-dashboard" } },
+        );
+        return {
+          status: "durable",
+          nativeTargetId: tab.nativeTargetId,
+          profileFingerprint: tab.profileFingerprint,
+          browserInstanceFingerprint: tab.browserInstanceFingerprint,
+        };
+      });
+      await expect(requestBrowserDashboard(request)).rejects.toThrow(
+        "Dashboard tab stopped during this operation",
+      );
+      expect(browser.open).toHaveBeenCalledOnce();
+      expect(browser.closeOwned).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["selected", "unrelated"] as const)(
+    "handles %s corrupt JSON introduced during the dashboard ownership lookup",
+    async (scope) => {
+      const opened = await requestBrowserDashboard(request);
+      const tab = readBrowserDashboardTabs()[0];
+      if (!tab) {
+        throw new Error("Expected the registered dashboard tab");
+      }
+      const store = getBrowserSessionTabStore();
+      store.register("unrelated-entry", { diagnostic: "unrelated" });
+      browser.ownership.mockImplementationOnce(async () => {
+        openOpenClawStateDatabase()
+          .db.prepare(
+            "UPDATE plugin_state_entries SET value_json = ? WHERE plugin_id = ? AND namespace = ? AND entry_key = ?",
+          )
+          .run(
+            "{",
+            "browser",
+            "browser.session-tabs",
+            scope === "selected" ? tab.storageKey : "unrelated-entry",
+          );
+        return {
+          status: "durable",
+          nativeTargetId: tab.nativeTargetId,
+          profileFingerprint: tab.profileFingerprint,
+          browserInstanceFingerprint: tab.browserInstanceFingerprint,
+        };
+      });
+      if (scope === "selected") {
+        await expect(requestBrowserDashboard(request)).rejects.toMatchObject({
+          code: "PLUGIN_STATE_CORRUPT",
+        });
+      } else {
+        expect((await requestBrowserDashboard(request)).browserTab).toEqual(opened.browserTab);
+      }
+      expect(() => readBrowserDashboardTabs()).toThrow("Plugin state entry contains corrupt JSON");
+      expect(browser.open).toHaveBeenCalledOnce();
+      expect(browser.closeOwned).not.toHaveBeenCalled();
     },
   );
 

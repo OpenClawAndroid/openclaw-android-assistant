@@ -207,7 +207,7 @@ class ChatMessageViewsTest {
     val message = ChatMessage("user-disclosure", "user", listOf(ChatMessageContent(text = text)), null)
     composeRule.setContent {
       ClawDesignTheme {
-        val timeline = buildChatTimeline(listOf(message), 0, emptyList(), null)
+        val timeline = prepareChatHistory(listOf(message), "agent:main:main").buildTimeline(0, emptyList(), null)
         val reader = rememberChatReaderScrollController("user-disclosure-owner", timeline, historyLoading = false)
         CompositionLocalProvider(LocalChatReaderNavigation provides reader.navigation) {
           LazyColumn(

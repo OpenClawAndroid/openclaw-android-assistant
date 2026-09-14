@@ -314,6 +314,12 @@ async function runCommandSafely(
 }
 
 function resolveBrewMissingFailure(spec: SkillInstallSpec): SkillInstallResult {
+  if (process.platform === "freebsd") {
+    return createInstallFailure({
+      message:
+        "brew not installed — Homebrew is not supported on FreeBSD. Install the required binaries on the Gateway host using pkg or Ports, then run `openclaw skills check` (use `--agent <id>` for a specific agent) to verify readiness.",
+    });
+  }
   const formula = spec.formula ?? "this package";
   if (process.platform === "linux" && getSkillsInstallDeps().isContainerEnvironment()) {
     return createInstallFailure({

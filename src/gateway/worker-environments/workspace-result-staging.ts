@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { runBestEffortCleanup } from "../../infra/non-fatal-cleanup.js";
@@ -12,11 +11,16 @@ import {
   withWorkspaceHashContext,
   withWorkspaceHashMemo,
 } from "./workspace-hash-memo.js";
+import { parseChangedWorkspaceResult } from "./workspace-manifest-comparison.js";
 import {
-  parseWorkerWorkspaceManifest,
-  type WorkerWorkspaceManifest,
-  type WorkerWorkspaceManifestEntry,
-  type WorkerWorkspaceReconciliationJournalAdapter,
+  prepareWorkspaceStageInput,
+  loadStagedWorkspaceManifest,
+  readStagedWorkspaceManifestEntry,
+} from "./workspace-manifest-worker.js";
+import type {
+  WorkerWorkspaceManifest,
+  WorkerWorkspaceManifestEntry,
+  WorkerWorkspaceReconciliationJournalAdapter,
 } from "./workspace-manifest.js";
 import { absoluteEntryMatches, localPath } from "./workspace-reconcile-fs.js";
 import {
@@ -33,16 +37,10 @@ import {
 } from "./workspace-result-git.js";
 import {
   requireWorkerResultStorageRef,
-  STAGED_RESULT_MESSAGE,
   WORKER_RESULT_CANDIDATE_REF_PREFIX,
   WORKER_RESULT_CLEANUP_REF_PREFIX,
   WORKER_RESULT_REF_PREFIX,
 } from "./workspace-result-inventory.js";
-import {
-  loadStagedWorkerWorkspace,
-  parseChangedWorkspaceResult,
-  readStagedWorkerWorkspaceEntry,
-} from "./workspace-result-inventory.runtime.js";
 
 const WORKER_RESULT_CLAIM_ID_PATTERN = /^[A-Za-z0-9-]+$/u;
 const workspaceLog = createSubsystemLogger("gateway/worker-workspace");
@@ -50,8 +48,10 @@ const workspaceLog = createSubsystemLogger("gateway/worker-workspace");
 export function workerWorkspaceTransferPaths(
   current: WorkerWorkspaceManifest,
   base: WorkerWorkspaceManifest,
+  signal?: AbortSignal,
 ): string[] {
   // Staging is directory-agnostic because it transfers file and symlink bytes only.
+  signal?.throwIfAborted();
   return parseChangedWorkspaceResult(base, current).entries.map((entry) => entry.path);
 }
 
@@ -158,38 +158,6 @@ export async function hasWorkerWorkspaceResultRef(params: {
   throw new Error((result.stderr || result.stdout || "git show-ref failed").trim());
 }
 
-function stagedResultMessage(params: {
-  baseManifestRef: string;
-  currentManifestRef: string;
-  baseManifestRaw: string;
-  currentManifestRaw: string;
-}): Buffer {
-  const base = Buffer.from(params.baseManifestRaw);
-  const current = Buffer.from(params.currentManifestRaw);
-  const header = Buffer.from(
-    `${STAGED_RESULT_MESSAGE}\nversion 2\nbase-ref ${params.baseManifestRef}\ncurrent-ref ${params.currentManifestRef}\nbase-bytes ${base.byteLength}\ncurrent-bytes ${current.byteLength}\n\n`,
-  );
-  return Buffer.concat([header, base, current]);
-}
-
-function quoteFastImportPath(entryPath: string): string {
-  const bytes = Buffer.from(entryPath);
-  let quoted = '"';
-  for (const byte of bytes) {
-    if (byte === 0) {
-      throw new Error("Cloud workspace staged result path contains a null byte");
-    }
-    if (byte === 0x22 || byte === 0x5c) {
-      quoted += `\\${String.fromCharCode(byte)}`;
-    } else if (byte >= 0x20 && byte < 0x7f) {
-      quoted += String.fromCharCode(byte);
-    } else {
-      quoted += `\\${byte.toString(8).padStart(3, "0")}`;
-    }
-  }
-  return `${quoted}"`;
-}
-
 async function stageWorkerWorkspaceResult(params: {
   root: string;
   stagingRoot: string;
@@ -201,60 +169,11 @@ async function stageWorkerWorkspaceResult(params: {
 }): Promise<string> {
   const root = await ensureWorkerWorkspaceResultRepository(params.root);
   const stagedResultRef = requireWorkerResultStorageRef(params.stagedResultRef);
-  const base = parseWorkerWorkspaceManifest(params.baseManifestRaw, params.baseManifestRef);
-  const current = parseWorkerWorkspaceManifest(
-    params.currentManifestRaw,
-    params.currentManifestRef,
-  );
-  // The authenticated manifests define the complete result. The durable tree
-  // stores only changed resulting blobs; deletions intentionally have no blob.
-  const entries = parseChangedWorkspaceResult(base, current).entries.toSorted((left, right) =>
-    left.path.localeCompare(right.path),
-  );
-  const blobs: Array<{ entry: WorkerWorkspaceManifestEntry; mark: number; content: Buffer }> = [];
-  for (const [index, entry] of entries.entries()) {
-    const source = localPath(params.stagingRoot, entry.path);
-    if (!(await absoluteEntryMatches(source, entry))) {
-      throw new Error(`Cloud workspace staged payload is invalid: ${entry.path}`);
-    }
-    const content =
-      entry.type === "symlink" ? Buffer.from(entry.target) : await fs.readFile(source);
-    if (
-      entry.type === "file" &&
-      (content.byteLength !== entry.size ||
-        createHash("sha256").update(content).digest("hex") !== entry.sha256)
-    ) {
-      throw new Error(`Cloud workspace staged payload changed while reading: ${entry.path}`);
-    }
-    blobs.push({ entry, mark: index + 1, content });
-  }
-  const message = stagedResultMessage(params);
-  const chunks: Uint8Array[] = [];
-  for (const blob of blobs) {
-    chunks.push(Buffer.from(`blob\nmark :${blob.mark}\ndata ${blob.content.byteLength}\n`));
-    chunks.push(blob.content, Buffer.from("\n"));
-  }
-  chunks.push(
-    Buffer.from(
-      `commit ${stagedResultRef}\nauthor OpenClaw <openclaw@localhost> 0 +0000\ncommitter OpenClaw <openclaw@localhost> 0 +0000\ndata ${message.byteLength}\n`,
-    ),
-    message,
-    Buffer.from("\ndeleteall\n"),
-  );
-  for (const blob of blobs) {
-    const mode =
-      blob.entry.type === "symlink"
-        ? "120000"
-        : (blob.entry.mode & 0o111) !== 0
-          ? "100755"
-          : "100644";
-    chunks.push(Buffer.from(`M ${mode} :${blob.mark} ${quoteFastImportPath(blob.entry.path)}\n`));
-  }
-  chunks.push(Buffer.from("done\n"));
+  const input = await prepareWorkspaceStageInput(params);
   const imported = await withWorkspaceResultRefMutation(root, (baseEnv) =>
     runCommandBuffered(gitCommand(root, ["fast-import", "--quiet"]), {
       baseEnv,
-      input: Buffer.concat(chunks),
+      input,
       timeoutMs: PATCH_TIMEOUT_MS,
       maxOutputBytes: { stdout: 1024 * 1024, stderr: 1024 * 1024 },
     }),
@@ -287,9 +206,14 @@ async function materializeStagedEntry(params: {
 }
 
 export async function readStagedWorkerWorkspaceResult(root: string, stagedResultRef: string) {
-  const { objectsByPath, ...snapshot } = await loadStagedWorkerWorkspace(root, stagedResultRef);
-  const readEntry = (entry: WorkerWorkspaceManifestEntry) =>
-    readStagedWorkerWorkspaceEntry({ root, objectsByPath }, entry);
+  const { objectsByPath, ...snapshot } = await loadStagedWorkspaceManifest(root, stagedResultRef);
+  const readEntry = (entry: WorkerWorkspaceManifestEntry) => {
+    const object = objectsByPath.get(entry.path);
+    if (!object) {
+      throw new Error(`Cloud workspace result has no payload for ${entry.path}`);
+    }
+    return readStagedWorkspaceManifestEntry({ root, object, entry });
+  };
   return { ...snapshot, readEntry };
 }
 

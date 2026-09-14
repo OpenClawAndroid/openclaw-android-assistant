@@ -60,6 +60,7 @@ export function buildDraftSessionCreateParams(draft: {
   projectGitUrl?: string;
   repository?: SessionCreateParams["repository"];
   worktree: boolean;
+  worktreeSource?: SessionCreateParams["worktreeSource"];
   baseRef?: string;
   worktreeName?: string;
   cwd?: string;
@@ -79,16 +80,21 @@ export function buildDraftSessionCreateParams(draft: {
     draft.deferInitialTurn && draft.visibility !== "incognito"
       ? truncateUtf16Safe(draft.message.trim(), 1_000)
       : undefined;
-  const repository = draft.repository;
-  const projectId = repository ? undefined : normalizeOptionalString(draft.projectId);
+  const emptyWorkspace = draft.worktreeSource === "empty";
+  const repository = emptyWorkspace ? undefined : draft.repository;
+  const projectId =
+    emptyWorkspace || repository ? undefined : normalizeOptionalString(draft.projectId);
   const projectGitUrl =
+    !emptyWorkspace &&
     !repository &&
     !projectId &&
     (message.trim() || (!draft.deferInitialTurn && draft.attachments?.length))
       ? normalizeOptionalString(draft.projectGitUrl)
       : undefined;
   const customFolder =
-    !repository && !projectId && !projectGitUrl && cwd && cwd !== workspace ? cwd : undefined;
+    !emptyWorkspace && !repository && !projectId && !projectGitUrl && cwd && cwd !== workspace
+      ? cwd
+      : undefined;
   return {
     ...(normalizeOptionalString(draft.key) ? { key: normalizeOptionalString(draft.key) } : {}),
     agentId: normalizeAgentId(draft.agentId),
@@ -117,7 +123,8 @@ export function buildDraftSessionCreateParams(draft: {
     ...(projectGitUrl ? { projectGitUrl } : {}),
     ...(repository ? { repository: { ...repository } } : {}),
     ...(customFolder ? { cwd: customFolder } : {}),
-    ...(draft.worktree && !repository
+    ...(emptyWorkspace ? { worktree: true, worktreeSource: "empty" as const } : {}),
+    ...(draft.worktree && !repository && !emptyWorkspace
       ? {
           worktree: true,
           // Passing the base explicitly also skips the create-time origin fetch.

@@ -46,6 +46,10 @@ const subagentRegistryReadMock = vi.hoisted(() => {
   });
   return {
     buildSubagentSessionListReadIndex,
+    listSubagentSessionListRunsForControllers: (keys: readonly string[]) => {
+      const index = buildSubagentSessionListReadIndex();
+      return keys.flatMap((key) => index.runsByControllerSessionKey.get(key) ?? []);
+    },
     countActiveDescendantRuns: vi.fn(() => 0),
     getSubagentSessionRuntimeMs: vi.fn(() => undefined),
     getSubagentSessionStartedAt: vi.fn(() => undefined),

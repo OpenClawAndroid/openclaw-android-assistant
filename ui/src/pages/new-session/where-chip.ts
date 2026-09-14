@@ -155,7 +155,6 @@ export function renderWhereChip(params: {
   os?: string;
   deviceId: string;
   autoDevice?: boolean;
-  worktreeAvailable: boolean;
   cloudDisabledReason?: string;
   cloudProfileDisabledReason?: (profile: DraftCloudProfile) => string | undefined;
   submitting: boolean;
@@ -484,10 +483,8 @@ export function renderWhereChip(params: {
               submitting: destinationDisabled,
               icon: icons.cloud,
               compact: true,
-              disabled: !params.worktreeAvailable || Boolean(params.cloudDisabledReason),
-              disabledReason:
-                params.cloudDisabledReason ??
-                (!params.worktreeAvailable ? t("newSession.cloudRequiresWorktree") : undefined),
+              disabled: Boolean(params.cloudDisabledReason),
+              disabledReason: params.cloudDisabledReason,
               profileDisabledReason: params.cloudProfileDisabledReason,
               onSelect: params.onSelectCloudProfile,
             })}

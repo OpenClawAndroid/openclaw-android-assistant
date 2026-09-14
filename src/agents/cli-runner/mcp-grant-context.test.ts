@@ -54,6 +54,13 @@ describe("buildCliMcpGrantContext source-reply authority", () => {
     expect(buildGrant({ modelHasVision: true }).modelHasVision).toBe(true);
   });
 
+  it("binds screen commands to the requesting browser in the server-owned grant", () => {
+    const gatewayUiCommandTarget = { connId: "requester-tab", profileId: "requester" };
+    expect(buildGrant({ gatewayUiCommandTarget }).gatewayUiCommandTarget).toEqual(
+      gatewayUiCommandTarget,
+    );
+  });
+
   it("carries the prepared reply mode into loopback message tools", () => {
     expect(buildGrant({ replyToMode: "all" }).replyToMode).toBe("all");
   });

@@ -1846,6 +1846,11 @@ describePosix("scripts/pr per-PR operation lock", () => {
       git("push", "-q", "origin", `${preparedHead}:refs/heads/main`);
       git("fetch", "-q", "origin", "refs/heads/main:refs/remotes/origin/main");
       git("worktree", "add", "-q", "-b", "temp/pr-42", worktreeDir);
+      const registeredPath = realpathSync(worktreeDir);
+      const worktreeAdmin = git("-C", worktreeDir, "rev-parse", "--absolute-git-dir");
+      for (const branch of ["pr-42", "pr-42-prep"]) {
+        git("branch", branch, preparedHead);
+      }
       if (wrapper === "linked") {
         // origin/main still names the linked wrapper; canonical code must not
         // be substituted merely to obtain the persistent supervisor cwd.
@@ -1925,6 +1930,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
           timeout: 15_000,
           env: {
             ...process.env,
+            canonical_repo_root: join(repoDir, "untrusted-root"),
             OPENCLAW_GH_BIN: gh,
             OPENCLAW_PR_AUTO_MERGE: "0",
             OPENCLAW_PR_MERGE_METHOD: "merge",
@@ -1944,6 +1950,17 @@ describePosix("scripts/pr per-PR operation lock", () => {
       const events = readFileSync(lifecycle, "utf8");
       expect(git("rev-parse", "HEAD")).toBe(canonicalHead);
       expect(existsSync(worktreeDir), output).toBe(failure === "merge");
+      expect(existsSync(worktreeAdmin), output).toBe(failure === "merge");
+      expect(
+        git("worktree", "list", "--porcelain", "-z").includes(`worktree ${registeredPath}\0`),
+        output,
+      ).toBe(failure === "merge");
+      for (const branch of ["temp/pr-42", "pr-42", "pr-42-prep"]) {
+        const ref = `refs/heads/${branch}`;
+        expect(git("for-each-ref", "--format=%(refname)", "--", ref), output).toBe(
+          failure === "merge" ? ref : "",
+        );
+      }
       if (failure === "merge") {
         expect(result.status, output).toBe(1);
         expect(output).toContain("fixture merge failed");
@@ -1954,7 +1971,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
         expect(events, output).toBe(completedEvents + (failure === "none" ? "released\n" : ""));
         expect(readFileSync(releaseCwd, "utf8").trim(), output).toBe(repoDir);
         expect(result.status, output).toBe(failure === "none" ? 0 : 1);
-        expect(result.stdout).toContain(
+        expect(result.stdout, output).toContain(
           command === "gc" ? "removed .worktrees/pr-42" : "Merge confirmed; completion pending",
         );
       }
@@ -2123,7 +2140,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
       "  sleep 0.1",
       "  : >.local/worktree-producer-exited",
       "}",
-      'worktree_is_registered "$PWD"',
+      'test "$(worktree_registration_state "$PWD")" = registered',
       "test -f .local/worktree-producer-exited",
       "rm .local/worktree-producer-exited",
       'resolved="$(worktree_path_for_branch pr-42)"',
@@ -2852,25 +2869,203 @@ describePosix("scripts/pr per-PR operation lock", () => {
       }).status,
     ).toBe(1);
   });
-  it("propagates producer failures from NUL-framed worktree listings", () => {
+  it.each([1, 23])("propagates status %s from NUL-framed worktree listings", (code) => {
     const repoDir = createRepo();
     const result = runLockShell(repoDir, [
       "git() {",
       '  if [ "$1" = worktree ] && [ "$2" = list ]; then',
       "    printf 'worktree %s\\0branch refs/heads/pr-42\\0\\0' \"$PWD\"",
-      "    return 23",
+      `    return ${code}`,
       "  fi",
       '  command git "$@"',
       "}",
       "set +e",
-      'worktree_is_registered "$PWD"',
+      'worktree_registration_state "$PWD" >/dev/null',
       'registered_status="$?"',
       "worktree_path_for_branch pr-42 >/dev/null",
       'branch_status="$?"',
       'printf "%s %s\\n" "$registered_status" "$branch_status"',
     ]);
     expect(result.status, result.stdout + "\n" + result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("23 23");
+    expect(result.stdout.trim()).toBe(`${code} ${code}`);
+  });
+  it("reports confirmed worktree and branch absence without using a failure status", () => {
+    const repoDir = createRepo();
+    const result = runLockShell(repoDir, [
+      'test "$(worktree_registration_state "$PWD/.worktrees/pr-42")" = absent',
+      'test -z "$(worktree_path_for_branch pr-42)"',
+    ]);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+  });
+  it.each(["pr-42", "temp/pr-42", "pr-42-prep"])(
+    "does not confuse absent branch %s with a checked-out descendant",
+    (branch) => {
+      const repoDir = createRepo();
+      const sibling = join(repoDir, ".worktrees", "pr-99");
+      execFileSync("git", ["worktree", "add", "-q", "-b", `${branch}/topic`, sibling], {
+        cwd: repoDir,
+      });
+      const otherBranch = branch === "pr-42-prep" ? "pr-42" : "pr-42-prep";
+      execFileSync("git", ["branch", otherBranch], { cwd: repoDir });
+      const head = execFileSync("git", ["rev-parse", `refs/heads/${branch}/topic`], {
+        cwd: repoDir,
+        encoding: "utf8",
+      });
+      const result = runLockShell(repoDir, [
+        'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+        "echo cleanup-completed",
+      ]);
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stdout).toContain("cleanup-completed");
+      expect(
+        execFileSync("git", ["rev-parse", `refs/heads/${branch}/topic`], {
+          cwd: repoDir,
+          encoding: "utf8",
+        }),
+      ).toBe(head);
+      expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: sibling, encoding: "utf8" })).toBe(
+        head,
+      );
+      expectWorktreeBranch(sibling, `${branch}/topic`);
+      expect(
+        spawnSync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${otherBranch}`], {
+          cwd: repoDir,
+        }).status,
+      ).toBe(1);
+    },
+  );
+  it.each(["pr-42", "temp/pr-42", "pr-42-prep"])(
+    "verifies only the exact branch %s after native deletion",
+    (branch) => {
+      const repoDir = createRepo();
+      const sibling = join(repoDir, ".worktrees", "pr-99");
+      execFileSync("git", ["branch", branch], { cwd: repoDir });
+      const head = execFileSync("git", ["rev-parse", `refs/heads/${branch}`], {
+        cwd: repoDir,
+        encoding: "utf8",
+      });
+      const result = runLockShell(repoDir, [
+        "git() {",
+        '  command git "$@" || return $?',
+        `  if [ "$*" = "branch -D -- ${branch}" ]; then`,
+        `    command git worktree add -q -b ${branch}/topic .worktrees/pr-99 || return $?`,
+        "  fi",
+        "}",
+        `delete_local_branch_if_safe ${branch} || exit $?`,
+        "echo cleanup-completed",
+      ]);
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stdout).toContain("cleanup-completed");
+      expect(
+        execFileSync("git", ["rev-parse", `refs/heads/${branch}/topic`], {
+          cwd: repoDir,
+          encoding: "utf8",
+        }),
+      ).toBe(head);
+      expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: sibling, encoding: "utf8" })).toBe(
+        head,
+      );
+      expectWorktreeBranch(sibling, `${branch}/topic`);
+    },
+  );
+  it.each([0, 23])("rejects truncated listings without masking Git status %s", (code) => {
+    const repoDir = createRepo();
+    const result = runLockShell(repoDir, [
+      "git() {",
+      '  if [ "${1:-} ${2:-}" = "worktree list" ]; then',
+      "    printf 'worktree %s\\0branch refs/heads/pr-42' \"$PWD\"",
+      `    return ${code}`,
+      "  fi",
+      '  command git "$@"',
+      "}",
+      "set +e",
+      'worktree_registration_state "$PWD" >/dev/null',
+      'registered_status="$?"',
+      "worktree_path_for_branch pr-42 >/dev/null",
+      'branch_status="$?"',
+      'printf "%s %s\\n" "$registered_status" "$branch_status"',
+    ]);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout.trim()).toBe(`${code || 1} ${code || 1}`);
+  });
+  it.each([1, 23, 0])(
+    "preserves a sibling's branch when its listing is unavailable (status %s)",
+    (code) => {
+      const repoDir = createRepo();
+      const sibling = join(repoDir, ".worktrees", "pr-99");
+      execFileSync("git", ["worktree", "add", "-q", "-b", "pr-42", sibling], {
+        cwd: repoDir,
+      });
+      const head = execFileSync("git", ["rev-parse", "refs/heads/pr-42"], {
+        cwd: repoDir,
+        encoding: "utf8",
+      });
+      const result = runLockShell(repoDir, [
+        "git() {",
+        '  printf "%s\\n" "$*" >> git-calls',
+        '  if [ "${1:-} ${2:-}" = "worktree list" ]; then',
+        '    case " ${FUNCNAME[*]} " in',
+        '      *" worktree_path_for_branch "*)',
+        // A successful but stale listing must still face Git's checked-out guard.
+        ...(code === 0
+          ? ["        printf 'worktree %s\\0branch refs/heads/main\\0\\0' \"$PWD\""]
+          : []),
+        `        return ${code} ;;`,
+        "    esac",
+        "  fi",
+        '  if [ "${1:-} ${2:-}" = "update-ref -d" ]; then echo unexpected-raw-delete >&2; return 97; fi',
+        '  command git "$@"',
+        "}",
+        'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+        "echo unexpected-cleanup-completed",
+      ]);
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(code || 1);
+      expect(result.stdout).not.toContain("unexpected-cleanup-completed");
+      expect(result.stderr).not.toContain("unexpected-raw-delete");
+      expect(readFileSync(join(repoDir, "git-calls"), "utf8")).not.toContain("update-ref -d");
+      expect(
+        execFileSync("git", ["rev-parse", "refs/heads/pr-42"], { cwd: repoDir, encoding: "utf8" }),
+      ).toBe(head);
+      expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: sibling, encoding: "utf8" })).toBe(
+        head,
+      );
+      expectWorktreeBranch(sibling, "pr-42");
+    },
+  );
+  it.each([1, 23])("preserves a failed branch-ref query with status %s", (code) => {
+    const repoDir = createRepo();
+    execFileSync("git", ["branch", "pr-42"], { cwd: repoDir });
+    const result = runLockShell(repoDir, [
+      "git() {",
+      '  if [ "$1" = for-each-ref ] && [[ "$*" == *" -- refs/heads/pr-42" ]]; then',
+      '    command git "$@" || return $?',
+      `    return ${code}`,
+      "  fi",
+      '  command git "$@"',
+      "}",
+      'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+      "echo unexpected-cleanup-completed",
+    ]);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(code);
+    expect(result.stdout).not.toContain("unexpected-cleanup-completed");
+    expect(
+      spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/heads/pr-42"], {
+        cwd: repoDir,
+      }).status,
+    ).toBe(0);
+  });
+  it("does not report a broken ref as absent when Git only warns", () => {
+    const repoDir = createRepo();
+    const ref = join(repoDir, ".git", "refs", "heads", "pr-42");
+    writeFileSync(ref, "broken\n");
+    const result = runLockShell(repoDir, [
+      'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+      "echo unexpected-cleanup-completed",
+    ]);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).not.toBe(0);
+    expect(result.stderr).toContain("broken ref");
+    expect(result.stdout).not.toContain("unexpected-cleanup-completed");
+    expect(readFileSync(ref, "utf8")).toBe("broken\n");
   });
   it("parses docs and mixed file lists without temp files or producer processes", () => {
     const repoDir = createRepo();
@@ -2892,25 +3087,147 @@ describePosix("scripts/pr per-PR operation lock", () => {
     expect(result.stderr).not.toContain("unexpected producer");
     expect(readFileSync(commonScript, "utf8")).not.toMatch(/done\s+(?:<<<|<\s*<\()/u);
   });
-  it("prunes a registered worktree whose directory is already gone", () => {
-    const repoDir = createRepo();
-    const worktreeDir = join(repoDir, ".worktrees", "pr-42");
-    mkdirSync(dirname(worktreeDir), { recursive: true });
-    execFileSync("git", ["worktree", "add", "-q", "-b", "pr-42", worktreeDir], {
-      cwd: repoDir,
-    });
-    const canonicalWorktreeDir = realpathSync(worktreeDir);
-    rmSync(worktreeDir, { recursive: true });
-    const result = runLockShell(repoDir, ['remove_worktree_if_present ".worktrees/pr-42"']);
-    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-    expect(
-      execFileSync("git", ["worktree", "list", "--porcelain"], {
+  it.each([false, true])(
+    "removes only the missing target registration (suffixed admin=%s)",
+    (suffix) => {
+      const repoDir = createRepo();
+      const worktreeDir = join(repoDir, ".worktrees", "pr-42");
+      const unrelatedDir = join(repoDir, ".worktrees", "pr-99");
+      mkdirSync(dirname(worktreeDir), { recursive: true });
+      if (suffix) {
+        execFileSync(
+          "git",
+          ["worktree", "add", "-q", "-b", "other", join(repoDir, "other", "pr-42")],
+          {
+            cwd: repoDir,
+          },
+        );
+      }
+      execFileSync("git", ["worktree", "add", "-q", "-b", "pr-42", worktreeDir], {
         cwd: repoDir,
+      });
+      execFileSync("git", ["worktree", "add", "-q", "-b", "pr-99", unrelatedDir], {
+        cwd: repoDir,
+      });
+      const admin = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+        cwd: worktreeDir,
         encoding: "utf8",
-      }),
-    ).not.toContain(canonicalWorktreeDir);
-  });
-  it("surfaces git worktree remove stderr without making cleanup fatal", () => {
+      }).trim();
+      const unrelatedAdmin = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+        cwd: unrelatedDir,
+        encoding: "utf8",
+      }).trim();
+      const unrelatedBacklink = readFileSync(join(unrelatedAdmin, "gitdir"));
+      const canonicalWorktreeDir = realpathSync(worktreeDir);
+      rmSync(worktreeDir, { recursive: true });
+      rmSync(unrelatedDir, { recursive: true });
+      const result = runLockShell(repoDir, [
+        "git() {",
+        '  if [[ "$*" == *"worktree prune"* ]]; then echo unexpected-prune >&2; return 97; fi',
+        '  command git "$@"',
+        "}",
+        'remove_worktree_if_present ".worktrees/pr-42"',
+      ]);
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stderr).not.toContain("unexpected-prune");
+      expect(existsSync(admin)).toBe(false);
+      expect(readFileSync(join(unrelatedAdmin, "gitdir"))).toEqual(unrelatedBacklink);
+      expect(
+        execFileSync("git", ["worktree", "list", "--porcelain", "-z"], {
+          cwd: repoDir,
+          encoding: "utf8",
+        }),
+      ).not.toContain(`worktree ${canonicalWorktreeDir}\0`);
+    },
+  );
+  it.each(["present", "missing", "empty-backlink", "unreadable-backlink"])(
+    "binds moved worktree cleanup through the original admin ID (%s)",
+    (state) => {
+      const repoDir = createRepo();
+      const git = (...args: string[]) =>
+        execFileSync("git", args, { cwd: repoDir, encoding: "utf8" }).trim();
+      const staging = join(repoDir, "staging");
+      const worktree = join(repoDir, ".worktrees", "pr-42");
+      const sibling = join(repoDir, ".worktrees", "pr-99");
+      mkdirSync(dirname(worktree), { recursive: true });
+      git("worktree", "add", "-q", "-b", "pr-42", staging);
+      const admin = git("-C", staging, "rev-parse", "--absolute-git-dir");
+      git("worktree", "move", staging, worktree);
+      expect(admin).toBe(join(realpathSync(repoDir), ".git", "worktrees", "staging"));
+      expect(git("-C", worktree, "rev-parse", "--absolute-git-dir")).toBe(admin);
+      const head = git("rev-parse", "refs/heads/pr-42");
+      git("worktree", "add", "-q", "-b", "pr-99", sibling);
+      const siblingAdmin = git("-C", sibling, "rev-parse", "--absolute-git-dir");
+      const siblingBacklink = readFileSync(join(siblingAdmin, "gitdir"));
+      writeFileSync(join(sibling, "marker"), "preserve sibling\n");
+      const backlink = join(admin, "gitdir");
+      if (state !== "present") {
+        rmSync(worktree, { recursive: true });
+      }
+      if (state === "empty-backlink") {
+        writeFileSync(backlink, "");
+      }
+      const backlinkBytes = readFileSync(backlink);
+      if (state === "unreadable-backlink") {
+        // Inject the read error so root-run fixtures exercise permission denial too.
+        writeFileSync(
+          join(repoDir, "deny-backlink.cjs"),
+          [
+            'const fs = require("node:fs");',
+            "const readFileSync = fs.readFileSync;",
+            "fs.readFileSync = function(file, ...args) {",
+            `  if (file === ${JSON.stringify(backlink)}) {`,
+            '    throw Object.assign(new Error("fixture denied backlink"), { code: "EACCES" });',
+            "  }",
+            "  return readFileSync.call(this, file, ...args);",
+            "};",
+          ].join("\n"),
+        );
+      }
+      const result = runLockShell(repoDir, [
+        ...(state === "unreadable-backlink"
+          ? ['node() { command node --require "$PWD/deny-backlink.cjs" "$@"; }']
+          : []),
+        "git() {",
+        '  printf "%s\\n" "$*" >> git-calls',
+        '  if [[ "$*" == *"worktree prune"* ]]; then return 97; fi',
+        '  if [ "${1:-} ${2:-}" = "update-ref -d" ]; then return 96; fi',
+        '  command git "$@"',
+        "}",
+        'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+        "echo cleanup-completed",
+      ]);
+      const success = state === "present" || state === "missing";
+      expect(result.error).toBeUndefined();
+      expect(result.signal).toBeNull();
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(success ? 0 : 1);
+      expect(result.stdout.includes("cleanup-completed")).toBe(success);
+      const calls = readFileSync(join(repoDir, "git-calls"), "utf8");
+      expect(calls).not.toMatch(/worktree prune|update-ref -d/u);
+      expect(calls.split("\n").filter((line) => line.startsWith("worktree remove "))).toHaveLength(
+        success ? 1 : 0,
+      );
+      expect(existsSync(worktree)).toBe(false);
+      expect(existsSync(admin)).toBe(!success);
+      expect(
+        spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/heads/pr-42"], {
+          cwd: repoDir,
+        }).status,
+      ).toBe(success ? 1 : 0);
+      if (!success) {
+        expect(readFileSync(backlink)).toEqual(backlinkBytes);
+        expect(git("rev-parse", "refs/heads/pr-42")).toBe(head);
+        expect(result.stderr).toContain(
+          state === "unreadable-backlink" ? "EACCES" : "damaged worktree metadata",
+        );
+      }
+      expect(git("-C", sibling, "rev-parse", "HEAD")).toBe(head);
+      expectWorktreeBranch(sibling, "pr-99");
+      expect(readFileSync(join(sibling, "marker"), "utf8")).toBe("preserve sibling\n");
+      expect(readFileSync(join(siblingAdmin, "gitdir"))).toEqual(siblingBacklink);
+    },
+  );
+  it.each([false, true])("preserves native remove failure after partial deletion=%s", (partial) => {
     const repoDir = createRepo();
     const worktreeDir = join(repoDir, ".worktrees", "pr-42");
     mkdirSync(dirname(worktreeDir), { recursive: true });
@@ -2920,20 +3237,91 @@ describePosix("scripts/pr per-PR operation lock", () => {
     const result = runLockShell(repoDir, [
       "git() {",
       "  if [ \"$1 $2\" = 'worktree remove' ]; then",
+      ...(partial ? ['    command git "$@" || return $?'] : []),
       "    echo 'fixture remove failure' >&2",
-      "    return 1",
+      "    return 73",
       "  fi",
       '  command git "$@"',
       "}",
-      'remove_worktree_if_present ".worktrees/pr-42"',
+      'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+      "echo unexpected-cleanup-completed",
     ]);
-    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-    expect(result.stdout).toContain(
-      "Warning: git worktree remove failed for .worktrees/pr-42: fixture remove failure",
-    );
-    expect(existsSync(worktreeDir)).toBe(true);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(73);
+    expect(result.stderr).toContain("fixture remove failure");
+    expect(result.stdout).not.toContain("unexpected-cleanup-completed");
+    expect(existsSync(worktreeDir)).toBe(!partial);
+    expect(
+      spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/heads/pr-42"], {
+        cwd: repoDir,
+      }).status,
+    ).toBe(0);
   });
-  it("prunes a missing registration and resets its script-owned branch on worktree add", () => {
+  it.each(["locked", "empty-backlink", "retained-admin"])(
+    "retains cleanup state and branches for %s metadata",
+    (fault) => {
+      const repoDir = createRepo();
+      const worktree = join(repoDir, ".worktrees", "pr-42");
+      execFileSync("git", ["worktree", "add", "-q", "-b", "pr-42", worktree], { cwd: repoDir });
+      const admin = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+        cwd: worktree,
+        encoding: "utf8",
+      }).trim();
+      if (fault === "locked") {
+        execFileSync("git", ["worktree", "lock", worktree], { cwd: repoDir });
+      }
+      if (fault !== "retained-admin") {
+        rmSync(worktree, { recursive: true });
+      }
+      if (fault === "empty-backlink") {
+        writeFileSync(join(admin, "gitdir"), "");
+      }
+      const result = runLockShell(repoDir, [
+        "git() {",
+        '  if [[ "$*" == *"worktree prune"* ]]; then echo unexpected-prune >&2; return 97; fi',
+        ...(fault === "retained-admin"
+          ? [
+              '  if [ "${1:-} ${2:-}" = "worktree remove" ]; then',
+              "    rm -rf -- .worktrees/pr-42",
+              "    : > .git/worktrees/pr-42/gitdir",
+              "    return 0",
+              "  fi",
+            ]
+          : []),
+        '  command git "$@"',
+        "}",
+        'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+        "echo unexpected-cleanup-completed",
+      ]);
+      expect(result.status, `${result.stdout}\n${result.stderr}`).not.toBe(0);
+      expect(result.stdout).not.toContain("unexpected-cleanup-completed");
+      expect(result.stderr).not.toContain("unexpected-prune");
+      expect(existsSync(admin)).toBe(true);
+      expect(
+        spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/heads/pr-42"], {
+          cwd: repoDir,
+        }).status,
+      ).toBe(0);
+    },
+  );
+  it("does not treat ENOTDIR as confirmed worktree absence", () => {
+    const repoDir = createRepo();
+    writeFileSync(join(repoDir, ".worktrees"), "not a directory\n");
+    execFileSync("git", ["branch", "pr-42"], { cwd: repoDir });
+    const result = runLockShell(repoDir, [
+      'cleanup_pr_worktree ".worktrees/pr-42" || exit $?',
+      "echo unexpected-cleanup-completed",
+    ]);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).not.toBe(0);
+    expect(result.stderr).toContain("ENOTDIR");
+    expect(result.stdout).not.toContain("unexpected-cleanup-completed");
+    expect(readFileSync(join(repoDir, ".worktrees"), "utf8")).toBe("not a directory\n");
+    expect(
+      spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/heads/pr-42"], {
+        cwd: repoDir,
+      }).status,
+    ).toBe(0);
+  });
+  it("removes the missing registration and resets its owned branch on worktree add", () => {
     const repoDir = createRepo();
     execFileSync("git", ["remote", "add", "origin", repoDir], { cwd: repoDir });
     const physicalWorktreesDir = join(repoDir, "linked-worktrees");
@@ -2945,7 +3333,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
     });
     rmSync(worktreeDir, { recursive: true });
     const { result } = enterPrWorktree(repoDir, 42);
-    expect(result.stdout).toContain("Pruning stale worktree registration for .worktrees/pr-42");
+    expect(result.stdout).toContain("Removing exact stale PR worktree .worktrees/pr-42");
     expect(existsSync(worktreeDir)).toBe(true);
     expectWorktreeBranch(worktreeDir, "temp/pr-42");
   });
@@ -2990,8 +3378,8 @@ describePosix("scripts/pr per-PR operation lock", () => {
     const canonicalTargetDir = realpathSync(targetDir);
     symlinkSync("pr-99", aliasDir, "dir");
     const result = runLockShell(repoDir, ['remove_worktree_if_present ".worktrees/pr-42"']);
-    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-    expect(result.stdout).toContain("refusing to remove non-canonical PR-worktree path");
+    expect(result.status, `${result.stdout}\n${result.stderr}`).not.toBe(0);
+    expect(result.stderr).toContain("non-canonical PR-worktree path");
     expect(existsSync(aliasDir)).toBe(true);
     expect(existsSync(targetDir)).toBe(true);
     expect(

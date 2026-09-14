@@ -10,6 +10,7 @@ import type { SparklineSample } from "../../components/sparkline-tile.ts";
 import { i18n } from "../../i18n/index.ts";
 import { zh_CN } from "../../i18n/locales/zh-CN.ts";
 import "./debug-overlay.ts";
+import "./debug-overlay-content.ts";
 import "./debug-page.ts";
 import { createApplicationGateway } from "../../test-helpers/application-context.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
@@ -51,6 +52,7 @@ type TestSparkline = LitElement & { samples: readonly SparklineSample[] };
 
 async function updateOverlayVitals(overlay: TestDebugOverlay): Promise<void> {
   await overlay.updateComplete;
+  await overlay.querySelector<LitElement>("openclaw-debug-overlay-content")?.updateComplete;
   for (const tile of overlay.querySelectorAll<TestSparkline>("openclaw-sparkline")) {
     await tile.updateComplete;
   }
@@ -759,108 +761,114 @@ describe("DebugOverlay", () => {
     }
   });
 
-  it.each(["same-client reconnect", "client replacement", "Gateway source replacement"])(
-    "discards pending samples and prior disk history on %s",
-    async (transition) => {
-      vi.useFakeTimers();
-      const listeners = new Set<(snapshot: ApplicationGatewaySnapshot) => void>();
-      const pending = deferred<unknown>();
-      const firstInfo = {
-        disks: [
-          { path: "/", totalBytes: 1000 * 1_073_741_824, availableBytes: 700 * 1_073_741_824 },
-        ],
-        diskPath: "/",
-        diskTotalBytes: 1000 * 1_073_741_824,
-        diskAvailableBytes: 700 * 1_073_741_824,
-      };
-      let infoResponse: unknown = firstInfo;
-      const request = vi.fn(async (method: string) => {
-        if (method === "system.info") {
-          return infoResponse;
-        }
-        if (method === "sessions.list") {
-          return { sessions: [] };
-        }
-        return diagnosticResponse(method);
-      });
-      const context = createDebugApplicationContext(request);
-      let snapshot = context.gateway.snapshot;
-      const gateway = {
-        ...context.gateway,
-        get snapshot() {
-          return snapshot;
-        },
-        subscribe(listener: (snapshot: ApplicationGatewaySnapshot) => void) {
-          listeners.add(listener);
-          return () => {
-            listeners.delete(listener);
-          };
-        },
-      };
-      const publishSnapshot = (next: ApplicationGatewaySnapshot) => {
-        snapshot = next;
-        for (const listener of listeners) {
-          listener(snapshot);
-        }
-      };
-      const overlay = document.createElement("openclaw-debug-overlay") as TestDebugOverlay;
-      overlay.context = { ...context, gateway };
-      document.body.append(overlay);
-      try {
-        overlay.toggle();
-        await vi.advanceTimersByTimeAsync(2_000);
-        await updateOverlayVitals(overlay);
-        expect(overlay.querySelector<TestSparkline>(".gateway-vital--disk")?.samples).toHaveLength(
-          2,
-        );
-
-        infoResponse = pending.promise;
-        await vi.advanceTimersByTimeAsync(2_000);
-        const callsBeforeTransition = request.mock.calls.filter(
-          ([method]) => method === "system.info",
-        ).length;
-        infoResponse = {
-          disks: [{ ...firstInfo.disks[0], availableBytes: 200 * 1_073_741_824 }],
-          diskPath: "/",
-          diskTotalBytes: firstInfo.diskTotalBytes,
-          diskAvailableBytes: 200 * 1_073_741_824,
-        };
-        if (transition === "same-client reconnect") {
-          publishSnapshot({ ...snapshot, phase: "reconnecting" });
-          await overlay.updateComplete;
-          expect(overlay.querySelector(".gateway-vital--disk")).toBeNull();
-          publishSnapshot({ ...snapshot, phase: "connected" });
-        } else if (transition === "client replacement") {
-          publishSnapshot({
-            ...snapshot,
-            client: createDebugApplicationContext(request).gateway.snapshot.client,
-          });
-        } else {
-          overlay.context = { ...context, gateway: { ...gateway } };
-          overlay.requestUpdate();
-        }
-        await vi.advanceTimersByTimeAsync(0);
-        await updateOverlayVitals(overlay);
-        expect(request.mock.calls.filter(([method]) => method === "system.info")).toHaveLength(
-          callsBeforeTransition + 1,
-        );
-
-        pending.resolve(firstInfo);
-        await vi.advanceTimersByTimeAsync(0);
-        await updateOverlayVitals(overlay);
-        const disk = overlay.querySelector<TestSparkline>(".gateway-vital--disk");
-        expect(normalizedText(disk)).toContain("200 GB free");
-        expect(disk?.samples.map((sample) => sample.value / 1_073_741_824)).toEqual([200]);
-        expect(disk?.querySelector("polyline")).toBeNull();
-
-        await vi.advanceTimersByTimeAsync(2_000);
-        await updateOverlayVitals(overlay);
-        expect(disk?.samples.map((sample) => sample.value / 1_073_741_824)).toEqual([200, 200]);
-      } finally {
-        overlay.remove();
-        vi.useRealTimers();
+  it.each([
+    "same-client reconnect",
+    "client replacement",
+    "Gateway source replacement",
+    "close and reopen",
+  ])("discards pending samples and prior disk history on %s", async (transition) => {
+    vi.useFakeTimers();
+    const listeners = new Set<(snapshot: ApplicationGatewaySnapshot) => void>();
+    const pending = deferred<unknown>();
+    const firstInfo = {
+      disks: [{ path: "/", totalBytes: 1000 * 1_073_741_824, availableBytes: 700 * 1_073_741_824 }],
+      diskPath: "/",
+      diskTotalBytes: 1000 * 1_073_741_824,
+      diskAvailableBytes: 700 * 1_073_741_824,
+    };
+    let infoResponse: unknown = firstInfo;
+    const request = vi.fn(async (method: string) => {
+      if (method === "system.info") {
+        return infoResponse;
       }
-      expect(listeners.size).toBe(0);
-    },
-  );
+      if (method === "sessions.list") {
+        return { sessions: [] };
+      }
+      return diagnosticResponse(method);
+    });
+    const context = createDebugApplicationContext(request);
+    let snapshot = context.gateway.snapshot;
+    const gateway = {
+      ...context.gateway,
+      get snapshot() {
+        return snapshot;
+      },
+      subscribe(listener: (snapshot: ApplicationGatewaySnapshot) => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+    const publishSnapshot = (next: ApplicationGatewaySnapshot) => {
+      snapshot = next;
+      for (const listener of listeners) {
+        listener(snapshot);
+      }
+    };
+    const overlay = document.createElement("openclaw-debug-overlay") as TestDebugOverlay;
+    overlay.context = { ...context, gateway };
+    document.body.append(overlay);
+    try {
+      overlay.toggle();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await updateOverlayVitals(overlay);
+      expect(overlay.querySelector<TestSparkline>(".gateway-vital--disk")?.samples).toHaveLength(2);
+
+      infoResponse = pending.promise;
+      await vi.advanceTimersByTimeAsync(2_000);
+      await updateOverlayVitals(overlay);
+      expect(normalizedText(overlay.querySelector(".gateway-vital--disk"))).toContain(
+        "700 GB free",
+      );
+      expect(overlay.querySelector(".debug-overlay__placeholder")).toBeNull();
+      const callsBeforeTransition = request.mock.calls.filter(
+        ([method]) => method === "system.info",
+      ).length;
+      infoResponse = {
+        disks: [{ ...firstInfo.disks[0], availableBytes: 200 * 1_073_741_824 }],
+        diskPath: "/",
+        diskTotalBytes: firstInfo.diskTotalBytes,
+        diskAvailableBytes: 200 * 1_073_741_824,
+      };
+      if (transition === "same-client reconnect") {
+        publishSnapshot({ ...snapshot, phase: "reconnecting" });
+        await overlay.updateComplete;
+        expect(overlay.querySelector(".gateway-vital--disk")).toBeNull();
+        publishSnapshot({ ...snapshot, phase: "connected" });
+      } else if (transition === "client replacement") {
+        publishSnapshot({
+          ...snapshot,
+          client: createDebugApplicationContext(request).gateway.snapshot.client,
+        });
+      } else if (transition === "close and reopen") {
+        overlay.toggle();
+        overlay.toggle();
+      } else {
+        overlay.context = { ...context, gateway: { ...gateway } };
+        overlay.requestUpdate();
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      await updateOverlayVitals(overlay);
+      expect(request.mock.calls.filter(([method]) => method === "system.info")).toHaveLength(
+        callsBeforeTransition + 1,
+      );
+
+      pending.resolve(firstInfo);
+      await vi.advanceTimersByTimeAsync(0);
+      await updateOverlayVitals(overlay);
+      const disk = overlay.querySelector<TestSparkline>(".gateway-vital--disk");
+      expect(normalizedText(disk)).toContain("200 GB free");
+      expect(disk?.samples.map((sample) => sample.value / 1_073_741_824)).toEqual([200]);
+      expect(disk?.querySelector("polyline")).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      await updateOverlayVitals(overlay);
+      expect(disk?.samples.map((sample) => sample.value / 1_073_741_824)).toEqual([200, 200]);
+    } finally {
+      overlay.remove();
+      vi.useRealTimers();
+    }
+    expect(listeners.size).toBe(0);
+  });
 });

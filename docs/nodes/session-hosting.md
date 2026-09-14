@@ -53,9 +53,11 @@ installation and retention lifecycle.
 
 You can also enroll and enable a service host in one step with
 `openclaw connect --service --session-host`. In Control UI New Session, a
-write-scoped operator selects a Gateway project or folder and then either a
-specific paired device or **Auto**. OpenClaw creates a
-session-owned managed worktree on the Gateway, dispatches it with the exact
+write-scoped operator chooses either a specific paired device or **Auto**.
+Without an explicit project or folder selection, **New workspace** starts an
+empty isolated workspace without requiring a user Git repository. A selected
+GitHub repository or Gateway Git checkout remains an optional source. OpenClaw creates a
+session-owned managed workspace, dispatches it with the exact
 `deviceId` or `autoDevice: true`, and sends the first turn only after the chosen
 device placement becomes active. New Session does not bind `execNode` or browse
 the device filesystem.

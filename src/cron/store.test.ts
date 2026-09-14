@@ -705,8 +705,19 @@ describe("cron store", () => {
     const first = makeStore("job-1", true);
     const second = makeStore("job-2", false);
 
+    expectDefined(first.jobs[0], "prior job").description = "x".repeat(128 * 1024);
     await saveCronStore(store.storePath, first);
-    await saveCronStore(store.storePath, second);
+    const counter = trackSqliteStatementExecutions(
+      openOpenClawStateDatabase().db,
+      ["priorRows"],
+      (sql) => (/^select\b/i.test(sql) && sql.includes('"cron_jobs"') ? "priorRows" : null),
+    );
+    try {
+      await saveCronStore(store.storePath, second);
+      expect(counter.textBytes.priorRows).toBeLessThan(1024);
+    } finally {
+      counter.restore();
+    }
 
     const loaded = await loadCronStore(store.storePath);
     expect(loaded.jobs.map((job) => job.id)).toEqual(["job-2"]);

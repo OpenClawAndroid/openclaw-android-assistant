@@ -135,7 +135,7 @@ if (
   const startupEnv = { ...process.env };
   const { assertSupportedRuntime, isCurrentRuntimeSupported } =
     await import("./infra/runtime-guard.js");
-  if (!isCurrentRuntimeSupported()) {
+  if (!(await isCurrentRuntimeSupported())) {
     const { loadCliDotEnv } = await import("./cli/dotenv.js");
     loadCliDotEnv({ quiet: true });
     await configureGatewayStartupTraceConsoleFormatting(gatewayEntryStartupTrace);

@@ -388,7 +388,7 @@ export function getExpandedUserMessages(sessionKey: string): Map<string, boolean
 export type AssistantMessageExpansionState =
   | { status: "loading"; revision: number }
   | { status: "error"; revision: number }
-  | { status: "loaded"; markdown: string; revision: number };
+  | { status: "loaded"; markdown: string; message?: unknown; revision: number };
 
 export function syncToolCardExpansionState(
   sessionKey: string,

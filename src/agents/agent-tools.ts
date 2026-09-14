@@ -201,6 +201,7 @@ type OpenClawCodingToolsOptions = {
   questionPrompt?: QuestionPromptDelivery;
   /** Capabilities declared by the gateway client that originated this run. */
   clientCaps?: string[];
+  gatewayUiCommandTarget?: import("../gateway/ui-command-target.types.js").GatewayUiCommandTarget;
   /** Host-admitted dashboard authoring without an originating inline renderer. */
   pinnedWidgetAuthoring?: boolean;
   /** Out-of-band plugin bindings attached by the run initiator. */
@@ -926,6 +927,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             webSearchEnabled: options?.webSearchEnabled,
             clientCaps: options?.clientCaps,
             pinnedWidgetAuthoring: options?.pinnedWidgetAuthoring,
+            gatewayUiCommandTarget: options?.gatewayUiCommandTarget,
             toolBindings: options?.toolBindings,
             pluginToolAllowlist,
             pluginToolDenylist,
@@ -981,6 +983,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             inheritedToolDenylist,
             onYield: options?.onYield,
             claimYieldCompletion: options?.claimYieldCompletion,
+            processScopeKey: scopeKey,
             allowGatewaySubagentBinding: options?.allowGatewaySubagentBinding,
             recordToolPrepStage: options?.recordToolPrepStage,
           }),

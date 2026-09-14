@@ -250,3 +250,20 @@ Start agent work in the background: hook-dispatched turns for external content, 
 
   </Accordion>
 </AccordionGroup>
+
+## Harness task execution ownership
+
+`createAgentHarnessTaskRuntime(...)` from
+`openclaw/plugin-sdk/agent-harness-task-runtime` accepts an optional
+`executionPid` for the local process that executes the harness's tasks. The SDK
+captures its host and process start identity once when creating the scoped
+runtime. Task records keep that identity so a successor Gateway can settle
+running tasks whose recorded process is verifiably gone, without waiting for
+their normal reconciliation grace period.
+
+Pass only a local PID reported by the harness transport. Codex's stdio transport
+provides one; its WebSocket and Unix-socket transports do not. Omit `executionPid`
+for remote or unidentified owners, including Copilot, whose SDK does not expose
+its process identity. The SDK never substitutes the Gateway PID. Records without
+an identity retain the existing grace period, including records written before
+execution ownership was available.

@@ -1,3 +1,4 @@
+import { channel } from "node:diagnostics_channel";
 import { performance } from "node:perf_hooks";
 import { isMainThread, threadId } from "node:worker_threads";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -22,6 +23,8 @@ import {
   seedSessions,
 } from "./sessions-read-cache.test-support.js";
 import { sessionLog } from "./sessions-shared.js";
+import { sessionSubscriptionHandlers } from "./sessions-subscriptions.js";
+import type { RespondFn } from "./types.js";
 
 const scheduler = vi.hoisted(() => ({ onYield: undefined as (() => Promise<void>) | undefined }));
 vi.mock("node:timers/promises", async (importOriginal) => {
@@ -69,6 +72,116 @@ function controlProjectionClock() {
       return result;
     });
 }
+
+test("captures fast list and subscription snapshots with logging disabled and no request identities", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const context = requestContext(await seedSessions());
+    context.subscribeSessionEvents = vi.fn();
+    const client = { ...identifiedClient("owner@example.com"), connId: "private-connection" };
+    const request = { agentId: "main", limit: 1 };
+    setDiagnosticsEnabledForProcess(false);
+    vi.mocked(sessionLog.isEnabled).mockReturnValue(false);
+    const projection = controlProjectionClock();
+    const trace = createDiagnosticTraceContext();
+    const events: unknown[] = [];
+    const diagnostics = channel("openclaw.session.list");
+    const collect = (event: unknown) => events.push(event);
+    diagnostics.subscribe(collect);
+    try {
+      const listed = await runWithDiagnosticTraceContext(trace, () =>
+        listSessions({ client, context, request }),
+      );
+      const responses: Parameters<RespondFn>[] = [];
+      await sessionSubscriptionHandlers["sessions.subscribe"]!({
+        req: { type: "req", id: "private-request", method: "sessions.subscribe" },
+        params: request,
+        client,
+        context,
+        isWebchatConnect: () => true,
+        respond: (...response) => responses.push(response),
+      });
+      expect(responses).toEqual([[true, { subscribed: true, list: listed }, undefined, undefined]]);
+      expect(context.subscribeSessionEvents).toHaveBeenCalledWith(client.connId);
+      expect(projection).toHaveBeenCalledOnce();
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({
+        operation: "sessions.list",
+        pid: process.pid,
+        threadId,
+        isMainThread,
+        handlerElapsedMs: 20,
+        cacheRole: "projection-owner",
+        prepareSyncMs: 20,
+        projectionPasses: 1,
+        selectedRowCount: 1,
+        handlerOutcome: "returned",
+        responseOutcome: "ok",
+      });
+      expect(events[1]).toMatchObject({
+        operation: "sessions.subscribe",
+        handlerElapsedMs: 0,
+        cacheRole: "completed-hit",
+        selectedRowCount: 1,
+        handlerOutcome: "returned",
+        responseOutcome: "ok",
+      });
+      expect(events[1]).not.toHaveProperty("projectionPasses");
+      const serialized = JSON.stringify(events);
+      for (const privateValue of [
+        client.connId,
+        "private-request",
+        "owner@example.com",
+        trace.traceId,
+      ]) {
+        expect(serialized).not.toContain(privateValue);
+      }
+      expect(serialized).not.toContain("agent:main:");
+      expect(sessionLog.warn).not.toHaveBeenCalled();
+    } finally {
+      diagnostics.unsubscribe(collect);
+    }
+    await listSessions({ client, context, request });
+    expect(events).toHaveLength(2);
+  });
+});
+
+test("captures a fast failed projection while preserving the original error", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const context = requestContext(await seedSessions());
+    setDiagnosticsEnabledForProcess(false);
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const failure = new Error("synthetic-private-projection-error");
+    vi.spyOn(titleReader, "readSessionTitleFieldsFromTranscriptBatch").mockImplementation(() => {
+      clock += 25;
+      throw failure;
+    });
+    const events: unknown[] = [];
+    const diagnostics = channel("openclaw.session.list");
+    const collect = (event: unknown) => events.push(event);
+    diagnostics.subscribe(collect);
+    try {
+      await expect(
+        listSessions({
+          client: identifiedClient("owner@example.com"),
+          context,
+          request: { agentId: "main", limit: 1 },
+        }),
+      ).rejects.toBe(failure);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        operation: "sessions.list",
+        handlerElapsedMs: 25,
+        cacheRole: "projection-owner",
+        handlerOutcome: "threw",
+        responseOutcome: "none",
+      });
+      expect(JSON.stringify(events)).not.toContain(failure.message);
+      expect(sessionLog.warn).not.toHaveBeenCalled();
+    } finally {
+      diagnostics.unsubscribe(collect);
+    }
+  });
+});
 
 test("separates producer work, follower wait, and completed hits under their own request traces", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {

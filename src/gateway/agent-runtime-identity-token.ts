@@ -29,6 +29,7 @@ import {
   resolveMessageActionTurnCapability,
   type AgentRuntimeMessageActionContext,
 } from "./message-action-turn-capability.js";
+import type { GatewayUiCommandTarget } from "./ui-command-target.types.js";
 import type { WorkerSessionTurnClaim } from "./worker-environments/placement-record.js";
 
 const AGENT_RUNTIME_IDENTITY_TOKEN_CONTEXT = "openclaw:gateway-agent-runtime-identity-token:v1";
@@ -55,6 +56,7 @@ export type AgentRuntimeIdentity = {
   turnSourceTo?: string;
   turnSourceAccountId?: string;
   turnSourceThreadId?: string | number;
+  gatewayUiCommandTarget?: GatewayUiCommandTarget;
   messageActionContext?: AgentRuntimeMessageActionContext;
   cronSelfManagementContext?: AgentRuntimeCronSelfManagementContext;
   cronToolsAllowCapture?: "final-executable-surface";
@@ -92,6 +94,10 @@ const safeNonNegativeIntegerSchema = z
 const operationalRunInstanceSchema = z.object({
   instanceId: normalizedRequiredStringSchema,
   runId: normalizedRequiredStringSchema,
+});
+const gatewayUiCommandTargetSchema = z.object({
+  connId: normalizedRequiredStringSchema,
+  profileId: normalizedRequiredStringSchema.optional(),
 });
 const workerTurnClaimSchema = z
   .object({
@@ -204,6 +210,7 @@ const agentRuntimeIdentityTokenPayloadSchema = z.object({
   turnSourceTo: z.string().optional().catch(undefined),
   turnSourceAccountId: z.string().optional().catch(undefined),
   turnSourceThreadId: z.union([z.string(), z.number()]).optional().catch(undefined),
+  gatewayUiCommandTarget: gatewayUiCommandTargetSchema.optional(),
   messageActionContext: messageActionContextSchema.optional(),
   cronSelfManagementContext: cronSelfManagementContextSchema.optional(),
   cronToolsAllowCapture: z.literal("final-executable-surface").optional(),
@@ -391,6 +398,9 @@ function parsePayload(value: unknown, nowMs: number): AgentRuntimeIdentityTokenP
       ...(turnSourceTo ? { turnSourceTo } : {}),
       ...(turnSourceAccountId ? { turnSourceAccountId } : {}),
       ...(turnSourceThreadId !== undefined ? { turnSourceThreadId } : {}),
+      ...(raw.gatewayUiCommandTarget
+        ? { gatewayUiCommandTarget: Object.freeze(raw.gatewayUiCommandTarget) }
+        : {}),
       ...(messageActionContext ? { messageActionContext } : {}),
       ...(cronSelfManagementContext ? { cronSelfManagementContext } : {}),
       ...(sessionSpawnContext ? { sessionSpawnContext } : {}),
@@ -417,6 +427,7 @@ export type AgentRuntimeIdentityTokenParams = {
   turnSourceTo?: string;
   turnSourceAccountId?: string;
   turnSourceThreadId?: string | number;
+  gatewayUiCommandTarget?: GatewayUiCommandTarget;
   messageActionContext?: AgentRuntimeMessageActionContext;
   cronSelfManagementJobId?: string;
   cronToolsAllowCapture?: "final-executable-surface";
@@ -530,6 +541,11 @@ function prepareAgentRuntimeIdentityTokenPayload(
     ...(turnSourceTo ? { turnSourceTo } : {}),
     ...(turnSourceAccountId ? { turnSourceAccountId } : {}),
     ...(turnSourceThreadId !== undefined ? { turnSourceThreadId } : {}),
+    ...(params.gatewayUiCommandTarget
+      ? {
+          gatewayUiCommandTarget: gatewayUiCommandTargetSchema.parse(params.gatewayUiCommandTarget),
+        }
+      : {}),
     ...(messageActionContext ? { messageActionContext } : {}),
     ...(cronSelfManagementContext ? { cronSelfManagementContext } : {}),
     ...(params.cronToolsAllowCapture === "final-executable-surface"
@@ -635,6 +651,9 @@ function resolveAgentRuntimeIdentityPayload(
     ...(payload.turnSourceAccountId ? { turnSourceAccountId: payload.turnSourceAccountId } : {}),
     ...(payload.turnSourceThreadId !== undefined
       ? { turnSourceThreadId: payload.turnSourceThreadId }
+      : {}),
+    ...(payload.gatewayUiCommandTarget
+      ? { gatewayUiCommandTarget: payload.gatewayUiCommandTarget }
       : {}),
     ...(payload.messageActionContext ? { messageActionContext: payload.messageActionContext } : {}),
     ...(payload.cronSelfManagementContext

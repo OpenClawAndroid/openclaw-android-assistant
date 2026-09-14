@@ -567,8 +567,16 @@ function getFreshestDedupeSnapshot(
 
 function getCanonicalAgentRunSnapshot(
   snapshotsBySource: Map<AgentJobSource, AgentRunSnapshot>,
+  source?: "chat",
 ): AgentRunSnapshot | undefined {
-  const dedupe = getFreshestDedupeSnapshot(snapshotsBySource);
+  const dedupe = source
+    ? snapshotsBySource.get(source)
+    : getFreshestDedupeSnapshot(snapshotsBySource);
+  // A chat waiter must observe completed delivery before consuming the same
+  // run's lifecycle outcome and reply. An agent dedupe cannot close that barrier.
+  if (source && !dedupe) {
+    return undefined;
+  }
   const lifecycle = snapshotsBySource.get("lifecycle");
   if (!dedupe || !lifecycle) {
     return dedupe ?? lifecycle;
@@ -585,11 +593,9 @@ function getAgentRunSnapshot(params: {
 }): AgentRunSnapshot | undefined {
   pruneAgentRunCache();
   const job = agentJobs.get(params.runId);
-  const snapshot = params.source
-    ? job?.snapshotsBySource.get(params.source)
-    : job
-      ? getCanonicalAgentRunSnapshot(job.snapshotsBySource)
-      : undefined;
+  const snapshot = job
+    ? getCanonicalAgentRunSnapshot(job.snapshotsBySource, params.source)
+    : undefined;
   return snapshot && snapshot.version > params.afterVersion ? snapshot : undefined;
 }
 

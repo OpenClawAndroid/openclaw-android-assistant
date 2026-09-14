@@ -5,7 +5,13 @@
 import { safeParseJson } from "@openclaw/normalization-core";
 import { asFiniteNumber as normalizeFiniteNumber } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { sql, type Insertable, type Selectable, type Updateable } from "kysely";
+import {
+  sql,
+  type ExpressionBuilder,
+  type Insertable,
+  type Selectable,
+  type Updateable,
+} from "kysely";
 import {
   executeSqliteQuerySync,
   getNodeSqliteKysely,
@@ -224,6 +230,18 @@ type SubagentRegistryReadScope =
   | { kind: "child"; sessionKey: string }
   | { kind: "runs"; runIds: readonly string[] };
 
+function subagentControllerFilter(controllerSessionKeys: readonly string[]) {
+  // The writer trims controller keys; older null/empty rows belong to their requester.
+  return (eb: ExpressionBuilder<SubagentRegistryDatabase, "subagent_runs">) =>
+    eb.or([
+      eb("controller_session_key", "in", controllerSessionKeys),
+      eb.and([
+        eb.or([eb("controller_session_key", "is", null), eb("controller_session_key", "=", "")]),
+        eb("requester_session_key", "in", controllerSessionKeys),
+      ]),
+    ]);
+}
+
 function readSubagentRegistryRows(
   scope?: SubagentRegistryReadScope,
   database = openOpenClawStateDatabase(),
@@ -243,16 +261,7 @@ function readSubagentRegistryRows(
       ]),
     );
   } else if (scope?.kind === "controller") {
-    // The writer trims controller keys; older null/empty rows belong to their requester.
-    query = query.where((eb) =>
-      eb.or([
-        eb("controller_session_key", "=", scope.sessionKey),
-        eb.and([
-          eb.or([eb("controller_session_key", "is", null), eb("controller_session_key", "=", "")]),
-          eb("requester_session_key", "=", scope.sessionKey),
-        ]),
-      ]),
-    );
+    query = query.where(subagentControllerFilter([scope.sessionKey]));
   }
   return executeSqliteQuerySync(db, query.orderBy("created_at", "asc").orderBy("run_id", "asc"))
     .rows;
@@ -285,14 +294,16 @@ function canonicalSubagentPayloadFilter() {
     AND json_type(payload_json, '$.delivery.handoffInjectedAt') IS NULL`;
 }
 
-function readSubagentSessionListRows(): SubagentRunReadSqliteRow[] {
+function readSubagentSessionListRows(
+  controllerSessionKeys?: readonly string[],
+): SubagentRunReadSqliteRow[] {
   const { db } = openOpenClawStateDatabase();
   const stateDb = getNodeSqliteKysely<SubagentRegistryDatabase>(db);
   return executeSqliteQuerySync(
     db,
     stateDb
-      .with("canonical_runs", (query) =>
-        query.selectFrom("subagent_runs").select([
+      .with("canonical_runs", (query) => {
+        const selected = query.selectFrom("subagent_runs").select([
           "run_id",
           "child_session_key",
           "controller_session_key",
@@ -305,8 +316,11 @@ function readSubagentSessionListRows(): SubagentRunReadSqliteRow[] {
           THEN json_extract(payload_json, '$.parentCompletion') ELSE payload_json END`.as(
             "payload_json",
           ),
-        ]),
-      )
+        ]);
+        return controllerSessionKeys
+          ? selected.where(subagentControllerFilter(controllerSessionKeys))
+          : selected;
+      })
       .selectFrom("canonical_runs")
       .select([
         "run_id",
@@ -468,9 +482,15 @@ export function loadSubagentRegistryFromSqlite(): Map<string, SubagentRunRecord>
 }
 
 /** Loads only the canonical fields needed to build session-list topology metadata. */
-export function loadSubagentSessionListRunsFromSqlite(): Map<string, SubagentRunReadRecord> {
+export function loadSubagentSessionListRunsFromSqlite(
+  controllerSessionKeys?: readonly string[],
+): Map<string, SubagentRunReadRecord> {
   const runs = new Map<string, SubagentRunReadRecord>();
-  for (const row of readSubagentSessionListRows()) {
+  const keys = controllerSessionKeys?.map((key) => key.trim()).filter(Boolean);
+  if (keys?.length === 0) {
+    return runs;
+  }
+  for (const row of readSubagentSessionListRows(keys)) {
     const entry = rowToSubagentRunReadRecord(row);
     if (entry) {
       runs.set(entry.runId, entry);

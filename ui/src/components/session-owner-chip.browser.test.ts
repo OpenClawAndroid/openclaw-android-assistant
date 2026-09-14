@@ -12,10 +12,16 @@ type OwnerChipElement = HTMLElement & {
   updateComplete: Promise<boolean>;
 };
 
+const originalTheme = document.documentElement.getAttribute("data-theme-mode");
 const hasBrowserLayout = !navigator.userAgent.toLowerCase().includes("jsdom");
 
 afterEach(() => {
   document.body.replaceChildren();
+  if (originalTheme === null) {
+    document.documentElement.removeAttribute("data-theme-mode");
+  } else {
+    document.documentElement.setAttribute("data-theme-mode", originalTheme);
+  }
 });
 
 async function mountOwnerChip(params: {
@@ -85,4 +91,50 @@ describe.skipIf(!hasBrowserLayout)("session owner stack layout", () => {
     expect([bounds.width, bounds.height]).toEqual([20, 20]);
     expect(chip.querySelector(".session-owner-stack")).toBeNull();
   });
+
+  it.each(
+    ["light", "dark"].flatMap((theme) =>
+      [0, 1, 2].map((participantCount) => ({ theme, participantCount })),
+    ),
+  )(
+    "uses a thin cutout only for stacked owners in $theme with $participantCount participants",
+    async ({ theme, participantCount }) => {
+      document.documentElement.setAttribute("data-theme-mode", theme);
+      const sidebar = document.createElement("aside");
+      sidebar.className = "sidebar";
+      document.body.append(sidebar);
+      const chip = await mountOwnerChip({
+        participantCount,
+        participants: [{ identity: { type: "profile", id: "profile-bob" }, label: "Bob" }],
+      });
+      const row = document.createElement("div");
+      row.className = "sidebar-recent-session";
+      row.style.transition = "none";
+      sidebar.append(row);
+      row.append(chip);
+      const front = chip.querySelector<HTMLElement>(".session-owner-chip")!;
+      if (participantCount === 0) {
+        expect(getComputedStyle(front).borderTopWidth).toBe("0px");
+        expect(getComputedStyle(front).boxShadow).toBe("none");
+        return;
+      }
+      const stack = chip.querySelector<HTMLElement>(".session-owner-stack")!;
+      for (const selected of [false, true]) {
+        row.classList.toggle("sidebar-recent-session--selected", selected);
+        await expect
+          .poll(() =>
+            [getComputedStyle(stack, "::before"), getComputedStyle(stack, "::after")].map(
+              (cutout) => ({
+                width: cutout.borderTopWidth,
+                matchesRow: cutout.borderTopColor === getComputedStyle(row).backgroundColor,
+              }),
+            ),
+          )
+          .toEqual([
+            { width: "1px", matchesRow: true },
+            { width: "1px", matchesRow: true },
+          ]);
+      }
+    },
+  );
 });

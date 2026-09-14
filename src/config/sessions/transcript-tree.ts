@@ -364,6 +364,19 @@ export function selectSessionTranscriptActiveEntries<T, R>(params: {
   return activeEntries;
 }
 
+export function selectSessionTranscriptTreeTipNodes<T>(tree: SessionTranscriptTree<T>) {
+  const referencedParents = new Set(
+    tree.nodes.flatMap((node) =>
+      isSessionTranscriptLeafControl(node.entry) || node.parentId === null ? [] : [node.parentId],
+    ),
+  );
+  return tree.nodes.filter(
+    (node) =>
+      !isSessionTranscriptLeafControl(node.entry) &&
+      (node.id === tree.leafId || !referencedParents.has(node.id)),
+  );
+}
+
 /** Select one normalized path, retaining a reachable suffix after missing ancestors. */
 export function selectSessionTranscriptTreePathNodes<T>(
   tree: SessionTranscriptTree<T>,

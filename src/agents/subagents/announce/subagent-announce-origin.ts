@@ -16,7 +16,7 @@ import {
   stripTargetProviderPrefix,
 } from "../../../infra/outbound/channel-target-prefix.js";
 import type { ConversationRef } from "../../../infra/outbound/session-binding-service.js";
-import type { SessionDeliveryRoute } from "../../../infra/session-delivery-queue-storage.js";
+import type { SessionDeliveryRoute } from "../../../infra/session-delivery-queue.records.js";
 import { stringifyRouteThreadId } from "../../../plugin-sdk/channel-route.js";
 import { normalizeAccountId } from "../../../routing/session-key.js";
 import { deriveSessionChatTypeFromKey } from "../../../sessions/session-chat-type-shared.js";

@@ -211,6 +211,14 @@ public struct OpenClawChatView: View {
         #endif
     }
 
+    private var collapsesCompletedWork: Bool {
+        #if os(iOS)
+        true
+        #else
+        self.isDesktopLayout
+        #endif
+    }
+
     /// `showsAssistantTrace` remains as a source-compatible convenience that sets both display options.
     public init(
         viewModel: OpenClawChatViewModel,
@@ -809,15 +817,13 @@ public struct OpenClawChatView: View {
             base = self.viewModel.messages
         }
         var rows = ChatTranscriptRow.build(from: self.mergeToolResults(in: base))
-        #if os(macOS)
-        if self.isDesktopLayout {
+        if self.collapsesCompletedWork {
             rows = ChatTranscriptRow.collapseCompletedWork(
                 rows,
                 runWorking: self.viewModel.hasBlockingRunActivity || self.viewModel.streamingAssistantText != nil,
                 activeRunIDs: Set(self.viewModel.liveAdvertisedRunIDs).union(self.viewModel.liveLocalRunIDs),
                 searchActive: self.isSearchPresented)
         }
-        #endif
         return rows.compactMap { row in
             switch row {
             case let .message(message):

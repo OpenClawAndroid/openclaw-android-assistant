@@ -90,18 +90,56 @@ describe("SQLite NUL capability probe", () => {
     });
   });
 
-  it("caches the current process probe", async () => {
-    vi.resetModules();
-    const { detectCurrentSqliteCapabilities } = await import("../../node-sqlite.mjs");
-    const prepare = vi.spyOn(DatabaseSync.prototype, "prepare");
-    try {
-      const first = detectCurrentSqliteCapabilities();
-      const calls = prepare.mock.calls.length;
-      expect(first.text).toBe(true);
-      expect(detectCurrentSqliteCapabilities()).toBe(first);
-      expect(prepare).toHaveBeenCalledTimes(calls);
-    } finally {
-      prepare.mockRestore();
-    }
+  it("shares one worker probe and joins its exit before returning capabilities", () => {
+    const moduleUrl = new URL("../../node-sqlite.mjs", import.meta.url).href;
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+          import { DatabaseSync, StatementSync } from "node:sqlite";
+          const counts = {};
+          for (const [prototype, names] of [
+            [DatabaseSync.prototype, ["prepare", "exec"]],
+            [StatementSync.prototype, ["get", "all", "run", "iterate"]],
+          ]) {
+            for (const name of names) {
+              counts[name] = 0;
+              const original = prototype[name];
+              prototype[name] = function (...args) {
+                counts[name]++;
+                return Reflect.apply(original, this, args);
+              };
+            }
+          }
+          let workersStarted = 0;
+          let workersExited = 0;
+          process.on("worker", (worker) => {
+            workersStarted++;
+            worker.once("exit", () => workersExited++);
+          });
+          const { detectCurrentSqliteCapabilities } = await import(${JSON.stringify(moduleUrl)});
+          const pending = detectCurrentSqliteCapabilities();
+          const samePending = pending === detectCurrentSqliteCapabilities();
+          const capabilities = await pending;
+          const sameResult = capabilities === await detectCurrentSqliteCapabilities();
+          process.stdout.write(JSON.stringify({
+            asynchronous: pending instanceof Promise,
+            samePending, sameResult, capabilities, workersStarted, workersExited, counts,
+          }));
+        `,
+      ],
+      { encoding: "utf8", timeout: 10_000 },
+    );
+    expect(JSON.parse(output)).toMatchObject({
+      asynchronous: true,
+      samePending: true,
+      sameResult: true,
+      capabilities: { available: true, text: true, blob: true, json: true },
+      workersStarted: 1,
+      workersExited: 1,
+      counts: { prepare: 0, exec: 0, get: 0, all: 0, run: 0, iterate: 0 },
+    });
   });
 });

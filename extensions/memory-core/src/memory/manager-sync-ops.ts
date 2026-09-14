@@ -313,6 +313,12 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
         return;
       }
       if (!needsFullSessionReindex) {
+        if (this.sources.has("sessions") && targetArchiveFiles) {
+          this.sessionsDirty = markMemoryTargetArchiveFilesDirty({
+            sessionsDirtyFiles: this.sessionsDirtyFiles,
+            targetArchiveFiles,
+          });
+        }
         const targetedSessionSync = await runMemoryTargetedSessionSync({
           hasSessionSource: this.sources.has("sessions"),
           targetArchiveFiles,

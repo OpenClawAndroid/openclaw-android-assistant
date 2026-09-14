@@ -647,14 +647,7 @@ test.each([
         { context },
       );
       const outcome = method === "sessions.patchMany" ? archived.payload?.outcomes[0] : archived;
-      expect(outcome).toMatchObject({
-        ok: false,
-        error: {
-          code: "UNAVAILABLE",
-          retryable: false,
-          message: expect.stringMatching(/Session archived.*worktree.*retry.*archive/i),
-        },
-      });
+      expect(outcome).toMatchObject({ ok: true });
       if (method === "sessions.patchMany") {
         expect(archived.ok).toBe(true);
         expect(archived.payload?.outcomes.slice(1)).toEqual([{ key: targets[1]!.key, ok: true }]);

@@ -32,6 +32,7 @@ import "./chat-sidebar.ts";
 const localStorageValues = new Map<string, string>();
 const mediaSubscribers = new Set<() => void>();
 const renderMarkdownHtml = markdown.toSanitizedMarkdownHtml;
+const renderStreamingMarkdown = markdown.toStreamingMarkdownParts;
 const markdownRenderMock = vi.fn(
   (value: string, _options?: { codeBlockChrome?: "copy" | "none"; fileLinks?: boolean }) => value,
 );
@@ -740,21 +741,178 @@ describe("grouped chat rendering", () => {
     expect(container.textContent).toContain("Notice details");
   });
 
-  it("preserves paragraph breaks around assistant attachments in rendered markdown", () => {
+  it.each([
+    {
+      format: "MEDIA directives",
+      content:
+        "Introduction\n\n**Before**\nMEDIA:https://example.com/before.png\n\n**After**\nMEDIA:https://example.com/after.png\n\nClosing paragraph",
+    },
+    {
+      format: "structured images",
+      content: [
+        { type: "text", text: "Introduction\n\n**Before**" },
+        { type: "image", url: "https://example.com/before.png" },
+        { type: "text", text: "**After**" },
+        { type: "image", url: "https://example.com/after.png" },
+        { type: "text", text: "Closing paragraph" },
+      ],
+    },
+  ])("keeps assistant $format between their surrounding paragraphs", ({ content }) => {
     const container = document.createElement("div");
+    markdownRenderMock.withImplementation(renderMarkdownHtml, () => {
+      renderAssistantMessage(container, createAssistantMessage(content, { timestamp: 1000 }));
+    });
 
-    renderAssistantMessage(
-      container,
-      createAssistantMessage(
-        "First paragraph\n \nMEDIA:https://example.com/image.png\n\t\nSecond paragraph",
-        { timestamp: 1000 },
+    expect(
+      Array.from(container.querySelectorAll(".chat-text strong, .chat-message-image"), (element) =>
+        element instanceof HTMLImageElement
+          ? new URL(element.src).pathname
+          : element.textContent?.replace(/\s+/g, " ").trim(),
       ),
-    );
+    ).toEqual(["Before", "/before.png", "After", "/after.png"]);
+    const text = container.querySelector(".chat-text")?.textContent?.trim() ?? "";
+    expect(text.startsWith("Introduction")).toBe(true);
+    expect(text.endsWith("Closing paragraph")).toBe(true);
+  });
 
-    expect(markdownRenderMock).toHaveBeenCalledWith(
-      "First paragraph\n\nSecond paragraph",
-      expect.any(Object),
-    );
+  it.each([false, true])(
+    "preserves reference links and one duplicate badge around media (recovered: %s)",
+    (recovered) => {
+      const container = document.createElement("div");
+      const fullText =
+        "[Before][proof]\n\nMEDIA:https://example.com/comparison.png\n\n[After][proof]\n\n[proof]: https://example.com/proof";
+      const fullMessage = createAssistantMessage(fullText, { timestamp: 1000 });
+      const message = recovered
+        ? createAssistantMessage("Loading preview", {
+            timestamp: 1000,
+            __openclaw: { id: "media-recovery", seq: 1, truncated: true },
+          })
+        : fullMessage;
+      markdownRenderMock.withImplementation(renderMarkdownHtml, () => {
+        renderAssistantMessageEntries(
+          container,
+          [{ key: "media-order", message, duplicateCount: 2 }],
+          recovered
+            ? {
+                sessionKey: "agent:main:main",
+                loadFullAssistantMessage: async () => null,
+                getAssistantMessageExpansion: () => ({
+                  status: "loaded",
+                  markdown: fullText,
+                  message: fullMessage,
+                  revision: 1,
+                }),
+                onToggleAssistantMessageExpanded: vi.fn(),
+              }
+            : {},
+        );
+      });
+      expect(
+        Array.from(container.querySelectorAll(".chat-text a, .chat-message-image"), (element) =>
+          element instanceof HTMLImageElement ? "image" : element.textContent,
+        ),
+      ).toEqual(["Before", "image", "After"]);
+      expect(
+        Array.from(
+          container.querySelectorAll<HTMLAnchorElement>(".chat-text a"),
+          (link) => link.href,
+        ),
+      ).toEqual(["https://example.com/proof", "https://example.com/proof"]);
+      expect(container.querySelectorAll(".chat-duplicate-count")).toHaveLength(1);
+      expect(container.textContent).not.toContain("Loading preview");
+    },
+  );
+
+  it("keeps numbered-list structure across an assistant image", () => {
+    const container = document.createElement("div");
+    markdownRenderMock.withImplementation(renderMarkdownHtml, () => {
+      renderAssistantMessage(
+        container,
+        createAssistantMessage("1. First\nMEDIA:https://example.com/first.png\n1. Second"),
+      );
+    });
+    const list = expectElement(container, ".chat-text ol", HTMLOListElement);
+    expect(list.querySelectorAll(":scope > li")).toHaveLength(2);
+    expect(list.querySelector("li:first-child .chat-message-image")).not.toBeNull();
+    expect(list.querySelector("li:last-child")?.textContent).toBe("Second");
+  });
+
+  it.each(["thinking", "relevant_memories"])(
+    "suppresses a whole %s region spanning assistant media",
+    (tag) => {
+      const container = document.createElement("div");
+      markdownRenderMock.withImplementation(renderMarkdownHtml, () => {
+        renderAssistantMessage(
+          container,
+          createAssistantMessage([
+            { type: "text", text: `<${tag}>Hidden before` },
+            { type: "image", url: "https://example.com/hidden-before.png" },
+            { type: "text", text: "Hidden middle" },
+            { type: "image", url: "https://example.com/hidden-after.png" },
+            { type: "text", text: `Hidden after</${tag}>\n\nVisible answer` },
+          ]),
+        );
+      });
+      expect(container.querySelector(".chat-text")?.textContent?.trim()).toBe("Visible answer");
+    },
+  );
+
+  it("keeps literal media-marker text distinct from assistant image positions", () => {
+    const container = document.createElement("div");
+    markdownRenderMock.withImplementation(renderMarkdownHtml, () => {
+      renderAssistantMessage(
+        container,
+        createAssistantMessage(
+          "Literal OPENCLAWMEDIASLOT0END\n\nMEDIA:https://example.com/real.png\n\nDone",
+        ),
+      );
+    });
+    expect(container.textContent).toContain("Literal OPENCLAWMEDIASLOT0END");
+    expect(container.textContent).not.toContain("OPENCLAWMEDIASLOTX");
+    expect(container.querySelectorAll(".chat-message-image")).toHaveLength(1);
+  });
+
+  it("keeps an inline image mounted while the following paragraph streams and completes", () => {
+    const container = document.createElement("div");
+    const renderTurn = (tail: string, isStreaming: boolean) => {
+      const message = createAssistantMessage(
+        `**Before**\nMEDIA:https://example.com/stream.png\n\n${tail}`,
+        { timestamp: 1000 },
+      );
+      render(
+        renderTestMessageGroup(
+          createMessageGroup(message, "assistant", { key: "stream-media", isStreaming }),
+        ),
+        container,
+      );
+    };
+    markdownRenderMock.withImplementation(renderMarkdownHtml, () => {
+      streamingMarkdownRenderMock.withImplementation(renderStreamingMarkdown, () => {
+        renderTurn("Checking", true);
+        const image = expectElement(container, ".chat-message-image", HTMLImageElement);
+        renderTurn("Checking the result.", true);
+        expect(container.querySelector(".chat-message-image")).toBe(image);
+        renderTurn("Checking the result.", false);
+        expect(container.querySelector(".chat-message-image")).toBe(image);
+        expect(container.querySelector(".chat-text")?.textContent).toContain(
+          "Checking the result.",
+        );
+      });
+    });
+  });
+
+  it("uses the visible caption direction when an assistant image comes first", () => {
+    const container = document.createElement("div");
+    markdownRenderMock.withImplementation(renderMarkdownHtml, () => {
+      renderAssistantMessage(
+        container,
+        createAssistantMessage(
+          "MEDIA:https://example.com/preview.png\n\n<thinking>Hidden English</thinking>שלום",
+        ),
+      );
+    });
+    expect(container.querySelector(".chat-text")?.getAttribute("dir")).toBe("rtl");
+    expect(container.querySelector(".chat-text")?.textContent?.trim()).toBe("שלום");
   });
 
   it("renders a compact count for collapsed duplicate messages", () => {
@@ -4598,22 +4756,8 @@ describe("grouped chat rendering", () => {
       );
 
     renderMessage();
-    const checkingCard = container.querySelector(
-      '.chat-assistant-attachment-card--checking[aria-busy="true"]',
-    );
-    const skeleton = checkingCard?.querySelector(
-      ".chat-assistant-attachment-card__status-meta.skeleton",
-    );
-    const actionSkeleton = checkingCard?.querySelector(
-      ".chat-assistant-attachment-card__action-skeleton.skeleton",
-    );
-    const actionReservation = checkingCard?.querySelector(
-      ".chat-assistant-attachment-card__actions--loading",
-    );
-    expect(skeleton?.getAttribute("aria-hidden")).toBe("true");
-    expect(skeleton?.textContent?.trim()).toBe("");
-    expect(actionSkeleton?.getAttribute("aria-hidden")).toBe("true");
-    expect(actionReservation?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".chat-image-frame")?.getAttribute("aria-busy")).toBe("true");
+    expect(container.querySelector(".chat-assistant-attachment-card")).toBeNull();
     await flushAssistantAttachmentAvailabilityChecks();
 
     const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source).replaceAll("%20", "+")}&meta=1`;
@@ -4987,7 +5131,9 @@ describe("grouped chat rendering", () => {
     expect(
       blocked?.querySelector(".chat-assistant-attachment-card__status-meta")?.textContent,
     ).toContain("Outside allowed folders");
-    expect(container.querySelector(".chat-text")?.textContent?.trim()).toBe("Blocked\nDone");
+    const visibleText = container.querySelector(".chat-text")?.textContent?.trim() ?? "";
+    expect(visibleText.startsWith("Blocked")).toBe(true);
+    expect(visibleText.endsWith("Done")).toBe(true);
   });
 
   it("renders transcript video URLs with encoded extensions as cards", () => {

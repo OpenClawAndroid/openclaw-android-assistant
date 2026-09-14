@@ -5890,6 +5890,92 @@ describe("handleSendChat", () => {
     expect(listStoredChatOutboxes(host)).toStrictEqual([]);
   });
 
+  it.each(
+    [false, true].flatMap((localCopy) =>
+      ["history", "receipt"].map((proof) => ({ localCopy, proof })),
+    ),
+  )(
+    "consumed outbox input outside the history tail stays retired ($proof, local copy: $localCopy)",
+    async ({ localCopy, proof }) => {
+      const sessionKey = "agent:main:long-conversation";
+      const sessionId = "long-conversation-session";
+      const item: ChatQueueItem = {
+        id: "old-submission",
+        text: "land PR",
+        createdAt: 1,
+        sendAttempts: 1,
+        sendRunId: "original-submission",
+        sendState: "waiting-reconnect",
+        sessionKey,
+        sessionId,
+        sender: { id: "local", name: "Local Author" },
+      };
+      const user = {
+        role: "user",
+        content: item.text,
+        timestamp: 1,
+        __openclaw: { id: "canonical-user", seq: 1, idempotencyKey: `${item.sendRunId}:user` },
+      };
+      const final = {
+        role: "assistant",
+        content: "The PR is merged.",
+        timestamp: 200,
+        __openclaw: { id: "canonical-final", seq: 120, runId: "queued-execution" },
+      };
+      const host = makeChatHost({
+        sessionKey,
+        currentSessionId: sessionId,
+        chatMessages: [final],
+        chatQueue: [item],
+        requestHandlers: {
+          "chat.history": (params: unknown) => ({
+            messages:
+              proof === "history" && requireRecord(params, "receipt history").limit === 1000
+                ? [user, final]
+                : [final],
+            ...(proof === "receipt"
+              ? {
+                  inputReceipts: [
+                    {
+                      runId: item.sendRunId,
+                      state: "consumed",
+                      consumedByEventId: "canonical-user",
+                    },
+                  ],
+                }
+              : {}),
+            sessionId,
+            sessionInfo: row(sessionKey, { sessionId, status: "done", hasActiveRun: false }),
+            hasMore: true,
+            nextOffset: 80,
+            totalMessages: 120,
+          }),
+        },
+      });
+      admitHostQueueItems(host);
+      if (localCopy) {
+        expect(
+          await chatSendSupport.retireDeliveredQueuedUserTurn(
+            host,
+            item.sendRunId,
+            { sessionKey },
+            {
+              retainUntilConsumed: true,
+            },
+          ),
+        ).toBe("retained");
+      }
+
+      await retryReconnectableQueuedChatSends(host);
+
+      await waitForFast(() => {
+        expect(listStoredChatOutboxes(host)).toEqual([]);
+        expect(host.chatMessages).toEqual([final]);
+      });
+      expect(host.request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+    },
+  );
+
   it("retires a durable accepted send from a replacement pane without a local projection", () => {
     const item = {
       id: "terminal-delivery-from-closed-pane",
@@ -9177,7 +9263,7 @@ describe("handleSendChat", () => {
   ])(
     "retains reconnect payload with only $correlation correlation until consumption",
     async ({ active, retry }) => {
-      const { attachments, dataUrls } = createDeliveryAttachmentBatch();
+      const { attachments } = createDeliveryAttachmentBatch();
       const preview = createDeferred();
       let pendingPreview: ReturnType<typeof outboxPayloadStore.readOutboxPayload> | undefined;
       let runId = "";
@@ -9281,15 +9367,14 @@ describe("handleSendChat", () => {
           retry ? 2 : 1,
         );
 
-        // A consumed receipt retires the payload even while preview hydration waits.
-        // The handoff must obtain its own complete bytes before releasing storage.
+        // Consumption retires retry bytes without resurrecting a source absent
+        // from the current transcript page, even while preview hydration waits.
         consumed = true;
         await retryReconnectableQueuedChatSends(host);
 
         expect(listStoredChatOutboxes(host)).toStrictEqual([]);
         expect(host.chatQueue).toStrictEqual([]);
-        expect(host.chatMessages.map(extractText)).toContain("keep my admitted message visible");
-        expect(deliveredAttachmentUrls(host.chatMessages[0])).toEqual(dataUrls);
+        expect(host.chatMessages).toEqual([]);
         expect(host.lastError).toBeNull();
         expect(host.chatError).toBeNull();
         expect(request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(

@@ -575,6 +575,43 @@ describe("waitForAgentRunsToDrain", () => {
     callGatewayMock.mockReset();
   });
 
+  it.each(["pending", "timeout", "error", "ok"])(
+    "lets completion callbacks drain runs after immediate %s responses",
+    async (status) => {
+      callGatewayMock.mockResolvedValue({ status });
+      let activeRunIds = ["run-1"];
+      const completion = setTimeout(() => {
+        activeRunIds = [];
+      }, 0);
+      try {
+        const result = await waitForAgentRunsToDrain({
+          timeoutMs: 200,
+          getPendingRunIds: () => activeRunIds,
+        });
+
+        expect(result.timedOut).toBe(false);
+        expect(result.pendingRunIds).toEqual([]);
+        expect(callGatewayMock.mock.calls.length).toBeLessThanOrEqual(4);
+      } finally {
+        clearTimeout(completion);
+      }
+    },
+  );
+
+  it("bounds retries of unchanged runs by the drain deadline", async () => {
+    callGatewayMock.mockResolvedValue({ status: "pending" });
+    const deadlineAtMs = Date.now() + 150;
+
+    const result = await waitForAgentRunsToDrain({
+      deadlineAtMs,
+      getPendingRunIds: () => ["run-1"],
+    });
+
+    expect(result).toEqual({ timedOut: true, pendingRunIds: ["run-1"], deadlineAtMs });
+    expect(callGatewayMock.mock.calls.length).toBeLessThanOrEqual(4);
+    expectAgentWaitRequest(requireRequestAt(gatewayWaitRequests(), 0), "run-1", 150);
+  });
+
   it("waits across rounds until descendant runs stop changing", async () => {
     let activeRunIds = ["run-1"];
     callGatewayMock.mockImplementation(async (opts) => {

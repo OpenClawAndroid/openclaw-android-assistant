@@ -185,22 +185,23 @@ type SubscriptionParams = Parameters<typeof startGatewayEventSubscriptions>[0];
 type LifecycleTransition = { state: string; lifecycle?: ReturnType<typeof readLifecycleState> };
 
 function createParams(): SubscriptionParams {
+  const chatRunState = createChatRunState();
   return {
+    signal: new AbortController().signal,
     log: mockLog,
     broadcast: vi.fn(),
     broadcastToConnIds: vi.fn(),
     nodeHasSessionSubscribers: () => false,
     nodeSendToSession: vi.fn(),
     agentRunSeq: new Map(),
-    ...(() => {
-      const chatRunState = createChatRunState();
-      return { chatRunState, toolEventRecipients: chatRunState.toolEventRecipients };
-    })(),
+    chatRunState,
+    toolEventRecipients: chatRunState.toolEventRecipients,
     sessionEventSubscribers: createSessionEventSubscriberRegistry(),
     sessionMessageSubscribers: createSessionMessageSubscriberRegistry(),
     chatAbortControllers: new Map(),
     restartRecoveryCandidates: new Map(),
     terminalSessions: { closeTaskSessions: vi.fn() },
+    refreshConnectedUserProfiles: vi.fn(),
   };
 }
 

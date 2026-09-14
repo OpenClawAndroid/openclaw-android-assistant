@@ -49,6 +49,24 @@ ChatGPT SSE errors preserve HTTP status and `Retry-After` together, so a transie
 
 For SDK calls that retain internal retries, Stainless-based SDKs such as Anthropic and OpenAI can receive `retry-after-ms` or `retry-after` on retryable responses (`408`, `409`, `429`, and `5xx`). When that wait is longer than 60 seconds, OpenClaw injects `x-should-retry: false` so the SDK returns control promptly. Override this SDK-only cap with `OPENCLAW_SDK_RETRY_MAX_WAIT_SECONDS=<seconds>`. Set it to `0`, `false`, `off`, `none`, or `disabled` to let those SDK calls honor long `Retry-After` sleeps internally.
 
+### Managed Git operations
+
+The shared Git runner retries transient `fetch` and `ls-remote` failures once,
+after a one-second delay within the command's original timeout. This includes
+incomplete object transfers, connection resets, temporary DNS failures, and
+transient HTTP errors. Managed project clones use the same policy and remove
+their failed partial checkout before retrying. Cancellation stops the retry,
+and workspace or publication authority is checked again before another attempt.
+Each scheduled retry writes a `git/network` warning with the operation, attempt
+count, delay, and exit code. It omits command arguments, repository URLs, and raw
+Git output.
+
+Authentication failures, missing repositories or refs, local storage failures,
+process termination, and exhausted command timeouts are not retried. `push` and
+`pull` are not replayed by this runner: a failed connection can follow an accepted
+write, so publication keeps its existing remote-outcome reconciliation. This
+policy does not wrap arbitrary Git commands run by agents or setup scripts.
+
 ### Discord
 
 - Retries on rate-limit errors (HTTP 429), request timeouts, HTTP 5xx responses, and transient transport failures such as DNS lookup failures, connection resets, socket closes, and fetch failures.

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ModelDefinitionConfig } from "../../config/types.models.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import {
@@ -77,7 +78,90 @@ function authStore(subscription: boolean): AuthProfileStore {
   };
 }
 
-describe("registered OpenAI subscription route selection", () => {
+describe("registered provider route selection", () => {
+  it.each([
+    {
+      label: "exact row after legacy",
+      rows: ["legacy", "exact"],
+      modelId: "Model",
+      harness: "custom-responses",
+    },
+    {
+      label: "exact row before legacy",
+      rows: ["exact", "legacy"],
+      modelId: "Model",
+      harness: "custom-responses",
+    },
+    { label: "legacy-only fallback", rows: ["legacy"], modelId: "Model", harness: "openclaw" },
+    {
+      label: "literal legacy selection",
+      rows: ["exact", "legacy"],
+      modelId: "custom/Model",
+      harness: "openclaw",
+    },
+    {
+      label: "same-spelling duplicates",
+      rows: ["exact", "duplicate"],
+      modelId: "Model",
+      harness: "custom-responses",
+    },
+  ] as const)("uses the selected model transport for $label", (fixture) => {
+    registerAgentHarness({
+      id: "custom-responses",
+      label: "Custom Responses harness",
+      supports: ({ modelProvider }) =>
+        modelProvider?.api === "openai-responses" &&
+        modelProvider.baseUrl === "https://responses.example/v1" &&
+        modelProvider.requestTransportOverrides === "none"
+          ? { supported: true, priority: 100 }
+          : { supported: false, reason: "Selected transport is not supported" },
+      async runAttempt() {
+        throw new Error("Selection proof does not execute inference");
+      },
+    });
+    const exact: ModelDefinitionConfig = {
+      id: "Model",
+      name: "Configured model",
+      api: "openai-responses",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 64_000,
+      maxTokens: 1024,
+    };
+    const rows: Record<"exact" | "legacy" | "duplicate", ModelDefinitionConfig> = {
+      exact,
+      legacy: {
+        ...exact,
+        id: "custom/Model",
+        api: "openai-completions",
+        baseUrl: "https://legacy.example/v1",
+        headers: { "x-model-route": "legacy" },
+      },
+      duplicate: { ...exact, api: "openai-completions" },
+    };
+    const cfg: OpenClawConfig = {
+      agents: { entries: { assistant: {} } },
+      models: {
+        providers: {
+          custom: {
+            api: "openai-responses",
+            baseUrl: "https://responses.example/v1",
+            models: fixture.rows.map((row) => rows[row]),
+          },
+        },
+      },
+    };
+    expect(
+      selectAgentHarness({
+        provider: "custom",
+        modelId: fixture.modelId,
+        agentId: "assistant",
+        config: cfg,
+      }).id,
+    ).toBe(fixture.harness);
+  });
+
   it.each([
     {
       label: "explicit Codex primary",

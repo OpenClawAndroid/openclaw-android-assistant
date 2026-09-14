@@ -46,6 +46,40 @@ describe("CronPage header", () => {
 });
 
 describe("CronPage editor state sync", () => {
+  it.each([
+    { selector: "#cron-name", text: "QA smoke" },
+    { selector: "#cron-payload-text", text: "Write a summary" },
+    { selector: "#cron-every-amount", text: "30" },
+  ])("keeps $selector focused as validation changes while typing", async ({ selector, text }) => {
+    const gateway = createGateway(
+      { request: createRequest() } as unknown as GatewayBrowserClient,
+      true,
+    );
+    const page = createPage(createContext(gateway), { render: true });
+    await waitForCronPage(() =>
+      expect(page.querySelector('[data-test-id="cron-new-task"]')).not.toBeNull(),
+    );
+    (page.querySelector('[data-test-id="cron-new-task"]') as HTMLButtonElement).click();
+    await page.updateComplete;
+
+    const input = page.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement;
+    input.focus();
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await page.updateComplete;
+    expect(page.querySelector(selector)?.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement?.matches(selector)).toBe(true);
+
+    for (const character of text) {
+      input.value += character;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await page.updateComplete;
+      expect(document.activeElement?.matches(selector)).toBe(true);
+    }
+    expect((page.querySelector(selector) as HTMLInputElement).value).toBe(text);
+    expect(page.querySelector(selector)?.getAttribute("aria-invalid")).toBe("false");
+  });
+
   it.each(["visible", "later page", "another agent"])(
     "opens a linked job's history when the job is on %s",
     async (placement) => {

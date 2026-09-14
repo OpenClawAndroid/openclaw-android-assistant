@@ -36,6 +36,31 @@ export function getTaskRelatedSessionIndexKeys(
   );
 }
 
+export function listTasksFromIndex(
+  tasks: ReadonlyMap<string, TaskRecord>,
+  index: ReadonlyMap<string, ReadonlySet<string>>,
+  key: string,
+): TaskRecord[] {
+  const ids = index.get(key);
+  if (!ids || ids.size === 0) {
+    return [];
+  }
+  return [...ids]
+    .map((taskId, insertionIndex) => {
+      const task = tasks.get(taskId);
+      return task ? Object.assign({}, cloneTaskRecord(task), { insertionIndex }) : null;
+    })
+    .filter(
+      (
+        task,
+      ): task is TaskRecord & {
+        insertionIndex: number;
+      } => Boolean(task),
+    )
+    .toSorted(compareTasksNewestFirst)
+    .map(({ insertionIndex: _insertionIndex, ...task }) => task);
+}
+
 export function compareTasksForRunIdLookup(left: TaskRecord, right: TaskRecord): number {
   const leftPriority = left.runtime === "cli" ? 1 : 0;
   const rightPriority = right.runtime === "cli" ? 1 : 0;
@@ -45,13 +70,14 @@ export function compareTasksForRunIdLookup(left: TaskRecord, right: TaskRecord):
 export function cloneTaskRecord(record: TaskRecord): TaskRecord {
   return {
     ...record,
+    ...(record.executionOwner ? { executionOwner: { ...record.executionOwner } } : {}),
     ...(record.detail !== undefined ? { detail: structuredClone(record.detail) } : {}),
   };
 }
 
 /** Observer notifications need detached metadata, never runtime-owned detail. */
 export function cloneTaskRecordForObserver(record: TaskRecord): Omit<TaskRecord, "detail"> {
-  const { detail: _detail, ...snapshot } = record;
+  const { detail: _detail, executionOwner: _executionOwner, ...snapshot } = record;
   return snapshot;
 }
 
@@ -140,6 +166,7 @@ function resolveTaskRequesterAgentId(params: {
 
 export type CreateTaskRecordParams = {
   runtime: TaskRuntime;
+  executionOwner?: TaskRecord["executionOwner"];
   taskKind?: string;
   sourceId?: string;
   requesterSessionKey?: string;
@@ -213,6 +240,7 @@ export function buildTaskRecordForCreate(
   const lastEventAt = params.lastEventAt ?? params.startedAt ?? now;
   const record: TaskRecord = normalizeTaskTimestamps({
     taskId,
+    ...(params.executionOwner ? { executionOwner: { ...params.executionOwner } } : {}),
     runtime: params.runtime,
     taskKind: normalizeOptionalString(params.taskKind),
     sourceId: normalizeOptionalString(params.sourceId),
@@ -263,6 +291,7 @@ export function applyTaskRecordPatch(
   const updated = {
     ...current,
     ...patch,
+    ...(patch.executionOwner ? { executionOwner: { ...patch.executionOwner } } : {}),
     ...(patch.detail !== undefined ? { detail: structuredClone(patch.detail) } : {}),
   };
   const becomesTerminal =

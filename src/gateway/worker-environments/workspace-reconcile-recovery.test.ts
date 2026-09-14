@@ -6,16 +6,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { ensureStagedInputDirectory, stagedInputDirectory } from "../../media/staged-inputs.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
-import type {
-  WorkerWorkspaceManifest,
-  WorkerWorkspaceManifestEntry,
+import {
+  parseWorkerWorkspaceManifest,
+  type WorkerWorkspaceManifest,
+  type WorkerWorkspaceManifestEntry,
 } from "./workspace-manifest.js";
 import {
   applyStagedWorkerWorkspace,
   assertWorkspaceMatchesManifest,
   MAX_RECONCILIATION_ENTRIES,
   MAX_RECONCILIATION_FILE_BYTES,
-  parseWorkerWorkspaceManifest,
+  MAX_RECONCILIATION_TOTAL_BYTES,
+  changedPaths,
   recoverWorkerWorkspaceReconciliation,
   type WorkerWorkspaceReconciliationJournal,
 } from "./workspace-reconcile.js";
@@ -776,6 +778,139 @@ describe("worker workspace reconciliation recovery", () => {
     ).toThrow("too large");
   });
 
+  it("compares decoded entries by their typed fields and honors cancellation", () => {
+    const file = {
+      path: "file",
+      type: "file" as const,
+      mode: 0o644,
+      size: 1,
+      sha256: "a".repeat(64),
+    };
+    const base: WorkerWorkspaceManifest = { version: 1, baseCommit: null, entries: [file] };
+    const current: WorkerWorkspaceManifest = {
+      ...base,
+      entries: [
+        { sha256: file.sha256, size: file.size, mode: file.mode, type: file.type, path: file.path },
+      ],
+    };
+    expect(workerWorkspaceTransferPaths(current, base)).toEqual([]);
+    expect([...changedPaths(base, current)]).toEqual([]);
+    for (const change of [{ mode: 0o755 }, { size: 2 }, { sha256: "b".repeat(64) }]) {
+      expect(
+        workerWorkspaceTransferPaths({ ...current, entries: [{ ...file, ...change }] }, base),
+      ).toEqual(["file"]);
+    }
+    const controller = new AbortController();
+    const reason = new Error("workspace owner closed");
+    controller.abort(reason);
+    expect(() => workerWorkspaceTransferPaths(current, base, controller.signal)).toThrow(reason);
+  });
+
+  it("preserves directory transitions, deletion accounting, and payload order", () => {
+    const file = (entryPath: string): WorkerWorkspaceManifestEntry => ({
+      path: entryPath,
+      type: "file",
+      mode: 0o644,
+      size: 0,
+      sha256: "a".repeat(64),
+    });
+    const base: WorkerWorkspaceManifest = {
+      version: 1,
+      baseCommit: null,
+      directories: ["old-empty", "to-file"],
+      entries: [
+        file("to-directory"),
+        file("to-file/child"),
+        { path: "link", type: "symlink", mode: 0o777, target: "before" },
+      ],
+    };
+    const current: WorkerWorkspaceManifest = {
+      version: 1,
+      baseCommit: null,
+      directories: ["new-empty", "to-directory"],
+      entries: [
+        { path: "link", type: "symlink", mode: 0o777, target: "after" },
+        file("to-file"),
+        file("to-directory/child"),
+      ],
+    };
+    expect(workerWorkspaceTransferPaths(current, base)).toEqual([
+      "link",
+      "to-file",
+      "to-directory/child",
+    ]);
+    expect([...changedPaths(base, current)]).toEqual([
+      "old-empty",
+      "to-file",
+      "to-directory",
+      "to-file/child",
+      "link",
+      "new-empty",
+      "to-directory/child",
+    ]);
+    expect(workerWorkspaceTransferPaths({ ...base, entries: [], directories: [] }, base)).toEqual(
+      [],
+    );
+  });
+
+  it("retains owned input payloads while excluding ordinary derived paths", async () => {
+    const local = await temporaryDirectory("workspace-comparison-inputs");
+    const directory = stagedInputDirectory("a".repeat(64));
+    await ensureStagedInputDirectory(local, directory);
+    await fs.writeFile(path.join(local, directory, "input.pyc"), "base");
+    await fs.mkdir(path.join(local, "node_modules"));
+    await fs.writeFile(path.join(local, "node_modules", "cache"), "base");
+    const base = await manifestFor(local);
+    const current: WorkerWorkspaceManifest = {
+      ...base,
+      entries: base.entries.map((entry) =>
+        entry.type === "file" && !entry.path.endsWith(".gitignore")
+          ? { ...entry, sha256: "b".repeat(64) }
+          : entry,
+      ),
+    };
+    expect(workerWorkspaceTransferPaths(current, base)).toEqual([`${directory}/input.pyc`]);
+    expect([...changedPaths(base, current)]).toEqual([`${directory}/input.pyc`]);
+  });
+
+  it("counts only changed payload bytes and includes UTF-8 symlink targets", () => {
+    const entries: WorkerWorkspaceManifestEntry[] = Array.from({ length: 4 }, (_, index) => ({
+      path: `file-${index}`,
+      type: "file",
+      mode: 0o644,
+      size: MAX_RECONCILIATION_FILE_BYTES,
+      sha256: "a".repeat(64),
+    }));
+    const empty: WorkerWorkspaceManifest = { version: 1, baseCommit: null, entries: [] };
+    const current: WorkerWorkspaceManifest = { ...empty, entries };
+    expect(
+      entries.reduce((bytes, entry) => bytes + (entry.type === "file" ? entry.size : 0), 0),
+    ).toBe(MAX_RECONCILIATION_TOTAL_BYTES);
+    expect(workerWorkspaceTransferPaths(current, empty)).toEqual(
+      entries.map((entry) => entry.path),
+    );
+    const extra: WorkerWorkspaceManifest = {
+      ...current,
+      entries: [...entries, { path: "link", type: "symlink", mode: 0o777, target: "a" }],
+    };
+    const lastFile = entries[3]!;
+    if (lastFile.type === "file") {
+      extra.entries[3] = { ...lastFile, size: lastFile.size - 1 };
+    }
+    expect(workerWorkspaceTransferPaths(extra, empty)).toEqual([
+      "file-0",
+      "file-1",
+      "file-2",
+      "file-3",
+      "link",
+    ]);
+    extra.entries[4] = { path: "link", type: "symlink", mode: 0o777, target: "é" };
+    expect(() => workerWorkspaceTransferPaths(extra, empty)).toThrow(
+      "staged result exceeds its byte limit",
+    );
+    expect(workerWorkspaceTransferPaths(extra, current)).toEqual(["file-3", "link"]);
+  });
+
   it("counts serialized reconciliation records at the exact transfer boundary", () => {
     const entries = (count: number, hash: string) =>
       Array.from({ length: count }, (_, index) => ({
@@ -805,5 +940,29 @@ describe("worker workspace reconciliation recovery", () => {
     const empty = manifest([]);
     expect(workerWorkspaceTransferPaths(additions, empty)).toHaveLength(MAX_RECONCILIATION_ENTRIES);
     expect(workerWorkspaceTransferPaths(empty, additions)).toEqual([]);
+    expect(() =>
+      workerWorkspaceTransferPaths(empty, manifest(entries(MAX_RECONCILIATION_ENTRIES + 1, "c"))),
+    ).toThrow("entry limit");
+    const replacedPath = base.entries.at(-1)!.path;
+    const directoryReplacement = {
+      ...current,
+      entries: current.entries.slice(0, -1),
+      directories: [replacedPath],
+    };
+    expect(workerWorkspaceTransferPaths(directoryReplacement, base)).toHaveLength(
+      modificationBoundary - 1,
+    );
+    expect(() =>
+      workerWorkspaceTransferPaths(
+        {
+          ...directoryReplacement,
+          entries: [
+            ...directoryReplacement.entries,
+            { ...current.entries[0]!, path: `${replacedPath}/child` },
+          ],
+        },
+        base,
+      ),
+    ).toThrow("entry limit");
   });
 });

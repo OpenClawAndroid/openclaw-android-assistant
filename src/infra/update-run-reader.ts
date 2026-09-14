@@ -40,7 +40,15 @@ export function getUpdateRun(
 export function findActiveUpdateRun(
   options: OpenClawStateDatabaseOptions = {},
 ): UpdateRunRecord | undefined {
-  return listUpdateRuns({ limit: 1, active: true }, options)[0];
+  return withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(
+    ({ db }) => readActiveUpdateRun(db),
+    options,
+  );
+}
+
+/** Read activity on the caller's connection so maintenance can fence its mutation. */
+export function readActiveUpdateRun(db: DatabaseSync): UpdateRunRecord | undefined {
+  return readRuns(db, { limit: 1, active: true })[0];
 }
 
 export async function getUpdateRunAsync(

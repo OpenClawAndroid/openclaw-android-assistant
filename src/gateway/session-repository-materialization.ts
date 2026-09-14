@@ -156,6 +156,7 @@ export async function materializeSessionRepositoryWorkspaceOnGateway(params: {
     }
   }
   const prepared = await prepareSessionWorktree({
+    cfg: params.cfg,
     target: {
       agentId: params.agentId,
       key: initial.canonicalKey,

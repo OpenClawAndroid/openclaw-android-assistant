@@ -494,7 +494,8 @@ ${optionChoiceCases}
 Register-ArgumentCompleter -Native -CommandName ${rootCmd} -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     
-    $commandElements = $commandAst.CommandElements
+    # Limit context to the cursor; command-path parsing below skips option operands.
+    $commandElements = @($commandAst.CommandElements.Where({ $_.Extent.StartOffset -lt $cursorPosition }))
     $commandPath = ""
     $valueOptions = ${formatPowerShellArray(rootValueOptions)}
     $previousElementIndex = if ($wordToComplete -eq '') { $commandElements.Count - 1 } else { $commandElements.Count - 2 }
@@ -508,7 +509,6 @@ Register-ArgumentCompleter -Native -CommandName ${rootCmd} -ScriptBlock {
         $choiceCompletionPrefix = "$choiceFlag="
     }
 
-    # Skip option values so global and nested flags cannot hide the command path.
     for ($i = 1; $i -lt $commandElements.Count; $i++) {
         $element = $commandElements[$i].Extent.Text
         if ($i -eq $commandElements.Count - 1 -and $wordToComplete -ne "") { break }

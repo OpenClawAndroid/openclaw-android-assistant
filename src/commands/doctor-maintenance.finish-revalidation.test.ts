@@ -20,6 +20,7 @@ import { beginDoctorMaintenance } from "./doctor-maintenance.js";
 const mocks = vi.hoisted(() => ({
   resolveService: vi.fn<() => GatewayService>(),
   coordinatorRuntimeDir: "",
+  stops: 0,
 }));
 
 vi.mock("../daemon/service.js", async (importOriginal) => ({
@@ -68,7 +69,10 @@ vi.mock("../infra/sqlite-coordinator.js", async (importOriginal) => {
 });
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
-beforeEach(() => mockSystemAccountHome());
+beforeEach(() => {
+  mockSystemAccountHome();
+  mocks.stops = 0;
+});
 afterEach(() => {
   closeOpenClawStateDatabaseForTest();
   vi.restoreAllMocks();
@@ -83,11 +87,14 @@ type StoppedUnitState =
   | "restart-failed";
 type Continuation =
   | "own"
+  | "manual"
+  | "competing"
   | "foreign"
   | "unknown-adopter"
   | "unrecorded"
   | "unrecorded-parked"
   | "parked"
+  | "normal-update-parked"
   | "lost-before-stop"
   | "lost-before-restart"
   | "dead-before-restart"
@@ -119,6 +126,9 @@ async function runDoctorFinishForStoppedUnit(
       OPENCLAW_SERVICE_MARKER: undefined,
       OPENCLAW_SERVICE_KIND: undefined,
       OPENCLAW_SYSTEMD_UNIT: undefined,
+      OPENCLAW_UPDATE_RUN_ID: undefined,
+      OPENCLAW_UPDATE_IN_PROGRESS: undefined,
+      OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION: undefined,
     },
     async () => {
       let runId: string | undefined;
@@ -138,18 +148,36 @@ async function runDoctorFinishForStoppedUnit(
         if (continuation === "unknown-adopter") {
           recordUpdateRunStep(runId, { step: "driver:identity-unavailable", status: "completed" });
         }
-        if (continuation !== "unrecorded" && continuation !== "unrecorded-parked") {
+        if (
+          continuation !== "manual" &&
+          continuation !== "normal-update-parked" &&
+          continuation !== "unrecorded" &&
+          continuation !== "unrecorded-parked"
+        ) {
           recordUpdateRunStep(runId, { step: "finalize:repair-continuation", status: "completed" });
         }
-        vi.stubEnv(
-          "OPENCLAW_UPDATE_RUN_ID",
-          continuation === "unrecorded-parked" ? undefined : runId,
-        );
-        vi.stubEnv("OPENCLAW_UPDATE_IN_PROGRESS", "1");
-        vi.stubEnv("OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION", "0");
+        if (continuation !== "manual") {
+          vi.stubEnv(
+            "OPENCLAW_UPDATE_RUN_ID",
+            continuation === "unrecorded-parked" ? undefined : runId,
+          );
+          vi.stubEnv("OPENCLAW_UPDATE_IN_PROGRESS", "1");
+          vi.stubEnv("OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION", "0");
+        }
+        if (continuation === "competing") {
+          const competingDriver = { ...driver, pid: process.pid + 100_000, startIdentity: "1" };
+          createUpdateRun({ trigger: "cli", origin: { driver: competingDriver } });
+          const inspect = updateRunDriver.inspectUpdateRunDriver;
+          vi.spyOn(updateRunDriver, "inspectUpdateRunDriver").mockImplementation((candidate) =>
+            candidate.pid === competingDriver.pid ? "alive" : inspect(candidate),
+          );
+        }
       }
       mockProcessPlatform("linux");
-      let running = continuation !== "parked" && continuation !== "unrecorded-parked";
+      let running =
+        continuation !== "parked" &&
+        continuation !== "normal-update-parked" &&
+        continuation !== "unrecorded-parked";
       let stopObserved = false;
       let commandReads = 0;
       const command = {
@@ -210,6 +238,7 @@ async function runDoctorFinishForStoppedUnit(
               : { status: "stopped" };
           },
           stop: vi.fn(async () => {
+            mocks.stops += 1;
             running = false;
             stopObserved = true;
           }),
@@ -264,7 +293,7 @@ async function runDoctorFinishForStoppedUnit(
   );
 }
 
-it.each(["own", "parked", "unrecorded-parked"] as const)(
+it.each(["own", "parked", "normal-update-parked", "unrecorded-parked"] as const)(
   "continues owning-run Doctor maintenance with service %s",
   async (continuation) => {
     const { finishError, restartCalls, logs } = await runDoctorFinishForStoppedUnit(
@@ -272,6 +301,7 @@ it.each(["own", "parked", "unrecorded-parked"] as const)(
       continuation,
     );
     expect(finishError).toBeUndefined();
+    expect(mocks.stops).toBe(continuation === "own" ? 1 : 0);
     expect(restartCalls).toBe(continuation === "own" ? 1 : 0);
     if (continuation === "own") {
       expect(logs).toContain("Stopped the managed Gateway for Doctor repair.");
@@ -279,6 +309,16 @@ it.each(["own", "parked", "unrecorded-parked"] as const)(
     }
   },
 );
+
+it.each([
+  { continuation: "manual", name: "manual doctor --fix without update markers" },
+  { continuation: "competing", name: "an owning continuation alongside a different live driver" },
+] as const)("refuses $name while another update owns the service", async ({ continuation }) => {
+  await expect(runDoctorFinishForStoppedUnit("retained", continuation)).rejects.toThrow(
+    /is still in progress.*liveness: alive/,
+  );
+  expect(mocks.stops).toBe(0);
+});
 
 it.each(["foreign", "unrecorded", "unknown-adopter"] as const)(
   "preserves parent activation without an owning repair continuation (%s)",

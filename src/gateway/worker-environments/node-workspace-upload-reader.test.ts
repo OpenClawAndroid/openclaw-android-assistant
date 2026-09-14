@@ -3,17 +3,20 @@ import fs from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { WorkerTaskError } from "../../infra/worker-task-pool.js";
 import {
   nodeWorkspaceTransferInvalidReason,
   readNodeWorkspaceUpload,
 } from "./node-workspace-upload-reader.js";
+import * as manifestWorker from "./workspace-manifest-worker.js";
 import { serializeWorkerWorkspaceManifest } from "./workspace-manifest.js";
 
 const temporary = useAutoCleanupTempDirTracker(afterEach);
+afterEach(() => vi.restoreAllMocks());
 
-function fixture() {
+function fixture(controller = new AbortController()) {
   const temporaryRoot = temporary.make("workspace-upload-reader-");
   const file = Buffer.from("file\0bytes");
   const baseRaw = serializeWorkerWorkspaceManifest({ version: 1, baseCommit: null, entries: [] });
@@ -49,7 +52,7 @@ function fixture() {
       request,
       baseManifestRef: `sha256:${createHash("sha256").update(baseRaw).digest("hex")}`,
       temporaryRoot,
-      signal: new AbortController().signal,
+      signal: controller.signal,
       assertCurrent: () => {},
       isAuthorized: () => true,
     });
@@ -58,6 +61,34 @@ function fixture() {
 }
 
 describe("workspace upload byte stream", () => {
+  it.each(["cancellation", "independent failure"] as const)(
+    "preserves manifest computation %s when the owner closes",
+    async (outcome) => {
+      const controller = new AbortController();
+      const f = fixture(controller);
+      const reason = new Error("upload owner closed");
+      const failure =
+        outcome === "cancellation"
+          ? reason
+          : new WorkerTaskError("worker exited before cancellation", "unavailable");
+      vi.spyOn(manifestWorker, "decodeWorkspaceManifest").mockImplementationOnce(async () => {
+        // The failure is already settled when the reader observes the later abort.
+        queueMicrotask(() => controller.abort(reason));
+        throw failure;
+      });
+      await expect(f.upload([f.payload])).rejects.toBe(failure);
+      expect(await fs.readdir(f.temporaryRoot)).toEqual([]);
+    },
+  );
+  it("preserves a decode outage without rejecting the manifest", async () => {
+    const f = fixture();
+    const failure = new WorkerTaskError("workspace computation unavailable", "overloaded");
+    vi.spyOn(manifestWorker, "decodeWorkspaceManifest").mockRejectedValueOnce(failure);
+
+    await expect(f.upload([f.payload])).rejects.toBe(failure);
+    expect(nodeWorkspaceTransferInvalidReason(failure)).toBeUndefined();
+    expect(await fs.readdir(f.temporaryRoot)).toEqual([]);
+  });
   it.each(["coalesced", "fragmented"])(
     "stages consecutive manifest headers and file bodies in %s chunks",
     async (chunking) => {

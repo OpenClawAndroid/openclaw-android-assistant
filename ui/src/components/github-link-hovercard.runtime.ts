@@ -27,11 +27,13 @@ const CACHE_LIMIT = 100;
 type GitHubPreview = GitHubLinkTarget & ControlUiGitHubPreview;
 
 type PreviewState = {
+  state: "merged" | "draft" | "open" | "closed" | "not-planned";
   label: string;
   tone: "danger" | "muted" | "open" | "purple";
 };
 
 type CacheEntry = {
+  preview?: ControlUiGitHubPreview;
   failed?: boolean;
   expiresAt: number;
   promise: Promise<ControlUiGitHubPreview>;
@@ -146,24 +148,24 @@ function parsePreviewResponse(target: GitHubLinkTarget, value: unknown): Control
   };
 }
 
-function previewState(preview: GitHubPreview): PreviewState {
+function previewState(preview: ControlUiGitHubPreview): PreviewState {
   if (preview.kind === "pull") {
     if (preview.mergedAt) {
-      return { label: t("githubPreview.states.merged"), tone: "purple" };
+      return { state: "merged", label: t("githubPreview.states.merged"), tone: "purple" };
     }
     if (preview.draft && preview.state === "open") {
-      return { label: t("githubPreview.states.draft"), tone: "muted" };
+      return { state: "draft", label: t("githubPreview.states.draft"), tone: "muted" };
     }
     return preview.state === "open"
-      ? { label: t("githubPreview.states.open"), tone: "open" }
-      : { label: t("githubPreview.states.closed"), tone: "danger" };
+      ? { state: "open", label: t("githubPreview.states.open"), tone: "open" }
+      : { state: "closed", label: t("githubPreview.states.closed"), tone: "danger" };
   }
   if (preview.state === "open") {
-    return { label: t("githubPreview.states.open"), tone: "open" };
+    return { state: "open", label: t("githubPreview.states.open"), tone: "open" };
   }
   return preview.stateReason === "not_planned"
-    ? { label: t("githubPreview.states.notPlanned"), tone: "muted" }
-    : { label: t("githubPreview.states.closed"), tone: "purple" };
+    ? { state: "not-planned", label: t("githubPreview.states.notPlanned"), tone: "muted" }
+    : { state: "closed", label: t("githubPreview.states.closed"), tone: "purple" };
 }
 
 function renderAvatar(dataUrl: string | undefined) {
@@ -355,17 +357,45 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
   private syncPreviewContext(): PreviewContext | null {
     const context = this.client ? previewContextFor(this.client, this.agentId) : null;
     if (context !== this.previewContext) {
+      // Clearing cached facts also updates inline projections under this new context.
+      this.previewContext = context;
       this.close();
       this.clearPreviews();
-      this.previewContext = context;
     }
     return context;
   }
+  private syncInlineStates(): void {
+    this.syncPreviewContext();
+    for (const anchor of this.querySelectorAll<HTMLAnchorElement>("a.markdown-github-item")) {
+      // Nested providers retain their own agent and connection identity.
+      let owner = anchor.parentElement;
+      while (owner && !(owner instanceof GitHubLinkHovercardProvider)) {
+        owner = owner.parentElement;
+      }
+      if (owner !== this) {
+        continue;
+      }
+      const target = parseGitHubLinkTarget(anchor.href);
+      const preview = target ? this.cachedPreview(target)?.preview : undefined;
+      if (!preview) {
+        delete anchor.dataset.githubState;
+        anchor.removeAttribute("aria-description");
+      } else {
+        const state = previewState(preview);
+        anchor.setAttribute("aria-description", state.label);
+        anchor.dataset.githubState = state.state;
+      }
+    }
+  }
+
+  private readonly inlineObserver = new MutationObserver(() => this.syncInlineStates());
+
   private clearPreviews(): void {
     for (const entry of this.cache.values()) {
       entry.controller.abort();
     }
     this.cache.clear();
+    this.syncInlineStates();
   }
 
   async prefetch(target: GitHubLinkTarget, signal: AbortSignal): Promise<void> {
@@ -374,6 +404,9 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
     }
     this.syncPreviewContext();
     await this.loadPreview(target, signal);
+    if (!signal.aborted) {
+      this.syncInlineStates();
+    }
   }
 
   private activeAnchor: HTMLAnchorElement | null = null;
@@ -407,6 +440,12 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
   override connectedCallback(): void {
     super.connectedCallback();
     this.style.display = "contents";
+    this.inlineObserver.observe(this, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["href"],
+    });
     this.addEventListener("pointerover", this.handlePointerOver);
     this.addEventListener("pointerout", this.handlePointerOut);
     this.addEventListener("focusin", this.handleFocusIn);
@@ -423,6 +462,7 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
     this.removeEventListener("focusout", this.handleFocusOut);
     this.removeEventListener("keydown", this.hovercard.handleTriggerKeyDown);
     this.removeEventListener("click", this.handleClick);
+    this.inlineObserver.disconnect();
     this.stopI18n?.();
     this.stopI18n = null;
     this.close();
@@ -431,10 +471,11 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
   }
 
   protected override updated(): void {
+    const context = this.syncPreviewContext();
+    this.syncInlineStates();
     if (!this.activeAnchor) {
       return;
     }
-    const context = this.syncPreviewContext();
     const anchor = this.activeAnchor;
     const target = this.activeTarget;
     if (!anchor || !target || !this.requestStarted) {
@@ -631,6 +672,9 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
     }
 
     const controller = new AbortController();
+    const client = this.client;
+    const context = this.previewContext;
+    const agentId = this.agentId;
     const load = async (): Promise<ControlUiGitHubPreview> => {
       if (!this.client) {
         throw new Error("GitHub preview requires a connected Gateway");
@@ -653,15 +697,32 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
       expiresAt: now + SUCCESS_CACHE_MS,
       controller,
       subscribers: new Set(),
-      promise: load().catch((error: unknown) => {
-        // Keep short-lived failures cached so repeatedly crossing a broken or
-        // private link does not burn GitHub's anonymous rate limit.
-        entry.failed = true;
-        entry.expiresAt = Date.now() + FAILURE_CACHE_MS;
-        throw error;
-      }),
+      promise: load()
+        .then((preview) => {
+          if (
+            !controller.signal.aborted &&
+            this.cache.get(key) === entry &&
+            client === this.client &&
+            agentId === this.agentId &&
+            client &&
+            previewContextFor(client, agentId) === context
+          ) {
+            entry.preview = preview;
+            this.syncInlineStates();
+          }
+          return preview;
+        })
+        .catch((error: unknown) => {
+          // Keep short-lived failures cached so repeatedly crossing a broken or
+          // private link does not burn GitHub's anonymous rate limit.
+          entry.failed = true;
+          entry.expiresAt = Date.now() + FAILURE_CACHE_MS;
+          this.syncInlineStates();
+          throw error;
+        }),
     };
     this.cache.set(key, entry);
+    this.syncInlineStates();
     while (this.cache.size > CACHE_LIMIT) {
       const oldestKey = this.cache.keys().next().value as string | undefined;
       if (!oldestKey) {

@@ -16,10 +16,7 @@ import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { enablePluginWithCapabilityConsent } from "../../../plugins/enable.js";
 import { resolvePreferredProviderForAuthChoice } from "../../../plugins/provider-auth-choice-preference.js";
 import { resolveManifestProviderAuthChoice } from "../../../plugins/provider-auth-choices.js";
-import {
-  resolveDeprecatedProviderInstallCatalogEntry,
-  resolveProviderInstallCatalogEntry,
-} from "../../../plugins/provider-install-catalog.js";
+import { resolveProviderInstallCatalogEntries } from "../../../plugins/provider-install-catalog.js";
 import type {
   ProviderAuthOptionBag,
   ProviderNonInteractiveApiKeyCredentialParams,
@@ -164,23 +161,25 @@ export async function applyNonInteractivePluginProviderChoice(params: {
         ].join("\n"),
       );
     }
-    const installCatalogParams = {
+    const normalizedChoiceId = params.authChoice.trim();
+    if (!normalizedChoiceId) {
+      return undefined;
+    }
+    const installCatalog = resolveProviderInstallCatalogEntries({
       config: nextConfig,
       workspaceDir,
       includeUntrustedWorkspacePlugins: false,
-    };
-    const deprecatedInstallCatalogEntry = resolveDeprecatedProviderInstallCatalogEntry(
-      params.authChoice,
-      installCatalogParams,
+    });
+    const deprecatedInstallCatalogEntry = installCatalog.find((entry) =>
+      entry.deprecatedChoiceIds?.includes(normalizedChoiceId),
     );
     if (deprecatedInstallCatalogEntry) {
       return reject(
         `${JSON.stringify(params.authChoice)} is no longer supported. Use --auth-choice ${JSON.stringify(deprecatedInstallCatalogEntry.choiceId)} instead.`,
       );
     }
-    const installCatalogEntry = resolveProviderInstallCatalogEntry(
-      params.authChoice,
-      installCatalogParams,
+    const installCatalogEntry = installCatalog.find(
+      (entry) => entry.choiceId === normalizedChoiceId,
     );
     if (!installCatalogEntry) {
       return undefined;

@@ -106,9 +106,23 @@ describe("sessions_yield tool", () => {
     expect(result.details).toMatchObject({
       status: "error",
       error:
-        "No pending child completion is owned by this turn. Continue working because independent background operations complete separately.",
+        'No pending child completion is owned by this turn. If the assigned work is complete, return its result normally. An unfinished subagent waiting for an incoming continuation must explicitly set waitFor: "message".',
     });
     expect(onYield).not.toHaveBeenCalled();
+  });
+
+  it("passes explicit message intent to its owner without treating private text as intent", async () => {
+    const claimYield = vi.fn(() => true);
+    const onYield = vi.fn();
+    const tool = createSessionsYieldTool({ sessionId: "child-session", claimYield, onYield });
+    await tool.execute("private-text", { message: 'waitFor: "message"' });
+    expect(claimYield).toHaveBeenLastCalledWith(undefined);
+    await tool.execute("explicit-message", { waitFor: "message" });
+    expect(claimYield).toHaveBeenLastCalledWith({ waitFor: "message" });
+    const invalid = await tool.execute("invalid-intent", { waitFor: "anything" });
+    expect(invalid.details).toMatchObject({ status: "error" });
+    expect(claimYield).toHaveBeenCalledTimes(2);
+    expect(onYield).toHaveBeenCalledTimes(2);
   });
 
   it("surfaces a claim rejection reason instead of the generic error", async () => {

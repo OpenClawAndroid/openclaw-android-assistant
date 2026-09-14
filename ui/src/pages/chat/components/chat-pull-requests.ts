@@ -4,6 +4,7 @@ import { html, nothing } from "lit";
 import type {
   ControlUiSessionBranch,
   ControlUiSessionPullRequest,
+  ControlUiSessionPullRequestSnapshot,
 } from "../../../../../src/gateway/control-ui-contract.js";
 import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
@@ -203,10 +204,16 @@ function renderDiffStats(
   return html` <span class="chat-pr__diff">${additions} ${deletions}</span> `;
 }
 
-function renderRateLimitWarning() {
+function renderStatusWarning(status: ControlUiSessionPullRequestSnapshot["status"]) {
+  if (status === "ready") {
+    return nothing;
+  }
+  const message = t(
+    status === "rate-limited" ? "chat.pullRequests.rateLimited" : "chat.pullRequests.unavailable",
+  );
   return html`
-    <openclaw-tooltip content=${t("chat.pullRequests.rateLimited")}>
-      <span class="chat-pr__warning" role="img" aria-label=${t("chat.pullRequests.rateLimited")}>
+    <openclaw-tooltip content=${message}>
+      <span class="chat-pr__warning" role="img" aria-label=${message}>
         ${icons.alertTriangle}
       </span>
     </openclaw-tooltip>
@@ -230,11 +237,11 @@ function renderCreatePullRequestLink(branch: ControlUiSessionBranch) {
 }
 
 // Pre-PR state: the branch row mirrors PR chips and offers Gateway-owned
-// publication when available. While rate limited, "no PR found" is unreliable,
+// publication when available. When status is stale, "no PR found" is unreliable,
 // so the warning stays visible here.
 function renderBranchRow(
   branch: ControlUiSessionBranch,
-  rateLimited: boolean,
+  status: ControlUiSessionPullRequestSnapshot["status"],
   onOpenSessionDiff?: () => void,
   publication?: GitHubPublicationView,
 ) {
@@ -248,8 +255,7 @@ function renderBranchRow(
         </span>
       </span>
       <span class="chat-pr__meta">
-        ${renderDiffStats(branch, onOpenSessionDiff)}
-        ${rateLimited ? renderRateLimitWarning() : nothing}
+        ${renderDiffStats(branch, onOpenSessionDiff)} ${renderStatusWarning(status)}
         ${
           publication
             ? renderGitHubPublicationAction(publication)
@@ -264,7 +270,7 @@ function renderBranchRow(
 export function renderChatPullRequests(props: {
   pullRequests: ControlUiSessionPullRequest[];
   branch?: ControlUiSessionBranch;
-  rateLimited: boolean;
+  status: ControlUiSessionPullRequestSnapshot["status"];
   expanded: boolean;
   onExpand: () => void;
   onDismiss: (pullRequest: ControlUiSessionPullRequest) => void;
@@ -280,12 +286,7 @@ export function renderChatPullRequests(props: {
     <div class="chat-prs" aria-live="polite">
       ${
         props.branch
-          ? renderBranchRow(
-              props.branch,
-              props.rateLimited,
-              props.onOpenSessionDiff,
-              props.publication,
-            )
+          ? renderBranchRow(props.branch, props.status, props.onOpenSessionDiff, props.publication)
           : nothing
       }
       ${
@@ -326,7 +327,7 @@ export function renderChatPullRequests(props: {
                   ? nothing
                   : html`<span class="chat-pr__state">${stateLabel(pullRequest.state)}</span>`
               }
-              ${props.rateLimited && !merged ? renderRateLimitWarning() : nothing}
+              ${!merged || props.status === "unavailable" ? renderStatusWarning(props.status) : nothing}
               <button
                 class="chat-pr__dismiss"
                 type="button"

@@ -114,6 +114,20 @@ classification, and persisted payload shape in the plugin. Webhook transports
 should acknowledge only after `admit` resolves; non-replay transports should
 surface durable append exhaustion rather than silently dispatching.
 
+### Deferred claim heartbeats
+
+Forward both `onDeferredHeartbeat` and `deferredHeartbeatIntervalMs` when a
+plugin wraps the ingress lifecycle or maps it to `turnAdoptionLifecycle`.
+`bindIngressLifecycleToReplyOptions(...)` forwards both. The drain derives the
+optional cadence from its adoption-stall timeout; fan-in uses the shortest
+positive, finite source cadence. The queue renews only while it owns the
+lifecycle, stopping after adoption, completion, ownership loss, or callback
+failure. A heartbeat does not adopt or complete a claim.
+
+Wrappers that omit the cadence remain valid but do not enable periodic renewal;
+their deferred claims can still reach the adoption watchdog timeout. Plugins
+must not run independent timers that keep abandoned work alive.
+
 ## Adapter
 
 Most plugins define one `message` adapter:

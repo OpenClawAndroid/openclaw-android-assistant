@@ -107,6 +107,16 @@ function readChatSubmissionBatch(owner: ChatSessionProjectionOwner, scope: Sessi
       if (receipt) {
         retire(runId);
       }
+      const delivered = submissions.readDelivered(key + runId, client ?? owner);
+      if (
+        !receipt &&
+        !identity.isImported &&
+        delivered?.kind === "delivered" &&
+        !delivered.pending &&
+        (!delivered.sessionId || !scope.sessionId || delivered.sessionId === scope.sessionId)
+      ) {
+        return undefined;
+      }
       if (!handoff || identity.isImported || runId !== handoff.pendingRunId) {
         return message;
       }
@@ -353,14 +363,26 @@ export function reconcileChatInputCustody(
   page: ChatPendingInputsPage | undefined,
   receipts: ChatInputReceipts = [],
 ) {
-  const scope = readChatSessionProjectionScope(owner, {
-    agentId: resolveUiSelectedSessionAgentId(owner),
-  });
   const acceptedRunIds = new Set(
     [...(page?.items ?? []), ...receipts]
       .map((item) => item.runId)
       .filter((runId) => typeof runId === "string"),
   );
+  retireChatSubmissionDisplay(owner, acceptedRunIds);
+  return {
+    acceptedRunIds,
+    page: page ?? { items: [], total: 0 },
+  };
+}
+
+/** Canonical custody retires local display ownership even outside the loaded history page. */
+export function retireChatSubmissionDisplay(
+  owner: ChatSessionProjectionOwner,
+  acceptedRunIds: ReadonlySet<string>,
+): void {
+  const scope = readChatSessionProjectionScope(owner, {
+    agentId: resolveUiSelectedSessionAgentId(owner),
+  });
   const submissions = readChatSubmissionBatch(owner, scope);
   submissions?.accept(acceptedRunIds);
   if (acceptedRunIds.size) {
@@ -383,10 +405,6 @@ export function reconcileChatInputCustody(
       });
     }
   }
-  return {
-    acceptedRunIds,
-    page: page ?? { items: [], total: 0 },
-  };
 }
 
 export function shouldDisplayChatSubmission(
