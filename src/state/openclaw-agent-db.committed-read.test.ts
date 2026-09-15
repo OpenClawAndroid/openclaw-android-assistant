@@ -7,11 +7,11 @@ import { closeCachedOpenClawAgentDatabase } from "./openclaw-agent-db-lifecycle.
 import { withOpenClawAgentDatabaseReadOnly } from "./openclaw-agent-db-readonly.js";
 import {
   closeOpenClawAgentDatabaseByPath,
-  listOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
   resolveIncognitoOpenClawAgentSqlitePath,
   type OpenClawAgentDatabaseOptions,
 } from "./openclaw-agent-db.js";
+import { listOpenClawAgentDatabasesForTest } from "./openclaw-agent-db.test-support.js";
 
 const stampQuery = "SELECT updated_at FROM schema_meta WHERE meta_key = 'primary'";
 

@@ -1325,10 +1325,10 @@ function getTextRecordEdits(
 
 function getLegacyFieldRecordEdits(
   field: RedactionField,
-  original: string,
+  value: string,
   beforeConversion = false,
 ): RedactionEdit[] {
-  const { key, value, path, objectPath } = field;
+  const { key, value: original, path, objectPath } = field;
   if (field.isKey || !field.origin.structured || !field.string) {
     return [];
   }
@@ -1457,10 +1457,7 @@ function prepareFileToJsonReceivers(
           );
         }
       }
-      return applyRedactionEdits(
-        current,
-        getLegacyFieldRecordEdits({ ...field, value: current }, value, true),
-      );
+      return applyRedactionEdits(current, getLegacyFieldRecordEdits(field, current, true));
     }
     if (value === null || typeof value !== "object") {
       return decode &&

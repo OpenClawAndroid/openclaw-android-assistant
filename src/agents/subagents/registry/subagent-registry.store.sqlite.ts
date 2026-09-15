@@ -636,3 +636,26 @@ export function saveSubagentRegistryChangesToSqlite(
   }
   writeSubagentRunValues(values, deleteRunIds);
 }
+
+/** Mutation ownership cannot discard undecodable retained rows as presentation readers do. */
+export function hasSubagentSessionOwnerInDatabase(
+  database: Pick<OpenClawStateDatabase, "db">,
+  sessionKey: string,
+): boolean {
+  return (
+    executeSqliteQuerySync(
+      database.db,
+      getNodeSqliteKysely<SubagentRegistryDatabase>(database.db)
+        .selectFrom("subagent_runs")
+        .select("run_id")
+        .where((eb) =>
+          eb.or([
+            eb("child_session_key", "=", sessionKey),
+            eb("requester_session_key", "=", sessionKey),
+            eb("controller_session_key", "=", sessionKey),
+          ]),
+        )
+        .limit(1),
+    ).rows.length > 0
+  );
+}

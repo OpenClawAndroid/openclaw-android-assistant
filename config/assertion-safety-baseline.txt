@@ -2350,7 +2350,6 @@ src/commands/doctor-session-sqlite-compact.ts	1
 src/commands/doctor-session-sqlite-migration-run.ts	6
 src/commands/doctor-session-sqlite-readers.ts	5
 src/commands/doctor-session-sqlite-recover-report.ts	1
-src/commands/doctor-session-sqlite.ts	2
 src/commands/doctor-session-state-providers.ts	3
 src/commands/doctor-session-transcript-headers.ts	5
 src/commands/doctor-session-transcript-labels.ts	4
@@ -2534,7 +2533,6 @@ src/config/sessions/session-store-config.ts	2
 src/config/sessions/session-suggestion-store.ts	2
 src/config/sessions/session-transcript-projection-rebuild.ts	6
 src/config/sessions/session-transcript-reconcile.worker.ts	1
-src/config/sessions/session-transcript-search.ts	1
 src/config/sessions/skill-prompt-blobs.ts	5
 src/config/sessions/store-entry-shape.ts	2
 src/config/sessions/transcript-assistant-message.ts	2
@@ -2839,7 +2837,6 @@ src/gateway/worker-environments/node-worker-workspace-fallback.ts	2
 src/gateway/worker-environments/placement-state.ts	3
 src/gateway/worker-environments/placement-store.ts	1
 src/gateway/worker-environments/service-validation.ts	3
-src/gateway/worker-environments/service.ts	1
 src/gateway/worker-environments/state.ts	1
 src/gateway/worker-environments/store.ts	9
 src/gateway/worker-environments/worker-session-tool-executor.ts	1
@@ -2994,7 +2991,7 @@ src/infra/sqlite-files.ts	1
 src/infra/sqlite-index-schema.ts	2
 src/infra/sqlite-integrity.ts	2
 src/infra/sqlite-readonly-location.ts	3
-src/infra/sqlite-schema-contract.ts	9
+src/infra/sqlite-schema-contract.ts	8
 src/infra/sqlite-snapshot.ts	2
 src/infra/sqlite-strict.ts	7
 src/infra/sqlite-user-version.ts	1

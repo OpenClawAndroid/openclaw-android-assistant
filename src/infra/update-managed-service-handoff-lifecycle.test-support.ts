@@ -303,9 +303,7 @@ void (async () => {
   const { isPidDefinitelyDead } = await import(${JSON.stringify(new URL("../shared/pid-alive.ts", import.meta.url).href)});
   if (${JSON.stringify(kind)} === "systemd" && action === "stop") {
     ${managedServiceStateUpdateScript(statePath, "state.parked = true")};
-    for (;;) {
-      try { process.kill(${parentPid}, 0); sleep(10); } catch { break; }
-    }
+    while (!isPidDefinitelyDead(${parentPid})) sleep(10);
     sleep(${options?.systemdStopDelayMs ?? 0});
     ${managedServiceStateUpdateScript(
       statePath,

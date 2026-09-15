@@ -252,6 +252,7 @@ export async function retrySubagentCompletionDelivery(
     suspendedAt: undefined,
     suspendedReason: undefined,
     attemptCount: 0,
+    lastDropReason: undefined,
     lastError: undefined,
     nextAttemptAt: undefined,
   });
