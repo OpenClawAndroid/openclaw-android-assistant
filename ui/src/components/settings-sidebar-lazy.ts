@@ -4,7 +4,7 @@ import { beginNativeWindowDragFromTopInset } from "../app/native-window-drag.ts"
 import { t } from "../i18n/index.ts";
 import { icons } from "./icons.ts";
 
-export type SettingsSidebarModule = typeof import("./settings-sidebar.ts");
+type SettingsSidebarModule = typeof import("./settings-sidebar.ts");
 type SettingsSidebarProps = Parameters<SettingsSidebarModule["renderSettingsSidebar"]>[0];
 
 type LazySettingsSidebarHost = {

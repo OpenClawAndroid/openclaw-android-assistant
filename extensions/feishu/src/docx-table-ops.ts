@@ -45,7 +45,11 @@ function createDescendantTable(
   };
 }
 
-function calculateAdaptiveColumnWidths(blocks: FeishuDocxBlock[], tableBlockId: string): number[] {
+function calculateAdaptiveColumnWidths(
+  blocks: FeishuDocxBlock[],
+  tableBlockId: string,
+  getBlockMap: () => ReadonlyMap<string, FeishuDocxBlock>,
+): number[] {
   // Find the table block
   const tableBlock = blocks.find((b) => b.block_id === tableBlockId && b.block_type === 31);
 
@@ -65,13 +69,7 @@ function calculateAdaptiveColumnWidths(blocks: FeishuDocxBlock[], tableBlockId: 
       : DEFAULT_TABLE_WIDTH;
   const cellIds = normalizeChildBlockIds(tableBlock.children);
 
-  // Build block lookup map
-  const blockMap = new Map<string, FeishuDocxBlock>();
-  for (const block of blocks) {
-    if (block.block_id) {
-      blockMap.set(block.block_id, block);
-    }
-  }
+  const blockMap = getBlockMap();
 
   // Extract text content from a table cell
   function getCellText(cellId: string): string {
@@ -177,11 +175,24 @@ function calculateAdaptiveColumnWidths(blocks: FeishuDocxBlock[], tableBlockId: 
  * @returns Cleaned blocks ready for Descendant API
  */
 export function cleanBlocksForDescendant(blocks: FeishuDocxBlock[]): FeishuDocxBlock[] {
+  // Each batch owns its lookup; later conversions may reuse IDs with different content.
+  let blockMap: Map<string, FeishuDocxBlock> | undefined;
+  const getBlockMap = () => {
+    if (!blockMap) {
+      blockMap = new Map();
+      for (const block of blocks) {
+        if (block.block_id) {
+          blockMap.set(block.block_id, block);
+        }
+      }
+    }
+    return blockMap;
+  };
   // Pre-calculate adaptive widths for all tables
   const tableWidths = new Map<string, number[]>();
   for (const block of blocks) {
     if (block.block_type === 31 && block.block_id) {
-      const widths = calculateAdaptiveColumnWidths(blocks, block.block_id);
+      const widths = calculateAdaptiveColumnWidths(blocks, block.block_id, getBlockMap);
       tableWidths.set(block.block_id, widths);
     }
   }

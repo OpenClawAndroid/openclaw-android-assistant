@@ -678,6 +678,7 @@ function buildUnifiedDistEntries(): Record<string, string> {
     ),
     ...(shouldBuildPrivateQaEntries
       ? {
+          "plugin-sdk/qa-channel-protocol": "src/plugin-sdk/qa-channel-protocol.ts",
           "plugin-sdk/qa-lab": "src/plugin-sdk/qa-lab.ts",
           "plugin-sdk/qa-runtime": "src/plugin-sdk/qa-runtime.ts",
         }

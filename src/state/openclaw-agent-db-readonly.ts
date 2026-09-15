@@ -7,6 +7,7 @@ import {
   createOpenClawAgentDatabaseClaim,
   type OpenClawAgentDatabaseClaim,
 } from "./openclaw-agent-db-identity.js";
+import { withCommittedOpenClawAgentDatabaseReadOnly } from "./openclaw-agent-db-readonly-companion.js";
 import {
   openOpenClawAgentDatabaseReadOnly,
   readOpenClawAgentDatabaseReadOnly,
@@ -105,6 +106,14 @@ export function withOpenClawAgentDatabaseReadOnly<T>(
   const processOpened = behavior.allowExtension
     ? undefined
     : findOpenAgentDatabase({ ...options, agentId });
+  if (processOpened?.db.isTransaction) {
+    return withCommittedOpenClawAgentDatabaseReadOnly(
+      processOpened,
+      operation,
+      { ...options, agentId },
+      behavior,
+    );
+  }
   const reusable = processOpened && !processOpened.db.isTransaction ? processOpened : undefined;
   if (!reusable) {
     return withFreshOpenClawAgentDatabaseReadOnly(operation, { ...options, agentId }, behavior);

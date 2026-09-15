@@ -342,12 +342,20 @@ suite.define(() => {
           });
           const dialog = page.locator("openclaw-modal-dialog");
           if (outcome === "remote") {
-            await dialog
-              .getByText(
-                "Run openclaw onboard on the Gateway host to configure this custom endpoint.",
-                { exact: false },
-              )
-              .waitFor();
+            const alert = dialog.getByRole("alert");
+            await alert.waitFor();
+            expect((await alert.textContent())?.trim()).toBe(
+              "Could not finish. Open Details to see what to do next.",
+            );
+            const details = dialog.locator("details");
+            expect(await details.getAttribute("open")).toBeNull();
+            const diagnostic = details.getByText(
+              "Run openclaw onboard on the Gateway host to configure this custom endpoint.",
+              { exact: true },
+            );
+            expect(await diagnostic.isVisible()).toBe(false);
+            await details.getByText("Details", { exact: true }).click();
+            await diagnostic.waitFor();
             expect(await gateway.getRequests("wizard.next")).toHaveLength(0);
             expect(await gateway.getRequests("openclaw.setup.auth.start")).toHaveLength(1);
             await page.screenshot({
@@ -386,11 +394,20 @@ suite.define(() => {
             if (outcome === "success") {
               await page.locator(".model-setup-success").waitFor();
             } else {
-              await dialog
-                .getByText("The selected endpoint could not be reached. Check its address.", {
-                  exact: false,
-                })
-                .waitFor();
+              const alert = dialog.getByRole("alert");
+              await alert.waitFor();
+              expect((await alert.textContent())?.trim()).toBe(
+                "Could not finish. Open Details to see what to do next.",
+              );
+              const details = dialog.locator("details");
+              expect(await details.getAttribute("open")).toBeNull();
+              const diagnostic = details.getByText(
+                "The selected endpoint could not be reached. Check its address.",
+                { exact: true },
+              );
+              expect(await diagnostic.isVisible()).toBe(false);
+              await details.getByText("Details", { exact: true }).click();
+              await diagnostic.waitFor();
             }
           }
           expect(await gateway.getRequests("openclaw.setup.auth.start")).toHaveLength(1);

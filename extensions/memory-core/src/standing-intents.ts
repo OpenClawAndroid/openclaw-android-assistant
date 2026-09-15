@@ -4,6 +4,7 @@ import {
   ensureOpenClawAgentStandingIntentsSchema,
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
+  type Generated,
   getNodeSqliteKysely,
   runSqliteImmediateTransactionSync,
   sqliteStringSet,
@@ -58,11 +59,10 @@ type StandingIntentRow = {
 };
 
 type StandingIntentDatabase = {
-  standing_intents: StandingIntentRow;
+  standing_intents: StandingIntentRow & { intent_key: Generated<number> };
 };
 
-type StandingIntentMatchDatabase = {
-  standing_intents: StandingIntentRow & { intent_key: number };
+type StandingIntentMatchDatabase = StandingIntentDatabase & {
   standing_intents_fts: {
     rowid: number;
     trigger_keywords: string;
@@ -221,7 +221,10 @@ function parseStoredTriggerKeywords(value: string): string[] {
   }
 }
 
-function shouldRearm(row: StandingIntentRow, nowMs: number): boolean {
+function shouldRearm(
+  row: Pick<StandingIntentRow, "status" | "last_fired_at" | "cooldown_seconds">,
+  nowMs: number,
+): boolean {
   if (row.status !== "fired" || row.last_fired_at === null) {
     return false;
   }
@@ -242,7 +245,18 @@ function maintainStandingIntentLifecycle(db: DatabaseSync, nowMs: number): void 
     db,
     kysely
       .selectFrom("standing_intents")
-      .selectAll()
+      // Retain every integer column so native range errors still precede rearming.
+      .select([
+        "intent_key",
+        "id",
+        "status",
+        "expires_at",
+        "max_fires",
+        "fire_count",
+        "cooldown_seconds",
+        "last_fired_at",
+        "created_at",
+      ])
       .where("status", "=", "fired")
       .where("expires_at", ">", nowMs)
       .whereRef("fire_count", "<", "max_fires"),

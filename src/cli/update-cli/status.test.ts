@@ -483,14 +483,30 @@ describe("update status abandoned-run reporting", () => {
     expect(runtime.writeJson.mock.lastCall?.[0]).not.toHaveProperty("advisories");
   });
 
-  it.each(["json", "text", "status"])(
-    "reconciles expired legacy admission through %s",
-    async (surface) => {
+  it.each(
+    ["none", "succeeded-before-expiry", "succeeded-after-expiry", "active"].flatMap((laterRun) =>
+      ["json", "text", "status"].map((surface) => ({ laterRun, surface })),
+    ),
+  )(
+    "keeps expired admission history with $laterRun through $surface",
+    async ({ laterRun, surface }) => {
       const now = Date.now();
-      vi.spyOn(Date, "now").mockReturnValue(now - 25 * 60 * 60_000);
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now - 25 * 60 * 60_000);
       const legacy = createUpdateRun({ trigger: "cli", before: { version: "2026.9.2" } });
-      vi.mocked(Date.now).mockReturnValue(now);
-      finishUpdateRun(createUpdateRun({ trigger: "cli" }).runId, { status: "succeeded" });
+      clock.mockReturnValue(now);
+      if (laterRun === "succeeded-after-expiry" || laterRun === "active") {
+        await updateStatusCommand({ json: true });
+        expect(getUpdateRun(legacy.runId)?.reason).toBe("legacy-driver-expired");
+        runtime.writeJson.mockClear();
+      }
+      let currentRunId = legacy.runId;
+      if (laterRun !== "none") {
+        clock.mockReturnValue(now + 1);
+        currentRunId = createUpdateRun({ trigger: "cli" }).runId;
+        if (laterRun !== "active") {
+          finishUpdateRun(currentRunId, { status: "succeeded" });
+        }
+      }
       let output: string;
       if (surface === "status") {
         output = JSON.stringify(buildStatusUpdateRows(null));
@@ -501,19 +517,28 @@ describe("update status abandoned-run reporting", () => {
             ? JSON.stringify(runtime.writeJson.mock.lastCall?.[0])
             : runtime.log.mock.calls.flat().join("\n");
       }
-      expect(getUpdateRun(legacy.runId)).toMatchObject({
+      const expired = getUpdateRun(legacy.runId);
+      expect(expired).toMatchObject({
         phase: "finished",
         status: "failed",
         reason: "legacy-driver-expired",
       });
       expect(output).toContain("treated as abandoned after 24 h");
-      expect(output).toContain("openclaw update");
-      expect(findActiveUpdateRun()).toBeUndefined();
+      expect(output.includes("Historical update:")).toBe(laterRun !== "none");
+      expect(output.includes("run `openclaw update` to retry.")).toBe(laterRun === "none");
+      expect(findActiveUpdateRun()?.runId).toBe(laterRun === "active" ? currentRunId : undefined);
       // A later read must still surface the advisory after the terminal write.
       await updateStatusCommand({ json: true });
-      expect(JSON.stringify(runtime.writeJson.mock.lastCall?.[0])).toContain(
-        "treated as abandoned after 24 h",
-      );
+      const result = runtime.writeJson.mock.lastCall?.[0];
+      expect((result.activeRun ?? result.lastRun)?.runId).toBe(currentRunId);
+      expect(result.advisories).toEqual([
+        {
+          runId: legacy.runId,
+          reason: "legacy-driver-expired",
+          message: expect.stringContaining("treated as abandoned after 24 h"),
+        },
+      ]);
+      expect(getUpdateRun(legacy.runId)).toEqual(expired);
     },
   );
 

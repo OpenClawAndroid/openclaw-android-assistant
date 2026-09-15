@@ -182,6 +182,16 @@ admission. Publish live session changes and other dependent effects only after
 the durable write succeeds. A future network-backed owner must preserve that
 ordering while awaiting its driver.
 
+Read-only callbacks made while a cached agent writer holds a transaction use a
+separate read-only companion connection. Each call rereads committed rows and
+checks the current schema, agent owner, and physical file identity. The companion
+retains prepared statements and connection-local canonical-key validation, never
+an authorization result or an open read transaction. Canonical validation checks
+the committed main-key policy before reuse. The companion retires with its writer's
+native close, disposal, or replacement, including eviction and update cleanup.
+Cold and extension-capable readers remain one-shot; incognito reads retain their
+existing process-local owner. This changes no schema or migration requirement.
+
 Correlated conversation replies retain their original store and state environment
 while waiting for write admission. Capture rechecks the live reply claim and
 session lifecycle before recording a replayable reply. Cancellation or a changed

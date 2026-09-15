@@ -12,7 +12,7 @@ import {
   getLoadedRuntimePluginRegistry,
   registryContainsRuntimePluginIds,
 } from "./active-runtime-registry.js";
-import { normalizePluginsConfig } from "./config-state.js";
+import { normalizePluginsConfig, type NormalizedPluginsConfig } from "./config-state.js";
 import { getCurrentPluginMetadataSnapshot } from "./current-plugin-metadata-snapshot.js";
 import { extractPluginInstallRecordsFromInstalledPluginIndex } from "./installed-plugin-index-install-records.js";
 import { resolvePluginRegistrationConfigKey } from "./loader-registration-config.js";
@@ -72,6 +72,7 @@ export function createProviderRegistryResolver(dependencies: {
     },
     manifestRegistry: NonNullable<PluginLoadOptions["manifestRegistry"]>,
     declaredOwners: DeclaredProviderOwnerIndex,
+    normalizedConfig: NormalizedPluginsConfig | undefined,
   ) {
     const apiOwnerHint = resolveProviderConfigApiOwnerHint(params);
     const ownerRef = declaredOwners.has(normalizeProviderId(params.provider))
@@ -93,6 +94,7 @@ export function createProviderRegistryResolver(dependencies: {
           ...params,
           trigger: { kind: "provider", provider },
           manifestRecords: manifestRegistry.plugins,
+          normalizedConfig,
         }),
       ),
     );
@@ -109,6 +111,10 @@ export function createProviderRegistryResolver(dependencies: {
     manifestRegistry?: PluginLoadOptions["manifestRegistry"],
     declaredProviderOwners = buildDeclaredProviderOwnerIndex(manifestRegistry?.plugins ?? []),
   ) {
+    const normalizedConfig =
+      manifestRegistry && params.providerRefs?.length
+        ? normalizePluginsConfig(params.config?.plugins)
+        : undefined;
     const providerOwners = manifestRegistry
       ? (params.providerRefs ?? []).map((provider) =>
           resolveProviderOwnerSelection(
@@ -120,6 +126,7 @@ export function createProviderRegistryResolver(dependencies: {
             },
             manifestRegistry,
             declaredProviderOwners,
+            normalizedConfig,
           ),
         )
       : [];

@@ -596,7 +596,7 @@ describe("kitchen-sink plugin assertions", () => {
       expect(result.status, result.stderr).toBe(0);
     } else {
       expect(result.status).toBe(1);
-      expect(result.stderr.match(/^Error: (.*)$/m)?.[1]).toBe(
+      expect(result.stderr.match(/^(?:Error|error): (.*)$/m)?.[1]).toBe(
         `${errorPrefix}: ${JSON.stringify(result.record)}`,
       );
     }

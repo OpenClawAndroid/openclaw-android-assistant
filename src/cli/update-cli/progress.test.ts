@@ -109,6 +109,28 @@ describe("update progress", () => {
     }
   });
 
+  it("releases the terminal spinner when its final ledger read fails", () => {
+    vi.useFakeTimers();
+    vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+    const timerCount = vi.getTimerCount();
+    const signals = ["SIGINT", "SIGTERM"] as const;
+    const listenerCounts = signals.map((signal) => process.listenerCount(signal));
+    presentation = createUpdateProgress(true, context);
+    presentation.progress.onStepStart?.(step);
+    expect(vi.getTimerCount()).toBeGreaterThan(timerCount);
+    const failure = new Error("final ledger read failed");
+    vi.mocked(getUpdateRun).mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    expect(() => presentation?.dispose()).toThrow(failure);
+
+    expect(vi.getTimerCount()).toBe(timerCount);
+    expect(signals.map((signal) => process.listenerCount(signal))).toEqual(listenerCounts);
+  });
+
   it("keeps unbound step presentation independent of ledger records", () => {
     const log = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
     presentation = createUpdateProgress(true);

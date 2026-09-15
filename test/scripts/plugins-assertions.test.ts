@@ -2016,12 +2016,12 @@ fs.renameSync = (source, destination) => {
       expect(result.stderr).toContain("ClawHub install path resolved outside");
     } else if (pathError) {
       expect(result.status).toBe(1);
-      expect(result.stderr.match(/^Error: (.*)$/m)?.[1]).toBe(
+      expect(result.stderr.match(/^(?:Error|error): (.*)$/m)?.[1]).toBe(
         "missing ClawHub install path for openclaw-kitchen-sink-fixture",
       );
     } else if (errorPrefix) {
       expect(result.status).toBe(1);
-      expect(result.stderr.match(/^Error: (.*)$/m)?.[1]).toBe(
+      expect(result.stderr.match(/^(?:Error|error): (.*)$/m)?.[1]).toBe(
         `${errorPrefix} for openclaw-kitchen-sink-fixture: ${JSON.stringify(record)}`,
       );
     } else {

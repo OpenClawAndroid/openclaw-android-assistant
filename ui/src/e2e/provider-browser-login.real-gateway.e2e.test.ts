@@ -161,7 +161,9 @@ suite.define(() => {
           .poll(profile)
           .toMatchObject({ type: "api_key", profileId: `${loginProvider}:default` });
         await expect.poll(() => page.locator("openclaw-modal-dialog").count()).toBe(0);
-        await page.getByText("Provider credentials saved.", { exact: true }).waitFor();
+        await page
+          .getByText("Fixture browser sign-in: Provider credentials saved.", { exact: true })
+          .waitFor();
         await page.screenshot({ path: path.join(suite.artifactDir, "login-completed.png") });
         await fixture.instance.stopGateway();
         await fixture.instance.startGateway();

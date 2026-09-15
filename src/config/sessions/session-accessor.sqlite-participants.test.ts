@@ -596,16 +596,19 @@ describe("SQLite session participants", () => {
       await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
         const scope = { agentId: "main", env: state.env, sessionKey: "agent:main:merged-full" };
         const old = ensureProfileForEmail("old@example.test", { env: state.env });
+        const other = ensureProfileForEmail("other@example.test", { env: state.env });
         const current = ensureProfileForEmail("current@example.test", { env: state.env });
         await upsertSessionEntryCore(scope, { sessionId: "merged-full", updatedAt: 1 });
         recordSessionParticipant(scope, { identity: profile(old.id), promptedAt: 10 });
+        recordSessionParticipant(scope, { identity: profile(other.id), promptedAt: 10 });
         if (hasCanonicalRow) {
           recordSessionParticipant(scope, { identity: profile(current.id), promptedAt: 20 });
         }
-        for (let index = hasCanonicalRow ? 2 : 1; index < MAX_SESSION_PARTICIPANTS; index++) {
+        for (let index = hasCanonicalRow ? 3 : 2; index < MAX_SESSION_PARTICIPANTS; index++) {
           recordSessionParticipant(scope, { identity: remote(`remote-${index}`), promptedAt: 30 });
         }
         linkEmail("old@example.test", current.id, { env: state.env });
+        linkEmail("other@example.test", current.id, { env: state.env });
         expect(
           recordSessionParticipant(scope, { identity: profile(current.id), promptedAt: 40 }),
         ).toBe("updated");
@@ -613,14 +616,36 @@ describe("SQLite session participants", () => {
         expect(records).toHaveLength(MAX_SESSION_PARTICIPANTS);
         const profiles = records.filter((record) => record.identity.type === "profile");
         expect(profiles.reduce((count, record) => count + record.contributionCount, 0)).toBe(
-          hasCanonicalRow ? 3 : 2,
+          hasCanonicalRow ? 4 : 3,
         );
-        expect(
-          profiles.find((record) => record.identity.id === (hasCanonicalRow ? current.id : old.id)),
-        ).toMatchObject({ contributionCount: 2, lastPromptedAt: 40 });
+        const updatedId = hasCanonicalRow ? current.id : [old.id, other.id].toSorted()[0];
+        expect(profiles.find((record) => record.identity.id === updatedId)).toMatchObject({
+          contributionCount: 2,
+          lastPromptedAt: 40,
+        });
       });
     },
   );
+
+  it("keeps raw actor identity equality when SQLite replaces a lone surrogate", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const scope = { agentId: "main", env: state.env, sessionKey: "agent:main:raw-identity" };
+      await upsertSessionEntryCore(scope, { sessionId: "raw-identity", updatedAt: 1 });
+      recordSessionParticipant(scope, { identity: remote("\ud800"), promptedAt: 10 });
+      for (let index = 1; index < MAX_SESSION_PARTICIPANTS; index++) {
+        recordSessionParticipant(scope, { identity: remote(`remote-${index}`), promptedAt: 10 });
+      }
+      expect(recordSessionParticipant(scope, { identity: remote("\ud800"), promptedAt: 20 })).toBe(
+        "capped",
+      );
+      expect(listSessionParticipantsReadOnly(scope).get(scope.sessionKey)).toContainEqual({
+        identity: remote("\ufffd"),
+        contributionCount: 1,
+        firstPromptedAt: 10,
+        lastPromptedAt: 10,
+      });
+    });
+  });
 
   it("keeps the admission bound, unknown first time, reset history, and deletion ownership", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
@@ -716,6 +741,20 @@ describe("SQLite session participants", () => {
         rows.find((row) => row.identity.type === "profile" && row.identity.id === "profile-0")
           ?.contributionCount,
       ).toBe(2);
+      const reads = trackSqliteStatementExecutions(target.db, ["participants"], (sql) =>
+        sql.includes('from "session_participants"') ? "participants" : null,
+      );
+      try {
+        expect(
+          recordSessionParticipant(targetScope, {
+            identity: profile("profile-0"),
+            promptedAt: 40,
+          }),
+        ).toBe("updated");
+        expect(reads.rowCounts.participants).toBeLessThanOrEqual(1);
+      } finally {
+        reads.restore();
+      }
       expect(
         recordSessionParticipant(targetScope, { identity: profile("overflow"), promptedAt: 40 }),
       ).toBe("capped");

@@ -17,6 +17,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatAgentRuntimeLabel } from "../shared/agent-runtime-display.js";
 import { formatGoalSummary } from "../shared/session-goal-display.js";
 import { isSessionRunActive } from "../shared/session-run-state.js";
+import type { SynchronousWork } from "../shared/synchronous-work.js";
 import { sessionDeliveryChannel, sessionDeliveryOrigin } from "../utils/delivery-context.shared.js";
 import { resolveAssistantIdentity } from "./assistant-identity.js";
 import { readPreparedGatewayModelCatalogMetadata } from "./server-model-catalog-view.js";
@@ -38,7 +39,7 @@ import { resolveSessionDisplayModelIdentityRefCached } from "./session-utils-mod
 import {
   buildSessionListRowMetadataContext,
   resolveGatewaySessionRuntimeProjection,
-  populateSessionListAcpMetadata,
+  populateSessionListAcpMetadataWork,
 } from "./session-utils-projection.js";
 import { buildGatewaySessionRow } from "./session-utils-row.js";
 import { createGatewaySessionEntryReader } from "./session-utils-store-lookup.js";
@@ -146,7 +147,7 @@ export function createSessionListSearchMatcher(params: {
   const context = () =>
     (rowContext ??= params.getRowContext?.() ?? buildSessionListRowMetadataContext({ now }));
   let acpPrepared = false;
-  return (key: string, entry: SessionEntry): boolean => {
+  return function* (key: string, entry: SessionEntry): SynchronousWork<boolean> {
     const target = expectDefined(params.targetsBySessionKey.get(key), "search row owner");
     const storeKey = target.storeKey ?? key;
     const fields = [
@@ -227,7 +228,7 @@ export function createSessionListSearchMatcher(params: {
       return true;
     }
     if (!acpPrepared) {
-      populateSessionListAcpMetadata({
+      yield* populateSessionListAcpMetadataWork({
         cfg,
         entries: params.visibleEntries,
         targetsBySessionKey: params.targetsBySessionKey,

@@ -209,6 +209,11 @@ describe("test runtime prerequisites", () => {
       "runtime",
     ],
     ["real Gateway config edits", ["src/gateway/server.config-patch.test.ts"], "runtime"],
+    [
+      "first device sign-in verification",
+      ["src/gateway/setup-inference.first-signin.integration.test.ts"],
+      "runtime",
+    ],
     ["Gateway directory", ["src/gateway"], "runtime"],
     ["Gateway core config", ["test/vitest/vitest.gateway-core.config.ts"], "runtime"],
     ["Gateway server config", ["test/vitest/vitest.gateway-server.config.ts"], "runtime"],
@@ -2167,6 +2172,62 @@ describe("scripts/test-projects changed-target routing", () => {
           "test/scripts/literal.consumer.test.ts",
         ]);
       });
+    },
+  );
+
+  it.each([false, true])(
+    "retains an unowned changed tooling test alongside its consumers (mixed input: %s)",
+    (mixedInput) => {
+      const changedTest = "test/e2e/qa-lab/runtime/changed-tooling.test.ts";
+      const reader = "test/scripts/tooling-reader.test.ts";
+      const otherTest = "src/independent.test.ts";
+      withTinyGitRepo(
+        {
+          [changedTest]: "export const value = 1;\n",
+          [reader]:
+            'import "../e2e/qa-lab/runtime/changed-tooling.test.js";\n' +
+            `const fixture = "${changedTest}";\n`,
+          [otherTest]: "export const independent = true;\n",
+        },
+        (cwd) => {
+          const inputs = mixedInput ? [changedTest, otherTest, changedTest] : [changedTest];
+          expect(resolveChangedTestTargetPlan(inputs, { cwd })).toEqual({
+            mode: "targets",
+            targets: [changedTest, reader, ...(mixedInput ? [otherTest] : [])],
+          });
+        },
+      );
+    },
+  );
+
+  it.each([
+    {
+      changedPath: "scripts/unowned-source.mts",
+      expectedTargets: ["test/scripts/tooling-reader.test.ts"],
+    },
+    {
+      changedPath: "test/scripts/owned.test.ts",
+      expectedTargets: ["test/scripts/owned.test.ts"],
+    },
+    {
+      changedPath: "test/e2e/qa-lab/runtime/changed-tooling.live.test.ts",
+      expectedTargets: ["test/scripts/tooling-reader.test.ts"],
+    },
+  ])(
+    "preserves non-test, explicit-owner, and live selection for $changedPath",
+    ({ changedPath, expectedTargets }) => {
+      withTinyGitRepo(
+        {
+          [changedPath]: "export const value = 1;\n",
+          "test/scripts/tooling-reader.test.ts": `const fixture = "${changedPath}";\n`,
+        },
+        (cwd) => {
+          expect(resolveChangedTestTargetPlan([changedPath], { cwd })).toEqual({
+            mode: "targets",
+            targets: expectedTargets,
+          });
+        },
+      );
     },
   );
 

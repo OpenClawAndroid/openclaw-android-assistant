@@ -11,7 +11,7 @@ import {
   captureGatewayRootWorkAdmissionContinuationScope,
   type GatewayRootWorkAdmissionContinuationScope,
 } from "../../process/gateway-work-admission.js";
-import { extractAssistantPhaseText } from "../../shared/chat-message-content.js";
+import { extractAssistantTranscriptSourceText } from "../../shared/chat-message-content.js";
 import { resolveGlobalMap } from "../../shared/global-singleton.js";
 import type { WorkerConnectionIdentity } from "./connection-identity.js";
 import type { WorkerSessionTurnClaim } from "./placement-record.js";
@@ -223,7 +223,7 @@ export function prepareWorkerTurnTranscriptMessage(
   return (
     resolveWorkerTurnRuntime(identity)?.prepareAssistantTranscriptMessage?.(
       message,
-      extractAssistantPhaseText(message),
+      extractAssistantTranscriptSourceText(message),
     ) ?? message
   );
 }

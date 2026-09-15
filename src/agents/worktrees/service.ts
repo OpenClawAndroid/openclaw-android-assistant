@@ -72,7 +72,7 @@ import {
   finalizeWorktreeRemoval,
   hasLiveWorktreeRunLease,
 } from "./run-lease.js";
-import { listTemplates } from "./template-registry.js";
+import { hasTemplates } from "./template-registry.js";
 import type {
   CreateManagedWorktreeParams,
   ManagedWorktreeBranchesResult,
@@ -1417,7 +1417,7 @@ export class ManagedWorktreeService {
     try {
       // Empty caches must not wait behind checkout creation. Collection rereads
       // the templates under the lease before retiring any artifacts.
-      if (listTemplates(this.env).length > 0) {
+      if (hasTemplates(this.env)) {
         await this.withAllocationLease({}, async (guard) => {
           await collectWorktreeTemplates(this.env, now - IDLE_GC_MS, {
             signal: guard.signal,

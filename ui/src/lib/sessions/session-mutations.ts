@@ -26,6 +26,7 @@ import type {
   SessionState,
 } from "./session-capability.ts";
 import { areUiSessionKeysEquivalent } from "./session-key.ts";
+import type { SessionRefreshOutcome } from "./session-list-query.ts";
 import {
   createOptimisticRowPatches,
   resolvePendingConversation,
@@ -41,7 +42,6 @@ import {
   requestSessionPatchMany,
   requestSessionReset,
 } from "./session-requests.ts";
-import type { SessionRefreshOutcome } from "./session-roster-refresh.ts";
 import type { createSessionRowProvenance } from "./session-row-provenance.ts";
 
 type SessionMutationsHost = PendingRowHost & {

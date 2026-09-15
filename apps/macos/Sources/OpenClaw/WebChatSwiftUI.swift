@@ -636,6 +636,16 @@ struct MacGatewayChatTransport: OpenClawChatGatewayTransport {
             connection: self.connection)
     }
 
+    func loadSourceContext() async -> OpenClawChatSourceContext? {
+        guard await self.currentOutboxGatewayMatchesConnection() else { return nil }
+        return await self.connection.loadSourceContext()
+    }
+
+    func loadSourceFavicon(host: String) async -> Data? {
+        guard await self.currentOutboxGatewayMatchesConnection() else { return nil }
+        return await self.connection.loadSourceFavicon(host: host)
+    }
+
     func loadMediaArtifact(
         sessionKey: String,
         artifactId: String,

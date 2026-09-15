@@ -10,6 +10,8 @@ export type TerminationReason =
 
 /** Producer-owned activity; a settled result does not establish descendant extinction. */
 export type ProcessRunActivity = {
+  /** Absolute deadline accepted when the supervisor armed the overall timeout. */
+  readonly deadlineAtMs?: number;
   readonly resultSettled: boolean;
   readonly lastOutputAtMs: number;
 };

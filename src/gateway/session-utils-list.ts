@@ -53,7 +53,7 @@ import {
 import { getSessionDefaults } from "./session-utils-model.js";
 import {
   buildSessionListRowMetadataContext,
-  populateSessionListAcpMetadata,
+  populateSessionListAcpMetadataWork,
 } from "./session-utils-projection.js";
 import { buildGatewaySessionRow } from "./session-utils-row.js";
 import { createSessionListSearchMatcher } from "./session-utils-search.js";
@@ -318,7 +318,7 @@ function* filterSessionEntries(
     }
     const [key, entry] = pair;
     if (
-      (matchesSearch && !matchesSearch(key, entry)) ||
+      (matchesSearch && !(yield* matchesSearch(key, entry))) ||
       (activeCutoff !== undefined &&
         (opts.sortBy === "activity" ? sessionActivityTimestamp(entry) : (entry.updatedAt ?? 0)) <
           activeCutoff)
@@ -500,7 +500,7 @@ function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: (
     },
     shouldYield,
   );
-  populateSessionListAcpMetadata({
+  yield* populateSessionListAcpMetadataWork({
     cfg,
     entries: selection.entries,
     targetsBySessionKey: params.targetsBySessionKey,

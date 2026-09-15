@@ -65,7 +65,7 @@ export function sessionRowAgentId(
  * agent because mutations route by session key; stale scopes and failed reads
  * remain visible to the caller.
  */
-export async function refreshSessionsAfterBatch(
+async function refreshSessionsAfterBatch(
   host: SessionActionHost,
   scope: SidebarSessionMutationScope,
   rows: readonly SessionActionRow[],

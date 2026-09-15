@@ -597,6 +597,11 @@ export function createProcessSupervisor(): ProcessSupervisor & {
 
       const managedRun: ManagedRun = {
         activity: Object.freeze({
+          get deadlineAtMs() {
+            return overallDeadline.deadlineMs === null
+              ? undefined
+              : Date.now() + overallDeadline.deadlineMs - performance.now();
+          },
           get resultSettled() {
             return resultSettled;
           },

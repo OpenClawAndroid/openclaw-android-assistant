@@ -235,7 +235,8 @@ export type SessionCapability = {
   refresh: (options?: SessionRefreshOptions) => Promise<void>;
   /** Schedules background list refreshes without replacing queued foreground queries. */
   invalidate: () => void;
-  /** Forces the remembered roster query; null means the attempt retired or failed. */
+  /** Refreshes the remembered query without superseding queued foreground intent.
+   * An explicit agent forces replacement; null means the attempt retired or failed. */
   refreshReplacement: (agentId?: string | null) => Promise<SessionsListResult | null>;
   createResult: (
     params?: SessionCreateParams,

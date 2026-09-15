@@ -580,6 +580,9 @@ export function enqueueCommandInLane<T>(
     const signal = opts?.abortSignal;
     if (signal) {
       const onAbort = () => {
+        // The once-listener is already detached. Searching for it again scans
+        // the remaining listeners when many entries share one abort signal.
+        entry.releaseQueuedAbort = undefined;
         if (removeLaneQueueEntry(state.queue, entry)) {
           entry.reject(toErrorObject(signal.reason, "Queued command aborted"));
           retireIdleScopedCommandLane(state);

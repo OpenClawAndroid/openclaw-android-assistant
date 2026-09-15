@@ -551,7 +551,7 @@ describe("ModelProvidersPage agent scope", () => {
     });
   });
 
-  it("keeps a replacement agent's default-model draft after a global model write", async () => {
+  it("keeps a newer global-model draft after an agent switch and earlier save", async () => {
     const { settingsAgentSelection, context, notifySelection, runtimeConfig } =
       createHarness("main");
     const gate = deferred();
@@ -572,11 +572,13 @@ describe("ModelProvidersPage agent scope", () => {
     settingsAgentSelection.state.scopeId = "writer";
     notifySelection();
     await vi.waitFor(() => expect(page.selectedAgentId).toBe("writer"));
+    const replacement = { ...selection, utilityModel: "openai/gpt-4.1-mini" };
+    page.defaultsDraft = replacement;
     gate.resolve();
     await saving;
 
     expect(runtimeConfig.patch).toHaveBeenCalledOnce();
-    expect(page.defaultsDraft).toBe(selection);
+    expect(page.defaultsDraft).toBe(replacement);
     expect(page.messages.defaults).toBeUndefined();
   });
 

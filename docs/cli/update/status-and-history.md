@@ -66,8 +66,9 @@ there are no active or past runs, and status does not repair unreadable history.
 Status can reconcile an untouched, identityless legacy admission after more than
 24 hours if it remains at its initial `requested/in_progress` step and has no
 retained recovery descriptor. The row stays in history as `failed` with reason
-`legacy-driver-expired`, and status shows a retry advisory. Other history remains
-read-only.
+`legacy-driver-expired`. Status shows retry guidance when that row is the current
+run. When another run is current, status keeps a historical notice without retry
+instructions, including after a later successful update. Other history remains read-only.
 
 When the active row has been inactive for more than 30 minutes and its recorded
 driver is verifiably dead, status also reports `abandonedRun` with its `runId`
@@ -101,6 +102,9 @@ An unsuccessful identity check is reported as a version or build mismatch only
 when the saved observed and expected values disagree. Missing identity evidence
 is reported as unavailable, including old runs whose updater saved only
 `versionMatch: false`.
+The Control UI's version badge shows **Not verified** for unavailable identity
+evidence and **Failed** for an observed version or build mismatch. This does not
+change the recorded update outcome.
 
 For failed runs, human status, completion notices, and reviewed failure reports
 also try a read-only health request to the recorded Gateway port. A response
