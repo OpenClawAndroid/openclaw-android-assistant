@@ -22,7 +22,7 @@ import {
   validReview,
   writeReviewArtifacts,
 } from "./pr-review-artifact-fixture.js";
-import { copyPrWrapperSources } from "./pr-wrapper.test-support.js";
+import { copyPrWrapperSources, linkPrWrapperDependencies } from "./pr-wrapper.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -126,15 +126,7 @@ function makeMismatchedWrapperRepo({
   git(linked, ["commit", "-m", "test: local wrapper"]);
   const localRevision = git(linked, ["rev-parse", "HEAD"]).stdout.trim();
 
-  mkdirSync(join(canonical, "node_modules"));
-  // Use installed third-party packages only, never workspace source or loader mocks.
-  for (const dependency of ["tsx", "zod", "minimatch", "yaml"]) {
-    symlinkSync(
-      realpathSync(join("node_modules", dependency)),
-      join(canonical, "node_modules", dependency),
-      process.platform === "win32" ? "junction" : "dir",
-    );
-  }
+  linkPrWrapperDependencies(canonical);
 
   return {
     bin,
@@ -1104,10 +1096,96 @@ exit 99
     },
   );
 
-  it.each(["tsx", "zod", "minimatch", "yaml"])(
-    "refuses the missing %s toolchain before handoff without installing dependencies",
-    (dependency) => {
+  itPosix.each([
+    { installed: false, devWrapper: false },
+    { installed: false, devWrapper: true },
+    { installed: true, devWrapper: false },
+  ])(
+    "loads matching linked helper dependencies (installed=$installed, dev-wrapper=$devWrapper)",
+    ({ installed, devWrapper }) => {
+      const fixture = makeMismatchedWrapperRepo({
+        dispatchBody: 'node "$script_parent_dir/verify-pr-hosted-gates.mjs" --anchor-proof;',
+      });
+      fixture.git(fixture.linked, ["reset", "--hard", "refs/remotes/origin/main"]);
+      parkCanonicalOffAnchor(fixture);
+      const linkedModules = join(fixture.linked, "node_modules");
+      expect(existsSync(linkedModules)).toBe(false);
+      const dependencies = ["tsx", "zod", "minimatch", "yaml"];
+      const targets = dependencies.map((name) =>
+        realpathSync(join(fixture.canonical, "node_modules", name)),
+      );
+      if (installed) {
+        mkdirSync(linkedModules);
+        dependencies.forEach((name, index) =>
+          symlinkSync(targets[index]!, join(linkedModules, name), "dir"),
+        );
+      }
+      const ghCalled = join(fixture.root, "gh-called");
+      writeFileSync(join(fixture.bin, "gh"), `#!/bin/sh\ntouch "${ghCalled}"\nexit 99\n`);
+      const result = spawnSync(
+        join(fixture.linked, "scripts/pr"),
+        [...(devWrapper ? ["--dev-wrapper"] : []), "ci-dispatch", "123"],
+        { cwd: fixture.linked, encoding: "utf8", env: fixture.env },
+      );
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
+      expect(result.stderr).toContain("Unknown option: --anchor-proof");
+      expect(existsSync(ghCalled)).toBe(false);
+      expect(existsSync(linkedModules)).toBe(installed);
+      expect(result.stderr).not.toContain("dev-wrapper opt-in");
+      const anchors = readdirSync(fixture.root).filter((name) =>
+        name.startsWith("openclaw-pr-anchor."),
+      );
+      expect(anchors).toHaveLength(installed ? 0 : 1);
+      if (!installed) {
+        expect(result.stderr).toContain("matches origin/main but has no node_modules directory");
+        expect(result.stderr).toContain("running wrapper code materialized from");
+        expect(
+          dependencies.map((name) =>
+            realpathSync(join(fixture.root, anchors[0]!, "node_modules", name)),
+          ),
+        ).toEqual(targets);
+      }
+    },
+  );
+
+  itPosix.each([
+    { args: ["gc", "--dry-run"], status: 0, message: "No merged/closed PR worktrees eligible" },
+    {
+      args: ["lock-recover", "123", "a".repeat(40), "invalid-confirmation"],
+      status: 2,
+      message: "Recovery requires --confirmed-no-running-tools",
+    },
+    { args: ["unknown-command"], status: 2, message: "Usage:" },
+  ])("keeps matching linked $args dependency-free", ({ args, status, message }) => {
+    const fixture = makeMismatchedWrapperRepo();
+    fixture.git(fixture.linked, ["reset", "--hard", "refs/remotes/origin/main"]);
+    parkCanonicalOffAnchor(fixture);
+    rmSync(join(fixture.canonical, "node_modules"), { recursive: true });
+    const result = spawnSync(join(fixture.linked, "scripts/pr"), args, {
+      cwd: fixture.linked,
+      encoding: "utf8",
+      env: fixture.env,
+    });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(status);
+    expect(`${result.stdout}${result.stderr}`).toContain(message);
+    expect(existsSync(join(fixture.linked, "node_modules"))).toBe(false);
+    expect(
+      readdirSync(fixture.root).filter((name) => name.startsWith("openclaw-pr-anchor.")),
+    ).toEqual([]);
+    expect(fixture.git(fixture.canonical, ["for-each-ref", "refs/openclaw"]).stdout).toBe("");
+  });
+
+  it.each(
+    ["tsx", "zod", "minimatch", "yaml"].flatMap((dependency) =>
+      [false, true].map((matching) => ({ dependency, matching })),
+    ),
+  )(
+    "refuses missing $dependency before handoff (matching=$matching) without installing",
+    ({ dependency, matching }) => {
       const fixture = makeMismatchedWrapperRepo();
+      if (matching) {
+        fixture.git(fixture.linked, ["reset", "--hard", "refs/remotes/origin/main"]);
+      }
       const installedDependency = join(fixture.canonical, "node_modules", dependency);
       rmSync(installedDependency);
       writeFileSync(

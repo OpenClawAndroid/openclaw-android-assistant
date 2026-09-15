@@ -587,7 +587,20 @@ describe("Browser dashboard lifetime", () => {
     fixture.widgets = savedWidgets;
     await stopBrowserDashboard(request);
     fixture.widgets = [];
-    boardChanged?.({ sessionKey, agentId: "main", reason: "board" });
+    const store = getBrowserSessionTabStore();
+    expect(store.entries()).toHaveLength(1);
+    const entries = store.entries.bind(store);
+    let discoveryRows = 0;
+    const scans = vi.spyOn(store, "entries").mockImplementation(() => {
+      const rows = entries();
+      discoveryRows += rows.length;
+      return rows;
+    });
+    try {
+      boardChanged?.({ sessionKey, agentId: "main", reason: "board" });
+    } finally {
+      scans.mockRestore();
+    }
     await vi.waitFor(() => expect(getBrowserSessionTabStore().entries()).toEqual([]));
     expect(browser.open).not.toHaveBeenCalled();
     fixture.widgets = savedWidgets;
@@ -645,6 +658,7 @@ describe("Browser dashboard lifetime", () => {
     expect(cleanupScope).toBe("browser-service-instance");
     expect(readBrowserDashboardTabs()).toEqual([]);
     expect(fixture.tabs).toEqual([]);
+    expect(discoveryRows).toBeLessThanOrEqual(1);
   });
 
   it.each(["removed", "replaced", "url-changed", "caller-aborted"] as const)(

@@ -24,7 +24,6 @@ import {
   resolveImageToolFactoryAvailable,
   resolveOptionalMediaToolFactoryPlan,
 } from "./openclaw-tools.media-factory-plan.js";
-import { createMediaGenerationAsyncStartCallback } from "./openclaw-tools.media-yield.js";
 import { applyNodesToolWorkspaceGuard } from "./openclaw-tools.nodes-workspace-guard.js";
 import {
   collectPresentOpenClawTools,
@@ -151,10 +150,6 @@ export function createOpenClawTools(options?: OpenClawToolsOptions): AnyAgentToo
     trimmedRunSessionKey && isCronRunSessionKey(trimmedRunSessionKey)
       ? trimmedRunSessionKey
       : options?.agentSessionKey;
-  const mediaGenerationAsyncStartCallback = createMediaGenerationAsyncStartCallback({
-    sessionKey: mediaGenerationAgentSessionKey,
-    onYield: options?.onYield,
-  });
   const imageTool =
     options?.agentDir &&
     resolveImageToolFactoryAvailable({
@@ -195,7 +190,6 @@ export function createOpenClawTools(options?: OpenClawToolsOptions): AnyAgentToo
     sandbox,
     cwd: options?.cwd,
     fsPolicy: options?.fsPolicy,
-    onAsyncTaskStarted: mediaGenerationAsyncStartCallback,
   };
   const imageGenerateTool = optionalMediaTools.imageGenerate
     ? createImageGenerateTool(mediaGenerationToolOptions)

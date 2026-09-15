@@ -33,6 +33,12 @@ export function prepareMarkdownMedia(
   return { markdown, media: { prefix, text, items, render } };
 }
 
+function hasParagraphContent(node: Node): boolean {
+  return Array.from(node.childNodes).some((child) =>
+    child.nodeType === Node.TEXT_NODE ? child.textContent?.trim() : child.nodeName !== "BR",
+  );
+}
+
 class MarkdownMediaDirective extends Directive {
   private source = "";
   private prefix = "";
@@ -84,15 +90,11 @@ class MarkdownMediaDirective extends Directive {
         range.setStart(paragraph, 0);
         range.setEndBefore(slot);
         before.appendChild(range.extractContents());
-        if (
-          Array.from(before.childNodes).some(
-            (node) => node.nodeType !== Node.TEXT_NODE || node.textContent?.trim(),
-          )
-        ) {
+        if (hasParagraphContent(before)) {
           paragraph.before(before);
         }
         paragraph.before(slot);
-        if (!paragraph.innerHTML.trim()) {
+        if (!hasParagraphContent(paragraph)) {
           paragraph.remove();
         }
       }

@@ -14,6 +14,89 @@ function prepareDiagnosticReport(reason: string) {
 }
 
 describe("update report diagnostic command boundary", () => {
+  it.each([
+    { source: "stderr", diagnostic: true },
+    { source: "stderr", diagnostic: false },
+    { source: "facts-and-stderr", diagnostic: true },
+    { source: "recorded-detail", diagnostic: true },
+  ])(
+    "includes only recognized diagnostics beside an exit ($source, $diagnostic)",
+    async ({ source, diagnostic }) => {
+      const stderr = [
+        "npm warn private-package from https://private-host.example/registry",
+        ...(diagnostic
+          ? [
+              "npm ERR! code EACCES",
+              "npm ERR! EACCES: permission denied, mkdir '/private/example/cache'",
+            ]
+          : []),
+        "npm ERR! log: /private/example/npm.log",
+      ].join("\n");
+      const report = await prepareUpdateFailureReport(
+        {
+          attemptId: "install-failure",
+          result: {
+            mode: "npm",
+            status: "error",
+            reason: "global-install-failed",
+            durationMs: 1,
+            steps:
+              source === "recorded-detail"
+                ? []
+                : [
+                    {
+                      name: "global update",
+                      command: "npm install -g openclaw@2026.9.4",
+                      cwd: "/candidate",
+                      durationMs: 1,
+                      exitCode: 1,
+                      stderrTail: stderr,
+                      ...(source === "facts-and-stderr"
+                        ? {
+                            failureFacts: [
+                              {
+                                check: "package-install",
+                                code: "EACCES",
+                                message: "npm warn private-package",
+                              },
+                            ],
+                          }
+                        : {}),
+                    },
+                  ],
+          },
+          ...(source === "recorded-detail"
+            ? {
+                recordedRun: {
+                  runId: "install-failure",
+                  steps: [
+                    {
+                      step: "global update",
+                      status: "failed" as const,
+                      exitCode: 1,
+                      detail: stderr,
+                    },
+                  ],
+                },
+              }
+            : {}),
+        },
+        context,
+      );
+      expect(report.body).toContain(
+        `- Failed phase [redacted-command]: exit 1${diagnostic ? " (EACCES; Permission denied)" : ""}\n`,
+      );
+      for (const privateText of [
+        "private-package",
+        "private-host.example",
+        "/private/example",
+        "npm.log",
+      ]) {
+        expect(report.body).not.toContain(privateText);
+      }
+    },
+  );
+
   it.each(["", " private-customer-text"])(
     "keeps handoff diagnostics closed to arbitrary suffixes (%s)",
     async (suffix) => {

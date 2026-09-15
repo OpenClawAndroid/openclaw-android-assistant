@@ -47,6 +47,7 @@ vi.mock("../../../config/sessions/session-accessor.js", () => {
   const loadSessionEntry = (scope: { sessionKey: keyof typeof sessionStore }) =>
     sessionStore[scope.sessionKey];
   return {
+    findTranscriptEvent: vi.fn(async () => undefined),
     listSessionEntriesCore,
     listSessionEntriesReadOnly: listSessionEntriesCore,
     loadSessionEntry,

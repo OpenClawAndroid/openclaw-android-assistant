@@ -32,6 +32,19 @@ pr_subcommand_classification() {
 }
 # PR_SUBCOMMAND_CLASSIFICATIONS_END
 
+is_locked_pr_command() {
+  # Advisory trust classification permits local dogfood, but dispatches still
+  # serialize with landing operations because the remote mutation is not atomic.
+  if [ "$1" = "ci-dispatch" ]; then
+    return 0
+  fi
+  local classification
+  classification=$(pr_subcommand_classification "$1") || return 1
+  [ "$classification" = "landing" ] || return 1
+  # gc manages per-PR locks itself; lock-recover performs an exact-OID CAS.
+  [ "$1" != "gc" ] && [ "$1" != "lock-recover" ]
+}
+
 dev_wrapper_opt_in=0
 if [ "${OPENCLAW_PR_DEV_WRAPPER:-}" = "1" ]; then
   dev_wrapper_opt_in=1
@@ -91,8 +104,8 @@ elif common_git_dir=$(git -C "$script_parent_dir" rev-parse --path-format=absolu
     fi
     # The canonical checkout can be parked on another branch or carry local
     # edits (release trains move it); maintainer-controlled origin/main is the
-    # trust anchor then. Run THIS worktree's committed wrapper, without
-    # substitution, when it exactly matches origin/main.
+    # trust anchor then. Matching code can run in place when its command
+    # does not need the materialized dependency context.
     # refs/remotes/... explicitly: bare "origin/main" is a DWIM name that a
     # local branch or tag named origin/main could shadow, spoofing the anchor.
     anchor_commit=$(git -C "$script_parent_dir" rev-parse --verify refs/remotes/origin/main^{commit} 2>/dev/null || true)
@@ -112,11 +125,21 @@ elif common_git_dir=$(git -C "$script_parent_dir" rev-parse --path-format=absolu
         git -C "$canonical_repo_root" rev-parse "${anchor_components[@]/#/HEAD:}" 2>/dev/null || true
       )
     fi
-    if [ -z "$linked_wrapper_revision" ] ||
-      [ -z "$anchor_wrapper_revision" ] ||
-      [ "$linked_wrapper_revision" != "$anchor_wrapper_revision" ]; then
+    linked_matches_anchor=0
+    if [ -n "$linked_wrapper_revision" ] &&
+      [ "$linked_wrapper_revision" = "$anchor_wrapper_revision" ]; then
+      linked_matches_anchor=1
+    fi
+    # Node resolves helper imports from their source directory, not the Git owner.
+    # Reuse the verified materializer for code-only linked PR operations.
+    if [ "$linked_matches_anchor" != "1" ] ||
+      { is_locked_pr_command "$requested_subcommand" && [ ! -d "$script_parent_dir/../node_modules" ]; }; then
+      wrapper_route_reason="differs from origin/main"
+      if [ "$linked_matches_anchor" = "1" ]; then
+        wrapper_route_reason="matches origin/main but has no node_modules directory"
+      fi
       requested_classification=$(pr_subcommand_classification "$requested_subcommand" 2>/dev/null || true)
-      if [ "$dev_wrapper_opt_in" = "1" ] && [ "$requested_classification" = "advisory" ]; then
+      if [ "$linked_matches_anchor" != "1" ] && [ "$dev_wrapper_opt_in" = "1" ] && [ "$requested_classification" = "advisory" ]; then
         if [ "${OPENCLAW_PR_DEV_WRAPPER_BANNER_SHOWN:-}" != "1" ]; then
           local_head_revision=$(git -C "$script_parent_dir" rev-parse HEAD 2>/dev/null || printf 'unknown')
           echo "WARNING: running local scripts/pr revision $local_head_revision via dev-wrapper opt-in." >&2
@@ -125,7 +148,7 @@ elif common_git_dir=$(git -C "$script_parent_dir" rev-parse --path-format=absolu
           export OPENCLAW_PR_DEV_WRAPPER_BANNER_SHOWN=1
         fi
       else
-        if [ "$dev_wrapper_opt_in" = "1" ] && [ -n "$requested_classification" ]; then
+        if [ "$linked_matches_anchor" != "1" ] && [ "$dev_wrapper_opt_in" = "1" ] && [ -n "$requested_classification" ]; then
           echo "subcommand '$requested_subcommand' is classified $requested_classification; dev-wrapper opt-in is unavailable." >&2
         fi
         # Worktrees routinely sit on a base that predates (or carries) wrapper
@@ -135,11 +158,11 @@ elif common_git_dir=$(git -C "$script_parent_dir" rev-parse --path-format=absolu
         if [ -n "$anchor_wrapper_revision" ] &&
           [ "$canonical_wrapper_revision" = "$anchor_wrapper_revision" ] &&
           git -C "$canonical_repo_root" diff --quiet HEAD -- "${anchor_components[@]/#/:(top)}"; then
-          echo "scripts/pr wrapper in this worktree differs from origin/main; running the canonical checkout's wrapper (matches the origin/main trust anchor): $canonical_repo_root" >&2
+          echo "scripts/pr wrapper in this worktree $wrapper_route_reason; running the canonical checkout's wrapper (matches the origin/main trust anchor): $canonical_repo_root" >&2
           exec "$canonical_self" "$@"
         fi
-        # Neither this worktree nor the canonical checkout matches the fetched
-        # origin/main anchor. Materialize the anchor wrapper bytes directly
+        # The canonical checkout cannot supply trusted code and dependency context.
+        # Materialize the anchor wrapper bytes directly
         # from refs/remotes/origin/main and exec that copy: trust flows from
         # the fetched ref itself, so a queued PR stops paying a rebase + CI lap
         # for unrelated wrapper drift on main. Requires the anchor entrypoint
@@ -212,7 +235,7 @@ EOF_NODE
             # Not cleaned by trap: exec replaces this shell, and bash re-reads
             # the script file during execution, so the copy must outlive the
             # whole supervised run. OS tmp reaping owns this directory.
-            echo "scripts/pr wrapper in this worktree differs from origin/main; running wrapper code materialized from the refs/remotes/origin/main trust anchor at revision $(git -C "$script_parent_dir" rev-parse --short "$anchor_commit")." >&2
+            echo "scripts/pr wrapper in this worktree $wrapper_route_reason; running wrapper code materialized from the refs/remotes/origin/main trust anchor at revision $(git -C "$script_parent_dir" rev-parse --short "$anchor_commit")." >&2
             OPENCLAW_PR_ANCHOR_REPO_ROOT="$canonical_repo_root" exec "$anchor_exec_dir/scripts/pr" "$@"
           fi
           rm -rf "$anchor_exec_dir"
@@ -230,10 +253,14 @@ EOF_NODE
             differing_wrapper_components+=("$wrapper_component")
           fi
         done
-        echo "scripts/pr implementation differs between this worktree and the canonical checkout, and does not match origin/main." >&2
+        if [ "$linked_matches_anchor" = "1" ]; then
+          echo "scripts/pr wrapper matches origin/main, but its linked checkout has no node_modules directory." >&2
+        else
+          echo "scripts/pr implementation differs between this worktree and the canonical checkout, and does not match origin/main." >&2
+        fi
         echo "differing wrapper components vs origin/main: ${differing_wrapper_components[*]}" >&2
         echo "Refusing to silently substitute canonical wrapper code from: $canonical_repo_root" >&2
-        echo "Run scripts/pr from a checkout whose wrapper matches the canonical checkout or a fetched origin/main." >&2
+        echo "Run scripts/pr from a checkout with installed dependencies whose wrapper matches the canonical checkout or a fetched origin/main." >&2
         exit 1
       fi
     fi
@@ -243,19 +270,6 @@ fi
 # Keep the verified owner available after cleanup removes a linked wrapper.
 canonical_repo_root="$(cd "$canonical_repo_root" && pwd -P)"
 readonly canonical_repo_root
-
-is_locked_pr_command() {
-  # Advisory trust classification permits local dogfood, but dispatches still
-  # serialize with landing operations because the remote mutation is not atomic.
-  if [ "$1" = "ci-dispatch" ]; then
-    return 0
-  fi
-  local classification
-  classification=$(pr_subcommand_classification "$1") || return 1
-  [ "$classification" = "landing" ] || return 1
-  # gc manages per-PR locks itself; lock-recover performs an exact-OID CAS.
-  [ "$1" != "gc" ] && [ "$1" != "lock-recover" ]
-}
 
 is_main_only_pr_command() {
   case "$1" in

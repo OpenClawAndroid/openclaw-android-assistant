@@ -261,6 +261,7 @@ vi.mock("../../../config/sessions.js", () => ({
 }));
 
 vi.mock("../../../config/sessions/session-accessor.js", () => ({
+  findTranscriptEvent: vi.fn(async () => undefined),
   listSessionEntriesCore: mocks.listSessionEntriesCore,
   listSessionEntriesReadOnly: mocks.listSessionEntriesCore,
   loadSessionEntry: mocks.loadSessionEntry,

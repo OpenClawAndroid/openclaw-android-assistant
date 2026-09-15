@@ -197,11 +197,33 @@ export function readBrowserDashboardTabs(
       ? (store?.entries() ?? [])
       : [{ key: storageKey, value: store?.lookup(storageKey) }];
   return entries.flatMap(({ key, value }) => {
-    const record = parseBrowserSessionTabRecord(value);
-    return record?.dashboard && browserSessionTabStorageKey(record) === key
-      ? [{ ...record, storageKey: key }]
-      : [];
+    const tab = parseBrowserDashboardTab(key, value);
+    return tab ? [tab] : [];
   });
+}
+
+function parseBrowserDashboardTab(key: string, value: unknown) {
+  const record = parseBrowserSessionTabRecord(value);
+  return record?.dashboard && browserSessionTabStorageKey(record) === key
+    ? { ...record, storageKey: key }
+    : undefined;
+}
+
+/** Discovery only; reconciliation rereads current authority after awaited work. */
+export function readBrowserDashboardSessionOwners(): Array<{
+  sessionKey: string;
+  agentId?: string;
+}> {
+  const entries = getOptionalBrowserSessionTabStore()?.entries() ?? [];
+  const dashboards = entries.flatMap(({ key, value }) => {
+    const tab = parseBrowserDashboardTab(key, value);
+    return tab?.dashboard ? [tab.dashboard] : [];
+  });
+  const stopIntents = entries.flatMap(({ key, value }) => {
+    const intent = parseBrowserDashboardStopIntent(key, value);
+    return intent ? [intent] : [];
+  });
+  return [...dashboards, ...stopIntents];
 }
 
 /** Ordinary close commands cannot discard a dashboard's retained page. */

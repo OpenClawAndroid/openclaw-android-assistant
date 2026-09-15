@@ -38,6 +38,7 @@ import { resolveBrowserConfig, resolveProfile } from "./src/browser/config.js";
 import { getBrowserProfileCapabilities } from "./src/browser/profile-capabilities.js";
 import {
   initializeBrowserSessionTabStore,
+  readBrowserDashboardSessionOwners,
   readBrowserDashboardTabs,
   readBrowserDashboardStopIntents,
 } from "./src/browser/session-tab-store.js";
@@ -323,16 +324,12 @@ function createLazyBrowserPluginService(): OpenClawPluginService {
           if (stopping || event.reason !== "board") {
             return;
           }
-          for (const dashboard of [
-            ...readBrowserDashboardTabs().map((tab) => tab.dashboard),
-            ...readBrowserDashboardStopIntents(),
-          ]) {
+          for (const dashboard of readBrowserDashboardSessionOwners()) {
             if (
-              dashboard &&
-              (dashboard.sessionKey === event.sessionKey ||
-                (event.agentId &&
-                  dashboard.agentId === normalizeAgentId(event.agentId) &&
-                  parseAgentSessionKey(dashboard.sessionKey)?.rest === event.sessionKey))
+              dashboard.sessionKey === event.sessionKey ||
+              (event.agentId &&
+                dashboard.agentId === normalizeAgentId(event.agentId) &&
+                parseAgentSessionKey(dashboard.sessionKey)?.rest === event.sessionKey)
             ) {
               pendingSessions.add(dashboard.sessionKey);
             }

@@ -137,6 +137,7 @@ function renderToolbar(controller: BrowserPanelController, embedded: boolean) {
         type="button"
         title=${t(nativeTab?.loading ? "browser.stop" : "browser.reload")}
         aria-label=${t(nativeTab?.loading ? "browser.stop" : "browser.reload")}
+        aria-busy=${!nativeTab && controller.loading}
         ?disabled=${!controller.activeTargetId}
         @click=${() => controller.reloadPage()}
       >
@@ -405,11 +406,6 @@ function renderViewport(controller: BrowserPanelController, rendersTabStrip: boo
       aria-busy=${controller.loading ? "true" : "false"}
     >
       ${renderViewportContent(controller)}
-      ${
-        !controller.native.activeTab && controller.loading && controller.view
-          ? renderPanelLoadingSkeleton("browser", t("browser.loading"), false, true)
-          : nothing
-      }
     </wa-tab-panel>
   `;
 }

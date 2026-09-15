@@ -136,8 +136,10 @@ Failed finalization steps record their reason code before failure reporting star
 Standalone finalization also records the package or Git install kind. For package
 installs it records that package rollback is unnecessary because finalization does
 not replace the core package; this does not claim that Doctor left config or state
-unchanged, or that Gateway health was verified. Failure reports include the failing
-step's first recognized diagnostic line when no process exit code was recorded.
+unchanged, or that Gateway health was verified. Failure reports include recognized
+error codes and causes from the failing step's retained diagnostics, including beside
+a process exit code (for example, `exit 1 (EACCES; Permission denied)`). Arbitrary
+log text stays private; steps without a recognized diagnostic show only their exit.
 
 Recoverable maintenance failures appear as recorded warnings even when the update
 succeeds. Each warning names the skipped work, the cause, and a repair command.

@@ -35,7 +35,7 @@ import {
   validReview,
   writeReviewArtifacts,
 } from "./pr-review-artifact-fixture.js";
-import { copyPrWrapperSources } from "./pr-wrapper.test-support.js";
+import { copyPrWrapperSources, linkPrWrapperDependencies } from "./pr-wrapper.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const freshMainTemplateDirs = useAutoCleanupTempDirTracker(afterAll);
@@ -1809,6 +1809,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
     ({ wrapper, command, failure }) => {
       const repoDir = createRepo();
       const { binDir, cli, wrapperSources } = installPrCliFixture(repoDir);
+      linkPrWrapperDependencies(repoDir);
       const rg = writeFixtureFile(binDir, "rg", [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -1952,6 +1953,8 @@ describePosix("scripts/pr per-PR operation lock", () => {
             OPENCLAW_TEST_REF_LOCK: refLock,
             OPENCLAW_TEST_RELEASE_CWD: releaseCwd,
             PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
+            // Materialized wrappers outlive exec; keep their files in this fixture lifetime.
+            TMPDIR: tempDirs.make("openclaw-pr-cleanup-tmp-"),
           },
         },
       );

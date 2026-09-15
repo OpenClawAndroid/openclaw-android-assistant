@@ -250,7 +250,7 @@ class MarkdownPartsDirective extends AsyncDirective {
           render: (item: MarkdownMedia["items"][number], index: number) => {
             let slot = this.mediaSlots.get(index);
             if (!slot) {
-              slot = { element: document.createElement("span") };
+              slot = { element: document.createElement("div") };
               this.mediaSlots.set(index, slot);
             }
             usedSlots.add(index);

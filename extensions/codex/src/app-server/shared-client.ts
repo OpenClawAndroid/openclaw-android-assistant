@@ -1180,16 +1180,19 @@ async function startInitializedCodexAppServerClient(
       assertStartupCurrent();
       const fenceKey = resolveCodexNativeConfigFenceKey({ client });
       if (fenceKey) {
-        client.setThreadSessionRequestGuard(async (options) => {
-          const release = await acquireCodexNativeConfigFence(fenceKey, options);
-          try {
-            assertCodexAppServerClientStartSelectionCurrent({ client });
-            return release;
-          } catch (error) {
-            release();
-            throw error;
-          }
-        });
+        client.setThreadSessionRequestGuard(
+          async (options) => {
+            const release = await acquireCodexNativeConfigFence(fenceKey, options);
+            try {
+              assertCodexAppServerClientStartSelectionCurrent({ client });
+              return release;
+            } catch (error) {
+              release();
+              throw error;
+            }
+          },
+          () => Boolean(retireSharedCodexAppServerClientIfCurrent(client)),
+        );
       }
       ready = true;
       return client;

@@ -432,6 +432,7 @@ export function redactSupportDiagnosticLine(
 const PUBLIC_ERROR_CODES = new Set([
   ...Array.from(getSystemErrorMap().values(), ([code]) => code),
   "ENOTFOUND",
+  "EOTP",
   "ERESOLVE",
   "E401",
   "E403",
@@ -470,6 +471,7 @@ export function redactPublicSupportDiagnosticLine(
   const line = redactSupportDiagnosticLine(value, context);
   if (
     [
+      "The npm global install layout cannot stage a candidate. Reinstall with npm into its default global layout, then retry the update.",
       "Cannot locate the installed updater; run `openclaw doctor` before retrying.",
       "Managed update handoff requires a user-scope systemd unit; perform a manual system-service update.",
       "managed update handoff requires a finite restart deadline",
@@ -507,13 +509,18 @@ export function redactPublicSupportDiagnosticLine(
   ) {
     return line;
   }
-  const codes = (line.match(/\b(?:E[A-Z0-9_]+)\b/gu) ?? []).filter((code) =>
+  const lines = value
+    .split(/[\r\n\u2028\u2029]/u)
+    .map((entry) => redactSupportDiagnosticLine(entry, context))
+    .join("\n");
+  const codes = (lines.match(/\b(?:E[A-Z0-9_]+)\b/gu) ?? []).filter((code) =>
     normalizeSupportDiagnosticErrorCode(code),
   );
-  const causes =
-    line.match(
+  const causes = (
+    lines.match(
       /\b(?:[Cc]onnection (?:refused|closed|timed out)|[Pp]ermission denied|[Nn]o space left on device|MCP error -?\d{1,5}|HTTP [1-5]\d{2}|Invalid package dist content inventory|managed update handoff (?:exited before (?:responding|signaling readiness)|did not (?:respond|signal readiness)))\b/gu,
-    ) ?? [];
+    ) ?? []
+  ).map((cause) => cause.replace(/^permission denied$/u, "Permission denied"));
   return truncateUtf16Safe(
     [...new Set([...codes, ...causes])].join("; ") || "[redacted-diagnostic]",
     200,

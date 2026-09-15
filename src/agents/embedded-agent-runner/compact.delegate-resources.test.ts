@@ -50,6 +50,9 @@ type Mode =
   | "provider-tail"
   | "cleanup-tail"
   | "preparation-failure"
+  | "mcp-caller-abort"
+  | "mcp-parent-abort"
+  | "mcp-ready"
   | "lsp-caller-abort"
   | "lsp-parent-abort"
   | "lsp-ready"
@@ -287,33 +290,68 @@ function openTool(current: Fixture, name: string): Connection {
 
 // These real SQLite handles stand at the existing MCP/LSP factory boundary;
 // this fixture tests runtime custody, not either wire protocol.
-vi.mock("../agent-bundle-mcp-tools.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../agent-bundle-mcp-tools.js")>()),
-  createBundleMcpToolRuntime: async () => {
-    const current = fixture();
-    const connection = openTool(current, "mcp");
-    const track = captureAsyncWorkTracker();
-    if (current.mode === "preparation-failure") {
-      void remember(
-        current,
-        track(() => hold(current)),
-      );
-    }
-    return {
-      tools: [],
-      dispose: async () => {
-        if (current.mode === "cleanup-tail") {
-          void remember(
-            current,
-            track(() => hold(current, false)),
-          );
-        }
-        connection.disposals++;
-        connection.database.close();
-      },
-    };
-  },
-}));
+vi.mock("../agent-bundle-mcp-tools.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agent-bundle-mcp-tools.js")>();
+  return {
+    ...actual,
+    createBundleMcpToolRuntime: async (
+      params: Parameters<typeof actual.createBundleMcpToolRuntime>[0],
+    ) => {
+      const current = fixture();
+      const connection = openTool(current, "mcp");
+      if (current.mode.startsWith("mcp-")) {
+        return actual.createBundleMcpToolRuntime({
+          ...params,
+          createRuntime: (input) => ({
+            sessionId: input.sessionId,
+            workspaceDir: input.workspaceDir,
+            configFingerprint: "delegate-mcp",
+            createdAt: 0,
+            lastUsedAt: 0,
+            markUsed() {},
+            peekCatalog: () => null,
+            getCatalog: async () => {
+              current.entered.resolve();
+              await current.finish.promise;
+              return { version: 1, generatedAt: 0, servers: {}, tools: [] };
+            },
+            callTool: async () => {
+              throw new Error("Compaction must not execute fixture MCP tools");
+            },
+            joinCleanup: async () => {},
+            dispose: async () => {
+              current.finish.resolve();
+              if (connection.database.isOpen) {
+                connection.disposals++;
+                connection.database.close();
+              }
+            },
+          }),
+        });
+      }
+      const track = captureAsyncWorkTracker();
+      if (current.mode === "preparation-failure") {
+        void remember(
+          current,
+          track(() => hold(current)),
+        );
+      }
+      return {
+        tools: [],
+        dispose: async () => {
+          if (current.mode === "cleanup-tail") {
+            void remember(
+              current,
+              track(() => hold(current, false)),
+            );
+          }
+          connection.disposals++;
+          connection.database.close();
+        },
+      };
+    },
+  };
+});
 
 vi.mock("../agent-bundle-lsp-runtime.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../agent-bundle-lsp-runtime.js")>()),
@@ -371,6 +409,9 @@ describe("delegate compaction resource retirement", () => {
     "provider-tail",
     "cleanup-tail",
     "preparation-failure",
+    "mcp-caller-abort",
+    "mcp-parent-abort",
+    "mcp-ready",
     "lsp-caller-abort",
     "lsp-parent-abort",
     "lsp-ready",
@@ -381,8 +422,10 @@ describe("delegate compaction resource retirement", () => {
     "keeps actual work owned through %s",
     async (mode) => {
       const lspCancelled = mode === "lsp-caller-abort" || mode === "lsp-parent-abort";
-      const pendingLsp = lspCancelled || mode === "lsp-ready";
-      const preparationFailed = mode === "preparation-failure" || lspCancelled;
+      const mcpCancelled = mode === "mcp-caller-abort" || mode === "mcp-parent-abort";
+      const pendingPreparation =
+        lspCancelled || mcpCancelled || mode === "lsp-ready" || mode === "mcp-ready";
+      const preparationFailed = mode === "preparation-failure" || lspCancelled || mcpCancelled;
       await withOpenClawTestState(
         { label: "delegate-resources", layout: "split" },
         async (state) => {
@@ -564,20 +607,21 @@ module.exports = { id: ${JSON.stringify(providerId)}, register(api) {
                     mode === "abort-before-commit" ||
                     mode === "abort-after-commit" ||
                     mode === "automatic-after-commit" ||
-                    mode === "lsp-caller-abort"
+                    mode === "lsp-caller-abort" ||
+                    mode === "mcp-caller-abort"
                   ) {
                     controller.abort(new Error("fixture caller cancelled compaction"));
                   }
-                  if (mode === "lsp-parent-abort") {
+                  if (mode === "lsp-parent-abort" || mode === "mcp-parent-abort") {
                     parent.beginClose(new Error("fixture parent cancelled compaction"));
                     expect(controller.signal.aborted).toBe(false);
                   }
-                  if (mode === "lsp-ready") {
+                  if (mode === "lsp-ready" || mode === "mcp-ready") {
                     current.finish.resolve();
                   }
                 }
-                const result = pendingLsp
-                  ? await withTestTimeout(operation, 5_000, "LSP preparation did not settle")
+                const result = pendingPreparation
+                  ? await withTestTimeout(operation, 5_000, "Tool preparation did not settle")
                   : await operation;
                 const cancelled =
                   mode === "abort-before-commit" ||
@@ -587,7 +631,7 @@ module.exports = { id: ${JSON.stringify(providerId)}, register(api) {
                 expect(result.ok).toBe(!cancelled && !preparationFailed);
                 expect(current.envRestored).toBe(true);
                 expect(current.disposals).toBe(preparationFailed ? 0 : 1);
-                if (lspCancelled) {
+                if (lspCancelled || mcpCancelled) {
                   expect(current.session).toBeUndefined();
                   expect(current.tools).toHaveLength(1);
                 }
@@ -608,7 +652,7 @@ module.exports = { id: ${JSON.stringify(providerId)}, register(api) {
                 ).toBe(committed ? 1 : 0);
                 expect(recordCompaction.mock.calls.length).toBe(committed ? 1 : 0);
                 const source = expectDefined(current.source, "selected managed source");
-                if (held && !pendingLsp) {
+                if (held && !pendingPreparation) {
                   expect(source.database.isOpen).toBe(true);
                   expect(current.tools.length).toBe(mode === "preparation-failure" ? 1 : 2);
                   if (mode !== "cleanup-tail") {
@@ -626,11 +670,11 @@ module.exports = { id: ${JSON.stringify(providerId)}, register(api) {
                   await Promise.all(current.pending);
                   await drained;
                   expect(current.lateReads).toBeGreaterThan(0);
-                } else if (pendingLsp) {
+                } else if (pendingPreparation) {
                   await withTestTimeout(
                     parent.drain(),
                     5_000,
-                    "LSP preparation cleanup did not settle",
+                    "Tool preparation cleanup did not settle",
                   );
                 } else {
                   await parent.drain();

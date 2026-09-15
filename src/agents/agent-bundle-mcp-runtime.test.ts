@@ -18,6 +18,7 @@ import {
   useAutoCleanupTempDirTracker,
 } from "../../test/helpers/temp-dir.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
+import { AsyncWorkScope } from "../shared/async-work-scope.js";
 import { createCombinedSessionMcpRuntime } from "./agent-bundle-mcp-combined.js";
 import { completeDeferredSessionMcpRuntimeRetirement } from "./agent-bundle-mcp-manager-api.js";
 import {
@@ -32,6 +33,7 @@ import {
   testing,
 } from "./agent-bundle-mcp-runtime.js";
 import {
+  createBundleMcpToolRuntime,
   materializeBundleMcpToolsForRun,
   peekSessionMcpRuntime,
   retireSessionMcpRuntime,
@@ -2347,6 +2349,93 @@ process.on("SIGINT", shutdown);`,
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it.each(["before-start", "initialize", "tools/list", "ready"] as const)(
+    "settles private MCP acquisition cancellation at %s",
+    async (phase) => {
+      const tempDir = tempDirTracker.make("bundle-mcp-private-cancel-");
+      const serverPath = path.join(tempDir, "server.mjs");
+      const logPath = path.join(tempDir, "server.log");
+      const pidPath = path.join(tempDir, "server.pid");
+      await writeListToolsMcpServer({
+        filePath: serverPath,
+        logPath,
+        pidPath,
+        initializeDelayMs: phase === "initialize" ? 30_000 : undefined,
+        listToolsReleasePath:
+          phase === "tools/list" ? path.join(tempDir, "release-list") : undefined,
+      });
+      const work = new AsyncWorkScope();
+      const reason = new Error("private MCP acquisition cancelled");
+      if (phase === "before-start") {
+        work.beginClose(reason);
+      }
+      let runtime: SessionMcpRuntime | undefined;
+      let materialized: Awaited<ReturnType<typeof createBundleMcpToolRuntime>> | undefined;
+      const pending = work.track(async () => {
+        materialized = await createBundleMcpToolRuntime({
+          workspaceDir: tempDir,
+          cfg: {
+            mcp: {
+              servers: {
+                private: {
+                  command: process.execPath,
+                  args: [serverPath],
+                  connectionTimeoutMs: 30_000,
+                  requestTimeoutMs: 30_000,
+                },
+              },
+            },
+          },
+          createRuntime: (params) => {
+            runtime = createSessionMcpRuntime(params);
+            return runtime;
+          },
+        });
+        return materialized;
+      });
+      void pending.catch(() => {});
+      try {
+        if (phase === "before-start") {
+          await expect(pending).rejects.toBe(reason);
+          expect(runtime).toBeUndefined();
+          await expect(fs.access(pidPath)).rejects.toMatchObject({ code: "ENOENT" });
+          return;
+        }
+        await waitForFileText(
+          logPath,
+          phase === "initialize" ? "recv initialize" : "recv tools/list",
+          LIST_TOOLS_SERVER_LOG_TIMEOUT_MS,
+        );
+        const pid = Number.parseInt((await fs.readFile(pidPath, "utf8")).trim(), 10);
+        expect(() => process.kill(pid, 0)).not.toThrow();
+        if (phase === "ready") {
+          const view = await pending;
+          expect(view.tools.map((tool) => tool.name)).toEqual(["private__slow_tool"]);
+          work.beginClose(reason);
+          expect(runtime?.peekCatalog()?.tools.map((tool) => tool.toolName)).toEqual(["slow_tool"]);
+          expect(() => process.kill(pid, 0)).not.toThrow();
+          await view.dispose();
+        } else {
+          work.beginClose(reason);
+          await expect(
+            withTestTimeout(
+              pending,
+              LIST_TOOLS_TEST_DEADLINE_MS,
+              "Private MCP startup did not settle",
+            ),
+          ).rejects.toBe(reason);
+        }
+        expect(runtime?.activeLeases).toBe(0);
+        expect(() => process.kill(pid, 0)).toThrow();
+      } finally {
+        await runtime?.dispose();
+        await pending.catch(() => {});
+        await materialized?.dispose();
+        await work.drain();
+      }
+    },
+  );
 
   it.each(["managed", "combined"] as const)(
     "cancels a %s catalog waiter without cancelling the shared producer",

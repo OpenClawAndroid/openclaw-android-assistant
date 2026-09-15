@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export function copyPrWrapperSources(destination: string): string[] {
@@ -14,4 +14,16 @@ export function copyPrWrapperSources(destination: string): string[] {
     cpSync(component, join(destination, component), { recursive: true });
   }
   return components;
+}
+
+export function linkPrWrapperDependencies(destination: string): void {
+  mkdirSync(join(destination, "node_modules"));
+  // Use installed third-party packages only, never workspace source or loader mocks.
+  for (const dependency of ["tsx", "zod", "minimatch", "yaml"]) {
+    symlinkSync(
+      realpathSync(join("node_modules", dependency)),
+      join(destination, "node_modules", dependency),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+  }
 }

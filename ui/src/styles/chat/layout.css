@@ -672,7 +672,8 @@ openclaw-chat-page {
   pointer-events: none;
 }
 
-.chat-history-error {
+.chat-history-error,
+.chat-pending-inputs {
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
@@ -687,13 +688,23 @@ openclaw-chat-page {
 
 /* Failed refresh with cached history keeps the transcript and shows a compact
    banner instead; displacing content would hide the stale-but-useful messages. */
-.chat-history-error--inline {
+.chat-history-error--inline,
+.chat-pending-inputs {
   flex: 0 0 auto;
   flex-direction: row;
   justify-content: center;
   gap: 10px;
   padding: 8px 12px;
+}
+
+.chat-history-error--inline {
   border-block-end: 1px solid var(--border);
+}
+
+/* Pagination must remain clickable above the transcript's composer underlap. */
+.chat-pending-inputs {
+  position: relative;
+  z-index: 1;
 }
 
 /* In-flow boundary above the virtualized transcript. The fixed height is a

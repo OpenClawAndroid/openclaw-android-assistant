@@ -239,8 +239,8 @@ describe("session accessor readonly listing", () => {
       listed
         .filter(({ sessionKey }) => !["global", "unknown"].includes(sessionKey))
         .map(({ sessionKey }) => sessionKey)
-        .toSorted(),
-    ).toEqual(expectedKeys.toSorted());
+        .toSorted((left, right) => left.localeCompare(right)),
+    ).toEqual(expectedKeys.toSorted((left, right) => left.localeCompare(right)));
     const summary = readSessionStoreSummaryReadOnly(scope, options);
     expect(summary.count).toBe(7);
     expect(summary.recent.map(({ sessionKey }) => sessionKey)).toEqual(expectedKeys.slice(0, 3));
