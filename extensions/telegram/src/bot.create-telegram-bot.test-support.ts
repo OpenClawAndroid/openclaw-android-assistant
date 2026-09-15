@@ -28,6 +28,33 @@ export type TelegramMentionPolicyForTest = {
   denyIn?: string[];
 };
 
+export function createChannelPostContext(params: {
+  messageId: number;
+  date: number;
+  title?: string;
+  caption?: string;
+  text?: string;
+  mediaGroupId?: string;
+  photoFileId?: string;
+  getFileResult?: Record<string, unknown>;
+}) {
+  const photoFileId = params.photoFileId;
+  return {
+    channelPost: {
+      chat: { id: -100777111222, type: "channel", title: params.title ?? "Wake Channel" },
+      message_id: params.messageId,
+      date: params.date,
+      ...(params.caption ? { caption: params.caption } : {}),
+      ...(params.text ? { text: params.text } : {}),
+      ...(params.mediaGroupId ? { media_group_id: params.mediaGroupId } : {}),
+      ...(photoFileId ? { photo: [{ file_id: photoFileId }] } : {}),
+    },
+    me: { username: "openclaw_bot" },
+    getFile: async () =>
+      params.getFileResult ?? (photoFileId ? { file_path: `photos/${photoFileId}.jpg` } : {}),
+  };
+}
+
 export type TelegramIngestGroupForTest = {
   requireMention: boolean;
   ingest?: boolean;

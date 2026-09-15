@@ -42,6 +42,8 @@ type CurrentPluginMetadataSnapshotOptions = {
 };
 
 type CurrentPluginMetadataSnapshotParams = {
+  /** Stop before policy-state validation so async owners can prepare it before retrying. */
+  allowSynchronousPolicyRead?: boolean;
   config?: OpenClawConfig;
   env?: NodeJS.ProcessEnv;
   allowScopedSnapshot?: boolean;
@@ -283,11 +285,13 @@ export function runOutsidePluginMetadataSnapshotScope<T>(run: () => T): T {
   return scopedPluginMetadataSnapshot.exit(() => runOutsidePluginCache(run));
 }
 
+const NEEDS_PREPARED_POLICY = Symbol("needs-prepared-policy");
+
 function resolveCompatiblePluginMetadataSnapshot(
   candidate: PluginMetadataSnapshotCandidate,
   params: CurrentPluginMetadataSnapshotParams,
   options: { scopedOwnerContext?: boolean } = {},
-): PluginMetadataSnapshot | undefined {
+): PluginMetadataSnapshot | typeof NEEDS_PREPARED_POLICY | undefined {
   const snapshot = candidate.snapshot;
   if (!snapshot) {
     return undefined;
@@ -337,6 +341,9 @@ function resolveCompatiblePluginMetadataSnapshot(
   );
   if (canReuseCachedConfig && params.requireDefaultDiscoveryContext !== true) {
     return snapshot;
+  }
+  if (params.config && !canReuseCachedConfig && params.allowSynchronousPolicyRead === false) {
+    return NEEDS_PREPARED_POLICY;
   }
   const requestedPolicyHash =
     params.config && !canReuseCachedConfig
@@ -402,6 +409,9 @@ export function getCurrentPluginMetadataSnapshot(
     const compatibleScoped = resolveCompatiblePluginMetadataSnapshot(scoped, params, {
       scopedOwnerContext: true,
     });
+    if (compatibleScoped === NEEDS_PREPARED_POLICY) {
+      return undefined;
+    }
     if (compatibleScoped) {
       return compatibleScoped;
     }
@@ -421,7 +431,7 @@ export function getCurrentPluginMetadataSnapshot(
     compatiblePolicyHashes,
     compatibleConfigFingerprints,
   } = getCurrentPluginMetadataSnapshotState();
-  return resolveCompatiblePluginMetadataSnapshot(
+  const compatible = resolveCompatiblePluginMetadataSnapshot(
     {
       snapshot,
       configFingerprint,
@@ -434,6 +444,7 @@ export function getCurrentPluginMetadataSnapshot(
     },
     params,
   );
+  return compatible === NEEDS_PREPARED_POLICY ? undefined : compatible;
 }
 
 // Light bridges (plugin-metadata-snapshot.runtime.ts) serve reads through this

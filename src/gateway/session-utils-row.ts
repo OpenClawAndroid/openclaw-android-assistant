@@ -64,13 +64,13 @@ import {
   projectGatewaySessionRunState,
   resolveGatewaySessionGoal,
 } from "./session-utils-display.js";
+import { resolveSessionSelectedModelRef } from "./session-utils-model-selection.js";
 import {
   resolveGatewaySessionThinkingProjectionInternal,
   resolveSessionDisplayModelIdentityRefCached,
 } from "./session-utils-model.js";
 import {
   buildSessionListRowMetadataContext,
-  resolveSessionSelectedModelRef,
   resolveTranscriptUsageFallback,
 } from "./session-utils-projection.js";
 import { parseGroupKey } from "./session-utils-store.js";

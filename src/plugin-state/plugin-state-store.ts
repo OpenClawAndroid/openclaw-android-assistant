@@ -19,6 +19,7 @@ import {
   pluginStateRegisterIfAbsent,
   pluginStateRegisterSequencedJournalEntry,
   pluginStateUpdate,
+  resolveMaxPluginStateEntriesPerPlugin,
 } from "./plugin-state-store.sqlite.js";
 import type {
   OpenKeyedStoreOptions,
@@ -29,6 +30,18 @@ import type {
   PluginStateStoreOperation,
 } from "./plugin-state-store.types.js";
 import { PluginStateStoreError } from "./plugin-state-store.types.js";
+import {
+  clearPluginStateInWorker,
+  consumePluginStateInWorker,
+  countPluginStateInWorker,
+  deletePluginStateIfEqualInWorker,
+  deletePluginStateInWorker,
+  listPluginStateInWorker,
+  lookupManyPluginStateInWorker,
+  lookupPluginStateInWorker,
+  registerPluginStateIfAbsentInWorker,
+  registerPluginStateInWorker,
+} from "./plugin-state-worker-client.js";
 import {
   createPluginStoreOptionPolicy,
   serializePluginStoreJson,
@@ -165,24 +178,97 @@ function prepareRegisterParams(
   };
 }
 
+function prepareLookupKeys(keys: readonly string[]): string[] {
+  if (keys.length > 10_000) {
+    throw invalidInput("plugin state lookupMany accepts at most 10000 keys", "lookup");
+  }
+  return Array.from(keys, (key) => validateKey(key, "lookup"));
+}
+
 function createKeyedStoreForPluginId<T>(
   pluginId: string,
   options: OpenKeyedStoreOptions,
 ): Required<PluginStateKeyedStore<T>> {
-  const store = createSyncKeyedStoreForPluginId<T>(pluginId, options);
+  const prepared = prepareKeyedStoreOptions(pluginId, options);
+  const store = createSyncKeyedStore<T>(prepared);
+  const scope = { pluginId, namespace: prepared.namespace, env: prepared.env };
 
   return {
-    register: async (...args) => store.register(...args),
-    registerIfAbsent: async (...args) => store.registerIfAbsent(...args),
+    register: async (key, value, opts) => {
+      const entry = prepareRegisterParams(key, value, prepared.defaultTtlMs, opts);
+      await registerPluginStateInWorker({
+        ...scope,
+        ...entry,
+        maxEntries: prepared.maxEntries,
+        overflowPolicy: prepared.overflowPolicy,
+        maxPluginEntries: resolveMaxPluginStateEntriesPerPlugin(),
+      });
+    },
+    registerIfAbsent: async (key, value, opts) => {
+      const entry = prepareRegisterParams(key, value, prepared.defaultTtlMs, opts);
+      return await registerPluginStateIfAbsentInWorker({
+        pluginId,
+        namespace: prepared.namespace,
+        maxEntries: prepared.maxEntries,
+        overflowPolicy: prepared.overflowPolicy,
+        env: prepared.env,
+        ...entry,
+        maxPluginEntries: resolveMaxPluginStateEntriesPerPlugin(),
+      });
+    },
     update: async (...args) => store.update(...args),
     deleteIf: async (...args) => store.deleteIf(...args),
-    lookup: async (...args) => store.lookup(...args),
-    lookupMany: async (...args) => store.lookupMany(...args),
-    consume: async (...args) => store.consume(...args),
-    delete: async (...args) => store.delete(...args),
-    entries: async () => store.entries(),
-    count: async () => store.count(),
-    clear: async () => store.clear(),
+    deleteIfEqual: async (key, expected) => {
+      const normalizedKey = validateKey(key, "delete");
+      if (expected !== null && !["string", "number", "boolean"].includes(typeof expected)) {
+        throw invalidInput("plugin state conditional deletion requires a JSON scalar", "delete");
+      }
+      serializePluginStoreJson({
+        value: expected,
+        label: "plugin state comparison value",
+        maxBytes: MAX_PLUGIN_STATE_VALUE_BYTES,
+        errors: {
+          invalid: (message) => invalidInput(message, "delete"),
+          limit: (message) => invalidInput(message, "delete"),
+        },
+      });
+      return await deletePluginStateIfEqualInWorker({
+        pluginId,
+        namespace: prepared.namespace,
+        key: normalizedKey,
+        expected,
+        env: prepared.env,
+      });
+    },
+    lookup: async (key) => {
+      const normalizedKey = validateKey(key, "lookup");
+      // SAFETY: This namespace stores the caller's serialized JSON value type.
+      return (await lookupPluginStateInWorker({ ...scope, key: normalizedKey })) as T | undefined;
+    },
+    lookupMany: async (keys) => {
+      const normalizedKeys = prepareLookupKeys(keys);
+      // SAFETY: Successful slots carry this namespace's caller-selected JSON value type.
+      return (await lookupManyPluginStateInWorker({ ...scope, keys: normalizedKeys })) as Array<
+        Result<T | undefined, PluginStateStoreError>
+      >;
+    },
+    consume: async (key) => {
+      const normalizedKey = validateKey(key, "consume");
+      // SAFETY: The atomically consumed value has this namespace's caller-selected JSON type.
+      return (await consumePluginStateInWorker({ ...scope, key: normalizedKey })) as T | undefined;
+    },
+    delete: async (key) => {
+      const normalizedKey = validateKey(key, "delete");
+      return await deletePluginStateInWorker({ ...scope, key: normalizedKey });
+    },
+    entries: async () => {
+      // SAFETY: Entries come from this namespace and retain the caller's JSON value type.
+      return (await listPluginStateInWorker(scope)) as PluginStateEntry<T>[];
+    },
+    count: async () => await countPluginStateInWorker(scope),
+    clear: async () => {
+      await clearPluginStateInWorker(scope);
+    },
   };
 }
 
@@ -190,6 +276,10 @@ function createSyncKeyedStoreForPluginId<T>(
   pluginId: string,
   options: OpenKeyedStoreOptions,
 ): Required<PluginStateSyncKeyedStore<T>> {
+  return createSyncKeyedStore<T>(prepareKeyedStoreOptions(pluginId, options));
+}
+
+function prepareKeyedStoreOptions(pluginId: string, options: OpenKeyedStoreOptions) {
   const namespace = validateNamespace(options.namespace);
   const maxEntries = validateMaxEntries(options.maxEntries);
   const overflowPolicy = optionPolicy.resolveOverflowPolicy(options.overflowPolicy);
@@ -200,7 +290,17 @@ function createSyncKeyedStoreForPluginId<T>(
     overflowPolicy,
     defaultTtlMs,
   });
+  return { pluginId, namespace, maxEntries, overflowPolicy, defaultTtlMs, env };
+}
 
+function createSyncKeyedStore<T>({
+  pluginId,
+  namespace,
+  maxEntries,
+  overflowPolicy,
+  defaultTtlMs,
+  env,
+}: ReturnType<typeof prepareKeyedStoreOptions>): Required<PluginStateSyncKeyedStore<T>> {
   return {
     register(key, value, opts) {
       const params = prepareRegisterParams(key, value, defaultTtlMs, opts);
@@ -270,10 +370,7 @@ function createSyncKeyedStoreForPluginId<T>(
       }) as T | undefined;
     },
     lookupMany(keys) {
-      if (keys.length > 10_000) {
-        throw invalidInput("plugin state lookupMany accepts at most 10000 keys", "lookup");
-      }
-      const normalizedKeys = Array.from(keys, (key) => validateKey(key, "lookup"));
+      const normalizedKeys = prepareLookupKeys(keys);
       const values = pluginStateLookupMany({
         pluginId,
         namespace,

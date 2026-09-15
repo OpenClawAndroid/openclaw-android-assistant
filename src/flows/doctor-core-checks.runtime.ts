@@ -65,7 +65,7 @@ import { getPluginToolMeta, setPluginToolMeta } from "../plugins/tool-metadata.j
 import type { ProviderCatalogOrder, ProviderPlugin } from "../plugins/types.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { buildWorkspaceSkillStatus } from "../skills/discovery/status.js";
-import type { StatusSummary } from "../status/types.js";
+import type { StatusSummary } from "../status/summary.js";
 import { scrubDoctorErrorMessage } from "./doctor-error-message.js";
 import { hasActiveGatewayExecCredential } from "./doctor-gateway-exec-credential.js";
 import type { HealthCheckContext, HealthFinding } from "./health-checks.js";

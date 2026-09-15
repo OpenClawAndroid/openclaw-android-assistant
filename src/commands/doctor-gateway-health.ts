@@ -26,7 +26,7 @@ import type {
 import { collectChannelStatusIssues } from "../infra/channels-status-issues.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { RuntimeEnv } from "../runtime.js";
-import type { StatusSummary } from "../status/types.js";
+import type { StatusSummary } from "../status/summary.js";
 import { VERSION } from "../version.js";
 import { projectDoctorSecretRuntimeDegradations } from "./doctor-secret-runtime-degradation.js";
 import {

@@ -1,4 +1,5 @@
 import { once } from "node:events";
+import { performance } from "node:perf_hooks";
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { setSqliteBusyTimeout } from "./sqlite-busy-timeout.js";
@@ -40,6 +41,7 @@ function sendPhase(phase: SqliteIntegrityWorkerPhase): Promise<void> {
 const [input] = (await once(process, "message")) as [SqliteIntegrityWorkerInput];
 let database: import("node:sqlite").DatabaseSync | undefined;
 let failure: Error | undefined;
+let checkElapsedMs: number | undefined;
 try {
   await sendPhase("opening");
   readSqliteIntegrityFileIdentity(input.pathname, input.identity);
@@ -50,7 +52,12 @@ try {
   database.exec("PRAGMA cache_size = -65536;"); // sqlite-allow-raw -- Connection-local page-cache policy for this disposable integrity child.
   readSqliteIntegrityFileIdentity(input.pathname, input.identity);
   await sendPhase("checking");
-  assertSqliteIntegrity(database, input.databaseLabel);
+  const startedAt = performance.now();
+  try {
+    assertSqliteIntegrity(database, input.databaseLabel);
+  } finally {
+    checkElapsedMs = performance.now() - startedAt;
+  }
 } catch (error) {
   failure = toStringifiedError(error);
 } finally {
@@ -78,5 +85,8 @@ if (failure) {
       ...(failure.cause instanceof Error ? { cause: nativeErrorDetails(failure.cause) } : {}),
     },
   };
+}
+if (checkElapsedMs !== undefined) {
+  result.checkElapsedMs = checkElapsedMs;
 }
 sendMessage(result, disconnect);

@@ -411,6 +411,8 @@ Images and video previews in your own messages appear above any accompanying tex
 
 Messages forwarded by `sessions_send` render as left-aligned speech bubbles with a source-session chip above the message. When avatars are shown, messages from a different known agent use that agent's avatar, or initials in a stable identity color if no avatar is available. Same-agent forwards and unknown senders keep the forward icon. Select the chip to open the source session; hover it to see session progress. Each source session has a stable bubble tint. Forwarded messages without a known source session show the source agent when available, or a generic forwarded-message label. The receiving agent's own replies remain flat text.
 
+Your name is hidden beneath your own messages when no other human participant is known in the session. Shared conversations keep sender names, including while searching the transcript. Web messages do not show a "via Web" label; other recorded client sources remain visible.
+
 ## Subagent transcripts
 
 Subagents use the same task transcript view, including subagents run by the

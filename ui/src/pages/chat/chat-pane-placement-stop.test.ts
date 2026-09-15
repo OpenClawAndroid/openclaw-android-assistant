@@ -205,7 +205,7 @@ describe("chat pane worker stop", () => {
       moveDisabledReason: undefined,
       reclaimDisabledReason:
         "Reconnect the device to stop and sync its workspace, or Continue on Gateway.",
-      restartDisabledReason: "This Gateway does not support this session action.",
+      recoveryDisabledReason: "This Gateway does not support this session action.",
     });
     expect(
       resolveChatPanePlacement({
@@ -219,8 +219,41 @@ describe("chat pane worker stop", () => {
       restarting: false,
       moveDisabledReason: undefined,
       reclaimDisabledReason: undefined,
-      restartDisabledReason: "This Gateway does not support this session action.",
+      recoveryDisabledReason: "This Gateway does not support this session action.",
     });
+  });
+
+  it("requires restoring an archived repository session before worker dispatch", () => {
+    const { pane } = createTestChatPane({
+      client: createGatewayBrowserClientFixture(),
+      sessions: createSessionCapabilityFixture(),
+    });
+    pane.context.gateway.snapshot.hello = gatewayHelloForMethods(
+      ["sessions.dispatch"],
+      ["operator.read", "operator.write"],
+    );
+
+    expect(
+      resolveChatPanePlacement({
+        gatewaySnapshot: pane.context.gateway.snapshot,
+        movingKey: null,
+        reclaimingKey: null,
+        row: {
+          key: "agent:main:archived-repository",
+          kind: "direct",
+          updatedAt: 0,
+          archived: true,
+          repositoryWorkspaceId: "repository-workspace-1",
+          placement: {
+            state: "local",
+            generation: 1,
+            createdAtMs: 1,
+            updatedAtMs: 1,
+            stateChangedAtMs: 1,
+          },
+        },
+      }).recoveryDisabledReason,
+    ).toBe("This session is archived. Unarchive it to continue the conversation.");
   });
 
   it("does not issue reclaim for an offline device placement", async () => {
@@ -263,7 +296,7 @@ describe("chat pane worker stop", () => {
       restarting: false,
       moveDisabledReason: "This Gateway does not support this session action.",
       reclaimDisabledReason: undefined,
-      restartDisabledReason: "This Gateway does not support this session action.",
+      recoveryDisabledReason: "This Gateway does not support this session action.",
     });
   });
 

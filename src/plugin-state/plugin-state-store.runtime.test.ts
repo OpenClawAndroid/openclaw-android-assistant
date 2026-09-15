@@ -1,6 +1,7 @@
 // Plugin state runtime tests cover runtime-backed plugin state storage.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveStateDir } from "../config/paths.js";
+import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import type { PluginRecord } from "../plugins/registry-types.js";
 import { createPluginRegistry } from "../plugins/registry.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
@@ -86,32 +87,56 @@ describe("plugin runtime state proxy", () => {
       const api = registry.createApi(record, { config: {} });
 
       expect(api.runtime.state.resolveStateDir()).toBe(state.stateDir);
-      const store = api.runtime.state.openKeyedStore<{ plugin: string }>({
-        namespace: "runtime",
-        maxEntries: 10,
-      });
-      await expect(store.registerIfAbsent("k", { plugin: "discord" })).resolves.toBe(true);
-      await expect(store.registerIfAbsent("k", { plugin: "duplicate" })).resolves.toBe(false);
+      const native = requireNodeSqlite();
+      const sql = [
+        vi.spyOn(native.DatabaseSync.prototype, "prepare"),
+        vi.spyOn(native.DatabaseSync.prototype, "exec"),
+        ...(["get", "all", "run", "iterate"] as const).map((method) =>
+          vi.spyOn(native.StatementSync.prototype, method),
+        ),
+      ];
+      try {
+        const store = api.runtime.state.openKeyedStore<{ plugin: string }>({
+          namespace: "runtime",
+          maxEntries: 10,
+        });
+        await expect(store.registerIfAbsent("k", { plugin: "discord" })).resolves.toBe(true);
+        await expect(store.registerIfAbsent("k", { plugin: "duplicate" })).resolves.toBe(false);
 
-      const telegram = createPluginRecord("telegram", "bundled");
-      registry.registry.plugins.push(telegram);
-      const telegramApi = registry.createApi(telegram, { config: {} });
-      const telegramStore = telegramApi.runtime.state.openKeyedStore<{ plugin: string }>({
-        namespace: "runtime",
-        maxEntries: 10,
-      });
-      await expect(telegramStore.lookup("k")).resolves.toBeUndefined();
-      await expect(telegramStore.count?.()).resolves.toBe(0);
-      await expect(store.count?.()).resolves.toBe(1);
-      await expect(telegramStore.lookupMany?.(["k"])).resolves.toEqual([
-        { ok: true, value: undefined },
-      ]);
-      await expect(store.lookupMany?.(["k", "missing", "k"])).resolves.toEqual([
-        { ok: true, value: { plugin: "discord" } },
-        { ok: true, value: undefined },
-        { ok: true, value: { plugin: "discord" } },
-      ]);
-      await expect(store.lookup("k")).resolves.toEqual({ plugin: "discord" });
+        const telegram = createPluginRecord("telegram", "bundled");
+        registry.registry.plugins.push(telegram);
+        const telegramApi = registry.createApi(telegram, { config: {} });
+        const telegramStore = telegramApi.runtime.state.openKeyedStore<{ plugin: string }>({
+          namespace: "runtime",
+          maxEntries: 10,
+        });
+        await expect(telegramStore.lookup("k")).resolves.toBeUndefined();
+        await expect(telegramStore.count?.()).resolves.toBe(0);
+        await expect(store.count?.()).resolves.toBe(1);
+        await expect(telegramStore.lookupMany?.(["k"])).resolves.toEqual([
+          { ok: true, value: undefined },
+        ]);
+        await expect(store.lookupMany?.(["k", "missing", "k"])).resolves.toEqual([
+          { ok: true, value: { plugin: "discord" } },
+          { ok: true, value: undefined },
+          { ok: true, value: { plugin: "discord" } },
+        ]);
+        await expect(store.lookup("k")).resolves.toEqual({ plugin: "discord" });
+
+        await store.register("temporary", { plugin: "discord" });
+        await expect(store.consume("temporary")).resolves.toEqual({ plugin: "discord" });
+        await store.register("deleted", { plugin: "discord" });
+        await expect(store.delete("deleted")).resolves.toBe(true);
+        await telegramStore.register("retained", { plugin: "telegram" });
+        await store.clear();
+        await expect(store.entries()).resolves.toEqual([]);
+        await expect(telegramStore.lookup("retained")).resolves.toEqual({ plugin: "telegram" });
+        for (const method of sql) {
+          expect(method).not.toHaveBeenCalled();
+        }
+      } finally {
+        sql.forEach((method) => method.mockRestore());
+      }
 
       const syncStore = api.runtime.state.openSyncKeyedStore<{ plugin: string }>({
         namespace: "sync-runtime",

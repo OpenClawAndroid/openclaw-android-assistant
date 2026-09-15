@@ -376,7 +376,7 @@ export function resolveFinalDoctorHealthContributions(params: {
           const { bindAgentToolGatewayRequest } =
             await import("../agents/tools/in-process-gateway.js");
           const requestGateway = bindAgentToolGatewayRequest({ hostedOnly: true });
-          let status: import("../status/types.js").StatusSummary | undefined;
+          let status: import("../status/summary.js").StatusSummary | undefined;
           if (
             !(
               (await hasActiveGatewayExecCredential({ cfg: ctx.cfg })) &&
@@ -390,7 +390,7 @@ export function resolveFinalDoctorHealthContributions(params: {
               config: ctx.cfg,
               deviceIdentity: null,
             };
-            status = await requestGateway<import("../status/types.js").StatusSummary>(
+            status = await requestGateway<import("../status/summary.js").StatusSummary>(
               request,
             ).catch(() => undefined);
           }

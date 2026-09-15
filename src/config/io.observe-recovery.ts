@@ -26,6 +26,7 @@ import {
 import { resolveConfigReadRecoveryContext } from "./io.observe-suspicious.js";
 import { hashConfigRaw } from "./io.read-helpers.js";
 import type {
+  ConfigRecoveryCandidate,
   ConfigRecoveryCandidatePreparation,
   NormalizedConfigIoDeps,
   PrepareConfigRecoveryCandidate,
@@ -52,13 +53,14 @@ type ConfigReadRecoveryParams = {
   raw: string;
   parsed: unknown;
   prepareBackup: PrepareConfigRecoveryCandidate;
+  prepareBackupAsync?: (
+    candidate: ConfigRecoveryCandidate,
+  ) => Promise<ConfigRecoveryCandidatePreparation>;
+  assertCurrent?: () => void;
   allowBackupRecovery?: () => Promise<boolean>;
 };
 
-type ConfigReadRecoveryResult = {
-  raw: string;
-  parsed: unknown;
-};
+type ConfigReadRecoveryResult = Pick<ConfigRecoveryCandidate, "raw" | "parsed">;
 
 async function commitRecoveryFileIfCurrent(params: {
   health: ReturnType<typeof captureConfigHealthStateStore>;
@@ -125,10 +127,6 @@ function createRecoveryCommitEffect(params: {
   };
 }
 
-function returnOriginalConfigRead(params: ConfigReadRecoveryParams): ConfigReadRecoveryResult {
-  return { raw: params.raw, parsed: params.parsed };
-}
-
 function parseBackupConfigRaw(
   deps: ObserveRecoveryDeps,
   backupRaw: string,
@@ -140,26 +138,36 @@ function parseBackupConfigRaw(
   }
 }
 
-function resolveLastKnownGoodConfigPath(configPath: string): string {
-  return `${configPath}.last-good`;
-}
-
 export async function maybeRecoverSuspiciousConfigRead(
   params: ConfigReadRecoveryParams,
 ): Promise<ConfigReadRecoveryResult> {
-  using health = captureConfigHealthStateStore(params.deps, params.configPath);
-  return await runConfigRecoveryAsync(recoverSuspiciousConfigRead(params), health);
+  using health = captureConfigHealthStateStore(
+    params.deps,
+    params.configPath,
+    params.assertCurrent,
+  );
+  return await runConfigRecoveryAsync(
+    recoverSuspiciousConfigRead(params),
+    health,
+    params.assertCurrent,
+  );
 }
 
 async function runConfigRecoveryAsync<T>(
   recovery: ConfigRecoveryOperation<T>,
   health: ReturnType<typeof captureConfigHealthStateStore>,
+  assertCurrent?: () => void,
 ): Promise<T> {
+  assertCurrent?.();
   let step = recovery.next();
   while (!step.done) {
     try {
-      step = recovery.next(await step.value.async(health));
+      assertCurrent?.();
+      const value = await step.value.async(health);
+      assertCurrent?.();
+      step = recovery.next(value);
     } catch (error) {
+      assertCurrent?.();
       try {
         if (!health.isCurrent()) {
           throw error;
@@ -209,7 +217,11 @@ export async function prepareSuspiciousConfigRead(params: ConfigReadRecoveryPara
   candidate: ConfigReadRecoveryResult;
   apply: (beforeCommit?: () => void) => Promise<void>;
 } | null> {
-  using health = captureConfigHealthStateStore(params.deps, params.configPath);
+  using health = captureConfigHealthStateStore(
+    params.deps,
+    params.configPath,
+    params.assertCurrent,
+  );
   const plan = await runConfigRecoveryAsync(planSuspiciousConfigRead(params), health);
   const captureApplyHealth = () => health.captureContinuation();
   return (
@@ -264,9 +276,10 @@ export async function prepareSuspiciousConfigRead(params: ConfigReadRecoveryPara
 function* recoverSuspiciousConfigRead(
   params: ConfigReadRecoveryParams,
 ): ConfigRecoveryOperation<ConfigReadRecoveryResult> {
+  const { raw, parsed } = params;
   const plan = yield* planSuspiciousConfigRead(params);
   if (!plan) {
-    return returnOriginalConfigRead(params);
+    return { raw, parsed };
   }
   if (params.allowBackupRecovery) {
     const allowed = (yield {
@@ -274,11 +287,11 @@ function* recoverSuspiciousConfigRead(
       async: () => params.allowBackupRecovery?.() ?? true,
     }) as boolean;
     if (!allowed) {
-      return returnOriginalConfigRead(params);
+      return { raw, parsed };
     }
   }
   const applied = yield* plan.apply();
-  return applied.superseded ? returnOriginalConfigRead(params) : plan.candidate;
+  return applied.superseded ? { raw, parsed } : plan.candidate;
 }
 
 function createConfigRecoveryStatEffect(
@@ -367,7 +380,8 @@ function* planSuspiciousConfigRead(
   const backupCandidate = { raw: backupRaw, parsed: backupParse.parsed };
   const prepared = (yield {
     sync: () => params.prepareBackup(backupCandidate),
-    async: () => params.prepareBackup(backupCandidate),
+    async: () =>
+      params.prepareBackupAsync?.(backupCandidate) ?? params.prepareBackup(backupCandidate),
   }) as ConfigRecoveryCandidatePreparation;
   if (!prepared.ok) {
     return null;
@@ -383,11 +397,11 @@ function* planSuspiciousConfigRead(
   if (!backup.gatewayMode) {
     return null;
   }
-  const currentObservation = yield {
+  const currentObservation: ConfigRecoveryEffect<boolean> = {
     sync: () => true,
     async: (health) => health.isCurrent(),
   };
-  if (!currentObservation) {
+  if (!(yield currentObservation)) {
     return null;
   }
   return {
@@ -418,11 +432,7 @@ function* planSuspiciousConfigRead(
       }
     },
     *apply(beforeCommit) {
-      const isCurrent = () => ({
-        sync: () => true,
-        async: (health: ReturnType<typeof captureConfigHealthStateStore>) => health.isCurrent(),
-      });
-      if (!(yield isCurrent())) {
+      if (!(yield currentObservation)) {
         return { restored: false, error: undefined, superseded: true };
       }
       const snapshotParams = {
@@ -435,7 +445,7 @@ function* planSuspiciousConfigRead(
         sync: () => persistBoundedClobberedConfigSnapshotSync(snapshotParams),
         async: () => persistBoundedClobberedConfigSnapshot(snapshotParams),
       }) as string | null;
-      if (!(yield isCurrent())) {
+      if (!(yield currentObservation)) {
         return { restored: false, error: undefined, superseded: true };
       }
       let restoredFromBackup = false;
@@ -492,7 +502,7 @@ function* planSuspiciousConfigRead(
       });
       yield {
         sync: () => appendConfigAuditRecordSync(audit),
-        async: () => appendConfigAuditRecord(audit),
+        async: () => appendConfigAuditRecord(audit, params.assertCurrent),
       };
       if (restoredFromBackup) {
         yield {
@@ -548,7 +558,7 @@ export async function promoteConfigSnapshotToLastKnownGoodCore(params: {
     stat,
     observedAt: now,
   });
-  const lastGoodPath = resolveLastKnownGoodConfigPath(snapshot.path);
+  const lastGoodPath = `${snapshot.path}.last-good`;
   if (!health.isCurrent()) {
     return false;
   }
@@ -619,7 +629,7 @@ export async function recoverConfigFromLastKnownGoodCore(params: {
   if (!promoted?.hash) {
     return false;
   }
-  const lastGoodPath = resolveLastKnownGoodConfigPath(snapshot.path);
+  const lastGoodPath = `${snapshot.path}.last-good`;
   const backupRaw = await deps.fs.promises.readFile(lastGoodPath, "utf-8").catch(() => null);
   if (!backupRaw || hashConfigRaw(backupRaw) !== promoted.hash) {
     return false;

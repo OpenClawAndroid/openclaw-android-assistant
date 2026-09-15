@@ -425,6 +425,7 @@ function runCiManifestFixture(options: {
   nodeTestGroupsCodec?: boolean;
   startupCorpusCoverage?: boolean;
   changedPlannerSource?: string | null;
+  changedPlannerDependencies?: string[];
   changedPaths?: string[] | null;
   changedCoreTestSupport?: boolean;
   repository?: string;
@@ -459,6 +460,11 @@ function runCiManifestFixture(options: {
   try {
     const scriptsDir = path.join(root, "scripts", "lib");
     mkdirSync(scriptsDir, { recursive: true });
+    for (const dependency of options.changedPlannerDependencies ?? []) {
+      const destination = path.join(root, dependency);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      writeFileSync(destination, readFileSync(dependency));
+    }
     // The manifest packs grouped Node rows through the target's codec and the
     // shard runner unpacks them; targets that predate the codec omit it.
     if (options.nodeTestGroupsCodec ?? true) {
@@ -4208,14 +4214,20 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
       "src/commands/doctor-config-runtime.test-support.ts",
       ...(options.production ? ["src/commands/doctor-config-preflight.ts"] : []),
     ];
-    const selected = resolveChangedDockerSeedLanes(changedPaths);
+    expect(resolveChangedDockerSeedLanes(changedPaths)).toEqual(
+      options.production ? ["published-upgrade-survivor"] : [],
+    );
     const result = runCiManifestFixture({
       bundledPlanner: true,
       runNode: false,
       changedPaths,
       eventName: options.eventName,
       scopeEnv: { GITHUB_REF: "refs/heads/main" },
-      changedPlannerSource: `export const resolveChangedDockerSeedLanes = () => ${JSON.stringify(selected)};`,
+      changedPlannerSource: `export { resolveChangedDockerSeedLanes } from "./ci-docker-seed-plan.mts";`,
+      changedPlannerDependencies: [
+        "scripts/lib/ci-docker-seed-plan.mts",
+        "scripts/lib/changed-path-facts.mjs",
+      ],
     });
     expect(result.status, result.output).toBe(0);
     expect(result.outputs.run_docker_seed_e2e).toBe(String(options.expected));

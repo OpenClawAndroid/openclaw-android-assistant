@@ -172,21 +172,21 @@ export function renderSessionMenuItem(params: SessionMenuItemOptions, submitting
         placement="right-start"
         ?open-on-click=${accessibleBlocker || touchDetails}
       >
-        ${
-          touchDetails
-            ? html`<div class="new-session-page__environment-detail-trigger">
-                ${row}
-                <button
+        <div class="new-session-page__environment-detail-trigger">
+          ${row}
+          ${
+            touchDetails
+              ? html`<button
                   type="button"
                   class="new-session-page__touch-details"
                   aria-label=${t("newSession.environmentDetails", { name: params.label })}
                   ?disabled=${submitting}
                 >
                   ${icons.info}
-                </button>
-              </div>`
-            : row
-        }
+                </button>`
+              : nothing
+          }
+        </div>
         <div slot="content" class="new-session-page__environment-card">
           ${
             unavailableReason

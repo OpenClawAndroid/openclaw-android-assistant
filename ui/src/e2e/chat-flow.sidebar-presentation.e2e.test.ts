@@ -254,7 +254,7 @@ suite.define(() => {
     }
   });
 
-  it("keeps long sidebar labels clipped after a session switch", async () => {
+  it("scrolls long sidebar labels slowly and keeps them clipped after a session switch", async () => {
     const context = await suite.newBrowserContext(createControlUiE2eContextOptions());
     const page = await context.newPage();
     await page.clock.install();
@@ -307,6 +307,13 @@ suite.define(() => {
       await expect
         .poll(() => recentLabel.evaluate((label) => label.classList.value), { timeout: 1_500 })
         .toContain("hover-marquee--scrolling");
+      const scroll = await recentLabel.evaluate((label) => ({
+        distance: -Number.parseFloat(label.style.getPropertyValue("--hover-marquee-shift")),
+        seconds: Number.parseFloat(getComputedStyle(label).transitionDuration),
+        easing: getComputedStyle(label).transitionTimingFunction,
+      }));
+      expect(scroll.distance / scroll.seconds).toBeCloseTo(40, 1);
+      expect(scroll.easing).toBe("linear");
       // Resume real time: the snap-back below is a compositor-driven CSS
       // transition, not a fake-timer callback.
       await page.clock.resume();

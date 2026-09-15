@@ -336,6 +336,8 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
             pathname,
             OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
             pending.controller.signal,
+            undefined,
+            step.value.timing,
           );
         } catch (error) {
           failure = error;

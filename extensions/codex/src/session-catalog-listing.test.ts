@@ -224,13 +224,13 @@ describe("Codex supervision catalog", () => {
         sortDirection: "desc",
         cwd: "/workspace/one",
       },
-      {
+      expect.objectContaining({
         agentDir: resolveDefaultAgentDir(config),
         config,
         authProfileId: null,
         startOptions: expect.objectContaining({ transport: "stdio", homeScope: "user" }),
         timeoutMs: expect.any(Number),
-      },
+      }),
     );
     expect(JSON.stringify(await control.listPage({ searchTerm: "mAtCh" }))).not.toContain(
       "private",

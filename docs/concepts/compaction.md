@@ -212,6 +212,8 @@ If an older version or transcript redaction removes the complete window needed f
 
 A context engine may return an explicit compacted successor session identity within the same agent, session key, and store. OpenClaw publishes the accepted successor before maintenance, hooks, or retries use it, while retaining the current writer's ownership. Cancelling afterward does not roll that completed transition back. The built-in SQLite compactor keeps the current session identity and does not create a second runtime transcript.
 
+Compaction checkpoint metadata stays with the selected transcript, including when a run uses an explicit store that differs from the Gateway's configured default.
+
 A [worker placement](/gateway/cloud-workers) cannot transfer ownership to a different session identity during compaction. Custom engines must keep the current identity while the placement owns the session, or the operator must move the session back to the Gateway before retrying. A rejected transition leaves the original session and worker claim intact.
 
 OpenClaw no longer writes separate `.checkpoint.*.jsonl` copies for new

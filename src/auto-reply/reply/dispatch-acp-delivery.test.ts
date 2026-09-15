@@ -516,7 +516,8 @@ describe("createAcpDispatchDeliveryCoordinator", () => {
   });
 
   it("strips split TTS directives from visible ACP block delivery", async () => {
-    const dispatcher = createDispatcher();
+    const dispatcher = createReplyDispatcher({ deliver: async () => {} });
+    vi.spyOn(dispatcher, "sendBlockReply");
     const coordinator = createAcpDispatchDeliveryCoordinator({
       cfg: createAcpTestConfig({
         tts: { enabled: true },

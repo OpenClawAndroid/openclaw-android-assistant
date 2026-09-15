@@ -689,7 +689,11 @@ export function sanitizeConfigAuditRecord(record: ConfigAuditRecord): ConfigAudi
   return redactSecrets(sanitized);
 }
 
-export async function appendConfigAuditRecord(params: ConfigAuditAppendParams): Promise<void> {
+export async function appendConfigAuditRecord(
+  params: ConfigAuditAppendParams,
+  assertCurrent?: () => void,
+): Promise<void> {
+  assertCurrent?.();
   try {
     const record = sanitizeConfigAuditRecord(resolveConfigAuditAppendRecord(params));
     await registerSqliteAuditRecordAsync(
@@ -697,10 +701,12 @@ export async function appendConfigAuditRecord(params: ConfigAuditAppendParams): 
         scope: CONFIG_AUDIT_SCOPE,
         maxEntries: CONFIG_AUDIT_MAX_ENTRIES,
         env: resolveConfigAuditStoreEnv(params),
+        assertCurrent,
       },
       { key: configAuditEntryKey(record), value: record, createdAt: Date.parse(record.ts) },
     );
   } catch {
+    assertCurrent?.();
     // best-effort
   }
 }

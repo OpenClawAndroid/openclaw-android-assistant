@@ -2519,7 +2519,7 @@ const WHOLE_CONFIG_SPLIT_FILE_LISTERS = new Map<string, () => string[]>([
       ...listScopedOwnerTestFiles({
         root: "src/gateway/server-methods",
         include: ["src/gateway/server-methods/**/*.test.ts"],
-        exclude: gatewayDatabaseWorkerTestFiles,
+        exclude: [...databaseWorkerCoreTestFiles, ...gatewayDatabaseWorkerTestFiles],
       }),
       ...gatewayPluginTestFiles,
     ],

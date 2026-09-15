@@ -78,6 +78,7 @@ export async function registerSqliteAuditRecordAsync<T>(
   options: Pick<OpenClawStateDatabaseOptions, "path" | "env"> & {
     scope: string;
     maxEntries: number;
+    assertCurrent?: () => void;
   },
   record: SqliteAuditRecordEntry<T>,
 ): Promise<void> {
@@ -87,7 +88,9 @@ export async function registerSqliteAuditRecordAsync<T>(
     record: prepareSqliteAuditRecord(options.scope, record),
   };
   const context = captureOpenClawStateWorkerContext(options);
-  await runOpenClawStateWorkerOperation(context, (store) =>
-    store.execute({ type: "diagnostic.register", input }),
+  await runOpenClawStateWorkerOperation(
+    context,
+    (store) => store.execute({ type: "diagnostic.register", input }),
+    { assertCurrent: options.assertCurrent },
   );
 }

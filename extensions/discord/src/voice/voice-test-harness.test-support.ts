@@ -54,10 +54,9 @@ const {
   isSecretOwnerAvailableMock,
   canonicalizeRealtimeVoiceProviderIdMock,
 } = voiceTestMocks;
-const [managerModule, realtimeModule] = await Promise.all([
-  import("./voice-runtime.js"),
-  import("./realtime-session.runtime.js"),
-]);
+// Parallel entry points can race Vitest's async audio mock and capture different exports.
+const managerModule = await import("./voice-runtime.js");
+const realtimeModule = await import("./realtime-session.runtime.js");
 
 const { configureVoiceStateGateway, createClient, createClientWithMember } =
   createDiscordVoiceTestHelpers(updateVoiceStateMock);

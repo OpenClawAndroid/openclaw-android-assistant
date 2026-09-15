@@ -416,4 +416,112 @@ describe("private subagent completion processing receipts", () => {
     expect(await dispatch()).toMatchObject({ status: "error", stopReason: "rpc" });
     expect(agentCommandMock).toHaveBeenCalledOnce();
   });
+  it.each(["resolved", "rejected", "abandoned"] as const)(
+    "preserves executing private timeout facts (%s)",
+    async (kind) => {
+      const consumed = createDeferred();
+      const release = createDeferred();
+      agentCommandMock.mockImplementationOnce(async (input) => {
+        const command = input as AgentCommandOpts;
+        command.onExecutionStarted?.();
+        const inputRecorder = recorder(input);
+        await inputRecorder.persistApproved();
+        inputRecorder.markSentToProvider?.();
+        consumed.resolve();
+        // Hold the producer after abort so lifecycle projection cannot stand
+        // in for execution settlement; abandoned work also outlives the grace.
+        await release.promise;
+        if (kind === "rejected") {
+          command.abortSignal!.throwIfAborted();
+        }
+        return {
+          payloads: [],
+          meta: {
+            durationMs: 1,
+            aborted: true,
+            stopReason: "timeout",
+            timeoutPhase: "provider",
+            providerStarted: true,
+          },
+        };
+      });
+      const first = dispatch();
+      const observed = first.then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error: String(error) }),
+      );
+      await consumed.promise;
+      const active = expectDefined(
+        kernel.gatewayRequestContext.chatAbortControllers.get(runId),
+        "executing controller",
+      );
+      expect(active.executionStarted).toBe(true);
+      active.expiresAtMs = Date.now() - 1;
+      const { startGatewayMaintenanceTimers } = await import("./server-maintenance.js");
+      const { createGatewayMaintenanceStateForTest } =
+        await import("./test-helpers.maintenance-state.js");
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      const timers = startGatewayMaintenanceTimers({
+        ...createGatewayMaintenanceStateForTest(),
+        ...kernel.gatewayRequestContext,
+        logHealth: { info: vi.fn(), error: vi.fn() },
+        runWorktreeGc: async () => undefined,
+        runDeliveryQueueMediaGc: async () => undefined,
+        runManagedOutgoingMediaGc: async () => undefined,
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(active.controller.signal.aborted).toBe(true);
+        expect(active.abortStopReason).toBe("timeout");
+        expect(kernel.gatewayRequestContext.chatAbortControllers.get(runId)).toBe(active);
+        expect(completions()).toEqual([]);
+        if (kind === "abandoned") {
+          await vi.advanceTimersByTimeAsync(60_000);
+          expect(kernel.gatewayRequestContext.chatAbortControllers.has(runId)).toBe(false);
+          expect(JSON.parse(String(completions()[0]?.outcome_json))).toMatchObject({
+            reason: "timed_out",
+            status: "timeout",
+            stopReason: "timeout",
+          });
+        }
+      } finally {
+        clearInterval(timers.tickInterval);
+        clearInterval(timers.healthInterval);
+        clearInterval(timers.dedupeCleanup);
+        clearInterval(timers.worktreeCleanup);
+        timers.skillUsageCleanup();
+        await timers.stopMediaCleanup();
+        await timers.stopSessionColdStorageMaintenance();
+        vi.useRealTimers();
+        release.resolve();
+      }
+      const response = await observed;
+      const rows = completions();
+      const outcome = JSON.parse(String(rows[0]?.outcome_json));
+      expect(response).toMatchObject({ value: { status: "timeout", stopReason: "timeout" } });
+      expect(outcome).toMatchObject({ status: "timeout", stopReason: "timeout" });
+      expect(kernel.gatewayRequestContext.chatAbortControllers.has(runId)).toBe(false);
+      if (kind === "resolved") {
+        expect(outcome).toMatchObject({
+          reason: "hard_timeout",
+          timeoutPhase: "provider",
+          providerStarted: true,
+        });
+        expect(response).toMatchObject({
+          value: { timeoutPhase: "provider", providerStarted: true },
+        });
+      } else {
+        expect(outcome.reason).toBe("timed_out");
+        expect(outcome.timeoutPhase).toBeUndefined();
+        expect(outcome.providerStarted).toBeUndefined();
+      }
+      kernel.gatewayRequestContext.dedupe.delete(`agent:${runId}`);
+      agentCommandMock.mockImplementationOnce(async (input) => {
+        await recorder(input).persistApproved();
+        return { payloads: [], meta: { durationMs: 1 } };
+      });
+      expect(await dispatch()).toMatchObject({ status: "ok", inputProcessingCompleted: true });
+      expect(agentCommandMock).toHaveBeenCalledTimes(2);
+    },
+  );
 });

@@ -728,8 +728,9 @@ suite.define(() => {
       await expect(page.locator(".agent-chat__composer-combobox textarea")).toHaveValue("");
       const status = group.locator(".chat-send-status");
       await expect(status).toHaveText("· Not sent · Retry");
-      const footerLineCenters = await group
-        .locator(".chat-sender-name, .chat-send-status")
+      await expect(group.locator(".chat-sender-name")).toHaveCount(0);
+      const footerLineCenters = await status
+        .locator("span:not([aria-hidden]), button")
         .evaluateAll((elements) =>
           elements.map((element) => {
             const rect = element.getBoundingClientRect();

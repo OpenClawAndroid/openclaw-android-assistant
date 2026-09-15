@@ -31,9 +31,7 @@ import {
 import { streamSessionTranscriptLines } from "../config/sessions/transcript-stream.js";
 import { scanSessionTranscriptTree } from "../config/sessions/transcript-tree.js";
 import { captureOwnedTranscriptWriteAssertion } from "../config/sessions/transcript-write-context.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { resolveGatewaySessionStoreTarget } from "./session-utils.js";
 
 const log = createSubsystemLogger("gateway/session-compaction-checkpoints");
 const MAX_COMPACTION_CHECKPOINTS_PER_SESSION = 25;
@@ -93,10 +91,7 @@ type RestoreCheckpointSessionParams = {
 };
 
 type PersistSessionCompactionCheckpointParams = {
-  cfg: OpenClawConfig;
-  agentId?: string;
-  sessionKey: string;
-  sessionId: string;
+  sessionTarget: SessionTranscriptRuntimeTarget;
   reason: SessionCompactionCheckpointReason;
   snapshot: CapturedCompactionCheckpointSnapshot;
   summary?: string;
@@ -709,6 +704,7 @@ async function cleanupTrimmedCompactionCheckpointFiles(params: {
 async function persistSessionCompactionCheckpoint(
   params: PersistSessionCompactionCheckpointParams,
 ): Promise<SessionCompactionCheckpoint | null> {
+  const target = params.sessionTarget;
   const snapshotSessionFile = params.snapshot.sessionFile?.trim();
   const postSessionFile = params.postSessionFile?.trim();
   const snapshotSqliteMarker = parseSqliteSessionFileMarker(snapshotSessionFile);
@@ -718,28 +714,18 @@ async function persistSessionCompactionCheckpoint(
   const postSourceLeafId = params.postEntryId?.trim() || params.postLeafId?.trim();
   if (!snapshotArtifactFile && !postSourceLeafId) {
     log.warn("skipping compaction checkpoint persist: missing stable fork source", {
-      sessionKey: params.sessionKey,
+      sessionKey: target.sessionKey,
     });
     return null;
   }
 
-  const target = resolveGatewaySessionStoreTarget({
-    cfg: params.cfg,
-    key: params.sessionKey,
-    ...(params.agentId ? { agentId: params.agentId } : {}),
-  });
   // Snapshot sizing may outlive this owner; revalidate its captured context inside the commit.
-  const assertCommitAllowed = captureOwnedTranscriptWriteAssertion({
-    agentId: target.agentId,
-    sessionId: params.sessionId,
-    sessionKey: target.canonicalKey,
-    storePath: target.storePath,
-  });
+  const assertCommitAllowed = captureOwnedTranscriptWriteAssertion(target);
   const createdAt = params.createdAt ?? Date.now();
   const checkpoint: SessionCompactionCheckpoint = {
     checkpointId: randomUUID(),
-    sessionKey: target.canonicalKey,
-    sessionId: params.sessionId,
+    sessionKey: target.sessionKey,
+    sessionId: target.sessionId,
     createdAt,
     reason: params.reason,
     tokensVersion: SESSION_TOTAL_TOKENS_VERSION,
@@ -756,7 +742,7 @@ async function persistSessionCompactionCheckpoint(
       ...(params.snapshot.entryId?.trim() ? { entryId: params.snapshot.entryId.trim() } : {}),
     },
     postCompaction: {
-      sessionId: params.sessionId,
+      sessionId: target.sessionId,
       ...(postArtifactFile ? { sessionFile: postArtifactFile } : {}),
       ...(params.postLeafId?.trim() ? { leafId: params.postLeafId.trim() } : {}),
       ...(params.postEntryId?.trim() ? { entryId: params.postEntryId.trim() } : {}),
@@ -769,7 +755,7 @@ async function persistSessionCompactionCheckpoint(
     {
       agentId: target.agentId,
       storePath: target.storePath,
-      sessionKey: target.canonicalKey,
+      sessionKey: target.sessionKey,
     },
     async (existing) => {
       if (!existing.sessionId) {
@@ -790,7 +776,7 @@ async function persistSessionCompactionCheckpoint(
 
   if (!updatedEntry || !stored) {
     log.warn("skipping compaction checkpoint persist: session not found", {
-      sessionKey: params.sessionKey,
+      sessionKey: target.sessionKey,
     });
     return null;
   }

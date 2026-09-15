@@ -367,7 +367,7 @@
     "src/hooks/hooks-lifecycle.e2e.test.ts": 34,
     "src/hooks/plugin-hooks.e2e.test.ts": 1,
     "src/infra/net/proxy/external-proxy.e2e.test.ts": 3,
-    "src/plugin-state/plugin-state-store.e2e.test.ts": 1,
+    "src/plugin-state/plugin-state-store.persistence.test.ts": 1,
     "src/plugins/install.npm-spec.e2e.test.ts": 37,
     "src/plugins/wired-hooks-after-tool-call.e2e.test.ts": 1,
     "src/skills/workshop/experience-review.e2e.test.ts": 7,

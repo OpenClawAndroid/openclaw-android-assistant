@@ -1,14 +1,14 @@
 // Plugin state SQLite helpers persist plugin state in the OpenClaw state database.
 import type { DatabaseSync } from "node:sqlite";
-import { toUSVString } from "node:util";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
-import { executeSqliteQuerySync, sqliteStringSet } from "../infra/kysely-sync.js";
+import { executeSqliteQuerySync } from "../infra/kysely-sync.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { isSqliteCorruptionError } from "../infra/sqlite-error-diagnostics.js";
 import { isTerminalSqliteIntegrityError } from "../infra/sqlite-integrity.js";
 import { normalizeSqliteNumber } from "../infra/sqlite-number.js";
 import { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
 import { isSqliteSchemaVersionError } from "../infra/sqlite-user-version.js";
+import { resolveDatabasePath } from "../state/openclaw-state-db-maintenance.js";
 import {
   hasOpenClawStateTablesBeyondStartupCheckpoint,
   withExistingOpenClawStateDatabaseReadOnly,
@@ -30,10 +30,8 @@ import {
   getPluginStateKysely,
   bindPluginStateEntry,
   upsertPluginStateEntry,
-  insertPluginStateEntryIfAbsent,
   hasPluginStateEntry,
   selectPluginStateEntry,
-  iteratePluginStateEntries,
   selectPluginStateEntriesInKeyRange,
   deletePluginStateEntry,
   deleteExpiredPluginStateEntries,
@@ -49,6 +47,12 @@ import {
   type PluginStateRegisterEntryParams,
   type PluginStateRow,
 } from "./plugin-state-store.kernel.js";
+import {
+  clearPluginStateNamespace,
+  consumePluginStateEntry,
+  registerPluginStateEntryIfAbsent,
+} from "./plugin-state-store.mutations.js";
+import { listPluginStateEntries, lookupPluginStateEntries } from "./plugin-state-store.reads.js";
 import {
   PluginStateStoreError,
   type PluginStateEntry,
@@ -81,7 +85,7 @@ type PluginStateSeedEntryForTests = {
   expiresAt?: number | null;
 };
 
-function wrapPluginStateError(
+export function wrapPluginStateError(
   error: unknown,
   operation: PluginStateStoreOperation,
   fallbackCode: PluginStateStoreErrorCode,
@@ -140,12 +144,12 @@ function isMissingPluginStateTableError(error: unknown): boolean {
 }
 
 /** Read plugin state without joining the shared writable database lifecycle. */
-function withPluginStateDatabaseReadOnly<T>(
+export function withPluginStateDatabaseReadOnly<T>(
   operationName: PluginStateStoreOperation,
   operation: (store: PluginStateDatabase) => T,
   options: OpenClawStateDatabaseOptions = {},
 ): T | undefined {
-  const pathname = resolveOpenClawStateSqlitePath(options.env ?? process.env);
+  const pathname = resolveDatabasePath(options);
   let operationStarted = false;
   try {
     return withExistingOpenClawStateDatabaseReadOnly(({ db, path }) => {
@@ -470,65 +474,8 @@ export function pluginStateRegisterIfAbsent(params: {
   try {
     return runWriteTransaction(
       "register",
-      (store) => {
-        const now = Date.now();
-        const expiresAt = resolvePluginStateExpiresAtMs({
-          ttlMs: params.ttlMs,
-          now,
-          operation: "register",
-          path: store.path,
-        });
-        deleteExpiredPluginStateEntries(store.db, now, {
-          pluginId: params.pluginId,
-          namespace: params.namespace,
-        });
-        const existing = hasPluginStateEntry(store.db, {
-          pluginId: params.pluginId,
-          namespace: params.namespace,
-          key: params.key,
-          now,
-        });
-        if (existing) {
-          return false;
-        }
-        // The exact expired key can lie beyond this namespace's cleanup batch.
-        // Reclaim it inside the same authoritative transaction before insertion.
-        deletePluginStateEntry(store.db, params);
-        assertCanInsertPluginStateEntry({
-          maxPluginEntries: resolveMaxPluginStateEntriesPerPlugin(),
-          store,
-          pluginId: params.pluginId,
-          namespace: params.namespace,
-          maxEntries: params.maxEntries,
-          overflowPolicy: params.overflowPolicy,
-          now,
-        });
-        const inserted = insertPluginStateEntryIfAbsent(
-          store.db,
-          bindPluginStateEntry({
-            pluginId: params.pluginId,
-            namespace: params.namespace,
-            key: params.key,
-            valueJson: params.valueJson,
-            createdAt: now,
-            expiresAt,
-          }),
-        );
-        if (!inserted) {
-          return false;
-        }
-        enforcePostRegisterLimits({
-          maxPluginEntries: resolveMaxPluginStateEntriesPerPlugin(),
-          store,
-          pluginId: params.pluginId,
-          namespace: params.namespace,
-          maxEntries: params.maxEntries,
-          overflowPolicy: params.overflowPolicy,
-          now,
-          protectedKey: params.key,
-        });
-        return true;
-      },
+      (store) =>
+        registerPluginStateEntryIfAbsent(store, params, resolveMaxPluginStateEntriesPerPlugin()),
       envOptions(params.env),
     );
   } catch (error) {
@@ -661,35 +608,7 @@ export function pluginStateLookupMany(params: {
     return (
       withPluginStateDatabaseReadOnly(
         "lookup",
-        ({ db, path: databasePath }) => {
-          const now = Date.now();
-          const rows = executeSqliteQuerySync(
-            db,
-            getPluginStateKysely(db)
-              .selectFrom("plugin_state_entries")
-              .select(["entry_key", "value_json"])
-              .where("plugin_id", "=", params.pluginId)
-              .where("namespace", "=", params.namespace)
-              .where("entry_key", "in", sqliteStringSet(params.keys))
-              .where((eb) => eb.or([eb("expires_at", "is", null), eb("expires_at", ">", now)])),
-          ).rows;
-          const values = new Map(rows.map((row) => [row.entry_key, row.value_json]));
-          return params.keys.map((key): Result<unknown, PluginStateStoreError> => {
-            // Match node:sqlite text binding, including lone UTF-16 surrogates.
-            const raw = values.get(toUSVString(key));
-            try {
-              return ok(
-                raw === undefined ? undefined : parseStoredJson(raw, "lookup", databasePath),
-              );
-            } catch (error) {
-              // Let ordered readers stop before a later corrupt value, just as with lookup.
-              if (error instanceof PluginStateStoreError && error.code === "PLUGIN_STATE_CORRUPT") {
-                return err(error);
-              }
-              throw error;
-            }
-          });
-        },
+        (store) => lookupPluginStateEntries(store, params),
         envOptions(params.env),
       ) ?? params.keys.map(() => ok(undefined))
     );
@@ -713,19 +632,7 @@ export function pluginStateConsume(params: {
   try {
     return runWriteTransaction(
       "consume",
-      (store) => {
-        const row = selectPluginStateEntry(store.db, {
-          pluginId: params.pluginId,
-          namespace: params.namespace,
-          key: params.key,
-          now: Date.now(),
-        });
-        if (!row) {
-          return undefined;
-        }
-        deletePluginStateEntry(store.db, params);
-        return parseStoredJson(row.value_json, "consume", store.path);
-      },
+      (store) => consumePluginStateEntry(store, params),
       envOptions(params.env),
     );
   } catch (error) {
@@ -931,30 +838,7 @@ export function pluginStateEntries(params: {
     return (
       withPluginStateDatabaseReadOnly(
         "entries",
-        ({ db, path: databasePath }) => {
-          const rows = iteratePluginStateEntries(db, {
-            pluginId: params.pluginId,
-            namespace: params.namespace,
-            now: Date.now(),
-          });
-          const entries: PluginStateEntry<unknown>[] = [];
-          let decodeFailure: { error: unknown } | undefined;
-          for (const row of rows) {
-            if (decodeFailure) {
-              continue;
-            }
-            try {
-              entries.push(rowToEntry(row, "entries", databasePath));
-            } catch (error) {
-              // Finish the SQL read so a later step failure still precedes JSON errors.
-              decodeFailure = { error };
-            }
-          }
-          if (decodeFailure) {
-            throw decodeFailure.error;
-          }
-          return entries;
-        },
+        (store) => listPluginStateEntries(store, params),
         envOptions(params.env),
       ) ?? []
     );
@@ -1043,15 +927,7 @@ export function pluginStateClear(params: {
   try {
     runWriteTransaction(
       "clear",
-      ({ db }) => {
-        executeSqliteQuerySync(
-          db,
-          getPluginStateKysely(db)
-            .deleteFrom("plugin_state_entries")
-            .where("plugin_id", "=", params.pluginId)
-            .where("namespace", "=", params.namespace),
-        );
-      },
+      ({ db }) => clearPluginStateNamespace(db, params),
       envOptions(params.env),
     );
   } catch (error) {

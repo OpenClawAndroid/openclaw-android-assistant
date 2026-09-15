@@ -13,7 +13,7 @@ Control UI capabilities grouped by area, each with the Gateway RPC methods behin
 
 <AccordionGroup>
   <Accordion title="Chat and Talk">
-    - Subagent transcripts hide author avatars in both the main chat view and task details; sender names remain visible.
+    - Subagent transcripts hide author avatars in both the main chat view and task details. Assistant and peer sender names remain visible; your name is hidden when no other human participant is known.
     - Chat with the model via Gateway WS (`chat.history`, `chat.send`, `chat.abort`, `chat.inject`). Archived sessions keep the composer disabled and show a banner with an **Unarchive** action before the conversation can continue.
     - Thinking controls and `/think` use the selected model's published choices and default. A model with no choices offers no effort control or default. Missing capability metadata is shown as unknown, without guessed levels; an explicit command still uses server validation. Saved overrides and matching inherited choices remain separate from the active fallback model.
     - Opening or refreshing chat requests up to 80 recent messages. Each background warming pass reads at most two inactive sessions sequentially, with up to 20 messages per session, after presented chat loads finish. Automatic warming waits for a visible conversation on the current page; dashboard-only views still warm the session you hover or keyboard-focus. Scrolling back requests up to 1,000 older messages per page and prefetches the next page. Per-message text caps and response-byte limits can reduce these counts.

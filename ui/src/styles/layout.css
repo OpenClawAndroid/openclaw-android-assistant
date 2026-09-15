@@ -2355,6 +2355,10 @@ openclaw-settings-save-indicator:empty {
   color: var(--text);
 }
 
+.sidebar-recent-session__name.hover-marquee--scrolling {
+  transition-duration: calc(var(--hover-marquee-duration, 600ms) * 2);
+}
+
 .sidebar-recent-sessions
   .sidebar-recent-session--child
   .sidebar-recent-session__link

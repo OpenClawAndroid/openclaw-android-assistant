@@ -10,7 +10,10 @@ import {
   sweepExpiredPluginStateEntries,
 } from "./plugin-state-store.js";
 import { closePluginStateDatabase } from "./plugin-state-store.sqlite.js";
-import { probePluginStateStore } from "./plugin-state-store.test-helpers.js";
+import {
+  probePluginStateStore,
+  seedPluginStateEntriesForTests,
+} from "./plugin-state-store.test-helpers.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -84,22 +87,26 @@ describe("persistence", () => {
 describe("TTL", () => {
   it("hides expired values and sweep removes the row", async () => {
     await withOpenClawTestState({ label: "e2e-ttl" }, async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(10_000);
-
       const store = createPluginStateKeyedStore<{ v: number }>("fixture-plugin", {
         namespace: "ttl-test",
         maxEntries: 10,
       });
-      await store.register("short", { v: 1 }, { ttlMs: 500 });
-      await store.register("long", { v: 2 }, { ttlMs: 60_000 });
+      await store.register("short", { v: 1 }, { ttlMs: 24 * 60 * 60_000 });
+      await store.register("long", { v: 2 }, { ttlMs: 48 * 60 * 60_000 });
 
       // Before expiry – both visible.
       await expect(store.lookup("short")).resolves.toEqual({ v: 1 });
       await expect(store.lookup("long")).resolves.toEqual({ v: 2 });
 
-      // Advance past the short TTL.
-      vi.setSystemTime(10_600);
+      seedPluginStateEntriesForTests([
+        {
+          pluginId: "fixture-plugin",
+          namespace: "ttl-test",
+          key: "short",
+          value: { v: 1 },
+          expiresAt: Date.now() - 1,
+        },
+      ]);
 
       // Expired value is invisible to reads.
       await expect(store.lookup("short")).resolves.toBeUndefined();

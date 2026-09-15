@@ -593,7 +593,6 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       key: "defaults",
       raw: buildDefaultsPatch(defaults),
       note: t("modelProviders.notes.defaultModel"),
-      success: t("modelProviders.defaults.saved"),
       replacePaths: DEFAULT_MODELS_REPLACE_PATHS,
     });
     // Keep the draft when fresh provider data is unavailable after commit.

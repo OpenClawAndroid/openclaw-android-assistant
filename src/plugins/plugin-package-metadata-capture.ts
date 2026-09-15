@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import { createRequire, isBuiltin } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -681,6 +682,19 @@ export function createPluginSourceCapture(execute?: <T>(run: () => T) => T) {
     const capture = () => acquire(run);
     return execute ? execute(capture) : capture();
   };
+  const beginDisposal = () => {
+    disposed = true;
+    // Revoke cached modules before removal yields, including compiled CJS helpers.
+    const filenames = directory + path.sep;
+    const urls = pathToFileURL(filenames).href;
+    const cache = createRequire(import.meta.url).cache;
+    for (const id of Object.keys(cache)) {
+      if (id.startsWith(filenames) || id.startsWith(urls)) {
+        delete cache[id];
+      }
+    }
+    captureFailures.clear();
+  };
   return {
     inputs,
     pendingInputs,
@@ -695,19 +709,12 @@ export function createPluginSourceCapture(execute?: <T>(run: () => T) => T) {
       fs.symlinkSync(hostRoot, path.join(modules, "openclaw"), "junction");
     },
     dispose() {
-      disposed = true;
-      // The capture owns compiled helpers and CJS files as well as async URL-keyed records.
-      // Prefixes need no filesystem lookup after source-build disposal removes their files.
-      const filenames = directory + path.sep;
-      const urls = pathToFileURL(filenames).href;
-      const cache = createRequire(import.meta.url).cache;
-      for (const id of Object.keys(cache)) {
-        if (id.startsWith(filenames) || id.startsWith(urls)) {
-          delete cache[id];
-        }
-      }
-      captureFailures.clear();
+      beginDisposal();
       fs.rmSync(directory, { recursive: true, force: true });
+    },
+    async disposeAsync() {
+      beginDisposal();
+      await fsPromises.rm(directory, { recursive: true, force: true });
     },
   };
 }

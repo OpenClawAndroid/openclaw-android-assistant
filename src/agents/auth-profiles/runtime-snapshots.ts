@@ -214,9 +214,10 @@ export function getOwnedRuntimeAuthProfileStoreSnapshotAtDatabasePath(
 export function getPreparedRuntimeAuthProfileStoreSnapshotCore(
   agentDir?: string,
   inheritedAuthDir?: string,
+  env?: NodeJS.ProcessEnv,
 ): RuntimeAuthProfileStore | undefined {
-  const inheritedKey = resolveRuntimeStoreKey(inheritedAuthDir);
-  const requestedKey = resolveRuntimeStoreKey(agentDir);
+  const inheritedKey = resolveRuntimeStoreKey(inheritedAuthDir, env);
+  const requestedKey = resolveRuntimeStoreKey(agentDir, env);
   const inherited = getRuntimeAuthProfileStoreSnapshotAtDatabasePath(inheritedKey);
   if (requestedKey === inheritedKey) {
     return inherited;

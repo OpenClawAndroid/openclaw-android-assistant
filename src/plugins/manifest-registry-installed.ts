@@ -526,8 +526,10 @@ export function prepareInstalledPluginCandidateResolver(params: {
     const candidate = toPluginCandidate(plugin, env);
     if (
       candidate.origin === "bundled" &&
-      (sourceRoots.has(pluginCacheRealpathSync(candidate.rootDir) ?? candidate.rootDir) ||
-        configuredSources.has(pluginCacheRealpathSync(candidate.source) ?? candidate.source))
+      ((sourceRoots.size > 0 &&
+        sourceRoots.has(pluginCacheRealpathSync(candidate.rootDir) ?? candidate.rootDir)) ||
+        (configuredSources.size > 0 &&
+          configuredSources.has(pluginCacheRealpathSync(candidate.source) ?? candidate.source)))
     ) {
       candidate.sourcePreferred = true;
     }

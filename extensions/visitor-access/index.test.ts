@@ -194,6 +194,7 @@ describe("visitor-access plugin lifecycle", () => {
 
     vi.setSystemTime(START_MS + 2 * DAY_MS);
     await vi.advanceTimersByTimeAsync(HOUR_MS);
+    await restarted.execute("visitor_list");
     expect(policy.emails()).toEqual([]);
     expect(await restarted.store.entries()).toEqual([]);
     await restarted.stop();

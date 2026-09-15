@@ -94,6 +94,7 @@ export type ChatMediaResource<Value> = {
   abortController: AbortController | undefined;
   refresh: { at: number; timer: ReturnType<typeof setTimeout> } | undefined;
   retainUntil: number | undefined;
+  releaseAuthRecovery?: () => void;
 };
 
 type ChatMediaSubscriber = {
@@ -141,6 +142,8 @@ function detachChatMediaResourceSubscriber(
   if (resource.subscribers.size > 0) {
     return;
   }
+  resource.releaseAuthRecovery?.();
+  resource.releaseAuthRecovery = undefined;
   if (resource.refresh) {
     clearTimeout(resource.refresh.timer);
     resource.refresh = undefined;

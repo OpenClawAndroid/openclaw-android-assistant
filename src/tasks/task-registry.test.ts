@@ -606,15 +606,35 @@ describe("task-registry", () => {
           maxEntries: 10,
         });
         await store.register("expired", { value: "stale" }, { ttlMs: 100 });
-        seedPluginStateEntriesForTests(
-          Array.from({ length: 2_049 }, (_, index) => ({
+        const { db } = openOpenClawStateDatabase();
+        expect(
+          executeSqliteQueryTakeFirstSync(
+            db,
+            getNodeSqliteKysely<Pick<OpenClawStateKyselyDatabase, "plugin_state_entries">>(db)
+              .selectFrom("plugin_state_entries")
+              .select((eb) => eb("expires_at", "-", eb.ref("created_at")).as("ttlMs"))
+              .where("plugin_id", "=", "fixture-plugin")
+              .where("namespace", "=", "maintenance-restart")
+              .where("entry_key", "=", "expired"),
+          ),
+        ).toEqual({ ttlMs: 100 });
+        // The worker owns registration time; seed expiry for the maintenance clock separately.
+        seedPluginStateEntriesForTests([
+          {
+            pluginId: "fixture-plugin",
+            namespace: "maintenance-restart",
+            key: "expired",
+            value: { value: "stale" },
+            expiresAt: 1_100,
+          },
+          ...Array.from({ length: 2_049 }, (_, index) => ({
             pluginId: "fixture-plugin",
             namespace: "maintenance-restart",
             key: `expired-${index}`,
             value: { index },
             expiresAt: 1_100,
           })),
-        );
+        ]);
 
         // Close plugin-state's process-local handle while preserving the shared SQLite file.
         resetPluginStateStoreForTests();

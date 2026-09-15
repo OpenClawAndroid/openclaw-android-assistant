@@ -59,6 +59,55 @@ function agentAttentionRow(
 }
 
 describe("AppSidebar session attention", () => {
+  it("keeps an active waiting session hand-only and restores its ring after resolution", async () => {
+    const client = {
+      request: vi.fn().mockResolvedValue({ questions: [] }),
+    } as unknown as GatewayBrowserClient;
+    const gatewayHarness = createGatewayHarness(client);
+    const sessionsHarness = createSessionsHarness("main", [sessionKey]);
+    setRows(sessionsHarness, [
+      {
+        key: sessionKey,
+        kind: "direct",
+        label: "Waiting session",
+        updatedAt: 2,
+        status: "running",
+        hasActiveRun: true,
+      },
+    ]);
+    const { sidebar } = await mountSidebar(gatewayHarness.gateway, sessionsHarness.sessions);
+    const row = sidebar.querySelector(`[data-session-key="${sessionKey}"]`)!;
+    expect(row.querySelector(".session-glyph__ring")).not.toBeNull();
+    gatewayHarness.publishEvent("question.requested", {
+      id: "question-active",
+      agentId: "main",
+      sessionKey,
+      questions: [
+        {
+          questionId: "confirm",
+          header: "Confirm",
+          question: "Continue?",
+          options: [{ label: "Continue" }],
+        },
+      ],
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 60_000,
+      status: "pending",
+    });
+    await sidebar.updateComplete;
+    expect(
+      row.querySelector('[data-session-attention="question"]')?.getAttribute("aria-label"),
+    ).toBe("Waiting for your answer");
+    expect.soft(row.querySelector(".session-glyph__ring")).toBeNull();
+    expect.soft(row.classList.contains("sidebar-recent-session--attention-amber")).toBe(false);
+    gatewayHarness.publishEvent("question.resolved", {
+      id: "question-active",
+      status: "cancelled",
+    });
+    await sidebar.updateComplete;
+    expect(row.querySelector('[data-session-attention="question"]')).toBeNull();
+    expect(row.querySelector(".session-glyph__ring")).not.toBeNull();
+  });
   it("redacts local paths from failed-run previews", async () => {
     const sessionsHarness = createSessionsHarness("main", [sessionKey]);
     setRows(sessionsHarness, [

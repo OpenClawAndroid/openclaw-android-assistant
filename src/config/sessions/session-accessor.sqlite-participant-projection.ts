@@ -97,18 +97,29 @@ function participantRecordsBySessionKey(
   return records;
 }
 
+function participantProjection(
+  records: readonly SessionParticipantRecord[],
+): Pick<SessionEntry, "participants" | "participantCount"> {
+  if (records.length === 0) {
+    return {};
+  }
+  return {
+    participants: records.map(({ identity }) => ({ identity })),
+    participantCount: records.length,
+  };
+}
+
 function withProjectedParticipants(
   entry: SessionEntry,
   records: readonly SessionParticipantRecord[],
 ): SessionEntry {
-  if (records.length === 0) {
-    return entry;
-  }
-  return {
-    ...entry,
-    participants: records.map(({ identity }) => ({ identity })),
-    participantCount: records.length,
-  };
+  return records.length ? { ...entry, ...participantProjection(records) } : entry;
+}
+
+export function readSqliteSessionParticipantProjection(database: DatabaseSync, sessionKey: string) {
+  return participantProjection(
+    participantRecordsBySessionKey(database, [sessionKey]).get(sessionKey) ?? [],
+  );
 }
 
 export function projectSqliteSessionParticipants(

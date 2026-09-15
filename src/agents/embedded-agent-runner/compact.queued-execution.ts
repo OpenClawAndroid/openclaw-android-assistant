@@ -465,16 +465,12 @@ export async function executeQueuedContextEngineCompaction(input: {
             checkpointContext,
             () =>
               persistCompactionCheckpoint({
-                config: params.config,
-                sessionKey: params.sessionKey,
-                sessionId: postCompactionSessionId,
                 trigger: params.trigger,
                 snapshot: checkpointSnapshot,
                 summary: result.result?.summary,
                 firstKeptEntryId: result.result?.firstKeptEntryId,
                 tokensBefore: result.result?.tokensBefore,
                 tokensAfter: result.result?.tokensAfter,
-                sessionFile: postCompactionSessionFile,
                 sessionTarget: postCompactionSessionTarget,
               }),
           );

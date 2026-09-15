@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as sessionAccessor from "../../../config/sessions/session-accessor.js";
 import { resolveSessionStorePathForScope } from "../../../config/sessions/session-store-path.js";
@@ -5,6 +6,13 @@ import {
   runWithOwnedSessionTranscriptWrite,
   withOwnedSessionTranscriptWrites,
 } from "../../../config/sessions/transcript-write-context.js";
+import { LegacyContextEngine } from "../../../context-engine/legacy.js";
+import {
+  listContextEngineQuarantines,
+  registerContextEngineInRegistry,
+  resolveContextEngine,
+} from "../../../context-engine/registry.js";
+import { resetContextEngineRuntimeQuarantineForTests } from "../../../context-engine/registry.test-support.js";
 import type { CallGatewayOptions } from "../../../gateway/call.js";
 import { getAgentEventLifecycleGeneration } from "../../../infra/agent-events.js";
 import {
@@ -13,6 +21,9 @@ import {
   registerAgentRunContext,
   releaseAgentRunDelegatedAuthority,
 } from "../../../infra/agent-run-registry.js";
+import { createEmptyPluginRegistry } from "../../../plugins/registry-empty.js";
+import { PluginRegistryInspectionResources } from "../../../plugins/registry-inspection-resources.js";
+import { retireInspectionInstances } from "../../../plugins/registry-inspection.test-support.js";
 // Subagent registry lifecycle tests cover completion, cleanup, announce retry,
 // detached task status, and resource retirement around child-run endings.
 import { bindGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
@@ -25,6 +36,11 @@ import {
   tryBeginGatewayRootWorkAdmission,
   tryBeginGatewaySuspendAdmission,
 } from "../../../process/gateway-work-admission.js";
+import {
+  AsyncWorkScope,
+  getAsyncWorkSignal,
+  trackAsyncWork,
+} from "../../../shared/async-work-scope.js";
 import { createDeferredCore } from "../../../shared/deferred.js";
 import { SUBAGENT_KILL_TASK_ERROR } from "../../../tasks/detached-task-runtime-contract.js";
 import { createTestAdmittedRunContext } from "../../admitted-run-context.test-support.js";
@@ -54,6 +70,12 @@ import {
   SUBAGENT_ENDED_REASON_KILLED,
 } from "./subagent-lifecycle-events.js";
 import { shouldSuppressSubagentRecoverySessionEffects } from "./subagent-recovery-state.js";
+import { createSubagentRegistryContextCleanup } from "./subagent-registry-context-cleanup.js";
+import {
+  resetSubagentRegistryRuntimeLoadersForTests,
+  setSubagentRegistryDepsForTest,
+  subagentRegistryDeps,
+} from "./subagent-registry-deps.js";
 import { loadPendingFinalDeliveryPayload } from "./subagent-registry-lifecycle-delivery.js";
 import {
   SubagentLifecycleController,
@@ -5254,6 +5276,134 @@ describe("requester settle wake trigger", () => {
       .mockReset()
       .mockResolvedValue(undefined);
   });
+
+  it.each(["completed", "stale-after-resolution", "restart-before-admission"] as const)(
+    "owns context cleanup after its caller scope drains (%s)",
+    async (mode) => {
+      resetGatewayWorkAdmission();
+      resetContextEngineRuntimeQuarantineForTests();
+      runtimeMocks.log.mockClear();
+      const registry = createEmptyPluginRegistry();
+      const resources = new PluginRegistryInspectionResources(retireInspectionInstances);
+      resources.attach(registry);
+      const retire = vi.fn();
+      resources.register("fixture", { id: "cleanup-resource", dispose: retire });
+      const factoryStarted = createDeferredCore();
+      const factoryGate = createDeferredCore();
+      const disposalStarted = createDeferredCore();
+      const disposalGate = createDeferredCore();
+      const descendantGate = createDeferredCore();
+      const descendantDone = createDeferredCore();
+      const onSubagentEnded = vi.fn(async () => {});
+      const dispose = vi.fn(async () => {
+        expect(retire).not.toHaveBeenCalled();
+        disposalStarted.resolve();
+        await disposalGate.promise;
+      });
+      const factory = vi.fn(async () => {
+        expect(getAsyncWorkSignal()?.aborted).toBe(false);
+        factoryStarted.resolve();
+        await factoryGate.promise;
+        return Object.assign(new LegacyContextEngine(), { onSubagentEnded, dispose });
+      });
+      registerContextEngineInRegistry(registry, "cleanup-owned", factory, "plugin:fixture");
+      registerContextEngineInRegistry(registry, "legacy", () => new LegacyContextEngine(), "core");
+      setSubagentRegistryDepsForTest({
+        getRuntimeConfig: () => ({ plugins: { slots: { contextEngine: "cleanup-owned" } } }),
+        loadAgentRuntimePluginRegistryHandle: () => registry,
+        ensureContextEnginesInitialized: vi.fn(),
+        resolveContextEngine,
+      });
+      const warn = vi.fn();
+      const cleanup = createSubagentRegistryContextCleanup({
+        deps: () => subagentRegistryDeps,
+        persist: vi.fn(),
+        warn,
+      });
+      const entry = makeRunModeCleanupEntry("closed-cleanup-caller", { generation: 1 });
+      const runs = new Map([[entry.runId, entry]]);
+      const cleanupDone = createDeferredCore();
+      const controller = createLifecycleController({
+        entry,
+        runs,
+        notifyContextEngineSubagentEnded: async (params, options) => {
+          try {
+            await cleanup.notifyContextEngineSubagentEnded(params, options);
+            // A cooperating descendant must keep the root counted even after notification returns.
+            void trackAsyncWork(async () => {
+              await descendantGate.promise;
+              descendantDone.resolve();
+            }).catch((error: unknown) => warn("descendant admission failed", { error }));
+          } finally {
+            cleanupDone.resolve();
+          }
+        },
+      });
+      const caller = new AsyncWorkScope();
+      const continuation = caller.run(() => AsyncLocalStorage.snapshot());
+      const suspension = tryBeginGatewaySuspendAdmission(() => {});
+      expect(suspension?.commit()).toBe(true);
+      try {
+        continuation(() =>
+          controller.completeCleanupBookkeeping({
+            runId: entry.runId,
+            entry,
+            cleanup: "keep",
+            completedAt: 5_000,
+            skipRequesterSettleWake: true,
+          }),
+        );
+        // Admission is parked while the originating async owner becomes permanently closed.
+        await caller.drain();
+        expect(factory).not.toHaveBeenCalled();
+        if (mode === "restart-before-admission") {
+          markGatewayRestartDraining();
+          await waitForLifecycleState(() =>
+            expect(runtimeMocks.log).toHaveBeenCalledWith(
+              expect.stringContaining("subagent context-engine cleanup failed"),
+            ),
+          );
+          expect(factory).not.toHaveBeenCalled();
+          expect(getActiveGatewayRootWorkCount()).toBe(0);
+          expect(listContextEngineQuarantines()).toEqual([]);
+          return;
+        }
+        expect(suspension?.release()).toBe(true);
+        await waitForLifecycleState(() => expect(factory).toHaveBeenCalledOnce());
+        await factoryStarted.promise;
+        if (mode === "stale-after-resolution") {
+          runs.set(entry.runId, createRunEntry({ generation: 2 }));
+        }
+        factoryGate.resolve();
+        await disposalStarted.promise;
+        expect(getActiveGatewayRootWorkHolders()).toContain("subagents:lifecycle-cleanup");
+        await resources.release();
+        expect(retire).not.toHaveBeenCalled();
+        disposalGate.resolve();
+        await cleanupDone.promise;
+        expect(retire).toHaveBeenCalledOnce();
+        expect(dispose).toHaveBeenCalledOnce();
+        expect(onSubagentEnded).toHaveBeenCalledTimes(mode === "completed" ? 1 : 0);
+        expect(warn).not.toHaveBeenCalled();
+        expect(listContextEngineQuarantines()).toEqual([]);
+        expect(getActiveGatewayRootWorkHolders()).toContain("subagents:lifecycle-cleanup");
+        descendantGate.resolve();
+        await descendantDone.promise;
+        await waitForLifecycleState(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
+      } finally {
+        suspension?.release();
+        factoryGate.resolve();
+        disposalGate.resolve();
+        descendantGate.resolve();
+        await resources.release();
+        await waitForLifecycleState(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
+        setSubagentRegistryDepsForTest();
+        resetSubagentRegistryRuntimeLoadersForTests();
+        resetContextEngineRuntimeQuarantineForTests();
+        resetGatewayWorkAdmission();
+      }
+    },
+  );
 
   it("runs a detached settle wake outside a disposed requester transcript owner", async () => {
     const sessionKey = "agent:main:disposed-settle-wake-owner";

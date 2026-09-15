@@ -1,6 +1,7 @@
 import WaPopover from "@awesome.me/webawesome/dist/components/popover/popover.js";
 import { html, nothing, svg } from "lit";
 import { ref } from "lit/directives/ref.js";
+import { repeat } from "lit/directives/repeat.js";
 import { deviceIcons } from "../../components/icons-devices.ts";
 import { strokeIcon } from "../../components/icons-tools.ts";
 import { icons } from "../../components/icons.ts";
@@ -443,33 +444,37 @@ export function renderWhereChip(params: {
                   )
                 : nothing
             }
-            ${devices.map((device) => {
-              return renderSessionMenuItem(
-                {
-                  value: `device:${device.deviceId}`,
-                  label: device.label,
-                  sub: device.subtitle,
-                  icon: environmentDeviceIcon(device),
-                  platform: device.platform ? prettifyPlatform(device.platform) : undefined,
-                  capabilityLabels: environmentCapabilityLabels(device.capabilities),
-                  hideDetails: device.hideDetails,
-                  remediation: device.remediation,
-                  capacityLabel:
-                    device.selectable && device.workerSlots
-                      ? t("newSession.concurrentSessionsValue", {
-                          used: String(device.workerSlots.total - device.workerSlots.available),
-                          total: String(device.workerSlots.total),
-                        })
-                      : undefined,
-                  compact: true,
-                  checked: params.state.kind === "device" && params.deviceId === device.deviceId,
-                  disabled: !device.selectable,
-                  title: device.disabledReason,
-                  onSelect: () => params.onSelectDevice(device.deviceId),
-                },
-                destinationDisabled,
-              );
-            })}
+            ${repeat(
+              devices,
+              (device) => device.deviceId,
+              (device) => {
+                return renderSessionMenuItem(
+                  {
+                    value: `device:${device.deviceId}`,
+                    label: device.label,
+                    sub: device.subtitle,
+                    icon: environmentDeviceIcon(device),
+                    platform: device.platform ? prettifyPlatform(device.platform) : undefined,
+                    capabilityLabels: environmentCapabilityLabels(device.capabilities),
+                    hideDetails: device.hideDetails,
+                    remediation: device.remediation,
+                    capacityLabel:
+                      device.selectable && device.workerSlots
+                        ? t("newSession.concurrentSessionsValue", {
+                            used: String(device.workerSlots.total - device.workerSlots.available),
+                            total: String(device.workerSlots.total),
+                          })
+                        : undefined,
+                    compact: true,
+                    checked: params.state.kind === "device" && params.deviceId === device.deviceId,
+                    disabled: !device.selectable,
+                    title: device.disabledReason,
+                    onSelect: () => params.onSelectDevice(device.deviceId),
+                  },
+                  destinationDisabled,
+                );
+              },
+            )}
             ${showDeviceSkeletons ? renderEnvironmentSkeletons("devices") : nothing}
             ${
               cloudProfiles.length || showMissingCloud || showCloudSkeletons

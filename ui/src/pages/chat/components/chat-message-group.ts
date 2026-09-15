@@ -26,6 +26,7 @@ import {
 import { resolveToolCallView } from "../../../lib/chat/tool-call-view.ts";
 import { extractToolCardsCached, isToolCardError } from "../../../lib/chat/tool-cards.ts";
 import { fnv1aUtf16 } from "../../../lib/fnv1a.ts";
+import { gatewayClientKind } from "../../../lib/gateway-client-kind.ts";
 import { resolveIdentityHue } from "../../../lib/identity-avatar.ts";
 import { renderChatAvatar, renderForwardedAvatar } from "../chat-avatar.ts";
 import type { TurnRecap } from "../chat-progress.ts";
@@ -101,6 +102,7 @@ type RenderMessageGroupOptions = Omit<
     onToggleAssistantMessageExpanded?: (messageId: string) => void;
     userId?: string | null;
     userName?: string | null;
+    showOwnSenderName?: boolean;
     /** Routing for peer sender names; absent leaves them plain text. */
     personActivity?: PersonActivityRouting;
     userAvatar?: string | null;
@@ -446,6 +448,13 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
     Boolean(opts.userId && group.sender) &&
     !isOwnSenderGroup(group, opts.userId);
   const isForwarded = normalizedRole === "assistant" && hasForwardedSource(group);
+  const showSenderName =
+    !isForwarded &&
+    !sourceOnly &&
+    (normalizedRole !== "user" || isPeerGroup || opts.showOwnSenderName !== false);
+  const visibleSources = group.sourceClients?.filter(
+    (source) => gatewayClientKind(source) !== "web",
+  );
   const sourceSessionKey = group.senderSession?.sessionKey;
   const who = resolveMessageGroupSenderLabel(group, opts);
   const roleClass =
@@ -627,7 +636,9 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
           : html`<div
               class="chat-group-footer ${
                 normalizedRole === "user" &&
-                (group.sourceClients?.length || isPeerGroup || avatarPlacement !== "footer")
+                (visibleSources?.length ||
+                  isPeerGroup ||
+                  (showSenderName && avatarPlacement !== "footer"))
                   ? "chat-group-footer--persistent-identity"
                   : ""
               }${sendStatus ? " chat-group-footer--send-status" : ""}"
@@ -640,7 +651,7 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
                     : nothing
                 }
                 ${
-                  isForwarded || sourceOnly
+                  !showSenderName
                     ? nothing
                     : renderPersonName(
                         who,
@@ -652,9 +663,9 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
                       )
                 }
                 ${
-                  group.sourceClients?.length
+                  visibleSources?.length
                     ? html`<span class="chat-message-source"
-                        >${messageClientSourcesLabel(group.sourceClients)}</span
+                        >${messageClientSourcesLabel(visibleSources)}</span
                       >`
                     : nothing
                 }

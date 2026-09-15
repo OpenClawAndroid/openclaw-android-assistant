@@ -87,10 +87,7 @@ describe("session-compaction-checkpoints", () => {
         },
         () =>
           createFileBackedCompactionCheckpointStore().persistCheckpoint({
-            cfg,
-            agentId: MAIN_AGENT_ID,
-            sessionKey,
-            sessionId,
+            sessionTarget: scope,
             reason: "manual",
             snapshot: { sessionId, sessionFile: snapshotFile, leafId: "pre-leaf" },
             postLeafId: "post-leaf",
@@ -184,10 +181,7 @@ describe("session-compaction-checkpoints", () => {
         },
         () =>
           createFileBackedCompactionCheckpointStore().persistCheckpoint({
-            cfg,
-            agentId,
-            sessionKey,
-            sessionId,
+            sessionTarget: scope,
             reason: "manual",
             snapshot: { sessionId, leafId: "pre-leaf" },
             postLeafId: "post-leaf",

@@ -113,8 +113,11 @@ PR selection includes `src/cli/update-cli/**`, `src/infra/update-*`,
 `package.json` (including its packaged schema-version metadata). It also includes
 `scripts/e2e/upgrade-survivor*`, `scripts/e2e/lib/upgrade-survivor/**`, the survivor
 policy and baseline resolver, the Docker planner/catalog, and this gate's CI
-workflow and changed-lane planner. Tests independently pin both state and agent
-schema-version constant owners to the published lane.
+workflow, Docker selector (`scripts/lib/ci-docker-seed-plan.mts`), and shared
+test-path classifier. Node-only planner edits do not select Docker lanes. The
+Node planner retains its selector export for older target/harness combinations.
+Tests independently pin both state and agent schema-version constant owners to
+the published lane.
 Trusted same-repository pull requests request one 32-vCPU Blacksmith runner with
 main and tail parallelism set to 3. The weighted scheduler still admits only one
 weight-three MCP or published-upgrade lane at a time; the larger host supplies package-build and

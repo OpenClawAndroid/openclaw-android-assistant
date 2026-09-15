@@ -92,6 +92,10 @@ Reset-recall metadata crosses the worker boundary with the prepared content.
 If secret registration invalidates both preparation attempts, the export rejects
 for retry instead of reading SQLite on the Gateway thread. Failed index rebuilds
 preserve the published index and retained retry state.
+Chunk preparation from captured session text uses the existing local workspace
+queue without a durable write lease. File and multimodal preparation retain that
+lease, as do all cache, index, and publication mutations. Those mutations recheck
+current ownership and session tombstones after awaited preparation.
 Incognito databases, archive materialization, and caller-owned transcript
 observers retain their existing local execution. Index publication and
 restoration remain with their existing database and lifecycle owners.

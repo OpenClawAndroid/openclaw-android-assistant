@@ -148,6 +148,8 @@ function beginImmediateTransaction(
 }
 
 export type SqliteTransactionOptions = {
+  /** Already-started BEGIN budget, carried between workers in the same process. */
+  beginDeadlineNs?: bigint;
   busyTimeoutMs?: number;
   databaseLabel?: string;
   logger?: Pick<SubsystemLogger, "warn">;
@@ -432,6 +434,11 @@ export async function runSqliteImmediateTransaction<T>(
     throw new Error("Asynchronous SQLite preparation cannot join an existing transaction");
   }
   const deadline = performance.now() + readSqliteBusyTimeout(db);
+  const inheritedDeadlineNs = options?.beginDeadlineNs;
+  const remainingMs =
+    inheritedDeadlineNs === undefined
+      ? () => deadline - performance.now()
+      : () => Number(inheritedDeadlineNs - process.hrtime.bigint()) / 1_000_000;
   let entered = false;
   while (true) {
     const operation = await prepare();
@@ -466,13 +473,13 @@ export async function runSqliteImmediateTransaction<T>(
         );
       });
     } catch (error) {
-      if (entered || !isSqliteLockError(error) || performance.now() >= deadline) {
+      if (entered || !isSqliteLockError(error) || remainingMs() <= 0) {
         throw error;
       }
       // The synchronous helper restored connection policy and left no transaction.
-      await sleep(Math.min(25, Math.max(0, deadline - performance.now())));
+      await sleep(Math.min(25, Math.max(0, remainingMs())));
       assertTransactionUsable(db);
-      if (performance.now() >= deadline) {
+      if (remainingMs() <= 0) {
         throw error;
       }
     }

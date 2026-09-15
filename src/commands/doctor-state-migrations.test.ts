@@ -42,9 +42,13 @@ import type { InstalledPluginInstallRecordInfo } from "../plugins/installed-plug
 import { EMPTY_LEGACY_SESSION_SURFACES } from "../plugins/legacy-session-surfaces.types.js";
 import { writeConfigMachineState } from "../state/config-machine-state-write.js";
 import { readConfigMachineState } from "../state/config-machine-state.js";
-import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
+import {
+  closeOpenClawAgentDatabasesAsync,
+  closeOpenClawAgentDatabasesForTest,
+} from "../state/openclaw-agent-db.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../state/openclaw-state-db-contract.js";
 import {
+  closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
@@ -52,7 +56,20 @@ import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths
 import { loadTaskFlowRegistryStateFromSqlite } from "../tasks/task-flow-registry.store.sqlite.js";
 import { loadTaskRegistryStateFromSqlite } from "../tasks/task-registry.store.sqlite.js";
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterEach(async () => {
+    await closeOpenClawAgentDatabasesAsync();
+    await closeOpenClawStateDatabaseAsync();
+    resetAutoMigrateLegacyStateDirForTest();
+    resetAutoMigrateLegacyTaskStateSidecarsForTest();
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
+    setMaxPluginStateEntriesPerPluginForTests();
+    resetPluginStateStoreForTests();
+    mockedChannelMigrationPlans.plans = [];
+    cleanup();
+  }),
+);
 
 function makeDoctorStateDir(): string {
   return tempDirs.make("openclaw-doctor-");
@@ -263,16 +280,6 @@ async function runTelegramAllowFromMigration(params: { root: string; cfg: OpenCl
   });
   return { oauthDir, env, detected, result };
 }
-
-afterEach(() => {
-  resetAutoMigrateLegacyStateDirForTest();
-  resetAutoMigrateLegacyTaskStateSidecarsForTest();
-  closeOpenClawStateDatabaseForTest();
-  closeOpenClawAgentDatabasesForTest();
-  setMaxPluginStateEntriesPerPluginForTests();
-  resetPluginStateStoreForTests();
-  mockedChannelMigrationPlans.plans = [];
-});
 
 function writeJson5(filePath: string, value: unknown) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -1688,6 +1695,7 @@ describe("doctor legacy state migrations", () => {
       await store.register("scope:existing", { body: "fresh" });
       await store.register("other:keep", { body: "other" });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -1851,6 +1859,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.register("existing", { offset: 10 });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -1982,6 +1991,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.register("current", { body: "current" });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -2039,6 +2049,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.register("current", { body: "current" });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -2094,6 +2105,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.register("current", { body: "current" });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const firstDetected = await detectLegacyStateMigrations({
@@ -2111,6 +2123,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.delete("current");
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const secondDetected = await detectLegacyStateMigrations({
@@ -2163,6 +2176,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.register("current", { body: "current" });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -2214,6 +2228,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.register("covered", { body: "current" });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -2264,6 +2279,7 @@ describe("doctor legacy state migrations", () => {
         })),
       );
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -3448,6 +3464,7 @@ describe("doctor legacy state migrations", () => {
       });
       await store.register("interaction:1", { ok: false });
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -3516,6 +3533,7 @@ describe("doctor legacy state migrations", () => {
         },
       ]);
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -3593,6 +3611,7 @@ describe("doctor legacy state migrations", () => {
         },
       ]);
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -3651,6 +3670,7 @@ describe("doctor legacy state migrations", () => {
         },
       ]);
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -3681,6 +3701,7 @@ describe("doctor legacy state migrations", () => {
         },
       ]);
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({
@@ -3708,6 +3729,7 @@ describe("doctor legacy state migrations", () => {
         },
       ]);
     });
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     const detected = await detectLegacyStateMigrations({

@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, type Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isMissingPathError } from "../../infra/errors.js";
@@ -34,6 +34,73 @@ type SnapshotInventory = {
 const assertCurrent = () =>
   requestGitWorkerEffect<"worktree.assert-current">({ type: "worktree.assert-current", input: {} });
 
+// @types/node omits opendir's buffer encoding and declares only string names.
+function openRawDirectory(directoryPath: string | Buffer) {
+  // SAFETY: Node accepts buffer encoding; the consumer validates names before use.
+  const openDirectory = fs.opendir as (
+    path: string | Buffer,
+    options: { encoding: BufferEncoding | "buffer" },
+  ) => Promise<AsyncIterable<Dirent<string | Buffer>>>;
+  return openDirectory(directoryPath, { encoding: "buffer" });
+}
+
+/** Git collapses ignored trees; inspect them without buffering every dependency filename. */
+async function inspectIgnoredPaths(
+  checkoutPath: string,
+  visitFile?: (entry: Buffer) => Promise<void>,
+): Promise<boolean> {
+  const ignored = splitNullBuffer(
+    await requireGitBuffer(checkoutPath, [
+      "ls-files",
+      "-z",
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+      "--directory",
+    ]),
+  );
+  if (await containsGitMarker(checkoutPath, ignored)) {
+    return true;
+  }
+  const visitDirectory = async (relative: Buffer): Promise<boolean> => {
+    if (
+      await rawPathExists(
+        checkoutPathFromGitBytes(checkoutPath, Buffer.concat([relative, Buffer.from("/.git")])),
+      )
+    ) {
+      return true;
+    }
+    // Buffer names preserve bytes through Node's lstat fallback for unknown entry
+    // types. opendir batches entries and closes the handle even on early retention.
+    const directory = await openRawDirectory(checkoutPathFromGitBytes(checkoutPath, relative));
+    for await (const entry of directory) {
+      if (!Buffer.isBuffer(entry.name)) {
+        throw new Error("Expected raw directory-entry bytes");
+      }
+      const child = Buffer.concat([relative, Buffer.from("/"), entry.name]);
+      if (entry.isDirectory()) {
+        if (await visitDirectory(child)) {
+          return true;
+        }
+      } else {
+        // Never follow symlinks; only ordinary Git-style leaf paths enter the snapshot.
+        await visitFile?.(child);
+      }
+    }
+    return false;
+  };
+  for (const entry of ignored) {
+    if (entry.at(-1) === 47) {
+      if (await visitDirectory(entry.subarray(0, -1))) {
+        return true;
+      }
+    } else {
+      await visitFile?.(entry);
+    }
+  }
+  return false;
+}
+
 async function collectSnapshotInventory(input: SnapshotInput): Promise<SnapshotInventory> {
   const head = await requireGit(input.checkoutPath, ["rev-parse", "--verify", "HEAD^{commit}"]);
   const headPaths = parseGitTreePaths(
@@ -47,15 +114,6 @@ async function collectSnapshotInventory(input: SnapshotInput): Promise<SnapshotI
       "ls-files",
       "-z",
       "--others",
-      "--exclude-standard",
-    ]),
-  );
-  const ignored = splitNullBuffer(
-    await requireGitBuffer(input.checkoutPath, [
-      "ls-files",
-      "-z",
-      "--others",
-      "--ignored",
       "--exclude-standard",
     ]),
   );
@@ -114,13 +172,13 @@ async function collectSnapshotInventory(input: SnapshotInput): Promise<SnapshotI
     add(entry);
   }
   const isStagedInput = createStagedInputPathMatcher(await fsRoot(input.checkoutPath));
-  for (const entry of ignored) {
+  const ignoredNested = await inspectIgnoredPaths(input.checkoutPath, async (entry) => {
     const relativePath = entry.toString("utf8");
     if (stagedInputPathDirectory(relativePath) && (await isStagedInput(relativePath))) {
       add(entry);
     }
-  }
-  if (await containsGitMarker(input.checkoutPath, [...paths.values(), ...ignored])) {
+  });
+  if (ignoredNested || (await containsGitMarker(input.checkoutPath, paths.values()))) {
     throw new Error("nested git repositories cannot be snapshotted losslessly");
   }
   return { head, headPaths, paths };
@@ -404,18 +462,8 @@ export async function inspectNestedRepository(checkoutPath: string): Promise<boo
   const untracked = splitNullBuffer(
     await requireGitBuffer(checkoutPath, ["ls-files", "-z", "--others", "--exclude-standard"]),
   );
-  const ignored = splitNullBuffer(
-    await requireGitBuffer(checkoutPath, [
-      "ls-files",
-      "-z",
-      "--others",
-      "--ignored",
-      "--exclude-standard",
-    ]),
+  return (
+    (await containsGitMarker(checkoutPath, [...index.map((entry) => entry.path), ...untracked])) ||
+    (await inspectIgnoredPaths(checkoutPath))
   );
-  return await containsGitMarker(checkoutPath, [
-    ...index.map((entry) => entry.path),
-    ...untracked,
-    ...ignored,
-  ]);
 }

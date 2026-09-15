@@ -14,11 +14,13 @@ import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db
 import {
   appendTranscriptEventSync,
   appendTranscriptMessage,
+  assignSessionOwner,
   cleanupPluginHostSessionStore,
   listSessionEntriesCore,
   listSessionTranscriptInstances,
   loadSessionEntry,
   openSessionEntryReadView,
+  recordSessionParticipant,
   upsertSessionEntryCore,
 } from "./session-accessor.js";
 import {
@@ -235,6 +237,36 @@ describe("SQLite retained session window references", () => {
 });
 
 describe("SQLite session entry cache", () => {
+  it.each(["owner", "participant"] as const)(
+    "does not decode cold session entries for %s publication",
+    async (kind) => {
+      const scope = createSessionScope(`cold-${kind}`);
+      await upsertSessionEntryCore(scope, {
+        sessionId: `cold-${kind}`,
+        updatedAt: 1,
+        skillsSnapshot: { prompt: "stored prompt".repeat(4096), skills: [] },
+      });
+      parseSessionEntryCalls.mockClear();
+      const actor = { type: "agent" as const, id: "research" };
+      if (kind === "owner") {
+        expect(assignSessionOwner(scope, { owner: actor, assignedBy: actor })).not.toBeNull();
+      } else {
+        expect(recordSessionParticipant(scope, { identity: actor })).toBe("inserted");
+      }
+      expect(parseSessionEntryCalls).not.toHaveBeenCalled();
+      const entry = listSessionEntriesCore(scope)[0]?.entry;
+      expect(entry).toMatchObject(
+        kind === "owner"
+          ? { owner: { actor: { type: "agent", id: "research" } } }
+          : {
+              participantCount: 1,
+              participants: [{ identity: { type: "agent", id: "research" } }],
+            },
+      );
+      expect(entry).not.toHaveProperty("skillsSnapshot");
+    },
+  );
+
   it.each(["plugin-owned-state", "promoted-slots"] as const)(
     "scans plugin cleanup metadata without decoding saved prompts (%s)",
     async (mode) => {

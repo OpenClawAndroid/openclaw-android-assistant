@@ -163,7 +163,7 @@ extensions/codex/src/app-server/attempt-notifications.ts	1
 extensions/codex/src/app-server/attempt-startup.ts	1
 extensions/codex/src/app-server/auth-bridge.ts	1
 extensions/codex/src/app-server/client-runtime.ts	1
-extensions/codex/src/app-server/client.ts	4
+extensions/codex/src/app-server/client.ts	3
 extensions/codex/src/app-server/compact.ts	1
 extensions/codex/src/app-server/computer-use-cache.ts	1
 extensions/codex/src/app-server/config-utils.ts	1
@@ -2183,7 +2183,6 @@ src/claws/package-update.ts	1
 src/claws/packages.ts	1
 src/claws/project-build.ts	4
 src/claws/project.ts	4
-src/claws/provenance-runtime-read.ts	1
 src/claws/provenance.ts	6
 src/claws/reader.ts	7
 src/claws/schema.ts	3
@@ -2553,7 +2552,7 @@ src/config/validation-channel-rules.ts	1
 src/config/validation-core.ts	3
 src/config/validation-issues.ts	1
 src/config/validation-plugin-config.ts	2
-src/config/validation.ts	3
+src/config/validation.ts	1
 src/config/zod-schema.channel-messaging-common.ts	12
 src/config/zod-schema.channels-config.ts	3
 src/config/zod-schema.ts	2
@@ -3035,7 +3034,7 @@ src/infra/state-migrations.workspace-setup.ts	1
 src/infra/system-presence.ts	2
 src/infra/system-run-approval-binding.ts	1
 src/infra/system-run-approval-context.ts	6
-src/infra/tailscale.ts	9
+src/infra/tailscale.ts	7
 src/infra/tmp-openclaw-dir.ts	3
 src/infra/unhandled-rejections.ts	6
 src/infra/update-check-package-target.ts	2

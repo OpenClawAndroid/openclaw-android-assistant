@@ -328,7 +328,7 @@ describe("runtime placement observations", () => {
         const runtimeGroups = before
           .flatMap((job) => job.groups)
           .filter((group) => group.pretestBuildMode === "runtime");
-        expect(runtimeGroups).toHaveLength(3);
+        expect(runtimeGroups).toHaveLength(4);
         const selected = ["src/config/state-startup-corpus.test.ts"];
         const preciseBefore = createSelectedNodeTestShardBundles(selected, {
           runnerBackend: "hybrid",
@@ -340,7 +340,9 @@ describe("runtime placement observations", () => {
           pretestBuildMode: "runtime",
           seconds: group.configs.includes(runtimeConfig)
             ? 200
-            : group.configs.includes(infrastructure)
+            : group.includePatterns?.includes(
+                  "src/infra/update-managed-service-handoff-lifecycle.test.ts",
+                )
               ? 300
               : 20,
         }));

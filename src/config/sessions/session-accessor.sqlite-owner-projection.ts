@@ -47,13 +47,10 @@ function actorFromColumns(type: unknown, id: unknown): SessionActor | undefined 
   return normalizedType && normalizedId ? { type: normalizedType, id: normalizedId } : undefined;
 }
 
-export function projectSqliteSessionOwner(
-  entry: SessionEntry,
-  row: SqliteSessionOwnerRow,
-): SessionEntry {
+export function readSqliteSessionOwner(row: SqliteSessionOwnerRow): SessionEntry["owner"] {
   const actor = actorFromColumns(row.owner_actor_type, row.owner_actor_id);
   if (!actor) {
-    return entry;
+    return undefined;
   }
   const assignedBy = actorFromColumns(row.owner_assigned_by_type, row.owner_assigned_by_id);
   const assignedAt =
@@ -61,13 +58,18 @@ export function projectSqliteSessionOwner(
       ? row.owner_assigned_at
       : undefined;
   return {
-    ...entry,
-    owner: {
-      actor,
-      ...(assignedBy ? { assignedBy } : {}),
-      ...(assignedAt !== undefined ? { assignedAt } : {}),
-    },
+    actor,
+    ...(assignedBy ? { assignedBy } : {}),
+    ...(assignedAt !== undefined ? { assignedAt } : {}),
   };
+}
+
+export function projectSqliteSessionOwner(
+  entry: SessionEntry,
+  row: SqliteSessionOwnerRow,
+): SessionEntry {
+  const owner = readSqliteSessionOwner(row);
+  return owner ? { ...entry, owner } : entry;
 }
 
 export function hasSqliteSessionOwnerColumns(database: DatabaseSync): boolean {

@@ -29,11 +29,11 @@ vi.mock("../cron/store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../cron/store.js")>();
   return {
     ...actual,
-    loadCronJobsStoreSync: (storePath: string) => {
+    loadCronJobsStore: async (storePath: string) => {
       if (mocks.cronStoreLoadError) {
         throw mocks.cronStoreLoadError;
       }
-      return actual.loadCronJobsStoreSync(storePath);
+      return actual.loadCronJobsStore(storePath);
     },
   };
 });
@@ -102,7 +102,7 @@ describe("runSessionRegistryMaintenance", () => {
         { sessionKey: staleCronKey, storePath },
         { sessionId: "maybe-running", updatedAt: Date.now() - 8 * DAY_MS },
       );
-      mocks.cronStoreLoadError = new Error("SQLITE_CORRUPT: database disk image is malformed");
+      mocks.cronStoreLoadError = new Error("cron store load unavailable");
 
       const summary = await runSessionRegistryMaintenance({ apply: true });
 

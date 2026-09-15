@@ -549,9 +549,8 @@ describe("ModelProvidersPage agent scope", () => {
     expect(runtimeConfig.patch).toHaveBeenCalledOnce();
     expect(page.defaultsDraft).toBe(selection);
     expect(page.messages.defaults).toEqual({
-      kind: "success",
-      text: "Defaults saved.",
-      warning: "config.get failed after saving default models",
+      kind: "warning",
+      text: "config.get failed after saving default models",
     });
   });
 

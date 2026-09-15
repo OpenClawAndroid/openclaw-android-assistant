@@ -99,6 +99,7 @@ async function sendDirectBlockReply(params: {
   if (
     delivery.outcome === "delivered" &&
     !delivery.pending &&
+    delivery.source?.complete !== false &&
     isReplyPayloadTerminalContent(params.payload)
   ) {
     params.directlySentBlockKeys.add(createBlockReplyContentKey(params.payload));

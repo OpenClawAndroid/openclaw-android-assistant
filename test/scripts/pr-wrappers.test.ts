@@ -196,6 +196,17 @@ function parseDispatchedSubcommands(script: string): string[] {
 }
 
 describe("scripts/pr wrappers", () => {
+  it("loads the tooling include policy from the wrapper source inventory", () => {
+    const root = tempDirs.make("openclaw-wrapper-include-policy-");
+    copyPrWrapperSources(root);
+    const loaded = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", "await import('./test/vitest/vitest.include-patterns.ts')"],
+      { cwd: root, encoding: "utf8", env: isolatedWrapperEnv(root) },
+    );
+    expect(loaded.status, loaded.stderr).toBe(0);
+  });
+
   it("keeps the main PR helper usage and command table aligned", () => {
     const script = readScript("scripts/pr");
 

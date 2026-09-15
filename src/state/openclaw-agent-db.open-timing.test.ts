@@ -348,6 +348,9 @@ describe("agent database open timings", () => {
         thresholdMs: 1_000,
         integrityGateMs: 1_000,
         integrityGateOutcome: "healthy",
+        integrityWorkerCheckMs: expect.any(Number),
+        integrityWorkerLifetimeMs: 0,
+        integrityOutsideWorkerMs: 1_000,
         canonicalIndexMs: 0,
         repairedIndexCount: 0,
         phaseDurationsMs: {

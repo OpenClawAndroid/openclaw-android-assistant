@@ -38,6 +38,7 @@ import {
   hiddenScopeUpgradeCapability,
 } from "./application-context.ts";
 import { gatewayHelloForMethods, SESSION_MUTATION_TEST_METHODS } from "./gateway-methods.ts";
+import { settleLitElements } from "./lit-settle.ts";
 import { createStorageMock } from "./storage.ts";
 
 // The attention widget owns independent health RPC tests. Keep those requests
@@ -704,8 +705,12 @@ export function setupSidebarTest() {
       modal.dispatchEvent(new CustomEvent("modal-cancel", { cancelable: true }));
     }
     await vi.dynamicImportSettled();
+    const sidebars =
+      document.body.querySelectorAll<AppSidebarSessionNavigationElement>("openclaw-app-sidebar");
     document.body.replaceChildren();
     disposeSidebarContextLifecycles();
+    // Disconnection queues Lit updates; finish them before retiring the DOM globals.
+    await settleLitElements(sidebars);
     if (originalLocalStorage) {
       Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
     } else {

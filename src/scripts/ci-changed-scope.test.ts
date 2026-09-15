@@ -648,6 +648,8 @@ describe("detectChangedScope", () => {
         "scripts/ci-changed-scope.mjs",
         "scripts/run-vitest.mts",
         "scripts/test-projects.test-support.mts",
+        "scripts/lib/ci-docker-seed-plan.mts",
+        "test/scripts/ci-docker-seed-plan.test.ts",
         "src/commands/status.scan-result.test.ts",
         "src/scripts/ci-changed-scope.control-ui.test.ts",
         "src/scripts/ci-changed-scope.native-i18n.test.ts",

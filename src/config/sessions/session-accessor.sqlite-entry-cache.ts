@@ -1,15 +1,17 @@
 import type { DatabaseSync } from "node:sqlite";
 import { executeSqliteQuerySync, iterateSqliteQuerySync } from "../../infra/kysely-sync.js";
 import { readSqliteDataVersion } from "../../infra/node-sqlite.js";
-import {
-  deferOpenClawAgentPostCommitPublication,
-  type OpenClawAgentDatabase,
-} from "../../state/openclaw-agent-db.js";
+import { stageSqliteTransactionState } from "../../infra/sqlite-post-commit.js";
+import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
+import { tableExists } from "../../state/openclaw-state-db-schema-helpers.js";
 import { readExactSessionEntryRow } from "./session-accessor.sqlite-entry-read.js";
-import { hasSqliteSessionOwnerColumns } from "./session-accessor.sqlite-owner-projection.js";
 import {
-  projectSqliteSessionParticipants,
+  hasSqliteSessionOwnerColumns,
+  readSqliteSessionOwner,
+} from "./session-accessor.sqlite-owner-projection.js";
+import {
   projectSqliteSessionParticipantsBatch,
+  readSqliteSessionParticipantProjection,
 } from "./session-accessor.sqlite-participant-projection.js";
 import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
 import { parseSessionEntryJson, selectSessionEntryRows } from "./session-accessor.sqlite-status.js";
@@ -63,6 +65,7 @@ function ensureSessionNodesGenerationTracker(database: DatabaseSync): void {
   if (trackedSchemaVersion === schemaRow.schema_version) {
     return;
   }
+  const hasParticipants = tableExists(database, "session_participants");
   // sqlite-allow-raw -- TEMP triggers are the connection-local ownership boundary: they
   // observe unpublished raw DML. A main-schema change bumps the generation before reinstalling
   // them, so dropping/recreating session_nodes cannot make an old snapshot look current.
@@ -79,8 +82,26 @@ function ensureSessionNodesGenerationTracker(database: DatabaseSync): void {
       AFTER UPDATE ON main.session_nodes BEGIN UPDATE openclaw_session_nodes_cache_generation SET generation = generation + 1 WHERE id = 1; END;
     CREATE TEMP TRIGGER openclaw_session_nodes_cache_generation_delete
       AFTER DELETE ON main.session_nodes BEGIN UPDATE openclaw_session_nodes_cache_generation SET generation = generation + 1 WHERE id = 1; END;
+    DROP TRIGGER IF EXISTS openclaw_session_participants_cache_generation_insert;
+    DROP TRIGGER IF EXISTS openclaw_session_participants_cache_generation_update;
+    DROP TRIGGER IF EXISTS openclaw_session_participants_cache_generation_delete;
+    ${
+      hasParticipants
+        ? `
+    CREATE TEMP TRIGGER openclaw_session_participants_cache_generation_insert
+      AFTER INSERT ON main.session_participants BEGIN UPDATE openclaw_session_nodes_cache_generation SET generation = generation + 1 WHERE id = 1; END;
+    CREATE TEMP TRIGGER openclaw_session_participants_cache_generation_update
+      AFTER UPDATE ON main.session_participants BEGIN UPDATE openclaw_session_nodes_cache_generation SET generation = generation + 1 WHERE id = 1; END;
+    CREATE TEMP TRIGGER openclaw_session_participants_cache_generation_delete
+      AFTER DELETE ON main.session_participants BEGIN UPDATE openclaw_session_nodes_cache_generation SET generation = generation + 1 WHERE id = 1; END;
+    `
+        : ""
+    }
   `);
-  sessionNodesGenerationTrackerSchemaVersions.set(database, schemaRow.schema_version);
+  // A rolled-back schema change can reuse its version on retry after SQLite removes the triggers.
+  if (!database.isTransaction) {
+    sessionNodesGenerationTrackerSchemaVersions.set(database, schemaRow.schema_version);
+  }
 }
 
 function readSessionNodesGeneration(database: DatabaseSync): number {
@@ -279,7 +300,14 @@ export function readSessionEntryCache(
 }
 
 function publishTrackedCacheUpdate(database: OpenClawAgentDatabase, publish: () => void): void {
-  if (deferOpenClawAgentPostCommitPublication(database, publish)) {
+  // Committed cache state must settle before observers can reenter with newer writes.
+  if (
+    stageSqliteTransactionState(database.db, {
+      stage: () => {},
+      rollback: () => {},
+      commit: publish,
+    })
+  ) {
     return;
   }
   if (database.db.isTransaction) {
@@ -290,15 +318,12 @@ function publishTrackedCacheUpdate(database: OpenClawAgentDatabase, publish: () 
   publish();
 }
 
-function publishSqliteSessionEntryCacheUpsert(
+type SessionEntrySideMetadata = Pick<SessionEntry, "owner" | "participants" | "participantCount">;
+
+function readSessionEntrySideMetadata(
   database: OpenClawAgentDatabase,
-  update: { sessionKey: string; entry: SessionEntry },
-  writeGeneration: SqliteSessionEntryCacheWriteGeneration,
-): void {
-  const { sessionKey } = update;
-  // Carry the writer's canonical metadata forward, but own detached nested values.
-  // Saved prompts are caller-owned and must never be serialized into the listing cache.
-  const { skillsSnapshot: _skills, systemPromptReport: _report, ...metadata } = update.entry;
+  sessionKey: string,
+): SessionEntrySideMetadata {
   const ownerRow = hasSqliteSessionOwnerColumns(database.db)
     ? executeSqliteQuerySync(
         database.db,
@@ -315,12 +340,40 @@ function publishSqliteSessionEntryCacheUpsert(
           .limit(1),
       ).rows[0]
     : undefined;
-  const parsedEntry = parseSessionEntryJson({ entry_json: JSON.stringify(metadata), ...ownerRow });
-  if (!parsedEntry) {
-    publishTrackedCacheUpdate(database, () => sessionEntryCaches.delete(database.db));
+  const owner = ownerRow ? readSqliteSessionOwner(ownerRow) : undefined;
+  return {
+    ...(owner ? { owner } : {}),
+    ...readSqliteSessionParticipantProjection(database.db, sessionKey),
+  };
+}
+
+function projectSessionEntryCacheUpdate(
+  sourceEntry: SessionEntry,
+  sideMetadata: SessionEntrySideMetadata | undefined,
+): SessionEntry | undefined {
+  // Saved prompts are caller-owned and must never be serialized into the listing cache.
+  const { skillsSnapshot: _skills, systemPromptReport: _report, ...metadata } = sourceEntry;
+  const parsedEntry = parseSessionEntryJson({ entry_json: JSON.stringify(metadata) });
+  return parsedEntry ? { ...parsedEntry, ...sideMetadata } : undefined;
+}
+
+function publishSqliteSessionEntryCacheUpsert(
+  database: OpenClawAgentDatabase,
+  update: { sessionKey: string; entry?: SessionEntry },
+  writeGeneration: SqliteSessionEntryCacheWriteGeneration,
+): void {
+  const owner = sessionEntryCaches.get(database.db);
+  if (!owner) {
     return;
   }
-  const entry = projectSqliteSessionParticipants(database.db, sessionKey, parsedEntry);
+  const { sessionKey } = update;
+  const sideMetadata =
+    update.entry || !owner.selectedKeys || owner.selectedKeys.has(sessionKey)
+      ? readSessionEntrySideMetadata(database, sessionKey)
+      : undefined;
+  const entry = update.entry
+    ? projectSessionEntryCacheUpdate(update.entry, sideMetadata)
+    : undefined;
   publishTrackedCacheUpdate(database, () => {
     const cached = sessionEntryCaches.get(database.db);
     if (!cached) {
@@ -331,10 +384,26 @@ function publishSqliteSessionEntryCacheUpsert(
     // Borrowed cache views are synchronous, so the commit owner can update one
     // row in place without cloning every session map on each active-run write.
     if (!cached.selectedKeys || cached.selectedKeys.has(sessionKey)) {
+      let publishedEntry = entry;
+      const currentEntry = cached.entries.get(sessionKey);
+      if (!update.entry && currentEntry && sideMetadata) {
+        // Earlier publications in this transaction may have replaced the entry itself.
+        const {
+          owner: _owner,
+          participants: _participants,
+          participantCount: _count,
+          ...metadata
+        } = currentEntry;
+        publishedEntry = { ...metadata, ...sideMetadata };
+      }
+      if (!publishedEntry) {
+        sessionEntryCaches.delete(database.db);
+        return;
+      }
       if (!cached.entries.has(sessionKey) && !cached.keys.includes(sessionKey)) {
         cached.keys = [...cached.keys, sessionKey].toSorted();
       }
-      cached.entries.set(sessionKey, entry);
+      cached.entries.set(sessionKey, publishedEntry);
     }
     // Advance only across the bracketed row write. A raw write before/after this bracket leaves
     // a generation gap, while the retained data_version still exposes external commits.
@@ -349,13 +418,29 @@ function publishSqliteSessionEntryCacheUpsert(
 
 export function publishSessionEntryCacheInvalidation(
   database: OpenClawAgentDatabase,
-  update?: { sessionKey: string; entry: SessionEntry },
+  update?: { sessionKey: string; entry?: SessionEntry },
   writeGeneration?: SqliteSessionEntryCacheWriteGeneration,
 ): void {
   if (update && writeGeneration) {
-    publishSqliteSessionEntryCacheUpsert(database, update, writeGeneration);
-    return;
+    try {
+      publishSqliteSessionEntryCacheUpsert(database, update, writeGeneration);
+      return;
+    } catch (error) {
+      if (update.entry) {
+        throw error;
+      }
+      // Relational writes stay durable when their derived cache projection is damaged.
+    }
   }
   // A cold write has no snapshot to patch; do not hydrate owner/participants or prompt JSON.
   publishTrackedCacheUpdate(database, () => sessionEntryCaches.delete(database.db));
+}
+
+/** Refresh participant projections without reloading unchanged session-entry JSON. */
+export function publishSessionEntryCacheParticipantUpdate(
+  database: OpenClawAgentDatabase,
+  sessionKey: string,
+  writeGeneration: SqliteSessionEntryCacheWriteGeneration | undefined,
+): void {
+  publishSessionEntryCacheInvalidation(database, { sessionKey }, writeGeneration);
 }

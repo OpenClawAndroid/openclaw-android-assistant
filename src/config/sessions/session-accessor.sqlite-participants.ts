@@ -10,7 +10,10 @@ import {
 } from "../../state/openclaw-agent-session-participants-schema.js";
 import { readUserProfileAliases } from "../../state/user-profiles.js";
 import type { SessionAccessScope } from "./session-accessor.sqlite-contract.js";
-import { publishSessionEntryCacheInvalidation } from "./session-accessor.sqlite-entry-cache.js";
+import {
+  publishSessionEntryCacheParticipantUpdate,
+  trackSessionEntryCacheWrite,
+} from "./session-accessor.sqlite-entry-cache.js";
 import {
   getSessionKysely,
   resolveSqliteScope,
@@ -80,23 +83,25 @@ export function recordSessionParticipant(
         },
         "sum",
       );
-      executeSqliteQuerySync(
-        database.db,
-        kysely
-          .insertInto("session_participants")
-          .values({
-            session_key: resolved.sessionKey,
-            identity_namespace: namespace,
-            actor_id: existing?.actor_id ?? actorId,
-            ...aggregate,
-          })
-          .onConflict((conflict) =>
-            conflict
-              .columns(["session_key", "identity_namespace", "actor_id"])
-              .doUpdateSet(aggregate),
-          ),
+      const writeGeneration = trackSessionEntryCacheWrite(database, () =>
+        executeSqliteQuerySync(
+          database.db,
+          kysely
+            .insertInto("session_participants")
+            .values({
+              session_key: resolved.sessionKey,
+              identity_namespace: namespace,
+              actor_id: existing?.actor_id ?? actorId,
+              ...aggregate,
+            })
+            .onConflict((conflict) =>
+              conflict
+                .columns(["session_key", "identity_namespace", "actor_id"])
+                .doUpdateSet(aggregate),
+            ),
+        ),
       );
-      publishSessionEntryCacheInvalidation(database);
+      publishSessionEntryCacheParticipantUpdate(database, resolved.sessionKey, writeGeneration);
       deferOpenClawAgentPostCommitPublication(database, () =>
         emitSessionLifecycleEvent({
           agentId: resolved.agentId,

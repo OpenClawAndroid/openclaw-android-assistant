@@ -104,6 +104,20 @@ Integrity-child timeout and incomplete-exit errors include `lastObservedPhase`:
 
 These phases describe messages the parent received, not the child's exact current location or native CPU time. `checking` does not distinguish the integrity check from the foreign-key check. A final result can report failure; phase messages never establish successful validation or release ownership.
 
+Slow asynchronous agent-database opens include optional wall-time measurements:
+
+| Field                       | Measured interval                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `integrityWorkerCheckMs`    | Full integrity and foreign-key checks inside the child, excluding opening and closing the connection.                                 |
+| `integrityWorkerLifetimeMs` | Parent-observed time from forking the child through its close event, including startup, IPC, cleanup and event delivery.              |
+| `integrityOutsideWorkerMs`  | The integrity gate's remaining time outside that child lifetime, including parent preparation, scheduling and admission revalidation. |
+
+Missing measurements stay absent, including a child check killed before reporting
+its duration. These fields are distinct from the calling driver's synchronous
+`integrityCheckSyncMs` and `integrityOutsideCheckMs`. None measures CPU time or
+isolates storage waiting. The parent still waits for child closure and revalidates
+the database and current authority before admission continues.
+
 Startup errors containing `state lease heartbeat did not become ready` include `phase=startup`, the settlement trigger (`timeout` or `message`), and the status observed before the parent marks failure. `status=starting` distinguishes readiness still pending from `status=lost`, where loss was already recorded. `elapsedMs` measures monotonic time since heartbeat startup began; `timeoutMs` is the startup wait budget, capped at five seconds or the remaining initial lease lifetime. These fields do not establish why startup stalled or ownership was lost.
 
 The heartbeat proves ownership, not migration progress. A live but stuck maintenance process can keep its lease; stop that process before retrying Doctor.

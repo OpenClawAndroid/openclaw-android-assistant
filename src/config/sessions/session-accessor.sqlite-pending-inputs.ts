@@ -18,6 +18,7 @@ import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import type { SessionPendingInputs } from "../../state/openclaw-agent-db.generated.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import {
+  ensureSessionInputCompletionsSchema,
   ensureSessionPendingInputsSchema,
   hasSessionPendingInputsSchema,
 } from "../../state/openclaw-agent-pending-inputs-schema.js";
@@ -649,6 +650,82 @@ export function copySessionPendingInputsForRepair(
         session_key: canonicalKey,
         state: row.state === "cancelled" ? "cancelled" : "interrupted",
       }),
+    );
+  }
+}
+
+/** Transfer terminal facts without transferring the old admission's execution authority. */
+export function copySessionInputCompletionsForRepair(
+  source: PendingInputDatabase,
+  destination: PendingInputDatabase,
+  sourceKeys: readonly string[],
+  canonicalKey: string,
+): void {
+  // The artifact owner checks optional table presence before calling this operation.
+  const rows = executeSqliteQuerySync(
+    source.db,
+    getSessionKysely(source.db)
+      .selectFrom("session_input_completions")
+      .selectAll()
+      .where("session_key", "in", sourceKeys),
+  ).rows;
+  if (rows.length === 0) {
+    return;
+  }
+  ensureSessionInputCompletionsSchema(destination.db);
+  const db = getSessionKysely(destination.db);
+  if (source.db === destination.db) {
+    // Rekey the same physical receipt without replacing any terminal fact.
+    executeSqliteQuerySync(
+      destination.db,
+      db
+        .updateTable("session_input_completions")
+        .set({ session_key: canonicalKey })
+        .where("session_key", "in", sourceKeys),
+    );
+    return;
+  }
+  for (const row of rows) {
+    // Conflict identity excludes session_key: another logical owner must never
+    // be overwritten just because it shares the physical generation/input key.
+    const existing = executeSqliteQueryTakeFirstSync(
+      destination.db,
+      db
+        .selectFrom("session_input_completions")
+        .selectAll()
+        .where("session_id", "=", row.session_id)
+        .where("idempotency_key", "=", row.idempotency_key),
+    );
+    if (existing) {
+      if (
+        existing.session_key !== canonicalKey ||
+        existing.run_id !== row.run_id ||
+        existing.request_hash !== row.request_hash
+      ) {
+        throw new Error("Canonical repair found conflicting input completions");
+      }
+      // SAFETY: the feature-owned receipt writer persists typed terminal outcomes.
+      const existingOutcome = JSON.parse(existing.outcome_json) as AgentRunTerminalOutcome;
+      // A Stop is final even though it is not successful. Never replace a final
+      // destination receipt with an older/retryable source attempt.
+      if (isFinalInputCompletion(existingOutcome)) {
+        continue;
+      }
+      // SAFETY: repair preserves feature-owned typed outcomes, just like the receipt reader.
+      const outcome = JSON.parse(row.outcome_json) as AgentRunTerminalOutcome;
+      if (!isFinalInputCompletion(outcome) && existing.completed_at >= row.completed_at) {
+        continue;
+      }
+    }
+    const canonical = { ...row, session_key: canonicalKey };
+    executeSqliteQuerySync(
+      destination.db,
+      db
+        .insertInto("session_input_completions")
+        .values(canonical)
+        .onConflict((conflict) =>
+          conflict.columns(["session_id", "idempotency_key"]).doUpdateSet(canonical),
+        ),
     );
   }
 }

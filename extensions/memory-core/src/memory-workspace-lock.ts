@@ -116,6 +116,19 @@ export async function deleteShortTermLockEntryIfCurrent(
   );
 }
 
+/** Captured input preparation shares local ordering without claiming a durable write lease. */
+export async function withMemoryWorkspacePreparation<T>(
+  workspaceDir: string,
+  prepare: () => Promise<T>,
+): Promise<T> {
+  const key = memoryCoreWorkspaceStateKey(workspaceDir);
+  if (findActiveWorkspaceLockScope(key)) {
+    return await withMemoryWorkspaceLock(workspaceDir, prepare);
+  }
+  // Keep existing FIFO and pending Worker input bounds; never mint a write scope.
+  return await inProcessMemoryWorkspaceLocks.enqueue(key, prepare);
+}
+
 export async function withMemoryWorkspaceLock<T>(
   workspaceDir: string,
   task: () => Promise<T>,

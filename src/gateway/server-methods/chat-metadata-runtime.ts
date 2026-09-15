@@ -29,7 +29,7 @@ import type {
 } from "./chat-metadata-contract.js";
 import {
   generationFactsMatch,
-  type ChatMetadataFactsDeps,
+  type ChatMetadataRuntimeDeps,
   type PreparedAgentFacts,
   type PreparedGenerationFacts,
 } from "./chat-metadata-facts.js";
@@ -65,15 +65,6 @@ type PreparedMetadataGeneration = {
   preparingAgents: Map<string, Promise<PreparedAgentMetadata>>;
   neutralProjectionByAgentId: Map<string, AgentProjectionEntry>;
   sessionProjectionByKey: Map<string, AgentProjectionEntry>;
-};
-
-type ChatMetadataRuntimeDeps = ChatMetadataFactsDeps & {
-  getContext: () => GatewayRequestContext;
-  buildCommands: (params: {
-    cfg: OpenClawConfig;
-    agentId: string;
-  }) => Promise<{ commands?: unknown[] }>;
-  buildProjection: typeof prepareChatMetadataModelProjection;
 };
 
 const CHAT_METADATA_CACHE_MAX_ENTRIES = 64;
@@ -208,6 +199,12 @@ export function createGatewayChatMetadataRuntime(params: {
   ): Promise<PreparedAgentProjection> => {
     assertOpen();
     assertCurrent?.();
+    // Retired owners cannot produce a fresh projection; only publication can replace their facts.
+    if (!agent.owner.isCurrent()) {
+      throw new ChatMetadataSnapshotUnavailableError(
+        `prepared chat metadata owner retired for agent "${agent.agentId}"`,
+      );
+    }
     const profiles = resolveSessionCatalogProfiles(sessionEntry, agent.owner.config, agent.agentId);
     const neutral = !hasSessionCatalogContext(profiles);
     // Read links on every draft request so connecting an account takes effect immediately;

@@ -4103,10 +4103,9 @@ describe("state migrations", () => {
         target: [databaseEndpoint],
       },
     );
-    expect(db.prepare("SELECT id FROM worktrees ORDER BY id").all()).toEqual([
-      { id: "current" },
-      { id: "unplanned" },
-    ]);
+    expect(
+      openOpenClawStateDatabase({ env }).db.prepare("SELECT id FROM worktrees ORDER BY id").all(),
+    ).toEqual([{ id: "current" }, { id: "unplanned" }]);
   });
 
   it("keeps the managed-worktrees receipt owner-free when no legacy row exists", async () => {

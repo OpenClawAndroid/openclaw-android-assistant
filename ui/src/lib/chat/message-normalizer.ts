@@ -133,7 +133,7 @@ export function resolveMessageRole(message: unknown): string {
     : (readStringField(m, "role") ?? "unknown");
 }
 
-function resolveMessageSender(
+export function resolveMessageSender(
   metadata: Record<string, unknown> | undefined,
 ): SenderIdentity | null {
   const identity = readTranscriptSenderIdentity(metadata?.senderIdentity);

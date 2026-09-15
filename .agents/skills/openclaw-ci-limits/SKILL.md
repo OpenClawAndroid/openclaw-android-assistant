@@ -345,7 +345,7 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   summed build intervals are not a wall-time saving estimate.
 - GitHub/hybrid test types use three jobs: two paired core rows run the original
   stripes 1+2 and 3+4 sequentially; the central row runs stripe 5 before the
-  extensions/scripts/root tail. Keep all 16 core graphs, at most two compiler
+  extensions/scripts/root tail. Keep every canonical core test graph, at most two compiler
   children per stripe, and one builder per child. The central fifth stripe
   retains the standalone core resource environment. A failing stripe stops its
   row; other matrix rows keep running. Pure Blacksmith and targets without

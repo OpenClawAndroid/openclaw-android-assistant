@@ -21,12 +21,15 @@ import {
 import { createModelSelectionState } from "../auto-reply/reply/model-selection.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { PluginInstance } from "../plugins/plugin-instance.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
+import { quiescePluginRegistry } from "../plugins/registry-lifecycle.js";
 import {
   captureActivePluginRegistrySnapshot,
   restoreActivePluginRegistrySnapshot,
   setActivePluginRegistry,
 } from "../plugins/runtime.js";
+import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import {
   createOpenClawTestState,
@@ -734,14 +737,67 @@ describe("gateway chat metadata lifecycle composition", () => {
     },
   );
 
-  it("catches up when the prepared owner publishes before attachment", async () => {
-    await publishOwner();
-    const lifecycle = await createLifecycle();
-
-    await lifecycle.attachContext(context, sidecars.publish);
-
-    await expectAvailable(lifecycle);
-  });
+  it.each([true, false])(
+    "keeps metadata reads bounded when a plugin retires (before replacement: %s)",
+    async (retireBeforeReplacement) => {
+      const projectionModule = await import("./server-methods/chat-metadata-session-projection.js");
+      const prepare = projectionModule.prepareChatMetadataModelProjection;
+      let projections = 0;
+      // Bound the original microtask loop without replacing the real projection or its currency.
+      const projection = vi
+        .spyOn(projectionModule, "prepareChatMetadataModelProjection")
+        .mockImplementation(async (params) => {
+          if (++projections > 10) {
+            throw new Error("Metadata repeatedly projected a retired owner");
+          }
+          return prepare(params);
+        });
+      const rosterConfig: OpenClawConfig = {
+        ...config,
+        agents: { ...config.agents, list: [{ id: "main", default: true }, { id: "healthy" }] },
+      };
+      mocks.configuredAgentIds = ["main", "healthy"];
+      const retiredRegistry = createEmptyPluginRegistry();
+      const record = createPluginRecord({ id: "metadata-retirement" });
+      retiredRegistry.plugins.push(record);
+      const instance = new PluginInstance(record.id, { record, registry: retiredRegistry });
+      mocks.loadAgentRuntimePluginRegistryHandle.mockImplementation(
+        (params: { workspaceDir?: string }) =>
+          params.workspaceDir === "/tmp/workspace-main"
+            ? retiredRegistry
+            : createEmptyPluginRegistry(),
+      );
+      const lifecycle = await createLifecycle(() => rosterConfig);
+      try {
+        await publishOwner(rosterConfig);
+        await lifecycle.attachContext(
+          { ...context, getRuntimeConfig: () => rosterConfig },
+          sidecars.publish,
+        );
+        const healthy = await lifecycle.read({ agentId: "healthy" });
+        await expect(lifecycle.read({ agentId: "main" })).resolves.toHaveProperty("models");
+        if (retireBeforeReplacement) {
+          quiescePluginRegistry(retiredRegistry);
+          expect(instance.acceptingCalls).toBe(false);
+          await expect(lifecycle.read({ agentId: "main" })).rejects.toThrow(
+            'prepared chat metadata owner retired for agent "main"',
+          );
+          await expect(lifecycle.read({ agentId: "healthy" })).resolves.toEqual(healthy);
+        }
+        mocks.loadAgentRuntimePluginRegistryHandle.mockImplementation(createEmptyPluginRegistry);
+        const replacement = publishOwner(rosterConfig);
+        const reading = lifecycle.read({ agentId: "main" });
+        await replacement;
+        const expected = await reading;
+        quiescePluginRegistry(retiredRegistry);
+        expect(instance.acceptingCalls).toBe(false);
+        await expect(lifecycle.read({ agentId: "main" })).resolves.toEqual(expected);
+        await expect(lifecycle.read({ agentId: "healthy" })).resolves.toEqual(healthy);
+      } finally {
+        projection.mockRestore();
+      }
+    },
+  );
 
   it("keeps the published owner across a display-only config publication", async () => {
     const publishedConfig = {

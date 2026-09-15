@@ -230,6 +230,46 @@ function renderDashboardList(
   </section>`;
 }
 
+function renderDashboardGallerySkeleton() {
+  return html`<section class="dashboards-gallery" aria-busy="true">
+    <span class="sr-only" role="status">${t("common.loading")}</span>
+    <div class="dashboards-loading" aria-hidden="true" inert>
+      <div class="dashboards-toolbar">
+        <div class="dashboards-search skeleton dashboards-loading__control"></div>
+        ${[0, 1].map(
+          () => html`<div class="dashboards-select dashboards-loading__select">
+            <div class="skeleton skeleton-line dashboards-loading__label"></div>
+            <div class="skeleton dashboards-loading__control"></div>
+          </div>`,
+        )}
+      </div>
+      <div class="dashboards-results">
+        <div class="skeleton skeleton-line dashboards-loading__label"></div>
+      </div>
+      <div class="dashboards-grid">
+        ${Array.from(
+          { length: 6 },
+          () => html`<div class="dashboard-card">
+            <div class="dashboard-preview skeleton"></div>
+            <div class="dashboard-card__body">
+              <div
+                class="skeleton skeleton-line skeleton-line--long dashboards-loading__title"
+              ></div>
+              <div class="dashboard-card__author">
+                <div class="dashboard-card__avatar skeleton"></div>
+                <div class="skeleton skeleton-line skeleton-line--medium"></div>
+              </div>
+            </div>
+            <div class="dashboard-card__footer">
+              <div class="skeleton skeleton-line skeleton-line--medium"></div>
+            </div>
+          </div>`,
+        )}
+      </div>
+    </div>
+  </section>`;
+}
+
 export function renderDashboards(
   data: DashboardsRouteData | undefined,
   filters: DashboardGalleryFilters = DEFAULT_FILTERS,
@@ -253,7 +293,7 @@ export function renderDashboards(
           })}
           ${renderDashboardList(data, filters, handlers, gatewaySnapshot, previewError)}
         `
-      : html`<section class="card" aria-busy="true">${t("common.loading")}</section>`;
+      : renderDashboardGallerySkeleton();
   return html`
     <section class="content-header dashboards-header">
       <div>

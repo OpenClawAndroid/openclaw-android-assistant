@@ -843,6 +843,9 @@ suite.define(() => {
 
   it("restores the composer when reconnect recovery cannot find an old question", async () => {
     const { gateway, page } = await openQuestionPage();
+    const favicon = page.locator('link[rel="icon"][type="image/svg+xml"]');
+    await expect.poll(() => favicon.getAttribute("href")).toMatch(/^\/favicon\.svg(?:\?|$)/);
+    const originalFavicon = await favicon.getAttribute("href");
     const request = questionRecord("question-expired-during-disconnect", [
       {
         questionId: "deploy_target",
@@ -851,29 +854,29 @@ suite.define(() => {
         options: [{ label: "Staging" }, { label: "Production" }],
       },
     ]);
+    await gateway.setMethodResponse("question.list", { questions: [request] });
     await emitRequested(gateway, request);
     const panel = panelFor(page, "Where should I deploy after reconnecting?");
     await panel.waitFor();
     await expectQuestionAttention(page, true);
+    await expect.poll(() => favicon.getAttribute("href")).toMatch(/^data:image\/svg\+xml,/);
 
-    await gateway.deferNext("question.get");
-    await gateway.deferNext("question.get");
+    await gateway.setMethodResponse("question.list", { questions: [] });
+    await gateway.setMethodResponse("question.get", {
+      __mockError: {
+        code: "INVALID_REQUEST",
+        message: "question was not found",
+        details: { reason: "QUESTION_NOT_FOUND" },
+      },
+    });
     await gateway.closeLatest();
     const recovery = await gateway.waitForRequest("question.get");
     expect(recovery.params).toEqual({ id: request.id });
-    await expect.poll(async () => (await gateway.getRequests("question.get")).length).toBe(2);
-    const notFound = {
-      code: "INVALID_REQUEST",
-      message: "question was not found",
-      details: { reason: "QUESTION_NOT_FOUND" },
-    };
-    await gateway.rejectDeferred("question.get", notFound);
-    await gateway.rejectDeferred("question.get", notFound);
 
     await expect.poll(() => panel.count()).toBe(0);
     await expectQuestionAttention(page, false);
     await page.locator(".agent-chat__composer-combobox textarea").waitFor();
-    expect(await gateway.getRequests("question.get")).toHaveLength(2);
+    await expect.poll(() => favicon.getAttribute("href")).toBe(originalFavicon);
   });
 
   it("shows a 1/2 stepper with answered and expired summaries", async () => {

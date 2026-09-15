@@ -11,6 +11,7 @@ import {
   parseArgs,
   resolveVitestProfileDir,
 } from "../../scripts/run-vitest-profile.mts";
+import { decodeUtf8Tail } from "../helpers/bounded-child-output.js";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
 import { waitForFixtureFile } from "../helpers/process-wait.js";
 import { runNodeScript } from "../helpers/run-node-script.js";
@@ -28,25 +29,100 @@ describe("scripts/run-vitest-profile", () => {
     root: string,
     signal: AbortSignal,
     env?: NodeJS.ProcessEnv,
+    diagnostics?: { mode: string; flags: string[]; ordering: string; profiles: string },
   ) {
-    const result = await lifetime.track(
-      runNodeScript(
-        args,
-        { PATH: process.env.PATH, HOME: root, USERPROFILE: root, CI: "1", ...env },
-        undefined,
-        {
-          cwd: root,
-          signal,
-          maxBuffer: 1024 * 1024,
-          requireProcessTreeExit: process.platform !== "win32",
-        },
-      ),
-    );
-    const output = result.stdout + result.stderr;
-    if (result.error) {
-      throw new Error(`${formatErrorMessage(result.error)}\n${output}`, { cause: result.error });
+    let inspectChild: (() => unknown) | undefined;
+    let reported = false;
+    const reportFailure = () => {
+      if (!diagnostics || reported) {
+        return;
+      }
+      reported = true;
+      try {
+        let hashOrder: string;
+        try {
+          const fd = fs.openSync(diagnostics.ordering, "r");
+          try {
+            const bytes = Buffer.alloc(4096);
+            hashOrder = bytes.subarray(0, fs.readSync(fd, bytes)).toString("utf8");
+          } finally {
+            fs.closeSync(fd);
+          }
+        } catch {
+          hashOrder = "unavailable";
+        }
+        let cpuProfiles: number | "unavailable";
+        try {
+          cpuProfiles = fs
+            .readdirSync(diagnostics.profiles)
+            .filter((name) => name.endsWith(".cpuprofile")).length;
+        } catch {
+          cpuProfiles = "unavailable";
+        }
+        console.error(
+          "[run-vitest-profile failure]",
+          JSON.stringify(
+            {
+              mode: diagnostics.mode,
+              flags: diagnostics.flags,
+              aborted: signal.aborted,
+              child: inspectChild?.() ?? "not observed",
+              hashOrder,
+              cpuProfiles,
+            },
+            (_key, value: unknown) =>
+              typeof value === "string"
+                ? value.replaceAll(root, "<fixture>").replaceAll(repoRoot, "<repo>")
+                : value,
+          ),
+        );
+      } catch {
+        // Diagnostics must never interrupt the existing cancellation or cleanup owner.
+        console.error("[run-vitest-profile failure] diagnostic capture failed");
+      }
+    };
+    // Register before the managed command so timeout evidence precedes its stop/cleanup.
+    signal.addEventListener("abort", reportFailure, { once: true });
+    try {
+      const result = await lifetime.track(
+        runNodeScript(
+          args,
+          { PATH: process.env.PATH, HOME: root, USERPROFILE: root, CI: "1", ...env },
+          undefined,
+          {
+            cwd: root,
+            signal,
+            maxBuffer: 1024 * 1024,
+            requireProcessTreeExit: process.platform !== "win32",
+            onReady(child, readOutput) {
+              inspectChild = () => {
+                const output = readOutput();
+                return {
+                  pid: child.pid,
+                  exitCode: child.exitCode,
+                  signalCode: child.signalCode,
+                  killed: child.killed,
+                  stdoutEnded: child.stdout?.readableEnded,
+                  stderrEnded: child.stderr?.readableEnded,
+                  stdout: decodeUtf8Tail(Buffer.from(output.stdout).subarray(-8192)),
+                  stderr: decodeUtf8Tail(Buffer.from(output.stderr).subarray(-8192)),
+                };
+              };
+            },
+          },
+        ),
+      );
+      const output = result.stdout + result.stderr;
+      if (result.error || result.status !== 0) {
+        reportFailure();
+      }
+      if (result.error) {
+        throw new Error(`${formatErrorMessage(result.error)}\n${output}`, { cause: result.error });
+      }
+      return { code: result.status, output };
+    } finally {
+      signal.removeEventListener("abort", reportFailure);
     }
-    return { code: result.status, output };
   }
 
   it("defaults profile output outside the repo", () => {
@@ -384,9 +460,13 @@ syncBuiltinESMExports();`,
         "--",
         ...flags,
       ];
-      const result = await runProfileProcess(args, root, signal, {
-        NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
-      });
+      const result = await runProfileProcess(
+        args,
+        root,
+        signal,
+        { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` },
+        { mode, flags, ordering, profiles: path.join(root, "profiles") },
+      );
       expect(
         fs
           .readFileSync(ordering, "utf8")

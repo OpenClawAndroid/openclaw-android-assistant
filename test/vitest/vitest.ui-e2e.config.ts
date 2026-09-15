@@ -1,8 +1,9 @@
 // Vitest ui e2e config wires the ui e2e test shard.
 import { defineConfig, type TestUserConfig } from "vitest/config";
+import { intersectIncludePatterns } from "./vitest.include-patterns.ts";
 import {
-  intersectIncludePatterns,
   loadPatternListFromEnv,
+  matchesVitestGlob,
   narrowIncludePatternsForCli,
 } from "./vitest.pattern-file.ts";
 import { sharedVitestConfig } from "./vitest.shared.config.ts";
@@ -61,6 +62,7 @@ export const uiE2eRealGatewayTestFiles = [
 export const uiE2ePrivateServerTestFiles = [
   "ui/src/e2e/agent-file-lifecycle.real-gateway.e2e.test.ts",
   "ui/src/e2e/approval-bootstrap.e2e.test.ts",
+  "ui/src/e2e/browser-auth-recovery.e2e.test.ts",
   "ui/src/e2e/build-info-unicode.e2e.test.ts",
   "ui/src/e2e/chat-agent-avatar.real-gateway.e2e.test.ts",
   "ui/src/e2e/chat-code-block-fences.e2e.test.ts",
@@ -82,6 +84,7 @@ export const uiE2ePrivateServerTestFiles = [
   "ui/src/e2e/cron-loading.e2e.test.ts",
   "ui/src/e2e/desktop-resize.real-gateway.e2e.test.ts",
   "ui/src/e2e/device-platform-family.real-gateway.e2e.test.ts",
+  "ui/src/e2e/favicon-status.e2e.test.ts",
   "ui/src/e2e/gateway-foreground-recovery.e2e.test.ts",
   "ui/src/e2e/initial-connect-splash.e2e.test.ts",
   "ui/src/e2e/locale-offline-retry.e2e.test.ts",
@@ -139,7 +142,9 @@ export function createUiE2eVitestConfig(
     includeFromEnv ??
     narrowIncludePatternsForCli(uiE2eIncludePatterns, argv) ??
     uiE2eIncludePatterns;
-  const serialInclude = (intersectIncludePatterns(uiE2eSerialTestFiles, include) ?? []).toSorted();
+  const serialInclude = (
+    intersectIncludePatterns(uiE2eSerialTestFiles, include, matchesVitestGlob) ?? []
+  ).toSorted();
   const chromiumSetup = "test/vitest/vitest.ui-e2e.global-setup.ts";
   // Vitest resolves dependency directories per project even though ProjectConfig
   // narrows that type. Keep the shared cached dependency roots intact.
@@ -202,7 +207,8 @@ export function createUiE2eVitestConfig(
           test: {
             ...projectTest,
             exclude,
-            include: intersectIncludePatterns(uiE2eStandaloneTestFiles, include) ?? [],
+            include:
+              intersectIncludePatterns(uiE2eStandaloneTestFiles, include, matchesVitestGlob) ?? [],
             name: "ui-e2e-standalone",
             sequence: { ...baseSequence, groupOrder: 0 },
           },

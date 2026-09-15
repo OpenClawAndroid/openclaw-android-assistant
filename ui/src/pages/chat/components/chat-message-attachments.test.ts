@@ -955,9 +955,13 @@ describe("attachment sidebar source ownership", () => {
     subscribers.add(transcriptUpdate);
 
     rerender();
-    await flushAttachmentResolution();
-    rerender();
-    container.querySelector<HTMLButtonElement>(".chat-assistant-attachment-card__expand")?.click();
+    const expand = await vi.waitFor(() =>
+      expectDefined(
+        container.querySelector<HTMLButtonElement>(".chat-assistant-attachment-card__expand"),
+        "available attachment expand action",
+      ),
+    );
+    expand.click();
 
     const sidebarUpdate = vi.fn();
     subscribers.add(sidebarUpdate);
@@ -968,17 +972,17 @@ describe("attachment sidebar source ownership", () => {
         authToken: "token-B",
       }),
     ).toEqual({ status: "pending" });
-    await flushAttachmentResolution();
-
-    expect(
-      resolveSource?.(sidebarUpdate, {
-        authToken: "token-B",
-      }),
-    ).toEqual(
-      expect.objectContaining({
-        authToken: "token-B",
-        src: expect.stringContaining("mediaTicket=ticket-token-B"),
-      }),
+    await vi.waitFor(() =>
+      expect(
+        resolveSource?.(sidebarUpdate, {
+          authToken: "token-B",
+        }),
+      ).toEqual(
+        expect.objectContaining({
+          authToken: "token-B",
+          src: expect.stringContaining("mediaTicket=ticket-token-B"),
+        }),
+      ),
     );
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.any(String),

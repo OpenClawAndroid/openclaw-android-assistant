@@ -272,12 +272,13 @@ describe("Beam receiver", () => {
       resolveClient: () => ({ ...writeClient(), profileId }),
     });
     const updatedAt = "2026-07-20T12:00:00.000100Z";
-    const dateNow = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const storageEpoch = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(storageEpoch + 1_000);
     const upload = async (
       overrides: Record<string, unknown>,
       options: { storedAt: number; receivedAt: number; profileId?: string },
     ) => {
-      dateNow.mockReturnValue(options.storedAt);
+      dateNow.mockReturnValue(storageEpoch + options.storedAt);
       receivedAt = options.receivedAt;
       profileId = options.profileId ?? profileId;
       const body = sampleUpload(overrides);
@@ -307,8 +308,8 @@ describe("Beam receiver", () => {
       });
       const terminalEntry = await entryFor(sampleUpload().beamId);
       expect(terminalEntry).toMatchObject({
-        createdAt: 1_000,
-        expiresAt: 1_000 + BEAM_RETENTION_MS,
+        createdAt: storageEpoch + 1_000,
+        expiresAt: storageEpoch + 1_000 + BEAM_RETENTION_MS,
       });
 
       for (const [candidateUpdatedAt, title, completed, storedAt, candidateReceivedAt] of [
@@ -378,8 +379,8 @@ describe("Beam receiver", () => {
         receivedAt: 400,
       });
       expect(await entryFor(sampleUpload().beamId)).toMatchObject({
-        createdAt: 4_000,
-        expiresAt: 4_000 + BEAM_RETENTION_MS,
+        createdAt: storageEpoch + 4_000,
+        expiresAt: storageEpoch + 4_000 + BEAM_RETENTION_MS,
       });
 
       expect(
@@ -402,8 +403,8 @@ describe("Beam receiver", () => {
         receivedAt: 500,
       });
       expect(await entryFor(sampleUpload().beamId)).toMatchObject({
-        createdAt: 5_000,
-        expiresAt: 5_000 + BEAM_RETENTION_MS,
+        createdAt: storageEpoch + 5_000,
+        expiresAt: storageEpoch + 5_000 + BEAM_RETENTION_MS,
       });
 
       const secondBeamId = "fedcba9876543210fedcba9876543210";
@@ -428,8 +429,8 @@ describe("Beam receiver", () => {
         receivedAt: 700,
       });
       expect(await entryFor(secondBeamId)).toMatchObject({
-        createdAt: 7_000,
-        expiresAt: 7_000 + BEAM_RETENTION_MS,
+        createdAt: storageEpoch + 7_000,
+        expiresAt: storageEpoch + 7_000 + BEAM_RETENTION_MS,
       });
     } finally {
       dateNow.mockRestore();

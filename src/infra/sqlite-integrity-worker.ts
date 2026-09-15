@@ -1,9 +1,11 @@
 import { fork } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
 import type { FileIdentityStat } from "./fs-safe-advanced.js";
 import { resolveRuntimeProcessEntrypointUrl } from "./runtime-process-url.js";
 import { resolveRuntimeWorkerArgv } from "./runtime-worker-url.js";
 import { readSqliteIntegrityFileIdentity } from "./sqlite-file-generation.js";
+import type { SqliteIntegrityCheckTiming } from "./sqlite-integrity.js";
 import {
   readSqliteInspectionBudget,
   sqliteInspectionTimeoutError,
@@ -17,9 +19,10 @@ export type SqliteIntegrityWorkerInput = {
 };
 
 export type SqliteIntegrityWorkerResult =
-  | { ok: true }
+  | { ok: true; checkElapsedMs?: number }
   | {
       ok: false;
+      checkElapsedMs?: number;
       error: {
         name: string;
         message: string;
@@ -41,7 +44,12 @@ export function assertSqliteIntegrityInWorker(
   busyTimeoutMs: number,
   signal: AbortSignal,
   databaseLabel = pathname,
+  timing?: SqliteIntegrityCheckTiming,
 ): Promise<void> {
+  if (timing) {
+    delete timing.workerCheckElapsedMs;
+    delete timing.workerLifetimeElapsedMs;
+  }
   signal.throwIfAborted();
   // The caller retains its owning lease through native exit. This witness
   // detects observed path swaps; it is not native descriptor authority.
@@ -52,6 +60,7 @@ export function assertSqliteIntegrityInWorker(
     identity.size,
   );
   const entry = resolveRuntimeProcessEntrypointUrl("sqliteIntegrity");
+  const startedAt = timing ? performance.now() : 0;
   const worker = fork(entry, [], {
     execArgv: resolveRuntimeWorkerArgv(entry).slice(0, -1),
     serialization: "advanced",
@@ -84,6 +93,17 @@ export function assertSqliteIntegrityInWorker(
     });
     // Native cancellation/timeout kills the child; ownership ends only at close.
     worker.once("close", (code, closeSignal) => {
+      if (timing) {
+        timing.workerLifetimeElapsedMs = performance.now() - startedAt;
+        const checkElapsedMs = result?.checkElapsedMs;
+        if (
+          typeof checkElapsedMs === "number" &&
+          Number.isFinite(checkElapsedMs) &&
+          checkElapsedMs >= 0
+        ) {
+          timing.workerCheckElapsedMs = checkElapsedMs;
+        }
+      }
       try {
         signal.throwIfAborted();
         if (failure) {

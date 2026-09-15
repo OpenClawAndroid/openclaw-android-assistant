@@ -417,6 +417,7 @@ describe("processEvent (functional)", () => {
       expect(ctx.maxDurationTimers.has("call-live")).toBe(true);
 
       await vi.advanceTimersByTimeAsync(1_000);
+      await Promise.all(ctx.endCallOperations.values());
 
       expect(hangupCalls).toEqual([
         {
@@ -481,6 +482,7 @@ describe("processEvent (functional)", () => {
     expect(ctx.maxDurationTimers.has("call-stream")).toBe(true);
 
     await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.all(ctx.endCallOperations.values());
 
     expect(hangupCalls).toEqual([
       {

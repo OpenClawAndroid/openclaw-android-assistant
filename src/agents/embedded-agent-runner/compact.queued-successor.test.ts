@@ -735,7 +735,7 @@ describe("queued compaction successor ownership", () => {
       await withPersistentTranscriptFixture(async ({ entryId, transcriptBefore }) => {
         const caller = new AbortController();
         const abortReason = new Error("caller closed during checkpoint planning");
-        const config = { session: { store: target().storePath } };
+        const config = { session: { store: join(workspaceDir, "configured.sqlite") } };
         const checkpointTarget = resolveGatewaySessionStoreTarget({
           cfg: config,
           key: sessionKey,
@@ -743,7 +743,7 @@ describe("queued compaction successor ownership", () => {
         });
         expect(checkpointTarget).toMatchObject({
           agentId: "main",
-          storePath: target().storePath,
+          storePath: config.session.store,
           canonicalKey: sessionKey,
         });
         const entered = createDeferred();
@@ -780,8 +780,7 @@ describe("queued compaction successor ownership", () => {
             }),
           ]);
           expect(persist.mock.calls[0]?.[0]).toMatchObject({
-            sessionId,
-            sessionKey,
+            sessionTarget: target(),
             snapshot: { sessionId, leafId: entryId },
             postLeafId: entryId,
           });

@@ -27,6 +27,7 @@ export type GatewaySessionModelSource = {
 };
 
 export type SessionListRowContext = {
+  workerPlacementEnvironment?: NodeJS.ProcessEnv;
   subagentRuns: SubagentRunReadIndex<SubagentRunReadRecord>;
   selectedModelByOverrideRef: Map<string, ReturnType<typeof resolveSessionModelRef>>;
   thinkingMetadataByModelRef: Map<string, GatewayModelThinkingProfile>;

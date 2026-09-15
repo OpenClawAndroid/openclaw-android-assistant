@@ -1,7 +1,6 @@
 // Voice Call tests cover store plugin behavior.
 import fs from "node:fs";
 import path from "node:path";
-import { StatementSync } from "node:sqlite";
 import { Command } from "commander";
 import { expectDefined } from "openclaw/plugin-sdk/expect-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
@@ -188,7 +187,7 @@ describe("voice-call call record store", () => {
     expect(fs.existsSync(path.join(storePath, "calls.jsonl"))).toBe(true);
   });
 
-  it("bounds SQLite chunk reads across retained call snapshots", async () => {
+  it("bounds bulk chunk reads across retained call snapshots", async () => {
     const storePath = createTestStorePath();
     const calls = Array.from({ length: 129 }, (_, index) =>
       CallRecordSchema.parse(
@@ -209,27 +208,30 @@ describe("voice-call call record store", () => {
       }
       resetPluginStateStoreForTests();
       const chunkQueries: string[][] = [];
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- Retain the native method for the same receiver below.
-      const iterate = StatementSync.prototype.iterate;
-      const iterateSpy = vi.spyOn(StatementSync.prototype, "iterate").mockImplementation(function (
-        this: StatementSync,
-        ...params: Parameters<typeof iterate>
-      ) {
-        const rows = Array.from(iterate.apply(this, params));
-        if (
-          /^select\b.*\bfrom "plugin_state_entries"/iu.test(this.sourceSQL) &&
-          this.sourceSQL.includes('"value_json"') &&
-          params.includes(CALL_RECORD_EVENT_CHUNKS_NAMESPACE)
-        ) {
-          chunkQueries.push(rows.map((row) => String(row.entry_key)));
-        }
-        return rows.values();
+      const state = createVoiceCallStateRuntimeForTests();
+      setVoiceCallStateRuntime({
+        state: {
+          ...state,
+          openKeyedStore: <T>(options: OpenKeyedStoreOptions) => {
+            const store = state.openKeyedStore<T>(options);
+            if (options.namespace !== CALL_RECORD_EVENT_CHUNKS_NAMESPACE) {
+              return store;
+            }
+            return {
+              ...store,
+              async lookupMany(keys: readonly string[]) {
+                if (!store.lookupMany) {
+                  throw new Error("Expected bulk lookup support in SQLite test store");
+                }
+                const rows = await store.lookupMany(keys);
+                chunkQueries.push([...keys]);
+                return rows;
+              },
+            };
+          },
+        },
       });
-      try {
-        await expect(getCallHistoryFromStore(storePath, calls.length)).resolves.toEqual(calls);
-      } finally {
-        iterateSpy.mockRestore();
-      }
+      await expect(getCallHistoryFromStore(storePath, calls.length)).resolves.toEqual(calls);
       expect(chunkQueries.length).toBeLessThanOrEqual(2);
       expect(chunkQueries.flat()).toHaveLength(131);
       const eventQueries = new Map<string, number>();

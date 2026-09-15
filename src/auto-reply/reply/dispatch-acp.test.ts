@@ -1384,6 +1384,97 @@ describe("tryDispatchAcpReplyCore", () => {
     expect(auditMocks.emitAcpLifecycleError).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    "admits live ACP events before speech-cleaned block settlement, no-send=%s",
+    async (noSend) => {
+      setReadyAcpResolution();
+      const deliveryStarted = createDeferred();
+      const deliveryGate = createDeferred();
+      const fallbackStarted = createDeferred();
+      const fallbackGate = createDeferred();
+      const eventsAccepted = createDeferred();
+      const attempts: Array<{ kind: string; text?: string }> = [];
+      const confirmed: Array<{ kind: string; text?: string }> = [];
+      const dispatcher = createReplyDispatcher({
+        deliver: async (payload, { kind }) => {
+          const message = { kind, text: payload.text };
+          attempts.push(message);
+          if (kind === "block") {
+            deliveryStarted.resolve();
+            await deliveryGate.promise;
+            if (noSend) {
+              throw new PlatformMessageNotDispatchedError("offline", {
+                cause: new Error("offline"),
+              });
+            }
+          } else if (kind === "final") {
+            fallbackStarted.resolve();
+            await fallbackGate.promise;
+          }
+          confirmed.push(message);
+        },
+      });
+      managerMocks.runTurn.mockImplementationOnce(
+        async ({ onEvent }: { onEvent: (event: unknown) => Promise<void> }) => {
+          await onEvent({ type: "text_delta", text: "hello. ", tag: "agent_message_chunk" });
+          await onEvent({ type: "done", status: "completed" });
+          eventsAccepted.resolve();
+        },
+      );
+      let dispatchSettled = false;
+      const dispatchPromise = runDispatch({
+        bodyForAgent: "reply while delivery is pending",
+        cfg: createAcpTestConfig({
+          acp: { enabled: true, stream: { deliveryMode: "live" } },
+          tts: { enabled: true, mode: "final" },
+        }),
+        dispatcher,
+      }).then((result) => {
+        dispatchSettled = true;
+        return result;
+      });
+
+      try {
+        await eventsAccepted.promise;
+        await deliveryStarted.promise;
+        await nextEventLoopTurn();
+
+        expect(attempts).toEqual([{ kind: "block", text: "hello." }]);
+        expect(confirmed).toEqual([]);
+        expect(dispatchSettled).toBe(false);
+        expect(transcriptMocks.persistAcpDispatchTranscript).not.toHaveBeenCalled();
+
+        deliveryGate.resolve();
+        if (noSend) {
+          await fallbackStarted.promise;
+          expect(attempts).toEqual([
+            { kind: "block", text: "hello." },
+            { kind: "final", text: "hello." },
+          ]);
+          expect(confirmed).toEqual([]);
+          expect(dispatchSettled).toBe(false);
+          expect(transcriptMocks.persistAcpDispatchTranscript).not.toHaveBeenCalled();
+          fallbackGate.resolve();
+        }
+
+        await expect(dispatchPromise).resolves.toMatchObject({ queuedFinal: true });
+        expect(attempts).toEqual([
+          { kind: "block", text: "hello." },
+          ...(noSend ? [{ kind: "final", text: "hello." }] : []),
+        ]);
+        expect(confirmed).toEqual([{ kind: noSend ? "final" : "block", text: "hello." }]);
+        expect(transcriptMocks.persistAcpDispatchTranscript).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ finalText: "hello." }),
+        );
+      } finally {
+        deliveryGate.resolve();
+        fallbackGate.resolve();
+        await dispatchPromise;
+        await dispatcher.waitForIdle();
+      }
+    },
+  );
+
   it("does not persist final-only output rejected after caller cancellation", async () => {
     setReadyAcpResolution();
     const abortController = new AbortController();
@@ -1416,7 +1507,7 @@ describe("tryDispatchAcpReplyCore", () => {
     expect(transcript.finalText).toBe("");
   });
 
-  it("persists live ACP output delivered before caller cancellation", async () => {
+  it.each([false, true])("persists sent ACP text on abort, TTS=%s", async (tts) => {
     setReadyAcpResolution();
     const abortController = new AbortController();
     const deliveredPayloads: Array<Record<string, unknown>> = [];
@@ -1470,6 +1561,7 @@ describe("tryDispatchAcpReplyCore", () => {
           enabled: true,
           stream: { deliveryMode: "live" },
         },
+        tts: { enabled: tts },
       }),
       dispatcher,
     });
@@ -1486,12 +1578,14 @@ describe("tryDispatchAcpReplyCore", () => {
       }),
     ]);
     expect(earlyOutcome).toBe("pending");
+    expect(deliveredPayloads).toEqual([{ text: tts ? partial.trimEnd() : partial }]);
     expect(transcriptMocks.persistAcpDispatchTranscript).not.toHaveBeenCalled();
 
     releaseDelivery();
     await dispatchPromise;
 
     const deliveredText = deliveredPayloads.map((payload) => String(payload.text)).join("\n");
+    expect(deliveredPayloads).toEqual([{ text: tts ? partial.trimEnd() : partial }]);
     expect(deliveredText).not.toBe("");
     expect(partial).toContain(deliveredText.replaceAll("\n", ""));
     const transcript = requireRecord(

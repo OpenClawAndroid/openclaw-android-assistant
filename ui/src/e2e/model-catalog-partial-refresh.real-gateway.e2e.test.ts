@@ -8,6 +8,7 @@ import {
 } from "../../../test/helpers/openclaw-test-instance.ts";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.ts";
 import type { ModelCatalogResult } from "../api/types.ts";
+import type { ApplicationContext } from "../app/context.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 
@@ -129,6 +130,27 @@ suite.define(() => {
           url.pathname = `/${route}`;
           await page.goto(url.href);
           await waitForControlUiGatewayReady(page);
+          if (route === "new") {
+            await page.waitForFunction(async () => {
+              const app = document.querySelector<
+                HTMLElement & { runtime?: { context: ApplicationContext } }
+              >("openclaw-app");
+              const context = app?.runtime?.context;
+              const agents = context?.agents.state;
+              if (
+                !agents?.connected ||
+                agents.client !== context?.gateway.snapshot.client ||
+                !agents.agentsList?.agents.some((agent) => agent.id === "main")
+              ) {
+                return false;
+              }
+              // Discovery starts in updated(), after the current roster arrives.
+              const view = document.querySelector<
+                HTMLElement & { updateComplete: Promise<boolean> }
+              >("openclaw-new-session-page");
+              return (await view?.updateComplete) === true;
+            });
+          }
           const composer = page.locator(".agent-chat__input").first();
           const model = composer.locator("[data-chat-model-select]");
           // Summary elements do not participate in Playwright's disabled actionability check.

@@ -3,6 +3,7 @@
  */
 import fs from "node:fs/promises";
 import path from "node:path";
+import chokidar from "chokidar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
@@ -126,7 +127,7 @@ async function prepareInstanceBindingTest(options?: {
       resolveRuntime.mockRestore();
     };
   }
-  return { coordinator, bundledRoot };
+  return { coordinator, bundledRoot, configPath };
 }
 
 installInstanceBindingConfigIo();
@@ -748,8 +749,20 @@ describe("gateway plugin instance bindings", () => {
   it(
     "retains unchanged channel runtimes and renews them only when their plugin reloads",
     { timeout: 600_000 },
-    async () => {
-      const { coordinator } = await prepareInstanceBindingTest({ channels: true });
+    async ({ onTestFinished }) => {
+      const { coordinator, configPath } = await prepareInstanceBindingTest({ channels: true });
+      const watch = chokidar.watch;
+      const configWatcher = vi.spyOn(chokidar, "watch").mockImplementation((paths, options) => {
+        const watchedPaths = typeof paths === "string" ? [paths] : paths;
+        if (!watchedPaths.includes(configPath)) {
+          return watch(paths, options);
+        }
+        // Explicit config writes own this case; filesystem echoes can race the next RPC.
+        const watcher = new chokidar.FSWatcher(options);
+        queueMicrotask(() => watcher.emit("ready"));
+        return watcher;
+      });
+      onTestFinished(() => configWatcher.mockRestore());
       const proof = coordinator.channelProof;
       if (!proof) {
         throw new Error("channel binding fixture was not installed");

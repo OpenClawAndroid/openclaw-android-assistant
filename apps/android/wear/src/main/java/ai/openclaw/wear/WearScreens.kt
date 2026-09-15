@@ -1997,7 +1997,6 @@ private fun ConversationContextPicker(
   actionBusy: Boolean,
   onOpenContextPicker: () -> Unit,
 ) {
-  val session = snapshot.sessions.firstOrNull(WearSessionSummary::selected) ?: snapshot.sessions.firstOrNull()
   val agent = snapshot.agents.firstOrNull(WearAgentSummary::selected) ?: snapshot.agents.firstOrNull()
   val model = snapshot.models.firstOrNull(WearModelSummary::selected)
   val agentName =
@@ -2011,7 +2010,7 @@ private fun ConversationContextPicker(
       stringResource(
         R.string.context_label_value,
         stringResource(R.string.session),
-        session?.title ?: stringResource(R.string.current_session),
+        snapshot.activeSessionTitle ?: stringResource(R.string.current_session),
       ),
     detail =
       stringResource(

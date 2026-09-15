@@ -40,7 +40,7 @@ export class PluginInstance {
     object,
     { active: boolean; completion: Promise<void>; registry?: PluginRegistry }
   >();
-  private readonly cleanups = new Set<() => void | Promise<void>>();
+  private readonly cleanups = new Map<() => void | Promise<void>, "plugin" | "module">();
   private readonly waiters = new Set<() => void>();
   private readonly originalValues = new WeakMap<object, object>();
   readonly wrap = this.createValueView(<T>(run: () => T) => this.run(run));
@@ -61,17 +61,24 @@ export class PluginInstance {
     }
     this.lifecycle = Object.freeze({
       signal: this.controller.signal,
-      onDispose: (cleanup: () => void | Promise<void>) => {
-        if (
-          this.controller.signal.aborted ||
-          ((!this.accepting || this.owner?.revoked) && !this.activeCall())
-        ) {
-          throw new Error(`Plugin ${pluginId} is retiring`);
-        }
-        this.cleanups.add(cleanup);
-        return () => void this.cleanups.delete(cleanup);
-      },
+      onDispose: (cleanup: () => void | Promise<void>) => this.addCleanup(cleanup, "plugin"),
     });
+  }
+
+  private addCleanup(cleanup: () => void | Promise<void>, kind: "plugin" | "module") {
+    if (
+      this.controller.signal.aborted ||
+      ((!this.accepting || this.owner?.revoked) && !this.activeCall())
+    ) {
+      throw new Error(`Plugin ${this.pluginId} is retiring`);
+    }
+    this.cleanups.set(cleanup, kind);
+    return () => void this.cleanups.delete(cleanup);
+  }
+
+  /** Captured module resources must finish releasing before instance retirement settles. */
+  onModuleDispose(cleanup: () => Promise<void>): void {
+    this.addCleanup(cleanup, "module");
   }
 
   private hasToken(token: object): boolean {
@@ -428,9 +435,14 @@ export class PluginInstance {
     }
     const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS;
     this.controller.abort(new Error(`Plugin ${this.pluginId} is retiring`));
-    for (const cleanup of Array.from(this.cleanups).toReversed()) {
+    for (const [cleanup, kind] of Array.from(this.cleanups).toReversed()) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
+        if (kind === "module") {
+          // Plugin hook deadlines cannot release custody of an in-flight filesystem removal.
+          await this.invoke(cleanup);
+          continue;
+        }
         await Promise.race([
           this.invoke(cleanup),
           new Promise<never>((_, reject) => {

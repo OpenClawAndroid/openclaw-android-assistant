@@ -135,7 +135,7 @@ export function mergeProbeResults(cardId: string, results: ModelsProbeResult[]):
 }
 
 export type ModelProviderRowMessage = {
-  kind: "success" | "error";
+  kind: "success" | "warning" | "error";
   text: string;
   warning?: string;
 };
@@ -144,7 +144,6 @@ export type ModelProviderConfigMutation = {
   key: string;
   raw: Record<string, unknown>;
   note: string;
-  success: string;
   replacePaths?: string[];
 };
 
@@ -217,12 +216,8 @@ export async function runModelProviderConfigMutation(
     if (!owner.isCurrentClient()) {
       return { ok: false };
     }
-    if (owner.isCurrentAgent()) {
-      owner.setMessage({
-        kind: "success",
-        text: params.success,
-        ...(warning ? { warning } : {}),
-      });
+    if (owner.isCurrentAgent() && warning) {
+      owner.setMessage({ kind: "warning", text: warning });
     }
     return { ok: true, agentEpoch, warning };
   } catch (error) {

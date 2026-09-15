@@ -13,19 +13,23 @@ const CACHE_VERSION =
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const CONTROL_CACHE_LIMIT = 3;
 
+function controlUiPathname(url) {
+  const scopeUrl = new URL(self.registration.scope);
+  const scopePath = scopeUrl.pathname.endsWith("/") ? scopeUrl.pathname : `${scopeUrl.pathname}/`;
+  if (url.origin !== scopeUrl.origin) {
+    return null;
+  }
+  if (url.pathname === scopeUrl.pathname) {
+    return "/";
+  }
+  return url.pathname.startsWith(scopePath) ? `/${url.pathname.slice(scopePath.length)}` : null;
+}
+
 // Older pages reload directly and cannot acquire new config-draft guards. Keep
 // their root/chat announcement contract; current pages also reconcile on resume.
 function isControlUiChatClient(url) {
-  const clientUrl = new URL(url);
-  const scopeUrl = new URL(self.registration.scope);
-  const scopePath = scopeUrl.pathname.endsWith("/") ? scopeUrl.pathname : `${scopeUrl.pathname}/`;
-  const chatPath = `${scopePath}chat`;
-  return (
-    clientUrl.origin === scopeUrl.origin &&
-    (clientUrl.pathname === scopeUrl.pathname ||
-      clientUrl.pathname === chatPath ||
-      clientUrl.pathname.startsWith(`${chatPath}/`))
-  );
+  const pathname = controlUiPathname(new URL(url));
+  return pathname === "/" || pathname === "/chat" || pathname?.startsWith("/chat/") === true;
 }
 
 // A resumed/BFCache document may have missed activation entirely. Build identity
@@ -77,11 +81,46 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+async function reportControlUiHttpFailure(event) {
+  if (!event.clientId) {
+    return;
+  }
+  try {
+    const client = await self.clients.get(event.clientId);
+    if (client?.type === "window" && controlUiPathname(new URL(client.url)) !== null) {
+      client.postMessage({ type: "openclaw-http-request-failed" }, []);
+    }
+  } catch {
+    // Closing a tab during its request must not replace the HTTP outcome.
+  }
+}
 
-  // Skip non-GET and cross-origin requests.
-  if (event.request.method !== "GET" || url.origin !== self.location.origin) {
+async function fetchControlUiRequest(event, cacheable) {
+  try {
+    const response = await fetch(event.request);
+    if (response.status === 401) {
+      await reportControlUiHttpFailure(event);
+    }
+    if (cacheable && response.ok && !response.redirected) {
+      const clone = response.clone();
+      void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+    }
+    return response;
+  } catch {
+    await reportControlUiHttpFailure(event);
+    const cached = cacheable ? await caches.match(event.request) : undefined;
+    return cached || Response.error();
+  }
+}
+
+self.addEventListener("fetch", (event) => {
+  // Only the requesting app owns recovery. Other origins and scoped apps keep
+  // their own network and cache policies, even when this worker controls the tab.
+  if (event.request.method !== "GET") {
+    return;
+  }
+  const pathname = controlUiPathname(new URL(event.request.url));
+  if (pathname === null) {
     return;
   }
 
@@ -93,43 +132,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Skip non-UI routes — API, RPC, and plugin routes should never be cached.
-  if (
-    url.pathname.startsWith("/api/") ||
-    url.pathname.startsWith("/rpc") ||
-    url.pathname.startsWith("/plugins/")
-  ) {
-    return;
-  }
+  // Dynamic reads must reach their authority owner, including after an edge
+  // login expires. Never replay previously cached metadata or media tickets.
+  const cacheable = !(
+    pathname.startsWith("/__openclaw__/") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/rpc") ||
+    pathname.startsWith("/plugins/") ||
+    pathname.startsWith("/avatar/")
+  );
 
   // Cache-first for hashed assets; network-first for other paths. Versioned
   // public URLs reuse the HTTP immutable cache; unversioned/custom files revalidate.
-  if (url.pathname.includes("/assets/")) {
+  if (cacheable && pathname.includes("/assets/")) {
     event.respondWith(
-      caches.match(event.request).then(
-        (cached) =>
-          cached ||
-          fetch(event.request).then((response) => {
-            if (response.ok) {
-              const clone = response.clone();
-              void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-            }
-            return response;
-          }),
-      ),
+      caches.match(event.request).then((cached) => cached || fetchControlUiRequest(event, true)),
     );
   } else {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => caches.match(event.request)),
-    );
+    event.respondWith(fetchControlUiRequest(event, cacheable));
   }
 });
 

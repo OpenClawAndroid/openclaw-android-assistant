@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthProfileCredential } from "../agents/auth-profiles/types.js";
 import { captureConfigHealthStateStore } from "../config/io.health-state.js";
 import { createConfigIO } from "../config/io.js";
@@ -11,7 +11,10 @@ import { closeOpenClawStateDatabaseByPathAsync } from "../state/openclaw-state-d
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { createWindowsCmdShimFixture } from "../test-helpers/windows-cmd-shim.js";
 import { setTestEnvValue } from "../test-utils/env.js";
-import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import {
+  createOpenClawTestState,
+  type OpenClawTestState,
+} from "../test-utils/openclaw-test-state.js";
 import { loadGatewaySessionEntryReadOnly } from "./session-utils.js";
 import * as gatewayFixture from "./test-helpers.e2e.js";
 
@@ -129,16 +132,66 @@ const cases: {
   },
 ];
 
-it.for(cases)("chat.send $name", { timeout: 90_000 }, (testCase, { signal, onTestFinished }) => {
-  const caseWork = runCliAuthCase(testCase, signal);
-  onTestFinished(() => caseWork);
-  return caseWork;
+type CliAuthGateway = Awaited<ReturnType<typeof gatewayFixture.startGatewayWithClient>>;
+type CliAuthFixture = {
+  state: OpenClawTestState;
+  gateway: CliAuthGateway;
+  cfg: OpenClawConfig;
+  modelRef: string;
+  token: string;
+  executable: string;
+  nativeRoot: string;
+};
+
+describe.for(cases)("chat.send $name", (testCase) => {
+  let fixture: CliAuthFixture;
+  let caseWork: Promise<void> | undefined;
+
+  // Cold Gateway bootstrap uses the fixture budget; the test deadline covers account transitions.
+  beforeEach(async ({ signal, onTestFinished }) => {
+    caseWork = undefined;
+    const acquisition = prepareCliAuthFixture(testCase, signal);
+    // Hook cancellation still joins acquisition; cleanup cannot race a late Gateway start.
+    onTestFinished(async () => {
+      await caseWork?.catch(() => undefined);
+      const acquired = await acquisition.catch(() => undefined);
+      if (acquired) {
+        await cleanupCliAuthFixture(acquired);
+      }
+    });
+    fixture = await acquisition;
+  });
+
+  it("preserves account selection and session history", { timeout: 90_000 }, ({ signal }) => {
+    caseWork = executeCliAuthCase(fixture, testCase, signal);
+    return caseWork;
+  });
 });
 
-async function runCliAuthCase(
-  { order, credential, reply, nativeContinuity }: (typeof cases)[number],
+async function cleanupCliAuthFixture({
+  state,
+  gateway,
+}: {
+  state: OpenClawTestState;
+  gateway?: CliAuthGateway;
+}): Promise<void> {
+  try {
+    if (gateway) {
+      try {
+        await gatewayFixture.disconnectGatewayClient(gateway.client);
+      } finally {
+        await gateway.server.close({ reason: "CLI auth test cleanup" });
+      }
+    }
+  } finally {
+    await state.cleanup();
+  }
+}
+
+async function prepareCliAuthFixture(
+  { order, credential, nativeContinuity }: (typeof cases)[number],
   signal: AbortSignal,
-) {
+): Promise<CliAuthFixture> {
   signal.throwIfAborted();
   // Each case changes startup auth configuration and owns an empty native-login root.
   const state = await createOpenClawTestState({
@@ -166,7 +219,7 @@ async function runCliAuthCase(
       OPENCLAW_GATEWAY_PASSWORD: undefined,
     },
   });
-  let gateway: Awaited<ReturnType<typeof gatewayFixture.startGatewayWithClient>> | undefined;
+  let gateway: CliAuthGateway | undefined;
   try {
     signal.throwIfAborted();
     const binDir = state.path("bin");
@@ -240,201 +293,205 @@ async function runCliAuthCase(
     signal.throwIfAborted();
     await gateway.server.startupSettled;
     signal.throwIfAborted();
-    const sessionKey = `agent:main:cli-auth-${randomUUID()}`;
-    const sendTurn = async (
-      client: NonNullable<typeof gateway>["client"],
-      turnSessionKey: string,
-      message: string,
-      expectedReply: string,
-    ) => {
-      signal.throwIfAborted();
-      expect(resolveExecutablePath("claude")).toBe(executable);
-      const accepted = await client.request<{ runId: string; status: string }>("chat.send", {
-        sessionKey: turnSessionKey,
-        message,
-        deliver: false,
-        idempotencyKey: randomUUID(),
-      });
-      signal.throwIfAborted();
-      expect(accepted.status).toBe("started");
-      const completed = await client.request<{ status: string }>(
-        "agent.wait",
-        { runId: accepted.runId, timeoutMs: 30_000 },
-        { timeoutMs: 35_000 },
-      );
-      signal.throwIfAborted();
-      expect(completed.status).toBe("ok");
-      const history = await client.request<{ messages: unknown[] }>("chat.history", {
-        sessionKey: turnSessionKey,
-      });
-      expect(history.messages).toContainEqual(
-        expect.objectContaining({
-          role: "assistant",
-          content: expect.arrayContaining([{ type: "text", text: expectedReply }]),
-        }),
-      );
-    };
-    const marker = `native-history-${randomUUID()}`;
-    await sendTurn(
-      gateway.client,
-      sessionKey,
-      nativeContinuity ? `Remember ${marker}.` : "Reply using the saved account.",
-      reply,
+    return { state, gateway, cfg, modelRef, token, executable, nativeRoot };
+  } catch (error) {
+    await cleanupCliAuthFixture({ state, gateway });
+    throw error;
+  }
+}
+
+async function executeCliAuthCase(
+  fixture: CliAuthFixture,
+  { reply, nativeContinuity }: (typeof cases)[number],
+  signal: AbortSignal,
+) {
+  signal.throwIfAborted();
+  const { state, cfg, modelRef, token, executable, nativeRoot } = fixture;
+  const sessionKey = `agent:main:cli-auth-${randomUUID()}`;
+  const sendTurn = async (
+    client: CliAuthGateway["client"],
+    turnSessionKey: string,
+    message: string,
+    expectedReply: string,
+  ) => {
+    signal.throwIfAborted();
+    expect(resolveExecutablePath("claude")).toBe(executable);
+    const accepted = await client.request<{ runId: string; status: string }>("chat.send", {
+      sessionKey: turnSessionKey,
+      message,
+      deliver: false,
+      idempotencyKey: randomUUID(),
+    });
+    signal.throwIfAborted();
+    expect(accepted.status).toBe("started");
+    const completed = await client.request<{ status: string }>(
+      "agent.wait",
+      { runId: accepted.runId, timeoutMs: 30_000 },
+      { timeoutMs: 35_000 },
     );
-    if (nativeContinuity) {
-      const original =
-        loadGatewaySessionEntryReadOnly(sessionKey).entry?.cliSessionBindings?.["claude-cli"];
-      expect(original?.sessionId).toBeTruthy();
-      expect(original?.authProfileId).toBeUndefined();
-      await state.writeAuthProfiles({
-        version: 1,
-        profiles: {
-          "anthropic:pasted": {
-            type: "token",
-            provider: "anthropic",
-            token: "synthetic-pasted-anthropic-token",
-          },
+    signal.throwIfAborted();
+    expect(completed.status).toBe("ok");
+    const history = await client.request<{ messages: unknown[] }>("chat.history", {
+      sessionKey: turnSessionKey,
+    });
+    expect(history.messages).toContainEqual(
+      expect.objectContaining({
+        role: "assistant",
+        content: expect.arrayContaining([{ type: "text", text: expectedReply }]),
+      }),
+    );
+  };
+  const marker = `native-history-${randomUUID()}`;
+  await sendTurn(
+    fixture.gateway.client,
+    sessionKey,
+    nativeContinuity ? `Remember ${marker}.` : "Reply using the saved account.",
+    reply,
+  );
+  if (nativeContinuity) {
+    const original =
+      loadGatewaySessionEntryReadOnly(sessionKey).entry?.cliSessionBindings?.["claude-cli"];
+    expect(original?.sessionId).toBeTruthy();
+    expect(original?.authProfileId).toBeUndefined();
+    await state.writeAuthProfiles({
+      version: 1,
+      profiles: {
+        "anthropic:pasted": {
+          type: "token",
+          provider: "anthropic",
+          token: "synthetic-pasted-anthropic-token",
         },
-      });
-      await gatewayFixture.disconnectGatewayClient(gateway.client);
-      await gateway.server.close({ reason: "Verify persisted native account continuity" });
-      signal.throwIfAborted();
-      expect(resolveExecutablePath("claude")).toBe(executable);
-      gateway = await gatewayFixture.startGatewayWithClient({
-        cfg,
-        configPath: state.configPath,
-        token,
-        scopes: ["operator.admin", "operator.read", "operator.write"],
-      });
-      signal.throwIfAborted();
-      await gateway.server.startupSettled;
-      signal.throwIfAborted();
-      await sendTurn(
-        gateway.client,
-        sessionKey,
-        "Recall the marker from our previous turn.",
-        `Native history: ${marker}.`,
-      );
-      const resumed =
-        loadGatewaySessionEntryReadOnly(sessionKey).entry?.cliSessionBindings?.["claude-cli"];
-      expect(resumed?.sessionId).toBe(original?.sessionId);
-      expect(resumed?.authProfileId).toBe(original?.authProfileId);
-      const savedSessionKey = `agent:main:cli-auth-${randomUUID()}`;
-      await sendTurn(
-        gateway.client,
-        savedSessionKey,
-        "Reply using the saved account.",
-        "Saved account reply.",
-      );
-      const saved =
-        loadGatewaySessionEntryReadOnly(savedSessionKey).entry?.cliSessionBindings?.["claude-cli"];
-      expect(saved?.authProfileId).toBe("anthropic:pasted");
+      },
+    });
+    await gatewayFixture.disconnectGatewayClient(fixture.gateway.client);
+    await fixture.gateway.server.close({ reason: "Verify persisted native account continuity" });
+    signal.throwIfAborted();
+    expect(resolveExecutablePath("claude")).toBe(executable);
+    fixture.gateway = await gatewayFixture.startGatewayWithClient({
+      cfg,
+      configPath: state.configPath,
+      token,
+      scopes: ["operator.admin", "operator.read", "operator.write"],
+    });
+    signal.throwIfAborted();
+    await fixture.gateway.server.startupSettled;
+    signal.throwIfAborted();
+    await sendTurn(
+      fixture.gateway.client,
+      sessionKey,
+      "Recall the marker from our previous turn.",
+      `Native history: ${marker}.`,
+    );
+    const resumed =
+      loadGatewaySessionEntryReadOnly(sessionKey).entry?.cliSessionBindings?.["claude-cli"];
+    expect(resumed?.sessionId).toBe(original?.sessionId);
+    expect(resumed?.authProfileId).toBe(original?.authProfileId);
+    const savedSessionKey = `agent:main:cli-auth-${randomUUID()}`;
+    await sendTurn(
+      fixture.gateway.client,
+      savedSessionKey,
+      "Reply using the saved account.",
+      "Saved account reply.",
+    );
+    const saved =
+      loadGatewaySessionEntryReadOnly(savedSessionKey).entry?.cliSessionBindings?.["claude-cli"];
+    expect(saved?.authProfileId).toBe("anthropic:pasted");
 
-      signal.throwIfAborted();
-      await gateway.client.request("sessions.patch", {
-        key: sessionKey,
-        model: `${modelRef}@anthropic:pasted`,
-      });
-      await sendTurn(
-        gateway.client,
-        sessionKey,
-        "Reply using my explicit account selection.",
-        "Saved account reply.",
-      );
-      const explicitlySelected =
-        loadGatewaySessionEntryReadOnly(sessionKey).entry?.cliSessionBindings?.["claude-cli"];
-      expect(explicitlySelected?.authProfileId).toBe("anthropic:pasted");
-      expect(explicitlySelected?.sessionId).not.toBe(original?.sessionId);
+    signal.throwIfAborted();
+    await fixture.gateway.client.request("sessions.patch", {
+      key: sessionKey,
+      model: `${modelRef}@anthropic:pasted`,
+    });
+    await sendTurn(
+      fixture.gateway.client,
+      sessionKey,
+      "Reply using my explicit account selection.",
+      "Saved account reply.",
+    );
+    const explicitlySelected =
+      loadGatewaySessionEntryReadOnly(sessionKey).entry?.cliSessionBindings?.["claude-cli"];
+    expect(explicitlySelected?.authProfileId).toBe("anthropic:pasted");
+    expect(explicitlySelected?.sessionId).not.toBe(original?.sessionId);
 
-      const replacement = {
-        type: "token",
-        provider: "anthropic",
-        token: "synthetic-replacement-anthropic-token",
-      } satisfies AuthProfileCredential;
-      await state.writeAuthProfiles({
-        version: 1,
-        profiles: {
-          "anthropic:pasted": {
-            type: "token",
-            provider: "anthropic",
-            token: "synthetic-pasted-anthropic-token",
-          },
-          "anthropic:replacement": replacement,
+    const replacement = {
+      type: "token",
+      provider: "anthropic",
+      token: "synthetic-replacement-anthropic-token",
+    } satisfies AuthProfileCredential;
+    await state.writeAuthProfiles({
+      version: 1,
+      profiles: {
+        "anthropic:pasted": {
+          type: "token",
+          provider: "anthropic",
+          token: "synthetic-pasted-anthropic-token",
         },
-        order: { anthropic: ["anthropic:replacement", "anthropic:pasted"] },
-      });
-      await sendTurn(
-        gateway.client,
-        savedSessionKey,
-        "Keep our existing account despite the new default.",
-        "Saved account reply.",
-      );
-      const retained =
-        loadGatewaySessionEntryReadOnly(savedSessionKey).entry?.cliSessionBindings?.["claude-cli"];
-      expect(retained?.authProfileId).toBe(saved?.authProfileId);
-      expect(retained?.sessionId).toBe(saved?.sessionId);
+        "anthropic:replacement": replacement,
+      },
+      order: { anthropic: ["anthropic:replacement", "anthropic:pasted"] },
+    });
+    await sendTurn(
+      fixture.gateway.client,
+      savedSessionKey,
+      "Keep our existing account despite the new default.",
+      "Saved account reply.",
+    );
+    const retained =
+      loadGatewaySessionEntryReadOnly(savedSessionKey).entry?.cliSessionBindings?.["claude-cli"];
+    expect(retained?.authProfileId).toBe(saved?.authProfileId);
+    expect(retained?.sessionId).toBe(saved?.sessionId);
 
-      await state.writeAuthProfiles({
-        version: 1,
-        profiles: { "anthropic:replacement": replacement },
-        order: { anthropic: ["anthropic:replacement"] },
-      });
-      await sendTurn(
-        gateway.client,
-        savedSessionKey,
-        "Use the available account after my old account was removed.",
-        "Replacement account reply.",
-      );
-      const replaced =
-        loadGatewaySessionEntryReadOnly(savedSessionKey).entry?.cliSessionBindings?.["claude-cli"];
-      expect(replaced?.authProfileId).toBe("anthropic:replacement");
-      expect(replaced?.sessionId).not.toBe(saved?.sessionId);
-      const turns: {
-        sessionId: string;
-        resume: boolean;
-        savedToken: boolean;
-        resumedHistory: unknown[];
-      }[] = (await fs.readFile(path.join(nativeRoot, "turns.jsonl"), "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
-      expect(turns).toHaveLength(6);
-      expect(turns[0]).toMatchObject({
-        sessionId: original?.sessionId,
-        resume: false,
-        savedToken: false,
-      });
-      expect(turns[1]).toMatchObject({
-        sessionId: original?.sessionId,
-        resume: true,
-        savedToken: false,
-      });
-      expect(JSON.stringify(turns[1]?.resumedHistory)).toContain(marker);
-      expect(turns[2]).toMatchObject({ resume: false, savedToken: true, resumedHistory: [] });
-      expect(turns[2]?.sessionId).not.toBe(original?.sessionId);
-      expect(turns[3]).toMatchObject({
-        sessionId: explicitlySelected?.sessionId,
-        resume: false,
-        savedToken: true,
-        resumedHistory: [],
-      });
-      expect(turns[4]).toMatchObject({ sessionId: saved?.sessionId, savedToken: true });
-      expect(turns[5]).toMatchObject({
-        sessionId: replaced?.sessionId,
-        resume: false,
-        savedToken: true,
-        resumedHistory: [],
-      });
-    }
-  } finally {
-    try {
-      if (gateway) {
-        await gatewayFixture.disconnectGatewayClient(gateway.client);
-        await gateway.server.close({ reason: "CLI auth test cleanup" });
-      }
-    } finally {
-      await state.cleanup();
-    }
+    await state.writeAuthProfiles({
+      version: 1,
+      profiles: { "anthropic:replacement": replacement },
+      order: { anthropic: ["anthropic:replacement"] },
+    });
+    await sendTurn(
+      fixture.gateway.client,
+      savedSessionKey,
+      "Use the available account after my old account was removed.",
+      "Replacement account reply.",
+    );
+    const replaced =
+      loadGatewaySessionEntryReadOnly(savedSessionKey).entry?.cliSessionBindings?.["claude-cli"];
+    expect(replaced?.authProfileId).toBe("anthropic:replacement");
+    expect(replaced?.sessionId).not.toBe(saved?.sessionId);
+    const turns: {
+      sessionId: string;
+      resume: boolean;
+      savedToken: boolean;
+      resumedHistory: unknown[];
+    }[] = (await fs.readFile(path.join(nativeRoot, "turns.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(turns).toHaveLength(6);
+    expect(turns[0]).toMatchObject({
+      sessionId: original?.sessionId,
+      resume: false,
+      savedToken: false,
+    });
+    expect(turns[1]).toMatchObject({
+      sessionId: original?.sessionId,
+      resume: true,
+      savedToken: false,
+    });
+    expect(JSON.stringify(turns[1]?.resumedHistory)).toContain(marker);
+    expect(turns[2]).toMatchObject({ resume: false, savedToken: true, resumedHistory: [] });
+    expect(turns[2]?.sessionId).not.toBe(original?.sessionId);
+    expect(turns[3]).toMatchObject({
+      sessionId: explicitlySelected?.sessionId,
+      resume: false,
+      savedToken: true,
+      resumedHistory: [],
+    });
+    expect(turns[4]).toMatchObject({ sessionId: saved?.sessionId, savedToken: true });
+    expect(turns[5]).toMatchObject({
+      sessionId: replaced?.sessionId,
+      resume: false,
+      savedToken: true,
+      resumedHistory: [],
+    });
   }
 }
 
@@ -480,7 +537,7 @@ it("does not start a Gateway after CLI auth fixture acquisition is cancelled", a
     }
   });
   try {
-    await expect(runCliAuthCase(cases[0]!, controller.signal)).rejects.toBe(cancelled);
+    await expect(prepareCliAuthFixture(cases[0]!, controller.signal)).rejects.toBe(cancelled);
     expect(startup).not.toHaveBeenCalled();
     expect(process.env.PATH).toBe(originalPath);
     expect(process.env.HOME).toBe(originalHome);

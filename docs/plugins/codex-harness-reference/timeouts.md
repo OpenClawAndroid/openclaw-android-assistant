@@ -43,6 +43,19 @@ dynamic-tool response to Codex so the turn can continue instead of leaving the
 session in `processing`. These wait budgets never preserve approval authority
 after the requesting run or tool closes.
 
+### Session catalog reads
+
+After a session catalog read times out, a later poll can share its pending native
+request on the same open connection when the catalog source and query still
+match. The earlier caller stays failed; the new caller keeps its own request
+budget and current authorization checks. Cached stale pages remain available
+while a refresh is pending. A reply with no current waiter is discarded.
+
+Connection closure fails current waiters, and a later independent poll can
+reconnect normally. Neither a local timeout nor a lost connection proves that
+native work stopped. These budgets apply to individual native reads; a catalog
+operation can read several pages and perform additional processing.
+
 ### Turn execution and settlement
 
 Native Codex owns provider-stream liveness, network recovery, and native turn

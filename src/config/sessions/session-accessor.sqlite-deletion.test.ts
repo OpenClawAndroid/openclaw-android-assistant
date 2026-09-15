@@ -1,6 +1,7 @@
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred, withTestTimeout } from "../../../test/helpers/promise.js";
+import { trackSqliteStatementExecutions } from "../../../test/helpers/sqlite-statement-execution-counter.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import type {
   AgentHarness,
@@ -36,6 +37,7 @@ import {
   loadSessionEntry,
   loadTranscriptEvents,
   patchSessionEntryCore,
+  recordSessionParticipant,
   replaceSessionEntry,
   replaceTranscriptEventsSync,
 } from "./session-accessor.js";
@@ -155,6 +157,160 @@ describe("session deletion and native owner state", () => {
     });
   const read = (key = sessionKey) =>
     loadSessionEntry({ sessionKey: key, storePath, readConsistency: "latest" });
+
+  it.each([
+    { deleteWindows: false, sparse: false, rejectSuggestions: false },
+    { deleteWindows: true, sparse: false, rejectSuggestions: false },
+    { deleteWindows: false, sparse: true, rejectSuggestions: false },
+    { deleteWindows: true, sparse: true, rejectSuggestions: false },
+    { deleteWindows: false, sparse: false, rejectSuggestions: true },
+    { deleteWindows: true, sparse: false, rejectSuggestions: true },
+  ])(
+    "clears node artifacts without repeated inventories (delete windows: $deleteWindows, sparse: $sparse, reject suggestions: $rejectSuggestions)",
+    async ({ deleteWindows, sparse, rejectSuggestions }) => {
+      await seed();
+      const otherKey = "agent:main:unrelated-artifacts";
+      await replaceSessionEntry(
+        { sessionKey: otherKey, storePath },
+        { sessionId: "unrelated-artifacts", updatedAt: Date.now() },
+      );
+      const target = resolveSqliteTargetFromSessionStorePath(storePath, { agentId: "main" });
+      const database = openOpenClawAgentDatabase({ agentId: "main", path: target.path });
+      for (const key of [sessionKey, otherKey]) {
+        recordSessionParticipant(
+          { sessionKey: key, storePath },
+          { identity: { type: "profile", id: "artifact-person" }, promptedAt: 10 },
+        );
+        if (!sparse) {
+          database.db
+            .prepare(
+              "INSERT INTO session_members (session_key, identity_id, added_by, added_at) VALUES (?, ?, ?, ?)",
+            )
+            .run(key, "artifact-person", "owner", 10);
+          database.db
+            .prepare(
+              "INSERT INTO session_suggestions (id, session_key, author_id, text, created_at, state) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .run(
+              `suggestion:${key}`,
+              key,
+              "artifact-person",
+              "Keep this suggestion",
+              10,
+              "pending",
+            );
+        }
+      }
+      if (sparse) {
+        database.db.exec("DROP TABLE session_members; DROP TABLE session_suggestions;");
+      }
+      const artifactRows = () => ({
+        participants: database.db
+          .prepare("SELECT session_key, actor_id FROM session_participants ORDER BY session_key")
+          .all(),
+        members: sparse
+          ? []
+          : database.db
+              .prepare("SELECT session_key, identity_id FROM session_members ORDER BY session_key")
+              .all(),
+        suggestions: sparse
+          ? []
+          : database.db
+              .prepare("SELECT session_key, text FROM session_suggestions ORDER BY session_key")
+              .all(),
+      });
+      const before = artifactRows();
+      const entryBefore = read();
+      const otherBefore = read(otherKey);
+      const readWindows = () =>
+        database.db.prepare("SELECT * FROM session_windows ORDER BY session_id").all();
+      const windowsBefore = readWindows();
+      if (rejectSuggestions) {
+        database.db
+          .exec(`CREATE TEMP TRIGGER reject_artifact_delete BEFORE DELETE ON session_suggestions
+          WHEN OLD.session_key = '${sessionKey}' BEGIN
+          SELECT CASE WHEN EXISTS (SELECT 1 FROM session_members WHERE session_key = OLD.session_key)
+            THEN RAISE(ABORT, 'membership deletion order changed')
+            ELSE RAISE(ABORT, 'injected suggestion deletion failure') END;
+          END`);
+      }
+      const owner = nativeOwner();
+      const counter = trackSqliteStatementExecutions(database.db, ["inventory"], (sql) =>
+        /^select "name" from "sqlite_schema" where "type" = \? and "name" in \(/i.test(sql)
+          ? "inventory"
+          : null,
+      );
+      try {
+        const deletion = deleteWindows
+          ? owner.run(() =>
+              applySessionEntryLifecycleMutation({
+                storePath,
+                removals: [{ sessionKey, deleteOwnedWindows: true }],
+                skipMaintenance: true,
+              }),
+            )
+          : owner.run(() =>
+              deleteSessionEntryLifecycle({
+                agentId: "main",
+                storePath,
+                target: { canonicalKey: sessionKey, storeKeys: [sessionKey] },
+                archiveTranscript: false,
+              }),
+            );
+        if (rejectSuggestions) {
+          const error = await deletion.catch((caughtError: unknown) => caughtError);
+          expect(error).toBeInstanceOf(Error);
+          expect(error).toMatchObject({
+            code: "ERR_SQLITE_ERROR",
+            message: "injected suggestion deletion failure",
+          });
+        } else {
+          await expect(deletion).resolves.toMatchObject(
+            deleteWindows ? { removedSessionKeys: [sessionKey] } : { deleted: true },
+          );
+        }
+        expect.soft(counter.counts.inventory).toBeGreaterThan(0);
+        // Successful public deletion also inventories board cleanup after the node artifacts.
+        const inventoryBudget = !deleteWindows && !rejectSuggestions ? 2 : 1;
+        expect.soft(counter.counts.inventory).toBeLessThanOrEqual(inventoryBudget);
+      } finally {
+        counter.restore();
+      }
+      expect(read(otherKey)).toEqual(otherBefore);
+      if (rejectSuggestions) {
+        expect(artifactRows()).toEqual(before);
+        expect(read()).toEqual(entryBefore);
+        expect(readWindows()).toEqual(windowsBefore);
+        expect(bindings.get(sessionKey)).toBe(`thread:${sessionKey}`);
+      } else {
+        const after = artifactRows();
+        for (const table of ["participants", "members", "suggestions"] as const) {
+          expect(after[table]).toEqual(before[table].filter((row) => row.session_key === otherKey));
+        }
+        expect(read()).toBeUndefined();
+        expect(bindings.has(sessionKey)).toBe(false);
+        expect(readWindows()).toEqual(
+          deleteWindows
+            ? windowsBefore.filter((window) => window.session_key !== sessionKey)
+            : windowsBefore,
+        );
+        expect(
+          database.db
+            .prepare("SELECT entry_valid FROM session_nodes WHERE session_key = ?")
+            .get(sessionKey),
+        ).toEqual(deleteWindows ? undefined : { entry_valid: -1 });
+        if (sparse) {
+          expect(
+            database.db
+              .prepare(
+                "SELECT name FROM sqlite_schema WHERE name IN ('session_members', 'session_suggestions')",
+              )
+              .all(),
+          ).toEqual([]);
+        }
+      }
+    },
+  );
 
   it.each([
     "no windows",

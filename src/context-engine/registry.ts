@@ -11,6 +11,7 @@ import type {
 import type { PluginRegistry } from "../plugins/registry-types.js";
 import { getActivePluginRegistry, requireActivePluginRegistry } from "../plugins/runtime.js";
 import { defaultSlotIdForKey } from "../plugins/slots.js";
+import { getAsyncWorkSignal } from "../shared/async-work-scope.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import {
@@ -695,7 +696,8 @@ export async function resolveLogicalTurnContextEngines(
  *
  * Non-default engines that fail (unregistered, factory throw, or contract
  * violation) are logged and silently replaced by the default engine.
- * Throws only when the default engine itself cannot be resolved.
+ * Host admission/resource failures and owner cancellation propagate without quarantine.
+ * Default-engine failures also propagate.
  */
 export async function resolveContextEngine(
   config?: OpenClawConfig,
@@ -743,20 +745,27 @@ export async function resolveContextEngine(
     return resolveDefaultContextEngine(defaultEngineId, factoryCtx);
   }
 
-  let operation: "factory" | "contract-validation" = "factory";
+  const abortSignal = getAsyncWorkSignal();
+  let operation: "factory" | "contract-validation" | undefined;
   try {
-    return await createContextEngineWithResources(requireActivePluginRegistry(), entry, (source) =>
-      createOwnedContextEngine(engineId, entry, factoryCtx, {
-        source,
-        ownsSource: true,
-        defaultEngineId,
-        onValidation: () => {
-          operation = "contract-validation";
-        },
-      }),
+    return await createContextEngineWithResources(
+      requireActivePluginRegistry(),
+      entry,
+      (source) => {
+        // Admission and source retention belong to the host, not the plugin factory.
+        operation = "factory";
+        return createOwnedContextEngine(engineId, entry, factoryCtx, {
+          source,
+          ownsSource: true,
+          defaultEngineId,
+          onValidation: () => {
+            operation = "contract-validation";
+          },
+        });
+      },
     );
   } catch (error) {
-    if (isDefaultEngine) {
+    if (isDefaultEngine || !operation || isContextEngineAbortRejection(error, abortSignal)) {
       throw error;
     }
     recordContextEngineQuarantine({

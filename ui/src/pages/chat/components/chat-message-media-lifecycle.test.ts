@@ -4,6 +4,7 @@ import { html, render } from "lit";
 import { guard } from "lit/directives/guard.js";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createDeferred } from "../../../../../test/helpers/promise.js";
+import { notifyBrowserAuthRestored } from "../../../app/browser-http.ts";
 import { resolveAssistantAttachmentAvailability } from "./chat-message-attachment-availability.ts";
 import { renderMessageImages } from "./chat-message-images.ts";
 import {
@@ -566,6 +567,49 @@ describe("chat media resource lifecycle", () => {
     );
   });
 
+  it("recovers exhausted managed image retries only for connected panes", async () => {
+    const source = managedImageSource();
+    const { blobUrl } = installManagedImageUrls();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(imageResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const first = createManagedImagePane(source);
+    const second = createManagedImagePane(source);
+    first.rerender();
+    second.rerender();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(second.container.querySelector(".chat-message-image")).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    const resource = observeChatMediaResource<string | null>(
+      "managed-image",
+      managedImageResourceKey(source),
+    );
+
+    releaseChatMediaResourceSubscriber(first.rerender);
+    notifyBrowserAuthRestored();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(first.container.querySelector(".chat-message-image")).toBeNull();
+    expect(second.container.querySelector(".chat-message-image")?.getAttribute("src")).toBe(
+      blobUrl,
+    );
+    expect(resource.subscribers.size).toBe(1);
+    releaseChatMediaResourceSubscriber(second.rerender);
+    expect(resource.subscribers.size).toBe(0);
+    expect(resource.releaseAuthRecovery).toBeUndefined();
+    expect(isChatMediaResourceCurrent(resource)).toBe(false);
+    notifyBrowserAuthRestored();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("shares assistant attachment completion and ticket refresh across split panes", async () => {
     const source = `/tmp/openclaw/${crypto.randomUUID()}.png`;
     const fetchMock = vi
@@ -793,6 +837,59 @@ describe("chat media resource lifecycle", () => {
     for (const pane of [first, second]) {
       expect(pane.latest).toMatchObject({ status: "available", mediaTicket: "ticket-after-retry" });
     }
+  });
+
+  it("recovers a shared attachment without reviving a disconnected pane", async () => {
+    const source = `/tmp/openclaw/${crypto.randomUUID()}.png`;
+    let requestSignal: AbortSignal | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockImplementationOnce(
+        (_source: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            requestSignal = init?.signal ?? undefined;
+            requestSignal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("last pane disconnected", "AbortError")),
+              { once: true },
+            );
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = vi.fn();
+    const second = vi.fn();
+    const firstOptions = { onRequestUpdate: observeSubscriber(first) };
+    const secondOptions = { onRequestUpdate: observeSubscriber(second) };
+
+    resolveAssistantAttachmentAvailability(source, firstOptions);
+    resolveAssistantAttachmentAvailability(source, secondOptions);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    first.mockClear();
+    second.mockClear();
+
+    releaseChatMediaResourceSubscriber(first);
+    notifyBrowserAuthRestored();
+
+    expect.soft(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledOnce();
+    resolveAssistantAttachmentAvailability(source, secondOptions);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestSignal?.aborted).toBe(false);
+
+    releaseChatMediaResourceSubscriber(second);
+    expect.soft(requestSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    first.mockClear();
+    second.mockClear();
+    notifyBrowserAuthRestored();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("aborts pending media and clears its retry when the last pane disconnects", async () => {

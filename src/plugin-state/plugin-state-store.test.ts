@@ -205,19 +205,19 @@ describe("plugin state keyed store", () => {
   it("upserts values and refreshes deterministic entry ordering", async () => {
     await withPluginStateTestState(async () => {
       vi.useFakeTimers();
-      const store = createPluginStateKeyedStore<{ version: number }>("discord", {
+      const store = createPluginStateSyncKeyedStore<{ version: number }>("discord", {
         namespace: "components",
         maxEntries: 10,
       });
       vi.setSystemTime(1000);
-      await store.register("b", { version: 1 });
+      store.register("b", { version: 1 });
       vi.setSystemTime(2000);
-      await store.register("a", { version: 1 });
+      store.register("a", { version: 1 });
       vi.setSystemTime(3000);
-      await store.register("b", { version: 2 });
+      store.register("b", { version: 2 });
 
-      await expect(store.lookup("b")).resolves.toEqual({ version: 2 });
-      await expect(store.entries()).resolves.toEqual([
+      expect(store.lookup("b")).toEqual({ version: 2 });
+      expect(store.entries()).toEqual([
         { key: "a", value: { version: 1 }, createdAt: 2000 },
         { key: "b", value: { version: 2 }, createdAt: 3000 },
       ]);
@@ -227,68 +227,85 @@ describe("plugin state keyed store", () => {
   it("refreshes the default TTL when register upserts an existing key", async () => {
     await withPluginStateTestState(async () => {
       vi.useFakeTimers();
-      const store = createPluginStateKeyedStore<{ version: number }>("beam", {
+      const store = createPluginStateSyncKeyedStore<{ version: number }>("beam", {
         namespace: "sessions",
         maxEntries: 10,
         defaultTtlMs: 1_000,
       });
       vi.setSystemTime(1_000);
-      await store.register("session", { version: 1 });
+      store.register("session", { version: 1 });
       vi.setSystemTime(1_500);
-      await store.register("session", { version: 2 });
+      store.register("session", { version: 2 });
 
-      await expect(store.entries()).resolves.toEqual([
+      expect(store.entries()).toEqual([
         { key: "session", value: { version: 2 }, createdAt: 1_500, expiresAt: 2_500 },
       ]);
       vi.setSystemTime(2_100);
-      await expect(store.lookup("session")).resolves.toEqual({ version: 2 });
+      expect(store.lookup("session")).toEqual({ version: 2 });
       vi.setSystemTime(2_501);
-      await expect(store.lookup("session")).resolves.toBeUndefined();
+      expect(store.lookup("session")).toBeUndefined();
     });
   });
 
   it("registerIfAbsent inserts the first value and preserves live duplicates", async () => {
     await withPluginStateTestState(async () => {
-      vi.useFakeTimers();
       const store = createPluginStateKeyedStore<{ version: number }>("discord", {
         namespace: "claims",
         maxEntries: 10,
       });
 
-      vi.setSystemTime(1000);
+      const before = Date.now();
       await expect(store.registerIfAbsent("claim", { version: 1 }, { ttlMs: 1000 })).resolves.toBe(
         true,
       );
-      vi.setSystemTime(1200);
+      const after = Date.now();
+      const [created] = await store.entries();
+      expect(created?.createdAt).toBeGreaterThanOrEqual(before);
+      expect(created?.createdAt).toBeLessThanOrEqual(after);
+      expect(created?.expiresAt).toBe(created!.createdAt + 1000);
       await expect(store.registerIfAbsent("claim", { version: 2 }, { ttlMs: 5000 })).resolves.toBe(
         false,
       );
 
       await expect(store.lookup("claim")).resolves.toEqual({ version: 1 });
       await expect(store.entries()).resolves.toEqual([
-        { key: "claim", value: { version: 1 }, createdAt: 1000, expiresAt: 2000 },
+        {
+          key: "claim",
+          value: { version: 1 },
+          createdAt: created!.createdAt,
+          expiresAt: created!.expiresAt,
+        },
       ]);
     });
   });
 
   it("registerIfAbsent replaces expired keys", async () => {
     await withPluginStateTestState(async () => {
-      vi.useFakeTimers();
       const store = createPluginStateKeyedStore<{ version: number }>("discord", {
         namespace: "claims-expired",
         maxEntries: 10,
       });
 
-      vi.setSystemTime(1000);
-      await expect(store.registerIfAbsent("claim", { version: 1 }, { ttlMs: 100 })).resolves.toBe(
-        true,
-      );
-      vi.setSystemTime(1200);
+      seedPluginStateEntriesForTests([
+        {
+          pluginId: "discord",
+          namespace: "claims-expired",
+          key: "claim",
+          value: { version: 1 },
+          createdAt: 1000,
+          expiresAt: 1100,
+        },
+      ]);
+      const before = Date.now();
       await expect(store.registerIfAbsent("claim", { version: 2 })).resolves.toBe(true);
+      const after = Date.now();
+      const [created] = await store.entries();
+      expect(created?.createdAt).toBeGreaterThanOrEqual(before);
+      expect(created?.createdAt).toBeLessThanOrEqual(after);
 
       await expect(store.lookup("claim")).resolves.toEqual({ version: 2 });
       await expect(store.entries()).resolves.toEqual([
-        { key: "claim", value: { version: 2 }, createdAt: 1200 },
+        { key: "claim", value: { version: 2 }, createdAt: created!.createdAt },
       ]);
     });
   });
@@ -297,30 +314,34 @@ describe("plugin state keyed store", () => {
     await withPluginStateTestState(async () => {
       vi.useFakeTimers();
       setMaxPluginStateEntriesPerPluginForTests(2);
-      const store = createPluginStateKeyedStore<number>("codex", {
+      const store = createPluginStateSyncKeyedStore<number>("codex", {
         namespace: "durable-bindings",
         maxEntries: 2,
         overflowPolicy: "reject-new",
       });
       vi.setSystemTime(1000);
-      await store.register("first", 1);
+      store.register("first", 1);
       vi.setSystemTime(2000);
-      await store.register("second", 2);
+      store.register("second", 2);
 
-      await expect(store.register("third", 3)).rejects.toMatchObject({
-        code: "PLUGIN_STATE_LIMIT_EXCEEDED",
-        operation: "register",
-        message: "Plugin state namespace durable-bindings for codex reached its 2-row limit.",
-      });
-      await expect(store.registerIfAbsent("first", 99)).resolves.toBe(false);
+      expect(() => store.register("third", 3)).toThrowError(
+        expect.objectContaining({
+          code: "PLUGIN_STATE_LIMIT_EXCEEDED",
+          operation: "register",
+          message: "Plugin state namespace durable-bindings for codex reached its 2-row limit.",
+        }),
+      );
+      expect(store.registerIfAbsent("first", 99)).toBe(false);
       vi.setSystemTime(3000);
-      await expect(store.update("first", () => 10)).resolves.toBe(true);
-      await expect(store.update("third", () => 3)).rejects.toMatchObject({
-        code: "PLUGIN_STATE_LIMIT_EXCEEDED",
-        operation: "register",
-        message: "Plugin state namespace durable-bindings for codex reached its 2-row limit.",
-      });
-      await expect(store.entries()).resolves.toEqual([
+      expect(store.update("first", () => 10)).toBe(true);
+      expect(() => store.update("third", () => 3)).toThrowError(
+        expect.objectContaining({
+          code: "PLUGIN_STATE_LIMIT_EXCEEDED",
+          operation: "register",
+          message: "Plugin state namespace durable-bindings for codex reached its 2-row limit.",
+        }),
+      );
+      expect(store.entries()).toEqual([
         expect.objectContaining({ key: "second", value: 2 }),
         expect.objectContaining({ key: "first", value: 10 }),
       ]);
@@ -395,18 +416,19 @@ describe("plugin state keyed store", () => {
       const maxPluginEntries = 40;
       setMaxPluginStateEntriesPerPluginForTests(maxPluginEntries);
       vi.useFakeTimers();
-      const evicting = createPluginStateKeyedStore<number>("discord", {
+      const evicting = createPluginStateSyncKeyedStore<number>("discord", {
         namespace: "claims-evict",
         maxEntries: 2,
       });
       vi.setSystemTime(1000);
-      await evicting.registerIfAbsent("a", 1);
+      evicting.registerIfAbsent("a", 1);
       vi.setSystemTime(2000);
-      await evicting.registerIfAbsent("b", 2);
+      evicting.registerIfAbsent("b", 2);
       vi.setSystemTime(3000);
-      await evicting.registerIfAbsent("c", 3);
-      expect((await evicting.entries()).map((entry) => entry.key)).toEqual(["b", "c"]);
+      evicting.registerIfAbsent("c", 3);
+      expect(evicting.entries().map((entry) => entry.key)).toEqual(["b", "c"]);
 
+      vi.useRealTimers();
       seedPluginStateEntriesForTests([
         ...Array.from({ length: maxPluginEntries - 1 }, (_, entryIndex) => ({
           pluginId: "limited-plugin",
@@ -472,19 +494,19 @@ describe("plugin state keyed store", () => {
     await withPluginStateTestState(async () => {
       vi.useFakeTimers();
       vi.setSystemTime(1000);
-      const store = createPluginStateKeyedStore("discord", {
+      const store = createPluginStateSyncKeyedStore("discord", {
         namespace: "ttl",
         maxEntries: 10,
         defaultTtlMs: 100,
       });
-      await store.register("default", { value: "default" });
-      await store.register("override", { value: "override" }, { ttlMs: 500 });
+      store.register("default", { value: "default" });
+      store.register("override", { value: "override" }, { ttlMs: 500 });
 
       vi.setSystemTime(1200);
-      await expect(store.lookup("default")).resolves.toBeUndefined();
-      await expect(store.lookup("override")).resolves.toEqual({ value: "override" });
+      expect(store.lookup("default")).toBeUndefined();
+      expect(store.lookup("override")).toEqual({ value: "override" });
       expect(sweepExpiredPluginStateEntries()).toBe(1);
-      expect((await store.entries()).map((entry) => entry.key)).toEqual(["override"]);
+      expect(store.entries().map((entry) => entry.key)).toEqual(["override"]);
     });
   });
 
@@ -503,10 +525,13 @@ describe("plugin state keyed store", () => {
       const nowSpy = vi.spyOn(Date, "now");
       try {
         nowSpy.mockReturnValue(MAX_DATE_TIMESTAMP_MS);
-        await expectPluginStateStoreError(store.register("overflow", true, { ttlMs: 60_000 }), {
-          code: "PLUGIN_STATE_INVALID_INPUT",
-          operation: "register",
+        const sync = createPluginStateSyncKeyedStore("discord", {
+          namespace: "ttl-bounds",
+          maxEntries: 10,
         });
+        expect(() => sync.register("overflow", true, { ttlMs: 60_000 })).toThrowError(
+          expect.objectContaining({ code: "PLUGIN_STATE_INVALID_INPUT", operation: "register" }),
+        );
       } finally {
         nowSpy.mockRestore();
       }
@@ -767,11 +792,15 @@ describe("plugin state keyed store", () => {
         maxEntries: 10,
       });
       const databasePath = resolveOpenClawStateSqlitePath();
+      const firstHandle = openOpenClawStateDatabase();
       expect(closeOpenClawStateDatabaseByPath(databasePath)).toBe(true);
+      expect(firstHandle.db.isOpen).toBe(false);
       await store.register("k", { version: 2 });
       expect(syncStore.lookup("k")).toEqual({ version: 2 });
 
+      const secondHandle = openOpenClawStateDatabase();
       expect(closeOpenClawStateDatabaseByPath(databasePath)).toBe(true);
+      expect(secondHandle.db.isOpen).toBe(false);
       syncStore.register("k", { version: 3 });
       await expect(store.lookup("k")).resolves.toEqual({ version: 3 });
     });

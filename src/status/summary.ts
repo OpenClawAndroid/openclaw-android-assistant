@@ -2,6 +2,7 @@
 // It aggregates sessions, tasks, heartbeat, channel summary, and model/runtime metadata.
 
 import { expectDefined } from "@openclaw/normalization-core";
+import type { SystemInfoResult } from "../../packages/gateway-protocol/src/schema/system-info.js";
 import { withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import { resolveAgentConfig } from "../agents/agent-scope.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
@@ -51,7 +52,7 @@ import {
   STATUS_RECENT_SESSION_LIMIT,
   type StatusSessionStores,
 } from "./session-stores.js";
-import type { HeartbeatStatus, SessionStatus, StatusSummary } from "./types.js";
+import type { HeartbeatStatus, SessionStatus } from "./types.js";
 
 const channelSummaryModuleLoader = createLazyImportLoader(
   () => import("../infra/channel-summary.js"),
@@ -358,7 +359,7 @@ export async function getStatusSummary(
     hostDesktopStatus?: import("../gateway/desktop/host-source.js").HostDesktopStatus;
     sessionStores?: StatusSessionStores;
   } = {},
-): Promise<StatusSummary> {
+) {
   const { includeSensitive = true, includeChannelSummary = true } = options;
   const cfg = options.config ?? getRuntimeConfig();
   const channelScopeConfig =
@@ -459,7 +460,7 @@ export async function getStatusSummary(
   const taskInspection = await taskMaintenanceModule.getInspectableTaskStatusSummaryReadOnly();
   const now = Date.now();
   const { taskAudit, taskAuditRetainedLost } = taskInspection;
-  const tasks: StatusSummary["tasks"] = {
+  const tasks = {
     ...taskInspection.tasks,
     ...(taskInspection.state === "migration-required"
       ? {
@@ -558,3 +559,25 @@ export async function getStatusSummary(
     },
   };
 }
+
+type GatheredStatusSummary = Awaited<ReturnType<typeof getStatusSummary>>;
+
+/** Aggregate status summary, including cold-start and Gateway health compatibility fields. */
+export type StatusSummary = Omit<
+  Partial<GatheredStatusSummary>,
+  "runtimeVersion" | "degradedSecretOwners"
+> &
+  Pick<
+    GatheredStatusSummary,
+    "heartbeat" | "channelSummary" | "queuedSystemEvents" | "tasks" | "taskAudit" | "sessions"
+  > & {
+    runtimeVersion?: string | null;
+    eventLoop?: NonNullable<SystemInfoResult["eventLoop"]>;
+    processMemory?: NonNullable<SystemInfoResult["processMemory"]>;
+    degradedSecretOwners?: Array<
+      Omit<
+        NonNullable<GatheredStatusSummary["degradedSecretOwners"]>[number],
+        "degradationState"
+      > & { degradationState?: "cold" | "stale" }
+    >;
+  };

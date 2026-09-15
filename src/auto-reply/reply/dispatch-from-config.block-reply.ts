@@ -5,7 +5,8 @@ import {
   isReplyPayloadStatusNotice,
 } from "../reply-payload.js";
 import type { GetReplyOptions } from "../types.js";
-import { setBlockReplyDelivery } from "./block-reply-delivery.js";
+import { createBlockReplySource, setBlockReplyDelivery } from "./block-reply-delivery.js";
+import type { BlockReplySource } from "./block-reply-source.types.js";
 import {
   prepareReplyPayloadForSideEffects as preparePayload,
   shouldDeliverDespiteSourceReplySuppression,
@@ -37,6 +38,7 @@ export function createDispatchBlockReplyHandler(
     shouldRouteToOriginating,
     trackDispatchLifecycleWork,
   } = state;
+  let pendingBlockSource: BlockReplySource | undefined;
   return (inputPayload, context) => {
     setBlockReplyDelivery(Promise.resolve({ outcome: "cancelled" }));
     // A monitor decides notify only after its structured final result.
@@ -103,10 +105,17 @@ export function createDispatchBlockReplyHandler(
         state.progressState.accumulatedBlockTtsText += payload.text;
         state.progressState.blockCount++;
       }
+      let source: BlockReplySource | undefined;
       let visiblePayload =
         payload.text && cleanBlockTtsDirectiveText && contributesToFinalReply
           ? (() => {
+              if (!deferFinalTtsText) {
+                source = pendingBlockSource ?? createBlockReplySource();
+              }
               const text = cleanBlockTtsDirectiveText.push(payload.text);
+              const buffered = cleanBlockTtsDirectiveText.hasBufferedDirectiveText();
+              source?.setComplete(!buffered);
+              pendingBlockSource = buffered ? source : undefined;
               return copyReplyPayloadMetadata(payload, {
                 ...payload,
                 text: text.trim() ? text : undefined,
@@ -208,7 +217,11 @@ export function createDispatchBlockReplyHandler(
           }
         }
       };
-      await sendPrepared();
+      if (source) {
+        await source.run(sendPrepared);
+      } else {
+        await sendPrepared();
+      }
     };
     return run();
   };

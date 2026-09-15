@@ -299,17 +299,7 @@ internal class WearGatewayRepository(
 ) {
   suspend fun status(expectedNodeId: String? = null): WearProxyStatus {
     val response = requester.request(WearRpcMethod.ProxyStatus, buildJsonObject {}, expectedNodeId)
-    val result = response.payload.asObject("proxy.status")
-    return WearProxyStatus(
-      connected = result.boolean("connected") ?: false,
-      activeAgentId = result.string("activeAgentId"),
-      activeSessionKey = result.string("activeSessionKey"),
-      selectedModelRef = result.string("selectedModelRef"),
-      capabilities = result.proxyCapabilities(),
-      eventStreamId = response.eventStreamId,
-      eventSequence = response.eventSequence,
-      phoneNodeId = response.sourceNodeId,
-    )
+    return response.toProxyStatus("proxy.status")
   }
 
   suspend fun agentPulse(
@@ -455,17 +445,7 @@ internal class WearGatewayRepository(
         phoneNodeId,
         requirePreferredNode = true,
       )
-    val result = response.payload.asObject(if (enabled) "gateway.connect" else "gateway.disconnect")
-    return WearProxyStatus(
-      connected = result.boolean("connected") ?: false,
-      activeAgentId = result.string("activeAgentId"),
-      activeSessionKey = result.string("activeSessionKey"),
-      selectedModelRef = result.string("selectedModelRef"),
-      capabilities = result.proxyCapabilities(),
-      eventStreamId = response.eventStreamId,
-      eventSequence = response.eventSequence,
-      phoneNodeId = response.sourceNodeId,
-    )
+    return response.toProxyStatus(if (enabled) "gateway.connect" else "gateway.disconnect")
   }
 
   suspend fun sessions(
@@ -612,6 +592,20 @@ internal class WearGatewayRepository(
       )
     return WearRealtimeTalkCodec.decode(response.payload)
   }
+}
+
+private fun WearRpcResult.toProxyStatus(method: String): WearProxyStatus {
+  val result = payload.asObject(method)
+  return WearProxyStatus(
+    connected = result.boolean("connected") ?: false,
+    activeAgentId = result.string("activeAgentId"),
+    activeSessionKey = result.string("activeSessionKey"),
+    selectedModelRef = result.string("selectedModelRef"),
+    capabilities = result.proxyCapabilities(),
+    eventStreamId = eventStreamId,
+    eventSequence = eventSequence,
+    phoneNodeId = sourceNodeId,
+  )
 }
 
 internal fun parseWearChatEvent(payload: JsonElement?): WearChatEvent? {

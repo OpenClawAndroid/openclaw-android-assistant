@@ -19,6 +19,8 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/server-methods/models-list.membership.integration.test.ts",
   "src/gateway/server-methods/models-list.native-lifecycle.integration.test.ts",
   "src/gateway/server-methods/requester-cron-authority.integration.test.ts",
+  "src/gateway/server-methods/worktrees.authorization.test.ts",
+  "src/gateway/server-methods/worktrees.test.ts",
   "src/gateway/session-delivery-clock-jump.integration.test.ts",
 ];
 

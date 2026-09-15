@@ -9,7 +9,9 @@ import {
   extractErrorCode,
 } from "@openclaw/normalization-core/error-coercion";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
+import { createPluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import { createPluginRuntime } from "../plugins/runtime/index.js";
 import { resetRuntimeTaskTestState } from "../plugins/runtime/runtime-task-test-harness.js";
 import { createDeferredCore } from "../shared/deferred.js";
@@ -100,6 +102,58 @@ afterEach(async () => {
 });
 
 describe("registered tasks.async runtime", () => {
+  it.each(["valid", "invalid"] as const)(
+    "prepares cold %s config for a bare-owner SDK read after registry readiness",
+    async (shape) => {
+      await state.writeConfig(
+        shape === "valid"
+          ? { gateway: { mode: "local" }, agents: { entries: { ops: {} } } }
+          : { gateway: { port: "invalid" } },
+      );
+      vi.spyOn(process, "cwd").mockReturnValue(state.workspaceDir);
+      upsertTaskWithDeliveryStateToSqlite({
+        task: task("bare", {
+          ownerKey: "global",
+          requesterSessionKey: "global",
+          requesterAgentId: undefined,
+          runId: "bare-run",
+          parentFlowId: undefined,
+        }),
+      });
+      expect(getTaskById("bare")?.taskId).toBe("bare");
+      closeOpenClawStateDatabase();
+      expect(getRuntimeConfigSnapshot()).toBeNull();
+      const native = requireNodeSqlite();
+      const counters = [
+        vi.spyOn(native.DatabaseSync.prototype, "prepare"),
+        vi.spyOn(native.DatabaseSync.prototype, "exec"),
+        ...(["iterate", "get", "all", "run"] as const).map((method) =>
+          vi.spyOn(native.StatementSync.prototype, method),
+        ),
+      ];
+      await withPluginCache(createPluginCache(), async () => {
+        const runs = createPluginRuntime().tasks.async.runs.bindSession({
+          sessionKey: "global",
+          agentId: "ops",
+        });
+        const detail = await runs.get("bare");
+        const listed = await runs.list();
+        const latest = await runs.findLatest();
+        const resolved = await runs.resolve("bare-run");
+        if (shape === "valid") {
+          expect([detail?.id, latest?.id, resolved?.id]).toEqual(["bare", "bare", "bare"]);
+          expect(listed.map((entry) => entry.id)).toEqual(["bare"]);
+          expect(getRuntimeConfigSnapshot()?.agents?.entries).toHaveProperty("ops");
+        } else {
+          expect([detail, latest, resolved]).toEqual([undefined, undefined, undefined]);
+          expect(listed).toEqual([]);
+          expect(getRuntimeConfigSnapshot()).toBeNull();
+        }
+      });
+      expect(counters.map((counter) => counter.mock.calls.length)).toEqual([0, 0, 0, 0, 0, 0]);
+    },
+  );
+
   it.each([4, 8])("keeps reconciliation linear for %s unrelated managed writes", async (count) => {
     const managed = createPluginRuntime().tasks.async.managedFlows.bindSession({
       sessionKey: ownerKey,

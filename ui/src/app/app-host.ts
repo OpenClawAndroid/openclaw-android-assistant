@@ -306,6 +306,28 @@ class OpenClawShell
           };
         },
       )
+      .effect(
+        () => this.context,
+        (context) => {
+          const startedAt = Date.now();
+          let active = true;
+          let disconnect: (() => void) | undefined;
+          const runtime = createIdleImport(
+            () => import("./control-ui-favicon-status.runtime.ts"),
+            ({ connectControlUiFavicon }) => {
+              if (active) {
+                disconnect = connectControlUiFavicon(this, context, startedAt);
+              }
+            },
+          );
+          runtime.schedule();
+          return () => {
+            active = false;
+            runtime.dispose();
+            disconnect?.();
+          };
+        },
+      )
       .watch(
         () => this.context?.nativeDeviceSettings,
         (settings, notify) => settings.subscribe(notify),

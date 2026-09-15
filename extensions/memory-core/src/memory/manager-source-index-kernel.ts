@@ -10,7 +10,6 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "openclaw/plugin-sdk/sqlite-runtime";
-import { hasMemorySessionTombstone } from "../memory-session-tombstones.js";
 import { createMemoryChunkWriter, type IndexedMemoryChunk } from "./manager-chunk-writer.js";
 import {
   markMemoryVectorRebuildRequired,
@@ -66,18 +65,8 @@ export class MemorySourceIndexKernel {
     private readonly state: SourceIndexState,
   ) {}
 
-  replace(
-    params: MemorySourceIndexReplacement,
-    sessionAuthority: MemorySourceIndexKernel,
-  ): "replaced" | "forgotten" {
+  replace(params: MemorySourceIndexReplacement): void {
     const { entry, source, chunks, embeddings, model, now, vectorReady } = params;
-    // A shadow index must consult the live generation's tombstones at publication.
-    if (
-      params.source === "sessions" &&
-      hasMemorySessionTombstone(sessionAuthority.database, params.agentId, params.sessionId)
-    ) {
-      return "forgotten";
-    }
     this.clear(entry.path, source);
     let writeChunk: ReturnType<typeof createMemoryChunkWriter> | undefined;
     let ftsStatement: StatementSync | undefined;
@@ -132,7 +121,6 @@ export class MemorySourceIndexKernel {
     if (!vectorReady && embeddings.some((embedding) => embedding.length > 0)) {
       markMemoryVectorRebuildRequired(this.database);
     }
-    return "replaced";
   }
 
   deleteIfCurrent(params: {

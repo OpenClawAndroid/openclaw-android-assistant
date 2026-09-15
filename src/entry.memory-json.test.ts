@@ -4,9 +4,13 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { clearRuntimeConfigSnapshot } from "openclaw/plugin-sdk/runtime-config-snapshot";
-import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
-import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  closeOpenClawAgentDatabasesAsync,
+  closeOpenClawAgentDatabasesForTest,
+  closeOpenClawStateDatabaseAsync,
+} from "openclaw/plugin-sdk/sqlite-runtime-testing";
+import { describe, expect, it, vi } from "vitest";
+import { createTempDirTracker } from "../test/helpers/temp-dir.js";
 import { withConsoleLogsRoutedToStderrForJson } from "./cli/json-output-mode.js";
 import { CliPluginInvocationResources } from "./cli/plugin-invocation-resources.js";
 import type { OpenClawConfig } from "./config/types.js";
@@ -17,16 +21,16 @@ import { registerPluginCliCommands } from "./plugins/cli.js";
 import { createPluginCache, retirePluginCache } from "./plugins/plugin-cache.js";
 import { createDeferredCore } from "./shared/deferred.js";
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+type MemoryRootFixture = {
+  workspaceDir: string;
+  stdout: () => string;
+  stderr: () => string;
+  invoke: (args: string[]) => Promise<void>;
+};
 
-async function withMemoryRoot(
-  run: (fixture: {
-    workspaceDir: string;
-    stdout: () => string;
-    stderr: () => string;
-    invoke: (args: string[]) => Promise<void>;
-  }) => Promise<void>,
-) {
+async function withMemoryRoot(run: (fixture: MemoryRootFixture) => Promise<void>) {
+  // A later invocation must not adopt roots retained after failed owner drainage.
+  const tempDirs = createTempDirTracker();
   const root = tempDirs.make("openclaw-entry-memory-json-");
   const workspaceDir = path.join(root, "workspace");
   const previousExitCode = process.exitCode;
@@ -113,28 +117,59 @@ async function withMemoryRoot(
     });
   } finally {
     try {
-      const retirement = await retirePluginCache(cache);
-      expect(retirement.failures).toEqual([]);
-    } finally {
       try {
-        closeOpenClawAgentDatabasesForTest();
+        const retirement = await retirePluginCache(cache);
+        expect(retirement.failures).toEqual([]);
       } finally {
-        try {
-          // Agent releases can reopen shared state, so close that owner last.
-          resetPluginStateStoreForTests();
-        } finally {
-          clearRuntimeConfigSnapshot();
-          resetLogger();
-          vi.restoreAllMocks();
-          vi.unstubAllEnvs();
-          process.exitCode = previousExitCode;
-        }
+        await closeOpenClawAgentDatabasesAsync();
+        closeOpenClawAgentDatabasesForTest();
+        // Agent releases can reopen shared state, so close that owner last.
+        await closeOpenClawStateDatabaseAsync();
+        resetPluginStateStoreForTests();
       }
+    } finally {
+      clearRuntimeConfigSnapshot();
+      resetLogger();
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+      process.exitCode = previousExitCode;
     }
+    tempDirs.cleanup();
   }
 }
 
+async function prepareHistoricalMemoryControl(
+  { workspaceDir, invoke, stdout }: Pick<MemoryRootFixture, "workspaceDir" | "invoke" | "stdout">,
+  command: "rem-harness" | "rem-backfill",
+) {
+  const historyPath = path.join(workspaceDir, "2025-01-01.md");
+  const history =
+    "## Preferences Learned\n- Always choose the copper telescope for observations.\n";
+  await fs.writeFile(historyPath, history, "utf8");
+  const args = [command, "--agent", "main", "--path", historyPath, "--json"];
+  // Qualify the real fixture before any cleanup-failure instrumentation.
+  await invoke(args);
+  expect(JSON.parse(stdout())).toMatchObject({
+    sourcePath: historyPath,
+    sourceFiles: [historyPath],
+    ...(command === "rem-harness"
+      ? { historicalImport: { importedFileCount: 1 } }
+      : { groundedFiles: 1, writtenEntries: 1 }),
+  });
+  expect(process.exitCode).toBe(0);
+  return { historyPath, history, args };
+}
+
 describe("memory command failures at the root JSON boundary", () => {
+  it.each(["rem-harness", "rem-backfill"] as const)(
+    "returns one JSON report for ordinary %s historical input",
+    async (command) => {
+      await withMemoryRoot(async (fixture) => {
+        await prepareHistoricalMemoryControl(fixture, command);
+      });
+    },
+  );
+
   it("writes one actionable JSON failure for a queryless search", async () => {
     await withMemoryRoot(async ({ invoke, stdout, stderr }) => {
       await invoke(["search", "--json"]);
@@ -156,22 +191,10 @@ describe("memory command failures at the root JSON boundary", () => {
     "%s writes one failure document when historical scratch removal rejects",
     async (command) => {
       await withMemoryRoot(async ({ workspaceDir, invoke, stdout, stderr }) => {
-        const historyPath = path.join(workspaceDir, "2025-01-01.md");
-        const history =
-          "## Preferences Learned\n- Always choose the copper telescope for observations.\n";
-        await fs.writeFile(historyPath, history, "utf8");
-        const args = [command, "--agent", "main", "--path", historyPath, "--json"];
-        // Qualify the real fixture first: an earlier report failure must not be
-        // mistaken for exercising successful preparation followed by cleanup failure.
-        await invoke(args);
-        expect(JSON.parse(stdout())).toMatchObject({
-          sourcePath: historyPath,
-          sourceFiles: [historyPath],
-          ...(command === "rem-harness"
-            ? { historicalImport: { importedFileCount: 1 } }
-            : { groundedFiles: 1, writtenEntries: 1 }),
-        });
-        expect(process.exitCode).toBe(0);
+        const { historyPath, history, args } = await prepareHistoricalMemoryControl(
+          { workspaceDir, invoke, stdout },
+          command,
+        );
         const realCopyFile = fs.copyFile.bind(fs);
         const realRm = fs.rm.bind(fs);
         const cleanupStarted = createDeferredCore();

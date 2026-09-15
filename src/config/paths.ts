@@ -320,6 +320,13 @@ export function pinRuntimePaths(env: NodeJS.ProcessEnv = process.env): {
   return { configPath: CONFIG_PATH, stateDir: STATE_DIR };
 }
 
+export function captureRuntimeStateEnvironment(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    OPENCLAW_STATE_DIR: process.env.OPENCLAW_STATE_DIR?.trim() || STATE_DIR,
+  };
+}
+
 /**
  * Resolve default config path candidates across default locations.
  * Order: explicit config path → state-dir-derived paths → new default.

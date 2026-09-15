@@ -52,6 +52,7 @@ export interface PluginInstanceResource {
 export interface PluginModuleLoaderOwner extends PluginInstanceResource, PluginInstanceAdmission {
   controlPlaneInitialized: boolean;
   sourceDigest?: string;
+  onModuleDispose(cleanup: () => Promise<void>): void;
   bindModuleLoader(
     load: (source: string) => unknown,
     hasSource?: (source: string) => boolean,

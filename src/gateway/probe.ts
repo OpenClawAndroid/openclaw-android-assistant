@@ -19,7 +19,7 @@ import {
 } from "../infra/device-auth-store.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { SystemPresence } from "../infra/system-presence.js";
-import type { StatusSummary } from "../status/types.js";
+import type { StatusSummary } from "../status/summary.js";
 import { resolveSafeTimeoutDelayMs } from "../utils/timer-delay.js";
 import {
   GatewayClient,

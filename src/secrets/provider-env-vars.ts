@@ -2,11 +2,14 @@
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { resolveProviderAuthAliasMap } from "../agents/provider-auth-aliases.js";
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { prepareBundledDiscoveryMode } from "../plugins/bundled-discovery-state.js";
 import { normalizePluginsConfig } from "../plugins/config-state.js";
 import { getCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-snapshot.js";
 import { createInstalledPluginEnabledPredicate } from "../plugins/installed-plugin-index.js";
 import type { PluginManifestRecord } from "../plugins/manifest-registry.js";
+import { getPluginCache, retainPluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import {
   isWorkspacePluginAllowedByConfig,
   normalizePluginConfigId,
@@ -125,9 +128,10 @@ function appendUniqueProviderRef(target: Set<string>, providerId: string): void 
   }
 }
 
-function resolveProviderMetadataSnapshot(
+function findProviderMetadataSnapshot(
   params?: ProviderEnvVarLookupParams,
-): PluginMetadataSnapshot {
+  options: { allowSynchronousPolicyRead?: boolean } = {},
+): PluginMetadataSnapshot | undefined {
   if (params?.metadataSnapshot) {
     return params.metadataSnapshot;
   }
@@ -136,6 +140,7 @@ function resolveProviderMetadataSnapshot(
   let current: PluginMetadataSnapshot | undefined;
   if (config) {
     current = getCurrentPluginMetadataSnapshot({
+      ...options,
       config,
       env,
       ...(params?.workspaceDir !== undefined ? { workspaceDir: params.workspaceDir } : {}),
@@ -143,6 +148,7 @@ function resolveProviderMetadataSnapshot(
     });
   } else {
     current = getCurrentPluginMetadataSnapshot({
+      ...options,
       env,
       ...(params?.workspaceDir !== undefined ? { workspaceDir: params.workspaceDir } : {}),
       allowWorkspaceScopedSnapshot: true,
@@ -151,6 +157,10 @@ function resolveProviderMetadataSnapshot(
   }
   if (current) {
     return current;
+  }
+  // A deferred configured lookup cannot fall through until its policy has been prepared.
+  if (options.allowSynchronousPolicyRead === false) {
+    return undefined;
   }
   if (config && normalizePluginsConfig(config.plugins).loadPaths.length === 0) {
     // Configs without explicit load paths can reuse the process-scoped snapshot; plugin-scoped
@@ -165,12 +175,21 @@ function resolveProviderMetadataSnapshot(
       return unscopedCurrent;
     }
   }
-  return loadPluginMetadataSnapshot({
-    config: config ?? {},
-    workspaceDir: params?.workspaceDir,
-    env,
-    preferPersisted: false,
-  });
+  return undefined;
+}
+
+function resolveProviderMetadataSnapshot(
+  params?: ProviderEnvVarLookupParams,
+): PluginMetadataSnapshot {
+  return (
+    findProviderMetadataSnapshot(params) ??
+    loadPluginMetadataSnapshot({
+      config: params?.config ?? {},
+      workspaceDir: params?.workspaceDir,
+      env: params?.env ?? process.env,
+      preferPersisted: false,
+    })
+  );
 }
 
 function resolveManifestProviderUsageAuthEnvVarNames(
@@ -384,6 +403,34 @@ export function listKnownProviderAuthEnvVarNames(params?: ProviderEnvVarLookupPa
     ...Object.values(withSetupEnvOverrides(authCandidates)).flat(),
     ...resolveManifestProviderUsageAuthEnvVarNames(params),
   ]);
+}
+
+/** Prepare machine-owned discovery facts before deriving the same provider env-name policy. */
+export async function listKnownProviderAuthEnvVarNamesAsync(
+  params?: ProviderEnvVarLookupParams,
+): Promise<string[]> {
+  if (params?.metadataSnapshot) {
+    return listKnownProviderAuthEnvVarNames(params);
+  }
+  const env = cloneEnvWithPlatformSemantics(params?.env ?? process.env);
+  const lookup = { ...params, env };
+  const cache = getPluginCache();
+  const release = retainPluginCache(cache);
+  try {
+    return await withPluginCache(cache, async () => {
+      let metadataSnapshot = findProviderMetadataSnapshot(lookup, {
+        allowSynchronousPolicyRead: false,
+      });
+      if (!metadataSnapshot) {
+        const activate = await prepareBundledDiscoveryMode(env);
+        activate();
+        metadataSnapshot = resolveProviderMetadataSnapshot(lookup);
+      }
+      return listKnownProviderAuthEnvVarNames({ ...lookup, metadataSnapshot });
+    });
+  } finally {
+    release();
+  }
 }
 
 /** Lists secret env vars for auditing and cleanup, independently of provider activation. */

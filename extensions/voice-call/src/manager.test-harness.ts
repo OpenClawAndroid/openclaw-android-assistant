@@ -9,6 +9,7 @@ import {
   createPluginStateKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { onTestFinished } from "vitest";
 import { VoiceCallConfigSchema } from "./config.js";
 import { CallManager } from "./manager.js";
@@ -257,6 +258,7 @@ export function createEventManagerHarness() {
     while (pendingWork.size > 0) {
       await Promise.allSettled(pendingWork);
     }
+    await closeOpenClawStateDatabaseAsync();
     for (const ctx of ownedContexts) {
       fs.rmSync(ctx.storePath, { recursive: true, force: true });
     }

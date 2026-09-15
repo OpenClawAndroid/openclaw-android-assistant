@@ -7,6 +7,7 @@ import type {
   OpenKeyedStoreOptions,
   PluginDoctorStateMigrationContext,
 } from "openclaw/plugin-sdk/runtime-doctor-migrations";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stateMigrations } from "./doctor-contract-api.js";
@@ -16,7 +17,13 @@ import {
   openCrabboxWarmImageStore,
 } from "./src/crabbox-worker-warm-image-store.js";
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterEach(async () => {
+    await closeOpenClawStateDatabaseAsync();
+    resetPluginStateStoreForTests();
+    cleanup();
+  }),
+);
 const migration = stateMigrations[0]!;
 const image = {
   checkpointId: "chk_retained",
@@ -28,14 +35,14 @@ const image = {
 let stateDir: string;
 let env: NodeJS.ProcessEnv;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await closeOpenClawStateDatabaseAsync();
   resetPluginStateStoreForTests();
   stateDir = tempDirs.make("openclaw-crabbox-migration-");
   env = { OPENCLAW_STATE_DIR: stateDir };
 });
 
 afterEach(() => {
-  resetPluginStateStoreForTests();
   vi.restoreAllMocks();
 });
 
@@ -89,6 +96,7 @@ describe("Crabbox warm-profile Doctor migration", () => {
 
       const result = await migration.migrateLegacyState(input());
       expect(result.warnings).toEqual([]);
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       const { operation, lastUsedAtMs: _lastUsedAtMs, ...metadata } = record;
       expect(openCrabboxWarmImageStore(env).lookup("profile")).toEqual({
@@ -145,6 +153,7 @@ describe("Crabbox warm-profile Doctor migration", () => {
       await legacyImages().register("profile", record);
 
       expect((await migration.migrateLegacyState(input())).warnings).toEqual([]);
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       const migrated = openCrabboxWarmImageStore(env).lookup("profile");
       expect(migrated).toEqual({
@@ -183,6 +192,7 @@ describe("Crabbox warm-profile Doctor migration", () => {
     const selector = crabboxLegacyWarmImageCaptureSelector("reserved", reserved);
 
     await migration.migrateLegacyState(input());
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
 
     expect(openCrabboxWarmImageStore(env).lookup("reserved")).toEqual({

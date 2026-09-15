@@ -15,11 +15,11 @@ import {
   hasImportGraphConsumers,
   hasImportGraphImpactOnTargets,
   isTestFileTarget,
-  isTestSupportFileTarget,
   resolveChangedTestTargetPlan,
   UI_E2E_VITEST_CONFIG,
 } from "../test-projects.test-support.mts";
 import { listAvailableExtensionIds } from "./changed-extensions.mts";
+import { isTestOnlyPath } from "./changed-path-facts.mjs";
 import {
   createNodeTestShards,
   createSelectedNodeTestShardBundles,
@@ -41,6 +41,9 @@ import {
   type VitestPretestBuildMode,
 } from "./vitest-build-prerequisites.mts";
 import { VITEST_PRETEST_BUILD_SECONDS } from "./vitest-shard-metadata.mts";
+
+// The trusted CI harness loads this export from the selected target revision.
+export { resolveChangedDockerSeedLanes } from "./ci-docker-seed-plan.mts";
 
 type ChangedNodeTestShard = {
   checkName: string;
@@ -96,38 +99,6 @@ const MAX_CHANGED_EXTENSION_FALLBACK_JOBS = 50;
 // integration tests past the global timeout.
 const SERIAL_CHANGED_TARGET_RE = /^extensions\/memory-core\//u;
 const BOUNDARY_NODE_TEST_CONFIG = "test/vitest/vitest.boundary.config.ts";
-const MCP_DOCKER_SEED_LANES = [
-  "mcp-channels",
-  "cron-mcp-cleanup",
-  "mcp-code-mode-gateway",
-] as const;
-const DOCKER_SEED_LANE_ORDER = [
-  ...MCP_DOCKER_SEED_LANES,
-  "update-channel-switch",
-  "fleet-cache",
-  "published-upgrade-survivor",
-] as const;
-type DockerSeedLane = (typeof DOCKER_SEED_LANE_ORDER)[number];
-const DOCKER_SEED_LANES_BY_PATH: Readonly<Record<string, readonly DockerSeedLane[]>> = {
-  ".github/workflows/ci.yml": [...MCP_DOCKER_SEED_LANES, "published-upgrade-survivor"],
-  "scripts/e2e/cron-mcp-cleanup-seed.ts": ["cron-mcp-cleanup"],
-  "scripts/e2e/docker-openai-seed.ts": MCP_DOCKER_SEED_LANES,
-  "scripts/e2e/fleet-cache-docker.sh": ["fleet-cache"],
-  "scripts/e2e/lib/mcp-code-mode-probe-server.ts": ["mcp-code-mode-gateway"],
-  "scripts/e2e/lib/mcp-code-mode/scenario.sh": ["mcp-code-mode-gateway"],
-  "scripts/e2e/lib/update-channel-switch/assertions.mjs": ["update-channel-switch"],
-  "scripts/e2e/mcp-channels-seed.ts": ["mcp-channels"],
-  "scripts/e2e/mcp-code-mode-gateway-seed.ts": ["mcp-code-mode-gateway"],
-  "scripts/e2e/update-channel-switch-docker.sh": ["update-channel-switch"],
-  "scripts/lib/ci-changed-node-test-plan.mts": [
-    ...MCP_DOCKER_SEED_LANES,
-    "published-upgrade-survivor",
-  ],
-};
-// Keep the whole state owner: both schema-version constants and future migrations
-// must exercise an installed release's updater before they reach main.
-const PUBLISHED_UPGRADE_OWNER_RE =
-  /^src\/(?:cli\/update-cli\/|infra\/(?:update-|package-update-)|plugins\/update(?:-|\.ts$)|commands\/doctor|state\/)|^scripts\/e2e\/(?:upgrade-survivor|lib\/upgrade-survivor\/)|^scripts\/(?:resolve-upgrade-survivor-baselines\.mts|lib\/(?:docker-e2e-(?:plan|scenarios)|upgrade-survivor-[^/]+)\.(?:mjs|mts))$|^package\.json$/u;
 const publicPluginSdkEntrySources = Object.values(
   buildPluginSdkEntrySources(publicPluginSdkEntrypoints),
 );
@@ -143,34 +114,6 @@ const configsRequiringCanonicalMetadata = new Set(
 const splitNodeTestConfigs = new Set(
   fullNodeTestShards.filter((shard) => shard.includePatterns).flatMap((shard) => shard.configs),
 );
-
-export function resolveChangedDockerSeedLanes(changedPaths: string[]) {
-  const selected = new Set<DockerSeedLane>();
-  for (const changedPath of changedPaths) {
-    const normalizedPath = changedPath.replaceAll("\\", "/");
-    if (normalizedPath.startsWith("scripts/e2e/lib/fleet-cache/")) {
-      selected.add("fleet-cache");
-    }
-    if (
-      PUBLISHED_UPGRADE_OWNER_RE.test(normalizedPath) &&
-      (!normalizedPath.startsWith("src/") || !isTestOnlyPath(normalizedPath))
-    ) {
-      selected.add("published-upgrade-survivor");
-    }
-    for (const lane of DOCKER_SEED_LANES_BY_PATH[normalizedPath] ?? []) {
-      selected.add(lane);
-    }
-  }
-  return DOCKER_SEED_LANE_ORDER.filter((lane) => selected.has(lane));
-}
-
-function isTestOnlyPath(changedPath: string) {
-  return (
-    isTestFileTarget(changedPath) ||
-    isTestSupportFileTarget(changedPath) ||
-    changedPath.startsWith("test/")
-  );
-}
 
 // Inputs `build:ci-artifacts` consumes: runtime/plugin/package sources plus
 // the build pipeline itself, including shared declaration publication and cache owners.

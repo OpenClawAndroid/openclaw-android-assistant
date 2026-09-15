@@ -387,6 +387,12 @@ built-in `legacy` engine. The error is logged with the failed operation so the
 operator can repair, update, or disable the plugin without the agent going
 silent.
 
+Host admission and resource-ownership failures before factory entry propagate
+without quarantining the engine. Factory rejections caused by cancellation of
+the caller's work also propagate without quarantine or fallback. Completion
+cleanup owns an independent async lifetime, so a closed caller scope does not
+prevent its factory from running.
+
 Host requirement failures are different: when an engine declares that a runtime
 lacks a required capability, OpenClaw fails closed before starting the run. That
 protects engines that would corrupt state if they ran in an unsupported host.

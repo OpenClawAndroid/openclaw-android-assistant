@@ -626,6 +626,8 @@ export function capturePluginGenerationArtifact(
       const captured = capturedPaths.get(canonical);
       return captured && isPathInside(root, captured) ? captured : undefined;
     };
+    const captures = [moduleCaptures, hardlinkedSources, metadataCapture, packages];
+    const clearCaptures = () => captures.forEach((capture) => capture.clear());
     return {
       sourceRoot,
       rootDir: root,
@@ -712,11 +714,9 @@ export function capturePluginGenerationArtifact(
       },
       dispose: () => {
         sourceCapture.dispose();
-        moduleCaptures.clear();
-        hardlinkedSources.clear();
-        metadataCapture.clear();
-        packages.clear();
+        clearCaptures();
       },
+      disposeAsync: () => sourceCapture.disposeAsync().then(clearCaptures),
     };
   } catch (error) {
     sourceCapture.dispose();

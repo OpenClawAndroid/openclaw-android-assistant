@@ -24,7 +24,6 @@ import { MemoryIndexDatabase } from "./manager-database-context.js";
 import {
   cleanupAgedMemoryReindexTempFiles,
   memoryDatabaseTableExists,
-  openMemoryDatabaseAtPath,
   prepareMemoryDatabasePublication,
   readMemoryDatabaseRevision,
   removeMemoryDatabaseFiles,
@@ -572,12 +571,12 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
       { reason: params.reason, force: params.force },
       true,
     );
+    let shadowCleanup: MemoryIndexDatabase | undefined;
     try {
       cleanupAgedMemoryReindexTempFiles(dbPath);
       const originalRevision = readMemoryDatabaseRevision(originalDb);
-      const shadow = new MemoryIndexDatabase(
-        openMemoryDatabaseAtPath(tempDbPath, this.settings.store.vector.enabled),
-      );
+      const shadow = MemoryIndexDatabase.openShadow(tempDbPath, this.settings.store.vector.enabled);
+      shadowCleanup = shadow;
       shadow.vector.enabled = this.vector.enabled;
       shadow.vector.extensionPath = this.vector.extensionPath;
       shadow.fts.enabled = this.fts.enabled;
@@ -585,7 +584,7 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
       // status keep the published handle and its vector/FTS/metadata state.
       const rebuilt = await this.withReindexDatabase(shadow, async () => {
         try {
-          this.ensureSchema();
+          await this.withDatabaseWrite(() => this.ensureSchema());
 
           const shouldSyncMemory = shouldRetryMemoryOnFailure;
           const shouldSyncSessions = shouldRetrySessionsOnFailure;
@@ -670,6 +669,7 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
             vectorExtensionPath: shadow.vector.extensionPath,
           });
           await this.withDatabaseWrite(() => {
+            shadow.assertShadowPath();
             publish();
             if (rebuilt.vectorIndexComplete) {
               // Publish completeness only after the shadow tables committed.
@@ -696,7 +696,10 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
       throw err;
     } finally {
       try {
-        removeMemoryDatabaseFiles(tempDbPath);
+        if (shadowCleanup?.shadowReleased) {
+          shadowCleanup.assertShadowPath();
+          removeMemoryDatabaseFiles(tempDbPath);
+        }
       } catch (err) {
         log.warn(`failed to remove memory reindex shadow database: ${formatErrorMessage(err)}`);
       }

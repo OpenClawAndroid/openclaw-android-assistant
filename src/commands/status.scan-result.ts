@@ -2,7 +2,7 @@
 // Builders flatten the gateway snapshot so downstream text/JSON code reads one stable object.
 
 import type { PluginCompatibilityNotice } from "../plugins/status.js";
-import type { getStatusSummary as getStatusSummaryFn } from "../status/summary.js";
+import type { StatusSummary } from "../status/summary.js";
 import type { StatusScanOverviewResult } from "./status.scan-overview.ts";
 import type { MemoryPluginStatus, MemoryStatusSnapshot } from "./status.scan.shared.js";
 
@@ -22,7 +22,7 @@ export type StatusScanResult = Omit<
   | "sessionStores"
 > &
   StatusScanGatewayResult & {
-    summary: Awaited<ReturnType<typeof getStatusSummaryFn>>;
+    summary: StatusSummary;
     memory: MemoryStatusSnapshot | null;
     memoryPlugin: MemoryPluginStatus;
     pluginCompatibility: PluginCompatibilityNotice[];

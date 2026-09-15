@@ -175,20 +175,46 @@ await store.register("key-1", { value: "hello" });
 const value = await store.lookup("key-1");
 ```
 
-The async store's `update` updater and `deleteIf` predicate remain synchronous
-callbacks inside the transaction containing the authoritative read and mutation.
+The async store's `update` updater and `deleteIf` predicate are deprecated
+compatibility methods. They still run synchronously on the main thread inside
+the transaction containing the authoritative read and mutation, and remain
+supported through the next Plugin SDK major.
 Finish asynchronous planning before calling these methods; do not make their
 callbacks async or replace atomic operations with separate lookups and writes.
 Returning `undefined` from an updater leaves the entry unchanged. `update`,
 `deleteIf`, `lookupMany`, and `count` remain optional in public store types, so preserve
 capability checks for supported older hosts and third-party adapters.
 
+`registerIfAbsent` and the optional `deleteIfEqual(key, expected)` operation use
+the shared-state SQLite worker. `deleteIfEqual` accepts a string, finite number,
+boolean, or `null`, and compares it with the decoded live value in the same
+transaction as deletion. Missing or expired entries return `false`; malformed
+stored JSON remains a typed store error. These operations share existing data,
+limits, and expiry rules with the legacy synchronous store.
+
+`register`, `lookup`, `lookupMany`, `consume`, `delete`, `entries`, `count`, and `clear`
+also execute SQLite in the same worker. Reads preserve missing-store behavior
+without creating a database. `lookupMany` returns one result per input key,
+including duplicates and per-key corrupt-value errors. `consume` reads and
+deletes atomically; a decode failure rolls back the deletion. Store creation,
+input validation, and JSON serialization remain on the calling thread.
+
+Callback-based `update` and `deleteIf` retain the native synchronous transaction;
+do not replace either with a separate lookup and write. Worker errors retain `PluginStateStoreError` codes, operation, and path. Canonical
+state errors use their existing codec; other native causes retain bounded causal
+messages and error codes. Arbitrary custom properties and original stacks do not
+cross the worker boundary.
+
+Slack uses scalar conditional deletion when relinquishing a presence cooldown.
+On older hosts without that optional capability, it leaves the cooldown to expire
+instead of risking deletion of a newer reservation.
+
 This deprecation adds editor annotations, documentation, and compatibility
 inventory metadata. It adds no runtime warning and changes no trust eligibility:
 the runtime openers remain limited to bundled plugins and trusted official
 installations. Runtime warnings should wait for an actionable supported upgrade.
-The async interface does not promise off-thread SQL or change callback execution;
-callback-free worker capabilities are a separate contract.
+Only the operations identified above execute on the worker. Callback execution
+is unchanged during this migration.
 
 ## Per-agent SQLite writes
 

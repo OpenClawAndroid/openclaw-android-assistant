@@ -167,9 +167,9 @@ Start agent work in the background: hook-dispatched turns for external content, 
     Results preserve the corresponding synchronous payloads and owner scope.
     Reads query persisted SQLite records in the shared database worker, without
     overwriting the process registry. Cold registry restoration still uses its
-    existing main-thread storage owner. Access
-    checks for bare owner keys without a persisted requester agent can also
-    require existing runtime-configuration preparation on the main thread.
+    existing main-thread storage owner. Access checks for bare owner keys without
+    a persisted requester agent await any required runtime configuration, plugin
+    metadata, and consent preparation.
     Warmed task and flow SQL queries and these managed-flow writes run in the
     worker. Committed writes reconcile the relevant process task and flow registries before
     publication; a failed reconciliation leaves that projection dirty without

@@ -159,6 +159,7 @@ export function invalidatePluginCacheMetadata(cache: PluginCache): void {
   cache.rootAliases.clear();
   cache.installRecords.clear();
   cache.persistedInstalledIndex.clear();
+  cache.preparedBundledDiscoveryModes.clear();
   cache.dependencyStatus = new WeakMap();
 }
 
@@ -177,6 +178,7 @@ export function createPluginCache(options: { kind?: PluginCache["kind"] } = {}):
     metadata: createPluginMetadataCache(),
     installRecords: new Map(),
     persistedInstalledIndex: new Map(),
+    preparedBundledDiscoveryModes: new Map(),
     dependencyStatus: new WeakMap(),
     ...createPluginCacheArtifacts(),
   };

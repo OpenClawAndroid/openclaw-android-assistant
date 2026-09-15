@@ -25,6 +25,8 @@ import {
 } from "../reply-payload.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { ReplyPayload } from "../types.js";
+import { createBlockReplySource, setBlockReplyDelivery } from "./block-reply-delivery.js";
+import type { BlockReplySource } from "./block-reply-source.types.js";
 import type {
   AcpBlockText,
   AcpDispatchDeliveryMeta,
@@ -166,6 +168,7 @@ export function createAcpDispatchDeliveryCoordinator(params: {
     toolMessageByCallId: new Map(),
   };
   let hasPendingDirectBlockReplyDelivery = false;
+  let pendingBlockSource: BlockReplySource | undefined;
 
   const settleDirectVisibleText = async () => {
     // Exact payload settlements own custody and coverage before final fallback reads them.
@@ -257,6 +260,9 @@ export function createAcpDispatchDeliveryCoordinator(params: {
     payload: ReplyPayload,
     meta?: AcpDispatchDeliveryMeta,
   ): Promise<boolean> => {
+    if (kind === "block") {
+      setBlockReplyDelivery(Promise.resolve({ outcome: "cancelled" }));
+    }
     const transcriptSource = meta?.transcriptSource;
     // Snapshot coverage before preparation/TTS can yield to another payload.
     const coveredBlocks =
@@ -297,6 +303,9 @@ export function createAcpDispatchDeliveryCoordinator(params: {
         if (prepared.reason === "channel_transform") {
           state.suppressionReason = prepared.reason;
           coverFinalBlockText(payload);
+          if (kind === "block" && payload.text?.trim()) {
+            setBlockReplyDelivery(Promise.resolve({ outcome: "channel-transform" }), payload);
+          }
         }
         return false;
       }
@@ -307,6 +316,7 @@ export function createAcpDispatchDeliveryCoordinator(params: {
       kind === "block" ? normalizeOptionalString(visiblePayload.text) : undefined;
     const rawBlockText = isStatusNotice ? undefined : rawBlockPayloadText;
     let blockText: AcpBlockText | undefined;
+    let blockSource: BlockReplySource | undefined;
     if (rawBlockPayloadText) {
       const joinsBufferedTtsDirective =
         state.cleanBlockTtsDirectiveText?.hasBufferedDirectiveText() === true;
@@ -318,7 +328,15 @@ export function createAcpDispatchDeliveryCoordinator(params: {
       }
 
       if (state.cleanBlockTtsDirectiveText && rawBlockText) {
+        if (!visiblePayload.isCommentary && !visiblePayload.isReasoning) {
+          blockSource = pendingBlockSource ?? createBlockReplySource();
+        }
         const text = state.cleanBlockTtsDirectiveText.push(rawBlockPayloadText);
+        if (blockSource) {
+          const hasPendingText = state.cleanBlockTtsDirectiveText.hasBufferedDirectiveText();
+          blockSource.setComplete(!hasPendingText);
+          pendingBlockSource = hasPendingText ? blockSource : undefined;
+        }
         visiblePayload = copyReplyPayloadMetadata(visiblePayload, {
           ...visiblePayload,
           text: text.trim() ? text : undefined,
@@ -508,6 +526,9 @@ export function createAcpDispatchDeliveryCoordinator(params: {
         });
         const outcome = resolveRoutedReplyDeliveryOutcome(result);
         const pending = outcome === "recovery-owned" || outcome === "failed-deliver";
+        if (kind === "block") {
+          setBlockReplyDelivery(Promise.resolve({ outcome, pending }), ttsPayload);
+        }
         if (
           blockText &&
           result.suppressed &&
@@ -602,6 +623,19 @@ export function createAcpDispatchDeliveryCoordinator(params: {
           : kind === "block"
             ? params.dispatcher.sendBlockReply(ttsPayload)
             : params.dispatcher.sendFinalReply(ttsPayload);
+      if (kind === "block") {
+        setBlockReplyDelivery(
+          delivered && transcriptOutcome?.isTracked()
+            ? transcriptOutcome.promise.then((outcome) => ({
+                outcome,
+                pending: transcriptOutcome.hasPendingDelivery(),
+              }))
+            : Promise.resolve(
+                delivered ? { outcome: "failed-deliver", pending: true } : { outcome: "cancelled" },
+              ),
+          ttsPayload,
+        );
+      }
       if (delivered && transcriptOutcome?.isTracked()) {
         const settlement = transcriptOutcome.promise.then((outcome) => {
           if (transcriptOutcome.hasPendingDelivery()) {
@@ -643,7 +677,7 @@ export function createAcpDispatchDeliveryCoordinator(params: {
       }
       return delivered;
     };
-    return await sendPrepared();
+    return blockSource ? ((await blockSource.run(sendPrepared)) ?? false) : await sendPrepared();
   };
 
   const getBlockTranscriptText = (confirmedOnly = false) =>

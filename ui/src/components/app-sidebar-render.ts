@@ -500,7 +500,7 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
       >
         <openclaw-viewer-avatar .user=${avatarUser} variant="footer"></openclaw-viewer-avatar>
         <span class="sidebar-identity-card__text">
-          <span class="sidebar-identity-card__name" title=${selfLabel}>${selfLabel}</span>
+          <span class="sidebar-identity-card__name">${selfLabel}</span>
           ${
             gateway
               ? html`<span class="sidebar-identity-card__gateway" aria-hidden="true">

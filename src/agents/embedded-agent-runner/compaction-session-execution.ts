@@ -588,16 +588,13 @@ export async function executePreparedCompactionSession(runtime: PreparedCompacti
         }
         if (clientResult) {
           checkpointSnapshotRetained = await persistCompactionCheckpoint({
-            config: params.config,
-            sessionKey: params.sessionKey,
-            sessionId: params.sessionId,
+            sessionTarget,
             trigger: params.trigger,
             snapshot: checkpointSnapshot,
             summary: clientResult.summary,
             firstKeptEntryId: effectiveFirstKeptEntryId,
             tokensBefore: observedTokenCount ?? clientResult.tokensBefore,
             tokensAfter,
-            sessionFile: activeSessionFile,
             leafId: sessionManager.getLeafId?.() ?? undefined,
             createdAt: compactStartedAt,
           });

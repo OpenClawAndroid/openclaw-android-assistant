@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import { expect, it } from "vitest";
+import type { ApplicationRuntime } from "../app/bootstrap.ts";
 import type { PluginPage } from "../pages/plugin/plugin-page.ts";
 import {
   controlUiBundledSettingsStorageKey,
@@ -148,7 +149,15 @@ suite.define(() => {
       { ...createControlUiE2eContextOptions(), colorScheme: "light" },
       async ({ page }) => {
         const { frameRequests } = await installReports(page);
-        await page.goto(`${suite.server.baseUrl}reports`);
+        await page.goto(`${suite.server.baseUrl}chat`);
+        // Bootstrap must publish the script policy before the scripted fixture mounts.
+        await page.waitForFunction(() => {
+          const app = document.querySelector<HTMLElement & { runtime?: ApplicationRuntime }>(
+            "openclaw-app",
+          );
+          return app?.runtime?.context.config.current.embedSandboxMode === "scripts";
+        });
+        await page.getByRole("link", { name: "Reports", exact: true }).click();
         const frame = page.frameLocator("openclaw-plugin-page iframe");
         const receivedTheme = frame.getByLabel("Received OpenClaw theme");
         expect(await page.evaluate(() => matchMedia("(prefers-color-scheme: light)").matches)).toBe(

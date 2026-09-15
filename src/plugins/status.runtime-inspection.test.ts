@@ -7,6 +7,7 @@ import { handlePluginsCommand } from "../auto-reply/reply/commands-plugins.js";
 import { buildPluginsCommandParams } from "../auto-reply/reply/commands.test-harness.js";
 import { runPluginsDoctorCommand } from "../cli/plugins-cli.runtime.js";
 import { runPluginsInspectCommand } from "../cli/plugins-inspect-command.js";
+import * as configRuntime from "../config/config.js";
 import { readConfigFileSnapshotForWrite, writeConfigFile } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { defaultRuntime } from "../runtime.js";
@@ -859,17 +860,78 @@ it("retires runtime diagnostics after each actual chat inspect reply", async () 
     await state.writeConfig(config);
     const before = process.listenerCount(event);
     for (const name of [id, "all"]) {
-      const result = await handlePluginsCommand(
-        buildPluginsCommandParams({
-          cfg: config,
-          workspaceDir: state.workspaceDir,
-          commandBodyNormalized: `/plugins inspect ${name}`,
-        }),
-        true,
-      );
-      expect(result?.reply?.text).toContain("diagnostics-resource-service");
-      expect(result?.reply?.text).toContain('"status": "loaded"');
-      expect(process.listenerCount(event)).toBe(before);
+      const configRead = vi.spyOn(configRuntime, "readConfigFileSnapshot");
+      try {
+        const result = await handlePluginsCommand(
+          buildPluginsCommandParams({
+            cfg: config,
+            workspaceDir: state.workspaceDir,
+            commandBodyNormalized: `/plugins inspect ${name}`,
+          }),
+          true,
+        );
+        expect(result?.reply?.text).toContain("diagnostics-resource-service");
+        expect(result?.reply?.text).toContain('"status": "loaded"');
+        expect(process.listenerCount(event)).toBe(before);
+      } catch (error) {
+        try {
+          // Observe the command's existing promise only after failure; do not warm config reads.
+          const read = configRead.mock.results[0];
+          const snapshot = read?.type === "return" ? await read.value : undefined;
+          const issuePaths = new Set([
+            "",
+            "agents",
+            "agents.defaults",
+            "agents.defaults.workspace",
+            "agents.entries",
+            "commands",
+            "commands.text",
+            "commands.plugins",
+            "plugins",
+            "plugins.enabled",
+            "plugins.allow",
+            "plugins.load.paths",
+            "plugins.entries.diagnostics-resource",
+            "plugins.slots.memory",
+          ]);
+          const messageKinds = [
+            "JSON5 parse failed:",
+            "Include resolution failed:",
+            "read failed:",
+            "plugin present but blocked:",
+            "plugin not found:",
+            "invalid config:",
+            "plugin schema missing for",
+            "Unrecognized key",
+            "Invalid input",
+            "Invalid option",
+          ];
+          console.error("diagnostics-chat config snapshot", {
+            selection: name,
+            readCalls: configRead.mock.calls.length,
+            fixturePath: state.configPath,
+            snapshotPath: snapshot
+              ? snapshot.path === state.configPath
+                ? snapshot.path
+                : "<outside expected fixture>"
+              : "<not captured>",
+            valid: snapshot?.valid,
+            exists: snapshot?.exists,
+            matchesWrittenFixture: snapshot?.raw === `${JSON.stringify(config, null, 2)}\n`,
+            issueCount: snapshot?.issues.length,
+            issues: snapshot?.issues.slice(0, 10).map((issue) => ({
+              path: issuePaths.has(issue.path) ? issue.path : "<other path>",
+              messageKind:
+                messageKinds.find((kind) => issue.message.startsWith(kind)) ?? "<other message>",
+            })),
+          });
+        } catch {
+          // Diagnostics must not replace the original failure.
+        }
+        throw error;
+      } finally {
+        configRead.mockRestore();
+      }
     }
     expect(fs.readFileSync(disposed, "utf8")).toBe("disposed\ndisposed\n");
   });

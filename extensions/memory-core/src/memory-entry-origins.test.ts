@@ -8,7 +8,7 @@ import {
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import {
   closeOpenClawAgentDatabasesForTest,
-  closeOpenClawStateDatabaseForTest,
+  closeOpenClawStateDatabaseAsync,
 } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readMemoryPreimages, storeMemoryPreimage } from "./dreaming-consolidation-artifacts.js";
@@ -46,7 +46,7 @@ describe("memory entry origins", () => {
   afterEach(async () => {
     resetMemoryCoreDreamingStateForTests();
     closeOpenClawAgentDatabasesForTest();
-    closeOpenClawStateDatabaseForTest();
+    await closeOpenClawStateDatabaseAsync();
     vi.unstubAllEnvs();
     await fs.rm(stateDir, { recursive: true, force: true });
   });

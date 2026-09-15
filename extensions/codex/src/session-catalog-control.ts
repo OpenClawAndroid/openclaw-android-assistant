@@ -148,7 +148,9 @@ function createCodexSessionCatalogControlFromRequests(params: {
   clientId?: string;
   retireConnection?: () => void;
   connectionFingerprint?: string;
-  createRequestSnapshot: () => CodexSessionCatalogRequestSnapshot;
+  createRequestSnapshot: (
+    pageParams?: CodexSessionCatalogPageParams,
+  ) => CodexSessionCatalogRequestSnapshot;
   localSessionsRoot?: string;
   sourceHomeId?: string;
   managedThreads?: CodexManagedThreadStore;
@@ -269,7 +271,7 @@ function createCodexSessionCatalogControlFromRequests(params: {
       let nextCursor: string | undefined;
       let backwardsCursor: string | undefined;
       const seenCursors = new Set(cursor ? [cursor] : []);
-      const requests = params.createRequestSnapshot();
+      const requests = params.createRequestSnapshot(pageParams);
       const deadline = params.now() + requests.requestTimeoutMs;
       // Keep config/home sampling before the import and charge cold loading to this deadline.
       const { sanitizeTerminalText } = await import("openclaw/plugin-sdk/text-chunking");
@@ -417,10 +419,15 @@ export function createCodexSessionCatalogControl(params: {
   const createRequestSnapshot = (
     agentId: string | undefined,
     source?: CodexCatalogControlSource,
+    pageParams?: CodexSessionCatalogPageParams,
   ): CodexSessionCatalogRequestSnapshot => {
     const pluginConfig = getPluginConfig();
     const runtime = source?.appServer ?? params.resolveRuntimeOptions({ pluginConfig });
     const requestOptions = resolveRequestOptions(runtime.start, agentId, source);
+    const catalogListKey =
+      pageParams && requestOptions.config
+        ? { scope: requestOptions, key: codexCatalogPageCacheKey(pageParams, agentId, source) }
+        : undefined;
     return createCodexCatalogRequestSnapshot(
       runtime.requestTimeoutMs,
       async (method, requestParams, timeoutMs, assertCurrent) => {
@@ -429,6 +436,9 @@ export function createCodexSessionCatalogControl(params: {
           ...requestOptions,
           authProfileId: null,
           assertCurrent,
+          ...(catalogListKey && method === CODEX_CONTROL_METHODS.listThreads
+            ? { catalogListKey }
+            : {}),
           ...(timeoutMs === undefined ? {} : { timeoutMs }),
         });
       },
@@ -512,7 +522,7 @@ export function createCodexSessionCatalogControl(params: {
       }
     };
     const control = createCodexSessionCatalogControlFromRequests({
-      createRequestSnapshot: () => createRequestSnapshot(agentId, source),
+      createRequestSnapshot: (pageParams) => createRequestSnapshot(agentId, source, pageParams),
       ...(source?.localSessionsRoot ? { localSessionsRoot: source.localSessionsRoot } : {}),
       now,
       withPinnedConnection,

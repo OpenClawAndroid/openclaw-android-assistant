@@ -254,8 +254,8 @@ describe("automatic Skill Workshop migration", () => {
       expect(readStoredProposal(proposal.record.id, { env: state.env })).toEqual(before);
       expect(result.warnings.join("\n")).toContain("unfinished apply recovery");
       expect(
-        database
-          .prepare("SELECT * FROM skill_workshop_proposal_rollbacks WHERE proposal_id = ?")
+        openOpenClawStateDatabase({ env: state.env })
+          .db.prepare("SELECT * FROM skill_workshop_proposal_rollbacks WHERE proposal_id = ?")
           .get(proposal.record.id),
       ).toEqual(rollbackBefore);
       if (recoveryKind !== "malformed") {

@@ -709,9 +709,9 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
         },
       });
       await resolveConfigMutation(gateway, updatedDefaultsConfig, "model-providers-hash-defaults");
-      await expect
-        .poll(() => page.getByRole("status").filter({ hasText: "Defaults saved" }).count())
-        .toBeGreaterThan(0);
+      await expect.poll(() => primary.locator("button").first().isEnabled()).toBe(true);
+      expect(await modelPickerValue(primary)).toBe("anthropic/claude-sonnet-4-5");
+      expect(await page.locator(".model-providers__defaults .callout.success").count()).toBe(0);
 
       const addSection = page.locator(".settings-section", {
         has: page.getByRole("heading", { name: "Add provider" }),
@@ -835,9 +835,9 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
         config = next;
         await gateway.setMethodResponse("config.get", snapshot());
         await gateway.resolveDeferred("config.patch", { ok: true, config, hash, noop });
-        await expect
-          .poll(async () => (await defaults.getByRole("status").textContent())?.trim())
-          .toBe("Defaults saved.");
+        await expect.poll(() => utility.locator("button").first().isEnabled()).toBe(true);
+        expect(await modelPickerValue(utility)).toBe(choice.value);
+        expect(await defaults.locator(".callout.success").count()).toBe(0);
         observations.push({ choice, request, config, selected: await modelPickerValue(utility) });
         if (recordVisuals) {
           await captureProviderProof(`utility-${choice.label}-saved.png`, utility);
@@ -961,9 +961,9 @@ describeControlUiE2e("Control UI Models mocked Gateway E2E", () => {
       await selectModelPicker(primary, "openai/saved-model");
       await gateway.waitForRequest("config.patch", { after: savedPatchCount });
       await resolveConfigMutation(gateway, savedConfig, "model-providers-reconnect-saved");
-      await expect
-        .poll(async () => page.getByRole("status").filter({ hasText: "Defaults saved" }).count())
-        .toBeGreaterThan(0);
+      await expect.poll(() => primary.locator("button").first().isEnabled()).toBe(true);
+      expect(await modelPickerValue(primary)).toBe("openai/saved-model");
+      expect(await page.locator(".model-providers__defaults .callout.success").count()).toBe(0);
 
       await gateway.deferNext("config.patch");
       const failedPatchCount = (await gateway.getRequests("config.patch")).length;

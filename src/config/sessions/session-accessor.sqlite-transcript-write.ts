@@ -83,6 +83,10 @@ export type TranscriptWriteSnapshot<T> = {
   after: SessionTranscriptContextVersion;
 };
 
+export type TranscriptEventAppendResult =
+  | { appended: false }
+  | { appended: true; effectiveParentId?: string | null };
+
 type SqliteTranscriptWriteLockContext = {
   appendMessage: <TMessage>(
     options: TranscriptMessageAppendOptions<TMessage>,
@@ -371,14 +375,14 @@ export function appendTranscriptEventSync(
   options: TranscriptEventAppendOptions = {},
 ): Result<boolean, TranscriptAppendRefusal> {
   const snapshot = appendTranscriptEventSnapshotSync(scope, event, options);
-  return snapshot.ok ? ok(snapshot.value.result) : snapshot;
+  return snapshot.ok ? ok(snapshot.value.result.appended) : snapshot;
 }
 
 export function appendTranscriptEventSnapshotSync(
   scope: SessionTranscriptWriteScope,
   event: TranscriptEvent,
   options: TranscriptEventAppendOptions = {},
-): Result<TranscriptWriteSnapshot<boolean>, TranscriptAppendRefusal> {
+): Result<TranscriptWriteSnapshot<TranscriptEventAppendResult>, TranscriptAppendRefusal> {
   assertNonMessageTranscriptEvent(event);
   return runTranscriptWriteSnapshotSync(
     scope,
@@ -389,19 +393,19 @@ export function appendTranscriptEventSnapshotSync(
         event,
         options,
       );
-      const appended =
-        appendTranscriptEventInTransaction(database, resolved, resolvedEvent) !== false;
+      if (appendTranscriptEventInTransaction(database, resolved, resolvedEvent) === false) {
+        return { appended: false };
+      }
       if (
-        appended &&
         resolvedEvent &&
         typeof resolvedEvent === "object" &&
         !Array.isArray(resolvedEvent) &&
         "parentId" in resolvedEvent &&
         (resolvedEvent.parentId === null || typeof resolvedEvent.parentId === "string")
       ) {
-        options.captureEffectiveParentIdInTransaction?.(resolvedEvent.parentId);
+        return { appended: true, effectiveParentId: resolvedEvent.parentId };
       }
-      return appended;
+      return { appended: true };
     },
     options.beforeCommitInTransaction,
     options.expectedMutationAt,

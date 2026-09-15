@@ -12,11 +12,9 @@ import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js
 import { resolveDirectStoredModelOverride } from "../sessions/stored-model-overrides.js";
 import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import { listSessionFixture } from "./session-list.test-support.js";
+import { resolveSessionSelectedModelRef } from "./session-utils-model-selection.js";
 import { getSessionDefaults, projectSessionPatchResult } from "./session-utils-model.js";
-import {
-  buildSessionListRowMetadataContext,
-  resolveSessionSelectedModelRef,
-} from "./session-utils-projection.js";
+import { buildSessionListRowMetadataContext } from "./session-utils-projection.js";
 import { buildGatewaySessionRow } from "./session-utils-row.js";
 
 afterEach(() => {

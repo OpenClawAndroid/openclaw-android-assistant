@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runNodeScript } from "../../../test/helpers/run-node-script.js";
 import { createWarnLogCapture } from "../../logging/test-helpers/warn-log-capture.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import * as worktreeGit from "./git.js";
 import { requireGit } from "./git.js";
 import { findLiveRegistryWorktreeByPath, getRegistryWorktree } from "./registry.js";
 import { IDLE_GC_MS, ManagedWorktreeService, SNAPSHOT_RETENTION_MS } from "./service.js";
@@ -88,6 +89,45 @@ describe("ManagedWorktreeService garbage collection", () => {
     expect(getRegistryWorktree(env, created.id)?.snapshotRef).toBeTruthy();
     expect(getRegistryWorktree(env, manual.id)?.removedAt).toBeUndefined();
     expect(await fs.stat(manual.path)).toBeTruthy();
+  });
+
+  it("garbage collects ignored dependency trees under the Git output cap and restores edits", async () => {
+    await fs.writeFile(path.join(repo, ".gitignore"), "dependencies/\n");
+    await git(repo, "add", ".gitignore");
+    await git(repo, "commit", "-m", "ignore generated dependencies");
+    const created = await materializeRunOwnedFixture("bounded-ignored", "workboard");
+    const dependencies = path.join(created.path, "dependencies", "package");
+    await fs.mkdir(dependencies, { recursive: true });
+    for (let index = 0; index < 64; index++) {
+      await fs.writeFile(path.join(dependencies, `generated-dependency-file-${index}.txt`), "");
+    }
+    await fs.writeFile(path.join(created.path, "README.md"), "preserve local edit\n");
+    now += IDLE_GC_MS + 1;
+    const realRun = worktreeGit.runGitBuffered;
+    const capped = vi
+      .spyOn(worktreeGit, "runGitBuffered")
+      .mockImplementation(async (cwd, args, options) => {
+        return await realRun(
+          cwd,
+          args,
+          cwd === created.path && args[0] === "ls-files" && args.includes("--ignored")
+            ? { ...options, maxOutputBytes: 256 }
+            : options,
+        );
+      });
+    try {
+      expect((await service.gc()).removed).toEqual([created.id]);
+      await expect(fs.stat(created.path)).rejects.toMatchObject({ code: "ENOENT" });
+      const restored = await service.restore({ id: created.id });
+      expect(await fs.readFile(path.join(restored.path, "README.md"), "utf8")).toBe(
+        "preserve local edit\n",
+      );
+      await expect(fs.stat(path.join(restored.path, "dependencies"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      capped.mockRestore();
+    }
   });
 
   it("garbage collects a large Git index and restores local edits and deletions", async () => {

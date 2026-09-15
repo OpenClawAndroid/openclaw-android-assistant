@@ -22,6 +22,56 @@ function routeData(sessions: SessionsListResult["sessions"], basePath = ""): Das
 }
 
 describe("dashboards index", () => {
+  it.each(["gallery", "empty", "error"] as const)(
+    "replaces the accessible loading skeleton with the resolved %s state",
+    (outcome) => {
+      const container = document.createElement("div");
+      render(renderDashboards(undefined), container);
+
+      const busy = container.querySelector('[aria-busy="true"]');
+      expect(busy).not.toBeNull();
+      const placeholders = busy?.querySelectorAll(".skeleton") ?? [];
+      expect(placeholders.length).toBeGreaterThan(0);
+      expect(busy?.querySelector(".dashboards-toolbar")).not.toBeNull();
+      expect(busy?.querySelectorAll(".dashboards-grid .dashboard-preview").length).toBeGreaterThan(
+        0,
+      );
+      for (const placeholder of placeholders) {
+        expect(placeholder.closest('[aria-hidden="true"]')).not.toBeNull();
+      }
+      expect(container.querySelector('[role="status"]')?.textContent).toContain("Loading");
+      expect(busy?.querySelectorAll("a, button, input, select, textarea").length).toBe(0);
+
+      const data = routeData(
+        outcome === "gallery"
+          ? [{ key: "agent:main:dashboard:release", kind: "direct", displayName: "Release health" }]
+          : [],
+      );
+      if (outcome === "error") {
+        data.result = null;
+        data.error = "Dashboard service unavailable";
+      }
+      render(renderDashboards(data), container);
+
+      expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+      expect(container.querySelector(".skeleton")).toBeNull();
+      if (outcome === "gallery") {
+        expect(container.querySelector("[data-dashboard-session]")?.textContent).toContain(
+          "Release health",
+        );
+      } else if (outcome === "empty") {
+        expect(container.querySelector("[data-dashboards-empty]")?.textContent).toContain(
+          "No dashboards yet",
+        );
+      } else {
+        expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+          "Dashboard service unavailable",
+        );
+        expect(container.querySelector("[data-dashboards-empty]")).toBeNull();
+      }
+    },
+  );
+
   it.each(["", "/openclaw"])(
     "links each dashboard to an ordinary open that respects presentation defaults at %s",
     (basePath) => {

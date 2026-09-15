@@ -5,7 +5,6 @@ import {
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import { runSqliteImmediateTransactionSync } from "openclaw/plugin-sdk/sqlite-runtime";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureMemorySessionTombstones } from "../memory-session-tombstones.js";
 import { MemoryIndexDatabase } from "./manager-database-context.js";
 import type { MemorySourceIndexReplacement } from "./manager-source-index-kernel.js";
 
@@ -59,9 +58,7 @@ function replacement(path: string, hash = "original"): MemorySourceIndexReplacem
 }
 
 function write(database: MemoryIndexDatabase, value: MemorySourceIndexReplacement) {
-  return runSqliteImmediateTransactionSync(database.db, () =>
-    database.sourceIndex.replace(value, database.sourceIndex),
-  );
+  return runSqliteImmediateTransactionSync(database.db, () => database.sourceIndex.replace(value));
 }
 
 function snapshot(db: DatabaseSync) {
@@ -97,7 +94,7 @@ describe("memory source index native kernel", () => {
     );
     expect(snapshot(database.db)).toEqual(before);
     database.db.exec("DROP TRIGGER fail_source_update");
-    expect(write(database, replacement(beforeValue.entry.path, "updated"))).toBe("replaced");
+    write(database, replacement(beforeValue.entry.path, "updated"));
     expect(database.db.prepare("SELECT text FROM memory_index_chunks ORDER BY path").all()).toEqual(
       [{ text: "updated indexed text" }, { text: "original indexed text" }],
     );
@@ -138,34 +135,5 @@ describe("memory source index native kernel", () => {
         count: 1,
       });
     }
-  });
-
-  it("checks the canonical tombstone connection before changing a shadow index", async () => {
-    const canonical = await createDatabase();
-    const shadow = await createDatabase();
-    const value: MemorySourceIndexReplacement = {
-      ...replacement("sessions/current.jsonl"),
-      source: "sessions",
-      agentId: "main",
-      sessionId: "session-one",
-    };
-    write(shadow, value);
-    const before = snapshot(shadow.db);
-    ensureMemorySessionTombstones(canonical.db);
-    canonical.db
-      .prepare("INSERT INTO memory_session_tombstones VALUES (?, ?, ?, ?)")
-      .run("session-one", "main", "forgotten", 200);
-    expect(
-      runSqliteImmediateTransactionSync(shadow.db, () =>
-        shadow.sourceIndex.replace(
-          { ...value, entry: { ...value.entry, hash: "updated" } },
-          canonical.sourceIndex,
-        ),
-      ),
-    ).toBe("forgotten");
-    expect(snapshot(shadow.db)).toEqual(before);
-    expect(canonical.db.prepare("SELECT COUNT(*) AS count FROM memory_index_chunks").get()).toEqual(
-      { count: 0 },
-    );
   });
 });

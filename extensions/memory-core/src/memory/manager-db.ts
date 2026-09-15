@@ -385,12 +385,17 @@ export function cleanupAgedMemoryReindexTempFiles(dbPath: string, nowMs = Date.n
   }
 }
 
-export function openMemoryDatabaseAtPath(dbPath: string, allowExtension: boolean): DatabaseSync {
+export function openMemoryDatabaseAtPath(
+  dbPath: string,
+  allowExtension: boolean,
+  runMaintenance?: (operation: () => boolean) => boolean,
+): DatabaseSync {
   const db = openNodeSqliteDatabase(dbPath, { allowExtension });
   try {
     configureMemorySqliteWalMaintenance(db, {
       busyTimeoutMs: 5000,
       databasePath: dbPath,
+      ...(runMaintenance ? { runMaintenance } : {}),
     });
     return db;
   } catch (err) {

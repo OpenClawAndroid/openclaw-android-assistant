@@ -1,8 +1,13 @@
 // Slack tests cover sent thread cache plugin behavior.
+import { expectDefined } from "openclaw/plugin-sdk/expect-runtime";
 import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
   createPluginStateKeyedStoreForTests,
+  executeSqliteQuerySync,
+  getNodeSqliteKysely,
+  openOpenClawStateDatabase,
   resetPluginStateStoreForTests,
+  type OpenClawStateKyselyDatabaseForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
 import { withOpenClawTestState } from "openclaw/plugin-sdk/test-state";
@@ -336,8 +341,11 @@ describe("slack sent-thread-cache", () => {
           env: state.env,
         });
         await legacyStore.register(legacyKey, { repliedAt });
-        const legacyEntry = (await legacyStore.entries()).find((entry) => entry.key === legacyKey);
-        expect(legacyEntry?.expiresAt).toBe(repliedAt + 24 * 60 * 60 * 1000);
+        const legacyEntry = expectDefined(
+          (await legacyStore.entries()).find((entry) => entry.key === legacyKey),
+          "persisted legacy participation",
+        );
+        expect(legacyEntry.expiresAt).toBe(legacyEntry.createdAt + 24 * 60 * 60 * 1000);
         resetPluginStateStoreForTests();
 
         const openKeyedStore = vi.fn((options: OpenKeyedStoreOptions) =>
@@ -373,8 +381,19 @@ describe("slack sent-thread-cache", () => {
         const preservedLegacyEntry = (await store.entries()).find(
           (candidate) => candidate.key === legacyKey,
         );
-        expect(preservedLegacyEntry?.expiresAt).toBe(legacyEntry?.expiresAt);
+        expect(preservedLegacyEntry?.expiresAt).toBe(legacyEntry.expiresAt);
 
+        // Seed worker-visible expiry before advancing the parent cache clock.
+        const { db } = openOpenClawStateDatabase({ env: state.env });
+        executeSqliteQuerySync(
+          db,
+          getNodeSqliteKysely<Pick<OpenClawStateKyselyDatabaseForTests, "plugin_state_entries">>(db)
+            .updateTable("plugin_state_entries")
+            .set({ expires_at: 1 })
+            .where("plugin_id", "=", "slack")
+            .where("namespace", "=", "slack.thread-participation")
+            .where("entry_key", "=", legacyKey),
+        );
         now.mockReturnValue(repliedAt + 25 * 60 * 60 * 1000);
         await expect(
           hasSlackThreadParticipationWithPersistence({

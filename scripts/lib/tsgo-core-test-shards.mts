@@ -68,6 +68,11 @@ export const TSGO_CORE_TEST_SHARDS = [
     config: "test/tsconfig/tsconfig.test.packages.json",
     sparseRoots: ["packages", "src", "ui/src"],
   },
+  {
+    name: "plugin-sdk",
+    group: "src",
+    config: "test/tsconfig/tsconfig.core.test.plugin-sdk.json",
+  },
 ] as const;
 
 export const TSGO_CORE_GRAPHS = [

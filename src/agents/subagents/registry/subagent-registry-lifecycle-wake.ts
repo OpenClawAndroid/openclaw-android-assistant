@@ -5,7 +5,7 @@ import {
 } from "../../../plugins/runtime/gateway-request-scope.js";
 import {
   isGatewayRestartDrainError,
-  runWithGatewayIndependentRootWorkAdmission,
+  runWithGatewayDetachedWorkAdmission,
 } from "../../../process/gateway-work-admission.js";
 import { defaultRuntime } from "../../../runtime.js";
 import { retireSessionMcpRuntimeForSessionKey } from "../../agent-bundle-mcp-tools.js";
@@ -450,9 +450,9 @@ export function completeCleanupBookkeeping(
       );
     };
     const runCleanupTail = (label: string, run: () => Promise<unknown>) => {
-      // Admission can wait beyond retirement or replacement. Recheck ownership
-      // inside the independent root; surviving tails must still block snapshots.
-      void runWithGatewayIndependentRootWorkAdmission(async () => {
+      // Admission can outlive the caller's async scope. Own the tail's lifetime
+      // and recheck row ownership after waiting; surviving tails still block snapshots.
+      void runWithGatewayDetachedWorkAdmission(async () => {
         if (postBookkeepingEffectsAllowed()) {
           await run();
         }

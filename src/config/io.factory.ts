@@ -1,5 +1,5 @@
 import { createConfigIoContext } from "./io.context.js";
-import { loadConfigFromContext } from "./io.load.js";
+import { loadConfigFromContext, loadConfigFromContextAsync } from "./io.load.js";
 import {
   promoteConfigSnapshotToLastKnownGoodCore,
   recoverConfigFromLastKnownGoodCore,
@@ -31,6 +31,8 @@ export function createConfigIO(options: ConfigIoFactoryOptions = {}) {
     logger: context.deps.logger,
     loadConfig: (loadOptions?: { skipSuspiciousRecovery?: boolean }) =>
       loadConfigFromContext(context, loadOptions),
+    loadConfigAsync: (loadOptions?: Parameters<typeof loadConfigFromContextAsync>[1]) =>
+      loadConfigFromContextAsync(context, loadOptions),
     readBestEffortConfig: async () =>
       (await readBestEffortConfigSnapshotFromContext(context)).config,
     readBestEffortConfigSnapshot: () => readBestEffortConfigSnapshotFromContext(context),

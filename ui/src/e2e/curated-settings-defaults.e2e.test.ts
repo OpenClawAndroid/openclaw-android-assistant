@@ -264,8 +264,14 @@ suite.define(() => {
         await gateway.setMethodResponse("config.get", afterThinkingResponse);
         await gateway.resolveDeferred("config.patch", { ok: true, ...afterThinkingResponse });
         await expect
-          .poll(() => page.getByRole("status").filter({ hasText: "Defaults saved" }).count())
-          .toBeGreaterThan(0);
+          .poll(() => thinkingRow.locator("wa-radio-group").getAttribute("disabled"))
+          .toBeNull();
+        await expect
+          .poll(() =>
+            thinkingRow.getByRole("radio", { name: /^Default/u }).getAttribute("aria-checked"),
+          )
+          .toBe("true");
+        expect(await page.getByText("Defaults saved.", { exact: true }).count()).toBe(0);
         const fastModeSavesBefore = (await gateway.getRequests("config.patch")).length;
         await gateway.deferNext("config.patch");
         await selectDefault(fastModeRow);
@@ -290,8 +296,14 @@ suite.define(() => {
         await expectDefaultInfo(thinkingRow, thinkingDefaultExplanation);
         await expectDefaultInfo(fastModeRow, fastModeDefaultExplanation);
         await expect
-          .poll(() => page.getByRole("status").filter({ hasText: "Defaults saved" }).count())
-          .toBeGreaterThan(0);
+          .poll(() => fastModeRow.locator("wa-radio-group").getAttribute("disabled"))
+          .toBeNull();
+        await expect
+          .poll(() =>
+            fastModeRow.getByRole("radio", { name: /^Default/u }).getAttribute("aria-checked"),
+          )
+          .toBe("true");
+        expect(await page.getByText("Defaults saved.", { exact: true }).count()).toBe(0);
 
         if (captureUiProofEnabled) {
           await page.locator("#settings-model-behavior").screenshot({

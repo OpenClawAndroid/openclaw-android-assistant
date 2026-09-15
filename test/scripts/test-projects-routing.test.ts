@@ -5,7 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeAll, describe, expect, it } from "vitest";
-import { resolveVitestCliEntry } from "../../scripts/lib/vitest-build-prerequisites.mts";
+import {
+  listVitestRuntimeConsumerFiles,
+  resolveVitestCliEntry,
+  resolveVitestPretestBuildMode,
+} from "../../scripts/lib/vitest-build-prerequisites.mts";
 import { resolveVitestNodeArgs } from "../../scripts/lib/vitest-process-env.mts";
 import { withEnv } from "../../src/test-utils/env.js";
 import { gatewayDatabaseWorkerTestFiles } from "../vitest/vitest.gateway-server-paths.mjs";
@@ -40,6 +44,20 @@ describe("test-projects args", () => {
     ]) {
       buildVitestRunPlans([target]);
     }
+  });
+
+  it("keeps memory CLI runtime preparation with its infra test owner", () => {
+    const file = "src/entry.memory-json.test.ts";
+    const infra = "test/vitest/vitest.infra.config.ts";
+    const unit = ["test/vitest/vitest.unit.config.ts", "test/vitest/vitest.unit-src.config.ts"];
+    expect(listVitestRuntimeConsumerFiles([infra])).toContain(file);
+    expect(listVitestRuntimeConsumerFiles(unit)).not.toContain(file);
+    expect(listVitestRuntimeConsumerFiles(unit)).toContain(
+      "src/node-host/linux-node-plugin.integration.test.ts",
+    );
+    expect(resolveVitestPretestBuildMode([{ configs: [infra], includePatterns: [file] }])).toBe(
+      "runtime",
+    );
   });
 
   it("drops a pnpm passthrough separator while preserving targeted filters", () => {
@@ -221,6 +239,11 @@ describe("test-projects args", () => {
       config: "test/vitest/vitest.infra.config.ts",
     },
     {
+      title: "routes the real memory CLI JSON tests to the infra config",
+      target: "src/entry.memory-json.test.ts",
+      config: "test/vitest/vitest.infra.config.ts",
+    },
+    {
       title: "routes plugin setup lifecycle to the infra fork shard",
       target: "src/plugins/setup-registry.lifecycle.test.ts",
       config: "test/vitest/vitest.infra.config.ts",
@@ -234,6 +257,11 @@ describe("test-projects args", () => {
       title: "routes wizard targets to the wizard config",
       target: "src/wizard/setup.official-plugins.test.ts",
       config: "test/vitest/vitest.wizard.config.ts",
+    },
+    {
+      title: "routes wizard recovery to the host-owned infra fork shard",
+      target: "src/wizard/setup.inference-recovery.integration.test.ts",
+      config: "test/vitest/vitest.infra.config.ts",
     },
     {
       title: "routes tui targets to the tui config",
@@ -623,7 +651,7 @@ describe("test-projects args", () => {
 
     expect(plans).toEqual([
       {
-        config: "test/vitest/vitest.extension-memory.config.ts",
+        config: "test/vitest/vitest.extension-database-workers.config.ts",
         forwardedArgs: [],
         includePatterns: expect.arrayContaining([
           "extensions/memory-core/src/memory/manager.fts-only-reindex.test.ts",

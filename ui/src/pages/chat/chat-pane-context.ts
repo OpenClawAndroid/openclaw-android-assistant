@@ -84,7 +84,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       workspaceResultReconciling:
         (row?.placement?.state === "active" || row?.placement?.state === "draining") &&
         row.placement.workspaceResultReconciling === true,
-      onRestart: () => row && void this.restartHeaderPlacement(row),
+      onRecover: () => row && void this.changeHeaderPlacement(row, "recover"),
       onReclaim: () => row && void this.reclaimHeaderPlacement(row),
     });
   }
@@ -97,60 +97,41 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     super.disconnectedCallback();
   }
 
-  protected async moveHeaderPlacement(row: GatewaySessionRow): Promise<void> {
+  protected async changeHeaderPlacement(
+    row: GatewaySessionRow,
+    mode: "move" | "recover",
+  ): Promise<void> {
     const scope = this.captureConnectionScope();
     if (!scope) {
       return;
     }
-    const onMovingChange = (movingKey: string | null) => {
-      if (movingKey !== null || this.headerPlacementMovingKey === row.key) {
-        this.headerPlacementMovingKey = movingKey;
-      }
-    };
-    const params = {
-      client: scope.client,
-      connectionGeneration: scope.generation,
-      gatewaySnapshot: scope.context.gateway.snapshot,
-      movingKey: this.headerPlacementMovingKey,
-      row,
-      isCurrent: () => this.ownsHeaderOutcomeScope(scope),
-      onMovingChange,
-      publishError: (error: unknown) => this.publishHeaderError(error, scope.headerOutcomeOwner),
-      refreshReplacement: (agentId?: string | null) => scope.sessions.refreshReplacement(agentId),
-      requestUpdate: () => this.requestUpdate(),
-    };
-    const { moveChatPanePlacement } = await import("./chat-pane-placement.runtime.ts");
-    await moveChatPanePlacement(params);
-  }
-
-  protected async restartHeaderPlacement(row: GatewaySessionRow): Promise<void> {
-    const scope = this.captureConnectionScope();
-    if (!scope) {
-      return;
-    }
-    const onRestartingChange = (restartingKey: string | null) => {
-      if (restartingKey !== null && this.state) {
+    const pendingProperty =
+      mode === "move" ? "headerPlacementMovingKey" : "headerPlacementRestartingKey";
+    const onPendingChange = (key: string | null) => {
+      if (mode === "recover" && key !== null && this.state) {
         dismissChatError(this.state);
         this.state.chatRunError = null;
       }
-      if (restartingKey !== null || this.headerPlacementRestartingKey === row.key) {
-        this.headerPlacementRestartingKey = restartingKey;
+      if (key !== null || this[pendingProperty] === row.key) {
+        this[pendingProperty] = key;
       }
     };
     const params = {
       client: scope.client,
       connectionGeneration: scope.generation,
       gatewaySnapshot: scope.context.gateway.snapshot,
-      restartingKey: this.headerPlacementRestartingKey,
+      mode,
+      pendingKey: this[pendingProperty],
       row,
       isCurrent: () => this.ownsHeaderOutcomeScope(scope),
-      onRestartingChange,
+      currentRow: () => (this.state ? selectedChatSessionRow(this.state) : undefined),
+      onPendingChange,
       publishError: (error: unknown) => this.publishHeaderError(error, scope.headerOutcomeOwner),
       refreshReplacement: (agentId?: string | null) => scope.sessions.refreshReplacement(agentId),
       requestUpdate: () => this.requestUpdate(),
     };
-    const { restartChatPanePlacement } = await import("./chat-pane-placement.runtime.ts");
-    await restartChatPanePlacement(params);
+    const { changeChatPanePlacement } = await import("./chat-pane-placement.runtime.ts");
+    await changeChatPanePlacement(params);
   }
 
   protected async reclaimHeaderPlacement(row: GatewaySessionRow): Promise<void> {

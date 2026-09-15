@@ -14,9 +14,15 @@ export type PersistedInstalledPluginIndexCacheEntry = {
 
 export type PluginCacheFact<T> = { value: T } | { pending: Promise<{ value: T }> };
 
+type BundledDiscoveryModeFact = {
+  value: "compat" | "allowlist" | undefined;
+  generation: object;
+};
+
 export type PluginCacheManagement<TCache> = {
   installRecords: Map<string, Record<string, PluginInstallRecord>>;
   persistedInstalledIndex: Map<string, PluginCacheFact<PersistedInstalledPluginIndexCacheEntry>>;
+  preparedBundledDiscoveryModes: Map<string, PluginCacheFact<BundledDiscoveryModeFact>>;
   desiredMetadata?: {
     boot: PluginMetadataSnapshot;
     cache: TCache;

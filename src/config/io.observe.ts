@@ -91,11 +91,13 @@ function resolveHealthyObservationChanges(params: {
 export async function observeConfigSnapshot(
   deps: NormalizedConfigIoDeps,
   snapshot: ConfigFileSnapshot,
+  assertCurrent?: () => void,
 ): Promise<void> {
   if (!snapshot.exists || typeof snapshot.raw !== "string") {
     return;
   }
-  using health = captureConfigHealthStateStore(deps, snapshot.path);
+  assertCurrent?.();
+  using health = captureConfigHealthStateStore(deps, snapshot.path, assertCurrent);
   const stat = await deps.fs.promises.stat(snapshot.path).catch(() => null);
   if (!health.isCurrent()) {
     return;
@@ -138,18 +140,21 @@ export async function observeConfigSnapshot(
     return;
   }
   deps.logger.warn(`Config observe anomaly: ${snapshot.path} (${suspicious.join(", ")})`);
-  await appendConfigAuditRecord({
-    env: deps.env,
-    homedir: deps.homedir,
-    record: createConfigObserveAuditRecord({
-      configPath: snapshot.path,
-      valid: snapshot.valid,
-      current,
-      suspicious,
-      lastKnownGood: entry.lastKnownGood,
-      backup,
-    }),
-  });
+  await appendConfigAuditRecord(
+    {
+      env: deps.env,
+      homedir: deps.homedir,
+      record: createConfigObserveAuditRecord({
+        configPath: snapshot.path,
+        valid: snapshot.valid,
+        current,
+        suspicious,
+        lastKnownGood: entry.lastKnownGood,
+        backup,
+      }),
+    },
+    assertCurrent,
+  );
   await health.update({ lastObservedSuspiciousSignature: signature }, healthSnapshot);
 }
 

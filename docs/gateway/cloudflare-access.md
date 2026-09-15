@@ -127,6 +127,15 @@ works, because the join request is redirected to the Access login page.
 **Control UI.** Open `https://gateway.example` and sign in through Access. With
 trusted-proxy auth the Gateway maps your Access identity to an operator session.
 
+If Access expires while a chat is open, the chat connection can remain active
+while new image and file requests require sign-in. The Control UI detects the
+sign-in redirect and opens one **Sign in to continue loading content** dialog.
+Choose **Sign in**, finish authentication in the new tab, and return to the
+conversation. Visible failed attachments retry after access is verified; the
+original conversation and unsent draft stay open. **Check again** repeats the
+access check, and **Not now** dismisses the prompt without interrupting the chat.
+Ordinary network failures and missing files do not trigger this dialog.
+
 **CLI and TUI.** These do not carry browser cookies, so they present an Access token on
 the WebSocket upgrade. Configure `gateway.remote.edgeAuth` as described in
 [Remote access](/gateway/remote#gateway-behind-an-identity-aware-proxy), then run

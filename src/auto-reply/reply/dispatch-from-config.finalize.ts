@@ -186,13 +186,17 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
       }
       if (finalReply.suppressionReason) {
         channelTransformSuppressedFinal ||= finalReply.suppressionReason === "channel_transform";
-        continue;
+        if (!finalReply.blockDeliveryOutcome) {
+          continue;
+        }
       }
       finalDeliveries.push(finalReply);
       acceptedFinal = true;
       if (shouldAttachDeferredText) {
         deferredTtsTextPending = "";
       }
+      queuedFinal = finalReply.queuedFinal || queuedFinal;
+      routedFinalCount += finalReply.routedFinalCount;
       if (finalReply.blockDeliveryOutcome) {
         const completion = getReplyPayloadMetadata(reply)?.pendingFinalDeliveryCompletion;
         if (
@@ -211,8 +215,6 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
         continue;
       }
       attemptedFinalDelivery = true;
-      queuedFinal = finalReply.queuedFinal || queuedFinal;
-      routedFinalCount += finalReply.routedFinalCount;
       if (finalReply.pendingBlock) {
         // Final-only media cannot confirm or clear the block's independent pending text.
         continue;

@@ -70,23 +70,35 @@ describe("memory index", () => {
     ).run(model, providerKey, providerFixture.identityAlias.provider);
   }
 
-  it("does not prepare vector deletes after in-place reset drops a missing vector table", async () => {
+  it("rebuilds a missing vector table through forced sync with cached readiness", async () => {
     const cfg = createCfg({
       vectorEnabled: true,
     });
     const manager = await getFreshManager(cfg);
     trackManager(manager);
-    type VectorState = { available: boolean | null; dims?: number };
-    const vector = Reflect.get(manager, "vector") as VectorState;
-    vector.available = true;
-    vector.dims = 4;
-    Reflect.set(Reflect.get(manager, "database"), "vectorReady", Promise.resolve(true));
+    await manager.sync({ reason: "test", force: true });
+    const db = Reflect.get(manager, "db") as DatabaseSync;
+    expect(db.prepare("SELECT COUNT(*) AS count FROM memory_index_chunks_vec").get()).toEqual({
+      count: 1,
+    });
+    await expect(manager.probeVectorAvailability()).resolves.toBe(true);
+    expect(manager.status().vector).toMatchObject({ storeAvailable: true, dims: 4 });
+    db.exec("DROP TABLE memory_index_chunks_vec");
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE name = 'memory_index_chunks_vec'").get(),
+    ).toBeUndefined();
 
-    await expect(
-      Reflect.apply(Reflect.get(manager, "runInPlaceReindex"), manager, [
-        { reason: "test", force: true },
-      ]),
-    ).resolves.toBeUndefined();
+    await manager.sync({ reason: "test", force: true });
+    const chunks = db.prepare("SELECT id, text FROM memory_index_chunks ORDER BY id").all();
+    expect(chunks).toEqual([
+      { id: expect.any(String), text: expect.stringContaining("Alpha memory line.") },
+    ]);
+    expect(db.prepare("SELECT id FROM memory_index_chunks_vec ORDER BY id").all()).toEqual(
+      chunks.map(({ id }) => ({ id })),
+    );
+    expect(await manager.search("alpha")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "memory/2026-01-12.md" })]),
+    );
   });
 
   it("indexes memory files and searches", async () => {

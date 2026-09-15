@@ -213,6 +213,9 @@ creation-time capture; later inputs extend explicit source-current checks withou
 changing that digest. Invalid optional package metadata fails only when selected.
 Module acquisition uses the instance's current admission, and disposal closes
 further capture.
+Runtime and setup retirement remove captured artifacts asynchronously and wait
+for removal to finish. Plugin callback deadlines do not end custody of those
+files; synchronous source inspection and failed capture still clean up before returning.
 
 Model-catalog workers keep their captured plugin files in a directory owned by
 one worker. The parent removes any remaining captures after that worker exits,

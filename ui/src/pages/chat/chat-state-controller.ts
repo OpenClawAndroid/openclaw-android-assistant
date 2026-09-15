@@ -36,7 +36,10 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
   private renderLifecycleConnected = false;
   private renderLifecycleScope: ChatRenderLifecycleScope | undefined;
 
-  constructor(private readonly host: ReactiveControllerHost) {
+  constructor(
+    private readonly host: ReactiveControllerHost,
+    private readonly onStateChange?: () => void,
+  ) {
     this.attachmentReads = new ChatAttachmentReadLifecycle(() =>
       this.stateValue?.requestUpdate?.(),
     );
@@ -126,6 +129,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
     }
     this.composerPersistence.persistChangedState();
     this.captureRenderLifecycleChanges();
+    this.onStateChange?.();
     this.host.requestUpdate();
     return true;
   }

@@ -310,7 +310,7 @@ export function bindPluginInstanceModuleLoader(params: {
   if (nativeHooks) {
     params.instance.sourceDigest = artifact.sourceDigest;
   }
-  params.instance.lifecycle.onDispose(artifact.dispose);
+  params.instance.onModuleDispose(artifact.disposeAsync);
   const nativeAliases = nativeHooks
     ? undefined
     : preparePluginLoaderAliases({

@@ -606,10 +606,10 @@ export abstract class ChatPaneHeader extends ChatPaneDiscussion {
         placementRestarting: placement.restarting,
         placementMoveDisabledReason: placement.moveDisabledReason,
         placementReclaimDisabledReason: placement.reclaimDisabledReason,
-        placementRestartDisabledReason: placement.restartDisabledReason,
-        onPlacementMove: () => row && void this.moveHeaderPlacement(row),
+        placementRecoveryDisabledReason: placement.recoveryDisabledReason,
+        onPlacementMove: () => row && void this.changeHeaderPlacement(row, "move"),
         onPlacementReclaim: () => row && void this.reclaimHeaderPlacement(row),
-        onPlacementRestart: () => row && void this.restartHeaderPlacement(row),
+        onPlacementRecover: () => row && void this.changeHeaderPlacement(row, "recover"),
       }),
       sessionMenuAction:
         row && this.state

@@ -1,3 +1,4 @@
+import type { ClawInstallSchemaVersionRow } from "../claws/provenance-runtime-read.kernel.js";
 import type { ConfigHealthPatch } from "../config/io.health-state.kernel.js";
 import type {
   ConfigHealthSnapshot,
@@ -7,6 +8,7 @@ import type { CronStoreWorkerOperations } from "../cron/store/load-worker.types.
 import type { SessionDeliveryWorkerOperations } from "../infra/session-delivery-queue.worker-contract.js";
 import type { PreparedSqliteAuditRecord } from "../infra/sqlite-audit-record.kernel.js";
 import type { SqliteFileGeneration } from "../infra/sqlite-file-generation.js";
+import type { PluginStateWorkerOperations } from "../plugin-state/plugin-state-worker-contract.js";
 import type { PluginMetadataStateSelector } from "../plugins/installed-plugin-index-row.js";
 import type { TaskFlowView } from "../plugins/runtime/task-domain-types.js";
 import type { ManagedTaskInFlowInput } from "../tasks/task-flow-managed-run-task.kernel.js";
@@ -42,12 +44,18 @@ type TaskFlowReadQuery = {
 };
 
 /** Commands share one physical shared-state actor; bindings belong to commands, not open input. */
-export type OpenClawStateWorkerOperations = UserPreferenceWorkerOperations &
+export type OpenClawStateWorkerOperations = PluginStateWorkerOperations &
+  UserPreferenceWorkerOperations &
   CronStoreWorkerOperations &
   SessionDeliveryWorkerOperations & {
+    "projects.findRoot": { input: { repoRoot: string }; output: string | undefined };
     "plugins.metadata.read": {
       input: { selector: PluginMetadataStateSelector; artifactPreservingReadOnly?: boolean };
       output: { value_json: string } | undefined;
+    };
+    "claws.install-schema-versions": {
+      input: undefined;
+      output: ClawInstallSchemaVersionRow[] | undefined;
     };
     "tasks.statusSummary": {
       input: { now: number; preserveSourceArtifacts: boolean };

@@ -3,7 +3,7 @@
  * checks, shared-client leasing, and isolated-client shutdown handling.
  */
 import type { resolveCodexAppServerAuthProfileIdForAgent } from "./auth-profile.js";
-import type { CodexAppServerClient } from "./client.js";
+import type { CodexAppServerClient, CodexCatalogListRequestKey } from "./client.js";
 import type { CodexAppServerStartOptions } from "./config.js";
 import type {
   CodexAppServerRequestMethod,
@@ -72,6 +72,7 @@ type CodexAppServerJsonClientOptions = Pick<
   sessionId?: string;
   isolated?: boolean;
   assertCurrent?: () => void;
+  catalogListKey?: CodexCatalogListRequestKey;
 };
 
 /** Sends a typed Codex app-server request and returns the method-specific response shape. */
@@ -320,6 +321,7 @@ export async function withCodexAppServerJsonClient<T>(
               return await client.request<R>(request.method, request.requestParams, {
                 timeoutMs: remainingTimeoutMs(),
                 signal: timeoutController.signal,
+                ...(params.catalogListKey ? { catalogListKey: params.catalogListKey } : {}),
                 assertCurrent: () => {
                   assertCurrent();
                   request.assertCurrent?.();

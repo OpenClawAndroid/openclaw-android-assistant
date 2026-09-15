@@ -40,7 +40,10 @@ import {
   runExclusiveSqliteSessionReclamation,
   runSqliteSessionReclamation,
 } from "./session-accessor.sqlite-reclamation.js";
-import { isRecentHistoricalSessionId } from "./session-accessor.sqlite-references.js";
+import {
+  collectRecentSessionHistoryIds,
+  isRecentHistoricalSessionId,
+} from "./session-accessor.sqlite-references.js";
 import {
   getSessionKysely,
   resolveSqliteScope,
@@ -60,7 +63,6 @@ import { normalizeStoreSessionKey } from "./store-entry.js";
 import { resolveMaintenanceConfig } from "./store-maintenance-runtime.js";
 import {
   isSessionEntryDiskBudgetEvictable,
-  isRecentSessionMaintenanceEntry,
   type ResolvedSessionMaintenanceConfig,
 } from "./store-maintenance.js";
 import type { SessionEntry } from "./types.js";
@@ -162,42 +164,6 @@ function collectProtectedHistoricalSessionIds(params: {
     protectedSessionIds.add(sessionId);
   }
   return protectedSessionIds;
-}
-
-function collectRecentSessionHistoryIds(params: {
-  database: OpenClawAgentDatabase;
-  preserveRecentMs?: number | null;
-}): Set<string> {
-  if (params.preserveRecentMs == null) {
-    return new Set();
-  }
-  const db = getSessionKysely(params.database.db);
-  const rows = executeSqliteQuerySync(
-    params.database.db,
-    db
-      .selectFrom("session_windows")
-      .innerJoin("session_nodes", "session_nodes.session_key", "session_windows.session_key")
-      .select([
-        "session_nodes.current_session_id",
-        "session_nodes.entry_json",
-        "session_nodes.session_key",
-        "session_nodes.updated_at",
-        "session_windows.session_id",
-      ]),
-  ).rows;
-  return new Set(
-    rows.flatMap((row) => {
-      const entry = parseSessionEntryJson(row);
-      return entry &&
-        isRecentSessionMaintenanceEntry({
-          key: row.session_key,
-          entry,
-          preserveRecentMs: params.preserveRecentMs,
-        })
-        ? [row.session_id]
-        : [];
-    }),
-  );
 }
 
 function collectCandidateAdditionalProtection(params: {

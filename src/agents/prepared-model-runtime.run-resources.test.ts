@@ -15,10 +15,8 @@ import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-l
 import { quiescePluginRegistry } from "../plugins/registry-lifecycle.js";
 import { createColdPluginFixture } from "../plugins/test-helpers/cold-plugin-fixtures.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import {
-  closeOpenClawStateDatabase,
-  openOpenClawStateDatabase,
-} from "../state/openclaw-state-db.js";
+import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db-cache.js";
+import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import {
@@ -249,7 +247,7 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
           resetPluginLoaderTestStateForTest();
           cleanupPluginLoaderFixturesForTest();
           clearPluginMetadataLifecycleCaches();
-          closeOpenClawStateDatabase();
+          await closeOpenClawStateDatabaseAsync();
           for (const record of registrations) {
             // The original raw producer has no disposer; fixture cleanup owns those handles.
             if (record.database.isOpen) {
@@ -365,7 +363,7 @@ it("keeps shared SDK KV namespaces available across RUN registration retirement"
     await next[Symbol.asyncDispose]();
     await closePreparedModelRuntimeSnapshots();
     expect(shared.isOpen).toBe(true);
-    closeOpenClawStateDatabase();
+    await closeOpenClawStateDatabaseAsync();
     expect(shared.isOpen).toBe(false);
     expect((await latest.store.lookup("next"))?.value).toBe(43);
   });

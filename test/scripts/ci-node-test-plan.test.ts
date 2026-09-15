@@ -3124,14 +3124,17 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
 
   it("keeps host-owned database consumers in forks and out of their former projects", () => {
     const infra = createInfraVitestConfig({});
+    const support = createAgentsSupportVitestConfig({});
     expect(infra.test?.pool).toBe("forks");
+    expect(infra.test?.setupFiles).toEqual(support.test?.setupFiles);
     const admitted = new Set(listMatchedTestFiles(infra));
+    expect(admitted.has("src/agents/sessions/sdk.auth-migration.test.ts")).toBe(true);
     const former = new Set(
       [
         createUnitVitestConfigWithOptions({}),
         createUnitFastVitestConfig(),
         createAgentsCoreVitestConfig({}),
-        createAgentsSupportVitestConfig({}),
+        support,
         createAgentsVitestConfig({}),
         createPluginSdkLightVitestConfig({}),
         createPluginSdkVitestConfig({}),

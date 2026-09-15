@@ -270,10 +270,13 @@ describe("noteDevicePairingHealth", () => {
             "identity/device-auth.json",
             legacyDeviceAuthContents,
           );
-          const readTokenRow = () =>
-            db
+          // Migration lock release retires native handles; each read reacquires the owner.
+          const readTokenRow = () => {
+            const { db: readDb } = openOpenClawStateDatabase({ env: state.env });
+            return readDb
               .prepare("SELECT token FROM device_auth_tokens WHERE device_id = ? AND role = ?")
               .get("synthetic-device", "operator");
+          };
           if (scenario !== "canonical rows coexist") {
             let rowAtRemoval: unknown;
             let removalAttempts = 0;

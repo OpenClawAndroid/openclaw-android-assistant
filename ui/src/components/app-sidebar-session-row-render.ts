@@ -392,7 +392,8 @@ export function renderRecentSession(params: {
       : "",
     (team ? ownAttention : session.attention).kind === "error"
       ? "sidebar-recent-session--attention-danger"
-      : (team ? ownAttention : session.attention).kind !== "none"
+      : (team ? ownAttention : session.attention).kind !== "none" &&
+          (team ? ownAttention : session.attention).kind !== "question"
         ? "sidebar-recent-session--attention-amber"
         : "",
     host.sessionOrganizer.draggingSessionKey === session.key

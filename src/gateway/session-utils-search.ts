@@ -31,12 +31,12 @@ import {
   projectGatewaySessionActiveRun,
   resolveGatewaySessionGoal,
 } from "./session-utils-display.js";
+import { resolveSessionSelectedModelRef } from "./session-utils-model-selection.js";
 import { resolveSessionDisplayModelIdentityRefCached } from "./session-utils-model.js";
 import {
   buildSessionListRowMetadataContext,
   resolveGatewaySessionRuntimeProjection,
   populateSessionListAcpMetadata,
-  resolveSessionSelectedModelRef,
 } from "./session-utils-projection.js";
 import { buildGatewaySessionRow } from "./session-utils-row.js";
 import { createGatewaySessionEntryReader } from "./session-utils-store-lookup.js";

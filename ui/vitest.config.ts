@@ -6,9 +6,10 @@ import { fileURLToPath } from "node:url";
 import { playwright } from "@vitest/browser-playwright";
 import { chromium } from "playwright";
 import { defineConfig, defineProject, type ViteUserConfig } from "vitest/config";
+import { intersectIncludePatterns } from "../test/vitest/vitest.include-patterns.ts";
 import {
-  intersectIncludePatterns,
   loadPatternListFromEnv,
+  matchesVitestGlob,
   relativizeScopedPatterns,
 } from "../test/vitest/vitest.pattern-file.ts";
 import { loadVitestPerformanceConfig } from "../test/vitest/vitest.performance-config.ts";
@@ -107,6 +108,7 @@ function includeUiTests(patterns: string[], env = process.env): string[] {
   const selected = intersectIncludePatterns(
     patterns.map((pattern) => path.posix.normalize(`ui/${pattern}`)),
     loadPatternListFromEnv("OPENCLAW_VITEST_INCLUDE_FILE", env),
+    matchesVitestGlob,
   );
   return selected ? selected.map((pattern) => path.posix.relative("ui", pattern)) : patterns;
 }

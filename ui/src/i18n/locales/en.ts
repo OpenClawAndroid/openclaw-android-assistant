@@ -3280,6 +3280,19 @@ export const en: TranslationMap & {
     },
   },
   connection: {
+    browserSignIn: {
+      title: "Sign in to continue loading content",
+      description:
+        "Your website sign-in has expired. Images and files cannot load until you sign in again. Your conversation and draft will stay open.",
+      action: "Sign in",
+      dismiss: "Not now",
+      returnHint:
+        "Finish signing in in the new tab, then return here. Visible attachments will retry automatically.",
+      checkAgain: "Check again",
+      checking: "Checking access…",
+      stillRequired: "Sign-in is still required. Finish signing in, then check again.",
+      unavailable: "Could not verify access. Check your connection and try again.",
+    },
     disconnectedTitle: "Disconnected",
     connecting: "Connecting…",
     queuedCount: "{count} queued",

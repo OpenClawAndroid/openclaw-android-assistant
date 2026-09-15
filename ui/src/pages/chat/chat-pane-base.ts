@@ -46,6 +46,7 @@ import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { ChatComposerCapabilityHost } from "./chat-composer-capability-host.ts";
 import {
   CHAT_PANE_LIFECYCLE_CHANGED_EVENT,
+  CHAT_RUN_ACTIVITY_CHANGED_EVENT,
   CHAT_TRANSCRIPT_LOADING_CHANGED_EVENT,
 } from "./chat-history-events.ts";
 import { getAcceptedChatHistorySession, getChatHistoryLoadState } from "./chat-history-state.ts";
@@ -70,6 +71,7 @@ import type { ChatPaneHeaderAction } from "./components/chat-pane-header.ts";
 import type { ChatSessionSharingState } from "./components/chat-session-sharing.ts";
 import { ChatTranscriptController } from "./components/chat-transcript-controller.ts";
 import type { SessionDiscussionPanelConfig } from "./components/session-discussion-panel.ts";
+import { hasDirectSessionRun } from "./run-lifecycle.ts";
 import { handleChatScrollTakeover } from "./scroll.ts";
 import type { ChatMessageCache } from "./session-message-cache.ts";
 import { resolveChatSnapshotKey } from "./session-snapshot-key.ts";
@@ -316,7 +318,21 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
   @property({ attribute: false }) onClosePane?: (paneId: string) => void;
   @property({ attribute: false }) boardProvider?: BoardProvider;
 
-  protected readonly chatState = new ChatStateController<ChatPageHost>(this);
+  protected readonly chatState = new ChatStateController<ChatPageHost>(this, () => {
+    this.dispatchEvent(new Event(CHAT_RUN_ACTIVITY_CHANGED_EVENT, { bubbles: true }));
+  });
+
+  get runActivity() {
+    const state = this.state;
+    return state?.connected
+      ? {
+          client: state.client,
+          agentId: resolveChatAgentId(state),
+          working: hasDirectSessionRun(state),
+          completion: state.chatRunStatus,
+        }
+      : null;
+  }
   protected readonly composerCapabilities = new ChatComposerCapabilityHost(() =>
     this.requestUpdate(),
   );

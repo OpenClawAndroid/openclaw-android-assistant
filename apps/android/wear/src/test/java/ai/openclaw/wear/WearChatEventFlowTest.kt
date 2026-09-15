@@ -12,6 +12,7 @@ import android.app.RemoteInput
 import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.view.View
 import android.view.ViewGroup
@@ -49,6 +50,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowTextToSpeech
 
 @RunWith(RobolectricTestRunner::class)
@@ -2556,6 +2558,40 @@ class WearChatEventFlowTest {
     }
   }
 
+  @Test
+  @Config(qualifiers = "w227dp-h227dp-round-hdpi")
+  @GraphicsMode(GraphicsMode.Mode.NATIVE)
+  fun searchedSessionOutsideRecentListKeepsItsDisplayedTitleAndReplyTarget() {
+    val app = RuntimeEnvironment.getApplication() as WearApplication
+    val originalScale = Settings.Global.getFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+    Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+    try {
+      withFlow { flow ->
+        flow.sessionSearchList = """[{"key":"agent:main:archive","displayName":"Archive notes","hasActiveRun":false}]"""
+        flow.vm.refresh()
+        flow.idle()
+        flow.observeApp()
+        flow.scrollAppTo(4)
+        flow.clickAppAction("Session: Test chat")
+        flow.vm.searchSessions("Archive")
+        flow.idle()
+        flow.scrollAppTo(5)
+        flow.clickAppAction("Archive notes")
+        flow.idle()
+        assertEquals("agent:main:archive", flow.state.selectedSession?.key)
+        assertEquals(listOf("agent:main:proof"), flow.state.sessions.map { it.key })
+        assertTrue(flow.state.sessionSearchResults.isEmpty())
+        flow.scrollAppTo(4)
+        flow.appAction("Session: Archive notes")
+        flow.submitFromApp("Continue these notes")
+        assertEquals(listOf("agent:main:archive"), flow.sentSessionKeys)
+        assertEquals(listOf("Continue these notes"), flow.sentMessages)
+      }
+    } finally {
+      Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, originalScale)
+    }
+  }
+
   private class Flow {
     private val app = RuntimeEnvironment.getApplication() as WearApplication
     private val owner =
@@ -2580,6 +2616,8 @@ class WearChatEventFlowTest {
     var abortAccepted = true
     var abortGate: CompletableDeferred<Unit>? = null
     var sessionList = """[{"key":"agent:main:proof","displayName":"Test chat","hasActiveRun":false}]"""
+    var sessionSearchList: String? = null
+    val sentSessionKeys = mutableListOf<String>()
     val sentRunIds = mutableListOf<String>()
     val sentMessages = mutableListOf<String>()
     var historyMessages = "[]"
@@ -2666,7 +2704,7 @@ class WearChatEventFlowTest {
       assertEquals(true, appAction(label).config[SemanticsActions.OnClick].action?.invoke())
     }
 
-    fun appAction(label: String): SemanticsNode {
+    private fun appNodes(): List<SemanticsNode> {
       idle()
 
       fun roots(view: View): List<ViewRootForTest> =
@@ -2682,12 +2720,23 @@ class WearChatEventFlowTest {
           root.measureAndLayoutForTest()
           nodes(root.semanticsOwner.rootSemanticsNode)
         }
+      return nodes
+    }
+
+    fun appAction(label: String): SemanticsNode {
+      val nodes = appNodes()
       return checkNotNull(
         nodes.firstOrNull { node ->
           SemanticsActions.OnClick in node.config &&
             node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true
         },
       ) { "Missing action $label; rendered semantics: ${nodes.map { it.config }}" }
+    }
+
+    fun scrollAppTo(index: Int) {
+      val list = appNodes().last { SemanticsActions.ScrollToIndex in it.config && SemanticsProperties.VerticalScrollAxisRange in it.config }
+      assertEquals(true, list.config[SemanticsActions.ScrollToIndex].action?.invoke(index))
+      shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(1))
     }
 
     fun transcript(
@@ -2713,11 +2762,17 @@ class WearChatEventFlowTest {
       val result =
         when (request.method) {
           WearRpcMethod.ProxyStatus -> {
-            Json.parseToJsonElement("""{"connected":$gatewayConnected,"activeAgentId":"main","activeSessionKey":"agent:main:proof"}""")
+            buildJsonObject {
+              put("connected", gatewayConnected)
+              put("activeAgentId", "main")
+              put("activeSessionKey", "agent:main:proof")
+              if (sessionSearchList != null) put("capabilities", Json.parseToJsonElement("""["session-search-pagination"]"""))
+            }
           }
 
           WearRpcMethod.SessionsList -> {
-            Json.parseToJsonElement("""{"sessions":$sessionList}""")
+            val sessions = if ("search" in request.params) checkNotNull(sessionSearchList) else sessionList
+            Json.parseToJsonElement("""{"sessions":$sessions}""")
           }
 
           WearRpcMethod.ChatHistory -> {
@@ -2752,6 +2807,10 @@ class WearChatEventFlowTest {
                 .getValue("idempotencyKey")
                 .jsonPrimitive.content
             runId = requestedRunId
+            sentSessionKeys +=
+              request.params
+                .getValue("sessionKey")
+                .jsonPrimitive.content
             sentRunIds += requestedRunId
             sentMessages +=
               request.params

@@ -211,9 +211,10 @@ export function hasSuccessfulTerminalSourceReplyDelivery(params: {
   directBlockDeliveries?: DirectBlockDelivery[];
 }): boolean {
   const sentTerminalBlock = params.directBlockDeliveries?.some(
-    ({ payload, outcome, pending }) =>
+    ({ payload, outcome, pending, source }) =>
       outcome === "delivered" &&
       !pending &&
+      source?.complete !== false &&
       isReplyPayloadTerminalContent(payload) &&
       normalizeReplyPayload(payload, { applyChannelTransforms: false }) !== null,
   );

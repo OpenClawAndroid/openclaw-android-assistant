@@ -35,8 +35,13 @@ import {
   createContractsVitestConfig,
   pluginContractPatterns,
 } from "./vitest/vitest.contracts-shared.ts";
+import {
+  databaseWorkerExtensionTestFiles,
+  databaseWorkerExtensionTestRoots,
+} from "./vitest/vitest.extension-database-workers-paths.mjs";
 import { createExtensionDatabaseWorkersVitestConfig } from "./vitest/vitest.extension-database-workers.config.ts";
 import { createExtensionImessageVitestConfig } from "./vitest/vitest.extension-imessage.config.ts";
+import { createExtensionSlackVitestConfig } from "./vitest/vitest.extension-slack.config.ts";
 import { createExtensionsVitestConfig } from "./vitest/vitest.extensions.config.ts";
 import { createGatewayMethodsIsolatedVitestConfig } from "./vitest/vitest.gateway-methods-isolated.config.ts";
 import { createGatewayMethodsVitestConfig } from "./vitest/vitest.gateway-methods.config.ts";
@@ -652,7 +657,19 @@ describe("projects vitest config", () => {
     expect(testConfig.sequence).toMatchObject({ groupOrder: 1 });
   });
 
-  it.each(["logbook", "team-reports", "workboard"])(
+  it("keeps Slack's real cooldown store in its forked project", () => {
+    const project = "test/vitest/vitest.extension-slack.config.ts";
+    expect(requireTestConfig(createExtensionSlackVitestConfig({})).pool).toBe("forks");
+    expect(
+      buildVitestRunPlans(["extensions/slack/src/monitor/presence-cooldown-store.test.ts"]).map(
+        (plan) => plan.config,
+      ),
+    ).toEqual([project]);
+    expect(resolveExtensionTestConfig("extensions/slack")).toBe(project);
+    expect(rootVitestProjects).toContain(project);
+  });
+
+  it.each(["logbook", "memory-core", "team-reports", "workboard"])(
     "runs %s database owners in main-thread hosts across focused and full suites",
     (pluginId) => {
       const project = "test/vitest/vitest.extension-database-workers.config.ts";
@@ -670,15 +687,26 @@ describe("projects vitest config", () => {
       expect(testConfig.pool).toBe("forks");
       expect(testConfig.isolate).toBe(true);
       expect(testConfig.include).toEqual([
-        "logbook/**/*.test.ts",
-        "team-reports/**/*.test.ts",
-        "workboard/**/*.test.ts",
-        "imessage/src/approval-reactions.persistence.test.ts",
-        "imessage/src/send.sqlite.test.ts",
+        ...databaseWorkerExtensionTestRoots.map(
+          (root) => `${root.replace(/^extensions\//u, "")}/**/*.test.ts`,
+        ),
+        ...databaseWorkerExtensionTestFiles.map((file) => file.replace(/^extensions\//u, "")),
       ]);
       expect(requireTestConfig(createExtensionsVitestConfig({})).exclude).toContain(
         `${pluginId}/**`,
       );
+    },
+  );
+
+  it.each(databaseWorkerExtensionTestFiles)(
+    "routes real extension database consumer %s to its fork owner",
+    (file) => {
+      const project = "test/vitest/vitest.extension-database-workers.config.ts";
+      const config = requireTestConfig(createExtensionDatabaseWorkersVitestConfig({}));
+      expect(buildVitestRunPlans([file]).map((plan) => plan.config)).toEqual([project]);
+      expect(config.include).toContain(file.replace(/^extensions\//u, ""));
+      expect(config.pool).toBe("forks");
+      expect(config.isolate).toBe(true);
     },
   );
 

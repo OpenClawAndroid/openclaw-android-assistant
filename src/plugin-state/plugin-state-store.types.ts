@@ -13,14 +13,24 @@ export type PluginStateEntry<T> = {
 export type PluginStateKeyedStore<T> = {
   register(key: string, value: T, opts?: { ttlMs?: number }): Promise<void>;
   registerIfAbsent(key: string, value: T, opts?: { ttlMs?: number }): Promise<boolean>;
-  /** The updater runs synchronously in the transaction; undefined leaves the entry unchanged. */
+  /**
+   * The updater runs synchronously in the transaction; undefined leaves the entry unchanged.
+   * @deprecated This callback blocks the main thread. Use data-only operations when they preserve
+   * the complete atomic change. Retained through the next Plugin SDK major.
+   */
   update?: (
     key: string,
     updateValue: (current: T | undefined) => T | undefined,
     opts?: { ttlMs?: number },
   ) => Promise<boolean>;
-  /** The synchronous predicate and conditional deletion run in one transaction. */
+  /**
+   * The synchronous predicate and conditional deletion run in one transaction.
+   * @deprecated This callback blocks the main thread. Use deleteIfEqual for scalar comparisons;
+   * other atomic predicates remain supported through the next Plugin SDK major.
+   */
   deleteIf?: (key: string, predicate: (current: T) => boolean) => Promise<boolean>;
+  /** Atomically deletes a live entry equal to the supplied JSON scalar, without a callback. */
+  deleteIfEqual?: (key: string, expected: string | number | boolean | null) => Promise<boolean>;
   lookup(key: string): Promise<T | undefined>;
   /** Positional outcomes for at most 10,000 keys; missing/expired values are undefined. */
   lookupMany?: (

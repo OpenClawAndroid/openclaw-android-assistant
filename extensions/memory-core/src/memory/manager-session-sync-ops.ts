@@ -74,12 +74,10 @@ export abstract class MemoryManagerSessionSyncOps extends MemoryManagerWatchOps 
     }
   }
 
-  protected async listSessionCorpusEntries(options?: {
-    includeContentRevision?: boolean;
-  }): Promise<SessionTranscriptCorpusEntry[]> {
+  protected async listSessionCorpusEntries(): Promise<SessionTranscriptCorpusEntry[]> {
     const readOnly = this.database.readOnly;
     const entries = await listSessionTranscriptCorpusEntriesForAgent(this.agentId, {
-      includeContentRevision: !readOnly && options?.includeContentRevision !== false,
+      includeContentRevision: false,
       readOnly,
     });
     const archivedSessions = new Map(
@@ -169,7 +167,7 @@ export abstract class MemoryManagerSessionSyncOps extends MemoryManagerWatchOps 
 
   private async scheduleCorpusSessionFileDirty(sessionFile: string): Promise<void> {
     const resolvedSessionFile = path.resolve(sessionFile);
-    const corpusEntries = await this.listSessionCorpusEntries({ includeContentRevision: false });
+    const corpusEntries = await this.listSessionCorpusEntries();
     if (
       corpusEntries.some(
         (entry) =>
@@ -195,7 +193,7 @@ export abstract class MemoryManagerSessionSyncOps extends MemoryManagerWatchOps 
     if (!this.sources.has("sessions") || this.closed) {
       return [];
     }
-    const corpusEntries = await this.listSessionCorpusEntries({ includeContentRevision: false });
+    const corpusEntries = await this.listSessionCorpusEntries();
     if (this.closed) {
       return [];
     }

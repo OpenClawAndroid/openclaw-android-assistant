@@ -29,8 +29,8 @@ export type RuntimeAuthProfileStoreMutationOwner =
 
 // Runtime snapshots are keyed by the canonical database path so default-agent
 // and per-agent stores do not overwrite each other.
-export function resolveRuntimeStoreKey(agentDir?: string): string {
-  return agentDir ? resolveAuthProfileDatabasePath(agentDir) : resolveSharedAuthStorePath();
+export function resolveRuntimeStoreKey(agentDir?: string, env?: NodeJS.ProcessEnv): string {
+  return agentDir ? resolveAuthProfileDatabasePath(agentDir) : resolveSharedAuthStorePath(env);
 }
 
 function maxMutationRevision(record: PersistedMutationRecord): number {

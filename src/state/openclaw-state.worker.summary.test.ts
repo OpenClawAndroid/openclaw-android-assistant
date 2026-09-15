@@ -212,6 +212,89 @@ it("retains the shared native handle until its last actor closes and preserves r
   ).toMatchObject({ flowId: flow.flowId, status: "succeeded", revision: 1 });
 });
 
+it.each(["kv", "task"] as const)(
+  "retains a promoted KV actor's native handle when %s closes first",
+  async (firstToClose) => {
+    const context = captureOpenClawStateWorkerContext();
+    const databasePath = context.admission.databasePath;
+    const key = { pluginId: "borrow-fixture", namespace: "shared", key: "answer" };
+    const kv = runWithSqliteWorkerStateContext(context, () =>
+      openExistingSqliteWorkerBackend(undefined, { databasePath }),
+    );
+    backends.add(kv);
+    expect(
+      runWithSqliteWorkerStateContext(context, () =>
+        kv.execute({ type: "pluginState.lookup", input: key }),
+      ),
+    ).toEqual({ ok: true, value: undefined });
+    expect(existsSync(databasePath)).toBe(false);
+    expect(
+      runWithSqliteWorkerStateContext(context, () =>
+        kv.execute({
+          type: "pluginState.register",
+          input: {
+            ...key,
+            valueJson: JSON.stringify({ value: 42 }),
+            maxEntries: 4,
+            maxPluginEntries: 8,
+            overflowPolicy: "reject-new",
+          },
+        }),
+      ),
+    ).toEqual({ ok: true, value: undefined });
+    const task = runWithSqliteWorkerStateContext(context, () =>
+      createSqliteWorkerBackend(undefined, { databasePath }),
+    );
+    backends.add(task);
+    const database = openOpenClawStateDatabase();
+    const flow = buildFlowRecord({
+      controllerId: "tests/kv-native-borrow",
+      ownerKey: "agent:main:kv-borrow",
+      goal: "Keep both state readers available",
+      createdAt: 100,
+    });
+    expect(
+      runWithSqliteWorkerStateContext(context, () =>
+        task.execute({ type: "flows.createManaged", input: { flow } }),
+      ),
+    ).toMatchObject({ flowId: flow.flowId, revision: 0 });
+
+    await (firstToClose === "kv" ? kv : task).close();
+    expect(database.db.isOpen).toBe(true);
+    if (firstToClose === "kv") {
+      expect(
+        runWithSqliteWorkerStateContext(context, () =>
+          task.execute({ type: "flows.current", input: { flowId: flow.flowId } }),
+        ),
+      ).toMatchObject({ flowId: flow.flowId, revision: 0 });
+    } else {
+      expect(
+        runWithSqliteWorkerStateContext(context, () =>
+          kv.execute({ type: "pluginState.lookup", input: key }),
+        ),
+      ).toEqual({ ok: true, value: { value: 42 } });
+    }
+    await (firstToClose === "kv" ? task : kv).close();
+    expect(database.db.isOpen).toBe(false);
+
+    const reopenedContext = captureOpenClawStateWorkerContext();
+    const reopened = runWithSqliteWorkerStateContext(reopenedContext, () =>
+      createSqliteWorkerBackend(undefined, { databasePath }),
+    );
+    backends.add(reopened);
+    expect(
+      runWithSqliteWorkerStateContext(reopenedContext, () =>
+        reopened.execute({ type: "pluginState.lookup", input: key }),
+      ),
+    ).toEqual({ ok: true, value: { value: 42 } });
+    expect(
+      runWithSqliteWorkerStateContext(reopenedContext, () =>
+        reopened.execute({ type: "flows.current", input: { flowId: flow.flowId } }),
+      ),
+    ).toMatchObject({ flowId: flow.flowId, revision: 0 });
+  },
+);
+
 it.each(["config.health.patch", "diagnostic.register"] as const)(
   "retains %s writes from existing-only actors until last close and durably reopens",
   async (operation) => {
