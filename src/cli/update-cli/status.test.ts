@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { buildStatusUpdateRows } from "../../commands/status-update-restart.js";
+import { recordDeferredPluginMigrations } from "../../infra/deferred-plugin-migrations.js";
 import * as runtimeGuard from "../../infra/runtime-guard.js";
 import { createRetainedUpdateRecovery } from "../../infra/update-retained-recovery.test-support.js";
 import { readUpdateRunDriver } from "../../infra/update-run-driver.js";
@@ -16,7 +17,10 @@ import {
   recordUpdateRunVerification,
 } from "../../infra/update-run-ledger.js";
 import { ABANDONED_UPDATE_RUN_MS } from "../../infra/update-run-timeouts.js";
-import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import {
+  closeOpenClawStateDatabaseForTest,
+  openOpenClawStateDatabase,
+} from "../../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { claimOpenClawStateOwnership } from "../../state/openclaw-state-ownership-operations.js";
 import { updateStatusCommand } from "./status.js";
@@ -311,6 +315,76 @@ describe("update status abandoned-run reporting", () => {
 
       await updateStatusCommand({ json: true });
       expect(runtime.writeJson.mock.lastCall?.[0].lastRun).toEqual(finished);
+    },
+  );
+
+  it.each([true, false])(
+    "reports unreadable pending migration status without losing availability (JSON: %s)",
+    async (json) => {
+      recordDeferredPluginMigrations({
+        pending: [
+          {
+            pluginId: "codex",
+            reason: "The configured plugin package is missing.",
+            command: "openclaw plugins install @openclaw/codex",
+          },
+        ],
+      });
+      openOpenClawStateDatabase()
+        .db.prepare("UPDATE migration_runs SET report_json = ? WHERE id = ?")
+        .run("not-json", "deferred-plugin-migration:codex");
+      await expect(updateStatusCommand({ json })).resolves.toBeUndefined();
+      if (json) {
+        const result = runtime.writeJson.mock.lastCall?.[0];
+        expect(result).toHaveProperty("availability");
+        expect(result.migrationWarningsError).toEqual(expect.any(String));
+        expect(result).not.toHaveProperty("migrationWarnings");
+      } else {
+        const output = runtime.log.mock.calls.flat().join("\n");
+        expect(output).toContain("OpenClaw update status");
+        expect(output).toContain("Pending plugin migration status unavailable:");
+      }
+    },
+  );
+
+  it.each([true, false])(
+    "reports current migration warnings absent from historical update steps (JSON: %s)",
+    async (json) => {
+      const run = createUpdateRun({ trigger: "cli" });
+      const history = finishUpdateRun(run.runId, { status: "succeeded" });
+      const pending = {
+        pluginId: "codex",
+        reason: "The configured plugin package is missing.",
+        command: "openclaw plugins install @openclaw/codex",
+      };
+      recordDeferredPluginMigrations({ pending: [pending] });
+      await updateStatusCommand({ json });
+      if (json) {
+        expect(runtime.writeJson.mock.lastCall?.[0].migrationWarnings).toEqual([
+          expect.stringContaining('Plugin "codex" state migration is pending:'),
+        ]);
+        expect(runtime.writeJson.mock.lastCall?.[0].migrationWarnings[0]).toContain(
+          pending.command,
+        );
+      } else {
+        const output = runtime.log.mock.calls.flat().join("\n");
+        expect(output).toContain('Plugin "codex" state migration is pending:');
+        expect(output).toContain(pending.command);
+      }
+      expect(getUpdateRun(run.runId)).toEqual(history);
+
+      recordDeferredPluginMigrations({ pending: [], resolvedPluginIds: [pending.pluginId] });
+      runtime.log.mockClear();
+      runtime.writeJson.mockClear();
+      await updateStatusCommand({ json });
+      if (json) {
+        expect(runtime.writeJson.mock.lastCall?.[0]).not.toHaveProperty("migrationWarnings");
+      } else {
+        expect(runtime.log.mock.calls.flat().join("\n")).not.toContain(
+          'Plugin "codex" state migration is pending:',
+        );
+      }
+      expect(getUpdateRun(run.runId)).toEqual(history);
     },
   );
 

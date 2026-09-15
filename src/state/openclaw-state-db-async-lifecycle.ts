@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
+import { extractErrorCode } from "@openclaw/normalization-core/error-coercion";
 import { createSqliteLifecycleAggregateError } from "../infra/sqlite-coordinator.js";
 import {
   inspectDatabasePathIdentitySync,
@@ -8,6 +9,16 @@ import {
 } from "../infra/sqlite-worker-identity.js";
 import type { tryCreateGatewaySchemaFenceDelegate } from "../infra/state-database-coordinator.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
+
+const STATE_DATABASE_READ_ADMISSION_INVALIDATED = "STATE_DATABASE_READ_ADMISSION_INVALIDATED";
+
+class StateDatabaseReadAdmissionInvalidatedError extends Error {
+  readonly code = STATE_DATABASE_READ_ADMISSION_INVALIDATED;
+}
+
+export function isStateDatabaseReadAdmissionInvalidatedError(error: unknown): boolean {
+  return extractErrorCode(error) === STATE_DATABASE_READ_ADMISSION_INVALIDATED;
+}
 
 export type OpenClawStateDatabaseReadAdmission = {
   readonly databasePath: string;
@@ -44,6 +55,7 @@ type SchemaDelegateFactory = (
 ) => ReturnType<typeof tryCreateGatewaySchemaFenceDelegate>;
 
 export type OpenClawDatabaseMaintenanceScope = {
+  readonly ownsSchemaMaintenance: boolean;
   assertAdmission(): void;
   run<T>(operation: () => T): T;
   track<T>(operation: Promise<T>): Promise<T>;
@@ -122,10 +134,14 @@ function commonMaintenanceAncestor(
   return undefined;
 }
 
-/** Associate lexical maintenance work with exact resources, never all files beneath a root. */
+/** Associate lexical database work with exact resources, never all files beneath a root. */
 export function createOpenClawDatabaseMaintenanceScope(
-  createSchemaFenceDelegate: SchemaDelegateFactory,
+  createSchemaFenceDelegate?: SchemaDelegateFactory,
 ): OpenClawDatabaseMaintenanceScope {
+  const parent = getOpenClawDatabaseMaintenanceScope();
+  const schemaDelegateFactory =
+    createSchemaFenceDelegate ??
+    (parent?.ownsSchemaMaintenance ? parent.createSchemaFenceDelegate : undefined);
   const pending = new Set<Promise<unknown>>();
   const resources = new Map<object, MaintenanceResource>();
   let closed = false;
@@ -136,6 +152,7 @@ export function createOpenClawDatabaseMaintenanceScope(
     }
   };
   const scope: OpenClawDatabaseMaintenanceScope = {
+    ownsSchemaMaintenance: schemaDelegateFactory !== undefined,
     assertAdmission() {
       assertOpen();
       const inherited = maintenanceResources.current.getStore();
@@ -182,7 +199,7 @@ export function createOpenClawDatabaseMaintenanceScope(
     },
     createSchemaFenceDelegate(params) {
       assertOpen();
-      return createSchemaFenceDelegate(params);
+      return schemaDelegateFactory?.(params);
     },
     close() {
       return (closing ??= maintenanceResources.current
@@ -232,7 +249,6 @@ export function createOpenClawDatabaseMaintenanceScope(
         }));
     },
   };
-  const parent = getOpenClawDatabaseMaintenanceScope();
   if (parent) {
     maintenanceResources.parents.set(scope, parent);
   }
@@ -258,7 +274,9 @@ export function createOpenClawStateDatabaseAsyncLifecycle() {
     [...seals].some((held) => held.record === undefined || overlaps(held.record, record));
   const assertOpen = (record: IdentityRecord) => {
     if (isSealed(record)) {
-      throw new Error("OpenClaw state database read admission is closed");
+      throw new StateDatabaseReadAdmissionInvalidatedError(
+        "OpenClaw state database read admission is closed",
+      );
     }
   };
   const resolve = (pathname: string, preparedIdentity?: DatabasePathIdentity): IdentityRecord => {
@@ -384,7 +402,9 @@ export function createOpenClawStateDatabaseAsyncLifecycle() {
         assertCurrent() {
           assertOpen(record);
           if (records.get(record.identity.key) !== record || record.generation !== generation) {
-            throw new Error("OpenClaw state database read admission changed");
+            throw new StateDatabaseReadAdmissionInvalidatedError(
+              "OpenClaw state database read admission changed",
+            );
           }
         },
       };

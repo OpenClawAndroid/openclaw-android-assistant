@@ -1373,7 +1373,9 @@ describe("openclaw test instance", () => {
         // Keep the inherited pipe held through a complete failed restart: eventual
         // replacement after release alone cannot prove that stale ownership blocked it.
         await expect(trackOperation(instance.startGateway())).rejects.toThrow(
-          new Error(`gateway process did not close before stop deadline\n${instance.logs()}`),
+          new Error(
+            `gateway process cleanup could not verify termination and output closure\n${instance.logs()}`,
+          ),
         );
         expect(instance.child).toBe(firstChild);
         expect(firstChild.stderr.closed).toBe(false);

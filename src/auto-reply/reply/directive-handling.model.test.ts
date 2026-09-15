@@ -1006,32 +1006,17 @@ describe("/model chat UX", () => {
   });
 
   it.each([
-    {
-      command: "/model status --runtime codex",
-      text: "Runtime override requires a model selection.",
-    },
-    {
-      command: "/model list -s",
-      text: "Session-only scope requires a model selection.",
-    },
-    {
-      command: "/model status --agent",
-      text: "Agent scope requires a model selection.",
-    },
-    {
-      command: "/model list --global",
-      text: "Global scope requires a model selection.",
-    },
-  ])(
-    "rejects action options on informational model commands: $command",
-    async ({ command, text }) => {
-      const reply = await resolveModelInfoReply({
-        directives: parseInlineSessionDirectives(command),
-      });
+    ["/model status --runtime codex", "Runtime override requires a model selection."],
+    ["/model list -s", "Session-only scope requires a model selection."],
+    ["/model status --agent", "Agent scope requires a model selection."],
+    ["/model list --global", "Global scope requires a model selection."],
+  ])("rejects action options on informational model commands: %s", async (command, text) => {
+    const reply = await resolveModelInfoReply({
+      directives: parseInlineSessionDirectives(command),
+    });
 
-      expect(reply).toEqual({ text, isError: true });
-    },
-  );
+    expect(reply).toEqual({ text, isError: true });
+  });
 
   it("includes the thinking level in channel-specific model summaries", async () => {
     pluginPolicyMock.channels.set("telegram", {
@@ -1832,6 +1817,7 @@ describe("/model chat UX", () => {
       provider: "anthropic",
       model: "claude-opus-4-6",
       isDefault: true,
+      resetToDefault: true,
     });
   });
 

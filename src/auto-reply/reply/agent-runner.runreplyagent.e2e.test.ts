@@ -2285,73 +2285,62 @@ describe("runReplyAgent heartbeat followup guard", () => {
   );
 
   it.each([
-    { label: "accepted answer", payload: { text: "answer block" }, delivered: true },
-    { label: "in-flight answer", payload: { text: "answer block" }, delivered: true },
-    { label: "queued answer", payload: { text: "answer block" }, delivered: true },
-    { label: "aborted answer", payload: { text: "answer block" }, delivered: false },
-    {
-      label: "reasoning",
-      payload: { text: "internal reasoning", isReasoning: true },
-      delivered: false,
-    },
-    {
-      label: "commentary",
-      payload: { text: "working on it", isCommentary: true },
-      delivered: false,
-    },
-    { label: "rejected answer", payload: { text: "answer block" }, delivered: false },
-  ])(
-    "reports provider failure after $label block delivery",
-    async ({ label, payload, delivered }) => {
-      const replyOperation =
-        label === "aborted answer"
-          ? createReplyOperation({
-              sessionKey: "main",
-              sessionId: "session",
-              resetTriggered: false,
-            })
-          : undefined;
-      const deliveryStarted = createDeferred();
-      let blockFlush: Promise<void> | undefined;
-      const onBlockReply = vi.fn(async () => {
-        deliveryStarted.resolve();
-        if (label === "in-flight answer" || replyOperation) {
-          await setImmediate();
-          replyOperation?.abortByUser();
-        }
-        if (label === "rejected answer") {
-          throw new Error("transport rejected the block");
-        }
-      });
-      state.runEmbeddedAgentMock.mockImplementationOnce(async (params: AgentRunParams) => {
-        await params.onBlockReply?.(payload);
-        blockFlush = label === "queued answer" ? undefined : params.onBlockReplyFlush?.();
-        if (label !== "queued answer") {
-          await deliveryStarted.promise;
-        }
-        if (label !== "in-flight answer" && label !== "queued answer" && !replyOperation) {
-          await blockFlush;
-        }
-        throw new Error("model stream failed after block delivery");
-      });
-      const { run } = createMinimalRun({
-        replyOperation,
-        blockStreamingEnabled: true,
-        opts: { onBlockReply, reasoningPayloadsEnabled: true, commentaryPayloadsEnabled: true },
-        sessionCtx: { ChatType: "group" },
-      });
+    ["accepted answer", { text: "answer block" }, true],
+    ["in-flight answer", { text: "answer block" }, true],
+    ["queued answer", { text: "answer block" }, true],
+    ["aborted answer", { text: "answer block" }, false],
+    ["reasoning", { text: "internal reasoning", isReasoning: true }, false],
+    ["commentary", { text: "working on it", isCommentary: true }, false],
+    ["rejected answer", { text: "answer block" }, false],
+  ])("reports provider failure after %s block delivery", async (label, payload, delivered) => {
+    const replyOperation =
+      label === "aborted answer"
+        ? createReplyOperation({
+            sessionKey: "main",
+            sessionId: "session",
+            resetTriggered: false,
+          })
+        : undefined;
+    const deliveryStarted = createDeferred();
+    let blockFlush: Promise<void> | undefined;
+    const onBlockReply = vi.fn(async () => {
+      deliveryStarted.resolve();
+      if (label === "in-flight answer" || replyOperation) {
+        await setImmediate();
+        replyOperation?.abortByUser();
+      }
+      if (label === "rejected answer") {
+        throw new Error("transport rejected the block");
+      }
+    });
+    state.runEmbeddedAgentMock.mockImplementationOnce(async (params: AgentRunParams) => {
+      await params.onBlockReply?.(payload);
+      blockFlush = label === "queued answer" ? undefined : params.onBlockReplyFlush?.();
+      if (label !== "queued answer") {
+        await deliveryStarted.promise;
+      }
+      if (label !== "in-flight answer" && label !== "queued answer" && !replyOperation) {
+        await blockFlush;
+      }
+      throw new Error("model stream failed after block delivery");
+    });
+    const { run } = createMinimalRun({
+      replyOperation,
+      blockStreamingEnabled: true,
+      opts: { onBlockReply, reasoningPayloadsEnabled: true, commentaryPayloadsEnabled: true },
+      sessionCtx: { ChatType: "group" },
+    });
 
-      const result = await run();
-      await blockFlush;
-      const reply = Array.isArray(result) ? result[0] : result;
+    const result = await run();
+    await blockFlush;
+    const reply = Array.isArray(result) ? result[0] : result;
 
-      expect(onBlockReply).toHaveBeenCalledOnce();
-      expect(reply).toMatchObject({
-        text: delivered ? GENERIC_EXTERNAL_RUN_FAILURE_TEXT : "NO_REPLY",
-        ...(delivered ? { isError: true } : {}),
-      });
-    },
-  );
+    expect(onBlockReply).toHaveBeenCalledOnce();
+    expect(reply).toMatchObject({
+      text: delivered ? GENERIC_EXTERNAL_RUN_FAILURE_TEXT : "NO_REPLY",
+      ...(delivered ? { isError: true } : {}),
+    });
+  });
 
   it("rethrows after a delivered partial without visible content", async () => {
     const accounting = await import("./session-usage.js");

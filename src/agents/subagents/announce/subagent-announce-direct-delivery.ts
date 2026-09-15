@@ -352,10 +352,10 @@ export async function sendSubagentAnnounceDirectly(params: {
         path: "none",
       };
     }
-    const directAgentThreadId = shouldDeliverAgentFinal
-      ? stringifyRouteThreadId(deliveryTarget.threadId)
+    const directAgentOrigin = shouldDeliverAgentFinal
+      ? deliveryTarget
       : sessionOnlyOriginChannel
-        ? stringifyRouteThreadId(sessionOnlyOrigin?.threadId)
+        ? sessionOnlyOrigin
         : undefined;
     // A private completion gets its own serialized turn. Steering into a public
     // turn would inherit that turn's delivery policy and expose child output.
@@ -368,17 +368,9 @@ export async function sendSubagentAnnounceDirectly(params: {
       bestEffortDeliver: params.bestEffortDeliver,
       internalEvents: params.internalEvents,
       channel: shouldDeliverAgentFinal ? deliveryTarget.channel : sessionOnlyOriginChannel,
-      accountId: shouldDeliverAgentFinal
-        ? deliveryTarget.accountId
-        : sessionOnlyOriginChannel
-          ? sessionOnlyOrigin?.accountId
-          : undefined,
-      to: shouldDeliverAgentFinal
-        ? deliveryTarget.to
-        : sessionOnlyOriginChannel
-          ? sessionOnlyOrigin?.to
-          : undefined,
-      threadId: directAgentThreadId,
+      accountId: directAgentOrigin?.accountId,
+      to: directAgentOrigin?.to,
+      threadId: stringifyRouteThreadId(directAgentOrigin?.threadId),
       inputProvenance: {
         kind: "inter_session",
         sourceSessionKey: params.sourceSessionKey,
@@ -473,10 +465,9 @@ export async function sendSubagentAnnounceDirectly(params: {
     }
 
     const directAnnounceResult = getGatewayAgentResult(directAnnounceResponse);
+    const directAnnounceRecord = asOptionalRecord(directAnnounceResponse);
     if (parentOnly) {
-      const outcome = buildAgentRunTerminalOutcomeFromWaitResult(
-        asOptionalRecord(directAnnounceResponse),
-      );
+      const outcome = buildAgentRunTerminalOutcomeFromWaitResult(directAnnounceRecord);
       if (outcome?.reason === "cancelled" && outcome.stopReason !== "restart") {
         return {
           delivered: false,
@@ -489,8 +480,8 @@ export async function sendSubagentAnnounceDirectly(params: {
       }
       // Successful internal consumption may be silent or start the next child.
       // Queue acceptance alone is not consumption, and no external receipt is owed.
-      return asOptionalRecord(directAnnounceResponse)?.status === "ok" &&
-        asOptionalRecord(directAnnounceResponse)?.inputProcessingCompleted === true
+      return directAnnounceRecord?.status === "ok" &&
+        directAnnounceRecord?.inputProcessingCompleted === true
         ? { delivered: true, path: "direct" }
         : {
             delivered: false,
@@ -568,7 +559,7 @@ export async function sendSubagentAnnounceDirectly(params: {
       };
     }
     if (
-      asOptionalRecord(directAnnounceResponse)?.status === "ok" &&
+      directAnnounceRecord?.status === "ok" &&
       directAnnounceResult?.meta?.yielded === true &&
       !directAnnounceResult.meta.error &&
       !directAnnounceResult.meta.aborted &&
@@ -693,7 +684,7 @@ export async function sendSubagentAnnounceDirectly(params: {
       !params.requesterIsSubagent &&
       (hasRequesterVisibleFinalDelivery ||
         (!params.expectsCompletionMessage &&
-          asOptionalRecord(directAnnounceResponse)?.status === "ok" &&
+          directAnnounceRecord?.status === "ok" &&
           hasVisibleNonSilentGatewayPayload &&
           hasVisibleCompletionReply));
     const finalAssistantVisibleText =

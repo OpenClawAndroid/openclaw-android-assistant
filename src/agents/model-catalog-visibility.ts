@@ -17,6 +17,7 @@ import {
   createConfiguredModelCatalogOverridesResolver,
 } from "./model-catalog-route.js";
 import type { ModelCatalogEntry } from "./model-catalog.js";
+import type { ModelRef } from "./model-ref-shared.js";
 import { dedupeModelCatalogEntries } from "./model-selection-shared.js";
 import {
   RUNTIME_MODEL_VISIBILITY_NORMALIZATION,
@@ -77,6 +78,7 @@ type LogicalModelCatalogParams = {
   policy?: ModelVisibilityPolicy;
   routePolicy: ModelCatalogRoutePolicy;
   routeVariants?: readonly ModelCatalogEntry[];
+  retainedModel?: ModelRef;
 };
 
 /** Resolves logical rows while keeping provider-owned physical route precedence. */
@@ -127,7 +129,12 @@ export async function prepareLogicalVisibleModelCatalog(
     routeVariantsByKey.set(key, variants);
   }
   const { configuredKeys, retainedKeys } = policy;
-  const retained = params.catalog.filter((entry) => retainedKeys.has(keyOf(entry)));
+  const retainedKey = params.retainedModel
+    ? keyOf({ provider: params.retainedModel.provider, id: params.retainedModel.model })
+    : undefined;
+  const retained = params.catalog.filter(
+    (entry) => retainedKeys.has(keyOf(entry)) || keyOf(entry) === retainedKey,
+  );
   const wildcard = policy.allowAny || policy.hasProviderWildcards;
   const configuredCatalog = wildcard ? sortModelCatalogEntries([...policy.configuredCatalog]) : [];
   const candidates =
@@ -261,11 +268,14 @@ export async function prepareLogicalVisibleModelCatalog(
       );
     });
     // Selected physical routes must lead dedupe so sibling metadata cannot win.
-    // Deprecated/disabled rows stay selectable; exact configured refs remain picker-visible.
+    // Deprecated/disabled rows stay selectable; configured and current refs remain picker-visible.
     return projectEntries([...preferred, ...kept, ...retained, ...routeBacked]).filter(
       (entry) =>
-        (entry.status !== "deprecated" && entry.status !== "disabled") ||
-        configuredKeys.has(publicationKeyOf(entry)),
+        (params.view === "configured" ||
+          policy.allows({ provider: entry.provider, model: entry.id })) &&
+        (publicationKeyOf(entry) === retainedKey ||
+          (entry.status !== "deprecated" && entry.status !== "disabled") ||
+          configuredKeys.has(publicationKeyOf(entry))),
     );
   };
 }

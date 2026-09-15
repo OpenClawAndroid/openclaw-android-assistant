@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import type { OpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { resolveUsableAgentCredentialModes } from "./agent-auth-credentials.js";
@@ -111,6 +112,8 @@ const preparedModelRuntimeMocks = vi.hoisted(() => ({
 
 vi.mock("../plugins/plugin-metadata-snapshot.js", () => ({
   isPluginMetadataSnapshotCompatible: () => true,
+  resolvePluginMetadataSnapshotCacheKey: () => "fixed-prepared-runtime-plugin-inventory",
+  projectPluginMetadataSnapshot: (snapshot: PluginMetadataSnapshot) => snapshot,
   loadPluginMetadataSnapshot: () => preparedModelRuntimeMocks.pluginMetadataSnapshot,
   resolvePluginMetadataSnapshot: () => preparedModelRuntimeMocks.pluginMetadataSnapshot,
 }));
@@ -155,6 +158,9 @@ vi.mock("./prepared-model-catalog-worker.js", () => ({
 
 vi.mock("./model-catalog.js", async () => ({
   findModelCatalogEntry: (await import("./model-catalog-lookup.js")).findModelCatalogEntry,
+  loadManifestModelCatalog: (
+    await vi.importActual<typeof import("./model-catalog.js")>("./model-catalog.js")
+  ).loadManifestModelCatalog,
   buildPreparedModelCatalogSnapshot: (...args: Parameters<BuildPreparedModelCatalogSnapshot>) =>
     preparedModelRuntimeMocks.buildPreparedModelCatalogSnapshot(...args),
 }));
@@ -262,7 +268,10 @@ vi.mock("./legacy-inherited-auth-dir.js", async (importOriginal) => ({
   resolveLegacyInheritedAuthDir: () => agentScopeMocks.resolveDefaultAgentDir(),
 }));
 
-vi.mock("./auth-profiles/runtime-materializations.js", () => ({
+vi.mock("./auth-profiles/runtime-materializations.js", async (importOriginal) => ({
+  clearRuntimeAuthMaterializationsAtDatabasePath: (
+    await importOriginal<typeof import("./auth-profiles/runtime-materializations.js")>()
+  ).clearRuntimeAuthMaterializationsAtDatabasePath,
   getPreparedRuntimeAuthMaterializations: () =>
     preparedModelRuntimeMocks.preparedAuthMaterializations,
   registerRuntimeAuthMaterializationMutationListener: (

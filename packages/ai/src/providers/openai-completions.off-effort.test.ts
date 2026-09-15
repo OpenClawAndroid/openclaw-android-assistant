@@ -43,30 +43,21 @@ async function capturePayload(
 
 describe("mapped off effort in chat completions", () => {
   it.each([
-    { thinkingFormat: "zai", expected: { thinking: { type: "enabled", clear_thinking: false } } },
-    { thinkingFormat: "qwen", expected: { enable_thinking: true } },
-    {
-      thinkingFormat: "qwen-chat-template",
-      expected: { chat_template_kwargs: { enable_thinking: true, preserve_thinking: true } },
-    },
-    {
-      thinkingFormat: "deepseek",
-      expected: { thinking: { type: "enabled" }, reasoning_effort: "low" },
-    },
-    { thinkingFormat: "openrouter", expected: { reasoning: { effort: "low" } } },
-    {
-      thinkingFormat: "together",
-      expected: { reasoning: { enabled: true }, reasoning_effort: "low" },
-    },
-    { thinkingFormat: "openai", expected: { reasoning_effort: "low" } },
-  ] as const)(
-    "honors the model's off mapping for $thinkingFormat",
-    async ({ thinkingFormat, expected }) => {
-      expect(
-        await capturePayload({ thinkingFormat, supportsReasoningEffort: true }, "low"),
-      ).toMatchObject(expected);
-    },
-  );
+    ["zai", { thinking: { type: "enabled", clear_thinking: false } }],
+    ["qwen", { enable_thinking: true }],
+    [
+      "qwen-chat-template",
+      { chat_template_kwargs: { enable_thinking: true, preserve_thinking: true } },
+    ],
+    ["deepseek", { thinking: { type: "enabled" }, reasoning_effort: "low" }],
+    ["openrouter", { reasoning: { effort: "low" } }],
+    ["together", { reasoning: { enabled: true }, reasoning_effort: "low" }],
+    ["openai", { reasoning_effort: "low" }],
+  ] as const)("honors the model's off mapping for %s", async (thinkingFormat, expected) => {
+    expect(
+      await capturePayload({ thinkingFormat, supportsReasoningEffort: true }, "low"),
+    ).toMatchObject(expected);
+  });
 
   it.each([undefined, null, "none"])(
     "keeps Z.AI disabled for an unmapped or disabled off level: %s",

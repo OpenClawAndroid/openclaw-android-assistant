@@ -2,6 +2,7 @@ import type { WorkerProvider } from "openclaw/plugin-sdk/plugin-entry";
 import { createCrabboxXfceSessionEnvironment } from "./crabbox-worker-desktop-setup.js";
 import type { CrabboxOperatingSystem } from "./crabbox-worker-profile.js";
 import { wrapCrabboxNodeScript } from "./crabbox-worker-script.js";
+import { CRABBOX_SETUP_TIMEOUT_MS } from "./crabbox-worker-timeouts.js";
 
 const CLOUD_SETUP_CODE_ENV = "CRABBOX_WORKER_SETUP_CODE";
 const CLOUD_BOOTSTRAP_TOKEN_ENV = "CRABBOX_WORKER_BOOTSTRAP_TOKEN";
@@ -15,6 +16,7 @@ export type CrabboxWorkerNodeEnrollment = Awaited<
 export function createCrabboxNodeEnrollmentSetup(params: {
   enrollment: CrabboxWorkerNodeEnrollment;
   desktop?: boolean;
+  desktopSetup?: string;
   leaseId: string;
   target?: CrabboxOperatingSystem;
 }): { command: string; forwardedEnv: Record<string, string> } {
@@ -41,6 +43,7 @@ function createCrabboxNodeSetup(params: {
   enrollment?: CrabboxWorkerNodeEnrollment;
   workerBundle?: CrabboxWorkerNodeRuntimePreparation["workerBundle"];
   desktop?: boolean;
+  desktopSetup?: string;
   target?: CrabboxOperatingSystem;
 }): { command: string; forwardedEnv: Record<string, string> } {
   const { enrollment, leaseId } = params;
@@ -72,6 +75,7 @@ const leaseId = ${JSON.stringify(leaseId)};
 const displayName = ${JSON.stringify(enrollment?.displayName)};
 const mode = ${JSON.stringify(enrollment?.mode)};
 const desktopEnvironment = ${JSON.stringify(desktopEnvironment)};
+const desktopSetup = ${JSON.stringify(params.desktopSetup)};
 const credentials = process.env.${CLOUD_BOOTSTRAP_TOKEN_ENV};
 const setupCode = process.env.${CLOUD_SETUP_CODE_ENV};
 delete process.env.${CLOUD_BOOTSTRAP_TOKEN_ENV};
@@ -98,6 +102,14 @@ setPhase("preparation");
   const setupFile = path.join(stateDir, "setup-code");
   const runtimeLink = path.join(stateDir, "runtime");
   const nodeEnv = { ...process.env, ...(mode ? { OPENCLAW_STATE_DIR: stateDir } : {}) };
+  const finishDesktopSetup = () => {
+    if (!desktopSetup) return;
+    setPhase("desktop setup");
+    // The wallpaper can exceed the OS argument limit; stream the owned script over stdin.
+    const result = spawnSync("bash", ["-s"], { input: desktopSetup, env: nodeEnv, stdio: ["pipe", "inherit", "inherit"], timeout: ${CRABBOX_SETUP_TIMEOUT_MS}, killSignal: "SIGKILL" });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error("Cloud worker desktop setup failed" + (result.signal ? " (" + result.signal + ")" : " with exit code " + result.status));
+  };
   const directoryOptions = process.platform === "win32" ? {} : { mode: 0o700 };
   const launcher = path.join(process.env.ProgramFiles || "C:\\\\Program Files", "Crabbox", "bin", "Start-CrabboxDetachedProcess.ps1");
   if (process.platform === "win32" && mode && !fs.existsSync(launcher)) {
@@ -175,6 +187,7 @@ setPhase("preparation");
       if (!verified) {
         throw new Error("Cloud worker node is running a different bootstrap artifact or invocation; release and reprovision the worker");
       }
+      finishDesktopSetup();
       setPhase("complete");
       return;
     }
@@ -389,6 +402,7 @@ setPhase("preparation");
     else if (pid) process.kill(-pid, "SIGTERM");
     throw error;
   } finally { if (log !== undefined) fs.closeSync(log); }
+  finishDesktopSetup();
   setPhase("complete");
 })().catch((error) => { console.error("Cloud worker node bootstrap " + phase + " failed" + (error.code ? " (" + error.code + ")" : "") + ": " + error.message); process.exitCode = 1; });
 `;

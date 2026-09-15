@@ -140,6 +140,9 @@ export function registerCanaryReadinessBudgetTests(root: () => string) {
     const params = { root: root(), stateDir: root(), config: {}, env: {}, timeoutMs: 250 };
     const unavailable = await validateUpdateCandidateCanary(params);
     expect(unavailable.status).toBe("ok");
+    expect(unavailable.logTail.join("\n")).toContain(
+      "Candidate stopped by the validation deadline",
+    );
     expect(unavailable.steps.at(-1)?.advisory?.message).toContain("ECONNREFUSED");
     expect(unavailable.steps.at(-1)?.failureFacts).toEqual([
       {

@@ -28,6 +28,7 @@ describe("models.list configured runtime choices", () => {
               defaults: {
                 workspace: state.workspaceDir,
                 model: `${provider}/model`,
+                modelPolicy: { allow: [`${provider}/manual`] },
                 models: {
                   [`${provider}/model`]: {
                     agentRuntime: { id: nativeRuntime },
@@ -83,7 +84,7 @@ describe("models.list configured runtime choices", () => {
             pluginRegistry,
           });
           const loadGatewayModelCatalogSnapshot = vi.fn();
-          const prepared = await prepareModelsListResult({
+          const listParams = {
             source: {
               kind: "gateway",
               context: {
@@ -97,8 +98,9 @@ describe("models.list configured runtime choices", () => {
             preloadedCatalog: { agentId: "main", config: cfg, snapshot },
             preloadedOnly: true,
             catalogProjector: projector,
-          });
-          const [row] = prepared.read().models;
+          } satisfies Parameters<typeof prepareModelsListResult>[0];
+          const prepared = await prepareModelsListResult(listParams);
+          const row = prepared.read().models.find((entry) => entry.id === "model");
           expect(row).toMatchObject({
             id: "model",
             provider,
@@ -123,6 +125,20 @@ describe("models.list configured runtime choices", () => {
           }
           expect(choice).not.toHaveProperty("contextWindows");
           expect(choice).not.toHaveProperty("contextWindowDefault");
+          expect(row).not.toHaveProperty("manualSelectionAllowed");
+          expect(choice).not.toHaveProperty("manualSelectionAllowed");
+          const scoped = await prepareModelsListResult({
+            ...listParams,
+            includeManualSelection: true,
+          });
+          const scopedRow = scoped.read().models.find((entry) => entry.id === "model");
+          expect(scopedRow).toMatchObject({ manualSelectionAllowed: false });
+          expect(scopedRow?.runtimeChoices?.[0]).toMatchObject({
+            agentRuntime: { id: "openclaw" },
+            available: true,
+            manualSelectionAllowed: false,
+          });
+          expect(Value.Check(ModelChoiceSchema, scopedRow)).toBe(true);
           expect(loadGatewayModelCatalogSnapshot).not.toHaveBeenCalled();
         },
       );

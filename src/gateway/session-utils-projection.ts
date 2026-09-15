@@ -15,6 +15,7 @@ import { resolveSessionStorePathCore, type SessionEntry } from "../config/sessio
 import type { GatewayStoredSessionTargets } from "../config/sessions/combined-store-gateway.js";
 import { resolveConcreteSessionStorePath } from "../config/sessions/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 import type { SessionEntryPair } from "./session-list-order.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
 import { readRecentSessionUsageFromTranscript as readScopedRecentSessionUsageFromTranscript } from "./session-transcript-usage.js";
@@ -209,6 +210,7 @@ export function resolveGatewaySessionRuntimeProjection(params: {
   sessionKey: string;
   entry?: SessionEntry;
   rowContext?: SessionListRowContext;
+  metadataSnapshot?: PluginMetadataSnapshot;
 }) {
   const { cfg, agentId, sessionKey, entry } = params;
   const cachedAcpMeta = params.rowContext?.acpSessionMetaByEntry;

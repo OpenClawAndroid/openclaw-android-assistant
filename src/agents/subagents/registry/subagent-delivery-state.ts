@@ -2,8 +2,31 @@ import { normalizeAgentRunTerminalReplySnapshot } from "../../agent-run-terminal
 import type {
   SubagentCompletionDeliveryState,
   SubagentCompletionState,
+  SubagentRunMaintenanceRecord,
   SubagentRunRecord,
 } from "./subagent-registry.types.js";
+
+/** Copy only protection facts; live memory retains its existing, unnormalized semantics. */
+export function projectSubagentRunForMaintenance(
+  entry: SubagentRunRecord,
+): SubagentRunMaintenanceRecord {
+  return {
+    runId: entry.runId,
+    childSessionKey: entry.childSessionKey,
+    requesterSessionKey: entry.requesterSessionKey,
+    createdAt: entry.createdAt,
+    cleanupCompletedAt: entry.cleanupCompletedAt,
+    expectsCompletionMessage: entry.expectsCompletionMessage,
+    killIntent: entry.killIntent ? { ...entry.killIntent } : entry.killIntent,
+    killReconciliation: entry.killReconciliation
+      ? { ...entry.killReconciliation }
+      : entry.killReconciliation,
+    execution: { status: entry.execution.status, endedAt: entry.execution.endedAt },
+    delivery: entry.delivery
+      ? { status: entry.delivery.status, suspendedAt: entry.delivery.suspendedAt }
+      : undefined,
+  };
+}
 
 export function normalizeSubagentRunState(entry: SubagentRunRecord): SubagentRunRecord {
   const taskRunId = typeof entry.taskRunId === "string" ? entry.taskRunId.trim() : "";

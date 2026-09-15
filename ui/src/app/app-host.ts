@@ -345,6 +345,14 @@ class OpenClawShell
         (selection, notify) => selection.subscribe(notify),
       )
       .watch(
+        () => this.context?.settingsAgentSelection,
+        (selection, notify) => selection.subscribe(notify),
+      )
+      .watch(
+        () => this.context?.agentIdentity,
+        (identity, notify) => identity.subscribe(notify),
+      )
+      .watch(
         () => this.context?.gateway,
         (gateway, notify) => gateway.subscribe(notify),
         (gateway) => this.shellGateway.synchronizeGateway(gateway.snapshot),
@@ -678,6 +686,9 @@ class OpenClawShell
     const context = this.context;
     if (!context) {
       return;
+    }
+    if (this.querySelector(".settings-sidebar__agent")) {
+      void context.agentIdentity.ensure([context.settingsAgentSelection.state.selectedId]);
     }
     if (this.workspaceChromeVisible) {
       this.shellChrome.panels.restore();

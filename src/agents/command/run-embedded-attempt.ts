@@ -41,6 +41,7 @@ import {
 import { resolveSessionRuntimeOverrideForProvider } from "../session-runtime-compat.js";
 import { measureAgentStartup } from "../startup-timing.js";
 import {
+  hasResolvedThinkingCatalogEntry,
   normalizeThinkingCatalogProviders,
   resolveCandidateThinkingLevel,
   resolveEffectiveAgentRuntime,
@@ -53,7 +54,6 @@ import {
 import { persistAgentSession } from "./attempt-execution.shared.js";
 import { createCommandCompactionAccounting } from "./compaction-accounting.js";
 import { createAgentCommandLifecycle } from "./lifecycle.js";
-import { normalizeAgentCommandModelRef } from "./model-ref.js";
 import type { RunEmbeddedAgentAttemptParams } from "./run-embedded-attempt.types.js";
 import { loadAttemptExecutionRuntime, type AgentAttemptResult } from "./runtime-loaders.js";
 import { resolveInternalSessionEffectsSource } from "./session-helpers.js";
@@ -87,7 +87,6 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
     defaultProvider,
     defaultModel,
     configuredDefaultAuthProfileId,
-    visibilityPolicy,
     hasExplicitRunOverride,
     storedProviderOverride,
     hasStoredAutoFallbackProvenance,
@@ -420,7 +419,7 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
                 workspaceDir,
               }),
             );
-            const allowedRuntimeCatalog = createModelVisibilityPolicy({
+            const runtimeThinkingCatalog = createModelVisibilityPolicy({
               cfg,
               catalog: runtimeCatalog,
               defaultProvider,
@@ -429,9 +428,15 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
               allowManifestNormalization: true,
               allowPluginNormalization: true,
               ...modelManifestContext,
-            }).allowedCatalog;
-            if (allowedRuntimeCatalog.length > 0) {
-              candidateThinkingCatalog = allowedRuntimeCatalog;
+            }).catalog;
+            if (
+              hasResolvedThinkingCatalogEntry({
+                catalog: runtimeCatalog,
+                provider: providerOverride,
+                model: modelOverride,
+              })
+            ) {
+              candidateThinkingCatalog = runtimeThinkingCatalog;
             }
           }
           const candidateRequestedThinkLevel =
@@ -599,25 +604,7 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
           await deferredLifecycle.complete();
           throw new Error(retryLimitMessage, { cause: err });
         }
-        const switchRef = normalizeAgentCommandModelRef(
-          cfg,
-          err.provider,
-          err.model,
-          modelManifestContext,
-        );
-        if (!visibilityPolicy.allows(switchRef)) {
-          log.info(
-            `Live session model switch in subagent run ${runId}: ` +
-              `rejected ${sanitizeForLog(err.provider)}/${sanitizeForLog(err.model)} (not in allowlist)`,
-          );
-          lifecycle.emitBasicError("Agent run failed");
-          await fallbackTrajectoryRecorder?.flush();
-          await deferredLifecycle.complete();
-          throw new Error(
-            `Live model switch rejected: ${sanitizeForLog(err.provider)}/${sanitizeForLog(err.model)} is not in the agent allowlist`,
-            { cause: err },
-          );
-        }
+        // The session writer already admitted this selection; retrying does not make a new choice.
         if (storedModelOverride || err.model !== model || err.provider !== provider) {
           storedModelOverride = err.model;
           storedModelOverrideSource = "user";

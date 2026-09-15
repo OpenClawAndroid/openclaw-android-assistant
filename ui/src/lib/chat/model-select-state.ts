@@ -167,6 +167,9 @@ function buildChatModelOptions(
           right.provider.trim().toLowerCase() !== normalizeChatModelProviderId(right.provider),
         ),
   )) {
+    if (entry.manualSelectionAllowed === false) {
+      continue;
+    }
     const option = buildChatModelOptionFromLookup(entry, displayLookup);
     const value = option.value.trim();
     const key = value.toLowerCase();

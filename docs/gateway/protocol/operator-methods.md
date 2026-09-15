@@ -111,17 +111,29 @@ Methods an operator client calls on behalf of a person: helper reads, exec appro
   response is the allowed catalog, including dynamically discovered models
   for `provider/*` entries. Otherwise the response is the full gateway
   catalog.
-- `"configured"`: picker-sized behavior. If `agents.defaults.modelPolicy.allow` is
-  configured, it still wins, including published rows matched by
-  `provider/*` entries. Without an allowlist, the response uses explicit
-  `models.providers.<provider>.models` entries, falling back to the full
-  catalog only when no configured model rows exist.
+- `"configured"`: a compact catalog that also retains configured defaults and
+  fallbacks for current-model controls. These metadata rows are not necessarily
+  permitted manual choices. Published rows matched by `provider/*` remain
+  included. Without an allowlist, configured and authenticated rows remain visible.
 - `"provider-config"`: source-authored `models.providers.*.models` inventory,
   independent of picker allowlists. Rows include public model capabilities and
   route-aware availability, but omit provider endpoints, auth material, and
   runtime request configuration.
 - `"all"`: full gateway catalog, bypassing `agents.defaults.modelPolicy.allow`. Use for
   diagnostics/discovery UIs, not normal model pickers.
+
+Clients that advertise `model-selection-policy` in connect `caps` receive
+`manualSelectionAllowed` on every `models.list` row. The same fact appears in
+their initial `models.snapshot`. Filter rows with `false` only when deriving
+manual choices; keep the complete catalog for current-model capabilities and
+readiness. Scoped configured reads also retain known metadata for the current
+session model, without changing its selection or granting permission.
+
+The fact is independent of `available` and does not authorize a session write.
+The server checks the current policy again when a model is selected. Capless
+connections retain the previous row shape. Generic client libraries do not opt
+in: a proxy forwarding a capable connection must support its negotiated row
+shape, or use a capless context for an older closed-schema consumer.
 
 Ordinary requests read the published catalog without starting provider discovery.
 Views select rows; they do not decide whether discovery runs. If the owner is not

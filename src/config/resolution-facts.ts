@@ -83,10 +83,7 @@ export function copyConfigResolutionFactsExcept(
     return;
   }
   const envSecretRefs = envSecretRefsByFacts.get(facts);
-  if (
-    paths.length === 0 ||
-    !paths.some((path) => facts.has(path) || envSecretRefs?.has(path) === true)
-  ) {
+  if (!paths.some((path) => facts.has(path) || envSecretRefs?.has(path) === true)) {
     setConfigResolutionFacts(target, facts);
     return;
   }

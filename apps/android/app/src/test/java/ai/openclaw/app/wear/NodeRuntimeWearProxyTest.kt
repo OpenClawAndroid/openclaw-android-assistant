@@ -305,7 +305,7 @@ private class NodeRuntimeWearGateway : AutoCloseable {
             """{"sessions":[]}"""
           } else if (method == "models.list" && params["sessionKey"]?.jsonPrimitive?.content == "agent:main:watch-catalog") {
             wearModelRequest.set(params)
-            """{"models":[{"id":"watch","provider":"fixture","name":"Watch","available":true},{"id":"native","provider":"fixture","name":"Native"},{"id":"refused","provider":"fixture","name":"Refused","available":false}],"refreshFailed":true}"""
+            """{"models":[{"id":"watch","provider":"fixture","name":"Watch","available":true},{"id":"native","provider":"fixture","name":"Native"},{"id":"refused","provider":"fixture","name":"Refused","available":false},{"id":"automatic","provider":"fixture","name":"Automatic","available":true,"manualSelectionAllowed":false}],"refreshFailed":true}"""
           } else {
             "{}"
           }

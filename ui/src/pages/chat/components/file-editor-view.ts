@@ -11,6 +11,7 @@ import {
 } from "@codemirror/view";
 import { classHighlighter } from "@lezer/highlight";
 import { loadCodeLanguage } from "../../../components/code-language.ts";
+import { detectLineSeparator } from "./file-line-separator.ts";
 
 export type FileEditorDecorations = {
   targetLine?: number | null;
@@ -42,13 +43,6 @@ const lineDecorations = StateField.define<DecorationSet>({
   },
   provide: (field) => EditorView.decorations.from(field),
 });
-
-// Saves must round-trip the file's original bytes, so CRLF/CR files configure
-// CodeMirror's line separator instead of silently normalizing to LF on save.
-function detectLineSeparator(content: string): string | undefined {
-  const match = content.match(/\r\n|\r|\n/);
-  return match && match[0] !== "\n" ? match[0] : undefined;
-}
 
 export async function createFileEditorView(params: {
   parent: HTMLElement;

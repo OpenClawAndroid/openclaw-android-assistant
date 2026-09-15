@@ -266,7 +266,9 @@ it.each([
     });
     await expect(
       commitSetupInferenceActivation({
-        commit: (options) => target.write(candidate, options),
+        configTarget: target,
+        config: candidate,
+        assertCurrent: () => {},
         activate: async () => {
           throw new Error("promotion refused");
         },
@@ -309,10 +311,12 @@ it("wizard precondition rejection preserves an intervening writer of the same ca
       throw error;
     }
   });
-  const activate = vi.fn(async () => {});
+  const activate = vi.fn(async () => undefined);
   await expect(
     commitSetupInferenceActivation({
-      commit: (options) => target.write(candidate, options),
+      configTarget: target,
+      config: candidate,
+      assertCurrent: () => {},
       activate,
     }),
   ).rejects.toBe(refusal);

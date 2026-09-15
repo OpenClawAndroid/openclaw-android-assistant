@@ -156,6 +156,10 @@ describe("configured UI development Gateway", () => {
         };
         const uiPort = await getFreePort();
         const uiOrigin = `http://127.0.0.1:${uiPort}`;
+        const webSocketOptions = {
+          // Removal: use ws's `origin` option after Bun's built-in client honors it.
+          headers: { Origin: uiOrigin },
+        };
         server = await createViteServer({
           ...config,
           configFile: false,
@@ -216,9 +220,7 @@ describe("configured UI development Gateway", () => {
         await retired.body?.cancel();
         expect(requests).toHaveLength(gatewayRequests);
 
-        socket = new WebSocket(gatewayWebSocketTransportUrl(gateway.gatewayUrl), {
-          origin: uiOrigin,
-        });
+        socket = new WebSocket(gatewayWebSocketTransportUrl(gateway.gatewayUrl), webSocketOptions);
         const firstClose = closed(socket, "client");
         await withinDeadline(nextEvent(socket, "open"));
         const message = nextEvent(socket, "message");
@@ -234,9 +236,7 @@ describe("configured UI development Gateway", () => {
         expect(events.filter(({ event }) => event.endsWith("-error"))).toEqual([]);
 
         phase = "upstream-abort";
-        socket = new WebSocket(gatewayWebSocketTransportUrl(gateway.gatewayUrl), {
-          origin: uiOrigin,
-        });
+        socket = new WebSocket(gatewayWebSocketTransportUrl(gateway.gatewayUrl), webSocketOptions);
         const interruptedClose = closed(socket, "client");
         await withinDeadline(nextEvent(socket, "open"));
         const reconnectedMessage = nextEvent(socket, "message");
@@ -263,9 +263,7 @@ describe("configured UI development Gateway", () => {
         await withinDeadline(Promise.all([...proxyCloses, ...writes]));
 
         phase = "recovered";
-        socket = new WebSocket(gatewayWebSocketTransportUrl(gateway.gatewayUrl), {
-          origin: uiOrigin,
-        });
+        socket = new WebSocket(gatewayWebSocketTransportUrl(gateway.gatewayUrl), webSocketOptions);
         const recoveredClose = closed(socket, "client");
         await withinDeadline(nextEvent(socket, "open"));
         const recoveredMessage = nextEvent(socket, "message");

@@ -84,7 +84,7 @@ extension OpenClawChatViewModel {
         guard selectionID != Self.defaultModelSelectionID,
               let model = self.modelChoices.first(where: { $0.selectionID == selectionID })
         else { return true }
-        return !self.isModelUnavailable(model)
+        return model.manualSelectionAllowed != false && !self.isModelUnavailable(model)
     }
 
     public func modelUnavailableDescription(_ model: OpenClawChatModelChoice) -> String? {

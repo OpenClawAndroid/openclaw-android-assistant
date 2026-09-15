@@ -650,6 +650,7 @@ describe("mixed inline directives", () => {
       authProfileOverrideCompactionCount: 2,
     });
     const { result } = await applyMixedDirectives({
+      cfg: { agents: { defaults: { model: "anthropic/claude-opus-4-6" } } },
       body: "/model default -s",
       senderIsOwner: true,
       sessionEntry,
@@ -684,6 +685,7 @@ describe("mixed inline directives", () => {
       authProfileOverrideCompactionCount: 2,
     });
     const { result } = await applyMixedDirectives({
+      cfg: { agents: { defaults: { model: "openai/gpt-5.6-luna" } } },
       body: "/model default -s",
       senderIsOwner: true,
       provider: "openai",

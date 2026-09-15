@@ -118,6 +118,10 @@ function createContext() {
         state: { selectedId: "main", scopeId: "main" },
         subscribe: () => () => undefined,
       },
+      settingsAgentSelection: {
+        state: { selectedId: "main", scopeId: "main" },
+        subscribe: () => () => undefined,
+      },
       basePath: "/openclaw",
       resourceBasePath: "/openclaw",
       navigate: vi.fn(),
@@ -154,6 +158,22 @@ describe("ModelSetupPage catalog icons", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it.each([true, false])("selects the correct agent for firstRun=%s", async (firstRun) => {
+    const { context, client } = createContext();
+    const request = vi.spyOn(client, "request");
+    context.settingsAgentSelection.state.selectedId = "research";
+    await mountPage(context, {
+      state: { phase: "ready", result: detection },
+      client,
+      firstRun,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "openclaw.setup.detect",
+      { agentId: firstRun ? "main" : "research" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("uses bundled brand icons without enqueueing their remote artwork", async () => {

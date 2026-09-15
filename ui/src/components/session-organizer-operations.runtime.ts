@@ -133,39 +133,11 @@ export async function patchSessions(
   if (rows.length === 0) {
     return "completed";
   }
-  const successful = await patchSessionRows(host, rows, patch, scope, {
-    fallback: () => patchSessionRowsSerial(host, rows, patch, scope),
-  });
+  const successful = await patchSessionRows(host, rows, patch, scope);
   if (!successful) {
     return host.sessionData.isSessionMutationScopeCurrent(scope) ? "failed" : "stale";
   }
   return successful.length === rows.length ? "completed" : "failed";
-}
-
-async function patchSessionRowsSerial(
-  host: SessionActionHost,
-  rows: readonly SessionActionRow[],
-  patch: SidebarSessionPatch,
-  scope: SidebarSessionMutationScope,
-  options: { deferListRefresh?: boolean } = {},
-): Promise<SessionActionRow[] | null> {
-  const completed: SessionActionRow[] = [];
-  for (const row of rows) {
-    const result = await patchSession(host, row, patch, scope, { deferListRefresh: true });
-    if (result === "stale") {
-      return null;
-    }
-    if (result === "completed") {
-      completed.push(row);
-    }
-  }
-  if (!options.deferListRefresh) {
-    const refreshed = await refreshSessionsAfterBatch(host, scope, rows);
-    if (refreshed === "stale") {
-      return null;
-    }
-  }
-  return completed;
 }
 
 export async function archiveSessionWithUndo(
@@ -215,9 +187,7 @@ async function archiveSessionsWithUndo(
   const pendingRows = pending.map(({ row }) => row);
   let archivedRows: SessionActionRow[] | null;
   try {
-    archivedRows = await patchSessionRows(host, pendingRows, { archived: true }, scope, {
-      fallback: () => patchSessionRowsSerial(host, pendingRows, { archived: true }, scope),
-    });
+    archivedRows = await patchSessionRows(host, pendingRows, { archived: true }, scope);
   } finally {
     for (const { finish } of pending) {
       finish();
@@ -243,18 +213,23 @@ async function restoreArchivedSessions(
   scope: SidebarSessionMutationScope,
 ) {
   const rows = archived.map((entry) => entry.session);
-  const singleRowUndo = rows.length === 1;
-  const restored = singleRowUndo
-    ? await patchSessionRowsSerial(host, rows, { archived: false }, scope, {
-        deferListRefresh: true,
-      })
-    : await patchSessionRows(host, rows, { archived: false }, scope, {
-        deferListRefresh: true,
-        fallback: () =>
-          patchSessionRowsSerial(host, rows, { archived: false }, scope, {
-            deferListRefresh: true,
-          }),
-      });
+  if (archived.length === 1) {
+    const { session, pinned } = archived[0]!;
+    const restored = await patchSession(
+      host,
+      session,
+      { archived: false, ...(pinned ? { pinned: true } : {}) },
+      scope,
+      { deferListRefresh: true },
+    );
+    if (restored !== "stale") {
+      await refreshSessionsAfterBatch(host, scope, rows);
+    }
+    return;
+  }
+  const restored = await patchSessionRows(host, rows, { archived: false }, scope, {
+    deferListRefresh: true,
+  });
   if (!restored) {
     return;
   }
@@ -262,17 +237,9 @@ async function restoreArchivedSessions(
     pinned && restored.includes(session) ? [session] : [],
   );
   if (repinRows.length > 0) {
-    const repinned = singleRowUndo
-      ? await patchSessionRowsSerial(host, repinRows, { pinned: true }, scope, {
-          deferListRefresh: true,
-        })
-      : await patchSessionRows(host, repinRows, { pinned: true }, scope, {
-          deferListRefresh: true,
-          fallback: () =>
-            patchSessionRowsSerial(host, repinRows, { pinned: true }, scope, {
-              deferListRefresh: true,
-            }),
-        });
+    const repinned = await patchSessionRows(host, repinRows, { pinned: true }, scope, {
+      deferListRefresh: true,
+    });
     if (!repinned && !host.sessionData.isSessionMutationScopeCurrent(scope)) {
       return;
     }
@@ -396,9 +363,7 @@ export async function runBatchSessionAction(
       break;
     case "toggle-archived":
       if (rows.every((row) => row.archived === true)) {
-        await patchSessionRows(host, rows, { archived: false }, scope, {
-          fallback: () => patchSessionRowsSerial(host, rows, { archived: false }, scope),
-        });
+        await patchSessionRows(host, rows, { archived: false }, scope);
       } else {
         await archiveSessionsWithUndo(
           host,

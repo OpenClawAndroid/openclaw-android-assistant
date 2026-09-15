@@ -20,7 +20,7 @@ import {
   formatDurationPrecise,
   sleepWithAbort,
 } from "openclaw/plugin-sdk/runtime-env";
-import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
+import { extractErrorCode, safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { formatErrorMessage } from "openclaw/plugin-sdk/ssrf-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
@@ -71,6 +71,12 @@ async function listenHttpServer(params: {
       resolve();
     });
   });
+}
+
+function formatWebhookStartupError(error: unknown): string {
+  const message = formatErrorMessage(error);
+  const code = extractErrorCode(error);
+  return code && !message.includes(code) ? `${message} (${code})` : message;
 }
 
 async function waitForWebhookIngressStop(task: Promise<void> | undefined): Promise<void> {
@@ -413,7 +419,7 @@ export async function startTelegramWebhook(opts: {
     } catch (err) {
       if (!opts.abortSignal?.aborted) {
         status.noteWebhookRegistrationFailure(
-          formatErrorMessage(err),
+          formatWebhookStartupError(err),
           isTelegramAuthenticationError(err) ? "blocked" : undefined,
         );
       }

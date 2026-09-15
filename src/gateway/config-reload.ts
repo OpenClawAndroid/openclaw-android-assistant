@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 // Gateway config hot-reload watcher.
 // Diffs config/plugin install snapshots and dispatches hot reload or restart plans.
 import chokidar from "chokidar";
+import { runOutsideSetupCredentialAccess } from "../agents/auth-profiles/setup-access.js";
 import type { ConfigRuntimeEnvPublication } from "../config/config-env-vars.js";
 import {
   configSnapshotAuditRecordMatchesPath,
@@ -555,6 +556,9 @@ export function startGatewayConfigReloader(opts: {
       return { runtime, isCurrent };
     };
     assertInvokerOwned();
+    await checkpoint();
+    await application?.prepare?.(assertCurrent);
+    await checkpoint();
     // Reprepare against the current accepted env owner. A managed write can
     // finish preflight while another watcher transaction accepts first.
     const preparedCandidate = opts.prepareConfigCandidate
@@ -879,6 +883,11 @@ export function startGatewayConfigReloader(opts: {
       plan.restartGateway = true;
       plan.restartReasons.push(followUp.reason);
     }
+    if (application?.requireImmediateApplication && (plan.restartGateway || plan.reloadPlugins)) {
+      throw new Error(
+        "The plugin or restart requirement changed before activation. Complete that update separately, then retry the saved sign-in.",
+      );
+    }
     if (plan.restartGateway) {
       await opts.onConfigChange?.(plan, nextConfig);
       await prepareRestart(plan, nextConfig, ownership, nextSourceConfig);
@@ -933,7 +942,7 @@ export function startGatewayConfigReloader(opts: {
     application?: RuntimeConfigWriteApplicationClaim,
   ) => {
     const runTransaction = application?.runTransaction ?? opts.runTransaction;
-    await (runTransaction ? runTransaction(run) : run());
+    await runOutsideSetupCredentialAccess(() => (runTransaction ? runTransaction(run) : run()));
   };
 
   const acceptCurrentRuntimeEcho = async (

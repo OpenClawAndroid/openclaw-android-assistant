@@ -7,7 +7,6 @@ import type {
   WizardNextResult,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { WizardNextResultSchema } from "../../../packages/gateway-protocol/src/schema/wizard.js";
-import { createRuntimeConfigWriteApplication } from "../../config/runtime-write-application.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { buildPluginCapabilityConsentReview } from "../../plugins/capability-summary.js";
 import { resetCommandQueueStateForTest } from "../../process/command-queue.test-support.js";
@@ -807,9 +806,9 @@ describe("openclaw.setup provider resolution", () => {
           }
           if (outcome === "application-error") {
             params.onCommitStarted?.(config);
-            const application = createRuntimeConfigWriteApplication();
-            expectDefined(application.claim(), "application claim").settle("failed");
-            params.onRuntimeApplication?.(application);
+            params.onActivationCompletion?.(async () => {
+              throw new Error("The Gateway did not complete activation (failed).");
+            });
             return { ok: true, modelRef: "example/model", latencyMs: 1, lines: [] };
           }
           return {
@@ -856,7 +855,7 @@ describe("openclaw.setup provider resolution", () => {
           status: "error",
           error:
             outcome === "application-error"
-              ? expect.stringContaining("AI access was saved, but the Gateway could not apply it")
+              ? "The Gateway did not complete activation (failed)."
               : outcome === "retention-indeterminate"
                 ? "Could not retain Codex safely"
                 : outcome === "thrown"

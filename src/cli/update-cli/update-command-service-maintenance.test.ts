@@ -4,6 +4,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { stableStringify } from "@openclaw/normalization-core/stable-stringify";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { beginDoctorMaintenance } from "../../commands/doctor-maintenance.js";
+import * as doctorServicePolicy from "../../commands/doctor-service-repair-policy.js";
 import * as schtasksExec from "../../daemon/schtasks-exec.js";
 import { readScheduledTaskRuntime } from "../../daemon/schtasks-runtime.js";
 import { ServiceInspectionError } from "../../daemon/service-inspection-error.js";
@@ -354,6 +356,53 @@ it.each([
     expect(service.install).not.toHaveBeenCalled();
   }),
 );
+
+it("preserves a silent Scheduled Task probe failure through update and Doctor refusal", () =>
+  withServiceHome(async (home) => {
+    mockProcessPlatform("win32");
+    vi.spyOn(doctorServicePolicy, "shouldManageGatewayService").mockResolvedValue(true);
+    vi.mocked(spawnSync).mockReturnValue({
+      pid: 0,
+      output: [null, "", ""],
+      stdout: "",
+      stderr: "",
+      status: 2,
+      signal: null,
+    });
+    const service = createMockGatewayService({
+      readCommand: async () => ({
+        programArguments: [process.execPath, path.join(process.cwd(), "openclaw.mjs"), "gateway"],
+        environment: { HOME: home },
+      }),
+      readRuntime: readScheduledTaskRuntime,
+      isLoaded: async () => true,
+    });
+    mocks.service.mockReturnValue(service);
+    const inspection = await maybeStopManagedServiceBeforeMutableUpdate({
+      root: process.cwd(),
+      updateInstallKind: "package",
+      shouldRestart: true,
+      phase: "inspect",
+      jsonMode: true,
+    });
+    expect(inspection).toMatchObject({
+      offline: false,
+      stopped: false,
+      serviceMutationAllowed: false,
+      serviceUpdateVerdict: { kind: "unavailable" },
+    });
+    const detail = "Scheduled Task probe failed (exit 2): no output from PowerShell.";
+    expect.soft(inspection.blockMessage).toContain(detail);
+    await expect(
+      beginDoctorMaintenance({
+        root: process.cwd(),
+        options: { repair: true },
+        runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      }),
+    ).rejects.toThrow(detail);
+    expect(service.stop).not.toHaveBeenCalled();
+    expect(service.install).not.toHaveBeenCalled();
+  }));
 
 const servingAncestorMaintenanceCases = [
   { platform: "linux", identity: "current updater", phase: "inspect", authorized: true },

@@ -77,7 +77,7 @@ suite.define(() => {
           expect(await page.getByLabel("Show existing native conversations").isChecked()).toBe(
             false,
           );
-          expect(await page.locator("[data-selected]").count()).toBe(0);
+          expect(await page.locator("openclaw-model-setup-page [data-selected]").count()).toBe(0);
           await page.getByRole("button", { name: "Check again", exact: true }).click();
           await gateway.waitForRequest("openclaw.setup.detect", { after: 1 });
           await page.getByRole("heading", { name: "Found on this Gateway" }).waitFor();

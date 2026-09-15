@@ -101,7 +101,13 @@ export function recordSessionParticipant(
             ),
         ),
       );
-      publishSessionEntryCacheParticipantUpdate(database, resolved.sessionKey, writeGeneration);
+      publishSessionEntryCacheParticipantUpdate(database, resolved.sessionKey, {
+        writeGeneration,
+        projectionChanged:
+          !existing ||
+          existing.actor_id !== actorId ||
+          aggregate.first_prompted_at !== existing.first_prompted_at,
+      });
       deferOpenClawAgentPostCommitPublication(database, () =>
         emitSessionLifecycleEvent({
           agentId: resolved.agentId,

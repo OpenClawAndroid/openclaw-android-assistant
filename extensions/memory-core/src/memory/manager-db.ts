@@ -1,5 +1,6 @@
 // Memory Core plugin module implements manager db behavior.
-import fs from "node:fs";
+import type { Dirent, Stats } from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -54,9 +55,9 @@ function resolveMemoryReindexBaseName(
   return undefined;
 }
 
-function isRegularFile(filePath: string): boolean {
+async function isRegularFile(filePath: string): Promise<boolean> {
   try {
-    return fs.statSync(filePath).isFile();
+    return (await fs.stat(filePath)).isFile();
   } catch {
     return false;
   }
@@ -324,23 +325,26 @@ export async function prepareMemoryDatabasePublication(params: {
 }
 
 /** Remove one closed shadow memory database and its journal-mode sidecars. */
-export function removeMemoryDatabaseFiles(dbPath: string): void {
+export async function removeMemoryDatabaseFiles(dbPath: string): Promise<void> {
   for (const suffix of MEMORY_DATABASE_FILE_SUFFIXES) {
-    fs.rmSync(`${dbPath}${suffix}`, { force: true });
+    await fs.rm(`${dbPath}${suffix}`, { force: true });
   }
 }
 
 /** Remove crash-left shadows while the caller owns the reindex lease. */
-export function cleanupAgedMemoryReindexTempFiles(dbPath: string, nowMs = Date.now()): void {
-  if (!isRegularFile(dbPath)) {
+export async function cleanupAgedMemoryReindexTempFiles(
+  dbPath: string,
+  nowMs = Date.now(),
+): Promise<void> {
+  if (!(await isRegularFile(dbPath))) {
     return;
   }
   const dir = path.dirname(dbPath);
   const databaseBaseName = path.basename(dbPath);
   const shadowBaseNames = new Set<string>();
-  let entries: fs.Dirent[];
+  let entries: Dirent[];
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
+    entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
     return;
   }
@@ -359,11 +363,11 @@ export function cleanupAgedMemoryReindexTempFiles(dbPath: string, nowMs = Date.n
     const filePaths = MEMORY_DATABASE_FILE_SUFFIXES.map((suffix) =>
       path.join(dir, `${shadowBaseName}${suffix}`),
     );
-    const stats: fs.Stats[] = [];
+    const stats: Stats[] = [];
     let hasUnknownFileState = false;
     for (const filePath of filePaths) {
       try {
-        stats.push(fs.statSync(filePath));
+        stats.push(await fs.stat(filePath));
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
           hasUnknownFileState = true;
@@ -379,7 +383,7 @@ export function cleanupAgedMemoryReindexTempFiles(dbPath: string, nowMs = Date.n
     }
     for (const filePath of filePaths) {
       try {
-        fs.rmSync(filePath, { force: true });
+        await fs.rm(filePath, { force: true });
       } catch {}
     }
   }

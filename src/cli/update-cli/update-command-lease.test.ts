@@ -844,118 +844,96 @@ describe("update orchestration lifecycle ownership", () => {
   });
 
   it.each([
-    {
-      lane: "fresh-process" as const,
-      failure: "finding" as const,
-      reason: "post-plugin-update-readiness-failed",
-    },
-    {
-      lane: "fresh-process" as const,
-      failure: "execution" as const,
-      reason: "post-plugin-update-readiness-execution-failed",
-    },
-    {
-      lane: "current-process" as const,
-      failure: "finding" as const,
-      reason: "post-plugin-update-readiness-failed",
-    },
-    {
-      lane: "current-process" as const,
-      failure: "execution" as const,
-      reason: "post-plugin-update-readiness-execution-failed",
-    },
-    {
-      lane: "repair" as const,
-      failure: "finding" as const,
-      reason: "post-plugin-update-readiness-failed",
-    },
-    {
-      lane: "repair" as const,
-      failure: "execution" as const,
-      reason: "post-plugin-update-readiness-execution-failed",
-    },
-  ])(
-    "$lane leaves the Gateway stopped after a readiness $failure",
-    async ({ lane, failure, reason }) => {
-      await writeScenario(lane, {
-        readinessFailure: failure,
-        hostVersion: lane === "current-process" ? "1.0.0" : undefined,
-      });
+    ["fresh-process" as const, "finding" as const, "post-plugin-update-readiness-failed"],
+    [
+      "fresh-process" as const,
+      "execution" as const,
+      "post-plugin-update-readiness-execution-failed",
+    ],
+    ["current-process" as const, "finding" as const, "post-plugin-update-readiness-failed"],
+    [
+      "current-process" as const,
+      "execution" as const,
+      "post-plugin-update-readiness-execution-failed",
+    ],
+    ["repair" as const, "finding" as const, "post-plugin-update-readiness-failed"],
+    ["repair" as const, "execution" as const, "post-plugin-update-readiness-execution-failed"],
+  ])("%s leaves the Gateway stopped after a readiness %s", async (lane, failure, reason) => {
+    await writeScenario(lane, {
+      readinessFailure: failure,
+      hostVersion: lane === "current-process" ? "1.0.0" : undefined,
+    });
 
-      await invokeReportedFailure(lane);
+    await invokeReportedFailure(lane);
 
-      expect(reportedResult(lane)).toMatchObject({
-        status: "error",
-        postUpdate: { plugins: { reason } },
-      });
-      expect(mocks.restart).not.toHaveBeenCalled();
-      expect(await events()).toEqual([
-        ...(lane === "repair" ? ["pre-attempt", "pre-acquired"] : []),
-        ...(lane === "fresh-process" ? ["packages-acquired", "packages-released"] : []),
-        "post-attempt",
-        "post-acquired",
-        "validate",
-        "readiness",
-      ]);
-    },
-  );
+    expect(reportedResult(lane)).toMatchObject({
+      status: "error",
+      postUpdate: { plugins: { reason } },
+    });
+    expect(mocks.restart).not.toHaveBeenCalled();
+    expect(await events()).toEqual([
+      ...(lane === "repair" ? ["pre-attempt", "pre-acquired"] : []),
+      ...(lane === "fresh-process" ? ["packages-acquired", "packages-released"] : []),
+      "post-attempt",
+      "post-acquired",
+      "validate",
+      "readiness",
+    ]);
+  });
 
   it.each([
-    { lane: "resume", valid: true },
-    { lane: "fresh-process", valid: true },
-    { lane: "repair", valid: true },
-    { lane: "resume", valid: false },
-    { lane: "fresh-process", valid: false },
-    { lane: "repair", valid: false },
-  ] as const)(
-    "$lane stamps only strictly valid downgrade config (valid=$valid)",
-    async ({ lane, valid }) => {
-      const futureVersion = "2099.1.1";
-      await state.writeConfig({
-        meta: { lastTouchedVersion: futureVersion },
-        plugins: { enabled: false },
-        update: { channel: "stable" },
-        gateway: { port: valid ? 19004 : -1 },
-      });
-      await writeScenario(lane, { failDoctor: "post", invalidConfig: !valid });
+    ["resume", true],
+    ["fresh-process", true],
+    ["repair", true],
+    ["resume", false],
+    ["fresh-process", false],
+    ["repair", false],
+  ] as const)("%s stamps only strictly valid downgrade config (valid=%s)", async (lane, valid) => {
+    const futureVersion = "2099.1.1";
+    await state.writeConfig({
+      meta: { lastTouchedVersion: futureVersion },
+      plugins: { enabled: false },
+      update: { channel: "stable" },
+      gateway: { port: valid ? 19004 : -1 },
+    });
+    await writeScenario(lane, { failDoctor: "post", invalidConfig: !valid });
 
-      if (lane === "resume") {
-        await invoke(lane);
-        expectSuccess(lane, false);
-      } else {
-        await invokeReportedFailure(lane);
-        expect(reportedResult(lane)).toMatchObject({
-          status: "error",
-          postUpdate: {
-            plugins: {
-              reason: valid
-                ? "post-plugin-doctor-execution-failed"
-                : "post-plugin-doctor-invalid-config",
-            },
+    if (lane === "resume") {
+      await invoke(lane);
+      expectSuccess(lane, false);
+    } else {
+      await invokeReportedFailure(lane);
+      expect(reportedResult(lane)).toMatchObject({
+        status: "error",
+        postUpdate: {
+          plugins: {
+            reason: valid
+              ? "post-plugin-doctor-execution-failed"
+              : "post-plugin-doctor-invalid-config",
           },
-        });
-      }
-      const persisted = JSON.parse(await fs.readFile(state.configPath, "utf8")) as OpenClawConfig;
-      expect(persisted.meta?.lastTouchedVersion).toBe(valid ? VERSION : futureVersion);
-      expect(persisted.update?.channel).toBe("stable");
-      const startupBlock = resolveFutureConfigActionBlock({
-        action: "start gateway service",
-        config: persisted,
-        env: {},
+        },
       });
-      expect(startupBlock === null).toBe(valid);
-      expect(await events(), JSON.stringify(vi.mocked(defaultRuntime.error).mock.calls)).toEqual(
-        lane === "resume"
-          ? []
-          : [
-              ...(lane === "repair" ? ["pre-attempt", "pre-acquired"] : []),
-              ...(lane === "fresh-process" ? ["packages-acquired", "packages-released"] : []),
-              "post-attempt",
-              "post-acquired",
-              "validate",
-              ...(valid ? ["readiness"] : []),
-            ],
-      );
-    },
-  );
+    }
+    const persisted = JSON.parse(await fs.readFile(state.configPath, "utf8")) as OpenClawConfig;
+    expect(persisted.meta?.lastTouchedVersion).toBe(valid ? VERSION : futureVersion);
+    expect(persisted.update?.channel).toBe("stable");
+    const startupBlock = resolveFutureConfigActionBlock({
+      action: "start gateway service",
+      config: persisted,
+      env: {},
+    });
+    expect(startupBlock === null).toBe(valid);
+    expect(await events(), JSON.stringify(vi.mocked(defaultRuntime.error).mock.calls)).toEqual(
+      lane === "resume"
+        ? []
+        : [
+            ...(lane === "repair" ? ["pre-attempt", "pre-acquired"] : []),
+            ...(lane === "fresh-process" ? ["packages-acquired", "packages-released"] : []),
+            "post-attempt",
+            "post-acquired",
+            "validate",
+            ...(valid ? ["readiness"] : []),
+          ],
+    );
+  });
 });

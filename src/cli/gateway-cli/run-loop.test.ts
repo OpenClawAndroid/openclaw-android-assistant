@@ -155,6 +155,7 @@ const restartGatewayProcessWithFreshPid = vi.fn<
   (_opts?: { env?: NodeJS.ProcessEnv }) => {
     mode: "supervised" | "disabled" | "failed";
     detail?: string;
+    exitCode?: number;
     handoffSpawned?: Promise<boolean>;
   }
 >(() => ({ mode: "disabled" }));
@@ -2546,10 +2547,12 @@ describe("runGatewayLoop", () => {
     }
   });
 
-  it.each(["stop", "restart-then-stop", "cleanup-failure"] as const)(
+  it.each(["stop", "restart-then-stop", "worker-interrupted", "cleanup-failure"] as const)(
     "joins admitted startup cleanup for %s before exiting",
     async (scenario) => {
       vi.clearAllMocks();
+      const { SqliteIntegrityWorkerInterruptedError } =
+        await import("../../infra/sqlite-integrity-worker-error.js");
       await withIsolatedSignals(async ({ captureSignal }) => {
         const entered = createDeferredCore<AbortSignal>();
         const cleanup = createDeferredCore();
@@ -2570,7 +2573,11 @@ describe("runGatewayLoop", () => {
               signal.addEventListener("abort", () => resolve(), { once: true });
             });
             await cleanup.promise;
-            throw scenario === "cleanup-failure" ? cleanupFailure : signal.reason;
+            throw scenario === "cleanup-failure"
+              ? cleanupFailure
+              : scenario === "worker-interrupted"
+                ? new SqliteIntegrityWorkerInterruptedError("SIGINT", "starting")
+                : signal.reason;
           });
           return createGatewayServer(close);
         };
@@ -2629,6 +2636,82 @@ describe("runGatewayLoop", () => {
           cleanup.resolve();
           activeDrain.resolve();
           await settled;
+        }
+      });
+    },
+  );
+
+  it.each([
+    { stop: true, signal: "SIGTERM", cleanStop: true },
+    { stop: true, signal: "SIGKILL", cleanStop: false },
+    { stop: false, signal: "SIGTERM", cleanStop: false },
+  ] as const)(
+    "joins an accepted stop before classifying an independent startup worker: $stop / $signal",
+    async ({ stop, signal, cleanStop }) => {
+      const { SqliteIntegrityWorkerInterruptedError } =
+        await import("../../infra/sqlite-integrity-worker-error.js");
+      await withIsolatedSignals(async ({ captureSignal }) => {
+        const entered = createDeferredCore();
+        const inspection = createDeferredCore();
+        const drainEntered = createDeferredCore();
+        const drain = createDeferredCore();
+        waitForGatewayActiveWork.mockImplementationOnce(async () => {
+          drainEntered.resolve();
+          await drain.promise;
+          return { drained: true, snapshot: idleActiveWorkSnapshot };
+        });
+        const failure = new SqliteIntegrityWorkerInterruptedError(signal, "starting");
+        const completeBoot = vi.fn();
+        const close = createCloseMock();
+        const { runtime, exited } = createRuntimeWithExitSignal();
+        const { runGatewayLoop } = await import("./run-loop.js");
+        const loop = runGatewayLoop({
+          start: async () => {
+            entered.resolve();
+            await inspection.promise;
+            return createGatewayServer(close);
+          },
+          runtime,
+          completeBoot,
+        });
+        const settled = Promise.allSettled([loop]);
+        try {
+          await entered.promise;
+          if (stop) {
+            captureSignal("SIGTERM")();
+            await drainEntered.promise;
+          }
+          inspection.reject(failure);
+          await new Promise<void>((resolve) => {
+            setImmediate(resolve);
+          });
+          expect(runtime.exit).not.toHaveBeenCalled();
+          if (cleanStop) {
+            expect(completeBoot).not.toHaveBeenCalled();
+          }
+          drain.resolve();
+          if (cleanStop) {
+            await expect(exited).resolves.toBe(0);
+            expect(await settled).toEqual([{ status: "fulfilled", value: undefined }]);
+            expect(completeBoot).toHaveBeenCalledExactlyOnceWith({
+              outcome: "clean_stop",
+              reason: "gateway.stop",
+            });
+          } else {
+            expect(await settled).toEqual([{ status: "rejected", reason: failure }]);
+            expect(completeBoot).toHaveBeenCalledWith({
+              outcome: "startup_failed",
+              reason: failure.message,
+            });
+          }
+          expect(close).not.toHaveBeenCalled();
+        } finally {
+          inspection.reject(failure);
+          drain.resolve();
+          await settled;
+          if (stop) {
+            await exited;
+          }
         }
       });
     },
@@ -3204,6 +3287,32 @@ describe("runGatewayLoop", () => {
       } else {
         process.env.OPENCLAW_GATEWAY_RESTART_TRACE = originalTraceEnv;
       }
+    }
+  });
+
+  it("returns the supervisor-owned restart code after releasing the lock", async () => {
+    vi.clearAllMocks();
+    peekGatewaySigusr1RestartReason.mockReturnValue(undefined);
+    process.env.OPENCLAW_WINDOWS_TASK_NAME = "OpenClaw Gateway";
+
+    try {
+      await withIsolatedSignals(async ({ captureSignal }) => {
+        const lockRelease = vi.fn(async () => {});
+        acquireGatewayLock.mockResolvedValueOnce({ release: lockRelease });
+        restartGatewayProcessWithFreshPid.mockReturnValueOnce({
+          mode: "supervised",
+          exitCode: 75,
+        });
+
+        const { runtime, exited } = await createSignaledLoopHarness();
+        captureSignal("SIGUSR1")();
+
+        await expect(exited).resolves.toBe(75);
+        expect(lockRelease).toHaveBeenCalledOnce();
+        expect(runtime.exit).toHaveBeenCalledWith(75);
+      });
+    } finally {
+      delete process.env.OPENCLAW_WINDOWS_TASK_NAME;
     }
   });
 

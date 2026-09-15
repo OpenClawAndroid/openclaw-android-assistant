@@ -87,6 +87,13 @@ describe("bounded replacement output", () => {
   });
 });
 
+describe("large benign text", () => {
+  it("preserves ordinary assignments at a replacement chunk boundary", () => {
+    const text = `${" ".repeat(16_381)}compass=visible${" ".repeat(16_384)}`;
+    expect(redactSensitiveText(text, { mode: "tools" })).toBe(text);
+  });
+});
+
 describe("default redact pattern ownership", () => {
   it("getDefaultRedactPatterns exposes the serializable string pattern table", () => {
     expect(defaults).toEqual(DEFAULT_REDACT_STRING_PATTERNS);

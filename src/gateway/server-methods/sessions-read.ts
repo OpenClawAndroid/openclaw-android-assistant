@@ -25,6 +25,7 @@ import {
 } from "../../config/sessions/session-accessor.js";
 import { SessionTranscriptColdError } from "../../config/sessions/session-cold-storage-state.js";
 import { searchSessionTranscripts } from "../../config/sessions/session-transcript-search.js";
+import { buildProjectedAgentRunIndex } from "../../infra/agent-run-registry.js";
 import {
   measureDiagnosticsTimelineSpan,
   measureDiagnosticsTimelineSpanSync,
@@ -54,6 +55,7 @@ import { resolveSessionStoreAgentId } from "../session-store-key.js";
 import { readSessionPreviewItemsFromTranscript } from "../session-transcript-preview.js";
 import type { SessionListActiveRunProjector } from "../session-utils-contracts.js";
 import { projectGatewaySessionActiveRun } from "../session-utils-display.js";
+import { resolveGatewaySessionActiveModel } from "../session-utils-row.js";
 import {
   listSessionsFromStoreAsync,
   loadCombinedSessionStoreForGatewayCore,
@@ -454,7 +456,11 @@ export const sessionReadHandlers: GatewayRequestHandlers = {
           );
           diagnostics?.mark("decoration");
           const projectPlacement = createSessionPlacementBatchProjector(context, result.sessions);
-          const projectActiveRun = createVisibleActiveSessionRunProjector(context);
+          const projectedAgentRuns = buildProjectedAgentRunIndex();
+          const projectActiveRun = createVisibleActiveSessionRunProjector(
+            context,
+            projectedAgentRuns,
+          );
           // These rows are unpublished; decorate them with fresh caller facts after the yields.
           const sharing = prepareSessionSharing({ client, cfg });
           measureDiagnosticsTimelineSpanSync(
@@ -494,6 +500,23 @@ export const sessionReadHandlers: GatewayRequestHandlers = {
                   agentId: session.agentId,
                   defaultAgentId: tryResolveSessionCompatibilityOwnerAgentId(cfg, storeKey),
                 });
+                const target = targetsBySessionKey.get(session.key);
+                const activeModel = resolveGatewaySessionActiveModel({
+                  cfg,
+                  active: activeRunState.active,
+                  agentId:
+                    session.agentId ?? tryResolveSessionCompatibilityOwnerAgentId(cfg, storeKey),
+                  sessionId: session.sessionId,
+                  sessionKey: storeKey,
+                  projectedAgentRuns,
+                  modelSource: target
+                    ? { ...target.modelSource, entry: sharingTarget?.entry }
+                    : undefined,
+                  entry: sharingTarget?.entry,
+                  storePath: sharingTarget?.storePath,
+                });
+                session.activeModelProvider = activeModel?.provider;
+                session.activeModel = activeModel?.model;
                 Object.assign(session, {
                   visibility,
                   ...(sharingTarget

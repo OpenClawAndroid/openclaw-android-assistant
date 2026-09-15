@@ -2,6 +2,7 @@
 // checks, adapter sends, transcript mirroring, and payload outcomes.
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import { setImmediate as waitForImmediate } from "node:timers/promises";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { TrustedMessageAuditEvent } from "../../audit/message-audit-events.js";
@@ -602,9 +603,9 @@ describe("deliverOutboundPayloads", () => {
       async (params: {
         id: string;
         run: (owner: {
-          current: () => Record<string, unknown>;
-          beforeFirstModifier: () => void;
-          markPrepared: () => void;
+          current: () => Promise<Record<string, unknown>>;
+          beforeFirstModifier: () => Promise<void>;
+          markPrepared: () => Promise<void>;
           markPublished: () => void;
         }) => Promise<unknown>;
       }) => {
@@ -621,11 +622,11 @@ describe("deliverOutboundPayloads", () => {
         return {
           status: "claimed",
           value: await params.run({
-            current: () => entry,
-            beforeFirstModifier: () => {
+            current: async () => entry,
+            beforeFirstModifier: async () => {
               entry.preparationState = "modifiers_started";
             },
-            markPrepared: () => {
+            markPrepared: async () => {
               entry.preparationState = "prepared";
             },
             markPublished: () => {},
@@ -1208,6 +1209,59 @@ describe("deliverOutboundPayloads", () => {
     await expect(first).resolves.toHaveLength(1);
     expect(sendMatrix).toHaveBeenCalledOnce();
   });
+
+  it.each([false, true])(
+    "waits for the modifier checkpoint before policy (cancel=%s)",
+    async (cancel) => {
+      const checkpoint = createDeferredCore();
+      const entered = createDeferredCore();
+      const controller = new AbortController();
+      hookMocks.runner.hasHooks.mockImplementation(
+        (name?: string) => name === "reply_payload_sending" || name === "message_sending",
+      );
+      const pending = prepareOutboundPayloadBatch(
+        {
+          cfg: {},
+          channel: "matrix",
+          to: "!room:example",
+          payloads: [{ text: "prepared" }],
+          deps: { matrix: vi.fn() },
+          abortSignal: controller.signal,
+          replyPayloadSendingHook: { kind: "final", context: { channelId: "matrix" } },
+        },
+        {
+          onBeforeFirstModifier: () => {
+            entered.resolve();
+            return checkpoint.promise;
+          },
+        },
+      );
+      const outcome = pending.then(
+        (batch) => ({ batch, error: undefined }),
+        (error: unknown) => ({ batch: undefined, error }),
+      );
+      await entered.promise;
+      await waitForImmediate();
+      const callsBeforeCheckpoint = hookMocks.runner.runReplyPayloadSending.mock.calls.length;
+      if (cancel) {
+        controller.abort();
+      }
+      checkpoint.resolve();
+      const result = await outcome;
+      expect(callsBeforeCheckpoint).toBe(0);
+      if (cancel) {
+        expect(result.error).toBeInstanceOf(Error);
+        expect(hookMocks.runner.runReplyPayloadSending).not.toHaveBeenCalled();
+        expect(hookMocks.runner.runMessageSending).not.toHaveBeenCalled();
+      } else {
+        expect(result.batch?.entries).toEqual([
+          expect.objectContaining({ status: "accepted", payload: { text: "prepared" } }),
+        ]);
+        expect(hookMocks.runner.runReplyPayloadSending).toHaveBeenCalledOnce();
+        expect(hookMocks.runner.runMessageSending).toHaveBeenCalledOnce();
+      }
+    },
+  );
 
   it("does not enter the modifier crash boundary when no modifying hook is registered", async () => {
     const onBeforeFirstModifier = vi.fn();

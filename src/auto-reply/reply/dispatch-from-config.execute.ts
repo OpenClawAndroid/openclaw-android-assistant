@@ -80,7 +80,7 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
     await settlement?.settle(false);
   };
   let didDeliverVisiblePartialReply = false;
-  const onBlockReply = createDispatchBlockReplyHandler(state);
+  const { onBlockReply, flush: flushBlockTtsText } = createDispatchBlockReplyHandler(state);
   const flushDeferredFinalText = async () => {
     const delivered = await flushDispatchDeferredFinalText({
       deferFinalTtsText,
@@ -138,31 +138,30 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
                 onAssistantMessageStart: wrapProgressCallback(
                   params.replyOptions?.onAssistantMessageStart,
                 ),
-                onQueuedFollowupSettled: params.replyOptions?.onQueuedFollowupSettled
-                  ? async () => {
-                      // Retained block callbacks only enqueue; cleanup must join their
-                      // delivery even when this dispatch has already returned.
-                      try {
-                        await waitForPendingDirectBlockReplyDelivery();
-                        if (
-                          dispatcher.getFailedCounts().block > 0 &&
-                          state.turnLedger.canAttemptFallback()
-                        ) {
-                          await dispatcher.waitForIdle();
-                        }
-                      } catch (error) {
-                        try {
-                          await params.replyOptions?.onQueuedFollowupSettled?.();
-                        } catch (cleanupError) {
-                          logVerbose(
-                            `dispatch-from-config: queued cleanup failed; preserving delivery error: ${formatErrorMessage(cleanupError)}`,
-                          );
-                        }
-                        throw error;
-                      }
-                      await params.replyOptions?.onQueuedFollowupSettled?.();
+                onQueuedFollowupSettled: async () => {
+                  // Retained block callbacks only enqueue; cleanup must join their
+                  // delivery even when this dispatch has already returned.
+                  try {
+                    await flushBlockTtsText();
+                    await waitForPendingDirectBlockReplyDelivery();
+                    if (
+                      dispatcher.getFailedCounts().block > 0 &&
+                      state.turnLedger.canAttemptFallback()
+                    ) {
+                      await dispatcher.waitForIdle();
                     }
-                  : undefined,
+                  } catch (error) {
+                    try {
+                      await params.replyOptions?.onQueuedFollowupSettled?.();
+                    } catch (cleanupError) {
+                      logVerbose(
+                        `dispatch-from-config: queued cleanup failed; preserving delivery error: ${formatErrorMessage(cleanupError)}`,
+                      );
+                    }
+                    throw error;
+                  }
+                  await params.replyOptions?.onQueuedFollowupSettled?.();
+                },
                 onBlockReplyQueued: wrapProgressCallback(params.replyOptions?.onBlockReplyQueued),
                 onToolStart: wrapProgressCallback(params.replyOptions?.onToolStart, {
                   allowWhenToolSummariesHidden:
@@ -458,6 +457,15 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
             ),
           ),
         trackDispatchLifecycleWork,
+      ).then(
+        async (result) => {
+          await flushBlockTtsText();
+          return result;
+        },
+        async (error: unknown) => {
+          await flushBlockTtsText();
+          throw error;
+        },
       ),
   ).catch(async (error: unknown) => {
     await releasePendingContinuation();

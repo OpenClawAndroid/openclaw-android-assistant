@@ -1,10 +1,14 @@
 // Openclaw Cross Os Release Workflow tests cover openclaw cross os release workflow script behavior.
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { createReleaseCheckSelection } from "../../scripts/plan-release-workflow-matrix.mjs";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.ts";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const WORKFLOW_PATH = ".github/workflows/openclaw-cross-os-release-checks-reusable.yml";
 const RELEASE_CHECKS_PATH = ".github/workflows/openclaw-release-checks.yml";
@@ -700,7 +704,20 @@ describe("cross-OS release checks workflow", () => {
     expect(JSON.parse(result.stdout)).toEqual(expected);
   });
 
-  it("executes the release harness directly with Node", () => {
+  it("executes the release harness directly with Node without installed packages", () => {
+    // Lane tooling has no installed packages. Keep the fixture outside the checkout
+    // so a developer's node_modules cannot satisfy an accidental runtime import.
+    const fixture = tempDirs.make("cross-os-no-packages-");
+    for (const source of [
+      "package.json",
+      "scripts",
+      "packages/normalization-core",
+      "src/infra/file-read.ts",
+    ]) {
+      const target = join(fixture, source);
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(source, target, { recursive: true });
+    }
     const wrapper = readFileSync(WRAPPER_PATH, "utf8");
     const script = readFileSync(SCRIPT_PATH, "utf8");
     const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -733,11 +750,13 @@ describe("cross-OS release checks workflow", () => {
         "windows-2025",
       ],
       {
-        cwd: process.cwd(),
+        cwd: fixture,
         encoding: "utf8",
         env: {
           ...process.env,
           OPENCLAW_RELEASE_CHECKS_SCRIPT: SCRIPT_PATH,
+          NODE_OPTIONS: "",
+          NODE_PATH: "",
         },
       },
     );

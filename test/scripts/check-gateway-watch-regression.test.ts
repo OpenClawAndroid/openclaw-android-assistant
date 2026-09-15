@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendBoundedWatchLog,
   buildTimedWatchCommand,
@@ -24,6 +24,9 @@ import {
   BUILD_STAMP_FILE,
   RUNTIME_POSTBUILD_STAMP_FILE,
 } from "../../scripts/lib/local-build-metadata-paths.mts";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("check-gateway-watch-regression", () => {
   it("accepts package-manager argument separators before script options", () => {
@@ -90,7 +93,6 @@ describe("check-gateway-watch-regression", () => {
   it("detects byte growth in existing dist-runtime paths", () => {
     const distRuntimeByteGrowth = calculateDistRuntimeByteGrowth(100, 2_097_253);
     const findings = collectGatewayWatchFindings({
-      cpuMs: 0,
       distRuntimeByteGrowth,
       distRuntimeFileGrowth: 0,
       removedPaths: 0,
@@ -135,7 +137,6 @@ describe("check-gateway-watch-regression", () => {
     "rejects prebuilt artifact mutation: $reason / $removedPaths removed",
     ({ reason, removedPaths }) => {
       const findings = collectGatewayWatchFindings({
-        cpuMs: 0,
         distRuntimeByteGrowth: -1024,
         distRuntimeFileGrowth: 0,
         removedPaths,
@@ -223,38 +224,98 @@ describe("check-gateway-watch-regression", () => {
     expect(command.env.PATH?.split(path.delimiter)[0]).toBe(path.dirname(nodeExecPath));
   });
 
-  it("fails the regression gate when gateway watch never becomes ready", () => {
+  it.each([
+    {
+      name: "readiness timeout does not measure startup as idle",
+      ready: false,
+      samples: [0, 10_000],
+      idleCpuMs: null,
+      lateError: null,
+      failures: ["gateway:watch did not report ready before the idle CPU window"],
+    },
+    {
+      name: "zero idle CPU is independent of high lifetime CPU",
+      ready: true,
+      samples: [50_000, 50_000],
+      idleCpuMs: 0,
+      lateError: null,
+      failures: [],
+    },
+    {
+      name: "missing idle samples cannot use lifetime CPU",
+      ready: true,
+      samples: [null, null],
+      idleCpuMs: null,
+      lateError: null,
+      failures: ["failed to collect idle CPU timing from the ready gateway:watch window"],
+    },
+    {
+      name: "valid high idle CPU still alarms after a later process error",
+      ready: true,
+      samples: [50_000, 59_000],
+      idleCpuMs: 9_000,
+      lateError: "fixture shutdown error",
+      failures: [
+        "gateway:watch failed to start: fixture shutdown error",
+        "LOUD ALARM: gateway:watch used 9000ms CPU in 10000ms window, above loud-alarm threshold 8000ms",
+      ],
+    },
+  ])("$name", async ({ ready, samples, idleCpuMs, lateError, failures }) => {
+    const outputDir = tempDirs.make("openclaw-gateway-watch-measurement-");
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+    });
+    const timing = { userSeconds: 45.91, sysSeconds: 7.52, elapsedSeconds: 33.22 };
+    const readCpu = vi
+      .fn((_pid: number): number | null => null)
+      .mockReturnValueOnce(samples[0] ?? null)
+      .mockReturnValueOnce(samples[1] ?? null);
+    const sleep = vi.fn((_ms: number) => Promise.resolve());
+    const stopChild = vi.fn(async () => {
+      if (lateError) {
+        child.emit("error", new Error(lateError));
+      }
+      return { code: 0, signal: null };
+    });
+    const options = parseArgs(["--skip-build"]);
+    const result = await runTimedWatch(options, outputDir, {
+      allocateLoopbackPort: async () => 19042,
+      spawn: () => {
+        fs.writeFileSync(path.join(outputDir, "watch.pid"), "1234\n");
+        fs.writeFileSync(path.join(outputDir, "watch.time.log"), "fixture timing\n");
+        return child;
+      },
+      waitForGatewayReady: async () => ready,
+      readProcessTreeCpuMs: readCpu,
+      parseTimingFile: () => timing,
+      sleep,
+      stopTimedWatchChild: stopChild,
+    });
+
+    expect(result.readyBeforeWindow).toBe(ready);
+    expect(result.idleCpuMs).toBe(idleCpuMs);
+    expect(result.timing).toEqual(timing);
+    expect(stopChild).toHaveBeenCalledOnce();
+    expect(readCpu).toHaveBeenCalledTimes(ready ? 2 : 0);
+    if (!ready) {
+      expect(sleep).not.toHaveBeenCalled();
+    }
     const findings = collectGatewayWatchFindings({
-      cpuMs: 0,
       distRuntimeByteGrowth: 0,
       distRuntimeFileGrowth: 0,
       removedPaths: 0,
-      options: {
-        cpuFailMs: 8000,
-        cpuWarnMs: 1000,
-        distRuntimeByteGrowthMax: 2 * 1024 * 1024,
-        distRuntimeFileGrowthMax: 200,
-        windowMs: 10_000,
-      },
-      watchBuildReason: null,
-      watchResult: {
-        idleCpuMs: 0,
-        readyBeforeWindow: false,
-        spawnError: null,
-        timingFileMissing: false,
-      },
-      watchTriggeredBuild: false,
+      options,
+      watchBuildReason: result.watchBuildReason,
+      watchResult: result,
+      watchTriggeredBuild: result.watchTriggeredBuild,
     });
-
-    expect(findings.failures).toContain(
-      "gateway:watch did not report ready before the idle CPU window",
-    );
+    expect(findings.failures).toEqual(failures);
     expect(findings.warnings).toEqual([]);
   });
 
   it("reports early gateway watch exit before readiness distinctly", () => {
     const findings = collectGatewayWatchFindings({
-      cpuMs: 0,
       distRuntimeByteGrowth: 0,
       distRuntimeFileGrowth: 0,
       removedPaths: 0,
@@ -286,7 +347,6 @@ describe("check-gateway-watch-regression", () => {
 
   it("reports gateway watch exit after readiness before the idle window completes", () => {
     const findings = collectGatewayWatchFindings({
-      cpuMs: 0,
       distRuntimeByteGrowth: 0,
       distRuntimeFileGrowth: 0,
       removedPaths: 0,

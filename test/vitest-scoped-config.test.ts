@@ -629,9 +629,10 @@ describe("scoped vitest configs", () => {
     expectForkedIsolatedRunner(defaultCliProcessConfig);
   });
 
-  it("keeps process-launching CLI files out of the shared CLI graph", () => {
+  it("keeps source-child process tests in the isolated process project", () => {
+    const cliProcessFiles = cliProcessTestFiles.filter((file) => file.startsWith("src/cli/"));
     expect(requireTestConfig(defaultCliConfig).exclude).toEqual(
-      expect.arrayContaining(cliProcessTestFiles.map((file) => file.replace("src/cli/", ""))),
+      expect.arrayContaining(cliProcessFiles.map((file) => file.replace("src/cli/", ""))),
     );
     const processTestConfig = requireTestConfig(defaultCliProcessConfig);
     expect(processTestConfig.include).toContain("src/cli/update-dry-run-state.process.test.ts");
@@ -698,6 +699,7 @@ describe("scoped vitest configs", () => {
     );
     expect(productionBoundaryConfig.fileParallelism).toBe(false);
     expect(productionBoundaryConfig.isolate).toBe(true);
+    expect(productionBoundaryConfig.pool).toBe("forks");
     expect(productionBoundaryConfig.runner).toBeUndefined();
   });
 

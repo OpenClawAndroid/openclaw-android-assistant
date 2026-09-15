@@ -20,6 +20,7 @@ export type ModelDirectiveSelection = {
   provider: string;
   model: string;
   isDefault: boolean;
+  resetToDefault?: true;
   alias?: string;
 };
 

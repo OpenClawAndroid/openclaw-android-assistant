@@ -183,6 +183,7 @@ const ownerRoutedUnitTestPatterns = [
   "src/auto-reply/reply/dispatch-from-config.test.ts",
   "src/auto-reply/reply/dispatch-from-config.delivery.test.ts",
   "src/auto-reply/reply/dispatch-from-config.lifecycle.test.ts",
+  "src/auto-reply/reply/dispatch-from-config.tts-stream.test.ts",
 ];
 const broadUnitFastCandidateSkipGlobs = [
   "**/*.e2e.test.ts",

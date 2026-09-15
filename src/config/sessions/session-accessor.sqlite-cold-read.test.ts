@@ -25,6 +25,10 @@ import { copySqliteSessionOwnedStateForCanonicalRepair } from "./session-accesso
 import { replaceSessionEntry } from "./session-accessor.sqlite-entry.js";
 import { readRecentSessionTranscriptHistoryEvents } from "./session-accessor.sqlite-history-events.js";
 import {
+  hasSessionTranscriptEventsSync,
+  readTranscriptMutationStateSync,
+} from "./session-accessor.sqlite-metadata-read.js";
+import {
   createTranscriptIdentityReader,
   findTranscriptEventInDatabase,
   loadLatestAssistantText,
@@ -295,6 +299,22 @@ it("identifies a slow transcript matcher while retaining its hot read snapshot",
   });
 });
 
+it("counts a header at seq zero as transcript presence", async () => {
+  await withOpenClawTestState({ label: "transcript-presence" }, async (state) => {
+    const scope = {
+      agentId: "main",
+      env: state.env,
+      sessionId: "presence",
+      sessionKey: "agent:main:presence",
+    };
+    await replaceSessionEntry(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+    expect(hasSessionTranscriptEventsSync(scope)).toBe(false);
+    await replaceTranscriptEvents(scope, [{ type: "session", id: scope.sessionId, version: 3 }]);
+    expect(readTranscriptStatsSync(scope)).toMatchObject({ eventCount: 1, maxSeq: 0 });
+    expect(hasSessionTranscriptEventsSync(scope)).toBe(true);
+  });
+});
+
 it("reads hot and cold transcript stats with one SQLite selection each", async () => {
   await withOpenClawTestState({ label: "cold-stats-query-budget" }, async (state) => {
     const race = await prepareRace(state);
@@ -318,28 +338,30 @@ it("reads hot and cold transcript stats with one SQLite selection each", async (
   });
 });
 
-it.each(["stats", "search"] as const)(
+it.each(["stats", "search", "presence", "mutation"] as const)(
   "keeps %s coherent when another connection archives",
   async (kind) => {
     await withOpenClawTestState({ label: "cold-metadata-snapshot" }, async (state) => {
       const race = await prepareRace(state);
-      const read = () =>
-        kind === "stats"
-          ? readTranscriptStatsSync(race.scope)
-          : searchSessionTranscripts({ ...race.scope, query: "Original" });
+      const read = {
+        stats: () => readTranscriptStatsSync(race.scope),
+        search: () => searchSessionTranscripts({ ...race.scope, query: "Original" }),
+        presence: () => hasSessionTranscriptEventsSync(race.scope),
+        mutation: () => readTranscriptMutationStateSync(race.scope),
+      }[kind];
       try {
         const original = read();
         race.commitAfterMarkerRead((query) =>
-          kind === "stats"
-            ? query.includes('"session_transcript_cold_archives"')
-            : query.includes('from "session_transcript_cold_archives"'),
+          kind === "mutation"
+            ? query.includes('from "session_windows"')
+            : query.includes('"session_transcript_cold_archives"'),
         );
         expect(read()).toEqual(original);
         expect(race.committed()).toBe(true);
-        if (kind === "stats") {
-          expect(read()).toEqual(original);
-        } else {
+        if (kind === "search") {
           expect(read()).toMatchObject({ hits: [], archivedTranscriptsExcluded: 1 });
+        } else {
+          expect(read()).toEqual(original);
         }
       } finally {
         vi.restoreAllMocks();

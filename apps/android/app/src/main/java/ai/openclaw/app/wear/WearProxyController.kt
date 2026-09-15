@@ -230,7 +230,7 @@ internal class WearProxyController(
       )
     val availableModels =
       catalog.models
-        .filter { it.available != false }
+        .filter { it.manualSelectionAllowed != false && it.available != false }
         .mapNotNull { model -> canonicalModelRef(model.providerQualifiedRef())?.let { ref -> ref to model } }
         .distinctBy { (ref) -> ref }
     val matchingModels =

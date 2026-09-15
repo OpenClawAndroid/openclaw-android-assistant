@@ -703,7 +703,7 @@ describe("logs cli", () => {
       expect(execFileUtf8Tail).toHaveBeenNthCalledWith(
         2,
         "journalctl",
-        expect.arrayContaining(["--since=2026-06-01T00:00:03.000Z"]),
+        expect.arrayContaining(["--since=2026-06-01 00:00:03.000 UTC"]),
         expect.any(Object),
       );
       const secondJournalArgs = execFileUtf8Tail.mock.calls[1]?.[1] as string[];

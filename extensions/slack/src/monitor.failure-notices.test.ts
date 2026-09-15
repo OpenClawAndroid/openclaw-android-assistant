@@ -79,10 +79,10 @@ function enableAmbientChannelReplies(replyToMode: "all" | "off" = "all"): void {
 }
 
 describe("Slack thread failure notices", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetInboundDedupe();
     clearSlackThreadParticipationCache();
-    resetSlackTestState({
+    await resetSlackTestState({
       messages: { groupChat: { visibleReplies: "automatic" } },
       channels: {
         slack: {

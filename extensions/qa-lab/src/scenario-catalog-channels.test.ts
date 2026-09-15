@@ -291,7 +291,9 @@ describe("qa scenario catalog channel contracts", () => {
     expect(semanticFlow).not.toContain("received.at(-1)?.botApiMessageId");
     expect(semanticFlow).not.toContain('"set":"expectedNormalized"');
     expect(semanticFlow).toContain("qaImport('node:util')");
-    expect(semanticFlow).toContain("isDeepStrictEqual(actual, fixture.expectedChunks)");
+    expect(semanticFlow).toContain(
+      "isDeepStrictEqual(structuredClone(actual), structuredClone(fixture.expectedChunks))",
+    );
     expect(semanticFlow).not.toContain("JSON.stringify(actual) === JSON.stringify");
     expect(compactionFlow).toContain('"minimumPreviewEvents":2');
     expect(compactionFlow).toContain("progress: { commentary: true, toolProgress: true }");

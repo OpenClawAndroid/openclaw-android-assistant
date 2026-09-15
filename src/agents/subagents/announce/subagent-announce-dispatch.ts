@@ -124,31 +124,20 @@ export async function runSubagentAnnounceDispatch(params: {
     });
   }
 
-  if (params.requireDirectDelivery) {
-    // Settle synthesis needs its own delivery turn; steering can inherit a
-    // message-tool-only completion turn and silently suppress the final reply.
-    const primaryDirect = await params.direct();
-    appendPhase("direct-primary", primaryDirect);
-    return withPhases(primaryDirect);
-  }
-
-  if (!params.expectsCompletionMessage) {
+  // Settle synthesis needs its own delivery turn; steering can inherit a
+  // message-tool-only completion turn and silently suppress the final reply.
+  const allowSteerFallback = !params.requireDirectDelivery && params.expectsCompletionMessage;
+  if (!params.requireDirectDelivery && !params.expectsCompletionMessage) {
     const primarySteerOutcome = await params.steer();
     const primarySteer = mapSteerOutcomeToDeliveryResult(primarySteerOutcome);
     appendPhase("steer-primary", primarySteer);
-    if (primarySteer.delivered) {
+    if (
+      primarySteer.delivered ||
+      primarySteer.terminal ||
+      primarySteerOutcome.status === "dropped"
+    ) {
       return withPhases(primarySteer);
     }
-    if (primarySteer.terminal) {
-      return withPhases(primarySteer);
-    }
-    if (primarySteerOutcome.status === "dropped") {
-      return withPhases(primarySteer);
-    }
-
-    const primaryDirect = await params.direct();
-    appendPhase("direct-primary", primaryDirect);
-    return withPhases(primaryDirect);
   }
 
   // Completion handoff prefers direct delivery first so the completion agent's
@@ -156,6 +145,7 @@ export async function runSubagentAnnounceDispatch(params: {
   const primaryDirect = await params.direct();
   appendPhase("direct-primary", primaryDirect);
   if (
+    !allowSteerFallback ||
     primaryDirect.delivered ||
     primaryDirect.disposition === "session_queued" ||
     primaryDirect.disposition === "intentional_non_delivery" ||
@@ -172,10 +162,7 @@ export async function runSubagentAnnounceDispatch(params: {
   const fallbackSteerOutcome = await params.steer();
   const fallbackSteer = mapSteerOutcomeToDeliveryResult(fallbackSteerOutcome);
   appendPhase("steer-fallback", fallbackSteer);
-  if (fallbackSteer.delivered) {
-    return withPhases(fallbackSteer);
-  }
-  if (fallbackSteer.terminal) {
+  if (fallbackSteer.delivered || fallbackSteer.terminal) {
     return withPhases(fallbackSteer);
   }
 

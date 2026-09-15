@@ -396,7 +396,7 @@ describe("session list resolver cache", () => {
             ];
           }),
         );
-        const resolver = vi.spyOn(sessionModelRef, "resolveSessionModelRef");
+        const resolver = vi.spyOn(sessionModelRef, "resolveSessionModelRefCore");
         try {
           const result = await listSessionFixture({
             cfg,

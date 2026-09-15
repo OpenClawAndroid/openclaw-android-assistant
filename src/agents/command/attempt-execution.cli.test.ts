@@ -1089,12 +1089,10 @@ describe("CLI attempt execution", () => {
       { getAcpSessionManager },
       { prepareAgentCommandExecutionIdentity },
       { runEmbeddedAgentAttempt },
-      { createModelVisibilityPolicy },
     ] = await Promise.all([
       import("../../acp/control-plane/manager.js"),
       import("../agent-command-execution-identity.js"),
       import("./run-embedded-attempt.js"),
-      import("../model-visibility-policy.js"),
     ]);
     const cfg: OpenClawConfig = {
       agents: {
@@ -1173,12 +1171,6 @@ describe("CLI attempt execution", () => {
           defaultModel: "sonnet",
           configuredDefaultAuthProfileId: undefined,
           providerForAuthProfileValidation: "claude-cli",
-          visibilityPolicy: createModelVisibilityPolicy({
-            cfg,
-            catalog: [],
-            defaultProvider: "claude-cli",
-            defaultModel: "sonnet",
-          }),
           hasExplicitRunOverride: false,
           storedProviderOverride: undefined,
           storedModelOverride: undefined,

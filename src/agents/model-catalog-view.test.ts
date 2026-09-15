@@ -154,7 +154,7 @@ describe("prepared model catalog view", () => {
     expect(view.catalog).toEqual(entries);
   });
 
-  it("includes only configured static identities and preserves committed rows", () => {
+  it("enriches permitted static choices and current metadata while preserving committed rows", () => {
     const committed = { ...row("custom", "vendor/model"), name: "Committed" };
     const cfg: OpenClawConfig = {
       agents: { defaults: { model: "custom/vendor/model", models: { "custom/extra": {} } } },
@@ -172,7 +172,15 @@ describe("prepared model catalog view", () => {
     ).toEqual([committed, row("custom", "extra")]);
     expect(
       prepareModelCatalogView({ ...facts(cfg), snapshot: captured, view: "default" }).catalog,
-    ).toEqual([committed]);
+    ).toEqual([committed, row("custom", "extra")]);
+    expect(
+      prepareModelCatalogView({
+        ...facts(cfg),
+        snapshot: captured,
+        view: "configured",
+        retainedModel: { provider: "custom", model: "model" },
+      }).catalog,
+    ).toEqual([committed, row("custom", "model"), row("custom", "extra")]);
   });
 
   it("uses authored inventory membership with canonical route metadata", () => {

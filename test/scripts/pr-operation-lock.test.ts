@@ -131,6 +131,7 @@ function createTemplateRepo() {
   // This shared template must not inherit the operator's Git hooks or identity.
   const options = { cwd: dir, env: createPrFixtureEnv(dir, process.env.PATH ?? "") };
   execFileSync("git", ["init", "-q", "-b", "main"], options);
+  writeFileSync(join(dir, ".git/info/exclude"), ".local/\n");
   execFileSync("git", ["config", "user.name", "OpenClaw Test"], options);
   execFileSync("git", ["config", "user.email", "test@openclaw.invalid"], options);
   writeFileSync(join(dir, "base.txt"), "base\n");
@@ -1819,6 +1820,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
       ]);
       chmodSync(rg, 0o755);
       const worktreeDir = join(repoDir, ".worktrees", "pr-42");
+      const nextWorktreeDir = join(repoDir, ".worktrees", "pr-43");
       const lifecycle = join(repoDir, "lifecycle.log");
       const ownerFile = join(repoDir, "owner-oid");
       const releaseCwd = join(repoDir, "release-cwd");
@@ -1850,6 +1852,13 @@ describePosix("scripts/pr per-PR operation lock", () => {
       const worktreeAdmin = git("-C", worktreeDir, "rev-parse", "--absolute-git-dir");
       for (const branch of ["pr-42", "pr-42-prep"]) {
         git("branch", branch, preparedHead);
+      }
+      if (command === "gc") {
+        // The linked wrapper disappears first; later targets must still use its loaded helpers.
+        git("worktree", "add", "-q", "-b", "temp/pr-43", nextWorktreeDir, preparedHead);
+        for (const branch of ["pr-43", "pr-43-prep"]) {
+          git("branch", branch, preparedHead);
+        }
       }
       if (wrapper === "linked") {
         // origin/main still names the linked wrapper; canonical code must not
@@ -1887,7 +1896,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
         '    git rev-parse refs/openclaw/pr-operation-locks/42 > "$OPENCLAW_TEST_OWNER"',
         '    if [ "$OPENCLAW_TEST_FAILURE" = merge ]; then echo "fixture merge failed" >&2; exit 7; fi',
         '    printf "merged\\n" >> "$OPENCLAW_TEST_LIFECYCLE" ;;',
-        '  "pr view 42 --json state --jq .state") printf "MERGED\\n" ;;',
+        '  "pr view 42 --json state --jq .state" | "pr view 43 --json state --jq .state") printf "MERGED\\n" ;;',
         '  "repo view --json id,nameWithOwner,url")',
         '    printf "invocation\\t%s\\n" "$PWD" >> "$OPENCLAW_TEST_LIFECYCLE"',
         `    printf '%s\\n' '{"id":"fixture-repo","url":"https://github.com/fixture/repo","nameWithOwner":"fixture/repo"}' ;;`,
@@ -1967,13 +1976,28 @@ describePosix("scripts/pr per-PR operation lock", () => {
         expect(events).toBe(`invocation\t${repoDir}\n`);
       } else {
         const completedEvents =
-          command === "gc" ? "removed\n" : `invocation\t${repoDir}\nmerged\ncomment\nremoved\n`;
-        expect(events, output).toBe(completedEvents + (failure === "none" ? "released\n" : ""));
+          command === "gc"
+            ? "removed\nremoved\nreleased\n"
+            : `invocation\t${repoDir}\nmerged\ncomment\nremoved\n` +
+              (failure === "none" ? "released\n" : "");
+        expect(events, output).toBe(completedEvents);
         expect(readFileSync(releaseCwd, "utf8").trim(), output).toBe(repoDir);
         expect(result.status, output).toBe(failure === "none" ? 0 : 1);
         expect(result.stdout, output).toContain(
           command === "gc" ? "removed .worktrees/pr-42" : "Merge confirmed; completion pending",
         );
+        if (command === "gc") {
+          expect(existsSync(nextWorktreeDir), output).toBe(false);
+          expect(result.stdout, output).toContain("removed .worktrees/pr-43");
+          for (const ref of [
+            "refs/heads/temp/pr-43",
+            "refs/heads/pr-43",
+            "refs/heads/pr-43-prep",
+            "refs/openclaw/pr-operation-locks/43",
+          ]) {
+            expect(git("for-each-ref", "--format=%(refname)", "--", ref), output).toBe("");
+          }
+        }
       }
       if (failure === "none") {
         expect(refExists(repoDir), output).toBe(false);
@@ -2438,7 +2462,13 @@ describePosix("scripts/pr per-PR operation lock", () => {
   });
   it("keeps gc lock ownership with the supervisor until gc exits", async () => {
     const repoDir = createRepo();
-    mkdirSync(join(repoDir, ".worktrees", "pr-42"), { recursive: true });
+    execFileSync(
+      "git",
+      ["worktree", "add", "-q", "-b", "pr-42", join(repoDir, ".worktrees", "pr-42")],
+      {
+        cwd: repoDir,
+      },
+    );
     const ghStarted = join(repoDir, "gc-gh-started");
     const ghContinue = join(repoDir, "gc-gh-continue");
     const outputFile = join(repoDir, "gc-output");
@@ -2947,7 +2977,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
       const result = runLockShell(repoDir, [
         "git() {",
         '  command git "$@" || return $?',
-        `  if [ "$*" = "branch -D -- ${branch}" ]; then`,
+        `  if [ "$*" = "branch -d -- ${branch}" ]; then`,
         `    command git worktree add -q -b ${branch}/topic .worktrees/pr-99 || return $?`,
         "  fi",
         "}",

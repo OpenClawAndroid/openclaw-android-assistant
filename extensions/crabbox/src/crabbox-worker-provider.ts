@@ -392,12 +392,15 @@ export function createCrabboxWorkerProvider(
           sleep,
         });
       }
-      if (parsed.desktop) {
+      const desktopSetup = parsed.desktop
+        ? createCrabboxWorkerDesktopSetup(leaseId, wallpaperBase64)
+        : undefined;
+      if (desktopSetup && project) {
         // Desktop launchers and XFCE configuration leave SSH and lease metadata unchanged.
         await runProvisionSetup({
           ...inspectedParams,
           phase: "desktop setup",
-          setup: createCrabboxWorkerDesktopSetup(leaseId, wallpaperBase64),
+          setup: desktopSetup,
         });
       }
       if (project?.preparation && warmImages.lookupLease(leaseId)?.phase === "enrolled") {
@@ -518,6 +521,7 @@ export function createCrabboxWorkerProvider(
       const nodeEnrollmentSetup = createCrabboxNodeEnrollmentSetup({
         enrollment,
         desktop: parsed.desktop,
+        desktopSetup: project ? undefined : desktopSetup,
         target: parsed.target,
         leaseId,
       });
@@ -531,7 +535,10 @@ export function createCrabboxWorkerProvider(
         phase: "node enrollment setup",
         signal: enrollmentSignal,
         setup: nodeEnrollmentSetup.command,
-        timeoutMs: CRABBOX_NODE_ENROLLMENT_TIMEOUT_MS,
+        // Combine the existing phase budgets; desktop work starts after node launch.
+        timeoutMs:
+          CRABBOX_NODE_ENROLLMENT_TIMEOUT_MS +
+          (desktopSetup && !project ? CRABBOX_SETUP_TIMEOUT_MS : 0),
         ...(nodeEnrollmentSetup.forwardedEnv
           ? { forwardedEnv: nodeEnrollmentSetup.forwardedEnv }
           : {}),

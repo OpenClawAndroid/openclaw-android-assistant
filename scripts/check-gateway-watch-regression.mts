@@ -134,7 +134,7 @@ type WatchFindingResult = {
   exit?: WatchExit | null;
   exitedBeforeReady?: boolean;
   exitedBeforeStop?: boolean;
-  idleCpuMs?: number | null;
+  idleCpuMs: number | null;
   readyBeforeWindow: boolean;
   spawnError: string | null;
   timingFileMissing: boolean;
@@ -715,7 +715,7 @@ export async function runTimedWatch(
         exitedBeforeStop = true;
       }
     }
-    if (!exit) {
+    if (!exit && readyBeforeWindow) {
       idleCpuStartMs = watchPid ? readCpuMs(watchPid) : null;
       const windowResult = await raceChildLifecycle(sleepMs(options.windowMs));
       if (windowResult.type === "spawn-error") {
@@ -915,7 +915,6 @@ export function calculateDistRuntimeByteGrowth(beforeBytes: number, afterBytes: 
  * Collects pass/fail findings for the bounded gateway watch regression run.
  */
 export function collectGatewayWatchFindings(params: {
-  cpuMs: number;
   distRuntimeByteGrowth: number;
   distRuntimeFileGrowth: number;
   removedPaths: number;
@@ -928,7 +927,6 @@ export function collectGatewayWatchFindings(params: {
   watchTriggeredBuild: boolean;
 }): { failures: string[]; warnings: string[] } {
   const {
-    cpuMs,
     distRuntimeByteGrowth,
     distRuntimeFileGrowth,
     removedPaths,
@@ -983,16 +981,21 @@ export function collectGatewayWatchFindings(params: {
       `dist-runtime apparent byte growth ${distRuntimeByteGrowth} exceeded max ${options.distRuntimeByteGrowthMax}`,
     );
   }
-  if (!Number.isFinite(cpuMs)) {
-    failures.push("failed to parse CPU timing from the bounded gateway:watch run");
-  } else if (cpuMs > options.cpuFailMs) {
-    failures.push(
-      `LOUD ALARM: gateway:watch used ${cpuMs}ms CPU in ${options.windowMs}ms window, above loud-alarm threshold ${options.cpuFailMs}ms`,
-    );
-  } else if (cpuMs > options.cpuWarnMs) {
-    warnings.push(
-      `gateway:watch used ${cpuMs}ms CPU in ${options.windowMs}ms window, above target ${options.cpuWarnMs}ms`,
-    );
+  if (watchResult.readyBeforeWindow) {
+    const cpuMs = watchResult.idleCpuMs;
+    if (cpuMs === null || !Number.isFinite(cpuMs)) {
+      if (!watchResult.exitedBeforeStop && !watchResult.spawnError) {
+        failures.push("failed to collect idle CPU timing from the ready gateway:watch window");
+      }
+    } else if (cpuMs > options.cpuFailMs) {
+      failures.push(
+        `LOUD ALARM: gateway:watch used ${cpuMs}ms CPU in ${options.windowMs}ms window, above loud-alarm threshold ${options.cpuFailMs}ms`,
+      );
+    } else if (cpuMs > options.cpuWarnMs) {
+      warnings.push(
+        `gateway:watch used ${cpuMs}ms CPU in ${options.windowMs}ms window, above target ${options.cpuWarnMs}ms`,
+      );
+    }
   }
   return { failures, warnings };
 }
@@ -1092,7 +1095,6 @@ async function main() {
   const totalCpuMs = Math.round(
     (watchResult.timing.userSeconds + watchResult.timing.sysSeconds) * 1000,
   );
-  const cpuMs = watchResult.idleCpuMs ?? totalCpuMs;
   const watchTriggeredBuild = watchResult.watchTriggeredBuild;
   const watchBuildReason = watchResult.watchBuildReason;
 
@@ -1100,7 +1102,7 @@ async function main() {
     windowMs: options.windowMs,
     watchTriggeredBuild,
     watchBuildReason,
-    cpuMs,
+    cpuMs: watchResult.idleCpuMs,
     totalCpuMs,
     readyBeforeWindow: watchResult.readyBeforeWindow,
     exitedBeforeReady: watchResult.exitedBeforeReady,
@@ -1131,7 +1133,6 @@ async function main() {
   console.log(JSON.stringify(summary, null, 2));
 
   const { failures, warnings } = collectGatewayWatchFindings({
-    cpuMs,
     distRuntimeByteGrowth,
     distRuntimeFileGrowth,
     removedPaths: summary.removedPaths,

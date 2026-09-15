@@ -55,12 +55,13 @@ export function createChannelModelRuntimeConfig({
   };
 }
 
-export function createConfiguredModelCompatRuntimeConfig(allowlisted: boolean) {
+export function createConfiguredModelCompatRuntimeConfig(allowlisted: boolean, excluded = false) {
   return {
     agents: {
       defaults: {
         model: { primary: "gmn/gpt-5.4" },
         ...(allowlisted ? { models: { "gmn/gpt-5.4": {} } } : {}),
+        ...(excluded ? { modelPolicy: { allow: ["gmn/manual"] } } : {}),
       },
     },
     models: {
@@ -73,6 +74,7 @@ export function createConfiguredModelCompatRuntimeConfig(allowlisted: boolean) {
               reasoning: true,
               compat: { supportedReasoningEfforts: ["low", "medium", "high", "xhigh"] },
             },
+            ...(excluded ? [{ id: "manual", name: "Manual", reasoning: false }] : []),
           ],
         },
       },
@@ -191,6 +193,7 @@ export function createTestModelVisibilityPolicy(params: ModelSelectionParams) {
     allowed.allowAny || isTestModelKeyAllowed(allowed.allowedKeys, key);
   return {
     ...allowed,
+    catalog: [...(params.catalog ?? []), ...buildTestConfiguredModelCatalog(params.cfg)],
     exactModelRefs: [],
     providerWildcards: new Set<string>(),
     hasConfiguredEntries: !allowed.allowAny,

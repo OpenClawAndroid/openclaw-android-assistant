@@ -10,6 +10,10 @@ import type {
 } from "openclaw/plugin-sdk/session-catalog";
 import type { CodexAppServerBindingStore } from "./app-server/session-binding.js";
 import { resolveCodexCatalogCreateSession } from "./session-catalog-create.js";
+import {
+  currentCodexCatalogListDiagnostics,
+  runCodexCatalogListDiagnostics,
+} from "./session-catalog-diagnostics.js";
 import type { CodexCatalogHome } from "./session-catalog-homes.js";
 import { listCodexSessionCatalog, readCodexSessionTranscript } from "./session-catalog-listing.js";
 import {
@@ -202,48 +206,61 @@ function registerCodexSessionCatalog(params: {
         params.getRuntimeConfig() ?? (params.api.config as OpenClawConfig),
         agentId,
       ),
-    list: async (query) => {
-      const localTerminalAvailable = resolveLocalCodexTerminalExecutable() !== undefined;
-      const {
-        agentId: requestedAgentId,
-        allowProcessHomeFallback,
-        listNodes,
-        onHost,
-        waitUntil,
-        signal,
-        sessionEntries,
-        ...gatewayQuery
-      } = query;
-      const agentId = resolveRequestAgentId(requestedAgentId);
-      const localHomes = [...catalogHomes(agentId, allowProcessHomeFallback)];
-      const mapHost = (host: CodexSessionCatalogHost) => ({
-        ...toGenericCatalogHost(host, localTerminalAvailable),
-        canStartTerminal:
-          host.kind === "gateway"
-            ? localTerminalAvailable &&
-              host.hostId === CODEX_LOCAL_SESSION_HOST_ID &&
-              localHomes.some(
-                (home) => home.hostId === host.hostId && home.appServer.start.transport === "stdio",
-              )
-            : host.canStartTerminal === true,
-      });
-      return (
-        await listCodexSessionCatalog({
-          agentId,
-          bindingStore: params.bindingStore,
-          config: params.getRuntimeConfig(),
-          runtime: params.api.runtime,
-          control: params.control,
-          query: gatewayQuery,
+    list: (query) =>
+      runCodexCatalogListDiagnostics(async () => {
+        const localTerminalAvailable = resolveLocalCodexTerminalExecutable() !== undefined;
+        const {
+          agentId: requestedAgentId,
+          allowProcessHomeFallback,
           listNodes,
+          onHost,
           waitUntil,
           signal,
           sessionEntries,
-          localHomes,
-          ...(onHost ? { onHost: (host) => onHost(mapHost(host)) } : {}),
-        })
-      ).hosts.map(mapHost);
-    },
+          ...gatewayQuery
+        } = query;
+        const agentId = resolveRequestAgentId(requestedAgentId);
+        const localHomes = [...catalogHomes(agentId, allowProcessHomeFallback)];
+        const mapHost = (host: CodexSessionCatalogHost) => {
+          const diagnostics = currentCodexCatalogListDiagnostics();
+          const started = diagnostics ? performance.now() : 0;
+          try {
+            return {
+              ...toGenericCatalogHost(host, localTerminalAvailable),
+              canStartTerminal:
+                host.kind === "gateway"
+                  ? localTerminalAvailable &&
+                    host.hostId === CODEX_LOCAL_SESSION_HOST_ID &&
+                    localHomes.some(
+                      (home) =>
+                        home.hostId === host.hostId && home.appServer.start.transport === "stdio",
+                    )
+                  : host.canStartTerminal === true,
+            };
+          } finally {
+            if (diagnostics && !diagnostics.closed) {
+              diagnostics.fields.mappingMs =
+                (diagnostics.fields.mappingMs ?? 0) + performance.now() - started;
+            }
+          }
+        };
+        return (
+          await listCodexSessionCatalog({
+            agentId,
+            bindingStore: params.bindingStore,
+            config: params.getRuntimeConfig(),
+            runtime: params.api.runtime,
+            control: params.control,
+            query: gatewayQuery,
+            listNodes,
+            waitUntil,
+            signal,
+            sessionEntries,
+            localHomes,
+            ...(onHost ? { onHost: (host) => onHost(mapHost(host)) } : {}),
+          })
+        ).hosts.map(mapHost);
+      }),
     read: async (request) => {
       const { agentId, source, control } = bindRequest(request);
       return await readCodexSessionTranscript({

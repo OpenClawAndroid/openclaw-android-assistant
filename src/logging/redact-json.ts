@@ -369,14 +369,11 @@ export function redactJsonRecord(
   legacyFieldEdits: (field: RedactionField, original: string) => RedactionEdit[],
   fieldEdits: (field: RedactionField) => RedactionEdit[],
   prepEdits: (field: RedactionField) => RedactionEdit[],
-  preserveDecodedField: (field: RedactionField) => boolean,
+  skipDecodedPatterns: (field: RedactionField, currentValue: string) => boolean,
   message?: RedactionMessage,
   batch?: { preserveLines: boolean },
 ): string {
   let tokens = batch ? [] : readScalarTokens(input, origins);
-  const decodedTokens = tokens.filter(
-    (token) => !token.isKey && token.string && !preserveDecodedField(token),
-  );
   const messageToken = message
     ? tokens.find((token) => !token.isKey && token.path.length === 1 && token.key === "message")
     : undefined;
@@ -393,6 +390,9 @@ export function redactJsonRecord(
   if (prepared.size > 0) {
     current = updateCurrentRecord(input, current, tokens, prepared);
   }
+  const decodedTokens = tokens.filter(
+    (token) => !token.isKey && token.string && !skipDecodedPatterns(token, token.currentValue),
+  );
   const projectMessage = (): boolean => {
     if (!messageToken || !message) {
       return false;

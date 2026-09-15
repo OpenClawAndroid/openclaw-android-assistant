@@ -24,8 +24,15 @@ import {
   type OpenClawStateDatabase,
 } from "../../../state/openclaw-state-db.js";
 import { normalizeDeliveryContext } from "../../../utils/delivery-context.shared.js";
-import { normalizeSubagentRunState } from "./subagent-delivery-state.js";
-import type { SubagentRunReadRecord, SubagentRunRecord } from "./subagent-registry.types.js";
+import {
+  normalizeSubagentRunState,
+  projectSubagentRunForMaintenance,
+} from "./subagent-delivery-state.js";
+import type {
+  SubagentRunMaintenanceRecord,
+  SubagentRunReadRecord,
+  SubagentRunRecord,
+} from "./subagent-registry.types.js";
 
 type SubagentRunsTable = OpenClawStateKyselyDatabase["subagent_runs"];
 type SubagentRegistryDatabase = Pick<OpenClawStateKyselyDatabase, "subagent_runs">;
@@ -245,10 +252,20 @@ function subagentControllerFilter(controllerSessionKeys: readonly string[]) {
 function readSubagentRegistryRows(
   scope?: SubagentRegistryReadScope,
   database = openOpenClawStateDatabase(),
+  projection: "full" | "maintenance" = "full",
 ): SubagentRunSqliteRow[] {
   const { db } = database;
   const stateDb = getNodeSqliteKysely<SubagentRegistryDatabase>(db);
-  let query = stateDb.selectFrom("subagent_runs").selectAll();
+  let query = stateDb
+    .selectFrom("subagent_runs")
+    .select([
+      "run_id",
+      "child_session_key",
+      "controller_session_key",
+      "requester_session_key",
+      "created_at",
+    ])
+    .select(projection === "full" ? "payload_json" : subagentMaintenancePayload.as("payload_json"));
   if (scope?.kind === "child") {
     query = query.where("child_session_key", "=", scope.sessionKey);
   } else if (scope?.kind === "runs") {
@@ -294,6 +311,39 @@ function canonicalSubagentPayloadFilter() {
     AND json_type(payload_json, '$.delivery.handoffInjectedAt') IS NULL`;
 }
 
+const subagentRetainedPayloadPaths = [
+  "$.task",
+  "$.completion.resultText",
+  "$.completion.fallbackResultText",
+  "$.completion.terminalReply",
+  "$.delivery.payload",
+  "$.delivery.lastError",
+  "$.execution.outcome.error",
+  "$.collectorCompletion.structured",
+  "$.collectorCompletion.schemaError",
+  "$.outputSchema",
+  "$.structuredOutput",
+  "$.queuedLaunch",
+];
+
+const subagentMetadataPayload =
+  /* kysely-allow-raw: Drop retained content without changing canonical eligibility or persisted bytes. */
+  sql<string>`CASE WHEN json_valid(payload_json) THEN json_remove(
+    CASE WHEN json_type(payload_json, '$.parentCompletion') = 'object'
+      AND json_extract(payload_json, '$.parentCompletion.completionTarget') = 'parent'
+      THEN json_extract(payload_json, '$.parentCompletion') ELSE payload_json END,
+    ${sql.join(subagentRetainedPayloadPaths)}
+  ) ELSE payload_json END`;
+
+// Keep envelope selection with JSON.parse, whose duplicate-key semantics differ from JSON1.
+// SQLite treats literal NUL as EOF; malformed/overdepth text must also reach the original parser.
+const subagentMaintenancePayload =
+  /* kysely-allow-raw: Preserve full-reader parsing while omitting unused retained payloads. */
+  sql<string>`CASE WHEN json_valid(payload_json)
+      AND length(CAST(payload_json AS BLOB)) = length(CAST(printf('%s', payload_json) AS BLOB))
+    THEN json_remove(payload_json, ${sql.join(subagentRetainedPayloadPaths.flatMap((path) => [path, `$.parentCompletion${path.slice(1)}`]))})
+    ELSE payload_json END`;
+
 function readSubagentSessionListRows(
   controllerSessionKeys?: readonly string[],
 ): SubagentRunReadSqliteRow[] {
@@ -312,16 +362,7 @@ function readSubagentSessionListRows(
             "requester_session_key",
             "created_at",
             // Materialize compact metadata once; an inline CTE repeats retained JSON work per field.
-            /* kysely-allow-raw: Drop unused retained content without changing canonical eligibility or persisted bytes. */
-            sql<string>`CASE WHEN json_valid(payload_json) THEN json_remove(
-            CASE WHEN json_type(payload_json, '$.parentCompletion') = 'object'
-              AND json_extract(payload_json, '$.parentCompletion.completionTarget') = 'parent'
-              THEN json_extract(payload_json, '$.parentCompletion') ELSE payload_json END,
-            '$.task', '$.completion.resultText', '$.completion.fallbackResultText',
-            '$.completion.terminalReply', '$.delivery.payload', '$.delivery.lastError',
-            '$.execution.outcome.error', '$.collectorCompletion.structured',
-            '$.collectorCompletion.schemaError', '$.outputSchema', '$.structuredOutput', '$.queuedLaunch'
-          ) ELSE payload_json END`.as("payload_json"),
+            subagentMetadataPayload.as("payload_json"),
           ]);
           return controllerSessionKeys
             ? selected.where(subagentControllerFilter(controllerSessionKeys))
@@ -483,6 +524,18 @@ export function loadSubagentRegistryFromSqlite(): Map<string, SubagentRunRecord>
     const entry = rowToSubagentRunRecord(row);
     if (entry) {
       runs.set(entry.runId, entry);
+    }
+  }
+  return runs;
+}
+
+/** Uses the canonical codec without transferring retained prompts and completion results. */
+export function loadSubagentMaintenanceRunsFromSqlite(): Map<string, SubagentRunMaintenanceRecord> {
+  const runs = new Map<string, SubagentRunMaintenanceRecord>();
+  for (const row of readSubagentRegistryRows(undefined, undefined, "maintenance")) {
+    const entry = rowToSubagentRunRecord(row);
+    if (entry) {
+      runs.set(entry.runId, projectSubagentRunForMaintenance(entry));
     }
   }
   return runs;

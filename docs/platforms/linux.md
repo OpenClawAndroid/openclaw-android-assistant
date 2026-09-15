@@ -46,6 +46,17 @@ When connecting to an older Gateway whose dashboard does not support this layout
 the companion keeps the system title bar. Update the Gateway to enable the unified
 window controls.
 
+The local startup, setup, recovery, Gateway manager, and Quick Chat screens share
+light and dark styling and follow system appearance changes while open. Connection
+drafts, credential visibility, and Quick Chat replies stay intact. The connected
+dashboard retains its own web UI appearance setting.
+
+Remote setup and Connection Settings use one **Authentication** choice for token
+or password. **Show credential** reveals the entered value; switching types clears
+the draft and masks the new field. Press Enter or **Connect to Gateway** to connect.
+In Connection Settings, blank credentials reuse the saved credentials for the same
+endpoint.
+
 ### Desktop compatibility
 
 Published AMD64 AppImages are built on Ubuntu 22.04 and require glibc 2.35 or

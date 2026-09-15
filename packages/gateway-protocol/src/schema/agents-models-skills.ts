@@ -64,6 +64,8 @@ const ModelUnavailableReasonSchema = Type.Union([
 
 const ModelRuntimeProperties = {
   available: Type.Optional(Type.Boolean()),
+  /** Scoped manual-choice permission; separate from runtime readiness and automatic selection. */
+  manualSelectionAllowed: Type.Optional(Type.Boolean()),
   unavailableReason: Type.Optional(ModelUnavailableReasonSchema),
   /** Earliest known retry time in epoch milliseconds, only for unavailable models. */
   unavailableUntil: Type.Optional(Type.Integer({ minimum: 0 })),

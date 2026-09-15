@@ -1693,17 +1693,37 @@ def assign_and_verify_ci_testflight_internal_group!(group_id:, app_store_version
   end
   build = builds.first
 
-  # Fastlane's groups option matches both names and IDs. Assign the freshly
-  # resolved group directly so a concurrent display-name collision cannot widen access.
-  build.add_beta_groups(beta_groups: [group])
+  build_group_ids = lambda do |groups|
+    groups.select do |candidate_group|
+      candidate_group.fetch_builds.any? { |candidate| candidate.id == build.id }
+    end.map(&:id)
+  end
+  current_groups = app.get_beta_groups
+  group = select_ci_testflight_internal_group_by_id!(groups: current_groups, group_id: group_id)
+  current_group_ids = build_group_ids.call(current_groups)
+  unless (current_group_ids - [group_id]).empty?
+    UI.user_error!("Uploaded TestFlight build is assigned outside the configured internal group.")
+  end
+  unless current_group_ids.include?(group_id)
+    # Do not explicitly assign automatic groups. Their flag is not proof
+    # of access: require the exact build relationship before accepting success.
+    unless group.has_access_to_all_builds == false
+      UI.user_error!("Uploaded TestFlight build is not assigned to the configured internal group.")
+    end
+    # Relationship reads can outlive a group change. Revalidate immediately
+    # before assigning by immutable ID, never by Fastlane's name-or-ID option.
+    group = select_ci_testflight_internal_group_by_id!(groups: app.get_beta_groups, group_id: group_id)
+    unless group.has_access_to_all_builds == false
+      UI.user_error!("Uploaded TestFlight build is not assigned to the configured internal group.")
+    end
+    build.add_beta_groups(beta_groups: [group])
+  end
   verified_groups = app.get_beta_groups
   verified_group = select_ci_testflight_internal_group_by_id!(
     groups: verified_groups,
     group_id: group_id
   )
-  assigned_group_ids = verified_groups.select do |candidate_group|
-    candidate_group.fetch_builds.any? { |candidate| candidate.id == build.id }
-  end.map(&:id)
+  assigned_group_ids = build_group_ids.call(verified_groups)
   unless assigned_group_ids.include?(group_id)
     UI.user_error!("Uploaded TestFlight build is not assigned to the configured internal group.")
   end

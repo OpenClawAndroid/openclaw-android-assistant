@@ -272,6 +272,7 @@ describe("resolveLogicalVisibleModelCatalog", () => {
         defaults: {
           model: { primary: "demo/primary" },
           models: { "demo/alias-key": { alias: "legacy" } },
+          modelPolicy: {},
         },
       },
     } as OpenClawConfig;

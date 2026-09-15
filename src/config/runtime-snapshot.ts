@@ -15,6 +15,7 @@ import type { OpenClawConfig } from "./types.js";
 
 export type RuntimeConfigSnapshotRefreshOptions = {
   includeAuthStoreRefs?: boolean;
+  requireImmediateApplication?: boolean;
 };
 
 export type RuntimeConfigSnapshotRefreshParams = RuntimeConfigSnapshotRefreshOptions & {
@@ -481,6 +482,11 @@ export async function preflightManagedRuntimeConfigWrite(
 ): Promise<Map<symbol, RuntimeConfigWritePreparedCandidate>> {
   const owners = managedRuntimeConfigWriteOwners.get(configPath);
   if (!owners) {
+    if (refreshOptions?.requireImmediateApplication) {
+      throw new Error(
+        "The Gateway cannot apply this activation. Start the Gateway, then retry the saved sign-in.",
+      );
+    }
     return new Map();
   }
   const preparedCandidates = new Map<symbol, RuntimeConfigWritePreparedCandidate>();
@@ -578,6 +584,11 @@ export async function preflightRuntimeSnapshotWrite(params: {
   createRefreshError: (detail: string, cause: unknown) => Error;
   formatRefreshError: (error: unknown) => string;
 }): Promise<unknown> {
+  if (params.refreshOptions?.requireImmediateApplication) {
+    throw new Error(
+      "The Gateway cannot apply this activation. Start the Gateway, then retry the saved sign-in.",
+    );
+  }
   const refreshHandler = getRuntimeConfigSnapshotRefreshHandler();
   if (!refreshHandler?.preflight) {
     return undefined;

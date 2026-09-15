@@ -2873,11 +2873,18 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
   });
 
   it("recomputes a model-derived thinking default for each fallback candidate", async () => {
+    const policyModule = await import("./model-visibility-policy.js");
+    const { createModelVisibilityPolicyWithFallbacks } =
+      await import("./model-selection-shared.js");
+    vi.spyOn(policyModule, "createModelVisibilityPolicy").mockImplementation((params) =>
+      createModelVisibilityPolicyWithFallbacks({ ...params, fallbackModels: [] }),
+    );
     setupStoredSession();
     state.runtimeConfigMock = {
       agents: {
         defaults: {
           model: { primary: "openai/gpt-5.6-sol" },
+          modelPolicy: { allow: ["openai/manual-only"] },
           models: {
             "openai/gpt-5.6-sol": {
               agentRuntime: { id: "codex" },
@@ -4212,13 +4219,28 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     {
       name: "validates explicit thinking against configured model compat without an allowlist",
       allowlisted: false,
+      excluded: false,
     },
     {
       name: "validates explicit thinking against allowlisted configured model compat when manifest catalog is empty",
       allowlisted: true,
+      excluded: false,
     },
-  ])("$name", async ({ allowlisted }) => {
-    state.runtimeConfigMock = createConfiguredModelCompatRuntimeConfig(allowlisted);
+    {
+      name: "retains automatic-primary thinking metadata outside the manual allowlist",
+      allowlisted: true,
+      excluded: true,
+    },
+  ])("$name", async ({ allowlisted, excluded }) => {
+    if (excluded) {
+      const policyModule = await import("./model-visibility-policy.js");
+      const { createModelVisibilityPolicyWithFallbacks } =
+        await import("./model-selection-shared.js");
+      vi.spyOn(policyModule, "createModelVisibilityPolicy").mockImplementation((params) =>
+        createModelVisibilityPolicyWithFallbacks({ ...params, fallbackModels: [] }),
+      );
+    }
+    state.runtimeConfigMock = createConfiguredModelCompatRuntimeConfig(allowlisted, excluded);
     if (allowlisted) {
       state.loadManifestModelCatalogMock.mockReturnValue([]);
     }

@@ -139,8 +139,10 @@ function fixture(
   git(["config", "--add", `url.file://${remote}.insteadOf`, "https://github.com/fixture/repo.git"]);
   const worktree = join(repo, ".worktrees/pr-123");
   git(["worktree", "add", "-q", "-b", "pr-123-prep", worktree, head]);
+  // Match the real repository: native review artifacts are ignored generated files.
+  writeFileSync(join(repo, ".git/info/exclude"), ".local/\n");
   mkdirSync(join(worktree, ".local"));
-  const prepare = (preparedHead: string, main = base) => {
+  const prepare = (preparedHead: string, main = base, localHead = preparedHead) => {
     const review = validReview(preparedHead);
     review.pr.number = 123;
     review.recommendation = "READY FOR /prepare-pr";
@@ -148,7 +150,7 @@ function fixture(
     writeReviewArtifacts(worktree, review, { headSha: preparedHead, prNumber: 123 });
     writeFileSync(
       join(worktree, ".local/prep.env"),
-      `PR_NUMBER=123\nPREP_HEAD_SHA=${preparedHead}\nLOCAL_PREP_HEAD_SHA=${preparedHead}\nPREP_MAINLINE_BASE_SHA=${main}\nPREP_REPLACED_HOSTED_ANCESTRY=false\nPREP_AUTHOR_ACCESS=external\n`,
+      `PR_NUMBER=123\nPREP_HEAD_SHA=${preparedHead}\nLOCAL_PREP_HEAD_SHA=${localHead}\nPREP_MAINLINE_BASE_SHA=${main}\nPREP_REPLACED_HOSTED_ANCESTRY=false\nPREP_AUTHOR_ACCESS=external\n`,
     );
     writeFileSync(
       join(worktree, ".local/prep-context.env"),
@@ -156,7 +158,7 @@ function fixture(
     );
     writeFileSync(
       join(worktree, ".local/gates.env"),
-      `PR_NUMBER=123\nGATES_MODE=full\nLAST_VERIFIED_HEAD_SHA=${preparedHead}\n`,
+      `PR_NUMBER=123\nGATES_MODE=full\nLAST_VERIFIED_HEAD_SHA=${localHead}\n`,
     );
     writeFileSync(join(worktree, ".local/prep.md"), "Prepared fixture.\n");
   };
@@ -1275,7 +1277,8 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
       const previous = f.git(["rev-parse", outcomeRef]);
       const previousRecord = f.record();
       if (replacement) {
-        writeFileSync(join(f.worktree, ".gitattributes"), "*.log text eol=lf\n");
+        // Configure the byte-filter sentinel without adding unpublished work.
+        writeFileSync(join(f.repo, ".git/info/attributes"), "*.log text eol=lf\n");
         const capture = join(f.worktree, ".local", f.captures()[0]![0]);
         writeFileSync(capture, readFileSync(capture, "utf8") + "Capture byte sentinel\r\n");
       }
@@ -1953,7 +1956,7 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
     );
     // A valid retained record with criss-cross (or unrelated) source/main history.
     const previous = f.git(["rev-parse", outcomeRef]);
-    const record = { ...f.record(), head, main };
+    const record = { ...f.record(), head, localHead: head, main };
     const blob = f.git(["hash-object", "-w", "--stdin"], JSON.stringify(record));
     const tree = f.git(["mktree"], `100644 blob ${blob}\toutcome.json\n`);
     f.git(["update-ref", outcomeRef, f.commit(tree, [head, main, previous])]);
@@ -2642,6 +2645,38 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
     expect(f.record().phase).toBe("complete");
     expect(f.state().posts).toBe(1);
   });
+
+  it.each([false, true])(
+    "checks local/hosted preparation before cleanup (different tree=%s)",
+    (differentTree) => {
+      const f = fixture();
+      const localHead = f.commit(
+        f.tree(differentTree ? "unpublished\n" : "after\n"),
+        [f.base],
+        "Local prepared commit\n",
+      );
+      f.git(["-C", f.worktree, "reset", "--hard", localHead]);
+      f.prepare(f.head, f.base, localHead);
+      const run = f.run();
+      if (differentTree) {
+        expect(run.status, run.output).not.toBe(0);
+        expect(f.state().mutations).toBe(0);
+        expect(f.git(["rev-parse", "pr-123-prep"])).toBe(localHead);
+        expect(existsSync(f.worktree)).toBe(true);
+      } else {
+        expect(run.status, run.output).toBe(0);
+        expect(run.output).not.toContain("cleanup pending");
+        expect(f.record().phase).toBe("complete");
+        expect(existsSync(f.worktree)).toBe(false);
+        expect(f.git(["for-each-ref", "--format=%(refname)", "refs/heads/pr-123-prep"])).toBe("");
+        // Both verified identities survive removal of all disposable prepare artifacts.
+        f.git(["merge-base", "--is-ancestor", localHead, outcomeRef]);
+        f.git(["reflog", "expire", "--expire=now", "--all"]);
+        f.git(["gc", "--prune=now"]);
+        expect(f.git(["show", `${localHead}:owner.txt`])).toBe("after");
+      }
+    },
+  );
 });
 
 describePosix("merge_outcome_repo_identity", () => {

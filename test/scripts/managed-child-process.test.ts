@@ -202,7 +202,7 @@ sys.exit(result.returncode)
 import fs from 'node:fs';
 import { runTsxCliShim } from ${JSON.stringify(moduleUrl("scripts/lib/tsx-cli-shim.mjs"))};
 ${publish(0)}
-await runTsxCliShim(import.meta.url, { implementation: './implementation.mts', forceKillDelayMs: 10000 });
+await runTsxCliShim(import.meta.url, { implementation: './implementation.mts', detached: true, forceKillDelayMs: 10000 });
 `,
     );
     fs.writeFileSync(

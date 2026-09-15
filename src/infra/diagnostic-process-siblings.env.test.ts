@@ -163,7 +163,7 @@ it.each([
       expect(reports.length).toBeGreaterThan(0);
       for (const { command, report } of reports) {
         expect.soft(report, `${command} inherited canary presence`).toEqual({
-          present: Object.fromEntries(Object.keys(diagnosticCanaries).map((key) => [key, false])),
+          defined: Object.fromEntries(Object.keys(diagnosticCanaries).map((key) => [key, false])),
           routingPreserved: true,
         });
       }

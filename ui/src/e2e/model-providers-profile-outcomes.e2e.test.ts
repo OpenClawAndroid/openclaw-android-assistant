@@ -209,7 +209,7 @@ suite.define(() => {
         const response = await page.goto(`${suite.server.baseUrl}settings/model-providers`);
         expect(response?.status()).toBe(200);
         await gateway.waitForRequest("agents.list");
-        const pageScope = page.locator(".agent-scope-control openclaw-agent-select");
+        const pageScope = page.locator(".settings-sidebar__agent openclaw-agent-select");
         await pageScope.locator(".agent-select__trigger").click();
         await pageScope
           .locator("wa-dropdown-item[data-agent-option]")

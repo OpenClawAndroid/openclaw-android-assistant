@@ -2246,6 +2246,17 @@ describe("scripts/test-projects changed-target routing", () => {
     });
   });
 
+  it.each([
+    "src/gateway/health/collector.queue-health.test.ts",
+    "src/gateway/server-methods/server-methods.test.ts",
+  ])("routes health SQLite consumer %s exactly once to its broker owner", (testFile) => {
+    expectSingleVitestRunPlan(buildVitestRunPlans([testFile]), {
+      config: "test/vitest/vitest.gateway-database-workers.config.ts",
+      includePatterns: [testFile],
+    });
+    expect(gatewayDatabaseWorkerTestFiles.filter((file) => file === testFile)).toEqual([testFile]);
+  });
+
   it.each(gatewayDatabaseWorkerTestFiles)(
     "routes Gateway database consumer %s to its fork owner",
     (testFile) => {
@@ -2312,6 +2323,15 @@ describe("scripts/test-projects changed-target routing", () => {
     },
   );
 
+  it("routes the schema-upgrade counter consumer exactly once to its broker owner", () => {
+    const testFile = "src/state/openclaw-state-db.test.ts";
+    expectSingleVitestRunPlan(buildVitestRunPlans([testFile]), {
+      config: "test/vitest/vitest.infra.config.ts",
+      includePatterns: [testFile],
+    });
+    expect(databaseWorkerCoreTestFiles.filter((file) => file === testFile)).toEqual([testFile]);
+  });
+
   it.each(databaseWorkerCoreTestFiles)(
     "routes host-owned database consumer %s to the infra fork shard",
     (testFile) => {
@@ -2322,15 +2342,19 @@ describe("scripts/test-projects changed-target routing", () => {
     },
   );
 
-  it.each(["src/plugin-sdk/memory-host-events.ts", "src/plugin-sdk/persistent-dedupe.ts"])(
-    "preserves database consumer coverage for source target %s",
-    (sourceFile) => {
-      expectSingleVitestRunPlan(buildVitestRunPlans([sourceFile]), {
-        config: "test/vitest/vitest.infra.config.ts",
-        includePatterns: ["src/plugin-sdk/memory-host-events.test.ts"],
-      });
-    },
-  );
+  it.each([
+    ["src/plugin-sdk/memory-host-events.ts", "src/plugin-sdk/memory-host-events.test.ts"],
+    ["src/plugin-sdk/persistent-dedupe.ts", "src/plugin-sdk/memory-host-events.test.ts"],
+    [
+      "src/wizard/setup.inference-recovery.integration.test.ts",
+      "src/wizard/setup.inference-recovery.integration.test.ts",
+    ],
+  ])("preserves database consumer coverage for source target %s", (sourceFile, testFile) => {
+    expectSingleVitestRunPlan(buildVitestRunPlans([sourceFile]), {
+      config: "test/vitest/vitest.infra.config.ts",
+      includePatterns: [testFile],
+    });
+  });
 
   it.each([
     ["src/agents/**/*.test.ts", "test/vitest/vitest.agents.config.ts"],
@@ -3078,7 +3102,8 @@ describe("scripts/test-projects changed-target routing", () => {
     "src/cli/program/subcli-descriptors.test.ts",
     "src/cli/state-dir-gateway-check.process.test.ts",
     "src/cli/state-dir-gateway-check.server.test.ts",
-  ])("routes CLI process test %s through its isolated project", (file) => {
+    "src/state/openclaw-database-verify.process.test.ts",
+  ])("routes source-child process test %s through its isolated project", (file) => {
     expectSingleVitestRunPlan(buildVitestRunPlans([file]), {
       config: "test/vitest/vitest.cli-process.config.ts",
       includePatterns: [file],
@@ -3100,6 +3125,47 @@ describe("scripts/test-projects changed-target routing", () => {
     );
     expect(processPlan?.includePatterns).toContain("src/cli/help-exit.process.test.ts");
     expect(processPlan?.includePatterns).toContain("src/cli/update-dry-run-state.process.test.ts");
+  });
+
+  it.each(["src/state", "src/state/", "src/state/**/*.test.ts"])(
+    "adds the verifier process project for broad state target %s",
+    (target) => {
+      const plans = buildVitestRunPlans([target]);
+      expect(plans.map((plan) => plan.config)).toContain("test/vitest/vitest.unit.config.ts");
+      expect(
+        plans.filter((plan) => plan.config === "test/vitest/vitest.cli-process.config.ts"),
+      ).toEqual([
+        {
+          config: "test/vitest/vitest.cli-process.config.ts",
+          forwardedArgs: [],
+          includePatterns: ["src/state/openclaw-database-verify.process.test.ts"],
+          watchMode: false,
+        },
+      ]);
+    },
+  );
+
+  it("deduplicates the verifier process selected by a state directory and exact leaf", () => {
+    const plans = buildVitestRunPlans([
+      "src/state",
+      "src/state/openclaw-database-verify.process.test.ts",
+    ]);
+    expect(
+      plans.filter((plan) => plan.config === "test/vitest/vitest.cli-process.config.ts"),
+    ).toEqual([
+      {
+        config: "test/vitest/vitest.cli-process.config.ts",
+        forwardedArgs: [],
+        includePatterns: ["src/state/openclaw-database-verify.process.test.ts"],
+        watchMode: false,
+      },
+    ]);
+  });
+
+  it("does not fan out the verifier for an unrelated exact state test", () => {
+    expect(
+      buildVitestRunPlans(["src/state/openclaw-database.test.ts"]).map((plan) => plan.config),
+    ).not.toContain("test/vitest/vitest.cli-process.config.ts");
   });
 
   it("rejects broad CLI watch targets that cross shared and process projects", () => {
@@ -3189,6 +3255,7 @@ describe("scripts/test-projects changed-target routing", () => {
         config: "test/vitest/vitest.commands.config.ts",
         includePatterns: [
           "src/commands/onboard-non-interactive.gateway-auth-token.test.ts",
+          "src/commands/onboard-non-interactive.gateway-health-auth.test.ts",
           "src/commands/onboard-non-interactive.gateway.test.ts",
         ],
       },

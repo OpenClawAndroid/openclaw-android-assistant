@@ -8,6 +8,17 @@ Dashboard widgets and browser panels load inside the app. Browser tabs belong to
 
 Reading tabs share a private browser session, isolated from the dashboard's native commands and authentication scripts. Closing every reading tab, switching Gateways, or quitting the app ends that private session. Reloading the dashboard retains its tabs. Sign-in links and **Open in browser** continue to use your system browser.
 
+Startup, setup, connection recovery, Manage Gateways, and Quick Chat share the
+web UI's typography and light/dark palettes. They follow system appearance changes
+while open, preserving connection drafts, credential visibility, and Quick Chat
+replies. The connected dashboard retains its own web UI appearance setting.
+
+During remote setup or in Connection Settings, choose token or password under
+**Authentication**. **Show credential** reveals only what you entered; changing
+authentication types clears that draft and masks the new field. Press Enter or
+**Connect to Gateway** to connect. Leave credentials blank in Connection Settings
+to reuse saved credentials for the same endpoint.
+
 The tray's **Stop Gateway** and **Restart Gateway** actions request graceful shutdown. Running work can delay completion; **Start Gateway** brings a stopped local Gateway back online.
 
 After a connection drops, the companion keeps reconnecting while the service state is unknown. **Start Gateway** remains available only for a confirmed stopped service.

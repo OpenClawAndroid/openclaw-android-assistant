@@ -166,6 +166,11 @@ const DEFAULT_REDACT_PREFILTER_RE = new RegExp(
   "iu",
 );
 
+// Whole decoded fields also admit prefixes whose boundaries differ under Unicode case folding.
+// Keep the shared text probe unchanged: its chunked matching has separate boundary semantics.
+const DECODED_REDACT_EXTRA_TRIGGERS_RE =
+  /JWT|SG\.|Bearer\s+|am_|sk_|(?<!\d)\d{6,}:[A-Za-z0-9_-]{20,}/i;
+
 type RedactOptions = {
   mode?: RedactSensitiveMode;
   patterns?: readonly RedactPattern[];
@@ -1588,24 +1593,26 @@ export function redactLogRecordForTransport(
         materialized = Object.fromEntries(entries);
       }
     }
+    const serialized = message ? JSON.stringify(materialized) : json;
+    const decodedPatterns = options.decodedOptions?.patterns ?? resolved.patterns;
     const result: Record<string, unknown> = JSON.parse(
       redactJsonRecord(
-        message ? JSON.stringify(materialized) : json,
+        serialized,
         origins,
-        [
-          options.decodedOptions?.patterns ?? resolved.patterns,
-          [...preparationPatterns, ...resolved.patterns],
-        ],
+        [decodedPatterns, [...preparationPatterns, ...resolved.patterns]],
         (match, pattern, project) => getRedactionEdit(match, pattern, undefined, project),
         options.format === "console" ? () => [] : getLegacyFieldRecordEdits,
         (field) => getFieldRecordEdits(field, resolved.mode),
         (field) => getTextRecordEdits(field, resolved.mode, options.format !== "console"),
-        (field) =>
-          options.format === "console"
+        (field, currentValue) =>
+          (options.format === "console"
             ? field.path.length === 1 && CONSOLE_STRUCTURAL_FIELDS.has(field.key)
             : !field.origin.structured ||
               field.origin.primitiveMask ||
-              isPublicShareIdPath(field.path),
+              isPublicShareIdPath(field.path)) ||
+          (decodedPatterns === defaultResolvedPatterns &&
+            !couldMatchDefaultRedactPatterns(currentValue) &&
+            !DECODED_REDACT_EXTRA_TRIGGERS_RE.test(currentValue)),
         message,
       ),
     );

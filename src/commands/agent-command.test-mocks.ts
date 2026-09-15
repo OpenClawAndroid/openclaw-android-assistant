@@ -201,6 +201,7 @@ vi.mock("../agents/model-selection.js", () => {
         const allowsKey = (key: string) => allowAny || isModelKeyAllowedBySet(refs, key);
         return {
           allowAny,
+          catalog,
           allowedKeys: refs,
           allowedCatalog: catalog,
           exactModelRefs: policyRefs.filter((key) => !key.endsWith("/*")),

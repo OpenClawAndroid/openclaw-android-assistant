@@ -646,7 +646,12 @@ describe("session list requests", () => {
       const { gateway, emitEvent } = createGatewayHarness(client);
       const sessions = createTestSessionCapability(gateway);
       const query = { agentId: "main", archivedFilter: "archived" as const, limit: 17 };
-      const unsubscribe = sessions.subscribeList(query, () => undefined);
+      const readThreeObserved = createDeferred();
+      const unsubscribe = sessions.subscribeList(query, (next) => {
+        if (next.result?.sessions[0]?.label === "Read 3") {
+          readThreeObserved.resolve();
+        }
+      });
       const event = {
         type: "event",
         event: "sessions.changed",
@@ -667,6 +672,9 @@ describe("session list requests", () => {
         await vi.advanceTimersByTimeAsync(SESSION_EVENT_REFRESH_DEBOUNCE_MS);
         second.resolve(sessionsResult([row(2)], 2));
         await Promise.all([initial, forced]);
+        if (eventTiming === "after") {
+          await readThreeObserved.promise;
+        }
         expect.soft(managedCalls).toBe(eventTiming === "before" ? 2 : 3);
         expect(sessions.listSnapshot(query).result?.sessions[0]?.label).toBe(
           eventTiming === "before" ? "Read 2" : "Read 3",
@@ -923,7 +931,12 @@ describe("session list requests", () => {
       });
       const { sessions, publish } = sessionHarness(request);
       const query = { hasBoard: true };
-      const unsubscribe = sessions.subscribeList(query, () => undefined);
+      const recoveredObserved = createDeferred();
+      const unsubscribe = sessions.subscribeList(query, (next) => {
+        if (next.result?.sessions[0]?.key === "agent:main:recovered") {
+          recoveredObserved.resolve();
+        }
+      });
       try {
         await sessions.refreshList(query);
         fail = true;
@@ -953,6 +966,7 @@ describe("session list requests", () => {
           pending.reject(error);
           await refresh;
         }
+        await recoveredObserved.promise;
         expect(sessions.listSnapshot(query).result?.sessions[0]?.key).toBe("agent:main:recovered");
         expect(sessions.listSnapshot(query).error).toBeNull();
         expect(request.mock.calls.filter(([, params]) => params?.hasBoard)).toHaveLength(3);

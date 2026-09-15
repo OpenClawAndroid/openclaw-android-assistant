@@ -1,4 +1,4 @@
-import { fork } from "node:child_process";
+import { ChildProcess, fork } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -9,6 +9,7 @@ import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import * as nodeSqlite from "./node-sqlite.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import * as processUrls from "./runtime-process-url.js";
+import { SqliteIntegrityWorkerInterruptedError } from "./sqlite-integrity-worker-error.js";
 import { assertSqliteIntegrityInWorker } from "./sqlite-integrity-worker.js";
 import {
   assertSqliteIntegrity,
@@ -561,6 +562,28 @@ describe("confirmSqliteFileIntegrity", () => {
 
 describe("SQLite integrity child", () => {
   afterEach(() => vi.restoreAllMocks());
+  it("reports a SIGTERM close without an integrity verdict as an interruption", async () => {
+    const root = tempDirs.make("openclaw-integrity-signal-");
+    const source = path.join(root, "source.sqlite");
+    fs.writeFileSync(source, "retained source");
+    const worker = new ChildProcess();
+    worker.send = vi.fn(() => {
+      queueMicrotask(() => worker.emit("close", null, "SIGTERM"));
+      return true;
+    });
+    vi.mocked(fork).mockReturnValueOnce(worker);
+    const failure = await assertSqliteIntegrityInWorker(
+      source,
+      250,
+      new AbortController().signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(SqliteIntegrityWorkerInterruptedError);
+    expect(failure).toMatchObject({ signal: "SIGTERM" });
+    expect(failure).not.toMatchObject({ name: "SqliteIntegrityError" });
+    expect(fs.readFileSync(source, "utf8")).toBe("retained source");
+  });
+
   it.each([
     { label: "empty", paddingBytes: null, minimumSize: 0, maximumSize: 0, timeout: 300_000 },
     {

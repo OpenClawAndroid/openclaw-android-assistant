@@ -9,6 +9,7 @@ import {
   replaceSessionEntry,
 } from "../config/sessions/session-accessor.js";
 import type { SessionEntry } from "../config/sessions/types.js";
+import type { ModelDefinitionConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   onSessionLifecycleEvent,
@@ -154,6 +155,62 @@ beforeEach(() => {
 afterEach(() => unsubscribeLifecycle());
 
 describe("applySessionModelSelection", () => {
+  it.each([false, true])("uses configured default only with reset intent=%s", async (reset) => {
+    const modelCatalog = [
+      { provider: "fixture", id: "automatic", name: "Automatic" },
+      { provider: "fixture", id: "manual", name: "Manual" },
+    ];
+    const sessionEntry = createEntry({ providerOverride: "fixture", modelOverride: "manual" });
+    const result = await applySessionModelSelection(
+      createParams({
+        cfg: {
+          agents: {
+            defaults: {
+              model: "fixture/automatic",
+              modelPolicy: { allow: ["fixture/manual"] },
+            },
+          },
+          models: {
+            providers: {
+              fixture: {
+                api: "openai-completions",
+                baseUrl: "https://fixture.invalid/v1",
+                models: modelCatalog.map<ModelDefinitionConfig>(({ id, name }) => ({
+                  id,
+                  name,
+                  reasoning: false,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  maxTokens: 4_096,
+                })),
+              },
+            },
+          },
+        },
+        sessionEntry,
+        defaultProvider: "fixture",
+        defaultModel: "stale-default-hint",
+        currentProvider: "fixture",
+        currentModel: "manual",
+        modelCatalog,
+        thinkingCatalog: modelCatalog,
+        request: {
+          provider: "fixture",
+          model: reset ? "manual" : "automatic",
+          isDefault: true,
+          ...(reset ? { resetToDefault: true as const } : {}),
+          runtime: { kind: "unchanged" },
+        },
+      }),
+    );
+    expect(result).toMatchObject(
+      reset
+        ? { status: "applied", provider: "fixture", model: "automatic" }
+        : { status: "rejected", reason: "not-allowed" },
+    );
+    expect(sessionEntry.modelOverride).toBe(reset ? undefined : "manual");
+  });
+
   it("uses selected route metadata for context and thinking outside the prepared inventory", async () => {
     const selected: ModelCatalogEntry = {
       provider: "fixture-route",

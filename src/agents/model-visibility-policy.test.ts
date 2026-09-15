@@ -131,7 +131,7 @@ describe("explicit model visibility policy", () => {
     expect(policy.allows({ provider: "anthropic", model: "claude-sonnet-4-6" })).toBe(false);
   });
 
-  it("keeps configured fallbacks failover-only while retaining the configured primary", () => {
+  it("retains automatic defaults and fallbacks without permitting manual overrides", () => {
     const policy = createPolicy({
       agents: {
         defaults: {
@@ -144,7 +144,11 @@ describe("explicit model visibility policy", () => {
       },
     });
 
-    expect(policy.allows({ provider: "openai", model: "gpt-5.5" })).toBe(true);
+    expect(policy.allows({ provider: "openai", model: "gpt-5.5" })).toBe(false);
+    expect(policy.resolveSelection({ provider: "openai", model: "gpt-5.5" })).toEqual({
+      provider: "openai",
+      model: "gpt-5.5",
+    });
     expect(policy.allows({ provider: "openai", model: "safe" })).toBe(true);
     expect(policy.allows({ provider: "external", model: "sensitive" })).toBe(false);
     expect(
@@ -155,6 +159,25 @@ describe("explicit model visibility policy", () => {
     expect(policy.retainedKeys).toEqual(
       new Set(['["openai","gpt-5.5"]', '["external","sensitive"]']),
     );
+  });
+
+  it("does not widen an unresolved legacy restriction while preserving its automatic default", () => {
+    const policy = createModelVisibilityPolicy({
+      cfg: { agents: { defaults: { models: { "/": {} }, model: "fixture/automatic" } } },
+      catalog: [{ provider: "fixture", id: "other", name: "Other" }],
+      defaultProvider: "fixture",
+      defaultModel: "automatic",
+      allowManifestNormalization: false,
+      allowPluginNormalization: false,
+    });
+    expect(policy.allowAny).toBe(false);
+    expect(policy.allowedCatalog).toEqual([]);
+    expect(policy.allows({ provider: "fixture", model: "other" })).toBe(false);
+    expect(policy.allows({ provider: "fixture", model: "automatic" })).toBe(false);
+    expect(policy.resolveSelection({ provider: "fixture", model: "automatic" })).toEqual({
+      provider: "fixture",
+      model: "automatic",
+    });
   });
 
   it("allows a configured fallback when the explicit policy also allows it", () => {

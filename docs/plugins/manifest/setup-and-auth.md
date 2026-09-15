@@ -31,6 +31,8 @@ to `false`. New configuration files persist `false` for the host-generated catal
 inventory, including installable official plugins. Explicit values are always kept.
 These opt-out-only entries do not request installation or widen a plugin allowlist;
 an explicit plugin selection or other authored configuration still does.
+They also do not produce disabled-plugin config warnings. Existing opt-outs remain
+valid and need no Doctor rewrite; removing one can restore legacy discovery behavior.
 
 The host-generated `legacyDefaultEnabled: true` declaration preserves the shipped
 Claude/Codex implicit-on behavior only for existing readable configurations. It is

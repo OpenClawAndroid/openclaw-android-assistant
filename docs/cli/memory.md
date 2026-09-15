@@ -97,6 +97,9 @@ both groups without reindexing their retained transcripts. Ordinary retained,
 reset, and deleted user-session archives remain eligible until explicitly
 targeted.
 
+Full rebuilds wait for temporary database cleanup before reporting completion.
+File removal runs asynchronously so cleanup does not block the Gateway event loop.
+
 When an embedding provider rate-limits indexing, each embedding operation gets
 up to five attempts. Retries honor valid provider cooldown hints, capped at
 60 seconds per wait. Other transient errors keep the shorter three-attempt

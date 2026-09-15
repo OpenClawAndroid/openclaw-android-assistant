@@ -199,7 +199,7 @@ async function deliverWithProducerLease(
           lease,
         );
       } finally {
-        lease.stop();
+        await lease.stop();
       }
     },
     { unbound: questionBinding === "unbound" },
@@ -293,7 +293,7 @@ async function runOutboundDeliveryWithQueue(
       (await prepareOutboundPayloadBatch(params, {
         onBeforeFirstModifier: stablePreparationOwner?.beforeFirstModifier,
       }));
-    stablePreparationOwner?.markPrepared();
+    await stablePreparationOwner?.markPrepared();
   } catch (error) {
     emitPreQueueFailure();
     // Preparation aborts the whole batch, so hooks get one failure per

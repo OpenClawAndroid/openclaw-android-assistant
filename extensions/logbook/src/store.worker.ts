@@ -468,7 +468,25 @@ class LogbookDatabaseStore {
     runSqliteImmediateTransactionSync(
       this.db,
       () => {
-        const frames = selectKeyframes ? this.framesInRange(startMs, endMs) : undefined;
+        const frames = selectKeyframes
+          ? executeSqliteQuerySync(
+              this.db,
+              this.framesQuery
+                .clearSelect()
+                // Keep every numeric field so native overflow still rejects before deletion.
+                .select([
+                  "id",
+                  "captured_at_ms",
+                  "screen_index",
+                  "width",
+                  "height",
+                  "byte_size",
+                  "idle",
+                ])
+                .where("captured_at_ms", ">=", startMs)
+                .where("captured_at_ms", "<", endMs),
+            ).rows.map((row) => ({ id: row.id, capturedAtMs: row.captured_at_ms }))
+          : undefined;
         this.statements.deleteCards({ day, startMs, endMs });
         for (const draft of drafts) {
           const keyframeId = frames ? pickKeyframeId(draft, frames) : draft.keyframeId;

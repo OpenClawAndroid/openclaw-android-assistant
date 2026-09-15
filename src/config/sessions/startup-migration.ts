@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { formatCliCommand } from "../../cli/command-format.js";
+import { readDeferredPluginMigrations } from "../../infra/deferred-plugin-migrations.js";
+import {
+  deferredPluginSessionStoreIds,
+  readDeferredPluginSessionImport,
+} from "../../infra/deferred-plugin-session-sources.js";
 import { formatDoctorStateRepairFailure } from "../../infra/state-repair-message.js";
 import { readAgentDatabaseAdmissionRefusal } from "../../state/agent-database-admission.js";
 import { readAgentDeletionJournal } from "../../state/agent-deletion-journal.js";
@@ -21,7 +26,8 @@ import {
   isCanonicalSqliteSessionMainKeyCurrent,
   setCanonicalSqliteSessionMainKey,
 } from "./session-canonical-key.js";
-import { resolveAllAgentSessionStoreTargetsSync } from "./targets.js";
+import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
+import { resolveAllAgentSessionStoreTargetsSync, resolveSessionStoreTargets } from "./targets.js";
 import { migrateManagedWorktreeCanonicalWorkspaces } from "./worktree-workspace-migration.js";
 
 export type SessionStartupMigrationLogger = Record<"info" | "warn", (message: string) => void>;
@@ -38,10 +44,52 @@ export function assertSessionStoreMigrationComplete(params: {
   ).filter(
     (target) => !target.agentId || !readAgentDatabaseAdmissionRefusal(target.agentId, { env }),
   );
-  const legacyStore = [
-    path.join(resolveStateDir(env), "sessions", "sessions.json"),
-    ...targets.map((target) => target.storePath),
-  ].find((storePath) => !storePath.endsWith(".sqlite") && fs.existsSync(storePath));
+  const pending = readDeferredPluginMigrations({ env });
+  const legacyRootStore = path.join(resolveStateDir(env), "sessions", "sessions.json");
+  const legacyTargets = fs.existsSync(legacyRootStore)
+    ? resolveSessionStoreTargets(params.cfg, { allAgents: true }, { env }).map((target) => ({
+        agentId: target.agentId,
+        sqlitePath: resolveSqliteTargetFromSessionStorePath(target.storePath, {
+          agentId: target.agentId,
+          env,
+        }).path,
+        storePath: legacyRootStore,
+      }))
+    : [];
+  const sources: readonly { agentId?: string; storePath: string; sqlitePath?: string }[] = [
+    ...(legacyTargets.length > 0 ? legacyTargets : [{ storePath: legacyRootStore }]),
+    ...targets,
+  ];
+  const legacyStore = sources.find((target) => {
+    if (target.storePath.endsWith(".sqlite") || !fs.existsSync(target.storePath)) {
+      return false;
+    }
+    if (
+      target.agentId &&
+      deferredPluginSessionStoreIds({
+        target: { ...target, agentId: target.agentId },
+        pending,
+      }).length > 0
+    ) {
+      const sqlite = resolveSqliteTargetFromSessionStorePath(target.storePath, {
+        agentId: target.agentId,
+        env,
+      });
+      if (
+        readDeferredPluginSessionImport({
+          target: {
+            agentId: target.agentId,
+            storePath: target.storePath,
+            sqlitePath: target.sqlitePath ?? sqlite.path,
+          },
+          env,
+        })
+      ) {
+        return false;
+      }
+    }
+    return true;
+  })?.storePath;
   if (legacyStore) {
     throw new SessionStoreMigrationRequiredError(
       params.operation === "doctor"

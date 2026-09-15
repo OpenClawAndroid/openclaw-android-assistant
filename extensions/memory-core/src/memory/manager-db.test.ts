@@ -552,7 +552,7 @@ describe("memory manager database publication", () => {
 
     const lock = await waitForMemoryReindexLock(databasePath);
     try {
-      cleanupAgedMemoryReindexTempFiles(databasePath);
+      await cleanupAgedMemoryReindexTempFiles(databasePath);
     } finally {
       await lock.release();
     }

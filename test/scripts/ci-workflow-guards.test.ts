@@ -1414,6 +1414,246 @@ function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
+function runReleaseFallbackHistoryFixture(options: {
+  route: "branch" | "tag" | "orphan" | "non-release-tag";
+  many?: boolean;
+  failure?: "fetch-branches" | "fetch-tags" | "branch-producer" | "tag-producer";
+}) {
+  const ownedDirs = createTempDirTracker();
+  const root = ownedDirs.make("openclaw-release-fallback-");
+  const origin = path.join(root, "origin.git");
+  const checkout = path.join(root, "checkout");
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const hooks = path.join(root, "hooks");
+  const records = path.join(root, "git-results.jsonl");
+  const fixtureEnv: NodeJS.ProcessEnv = {
+    PATH: [path.dirname(testNodeExecPath), "/usr/local/bin", "/usr/bin", "/bin"].join(
+      path.delimiter,
+    ),
+    HOME: home,
+    XDG_CONFIG_HOME: home,
+    LC_ALL: "C",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_ALLOW_PROTOCOL: "file",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_COUNT: "6",
+    GIT_CONFIG_KEY_0: "credential.helper",
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: "core.hooksPath",
+    GIT_CONFIG_VALUE_1: hooks,
+    GIT_CONFIG_KEY_2: "gc.auto",
+    GIT_CONFIG_VALUE_2: "0",
+    GIT_CONFIG_KEY_3: "maintenance.auto",
+    GIT_CONFIG_VALUE_3: "false",
+    GIT_CONFIG_KEY_4: "commit.gpgsign",
+    GIT_CONFIG_VALUE_4: "false",
+    GIT_CONFIG_KEY_5: "protocol.file.allow",
+    GIT_CONFIG_VALUE_5: "always",
+    GIT_AUTHOR_NAME: "Release Fixture",
+    GIT_AUTHOR_EMAIL: "release-fixture@example.com",
+    GIT_COMMITTER_NAME: "Release Fixture",
+    GIT_COMMITTER_EMAIL: "release-fixture@example.com",
+    GITHUB_TOKEN: "synthetic-fixture-token",
+  };
+  try {
+    for (const dir of [checkout, bin, home, hooks]) {
+      mkdirSync(dir);
+    }
+    const realGit = execFileSync("bash", ["--noprofile", "--norc", "-c", "command -v git"], {
+      env: fixtureEnv,
+      encoding: "utf8",
+    }).trim();
+    const git = (cwd: string, args: string[], input?: string) =>
+      execFileSync(realGit, args, {
+        cwd,
+        env: fixtureEnv,
+        input,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 20_000,
+      }).trim();
+    git(root, ["init", "--bare", "-q", origin]);
+    const tree = git(origin, ["mktree"], "");
+    const selected = git(origin, ["commit-tree", tree, "-m", "selected"]);
+    const unrelated = git(origin, ["commit-tree", tree, "-m", "unrelated"]);
+    const count = options.many ? 4096 : 1;
+    const refs = Array.from({ length: count }, (_, index) => {
+      const suffix = options.many
+        ? `${String(index).padStart(4, "0")}-${"a".repeat(192)}/${"b".repeat(192)}`
+        : "small";
+      return options.route === "branch"
+        ? `refs/heads/fixture/${suffix}`
+        : `refs/tags/${options.route === "non-release-tag" ? "fixture" : "vfixture"}/${suffix}`;
+    });
+    git(
+      origin,
+      ["update-ref", "--stdin"],
+      [
+        `create refs/heads/setup-target ${selected}`,
+        `create refs/heads/unrelated ${unrelated}`,
+        ...(options.route === "orphan" ? [] : refs.map((ref) => `create ${ref} ${selected}`)),
+        "",
+      ].join("\n"),
+    );
+    git(origin, ["pack-refs", "--all"]);
+    git(checkout, ["init", "-q"]);
+    git(checkout, ["remote", "add", "origin", pathToFileURL(origin).href]);
+    git(checkout, ["fetch", "--no-tags", "origin", "refs/heads/setup-target"]);
+    git(checkout, ["checkout", "-q", "--detach", "FETCH_HEAD"]);
+    git(origin, ["update-ref", "-d", "refs/heads/setup-target"]);
+    git(checkout, ["update-ref", "-d", "refs/remotes/origin/setup-target"]);
+    expect(
+      git(checkout, [
+        "for-each-ref",
+        "--format=%(objectname)",
+        "--contains",
+        selected,
+        "refs/remotes",
+      ]),
+    ).toBe("");
+    expect(git(checkout, ["tag", "--points-at", selected])).toBe("");
+    if (options.route === "tag") {
+      git(checkout, [
+        "config",
+        "http.https://github.com/.extraheader",
+        "AUTHORIZATION: basic Zml4dHVyZQ==",
+      ]);
+    }
+    const enumerationBytes = Buffer.byteLength(
+      refs
+        .map((ref) => ref.replace(/^refs\/heads\//u, "origin/").replace(/^refs\/tags\//u, ""))
+        .join("\n") + "\n",
+    );
+    if (options.many && existsSync("/proc/sys/fs/pipe-max-size")) {
+      expect(enumerationBytes).toBeGreaterThan(
+        Number(readFileSync("/proc/sys/fs/pipe-max-size", "utf8").trim()),
+      );
+    }
+
+    // Enumeration inherits the real pipeline. Only verbose fetch stderr uses a regular file.
+    const launcher = path.join(root, "git-launcher.mjs");
+    writeFileSync(
+      launcher,
+      [
+        'import { spawnSync } from "node:child_process";',
+        'import { createHash } from "node:crypto";',
+        'import { appendFileSync, closeSync, openSync, readFileSync, statSync } from "node:fs";',
+        'import { constants } from "node:os";',
+        `const git = ${JSON.stringify(realGit)};`,
+        `const records = ${JSON.stringify(records)};`,
+        `const failure = ${JSON.stringify(options.failure ?? null)};`,
+        "let args = process.argv.slice(2);",
+        'const op = args.includes("fetch") ? (args.includes("--no-tags") ? "fetch-branches" : "fetch-tags")',
+        '  : args[0] === "tag" ? "tag-producer" : args[0] === "for-each-ref" ? "branch-producer" : args[0];',
+        'if (op.startsWith("fetch-") && op === failure) {',
+        `  args = args.map(arg => arg === "origin" ? ${JSON.stringify(pathToFileURL(path.join(root, "missing.git")).href)} : arg);`,
+        "}",
+        `const fetchPath = ${JSON.stringify(path.join(root, "fetch-"))} + op + ".stderr";`,
+        'const fd = op.startsWith("fetch-") ? openSync(fetchPath, "w", 0o600) : null;',
+        'const result = spawnSync(git, args, { stdio: ["inherit", "inherit", fd ?? "inherit"], timeout: 20_000 });',
+        "if (fd !== null) closeSync(fd);",
+        "const exitCode = result.signal ? 128 + constants.signals[result.signal] : result.status ?? 1;",
+        "const entry = { op, status: result.status, signal: result.signal, exitCode, error: result.error?.code };",
+        "if (fd !== null) {",
+        "  const size = statSync(fetchPath).size;",
+        '  if (size > 8 * 1024 * 1024) throw new Error("fixture fetch capture exceeded 8 MiB");',
+        "  const bytes = readFileSync(fetchPath);",
+        '  entry.stderr = { bytes: size, sha256: createHash("sha256").update(bytes).digest("hex") };',
+        "  process.stderr.write(bytes.subarray(Math.max(0, bytes.length - 1024)));",
+        "}",
+        'appendFileSync(records, JSON.stringify(entry) + "\\n");',
+        "if (op === failure && fd === null && result.status === 0) {",
+        '  const failed = spawnSync(git, ["rev-parse", "--verify", "refs/heads/fixture-missing"], { stdio: ["ignore", "ignore", "inherit"] });',
+        '  appendFileSync(records, JSON.stringify({ op: "post-output-failure", status: failed.status, signal: failed.signal }) + "\\n");',
+        "  process.exit(failed.status ?? 1);",
+        "}",
+        "process.exit(exitCode);",
+        "",
+      ].join("\n"),
+    );
+    writeExecutable(path.join(bin, "git"), [
+      "#!/bin/bash",
+      `exec ${quoteShell(testNodeExecPath)} ${quoteShell(launcher)} "$@"`,
+    ]);
+    const allocatedBytes = () =>
+      Number(
+        execFileSync("du", ["-sk", root], { env: fixtureEnv, encoding: "utf8" })
+          .trim()
+          .split(/\s/u)[0],
+      ) * 1024;
+    const beforeBytes = allocatedBytes();
+    expect(beforeBytes).toBeLessThan(256 * 1024 * 1024);
+    console.info(
+      "fallback-fixture-before",
+      JSON.stringify({ ...options, refs: count, enumerationBytes, allocatedBytes: beforeBytes }),
+    );
+    const step = expectDefined(
+      readReleaseChecksWorkflow().jobs.resolve_target.steps.find(
+        (candidate: WorkflowStep) =>
+          candidate.name === "Validate selected ref belongs to this repository",
+      ) as WorkflowStep | undefined,
+      "fallback history validation",
+    );
+    const result = runWorkflowShellScript(expectDefined(step.run, "fallback validation body"), {
+      cwd: checkout,
+      env: {
+        ...fixtureEnv,
+        PATH: `${bin}${path.delimiter}${fixtureEnv.PATH}`,
+        RELEASE_REF: selected,
+      },
+    });
+    const events = readFileSync(records, "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            op: string;
+            status: number | null;
+            signal: string | null;
+            error?: string;
+          },
+      );
+    const containingBranches = git(checkout, [
+      "for-each-ref",
+      "--format=%(objectname)",
+      "--contains",
+      selected,
+      "refs/remotes",
+    ])
+      .split(/\s/u)
+      .filter(Boolean).length;
+    if (!options.failure?.startsWith("fetch-")) {
+      expect(containingBranches).toBe(options.route === "branch" ? count : 0);
+    }
+    const afterBytes = allocatedBytes();
+    expect(afterBytes).toBeLessThan(256 * 1024 * 1024);
+    console.info(
+      "fallback-fixture-result",
+      JSON.stringify({
+        ...options,
+        status: result.status,
+        signal: result.signal,
+        error: result.error?.message,
+        enumerationBytes,
+        containingBranches,
+        allocatedBytes: afterBytes,
+        events,
+        rejection: result.stderr.includes("but that commit is not reachable"),
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(events.every((event) => event.error === undefined)).toBe(true);
+    return { result, events };
+  } finally {
+    ownedDirs.cleanup();
+    expect(existsSync(root)).toBe(false);
+    console.info("fallback-fixture-cleanup", JSON.stringify({ ...options, remaining: 0 }));
+  }
+}
+
 function runDiffBaseFixture(options: {
   commitCount: 1 | 2 | 3;
   eventBaseSha: string;
@@ -4969,7 +5209,37 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
     expect(nativeResourcesSetup.if).toBe(
       "needs.preflight.outputs.use_compatible_android_ci != 'true'",
     );
-    expect(nativeResourcesSetup.with).toMatchObject({ "install-bun": "false" });
+    expect(nativeResourcesSetup.with).toMatchObject({
+      "install-bun": "false",
+      "install-deps": "false",
+    });
+    const nativeResourcesInstall = expectDefined(
+      androidJob.steps.find(
+        (step: WorkflowStep) => step.name === "Install Mermaid renderer dependencies",
+      ),
+      "Android native resources dependency install",
+    );
+    expect(nativeResourcesInstall.if).toBe(nativeResourcesSetup.if);
+    expect(nativeResourcesInstall.env).toEqual({ CI: "true" });
+    expect(nativeResourcesInstall.run.trim().split(/\s+/u)).toEqual([
+      "pnpm",
+      "install",
+      "--frozen-lockfile",
+      "--prefer-offline",
+      "--optional",
+      "--filter",
+      "'@openclaw/mermaid-renderer...'",
+      "--config.ignore-scripts=false",
+      "--config.engine-strict=false",
+      "--config.enable-pre-post-scripts=true",
+      "--config.side-effects-cache=true",
+    ]);
+    expect(androidJob.steps.indexOf(nativeResourcesSetup)).toBeLessThan(
+      androidJob.steps.indexOf(nativeResourcesInstall),
+    );
+    expect(androidJob.steps.indexOf(nativeResourcesInstall)).toBeLessThan(
+      androidJob.steps.indexOf(runStep),
+    );
   });
 
   describe("Android validation tiers", () => {
@@ -6319,7 +6589,7 @@ setImmediate(() => {
       ]) {
         for (const lint of [undefined, false, true]) {
           const extendedBudget =
-            (task === "test-third-party" && lint === true) ||
+            ((task === "test-play" || task === "test-third-party") && lint === true) ||
             (task === "build-play" && runner === "ubuntu-24.04");
           expect(
             evaluateTimeout("android", { ...context, matrix: { task, lint } }),
@@ -7076,13 +7346,14 @@ process.exit(JSON.parse(process.env.RECIPE_EXITS)[count] ?? 99);
         }
       }
       // Capture the pinned CLI before switching to the fixture-only registry/store.
-      const bootstrap = resolvePnpmRunner();
+      const nodeExecPath = resolveTestNodeExecPath();
+      const bootstrap = resolvePnpmRunner({ nodeExecPath });
       const npmExecPath = execFileSync(
         bootstrap.command,
         [...bootstrap.args, "--silent", "run", "pnpm-path"],
         { cwd: source, encoding: "utf8", env: { ...process.env, CI: "true" } },
       ).trim();
-      const pnpm = resolvePnpmRunner({ npmExecPath });
+      const pnpm = resolvePnpmRunner({ nodeExecPath, npmExecPath });
       const action = parse(readFileSync(".github/actions/setup-node-env/action.yml", "utf8"));
       const configureCache = expectDefined(
         action.runs.steps.find(
@@ -9748,6 +10019,84 @@ server.listen(0, "127.0.0.1", () => {
       );
       expect(step?.run, stepName).not.toContain('git -c "http.https://github.com/.extraheader');
     }
+  });
+
+  describe.skipIf(process.platform !== "linux")("release fallback history with real Git", () => {
+    it.each(["branch", "tag"] as const)("accepts a small valid %s history", (route) => {
+      const { result, events } = runReleaseFallbackHistoryFixture({ route });
+      expect(result.status, result.stderr).toBe(0);
+      expect(events.filter((event) => event.op.startsWith("fetch-"))).toMatchObject([
+        { op: "fetch-branches", status: 0, signal: null },
+        { op: "fetch-tags", status: 0, signal: null },
+      ]);
+      expect(events.find((event) => event.op === `${route}-producer`)).toMatchObject({
+        status: 0,
+        signal: null,
+      });
+    });
+
+    it.each(["orphan", "non-release-tag"] as const)("rejects %s history", (route) => {
+      const { result, events } = runReleaseFallbackHistoryFixture({ route });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("but that commit is not reachable");
+      expect(events.filter((event) => event.op.endsWith("-producer"))).toMatchObject([
+        { op: "tag-producer", status: 0, signal: null },
+        { op: "branch-producer", status: 0, signal: null },
+      ]);
+    });
+
+    it.each(["fetch-branches", "fetch-tags"] as const)(
+      "fails closed when the real %s command fails",
+      (failure) => {
+        const { result, events } = runReleaseFallbackHistoryFixture({ route: "branch", failure });
+        expect(result.status).not.toBe(0);
+        expect(events.find((event) => event.op === failure)).toMatchObject({
+          status: 128,
+          signal: null,
+        });
+        expect(events.some((event) => event.op.endsWith("-producer"))).toBe(false);
+        expect(result.stderr).not.toContain("but that commit is not reachable");
+      },
+    );
+
+    it.each(["branch", "tag"] as const)(
+      "does not accept matching %s output followed by a real Git failure",
+      (route) => {
+        const { result, events } = runReleaseFallbackHistoryFixture({
+          route,
+          failure: `${route}-producer`,
+        });
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("but that commit is not reachable");
+        expect(events.find((event) => event.op === `${route}-producer`)).toMatchObject({
+          status: 0,
+          signal: null,
+        });
+        expect(events.find((event) => event.op === "post-output-failure")).toMatchObject({
+          status: 128,
+          signal: null,
+        });
+      },
+    );
+
+    it.each(["branch", "tag"] as const)(
+      "accepts valid %s enumeration larger than the pipe capacity",
+      (route) => {
+        const { result, events } = runReleaseFallbackHistoryFixture({ route, many: true });
+        expect(events.filter((event) => event.op.startsWith("fetch-"))).toMatchObject([
+          { op: "fetch-branches", status: 0, signal: null },
+          { op: "fetch-tags", status: 0, signal: null },
+        ]);
+        const producer = events.find((event) => event.op === `${route}-producer`);
+        if (result.status !== 0) {
+          expect(result.stderr).toContain("but that commit is not reachable");
+          expect(producer).toMatchObject({ status: null, signal: "SIGPIPE", exitCode: 141 });
+        }
+        expect(result.status, JSON.stringify({ producer, stderr: result.stderr })).toBe(0);
+        expect(producer).toMatchObject({ status: 0, signal: null });
+      },
+      60_000,
+    );
   });
 
   it("checks the generated Git owner in the workflow guard lane", () => {
@@ -13709,6 +14058,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
             inSuiteServer &&
             (node.expression.text === "createOpenClawTestInstance" ||
               node.expression.text === "startProductionControlUiE2eServer" ||
+              node.expression.text === "startProviderBrowserLoginFixture" ||
               node.expression.text === "createServer")
           ) {
             ownsPrivateServer = true;
@@ -13770,6 +14120,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       "ui/src/e2e/chat-project-media.real-gateway.e2e.test.ts",
       "ui/src/e2e/chat-stop-finished-run.real-gateway.e2e.test.ts",
       "ui/src/e2e/chat-thinking-metadata.real-gateway.e2e.test.ts",
+      "ui/src/e2e/chat-tts-supplement.real-gateway.e2e.test.ts",
       "ui/src/e2e/chat-widget-sandbox.real-gateway.e2e.test.ts",
       "ui/src/e2e/child-session-load-errors.e2e.test.ts",
       "ui/src/e2e/command-palette-catalog.real-gateway.e2e.test.ts",
@@ -13782,6 +14133,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       "ui/src/e2e/model-catalog-partial-refresh.real-gateway.e2e.test.ts",
       "ui/src/e2e/model-picker-search.real-gateway.e2e.test.ts",
       "ui/src/e2e/new-session-page.cloud-startup.runtime-load.e2e.test.ts",
+      "ui/src/e2e/provider-browser-login.real-gateway.e2e.test.ts",
       "ui/src/e2e/quota-reset-status.real-gateway.e2e.test.ts",
       "ui/src/e2e/session-management.delete.e2e.test.ts",
       "ui/src/e2e/sidebar-account-footer.e2e.test.ts",

@@ -985,8 +985,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:123@g.us",
       SessionKey: "agent:main:whatsapp:group:123@g.us",
@@ -1016,8 +1014,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:123@g.us",
       SessionKey: "agent:main:whatsapp:group:123@g.us",
@@ -1090,8 +1086,6 @@ describe("dispatchReplyFromConfig", () => {
     } as const satisfies OpenClawConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:456@g.us",
       SessionKey: "agent:main:whatsapp:group:456@g.us",
@@ -1127,8 +1121,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:789@g.us",
       SessionKey: "agent:main:whatsapp:group:789@g.us",
@@ -1168,8 +1160,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:789@g.us",
       SessionKey: "agent:main:whatsapp:group:789@g.us",
@@ -1391,8 +1381,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:123@g.us",
       SessionKey: "agent:main:whatsapp:group:123@g.us",
@@ -1477,8 +1465,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:123@g.us",
       SessionKey: "agent:main:whatsapp:group:123@g.us",
@@ -1519,8 +1505,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:123@g.us",
       SessionKey: "agent:main:whatsapp:group:123@g.us",
@@ -1600,8 +1584,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:123@g.us",
       SessionKey: "agent:main:whatsapp:group:123@g.us",
@@ -1637,8 +1619,6 @@ describe("dispatchReplyFromConfig", () => {
     const cfg = automaticGroupReplyConfig;
     const dispatcher = createDispatcher();
     const ctx = buildTestCtx({
-      Provider: "whatsapp",
-      Surface: "whatsapp",
       ChatType: "group",
       From: "whatsapp:group:123@g.us",
       SessionKey: "agent:main:whatsapp:group:123@g.us",

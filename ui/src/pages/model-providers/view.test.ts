@@ -407,6 +407,7 @@ describe("renderModelProviders", () => {
         addProviderKey: "new-provider-key",
         canMutate: false,
         mutationBlockedReason: "Operator admin access required",
+        defaultsMutationBlockedReason: "Operator admin access required",
         messages: {
           defaults: {
             kind: "error",

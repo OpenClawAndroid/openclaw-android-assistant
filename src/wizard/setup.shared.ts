@@ -140,6 +140,7 @@ export function createWizardInferenceConfigTarget(
   ) => {
     const result = await commit(config, {
       baseSnapshot,
+      writeOptions: options.writeOptions,
       onPreparedCommit: (snapshot, next) =>
         options.captureUndo(
           captureSetupInferenceFileUndo(

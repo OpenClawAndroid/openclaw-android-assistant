@@ -25,6 +25,7 @@ import { sessionActivityTimestamp } from "../shared/session-activity-timestamp.j
 import { SESSIONS_LIST_OWNER_LIMIT } from "../shared/session-list-limits.js";
 import type { SessionOwnerFacetIdentity } from "../shared/session-types.js";
 import { runSynchronousWork, type SynchronousWork } from "../shared/synchronous-work.js";
+import { readPreparedGatewayModelCatalogMetadata } from "./server-model-catalog-view.js";
 import { projectActivitySummaryList } from "./session-activity-summary-list.js";
 import {
   projectSessionOwner,
@@ -137,10 +138,11 @@ function resolveSessionsListWindowLimit(limit: number | undefined, offset: numbe
   return Number.isFinite(windowLimit) ? Math.min(windowLimit, Number.MAX_SAFE_INTEGER) : undefined;
 }
 
-function* filterSessionEntries(params: {
+type SessionEntrySelectionParams = {
   cfg: OpenClawConfig;
   store: Record<string, SessionEntry>;
   targetsBySessionKey?: GatewayStoredSessionTargets;
+  modelCatalog?: SessionListModelCatalog | ModelCatalogEntry[];
   opts: SessionsListParams;
   now: number;
   userProfileIdentityById?: Map<string, SessionActorProfileIdentity | undefined>;
@@ -152,7 +154,11 @@ function* filterSessionEntries(params: {
   ownerFirstActorId?: string;
   projectActiveRun?: SessionListActiveRunProjector;
   shouldYield?: () => boolean;
-}): SynchronousWork<
+};
+
+function* filterSessionEntries(
+  params: SessionEntrySelectionParams,
+): SynchronousWork<
   Pick<
     SessionEntrySelection,
     | "ownerFacet"
@@ -236,7 +242,7 @@ function* filterSessionEntries(params: {
     const storeKey = target?.storeKey ?? key;
     if (
       isCronRunSessionKey(key) ||
-      (opts.excludeSubagents === true && isSubagentSessionKey(key)) ||
+      (opts.excludeSubagents === true && (isSubagentSessionKey(key) || entry.spawnedBy)) ||
       (!includeGlobal && storeKey === "global") ||
       (!includeUnknown && storeKey === "unknown")
     ) {
@@ -300,6 +306,7 @@ function* filterSessionEntries(params: {
         now,
         visibleEntries: candidateEntries,
         targetsBySessionKey: expectDefined(params.targetsBySessionKey, "search row owners"),
+        modelCatalog: params.modelCatalog instanceof Map ? params.modelCatalog : undefined,
         getRowContext,
         projectActiveRun: params.projectActiveRun,
       })
@@ -395,23 +402,9 @@ function isPhantomAgentStoreListEntry(key: string, entry: SessionEntry | undefin
   );
 }
 
-function* selectSessionEntries(params: {
-  cfg: OpenClawConfig;
-  store: Record<string, SessionEntry>;
-  targetsBySessionKey?: GatewayStoredSessionTargets;
-  opts: SessionsListParams;
-  now: number;
-  getRowContext?: SessionListRowContextProvider;
-  defaultLimit?: number;
-  userProfileIdentityById?: Map<string, SessionActorProfileIdentity | undefined>;
-  configuredAgentIds?: ReadonlySet<string>;
-  entryFilter?: (key: string, entry: SessionEntry) => boolean;
-  restrictProfileReferences?: boolean;
-  involvingActorId?: string;
-  ownerFirstActorId?: string;
-  projectActiveRun?: SessionListActiveRunProjector;
-  shouldYield?: () => boolean;
-}): SynchronousWork<SessionEntrySelection> {
+function* selectSessionEntries(
+  params: SessionEntrySelectionParams & { defaultLimit?: number },
+): SynchronousWork<SessionEntrySelection> {
   const { ownerEntries, entries: filtered, ...facets } = yield* filterSessionEntries(params);
   const limit = resolveSessionsListLimit(params.opts, params.defaultLimit);
   const offset = resolveSessionsListOffset(params.opts);
@@ -472,6 +465,7 @@ function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: (
   };
   const selection = yield* selectSessionEntries({
     cfg,
+    modelCatalog: params.modelCatalog,
     store,
     targetsBySessionKey: params.targetsBySessionKey,
     opts,
@@ -565,6 +559,7 @@ function buildSessionsListResult(
       ...(opts.agentId ? { agentId: opts.agentId } : {}),
       allowPluginNormalization: false,
       providerPolicySource: preparedDefaultsCatalog?.pluginRegistry,
+      metadataSnapshot: readPreparedGatewayModelCatalogMetadata(preparedDefaultsCatalog),
     }),
     sessions,
   };

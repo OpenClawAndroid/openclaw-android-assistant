@@ -459,6 +459,20 @@ export async function finishGatewayStartup(params: {
             ),
             { previousConfig, candidateConfig: prepared.config },
           );
+          if (runtimeRefresh?.requireImmediateApplication) {
+            if (prepared.config.gateway?.reload?.mode === "off") {
+              throw new Error(
+                "The saved sign-in is inactive because Gateway reload is disabled. Enable config reload and restart the Gateway before retrying it.",
+              );
+            }
+            if (plan.restartGateway || plan.reloadPlugins) {
+              throw new Error(
+                plan.reloadPlugins
+                  ? "Update or enable the selected provider plugin in Plugins, then retry this saved sign-in. Your current connection is unchanged."
+                  : "Apply the required Gateway settings update separately, then retry this saved sign-in. Your current connection is unchanged.",
+              );
+            }
+          }
           if (!plan.restartGateway) {
             assertRuntimeSecurityConfig(prepared.config, candidate.runtimeEnv.env);
           }

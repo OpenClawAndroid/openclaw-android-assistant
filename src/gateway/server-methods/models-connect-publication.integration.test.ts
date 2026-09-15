@@ -5,7 +5,10 @@ import {
 } from "../../../packages/gateway-protocol/src/client-info.js";
 import type { ModelsSnapshotEvent } from "../../../packages/gateway-protocol/src/index.js";
 import { createDeferred, withTestTimeout } from "../../../test/helpers/promise.js";
-import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
+import {
+  loadSessionEntry,
+  upsertSessionEntryCore,
+} from "../../config/sessions/session-accessor.js";
 import { getActiveGatewayRootWorkCount } from "../../process/gateway-work-admission.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import * as modelCatalogAuth from "../server-model-catalog-auth.js";
@@ -152,6 +155,9 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
         {
           sessionId: "saved-model-catalog-session",
           updatedAt: Date.now(),
+          providerOverride: "fixture",
+          modelOverride: "second",
+          modelOverrideRouteResolution: "resolved",
           authProfileOverride: "fixture:saved-account",
           authProfileOverrideSource: "user",
         },
@@ -166,6 +172,7 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
           token,
           clientName: GATEWAY_CLIENT_IDS.CONTROL_UI,
           modelCatalog,
+          caps: ["model-selection-policy"],
           mode: GATEWAY_CLIENT_MODES.WEBCHAT,
           origin: `http://127.0.0.1:${port}`,
           scopes: ["operator.admin"],
@@ -182,7 +189,20 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
               {
                 scope: { agentId: "alpha", sessionKey },
                 catalog: {
-                  models: [{ id: "first", provider: "fixture", available: true }],
+                  models: [
+                    {
+                      id: "first",
+                      provider: "fixture",
+                      available: true,
+                      manualSelectionAllowed: true,
+                    },
+                    {
+                      id: "second",
+                      provider: "fixture",
+                      available: true,
+                      manualSelectionAllowed: false,
+                    },
+                  ],
                   accountSelection: {
                     kind: "shared",
                     authProfileId: "fixture:saved-account",
@@ -192,6 +212,7 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
               },
             ]);
           expect(publications).toHaveLength(1);
+          expect(loadSessionEntry({ agentId: "alpha", sessionKey })?.modelOverride).toBe("second");
         } finally {
           await disconnectGatewayClient(saved);
         }
@@ -216,6 +237,7 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
           token,
           clientName: GATEWAY_CLIENT_IDS.CONTROL_UI,
           modelCatalog: { agentId: "alpha", sessionKey },
+          caps: ["model-selection-policy"],
           mode: GATEWAY_CLIENT_MODES.WEBCHAT,
           origin: `http://127.0.0.1:${port}`,
           scopes: ["operator.admin"],
@@ -254,7 +276,9 @@ it("connect negotiates snapshots and preserves draft and saved-session catalog s
         await expect(
           racingClient.request("models.list", { agentId: "alpha", sessionKey }),
         ).resolves.toMatchObject({
-          models: [{ id: "first", provider: "fixture", available: true }],
+          models: [
+            { id: "first", provider: "fixture", available: true, manualSelectionAllowed: true },
+          ],
           accountSelection: {
             authProfileId: "fixture:replacement-account",
             source: "user",

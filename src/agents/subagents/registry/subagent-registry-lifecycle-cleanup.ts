@@ -395,10 +395,7 @@ export async function completeTerminalEffects(
     !suppressSessionEffects &&
     params.shouldEmitEndedHookForRun({ entry, reason: completionReason });
   const shouldDeferEndedHook =
-    shouldEmitEndedHook &&
-    completeParams.triggerCleanup &&
-    entry.expectsCompletionMessage === true &&
-    !suppressedForSteerRestart;
+    shouldEmitEndedHook && completeParams.triggerCleanup && entry.expectsCompletionMessage === true;
   if (!shouldDeferEndedHook && shouldEmitEndedHook) {
     await params.emitSubagentEndedHookForRun({
       entry,

@@ -559,13 +559,13 @@ describe("Models provider login", () => {
   );
 
   it("does not publish a previous agent's completion after selection changes", async () => {
-    const { context, agentSelection, notifySelection, answer, cancel } = loginHarness();
+    const { context, settingsAgentSelection, notifySelection, answer, cancel } = loginHarness();
     const mutations = vi.spyOn(context.runtimeConfig, "runExternalMutation");
     const page = appendPage(context);
     await openLogin(page);
     await submitCredential(page);
-    agentSelection.state.selectedId = "main";
-    agentSelection.state.scopeId = "main";
+    settingsAgentSelection.state.selectedId = "main";
+    settingsAgentSelection.state.scopeId = "main";
     notifySelection();
     await waitForFast(() => expect(page.querySelector("openclaw-modal-dialog")).toBeNull());
 

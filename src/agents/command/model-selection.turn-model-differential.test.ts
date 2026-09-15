@@ -95,6 +95,7 @@ vi.mock("../model-thinking-default.js", () => ({
 vi.mock("../model-visibility-policy.js", () => ({
   createModelVisibilityPolicy: () => ({
     allowAny: true,
+    catalog: [],
     allowedCatalog: [],
     selectionAliasIndex: { byAlias: new Map(), byKey: new Map() },
     allows: () => true,

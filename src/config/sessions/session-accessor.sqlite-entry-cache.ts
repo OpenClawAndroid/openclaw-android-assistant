@@ -357,6 +357,20 @@ function projectSessionEntryCacheUpdate(
   return parsedEntry ? { ...parsedEntry, ...sideMetadata } : undefined;
 }
 
+function advanceSessionEntryCacheGeneration(
+  cached: SqliteSessionEntryCache,
+  writeGeneration: SqliteSessionEntryCacheWriteGeneration,
+): void {
+  // Advance only across the bracketed row write. A raw write before/after this bracket leaves
+  // a generation gap, while the retained data_version still exposes external commits.
+  if (cached.validityToken.sessionNodesGeneration === writeGeneration.before) {
+    cached.validityToken = {
+      ...cached.validityToken,
+      sessionNodesGeneration: writeGeneration.after,
+    };
+  }
+}
+
 function publishSqliteSessionEntryCacheUpsert(
   database: OpenClawAgentDatabase,
   update: { sessionKey: string; entry?: SessionEntry },
@@ -367,20 +381,24 @@ function publishSqliteSessionEntryCacheUpsert(
     return;
   }
   const { sessionKey } = update;
-  const sideMetadata =
-    update.entry || !owner.selectedKeys || owner.selectedKeys.has(sessionKey)
-      ? readSessionEntrySideMetadata(database, sessionKey)
-      : undefined;
-  const entry = update.entry
-    ? projectSessionEntryCacheUpdate(update.entry, sideMetadata)
-    : undefined;
+  let sideMetadata: SessionEntrySideMetadata | undefined;
+  let entry: SessionEntry | undefined;
+  try {
+    sideMetadata =
+      update.entry || !owner.selectedKeys || owner.selectedKeys.has(sessionKey)
+        ? readSessionEntrySideMetadata(database, sessionKey)
+        : undefined;
+    entry = update.entry ? projectSessionEntryCacheUpdate(update.entry, sideMetadata) : undefined;
+  } catch {
+    // A failed derived projection must not roll back an authoritative write.
+    publishTrackedCacheUpdate(database, () => sessionEntryCaches.delete(database.db));
+    return;
+  }
   publishTrackedCacheUpdate(database, () => {
     const cached = sessionEntryCaches.get(database.db);
     if (!cached) {
       return;
     }
-    const generationIsContinuous =
-      cached.validityToken.sessionNodesGeneration === writeGeneration.before;
     // Borrowed cache views are synchronous, so the commit owner can update one
     // row in place without cloning every session map on each active-run write.
     if (!cached.selectedKeys || cached.selectedKeys.has(sessionKey)) {
@@ -405,14 +423,7 @@ function publishSqliteSessionEntryCacheUpsert(
       }
       cached.entries.set(sessionKey, publishedEntry);
     }
-    // Advance only across the bracketed row write. A raw write before/after this bracket leaves
-    // a generation gap, while the retained data_version still exposes external commits.
-    if (generationIsContinuous) {
-      cached.validityToken = {
-        ...cached.validityToken,
-        sessionNodesGeneration: writeGeneration.after,
-      };
-    }
+    advanceSessionEntryCacheGeneration(cached, writeGeneration);
   });
 }
 
@@ -422,15 +433,8 @@ export function publishSessionEntryCacheInvalidation(
   writeGeneration?: SqliteSessionEntryCacheWriteGeneration,
 ): void {
   if (update && writeGeneration) {
-    try {
-      publishSqliteSessionEntryCacheUpsert(database, update, writeGeneration);
-      return;
-    } catch (error) {
-      if (update.entry) {
-        throw error;
-      }
-      // Relational writes stay durable when their derived cache projection is damaged.
-    }
+    publishSqliteSessionEntryCacheUpsert(database, update, writeGeneration);
+    return;
   }
   // A cold write has no snapshot to patch; do not hydrate owner/participants or prompt JSON.
   publishTrackedCacheUpdate(database, () => sessionEntryCaches.delete(database.db));
@@ -440,7 +444,21 @@ export function publishSessionEntryCacheInvalidation(
 export function publishSessionEntryCacheParticipantUpdate(
   database: OpenClawAgentDatabase,
   sessionKey: string,
-  writeGeneration: SqliteSessionEntryCacheWriteGeneration | undefined,
+  params: {
+    writeGeneration: SqliteSessionEntryCacheWriteGeneration | undefined;
+    projectionChanged: boolean;
+  },
 ): void {
+  const { writeGeneration, projectionChanged } = params;
+  if (writeGeneration && !projectionChanged) {
+    // Nested contributions advance the generation at commit without replacing borrowed entries.
+    publishTrackedCacheUpdate(database, () => {
+      const cached = sessionEntryCaches.get(database.db);
+      if (cached) {
+        advanceSessionEntryCacheGeneration(cached, writeGeneration);
+      }
+    });
+    return;
+  }
   publishSessionEntryCacheInvalidation(database, { sessionKey }, writeGeneration);
 }

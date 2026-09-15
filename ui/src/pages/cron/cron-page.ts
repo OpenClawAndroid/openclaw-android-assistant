@@ -324,7 +324,9 @@ class CronPage extends OpenClawLightDomElement {
     try {
       const result = await loadModelCatalog(client, { agentId });
       if (isCurrent()) {
-        this.cronModelSuggestions = result.models.map((entry) => entry.id);
+        this.cronModelSuggestions = result.models
+          .filter((entry) => entry.manualSelectionAllowed !== false)
+          .map((entry) => entry.id);
         this.modelSuggestionsError = modelCatalogRefreshError(result);
       }
     } catch (error) {

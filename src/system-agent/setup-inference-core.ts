@@ -217,14 +217,8 @@ export type ActivateSetupInferenceParams = {
   onPreparationComplete?: () => void;
   /** Observe the authored config held by the inference writer before it commits. */
   onCommitStarted?: (sourceConfig: OpenClawConfig) => void;
-  /** Gateway callers await application only after releasing the setup queue and lane. */
-  onRuntimeApplication?: (
-    application: ReturnType<
-      typeof import("../config/runtime-write-application.js").createRuntimeConfigWriteApplication
-    >,
-  ) => void;
-  /** Run credential promotion only after the Gateway applied the verified config. */
-  onCredentialActivation?: (activate: () => Promise<void>) => void;
+  /** Finish application or recovery only after releasing the Gateway setup queue. */
+  onActivationCompletion?: (complete: () => Promise<boolean>) => void;
   deps?: ActivateSetupInferenceDeps;
 };
 

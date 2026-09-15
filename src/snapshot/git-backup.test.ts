@@ -14,6 +14,7 @@ import { OPENCLAW_AGENT_SCHEMA_VERSION } from "../state/openclaw-agent-db-contra
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../state/openclaw-state-db-contract.js";
 import {
   closeOpenClawStateDatabaseForTest,
+  closeOpenClawStateDatabaseAsync,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
@@ -76,6 +77,21 @@ vi.mock("./local-repository.js", async (importOriginal) => {
 
 const roots: string[] = [];
 
+async function withBackupStateEnv<T>(
+  values: Parameters<typeof withEnvAsync>[0],
+  run: () => Promise<T>,
+): Promise<T> {
+  return await withEnvAsync(values, async () => {
+    await using state = {
+      run,
+      async [Symbol.asyncDispose]() {
+        await closeOpenClawStateDatabaseAsync();
+      },
+    };
+    return await state.run();
+  });
+}
+
 async function tempRoot(): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-git-backup-test-"));
   roots.push(root);
@@ -83,6 +99,7 @@ async function tempRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  await closeOpenClawStateDatabaseAsync();
   mocks.logDiagnostic = undefined;
   mocks.pushDiagnostic = undefined;
   mocks.snapshotRepositoryError = undefined;
@@ -336,7 +353,7 @@ describe("Git-backed SQLite snapshots", () => {
     closeOpenClawAgentDatabaseByPath(agentDatabase.path);
     await fs.writeFile(configPath, JSON.stringify({ agents: { entries: { main: { agentDir } } } }));
 
-    await withEnvAsync(
+    await withBackupStateEnv(
       { OPENCLAW_STATE_DIR: stateDir, OPENCLAW_CONFIG_PATH: configPath },
       async () => {
         for (const { scope, selection } of [
@@ -576,7 +593,7 @@ describe("Git-backed SQLite snapshots", () => {
     await requireGit(repositoryPath, ["config", "user.name", "OpenClaw Backup Test"]);
     await requireGit(repositoryPath, ["config", "user.email", "backup@example.invalid"]);
 
-    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
+    await withBackupStateEnv({ OPENCLAW_STATE_DIR: stateDir }, async () => {
       const runtime = createTestRuntime();
       const result = await backupGitCreateCommand(runtime, {
         repository: repositoryPath,
@@ -757,7 +774,7 @@ describe("Git-backed SQLite snapshots", () => {
 
     const warning =
       "repository history contains non-backup commits; use a dedicated backup repository";
-    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
+    await withBackupStateEnv({ OPENCLAW_STATE_DIR: stateDir }, async () => {
       const result = await backupGitCreateCommand(createTestRuntime(), {
         repository: repositoryPath,
         global: true,

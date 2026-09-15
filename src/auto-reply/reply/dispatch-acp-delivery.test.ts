@@ -333,13 +333,14 @@ describe("createAcpDispatchDeliveryCoordinator", () => {
       await Promise.resolve();
       expect(transcriptSettled).toBe(false);
 
-      const fallback = coordinator
-        .settleVisibleText()
-        .then(() => coordinator.getBlockTextForFallback());
+      const fallback = coordinator.settleVisibleText().then(() => coordinator.recoverBlockText());
       await Promise.resolve();
       releaseDelivery?.();
       await expect(transcriptPromise).resolves.toBe(noSend ? "" : "hello");
-      await expect(fallback).resolves.toBe(noSend ? "hello" : "");
+      await fallback;
+      expect(delivered).toEqual(
+        noSend ? [{ text: "hello" }, { text: "hello" }] : [{ text: "hello" }],
+      );
       await dispatcher.waitForIdle();
     },
   );
@@ -541,7 +542,7 @@ describe("createAcpDispatchDeliveryCoordinator", () => {
 
     expect(dispatcher.sendBlockReply).toHaveBeenNthCalledWith(1, { text: "Intro " });
     expect(dispatcher.sendBlockReply).toHaveBeenNthCalledWith(2, { text: " visible" });
-    expect(coordinator.getAccumulatedVisibleBlockText()).toBe("Intro \n visible");
+    expect(coordinator.getAccumulatedVisibleBlockText()).toBe("Intro  visible");
     expect(coordinator.getAccumulatedBlockTtsText()).toBe(
       "Intro [[tts:text]]hidden[[/tts:text]] visible",
     );

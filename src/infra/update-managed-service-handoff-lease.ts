@@ -680,6 +680,7 @@ export function createManagedHandoffLeaseStore(
     retarget,
     activate,
     owns,
+    hasUnsettledChildren,
     acceptParentBoundExecutor,
     current,
     readGeneration,

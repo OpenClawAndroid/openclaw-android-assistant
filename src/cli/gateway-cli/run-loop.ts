@@ -27,6 +27,7 @@ import { acquireGatewayLock } from "../../infra/gateway-lock.js";
 import { consumeGatewaySuspendHandoff } from "../../infra/gateway-suspend-coordinator.js";
 import type { GatewayRestartIntent } from "../../infra/restart-intent.js";
 import type { GatewayRestartEmitter } from "../../infra/restart.js";
+import { SqliteIntegrityWorkerInterruptedError } from "../../infra/sqlite-integrity-worker-error.js";
 import { findStartupMaintenanceRequiredError } from "../../infra/startup-maintenance-required.js";
 import { flushLogger } from "../../logging/logger.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -113,14 +114,20 @@ async function waitForHealthyGatewayChild(
 
 function createGatewayStartupOperations(): {
   run: GatewayStartupOperation;
-  signal: AbortSignal;
   close(): void;
+  cancelledWith(error: unknown): boolean;
   failedWith(error: unknown): boolean;
   stopCompletion?: Promise<void>;
   drain(): Promise<void>;
 } {
   const scope = new AsyncWorkScope();
   let failure: { error: unknown } | undefined;
+  // A process-group stop can kill a child before its separate admission owner is cancelled.
+  const cancelledWith = (error: unknown) =>
+    scope.signal.aborted &&
+    (error === scope.signal.reason ||
+      (error instanceof SqliteIntegrityWorkerInterruptedError &&
+        (error.signal === "SIGTERM" || error.signal === "SIGINT")));
   const run: GatewayStartupOperation = async (operation) => {
     if (scope.isClosing) {
       throw scope.signal.reason;
@@ -129,7 +136,7 @@ function createGatewayStartupOperations(): {
       try {
         return await operation(scope.signal);
       } catch (error) {
-        if (!scope.signal.aborted || error !== scope.signal.reason) {
+        if (!cancelledWith(error)) {
           failure ??= { error };
         }
         throw error;
@@ -138,8 +145,8 @@ function createGatewayStartupOperations(): {
   };
   return {
     run,
-    signal: scope.signal,
     close: () => scope.beginClose(),
+    cancelledWith,
     failedWith: (error: unknown) => failure !== undefined && failure.error === error,
     async drain() {
       await scope.drain();
@@ -580,7 +587,7 @@ export async function runGatewayLoop(params: {
         }
       }
       committedGenericSuccessor = true;
-      return exitProcessAfterLogFlush(0);
+      return exitProcessAfterLogFlush(respawn.exitCode ?? 0);
     }
     if (respawn.mode === "failed") {
       if (!isStandaloneUpdate) {
@@ -1403,11 +1410,11 @@ export async function runGatewayLoop(params: {
         iterationStartupOperations.close();
         if (
           iterationStartupOperations.stopCompletion &&
-          (err === iterationStartupOperations.signal.reason ||
+          (iterationStartupOperations.cancelledWith(err) ||
             iterationStartupOperations.failedWith(err))
         ) {
           await iterationStartupOperations.stopCompletion;
-          if (err === iterationStartupOperations.signal.reason) {
+          if (iterationStartupOperations.cancelledWith(err)) {
             return;
           }
           throw err;

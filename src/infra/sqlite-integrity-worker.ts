@@ -5,6 +5,7 @@ import type { FileIdentityStat } from "./fs-safe-advanced.js";
 import { resolveRuntimeProcessEntrypointUrl } from "./runtime-process-url.js";
 import { resolveRuntimeWorkerArgv } from "./runtime-worker-url.js";
 import { readSqliteIntegrityFileIdentity } from "./sqlite-file-generation.js";
+import { SqliteIntegrityWorkerInterruptedError } from "./sqlite-integrity-worker-error.js";
 import type { SqliteIntegrityCheckTiming } from "./sqlite-integrity.js";
 import {
   readSqliteInspectionBudget,
@@ -120,6 +121,9 @@ export function assertSqliteIntegrityInWorker(
           throw error;
         }
         if (code !== 0 || !result) {
+          if (!result && closeSignal) {
+            throw new SqliteIntegrityWorkerInterruptedError(closeSignal, lastObservedPhase);
+          }
           throw new Error(
             `SQLite integrity worker exited ${code} without a completed check (lastObservedPhase=${lastObservedPhase})`,
           );

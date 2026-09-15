@@ -338,13 +338,16 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
       const params = args as Record<string, unknown>;
       const requestedKind = readToolStringParam(params, "kind");
       const kind = requestedKind ?? "html";
-      const isReport = params.report !== undefined && params.report !== null;
-      const title = readToolStringParam(params, "title", { required: true });
       const rawWidgetCode =
         readToolStringParam(params, "widget_code", {
-          required: !isReport,
           trim: false,
         }) ?? "";
+      const rawReport = asOptionalRecord(params.report);
+      const isReport =
+        params.report !== undefined &&
+        params.report !== null &&
+        !(rawWidgetCode.trim() && rawReport && Object.keys(rawReport).length === 0);
+      const title = readToolStringParam(params, "title", { required: true });
       if (!isReport) {
         if (!rawWidgetCode.trim()) {
           throw new WidgetHtmlInputError("widget_code required");

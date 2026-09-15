@@ -157,6 +157,7 @@ export async function prepareEmbeddedAttemptBundleTools(params: {
       ? await createBundleLspToolRuntime({
           workspaceDir: params.setup.effectiveWorkspace,
           cfg: params.attempt.config,
+          abortSignal: params.attempt.abortSignal,
           manifestRegistry: bundleManifestRegistry,
           reservedToolNames: [
             ...tools.map((tool) => tool.name),

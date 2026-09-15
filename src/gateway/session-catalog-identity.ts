@@ -28,25 +28,35 @@ function verifiedGitHubIdentities(profileIds?: readonly string[]) {
   );
 }
 
-/** Converts local attribution into a portable claim, never a remote access grant. */
-export function projectSessionCatalogSourceParticipant(
-  params: CatalogSourceIdentity & { identity: TranscriptSenderIdentity; label?: string },
+function readSourceProfileFacts(id: string) {
+  let profile: ReturnType<typeof getUserProfileDisplay> | undefined;
+  try {
+    profile = getUserProfileDisplay(id);
+  } catch (error) {
+    if (!(error instanceof UserProfileNotFoundError)) {
+      throw error;
+    }
+  }
+  const profileId = profile?.id ?? id;
+  const github = verifiedGitHubIdentities([profileId])?.get(profileId);
+  return { profileId, profile, github };
+}
+
+type SourceParticipantParams = CatalogSourceIdentity & {
+  identity: TranscriptSenderIdentity;
+  label?: string;
+};
+
+function projectSourceParticipant(
+  params: SourceParticipantParams,
+  resolveProfile: typeof readSourceProfileFacts,
 ): SessionParticipant {
   const { identity } = params;
   if (identity.type !== "profile") {
     const label = sourceLabel(params.label);
     return { identity, ...(label ? { label } : {}) };
   }
-  let profile: ReturnType<typeof getUserProfileDisplay> | undefined;
-  try {
-    profile = getUserProfileDisplay(identity.id);
-  } catch (error) {
-    if (!(error instanceof UserProfileNotFoundError)) {
-      throw error;
-    }
-  }
-  const profileId = profile?.id ?? identity.id;
-  const github = verifiedGitHubIdentities([profileId])?.get(profileId);
+  const { profileId, profile, github } = resolveProfile(identity.id);
   const label = sourceLabel(profile?.displayName ?? github?.login ?? params.label);
   return {
     identity: {
@@ -58,6 +68,27 @@ export function projectSessionCatalogSourceParticipant(
     },
     ...(label ? { label } : {}),
   };
+}
+
+/** Converts local attribution into a portable claim, never a remote access grant. */
+function projectSessionCatalogSourceParticipant(
+  params: SourceParticipantParams,
+): SessionParticipant {
+  return projectSourceParticipant(params, readSourceProfileFacts);
+}
+
+/** A synchronous page reuses first-read display facts; later pages read fresh state. */
+export function createSessionCatalogSourceParticipantProjector() {
+  const profiles = new Map<string, ReturnType<typeof readSourceProfileFacts>>();
+  return (params: SourceParticipantParams): SessionParticipant =>
+    projectSourceParticipant(params, (id) => {
+      let facts = profiles.get(id);
+      if (!facts) {
+        facts = readSourceProfileFacts(id);
+        profiles.set(id, facts);
+      }
+      return facts;
+    });
 }
 
 /** Only source-qualified creators may resolve a local profile before publication. */

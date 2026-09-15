@@ -226,6 +226,11 @@ expected version and Git build identity, checks channel readiness, and requires
 HTTP 200 from `/readyz`. Plugin activation or load failures remain named warnings
 when these core checks pass; they do not turn a successful core update into an error.
 
+Managed updates from 2026.9.3 can finish migration through the candidate runtime
+while the original updater retains installation ownership. The candidate checks
+the captured update identity against its live parent before finalizing either a
+Git or npm installation. This continuation does not change the recovery limits below.
+
 A candidate can be running while verification fails. Recovery guidance uses the
 latest observed service state and names the running version when known; an
 earlier activation stop does not mean the service remains stopped.

@@ -23,7 +23,10 @@ import { resolveServiceManagerEnv } from "./service-process-env.js";
 import type { GatewayServiceRuntime } from "./service-runtime.js";
 import type { GatewayServiceCommandConfig, GatewayServiceEnv } from "./service-types.js";
 import { assertGatewayServiceUpdateCurrent } from "./service-update-authority.js";
-import { WINDOWS_TASK_SUPERVISOR_FLAG } from "./windows-task-supervisor-contract.js";
+import {
+  readWindowsTaskSupervisorRestartExitCode,
+  WINDOWS_TASK_SUPERVISOR_FLAG,
+} from "./windows-task-supervisor-contract.js";
 
 type WindowsProcessSnapshotEntry = {
   ProcessId?: number;
@@ -76,6 +79,7 @@ export function findInstalledProcessPid(
   port: number,
   installedArguments: string[],
   matchesProcess: (argv: string[]) => boolean,
+  comparableArguments: (argv: string[]) => string[] = (argv) => argv,
 ): number | null {
   for (const entry of entries) {
     const commandLine = normalizeLowercaseStringOrEmpty(entry.CommandLine ?? "");
@@ -86,7 +90,7 @@ export function findInstalledProcessPid(
     if (
       !matchesProcess(argv) ||
       parseTcpPortFromArgs(argv) !== port ||
-      !matchesInstalledProgramArguments(argv, installedArguments)
+      !matchesInstalledProgramArguments(comparableArguments(argv), installedArguments)
     ) {
       continue;
     }
@@ -96,6 +100,35 @@ export function findInstalledProcessPid(
     }
   }
   return null;
+}
+
+function matchesInstalledGatewayChildArguments(
+  actualArguments: string[],
+  installedArguments: string[],
+): boolean {
+  return (
+    readWindowsTaskSupervisorRestartExitCode(actualArguments) !== undefined &&
+    matchesInstalledProgramArguments(actualArguments.slice(0, -1), installedArguments)
+  );
+}
+
+/** Finds the current supervised child or a legacy directly launched Gateway. */
+export function findInstalledGatewayChildPid(
+  entries: WindowsProcessSnapshotEntry[],
+  port: number,
+  installedArguments: string[],
+): number | null {
+  const supervisedPid = findInstalledProcessPid(
+    entries,
+    port,
+    installedArguments,
+    (argv) => matchesInstalledGatewayChildArguments(argv, installedArguments),
+    (argv) => argv.slice(0, -1),
+  );
+  if (supervisedPid) {
+    return supervisedPid;
+  }
+  return findInstalledProcessPid(entries, port, installedArguments, () => true);
 }
 
 async function resolveScheduledTaskProcess(
@@ -272,14 +305,18 @@ async function resolveLegacyScheduledTaskOwnedGatewayPids(
     if (snapshot) {
       // Prefer the Gateway PID; before admission its exact supervisor still owns startup.
       // /End can leave that supervisor alive, so stop must find it before a Gateway exists.
-      for (const argv of [
-        installedArguments,
+      const gatewayPid = findInstalledGatewayChildPid(snapshot, port, installedArguments);
+      if (gatewayPid) {
+        return [gatewayPid];
+      }
+      const supervisorPid = findInstalledProcessPid(
+        snapshot,
+        port,
         [...installedArguments, WINDOWS_TASK_SUPERVISOR_FLAG],
-      ]) {
-        const pid = findInstalledProcessPid(snapshot, port, argv, () => true);
-        if (pid) {
-          return [pid];
-        }
+        () => true,
+      );
+      if (supervisorPid) {
+        return [supervisorPid];
       }
       // A listener can be dual-stack or belong to another task; Windows control requires CIM argv proof.
       return [];
@@ -309,7 +346,8 @@ async function resolveLegacyScheduledTaskOwnedGatewayPids(
       }
       if (
         matchesInstalledProgramArguments(argv, installedArguments) ||
-        matchesInstalledProgramArguments(argv, supervisorArguments)
+        matchesInstalledProgramArguments(argv, supervisorArguments) ||
+        matchesInstalledGatewayChildArguments(argv, installedArguments)
       ) {
         ownedPids.add(listener.pid);
       }

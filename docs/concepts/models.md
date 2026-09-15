@@ -159,6 +159,13 @@ after `/new` or `/reset`. Unrecognized leading text stays in the prompt.
 
 If `agents.defaults.modelPolicy.allow` is non-empty, it becomes the allowlist for `/model`, session overrides, and `--model`. Selecting a model outside that allowlist returns before any normal reply is generated. A per-agent `agents.entries.*.modelPolicy.allow` replaces the default policy for that agent.
 
+An exact entry permits only that model. Configured defaults and automatic
+fallbacks do not grant extra manual choices. Updated pickers use the same
+policy as explicit model commands while retaining current-model controls.
+Older clients can still show a forbidden choice; the server rejects its selection.
+Resetting to Default clears the session pin
+and keeps the existing automatic selection behavior.
+
 ```text
 Model override "provider/model" is not allowed by agents.defaults.modelPolicy.allow.
 Add "provider/model", "provider/*", or a narrower "provider/namespace/*" prefix to agents.defaults.modelPolicy.allow, or remove/empty the list to allow any model.

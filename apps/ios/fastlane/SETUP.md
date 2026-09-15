@@ -175,8 +175,13 @@ The lane fails before upload when the ID is blank, unknown, external, duplicated
 collides with another group's display name, or any other internal group does not
 explicitly disable automatic all-build access. After processing, it freshly
 resolves the exact group and uploaded build, then requires that build ID to be
-assigned only to the approved group. External distribution and Beta App Review
-submission remain disabled.
+assigned only to the approved group. Existing access is reconciled without
+reassigning the build. An automatic target group must expose the exact build in
+its live relationships; its all-build flag alone is not distribution proof. A
+missing relationship permits one assignment only for a freshly validated manual
+group. Unexpected access or unreadable state fails closed before assignment,
+and successful reconciliation still requires fresh exclusive-access readback.
+External distribution and Beta App Review submission remain disabled.
 
 After verified internal distribution, the workflow writes a bounded signed
 intent and records `refs/openclaw/mobile-releases/ios/<app-store-version>-<build>`

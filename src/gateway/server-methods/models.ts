@@ -1,4 +1,8 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import {
+  GATEWAY_CLIENT_CAPS,
+  hasGatewayClientCap,
+} from "../../../packages/gateway-protocol/src/client-info.js";
 // Models gateway methods expose prepared, cached, and explicitly refreshed catalog views.
 import {
   ErrorCodes,
@@ -48,6 +52,10 @@ export const modelsHandlers: GatewayRequestHandlers = {
         source: { kind: "gateway", context },
         agentId: resolved.agentId,
         params,
+        includeManualSelection: hasGatewayClientCap(
+          client?.connect.caps,
+          GATEWAY_CLIENT_CAPS.MODEL_SELECTION_POLICY,
+        ),
         requesterProfileId: scope?.requesterProfileId ?? resolveAuthenticatedProfileId(client),
         ...(scope ? { readScope: scope } : {}),
       });

@@ -14,6 +14,7 @@ import { isPreparedModelCatalogFull } from "../agents/prepared-model-runtime.ful
 // Gateway catalog reads use the atomic prepared runtime generation.
 import { getRuntimeConfig } from "../config/io.js";
 import type { PreparedGatewayModelCatalogSnapshot } from "./server-model-catalog-auth.js";
+import { createPreparedGatewayModelCatalog } from "./server-model-catalog-view.js";
 import type {
   GatewayModelCatalogSnapshot,
   PreparedGatewayModelCatalog,
@@ -202,11 +203,12 @@ export async function readPreparedGatewayModelCatalog(
     return undefined;
   }
   const catalog = owner.readFullModelCatalog?.() ?? owner.modelCatalog;
-  return {
+  return createPreparedGatewayModelCatalog({
     entries: catalog.entries,
     routeVariants: catalog.routeVariants,
     pluginRegistry: owner.pluginRegistry,
-  };
+    metadataSnapshot: owner.metadataSnapshot,
+  });
 }
 
 /** Reads the published owner generation without activating full catalog discovery. */

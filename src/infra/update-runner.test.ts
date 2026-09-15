@@ -2010,13 +2010,13 @@ describe("runGatewayUpdate", () => {
   );
 
   it.each([
-    { operation: "mkdir", code: "ENOSPC", reason: "preflight-insufficient-space" },
-    { operation: "mkdtemp", code: "ENOSPC", reason: "preflight-insufficient-space" },
-    { operation: "mkdir", code: "EACCES", reason: "preflight-worktree-failed" },
-    { operation: "mkdtemp", code: "EROFS", reason: "preflight-worktree-failed" },
+    ["mkdir", "ENOSPC", "preflight-insufficient-space"],
+    ["mkdtemp", "ENOSPC", "preflight-insufficient-space"],
+    ["mkdir", "EACCES", "preflight-worktree-failed"],
+    ["mkdtemp", "EROFS", "preflight-worktree-failed"],
   ] as const)(
-    "returns a structured preflight failure when $operation rejects with $code",
-    async ({ operation, code, reason }) => {
+    "returns a structured preflight failure when %s rejects with %s",
+    async (operation, code, reason) => {
       await setupGitPackageManagerFixture();
       const beforeGitMutation = vi.fn<() => Promise<void>>();
       const allocator = vi.spyOn(fs, operation);
@@ -2043,66 +2043,39 @@ describe("runGatewayUpdate", () => {
   );
 
   it.each([
-    {
-      command: "pnpm install",
-      stdout: "[ENOSPC] ENOSPC: no space left on device, write",
-      stderr: "",
-      capacity: true,
-    },
-    {
-      command: "pnpm install",
-      stdout:
-        "[ERR_PNPM_ENOSPC] [importPackage /checkout/node_modules/package] ENOSPC: no space left on device, copyfile 'store' -> 'package'",
-      stderr: "",
-      capacity: true,
-    },
-    {
-      command: "pnpm build",
-      stdout: "",
-      stderr: "Error: ENOSPC: no space left on device, write",
-      capacity: true,
-    },
-    {
-      command: "pnpm install",
-      stdout: "",
-      stderr:
-        "\u001b[31m[ERR_PNPM_ENOSPC]\u001b[0m ENOSPC: no space left on device, copyfile 'store' -> 'package'",
-      capacity: true,
-    },
-    {
-      command: "pnpm install",
-      stdout: "[ERR_SQLITE_ERROR] disk I/O error",
-      stderr: "",
-      capacity: false,
-    },
-    {
-      command: "pnpm build",
-      stdout: "",
-      stderr: "Error: ENOSPC: System limit for number of file watchers reached, watch 'src'",
-      capacity: false,
-    },
-    { command: "pnpm install", stdout: "", stderr: "ERR_PNPM_NETWORK", capacity: false },
-    {
-      command: "pnpm build",
-      stdout: "",
-      stderr: "test expected ENOSPC or disk full",
-      capacity: false,
-    },
-    {
-      command: "pnpm build",
-      stdout: "",
-      stderr: "test expected fatal: unable to create file: No space left on device",
-      capacity: false,
-    },
-    {
-      command: "pnpm build",
-      stdout: "",
-      stderr: "fatal: unable to create file: No space left on device (expected)",
-      capacity: false,
-    },
+    ["pnpm install", "[ENOSPC] ENOSPC: no space left on device, write", "", true],
+    [
+      "pnpm install",
+      "[ERR_PNPM_ENOSPC] [importPackage /checkout/node_modules/package] ENOSPC: no space left on device, copyfile 'store' -> 'package'",
+      "",
+      true,
+    ],
+    ["pnpm build", "", "Error: ENOSPC: no space left on device, write", true],
+    [
+      "pnpm install",
+      "",
+      "\u001b[31m[ERR_PNPM_ENOSPC]\u001b[0m ENOSPC: no space left on device, copyfile 'store' -> 'package'",
+      true,
+    ],
+    ["pnpm install", "[ERR_SQLITE_ERROR] disk I/O error", "", false],
+    [
+      "pnpm build",
+      "",
+      "Error: ENOSPC: System limit for number of file watchers reached, watch 'src'",
+      false,
+    ],
+    ["pnpm install", "", "ERR_PNPM_NETWORK", false],
+    ["pnpm build", "", "test expected ENOSPC or disk full", false],
+    [
+      "pnpm build",
+      "",
+      "test expected fatal: unable to create file: No space left on device",
+      false,
+    ],
+    ["pnpm build", "", "fatal: unable to create file: No space left on device (expected)", false],
   ])(
-    "handles dev preflight failure without misclassifying capacity: $command $stdout $stderr",
-    async ({ command, stdout, stderr, capacity }) => {
+    "handles dev preflight failure without misclassifying capacity: %s %s %s",
+    async (command, stdout, stderr, capacity) => {
       await setupGitPackageManagerFixture();
       let failed = false;
       const { runCommand, calls } = createDevGitRunner({
@@ -2145,25 +2118,19 @@ describe("runGatewayUpdate", () => {
   );
 
   it.each([
-    {
-      stderr: "fatal: unable to create file: No space left on device",
-      reason: "preflight-insufficient-space",
-    },
-    {
-      stderr: "error: cannot create directory at 'src': No space left on device",
-      reason: "preflight-insufficient-space",
-    },
-    {
-      stderr: "fatal: could not create leading directories of 'worktree': No space left on device",
-      reason: "preflight-insufficient-space",
-    },
-    {
-      stderr: "fatal: unable to create file: Permission denied",
-      reason: "preflight-worktree-failed",
-    },
+    ["fatal: unable to create file: No space left on device", "preflight-insufficient-space"],
+    [
+      "error: cannot create directory at 'src': No space left on device",
+      "preflight-insufficient-space",
+    ],
+    [
+      "fatal: could not create leading directories of 'worktree': No space left on device",
+      "preflight-insufficient-space",
+    ],
+    ["fatal: unable to create file: Permission denied", "preflight-worktree-failed"],
   ])(
-    "classifies preflight worktree creation failure and removes partial staging: $stderr",
-    async ({ stderr, reason }) => {
+    "classifies preflight worktree creation failure and removes partial staging: %s",
+    async (stderr, reason) => {
       await setupGitPackageManagerFixture();
       const roots: string[] = [];
       const { runCommand } = createDevGitRunner({

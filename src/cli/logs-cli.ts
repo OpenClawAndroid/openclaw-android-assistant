@@ -299,7 +299,8 @@ async function readSystemdJournalFallback(params: {
   if (typeof params.cursor === "string" && params.cursor.trim().length > 0) {
     args.push(`--after-cursor=${params.cursor}`);
   } else if (params.since) {
-    args.push(`--since=${params.since}`);
+    // journalctl requires its own timestamp syntax, not the ISO poll timestamp.
+    args.push(`--since=${params.since.replace("T", " ").replace("Z", " UTC")}`);
   } else {
     args.push("-n", String(limit));
   }

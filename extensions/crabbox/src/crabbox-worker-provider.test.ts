@@ -1233,7 +1233,9 @@ describe("Crabbox worker provider", () => {
       (call) =>
         call.argv[1] === "run" && String(call.options.input).includes("openclaw-worker-browser"),
     )?.options.input;
-    const desktopSetupText = String(desktopSetup);
+    const desktopSetupText: string = JSON.parse(
+      String(desktopSetup).match(/^const desktopSetup = (.+);$/m)![1]!,
+    );
     expect(desktopSetupText).toContain("worker_user=$(id -un)");
     expect(desktopSetupText).toContain('worker_home=$(getent passwd "$worker_uid"');
     expect(desktopSetupText).toContain(`worker-browser/${LEASE_ID}`);
@@ -1768,8 +1770,7 @@ describe("Crabbox worker provider", () => {
 
   it.each([
     { phase: "profile setup", setupAttempt: 1 },
-    { phase: "desktop setup", setupAttempt: 2 },
-    { phase: "node enrollment setup", setupAttempt: 3 },
+    { phase: "node enrollment setup", setupAttempt: 2 },
   ])("identifies the failed $phase phase", async ({ phase, setupAttempt }) => {
     let attempts = 0;
     const provider = providerWithRunner(async (argv) => {
@@ -2205,6 +2206,8 @@ describe("Crabbox worker provider", () => {
   ])("provisions a node-carried desktop through $name", async ({ config, providerId }) => {
     const calls: Array<{ argv: string[]; options: Parameters<CrabboxCommandRunner>[1] }> = [];
     const setupOrder: string[] = [];
+    const setupStarted = createDeferred<void>();
+    const setupComplete = createDeferred<void>();
     const provider = providerWithRawRunner(async (argv, options) => {
       calls.push({ argv, options });
       if (argv[1] === "config" && argv[2] === "show") {
@@ -2215,12 +2218,15 @@ describe("Crabbox worker provider", () => {
       }
       if (argv[1] === "run" && String(options.input).includes("openclaw-worker-browser")) {
         setupOrder.push("desktop");
+        setupStarted.resolve();
+        await setupComplete.promise;
       }
       return commandResult();
     });
 
-    await expect(
-      provider.provision({ ...PROFILE, provider: providerId, desktop: true }, OPERATION_ID, {
+    let completed = false;
+    const provision = provider
+      .provision({ ...PROFILE, provider: providerId, desktop: true }, OPERATION_ID, {
         beginNodeEnrollment: async () => {
           setupOrder.push("enrollment");
           return {
@@ -2233,8 +2239,18 @@ describe("Crabbox worker provider", () => {
             waitForDeviceId: async () => "device-1",
           };
         },
-      }),
-    ).resolves.toEqual({
+      })
+      .finally(() => {
+        completed = true;
+      });
+    await setupStarted.promise;
+    try {
+      expect(completed).toBe(false);
+      expect(calls.some(({ argv }) => argv[1] === "heartbeat")).toBe(false);
+    } finally {
+      setupComplete.resolve();
+    }
+    await expect(provision).resolves.toEqual({
       leaseId: LEASE_ID,
       node: { deviceId: "device-1" },
       sharedHost: false,
@@ -2274,7 +2290,9 @@ describe("Crabbox worker provider", () => {
         desktop: true,
       }),
     ).toBe(149 * 60_000 + 15_000);
-    expect(setupOrder).toEqual(["desktop", "enrollment"]);
+    expect(calls.filter(({ argv }) => argv[1] === "run")).toHaveLength(1);
+    expect(calls.find(({ argv }) => argv[1] === "run")?.options.timeoutMs).toBe(30 * 60_000);
+    expect(setupOrder).toEqual(["enrollment", "desktop"]);
     expect(calls.filter(({ argv }) => argv[1] === "inspect")).toHaveLength(1);
   });
 
@@ -2333,6 +2351,7 @@ describe("Crabbox worker provider", () => {
       expect(failure.cause).toBe(failure.provisionError);
       expect(WorkerProviderError.isCleanupIndeterminate(failure)).toBe(false);
       expect(calls.at(-1)).toEqual([SIBLING_BINARY, "stop", "--provider", "aws", "--id", LEASE_ID]);
+      expect(calls.filter((argv) => argv[1] === "stop")).toHaveLength(1);
     },
   );
 

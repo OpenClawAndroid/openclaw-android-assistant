@@ -592,6 +592,7 @@ export async function executeMutableUpdate(
         installTarget: params.packageInstallTarget,
         validateCandidate,
         beforeActivate,
+        assertCurrent: assertExecutionCurrent,
         managedServiceEnv: preManagedServiceStop?.serviceEnv,
         onTransaction: (transaction) => {
           packageTransaction = transaction;
@@ -614,6 +615,7 @@ export async function executeMutableUpdate(
         channel: params.channel,
         tag: params.tag,
         devTarget: params.devTarget,
+        assertCurrent: assertExecutionCurrent,
         inspectGitTarget: async (target) => {
           if (target.metadataUnreadable) {
             throw new UpdatePreMutationError(

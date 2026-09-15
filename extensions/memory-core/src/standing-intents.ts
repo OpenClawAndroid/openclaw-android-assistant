@@ -7,7 +7,7 @@ import {
   getNodeSqliteKysely,
   runSqliteImmediateTransactionSync,
   sqliteStringSet,
-  withOpenClawAgentDatabaseAsync,
+  withOpenClawAgentDatabaseWrite,
 } from "openclaw/plugin-sdk/sqlite-runtime";
 
 export const DEFAULT_INTENT_COOLDOWN_SECONDS = 24 * 60 * 60;
@@ -80,7 +80,7 @@ function withStandingIntentDatabase<T>(
 ): Promise<T> {
   const { agentId, assertCurrent } = params;
   assertCurrent?.();
-  return withOpenClawAgentDatabaseAsync({ agentId }, ({ db }) => {
+  return withOpenClawAgentDatabaseWrite({ agentId }, ({ db }) => {
     // Refuse only this callback; hook expiry must not cancel a shared physical open.
     assertCurrent?.();
     ensureOpenClawAgentStandingIntentsSchema(db);

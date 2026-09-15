@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync, StatementSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { findStartupMaintenanceRequiredError } from "../infra/startup-maintenance-required.js";
@@ -11,6 +11,7 @@ import {
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
+import { observeMainThreadSql } from "../test-utils/main-thread-sql-spies.js";
 import {
   captureConfigHealthStateStore,
   readConfigHealthStateFromStore,
@@ -122,11 +123,7 @@ describe("config health-state warnings", () => {
     const snapshot = await createConfigIO({ ...options, observe: false }).readConfigFileSnapshot();
     const observationDeps = normalizeConfigIoDeps(options);
     await closeOpenClawStateDatabaseAsync();
-    const prepare = vi.spyOn(DatabaseSync.prototype, "prepare");
-    const exec = vi.spyOn(DatabaseSync.prototype, "exec");
-    const statements = (["get", "all", "run", "iterate"] as const).map((method) =>
-      vi.spyOn(StatementSync.prototype, method),
-    );
+    const mainSql = observeMainThreadSql();
     try {
       using store = captureConfigHealthStateStore(deps, configPath);
       expect((await store.read())?.state).toEqual({});
@@ -141,17 +138,9 @@ describe("config health-state warnings", () => {
       await closeOpenClawStateDatabaseAsync();
       using reopened = captureConfigHealthStateStore(deps, configPath);
       expect(await reopened.read()).toEqual(observed);
-      expect(prepare).not.toHaveBeenCalled();
-      expect(exec).not.toHaveBeenCalled();
-      for (const statement of statements) {
-        expect(statement).not.toHaveBeenCalled();
-      }
+      mainSql.expectIdle();
     } finally {
-      prepare.mockRestore();
-      exec.mockRestore();
-      for (const statement of statements) {
-        statement.mockRestore();
-      }
+      mainSql.restore();
     }
     expect(readConfigHealthStateFromStore(deps).entries?.[configPath]?.lastKnownGood?.hash).toBe(
       hashConfigRaw(raw),

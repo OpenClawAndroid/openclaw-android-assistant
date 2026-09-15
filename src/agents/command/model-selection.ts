@@ -6,6 +6,7 @@ import {
   type ThinkLevel,
 } from "../../auto-reply/thinking.js";
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
+import { hasSessionAutoModelSelection } from "../../config/sessions/model-override-provenance.js";
 import type { InternalSessionEntry as SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
@@ -218,7 +219,7 @@ export async function resolveEmbeddedModelSelection(params: {
         overrideModel,
         params.modelManifestContext,
       );
-      if (!visibilityPolicy.allows(normalizedOverride)) {
+      if (!hasSessionAutoModelSelection(entry) && !visibilityPolicy.allows(normalizedOverride)) {
         const { updated } = applyModelOverrideToSessionEntry({
           entry,
           selection: { provider: defaultProvider, model: defaultModel, isDefault: true },
@@ -278,6 +279,8 @@ export async function resolveEmbeddedModelSelection(params: {
     : (effectiveStoredOverride?.model ??
       (canUseStoredOverrideFields ? sessionEntry?.modelOverride?.trim() : undefined));
   const storedModelOverrideRouteResolution = effectiveStoredOverride?.routeResolution;
+  const hasStoredAutomaticSelection =
+    effectiveStoredOverride?.source === "session" && hasSessionAutoModelSelection(sessionEntry);
   const currentRunModelChannel = [
     params.runContext.messageChannel,
     params.opts.replyChannel,
@@ -345,7 +348,11 @@ export async function resolveEmbeddedModelSelection(params: {
       storedAlias?.model ?? storedModelOverride,
       params.modelManifestContext,
     );
-    if (isModelSelectionLocked(sessionEntry) || visibilityPolicy.allows(normalizedStored)) {
+    if (
+      isModelSelectionLocked(sessionEntry) ||
+      hasStoredAutomaticSelection ||
+      visibilityPolicy.allows(normalizedStored)
+    ) {
       provider = normalizedStored.provider;
       model = normalizedStored.model;
       requestedRouteResolution =
@@ -412,9 +419,11 @@ export async function resolveEmbeddedModelSelection(params: {
     requestedRouteResolution = "resolved";
   }
   const unresolvedSelectionKey = modelKey(provider, model);
-  const allowedInitialSelection = isModelSelectionLocked(sessionEntry)
-    ? { provider, model }
-    : visibilityPolicy.resolveSelection({ provider, model });
+  const allowedInitialSelection =
+    isModelSelectionLocked(sessionEntry) ||
+    (hasStoredAutomaticSelection && !hasExplicitRunOverride && !autoFallbackPrimaryProbe)
+      ? { provider, model }
+      : visibilityPolicy.resolveSelection({ provider, model });
   if (!allowedInitialSelection) {
     const policyPath = visibilityPolicy.allowConfigPath ?? "modelPolicy.allow";
     throw new Error(
@@ -544,11 +553,9 @@ export async function resolveEmbeddedModelSelection(params: {
       model,
     });
   let catalogForThinking =
-    allowedModelCatalog.length > 0
-      ? allowedModelCatalog
-      : modelCatalog && modelCatalog.length > 0
-        ? modelCatalog
-        : params.configuredThinkingCatalog;
+    visibilityPolicy.catalog.length > 0
+      ? visibilityPolicy.catalog
+      : params.configuredThinkingCatalog;
   if (
     params.pluginsEnabled &&
     primaryConfiguredThinkLevel !== "off" &&
@@ -565,7 +572,7 @@ export async function resolveEmbeddedModelSelection(params: {
         ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
       }),
     );
-    const allowedRuntimeCatalog = createModelVisibilityPolicy({
+    const runtimeThinkingCatalog = createModelVisibilityPolicy({
       cfg: params.cfg,
       catalog: runtimeCatalog,
       defaultProvider,
@@ -574,15 +581,15 @@ export async function resolveEmbeddedModelSelection(params: {
       allowManifestNormalization: true,
       allowPluginNormalization: params.pluginsEnabled,
       ...params.modelManifestContext,
-    }).allowedCatalog;
+    }).catalog;
     if (
       hasResolvedThinkingCatalogEntry({
-        catalog: allowedRuntimeCatalog,
+        catalog: runtimeThinkingCatalog,
         provider,
         model,
       })
     ) {
-      catalogForThinking = allowedRuntimeCatalog;
+      catalogForThinking = runtimeThinkingCatalog;
     }
   }
   const thinkingCatalog = catalogForThinking.length > 0 ? catalogForThinking : undefined;
@@ -688,7 +695,6 @@ export async function resolveEmbeddedModelSelection(params: {
     defaultModel,
     configuredDefaultAuthProfileId,
     providerForAuthProfileValidation,
-    visibilityPolicy,
     hasExplicitRunOverride,
     storedProviderOverride,
     storedModelOverride,

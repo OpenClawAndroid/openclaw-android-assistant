@@ -303,6 +303,14 @@ describe("tsdown config", () => {
     );
   });
 
+  it("keeps lazy transcript reconciliation behind one stable dist entry", () => {
+    const distGraph = requireUnifiedDistGraph();
+
+    expect(entrySources(distGraph)["config/sessions/session-transcript-reconcile"]).toBe(
+      "src/config/sessions/session-transcript-reconcile.ts",
+    );
+  });
+
   it("keeps reply dispatcher lazy runtime behind one root stable dist entry", () => {
     const distGraph = requireUnifiedDistGraph();
 

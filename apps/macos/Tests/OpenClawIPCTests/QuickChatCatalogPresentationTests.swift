@@ -42,6 +42,9 @@ final class QuickChatCatalogPresentationTests: XCTestCase {
             application.deactivate()
             controller.present()
             try await self.waitForModel { model.canUseModelControls }
+            XCTAssertTrue(model.speed.supportsFastMode)
+            model.selectModel("fixture/current")
+            XCTAssertNil(model.selectedModelSelectionID, "Retained metadata does not permit manual selection")
             let panel = try XCTUnwrap(application.windows.first {
                 ($0.contentView as? NSHostingView<QuickChatView>)?.rootView.model === model
             })
@@ -58,6 +61,7 @@ final class QuickChatCatalogPresentationTests: XCTestCase {
                 try Self.record(menu: menu, content: content, name: "catalog")
                 let provider = try XCTUnwrap(menu.items.first { $0.submenu != nil })
                 let choices = try XCTUnwrap(provider.submenu)
+                XCTAssertFalse(choices.items.contains { $0.title.hasPrefix("Current fixture") })
                 let unavailable = try XCTUnwrap(choices.items.first { $0.title.hasPrefix("Locked fixture") })
                 XCTAssertFalse(unavailable.isEnabled, "The catalog requires sign-in before this model can be selected")
                 XCTAssertTrue(unavailable.title.contains("Sign-in needed"))
@@ -239,10 +243,10 @@ private actor QuickChatCatalogFixture {
             XCTAssertEqual(params["sessionKey"] as? String, "agent:main:main")
             payload = """
             {"models":[
-              {"id":"current","name":"Current fixture","provider":"fixture","available":true,
+              {"id":"current","name":"Current fixture","provider":"fixture","available":true,"manualSelectionAllowed":false,
                "thinkingLevels":[{"id":"low","label":"Brief"},{"id":"high","label":"Thorough"}],
                "thinkingDefault":"low","supportsFastMode":true,"effectiveFastMode":false},
-              {"id":"allowed","name":"Allowed fixture","provider":"fixture","available":true,
+              {"id":"allowed","name":"Allowed fixture","provider":"fixture","available":true,"manualSelectionAllowed":true,
                "thinkingLevels":[{"id":"low","label":"Brief"},{"id":"high","label":"Thorough"}],
                "thinkingDefault":"low","supportsFastMode":true,"effectiveFastMode":false},
               {"id":"locked","name":"Locked fixture","provider":"fixture","available":false,

@@ -240,24 +240,24 @@ function expectAuthOverride(
   }
 }
 
-async function applySubagentModelPatch(cfg: OpenClawConfig) {
-  return expectPatchOk(
-    await runPatch({
-      cfg,
-      storeKey: KIMI_SUBAGENT_KEY,
-      patch: {
-        key: KIMI_SUBAGENT_KEY,
-        model: SUBAGENT_MODEL,
-      },
-      loadGatewayModelCatalog: async () => [
-        { provider: "anthropic", id: ANTHROPIC_SONNET_ID, name: "sonnet" },
-        { provider: "synthetic", id: "hf:moonshotai/Kimi-K2.7-Code", name: "kimi" },
-      ],
-    }),
-  );
+async function applySubagentModelPatch(cfg: OpenClawConfig, store: Record<string, SessionEntry>) {
+  return runPatch({
+    cfg,
+    store,
+    storeKey: KIMI_SUBAGENT_KEY,
+    patch: {
+      key: KIMI_SUBAGENT_KEY,
+      model: SUBAGENT_MODEL,
+    },
+    loadGatewayModelCatalog: async () => [
+      { provider: "anthropic", id: ANTHROPIC_SONNET_ID, name: "sonnet" },
+      { provider: "synthetic", id: "hf:moonshotai/Kimi-K2.7-Code", name: "kimi" },
+    ],
+  });
 }
 
 function makeKimiSubagentCfg(params: {
+  allowModel: boolean;
   agentPrimaryModel?: string;
   agentSubagentModel?: string;
   defaultsSubagentModel?: string;
@@ -266,6 +266,7 @@ function makeKimiSubagentCfg(params: {
     agents: {
       defaults: {
         model: { primary: "anthropic/claude-sonnet-4-6" },
+        modelPolicy: { allow: [ANTHROPIC_SONNET_MODEL] },
         subagents: params.defaultsSubagentModel
           ? { model: params.defaultsSubagentModel }
           : undefined,
@@ -273,15 +274,15 @@ function makeKimiSubagentCfg(params: {
           "anthropic/claude-sonnet-4-6": { alias: "default" },
         },
       },
-      list: [
-        {
-          id: "kimi",
+      entries: {
+        kimi: {
+          ...(params.allowModel ? { modelPolicy: { allow: [SUBAGENT_MODEL] } } : {}),
           model: params.agentPrimaryModel ? { primary: params.agentPrimaryModel } : undefined,
           subagents: params.agentSubagentModel ? { model: params.agentSubagentModel } : undefined,
         },
-      ],
+      },
     },
-  } as OpenClawConfig;
+  };
 }
 
 function createAllowlistedAnthropicModelCfg(): OpenClawConfig {
@@ -2164,33 +2165,38 @@ describe("gateway sessions patch", () => {
     expectPatchError(result, "invalid groupActivation");
   });
 
-  test("allows target agent own model for subagent session even when missing from global allowlist", async () => {
-    const cfg = makeKimiSubagentCfg({
-      agentPrimaryModel: SUBAGENT_MODEL,
-    });
-
-    const entry = await applySubagentModelPatch(cfg);
+  test.each(
+    [
+      { source: "target agent primary", agentPrimaryModel: SUBAGENT_MODEL },
+      {
+        source: "target agent subagents.model",
+        agentPrimaryModel: ANTHROPIC_SONNET_MODEL,
+        agentSubagentModel: SUBAGENT_MODEL,
+      },
+      { source: "global subagents.model", defaultsSubagentModel: SUBAGENT_MODEL },
+    ].flatMap((config) => [
+      { ...config, allowModel: false },
+      { ...config, allowModel: true },
+    ]),
+  )("requires manual permission for $source (allowed: $allowModel)", async (config) => {
+    const cfg = makeKimiSubagentCfg(config);
+    const store: Record<string, SessionEntry> = {
+      [KIMI_SUBAGENT_KEY]: {
+        sessionId: "subagent-policy",
+        updatedAt: 1,
+        delivery: { kind: "none" },
+      },
+    };
+    const before = structuredClone(store);
+    const result = await applySubagentModelPatch(cfg, store);
+    if (!config.allowModel) {
+      expectPatchError(result, "model not allowed");
+      expect(store).toEqual(before);
+      return;
+    }
+    const entry = expectPatchOk(result);
     expectModelSelection(entry, "synthetic", "hf:moonshotai/Kimi-K2.7-Code");
     expect(entry.modelOverrideSource).toBe("user");
-  });
-
-  test("allows target agent subagents.model for subagent session even when missing from global allowlist", async () => {
-    const cfg = makeKimiSubagentCfg({
-      agentPrimaryModel: ANTHROPIC_SONNET_MODEL,
-      agentSubagentModel: SUBAGENT_MODEL,
-    });
-
-    const entry = await applySubagentModelPatch(cfg);
-    expectModelSelection(entry, "synthetic", "hf:moonshotai/Kimi-K2.7-Code");
-  });
-
-  test("allows global defaults.subagents.model for subagent session even when missing from global allowlist", async () => {
-    const cfg = makeKimiSubagentCfg({
-      defaultsSubagentModel: SUBAGENT_MODEL,
-    });
-
-    const entry = await applySubagentModelPatch(cfg);
-    expectModelSelection(entry, "synthetic", "hf:moonshotai/Kimi-K2.7-Code");
   });
 
   test("persists trailing @profile suffix as authProfileOverride on model patch", async () => {

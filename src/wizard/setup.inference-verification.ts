@@ -326,8 +326,12 @@ export async function offerLiveModelVerification(params: {
         ? await projectInferenceRoute(candidate.config)
         : undefined;
       const config = await commitSetupInferenceActivation({
-        commit: (options) =>
-          (verifiedConfig?.write ?? params.configTarget.write)(candidate.config, options),
+        config: candidate.config,
+        configTarget: {
+          ...params.configTarget,
+          write: verifiedConfig?.write ?? params.configTarget.write,
+        },
+        assertCurrent: () => {},
         activate: async () => {
           if (savedProfile?.credential.setup?.replacement && verifiedRoute) {
             const latest = (await params.configTarget.read()).config;

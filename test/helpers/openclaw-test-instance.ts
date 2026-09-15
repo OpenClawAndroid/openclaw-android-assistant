@@ -37,6 +37,7 @@ type OpenClawTestStateOptions = NonNullable<Parameters<typeof createOpenClawTest
 type OpenClawTestInstanceOptions = {
   name: string;
   cwd?: string;
+  entrypoint?: string[];
   port?: number;
   gatewayToken?: string;
   hookToken?: string;
@@ -569,6 +570,8 @@ export async function createOpenClawTestInstance(
   options: OpenClawTestInstanceOptions,
 ): Promise<OpenClawTestInstance> {
   const cwd = options.cwd ?? process.cwd();
+  const entrypoint = () =>
+    options.entrypoint ? Promise.resolve(options.entrypoint) : resolveGatewayEntrypoint(cwd);
   let reservation: Awaited<ReturnType<typeof reserveGatewayPort>> | undefined;
   const releasePort = async () => {
     if (reservation) {
@@ -695,7 +698,7 @@ export async function createOpenClawTestInstance(
     );
     if (!closed) {
       throw new Error(
-        `gateway process did not close before stop deadline\n${formatLogs(stdout, stderr)}`,
+        `gateway process cleanup could not verify termination and output closure\n${formatLogs(stdout, stderr)}`,
       );
     }
     await reserveIdlePort();
@@ -717,7 +720,7 @@ export async function createOpenClawTestInstance(
       return child?.process;
     },
     env,
-    entrypoint: () => resolveGatewayEntrypoint(cwd),
+    entrypoint,
     cli: (args, commandOptions = {}) => {
       if (!acceptingWork) {
         return Promise.reject(new Error("test instance no longer accepts CLI commands"));
@@ -725,9 +728,9 @@ export async function createOpenClawTestInstance(
       // Admit the whole operation before preparation yields. Failed process cleanup
       // retains its completion and closes admission until the instance is retired.
       const command = Promise.resolve().then(async () => {
-        const entrypoint = await resolveGatewayEntrypoint(cwd);
+        const commandEntrypoint = await entrypoint();
         return await runCommand({
-          args: ["node", ...entrypoint, ...args],
+          args: ["node", ...commandEntrypoint, ...args],
           cwd,
           env,
           timeoutMs: commandOptions.timeoutMs ?? COMMAND_TIMEOUT_MS,
@@ -754,9 +757,9 @@ export async function createOpenClawTestInstance(
         if (child?.ready && !hasChildExited(child.process)) {
           return;
         }
-        const entrypoint = await resolveGatewayEntrypoint(cwd);
+        const commandEntrypoint = await entrypoint();
         const gatewayArgs = [
-          ...entrypoint,
+          ...commandEntrypoint,
           "gateway",
           "--port",
           String(port),

@@ -1,5 +1,4 @@
 // Memory Core tests cover short term promotion plugin behavior.
-import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +7,7 @@ import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { listMemoryArtifactProvenance } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { createPluginStateKeyedStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import * as processRuntime from "openclaw/plugin-sdk/process-runtime";
 import { afterAll, afterEach, beforeAll, describe, expect, it as baseIt, vi } from "vitest";
 import { deriveConceptTags } from "./concept-vocabulary.js";
 import { isPromotionOriginBlocked } from "./dreaming-consolidation-candidates.js";
@@ -2963,20 +2963,17 @@ describe("short-term promotion", () => {
     });
   });
 
-  it("reclaims a stale sqlite lock owned by a Linux zombie", async (workspaceDir) => {
+  it("reclaims a stale sqlite lock when its owner is definitely dead", async (workspaceDir) => {
     const ownerPid = 4242;
     await testing.writeShortTermLock(workspaceDir, {
       owner: `${ownerPid}:0`,
       acquiredAt: Date.now() - 120_000,
     });
-    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
-    vi.spyOn(process, "kill").mockImplementation(() => true);
-    vi.spyOn(fsSync, "readFileSync").mockImplementation((filePath) => {
-      if (String(filePath) === `/proc/${ownerPid}/status`) {
-        return `Name:\tmemory worker\nState:\tZ (zombie)\nPid:\t${ownerPid}\nThreads:\t1\n`;
-      }
-      throw new Error(`unexpected read: ${String(filePath)}`);
-    });
+    const originalIsPidDefinitelyDead = processRuntime.isPidDefinitelyDead;
+    // Keep SQLite's platform and coordinator identity native while probing the synthetic owner.
+    vi.spyOn(processRuntime, "isPidDefinitelyDead").mockImplementation(
+      (pid) => pid === ownerPid || originalIsPidDefinitelyDead(pid),
+    );
 
     const audit = await auditShortTermPromotionArtifacts({ workspaceDir });
     expect(audit.issues.map((issue) => issue.code)).toContain("recall-lock-stale");

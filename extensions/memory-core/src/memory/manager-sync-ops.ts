@@ -573,7 +573,7 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
     );
     let shadowCleanup: MemoryIndexDatabase | undefined;
     try {
-      cleanupAgedMemoryReindexTempFiles(dbPath);
+      await cleanupAgedMemoryReindexTempFiles(dbPath);
       const originalRevision = readMemoryDatabaseRevision(originalDb);
       const shadow = MemoryIndexDatabase.openShadow(tempDbPath, this.settings.store.vector.enabled);
       shadowCleanup = shadow;
@@ -698,7 +698,7 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
       try {
         if (shadowCleanup?.shadowReleased) {
           shadowCleanup.assertShadowPath();
-          removeMemoryDatabaseFiles(tempDbPath);
+          await removeMemoryDatabaseFiles(tempDbPath);
         }
       } catch (err) {
         log.warn(`failed to remove memory reindex shadow database: ${formatErrorMessage(err)}`);

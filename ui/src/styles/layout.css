@@ -430,6 +430,55 @@ html:is(.openclaw-native-macos, .openclaw-native-nav, .openclaw-native-web-chrom
   color: var(--text-strong);
 }
 
+.settings-sidebar__agent {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 8px 12px 0;
+}
+
+.settings-sidebar__agent openclaw-agent-select {
+  display: block;
+  min-width: 0;
+}
+
+.settings-sidebar__agent .agent-select__trigger {
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 8px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 14px;
+}
+
+:root[data-theme-mode="light"] .settings-sidebar__agent .agent-select__trigger {
+  background: transparent;
+}
+
+.settings-sidebar__agent .agent-select__trigger:hover:not(:disabled),
+.settings-sidebar__agent .agent-select__trigger[aria-expanded="true"],
+:root[data-theme-mode="light"] .settings-sidebar__agent .agent-select__trigger:hover:not(:disabled),
+:root[data-theme-mode="light"]
+  .settings-sidebar__agent
+  .agent-select__trigger[aria-expanded="true"] {
+  background: var(--bg-hover);
+}
+
+.settings-sidebar__loading-agent {
+  display: block;
+  height: 40px;
+  border-radius: var(--radius-md);
+}
+
+@media (pointer: coarse) {
+  .settings-sidebar__agent .agent-select__trigger {
+    min-height: 44px;
+  }
+
+  .settings-sidebar__loading-agent {
+    height: 44px;
+  }
+}
+
 .settings-sidebar__search {
   position: relative;
   z-index: 1;
@@ -1198,9 +1247,6 @@ openclaw-settings-save-indicator:empty {
 .sidebar-nav {
   position: relative;
   padding: 0;
-  flex: 0 1 auto;
-  max-height: 45%;
-  overflow: auto;
 }
 
 /* Keep the live session tree mounted while a route owns the lower region. */

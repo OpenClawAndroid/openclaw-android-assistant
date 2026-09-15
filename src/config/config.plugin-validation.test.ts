@@ -1996,6 +1996,17 @@ describe("config plugin validation", () => {
     );
   });
 
+  it.each([
+    { config: { sessionCatalog: { enabled: true } } },
+    { enabled: false, config: { sessionCatalog: { enabled: false } } },
+    { config: { sessionCatalog: { enabled: false, homes: ["/synthetic/catalog"] } } },
+  ])("retains disabled-plugin warnings for authored Codex settings: %j", (entry) => {
+    const res = validateInSuite({ plugins: { entries: { codex: entry } } });
+
+    expect(res.ok).toBe(true);
+    expectPathMessageIncludes(res.warnings, "plugins.entries.codex", "plugin disabled");
+  });
+
   it("ignores standalone helper scripts in auto-discovered global extensions", async () => {
     const helperPath = path.join(suiteHome, ".openclaw", "extensions", "my-helper.mjs");
     await mkdirSafe(path.dirname(helperPath));

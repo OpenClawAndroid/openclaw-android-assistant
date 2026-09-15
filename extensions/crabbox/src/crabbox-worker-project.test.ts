@@ -387,13 +387,24 @@ describe("Crabbox project snapshot provisioning", () => {
     },
   );
 
-  it.each(["aws", "daytona", "machine0"])(
-    "captures the prepared %s project before enrollment and reuses it",
-    async (backend) => {
-      const profile = { ...PROFILE, provider: backend };
+  it.each([
+    { backend: "aws", desktop: false },
+    { backend: "aws", desktop: true },
+    { backend: "daytona", desktop: false },
+    { backend: "machine0", desktop: false },
+  ])(
+    "captures the prepared $backend project before enrollment and reuses it (desktop=$desktop)",
+    async ({ backend, desktop }) => {
+      const profile = { ...PROFILE, provider: backend, desktop };
       const events: string[] = [];
       let current = projectOptions(events);
       const { provider, calls } = createWarmProvider((call) => {
+        if (
+          call.argv[1] === "run" &&
+          String(call.options.input).includes("openclaw-worker-browser")
+        ) {
+          events.push("desktop");
+        }
         current.observe(call);
         if (
           backend === "daytona" &&
@@ -412,6 +423,7 @@ describe("Crabbox project snapshot provisioning", () => {
       await provider.provision(profile, "project-first", current.options);
 
       expect(events).toEqual([
+        ...(desktop ? ["desktop"] : []),
         "project-prepared",
         "runtime-granted",
         "runtime-install",
@@ -435,7 +447,12 @@ describe("Crabbox project snapshot provisioning", () => {
       expect(calls.some(({ argv }) => argv[1] === "warmup" || argv[2] === "create")).toBe(false);
       // Waited capture already established readiness; reuse does not repeat the inspection.
       expect(calls.filter(({ argv }) => argv[2] === "inspect")).toHaveLength(0);
-      expect(events).toEqual(["project-prepared", "enrollment-begun", "enrollment-install"]);
+      expect(events).toEqual([
+        ...(desktop ? ["desktop"] : []),
+        "project-prepared",
+        "enrollment-begun",
+        "enrollment-install",
+      ]);
       expect(current.options.prepareNodeRuntime).not.toHaveBeenCalled();
       // A cache hit does not restart the machine; only allocation needs provider readiness.
       expect(

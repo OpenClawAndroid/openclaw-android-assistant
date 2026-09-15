@@ -1,4 +1,6 @@
 /** Recursive spawn authority must survive the real Gateway and agent-command admission path. */
+import { expectDefined } from "@openclaw/normalization-core";
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import {
@@ -391,6 +393,45 @@ async function createBoundGateway(bound: Awaited<ReturnType<typeof createBoundPa
 
 describe("recursive spawn production boundary", () => {
   it("authorizes and admits an upgraded descendant before model execution", async () => {
+    const customProvider = expectDefined(
+      runtimeConfig.models?.providers?.custom,
+      "custom provider fixture",
+    );
+    const primaryModel = expectDefined(customProvider.models[0], "primary model fixture");
+    const childModel = { ...primaryModel, id: "child-model", name: "Child model" };
+    runtimeConfig = {
+      ...runtimeConfig,
+      agents: {
+        ...runtimeConfig.agents,
+        defaults: {
+          ...runtimeConfig.agents?.defaults,
+          subagents: { model: "custom/child-model" },
+          modelPolicy: { allow: ["custom/manual-only"] },
+        },
+      },
+      models: {
+        ...runtimeConfig.models,
+        providers: {
+          ...runtimeConfig.models?.providers,
+          custom: { ...customProvider, models: [primaryModel, childModel] },
+        },
+      },
+    };
+    const catalog = [primaryModel, childModel].map((model) =>
+      Object.assign({}, model, {
+        provider: "custom",
+        api: "openai-completions" as const,
+        baseUrl: customProvider.baseUrl,
+        contextWindow: 4_096,
+      }),
+    );
+    getPreparedModelRuntimeMocks().buildPreparedModelCatalogSnapshot.mockResolvedValue({
+      entries: catalog,
+      routeVariants: catalog,
+    });
+    await state.writeConfig(runtimeConfig);
+    clearConfigCache();
+    clearRuntimeConfigSnapshot();
     const bound = await createBoundParent();
     const { context, runtime, identities, readAgentRuntimeExecutionLineage } =
       await createBoundGateway(bound);
@@ -406,11 +447,63 @@ describe("recursive spawn production boundary", () => {
       });
       const details = result.details as { childSessionKey: string; runId: string };
       childRunId = details.runId;
-      await vi.waitFor(() => expect(runEmbeddedAgent).toHaveBeenCalledOnce(), { timeout: 15_000 });
+      try {
+        await vi.waitFor(() => expect(runEmbeddedAgent).toHaveBeenCalledOnce(), {
+          timeout: 15_000,
+        });
+      } catch (error) {
+        const receipt = context.dedupe.get(`agent:${details.runId}`);
+        const payload = asOptionalRecord(receipt?.payload);
+        const cause = asOptionalRecord(asOptionalRecord(receipt?.error)?.cause);
+        const controller = context.chatAbortControllers.get(details.runId);
+        const execution = subagentRuns.get(details.runId)?.execution;
+        const label = (value: unknown, allowed: readonly string[]) =>
+          typeof value === "string" && allowed.includes(value) ? value : "unknown";
+        // Read recorded lifecycle facts before finally settles the synthetic model run.
+        console.error("Spawn admission did not reach the embedded runner", {
+          receiptPresent: receipt !== undefined,
+          receiptOk: receipt?.ok,
+          receiptStatus: label(payload?.status, [
+            "accepted",
+            "in_flight",
+            "ok",
+            "error",
+            "timeout",
+          ]),
+          receiptErrorCode: label(receipt?.error?.code, [
+            "UNAVAILABLE",
+            "INVALID_REQUEST",
+            "FORBIDDEN",
+          ]),
+          causeName: label(cause?.name, [
+            "Error",
+            "TypeError",
+            "AbortError",
+            "TimeoutError",
+            "SqliteWorkerError",
+            "FailoverError",
+          ]),
+          controllerPresent: controller !== undefined,
+          controllerAborted: controller?.controller.signal.aborted,
+          executionStarted: controller?.executionStarted,
+          executionStatus: label(execution?.status, [
+            "queued",
+            "running",
+            "interrupted",
+            "terminal",
+          ]),
+          outcomeStatus: label(execution?.outcome?.status, ["ok", "error", "timeout"]),
+          gatewayWarningCount: vi.mocked(context.logGateway.warn).mock.calls.length,
+          runtimeWarningCount: getPreparedModelRuntimeMocks().warn.mock.calls.length,
+        });
+        throw error;
+      }
       const embeddedRun = runEmbeddedAgent.mock.calls[0]?.[0];
       expect(embeddedRun).toMatchObject({
         runId: details.runId,
         sessionKey: details.childSessionKey,
+        provider: "custom",
+        model: "child-model",
       });
       expect(context.chatAbortControllers.get(details.runId)).toMatchObject({
         agentId: "main",
@@ -438,6 +531,11 @@ describe("recursive spawn production boundary", () => {
       ).toMatchObject({
         spawnedBy: parentSessionKey,
         spawnDepth: 2,
+        providerOverride: "custom",
+        modelOverride: "child-model",
+        modelOverrideSource: "auto",
+        modelOverrideFallbackOriginProvider: "custom",
+        modelOverrideFallbackOriginModel: "child-model",
       });
       expect(subagentRuns.get(details.runId)).toMatchObject({
         childSessionKey: details.childSessionKey,
