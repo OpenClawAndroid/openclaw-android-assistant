@@ -9,11 +9,22 @@ import { hasErrnoCode } from "../../infra/errno.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import { tryResolveLegacyCompatibilityAgentId } from "../legacy.default-agent-owner.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
+import { isPrimarySessionTranscriptFileName } from "./artifacts.js";
 import { resolveUnsuffixedSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
 import type { SessionEntry } from "./types.js";
 
 type LegacySessionStoreTarget = { agentId: string; storePath: string; sqlitePath?: string };
 type LegacySessionStoreIssue = { code: string; message: string; sessionKey?: string };
+
+export function listLegacySessionTranscriptFiles(directory: string): string[] {
+  if (!fs.existsSync(directory)) {
+    return [];
+  }
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((item) => item.isFile() && isPrimarySessionTranscriptFileName(item.name))
+    .map((item) => path.join(directory, item.name));
+}
 
 export function readLegacySessionStoreEntries(
   target: Pick<LegacySessionStoreTarget, "storePath">,

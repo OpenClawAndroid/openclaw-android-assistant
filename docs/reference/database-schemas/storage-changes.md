@@ -208,8 +208,10 @@ schema, agent owner, and physical file identity before reuse. Every request keep
 its own snapshot and current admission checks. Switching databases closes the
 previous connection. The parent retires the worker after 30 minutes without
 pending history reads; database cleanup revokes admission and joins native worker
-exit before closing the database. These lifetimes change no schema or migration
-requirement.
+exit before closing the database. Cold restoration carries the request's same
+authority through queue waits and its native commit, so a revoked read cannot
+restore rows after database cleanup. These lifetimes change no schema or
+migration requirement.
 
 Correlated conversation replies retain their original store and state environment
 while waiting for write admission. Capture rechecks the live reply claim and

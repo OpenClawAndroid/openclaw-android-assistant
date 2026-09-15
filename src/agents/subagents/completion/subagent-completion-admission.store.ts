@@ -3,6 +3,10 @@ import {
   loadDeliveryQueueEntryInDatabase,
   upsertBoundDeliveryQueueEntryInDatabase,
 } from "../../../infra/delivery-queue-sqlite-bound.js";
+import {
+  getDeliveryQueueEntryOwnersInDatabase,
+  type DeliveryQueueStoredStatus,
+} from "../../../infra/delivery-queue-sqlite.kernel.js";
 import { scheduleSessionDelivery } from "../../../infra/session-delivery-queue-runtime.js";
 import {
   prepareClaimedSessionDelivery,
@@ -124,7 +128,7 @@ export function admitSubagentCompletionDelivery(params: {
   databaseOptions?: OpenClawStateDatabaseOptions;
   /** Transaction cut points used by the real-store crash-consistency tests. */
   testHooks?: AdmissionTestHooks;
-}): { claimed: boolean } {
+}): { claimed: boolean; status: DeliveryQueueStoredStatus } {
   assertCorrelatedEntry(params);
   const boundQueue = bindDeliveryQueueEntry({
     queueName: SESSION_DELIVERY_QUEUE_NAME,
@@ -164,7 +168,13 @@ export function admitSubagentCompletionDelivery(params: {
       invokeSynchronousHook(() => params.testHooks?.afterMutation?.("subagent", database));
       upsertTaskRunRowInDatabase(database, boundTask);
       invokeSynchronousHook(() => params.testHooks?.afterMutation?.("task", database));
-      return { claimed };
+      const status =
+        getDeliveryQueueEntryOwnersInDatabase(
+          database,
+          [SESSION_DELIVERY_QUEUE_NAME],
+          params.queueEntry.id,
+        ).get(SESSION_DELIVERY_QUEUE_NAME)?.status ?? "pending";
+      return { claimed, status };
     },
     params.databaseOptions,
     { operationLabel: "subagent completion delivery admission" },

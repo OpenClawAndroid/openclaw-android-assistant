@@ -123,6 +123,7 @@ type HistoryDatabaseResource = {
 
 export type SessionHistoryWorkerDatabase = {
   generation: number;
+  assertCurrent: () => void;
   run: (
     prepare: () => Omit<SessionTranscriptHistoryWorkerInput, "database">,
     inputBytes: number,
@@ -230,6 +231,7 @@ export async function withSessionHistoryWorkerDatabase<T>(
     assertCurrent();
     const result = await operation({
       generation: owned.generation,
+      assertCurrent,
       run: async (prepare, inputBytes) => {
         assertCurrent();
         let sequence = 0;

@@ -231,23 +231,29 @@ export async function readPreparedGatewayModelCatalogBatch(
   if (agentIds.length === 0) {
     return [];
   }
-  const { getPreparedModelCatalogOwnerSnapshot } =
+  const { getPreparedModelCatalogOwnerSnapshot, withPreparedModelRuntimeReadBatch } =
     await import("../agents/prepared-model-catalog.js");
   const config = (params?.getConfig ?? getRuntimeConfig)();
-  // Resolve all owners synchronously so roster facts cannot survive a yield or config change.
-  return withAgentRosterFactsBatch(config, () =>
-    agentIds.map((agentId): PreparedGatewayModelCatalogReadResult => {
-      try {
-        return {
-          status: "fulfilled",
-          value: readPreparedGatewayModelCatalogSync(getPreparedModelCatalogOwnerSnapshot, config, {
-            agentId,
-          }),
-        };
-      } catch (reason) {
-        return { status: "rejected", reason };
-      }
-    }),
+  // Both read scopes end before yielding, so publication cannot leave stale candidates behind.
+  return withPreparedModelRuntimeReadBatch(() =>
+    withAgentRosterFactsBatch(config, () =>
+      agentIds.map((agentId): PreparedGatewayModelCatalogReadResult => {
+        try {
+          return {
+            status: "fulfilled",
+            value: readPreparedGatewayModelCatalogSync(
+              getPreparedModelCatalogOwnerSnapshot,
+              config,
+              {
+                agentId,
+              },
+            ),
+          };
+        } catch (reason) {
+          return { status: "rejected", reason };
+        }
+      }),
+    ),
   );
 }
 

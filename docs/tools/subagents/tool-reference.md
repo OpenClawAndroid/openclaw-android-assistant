@@ -250,6 +250,12 @@ An operator can also resume the existing child with the `sessions.send` Gateway
 method and its paused session key. This preserves the original task, requester,
 and parent completion batch, so the parent continues when the child finishes.
 
+A background `exec` command cannot wake a yielded sub-agent. Collect its result
+with `process` before yielding; the tool rejects a self-yield while that process
+is running or its result is uncollected. If an older version left a child waiting
+this way, resume that existing child with `sessions.send` and have it reconcile
+the retained result. Elapsed time alone does not prove that its work completed.
+
 Collector runs are the exception, because their result is collected explicitly
 rather than announced. Where collector context reaches the tool factory, such as
 the embedded runner, the turn is not offered `sessions_yield`, and if an override

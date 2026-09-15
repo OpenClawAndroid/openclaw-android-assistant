@@ -673,8 +673,16 @@
                       "type": "string"
                     },
                     "timeoutSeconds": {
-                      "minimum": 0,
-                      "type": "number"
+                      "anyOf": [
+                        {
+                          "minimum": 0,
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Timeout seconds; null restores the default on update (omission preserves it)"
                     },
                     "toolBudget": {
                       "description": "Maximum script tool calls",

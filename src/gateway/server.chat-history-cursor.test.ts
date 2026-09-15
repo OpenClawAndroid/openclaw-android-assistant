@@ -34,6 +34,19 @@ import type { GatewayRequestContext } from "./server-methods/shared-types.js";
 import { createTranscriptUpdateBroadcastHandler } from "./server-session-events.js";
 import { installGatewayTestHooks, testState, writeSessionStore } from "./test-helpers.js";
 
+const targetWarnings = vi.hoisted(() => vi.fn());
+vi.mock("../logging/subsystem.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("../logging/subsystem.js")>("../logging/subsystem.js");
+  return {
+    ...actual,
+    createSubsystemLogger: (subsystem: string) => {
+      const logger = actual.createSubsystemLogger(subsystem);
+      return subsystem === "sessions/targets" ? { ...logger, warn: targetWarnings } : logger;
+    },
+  };
+});
+
 installGatewayTestHooks({ scope: "suite" });
 const tempDirs = createTempDirTracker();
 
@@ -442,14 +455,21 @@ describe("chat.history cursor catch-up", () => {
   });
 
   test("returns an empty delta at the cached head", async () => {
+    testState.agentsConfig = {
+      ownership: "explicit",
+      entries: { main: { default: true }, ops: {} },
+    };
     const { context } = await createCursorSession();
+    targetWarnings.mockClear();
     const page = await callChat<{ deltaCursor?: string; messages?: unknown[] }>(
       context,
       "chat.history",
+      { sessionKey },
     );
     expect(page.ok).toBe(true);
     expect(page.payload?.deltaCursor).toEqual(expect.any(String));
     const explicitFirstPage = await callChat<{ deltaCursor?: string }>(context, "chat.history", {
+      sessionKey,
       offset: 0,
     });
     expect(explicitFirstPage.payload?.deltaCursor).toEqual(expect.any(String));
@@ -459,7 +479,7 @@ describe("chat.history cursor catch-up", () => {
       kind?: string;
       messages?: unknown[];
       sessionInfo?: { activeLeafEntryId?: string | null };
-    }>(context, "chat.history", { cursor: page.payload?.deltaCursor });
+    }>(context, "chat.history", { sessionKey, cursor: page.payload?.deltaCursor });
     expect(delta).toMatchObject({
       ok: true,
       payload: {
@@ -469,6 +489,11 @@ describe("chat.history cursor catch-up", () => {
         sessionInfo: { activeLeafEntryId: "cached" },
       },
     });
+    expect(targetWarnings).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /owner "main" selected by database-(?:registry|path); suffixed owner\(s\): "ops"\./,
+      ),
+    );
   });
 
   test.each(["chat.history", "chat.startup"] as const)(

@@ -121,8 +121,10 @@ export async function readSessionHistoryPageInWorker(
   pendingHistoryBytes += inputBytes;
   try {
     const result = await withSessionHistoryWorkerDatabase(input.database, (owner) =>
-      readRestoredSessionTranscript(scope, () =>
-        readQueuedPage(input, `${owner.generation}:${key}`, owner, signal),
+      readRestoredSessionTranscript(
+        scope,
+        () => readQueuedPage(input, `${owner.generation}:${key}`, owner, signal),
+        { assertCurrent: owner.assertCurrent },
       ),
     );
     if (result.kind !== request.kind) {

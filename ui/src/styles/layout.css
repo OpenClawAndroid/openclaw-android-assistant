@@ -4793,6 +4793,21 @@ html.openclaw-native-macos
   --page-toolbar-height: var(--openclaw-native-titlebar-height, 50px);
 }
 
+/* Window and sidebar chrome stays at the physical left in RTL locales, so the
+   reserve and the actions swap grid columns there; the row itself keeps the
+   physical geometry it clears. */
+html[dir="rtl"]
+  .shell:not(.shell--mobile-nav):not(.shell--settings)
+  .content:not(.content--chat)
+  .content-header {
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(var(--page-toolbar-reserve), 1fr);
+
+  > :last-child:not(:first-child) {
+    grid-area: 1 / 1;
+    justify-self: start;
+  }
+}
+
 /* Desktop webviews draw caption buttons over the row's trailing edge. */
 html.openclaw-native-desktop
   .shell:not(.shell--mobile-nav):not(.shell--settings)

@@ -84,6 +84,12 @@ export type SpawnProcessAdapter<WaitSignal = NodeJS.Signals | number | null> = {
   dispose: () => void;
 };
 
+/** Observe output before joining startup and private-input delivery. */
+export type ProcessAdapterStartup<Adapter extends SpawnProcessAdapter> = {
+  adapter: Adapter;
+  ready: Promise<void>;
+};
+
 type SpawnBaseInput = {
   /** The local subprocess transports execution owned outside its local process tree. */
   cleanupOwnership?: "external";

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SessionStoreMigrationRequiredError } from "../config/sessions/migration-required.js";
 import { deleteSessionEntryLifecycle } from "../config/sessions/session-accessor.js";
 import {
   loadExactSessionEntry,
@@ -550,6 +551,118 @@ describe("session sources needed by deferred plugin migrations", () => {
         expect(
           loadExactSessionEntry({ ...scope, sessionKey: "agent:main:current" })?.entry.sessionId,
         ).toBe("current");
+        expect(fs.readFileSync(storePath, "utf8")).toBe("{}");
+      });
+    },
+  );
+
+  it("lets startup proceed for an empty index when the owner has no database yet", async () => {
+    await withOpenClawTestState({ label: "deferred-empty-index-no-db" }, async (state) => {
+      const cfg: OpenClawConfig = { agents: { entries: { main: { default: true } } } };
+      const directory = state.sessionsDir("main");
+      fs.mkdirSync(directory, { recursive: true });
+      const storePath = path.join(directory, "sessions.json");
+      fs.writeFileSync(storePath, "{}");
+      recordDeferredPluginMigrations({
+        env: state.env,
+        pending: [
+          {
+            pluginId: "fixture-plugin",
+            reason: "Plugin is unavailable.",
+            command: "openclaw doctor --fix",
+          },
+        ],
+      });
+      // No owner can hold a replayable receipt without a database, and a
+      // zero-record source has nothing to replay: startup must not demand one.
+      expect(() => assertSessionStoreMigrationComplete({ cfg, env: state.env })).not.toThrow();
+      const report = await runDoctorSessionSqlite({
+        cfg,
+        env: state.env,
+        allAgents: true,
+        mode: "import",
+      });
+      expect(report.totals.importedEntries).toBe(0);
+      expect(() => assertSessionStoreMigrationComplete({ cfg, env: state.env })).not.toThrow();
+      const sqlitePath = resolveSqliteTargetFromSessionStorePath(storePath, {
+        agentId: "main",
+        env: state.env,
+      }).path;
+      expect(fs.existsSync(sqlitePath)).toBe(false);
+      expect(fs.readFileSync(storePath, "utf8")).toBe("{}");
+    });
+  });
+
+  it.each(["unindexed history", "a removed receipt database"] as const)(
+    "keeps startup blocked for an empty index with %s",
+    async (kind) => {
+      await withOpenClawTestState({ label: "deferred-empty-index-required" }, async (state) => {
+        const cfg: OpenClawConfig = { agents: { entries: { main: { default: true } } } };
+        const directory = state.sessionsDir("main");
+        fs.mkdirSync(directory, { recursive: true });
+        const storePath = path.join(directory, "sessions.json");
+        fs.writeFileSync(storePath, "{}");
+        const scope = { agentId: "main", storePath, env: state.env };
+        const sqlitePath = resolveSqliteTargetFromSessionStorePath(storePath, scope).path;
+        recordDeferredPluginMigrations({
+          env: state.env,
+          pending: [
+            {
+              pluginId: "fixture-plugin",
+              reason: "Plugin is unavailable.",
+              command: "openclaw doctor --fix",
+            },
+          ],
+        });
+        const run = () =>
+          runDoctorSessionSqlite({ cfg, env: state.env, allAgents: true, mode: "import" });
+        if (kind === "unindexed history") {
+          fs.writeFileSync(
+            path.join(directory, "historical.jsonl"),
+            [
+              { type: "session", version: 3, id: "historical" },
+              {
+                type: "message",
+                id: "message",
+                parentId: null,
+                message: { role: "user", content: "Retained history" },
+              },
+            ]
+              .map((entry) => JSON.stringify(entry))
+              .join("\n") + "\n",
+          );
+        } else {
+          await upsertSessionEntryCore(
+            { ...scope, sessionKey: "agent:main:current" },
+            { sessionId: "current", updatedAt: 1 },
+          );
+          const report = await run();
+          expect(report.totals.importedEntries).toBe(0);
+          expect(report.targets.flatMap((target) => target.issues)).toContainEqual(
+            expect.objectContaining({ code: "plugin_migration_source_retained" }),
+          );
+          expect(() => assertSessionStoreMigrationComplete({ cfg, env: state.env })).not.toThrow();
+          closeOpenClawAgentDatabasesForTest();
+          fs.unlinkSync(sqlitePath);
+        }
+        expect(fs.existsSync(sqlitePath)).toBe(false);
+        expect(() => assertSessionStoreMigrationComplete({ cfg, env: state.env })).toThrow(
+          kind === "unindexed history"
+            ? SessionStoreMigrationRequiredError
+            : expect.objectContaining({ code: "ENOENT", syscall: "lstat", path: sqlitePath }),
+        );
+        if (kind === "unindexed history") {
+          const report = await run();
+          expect(report.totals.importedEntries).toBe(1);
+          expect(report.targets.flatMap((target) => target.issues)).toEqual([
+            expect.objectContaining({ code: "plugin_migration_source_retained" }),
+          ]);
+          expect(
+            loadExactSessionEntry({ ...scope, sessionKey: "agent:main:recovered:historical" })
+              ?.entry.sessionId,
+          ).toBe("historical");
+          expect(() => assertSessionStoreMigrationComplete({ cfg, env: state.env })).not.toThrow();
+        }
         expect(fs.readFileSync(storePath, "utf8")).toBe("{}");
       });
     },

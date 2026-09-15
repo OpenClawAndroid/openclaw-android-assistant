@@ -42,6 +42,12 @@ cannot replace the batch's delivery state; already committed delivery evidence
 remains valid. Restart activation reconciles retained requester-turn bindings
 before resuming child completion.
 
+For a nested requester, settlement persists its paused run together with the
+child wake batch before scheduling the continuation. This also covers a child
+that finishes before the requester yields: successor admission must not depend
+on the later lifecycle-end notification. The successor keeps the same task,
+and a delayed notification from the predecessor cannot reopen it.
+
 Settlement dispatch uses `subagent_settle` input provenance. Individual
 announcements and the older descendant-wake path retain `subagent_announce`:
 the latter already owns its run replacement after dispatch and must not trigger

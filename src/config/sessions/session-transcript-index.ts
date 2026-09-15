@@ -96,15 +96,22 @@ export function shouldRebuildSessionTranscriptIndexSynchronously(
   if (events.length > SYNC_REBUILD_MAX_ROWS) {
     return false;
   }
+  const kysely = getIndexKysely(db);
   const stored = executeSqliteQueryTakeFirstSync(
     db,
-    getIndexKysely(db)
-      .selectFrom("transcript_events")
+    kysely
+      .selectFrom(
+        kysely
+          .selectFrom("transcript_events")
+          .select((eb) => eb.fn<number>("octet_length", ["event_json"]).as("event_bytes"))
+          .where("session_id", "=", sessionId)
+          .limit(SYNC_REBUILD_MAX_ROWS - events.length + 1)
+          .as("stored"),
+      )
       .select((eb) => [
         eb.fn.countAll<number>().as("event_count"),
-        eb.fn.sum<number>(eb.fn<number>("octet_length", ["event_json"])).as("event_bytes"),
-      ])
-      .where("session_id", "=", sessionId),
+        eb.fn.sum<number>("stored.event_bytes").as("event_bytes"),
+      ]),
   );
   if ((stored?.event_count ?? 0) + events.length > SYNC_REBUILD_MAX_ROWS) {
     return false;
@@ -151,8 +158,8 @@ function readSessionTranscriptProjectionState(
   };
 }
 
-export function sessionTranscriptIndexNeedsReconcile(db: DatabaseSync, sessionId: string): boolean {
-  const latest = executeSqliteQueryTakeFirstSync(
+function readLatestTranscriptSequence(db: DatabaseSync, sessionId: string): number | undefined {
+  return executeSqliteQueryTakeFirstSync(
     db,
     getIndexKysely(db)
       .selectFrom("transcript_events")
@@ -160,15 +167,26 @@ export function sessionTranscriptIndexNeedsReconcile(db: DatabaseSync, sessionId
       .where("session_id", "=", sessionId)
       .orderBy("seq", "desc")
       .limit(1),
+  )?.seq;
+}
+
+export function sessionTranscriptIndexNeedsReconcile(db: DatabaseSync, sessionId: string): boolean {
+  const latestSeq = readLatestTranscriptSequence(db, sessionId);
+  return (
+    latestSeq !== undefined && sessionTranscriptProjectionNeedsReconcile(db, sessionId, latestSeq)
   );
-  if (!latest) {
-    return false;
-  }
+}
+
+function sessionTranscriptProjectionNeedsReconcile(
+  db: DatabaseSync,
+  sessionId: string,
+  latestSeq: number,
+): boolean {
   const state = readSessionTranscriptProjectionState(db, sessionId);
   return (
     !state ||
     state.needsRebuild ||
-    state.indexedSeq !== latest.seq ||
+    state.indexedSeq !== latestSeq ||
     hasUnclassifiedSessionTranscriptEvents(db, sessionId)
   );
 }
@@ -543,20 +561,12 @@ export function reconcileSessionTranscriptIndexInTransaction(
   db: DatabaseSync,
   sessionId: string,
 ): boolean {
-  const latest = executeSqliteQueryTakeFirstSync(
-    db,
-    getIndexKysely(db)
-      .selectFrom("transcript_events")
-      .select("seq")
-      .where("session_id", "=", sessionId)
-      .orderBy("seq", "desc")
-      .limit(1),
-  );
-  if (!latest) {
+  const latestSeq = readLatestTranscriptSequence(db, sessionId);
+  if (latestSeq === undefined) {
     deleteSessionTranscriptIndexInTransaction(db, sessionId);
     return false;
   }
-  if (!sessionTranscriptIndexNeedsReconcile(db, sessionId)) {
+  if (!sessionTranscriptProjectionNeedsReconcile(db, sessionId, latestSeq)) {
     return false;
   }
   rebuildSessionTranscriptIndexInTransaction(db, sessionId);

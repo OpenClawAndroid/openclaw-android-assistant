@@ -128,6 +128,39 @@ suite.define(() => {
     expect(tabsBox.x).toBeGreaterThan(toolbar.x + toolbar.width);
   });
 
+  it("keeps RTL page actions clear of the fixed left controls", async () => {
+    // Arabic and Persian set the document direction (i18n/lib/translate.ts);
+    // the collapsed-sidebar cluster stays fixed at the physical left either way.
+    const page = await openPage("agents");
+    await page.evaluate(() => {
+      document.documentElement.dir = "rtl";
+    });
+    await page.locator(".sidebar-brand__collapse").click();
+    await expect
+      .poll(() => page.locator(".shell").getAttribute("class"))
+      .toContain("shell--nav-collapsed");
+    const header = page.locator(".content .content-header").first();
+    const title = header.locator(".page-title");
+    await expectOnCenterline(title, 26);
+    await expectCenteredIn(title, header);
+    const controls = header.page().locator(".shell-chrome-controls button:visible");
+    const controlRight = Math.max(
+      ...(await controls.evaluateAll((buttons) =>
+        buttons.map((button) => button.getBoundingClientRect().right),
+      )),
+    );
+    const titleBox = (await title.boundingBox())!;
+    const buttons = header.locator(".page-header-actions .btn");
+    expect(await buttons.count()).toBeGreaterThan(0);
+    for (let index = 0; index < (await buttons.count()); index += 1) {
+      await expectOnCenterline(buttons.nth(index), 26);
+      const box = (await buttons.nth(index).boundingBox())!;
+      // Actions sit at the physical right, past the title, never under the cluster.
+      expect(box.x).toBeGreaterThan(titleBox.x + titleBox.width);
+      expect(box.x).toBeGreaterThan(controlRight);
+    }
+  });
+
   it("keeps the legacy Mac app's lowered web controls clear of intro text", async () => {
     // Older apps stamp only openclaw-native-macos and keep the in-page
     // cluster, which drops below the drag region instead of into a titlebar.

@@ -227,21 +227,25 @@ export function createProcessSupervisor(): ProcessSupervisor & {
     const settleConstructionResult = (
       reason: TerminationReason,
       cleanup?: Promise<void>,
+      output?: { stdout: string; stderr: string; lastOutputAtMs: number },
     ): ManagedRun => {
       const exit: RunExit = {
         reason,
         exitCode: null,
         exitSignal: null,
         durationMs: Date.now() - startedAtMs,
-        stdout: "",
-        stderr: "",
+        stdout: output?.stdout ?? "",
+        stderr: output?.stderr ?? "",
         timedOut: isTimeoutReason(reason),
         noOutputTimedOut: reason === "no-output-timeout",
       };
       return {
         runId,
         startedAtMs,
-        activity: Object.freeze({ resultSettled: true, lastOutputAtMs: startedAtMs }),
+        activity: Object.freeze({
+          resultSettled: true,
+          lastOutputAtMs: output?.lastOutputAtMs ?? startedAtMs,
+        }),
         wait: async () => exit,
         ...(cleanup && { waitForExtinction: () => cleanup }),
         cancel: () => undefined,
@@ -374,7 +378,7 @@ export function createProcessSupervisor(): ProcessSupervisor & {
       };
       overallDeadline.reset();
       outputDeadline.reset();
-      const adapterPromise =
+      const startupPromise =
         input.mode === "pty"
           ? createPtyAdapter({
               assertCurrent: input.assertCurrent,
@@ -385,7 +389,7 @@ export function createProcessSupervisor(): ProcessSupervisor & {
               env: input.env,
               abortSignal: constructionAbort.signal,
               onSpawnCleanup,
-            })
+            }).then((adapter) => ({ adapter, ready: Promise.resolve() }))
           : input.mode === "anchored-shell"
             ? createChildAdapter({
                 assertCurrent: input.assertCurrent,
@@ -412,9 +416,9 @@ export function createProcessSupervisor(): ProcessSupervisor & {
                 abortSignal: constructionAbort.signal,
                 onSpawnCleanup,
               });
-      const extinctionPromise = adapterPromise
+      const extinctionPromise = startupPromise
         .then(
-          async (started) => {
+          async ({ adapter: started, ready }) => {
             ownedAdapter = started;
             if (external || !started.waitForExtinction) {
               for (const scope of owner.cleanupOwners) {
@@ -432,6 +436,9 @@ export function createProcessSupervisor(): ProcessSupervisor & {
               // Drain a late adapter's output without reopening the terminal result.
               void started.wait().catch(() => undefined);
             }
+            // Child close can precede a descendant's private-input consumption.
+            // Readiness failure is separate from the cleanup owner's outcome.
+            await Promise.allSettled([ready]);
             await (constructionCleanup ?? started.waitForExtinction?.() ?? started.wait());
           },
           async () => {
@@ -460,13 +467,7 @@ export function createProcessSupervisor(): ProcessSupervisor & {
           cleanup.reject(error);
         },
       );
-      let adapter: Awaited<typeof adapterPromise>;
-      try {
-        adapter = await Promise.race([adapterPromise, constructionAbortPromise]);
-      } catch (err) {
-        if (err !== constructionAbortError || !forcedReason) {
-          throw err;
-        }
+      const settleAbortedConstruction = (reason: TerminationReason) => {
         resultSettled = true;
         overallDeadline.clear();
         outputDeadline.clear();
@@ -474,8 +475,18 @@ export function createProcessSupervisor(): ProcessSupervisor & {
         if (cleanupSettled) {
           ownedAdapter?.dispose();
         }
-        return settleConstructionResult(forcedReason, cleanup.promise);
+        return settleConstructionResult(reason, cleanup.promise, { ...captured, lastOutputAtMs });
+      };
+      let startup: Awaited<typeof startupPromise>;
+      try {
+        startup = await Promise.race([startupPromise, constructionAbortPromise]);
+      } catch (err) {
+        if (err !== constructionAbortError || !forcedReason) {
+          throw err;
+        }
+        return settleAbortedConstruction(forcedReason);
       }
+      const adapter = startup.adapter;
 
       const settleResult = () => {
         resultSettled = true;
@@ -486,6 +497,50 @@ export function createProcessSupervisor(): ProcessSupervisor & {
           adapter.dispose();
         }
       };
+
+      const withOutputFence =
+        <Chunk>(deliver?: (chunk: Chunk) => void, recordsOutput = true) =>
+        (chunk: Chunk) => {
+          if (outputDetached) {
+            return;
+          }
+          if (recordsOutput) {
+            touchOutput();
+          }
+          deliver?.(chunk);
+        };
+      const rawInput = input.mode === "child" ? input : undefined;
+      // Byte transports can flush decoded text at EOF without fresh activity.
+      // PTYs and Windows Job transports report only text.
+      for (const [stream, subscribe, onText, onRaw] of [
+        ["stdout", adapter.onStdout, input.onStdout, rawInput?.onStdoutRaw],
+        ["stderr", adapter.onStderr, input.onStderr, rawInput?.onStderrRaw],
+      ] as const) {
+        subscribe(
+          withOutputFence((chunk: string) => {
+            if (captureOutput) {
+              captured[stream] = appendCapturedOutput(
+                captured[stream],
+                chunk,
+                stream,
+                maxCapturedOutputChars,
+              );
+            }
+            onText?.(chunk);
+          }, !adapter.supportsRawOutput),
+          withOutputFence(onRaw),
+        );
+      }
+
+      try {
+        await Promise.race([startup.ready, constructionAbortPromise]);
+      } catch (error) {
+        if (error === constructionAbortError && forcedReason) {
+          return settleAbortedConstruction(forcedReason);
+        }
+        settleResult();
+        throw error;
+      }
 
       cancelAdapter = (reason: TerminationReason) => {
         if (
@@ -523,40 +578,6 @@ export function createProcessSupervisor(): ProcessSupervisor & {
         }, GRACEFUL_CANCEL_TIMEOUT_MS);
         forceKillTimer.unref?.();
       };
-
-      const withOutputFence =
-        <Chunk>(deliver?: (chunk: Chunk) => void, recordsOutput = true) =>
-        (chunk: Chunk) => {
-          if (outputDetached) {
-            return;
-          }
-          if (recordsOutput) {
-            touchOutput();
-          }
-          deliver?.(chunk);
-        };
-      const rawInput = input.mode === "child" ? input : undefined;
-      // Byte transports can flush decoded text at EOF without fresh activity.
-      // PTYs and Windows Job transports report only text.
-      for (const [stream, subscribe, onText, onRaw] of [
-        ["stdout", adapter.onStdout, input.onStdout, rawInput?.onStdoutRaw],
-        ["stderr", adapter.onStderr, input.onStderr, rawInput?.onStderrRaw],
-      ] as const) {
-        subscribe(
-          withOutputFence((chunk: string) => {
-            if (captureOutput) {
-              captured[stream] = appendCapturedOutput(
-                captured[stream],
-                chunk,
-                stream,
-                maxCapturedOutputChars,
-              );
-            }
-            onText?.(chunk);
-          }, !adapter.supportsRawOutput),
-          withOutputFence(onRaw),
-        );
-      }
 
       const waitPromise = (async (): Promise<RunExit> => {
         const result = await adapter.wait();

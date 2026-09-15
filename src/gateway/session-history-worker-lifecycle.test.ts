@@ -8,10 +8,18 @@ import {
   replaceTranscriptEvents,
   waitForSessionTranscriptProjection,
 } from "../config/sessions/session-accessor.js";
+import { readSessionColdTranscript } from "../config/sessions/session-cold-storage-state.js";
+import { runSessionColdStorageMaintenance } from "../config/sessions/session-cold-storage.js";
+import {
+  createSessionColdStorageFixture,
+  maintenanceConfig,
+} from "../config/sessions/session-cold-storage.test-support.js";
 import { withSessionHistoryWorkerDatabase } from "../config/sessions/session-transcript-worker-runtime.js";
 import { DEFAULT_WORKER_PENDING_BYTES } from "../infra/worker-task-capacity.js";
+import { KeyedAsyncQueue } from "../plugin-sdk/keyed-async-queue.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { closeOpenClawAgentDatabaseByPathAsync } from "../state/openclaw-agent-db-lifecycle.js";
+import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.paths.js";
 import {
   withOpenClawTestState,
@@ -175,6 +183,100 @@ it("rejects the captured generation when A closes during restoration before work
     ]);
   });
 });
+
+it.each(["before restoration", "queued restoration"])(
+  "does not restore a replacement database for a revoked history read (%s)",
+  async (phase) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const databasePath = resolveOpenClawAgentSqlitePath({ agentId: "main", env: state.env });
+      const fixture = await createSessionColdStorageFixture(databasePath);
+      expect(
+        await runSessionColdStorageMaintenance({ config: maintenanceConfig(databasePath) }),
+      ).toEqual({ archivedTranscripts: 1, externalizedTranscripts: 0 });
+      const readStoredTranscript = () =>
+        withOpenClawAgentDatabaseReadOnly(
+          ({ db }) => ({
+            cold: readSessionColdTranscript(db, fixture.scope.sessionId),
+            events: db
+              .prepare("SELECT * FROM transcript_events WHERE session_id = ? ORDER BY seq")
+              .all(fixture.scope.sessionId),
+          }),
+          fixture.options,
+        );
+      const before = readStoredTranscript();
+      expect(before).toEqual({
+        found: true,
+        value: {
+          cold: expect.objectContaining({ session_id: fixture.scope.sessionId }),
+          events: [],
+        },
+      });
+      const entered = createDeferredCore();
+      const gate = createDeferredCore();
+      if (phase === "before restoration") {
+        observed.restoration = {
+          sessionId: fixture.scope.sessionId,
+          entered: entered.resolve,
+          wait: gate.promise,
+        };
+      }
+      let pauseQueue = phase === "queued restoration";
+      // oxlint-disable-next-line typescript/unbound-method -- The observer preserves the queue receiver.
+      const enqueue = KeyedAsyncQueue.prototype.enqueue;
+      const queueObservation = vi
+        .spyOn(KeyedAsyncQueue.prototype, "enqueue")
+        .mockImplementation(function <T>(
+          this: KeyedAsyncQueue,
+          ...args: Parameters<typeof enqueue<T>>
+        ): Promise<T> {
+          const enqueueTask = enqueue<T>;
+          const [key, task, hooks] = args;
+          if (key !== databasePath || !pauseQueue) {
+            return enqueueTask.call(this, ...args);
+          }
+          pauseQueue = false;
+          return enqueueTask.call(
+            this,
+            key,
+            async () => {
+              entered.resolve();
+              await gate.promise;
+              return await task();
+            },
+            hooks,
+          );
+        });
+      const pending = readChatHistoryPage({
+        entry: undefined,
+        provider: undefined,
+        sessionId: fixture.scope.sessionId,
+        storePath: databasePath,
+        sessionAgentId: fixture.scope.agentId,
+        canonicalKey: fixture.scope.sessionKey,
+        max: 20,
+        maxHistoryBytes: 100_000,
+        effectiveMaxChars: 8000,
+        offset: undefined,
+        messageId: undefined,
+      });
+      const failure = expect(pending).rejects.toThrow("revoked");
+      try {
+        await entered.promise;
+        await closeOpenClawAgentDatabaseByPathAsync(databasePath, "main");
+        fs.copyFileSync(databasePath, `${databasePath}.replacement`);
+        fs.renameSync(databasePath, `${databasePath}.previous`);
+        fs.renameSync(`${databasePath}.replacement`, databasePath);
+        expect(readStoredTranscript()).toEqual(before);
+      } finally {
+        queueObservation.mockRestore();
+        observed.restoration = undefined;
+        gate.resolve();
+        await failure;
+      }
+      expect(readStoredTranscript()).toEqual(before);
+    });
+  },
+);
 
 it("leaves the unrelated warm worker running when admission rejects a request before dispatch", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {

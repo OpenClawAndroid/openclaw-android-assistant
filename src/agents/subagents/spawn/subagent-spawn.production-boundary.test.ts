@@ -90,10 +90,16 @@ import { callSubagentGateway } from "./subagent-spawn-gateway.js";
 
 const runEmbeddedAgent = vi.hoisted(() => vi.fn());
 
-vi.mock("../../embedded-agent.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../embedded-agent.js")>()),
-  runEmbeddedAgent,
-}));
+vi.mock("../../embedded-agent.js", async () => {
+  const { abortEmbeddedAgentRun, isEmbeddedAgentRunActive, waitForEmbeddedAgentRunEnd } =
+    await import("../../embedded-agent-runner/runs.js");
+  return {
+    abortEmbeddedAgentRun,
+    isEmbeddedAgentRunActive,
+    runEmbeddedAgent,
+    waitForEmbeddedAgentRunEnd,
+  };
+});
 
 const parentSessionKey = "agent:main:subagent:production-boundary-parent";
 const parentRunId = "production-boundary-parent";
