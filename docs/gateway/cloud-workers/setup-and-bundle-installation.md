@@ -52,6 +52,20 @@ The Gateway reuses its prepared archive for subsequent enrollments with the same
 
 While a prepared worker is provisioning, cache cleanup retains the exact worker bundle recorded at admission, including before readiness produces a bootstrap receipt. After the environment reaches a terminal state, normal bundle cleanup can reclaim those bytes when no other environment or placement needs them.
 
+### Reuse a node runtime archive after Gateway restart
+
+Linux and macOS deployment images can retain an already prepared node runtime archive as `node-runtime.tgz` in the running OpenClaw package root, beside `package.json`. During image preparation, copy the producer's archive there before closing the producer:
+
+```bash
+cp /path/to/prepared/node-runtime.tgz /path/to/openclaw/node-runtime.tgz
+```
+
+The first cloud-node preparation in a new Gateway process copies that optional input into private temporary storage and verifies its actual files, contents, sizes, and permissions against the running distribution and selected plugins. It still checks build identity, exact dependency pins, and the built import closure. A version string or neighboring checksum manifest does not authorize reuse. Matching archives skip compression; missing, corrupt, unsafe, or mismatched inputs use the existing builder. Different execution modes can select different plugins and therefore rebuild from the same image input.
+
+The deployment image owns the retained file. Gateway shutdown removes only its temporary copy, after active consumers finish. Replace the image archive when the distribution or plugins change; removing it restores ordinary preparation. Windows Gateways continue to build their archive because the shared Windows archive reader normalizes permissions rather than preserving the tar modes needed for this comparison.
+
+This avoids repeated archive construction after restart. It does not reuse enrollment credentials, skip worker authorization, or eliminate worker installation and startup. Measure archive validation separately from end-to-end worker readiness when evaluating cold-start savings.
+
 ## Build a complete custom node package
 
 Automatic cloud bootstrap does not require a manually published package. For a separate deployment or package-validation workflow, the canonical package builder can still produce a complete custom distribution and explicitly include source-owned plugins that the ordinary core package excludes:

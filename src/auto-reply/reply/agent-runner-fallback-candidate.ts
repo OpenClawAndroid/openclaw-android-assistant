@@ -240,7 +240,7 @@ export async function runAgentFallbackCandidates(params: AgentFallbackCycleParam
           catalog: turn.followupRun.run.thinkingCatalog,
           agentId: turn.followupRun.run.agentId,
           sessionKey: turn.followupRun.run.runtimePolicySessionKey ?? turn.sessionKey,
-          sessionEntry: turn.getActiveSessionEntry(),
+          sessionEntry: params.liveModelSwitchRuntimeEntry ?? turn.getActiveSessionEntry(),
         });
         const candidateFastMode = resolveRunFastModeForFallbackCandidate({
           run: candidateRun,

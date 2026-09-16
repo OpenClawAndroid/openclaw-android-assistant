@@ -152,7 +152,8 @@ export async function runStartupSessionMigration(params: {
       }
       reconcile ??= (await import("../config/sessions/session-transcript-reconcile.js"))
         .reconcileSessionTranscriptIndexes;
-      reconciledSessions += (await reconcile(database)).reconciledSessions;
+      const result = await reconcile(database);
+      reconciledSessions += result.reconciledSessions;
     },
   });
   if (reconciledSessions > 0) {

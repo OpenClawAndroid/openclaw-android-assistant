@@ -34,21 +34,13 @@ import {
   type PreparedAgentRunAdmission,
 } from "./admitted-run-context.js";
 import {
-  buildTestAllowedModelSet,
   type CommandSessionEntryFixture,
-  buildTestConfiguredModelCatalog,
-  buildTestModelAliasIndex,
   createChannelModelRuntimeConfig,
   createCommandSessionEntry,
   createCommandSessionFixture,
   createConfiguredModelCompatRuntimeConfig,
+  createTestModelSelection,
   createTestModelVisibilityPolicy,
-  isTestModelKeyAllowed,
-  normalizeTestProviderId,
-  resolveTestConfiguredModelRef,
-  resolveTestDefaultModelForAgent,
-  resolveTestModelAliasFromPair,
-  resolveTestModelRefFromString,
 } from "./agent-command.live-model-switch.test-helpers.js";
 import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import type { FailoverReason } from "./failover/signal.js";
@@ -61,6 +53,7 @@ import { resolveInternalSessionEffectsTarget } from "./internal-session-effects.
 import { LiveSessionModelSwitchError } from "./live-model-switch-error.js";
 import type { ModelCatalogSnapshot } from "./model-catalog.types.js";
 import type { ModelFallbackRunOptions } from "./model-fallback-attempt.js";
+import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runtime.test-support.js";
 import {
   createAgentRunDirectAbortError,
   createAgentRunRestartAbortError,
@@ -83,6 +76,7 @@ const state = vi.hoisted(() => ({
   acpRunTurnMock: vi.fn((..._args: unknown[]): unknown => undefined),
   buildAcpResultMock: vi.fn(),
   createAcpVisibleTextAccumulatorMock: vi.fn(),
+  emitAcpLifecycleStartMock: vi.fn(),
   emitAcpLifecycleEndMock: vi.fn(),
   emitAcpLifecycleErrorMock: vi.fn(),
   emitAcpRuntimeEventMock: vi.fn(),
@@ -169,7 +163,7 @@ const state = vi.hoisted(() => ({
   enqueueExecutionIdentityContextAtAdmissionMock: vi.fn(),
 }));
 
-const manifestMetadataSnapshot = createPluginMetadataSnapshotFixture();
+let manifestMetadataSnapshot: ReturnType<typeof createPluginMetadataSnapshotFixture>;
 
 vi.mock("../sessions/session-diff-baseline.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../sessions/session-diff-baseline.js")>();
@@ -205,7 +199,7 @@ vi.mock("./command/attempt-execution.runtime.js", () => ({
   emitAcpAssistantDelta: vi.fn(),
   emitAcpLifecycleEnd: (...args: unknown[]) => state.emitAcpLifecycleEndMock(...args),
   emitAcpLifecycleError: (...args: unknown[]) => state.emitAcpLifecycleErrorMock(...args),
-  emitAcpLifecycleStart: vi.fn(),
+  emitAcpLifecycleStart: (...args: unknown[]) => state.emitAcpLifecycleStartMock(...args),
   emitAcpPromptSubmitted: vi.fn(),
   emitAcpRuntimeEvent: (...args: unknown[]) => state.emitAcpRuntimeEventMock(...args),
   persistCliTurnTranscript: (...args: unknown[]) => state.persistCliTurnTranscriptMock(...args),
@@ -345,9 +339,12 @@ vi.mock("./harness/runtime-plugin.js", () => ({
   ensureSelectedAgentHarnessPlugin: vi.fn(async () => undefined),
 }));
 
-vi.mock("./runtime-plugins.js", () => ({
-  withAgentPluginRegistry: ({ run }: { run: () => unknown }) => run(),
-}));
+vi.mock("./runtime-plugins.js", async () => {
+  const { createEmptyPluginRegistry } = await import("../plugins/registry-empty.js");
+  const { createTestRuntimePlugins } =
+    await import("./agent-command.live-model-switch.test-mocks.js");
+  return createTestRuntimePlugins(createEmptyPluginRegistry);
+});
 
 // Harness selection has dedicated coverage; this command suite registers no auto harnesses.
 vi.mock("./harness/support.js", () => ({
@@ -436,14 +433,20 @@ vi.mock("../skills/discovery/chat-commands.runtime.js", () => ({
   resolveEffectiveAgentSkillFilter: () => undefined,
 }));
 
-vi.mock("../config/runtime-snapshot.js", () => ({
-  getRuntimeConfigSnapshot: () => state.runtimeConfigMock ?? state.defaultRuntimeConfig,
-  // No source snapshot: runtime-source projection no-ops and resolvers read the
-  // provided config directly, matching this suite's pre-projection world.
-  getRuntimeConfigSourceSnapshot: () => null,
-  registerRuntimeConfigSnapshotPreparer: vi.fn(),
-  setRuntimeConfigSnapshot: vi.fn(),
-}));
+vi.mock("../config/runtime-snapshot.js", async () => {
+  const { hashRuntimeConfigValue } = await vi.importActual<
+    typeof import("../config/runtime-snapshot.js")
+  >("../config/runtime-snapshot.js");
+  return {
+    hashRuntimeConfigValue,
+    getRuntimeConfigSnapshot: () => state.runtimeConfigMock ?? state.defaultRuntimeConfig,
+    // No source snapshot: runtime-source projection no-ops and resolvers read the
+    // provided config directly, matching this suite's pre-projection world.
+    getRuntimeConfigSourceSnapshot: () => null,
+    registerRuntimeConfigSnapshotPreparer: vi.fn(),
+    setRuntimeConfigSnapshot: vi.fn(),
+  };
+});
 
 vi.mock("../config/sessions.js", () => ({
   resolveAgentIdFromSessionKey: () => "default",
@@ -603,39 +606,33 @@ vi.mock("../utils/message-channel.js", () => ({
       .toLowerCase(),
 }));
 
-vi.mock("./agent-scope.js", () => ({
-  clearAutoFallbackPrimaryProbeSelection: vi.fn(),
-  entryMatchesAutoFallbackPrimaryProbe: () => true,
-  hasLegacyAutoFallbackWithoutOrigin: (entry: unknown) =>
-    state.hasLegacyAutoFallbackWithoutOriginMock(entry),
-  hasSessionAutoModelFallbackProvenance: () => false,
-  listAgentEntries: () => [],
-  listAgentIds: () => ["default"],
-  markAutoFallbackPrimaryProbe: vi.fn(),
-  resolveAutoFallbackPrimaryProbe: (params: unknown) =>
-    state.resolveAutoFallbackPrimaryProbeMock(params),
-  resolveAgentConfig: () => undefined,
-  resolveAgentDir: () => "/tmp/agent",
-  resolveAgentEffectiveModelPrimary: (cfg: unknown) => {
-    const raw = (cfg as { agents?: { defaults?: { model?: string | { primary?: string } } } })
-      ?.agents?.defaults?.model;
-    return typeof raw === "string" ? raw : raw?.primary;
-  },
-  resolveDefaultAgentId: () => "default",
-  resolveEffectiveModelFallbacks: state.resolveEffectiveModelFallbacksMock,
-  resolveSessionAgentIds: () => ({ defaultAgentId: "default", sessionAgentId: "default" }),
-  resolveSessionAgentId: () => "default",
-  resolveAgentSkillsFilter: () => undefined,
-  resolveAgentWorkspaceDir: () => "/tmp/workspace",
-}));
+vi.mock("./agent-scope.js", async () => {
+  const { resolveAgentModelFallbacksOverride, resolveSubagentSpawnModelFallbacksOverride } =
+    await vi.importActual<typeof import("./agent-scope.js")>("./agent-scope.js");
+  const { createTestAgentScope } = await import("./agent-command.live-model-switch.test-mocks.js");
+  return createTestAgentScope(state, {
+    resolveAgentModelFallbacksOverride,
+    resolveSubagentSpawnModelFallbacksOverride,
+  });
+});
 
-vi.mock("./auth-profiles.js", () => ({
-  ensureAuthProfileStore: () => ({ profiles: {} }),
-}));
+vi.mock("./auth-profiles.js", async () => {
+  const actual = await vi.importActual<typeof import("./auth-profiles.js")>("./auth-profiles.js");
+  return {
+    ...actual,
+    ensureAuthProfileStore: () => ({ profiles: {} }),
+  };
+});
 
-vi.mock("./auth-profiles/store-runtime.js", () => ({
-  ensureAuthProfileStore: vi.fn(() => state.authProfileStoreMock),
-}));
+vi.mock("./auth-profiles/store-runtime.js", async () => {
+  const actual = await vi.importActual<typeof import("./auth-profiles/store-runtime.js")>(
+    "./auth-profiles/store-runtime.js",
+  );
+  return {
+    ...actual,
+    ensureAuthProfileStore: vi.fn(() => state.authProfileStoreMock),
+  };
+});
 
 vi.mock("./auth-profiles/store.js", async (importOriginal) => ({
   // Native loader bootstrap still needs the real auth-store factory exports.
@@ -680,31 +677,7 @@ vi.mock("./model-catalog.runtime.js", () => ({
   loadPreparedModelCatalogSnapshot: state.loadPreparedModelCatalogSnapshotMock,
 }));
 
-vi.mock("./model-selection.js", () => ({
-  buildAllowedModelSet: buildTestAllowedModelSet,
-  createModelVisibilityPolicy: createTestModelVisibilityPolicy,
-  buildConfiguredModelCatalog: ({ cfg }: { cfg?: unknown }) => buildTestConfiguredModelCatalog(cfg),
-  isModelKeyAllowedBySet: isTestModelKeyAllowed,
-  buildModelAliasIndex: buildTestModelAliasIndex,
-  modelKey: (provider: string, model: string) => `${provider}/${model}`,
-  normalizeModelRef: (provider: string, model: string) => ({
-    provider: normalizeTestProviderId(provider),
-    model,
-  }),
-  normalizeProviderId: normalizeTestProviderId,
-  normalizeProviderIdForAuth: normalizeTestProviderId,
-  parseModelRef: (model: string, provider: string) => {
-    const slash = model.indexOf("/");
-    return slash > 0
-      ? { provider: model.slice(0, slash), model: model.slice(slash + 1) }
-      : { provider, model };
-  },
-  resolveModelRefFromString: resolveTestModelRefFromString,
-  resolveModelAliasFromPair: resolveTestModelAliasFromPair,
-  resolveConfiguredModelRef: resolveTestConfiguredModelRef,
-  resolveDefaultModelForAgent: resolveTestDefaultModelForAgent,
-  resolveThinkingDefault: (args: unknown) => state.resolveThinkingDefaultMock(args),
-}));
+vi.mock("./model-selection.js", () => createTestModelSelection(state));
 
 vi.mock("./model-visibility-policy.js", () => ({
   createModelVisibilityPolicy: createTestModelVisibilityPolicy,
@@ -1045,6 +1018,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     state.resolveThinkingDefaultMock.mockReturnValue("low");
     state.resolveAgentSkillsFilterMock.mockReturnValue(undefined);
     state.loadManifestModelCatalogMock.mockReturnValue([]);
+    manifestMetadataSnapshot = createPluginMetadataSnapshotFixture();
     state.resolvePluginMetadataSnapshotMock.mockReturnValue(manifestMetadataSnapshot);
     state.loadProviderScopedThinkingCatalogMock.mockReset().mockResolvedValue(undefined);
     state.loadFullModelCatalogMock.mockClear();
@@ -1225,7 +1199,8 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await resetPreparedModelRuntimeSnapshotsForTest();
     vi.restoreAllMocks();
   });
 
@@ -1465,6 +1440,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
           }
         });
       } finally {
+        await resetPreparedModelRuntimeSnapshotsForTest();
         await closeOpenClawAgentDatabasesAsync(stateDir);
         await closeOpenClawStateDatabaseByPathAsync(
           resolveOpenClawStateSqlitePath({ ...process.env, OPENCLAW_STATE_DIR: stateDir }),
@@ -1972,10 +1948,32 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     expect(store["agent:main:main"]?.pendingFinalDelivery).toBeUndefined();
   });
 
+  it("rejects pre-aborted ACP admission with the original restart cause", async () => {
+    setupAcpSession();
+    const controller = new AbortController();
+    const reason = createAgentRunRestartAbortError();
+    controller.abort(reason);
+
+    await expect(
+      agentCommand({
+        message: "hello",
+        sessionKey: "agent:main:main",
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError", cause: reason });
+
+    expect(state.acpRunTurnMock).not.toHaveBeenCalled();
+    expect(state.emitAcpLifecycleStartMock).not.toHaveBeenCalled();
+    expect(state.emitAcpLifecycleEndMock).not.toHaveBeenCalled();
+    expect(state.deliverAgentCommandResultMock).not.toHaveBeenCalled();
+  });
+
   it("preserves restart ownership when an aborted ACP turn resolves normally", async () => {
     setupAcpSession();
     const controller = new AbortController();
-    controller.abort(createAgentRunRestartAbortError());
+    state.acpRunTurnMock.mockImplementationOnce(async () => {
+      controller.abort(createAgentRunRestartAbortError());
+    });
 
     await expect(
       agentCommand({
@@ -1985,6 +1983,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       }),
     ).rejects.toThrow("agent run aborted for restart");
 
+    expect(state.acpRunTurnMock).toHaveBeenCalledOnce();
     expect(state.emitAcpLifecycleEndMock).not.toHaveBeenCalled();
     expect(state.deliverAgentCommandResultMock).not.toHaveBeenCalled();
   });
@@ -2973,6 +2972,13 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
   });
 
   it("keeps later provider capability metadata after hydrating a Codex primary", async () => {
+    const nativeModel = {
+      provider: "openai",
+      id: "gpt-5.6-sol",
+      name: "GPT 5.6 Sol",
+      reasoning: true,
+      compat: { supportedReasoningEfforts: ["max", "ultra"] },
+    };
     state.runtimeConfigMock = {
       agents: {
         defaults: {
@@ -2985,13 +2991,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       },
     };
     state.loadManifestModelCatalogMock.mockReturnValue([
-      {
-        provider: "openai",
-        id: "gpt-5.6-sol",
-        name: "GPT 5.6 Sol",
-        reasoning: true,
-        compat: { supportedReasoningEfforts: ["max"] },
-      },
+      { ...nativeModel, compat: { supportedReasoningEfforts: ["max"] } },
       {
         provider: "gmn",
         id: "gpt-5.4",
@@ -3005,15 +3005,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       if (provider !== "openai") {
         throw new Error(`unexpected scoped thinking hydration for ${provider}`);
       }
-      return [
-        {
-          provider: "openai",
-          id: "gpt-5.6-sol",
-          name: "GPT 5.6 Sol",
-          reasoning: true,
-          compat: { supportedReasoningEfforts: ["max", "ultra"] },
-        },
-      ];
+      return [structuredClone(nativeModel)];
     });
     state.resolveThinkingDefaultMock.mockImplementation((args: unknown) => {
       const { provider, catalog } = args as {
@@ -3047,7 +3039,14 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       modelOverride: "gpt-5.4",
       resolvedThinkLevel: "xhigh",
     });
-    expect(state.loadProviderScopedThinkingCatalogMock).toHaveBeenCalledTimes(1);
+    expect(state.loadProviderScopedThinkingCatalogMock).toHaveBeenCalledTimes(2);
+    for (const [scope] of state.loadProviderScopedThinkingCatalogMock.mock.calls) {
+      expectRecordFields(scope, {
+        provider: "openai",
+        model: "gpt-5.6-sol",
+        agentRuntime: "codex",
+      });
+    }
   });
 
   it("persists and clears current run delivery context for restart recovery", async () => {

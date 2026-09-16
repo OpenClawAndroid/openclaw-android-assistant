@@ -18,6 +18,8 @@ import {
   resolveOpenClawAgentSqlitePath,
   type OpenClawAgentDatabaseOptions,
 } from "../../state/openclaw-agent-db.js";
+import { AGENT_DATABASE_PREFLIGHT_CONCURRENCY } from "../../state/openclaw-database-preflight-agent-scheduler.js";
+import { runTasksWithConcurrency } from "../../utils/run-with-concurrency.js";
 import { resolveStateDir } from "../paths.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
 import { migrateLegacyMainSessionKeys } from "./legacy-main-session-migration.js";
@@ -199,11 +201,11 @@ export async function runSessionStartupMigration(params: {
     listOpenClawRegisteredAgentDatabases({ env }).map((entry) => `${entry.agentId}\0${entry.path}`),
   );
   let pendingWorktreeSessions = 0;
-  for (const target of targets) {
+  const tasks = targets.map((target) => async () => {
     const options = toDatabaseOptions(resolveSqliteReadScope({ ...target, env }));
     const databasePath = resolveOpenClawAgentSqlitePath(options);
     if (databases.has(databasePath) || !fs.existsSync(databasePath)) {
-      continue;
+      return;
     }
     databases.add(databasePath);
     // Retained stores remain discoverable, but only deletion cleanup may write them.
@@ -213,7 +215,7 @@ export async function runSessionStartupMigration(params: {
       params.log.info(
         `session: skipping deleted agent database for ${options.agentId} (${deletion.cleanupCompleted ? "cleanup complete" : "cleanup pending; retry agent deletion"})`,
       );
-      continue;
+      return;
     }
     const alreadyOpen = isOpenClawAgentDatabaseOpen(databasePath);
     let handedOff = false;
@@ -237,7 +239,11 @@ export async function runSessionStartupMigration(params: {
       // visitors can otherwise parse a whole migrated store on the main thread.
       const { certifySessionCanonicalValidationPending } =
         await import("./session-canonical-validation-readiness.js");
-      await certifySessionCanonicalValidationPending(options);
+      const { withSqliteCanonicalValidationWorker } =
+        await import("./session-accessor.sqlite-reclamation-worker.js");
+      await withSqliteCanonicalValidationWorker((withWorker) =>
+        certifySessionCanonicalValidationPending(options, withWorker),
+      );
       try {
         migrateWorktreeSessions ??= (await import("./worktree-workspace-migration.js"))
           .migrateManagedWorktreeCanonicalWorkspaces;
@@ -264,6 +270,16 @@ export async function runSessionStartupMigration(params: {
         await closeOpenClawAgentDatabaseByPathAsync(databasePath);
       }
     }
+  });
+  // Share preflight's two-agent disk budget: overlap admission without multiplying
+  // SQLite scans and worker heaps across the whole fleet. Drain active work on failure.
+  const { hasError, firstError } = await runTasksWithConcurrency({
+    tasks,
+    limit: AGENT_DATABASE_PREFLIGHT_CONCURRENCY,
+    errorMode: "stop",
+  });
+  if (hasError) {
+    throw firstError;
   }
   if (pendingWorktreeSessions > 0) {
     params.log.warn(

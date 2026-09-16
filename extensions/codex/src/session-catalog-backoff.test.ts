@@ -105,12 +105,29 @@ describe("Codex catalog failure recovery", () => {
       getRuntimeConfig: () => config,
       now: () => now,
     });
-    const home = control.homesForAgent("main")[0]!;
+    const home = (await control.homesForAgent("main"))[0]!;
     const { api, getProvider } = createGatewayApi(createRuntime().runtime, config);
+    const allPagesStarted = createDeferred<void>();
+    let startedPages = 0;
     registerCodexSessionCatalog({
       api,
       bindingStore: createCodexTestBindingStore(),
-      control,
+      control: {
+        ...control,
+        forRequest(...args) {
+          const request = control.forRequest(...args);
+          return {
+            ...request,
+            listPage(...pageArgs) {
+              const pending = request.listPage(...pageArgs);
+              if (++startedPages === 18) {
+                allPagesStarted.resolve();
+              }
+              return pending;
+            },
+          };
+        },
+      },
       getRuntimeConfig: () => config,
     });
     const provider = getProvider()!;
@@ -125,6 +142,8 @@ describe("Codex catalog failure recovery", () => {
     const calls = Array.from({ length: 18 }, () => list());
     try {
       await started.promise;
+      // Home discovery can still be pending after the first native request starts.
+      await allPagesStarted.promise;
       now += 60_000;
       failed.reject(new Error("native host timed out"));
       const hosts = await Promise.all(calls);

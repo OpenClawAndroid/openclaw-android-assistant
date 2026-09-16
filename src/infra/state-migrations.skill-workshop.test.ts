@@ -78,7 +78,7 @@ describe("automatic Skill Workshop migration", () => {
     { scenario: "changed content", mainMatches: 0, opsMatches: 0, missingWorkspace: false },
   ])(
     "resolves a legacy collection backup by complete relocated content: $scenario",
-    async ({ mainMatches, opsMatches, missingWorkspace }) => {
+    async ({ scenario, mainMatches, opsMatches, missingWorkspace }) => {
       const oldWorkspace = state.path("old-workspace");
       const currentWorkspace = missingWorkspace
         ? state.workspaceDir
@@ -144,19 +144,38 @@ describe("automatic Skill Workshop migration", () => {
       );
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const result = await autoMigrateLegacyState({
-          cfg: config,
-          env: state.env,
-          homedir: () => state.home,
-          doctorOnlyStateMigrations: true,
-          legacySessionSurfaces: EMPTY_LEGACY_SESSION_SURFACES,
-        });
-        const receipt = result.stepReceipts.find((entry) => entry.id === "skill-workshop");
-        if (uniqueOwner) {
-          expect(receipt, result.warnings.join("\n")).toMatchObject({
-            outcome: attempt === 0 ? "completed" : "skipped",
-            warnings: [],
+        // Keep Doctor success/warning integration; matching variants need only the
+        // real Workshop owner, with the same files, isolation, and repeat attempt.
+        const result =
+          scenario === "moved workspace" || scenario === "ambiguous owner"
+            ? await autoMigrateLegacyState({
+                cfg: config,
+                env: state.env,
+                homedir: () => state.home,
+                doctorOnlyStateMigrations: true,
+                legacySessionSurfaces: EMPTY_LEGACY_SESSION_SURFACES,
+              })
+            : await migrateLegacySkillWorkshopProposals({
+                config,
+                env: state.env,
+                retireMissingDrafts: true,
+              });
+        const receipt =
+          "stepReceipts" in result
+            ? result.stepReceipts.find((entry) => entry.id === "skill-workshop")
+            : undefined;
+        if ("stepReceipts" in result) {
+          expect(receipt).toMatchObject({
+            outcome: uniqueOwner ? (attempt === 0 ? "completed" : "skipped") : "warning",
           });
+        } else if (uniqueOwner) {
+          expect(result.changes.length > 0).toBe(attempt === 0);
+        } else {
+          expect(result).toMatchObject({ changes: [], warningDisposition: "recoverable" });
+        }
+        const warnings = receipt?.warnings ?? result.warnings;
+        if (uniqueOwner) {
+          expect(warnings).toEqual([]);
           await expect(fs.access(backupRoot)).rejects.toMatchObject({ code: "ENOENT" });
           const destination = path.join(
             resolveSkillCollectionBackupRoot(config, "main", state.env),
@@ -171,8 +190,7 @@ describe("automatic Skill Workshop migration", () => {
           expect(converted).toMatchObject({ schema: "openclaw.skill-collection-backup.v2" });
           expect(converted).not.toHaveProperty("restoreUnavailableReason");
         } else {
-          expect(receipt).toMatchObject({ outcome: "warning" });
-          const warning = receipt?.warnings.join("\n");
+          const warning = warnings.join("\n");
           expect(warning).toContain(`agent main: ${mainMatches}/3 skills match`);
           expect(warning).toContain(`agent ops: ${opsMatches}/3 skills match`);
           expect(warning).toContain(

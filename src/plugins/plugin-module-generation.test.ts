@@ -42,7 +42,12 @@ describe("plugin module generations", () => {
       const home = temp.make("plugin-bun-generations-");
       const result = spawnSync(
         process.env.BUN_BIN ?? "bun",
-        ["--no-install", "src/plugins/plugin-module-generation.bun.test-support.ts", home],
+        [
+          "--no-install",
+          "--conditions=openclaw-custom",
+          "src/plugins/plugin-module-generation.bun.test-support.ts",
+          home,
+        ],
         {
           cwd: process.cwd(),
           encoding: "utf8",

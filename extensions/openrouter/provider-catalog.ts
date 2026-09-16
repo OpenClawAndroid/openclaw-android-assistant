@@ -1,9 +1,9 @@
-// Openrouter provider module implements model/runtime integration.
 import { normalizeOpenRouterModelPricing } from "openclaw/plugin-sdk/model-catalog-pricing";
 import {
   buildLiveModelProviderConfig,
   type LiveModelCatalogFetchGuard,
 } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
+import { normalizeOpenRouterModelReasoning } from "openclaw/plugin-sdk/provider-catalog-shared";
 import {
   normalizeBaseUrl,
   resolveProviderHttpRequestConfig,
@@ -179,6 +179,7 @@ function buildOpenRouterLiveModel(row: unknown): ModelDefinitionConfig | undefin
     reasoning:
       supportedParameters.includes("reasoning") ||
       supportedParameters.includes("include_reasoning"),
+    ...normalizeOpenRouterModelReasoning(record?.reasoning),
     input: inputModalities.includes("image") ? ["text", "image"] : ["text"],
     cost: normalizeOpenRouterModelPricing(record?.pricing) ?? { ...OPENROUTER_DEFAULT_COST },
     contextWindow:

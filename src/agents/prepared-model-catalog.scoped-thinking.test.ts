@@ -244,6 +244,63 @@ describe("loadProviderScopedThinkingCatalog", () => {
   });
 
   it.each([
+    { agentRuntime: "openclaw", expectedRuntime: undefined },
+    { agentRuntime: "native-one", expectedRuntime: "native-one" },
+    { agentRuntime: "native-two", expectedRuntime: "native-two" },
+  ])("selects $agentRuntime thinking facts without changing other entries", async (testCase) => {
+    const config = {};
+    const host: ModelCatalogEntry = {
+      ...entry,
+      reasoning: true,
+      compat: { supportedReasoningEfforts: ["high"] },
+    };
+    const first: ModelCatalogEntry = {
+      provider: entry.provider,
+      id: entry.id,
+      name: "Native one",
+      nativeRuntime: "native-one",
+      reasoning: true,
+      compat: { supportedReasoningEfforts: ["high", "ultra"] },
+    };
+    const second: ModelCatalogEntry = {
+      ...first,
+      name: "Native two",
+      nativeRuntime: "native-two",
+      reasoning: false,
+      compat: { supportsReasoningEffort: false, supportedReasoningEfforts: [] },
+    };
+    const other = { ...entry, id: "other", name: "Other model", reasoning: true };
+    const snapshot = {
+      ...owner(config, [first, other]),
+      modelCatalog: {
+        entries: [first, other],
+        routeVariants: [first, second, host, other],
+      },
+    };
+    publishedSnapshotMock.mockReturnValue(snapshot);
+    const { loadProviderScopedThinkingCatalog } = await import("./prepared-model-catalog.js");
+    const catalog = await loadProviderScopedThinkingCatalog({
+      config,
+      provider: entry.provider,
+      model: entry.id,
+      agentRuntime: testCase.agentRuntime,
+    });
+    const selected = [host, first, second].find(
+      (candidate) => candidate.nativeRuntime === testCase.expectedRuntime,
+    );
+
+    expect(catalog).toEqual([selected, other]);
+    expect(snapshot.modelCatalog.entries).toEqual([first, other]);
+    expect(augmentCatalogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ agentRuntime: testCase.agentRuntime }),
+    );
+    expect(acquireSnapshotMock).not.toHaveBeenCalled();
+    expect(manifestCatalogMock).not.toHaveBeenCalled();
+    expect(scopedStaticMock).not.toHaveBeenCalled();
+    expect(scopedLiveMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
     {
       name: "vision",
       input: ["text", "image"],

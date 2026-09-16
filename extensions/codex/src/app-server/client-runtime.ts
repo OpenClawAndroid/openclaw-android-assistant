@@ -645,6 +645,32 @@ export function isCodexAppServerLiveThreadClaimed(
   return runtime !== undefined && !runtime.closed && runtime.claimedThreads.has(threadId);
 }
 
+export function hasCodexAppServerSiblingThreadWork(
+  client: CodexAppServerClient,
+  threadId: string,
+): boolean {
+  const runtime = configuredClients.get(client);
+  if (!runtime || runtime.closed) {
+    return false;
+  }
+  // A protected parent can be settled while its native children still write.
+  if (runtime.protectedThreads.size > 0) {
+    return true;
+  }
+  // Ephemeral history exists only on this process, even after its turn settles.
+  for (const [retainedThreadId, retained] of runtime.retainedThreads) {
+    if (retainedThreadId !== threadId && retained.ephemeralPolicy !== undefined) {
+      return true;
+    }
+  }
+  for (const claimedThreadId of runtime.claimedThreads.keys()) {
+    if (claimedThreadId !== threadId) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Release the exact physical subscription and finish only its observed ownership generation. */
 export async function unsubscribeCodexAppServerLiveThread(
   client: CodexAppServerClient,

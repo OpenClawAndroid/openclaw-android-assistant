@@ -8,11 +8,7 @@ import {
   resolvePersistedSelectedModelRef,
 } from "../../model-selection.js";
 import { resolveThinkingDefault } from "../../model-thinking-default.js";
-import {
-  loadSessionEntry,
-  resolveAgentConfig,
-  resolveGatewaySessionStoreTarget,
-} from "./subagent-spawn.runtime.js";
+import { loadSessionEntry, resolveGatewaySessionStoreTarget } from "./subagent-spawn.runtime.js";
 
 type RequesterPreferencesContext = {
   cfg: OpenClawConfig;
@@ -73,16 +69,11 @@ export function readRequesterThinkingLevel(
   if (typeof entry?.thinkingLevel === "string" && entry.thinkingLevel.trim()) {
     return entry.thinkingLevel.trim();
   }
-  const requesterAgentThinking = params.requesterAgentId
-    ? resolveAgentConfig(params.cfg, params.requesterAgentId)?.thinkingDefault
-    : undefined;
-  if (requesterAgentThinking) {
-    return requesterAgentThinking;
-  }
   const { defaultModel, selectedModel } = resolveRequesterModel(params, entry);
   const model = selectedModel ?? defaultModel;
   return resolveThinkingDefault({
     cfg: params.cfg,
+    agentId: params.requesterAgentId,
     provider: model.provider,
     model: model.model,
   });

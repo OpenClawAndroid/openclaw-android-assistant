@@ -22,6 +22,7 @@ import {
   isSystemAgentInferenceUnavailableError,
 } from "./inference-error.js";
 import { isSystemAgentNavigationOperation } from "./operation-types.js";
+import { SystemAgentOperationExitError } from "./operations-execution-helpers.js";
 import { isInvalidConfigSetOperation } from "./operations-internal.js";
 import {
   describeSystemAgentPersistentOperation,
@@ -40,6 +41,7 @@ import {
   type SystemAgentApprovalIntent,
 } from "./operator-approval.js";
 import type { SystemAgentOverview } from "./overview.js";
+import { resolveConfigWriteRepair } from "./post-write-verification.js";
 import type { SystemAgentVerifiedInferenceBinding } from "./verified-inference.js";
 
 export type SystemAgentChatTurnOptions = {
@@ -293,6 +295,16 @@ export class ChatTurnRouter {
     }
     const capture = createCaptureRuntime();
     const result = await this.executeOperation(operation, capture, true, beforePersistentApply);
+    const configWrite = operation.kind === "config-set" || operation.kind === "config-set-ref";
+    if (configWrite && result === undefined) {
+      return {
+        text: await resolveConfigWriteRepair(capture.read(), (message) =>
+          this.resolveAssistantTurn(message, false),
+        ),
+        action: "none",
+        applied: false,
+      };
+    }
     const verify = result?.applied ? await this.callbacks.verifyConfigAfterWrite() : null;
     const followUp = this.armFollowUp(result?.followUp);
     const baseText = [capture.read() || "Applied. Audit entry written.", verify, followUp]
@@ -489,14 +501,12 @@ export class ChatTurnRouter {
         action: "none",
       };
     }
-    const result = await this.executeOperation(
-      recordedOperation,
-      capture,
-      this.options.yes === true || !isPersistentSystemAgentOperation(recordedOperation),
-    );
-    const verify = result?.applied ? await this.callbacks.verifyConfigAfterWrite() : null;
+    if (isPersistentSystemAgentOperation(recordedOperation)) {
+      return await this.applyApprovedPersistentOperation(recordedOperation);
+    }
+    const result = await this.executeOperation(recordedOperation, capture, true);
     const followUp = this.armFollowUp(result?.followUp);
-    const reply = [capture.read(), verify, followUp].filter(Boolean).join("\n\n");
+    const reply = [capture.read(), followUp].filter(Boolean).join("\n\n");
     if (result?.exitsInteractive === true) {
       return { text: reply, action: "exit" };
     }
@@ -527,7 +537,9 @@ export class ChatTurnRouter {
       if (isSystemAgentInferenceUnavailableError(error)) {
         throw error;
       }
-      capture.error(formatOperationError(error));
+      if (!(error instanceof SystemAgentOperationExitError)) {
+        capture.error(formatOperationError(error));
+      }
       return undefined;
     }
   }

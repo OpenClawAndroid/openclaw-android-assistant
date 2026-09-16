@@ -44,8 +44,15 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
 }
 
-function initRepo(root: string): void {
-  git(root, "init", "-q", "-b", "main");
+function initRepo(root: string, objectFormat?: "sha1" | "sha256"): void {
+  git(
+    root,
+    "init",
+    "-q",
+    "-b",
+    "main",
+    ...(objectFormat ? [`--object-format=${objectFormat}`] : []),
+  );
   git(root, "config", "user.email", "test@openclaw.test");
   git(root, "config", "user.name", "Test");
   git(root, "config", "commit.gpgsign", "false");
@@ -462,6 +469,38 @@ describe("loadSessionDiff", () => {
     expect(committed.files).toEqual([]);
   });
 
+  it.each(["sha1", "sha256"] as const)(
+    "shows an unrelated root commit merged into the feature branch in a %s repository",
+    async (objectFormat) => {
+      initRepo(repoRoot, objectFormat);
+      fs.writeFileSync(path.join(repoRoot, "base.txt"), "base\n");
+      git(repoRoot, "add", ".");
+      git(repoRoot, "commit", "-qm", "base");
+      git(repoRoot, "checkout", "--orphan", "imported", "-q");
+      git(repoRoot, "rm", "-rf", ".");
+      fs.writeFileSync(path.join(repoRoot, "imported.txt"), "imported root\n");
+      git(repoRoot, "add", ".");
+      git(repoRoot, "commit", "-qm", "imported root");
+      const rootCommit = git(repoRoot, "rev-parse", "HEAD").trim();
+      git(repoRoot, "checkout", "-qb", "feature", "main");
+      git(repoRoot, "merge", "--allow-unrelated-histories", "--no-edit", "imported");
+      fs.appendFileSync(path.join(repoRoot, "imported.txt"), "working tree edit\n");
+      mockSession(repoRoot);
+
+      const result = await loadSessionDiff({
+        sessionKey: "agent:main:s1",
+        scope: "commit",
+        commit: rootCommit,
+      });
+
+      expect(result.unavailableReason).toBeUndefined();
+      expect(result.files.map((file) => file.path)).toEqual(["imported.txt"]);
+      expect(result.files[0]).toMatchObject({ status: "added", additions: 1, deletions: 0 });
+      expect(result.files[0]?.patch).toContain("+imported root");
+      expect(result.files[0]?.patch).not.toContain("working tree edit");
+    },
+  );
+
   it.each(["main", "origin/main", "origin/master"])(
     "scopes branch, working-tree, and commit diffs against %s with branch metadata",
     async (baseRef) => {
@@ -602,23 +641,36 @@ describe("loadSessionDiff", () => {
     }
   });
 
-  it("reports staged files in a repo before its first commit", async () => {
-    initRepo(repoRoot);
-    fs.writeFileSync(path.join(repoRoot, "staged.txt"), "line one\nline two\n");
-    git(repoRoot, "add", "staged.txt");
-    fs.writeFileSync(path.join(repoRoot, "loose.txt"), "loose\n");
-    mockSession(repoRoot);
+  it.each(["sha1", "sha256"] as const)(
+    "reports staged files and filters the session baseline before the first %s commit",
+    async (objectFormat) => {
+      initRepo(repoRoot, objectFormat);
+      fs.writeFileSync(path.join(repoRoot, "staged.txt"), "line one\nline two\n");
+      git(repoRoot, "add", "staged.txt");
+      fs.writeFileSync(path.join(repoRoot, "loose.txt"), "loose\n");
+      mockSession(repoRoot);
 
-    const result = await loadSessionDiff({ sessionKey: "agent:main:s1" });
+      const result = await loadSessionDiff({ sessionKey: "agent:main:s1" });
 
-    expect(result.unavailableReason).toBeUndefined();
-    const staged = result.files.find((file) => file.path === "staged.txt");
-    expect(staged?.status).toBe("added");
-    expect(staged?.additions).toBe(2);
-    expect(staged?.patch).toContain("+line one");
-    // The untracked scan still covers files git does not track yet.
-    expect(result.files.find((file) => file.path === "loose.txt")?.untracked).toBe(true);
-  });
+      expect(result.unavailableReason).toBeUndefined();
+      const staged = result.files.find((file) => file.path === "staged.txt");
+      expect(staged?.status).toBe("added");
+      expect(staged?.additions).toBe(2);
+      expect(staged?.patch).toContain("+line one");
+      // The untracked scan still covers files git does not track yet.
+      expect(result.files.find((file) => file.path === "loose.txt")?.untracked).toBe(true);
+
+      const baseline = await captureSessionDiffBaseline({ cwd: repoRoot, sessionId: "s1" });
+      expect(baseline?.files.map((file) => file.path)).toEqual(["loose.txt", "staged.txt"]);
+      mockSession(repoRoot, { sessionDiffBaseline: baseline });
+      expect((await loadSessionDiff({ sessionKey: "agent:main:s1" })).files).toEqual([]);
+
+      fs.appendFileSync(path.join(repoRoot, "staged.txt"), "later edit\n");
+      const changed = await loadSessionDiff({ sessionKey: "agent:main:s1" });
+      expect(changed.files.map((file) => file.path)).toEqual(["staged.txt"]);
+      expect(changed.files[0]?.patch).toContain("+later edit");
+    },
+  );
 
   it.skipIf(process.platform === "win32").each(["unborn", "branch", "detached"])(
     "preserves checkout path bytes for %s baseline and diff reads",

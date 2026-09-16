@@ -117,7 +117,7 @@ describe("Codex node catalog sources", () => {
         getPluginConfig: () => ({ appServer }),
         getRuntimeConfig: () => runtimeConfig,
       });
-      const source = factory.homesForAgent("beta")[0]!;
+      const source = (await factory.homesForAgent("beta"))[0]!;
       const rollout = source.localSessionsRoot
         ? path.join(source.localSessionsRoot, "source.jsonl")
         : undefined;

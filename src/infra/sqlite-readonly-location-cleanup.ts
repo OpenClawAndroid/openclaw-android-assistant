@@ -4,6 +4,8 @@ import { extractErrorCode } from "@openclaw/normalization-core/error-coercion";
 import { getChildLogger } from "../logging/logger.js";
 import type { PreparedSqliteReadOnlyLocation } from "./sqlite-readonly-location.types.js";
 
+export class SqliteSnapshotCleanupError extends Error {}
+
 const pendingTempDirectoryCleanup = new Set<string>();
 let cleanupExitHandlerInstalled = false;
 const tempDirectoryRemovalOptions = {

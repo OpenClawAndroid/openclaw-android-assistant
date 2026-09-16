@@ -43,7 +43,6 @@ import {
 import { measureDoctorConfigPreflightStep } from "./doctor-config-preflight-measure.js";
 import type { DoctorConfigPreflightPluginSnapshotRead } from "./doctor-config-preflight-plugin-index.js";
 import {
-  formatStartupPluginVerificationFailure,
   refreshStartupPluginQuarantine,
   runDoctorPluginConvergence,
 } from "./doctor-config-preflight-plugin-verification.js";
@@ -219,6 +218,7 @@ export async function prepareDoctorMigrationPlugins(params: {
   snapshotRead: DoctorConfigPreflightPluginSnapshotRead;
   readRefreshedSnapshot: () => Promise<DoctorConfigPreflightPluginSnapshotRead>;
   beforeStateMigrations?: (snapshot: ConfigFileSnapshot) => Promise<boolean>;
+  onWarnings: (warnings: readonly string[]) => void;
   onDeferredPlugins: (
     pending: readonly DeferredPluginMigration[],
     inspection?: PluginMigrationInspection,
@@ -231,11 +231,7 @@ export async function prepareDoctorMigrationPlugins(params: {
     params.converge ? runDoctorPluginConvergence : refreshStartupPluginQuarantine
   )(params);
   setActiveDegradedPlugins(convergence.quarantinedPlugins);
-  if (convergence.blockingDiagnostic) {
-    throwStartupMigrationRefusal(
-      formatStartupPluginVerificationFailure(convergence.blockingDiagnostic),
-    );
-  }
+  params.onWarnings(convergence.warnings ?? []);
   params.lease?.heartbeat();
   params.onDeferredPlugins(convergence.deferredPlugins ?? [], convergence.migrationInspection);
   if (!params.converge) {

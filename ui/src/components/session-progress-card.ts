@@ -393,7 +393,11 @@ export function renderSessionProgressCard(
         composerRunLifecycle,
       )}
     >
-      <summary class="session-progress-card__summary" aria-label=${summaryLabel}>
+      <summary
+        class="session-progress-card__summary"
+        aria-label=${summaryLabel}
+        title=${t("sessionProgressCard.gestureHint")}
+      >
         <span
           class="session-progress-card__summary-indicator session-progress-card__current-marker${
             complete || effectiveSessionStatus === "done"

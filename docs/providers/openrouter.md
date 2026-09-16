@@ -413,11 +413,20 @@ does **not** inject those OpenRouter-specific headers or Anthropic cache markers
   </Accordion>
 
   <Accordion title="Thinking / reasoning injection">
-    On supported non-`auto` routes, OpenClaw maps the selected thinking level
+    OpenClaw uses the selected model's advertised reasoning efforts for its
+    thinking choices and request payloads. Models that require reasoning omit
+    the off choice. Agent turns and standalone completions share these controls
+    and reasoning-replay rules. On supported non-`auto` routes, OpenClaw maps the selected thinking level
     to OpenRouter proxy reasoning payloads. `openrouter/auto` and unsupported
     model hints skip that injection. Stale `openrouter/hunter-alpha` refs also
     skip it, because OpenRouter could return final answer text in reasoning
     fields on that retired route.
+
+    Models without an effort selector show on/off controls, or **always on**
+    when reasoning is mandatory. These models receive binary reasoning controls
+    without a scalar effort. Omitting a thinking request leaves their native
+    reasoning default unchanged; configured reasoning budgets are preserved.
+
   </Accordion>
 
   <Accordion title="DeepSeek V4 reasoning replay">
@@ -426,7 +435,9 @@ does **not** inject those OpenRouter-specific headers or Anthropic cache markers
     replayed assistant turns, keeping thinking/tool conversations in DeepSeek
     V4's required follow-up shape. OpenClaw sends OpenRouter-supported
     `reasoning.effort` values for these routes: `xhigh`/`max` map to `xhigh`,
-    every other non-off level maps to `high`.
+    every other non-off level maps to `high`. `/think off` explicitly sends
+    `reasoning.effort: "none"` and removes reasoning replay fields instead of
+    falling back to the provider's reasoning default.
   </Accordion>
 
   <Accordion title="OpenAI-only request shaping">

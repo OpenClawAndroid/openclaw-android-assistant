@@ -275,14 +275,10 @@ function resolveClosedResetIntervalForDisplayable(
   });
 }
 
-export function resolveHistoricalHistoryEventById(
+export function resolveHistoricalHistoryEvent(
   projection: CurrentTranscriptProjection,
-  eventId: string,
+  row: NonNullable<ReturnType<typeof readDisplayableActiveEventById>>,
 ): SessionTranscriptMessageEvent | undefined {
-  const row = readDisplayableActiveEventById(projection, eventId);
-  if (!row) {
-    return undefined;
-  }
   const interval = resolveClosedResetIntervalForDisplayable(projection, row);
   if (!interval) {
     return undefined;
@@ -297,12 +293,9 @@ export function resolveHistoricalHistoryEventById(
 export function readHistoricalHistoryAnchorPage(
   projection: CurrentTranscriptProjection,
   displaySource: string | undefined,
+  row: NonNullable<ReturnType<typeof readDisplayableActiveEventById>>,
   options: TranscriptAnchorPageOptions,
 ): SessionTranscriptMessageAnchorPage | undefined {
-  const row = readDisplayableActiveEventById(projection, options.messageId);
-  if (!row) {
-    return undefined;
-  }
   const interval = resolveClosedResetIntervalForDisplayable(projection, row);
   if (!interval) {
     return undefined;

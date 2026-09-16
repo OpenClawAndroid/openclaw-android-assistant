@@ -599,7 +599,7 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     return true;
   }
 
-  private cancelScroll(): void {
+  cancelScroll(): void {
     this.endAnchor.clear();
     this.prependAnchor.clear();
     if (this.offsetState.scrollCommand === null && !this.offsetState.pendingScrollOffset) {
@@ -666,15 +666,20 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
 
   private completeMessageReveal(): void {
     const command = this.offsetState.scrollCommand;
-    if (
-      command?.target === "message" &&
-      this.messageReveal.reveal(
-        this.threadInnerElement,
-        command,
-        this.virtualizerController.getVirtualizer(),
-      )
-    ) {
+    if (command?.target !== "message") {
+      return;
+    }
+    const virtualizer = this.virtualizerController.getVirtualizer();
+    if (this.messageReveal.reveal(this.threadInnerElement, command, virtualizer)) {
       this.offsetState.scrollCommand = { behavior: command.behavior, target: "index" };
+      return;
+    }
+    // Expanding folded work can move the target beyond the initially mounted rows.
+    const rowKey = this.messageRowKeysById.get(command.messageId);
+    const rowIndex = rowKey ? this.rowIndexesByKey.get(rowKey) : undefined;
+    if (rowIndex !== undefined) {
+      virtualizer.scrollToIndex(rowIndex, { align: "center" });
+      this.host.requestUpdate();
     }
   }
 
@@ -718,15 +723,11 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
 
   /** Preserve the retained bubble even when a deferred offset selects another range. */
   private extractAnchoredRange(range: Range, indexes: ReadonlyMap<string, number>): number[] {
-    const visible = extractTranscriptRange(range, indexes, this.focusedRowKey);
     const messageKey = this.prependAnchor.messageKey;
     const rowKey =
       (messageKey === null ? null : this.committedMessageRowsByKey.get(messageKey)) ??
       this.prependAnchor.rowKey;
-    const anchorIndex = rowKey === null ? undefined : indexes.get(rowKey);
-    return anchorIndex === undefined || visible.includes(anchorIndex)
-      ? visible
-      : [...visible, anchorIndex].toSorted((left, right) => left - right);
+    return extractTranscriptRange(range, indexes, [this.focusedRowKey, rowKey]);
   }
 
   private syncRows(nextKeys: readonly string[]): void {

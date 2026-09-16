@@ -1176,7 +1176,7 @@ export const cronHandlers: GatewayRequestHandlers = {
               ...(touchesToolRuntime
                 ? {
                     scheduledToolPolicy: callerScope?.manageAll
-                      ? undefined
+                      ? null
                       : resolveCronScheduledToolPolicyForCaller(callerScope),
                     toolsAllowProvenance: callerScope?.toolsAllowProvenance,
                     toolsAllowExecTarget: callerScope?.toolsAllowExecTarget,

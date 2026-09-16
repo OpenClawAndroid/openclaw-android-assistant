@@ -9,6 +9,7 @@ describe("SessionRowSchema", () => {
       key: "agent:main:main",
       kind: "global",
       lastRunId: "run-settled",
+      snapshotAt: 200,
       activeLeafEntryId: "leaf-rendered",
       createdActor: {
         type: "human",
@@ -70,6 +71,7 @@ describe("SessionRowSchema", () => {
     ).toBe(false);
     expect(roundTripped).toMatchObject({
       activeLeafEntryId: "leaf-rendered",
+      snapshotAt: 200,
       lastRunId: "run-settled",
       createdActor: { avatarUrl: "/api/users/profile-ada/avatar?v=7" },
       participantCount: 2,

@@ -48,15 +48,20 @@ type DetectedOpenAICompletionsCompat = {
 
 export type ResolvedOpenAICompletionsCompat = Omit<
   Required<OpenAICompletionsCompat>,
-  "cacheControlFormat" | "openRouterRouting" | "sendSessionAffinityHeaders" | "reasoningEffortMap"
-> & {
-  cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
-  openRouterRouting?: OpenAICompletionsCompat["openRouterRouting"];
-  sessionAffinity: OpenAICompletionsSessionAffinity;
-  visibleReasoningDetailTypes: string[];
-  requiresNonEmptyUserOrAssistantMessage: boolean;
-  configuredSupportsLongCacheRetention?: boolean;
-};
+  | "cacheControlFormat"
+  | "openRouterRouting"
+  | "sendSessionAffinityHeaders"
+  | "reasoningEffortMap"
+  | "supportedReasoningEfforts"
+> &
+  Pick<OpenAICompletionsCompat, "reasoningEffortMap" | "supportedReasoningEfforts"> & {
+    cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
+    openRouterRouting?: OpenAICompletionsCompat["openRouterRouting"];
+    sessionAffinity: OpenAICompletionsSessionAffinity;
+    visibleReasoningDetailTypes: string[];
+    requiresNonEmptyUserOrAssistantMessage: boolean;
+    configuredSupportsLongCacheRetention?: boolean;
+  };
 
 function isDefaultRouteProvider(provider: string | undefined, ...ids: string[]) {
   return provider !== undefined && ids.includes(provider);
@@ -333,6 +338,8 @@ export function resolveOpenAICompletionsCompat(
     supportsDeveloperRole: configured?.supportsDeveloperRole ?? defaults.supportsDeveloperRole,
     supportsReasoningEffort:
       configured?.supportsReasoningEffort ?? defaults.supportsReasoningEffort,
+    supportedReasoningEfforts: configured?.supportedReasoningEfforts,
+    reasoningEffortMap: configured?.reasoningEffortMap,
     supportsUsageInStreaming:
       configured?.supportsUsageInStreaming ?? defaults.supportsUsageInStreaming,
     maxTokensField: configured?.maxTokensField ?? defaults.maxTokensField,

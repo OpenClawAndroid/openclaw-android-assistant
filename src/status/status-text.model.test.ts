@@ -75,6 +75,37 @@ describe("buildStatusText prepared context windows", () => {
     });
   }
 
+  it.each([
+    { agentThinking: undefined, agentDefault: undefined, expected: "high" },
+    { agentThinking: false, agentDefault: undefined, expected: "off" },
+    { agentThinking: "high", agentDefault: "minimal", expected: "minimal" },
+  ] as const)(
+    "renders configured thinking precedence (model=$agentThinking, agent=$agentDefault)",
+    async ({ agentThinking, agentDefault, expected }) => {
+      const parts = await renderPreparedStatus({
+        cfg: {
+          agents: {
+            defaults: {
+              thinkingDefault: "low",
+              models: { "fixture/reasoning-model": { params: { thinking: "high" } } },
+            },
+            entries: {
+              main: {
+                thinkingDefault: agentDefault,
+                models: { "fixture/reasoning-model": { params: { thinking: agentThinking } } },
+              },
+            },
+          },
+        },
+        provider: "fixture",
+        model: "reasoning-model",
+        thinkingCatalog: [{ provider: "fixture", id: "reasoning-model", reasoning: true }],
+      });
+
+      expect(parts.text).toContain(`think ${expected}`);
+    },
+  );
+
   async function renderTerminalFallback(
     params: {
       entry?: Partial<InternalSessionEntry>;

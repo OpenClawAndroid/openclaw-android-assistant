@@ -214,7 +214,7 @@ export function createChecker(params: {
       if (!fingerprint) {
         continue;
       }
-      const control = params.control.forUpstream(probe.agentId, fingerprint);
+      const control = await params.control.forUpstream(probe.agentId, fingerprint);
       if (!control) {
         continue;
       }

@@ -30,7 +30,7 @@ import { resolveFastModeState } from "../fast-mode.js";
 import { runAgentHarnessBeforeMessageWriteHook } from "../harness/hook-helpers.js";
 import { prepareInternalSessionEffectsSession } from "../internal-session-effects.js";
 import { LiveSessionModelSwitchError } from "../live-model-switch.js";
-import { prepareModelRunCapabilities } from "../model-catalog-lookup.js";
+import { findModelInCatalog, prepareModelRunCapabilities } from "../model-catalog-lookup.js";
 import { resolveThinkingDefault } from "../model-selection.js";
 import { resolveConfiguredThinkingDefault } from "../model-thinking-default.js";
 import { createModelVisibilityPolicy } from "../model-visibility-policy.js";
@@ -41,7 +41,6 @@ import {
 import { resolveSessionRuntimeOverrideForProvider } from "../session-runtime-compat.js";
 import { measureAgentStartup } from "../startup-timing.js";
 import {
-  hasResolvedThinkingCatalogEntry,
   normalizeThinkingCatalogProviders,
   resolveCandidateThinkingLevel,
   resolveEffectiveAgentRuntime,
@@ -400,13 +399,14 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
             immutableThinkLevel ??
             resolveConfiguredThinkingDefault({
               cfg,
+              agentId: sessionAgentId,
               provider: providerOverride,
               model: modelOverride,
             });
           let candidateThinkingCatalog = thinkingCatalog;
           if (
             pluginsEnabled &&
-            candidateConfiguredThinkLevel !== "off" &&
+            (candidateConfiguredThinkLevel !== "off" || candidateRuntime !== "openclaw") &&
             needsThinkHydration(thinkingCatalog, providerOverride, modelOverride, candidateRuntime)
           ) {
             const { loadProviderScopedThinkingCatalog } =
@@ -416,34 +416,29 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
                 config: cfg,
                 provider: providerOverride,
                 model: modelOverride,
+                agentRuntime: candidateRuntime,
                 agentId: sessionAgentId,
                 workspaceDir,
               }),
             );
-            const runtimeThinkingCatalog = createModelVisibilityPolicy({
-              cfg,
-              catalog: runtimeCatalog,
-              defaultProvider,
-              defaultModel,
-              agentId: sessionAgentId,
-              allowManifestNormalization: true,
-              allowPluginNormalization: true,
-              ...modelManifestContext,
-            }).catalog;
-            if (
-              hasResolvedThinkingCatalogEntry({
+            if (findModelInCatalog(runtimeCatalog, providerOverride, modelOverride)) {
+              candidateThinkingCatalog = createModelVisibilityPolicy({
+                cfg,
                 catalog: runtimeCatalog,
-                provider: providerOverride,
-                model: modelOverride,
-              })
-            ) {
-              candidateThinkingCatalog = runtimeThinkingCatalog;
+                defaultProvider,
+                defaultModel,
+                agentId: sessionAgentId,
+                allowManifestNormalization: true,
+                allowPluginNormalization: true,
+                ...modelManifestContext,
+              }).catalog;
             }
           }
           const candidateRequestedThinkLevel =
             candidateConfiguredThinkLevel ??
             resolveThinkingDefault({
               cfg,
+              agentId: sessionAgentId,
               provider: providerOverride,
               model: modelOverride,
               catalog: candidateThinkingCatalog,

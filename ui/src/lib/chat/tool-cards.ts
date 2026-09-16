@@ -111,7 +111,19 @@ function readToolExitCode(...values: unknown[]): number | undefined {
   return undefined;
 }
 
+export function isToolCardSkipped(card: ToolCard): boolean {
+  const details = readRecord(card.details);
+  return (
+    (card.live !== true || card.completed === true) &&
+    details?.status === "skipped" &&
+    details.deniedReason === "steering"
+  );
+}
+
 export function isToolCardError(card: ToolCard): boolean {
+  if (isToolCardSkipped(card)) {
+    return false;
+  }
   // Progress can contain error-shaped text; only a result may imply failure.
   const canInferFailure = card.live !== true || card.completed === true;
   return card.isError ?? (canInferFailure && isToolErrorOutput(card.outputText));
@@ -121,6 +133,9 @@ export function resolveToolCardOutcome(
   card: ToolCard,
   runActive: boolean | undefined,
 ): ToolCardOutcome {
+  if (isToolCardSkipped(card)) {
+    return "skipped";
+  }
   if (isToolCardError(card)) {
     return "failed";
   }

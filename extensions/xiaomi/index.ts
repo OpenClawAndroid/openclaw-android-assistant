@@ -1,4 +1,3 @@
-// Xiaomi plugin entrypoint registers its OpenClaw integration.
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import type {
   OpenClawConfig,
@@ -8,6 +7,7 @@ import type {
   ProviderCatalogContext,
   ProviderAuthResult,
   ProviderRuntimeModel,
+  ProviderWrapStreamFnContext,
 } from "openclaw/plugin-sdk/plugin-entry";
 import {
   applyAuthProfileConfig,
@@ -24,6 +24,7 @@ import {
   applyModelCompatPatch,
   buildProviderReplayFamilyHooks,
 } from "openclaw/plugin-sdk/provider-model-shared";
+import { createDeepSeekV4OpenAICompatibleThinkingWrapper } from "openclaw/plugin-sdk/provider-stream-shared";
 import { PROVIDER_LABELS } from "openclaw/plugin-sdk/provider-usage";
 import {
   applyXiaomiConnectionConfig,
@@ -39,8 +40,7 @@ import {
   type XiaomiTokenPlanRegion,
 } from "./provider-catalog.js";
 import { buildXiaomiSpeechProvider } from "./speech-provider.js";
-import { createMiMoThinkingWrapper } from "./stream.js";
-import { resolveMiMoThinkingProfile } from "./thinking.js";
+import { isMiMoReasoningModelRef, resolveMiMoThinkingProfile } from "./thinking.js";
 
 const PAYG_FLAG_NAME = "--xiaomi-api-key";
 const PAYG_OPTION_KEY = "xiaomiApiKey";
@@ -60,10 +60,12 @@ const XIAOMI_PROVIDER_HOOKS = {
   }),
   normalizeResolvedModel: ({ model }: { model: ProviderRuntimeModel }) =>
     applyModelCompatPatch(model, { omitEmptyArrayItems: true }),
-  wrapStreamFn: (ctx: {
-    streamFn?: Parameters<typeof createMiMoThinkingWrapper>[0];
-    thinkingLevel?: Parameters<typeof createMiMoThinkingWrapper>[1];
-  }) => createMiMoThinkingWrapper(ctx.streamFn, ctx.thinkingLevel),
+  wrapStreamFn: (ctx: ProviderWrapStreamFnContext) =>
+    createDeepSeekV4OpenAICompatibleThinkingWrapper({
+      baseStreamFn: ctx.streamFn,
+      thinkingLevel: ctx.thinkingLevel,
+      shouldPatchModel: isMiMoReasoningModelRef,
+    }),
   resolveThinkingProfile: ({ modelId }: { modelId: string }) => resolveMiMoThinkingProfile(modelId),
   isModernModelRef: ({ modelId }: { modelId: string }) =>
     Boolean(resolveMiMoThinkingProfile(modelId)),

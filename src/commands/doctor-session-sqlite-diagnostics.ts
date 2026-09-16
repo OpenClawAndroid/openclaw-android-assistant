@@ -134,6 +134,8 @@ export function summarizeDoctorSessionSqliteReport(
 ): DoctorSessionSqliteReport {
   const sum = (value: (target: DoctorSessionSqliteTargetReport) => number) =>
     sumDoctorSessionSqliteTargets(targets, value);
+  const archives = (paths: (target: DoctorSessionSqliteTargetReport) => string[]) =>
+    new Set(targets.flatMap(paths)).size;
   return {
     ...(activeRun
       ? {
@@ -152,9 +154,9 @@ export function summarizeDoctorSessionSqliteReport(
     mode,
     targets,
     totals: createDoctorSessionSqliteTotals(targets, {
-      archivedLegacyStoreFiles: sum((target) => target.archivedLegacyStoreFiles?.length ?? 0),
-      archivedTranscriptFiles: sum((target) => target.archivedTranscriptFiles.length),
-      archivedUnreferencedJsonlFiles: sum((target) => target.archivedUnreferencedJsonlFiles.length),
+      archivedLegacyStoreFiles: archives((target) => target.archivedLegacyStoreFiles ?? []),
+      archivedTranscriptFiles: archives((target) => target.archivedTranscriptFiles),
+      archivedUnreferencedJsonlFiles: archives((target) => target.archivedUnreferencedJsonlFiles),
       importedEntries: sum((target) => target.importedEntries),
       importedTranscriptEvents: sum((target) => target.importedTranscriptEvents),
       legacyEntries: sum((target) => target.legacyEntries),

@@ -11,7 +11,6 @@ import {
   isSystemAgentNavigationOperation,
   type SystemAgentNavigationOperation,
 } from "../../system-agent/operation-types.js";
-import { assertConfigWriteDoesNotBypassInferenceVerification } from "../../system-agent/operations-execution-helpers.js";
 import {
   executeSystemAgentOperation,
   isPersistentSystemAgentOperation,
@@ -439,7 +438,7 @@ export function createSystemAgentTool(options: SystemAgentToolOptions): AnyAgent
       "Write: setup, set_default_model (agentId optional; live-tested), config_set, config_set_ref, create_agent (optional role), create_team, gateway_*, plugin_install, plugin_activate_artifact, plugin_uninstall. Submit the exact proposal first. Direct chat: exact user approval, then approved=true. Delegated requests: host applies session permission policy and returns the final outcome. Host applies after turn; rechecks inference owner.",
       "plugin_install: ClawHub/bundled/official only. Arbitrary source: exit, trusted shell.",
       "plugin_activate_artifact: for a task-authored plugin built with openclaw plugins pack, pass its absolute archive path and sha256. Copies and reviews exact bytes before proposing; approval includes trusted backend code, declared capabilities, and native UI. No dependency fetching. Backend activation requires Gateway restart. Native UI separately requires enabling Settings > Labs > Custom plugin UI, then Gateway restart and browser reload; artifact approval does not enable Labs.",
-      "Unknown config: config_schema first. Secrets: config_set_ref env. No plaintext. No raw auth/models/env/secrets/$include, plugin install/load policy, default-route model/runtime/params, or agent identity/topology; use set_default_model / onboard.",
+      "Unknown config: config_schema first. Config writes are proposed, approved, then checked by the canonical config validator and writer. Validation or write errors return to you; propose one correction for fresh approval. Config writes do not test whether a model route or API key works. For secrets, follow the user's storage preference; use config_set_ref for env storage. Never echo secret values. set_default_model is the shortcut for switching the primary model.",
       "No doctor repair. Writes validated, audited. Invalid config: fix now.",
     ].join(" "),
     parameters: SystemAgentToolSchema,
@@ -489,13 +488,7 @@ export function createSystemAgentTool(options: SystemAgentToolOptions): AnyAgent
       }
       const persistent = isPersistentSystemAgentOperation(operation);
       if (persistent) {
-        // Validate before approval-state reads: owner lookup can yield, and
-        // a rejected or cancelled operation must never become a proposal.
-        if (operation.kind === "config-set" || operation.kind === "config-set-ref") {
-          signal?.throwIfAborted();
-          await assertConfigWriteDoesNotBypassInferenceVerification(operation);
-          signal?.throwIfAborted();
-        }
+        signal?.throwIfAborted();
         const operationHash = hashSystemAgentOperation(operation);
         const armedForThisOperation =
           params.approved === true &&

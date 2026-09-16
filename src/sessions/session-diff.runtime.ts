@@ -61,12 +61,14 @@ async function gitOut(
 
 async function loadCheckoutRevision(
   cwd: string,
-): Promise<{ root: string; head?: string; branch?: string } | undefined> {
+): Promise<{ root: string; head?: string; branch?: string; objectFormat?: string } | undefined> {
   try {
-    // Git emits the root before verifying HEAD; exit 1 keeps an unborn checkout's root.
-    // Split only the final OID on success so embedded newlines in paths remain intact.
+    // Keep format/root options before --verify: old Git echoes unknown options here,
+    // and exit 1 still preserves an unborn checkout's root. Only remove the first
+    // format line and final successful OID so embedded root newlines remain intact.
     const result = await runGit(cwd, [
       "rev-parse",
+      "--show-object-format",
       "--show-toplevel",
       "--verify",
       "--quiet",
@@ -76,6 +78,7 @@ async function loadCheckoutRevision(
       return undefined;
     }
     const lines = result.stdout.replace(/\n$/, "").split("\n");
+    const objectFormat = lines.shift();
     const head = result.code === 0 ? lines.pop() : undefined;
     const root = lines.join("\n");
     if (!root) {
@@ -84,7 +87,12 @@ async function loadCheckoutRevision(
     const branchOut = head
       ? (await gitOut(root, ["rev-parse", "--abbrev-ref", "HEAD"]))?.trim()
       : undefined;
-    return { root, head, branch: branchOut && branchOut !== "HEAD" ? branchOut : undefined };
+    return {
+      root,
+      head,
+      branch: branchOut && branchOut !== "HEAD" ? branchOut : undefined,
+      objectFormat,
+    };
   } catch {
     return undefined;
   }
@@ -309,7 +317,7 @@ export async function collectCheckoutDiff(
   if (!checkout) {
     return empty("not_git");
   }
-  const { root, head, branch } = checkout;
+  const { root, head, branch, objectFormat } = checkout;
   // Canonical root for the hardlink/escape guard: show-toplevel can contain
   // symlinked path segments, and containment is compared against realpaths.
   const realRoot = await fs.realpath(root).catch(() => root);
@@ -317,7 +325,7 @@ export async function collectCheckoutDiff(
     ? { base: params.baseCommit, baseRef: params.baseCommit }
     : head
       ? await resolveSessionDiffBase({ branch, gitOut, head, root })
-      : await resolveSessionDiffEmptyTree(root);
+      : await resolveSessionDiffEmptyTree(root, objectFormat);
   const metadata =
     head && branchBase
       ? await loadSessionDiffBranchMetadata({ base: branchBase.base, gitOut, head, root })
@@ -363,7 +371,9 @@ export async function collectCheckoutDiff(
       return unknownCommit();
     }
     const parent = (await gitOut(root, ["rev-parse", "--verify", "--quiet", `${commit}^`]))?.trim();
-    const commitBase = parent ? { base: parent } : await resolveSessionDiffEmptyTree(root);
+    const commitBase = parent
+      ? { base: parent }
+      : await resolveSessionDiffEmptyTree(root, objectFormat);
     revisions = commitBase ? [commitBase.base, commit] : undefined;
   } else if (scope === "uncommitted") {
     revisions = head ? [head] : branchBase ? [branchBase.base] : undefined;
@@ -542,10 +552,10 @@ async function collectBaselineCandidates(params: {
   if (!checkout) {
     return undefined;
   }
-  const { root, head, branch } = checkout;
+  const { root, head, branch, objectFormat } = checkout;
   const baseInfo = head
     ? await resolveSessionDiffBase({ branch, gitOut, head, root })
-    : await resolveSessionDiffEmptyTree(root);
+    : await resolveSessionDiffEmptyTree(root, objectFormat);
   const trackedText = baseInfo
     ? await gitOutForBaseline(root, ["diff", "-M", baseInfo.base, "--name-status", "-z"])
     : "";

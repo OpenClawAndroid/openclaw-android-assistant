@@ -4,7 +4,7 @@ import {
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import { resolveModelAgentRuntimeMetadata } from "../agents/agent-runtime-metadata.js";
-import { resolveAgentConfig, resolveSessionAgentId } from "../agents/agent-scope.js";
+import { resolveSessionAgentId } from "../agents/agent-scope.js";
 import { resolveCliRuntimeCanonicalProvider } from "../agents/cli-backends.js";
 import { resolveContextTokensForModel } from "../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
@@ -116,20 +116,16 @@ function resolveGatewaySessionThinkingDefault(params: {
   providerPolicySource?: ThinkingProviderPolicySource;
   rowContext?: SessionListRowContext;
 }) {
-  const agentThinkingDefault = params.agentId
-    ? resolveAgentConfig(params.cfg, params.agentId)?.thinkingDefault
-    : undefined;
-  const defaultLevel =
-    agentThinkingDefault ??
-    resolveThinkingDefaultCore({
-      cfg: params.cfg,
-      provider: params.provider,
-      model: params.model,
-      catalog: params.modelCatalog,
-      catalogResolver: params.catalogResolver,
-      agentRuntime: params.agentRuntime,
-      providerPolicySource: params.providerPolicySource,
-    });
+  const defaultLevel = resolveThinkingDefaultCore({
+    cfg: params.cfg,
+    agentId: params.agentId,
+    provider: params.provider,
+    model: params.model,
+    catalog: params.modelCatalog,
+    catalogResolver: params.catalogResolver,
+    agentRuntime: params.agentRuntime,
+    providerPolicySource: params.providerPolicySource,
+  });
   return resolveGatewaySessionThinkingLevel({
     provider: params.thinkingPolicyProvider ?? params.provider,
     catalogProvider: params.provider,

@@ -145,7 +145,7 @@ describe("runDoctorLintCli", () => {
     mocks.resolveDoctorContributionHealthChecks.mockResolvedValue([gatewayCheck]);
     const registerChecks = vi
       .spyOn(bundledHealthChecks, "registerBundledHealthChecks")
-      .mockImplementation(() => {});
+      .mockImplementation(() => []);
     const resolveStateMode = vi
       .spyOn(bundledHealthChecks, "resolveBundledHealthCheckPluginStateMode")
       .mockReturnValue("direct");

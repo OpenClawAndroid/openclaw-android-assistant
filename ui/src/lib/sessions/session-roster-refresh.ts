@@ -194,6 +194,8 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
     observations,
     nextRevision: () => ++requestRevision,
     isPageActive: () => pageActive,
+    publishPrimary: (result) =>
+      host.publish({ ...host.readState(), result: host.decorate(result, primaryList) }),
   });
 
   const listReader = createSessionRosterListReader(
@@ -275,9 +277,7 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
             result: currentState.resultCached
               ? {
                   sessions:
-                    currentState.result?.sessions.filter((row) =>
-                      observations.hasLiveObservation(row),
-                    ) ?? [],
+                    currentState.result?.sessions.filter(observations.hasLiveObservation) ?? [],
                 }
               : currentState.result,
           },

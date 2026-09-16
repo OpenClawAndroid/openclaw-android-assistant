@@ -8,6 +8,7 @@ import {
   adoptPreparedLocation,
   removeTempDirectory,
   removeTempDirectoryAsync,
+  SqliteSnapshotCleanupError,
 } from "./sqlite-readonly-location-cleanup.js";
 import {
   createSqliteSnapshotStagingDirectory,
@@ -143,9 +144,12 @@ export function prepareSqliteReadOnlyLocationSync(
     return adoptPreparedLocation(runSqliteReadOnlyWorkerSync(pathname, stagingRoot), stagingRoot);
   } catch (error) {
     if (!removeTempDirectory(stagingRoot)) {
-      throw new Error(`SQLite read-only worker snapshot cleanup failed: ${stagingRoot}`, {
-        cause: error,
-      });
+      throw new SqliteSnapshotCleanupError(
+        `SQLite read-only worker snapshot cleanup failed: ${stagingRoot}`,
+        {
+          cause: error,
+        },
+      );
     }
     throw error;
   }

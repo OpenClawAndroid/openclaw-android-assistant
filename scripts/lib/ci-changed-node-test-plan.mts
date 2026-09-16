@@ -613,6 +613,18 @@ export function createChangedNodeTestShards(
     return null;
   }
 
+  // Packing changes can move every compact child. Observe the complete plan on
+  // Blacksmith while preserving hosted targeting and its registration footprint.
+  if (
+    options.runnerBackend !== "github" &&
+    changedPaths.some(
+      (file) =>
+        file === "config/ci-test-timings.json" || file === "scripts/lib/ci-node-test-plan.mts",
+    )
+  ) {
+    return null;
+  }
+
   const livePaths: string[] = [];
   const resolutionPaths: string[] = [];
   const documentationPaths = new Set<string>();

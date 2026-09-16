@@ -11,7 +11,9 @@ import {
   statMigrationPath,
   type MigrationArtifactIdentity,
 } from "../commands/doctor-session-sqlite-artifact.js";
+import type { LegacySessionRecord } from "../commands/doctor-session-sqlite-discovery.js";
 import {
+  canonicalMigrationFilePath,
   filterRestoreManifestTargets,
   listSessionSqliteMigrationManifestPaths,
   readSessionSqliteMigrationManifest,
@@ -52,6 +54,54 @@ const receiptSchema = z.object({
   ),
 });
 export type DeferredPluginSessionImport = z.infer<typeof receiptSchema>;
+
+/** Capture originals before deferral; settlement may only archive these verified identities. */
+export function captureDeferredPluginSessionSources(params: {
+  storePath: string;
+  indexIdentity: MigrationArtifactIdentity;
+  records: readonly Pick<LegacySessionRecord, "transcriptPath" | "sourceFingerprint">[];
+  unreferencedJsonlFiles: readonly string[];
+  referencedPaths?: ReadonlySet<string>;
+}): DeferredPluginSessionImport["sources"] {
+  const sources = new Map<string, MigrationArtifactIdentity>([
+    [path.resolve(params.storePath), params.indexIdentity],
+  ]);
+  for (const file of params.unreferencedJsonlFiles) {
+    if (!params.referencedPaths?.has(canonicalMigrationFilePath(file))) {
+      sources.set(path.resolve(file), readMigrationArtifactIdentity(file));
+    }
+  }
+  for (const record of params.records) {
+    if (!record.transcriptPath || !record.sourceFingerprint) {
+      continue;
+    }
+    sources.set(
+      path.resolve(record.transcriptPath),
+      readMigrationArtifactIdentity(record.transcriptPath, 1n, record.sourceFingerprint),
+    );
+    for (const file of [
+      resolveTrajectoryPath(record.transcriptPath),
+      resolveTrajectoryPointerPath(record.transcriptPath),
+    ]) {
+      if (file && fs.existsSync(file)) {
+        sources.set(path.resolve(file), readMigrationArtifactIdentity(file));
+      }
+    }
+  }
+  return [...sources].map(([sourcePath, identity]) => ({ path: sourcePath, identity }));
+}
+
+export function resolveTrajectoryPath(transcriptPath: string): string | undefined {
+  return transcriptPath.endsWith(".jsonl")
+    ? `${transcriptPath.slice(0, -".jsonl".length)}.trajectory.jsonl`
+    : undefined;
+}
+
+export function resolveTrajectoryPointerPath(transcriptPath: string): string | undefined {
+  return transcriptPath.endsWith(".jsonl")
+    ? `${transcriptPath.slice(0, -".jsonl".length)}.trajectory-path.json`
+    : undefined;
+}
 
 export function deferredPluginSessionStoreIds(params: {
   target: { agentId: string; storePath: string };

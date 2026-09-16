@@ -117,10 +117,12 @@ export async function readCodexNativeSubagentHistory(
     }
   };
   const agentDir = resolveAgentDir(cfg, agentId);
-  const connection = resolveCodexBindingAppServerConnection({
+  const connection = await resolveCodexBindingAppServerConnection({
     binding,
     pluginConfig: options.pluginConfig,
     agentDir,
+    config: cfg,
+    assertCurrent,
     authProfileId: binding.authProfileId,
   });
   const client = await getLeasedSharedCodexAppServerClient({

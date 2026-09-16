@@ -4,7 +4,7 @@ import type { QueueMode } from "../../../packages/gateway-protocol/src/schema/lo
 import type { ModelCatalogSnapshot } from "../../agents/model-catalog.types.js";
 import {
   resolveModelRefFromString,
-  resolveThinkingDefaultWithRuntimeCatalogCore,
+  resolveThinkingDefault,
   type ModelAliasIndex,
 } from "../../agents/model-selection.js";
 import { readPreparedModelCatalog } from "../../agents/prepared-model-catalog.js";
@@ -28,7 +28,7 @@ import {
 import type { GetReplyOptions } from "../get-reply-options.types.js";
 import { markCommandReplyForDelivery, type ReplyPayload } from "../reply-payload.js";
 import type { FinalizedRuntimeMsgContext as MsgContext } from "../templating.js";
-import { normalizeThinkLevel, type ThinkLevel } from "../thinking.js";
+import { normalizeThinkLevel } from "../thinking.js";
 import {
   takeCommandSessionMetadataChangesFromTargets,
   type CommandSessionMetadataChange,
@@ -96,29 +96,6 @@ function shouldRunInternalTextSlashCommandFastPath(
     (ctx.OriginatingChannel === undefined ||
       isInternalMessageChannel(normalizeOptionalString(ctx.OriginatingChannel)))
   );
-}
-
-async function resolveNativeSlashDefaultThinkingLevel(params: {
-  cfg: OpenClawConfig;
-  agentId: string;
-  provider: string;
-  model: string;
-  agentDir: string;
-  workspaceDir: string;
-}): Promise<ThinkLevel> {
-  return resolveThinkingDefaultWithRuntimeCatalogCore({
-    cfg: params.cfg,
-    provider: params.provider,
-    model: params.model,
-    loadRuntimeCatalog: () =>
-      readPreparedModelCatalog({
-        config: params.cfg,
-        agentId: params.agentId,
-        agentDir: params.agentDir,
-        workspaceDir: params.workspaceDir,
-        readOnly: true,
-      }),
-  });
 }
 
 export async function maybeResolveNativeSlashCommandFastReply(params: {
@@ -268,24 +245,12 @@ export async function maybeResolveNativeSlashCommandFastReply(params: {
             model: storedModelOverride.model,
           })
         : null;
-    // Native status returns before normal channel routing; select once before
-    // preparing model-bound thinking, runtime, auth, context, or fast-mode facts.
+    // Parent/channel preferences replace the base route. Direct session pins stay
+    // with status's selected/active-model owner, which also supplies thinking defaults.
     const statusProvider =
       resolvedInheritedModel?.provider ?? resolvedChannelModel?.ref.provider ?? params.provider;
     const statusModel =
       resolvedInheritedModel?.model ?? resolvedChannelModel?.ref.model ?? params.model;
-    let resolvedDefaultThinkingLevel: ThinkLevel | undefined;
-    const resolveDefaultThinkingLevel = async () => {
-      resolvedDefaultThinkingLevel ??= await resolveNativeSlashDefaultThinkingLevel({
-        cfg: params.cfg,
-        agentId: params.agentId,
-        provider: statusProvider,
-        model: statusModel,
-        agentDir: params.agentDir,
-        workspaceDir: params.workspaceDir,
-      });
-      return resolvedDefaultThinkingLevel;
-    };
     const resolvedThinkLevel = normalizeThinkLevel(targetSessionEntry?.thinkingLevel);
     // This fast path has no model-state owner; prepare side-effect-free catalog facts directly.
     const thinkingCatalog = await readPreparedModelCatalog({
@@ -316,7 +281,15 @@ export async function maybeResolveNativeSlashCommandFastReply(params: {
           resolvedVerboseLevel: "off",
           resolvedReasoningLevel: "off",
           resolvedElevatedLevel: "off",
-          resolveDefaultThinkingLevel,
+          resolveDefaultThinkingLevel: async (selection) =>
+            resolveThinkingDefault({
+              cfg: params.cfg,
+              agentId: params.agentId,
+              provider: statusProvider,
+              model: statusModel,
+              ...selection,
+              catalog: thinkingCatalog,
+            }),
           isGroup: sessionState.isGroup,
           defaultGroupActivation: () => "always",
           mediaDecisions: params.ctx.MediaUnderstandingDecisions,

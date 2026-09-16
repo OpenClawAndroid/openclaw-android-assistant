@@ -11,6 +11,7 @@ import {
   resolveSqliteTranscriptReadScope,
   resolveSqliteScope,
   toDatabaseOptions,
+  type SessionSqliteTargetResolutionCache,
 } from "./session-accessor.sqlite-scope.js";
 import { prepareSessionTranscriptReadTargetCore } from "./session-accessor.transcript-read-target.js";
 import { readRestoredSessionTranscript } from "./session-cold-storage-read.js";
@@ -100,11 +101,12 @@ export async function readSessionHistoryPageInWorker(
           storePath: request.params.storePath,
         }
       : request.params.target;
-  const resolved = resolveSqliteTranscriptReadScope(scope);
+  const targetCache: SessionSqliteTargetResolutionCache = new Map();
+  const resolved = resolveSqliteTranscriptReadScope(scope, targetCache);
   const admission = resolveSessionTranscriptReadFence(resolved);
   const bound = prepareSessionTranscriptReadTargetCore(scope);
   const entryValidationKey = bound.entryValidationScope
-    ? resolveSqliteScope(bound.entryValidationScope).sessionKey
+    ? resolveSqliteScope(bound.entryValidationScope, targetCache).sessionKey
     : undefined;
   const sessionKey = entryValidationKey ?? bound.sessionKey;
   const transcript = {
@@ -113,7 +115,7 @@ export async function readSessionHistoryPageInWorker(
     ...(sessionKey ? { sessionKey } : {}),
     storePath: bound.storePath,
   };
-  const readScope = resolveSqliteTranscriptReadScope(transcript);
+  const readScope = resolveSqliteTranscriptReadScope(transcript, targetCache);
   const databaseOptions = toDatabaseOptions(resolved);
   const target: Omit<PreparedSessionHistoryReadTarget, "database"> = {
     transcript: {
@@ -163,7 +165,7 @@ export async function readSessionHistoryPageInWorker(
   } catch (error) {
     if (isSessionTranscriptProjectionUnavailableError(error)) {
       startSessionTranscriptIndexReconcile({
-        ...toDatabaseOptions(resolved),
+        ...databaseOptions,
         preferredSessionId: resolved.sessionId,
       });
     }

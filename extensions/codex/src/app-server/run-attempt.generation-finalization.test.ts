@@ -107,8 +107,13 @@ describe("Codex finalization generation ownership", () => {
         await harness.completeTurn({ threadId: "thread-existing", turnId: "turn-1" });
         await Promise.race([
           enteredAgentEnd.promise,
-          settledRun.then(() => {
-            throw new Error("Codex turn settled before agent_end held finalization");
+          settledRun.then((outcome) => {
+            if ("error" in outcome) {
+              throw outcome.error;
+            }
+            throw new Error("Codex turn settled before agent_end held finalization", {
+              cause: readAttemptTerminal(outcome.result),
+            });
           }),
         ]);
         await patchSessionEntry({ ...scope, update: () => ({ sessionId: successor.sessionId }) });
@@ -145,7 +150,11 @@ describe("Codex finalization generation ownership", () => {
         const nextRun = runCodexAppServerAttempt(nextParams, { bindingStore: baseStore });
         await nextHarness.waitForMethod("turn/start");
         await nextHarness.completeTurn({ threadId: "thread-existing", turnId: "turn-1" });
-        await nextRun;
+        expect(readAttemptTerminal(await nextRun)).toMatchObject({
+          promptError: null,
+          aborted: false,
+          timedOut: false,
+        });
         expect(
           nextHarness.requests.find(({ method }) => method === "turn/start")?.params,
         ).toMatchObject({

@@ -156,11 +156,12 @@ describe("sidebar routed-lineage freshness", () => {
           ).toContain(second.label);
         }
         expect(sidebar.querySelector(`[data-session-key="${first.key}"]`)?.textContent).toContain(
-          first.label,
+          refreshedFirst.label,
         );
         expect(sidebar.sessionKey).toBe(returnToFirst ? first.key : second.key);
+        // Accepted child facts update existing primary members without changing selection.
         expect(sessions.state.result?.sessions.find((row) => row.key === first.key)).toMatchObject(
-          reentrant ? refreshedFirst : first,
+          refreshedFirst,
         );
         if (reentrant) {
           expect(request).toHaveBeenCalledWith("sessions.describe", { key: second.key });

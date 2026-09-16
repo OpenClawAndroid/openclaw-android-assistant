@@ -1,4 +1,3 @@
-// Openrouter plugin entrypoint registers its OpenClaw integration.
 import { resolveAgentConfig } from "openclaw/plugin-sdk/agent-scope-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type {
@@ -239,8 +238,18 @@ export default defineSingleProviderPluginEntry({
           (capabilities?.reasoning ?? false) &&
           !isOpenRouterProxyReasoningUnsupportedModel(ctx.modelId),
         input: capabilities?.input ?? ["text"],
-        ...(capabilities?.supportsTools !== undefined
-          ? { compat: { supportsTools: capabilities.supportsTools } }
+        ...(capabilities?.compat || capabilities?.supportsTools !== undefined
+          ? {
+              compat: {
+                ...capabilities.compat,
+                ...(capabilities.supportsTools !== undefined
+                  ? { supportsTools: capabilities.supportsTools }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(capabilities?.thinkingLevelMap
+          ? { thinkingLevelMap: capabilities.thinkingLevelMap }
           : {}),
         cost: capabilities?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: capabilities?.contextWindow ?? DEFAULT_CONTEXT_TOKENS,
@@ -339,11 +348,12 @@ export default defineSingleProviderPluginEntry({
       ...passthroughGeminiReplayHooks,
       buildReplayPolicy: buildOpenRouterReplayPolicy,
       resolveReasoningOutputMode: () => "native",
-      resolveThinkingProfile: ({ modelId }) => resolveOpenRouterThinkingProfile(modelId),
+      resolveThinkingProfile: (ctx) => resolveOpenRouterThinkingProfile(ctx.modelId, ctx),
       isModernModelRef: () => true,
       resolveSystemPromptContribution: resolveOpenRouterFusionPromptContribution,
       extraParamsForTransport: resolveOpenRouterExtraParamsForTransport,
       wrapStreamFn: wrapOpenRouterProviderStream,
+      wrapSimpleCompletionStreamFn: wrapOpenRouterProviderStream,
       isCacheTtlEligible: ({ modelId }) =>
         OPENROUTER_CACHE_TTL_MODEL_FAMILY.test(normalizeOpenRouterModelFamilyId(modelId) ?? ""),
       resolveUsageAuth: async (ctx) => {

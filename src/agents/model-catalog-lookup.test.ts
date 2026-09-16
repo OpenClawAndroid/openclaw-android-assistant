@@ -101,10 +101,10 @@ describe("prepared thinking disablement ownership", () => {
       expected: ["none"],
     },
     {
-      name: "preserves nullable unknown metadata",
+      name: "normalizes nullable unknown metadata for the runtime",
       selected: undefined,
       prepared: null,
-      expected: null,
+      expected: undefined,
     },
     {
       name: "leaves an absent effort overlay absent",
@@ -123,7 +123,7 @@ describe("prepared thinking disablement ownership", () => {
       name: "accepts nullable metadata from the exact physical route",
       selected: ["none", "high"],
       prepared: null,
-      expected: null,
+      expected: undefined,
       routeBound: true,
     },
   ])("$name", ({ selected, prepared, expected, routeBound }) => {
@@ -147,5 +147,8 @@ describe("prepared thinking disablement ownership", () => {
     });
 
     expect(result).toEqual({ thinkingFormat: "openai", supportedReasoningEfforts: expected });
+    expect({ ...model.compat, ...result }.supportedReasoningEfforts).toEqual(
+      prepared === undefined ? selected : expected,
+    );
   });
 });

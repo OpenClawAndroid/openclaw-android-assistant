@@ -5,6 +5,7 @@ import {
 import { executeNativeHookRelayMutation } from "../agents/harness/native-hook-relay-store.worker.js";
 import { loadSubagentSessionListRunsFromSqlite } from "../agents/subagents/registry/subagent-registry.store.sqlite.js";
 import { readClawInstallSchemaVersionRows } from "../claws/provenance-runtime-read.kernel.js";
+import { readSqliteDatabaseBloat } from "../commands/doctor-db-bloat.read.js";
 import {
   patchConfigHealthEntryInDatabase,
   readConfigHealthSnapshotInDatabase,
@@ -42,6 +43,7 @@ import {
   insertProjectRegistryInDatabase,
   listProjectRegistryInDatabase,
   removeProjectRegistryInDatabase,
+  resolveProjectCloneRefreshOwnerInDatabase,
   resolveRecordedProjectRootInDatabase,
 } from "../projects/project-registry.kernel.js";
 import { mapTaskFlowView } from "../tasks/task-domain-views.js";
@@ -155,6 +157,12 @@ function createSharedStateWorkerBackend(
     execute(command) {
       if (closed) {
         throw new Error("Shared-state worker is closed");
+      }
+      if (command.type === "doctor.databaseBloat") {
+        return readSqliteDatabaseBloat({
+          path: context.databasePath,
+          env: getSqliteWorkerStateContext().environment,
+        });
       }
       if (command.type === "subagents.sessionList") {
         return withExistingOpenClawStateDatabaseReadOnly(
@@ -447,6 +455,21 @@ function createSharedStateWorkerBackend(
           },
           writeOptions,
           { operationLabel: "projects.registry.insert" },
+        );
+      }
+      if (command.type === "projects.resolveRefreshOwner") {
+        ensureProjectRegistrySchema(writeOptions);
+        return runOpenClawStateWriteTransaction(
+          ({ db }) => {
+            const { project, lease } = command.input;
+            if (lease.scope !== "projects.checkout" || lease.key !== project.repoRoot) {
+              throw new Error("Project refresh requires its checkout lifecycle lease");
+            }
+            assertOpenClawStateLeaseWorkerOwnedInTransaction(db, lease);
+            return resolveProjectCloneRefreshOwnerInDatabase(db, project);
+          },
+          writeOptions,
+          { operationLabel: "projects.registry.refresh-owner.resolve" },
         );
       }
       if (command.type === "projects.remove") {

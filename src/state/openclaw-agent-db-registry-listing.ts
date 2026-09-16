@@ -134,15 +134,15 @@ export function readOpenClawAgentDatabaseRegistryRows(database: DatabaseSync, pa
   ).rows;
 }
 
-function readRegisteredAgentDatabases(
+export function readRegisteredAgentDatabases(
   options: AgentDatabaseRegistryListOptions,
   artifactPreserving: false,
 ): OpenClawRegisteredAgentDatabase[];
-function readRegisteredAgentDatabases(
+export function readRegisteredAgentDatabases(
   options: AgentDatabaseRegistryListOptions,
   artifactPreserving: true,
 ): Promise<OpenClawRegisteredAgentDatabase[]>;
-function readRegisteredAgentDatabases(
+export function readRegisteredAgentDatabases(
   options: AgentDatabaseRegistryListOptions,
   artifactPreserving: boolean,
 ): OpenClawRegisteredAgentDatabase[] | Promise<OpenClawRegisteredAgentDatabase[]> {

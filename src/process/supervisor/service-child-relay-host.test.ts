@@ -755,9 +755,65 @@ it("joins stdio cleanup when the retired relay completes after 500 ms", async ()
   }
 });
 
-it.each(["control EOF", "relay exit", "lineage EOF", "kernel group", "output EOF"])(
-  "settles every pending owner join at the hard deadline while waiting for %s",
-  async (leg) => {
+it.each([
+  {
+    leg: "control EOF",
+    pending: {
+      controlClose: true,
+      relayExit: true,
+      lineageEof: true,
+      extinctionUnconfirmed: true,
+      stdoutEnd: false,
+      stderrEnd: false,
+    },
+  },
+  {
+    leg: "relay exit",
+    pending: {
+      controlClose: false,
+      relayExit: true,
+      lineageEof: true,
+      extinctionUnconfirmed: true,
+      stdoutEnd: false,
+      stderrEnd: false,
+    },
+  },
+  {
+    leg: "lineage EOF",
+    pending: {
+      controlClose: false,
+      relayExit: false,
+      lineageEof: true,
+      extinctionUnconfirmed: true,
+      stdoutEnd: false,
+      stderrEnd: false,
+    },
+  },
+  {
+    leg: "kernel group",
+    pending: {
+      controlClose: false,
+      relayExit: false,
+      lineageEof: false,
+      extinctionUnconfirmed: true,
+      stdoutEnd: false,
+      stderrEnd: false,
+    },
+  },
+  {
+    leg: "output EOF",
+    pending: {
+      controlClose: false,
+      relayExit: false,
+      lineageEof: false,
+      extinctionUnconfirmed: false,
+      stdoutEnd: true,
+      stderrEnd: true,
+    },
+  },
+])(
+  "settles every pending owner join at the hard deadline while waiting for $leg",
+  async ({ leg, pending }) => {
     const relay = await createRelay("linux", leg === "lineage EOF");
     const { adapter, emit, stdout, stderr } = relay;
     emit({ type: "root-result", code: 23, signal: null });
@@ -797,7 +853,11 @@ it.each(["control EOF", "relay exit", "lineage EOF", "kernel group", "output EOF
       const pendingIndex = leg === "output EOF" ? 0 : 1;
       expect(results[pendingIndex]).toMatchObject({
         status: "rejected",
-        reason: expect.objectContaining({ message: expect.stringContaining("hard deadline") }),
+        reason: expect.objectContaining({
+          message:
+            "service child cleanup did not complete before its hard deadline; pending: " +
+            JSON.stringify({ closingReceipt: false, ...pending }),
+        }),
       });
       expect(results[1 - pendingIndex]?.status).toBe("fulfilled");
       expect(stdout?.destroyed).toBe(true);

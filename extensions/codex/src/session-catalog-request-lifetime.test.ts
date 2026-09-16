@@ -106,7 +106,11 @@ async function createCatalogHarness(agentDir: string, resources: CatalogResource
   });
   resources.companion = companion;
   await control.listPage({ cursor: "warm", limit: 1 });
+  const requests = vi.spyOn(companion, "request");
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const clockStartedAt = Date.now();
+  // Request delivery rechecks monotonic deadlines even when their timers have not run.
+  vi.spyOn(performance, "now").mockImplementation(() => Date.now() - clockStartedAt);
   return {
     control,
     factory,
@@ -141,11 +145,15 @@ async function createCatalogHarness(agentDir: string, resources: CatalogResource
         interval: 1,
       });
     },
-    async waitForRefresh() {
-      await vi.waitFor(() => expect(getCurrentSharedClientEntry(companion)?.activeLeases).toBe(2), {
-        interval: 1,
-      });
-      await nextTurn();
+    async waitForRefresh(requestCount: number) {
+      await vi.waitFor(
+        () =>
+          expect(requests.mock.calls.filter(([method]) => method === "thread/list")).toHaveLength(
+            requestCount,
+          ),
+        { interval: 1 },
+      );
+      expect(getCurrentSharedClientEntry(companion)?.activeLeases).toBe(2);
     },
   };
 }
@@ -330,7 +338,7 @@ describe("catalog request lifetime across page-cache polls", () => {
       });
 
       const current = poll(h.control);
-      await h.waitForRefresh();
+      await h.waitForRefresh(2);
       expect(h.frames).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS / 2);
       advanceClock(REQUEST_TIMEOUT_MS / 2);
@@ -357,7 +365,7 @@ describe("catalog request lifetime across page-cache polls", () => {
     await h.expireWaiter();
 
     await expect(poll(h.control)).resolves.toEqual(stale);
-    await h.waitForRefresh();
+    await h.waitForRefresh(3);
     expect(h.frames).toHaveLength(2);
     h.reply(refresh, "refreshed");
     await vi.waitFor(async () => {
@@ -405,7 +413,7 @@ describe("catalog request lifetime across page-cache polls", () => {
       } else if (partition === "agent") {
         control = h.factory.forRequest("other");
       } else if (partition === "home") {
-        const [home] = h.factory.homesForAgent("main");
+        const [home] = await h.factory.homesForAgent("main");
         assert(home);
         control = h.factory.forRequest("main", {
           ...home,

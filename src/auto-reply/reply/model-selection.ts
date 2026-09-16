@@ -13,13 +13,13 @@ import type { ModelCatalogSnapshot } from "../../agents/model-catalog.types.js";
 import type { ModelFallbackRouteResolution } from "../../agents/model-fallback.types.js";
 import {
   type ModelAliasIndex,
-  legacyModelKey,
   modelKey,
   normalizeProviderId,
   resolveModelAliasFromPair,
   resolveReasoningDefault,
   resolveThinkingDefault,
 } from "../../agents/model-selection.js";
+import { resolveConfiguredThinkingDefault } from "../../agents/model-thinking-default.js";
 import {
   createModelVisibilityPolicy,
   type ModelVisibilityPolicy,
@@ -29,6 +29,10 @@ import {
   OPENAI_PROVIDER_ID,
   listOpenAIAuthProfileProvidersForAgentRuntime,
 } from "../../agents/openai-routing.js";
+import {
+  needsThinkHydration,
+  resolveEffectiveAgentRuntime,
+} from "../../agents/thinking-runtime.js";
 import { SessionWorkStartInvalidatedError } from "../../config/sessions/lifecycle.js";
 import { hasSessionAutoModelSelection } from "../../config/sessions/model-override-provenance.js";
 import {
@@ -42,7 +46,7 @@ import { applyModelOverrideToSessionEntry } from "../../sessions/model-overrides
 import * as storedModelOverrides from "../../sessions/stored-model-overrides.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
-import { normalizeThinkLevel, type ThinkLevel } from "../thinking.shared.js";
+import type { ThinkLevel } from "../thinking.shared.js";
 import {
   findSelectedCatalogEntry,
   mergePreparedConfiguredCatalog,
@@ -91,13 +95,6 @@ type ModelSelectionState = {
   modelContextWindow?: number;
   modelContextTokens?: number;
 };
-
-function resolveConfiguredModelThinkingDefault(raw: unknown): ThinkLevel | undefined {
-  if (raw === false || raw === "disabled" || raw === "none") {
-    return "off";
-  }
-  return typeof raw === "string" ? normalizeThinkLevel(raw) : undefined;
-}
 
 const modelCatalogRuntimeLoader = createLazyImportLoader(
   () => import("../../agents/model-catalog.runtime.js"),
@@ -553,31 +550,48 @@ export async function createModelSelectionState(params: {
       agentId: params.agentId,
       ...runtimeModelNormalization,
     }).catalog;
+  const resolveThinkingSelection = (selection: ThinkingDefaultSelection) => {
+    const selected = findSelectedCatalogEntry({ ...selection, catalog: visibilityPolicy.catalog });
+    return {
+      ...selection,
+      agentRuntime:
+        selection.agentRuntime ??
+        resolveEffectiveAgentRuntime({
+          cfg,
+          provider: selection.provider,
+          modelId: selection.model,
+          modelApi: selected?.api,
+          modelBaseUrl: selected?.baseUrl,
+          agentId: params.agentId,
+          sessionKey,
+          sessionEntry,
+        }),
+    };
+  };
   const thinkingCatalogs = new Map<string, ModelCatalog>();
   const resolveThinkingCatalog = async (
     selection: ThinkingDefaultSelection = { provider, model },
   ) => {
-    const key = modelKey(selection.provider, selection.model);
+    const thinkingSelection = resolveThinkingSelection(selection);
+    const { agentRuntime } = thinkingSelection;
+    const key = `${modelKey(selection.provider, selection.model)}\0${agentRuntime}`;
     const cached = thinkingCatalogs.get(key);
     if (cached) {
       return cached.length > 0 ? cached : undefined;
     }
     let catalog = visibilityPolicy.catalog;
-    if (
-      findSelectedCatalogEntry({ catalog, provider: selection.provider, model: selection.model })
-        ?.reasoning === undefined
-    ) {
+    if (needsThinkHydration(catalog, selection.provider, selection.model, agentRuntime)) {
       const { loadProviderScopedThinkingCatalog } = await loadPreparedModelCatalogRuntime();
-      const preparedCatalog = buildThinkingCatalog(
-        await loadProviderScopedThinkingCatalog({
-          config: cfg,
-          agentId: params.agentId,
-          provider: selection.provider,
-          model: selection.model,
-        }),
-      );
+      const preparedCatalog = await loadProviderScopedThinkingCatalog({
+        config: cfg,
+        agentId: params.agentId,
+        provider: selection.provider,
+        model: selection.model,
+        agentRuntime,
+      });
+      // An empty refresh cannot replace the admitted owner with a configuration-only row.
       if (findSelectedCatalogEntry({ catalog: preparedCatalog, ...selection })) {
-        catalog = preparedCatalog;
+        catalog = buildThinkingCatalog(preparedCatalog);
       }
     }
     thinkingCatalogs.set(key, catalog);
@@ -585,49 +599,33 @@ export async function createModelSelectionState(params: {
   };
 
   const defaultThinkingLevels = new Map<string, ThinkLevel>();
-  const resolveDefaultThinkingLevel = async (selection?: ThinkingDefaultSelection) => {
-    const selectedProvider = selection?.provider ?? provider;
-    const selectedModel = selection?.model ?? model;
-    const cacheKey = `${modelKey(selectedProvider, selectedModel)}\0${selection?.agentRuntime ?? ""}`;
+  const resolveDefaultThinkingLevel = async (
+    selection: ThinkingDefaultSelection = { provider, model },
+  ) => {
+    const thinkingSelection = resolveThinkingSelection(selection);
+    const cacheKey = `${modelKey(selection.provider, selection.model)}\0${thinkingSelection.agentRuntime}`;
     const cached = defaultThinkingLevels.get(cacheKey);
     if (cached) {
       return cached;
     }
-    const agentThinkingDefault = agentEntry?.thinkingDefault as ThinkLevel | undefined;
-    if (agentThinkingDefault) {
-      defaultThinkingLevels.set(cacheKey, agentThinkingDefault);
-      return agentThinkingDefault;
-    }
-    const configuredModels = cfg.agents?.defaults?.models;
-    const canonicalKey = modelKey(selectedProvider, selectedModel);
-    const legacyKey = legacyModelKey(selectedProvider, selectedModel);
-    const configuredModelThinkingDefault =
-      configuredModels?.[canonicalKey]?.params?.thinking ??
-      (legacyKey ? configuredModels?.[legacyKey]?.params?.thinking : undefined);
-    const resolvedConfiguredModelThinkingDefault = resolveConfiguredModelThinkingDefault(
-      configuredModelThinkingDefault,
-    );
-    if (resolvedConfiguredModelThinkingDefault) {
-      defaultThinkingLevels.set(cacheKey, resolvedConfiguredModelThinkingDefault);
-      return resolvedConfiguredModelThinkingDefault;
-    }
-    const configuredThinkingDefault = agentCfg?.thinkingDefault as ThinkLevel | undefined;
-    if (configuredThinkingDefault) {
-      defaultThinkingLevels.set(cacheKey, configuredThinkingDefault);
-      return configuredThinkingDefault;
-    }
-    const catalogForThinking = await resolveThinkingCatalog(selection);
-    const resolved = resolveThinkingDefault({
-      cfg,
-      provider: selectedProvider,
-      model: selectedModel,
-      catalog: catalogForThinking,
-      agentRuntime: selection?.agentRuntime,
-    });
-    const defaultThinkingLevel = resolved ?? "off";
-    defaultThinkingLevels.set(cacheKey, defaultThinkingLevel);
-    return defaultThinkingLevel;
+    const thinkingParams = { cfg, agentId: params.agentId, ...thinkingSelection };
+    const resolved =
+      resolveConfiguredThinkingDefault(thinkingParams) ??
+      resolveThinkingDefault({
+        ...thinkingParams,
+        catalog: await resolveThinkingCatalog(thinkingSelection),
+      });
+    defaultThinkingLevels.set(cacheKey, resolved);
+    return resolved;
   };
+
+  const hasConfiguredThinkingDefault =
+    resolveConfiguredThinkingDefault({
+      cfg,
+      agentId: params.agentId,
+      provider,
+      model,
+    }) !== undefined;
 
   const resolveDefaultReasoningLevel = async (
     selection: ThinkingDefaultSelection = { provider, model },
@@ -642,17 +640,6 @@ export async function createModelSelectionState(params: {
     provider,
     model,
   });
-  const configuredModels = cfg.agents?.defaults?.models;
-  const canonicalKey = modelKey(provider, model);
-  const legacyKey = legacyModelKey(provider, model);
-  const configuredModelThinkingDefault =
-    configuredModels?.[canonicalKey]?.params?.thinking ??
-    (legacyKey ? configuredModels?.[legacyKey]?.params?.thinking : undefined);
-  const hasConfiguredThinkingDefault =
-    agentEntry?.thinkingDefault !== undefined ||
-    resolveConfiguredModelThinkingDefault(configuredModelThinkingDefault) !== undefined ||
-    agentCfg?.thinkingDefault !== undefined;
-
   return {
     provider,
     model,

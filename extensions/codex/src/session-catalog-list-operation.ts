@@ -234,11 +234,14 @@ class CodexCatalogListDriver {
       }
     }
     params.signal?.throwIfAborted();
+    const fallback = localSources.some((source) => source === undefined)
+      ? (await params.control.homesForAgent(agentId))[0]
+      : undefined;
+    params.signal?.throwIfAborted();
     this.prepared = { agentId, query, requestedHostIds };
     if (requestedHostIds && !query.hostIds?.some((host) => host.startsWith("node:"))) {
       this.nodeHosts = [];
     }
-    const fallback = params.control.homesForAgent(agentId)[0];
     for (const source of localSources) {
       const selected = source ?? fallback;
       const excluded = selected ? managed?.get(selected.sourceHomeId) : undefined;

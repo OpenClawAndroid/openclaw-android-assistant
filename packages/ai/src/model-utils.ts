@@ -4,6 +4,11 @@ import {
   resolveClaudeNativeThinkingLevelMap,
   requiresClaudeMandatoryAdaptiveThinking,
 } from "@openclaw/llm-core";
+import {
+  resolveOpenAIThinkingApi,
+  listMappedModelThinkingLevels,
+  MODEL_CATALOG_THINKING_LEVELS,
+} from "@openclaw/model-catalog-core/model-catalog-types";
 import { resolveOpenAIModelReasoningEfforts } from "./providers/openai-reasoning-effort.js";
 import type { Api, Model, ModelThinkingLevel, Usage } from "./types.js";
 
@@ -22,16 +27,6 @@ export function applyProviderReportedUsageCost(usage: Usage, reportedCost: unkno
   usage.cost.totalOrigin = "provider-billed";
 }
 
-const EXTENDED_THINKING_LEVELS: ModelThinkingLevel[] = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-];
-
 function resolveThinkingLevelMap<TApi extends Api>(model: Model<TApi>) {
   return model.api === "anthropic-messages"
     ? (resolveClaudeNativeThinkingLevelMap(model) ?? model.thinkingLevelMap)
@@ -48,21 +43,22 @@ export function getSupportedThinkingLevels<TApi extends Api>(
     return ["off"];
   }
   const thinkingLevelMap = resolveThinkingLevelMap(model);
-  const reasoningEfforts =
-    model.api === "openai-completions" ||
-    model.api === "openai-responses" ||
-    model.api === "azure-openai-responses" ||
-    model.api === "openai-chatgpt-responses"
-      ? resolveOpenAIModelReasoningEfforts(model)
-      : undefined;
+  const reasoningEfforts = resolveOpenAIThinkingApi(model.api)
+    ? resolveOpenAIModelReasoningEfforts(model)
+    : undefined;
+  const mappedLevels = listMappedModelThinkingLevels(model);
 
-  return EXTENDED_THINKING_LEVELS.filter((level) => {
+  return MODEL_CATALOG_THINKING_LEVELS.filter((level) => {
     const mapped = thinkingLevelMap?.[level];
     if (mapped === null) {
       return false;
     }
     if (level === "xhigh" || level === "max") {
-      return mapped !== undefined || reasoningEfforts?.includes(level) === true;
+      return (
+        mapped !== undefined ||
+        mappedLevels.includes(level) ||
+        reasoningEfforts?.includes(level) === true
+      );
     }
     return true;
   });
@@ -78,7 +74,7 @@ export function clampThinkingLevel<TApi extends Api>(
     return level;
   }
 
-  const requestedIndex = EXTENDED_THINKING_LEVELS.indexOf(level);
+  const requestedIndex = MODEL_CATALOG_THINKING_LEVELS.indexOf(level);
   if (requestedIndex === -1) {
     return availableLevels[0] ?? "off";
   }
@@ -87,7 +83,7 @@ export function clampThinkingLevel<TApi extends Api>(
   // stronger levels so unsupported xhigh/max requests cannot increase cost.
   const thinkingLevelMap = resolveThinkingLevelMap(model);
   if ((level === "xhigh" || level === "max") && thinkingLevelMap?.[level] === null) {
-    for (const candidate of EXTENDED_THINKING_LEVELS.slice(0, requestedIndex).toReversed()) {
+    for (const candidate of MODEL_CATALOG_THINKING_LEVELS.slice(0, requestedIndex).toReversed()) {
       if (availableLevels.includes(candidate)) {
         return candidate;
       }
@@ -95,12 +91,12 @@ export function clampThinkingLevel<TApi extends Api>(
   }
 
   // Prefer the next stronger available level, then walk down if the request was above the model cap.
-  for (const candidate of EXTENDED_THINKING_LEVELS.slice(requestedIndex)) {
+  for (const candidate of MODEL_CATALOG_THINKING_LEVELS.slice(requestedIndex)) {
     if (availableLevels.includes(candidate)) {
       return candidate;
     }
   }
-  for (const candidate of EXTENDED_THINKING_LEVELS.slice(0, requestedIndex).toReversed()) {
+  for (const candidate of MODEL_CATALOG_THINKING_LEVELS.slice(0, requestedIndex).toReversed()) {
     if (availableLevels.includes(candidate)) {
       return candidate;
     }

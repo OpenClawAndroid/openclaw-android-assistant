@@ -49,9 +49,11 @@ function navigationCandidatesSql(
   const match =
     candidate.key === "type"
       ? /* kysely-allow-raw: fixed discriminators filter decoded JSON members. */ sql<SqlBool>`member.value IN ('reset', 'compaction', 'custom_message')`
-      : candidate.eventIds.length === 1
-        ? /* kysely-allow-raw: bound instr narrows IDs before exact JavaScript matching. */ sql<SqlBool>`instr(member.value, ${candidate.eventIds[0]}) > 0`
-        : /* kysely-allow-raw: nested json_each matches bound ID sets without row hydration. */ sql<SqlBool>`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(candidate.eventIds)}) AS requested
+      : candidate.eventIds.length > 32
+        ? /* kysely-allow-raw: keep the member guard; callers filter large sets without a quadratic scan. */ sql<SqlBool>`1`
+        : candidate.eventIds.length === 1
+          ? /* kysely-allow-raw: bound instr narrows IDs before exact JavaScript matching. */ sql<SqlBool>`instr(member.value, ${candidate.eventIds[0]}) > 0`
+          : /* kysely-allow-raw: nested json_each matches bound ID sets without row hydration. */ sql<SqlBool>`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(candidate.eventIds)}) AS requested
         WHERE instr(member.value, requested.value) > 0)`;
   // Admit any duplicate root member; JavaScript applies last-key and full trim semantics.
   // Invalid and SQLite-overdepth rows still reach the existing JSON.parse fallback.
@@ -187,17 +189,12 @@ export function findUnindexedActiveTranscriptEntry(
   projection: CurrentTranscriptProjection,
   eventId: string,
 ): UnindexedActiveTranscriptNavigation | undefined {
-  if (projection.unindexedHistoryAnchor?.eventId === eventId) {
-    return projection.unindexedHistoryAnchor.entry;
-  }
   for (const row of iterateUnindexedActiveTranscriptNavigation(projection, {
     eventIds: [eventId],
   })) {
     if (typeof row.event.id === "string" && row.event.id.trim() === eventId) {
-      projection.unindexedHistoryAnchor = { eventId, entry: row };
       return row;
     }
   }
-  projection.unindexedHistoryAnchor = { eventId, entry: undefined };
   return undefined;
 }

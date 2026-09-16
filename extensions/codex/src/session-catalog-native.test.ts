@@ -87,7 +87,7 @@ it("pages and refreshes exact-millisecond ties through the real native app-serve
       getRuntimeConfig: () => undefined,
       now: () => now,
     });
-    const control = factory.forRequest("main", factory.homesForAgent("main")[0]);
+    const control = factory.forRequest("main", (await factory.homesForAgent("main"))[0]);
     const first = await control.listPage({ limit: 100 });
     const second = await control.listPage({ limit: 100, cursor: first.nextCursor });
     expect(first.sessions).toHaveLength(64);

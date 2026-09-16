@@ -14,7 +14,7 @@ import {
 } from "../agents/execution-auth-binding.js";
 import { resolveApiKeyForProviderCore } from "../agents/model-auth.js";
 import * as runtimePlugins from "../agents/runtime-plugins.js";
-import { clearConfigCache, readConfigFileSnapshot } from "../config/config.js";
+import { clearConfigCache } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { ProviderAuthChoiceMetadata } from "../plugins/provider-auth-choices.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
@@ -321,18 +321,6 @@ export async function fixture(
         probeLocalCommand: async (command) => ({ command, found: false }),
       }),
     );
-  const diagnostics = async (result: unknown) => {
-    const snapshot = await readConfigFileSnapshot();
-    return JSON.stringify({
-      result,
-      agentDir,
-      runtimeAgentDir: resolveAgentDir(snapshot.runtimeConfig ?? snapshot.config, "main"),
-      profileIds: Object.keys(loadAuthProfileStoreWithoutExternalProfiles(agentDir).profiles),
-      savedSetup: readProfile()?.[1].setup,
-      loginCount: login.mock.calls.length,
-      turnCount: run.mock.calls.length,
-    });
-  };
   return {
     activate,
     detect,
@@ -346,7 +334,6 @@ export async function fixture(
     resolveAuth,
     run,
     login,
-    diagnostics,
     prompter,
     deps,
   };

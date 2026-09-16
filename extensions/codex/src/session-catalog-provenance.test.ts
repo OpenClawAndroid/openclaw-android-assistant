@@ -244,7 +244,7 @@ async function localEligibilityFixture(now = () => 0, requestTimeoutMs?: number)
     now,
     managedThreads,
   });
-  const source = factory.homesForAgent("main")[0]!;
+  const source = (await factory.homesForAgent("main"))[0]!;
   const control = factory.forRequest("main", source);
   pinnedConnectionMocks.request.mockImplementation(async ({ method }) =>
     method === "thread/read" ? { thread } : { data: [thread] },

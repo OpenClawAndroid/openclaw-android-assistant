@@ -105,7 +105,7 @@ const rawSqliteAllowPathGroups = {
     "src/state/openclaw-quarantine-store.ts",
   ],
   "read-only SQLite status probes": [
-    "src/commands/doctor-db-bloat.ts",
+    "src/commands/doctor-db-bloat.read.ts",
     "src/commands/status.scan.shared.ts",
   ],
   "doctor SQLite maintenance and legacy state migration": [

@@ -69,6 +69,7 @@ export type CodexTerminalConfigSources = {
 function resolveCodexCatalogTerminalHome(
   sources: CodexTerminalConfigSources & { agentId?: string; source?: CodexCatalogHome },
 ): string {
+  sources.source?.assertCurrent();
   const runtimeConfig = sources.getRuntimeConfig();
   if (!runtimeConfig) {
     throw new Error("OpenClaw runtime config is unavailable");
@@ -116,11 +117,11 @@ export function codexNodeTerminalCapability(node: {
 }
 
 export function createCodexTerminalNodeHostCommand(
-  bindRequest: (paramsJSON?: string | null) => {
+  bindRequest: (paramsJSON?: string | null) => Promise<{
     codexHome: string;
     control: CodexSessionCatalogControl;
     paramsJSON: string;
-  },
+  }>,
 ): OpenClawPluginNodeHostCommand {
   return {
     command: CODEX_TERMINAL_RESUME_COMMAND,
@@ -139,7 +140,7 @@ export function createCodexTerminalNodeHostCommand(
       if (!io) {
         throw new Error("Codex terminal command requires duplex transport");
       }
-      const request = bindRequest(paramsJSON);
+      const request = await bindRequest(paramsJSON);
       const resume = decodeNodePtyResumeParams(request.paramsJSON, (value) => {
         if (
           typeof value !== "string" ||

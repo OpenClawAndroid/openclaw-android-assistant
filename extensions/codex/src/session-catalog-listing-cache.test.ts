@@ -46,7 +46,7 @@ describe("Codex supervision catalog", () => {
       getRuntimeConfig: () => config,
       now: () => 1_000,
     });
-    const primary = factory.homesForAgent("main")[0]!;
+    const primary = (await factory.homesForAgent("main"))[0]!;
     const controls = ["one", "two", "three", "four", "five", "six", "seven"].map((homeId) =>
       factory.forRequest("main", {
         ...primary,

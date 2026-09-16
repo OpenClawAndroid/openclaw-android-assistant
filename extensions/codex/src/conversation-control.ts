@@ -93,10 +93,12 @@ export async function stopCodexConversationTurn(params: {
       message: "The active Codex run no longer matches this session binding.",
     };
   }
-  const connection = resolveCodexBindingAppServerConnection({
+  const connection = await resolveCodexBindingAppServerConnection({
     binding,
     authProfileId: binding?.authProfileId,
     pluginConfig: params.pluginConfig,
+    ...lookup,
+    assertCurrent: params.assertCurrent,
   });
   const runtime = connection.appServer;
   // Turn ids are connection-local. Prefer the exact live client; ID-only
@@ -151,10 +153,12 @@ export async function steerCodexConversationTurn(params: {
       message: "The active Codex run no longer matches this session binding.",
     };
   }
-  const connection = resolveCodexBindingAppServerConnection({
+  const connection = await resolveCodexBindingAppServerConnection({
     binding,
     authProfileId: binding?.authProfileId,
     pluginConfig: params.pluginConfig,
+    ...lookup,
+    assertCurrent: params.assertCurrent,
   });
   const runtime = connection.appServer;
   // Turn ids are connection-local. Prefer the exact live client; ID-only

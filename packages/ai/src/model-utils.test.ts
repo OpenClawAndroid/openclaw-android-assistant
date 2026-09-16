@@ -60,6 +60,24 @@ describe("calculateCost", () => {
 });
 
 describe("clampThinkingLevel", () => {
+  it.each(
+    [
+      "openai-responses",
+      "openclaw-openai-responses-transport",
+      "openclaw-openai-completions-transport",
+    ].flatMap((api) => [undefined, null].map((cap) => ({ api, cap }))),
+  )("advertises a mapped logical Max for $api with cap=$cap", ({ api, cap }) => {
+    const model = makeModel(cap === null ? { max: null } : undefined, {
+      api,
+      compat: {
+        supportedReasoningEfforts: ["ProviderLow", "ProviderHigh"],
+        reasoningEffortMap: { high: "ProviderLow", MAX: "ProviderHigh" },
+      },
+    });
+
+    expect(getSupportedThinkingLevels(model).includes("max")).toBe(cap !== null);
+  });
+
   it.each(["anthropic-messages", "google-generative-ai", "mistral-conversations"] as const)(
     "does not apply OpenAI compat levels to %s",
     (api) => {

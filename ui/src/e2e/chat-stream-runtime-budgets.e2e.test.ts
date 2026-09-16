@@ -127,7 +127,7 @@ function renderedChunkText(index: number): string {
 }
 
 async function installRenderProbe(page: ChatFlowPage) {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const scope = window as ScopedWindow;
     const chatPage = document.querySelector("openclaw-chat-page");
     if (!chatPage) {
@@ -240,6 +240,11 @@ async function installRenderProbe(page: ChatFlowPage) {
       }
       return originalRequestUpdate.apply(this, args);
     };
+    // Frames queued before instrumentation run without the wrapper. Drain them
+    // before callers reset the counters and begin the measured interaction.
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
   });
 }
 

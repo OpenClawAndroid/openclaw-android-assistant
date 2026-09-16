@@ -315,6 +315,7 @@ export const en: TranslationMap & {
   sessionProgressCard: {
     title: "Progress",
     composerTitle: "Task progress",
+    gestureHint: "Drag or scroll up on the header to open; move down to close. Click to toggle.",
     shortCount: "{completed} of {total}",
     noteLabel: "Progress note",
     dismiss: "Dismiss progress card",
@@ -348,6 +349,7 @@ export const en: TranslationMap & {
     receipt: {
       updating: "Updating progress",
       failed: "Progress update failed",
+      skipped: "Progress update skipped",
       updated: "Progress updated — {completed}/{total} · {current}",
       noteUpdated: "Progress note updated",
       cleared: "Progress cleared",
@@ -3762,6 +3764,7 @@ export const en: TranslationMap & {
       ofInput: "of input",
       of: "of",
       timelineFiltered: "timeline filtered",
+      loadedIntervalMessages: "Loaded conversation · selected interval",
       conversation: "Conversation",
       noMessages: "No messages",
       tool: "Tool",
@@ -4975,6 +4978,8 @@ export const en: TranslationMap & {
       fileChanges: "File changes",
       attemptedChanges: "Attempted changes",
       failed: "failed",
+      skipped: "Skipped",
+      skippedCount: "{count} skipped",
       running: "Running",
       completed: "Completed",
       exitCode: "Exit code {code}",

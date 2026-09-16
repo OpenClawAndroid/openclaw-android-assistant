@@ -25,7 +25,11 @@ import {
   acquireSimpleCompletionModelForAgent,
   completeWithPreparedSimpleCompletionModel,
 } from "../../agents/simple-completion-runtime.js";
-import { normalizeThinkLevel, type ThinkLevel } from "../../auto-reply/thinking.js";
+import {
+  normalizeThinkLevel,
+  THINKING_LEVELS_HELP,
+  type ThinkLevel,
+} from "../../auto-reply/thinking.shared.js";
 import { getRuntimeConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { callGateway, randomIdempotencyKey } from "../../gateway/call.js";
@@ -152,9 +156,7 @@ function normalizeModelRunThinking(value: unknown): ThinkLevel | undefined {
   }
   const normalized = normalizeThinkLevel(value);
   if (!normalized) {
-    throw new Error(
-      "Invalid thinking level. Use one of: off, minimal, low, medium, high, adaptive, xhigh, max.",
-    );
+    throw new Error(`Invalid thinking level. Use one of: ${THINKING_LEVELS_HELP}.`);
   }
   return normalized;
 }

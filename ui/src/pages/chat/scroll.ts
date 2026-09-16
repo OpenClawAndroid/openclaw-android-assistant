@@ -268,6 +268,18 @@ export function handleChatScrollTakeover(host: ChatScrollHost, towardEnd = false
   }
 }
 
+/** Reader-controlled UI can take over even when the transcript is at its end. */
+export function lockChatScroll(host: ChatScrollHost): void {
+  const changed = !host.chatFollowLocked || host.chatUserNearBottom;
+  cancelChatScroll(host);
+  host.chatHasAutoScrolled = true;
+  host.chatFollowLocked = true;
+  host.chatUserNearBottom = false;
+  if (changed) {
+    host.renderLifecycle.invalidate();
+  }
+}
+
 function updateChatScrollPosition(
   host: ChatScrollHost,
   container: HTMLElement,

@@ -79,8 +79,14 @@ module.exports = {
         if (!response.ok) throw new Error("fixture reload failed: HTTP " + response.status);
       },
       wrapSimpleCompletionStreamFn({ streamFn }) {
+        let invocation = 0;
         return (model, context, options) => streamFn(model, context, {
-          ...options, headers: { ...options?.headers, "x-completion-wrapper": owner },
+          ...options, headers: {
+            ...options?.headers,
+            "x-completion-wrapper": owner,
+            "x-completion-sequence": String(++invocation),
+            "x-completion-reasoning": options?.reasoning ?? "omitted",
+          },
         });
       },
     });
@@ -225,7 +231,7 @@ module.exports = {
   });
 
   it.each(["acquired", "borrowed", "empty"] as const)(
-    "keeps %s transport ownership across ambient replacement and repeated completion",
+    "keeps %s transport ownership and wrapper state across ambient replacement and repeated completion",
     async (mode) => {
       const tempRoot = fs.realpathSync(tempRoots.makeTempDir());
       const selected = createTransportOwnerFixture(path.join(tempRoot, "selected"), "A");
@@ -245,6 +251,8 @@ module.exports = {
           requestCount,
           request.headers["x-completion-stream"] ?? "none",
           request.headers["x-completion-wrapper"] ?? "none",
+          request.headers["x-completion-sequence"] ?? "none",
+          request.headers["x-completion-reasoning"] ?? "none",
           request.headers.authorization,
         ].join("|");
         response.writeHead(200, { "content-type": "text/event-stream" });
@@ -394,16 +402,25 @@ module.exports = {
             expect(isColdPluginRuntimeLoaded(ambient)).toBe(true);
             const owner = mode === "empty" ? "none" : "A";
             const auth = mode === "empty" ? "fixture-auth-source" : "fixture-auth-A";
-            for (const turn of [1, 2]) {
+            for (const [index, reasoning] of (["off", "max", undefined] as const).entries()) {
+              const turn = index + 1;
               const result = await completeWithPreparedSimpleCompletionModel({
                 model: prepared.model,
                 auth: prepared.auth,
                 cfg,
                 context: { messages: [{ role: "user", content: `Turn ${turn}`, timestamp: turn }] },
+                options: { reasoning },
               });
+              const wrapperState =
+                mode === "empty" ? "none|none" : `${turn}|${reasoning ?? "omitted"}`;
               expect(result).toMatchObject({
                 stopReason: "stop",
-                content: [{ type: "text", text: `${turn}|${owner}|${owner}|Bearer ${auth}` }],
+                content: [
+                  {
+                    type: "text",
+                    text: `${turn}|${owner}|${owner}|${wrapperState}|Bearer ${auth}`,
+                  },
+                ],
               });
             }
             expect(prepared.model.api).toBe("openai-completions");

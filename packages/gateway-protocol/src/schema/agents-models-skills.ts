@@ -9,7 +9,7 @@ import { GitHubSetupHandleSchema } from "./secrets.js";
 import { SessionPermissionModeSchema } from "./sessions-row.js";
 
 /**
- * Agent, model, skill, and tool catalog schemas.
+ * Agent, model, skill, and effective tool schemas.
  *
  * These contracts back dashboard selectors, agent management, model catalogs,
  * skill upload/install flows, skill workshop proposals, and effective tool
@@ -1173,12 +1173,6 @@ export const SkillsCuratorActionParamsSchema = closedObject({ skill: NonEmptyStr
 
 export const SkillsCuratorActionResultSchema = SkillCuratorEntrySchema;
 
-/** Reads the configured tool catalog for an agent. */
-export const ToolsCatalogParamsSchema = closedObject({
-  agentId: Type.Optional(NonEmptyString),
-  includePlugins: Type.Optional(Type.Boolean()),
-});
-
 export const GitHubIdentityScopeSchema = Type.Union([
   Type.Literal("system"),
   Type.Literal("agent"),
@@ -1376,55 +1370,6 @@ export const ToolsInvokeParamsSchema = closedObject({
   conversationReadOrigin: Type.Optional(Type.Literal("direct-operator")),
 });
 
-/** Tool profile shown in catalog views. */
-export const ToolCatalogProfileSchema = closedObject({
-  id: Type.Union([
-    Type.Literal("minimal"),
-    Type.Literal("coding"),
-    Type.Literal("messaging"),
-    Type.Literal("full"),
-  ]),
-  label: NonEmptyString,
-});
-
-/** Tool catalog entry before session-specific filtering is applied. */
-export const ToolCatalogEntrySchema = closedObject({
-  id: NonEmptyString,
-  label: NonEmptyString,
-  description: Type.String(),
-  source: Type.Union([Type.Literal("core"), Type.Literal("plugin")]),
-  pluginId: Type.Optional(NonEmptyString),
-  optional: Type.Optional(Type.Boolean()),
-  risk: Type.Optional(
-    Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]),
-  ),
-  tags: Type.Optional(Type.Array(NonEmptyString)),
-  defaultProfiles: Type.Array(
-    Type.Union([
-      Type.Literal("minimal"),
-      Type.Literal("coding"),
-      Type.Literal("messaging"),
-      Type.Literal("full"),
-    ]),
-  ),
-});
-
-/** Group of related catalog tools from core or a plugin. */
-export const ToolCatalogGroupSchema = closedObject({
-  id: NonEmptyString,
-  label: NonEmptyString,
-  source: Type.Union([Type.Literal("core"), Type.Literal("plugin")]),
-  pluginId: Type.Optional(NonEmptyString),
-  tools: Type.Array(ToolCatalogEntrySchema),
-});
-
-/** Tool catalog result for agent configuration UI. */
-export const ToolsCatalogResultSchema = closedObject({
-  agentId: NonEmptyString,
-  profiles: Type.Array(ToolCatalogProfileSchema),
-  groups: Type.Array(ToolCatalogGroupSchema),
-});
-
 /** Effective tool entry after session/profile/channel/plugin filtering. */
 export const ToolsEffectiveEntrySchema = closedObject({
   id: NonEmptyString,
@@ -1544,7 +1489,6 @@ export type ModelsProbeParams = Static<typeof ModelsProbeParamsSchema>;
 export type ModelsProbeTargetResult = Static<typeof ModelsProbeTargetResultSchema>;
 export type ModelsProbeResult = Static<typeof ModelsProbeResultSchema>;
 export type SkillsStatusParams = Static<typeof SkillsStatusParamsSchema>;
-export type ToolsCatalogParams = Static<typeof ToolsCatalogParamsSchema>;
 export type GitHubIdentityFacts = Static<typeof GitHubIdentityFactsSchema>;
 export type GitHubSelectedIdentity = Static<typeof GitHubSelectedIdentitySchema>;
 export type ToolsGitHubStatusParams = Static<typeof ToolsGitHubStatusParamsSchema>;
@@ -1566,10 +1510,6 @@ export type ToolsGitHubAuthorizeCancelParams = Static<
 export type ToolsGitHubAuthorizeCancelResult = Static<
   typeof ToolsGitHubAuthorizeCancelResultSchema
 >;
-export type ToolCatalogProfile = Static<typeof ToolCatalogProfileSchema>;
-export type ToolCatalogEntry = Static<typeof ToolCatalogEntrySchema>;
-export type ToolCatalogGroup = Static<typeof ToolCatalogGroupSchema>;
-export type ToolsCatalogResult = Static<typeof ToolsCatalogResultSchema>;
 export type ToolsEffectiveParams = Static<typeof ToolsEffectiveParamsSchema>;
 export type ToolsEffectiveEntry = Static<typeof ToolsEffectiveEntrySchema>;
 export type ToolsEffectiveGroup = Static<typeof ToolsEffectiveGroupSchema>;

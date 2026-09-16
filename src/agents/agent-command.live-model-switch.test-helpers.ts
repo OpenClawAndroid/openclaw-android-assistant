@@ -99,9 +99,9 @@ type ModelSelectionParams = {
   defaultModel?: string;
 };
 
-export const normalizeTestProviderId = (provider: string) => provider.trim().toLowerCase();
+const normalizeTestProviderId = (provider: string) => provider.trim().toLowerCase();
 
-export function isTestModelKeyAllowed(allowedKeys: ReadonlySet<string>, key: string): boolean {
+function isTestModelKeyAllowed(allowedKeys: ReadonlySet<string>, key: string): boolean {
   if (allowedKeys.has(key)) {
     return true;
   }
@@ -115,7 +115,7 @@ export function isTestModelKeyAllowed(allowedKeys: ReadonlySet<string>, key: str
   return false;
 }
 
-export function buildTestConfiguredModelCatalog(cfg?: unknown): ModelCatalogEntry[] {
+function buildTestConfiguredModelCatalog(cfg?: unknown): ModelCatalogEntry[] {
   const providers = (
     cfg as {
       models?: {
@@ -160,7 +160,7 @@ export function buildTestConfiguredModelCatalog(cfg?: unknown): ModelCatalogEntr
   );
 }
 
-export function buildTestAllowedModelSet({
+function buildTestAllowedModelSet({
   cfg,
   catalog,
   defaultProvider,
@@ -213,7 +213,7 @@ export function createTestModelVisibilityPolicy(params: ModelSelectionParams) {
   };
 }
 
-export function buildTestModelAliasIndex({
+function buildTestModelAliasIndex({
   cfg,
 }: {
   cfg?: { agents?: { defaults?: { models?: Record<string, { alias?: string }> } } };
@@ -236,7 +236,7 @@ export function buildTestModelAliasIndex({
   return { byAlias, byKey };
 }
 
-export function resolveTestModelRefFromString({
+function resolveTestModelRefFromString({
   raw,
   defaultProvider,
   aliasIndex,
@@ -258,7 +258,7 @@ export function resolveTestModelRefFromString({
   };
 }
 
-export function resolveTestModelAliasFromPair(params: {
+function resolveTestModelAliasFromPair(params: {
   provider: string;
   model: string;
   defaultProvider: string;
@@ -291,13 +291,44 @@ function configuredPrimary(cfg?: unknown): string {
   return (typeof raw === "string" ? raw : raw?.primary) ?? "anthropic/claude";
 }
 
-export function resolveTestConfiguredModelRef({ cfg }: { cfg?: unknown }) {
+function resolveTestConfiguredModelRef({ cfg }: { cfg?: unknown }) {
   const [provider = "anthropic", ...modelParts] = configuredPrimary(cfg).split("/");
   return { provider, model: modelParts.join("/") || "claude" };
 }
 
-export function resolveTestDefaultModelForAgent({ cfg }: { cfg?: unknown }) {
+function resolveTestDefaultModelForAgent({ cfg }: { cfg?: unknown }) {
   const { provider, model: modelWithProfile } = resolveTestConfiguredModelRef({ cfg });
   const [model = "claude", authProfileId] = modelWithProfile.split("@");
   return { provider, model, ...(authProfileId ? { authProfileId } : {}) };
+}
+
+export function createTestModelSelection(params: {
+  resolveThinkingDefaultMock: (args: unknown) => unknown;
+}) {
+  return {
+    buildAllowedModelSet: buildTestAllowedModelSet,
+    createModelVisibilityPolicy: createTestModelVisibilityPolicy,
+    buildConfiguredModelCatalog: ({ cfg }: { cfg?: unknown }) =>
+      buildTestConfiguredModelCatalog(cfg),
+    isModelKeyAllowedBySet: isTestModelKeyAllowed,
+    buildModelAliasIndex: buildTestModelAliasIndex,
+    modelKey: (provider: string, model: string) => `${provider}/${model}`,
+    normalizeModelRef: (provider: string, model: string) => ({
+      provider: normalizeTestProviderId(provider),
+      model,
+    }),
+    normalizeProviderId: normalizeTestProviderId,
+    normalizeProviderIdForAuth: normalizeTestProviderId,
+    parseModelRef: (model: string, provider: string) => {
+      const slash = model.indexOf("/");
+      return slash > 0
+        ? { provider: model.slice(0, slash), model: model.slice(slash + 1) }
+        : { provider, model };
+    },
+    resolveModelRefFromString: resolveTestModelRefFromString,
+    resolveModelAliasFromPair: resolveTestModelAliasFromPair,
+    resolveConfiguredModelRef: resolveTestConfiguredModelRef,
+    resolveDefaultModelForAgent: resolveTestDefaultModelForAgent,
+    resolveThinkingDefault: (args: unknown) => params.resolveThinkingDefaultMock(args),
+  };
 }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import type { BunPluginRuntime } from "./native-module-require.js";
 import { createPluginCache, withPluginCache } from "./plugin-cache.js";
 import { bindPluginInstanceModuleLoader } from "./plugin-instance-module-loader.js";
 import { PluginInstance } from "./plugin-instance.js";
@@ -70,6 +71,36 @@ function fixture(name: string, files: Record<string, string>) {
     fs.writeFileSync(filename, contents);
   }
   return directory;
+}
+
+const bareOnResolveProbe = "openclaw-bun-bare-onresolve-probe";
+const bareOnResolveProbeRoot = fixture("bare-onresolve-probe", {
+  "target.mjs": "export const supported = true;",
+});
+let sawBareOnResolve = false;
+const bun = (globalThis as typeof globalThis & { Bun: BunPluginRuntime }).Bun;
+bun.plugin({
+  name: bareOnResolveProbe,
+  setup(builder) {
+    builder.onResolve(
+      { filter: /^openclaw-bun-bare-onresolve-probe$/, namespace: "file" },
+      ({ path: request }) => {
+        if (request !== bareOnResolveProbe) {
+          return undefined;
+        }
+        sawBareOnResolve = true;
+        return { path: path.join(bareOnResolveProbeRoot, "target.mjs"), namespace: "file" };
+      },
+    );
+  },
+});
+let supportsBareOnResolve = false;
+try {
+  supportsBareOnResolve =
+    ((await import(bareOnResolveProbe)) as { supported?: boolean }).supported === true &&
+    sawBareOnResolve;
+} catch {
+  // Remove this capability gate after oven-sh/bun#42939 ships in Bun.
 }
 
 try {
@@ -192,6 +223,30 @@ try {
     "late-abs.mjs": "export const value = 41;",
     "late-url.mjs": "export const value = 42;",
   });
+  const conditionalManifest = (custom: string) =>
+    JSON.stringify({
+      name: "conditional-link-dependency",
+      type: "module",
+      exports: {
+        ".": {
+          "openclaw-custom": custom,
+          bun: "./bun.mjs?runtime=bun",
+          import: "./import.mjs",
+        },
+        "./addon": {
+          "node-addons": "./addon.mjs?runtime=addon",
+          bun: "./bun.mjs?runtime=bun",
+        },
+      },
+    });
+  const conditionalDependency = fixture("conditional-link-dependency", {
+    "package.json": conditionalManifest("./custom.mjs?runtime=custom"),
+    "first.mjs": "export const value = 48;",
+    "bun.mjs": "export const value = import.meta.url.endsWith('?runtime=bun') ? 49 : 0;",
+    "addon.mjs": "export const value = import.meta.url.endsWith('?runtime=addon') ? 50 : 0;",
+    "custom.mjs": "export const value = import.meta.url.endsWith('?runtime=custom') ? 51 : 0;",
+    "import.mjs": "export const value = 0;",
+  });
   const linkedRoot = fixture("dependency-link", {
     "package.json": JSON.stringify({
       type: "module",
@@ -204,6 +259,11 @@ try {
   });
   fs.mkdirSync(path.join(linkedRoot, "node_modules"));
   fs.symlinkSync(dependency, path.join(linkedRoot, "node_modules/linked-dependency"), "dir");
+  fs.symlinkSync(
+    conditionalDependency,
+    path.join(linkedRoot, "node_modules/conditional-link-dependency"),
+    "dir",
+  );
   const linkedInstance = createInstance(linkedRoot, true);
   const linkedEntry = linkedInstance.loadModule(path.join(linkedRoot, "index.ts")) as {
     bridge(): Promise<{ url: string; read(target: string): Promise<number> }>;
@@ -223,6 +283,24 @@ try {
     assert.equal(await bridge.read(value === 41 ? target : pathToFileURL(target).href), value);
     fs.unlinkSync(path.join(dependency, filename));
     assert.equal(await bridge.read(target), value, "captured aliases survive original removal");
+  }
+  assert.equal(await bridge.read(path.join(conditionalDependency, "first.mjs")), 48);
+  if (supportsBareOnResolve) {
+    assert.equal(await bridge.read("conditional-link-dependency"), 51);
+    assert.equal(await bridge.read("conditional-link-dependency/addon"), 50);
+    fs.writeFileSync(
+      path.join(conditionalDependency, "package.json"),
+      conditionalManifest("./replacement.mjs?runtime=replacement"),
+    );
+    fs.writeFileSync(
+      path.join(conditionalDependency, "replacement.mjs"),
+      "export const value = import.meta.url.endsWith('?runtime=replacement') ? 52 : 0;",
+    );
+    const replacement = createInstance(linkedRoot, true).loadModule(
+      path.join(linkedRoot, "index.ts"),
+    ) as typeof linkedEntry;
+    assert.equal(await (await replacement.bridge()).read("conditional-link-dependency"), 52);
+    assert.equal(await bridge.read("conditional-link-dependency"), 51);
   }
 
   for (const standalone of [false, true]) {

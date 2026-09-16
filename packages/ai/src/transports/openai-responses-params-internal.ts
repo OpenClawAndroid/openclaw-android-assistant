@@ -7,11 +7,13 @@ import type {
 import { resolveCacheRetention } from "../providers/cache-retention.js";
 import { resolveOpenAIPromptCacheParams } from "../providers/openai-prompt-cache.js";
 import {
-  normalizeOpenAIReasoningEffort,
-  resolveOpenAIReasoningEffortForModel,
   supportsOpenAITemperature,
   type OpenAIApiReasoningEffort,
 } from "../providers/openai-reasoning-effort.js";
+import {
+  resolveOpenAISimpleReasoningEffort,
+  resolveOpenAIRequestReasoning,
+} from "../providers/openai-request-reasoning.js";
 import { prepareResponsesTools } from "../providers/openai-responses-tools.js";
 import { reconcileOpenAIResponsesToolChoice } from "../providers/openai-tool-projection.js";
 import { stripSystemPromptCacheBoundary } from "../utils/system-prompt-cache-boundary.js";
@@ -43,14 +45,6 @@ const OPENAI_RESPONSES_TOOL_CALL_PROVIDERS = new Set([
   "github-copilot",
 ]);
 
-function resolveOpenAIReasoningEffort(
-  options: OpenAIResponsesOptions | undefined,
-): OpenAIApiReasoningEffort {
-  return normalizeOpenAIReasoningEffort(
-    options?.reasoningEffort ?? options?.reasoning ?? "high",
-  ) as OpenAIApiReasoningEffort;
-}
-
 function hasResponsesWebSearchTool(tools: unknown): boolean {
   if (!Array.isArray(tools)) {
     return false;
@@ -79,10 +73,7 @@ function raiseMinimalReasoningForResponsesWebSearch(params: {
     return params.effort;
   }
   for (const effort of ["low", "medium", "high"] as const) {
-    const resolved = resolveOpenAIReasoningEffortForModel({
-      model: params.model,
-      effort,
-    });
+    const resolved = resolveOpenAIRequestReasoning(params.model, effort).effort;
     if (resolved && resolved !== "none" && resolved !== "minimal") {
       return resolved;
     }
@@ -316,37 +307,29 @@ export function buildOpenAIResponsesParams(
     }
   }
   if (model.reasoning) {
-    if (options?.reasoningEffort || options?.reasoning || options?.reasoningSummary) {
-      const requestedReasoningEffort = resolveOpenAIReasoningEffort(options);
-      const resolvedReasoningEffort = resolveOpenAIReasoningEffortForModel({
+    const reasoning = options?.reasoning;
+    const requestedEffort =
+      options?.reasoningEffort ??
+      (reasoning === "none" ? "none" : resolveOpenAISimpleReasoningEffort(model, reasoning)) ??
+      (options?.reasoningSummary ? "high" : payloadPolicy.defaultManagedReasoningEffort);
+    const resolvedEffort =
+      requestedEffort === undefined
+        ? undefined
+        : resolveOpenAIRequestReasoning(model, requestedEffort).effort;
+    if (resolvedEffort !== undefined) {
+      const effort = raiseMinimalReasoningForResponsesWebSearch({
         model,
-        effort: requestedReasoningEffort,
+        effort: resolvedEffort,
+        tools: params.tools,
       });
-      const reasoningEffort = resolvedReasoningEffort
-        ? raiseMinimalReasoningForResponsesWebSearch({
-            model,
-            effort: resolvedReasoningEffort,
-            tools: params.tools,
-          })
-        : undefined;
-      if (reasoningEffort) {
-        params.reasoning = {
-          effort: reasoningEffort,
-          ...(reasoningEffort === "none" ? {} : { summary: options?.reasoningSummary || "auto" }),
-        };
-        if (reasoningEffort !== "none") {
-          params.include = ["reasoning.encrypted_content"];
-        }
-      }
-    } else if (model.provider !== "github-copilot") {
-      const reasoningEffort = resolveOpenAIReasoningEffortForModel({
-        model,
-        effort: "none",
-      });
-      if (reasoningEffort) {
-        params.reasoning = {
-          effort: reasoningEffort,
-        };
+      const summary =
+        effort !== "none" &&
+        (options?.reasoningEffort || options?.reasoning || options?.reasoningSummary)
+          ? options.reasoningSummary || "auto"
+          : undefined;
+      params.reasoning = { effort, ...(summary ? { summary } : {}) };
+      if (summary) {
+        params.include = ["reasoning.encrypted_content"];
       }
     }
   }

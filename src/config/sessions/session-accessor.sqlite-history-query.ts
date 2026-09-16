@@ -23,7 +23,7 @@ import {
   parseStoredTranscriptEvent,
   readDisplayableActiveEventById,
   readHistoricalHistoryAnchorPage,
-  resolveHistoricalHistoryEventById,
+  resolveHistoricalHistoryEvent,
 } from "./session-accessor.sqlite-history-interval.js";
 import {
   assertHistoryReadWindow,
@@ -186,43 +186,19 @@ function resolveRecentHistoryStart(
 type SessionTranscriptMessageById = SessionTranscriptMessageEvent & {
   serializedBytes?: number;
 };
+type HistoryEventById =
+  | SessionTranscriptMessageById
+  | { historical: NonNullable<ReturnType<typeof readDisplayableActiveEventById>> };
 export type SessionTranscriptMessageByIdOptions =
   | { currentOnly?: false; maxBytes?: never }
   | { currentOnly: true; maxBytes: number };
-
-function readVisibleMessageById(
-  projection: CurrentTranscriptProjection,
-  eventId: string,
-  history: VisibleHistoryProjection,
-  maxBytes?: number,
-): SessionTranscriptMessageById | undefined {
-  const row = readDisplayableActiveEventById(projection, eventId, maxBytes);
-  if (!row || row.message_position === null) {
-    return undefined;
-  }
-  const seq = resolveHistoryMessageSequence(
-    resolveVisibleMessagePositions(projection),
-    history,
-    row.message_position,
-  );
-  return seq === undefined
-    ? undefined
-    : {
-        event: parseStoredTranscriptEvent(row.event_json),
-        eventSeq: row.event_seq,
-        seq,
-        ...(maxBytes !== undefined
-          ? { serializedBytes: Buffer.byteLength(row.event_json, "utf8") }
-          : {}),
-      };
-}
 
 function resolveHistoryEventById(
   projection: CurrentTranscriptProjection,
   eventId: string,
   history = resolveVisibleHistoryProjection(projection),
   maxBytes?: number,
-): SessionTranscriptMessageById | undefined {
+): HistoryEventById | undefined {
   const boundary = history.boundaries.find((candidate) => candidate.eventId === eventId);
   if (boundary) {
     if (maxBytes !== undefined && boundary.serializedBytes > maxBytes) {
@@ -238,7 +214,28 @@ function resolveHistoryEventById(
         }
       : undefined;
   }
-  return readVisibleMessageById(projection, eventId, history, maxBytes);
+  const row = readDisplayableActiveEventById(projection, eventId, maxBytes);
+  if (!row) {
+    return undefined;
+  }
+  const seq =
+    row.message_position === null
+      ? undefined
+      : resolveHistoryMessageSequence(
+          resolveVisibleMessagePositions(projection),
+          history,
+          row.message_position,
+        );
+  return seq === undefined
+    ? { historical: row }
+    : {
+        event: parseStoredTranscriptEvent(row.event_json),
+        eventSeq: row.event_seq,
+        seq,
+        ...(maxBytes !== undefined
+          ? { serializedBytes: Buffer.byteLength(row.event_json, "utf8") }
+          : {}),
+      };
 }
 
 type SessionTranscriptRawDeltaPage = Extract<SessionTranscriptRawDeltaResult, { kind: "page" }>;
@@ -451,9 +448,14 @@ export function readSessionTranscriptHistoryEventByIdFromProjection(
   options: SessionTranscriptMessageByIdOptions = {},
 ): SessionTranscriptMessageById | undefined {
   const history = resolveVisibleHistoryProjection(projection);
+  const resolved = resolveHistoryEventById(projection, eventId, history, options.maxBytes);
   const event: SessionTranscriptMessageById | undefined =
-    resolveHistoryEventById(projection, eventId, history, options.maxBytes) ??
-    (options.currentOnly ? undefined : resolveHistoricalHistoryEventById(projection, eventId));
+    resolved &&
+    ("historical" in resolved
+      ? options.currentOnly
+        ? undefined
+        : resolveHistoricalHistoryEvent(projection, resolved.historical)
+      : resolved);
   if (!event) {
     return undefined;
   }
@@ -497,7 +499,8 @@ export function readSessionTranscriptHistoryEventLookupFromProjection(
       break;
     }
   }
-  const event = resolveHistoryEventById(projection, eventId.trim(), history);
+  const resolved = resolveHistoryEventById(projection, eventId.trim(), history);
+  const event = resolved && !("historical" in resolved) ? resolved : undefined;
   // Nonempty history validates the current-turn admission even when the requested
   // ID is absent. Keep that fence while positioning only the selected/first row.
   const positioned = positionTranscriptDisplayEvents(
@@ -518,12 +521,18 @@ export function readSessionTranscriptHistoryAnchorPageFromProjection(
   const history = resolveVisibleHistoryProjection(projection);
   assertHistoryReadWindow(projection, history, options.expectedReadWindow);
   const anchor = resolveHistoryEventById(projection, options.messageId, history);
-  if (!anchor) {
+  if (!anchor || "historical" in anchor) {
     // Explicit anchors reopen the closed reset interval that still contains the
     // active-path row. Unanchored history and current-display lookup stay
     // latest-reset-relative; missing or off-path IDs stay not-found.
     return (
-      readHistoricalHistoryAnchorPage(projection, history.displaySource, options) ?? {
+      (anchor &&
+        readHistoricalHistoryAnchorPage(
+          projection,
+          history.displaySource,
+          anchor.historical,
+          options,
+        )) ?? {
         events: [],
         found: false,
         hasOverreadContext: false,

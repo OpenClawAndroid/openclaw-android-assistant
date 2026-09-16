@@ -8,6 +8,37 @@ import { renderToolCard } from "./chat-tool-cards.ts";
 // Outcome presentation for tool cards: neutral collapsed rows, the expanded
 // outcome line, and the compact progress_card receipt.
 describe("tool-card outcomes", () => {
+  it.each([
+    { name: "exec", args: { command: "pnpm check" } },
+    { name: "write", args: { path: "/workspace/operation.json", content: "{}" } },
+    { name: "lookup", args: { query: "release status" } },
+    { name: "progress_card", args: { markdown: "Preparing release" } },
+  ])("shows skipped $name calls without claiming failure or success", ({ name, args }) => {
+    const container = document.createElement("div");
+    const card: ToolCard = {
+      id: "steering-skip",
+      name,
+      args,
+      outputText: "Skipped to process an incoming message.",
+      details: { status: "skipped", deniedReason: "steering" },
+      isError: true,
+      completed: true,
+    };
+    for (const expanded of [false, true]) {
+      render(
+        renderToolCard(card, {
+          messageKey: "test-message",
+          expanded,
+          onToggleExpanded: vi.fn(),
+        }),
+        container,
+      );
+      expect(container.textContent?.toLowerCase()).toContain("skipped");
+      expect(container.textContent).not.toMatch(/failed|Completed|updated|Tool error/);
+      expect(container.querySelector(".chat-tool-card--error")).toBeNull();
+    }
+  });
+
   it.each(["exec", "lookup"])(
     "keeps %s progress neutral across the row, expanded body, and sidebar until completion",
     (name) => {

@@ -171,13 +171,13 @@ function asControlFactory(
   const forRequest = "forRequest" in control ? control.forRequest : () => control;
   return {
     forRequest,
-    forNode: () => ({
+    forNode: async () => ({
       control: forRequest("main"),
       sourceHomeId: "node-native",
       codexHome: resolveCodexAppServerUserHomeDir(),
     }),
-    homesForAgent: () => [],
-    forUpstream: (agentId) => forRequest(agentId),
+    homesForAgent: async () => [],
+    forUpstream: async (agentId) => forRequest(agentId),
   };
 }
 

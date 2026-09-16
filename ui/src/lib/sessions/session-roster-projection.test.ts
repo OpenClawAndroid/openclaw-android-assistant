@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionsListResult } from "../../api/types.ts";
 import {
@@ -116,4 +117,101 @@ describe("event-driven session list refresh", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each(["gateway", "explicit"] as const)(
+    "converges an unrelated row before managed listeners run through %s reconciliation",
+    async (consumer) => {
+      vi.useFakeTimers();
+      const first = {
+        key: "agent:main:first",
+        sessionId: "first",
+        kind: "direct" as const,
+        label: "Shared first",
+        updatedAt: 1,
+      };
+      const second = {
+        key: "agent:main:second",
+        sessionId: "second",
+        kind: "direct" as const,
+        label: "Shared second",
+        lastMessagePreview: "Before",
+        updatedAt: 1,
+      };
+      const olderQuery = { agentId: "main", search: "Shared", limit: 10 };
+      const newerQuery = { agentId: "main", search: "Shared", limit: 11 };
+      let fresh = false;
+      const request = createGatewayRequestMock(async (method, params) => {
+        if (method !== "sessions.list") {
+          throw new Error(`Unexpected request: ${method}`);
+        }
+        const newer = fresh && asNullableRecord(params)?.limit === newerQuery.limit;
+        return sessionsResult(
+          [{ ...first }, { ...second, lastMessagePreview: newer ? "After" : "Before" }],
+          1,
+        );
+      });
+      const client = createTestGatewayClient(request);
+      const { sessions, emitEvent } = createSessionCapabilityHarness(client.request.bind(client));
+      let observe = false;
+      const delivered: Array<{
+        older: string | null | undefined;
+        newer: string | null | undefined;
+      }> = [];
+      const preview = (query: typeof olderQuery) =>
+        sessions.listSnapshot(query).result?.sessions.find((row) => row.key === second.key)
+          ?.lastMessagePreview;
+      const unsubscribeOlder = sessions.subscribeList(olderQuery, () => {
+        if (observe) {
+          delivered.push({ older: preview(olderQuery), newer: preview(newerQuery) });
+        }
+      });
+      const unsubscribeNewer = sessions.subscribeList(newerQuery, () => undefined);
+      try {
+        await sessions.refresh({ agentId: "main", force: true });
+        await sessions.refreshList({ ...olderQuery, force: true });
+        await sessions.refreshList({ ...newerQuery, force: true });
+        sessions.reconcileChanged({
+          sessionKey: first.key,
+          agentId: "main",
+          reason: "patch",
+          sessionId: first.sessionId,
+          label: first.label,
+          updatedAt: 1,
+        });
+        fresh = true;
+        await sessions.refreshList({ ...newerQuery, force: true });
+        expect(preview(olderQuery)).toBe("Before");
+        expect(preview(newerQuery)).toBe("After");
+        const beforeRequests = request.mock.calls.length;
+        observe = true;
+        const payload = {
+          sessionKey: first.key,
+          agentId: "main",
+          reason: "patch",
+          sessionId: first.sessionId,
+          label: "Shared first updated",
+          updatedAt: 2,
+        };
+        if (consumer === "gateway") {
+          emitEvent({ type: "event", event: "sessions.changed", payload });
+        } else {
+          sessions.reconcileChanged(payload, { resultAgentId: "main" });
+        }
+        expect(delivered).toEqual([{ older: "After", newer: "After" }]);
+        for (const query of [olderQuery, newerQuery]) {
+          expect(sessions.listSnapshot(query).result?.sessions).toHaveLength(2);
+          expect(
+            sessions.listSnapshot(query).result?.sessions.find((row) => row.key === first.key)
+              ?.label,
+          ).toBe(payload.label);
+        }
+        expect(request).toHaveBeenCalledTimes(beforeRequests);
+      } finally {
+        unsubscribeOlder();
+        unsubscribeNewer();
+        sessions.dispose();
+        vi.useRealTimers();
+      }
+    },
+  );
 });

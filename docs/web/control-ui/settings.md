@@ -10,7 +10,7 @@ sidebarTitle: "Settings"
 
 Everything under Settings, plus the settings-owned pages the sidebar links to.
 
-Use **Search settings** to find pages and configuration fields. Search for **Typography**, **font**, or **Chat prose** to jump to the Interface and Chat prose font controls in Appearance. Add `tag:storage`, for example, to filter configuration fields by tag. Tags can appear before, within, or after a text phrase: `Log File tag:storage` and `Log tag:storage File` both find **Log File Path**. Multiple tags require a field to match every tag.
+Use **Search settings** to find pages and configuration fields. Search for **Typography**, **font**, or **Chat prose** to jump to the Interface and Chat prose font controls in Appearance. Authored schema tags remain searchable with `tag:<name>` but are not displayed as field badges. Tags are not inferred from setting names, sensitivity, or complexity. For a field authored with a `storage` tag, combine it with text such as `Log tag:storage File`. Multiple tags require a field to match every tag.
 
 Model menus with more than eight choices include search. Filter by model name or provider/model reference, then choose a result to apply it. Typing or dismissing the menu leaves the current selection unchanged. Short menus stay compact, and custom model entry remains available where the setting supports it.
 
@@ -177,24 +177,27 @@ the Control UI. For example, a base path of `/openclaw` uses
 `/openclaw/settings/plugins`. The page is always available, even when every
 optional plugin is disabled.
 
-Plugins is a hub with four tabs: **Installed** and **Discover** manage plugin
-code at `/settings/plugins`, **Skills** hosts the per-agent skill manager at
-`/skills`, and **Workshop** hosts Skill Workshop proposal review at
-`/skills/workshop`. Each tab keeps its own URL, and the sidebar shows the
-single Plugins entry for all of them.
+The **Plugins** hub at `/plugins` browses the catalog. Its **Skills** and
+**Workshop** tabs open the per-agent skill manager at `/skills` and Skill
+Workshop at `/skills/workshop`. **Settings → Plugins** at `/settings/plugins`
+shows the local inventory, with search and installed/enabled filters. Select a
+plugin to open its overview.
 
-The **Installed** tab shows the full local inventory grouped by category, with
-overview counts. Each row opens a detail view; its overflow (`…`) menu enables
-or disables the plugin and offers **Remove** for externally installed plugins.
-It also lists configured [MCP servers](/cli/mcp) and supports adding, disabling,
-and removing them inline. The same server controls live on **Settings → MCP**.
-Your selected detail tab stays open as additional plugin information loads.
-The **Discover** tab is the store: featured plugins included with OpenClaw,
-official external plugins, and one-click MCP connectors for popular services.
-Typing in the search box queries
-[ClawHub](https://clawhub.ai/plugins) inline and appends a **From ClawHub**
-section with download counts and source-verification badges. Deep links can
-target the store directly with `/settings/plugins/discover`.
+Opening a plugin shows its description, publisher, supported capabilities, and
+full README on one overview. Select a tool to read its full description. The
+metadata rail shows available release details, categories, repository, and
+documentation. Security audits link to ClawHub.
+
+Installed plugins offer **Reload plugin**, **Enable** or **Disable**, **Uninstall**
+when removable, and **Settings**. Installing from a catalog overview keeps the
+same URL and changes those actions in place. **Settings** opens an addressable
+editor with plugin configuration and permissions; Back returns to the overview.
+Existing `#configuration` links still open the editor. Local controls and the
+installed README remain available when optional ClawHub metadata cannot load.
+The catalog shows featured plugins and category shelves. Search queries
+[ClawHub](https://clawhub.ai/plugins) without leaving the page. Catalog detail
+links use `/plugins/<catalog-id>`; installed-only links use
+`/settings/plugins/<plugin-id>`. Both show the same overview and actions.
 
 The **Skills** tab keeps the skill status report, enable/disable toggles, API
 key entry, and inline ClawHub skill search, scoped to the selected agent. The

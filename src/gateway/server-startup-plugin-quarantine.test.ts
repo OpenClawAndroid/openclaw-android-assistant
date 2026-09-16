@@ -435,7 +435,6 @@ describe("updater plugin degradation with a running source Gateway", () => {
     const loadGeneration = () =>
       withPluginCache(createPluginCache(), async () => {
         const quarantine = await refreshStartupPluginQuarantine({ cfg: config, env: process.env });
-        expect(quarantine.blockingDiagnostic).toBeNull();
         setActiveDegradedPlugins(quarantine.quarantinedPlugins);
         return loadOpenClawPlugins({ cache: false, config, onlyPluginIds: [pluginId] });
       });

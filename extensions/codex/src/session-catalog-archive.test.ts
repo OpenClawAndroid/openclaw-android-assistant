@@ -342,17 +342,18 @@ describe("Codex supervision actions", () => {
     const control = createEligibleControl();
     const processFallbackControl = {
       forRequest: () => control,
-      forNode: () => {
+      forNode: async () => {
         throw new Error("Node source is outside this local archive fixture");
       },
-      homesForAgent: () => [
+      homesForAgent: async () => [
         {
+          assertCurrent: vi.fn(),
           hostId: CODEX_LOCAL_SESSION_HOST_ID,
           sourceHomeId: "process-home",
           usesProcessHomeFallback: true,
         } as never,
       ],
-      forUpstream: () => undefined,
+      forUpstream: async () => undefined,
     };
     registerCodexSessionCatalog({
       api,

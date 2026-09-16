@@ -23,6 +23,11 @@ import { isCodeModeModelVisibleToolName, sha256Hex } from "./transport-utils.js"
 const MAX_OPENAI_STRICT_TOOL_DOWNGRADE_DIAGNOSTIC_KEYS = 256;
 const loggedOpenAIStrictToolDowngradeDiagnosticKeys = new Set<string>();
 
+const OPENAI_COMPLETIONS_APIS: ReadonlySet<string> = new Set([
+  "openai-completions",
+  "openclaw-openai-completions-transport",
+]);
+
 function readToolPayloadField(record: Record<string, unknown>, field: string): unknown {
   try {
     return Object.hasOwn(record, field) ? record[field] : undefined;
@@ -307,6 +312,24 @@ export function buildOpenAIClientHeaders(
       providerHeaders,
       getAiTransportHost().buildCopilotDynamicHeaders(context.messages),
     );
+  }
+  if (OPENAI_COMPLETIONS_APIS.has(model.api) && sessionId && cacheRetention !== "none") {
+    const { sessionAffinity } = resolveOpenAICompletionsCompat(model);
+    if (sessionAffinity !== "none") {
+      const affinityValue = clampOpenAIPromptCacheKey(sessionId) ?? sessionId;
+      const affinityHeaders =
+        sessionAffinity === "openrouter"
+          ? ["x-session-id"]
+          : ["session_id", "x-client-request-id", "x-session-affinity"];
+      const configuredHeaders = new Set(
+        Object.keys(providerHeaders).map((key) => key.toLowerCase()),
+      );
+      for (const name of affinityHeaders) {
+        if (!configuredHeaders.has(name)) {
+          providerHeaders[name] = affinityValue;
+        }
+      }
+    }
   }
   const callerHeaders = { ...optionHeaders, ...turnHeaders };
   const headers = resolveProviderRequestPolicyConfig(model, {

@@ -1,6 +1,7 @@
 import { isBuiltin } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { moduleResolve } from "import-meta-resolve";
 import { isPathInside } from "../infra/path-guards.js";
 import { toSafeImportPath } from "../shared/import-specifier.js";
 import { shouldRejectHardlinkedPluginFiles } from "./hardlink-policy.js";
@@ -11,6 +12,26 @@ import type { capturePluginGenerationArtifact } from "./plugin-generation-artifa
 import type { PluginModuleLoaderOwner } from "./plugin-instance.types.js";
 import type { PluginOrigin } from "./plugin-origin.types.js";
 import { isPluginSdkAliasSpecifier } from "./sdk-alias.js";
+
+function getBunImportConditions(): Set<string> {
+  const conditions = new Set(["bun", "node", "import"]);
+  if (!process.execArgv.includes("--no-addons")) {
+    conditions.add("node-addons");
+  }
+  for (let index = 0; index < process.execArgv.length; index += 1) {
+    const argument = process.execArgv[index];
+    if (argument === "--conditions") {
+      const condition = process.execArgv[index + 1];
+      if (condition && !condition.startsWith("-")) {
+        conditions.add(condition);
+        index += 1;
+      }
+    } else if (argument?.startsWith("--conditions=")) {
+      conditions.add(argument.slice("--conditions=".length));
+    }
+  }
+  return conditions;
+}
 
 /** Native adapters acquire source through the instance's artifact without replacing evaluation. */
 export function bindNativePluginInstanceModuleLoader(
@@ -54,10 +75,63 @@ export function bindNativePluginInstanceModuleLoader(
         }
         return withPluginCache(cache, () => {
           artifact.prepareModule(source);
+          let target: string | undefined;
           if (source === parent && request.startsWith(".")) {
-            artifact.captureModule(parent, request, ["node"]);
+            const captured = artifact.captureModule(parent, request, ["node"]);
+            if (captured && "target" in captured) {
+              target =
+                captured.target.search || captured.target.hash
+                  ? captured.target.href
+                  : fileURLToPath(captured.target);
+            }
+          } else if (
+            source === parent &&
+            !path.isAbsolute(request) &&
+            !request.startsWith("file:") &&
+            !request.startsWith("#") &&
+            !isBuiltin(request)
+          ) {
+            const captured = artifact.captureModule(parent, request, ["node", "import"]);
+            if (captured && "target" in captured) {
+              target =
+                captured.target.search || captured.target.hash
+                  ? captured.target.href
+                  : fileURLToPath(captured.target);
+            } else if (captured && "retryNative" in captured) {
+              try {
+                let selected: URL;
+                try {
+                  selected = moduleResolve(
+                    request,
+                    pathToFileURL(parent),
+                    getBunImportConditions(),
+                  );
+                } catch (error) {
+                  if (
+                    !(error instanceof Error) ||
+                    !("code" in error) ||
+                    error.code !== "ERR_MODULE_NOT_FOUND" ||
+                    !("url" in error) ||
+                    typeof error.url !== "string"
+                  ) {
+                    throw error;
+                  }
+                  selected = new URL(error.url);
+                }
+                const capturedTarget = artifact.captureResolvedModule(fileURLToPath(selected));
+                if (capturedTarget) {
+                  const capturedUrl = pathToFileURL(capturedTarget);
+                  capturedUrl.search = selected.search;
+                  capturedUrl.hash = selected.hash;
+                  target =
+                    capturedUrl.search || capturedUrl.hash ? capturedUrl.href : capturedTarget;
+                }
+              } catch {
+                // Native resolution owns the final error when the request remains unavailable.
+              }
+            }
           }
-          const target =
+          target ??=
             source === parent && (path.isAbsolute(request) || request.startsWith("file:"))
               ? artifact.captureResolvedModule(
                   request.startsWith("file:") ? fileURLToPath(request) : request,
@@ -66,9 +140,11 @@ export function bindNativePluginInstanceModuleLoader(
                 ? request
                 : undefined;
           if (target) {
-            artifact.prepareModule(target);
+            artifact.prepareModule(target.startsWith("file:") ? fileURLToPath(target) : target);
           }
-          artifact.prepareNativeScopes(target ?? source);
+          artifact.prepareNativeScopes(
+            target?.startsWith("file:") ? fileURLToPath(target) : (target ?? source),
+          );
           return target;
         });
       },

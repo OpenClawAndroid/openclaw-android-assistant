@@ -10736,6 +10736,7 @@ public struct PluginsInspectParams: Codable, Sendable {
 
 public struct PluginsInspectResult: Codable, Sendable {
     public let ok: Bool
+    public let overview: [String: AnyCodable]?
     public let plugin: [String: AnyCodable]
     public let source: PluginInspectSource?
     public let declared: PluginDeclaredSurface
@@ -10747,6 +10748,7 @@ public struct PluginsInspectResult: Codable, Sendable {
 
     public init(
         ok: Bool,
+        overview: [String: AnyCodable]? = nil,
         plugin: [String: AnyCodable],
         source: PluginInspectSource? = nil,
         declared: PluginDeclaredSurface,
@@ -10757,6 +10759,7 @@ public struct PluginsInspectResult: Codable, Sendable {
         catalog: PluginsCatalogGetResult? = nil)
     {
         self.ok = ok
+        self.overview = overview
         self.plugin = plugin
         self.source = source
         self.declared = declared
@@ -10769,6 +10772,7 @@ public struct PluginsInspectResult: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case ok
+        case overview
         case plugin
         case source
         case declared
@@ -14512,6 +14516,7 @@ public struct SessionRow: Codable, Sendable {
     public let chattype: AnyCodable?
     public let activitysummary: SessionActivitySummary?
     public let updatedat: AnyCodable?
+    public let snapshotat: Double?
     public let archived: Bool?
     public let archivedat: Double?
     public let archivedby: SessionCreatedActor?
@@ -14599,6 +14604,7 @@ public struct SessionRow: Codable, Sendable {
         chattype: AnyCodable? = nil,
         activitysummary: SessionActivitySummary? = nil,
         updatedat: AnyCodable? = nil,
+        snapshotat: Double? = nil,
         archived: Bool? = nil,
         archivedat: Double? = nil,
         archivedby: SessionCreatedActor? = nil,
@@ -14685,6 +14691,7 @@ public struct SessionRow: Codable, Sendable {
         self.chattype = chattype
         self.activitysummary = activitysummary
         self.updatedat = updatedat
+        self.snapshotat = snapshotat
         self.archived = archived
         self.archivedat = archivedat
         self.archivedby = archivedby
@@ -14773,6 +14780,7 @@ public struct SessionRow: Codable, Sendable {
         case chattype = "chatType"
         case activitysummary = "activitySummary"
         case updatedat = "updatedAt"
+        case snapshotat = "snapshotAt"
         case archived
         case archivedat = "archivedAt"
         case archivedby = "archivedBy"
@@ -21787,6 +21795,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
     public let optional: Bool?
     public let risk: AnyCodable?
     public let tags: [String]?
+    public let fulldescription: String?
     public let defaultprofiles: [AnyCodable]
 
     public init(
@@ -21798,6 +21807,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
         optional: Bool? = nil,
         risk: AnyCodable? = nil,
         tags: [String]? = nil,
+        fulldescription: String? = nil,
         defaultprofiles: [AnyCodable])
     {
         self.id = id
@@ -21808,6 +21818,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
         self.optional = optional
         self.risk = risk
         self.tags = tags
+        self.fulldescription = fulldescription
         self.defaultprofiles = defaultprofiles
     }
 
@@ -21820,6 +21831,7 @@ public struct ToolCatalogEntry: Codable, Sendable {
         case optional
         case risk
         case tags
+        case fulldescription = "fullDescription"
         case defaultprofiles = "defaultProfiles"
     }
 }

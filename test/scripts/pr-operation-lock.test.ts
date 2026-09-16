@@ -292,6 +292,8 @@ function createFreshMainTemplate() {
     "sh",
     "sleep",
     "xargs",
+    "uname",
+    ...(process.platform === "darwin" ? ["python3"] : []),
   ]) {
     symlinkSync(
       execFileSync("which", [command], { encoding: "utf8", env: setupEnv }).trim(),

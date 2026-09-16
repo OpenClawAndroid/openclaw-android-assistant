@@ -11,7 +11,6 @@ import {
   CONFIG_GET_OUTPUT_MAX_CHARS,
   CONFIG_SCHEMA_CHILDREN_MAX,
   applyPersistentOperation,
-  assertConfigWriteDoesNotBypassInferenceVerification,
   createNoExitRuntime,
   executeSetDefaultModel,
   executeSetup,
@@ -319,7 +318,6 @@ export async function executeSystemAgentOperation(
     case "setup":
       return await executeSetup(operation, runtime, opts);
     case "config-set":
-      await assertConfigWriteDoesNotBypassInferenceVerification(operation);
       return await applyPersistentOperation({
         auditOperation: "config.set",
         operation,
@@ -331,7 +329,6 @@ export async function executeSystemAgentOperation(
         },
       });
     case "config-set-ref":
-      await assertConfigWriteDoesNotBypassInferenceVerification(operation);
       return await applyPersistentOperation({
         auditOperation: "config.setRef",
         operation,

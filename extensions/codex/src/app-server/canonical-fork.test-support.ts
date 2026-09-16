@@ -108,14 +108,14 @@ export async function createCanonicalForkFixture(params: {
     env: { HOME: workspaceDir, CODEX_HOME: path.join(workspaceDir, "primary-codex-home") },
   });
   const home = expectDefined(
-    controls
-      .homesForAgent("main")
-      .find((candidate) => candidate.localSessionsRoot === native.sessionsRoot),
+    (await controls.homesForAgent("main")).find(
+      (candidate) => candidate.localSessionsRoot === native.sessionsRoot,
+    ),
     "native fixture home",
   );
   const fingerprint = buildCodexAppServerConnectionFingerprint(home.appServer, agentDir);
   const control = expectDefined(
-    controls.forUpstream("main", fingerprint),
+    await controls.forUpstream("main", fingerprint),
     "native fixture control",
   );
   const storePath = resolveStorePath(config.session?.store, { agentId: "main" });

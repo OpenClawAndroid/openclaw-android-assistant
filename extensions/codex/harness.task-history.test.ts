@@ -90,7 +90,7 @@ async function fixture(supervised = false) {
   });
   const bindingStore = createCodexTestBindingStore();
   const pluginConfig = supervised ? { supervision: { enabled: true } } : undefined;
-  const connection = resolveCodexBindingAppServerConnection({ pluginConfig, agentDir });
+  const connection = await resolveCodexBindingAppServerConnection({ pluginConfig, agentDir });
   let binding: CodexAppServerThreadBinding = {
     threadId: "parent-thread",
     cwd: directory,

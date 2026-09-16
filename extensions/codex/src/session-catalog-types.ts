@@ -13,6 +13,8 @@ import type {
 import type { CodexCatalogPageDiagnostics } from "./session-catalog-diagnostics.js";
 
 export type CodexCatalogHome = {
+  /** Revalidate discovery before a new operation captures its source. */
+  assertCurrent(): void;
   sourceHomeId: string;
   hostId: string;
   label: string;
@@ -95,16 +97,16 @@ export type CodexSessionCatalogControl = {
 export type CodexSessionCatalogControlFactory = {
   forRequest(agentId: string, source?: CodexCatalogHome): CodexSessionCatalogControl;
   /** Native default, with the shipped agent selector retained for explicitly configured sources. */
-  forNode(agentId?: string): {
+  forNode(agentId?: string): Promise<{
     control: CodexSessionCatalogControl;
     sourceHomeId: string;
     codexHome: string;
-  };
-  homesForAgent(agentId: string): readonly CodexCatalogHome[];
+  }>;
+  homesForAgent(agentId: string): Promise<readonly CodexCatalogHome[]>;
   forUpstream(
     agentId: string,
     connectionFingerprint: string,
-  ): CodexSessionCatalogControl | undefined;
+  ): Promise<CodexSessionCatalogControl | undefined>;
 };
 
 export type CodexSessionCatalogError = {

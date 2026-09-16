@@ -219,6 +219,7 @@ describe("test runtime prerequisites", () => {
     ["Gateway server config", ["test/vitest/vitest.gateway-server.config.ts"], "runtime"],
     ["Gateway umbrella config", ["test/vitest/vitest.gateway.config.ts"], "runtime"],
     ["agentic config", ["test/vitest/vitest.full-agentic.config.ts"], "runtime"],
+    ["local command first request", ["src/agents/agent-command-local.test.ts"], "runtime"],
     ["ordinary Gateway unit test", ["src/gateway/net.test.ts"], undefined],
     ["ordinary Gateway server test", ["src/gateway/server-request-context.test.ts"], undefined],
     ["ordinary QA unit test", ["extensions/qa-lab/src/gateway-child.test.ts"], undefined],
@@ -288,6 +289,7 @@ describe("test runtime prerequisites", () => {
     [
       "agents-core",
       [
+        "agent-command-local.test.ts",
         "simple-completion-runtime.plugin-scope.test.ts",
         "prepared-model-catalog-worker.integration.test.ts",
         "runtime-plugins.context-engine.integration.test.ts",
@@ -297,6 +299,7 @@ describe("test runtime prerequisites", () => {
     [
       "agents",
       [
+        "agent-command-local.test.ts",
         "simple-completion-runtime.plugin-scope.test.ts",
         "prepared-model-catalog-worker.integration.test.ts",
         "runtime-plugins.context-engine.integration.test.ts",

@@ -10,10 +10,7 @@ import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
-import type {
-  UnindexedActiveTranscriptNavigation,
-  UnindexedHistoryControl,
-} from "./session-accessor.sqlite-history-navigation.types.js";
+import type { UnindexedHistoryControl } from "./session-accessor.sqlite-history-navigation.types.js";
 import type { resolveSqliteTranscriptReadScope } from "./session-accessor.sqlite-scope.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type { SessionTranscriptProjectionState } from "./session-transcript-index.js";
@@ -37,10 +34,6 @@ export type CurrentTranscriptProjection = {
   unindexedHistoryControls?: {
     coveredThrough: number;
     rows: readonly UnindexedHistoryControl[];
-  };
-  unindexedHistoryAnchor?: {
-    eventId: string;
-    entry: UnindexedActiveTranscriptNavigation | undefined;
   };
   resolved: ReturnType<typeof resolveSqliteTranscriptReadScope>;
   state: SessionTranscriptProjectionState;

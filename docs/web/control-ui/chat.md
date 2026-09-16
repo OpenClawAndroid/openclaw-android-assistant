@@ -467,6 +467,8 @@ the disclosure until a later answer follows them. This is display grouping, not 
 change to stored history. Live turns, search results, and turns without an answer
 stay expanded. User messages,
 forwarded inputs, and structural markers remain boundaries for grouping.
+Clicking a reply's quoted original opens its containing **Worked for…** group,
+scrolls to the original message, and briefly highlights it.
 
 On wide desktop panes, the conversation position rail provides keyboard shortcuts
 to messages. Tab enters at the current message, or the first marker if no message

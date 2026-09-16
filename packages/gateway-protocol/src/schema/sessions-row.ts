@@ -134,6 +134,8 @@ export const SessionRowSchema = Type.Object(
     ),
     activitySummary: Type.Optional(SessionActivitySummarySchema),
     updatedAt: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+    /** Gateway sampling time, retained when a read reuses a cached projection. */
+    snapshotAt: Type.Optional(Type.Number()),
     archived: Type.Optional(Type.Boolean()),
     archivedAt: Type.Optional(Type.Number()),
     archivedBy: Type.Optional(SessionCreatedActorSchema),

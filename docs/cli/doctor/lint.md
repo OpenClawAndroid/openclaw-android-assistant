@@ -72,6 +72,16 @@ Explicit lint exit codes:
 
 When the updater runs lint, warning-severity findings below its error threshold are retained in a separate JSON `warnings` array. They do not change the lint exit code. The updater records these advisories in its run history, including intentional open channel policies, so they remain available in `openclaw update status`. Ordinary standalone lint keeps the selected output threshold.
 
+A configured Codex plugin that is missing or whose advertised health API cannot be
+verified produces an availability warning under `core/doctor/codex-session-routes`,
+with the plugin name and repair command. Untrusted installations are not imported
+to inspect their health API.
+The updater's `--severity-min error` pass exits `0` for these warnings, using the
+same warning policy as Gateway startup. Invalid configuration, unsafe state
+inspection, and errors reported by an actual health check retain their failures.
+Missing configured `plugins.load.paths` remain discovery errors and can still
+block update candidates; see [Plugin repair warnings](/install/update-troubleshooting#plugin-repair-warnings).
+
 Bare `openclaw doctor --json` exits `0` once it emits a findings payload, including when `ok` is `false`. Argument errors remain nonzero. If the lint runner fails before producing a report, Doctor exits `2` and emits one redacted `{ ok: false, error: { type: "cli_error", message } }` document on stdout in JSON mode, without generic CLI startup guidance.
 
 `--all` controls which checks are selected before severity filtering. The default lint run excludes checks that are deep, historical, or more likely to surface repairable legacy residue; use `--all` for the complete inventory. `--only <id>` is the most precise selector and can run any registered check by id.

@@ -7,9 +7,10 @@ import {
   resolveThinkingDefaultForModel,
   type ThinkingCatalogResolver,
 } from "../auto-reply/thinking.js";
-import type { ThinkLevel } from "../auto-reply/thinking.shared.js";
+import { normalizeThinkLevel, type ThinkLevel } from "../auto-reply/thinking.shared.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { ProviderThinkingPolicySource } from "../plugins/provider-thinking.types.js";
+import { resolveAgentEntry } from "./agent-scope-config.js";
 import type { ModelCatalogEntry } from "./model-catalog.types.js";
 import { resolveModelExtraParamSources } from "./model-extra-params.js";
 import { legacyModelKey, modelKey, normalizeProviderId } from "./model-ref-shared.js";
@@ -31,6 +32,12 @@ export function resolveConfiguredThinkingDefaultCore(params: {
   model: string;
   agentId?: string;
 }): ThinkLevel | undefined {
+  const agentThinking = params.agentId
+    ? resolveAgentEntry(params.cfg, params.agentId)?.thinkingDefault
+    : undefined;
+  if (agentThinking) {
+    return agentThinking;
+  }
   const { modelParams, agentModelParams } = resolveModelExtraParamSources({
     config: params.cfg,
     provider: params.provider,
@@ -38,27 +45,13 @@ export function resolveConfiguredThinkingDefaultCore(params: {
     agentId: params.agentId,
   });
   const perModelThinking = agentModelParams?.thinking ?? modelParams?.thinking;
-  if (
-    perModelThinking === false ||
-    perModelThinking === "disabled" ||
-    perModelThinking === "none"
-  ) {
+  if (perModelThinking === false || perModelThinking === "disabled") {
     return "off";
   }
-  if (
-    perModelThinking === "off" ||
-    perModelThinking === "minimal" ||
-    perModelThinking === "low" ||
-    perModelThinking === "medium" ||
-    perModelThinking === "high" ||
-    perModelThinking === "xhigh" ||
-    perModelThinking === "adaptive" ||
-    perModelThinking === "max" ||
-    perModelThinking === "ultra"
-  ) {
-    return perModelThinking;
-  }
-  return params.cfg.agents?.defaults?.thinkingDefault;
+  return (
+    (typeof perModelThinking === "string" ? normalizeThinkLevel(perModelThinking) : undefined) ??
+    params.cfg.agents?.defaults?.thinkingDefault
+  );
 }
 
 export function resolveThinkingDefaultCore(
@@ -67,6 +60,10 @@ export function resolveThinkingDefaultCore(
     catalogResolver?: ThinkingCatalogResolver;
   },
 ): ThinkLevel {
+  const configured = resolveConfiguredThinkingDefaultCore(params);
+  if (configured) {
+    return configured;
+  }
   const normalizedProvider = normalizeProviderId(params.provider);
   const normalizedModel = normalizeLowercaseStringOrEmpty(params.model).replace(/\./g, "-");
   const catalog = Array.isArray(params.catalog)
@@ -88,10 +85,6 @@ export function resolveThinkingDefaultCore(
     normalizedPrimarySelection === normalizedCanonicalKey ||
     Boolean(normalizedLegacyKey && normalizedPrimarySelection === normalizedLegacyKey) ||
     normalizedPrimarySelection === normalizeLowercaseStringOrEmpty(params.model);
-  const configured = resolveConfiguredThinkingDefaultCore(params);
-  if (configured) {
-    return configured;
-  }
   const isClaudeProvider =
     normalizedProvider === "anthropic" ||
     normalizedProvider === "anthropic-vertex" ||
@@ -101,13 +94,7 @@ export function resolveThinkingDefaultCore(
   }
   if (
     isClaudeProvider &&
-    (normalizedModel.startsWith("claude-opus-4-8") || normalizedModel.startsWith("claude-opus-4.8"))
-  ) {
-    return "off";
-  }
-  if (
-    isClaudeProvider &&
-    (normalizedModel.startsWith("claude-opus-4-7") || normalizedModel.startsWith("claude-opus-4.7"))
+    (normalizedModel.startsWith("claude-opus-4-8") || normalizedModel.startsWith("claude-opus-4-7"))
   ) {
     return "off";
   }

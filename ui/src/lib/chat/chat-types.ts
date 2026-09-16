@@ -431,4 +431,4 @@ export type ToolCard = {
     | (BrowserTabTarget & { kind: "browser-tab"; url?: string; title?: string });
 };
 
-export type ToolCardOutcome = "running" | "succeeded" | "failed" | "unknown";
+export type ToolCardOutcome = "running" | "succeeded" | "failed" | "skipped" | "unknown";

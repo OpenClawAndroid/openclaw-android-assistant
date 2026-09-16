@@ -32,7 +32,7 @@ import { wrapUntrustedPromptDataBlock } from "../../agents/sanitize-for-prompt.j
 import { resolveScheduledToolPolicyContext } from "../../agents/scheduled-tool-policy.js";
 import { withLocalSessionPlacementTurnSettlement } from "../../agents/session-placement-admission.js";
 import { resolveSessionRuntimeOverrideForProvider } from "../../agents/session-runtime-compat.js";
-import { hasResolvedThinkingCatalogEntry } from "../../agents/thinking-runtime.js";
+import { needsThinkHydration } from "../../agents/thinking-runtime.js";
 import { withPostAdmissionExecutionOwnerBinding } from "../../audit/execution-owner-binding.js";
 import {
   resolveAgentLifecycleTerminalMetadata,
@@ -162,10 +162,7 @@ function resolveIsolatedCronPromptCacheKey(params: {
 /** Detects single-line cron prompts that look like shell commands or command invocations. */
 function isCommandStyleCronMessage(message: string): boolean {
   const trimmed = message.trim();
-  if (!trimmed || trimmed.includes("\n")) {
-    return false;
-  }
-  return COMMAND_STYLE_CRON_PREFIX.test(trimmed);
+  return !trimmed.includes("\n") && COMMAND_STYLE_CRON_PREFIX.test(trimmed);
 }
 
 function resolveCronBootstrapContextMode(
@@ -258,7 +255,11 @@ type CronRunExecutionParams = {
   agentVerboseDefault: AgentDefaultsConfig["verboseDefault"];
   immutableThinkLevel: ThinkLevel | undefined;
   thinkingCatalog?: ModelCatalogEntry[];
-  loadThinkingCatalog: (provider: string, model: string) => Promise<ModelCatalogEntry[]>;
+  loadThinkingCatalog: (
+    provider: string,
+    model: string,
+    agentRuntime: string,
+  ) => Promise<ModelCatalogEntry[]>;
   timeoutMs: number;
   /** Set when the cron payload's `timeoutSeconds` was explicitly configured. */
   runTimeoutOverrideMs?: number;
@@ -395,7 +396,7 @@ function createCronPromptExecutor(
     | undefined;
   let attemptMediaTaskIds: ReadonlySet<string> = new Set();
   let thinkingCatalog = params.thinkingCatalog;
-  let attemptedThinkingCatalogHydration = false;
+  let hydratedThinkingSelection: string | undefined;
   const currentAttemptCommittedMedia = () =>
     hasNewGeneratedMediaTaskForSessionKey(params.runSessionKey, attemptMediaTaskIds);
 
@@ -405,18 +406,16 @@ function createCronPromptExecutor(
       entry: params.cronSession.sessionEntry,
       cfg: params.cfgWithAgentDefaults,
     });
-    const executionProvider =
-      (sessionRuntimeOverride && isCliProvider(sessionRuntimeOverride, params.cfgWithAgentDefaults)
+    const executionProvider = sessionRuntimeOverride
+      ? isCliProvider(sessionRuntimeOverride, params.cfgWithAgentDefaults)
         ? sessionRuntimeOverride
-        : undefined) ??
-      (sessionRuntimeOverride
-        ? provider
-        : (resolveCliRuntimeExecutionProvider({
-            provider,
-            cfg: params.cfgWithAgentDefaults,
-            agentId: params.agentId,
-            modelId: model,
-          }) ?? provider));
+        : provider
+      : (resolveCliRuntimeExecutionProvider({
+          provider,
+          cfg: params.cfgWithAgentDefaults,
+          agentId: params.agentId,
+          modelId: model,
+        }) ?? provider);
     return {
       sessionRuntimeOverride,
       executionProvider,
@@ -574,17 +573,19 @@ function createCronPromptExecutor(
             provider: providerOverride,
             model: modelOverride,
           });
+        // A fallback or runtime switch needs its own capability proof; retries reuse that selection.
+        const thinkingSelectionKey = `${providerOverride}/${modelOverride}\0${candidateRuntime}`;
         if (
-          candidateConfiguredThinkLevel !== "off" &&
-          !attemptedThinkingCatalogHydration &&
-          !hasResolvedThinkingCatalogEntry({
-            catalog: thinkingCatalog,
-            provider: providerOverride,
-            model: modelOverride,
-          })
+          (candidateConfiguredThinkLevel !== "off" || candidateRuntime !== "openclaw") &&
+          hydratedThinkingSelection !== thinkingSelectionKey &&
+          needsThinkHydration(thinkingCatalog, providerOverride, modelOverride, candidateRuntime)
         ) {
-          attemptedThinkingCatalogHydration = true;
-          const runtimeCatalog = await params.loadThinkingCatalog(providerOverride, modelOverride);
+          hydratedThinkingSelection = thinkingSelectionKey;
+          const runtimeCatalog = await params.loadThinkingCatalog(
+            providerOverride,
+            modelOverride,
+            candidateRuntime,
+          );
           if (runtimeCatalog.length > 0) {
             thinkingCatalog = runtimeCatalog;
           }

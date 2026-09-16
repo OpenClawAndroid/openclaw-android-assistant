@@ -289,11 +289,12 @@ export async function runCodexAppServerSideQuestion(
     bindingModel: binding.model,
     nativeAuthProfile: usesSupervisionConnection || preparedNativeAuthProfile,
   });
-  const connection = resolveCodexBindingAppServerConnection({
+  const connection = await resolveCodexBindingAppServerConnection({
     binding,
     authProfileId,
     pluginConfig,
     execPolicy,
+    assertCurrent,
     modelProvider: reviewerPolicyContext.modelProvider,
     model: reviewerPolicyContext.model,
     config: params.cfg,
@@ -392,6 +393,7 @@ export async function runCodexAppServerSideQuestion(
     );
   }
   const clientOptions = {
+    assertCurrent,
     startOptions: appServer.start,
     timeoutMs: appServer.requestTimeoutMs,
     authRequirement: preparedRuntimeAuth.plan.modelRoute?.authRequirement,
@@ -989,18 +991,16 @@ export async function runCodexAppServerSideQuestion(
     if (result.turn?.status === "interrupted") {
       throw new Error("Codex /btw side thread was interrupted.");
     }
-    const trimmed = result.text;
     assertCurrent();
-    if (!trimmed) {
+    if (!result.text) {
       throw new Error("Codex /btw completed without an answer.");
     }
-    return { text: trimmed, usage: result.usage };
+    return { text: result.text, usage: result.usage };
   } finally {
     try {
       // Cleanup aborts are ownership teardown, not a terminal run outcome.
       // Snapshot the real state while late app-server notifications can still drain.
-      const runWasAbortedBeforeCleanup = runAbortController.signal.aborted;
-      nativeToolRunWasAbortedBeforeCleanup = runWasAbortedBeforeCleanup;
+      nativeToolRunWasAbortedBeforeCleanup = runAbortController.signal.aborted;
       params.opts?.abortSignal?.removeEventListener("abort", abortFromUpstream);
       // Stop dispatched side tools before cleanup waits on the app server;
       // otherwise a stuck tool can outlive the side turn that owns it.
@@ -1024,7 +1024,7 @@ export async function runCodexAppServerSideQuestion(
         }
         collector?.route.release();
         try {
-          nativeToolLifecycleProjector?.finalizeActive(runWasAbortedBeforeCleanup);
+          nativeToolLifecycleProjector?.finalizeActive(nativeToolRunWasAbortedBeforeCleanup);
         } finally {
           // Keep cleanup-time relay failures with their active projected item.
           // Direct emission owns only failures that arrive after projector retirement.

@@ -94,7 +94,10 @@ export function validateNpmPreflightDistTag({ manifest, npmDistTag }) {
     typeof manifest.packageVersion === "string" &&
     resolveNpmPreflightSdkSelectors(manifest.packageVersion, manifest.npmDistTag).length === 2 &&
     ["beta", "latest"].includes(npmDistTag) &&
-    manifest.pluginSdkApi?.schema === "openclaw.plugin-sdk-api-release-evidence-set/v1" &&
+    [
+      "openclaw.plugin-sdk-api-release-evidence-set/v1",
+      "openclaw.plugin-sdk-api-release-evidence-set/v2",
+    ].includes(manifest.pluginSdkApi?.schema) &&
     selectors &&
     Object.keys(selectors).length === 2 &&
     ["beta", "latest"].every(

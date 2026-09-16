@@ -63,6 +63,14 @@ their established raw-row parser behavior; a fresh reader, policy change or
 owner replacement must cross admission again. Pending keys make that admission
 incremental without caching session identity or permission results.
 
+Gateway startup certifies up to two agent databases concurrently, using the same
+disk-work bound as database preflight. Each agent retains one mutation worker
+across its validation batches and closes it before worktree detection, orphan
+recovery, and transcript reconciliation use that database. A refusal stops new
+admissions and drains active work before startup fails. Ordinary archive work
+keeps its global FIFO; certification retains per-database write ordering and
+fresh physical-owner checks.
+
 The 20-to-21 migration installs the table and triggers and marks every existing
 node pending without parsing, repairing or certifying session contents. Both
 schema version markers advance in the same maintenance transaction. Earlier

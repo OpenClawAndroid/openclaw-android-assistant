@@ -194,11 +194,11 @@ describe("fork boundaries from imported Codex history", () => {
           bindingStore,
           controlFactory: {
             forRequest: () => control,
-            forNode: () => {
+            forNode: async () => {
               throw new Error("Node source is outside this local fork fixture");
             },
-            forUpstream: () => control,
-            homesForAgent: () => [],
+            forUpstream: async () => control,
+            homesForAgent: async () => [],
           },
           harnessRuntimeId: "codex",
           resolveConfig: () => ({ session: { store: history.target.storePath } }),

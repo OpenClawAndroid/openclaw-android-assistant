@@ -63,7 +63,7 @@ type CodexCatalogRequestOptions = {
 
 type CodexCatalogControlSource = Pick<
   CodexCatalogHome,
-  "appServer" | "localSessionsRoot" | "sourceHomeId"
+  "appServer" | "localSessionsRoot" | "sourceHomeId" | "assertCurrent"
 > & { agentDir?: string };
 
 type CodexCatalogPageCacheEntry = {
@@ -422,7 +422,7 @@ export function createCodexSessionCatalogControl(params: {
   const noConfig: OpenClawConfig = {};
   const getPluginConfig = () => params.getPluginConfig();
   const homeResolver = createCodexCatalogHomeResolver({
-    config: params.getRuntimeConfig() ?? params.config ?? {},
+    config: params.config ?? {},
     getRuntimeConfig: params.getRuntimeConfig,
     getPluginConfig: params.getPluginConfig,
     resolveRuntimeOptions: params.resolveRuntimeOptions,
@@ -441,6 +441,7 @@ export function createCodexSessionCatalogControl(params: {
     agentId: string | undefined,
     source?: CodexCatalogControlSource,
   ): CodexCatalogRequestOptions => {
+    source?.assertCurrent();
     const runtimeConfig = params.getRuntimeConfig();
     const agentDir =
       source?.agentDir ?? (agentId ? resolveAgentDir(runtimeConfig ?? {}, agentId) : undefined);
@@ -508,6 +509,7 @@ export function createCodexSessionCatalogControl(params: {
     agentId: string | undefined,
     source?: CodexCatalogControlSource,
   ): CodexSessionCatalogControl => {
+    source?.assertCurrent();
     const withPinnedConnection: CodexSessionCatalogControl["withPinnedConnection"] = async (
       run,
     ) => {
@@ -595,6 +597,7 @@ export function createCodexSessionCatalogControl(params: {
       requireEligibleThread: (threadId) =>
         withPinnedConnection((pinned) => pinned.requireEligibleThread(threadId)),
       async listPage(pageParams: CodexSessionCatalogPageParams) {
+        source?.assertCurrent();
         const listDiagnostics = currentCodexCatalogListDiagnostics();
         const runtimeConfig = params.getRuntimeConfig();
         if (!runtimeConfig) {
@@ -685,11 +688,10 @@ export function createCodexSessionCatalogControl(params: {
       },
     };
   };
-  const homesForAgent = (agentId: string) => homeResolver.forAgent(agentId);
-  const forUpstream = (agentId: string, connectionFingerprint: string) => {
+  const forUpstream = async (agentId: string, connectionFingerprint: string) => {
     // A fingerprint is correlation only. A miss must stay fail-closed instead of selecting a
     // different home whose thread namespace could contain the same copied identifier.
-    const source = homesForAgent(agentId).find(
+    const source = (await homeResolver.forAgent(agentId)).find(
       (home) =>
         buildCodexAppServerConnectionFingerprint(home.appServer, home.agentDir) ===
         connectionFingerprint,
@@ -699,9 +701,9 @@ export function createCodexSessionCatalogControl(params: {
   return {
     forRequest,
     forUpstream,
-    homesForAgent,
-    forNode(agentId) {
-      const source = homeResolver.forNode(agentId);
+    homesForAgent: homeResolver.forAgent,
+    async forNode(agentId) {
+      const source = await homeResolver.forNode(agentId);
       return {
         control: forRequest(source.agentId, source),
         sourceHomeId: source.sourceHomeId,

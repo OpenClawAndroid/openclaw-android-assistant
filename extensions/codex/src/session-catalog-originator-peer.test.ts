@@ -116,7 +116,10 @@ it("uses recorded originators through the protocol while preserving exclusion-pa
       getRuntimeConfig: () => config,
       resolveRuntimeOptions: resolveCodexSupervisionAppServerRuntimeOptions,
     });
-    const source = { ...control.homesForAgent("main")[0]!, localSessionsRoot: sessionsRoot };
+    const source = {
+      ...(await control.homesForAgent("main"))[0]!,
+      localSessionsRoot: sessionsRoot,
+    };
     const started = performance.now();
     const result = await listCodexSessionCatalog({
       agentId: "main",

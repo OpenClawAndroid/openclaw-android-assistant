@@ -1,9 +1,9 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type { TranscriptDisplayPosition } from "../../chat/transcript-display-position.js";
-import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
+import { executeSqliteQuerySync, sqliteStringSet } from "../../infra/kysely-sync.js";
 import { readNestedToolActivity } from "../../sessions/nested-tool-activity.js";
 import {
-  createTranscriptDisplayPosition,
+  createTranscriptDisplayPositionFromActivity,
   createTranscriptDisplaySource,
 } from "../../sessions/transcript-display-position.js";
 import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
@@ -40,14 +40,10 @@ export function positionTranscriptDisplayEvents<
   if (!source || events.length === 0) {
     return events;
   }
-  const anchors = [
-    ...new Set(
-      events.flatMap(({ event }) => {
-        const id = readNestedToolActivity(asOptionalRecord(event)?.message)?.details.afterEntryId;
-        return typeof id === "string" ? [id] : [];
-      }),
-    ),
-  ];
+  const activities = events.map(
+    ({ event }) => readNestedToolActivity(asOptionalRecord(event)?.message)?.details,
+  );
+  const anchors = [...new Set(activities.flatMap((activity) => activity?.afterEntryId ?? []))];
   const sequences = new Map<string, number>();
   const beforeRawSeq = resolveSqliteSessionTranscriptReadFence({
     database: projection.database,
@@ -57,16 +53,14 @@ export function positionTranscriptDisplayEvents<
     projection.state.indexedSeq,
     beforeRawSeq === undefined ? Infinity : beforeRawSeq - 1,
   );
-  const db = getActiveTranscriptKysely(projection.database);
-  // Full-history readers can exceed SQLite's binding limit; each lookup stays below 999.
-  for (let offset = 0; offset < anchors.length; offset += 500) {
+  if (anchors.length > 0) {
     const rows = executeSqliteQuerySync(
       projection.database.db,
-      db
+      getActiveTranscriptKysely(projection.database)
         .selectFrom("transcript_event_identities")
         .select(["event_id", "seq"])
         .where("session_id", "=", projection.resolved.sessionId)
-        .where("event_id", "in", anchors.slice(offset, offset + 500))
+        .where("event_id", "in", sqliteStringSet(anchors))
         .where("seq", "<=", maxSeq),
     ).rows;
     for (const row of rows) {
@@ -87,12 +81,12 @@ export function positionTranscriptDisplayEvents<
       }
     }
   }
-  return events.map((row) => ({
+  return events.map((row, index) => ({
     ...row,
-    displayPosition: createTranscriptDisplayPosition(
+    displayPosition: createTranscriptDisplayPositionFromActivity(
       source,
       row.eventSeq,
-      asOptionalRecord(row.event)?.message,
+      activities[index],
       (id) => sequences.get(id),
     ),
   }));

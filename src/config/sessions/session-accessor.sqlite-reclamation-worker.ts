@@ -5,6 +5,7 @@ import { isMainThread, threadId, type Worker } from "node:worker_threads";
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
 import { captureStateDatabaseCoordinatorRuntime } from "../../infra/state-database-coordinator.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import type { OpenClawAgentDatabaseClaim } from "../../state/openclaw-agent-db-identity.js";
 import {
@@ -83,44 +84,79 @@ export type SqliteReclamationWorkerMessage =
 const log = createSubsystemLogger("session-sqlite");
 const SLOW_RECLAMATION_WORKER_MS = 1_000;
 const RECLAMATION_WORKER_IDLE_MS = 60_000;
-const retained = resolveGlobalSingleton<{ worker?: SqliteReclamationWorker }>(
+type ReclamationWorkerSlot = { worker?: SqliteReclamationWorker };
+const retained = resolveGlobalSingleton<ReclamationWorkerSlot>(
   Symbol.for("openclaw.sessionReclamationWorker"),
   () => ({}),
 );
 
-/** The global archive FIFO admits one request on one physical connection at a time. */
+/** The global archive FIFO bounds ordinary reclamation's whole-buffer heaps. */
 export function withSqliteReclamationWorker<T>(
   options: DatabaseOptions,
   claim: OpenClawAgentDatabaseClaim,
   run: (worker: SqliteReclamationWorker) => Promise<T>,
   assertRequestCurrent: () => void,
 ): Promise<T> {
-  return runExclusiveSqliteTranscriptArchiveWorker(async () => {
-    assertRequestCurrent();
-    claim.assertCurrent();
-    if (retained.worker && !retained.worker.matches(options, claim)) {
-      await retained.worker.close();
-      retained.worker = undefined;
-    }
-    assertRequestCurrent();
-    const worker = (retained.worker ??= new SqliteReclamationWorker(options, claim.identity));
-    try {
-      return await worker.use(() => run(worker));
-    } catch (error) {
-      // An uncertain mutation is never replayed; a replacement serves only a later request.
-      try {
-        await worker.close();
-        if (retained.worker === worker) {
-          retained.worker = undefined;
+  return runExclusiveSqliteTranscriptArchiveWorker(() =>
+    useReclamationWorker(retained, options, claim, run, assertRequestCurrent),
+  );
+}
+
+/** Startup bounds these scopes; each keeps one worker through certification and native close. */
+export async function withSqliteCanonicalValidationWorker<T>(
+  run: (withWorker: typeof withSqliteReclamationWorker) => Promise<T>,
+): Promise<T> {
+  const slot: ReclamationWorkerSlot = {};
+  const queue = new KeyedAsyncQueue();
+  let closed = false;
+  try {
+    return await run((options, claim, consume, assertCurrent) =>
+      queue.enqueue("canonical-validation", () => {
+        if (closed) {
+          throw new Error("Canonical validation Worker scope is closed");
         }
-      } catch (cleanupError) {
-        throw new AggregateError([error, cleanupError], "SQLite reclamation and cleanup failed", {
-          cause: cleanupError,
-        });
+        return useReclamationWorker(slot, options, claim, consume, assertCurrent);
+      }),
+    );
+  } finally {
+    closed = true;
+    await queue.enqueue("canonical-validation", async () => {
+      await slot.worker?.close();
+    });
+  }
+}
+
+async function useReclamationWorker<T>(
+  slot: ReclamationWorkerSlot,
+  options: DatabaseOptions,
+  claim: OpenClawAgentDatabaseClaim,
+  run: (worker: SqliteReclamationWorker) => Promise<T>,
+  assertRequestCurrent: () => void,
+): Promise<T> {
+  assertRequestCurrent();
+  claim.assertCurrent();
+  if (slot.worker && !slot.worker.matches(options, claim)) {
+    await slot.worker.close();
+    slot.worker = undefined;
+  }
+  assertRequestCurrent();
+  const worker = (slot.worker ??= new SqliteReclamationWorker(options, claim.identity));
+  try {
+    return await worker.use(() => run(worker));
+  } catch (error) {
+    // An uncertain mutation is never replayed; a replacement serves only a later request.
+    try {
+      await worker.close();
+      if (slot.worker === worker) {
+        slot.worker = undefined;
       }
-      throw error;
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "SQLite reclamation and cleanup failed", {
+        cause: cleanupError,
+      });
     }
-  });
+    throw error;
+  }
 }
 
 /** Retains only the admitted connection; each caller owns its plan, claim and commit gate. */

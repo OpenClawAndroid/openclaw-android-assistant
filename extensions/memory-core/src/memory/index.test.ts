@@ -259,7 +259,7 @@ describe("memory index", () => {
   });
 
   it.each(["none", "openai"])(
-    "indexes incomplete and mixed annotations promptly with provider %s",
+    "preserves incomplete and mixed annotations when indexing with provider %s",
     async (provider) => {
       await fs.writeFile(
         path.join(fixture.paths.workspace, "MEMORY.md"),
@@ -272,9 +272,8 @@ describe("memory index", () => {
       );
       const manager = await getFreshManager(createCfg({ provider }));
       try {
-        const started = performance.now();
+        // curated-annotations.test.ts in memory-host-sdk guards parser backtracking.
         await manager.sync({ reason: "test", force: true });
-        expect(performance.now() - started).toBeLessThan(3_000);
         const db = Reflect.get(manager, "db") as DatabaseSync;
         expect(
           db

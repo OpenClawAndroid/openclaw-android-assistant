@@ -89,6 +89,11 @@ migration sources. Hot transcript JSONL files are imported and archived after
 successful import; archive-tier JSONL files remain support artifacts, not
 runtime fallbacks.
 
+When a plugin migration is deferred, the verified import receipt also captures
+unreferenced JSONL inputs. Completing the plugin migration archives those originals
+with the same identity and byte checks as indexed transcripts. Files created after
+capture remain in place, and changed originals prevent settlement until resolved.
+
 Doctor also discovers primary conversation transcripts omitted from the legacy
 registry, including timestamp-prefixed filenames. It verifies the session header,
 file identity, and logical owner before importing. Known historical generations

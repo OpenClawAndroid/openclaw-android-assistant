@@ -44,7 +44,7 @@ export async function forkCodexUpstreamSession(
         ? readConnectionFingerprint(params.upstream.ref)
         : undefined;
     const requestControl = sourceFingerprint
-      ? options.controlFactory.forUpstream(params.source.agentId, sourceFingerprint)
+      ? await options.controlFactory.forUpstream(params.source.agentId, sourceFingerprint)
       : undefined;
     if (!sourceFingerprint || !requestControl) {
       return {

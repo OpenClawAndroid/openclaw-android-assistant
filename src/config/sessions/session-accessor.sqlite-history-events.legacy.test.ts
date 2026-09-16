@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SessionManager } from "../../agents/sessions/session-manager.js";
 import { makeAgentAssistantMessage } from "../../agents/test-helpers/agent-message-fixtures.js";
+import { createNestedToolActivity } from "../../sessions/nested-tool-activity.js";
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import {
   appendTranscriptEvent,
@@ -24,6 +25,70 @@ import { transcriptMessage } from "./transcript-message.test-support.js";
 
 describe("SQLite imported transcript history", () => {
   const scope = useHistoryEventScope();
+
+  it("resolves large anchor sets without parsing unrelated non-object legacy rows", async () => {
+    const ignored = [null, 0, [], "ignored"];
+    const anchors = Array.from({ length: 33 }, (_, index) => `anchor-${index}`);
+    const activities = anchors.map((afterEntryId, index) => ({
+      type: "message",
+      id: `activity-${index}`,
+      parentId: index === 0 ? anchors.at(-1) : `activity-${index - 1}`,
+      message: createNestedToolActivity({
+        runId: "run",
+        scopeId: `scope-${index}`,
+        afterEntryId,
+        startOrder: index,
+        toolCallId: `call-${index}`,
+        toolName: "read",
+        input: {},
+        result: { content: [] },
+        isError: false,
+        startedAt: 1,
+        timestamp: 2,
+      }),
+    }));
+    const events = [
+      ...ignored,
+      ...anchors.map((id, index) => ({
+        type: "message",
+        id,
+        parentId: index === 0 ? null : anchors[index - 1],
+        message: { role: "assistant", content: id },
+      })),
+      ...activities,
+    ].map((event, seq) => ({
+      session_id: scope.sessionId,
+      seq,
+      created_at: seq,
+      event_json: JSON.stringify(event),
+    }));
+    await seedUnindexedTranscriptForTest({
+      ...scope,
+      entry: { sessionId: scope.sessionId, updatedAt: 1 },
+      events,
+    });
+    const { db } = openOpenClawAgentDatabase({ agentId: scope.agentId, env: scope.env });
+    // The retained projection predates these SQLite-valid, JS-invalid raw bytes.
+    for (let seq = 0; seq < ignored.length; seq++) {
+      const eventJson = `${events[seq]!.event_json}\0`;
+      expect(db.prepare("SELECT json_valid(?) AS valid").get(eventJson)).toEqual({ valid: 1 });
+      db.prepare(
+        "UPDATE transcript_events SET event_json = ? WHERE session_id = ? AND seq = ?",
+      ).run(eventJson, scope.sessionId, seq);
+    }
+    const rawBefore = db.prepare("SELECT * FROM transcript_events ORDER BY seq").all();
+    const history = readSessionTranscriptHistoryEvents(scope);
+    expect(history.map(historyEventId)).toEqual([...anchors, ...activities.map(({ id }) => id)]);
+    expect(history.slice(anchors.length).map((row) => row.displayPosition?.activity)).toEqual(
+      anchors.map((_, index) => ({
+        afterRawSeq: ignored.length + index,
+        scopeId: `scope-${index}`,
+        startOrder: index,
+      })),
+    );
+    expect(db.prepare("SELECT * FROM transcript_events ORDER BY seq").all()).toEqual(rawBefore);
+    expect(db.prepare("SELECT * FROM transcript_event_identities").all()).toEqual([]);
+  });
 
   it.each(["boundary", "paired-result"])(
     "reads imported reset history with SQLite-overdepth %s JSON",

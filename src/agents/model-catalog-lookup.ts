@@ -89,7 +89,7 @@ export function resolvePreparedModelThinkingCompat(params: {
     compat?: Model["compat"] | ModelThinkingCompat;
   };
   agentRuntime: string;
-}): ModelThinkingCompat | undefined {
+}): Pick<ModelCompatConfig, "thinkingFormat" | "supportedReasoningEfforts"> | undefined {
   const capability = params.capability;
   if (!capability) {
     return undefined;
@@ -104,9 +104,8 @@ export function resolvePreparedModelThinkingCompat(params: {
   ) {
     return undefined;
   }
-  const { compat, route } = capability;
-  const efforts = compat.supportedReasoningEfforts;
-  if (route || efforts === undefined) {
+  const { supportedReasoningEfforts: efforts, ...compat } = capability.compat;
+  if (efforts === undefined) {
     return compat;
   }
   // "none" disables reasoning; it is not an enabled effort tier. Harness-wide
@@ -115,9 +114,12 @@ export function resolvePreparedModelThinkingCompat(params: {
   const enabledEfforts = efforts?.filter((effort) => effort !== "none");
   return {
     ...compat,
-    supportedReasoningEfforts: routeEfforts?.includes("none")
-      ? ["none", ...(enabledEfforts ?? [])]
-      : (enabledEfforts ?? efforts),
+    // Unknown metadata clears earlier capabilities; runtime arrays belong to this model.
+    supportedReasoningEfforts: capability.route
+      ? efforts?.slice()
+      : routeEfforts?.includes("none")
+        ? ["none", ...(enabledEfforts ?? [])]
+        : enabledEfforts,
   };
 }
 

@@ -158,7 +158,9 @@ describe("agent runtime plugin registries", () => {
     hoisted.getActivePluginRegistry.mockReset().mockReturnValue(undefined);
     hoisted.getActivePluginRegistryWorkspaceDir.mockReset().mockReturnValue(undefined);
     hoisted.getActivePluginRuntimeSubagentMode.mockReset().mockReturnValue("default");
-    hoisted.loadPluginRegistryHandle.mockReset().mockReturnValue({ handle: true });
+    hoisted.loadPluginRegistryHandle
+      .mockReset()
+      .mockImplementation(() => createEmptyPluginRegistry());
     hoisted.adoptRuntimeContextEngineRegistrations
       .mockReset()
       .mockImplementation((target) => target);
@@ -331,7 +333,11 @@ describe("agent runtime plugin registries", () => {
   it("reuses the current Gateway generation and loads only the imported-plugin delta", async () => {
     const { config, workspaceDir, metadataSnapshot, activeRegistry } =
       createGatewayRegistryFixture();
-    const selectedRegistry = { plugins: [...activeRegistry.plugins, { id: "selected-provider" }] };
+    const selectedRegistry = createEmptyPluginRegistry();
+    selectedRegistry.plugins = [
+      ...activeRegistry.plugins,
+      createPluginRecord({ id: "selected-provider" }),
+    ];
     hoisted.loadPluginRegistryHandle.mockReturnValue(selectedRegistry);
     hoisted.resolveAgentRuntimePluginLoadPlan.mockImplementation(({ basePluginIds }) => ({
       config,
@@ -470,7 +476,7 @@ describe("agent runtime plugin registries", () => {
         allowGatewaySubagentBinding: true,
         selections,
       }),
-    ).toEqual({ handle: true });
+    ).toEqual(createEmptyPluginRegistry());
     const metadataSnapshot = hoisted.loadPluginMetadataSnapshot.mock.results[0]?.value;
     expect(hoisted.loadPluginMetadataSnapshot).toHaveBeenCalledWith({
       config,
@@ -502,7 +508,7 @@ describe("agent runtime plugin registries", () => {
       config: { plugins: { enabled: false } } as never,
       workspaceDir: "/tmp/workspace",
     };
-    expect(loadAgentRuntimePluginRegistryHandle(params)).toEqual({ handle: true });
+    expect(loadAgentRuntimePluginRegistryHandle(params)).toEqual(createEmptyPluginRegistry());
     expect(hoisted.resolveAgentRuntimePluginLoadPlan).not.toHaveBeenCalled();
     expect(hoisted.loadPluginRegistryHandle).toHaveBeenCalledWith(
       expect.objectContaining({

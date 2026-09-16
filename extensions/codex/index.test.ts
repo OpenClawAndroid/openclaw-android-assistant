@@ -208,9 +208,9 @@ describe("codex plugin", () => {
       const command = createCodexSessionCatalogNodeHostCommands(
         {
           forRequest: () => control,
-          forNode: () => ({ control, sourceHomeId: "home", codexHome: "/synthetic" }),
-          homesForAgent: () => [],
-          forUpstream: () => undefined,
+          forNode: async () => ({ control, sourceHomeId: "home", codexHome: "/synthetic" }),
+          homesForAgent: async () => [],
+          forUpstream: async () => undefined,
         },
         bindingStore,
       ).find((candidate) => candidate.command === "codex.appServer.threads.list.v1")!;

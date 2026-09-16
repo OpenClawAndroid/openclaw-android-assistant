@@ -2,7 +2,7 @@ import type { OpenClawDatabaseSchemaPreflight } from "./openclaw-database-prefli
 
 // Snapshot preparation can be disk-heavy; overlap one additional agent
 // without fanning out across every registered database.
-const AGENT_DATABASE_PREFLIGHT_CONCURRENCY = 2;
+export const AGENT_DATABASE_PREFLIGHT_CONCURRENCY = 2;
 
 export async function preflightAgentDatabasesBounded<T>(
   targets: readonly T[],

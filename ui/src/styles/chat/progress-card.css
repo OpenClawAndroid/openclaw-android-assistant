@@ -81,16 +81,11 @@
   align-items: center;
   justify-content: center;
   color: var(--muted);
-  transition: transform 0.16s var(--ease-out);
 }
 
 .session-progress-card__chevron svg {
   width: 14px;
   height: 14px;
-}
-
-.session-progress-card--composer:not([open]) .session-progress-card__chevron {
-  transform: rotate(-90deg);
 }
 
 .session-progress-card__summary:focus-visible {

@@ -240,6 +240,12 @@ describe("session sources needed by deferred plugin migrations", () => {
       missingTranscript: "none",
     },
     { changeSource: true, siblingPending: false, pendingChange: "none", missingTranscript: "none" },
+    {
+      changeSource: "orphan",
+      siblingPending: false,
+      pendingChange: "none",
+      missingTranscript: "absent",
+    },
     { changeSource: false, siblingPending: true, pendingChange: "none", missingTranscript: "none" },
     {
       changeSource: false,
@@ -280,6 +286,25 @@ describe("session sources needed by deferred plugin migrations", () => {
           "fixture-plugin",
           missingTranscript === "none" ? undefined : "declared",
         );
+        const archiveInputs = new Map(
+          [
+            "deleted-orphan-one.jsonl",
+            "deleted-orphan-two.jsonl",
+            "deleted-orphan-one.trajectory.jsonl",
+            "legacy-kept.trajectory.jsonl",
+            "legacy-kept.trajectory-path.json",
+          ].map((name) => {
+            const file = path.join(path.dirname(storePath), name);
+            const bytes = Buffer.from(JSON.stringify({ artifact: name }) + "\n");
+            fs.writeFileSync(file, bytes);
+            originals.set(file, bytes);
+            return [file, bytes] as const;
+          }),
+        );
+        const changedSource =
+          changeSource === "orphan"
+            ? path.join(path.dirname(storePath), "deleted-orphan-one.jsonl")
+            : storePath;
         if (siblingPending) {
           recordDeferredPluginMigrations({
             env: state.env,
@@ -345,7 +370,7 @@ describe("session sources needed by deferred plugin migrations", () => {
             detectLegacyState: () => fs.existsSync(${JSON.stringify(marker)}) ? { preview: ["Consume retained fixture state"] } : null,
             migrateLegacyState: () => {
               fs.writeFileSync(${JSON.stringify(newHistory)}, ${JSON.stringify(newHistoryBytes)});
-              ${changeSource ? `fs.appendFileSync(${JSON.stringify(storePath)}, "\\n");` : ""}
+              ${changeSource ? `fs.appendFileSync(${JSON.stringify(changedSource)}, "\\n");` : ""}
               fs.unlinkSync(${JSON.stringify(marker)});
               return { changes: ["Consumed retained fixture state"], warnings: [] };
             },
@@ -433,8 +458,8 @@ describe("session sources needed by deferred plugin migrations", () => {
           expect(readDeferredPluginMigrations({ env: state.env })).toEqual([
             expect.objectContaining({ pluginId: "fixture-plugin" }),
           ]);
-          expect(fs.readFileSync(storePath, "utf8")).toBe(
-            originals.get(storePath)?.toString() + (changeSource ? "\n" : ""),
+          expect(fs.readFileSync(changedSource, "utf8")).toBe(
+            originals.get(changedSource)?.toString() + (changeSource ? "\n" : ""),
           );
         } else if (siblingPending) {
           expect(() => assertSessionStoreMigrationComplete({ cfg, env: state.env })).not.toThrow();
@@ -458,6 +483,14 @@ describe("session sources needed by deferred plugin migrations", () => {
           expect(archived).toEqual([
             expect.objectContaining({ validationBeforeArchive: "passed" }),
           ]);
+          for (const [file, bytes] of archiveInputs) {
+            expect(fs.existsSync(file)).toBe(false);
+            const move = archived[0]?.completedMoves.find(
+              (candidate) => candidate.sourcePath === file,
+            );
+            expect(move?.artifact?.classification).toBe("protected");
+            expect(fs.readFileSync(move!.archivePath)).toEqual(bytes);
+          }
           if (missingTranscript === "absent") {
             expect(archived[0]?.issues).toContainEqual(
               expect.objectContaining({ code: "transcript_missing" }),

@@ -197,10 +197,13 @@ export async function handleNativeGoal(
   if (!binding?.threadId) {
     return "No Codex thread is attached to this OpenClaw session yet.";
   }
-  const connection = resolveCodexBindingAppServerConnection({
+  const connection = await resolveCodexBindingAppServerConnection({
     binding,
     authProfileId: binding.authProfileId,
     pluginConfig,
+    agentDir: target.agentDir,
+    config: ctx.config,
+    assertCurrent: authority.assertCurrent,
   });
   const goalRequestOptions: CodexControlRequestOptions = {
     agentDir: target.agentDir,
@@ -514,10 +517,13 @@ export async function startThreadAction(
       ? `Compacted Codex session (${result.tokensAfter ?? "unknown"} tokens after).`
       : `Codex compaction did not complete: ${formatCodexDisplayText(result.reason ?? "no reason returned")}.`;
   }
-  const connection = resolveCodexBindingAppServerConnection({
+  const connection = await resolveCodexBindingAppServerConnection({
     binding,
     authProfileId: binding.authProfileId,
     pluginConfig,
+    agentDir: target.agentDir,
+    config: ctx.config,
+    assertCurrent: authority.assertCurrent,
   });
   await deps.bindingStore.withLease(target.identity, () =>
     deps.codexControlRequest(

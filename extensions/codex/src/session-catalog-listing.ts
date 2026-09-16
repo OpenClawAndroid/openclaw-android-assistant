@@ -45,7 +45,7 @@ export function createCodexSessionCatalogNodeHostCommands(
   bindingStore?: CodexAppServerBindingStore,
 ): OpenClawPluginNodeHostCommand[] {
   // Native sources ignore the Gateway route; explicit preexisting sources retain their selector.
-  const bindRequest = (paramsJSON?: string | null) => {
+  const bindRequest = async (paramsJSON?: string | null) => {
     const parsed = parseJsonParams(paramsJSON);
     if (!isRecord(parsed)) {
       throw new CatalogParamsError("Codex session catalog parameters must be an object");
@@ -54,7 +54,7 @@ export function createCodexSessionCatalogNodeHostCommands(
     const request = { ...parsed };
     delete request.agentId;
     return {
-      ...controlFactory.forNode(agentId),
+      ...(await controlFactory.forNode(agentId)),
       params: request,
       paramsJSON: JSON.stringify(request),
     };
@@ -65,7 +65,7 @@ export function createCodexSessionCatalogNodeHostCommands(
       cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
       dangerous: false,
       handle: async (paramsJSON) => {
-        const request = bindRequest(paramsJSON);
+        const request = await bindRequest(paramsJSON);
         const pageParams = readPageParams(request.params);
         try {
           const managedThreads = await bindingStore?.managedThreads?.snapshot();
@@ -104,7 +104,7 @@ export function createCodexSessionCatalogNodeHostCommands(
       cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
       dangerous: false,
       handle: async (paramsJSON) => {
-        const request = bindRequest(paramsJSON);
+        const request = await bindRequest(paramsJSON);
         const action = readNodeTranscriptParams(request.params);
         try {
           await request.control.requireEligibleThread(action.threadId);
@@ -131,7 +131,7 @@ export function createCodexSessionCatalogNodeHostCommands(
       cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
       dangerous: false,
       handle: async (paramsJSON) => {
-        const request = bindRequest(paramsJSON);
+        const request = await bindRequest(paramsJSON);
         const action = readNodeTranscriptParams(request.params);
         try {
           return JSON.stringify(await readCodexCatalogTranscriptPage(request.control, action));

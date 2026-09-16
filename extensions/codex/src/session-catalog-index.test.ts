@@ -36,14 +36,14 @@ function fixture(count = 160, previewBytes = 32) {
       nextCursor: offset + data.length < rows.length ? String(offset + data.length) : null,
     };
   });
-  const make = () => {
+  const make = async () => {
     const factory = createCodexSessionCatalogControlFactory({
       getPluginConfig: () => ({ supervision: { enabled: true } }),
       // Exercise the owner directly; query-cache coverage lives in listing-cache tests.
       getRuntimeConfig: () => undefined,
       now: () => now,
     });
-    return factory.forRequest("main", factory.homesForAgent("main")[0]);
+    return factory.forRequest("main", (await factory.homesForAgent("main"))[0]);
   };
   const expire = () => {
     now += 32_001;
@@ -63,7 +63,7 @@ function fixture(count = 160, previewBytes = 32) {
 describe("in-memory Codex catalog producer", () => {
   it("serves a cold page immediately and fetches older pages only on demand", async () => {
     const f = fixture();
-    const control = f.make();
+    const control = await f.make();
     const first = await control.listPage({ limit: 100 });
     expect(first.sessions).toHaveLength(64);
     expect(f.fetched).toHaveLength(1);
@@ -76,7 +76,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("bounds native wire pages and retains only display-sized previews", async () => {
     const f = fixture(160, 1024 * 1024);
-    const page = await f.make().listPage({ limit: 100 });
+    const page = await (await f.make()).listPage({ limit: 100 });
     expect(f.fetched[0]).toHaveLength(64);
     expect(page.sessions.every((row) => (row.fallbackName?.length ?? 0) <= 500)).toBe(true);
     expect(JSON.stringify(page).length).toBeLessThan(64 * 4_096);
@@ -84,7 +84,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("probes an unchanged watermark with one row and reuses the bounded page", async () => {
     const f = fixture();
-    const control = f.make();
+    const control = await f.make();
     const first = await control.listPage({ limit: 100 });
     f.expire();
     expect(await control.listPage({ limit: 100 })).toEqual(first);
@@ -93,9 +93,9 @@ describe("in-memory Codex catalog producer", () => {
 
   it("starts cold after a new owner is created", async () => {
     const f = fixture();
-    await f.make().listPage({ limit: 100 });
+    await (await f.make()).listPage({ limit: 100 });
     f.expire();
-    const page = await f.make().listPage({ limit: 100 });
+    const page = await (await f.make()).listPage({ limit: 100 });
     expect(page.sessions).toHaveLength(64);
     expect(f.fetched).toHaveLength(1);
     expect(f.fetched[0]).toHaveLength(64);
@@ -103,7 +103,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("refreshes a changed thread without walking the untouched inventory", async () => {
     const f = fixture(1_000);
-    const control = f.make();
+    const control = await f.make();
     await control.listPage({ limit: 100 });
     f.rows[20] = { ...f.rows[20]!, updatedAt: 2_000, recencyAt: 2_000, name: "Changed title" };
     f.expire();
@@ -121,7 +121,7 @@ describe("in-memory Codex catalog producer", () => {
         row.updatedAt = 1_000;
         row.recencyAt = 1_000;
       }
-      const control = f.make();
+      const control = await f.make();
       const first = await control.listPage({ limit: 100 });
       await control.listPage({ limit: 100, cursor: first.nextCursor });
       let clock = 0;
@@ -145,7 +145,7 @@ describe("in-memory Codex catalog producer", () => {
   it("uses native recency when activity order differs from metadata modification time", async () => {
     const f = fixture();
     f.rows[20] = { ...f.rows[20]!, recencyAt: 2_000 };
-    const control = f.make();
+    const control = await f.make();
     const first = await control.listPage({ limit: 100 });
     expect(first.sessions[0]?.threadId).toBe("thread-020");
     f.expire();
@@ -162,7 +162,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("drops a missing thread from the refreshed page", async () => {
     const f = fixture();
-    const control = f.make();
+    const control = await f.make();
     await control.listPage({ limit: 100 });
     f.rows.shift();
     f.expire();
@@ -173,7 +173,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("retries an interrupted refresh without advancing its watermark", async () => {
     const f = fixture();
-    const control = f.make();
+    const control = await f.make();
     await control.listPage({ limit: 100 });
     f.rows[20] = {
       ...f.rows[20]!,
@@ -194,7 +194,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("refreshes the bounded head after repeated unchanged probes and an interruption", async () => {
     const f = fixture();
-    const control = f.make();
+    const control = await f.make();
     await control.listPage({ limit: 100 });
     f.rows.splice(2, 1);
     for (let i = 0; i < 9; i++) {
@@ -211,7 +211,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("recognizes the unchanged head after browsing beyond row cache residency", async () => {
     const f = fixture(3_000);
-    const control = f.make();
+    const control = await f.make();
     let page = await control.listPage({ limit: 100 });
     const ids = new Set(page.sessions.map((row) => row.threadId));
     while (page.nextCursor) {
@@ -231,7 +231,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("refetches evicted cwd views without limiting catalog membership", async () => {
     const f = fixture();
-    const control = f.make();
+    const control = await f.make();
     for (let i = 0; i < 33; i++) {
       const page = await control.listPage({ cwd: `/workspace/${i}`, limit: 100 });
       expect(page.sessions).toHaveLength(64);
@@ -244,7 +244,7 @@ describe("in-memory Codex catalog producer", () => {
 
   it("keeps a pending cwd view shared while idle views are evicted", async () => {
     const f = fixture();
-    const control = f.make();
+    const control = await f.make();
     const native = commandRpcMocks.codexControlRequest.getMockImplementation();
     if (!native) {
       throw new Error("expected native fixture");
@@ -282,9 +282,9 @@ describe("in-memory Codex catalog producer", () => {
 
   it("rejects malformed cursors before native reads", async () => {
     const f = fixture();
-    await expect(f.make().listPage({ cursor: "x".repeat(4097), limit: 100 })).rejects.toThrow(
-      /cursor/,
-    );
+    await expect(
+      (await f.make()).listPage({ cursor: "x".repeat(4097), limit: 100 }),
+    ).rejects.toThrow(/cursor/);
     expect(f.fetched).toEqual([]);
   });
 });

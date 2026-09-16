@@ -112,7 +112,7 @@ vi.mock("../session-runtime-compat.js", () => ({
   resolveSessionRuntimeOverrideForProvider: () => undefined,
 }));
 vi.mock("../thinking-runtime.js", () => ({
-  hasResolvedThinkingCatalogEntry: () => false,
+  needsThinkHydration: () => false,
   normalizeThinkingCatalogProviders: (catalog: unknown) => catalog,
   resolveEffectiveAgentRuntime: () => undefined,
 }));

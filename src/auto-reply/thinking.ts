@@ -1,3 +1,4 @@
+import { listMappedModelThinkingLevels } from "@openclaw/model-catalog-core/model-catalog-types";
 // Thinking/reasoning level catalog helpers for auto-reply model controls.
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import {
@@ -13,7 +14,6 @@ import type {
 import {
   BASE_THINKING_LEVELS,
   normalizeThinkLevel,
-  resolveThinkingDefaultForModelCore,
   THINKING_LEVEL_RANKS,
 } from "./thinking.shared.js";
 import type { ThinkLevel, ThinkingCatalogEntry } from "./thinking.shared.js";
@@ -168,11 +168,18 @@ function normalizeProfileLevel(
   };
 }
 
-function normalizeThinkingProfile(profile: ProviderThinkingProfile): ResolvedThinkingProfile {
+function normalizeThinkingProfile(
+  profile: ProviderThinkingProfile,
+  thinkingLevelMap: ThinkingCatalogEntry["thinkingLevelMap"],
+  mappedLevels: readonly ("xhigh" | "max")[] = [],
+): ResolvedThinkingProfile {
   const byId = new Map<ThinkLevel, RankedThinkingLevelOption>();
   for (const raw of profile.levels) {
     const level = normalizeProfileLevel(raw);
-    if (level) {
+    if (
+      level &&
+      (level.id === "adaptive" || level.id === "ultra" || thinkingLevelMap?.[level.id] !== null)
+    ) {
       byId.set(level.id, level);
     }
   }
@@ -181,7 +188,15 @@ function normalizeThinkingProfile(profile: ProviderThinkingProfile): ResolvedThi
     ? normalizeThinkLevel(profile.defaultLevel)
     : undefined;
   const defaultLevel = rawDefaultLevel && byId.has(rawDefaultLevel) ? rawDefaultLevel : undefined;
-  return { levels, defaultLevel };
+  const normalized = { levels, defaultLevel };
+  if (profile.levels.length > 0) {
+    for (const level of mappedLevels) {
+      if (thinkingLevelMap?.[level] !== null) {
+        appendProfileLevel(normalized, level);
+      }
+    }
+  }
+  return normalized;
 }
 
 function buildBaseThinkingProfile(defaultLevel?: ThinkLevel | null): ResolvedThinkingProfile {
@@ -222,9 +237,6 @@ function appendCatalogAdvancedThinkingLevels(
         appendProfileLevel(profile, level);
       }
     }
-    profile.levels = profile.levels.filter(
-      ({ id }) => id === "adaptive" || id === "ultra" || thinkingLevelMap[id] !== null,
-    );
   }
   let supportsMax = profile.levels.some(({ id }) => id === "max");
   for (const effort of compat?.supportedReasoningEfforts ?? []) {
@@ -265,6 +277,7 @@ export function resolveThinkingProfile(params: {
     agentRuntime: params.agentRuntime,
     api: context.api,
     reasoning: context.reasoning,
+    thinkingLevelMap: context.thinkingLevelMap,
     ...(context.params ? { params: context.params } : {}),
     compat: context.compat,
   };
@@ -295,11 +308,18 @@ export function resolveThinkingProfile(params: {
         })
       : undefined;
   const pluginProfile = providerProfile ?? anthropicMessagesProfile;
+  const runtime = normalizeOptionalLowercaseString(params.agentRuntime);
+  const mappedLevels =
+    !runtime || runtime === "auto" || runtime === "openclaw"
+      ? listMappedModelThinkingLevels(context).filter(
+          (level) => level === "xhigh" || level === "max",
+        )
+      : [];
   if (
     pluginProfile &&
     (context.reasoning !== false || pluginProfile.preserveWhenCatalogReasoningFalse === true)
   ) {
-    return normalizeThinkingProfile(pluginProfile);
+    return normalizeThinkingProfile(pluginProfile, context.thinkingLevelMap, mappedLevels);
   }
   if (context.reasoning === false) {
     return buildOffOnlyThinkingProfile();
@@ -312,7 +332,7 @@ export function resolveThinkingProfile(params: {
     context.thinkingLevelMap,
     params.agentRuntime,
   );
-  return profile;
+  return normalizeThinkingProfile(profile, context.thinkingLevelMap, mappedLevels);
 }
 
 /** List thinking level ids supported by provider/model. */
@@ -370,22 +390,15 @@ export function resolveThinkingDefaultForModel(params: {
   agentRuntime?: string | null;
   providerPolicySource?: ProviderThinkingPolicySource;
 }): ThinkLevel {
+  const candidate = resolveThinkingCatalogEntry(params);
   const profile = resolveThinkingProfile({
-    provider: params.provider,
-    model: params.model,
-    catalog: params.catalog,
-    catalogResolver: params.catalogResolver,
-    agentRuntime: params.agentRuntime,
-    providerPolicySource: params.providerPolicySource,
+    ...params,
+    catalogResolver: () => candidate,
   });
   if (profile.defaultLevel) {
     return profile.defaultLevel;
   }
-  const fallback = resolveThinkingDefaultForModelCore(params);
-  if (fallback === "off") {
-    return "off";
-  }
-  return resolveSupportedThinkingLevelFromProfile(profile, "medium");
+  return candidate?.reasoning ? resolveSupportedThinkingLevelFromProfile(profile, "medium") : "off";
 }
 
 /** Return whether a specific thinking level is supported by provider/model. */

@@ -62,7 +62,7 @@ describe("setup activation credentials and configuration", () => {
       const setup = await fixture({ codex: true, fresh, subscription: true });
       const result = await setup.activate("codex-cli");
       expect(setup.login).toHaveBeenCalledOnce();
-      expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true });
+      expect(result).toMatchObject({ ok: true });
       expect(setup.run).toHaveBeenCalledOnce();
       expect(setup.run.mock.calls[0]?.[0]).toMatchObject({
         authProfileId: setup.readProfile()?.[0],
@@ -111,7 +111,7 @@ describe("setup activation credentials and configuration", () => {
       };
     });
     const result = await setup.activate("codex-cli");
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true });
+    expect(result).toMatchObject({ ok: true });
     expect(setup.login).not.toHaveBeenCalled();
     expect(readNativeKey).not.toHaveBeenCalled();
     expect(setup.readProfile()).toBeUndefined();
@@ -142,7 +142,7 @@ describe("setup activation credentials and configuration", () => {
       profiles: [{ profileId: "openai:existing", credential }],
     });
     const result = await setup.activate("codex-cli");
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true });
+    expect(result).toMatchObject({ ok: true });
     expect(setup.login).not.toHaveBeenCalled();
     expect(setup.run.mock.calls[0]?.[0].authProfileId).toBe("openai:existing");
   });
@@ -158,7 +158,7 @@ describe("setup activation credentials and configuration", () => {
     expect(saved[1].setup?.agentRuntimeId).toBe("codex");
     expect(JSON.parse(saved[1].setup!.configJson).plugins.entries.codex.enabled).toBe(true);
     const retry = await setup.activate(`saved-auth:${encodeURIComponent(saved[0])}`, true);
-    expect(retry, await setup.diagnostics(retry)).toMatchObject({ ok: true });
+    expect(retry).toMatchObject({ ok: true });
     expect(setup.login).toHaveBeenCalledOnce();
     expect(setup.run).toHaveBeenCalledTimes(2);
     expect(setup.run.mock.calls[1]?.[0].agentHarnessRuntimeOverride).toBe("codex");
@@ -168,7 +168,7 @@ describe("setup activation credentials and configuration", () => {
     const setup = await fixture({ codex: true });
     setup.deps.readCodexCliActiveApiKey = () => credential;
     const result = await setup.activate("codex-cli");
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true });
+    expect(result).toMatchObject({ ok: true });
     expect(setup.login).not.toHaveBeenCalled();
     expect(setup.run).toHaveBeenCalledOnce();
     expect(setup.readProfile()?.[1]).toMatchObject(credential);
@@ -227,7 +227,7 @@ describe("setup activation credentials and configuration", () => {
       );
       const result = await setup.activate();
       expect(revoked).toHaveBeenCalledOnce();
-      expect(result, await setup.diagnostics(result)).toMatchObject({ ok: false });
+      expect(result).toMatchObject({ ok: false });
       expect(setup.readProfile()?.[1].setup).toBeDefined();
       expect(setup.readProfile()?.[1]).not.toHaveProperty("key");
       expect(setup.run).toHaveBeenCalledOnce();
@@ -242,7 +242,7 @@ describe("setup activation credentials and configuration", () => {
         setup.run.mockRejectedValueOnce(new Error("fixture provider unavailable"));
       }
       const result = await setup.activate();
-      expect(result, await setup.diagnostics(result)).toMatchObject({ ok: !rejected });
+      expect(result).toMatchObject({ ok: !rejected });
       const activated = await readConfigFileSnapshot();
       expect(hasResolvedRosterBeforeMigrations(activated)).toBe(false);
       if (rejected) {
@@ -328,7 +328,7 @@ describe("setup activation credentials and configuration", () => {
 
       const result = await setup.activate();
 
-      expect(result, await setup.diagnostics(result)).toMatchObject({ ok: matching });
+      expect(result).toMatchObject({ ok: matching });
       expect(
         Object.values(loadAuthProfileStoreWithoutExternalProfiles(setup.agentDir).profiles),
       ).toEqual(expectedCredentials);
@@ -358,7 +358,7 @@ describe("setup activation credentials and configuration", () => {
       });
 
       const result = await setup.activate();
-      expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true, modelRef });
+      expect(result).toMatchObject({ ok: true, modelRef });
       expect(setup.readProfile()?.[1]).not.toHaveProperty("setup");
 
       expect(setup.run).toHaveBeenCalledOnce();
@@ -383,7 +383,7 @@ describe("setup activation credentials and configuration", () => {
 
     const result = await setup.activate();
 
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true, modelRef });
+    expect(result).toMatchObject({ ok: true, modelRef });
     const after = await fs.readFile(setup.configPath, "utf8");
     const afterSnapshot = await readConfigFileSnapshot();
     expect(after).not.toBe(before);
@@ -411,10 +411,10 @@ describe("setup activation credentials and configuration", () => {
     });
 
     const rejected = await setup.activate();
-    expect(rejected, await setup.diagnostics(rejected)).toMatchObject({ ok: false });
+    expect(rejected).toMatchObject({ ok: false });
 
     expect(await fs.readFile(setup.configPath, "utf8")).toBe(setup.before);
-    expect(setup.readProfile()?.[1], await setup.diagnostics(rejected)).toMatchObject(credential);
+    expect(setup.readProfile()?.[1]).toMatchObject(credential);
     const detection = await setup.detect();
     const saved = detection.candidates.find((candidate) =>
       candidate.kind.startsWith("saved-auth:"),
@@ -425,7 +425,7 @@ describe("setup activation credentials and configuration", () => {
     }
 
     const retried = await setup.activate(saved.kind);
-    expect(retried, await setup.diagnostics(retried)).toMatchObject({ ok: true, modelRef });
+    expect(retried).toMatchObject({ ok: true, modelRef });
 
     expect(setup.login).toHaveBeenCalledOnce();
     expect(setup.run).toHaveBeenCalledTimes(2);
@@ -472,7 +472,7 @@ describe("setup activation credentials and configuration", () => {
 
       const result = await setup.activate();
 
-      expect(result, await setup.diagnostics(result)).toMatchObject({ ok: false });
+      expect(result).toMatchObject({ ok: false });
       expect(await fs.readFile(setup.configPath, "utf8")).toBe(before);
       const store = loadAuthProfileStoreWithoutExternalProfiles(setup.agentDir);
       expect(resolveAuthProfileOrder({ cfg: configured, store, provider: "openai" })).toEqual([
@@ -532,7 +532,7 @@ describe("setup activation credentials and configuration", () => {
 
       const retryKind = `saved-auth:${encodeURIComponent(savedId)}` as const;
       const declined = await setup.activate(retryKind);
-      expect(declined, await setup.diagnostics(declined)).toMatchObject({ ok: false });
+      expect(declined).toMatchObject({ ok: false });
       expect(setup.prompter.confirm).toHaveBeenCalledWith({
         message: "Connection verified. Activate this saved sign-in?",
         initialValue: true,
@@ -547,7 +547,7 @@ describe("setup activation credentials and configuration", () => {
         async ({ initialValue }) => initialValue ?? false,
       );
       const accepted = await setup.activate(retryKind, activationConfirmed);
-      expect(accepted, await setup.diagnostics(accepted)).toMatchObject({ ok: true });
+      expect(accepted).toMatchObject({ ok: true });
       expect(setup.readProfile()).toEqual([savedId, credential]);
       expect(setup.login).toHaveBeenCalledOnce();
       expect(setup.run).toHaveBeenCalledTimes(3);
@@ -603,7 +603,7 @@ describe("setup activation credentials and configuration", () => {
       true,
     );
 
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true });
+    expect(result).toMatchObject({ ok: true });
     expect(setup.readProfile()).toEqual([saved.profile.profileId, credential]);
     const snapshot = await readConfigFileSnapshot();
     expect(snapshot.sourceConfig.models?.providers?.openai?.models).toEqual([
@@ -621,7 +621,7 @@ describe("setup activation credentials and configuration", () => {
     });
 
     const result = await setup.activate();
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true, modelRef });
+    expect(result).toMatchObject({ ok: true, modelRef });
 
     const persisted = await readConfigFileSnapshot();
     expect(persisted.sourceConfig.messages?.ackReaction).toBe("seen");
@@ -651,7 +651,7 @@ describe("setup activation credentials and configuration", () => {
     }
     const result = await setup.activate(saved.kind);
 
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: true, modelRef });
+    expect(result).toMatchObject({ ok: true, modelRef });
     expect(setup.login).not.toHaveBeenCalled();
     expect(setup.run).toHaveBeenCalledOnce();
     expect(setup.readProfile()?.[1]).toMatchObject(credential);
@@ -669,11 +669,9 @@ describe("setup activation credentials and configuration", () => {
     });
 
     const result = await setup.activate();
-    expect(result, await setup.diagnostics(result)).toMatchObject({ ok: false });
+    expect(result).toMatchObject({ ok: false });
 
-    expect(await fs.readFile(setup.configPath, "utf8"), await setup.diagnostics(result)).toBe(
-      changed,
-    );
+    expect(await fs.readFile(setup.configPath, "utf8")).toBe(changed);
     expect(setup.readProfile()?.[1]).toMatchObject(credential);
     expect(setup.run).toHaveBeenCalledOnce();
   });

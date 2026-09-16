@@ -24,16 +24,15 @@ suite.define(() => {
       cacheWriteCost: 0,
       missingCostEntries: 0,
     };
-    // The current whole-session producer groups repeated names within each message.
     const tools = {
-      totalCalls: 2,
+      totalCalls: 3,
       uniqueTools: 2,
       tools: [
-        { name: "read", count: 1 },
+        { name: "read", count: 2 },
         { name: "exec", count: 1 },
       ],
     };
-    const messages = { total: 3, user: 0, assistant: 3, toolCalls: 2, toolResults: 2, errors: 0 };
+    const messages = { total: 3, user: 0, assistant: 3, toolCalls: 3, toolResults: 2, errors: 0 };
     const points = [start, start + 2000, start + 4000].map((timestamp, index) => ({
       timestamp,
       input: 100,
@@ -124,6 +123,11 @@ suite.define(() => {
         const panel = page.locator(".session-detail-panel");
         const handle = panel.locator(".chart-handle-right");
         await handle.waitFor({ state: "visible" });
+        const count = panel.locator(".session-summary-value").nth(1);
+        await expect.poll(() => count.textContent()).toBe("3");
+        if (proofDir) {
+          await panel.screenshot({ path: path.join(proofDir, "whole-session.png") });
+        }
         await handle.scrollIntoViewIfNeeded();
         const handleBox = await handle.boundingBox();
         const chartBox = await panel.locator(".timeseries-svg").boundingBox();
@@ -140,7 +144,6 @@ suite.define(() => {
         });
         await page.mouse.up();
         await panel.locator(".session-detail-indicator").waitFor({ state: "visible" });
-        const count = panel.locator(".session-summary-value").nth(1);
         await expect.poll(() => panel.locator(".session-log-entry").count()).toBe(4);
         if (proofDir) {
           await panel.screenshot({ path: path.join(proofDir, "selected-range.png") });
@@ -154,6 +157,7 @@ suite.define(() => {
         await panel.getByRole("button", { name: "Reset", exact: true }).click();
         await expect.poll(() => panel.locator(".session-detail-indicator").count()).toBe(0);
         await expect.poll(() => panel.locator(".session-log-entry").count()).toBe(5);
+        await expect.poll(() => count.textContent()).toBe("3");
 
         const refreshedTotals = { ...totals, input: 400, output: 80, totalTokens: 480 };
         const usage = scenario.methodResponses["sessions.usage"];

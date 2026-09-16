@@ -41,6 +41,18 @@ describe("npm preflight publication channels", () => {
       },
     };
     expect(() => validateNpmPreflightDistTag({ manifest, npmDistTag: "latest" })).not.toThrow();
+    expect(() =>
+      validateNpmPreflightDistTag({
+        manifest: {
+          ...manifest,
+          pluginSdkApi: {
+            ...manifest.pluginSdkApi,
+            schema: "openclaw.plugin-sdk-api-release-evidence-set/v2",
+          },
+        },
+        npmDistTag: "latest",
+      }),
+    ).not.toThrow();
     for (const changed of [
       { ...manifest, version: 2 },
       { ...manifest, version: 1 },

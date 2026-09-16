@@ -607,6 +607,9 @@ export function presentSessionRow(
   const { source } = materialized;
   const { entry, freshSessionTotalTokens } = source;
   const { now } = options;
+  // Stamp the temporal projection, not the reusable materialized inputs.
+  // Completed list caches retain this sample when they replay the finished row.
+  row.snapshotAt = now;
   const subagentRuns =
     options.subagentRuns ?? buildSubagentRunReadIndexFromRuns({ ...source.subagentRunInputs, now });
   const { subagentRun, subagentOwner, fields } = projectGatewaySessionRunState({

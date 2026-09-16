@@ -103,29 +103,18 @@ function resolveGlm5ForwardCompatModel(ctx: ProviderResolveDynamicModelContext) 
   });
 }
 
-function isTrueParam(value: unknown): boolean {
-  return value === true;
-}
-
-function shouldPreserveZaiThinking(extraParams?: Record<string, unknown>): boolean {
-  return isTrueParam(extraParams?.preserveThinking) || isTrueParam(extraParams?.preserve_thinking);
-}
-
-function isDisabledThinkingLevel(thinkingLevel: ProviderWrapStreamFnContext["thinkingLevel"]) {
-  return thinkingLevel === "off";
-}
-
 function wrapZaiStreamFn(ctx: ProviderWrapStreamFnContext) {
-  let streamFn = createToolStreamWrapper(ctx.streamFn, ctx.extraParams?.tool_stream !== false);
-  const preserveThinking = shouldPreserveZaiThinking(ctx.extraParams);
+  const streamFn = createToolStreamWrapper(ctx.streamFn, ctx.extraParams?.tool_stream !== false);
+  const preserveThinking =
+    ctx.extraParams?.preserveThinking === true || ctx.extraParams?.preserve_thinking === true;
   const reasoningEffort = resolveZaiReasoningEffort(ctx.modelId, ctx.thinkingLevel);
-  const disableThinking = isDisabledThinkingLevel(ctx.thinkingLevel) && !reasoningEffort;
+  const disableThinking = ctx.thinkingLevel === "off" && !reasoningEffort;
 
   if (!disableThinking && !preserveThinking && !reasoningEffort) {
     return streamFn;
   }
 
-  streamFn = createPayloadPatchStreamWrapper(streamFn, ({ payload, model }) => {
+  return createPayloadPatchStreamWrapper(streamFn, ({ payload, model }) => {
     if (model.api !== "openai-completions" || model.provider !== PROVIDER_ID) {
       return;
     }
@@ -143,8 +132,6 @@ function wrapZaiStreamFn(ctx: ProviderWrapStreamFnContext) {
       payload.thinking = { type: "enabled", clear_thinking: false };
     }
   });
-
-  return streamFn;
 }
 
 async function promptForZaiEndpoint(ctx: ProviderAuthContext): Promise<ZaiEndpointId> {

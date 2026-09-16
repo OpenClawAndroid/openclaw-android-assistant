@@ -282,7 +282,7 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   outliers reuse the existing file splitter. Preserve serial execution, worker
   pins and complete timing-history floors; no blanket increase in sharding.
 - Blacksmith and hybrid compact bins with multiple ordinary groups request the
-  existing 16-vCPU class and two child slots with a 360s aggregate budget.
+  existing 32-vCPU class and two child slots with a 360s aggregate budget.
   Compatible two-slot bins use the time budget without the ten-group cutoff;
   serial bins retain that cutoff. Blacksmith serial bins retain 200/276s, hybrid serial bins retain 210s,
   exclusive bins retain 150s by default, and groups above their serial cap stay alone.
@@ -321,9 +321,9 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   and keep two workers per child; they can exceed the eight-minute normal-run
   objective without changing existing deadlines. Fewer jobs must retain native
   elapsed-time, actual memory and cleanup proof; requested labels are not capacity.
-- The whole Blacksmith agent-support group requests `blacksmith-16vcpu-ubuntu-2404`.
+- The whole Blacksmith agent-support group requests `blacksmith-32vcpu-ubuntu-2404`.
   Its file inventory and resource-derived worker policy remain unchanged.
-- Numbered Blacksmith tooling bins request the same 16-vCPU class after packing.
+- Numbered Blacksmith tooling bins request the same 32-vCPU class after packing.
   Keep their logical classes, names, file inventories, serial project/file
   execution and two-worker pins. This adds no jobs and does not promote hosted
   or hybrid tooling. The native two-CPU/8-GB tails require a larger-host timing
@@ -354,7 +354,7 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   stays on 8 unless the bounded hybrid plan admits it to hosted Ubuntu. The twelve-row 4:38 result in historical run 33695337496 used the
   32-class with eight reported CPUs; it does not prove timing on the current
   16-class route or refresh stale timing weights.
-- Eligible real-Gateway jobs request the existing 16-class for the private artifact
+- Eligible real-Gateway jobs request the existing 32-class for the private artifact
   build's two canonical SDK cache misses. Overlap requires at least two available
   CPUs and 25.5 GiB of observed remaining memory for unchanged 12-GiB heaps plus
   768 MiB native headroom each. Unknown finite-cgroup usage or insufficient capacity

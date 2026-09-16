@@ -38,13 +38,12 @@
 
 .session-progress-card--composer {
   --session-progress-marker-size: var(--chat-stack-icon-size, 14px);
-  --session-progress-disclosure-duration: 240ms;
-  --session-progress-disclosure-ease: var(--ease-in-out);
+
+  animation: none;
 
   position: relative;
   display: block;
   box-sizing: border-box;
-  interpolate-size: allow-keywords;
   width: 100%;
   max-width: none;
   overflow: hidden;
@@ -57,36 +56,6 @@
   background: var(--composer-attached-surface, var(--chat-composer-surface));
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-}
-
-/* Ease into closing instead of losing most of the body in the first frame.
-   Opening keeps its quicker response; the chevron shares the fold timeline. */
-.session-progress-card--composer[open] {
-  --session-progress-disclosure-duration: 180ms;
-  --session-progress-disclosure-ease: cubic-bezier(0.23, 1, 0.32, 1);
-}
-
-.session-progress-card--composer::details-content {
-  block-size: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(-4px);
-  transition:
-    content-visibility var(--session-progress-disclosure-duration) allow-discrete,
-    block-size var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease),
-    opacity var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease),
-    transform var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease);
-  transition-behavior: allow-discrete;
-}
-
-.session-progress-card--composer.session-progress-card--settling::details-content {
-  transition: none;
-}
-
-.session-progress-card--composer[open]::details-content {
-  block-size: auto;
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .agent-chat__progress-float {
@@ -562,6 +531,7 @@
 }
 
 .session-progress-card__summary {
+  position: relative;
   display: grid;
   grid-template-columns: var(--session-progress-marker-size) minmax(0, 1fr) auto auto;
   align-items: center;
@@ -577,7 +547,19 @@
   cursor: var(--cursor-action);
   list-style: none;
   user-select: none;
+  touch-action: pan-x pinch-zoom;
   font-variant-numeric: tabular-nums;
+}
+
+.session-progress-card__summary::before {
+  position: absolute;
+  top: 3px;
+  left: calc(50% - 12px);
+  width: 24px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--muted) 36%, transparent);
+  content: "";
 }
 
 .session-progress-card__summary::-webkit-details-marker {
@@ -643,9 +625,12 @@
   height: var(--chat-stack-trailing-control-size);
   place-items: center;
   color: var(--muted);
-  transition:
-    color 140ms ease,
-    transform var(--session-progress-disclosure-duration) var(--session-progress-disclosure-ease);
+  transform: rotate(-90deg);
+  transition: color 140ms ease;
+}
+
+.session-progress-card--composer[open] .session-progress-card__summary-chevron {
+  transform: rotate(0deg);
 }
 
 .session-progress-card__summary-chevron svg {
@@ -797,7 +782,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .session-progress-card--composer,
-  .session-progress-card--composer::details-content,
   .session-progress-card__summary,
   .session-progress-card__summary-chevron,
   .session-progress-card__summary-indicator > .session-run-spinner {

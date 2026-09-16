@@ -115,6 +115,13 @@ type NativeTurnCompletionWatcher = {
 
 const routers = new WeakMap<CodexAppServerClient, ClientTurnRouter>();
 
+export function hasCodexAppServerSiblingRouteWork(
+  client: CodexAppServerClient,
+  threadId: string,
+): boolean {
+  return routers.get(client)?.hasSiblingWork(threadId) ?? false;
+}
+
 /** Returns the sole router installed on a physical app-server client. */
 export function getCodexAppServerTurnRouter(
   client: CodexAppServerClient,
@@ -136,6 +143,21 @@ class ClientTurnRouter implements CodexAppServerTurnRouter {
     Set<NativeTurnCompletionWatcher>
   >();
   private closeError?: Error;
+
+  hasSiblingWork(threadId: string): boolean {
+    for (const routedThreadId of this.routes.keys()) {
+      if (routedThreadId !== threadId) {
+        return true;
+      }
+    }
+    // A released route can still be waiting for native interruption to settle.
+    for (const watchedThreadId of this.nativeTurnCompletionWatchers.keys()) {
+      if (watchedThreadId !== threadId) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   constructor(client: CodexAppServerClient) {
     client.addNotificationHandler((notification) => this.routeNotification(notification));

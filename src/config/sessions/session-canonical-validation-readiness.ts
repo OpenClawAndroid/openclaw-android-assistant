@@ -35,6 +35,7 @@ const log = createSubsystemLogger("sessions/canonical-validation");
 /** Certify dirty persisted rows before startup maintenance reads their full entries. */
 export async function certifySessionCanonicalValidationPending(
   options: OpenClawAgentDatabaseOptions,
+  withWorker = withSqliteReclamationWorker,
 ): Promise<void> {
   const sourceEnv = options.env ?? process.env;
   const pathname = resolveOpenClawAgentSqlitePath(options);
@@ -76,7 +77,7 @@ export async function certifySessionCanonicalValidationPending(
             const result = await withSqliteMutationWorkerLifetime(
               databaseOptions,
               async ({ assertCurrent, commitGate }) =>
-                await withSqliteReclamationWorker(
+                await withWorker(
                   databaseOptions,
                   claim,
                   async (worker) => {

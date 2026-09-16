@@ -69,6 +69,10 @@ export class ChatTranscriptController implements ReactiveController {
     return this.sessionVirtualizer?.revealMessage(messageId) ?? false;
   }
 
+  cancelScroll(): void {
+    this.sessionVirtualizer?.cancelScroll();
+  }
+
   get scrollElement(): HTMLDivElement | null {
     return this.sessionVirtualizer?.scrollElement ?? null;
   }
