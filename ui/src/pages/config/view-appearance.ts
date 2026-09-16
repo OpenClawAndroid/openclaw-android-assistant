@@ -174,7 +174,7 @@ function renderTypography(props: ConfigProps, themeLabel: string) {
     labelStyle: `font-family: ${metadata.stack}`,
   }));
   return html`
-    <section class="settings-section">
+    <section id=${APPEARANCE_SETTINGS_TARGET_IDS.typography} class="settings-section">
       <div class="settings-section__header">
         <h2 class="settings-section__heading">${t("configView.appearance.typography")}</h2>
       </div>

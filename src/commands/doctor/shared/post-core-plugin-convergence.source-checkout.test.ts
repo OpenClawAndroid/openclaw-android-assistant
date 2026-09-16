@@ -244,7 +244,11 @@ describe("post-core convergence on source checkouts", () => {
         await withPluginCache(createPluginCache(), async () => {
           const published = importAndRun(npmEntry, env);
           expect(published.status).not.toBe(0);
-          expect(published.stderr).toContain(`does not provide an export named '${OLD_EXPORT}'`);
+          expect(published.stderr).toMatch(
+            new RegExp(
+              `(?:does not provide an export named '${OLD_EXPORT}'|Export named '${OLD_EXPORT}' not found in module)`,
+            ),
+          );
           await seedInstalledPluginIndex(records, { config: cfg, env });
         });
         if (corrupt) {

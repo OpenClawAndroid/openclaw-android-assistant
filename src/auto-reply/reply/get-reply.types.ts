@@ -33,6 +33,7 @@ export type ReplyRunVerbosity = {
 };
 
 type InternalReplySessionOptions = {
+  extractedFileImages?: import("../../media-understanding/extracted-file-images.js").ExtractedFileImage[];
   /** Rechecks the live Gateway caller before a chat login has a durable effect. */
   assertProviderLoginAuthority?: () => void;
   getProviderLoginConfig?: () => OpenClawConfig;

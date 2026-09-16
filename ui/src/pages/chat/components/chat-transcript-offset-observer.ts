@@ -17,7 +17,7 @@ type TranscriptOffsetState = {
     | null;
   touching: boolean;
   touchScrolling: boolean;
-  measurementScrollOffset: number | null;
+  maintenanceScrollOffset: number | null;
   pendingInteractionAnchor: ChatTranscriptInteractionAnchor | null;
   syncNativeOffset: (() => void) | null;
   recordProgrammaticScroll: ((before: number, after: number) => void) | null;
@@ -30,7 +30,7 @@ export function createTranscriptOffsetState(): TranscriptOffsetState {
     scrollCommand: null,
     touching: false,
     touchScrolling: false,
-    measurementScrollOffset: null,
+    maintenanceScrollOffset: null,
     pendingInteractionAnchor: null,
     syncNativeOffset: null,
     recordProgrammaticScroll: null,
@@ -77,6 +77,12 @@ export function observeTranscriptOffset(
       touching: owner.state.touching,
       programmatic: owner.isProgrammaticScroll(),
     });
+    // Commands own completion. Record maintenance movement after publishing preceding native input.
+    if (owner.state.scrollCommand || owner.state.pendingScrollOffset) {
+      owner.state.maintenanceScrollOffset = null;
+    } else if (before !== after) {
+      owner.state.maintenanceScrollOffset = after;
+    }
   };
   owner.state.recordProgrammaticScroll = recordProgrammaticScroll;
   const publishOffset = (offset: number, scrolling: boolean) => {
@@ -90,12 +96,16 @@ export function observeTranscriptOffset(
     }
     const delta = offset - nativeOffset;
     nativeOffset = offset;
+    const programmatic = owner.isProgrammaticScroll();
+    if (scrolling && owner.state.maintenanceScrollOffset !== null) {
+      owner.state.maintenanceScrollOffset = programmatic ? offset : null;
+    }
     publish({
       type: "offset",
       delta,
       scrolling,
       touching: owner.state.touching,
-      programmatic: owner.isProgrammaticScroll(),
+      programmatic,
     });
     const changed = offset !== instance.scrollOffset;
     callback(offset, scrolling);
@@ -163,7 +173,7 @@ export function observeTranscriptOffset(
       touchY = localTouchY(event);
     }
     owner.state.pendingInteractionAnchor = null;
-    owner.state.measurementScrollOffset = null;
+    owner.state.maintenanceScrollOffset = null;
     // Native scrolling may precede input delivery. Attribute the gesture before
     // cancellation or offset synchronization publishes that consumed movement.
     publishInput(event);
@@ -235,6 +245,7 @@ export function observeTranscriptOffset(
     }
     if (owner.state.recordProgrammaticScroll === recordProgrammaticScroll) {
       owner.state.recordProgrammaticScroll = null;
+      owner.state.maintenanceScrollOffset = null;
     }
     cleanup?.();
     contactIds.clear();

@@ -400,7 +400,6 @@ export function createTelegramInboundPipeline({
   const processing = createTelegramInboundProcessing({ params, message });
   const handlers = createTelegramInboundHandlers(params, message, authorization, processing);
   return {
-    cancelPending: processing.cancelPending,
     handle: async (ctx) => {
       if (ctx.message) {
         return await handlers.handleMessage(ctx);

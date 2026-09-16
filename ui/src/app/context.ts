@@ -99,6 +99,7 @@ export type ApplicationChatAttachmentHandoff = {
     mentions?: readonly HumanMention[];
     newSessionDraft?: NewSessionDraftHandoff;
   } | null;
+  retainedAttachmentIds(attachments: readonly ChatAttachment[]): ReadonlySet<string>;
   retireScope(scopeKey: string, beforeRevision: number): void;
   clearPane(paneId: string): void;
   dispose(): void;

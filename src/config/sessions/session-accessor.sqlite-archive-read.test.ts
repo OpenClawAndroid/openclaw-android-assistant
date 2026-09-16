@@ -21,7 +21,7 @@ import {
   readSessionArchiveContentSync,
 } from "./archive-compression.js";
 import { deleteSessionEntryLifecycle, findTranscriptEvent } from "./session-accessor.js";
-import { importSqliteSessionRows } from "./session-accessor.sqlite-import.js";
+import { seedUnindexedTranscriptForTest } from "./session-accessor.sqlite-import.test-support.js";
 import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
 import { findSessionTranscriptArchiveEventReadOnly } from "./session-history.js";
 
@@ -215,13 +215,15 @@ describe("SQLite transcript archive reads", () => {
         },
         answer,
       ].map((event, index) => ({
-        createdAt: index + 1,
-        eventJson: JSON.stringify(event, null, 2),
+        session_id: sessionId,
+        seq: index,
+        created_at: index + 1,
+        event_json: JSON.stringify(event, null, 2),
       }));
-      await importSqliteSessionRows({
+      await seedUnindexedTranscriptForTest({
         ...scope,
         entry: { sessionId, updatedAt: 3 },
-        readExactTranscriptRows: (append) => rows.forEach(append),
+        events: rows,
       });
       await expect(
         findTranscriptEvent(scope, (event) => isVisibleSubagentResultEventForRun(event, runId)),
@@ -235,7 +237,7 @@ describe("SQLite transcript archive reads", () => {
       expect(deletion.deleted).toBe(true);
       expect(deletion.archivedTranscripts).toHaveLength(1);
       expect(readSessionArchiveContentSync(deletion.archivedTranscripts[0]!.archivedPath)).toBe(
-        `${rows.map((row) => row.eventJson).join("\n")}\n`,
+        `${rows.map((row) => row.event_json).join("\n")}\n`,
       );
       await expect(findSessionTranscriptArchiveEventReadOnly(scope, runId)).resolves.toEqual({
         event: answer,

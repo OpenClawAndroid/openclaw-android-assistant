@@ -49,6 +49,7 @@ import {
   type SessionListSnapshot,
 } from "../../lib/sessions/index.ts";
 import { fetchPagedSessionRows } from "../../lib/sessions/paged-session-rows.ts";
+import type { SessionPatchResult } from "../../lib/sessions/patch.ts";
 import {
   resolveSessionPreferredFaceForKey,
   resolveSessionNavigationAgentId,
@@ -70,7 +71,6 @@ import {
 } from "../../lib/sessions/session-menu-navigation.ts";
 import { searchVisibleSessionTranscripts } from "../../lib/sessions/transcript-search.ts";
 import { formatPreservedWorktreesNotice } from "../../lib/sessions/worktree-preservation.ts";
-import { showToast } from "../../lib/toast.ts";
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
@@ -79,6 +79,7 @@ import {
   runControlUiPluginAction,
 } from "../../plugins/control-ui-actions.ts";
 import { sessionAgentIdentityById, sessionAgentIds } from "./agent-scope.ts";
+import { prepareArchiveOutcome } from "./archive-outcome.ts";
 import { rememberSessionCustomGroup, sessionCategoryNames } from "./custom-groups.ts";
 import { buildSessionsListQuery } from "./list-query.ts";
 import { loadStoredGroupBy, saveStoredGroupBy } from "./page-state.ts";
@@ -1166,6 +1167,7 @@ class SessionsPage extends OpenClawLightDomElement {
     patch: Parameters<SessionsProps["onPatch"]>[1],
     scope: SessionsPageRequestScope | null = this.captureRequestScope(),
     expectedSessionId?: string,
+    onConfirmed?: (result: SessionPatchResult) => void,
   ): Promise<SessionsPageMutationResult> {
     if (!scope) {
       // Nothing was attempted (e.g. rename dialog submitted after the gateway
@@ -1212,6 +1214,9 @@ class SessionsPage extends OpenClawLightDomElement {
               request,
             })
           : await request();
+      if (patched) {
+        onConfirmed?.(patched);
+      }
       if (!this.isRequestScopeCurrent(scope)) {
         return "stale";
       }
@@ -1241,35 +1246,23 @@ class SessionsPage extends OpenClawLightDomElement {
     if (!scope) {
       return;
     }
+    const onConfirmed = prepareArchiveOutcome(
+      scope.sessions,
+      row,
+      this.sessionAgentId(row.key, scope.context),
+    );
+    if (!onConfirmed) {
+      return;
+    }
     const finishArchive = scope.sessions.beginArchive(row.key, row.sessionId);
     if (!finishArchive) {
       return;
     }
-    let result: SessionsPageMutationResult;
     try {
-      result = await this.patchSession(row.key, { archived: true }, scope, row.sessionId);
+      await this.patchSession(row.key, { archived: true }, scope, row.sessionId, onConfirmed);
     } finally {
       finishArchive();
     }
-    if (result !== "completed" || !this.isRequestScopeCurrent(scope)) {
-      return;
-    }
-    // Undo is captured before showing the toast: the toast host outlives this
-    // page, so the action must run against the shared mutations store (which
-    // fails closed on connection replacement) rather than page scope — a
-    // page-scope check would silently no-op after navigating away.
-    const agentId = this.sessionAgentId(row.key, scope.context);
-    showToast({
-      message: t("sessionsView.sessionArchived"),
-      actionLabel: t("common.undo"),
-      onAction: () => {
-        void scope.sessions.patch(
-          row.key,
-          { archived: false, ...(row.pinned === true ? { pinned: true } : {}) },
-          { agentId, expectedSessionId: row.sessionId },
-        );
-      },
-    });
   }
 
   private async forkSession(key: string, fromLastCompleted = false) {

@@ -15,54 +15,60 @@ import { boundaryTestFiles, bundledPluginDependentUnitTestFiles } from "./vitest
 
 const normalizeRepoPath = (value) => value.replaceAll("\\", "/");
 
-const unitFastCandidateGlobs = [
-  "packages/memory-host-sdk/**/*.test.ts",
-  "packages/plugin-package-contract/**/*.test.ts",
-  "src/acp/**/*.test.ts",
-  "src/agents/**/*.test.ts",
-  "src/skills/**/*.test.ts",
-  "src/auto-reply/**/*.test.ts",
-  "src/bootstrap/**/*.test.ts",
-  "src/channels/**/*.test.ts",
-  "src/cli/**/*.test.ts",
-  "src/commands/**/*.test.ts",
-  "src/compat/**/*.test.ts",
-  "src/config/**/*.test.ts",
-  "src/daemon/**/*.test.ts",
-  "src/hooks/**/*.test.ts",
-  "src/image-generation/**/*.test.ts",
-  "src/infra/**/*.test.ts",
-  "src/interactive/**/*.test.ts",
-  "src/link-understanding/**/*.test.ts",
-  "src/logging/**/*.test.ts",
-  "packages/markdown-core/src/**/*.test.ts",
-  "packages/media-core/src/**/*.test.ts",
-  "packages/terminal-core/src/**/*.test.ts",
-  "src/media/**/*.test.ts",
-  "src/media-generation/**/*.test.ts",
-  "src/media-understanding/**/*.test.ts",
-  "src/memory-host-sdk/**/*.test.ts",
-  "src/model-catalog/**/*.test.ts",
-  "src/music-generation/**/*.test.ts",
-  "src/node-host/**/*.test.ts",
-  "src/plugin-sdk/**/*.test.ts",
-  "src/plugins/**/*.test.ts",
-  "src/poll-params.test.ts",
-  "src/polls.test.ts",
-  "src/process/**/*.test.ts",
-  "src/proxy-capture/**/*.test.ts",
-  "src/routing/**/*.test.ts",
-  "src/sessions/**/*.test.ts",
-  "src/shared/**/*.test.ts",
-  "src/test-utils/**/*.test.ts",
-  "src/tasks/**/*.test.ts",
-  "src/tts/**/*.test.ts",
-  "src/utils/**/*.test.ts",
-  "src/video-generation/**/*.test.ts",
-  "src/web/**/*.test.ts",
-  "src/wizard/**/*.test.ts",
-  "test/**/*.test.ts",
-];
+// Magic segments may ignore case; prune only complete literal directories.
+const directoryPrefixForGlob = (pattern) => literalGlobPrefix(pattern).replace(/[^/]*$/u, "");
+
+const unitFastCandidatePatterns = prepareGlobPatterns(
+  [
+    "packages/memory-host-sdk/**/*.test.ts",
+    "packages/plugin-package-contract/**/*.test.ts",
+    "src/acp/**/*.test.ts",
+    "src/agents/**/*.test.ts",
+    "src/skills/**/*.test.ts",
+    "src/auto-reply/**/*.test.ts",
+    "src/bootstrap/**/*.test.ts",
+    "src/channels/**/*.test.ts",
+    "src/cli/**/*.test.ts",
+    "src/commands/**/*.test.ts",
+    "src/compat/**/*.test.ts",
+    "src/config/**/*.test.ts",
+    "src/daemon/**/*.test.ts",
+    "src/hooks/**/*.test.ts",
+    "src/image-generation/**/*.test.ts",
+    "src/infra/**/*.test.ts",
+    "src/interactive/**/*.test.ts",
+    "src/link-understanding/**/*.test.ts",
+    "src/logging/**/*.test.ts",
+    "packages/markdown-core/src/**/*.test.ts",
+    "packages/media-core/src/**/*.test.ts",
+    "packages/terminal-core/src/**/*.test.ts",
+    "src/media/**/*.test.ts",
+    "src/media-generation/**/*.test.ts",
+    "src/media-understanding/**/*.test.ts",
+    "src/memory-host-sdk/**/*.test.ts",
+    "src/model-catalog/**/*.test.ts",
+    "src/music-generation/**/*.test.ts",
+    "src/node-host/**/*.test.ts",
+    "src/plugin-sdk/**/*.test.ts",
+    "src/plugins/**/*.test.ts",
+    "src/poll-params.test.ts",
+    "src/polls.test.ts",
+    "src/process/**/*.test.ts",
+    "src/proxy-capture/**/*.test.ts",
+    "src/routing/**/*.test.ts",
+    "src/sessions/**/*.test.ts",
+    "src/shared/**/*.test.ts",
+    "src/test-utils/**/*.test.ts",
+    "src/tasks/**/*.test.ts",
+    "src/tts/**/*.test.ts",
+    "src/utils/**/*.test.ts",
+    "src/video-generation/**/*.test.ts",
+    "src/web/**/*.test.ts",
+    "src/wizard/**/*.test.ts",
+    "test/**/*.test.ts",
+  ],
+  directoryPrefixForGlob,
+);
 export const forcedUnitFastTestFiles = [
   "packages/memory-host-sdk/src/host/batch-http.test.ts",
   "packages/memory-host-sdk/src/host/backend-config.test.ts",
@@ -153,11 +159,10 @@ export const forcedUnitFastTestFiles = [
 const forcedUnitFastTestFileSet = new Set(forcedUnitFastTestFiles);
 const unitFastCandidateExactFiles = [...pluginSdkLightTestFiles, ...commandsLightTestFiles];
 const unitFastCandidateExactFileSet = new Set(unitFastCandidateExactFiles);
-const broadUnitFastCandidateGlobs = [
-  "src/**/*.test.ts",
-  "packages/**/*.test.ts",
-  "test/**/*.test.ts",
-];
+const broadUnitFastCandidatePatterns = prepareGlobPatterns(
+  ["src/**/*.test.ts", "packages/**/*.test.ts", "test/**/*.test.ts"],
+  directoryPrefixForGlob,
+);
 const ownerRoutedUnitTestPatterns = [
   ...gatewayPluginTestFiles,
   ...cliProcessTestFiles,
@@ -185,36 +190,39 @@ const ownerRoutedUnitTestPatterns = [
   "src/auto-reply/reply/dispatch-from-config.lifecycle.test.ts",
   "src/auto-reply/reply/dispatch-from-config.tts-stream.test.ts",
 ];
-const broadUnitFastCandidateSkipGlobs = [
-  "**/*.e2e.test.ts",
-  "**/*.live.test.ts",
-  "test/fixtures/**/*.test.ts",
-  "test/setup-home-isolation.test.ts",
-  // Explicit bundled ownership outranks content-based discovery. Otherwise extracting
-  // a test body can silently move its entry to a config with the wrong mocked setup.
-  ...bundledPluginDependentUnitTestFiles,
-  // Keep these suites in owner configs even when content-based discovery changes.
-  ...ownerRoutedUnitTestPatterns,
-  "src/agents/sandbox.resolveSandboxContext.test.ts",
-  "src/acp/runtime/session-meta.test.ts",
-  "src/channels/plugins/contracts/**/*.test.ts",
-  "src/config/**/*.test.ts",
-  "src/gateway/**/*.test.ts",
-  "src/media-generation/**/*.contract.test.ts",
-  "src/media-generation/runtime-shared.test.ts",
-  "src/music-generation/runtime.test.ts",
-  "src/proxy-capture/runtime.test.ts",
-  "src/plugins/install.npm-spec.test.ts",
-  "src/plugins/contracts/**/*.test.ts",
-  "src/pairing/pairing-store.test.ts",
-  "src/plugin-sdk/browser-subpaths.test.ts",
-  "src/security/**/*.test.ts",
-  "src/secrets/**/*.test.ts",
-  "test/helpers/stt-live-audio.test.ts",
-  "test/vitest-extensions-config.test.ts",
-  "test/vitest-unit-paths.test.ts",
-  ...boundaryTestFiles,
-];
+const broadUnitFastCandidateSkipPatterns = prepareGlobPatterns(
+  [
+    "**/*.e2e.test.ts",
+    "**/*.live.test.ts",
+    "test/fixtures/**/*.test.ts",
+    "test/setup-home-isolation.test.ts",
+    // Explicit bundled ownership outranks content-based discovery. Otherwise extracting
+    // a test body can silently move its entry to a config with the wrong mocked setup.
+    ...bundledPluginDependentUnitTestFiles,
+    // Keep these suites in owner configs even when content-based discovery changes.
+    ...ownerRoutedUnitTestPatterns,
+    "src/agents/sandbox.resolveSandboxContext.test.ts",
+    "src/acp/runtime/session-meta.test.ts",
+    "src/channels/plugins/contracts/**/*.test.ts",
+    "src/config/**/*.test.ts",
+    "src/gateway/**/*.test.ts",
+    "src/media-generation/**/*.contract.test.ts",
+    "src/media-generation/runtime-shared.test.ts",
+    "src/music-generation/runtime.test.ts",
+    "src/proxy-capture/runtime.test.ts",
+    "src/plugins/install.npm-spec.test.ts",
+    "src/plugins/contracts/**/*.test.ts",
+    "src/pairing/pairing-store.test.ts",
+    "src/plugin-sdk/browser-subpaths.test.ts",
+    "src/security/**/*.test.ts",
+    "src/secrets/**/*.test.ts",
+    "test/helpers/stt-live-audio.test.ts",
+    "test/vitest-extensions-config.test.ts",
+    "test/vitest-unit-paths.test.ts",
+    ...boundaryTestFiles,
+  ],
+  directoryPrefixForGlob,
+);
 
 const disqualifyingPatterns = [
   {
@@ -301,8 +309,8 @@ function importsStatefulTestHelper(cwd, file, source) {
   return false;
 }
 
-function matchesAnyGlob(file, patterns) {
-  return patterns.some((pattern) => path.matchesGlob(file, pattern));
+function prepareGlobPatterns(patterns, prefixForPattern = literalGlobPrefix) {
+  return patterns.map((pattern) => ({ pattern, prefix: prefixForPattern(pattern) }));
 }
 
 const unitFastCandidateFileByPath = new Map();
@@ -315,8 +323,8 @@ function isUnitFastCandidateFile(file) {
   const candidate =
     forcedUnitFastTestFileSet.has(file) ||
     unitFastCandidateExactFileSet.has(file) ||
-    (matchesAnyGlob(file, unitFastCandidateGlobs) &&
-      !matchesAnyGlob(file, broadUnitFastCandidateSkipGlobs));
+    (matchesCompiledInclude(file, unitFastCandidatePatterns) &&
+      !matchesCompiledInclude(file, broadUnitFastCandidateSkipPatterns));
   // Candidate rules are static for the process lifetime; scoped configs overlap heavily.
   unitFastCandidateFileByPath.set(file, candidate);
   return candidate;
@@ -479,8 +487,8 @@ function collectUnitFastCandidates(cwd, scope) {
       return (
         forcedUnitFastTestFileSet.has(file) ||
         unitFastCandidateExactFileSet.has(file) ||
-        (matchesAnyGlob(file, broadUnitFastCandidateGlobs) &&
-          !matchesAnyGlob(file, broadUnitFastCandidateSkipGlobs))
+        (matchesCompiledInclude(file, broadUnitFastCandidatePatterns) &&
+          !matchesCompiledInclude(file, broadUnitFastCandidateSkipPatterns))
       );
     })
     .toSorted((a, b) => a.localeCompare(b));
@@ -589,10 +597,7 @@ export function getUnitFastTestFilesForIncludePatterns(includePatterns, options 
     scopedUnitFastTestFilesByKey.set(cacheKey, []);
     return [];
   }
-  const compiledPatterns = patterns.map((pattern) => ({
-    pattern,
-    prefix: literalGlobPrefix(pattern),
-  }));
+  const compiledPatterns = prepareGlobPatterns(patterns);
 
   const files = collectUnitFastCandidateInventory(cwd)
     .filter((file) => {

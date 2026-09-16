@@ -25,6 +25,11 @@ export type ReclamationDatabaseOptions = OpenClawAgentDatabaseOptions & {
 
 export type ReclamationDeleteParams = Omit<DeleteSessionEntryLifecycleParams, "commitGuard">;
 
+/** Internal scope: a historical request cannot authorize whole-entry reclamation. */
+export type SqliteSessionDeletionScope =
+  | { kind: "entry"; phase: "plan" | "commit" }
+  | { kind: "historical-generation"; phase: "plan" | "commit"; sessionId: string };
+
 type SessionReclamationPlanBase = {
   databaseOptions: ReclamationDatabaseOptions;
   materializedPlans: MaterializedSessionStateDeletePlan[];

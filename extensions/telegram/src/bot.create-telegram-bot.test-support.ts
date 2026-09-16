@@ -1,11 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { TelegramBotInfo } from "./bot-info.js";
 
-type DispatchReplyWithBufferedBlockDispatcher =
-  typeof import("openclaw/plugin-sdk/reply-dispatch-runtime").dispatchReplyWithBufferedBlockDispatcher;
-type DispatchChannelInboundTurn =
-  typeof import("openclaw/plugin-sdk/channel-inbound").dispatchChannelInboundTurn;
-
 export const telegramBotInfoForTest = {
   id: 9_876_543_210,
   is_bot: true,
@@ -91,40 +86,4 @@ export async function waitForTelegramMockCalls(
     }
     await delay(25);
   }
-}
-
-export function createTelegramNativeCommandTestDeps(
-  dispatchReply: DispatchReplyWithBufferedBlockDispatcher,
-): { dispatchChannelInboundTurn: DispatchChannelInboundTurn } {
-  return {
-    dispatchChannelInboundTurn: async (plan) => {
-      const delivery = plan.delivery;
-      const dispatchResult = await dispatchReply({
-        ctx: plan.ctxPayload,
-        cfg: plan.cfg,
-        dispatcherOptions: {
-          ...plan.dispatcherOptions,
-          deliver:
-            "deliverWithProviderMessageSending" in delivery
-              ? (payload, info) =>
-                  delivery.deliverWithProviderMessageSending(payload, {
-                    ...info,
-                    onPlatformSendDispatch: info.onPlatformSendDispatch ?? (async () => undefined),
-                    assertPlatformSendAuthorized:
-                      info.assertPlatformSendAuthorized ?? (() => undefined),
-                  })
-              : delivery.deliver,
-          onError: delivery.onError,
-        },
-        replyOptions: plan.replyOptions,
-      });
-      return {
-        admission: { kind: "dispatch" },
-        dispatched: true,
-        ctxPayload: plan.ctxPayload,
-        routeSessionKey: plan.route.sessionKey,
-        dispatchResult,
-      };
-    },
-  };
 }

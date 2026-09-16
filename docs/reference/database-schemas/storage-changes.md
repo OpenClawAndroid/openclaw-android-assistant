@@ -24,11 +24,25 @@ and publishes the result. Avoid exposing a generic SQL callback to application
 code or adding an asynchronous wrapper around an existing asynchronous facade.
 The plugin KV API already has asynchronous methods over its SQLite owner.
 
+Plugin conversation standing approvals load and upsert in the shared-state worker.
+Core publishes an always-allow grant only after durable completion, serializes cache
+fills with grant publication, and joins admitted binding operations before lifecycle
+reset clears the cache. Requests recheck conversation ownership after storage waits.
+Approval scope, one-use decisions, channel binding APIs, and Doctor imports are unchanged.
+
 Copilot SDK session bindings use these worker-backed data operations. The harness
 serializes binding reads, writes, and in-memory publication per OpenClaw session;
 reset and shutdown join admitted binding work and deferred compaction cleanup.
 Failed persistence retains the existing in-memory fallback. Binding formats,
 compatibility checks, namespace limits, and expiry remain unchanged.
+
+Hosted official plugin-catalog snapshots read and write in the shared-state worker.
+Missing-state reads do not create a database. The existing write transaction rereads
+the current snapshot before checking signed-feed sequence and payload consistency.
+The hosted loader receives the same monotonicity error type, so rejected writes
+retain the accepted snapshot. Marketplace refresh awaits persistence before clearing
+its catalog cache and applying the result to the Gateway. Feed verification, expired
+snapshot visibility, install authority, and the stored representation are unchanged.
 
 Asynchronous mutable cron-store loads run in the shared-state worker, including
 the existing retired-job deletion and runtime-authority repairs. The connection-bound
@@ -115,7 +129,7 @@ Reef registration binding reads, reservations, finalization, release, and setup-
 persistence use the shared-state worker. Reservation mutations compare the current
 row before writing; a conflict rereads ownership before retrying. The CLI, setup
 wizard, and channel startup await these operations. Keys, migration gates, trust,
-audit, replay, and review mutations retain their existing native
+audit, and review mutations retain their existing native
 owners. Key creation still performs its synchronous guard checks and insert without
 an event-loop yield; those separate operations do not form a cross-process transaction.
 Stored registration JSON, reservation expiry, namespace limits, and Doctor imports
@@ -147,6 +161,18 @@ entry parked for retry without evicting live markers. The existing marker JSON,
 expiry, namespace and plugin-wide limits are unchanged; older hosts keep the
 behavior of their existing asynchronous keyed-store adapter. This cut does not
 move Reef's trust, audit, replay, review, key, migration-gate, or cursor owners.
+
+Reef replay claims, renewals, completion, consumption, release, and reads use the
+shared-state worker. The replay owner preserves invocation order through durable
+settlement and local claim publication; conflicted mutations revalidate the current
+claim and reuse prepared completion bytes. Inbound processing joins admitted
+heartbeat renewals before returning. Existing-row refusal paths still renew the
+stored TTL, and an expired claim remains usable by its matching owner until a
+successor replaces it. Stored JSON, encryption, quotas, and retention are unchanged.
+Hosts without both comparison methods retain the atomic native callback path until
+an approved minimum host version guarantees both methods. Available worker failures
+never fall back. Modern domain validation errors surface
+directly, while older hosts retain their native callback error wrapping.
 
 Use Kysely for ordinary queries and mutations. The current
 `getNodeSqliteKysely` facade compiles queries; `executeSqliteQuerySync` runs them
@@ -453,6 +479,13 @@ settlement before the parent publishes committed removals and releases that
 operation's writer admission. Later requests reuse the connection only for the
 same physical database and shared-state owner; every request checks its live lease.
 
+During Doctor maintenance, session mutation and worker-close jobs borrow its
+existing state-lifecycle coordinator through a live delegate bound to the actor,
+shared database, and coordinator runtime. Delegation covers asynchronous work and
+cleanup until the original result settles or native exit is joined. Revocation
+still prevents later writes. Failed coordinator cleanup remains owned for drainage;
+a confirmed mutation stays successful if only subsequent cleanup fails.
+
 Switching databases, deletion, quarantine, maintenance, root retirement, and shutdown
 revoke reuse and join native worker exit before releasing the database owner. Pending
 commit requests are rejected before synchronous close can wait on their writer lock.
@@ -573,6 +606,31 @@ Do not automatically convert canonical JSON text to `jsonb`: PostgreSQL's
 `jsonb` representation changes whitespace, object-key order, and duplicate-key
 handling. A searchable `jsonb` projection would need an explicit design and
 migration decision. See [PostgreSQL JSON types](https://www.postgresql.org/docs/current/datatype-json.html).
+
+Cross-store session handoffs preserve every retained generation, its lineage,
+transcript bytes, physical sequence numbers, and recorded event identities,
+including effective idempotency ownership. Accepted inputs and completion receipts
+use their existing repair owners: queued input becomes interrupted, cancellation
+and consumed-event references survive, and final destination receipts retain
+precedence over retryable attempts. Boards, progress cards, heartbeat outcomes,
+suggestions, participant history, and retained ACP provenance use the logical-node
+repair owner and its existing revision and identity precedence. These copies
+transfer no live execution or membership authority. Source cleanup verifies the physical source and a complete
+destination receipt captured in the copy transaction before deleting each copied
+generation. Unchanged SQLite data versions reuse that verified receipt; any commit
+requires exact revalidation, including input and rewrite-watermark facts. Exact
+node-artifact fingerprints protect source and destination state through entry
+removal. Source deletion checks these node payloads only at entry boundaries;
+historical-generation cleanup keeps its generation-only checks. In-place
+key migrations preserve cold archives when the database and archive directory stay
+the same; archive manifests remain part of their guarded source snapshot. Older exact
+imports could retain a transcript without its identity rows. History readers
+recognize that unindexed prefix and recover display navigation from the stored
+events, including after later appends; they never reconstruct write authority or
+idempotency ownership from JSON. The first new append uses the verified projection
+cursor under the existing write authority, so continuation preserves the imported
+conversation. A full transcript replacement retires that read path by creating a
+new canonical generation.
 
 ### Keep engine-specific capabilities owned
 

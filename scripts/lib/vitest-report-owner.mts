@@ -280,6 +280,9 @@ export async function createVitestReportOwner(invocations: Invocation[], cwd: st
           "--config",
           config,
           "--configLoader=runner",
+          // Replay loads project configs but needs no transformed test modules.
+          // A CLI override also prevents their caches invalidating the root cache.
+          "--fsModuleCache=false",
           `--outputFile.json=${staged}`,
         ];
         if (typeof runOptions[0]?.pool === "string") {

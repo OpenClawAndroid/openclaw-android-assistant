@@ -11,6 +11,7 @@ const repairReservedIncognitoSessionKeys = vi.hoisted(() => vi.fn());
 const repairCanonicalSessionDeliveryStates = vi.hoisted(() => vi.fn());
 const repairCanonicalSessionResolvedSkills = vi.hoisted(() => vi.fn());
 const repairCanonicalSessionKeys = vi.hoisted(() => vi.fn());
+const repairLegacySessionWorktreeWorkspaces = vi.hoisted(() => vi.fn());
 const migrateLegacyMainSessionKeys = vi.hoisted(() => vi.fn());
 const runDoctorSessionSqlite = vi.hoisted(() => vi.fn());
 const withDoctorSqliteMaintenanceLock = vi.hoisted(() => vi.fn());
@@ -43,6 +44,10 @@ vi.mock("./doctor-session-exec-policy.js", () => ({
 
 vi.mock("./doctor-session-canonical-keys.js", () => ({
   repairCanonicalSessionKeys,
+}));
+
+vi.mock("./doctor-session-worktree-workspace.js", () => ({
+  repairLegacySessionWorktreeWorkspaces,
 }));
 
 vi.mock("../config/sessions/legacy-main-session-migration.js", () => ({
@@ -108,6 +113,9 @@ describe("doctor session transcript repair", () => {
       repairedGroups: 0,
       scannedStores: 0,
     });
+    repairLegacySessionWorktreeWorkspaces
+      .mockReset()
+      .mockResolvedValue({ found: 0, repaired: 0, scannedStores: 0 });
     migrateLegacyMainSessionKeys.mockReset().mockResolvedValue({
       armed: false,
       changes: [],
@@ -172,6 +180,10 @@ describe("doctor session transcript repair", () => {
       env,
       mode: "doctor-fix",
     });
+    expect(repairLegacySessionWorktreeWorkspaces).toHaveBeenCalledWith({ apply: true, cfg, env });
+    expect(repairCanonicalSessionKeys.mock.invocationCallOrder[0]).toBeLessThan(
+      repairLegacySessionWorktreeWorkspaces.mock.invocationCallOrder[0]!,
+    );
     expect(repairReservedIncognitoSessionKeys).toHaveBeenCalledWith({ apply: true, cfg, env });
     expect(repairCanonicalSessionResolvedSkills).toHaveBeenCalledWith({ apply: true, cfg, env });
     expect(
@@ -245,6 +257,26 @@ describe("doctor session transcript repair", () => {
       expect.stringContaining("Archived 2 legacy transcript artifact(s)."),
       "Session SQLite",
     );
+  });
+
+  it("defers workspace writes while legacy-main source cleanup is incomplete", async () => {
+    runDoctorSessionSqlite.mockResolvedValueOnce(emptySessionSqliteReport());
+    migrateLegacyMainSessionKeys.mockResolvedValueOnce({
+      armed: true,
+      changes: [],
+      complete: false,
+      ledgerComplete: false,
+      legacyAgentId: "main",
+      mainKey: "main",
+      ownerAgentId: "ops",
+      outcomes: [{ kind: "divergent-canonical", canonicalKey: "agent:ops:main" }],
+      warnings: ["source changed; retry openclaw doctor --fix"],
+    });
+    const cfg = { agents: { entries: { ops: {} } } };
+    const env = { ...process.env, OPENCLAW_STATE_DIR: root };
+    await noteSessionTranscriptHealth({ cfg, env, shouldRepair: true });
+    expect(repairCanonicalSessionKeys).toHaveBeenCalledWith({ apply: true, cfg, env });
+    expect(repairLegacySessionWorktreeWorkspaces).toHaveBeenCalledWith({ apply: false, cfg, env });
   });
 
   it("hands a large untouched original to public Doctor SQLite import without a raw repair copy", async () => {
@@ -371,6 +403,7 @@ describe("doctor session transcript repair", () => {
       mode: "dry-run",
     });
     expect(migrateLegacyMainSessionKeys).toHaveBeenCalledWith({ cfg, env, mode: "detect" });
+    expect(repairLegacySessionWorktreeWorkspaces).toHaveBeenCalledWith({ apply: false, cfg, env });
     expect(withDoctorSqliteMaintenanceLock).not.toHaveBeenCalled();
     expect(runPostSessionPluginDoctorStateRepairs).toHaveBeenCalledWith({
       config: cfg,

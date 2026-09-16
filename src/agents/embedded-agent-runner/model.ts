@@ -60,6 +60,7 @@ type AsyncModelResolutionOptions = CommonModelResolutionOptions & {
   /** Selected executable IDs must not pass through input aliases again. */
   modelIdSource?: "input" | "selected";
   allowBundledStaticCatalogFallback?: boolean;
+  /** Only harness-owned execution may replace configured transport with catalog defaults. */
   preferBundledStaticCatalogTransport?: boolean;
   agentRuntimeId?: string;
   skipAgentDiscovery?: boolean;

@@ -626,6 +626,7 @@ describe("UsagePage detail requests", () => {
     )!;
     scope.click();
     expect(cancelled[2]?.signal?.aborted).toBe(true);
+    await page.updateComplete;
     pending.resolve(full);
     await vi.waitFor(() => expect(refreshButton(page).disabled).toBe(false));
     expect(download).toHaveBeenCalledOnce();

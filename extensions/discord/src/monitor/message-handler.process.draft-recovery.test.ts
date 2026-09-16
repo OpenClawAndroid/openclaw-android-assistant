@@ -221,7 +221,7 @@ describe("processDiscordMessage draft streaming recovery", () => {
     expect(editMessageDiscord).not.toHaveBeenCalled();
     expect(deliverDiscordReply).toHaveBeenCalledTimes(1);
     expect(firstMockArg(deliverDiscordReply, "deliverDiscordReply")).toMatchObject({
-      replyToId: "m1",
+      replyToId: "1001",
       replies: [
         {
           text: "Spoken answer",

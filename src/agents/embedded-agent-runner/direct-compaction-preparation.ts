@@ -197,7 +197,6 @@ export async function prepareDirectCompactionAttempt(
       modelIdSource: params.requestedRouteResolution === "resolved" ? "selected" : "input",
       skipAgentDiscovery: true,
       allowBundledStaticCatalogFallback: true,
-      preferBundledStaticCatalogTransport: true,
       authProfileId: profileId,
       authProfileMode: resolvedAuthProfileMode,
     });

@@ -548,7 +548,7 @@ describe("update candidate canary", () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it("rehearses and validates only private state before requiring started then ready, and reaps the process group", async () => {
+  it("rehearses private state, observes readiness, and joins child close after tree signals", async () => {
     runtimeContract = {
       state: 2,
       agent: 3,

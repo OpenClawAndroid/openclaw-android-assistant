@@ -177,7 +177,6 @@ describe("active tool schema doctor warnings", () => {
         workspaceDir: expect.any(String),
         skipAgentDiscovery: true,
         allowBundledStaticCatalogFallback: true,
-        preferBundledStaticCatalogTransport: true,
       }),
     );
     expect(toolState.createTools).toHaveBeenCalledWith(

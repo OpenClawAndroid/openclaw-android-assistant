@@ -57,6 +57,33 @@ afterEach(() => {
 });
 
 describe("Codex catalog request lifetime", () => {
+  it("bounds catalog previews before delivery while preserving ordinary thread/list results", async () => {
+    const harness = createHarness();
+    const preview = "x".repeat(1024 * 1024);
+    type PreviewPage = { data: Array<{ id: string; preview: string }> };
+    const catalog = harness.client.request<PreviewPage>(
+      "thread/list",
+      { limit: 1 },
+      {
+        timeoutMs: 1_000,
+        catalogListKey: { scope: {}, key: "bounded-preview" },
+      },
+    );
+    harness.send({ id: requestId(harness), result: { data: [{ id: "large-preview", preview }] } });
+    expect((await catalog).data[0]?.preview).toHaveLength(500);
+
+    const ordinary = harness.client.request<PreviewPage>(
+      "thread/list",
+      { limit: 1 },
+      { timeoutMs: 1_000 },
+    );
+    harness.send({
+      id: requestId(harness, 1),
+      result: { data: [{ id: "large-preview", preview }] },
+    });
+    expect((await ordinary).data[0]?.preview).toBe(preview);
+  });
+
   it("keeps a retained read valid across a wall-clock jump", async () => {
     const harness = createHarness();
     const pending = read(harness, { scope: {}, key: "wall-clock-read" });

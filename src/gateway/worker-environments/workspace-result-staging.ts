@@ -15,7 +15,7 @@ import { parseChangedWorkspaceResult } from "./workspace-manifest-comparison.js"
 import {
   prepareWorkspaceStageInput,
   loadStagedWorkspaceManifest,
-  readStagedWorkspaceManifestEntry,
+  readStagedWorkspaceManifestEntries,
 } from "./workspace-manifest-worker.js";
 import type {
   WorkerWorkspaceManifest,
@@ -207,14 +207,9 @@ async function materializeStagedEntry(params: {
 
 export async function readStagedWorkerWorkspaceResult(root: string, stagedResultRef: string) {
   const { objectsByPath, ...snapshot } = await loadStagedWorkspaceManifest(root, stagedResultRef);
-  const readEntry = (entry: WorkerWorkspaceManifestEntry) => {
-    const object = objectsByPath.get(entry.path);
-    if (!object) {
-      throw new Error(`Cloud workspace result has no payload for ${entry.path}`);
-    }
-    return readStagedWorkspaceManifestEntry({ root, object, entry });
-  };
-  return { ...snapshot, readEntry };
+  const readEntries = () =>
+    readStagedWorkspaceManifestEntries({ root, objectsByPath, entries: snapshot.changedEntries });
+  return { ...snapshot, readEntries };
 }
 
 export async function withStagedWorkerWorkspaceResult<T>(
@@ -237,8 +232,7 @@ async function withMaterializedWorkerWorkspaceResult<T>(
     path.join(resolvePreferredOpenClawTmpDir(), "openclaw-checkpoint-payload-"),
   );
   try {
-    for (const entry of snapshot.changedEntries) {
-      const content = await snapshot.readEntry(entry);
+    for await (const { entry, content } of snapshot.readEntries()) {
       await materializeStagedEntry({ root: stagingRoot, entry, content });
     }
     return await use({ ...snapshot, stagingRoot });

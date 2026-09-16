@@ -28,7 +28,6 @@ import {
 } from "./loader-records.js";
 import { resolvePluginRegistrationPlan } from "./loader-registration-plan.js";
 import {
-  applyManifestSnapshotMetadata,
   type AuthorizedDreamingSidecar,
   detailPluginStartupTrace,
   preparePluginLoadRecord,
@@ -328,7 +327,6 @@ export function loadRuntimePluginCandidate(params: {
     return;
   }
   if (!context.shouldLoadModules) {
-    applyManifestSnapshotMetadata(record, manifestRecord);
     registry.plugins.push(record);
     state.seenIds.set(pluginId, candidate.origin);
     return;

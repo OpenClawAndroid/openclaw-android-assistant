@@ -79,6 +79,14 @@ function catalogPreview(value: unknown, sanitize: typeof sanitizeTerminalText): 
   return boundedCatalogString(singleLine, MAX_SESSION_PREVIEW_LENGTH, "truncate");
 }
 
+/** Detach the small preview from V8's potentially large sliced-string backing store. */
+export function truncateCodexCatalogPreview(
+  value: unknown,
+  sanitize: typeof sanitizeTerminalText,
+): string {
+  return Buffer.from(catalogPreview(value, sanitize) ?? "", "utf8").toString("utf8");
+}
+
 type CodexInteractiveThreadSource =
   | (typeof CODEX_INTERACTIVE_THREAD_SOURCE_KINDS)[number]
   | (typeof CODEX_INTERACTIVE_CUSTOM_THREAD_SOURCES)[number];

@@ -16,6 +16,7 @@ import type { ModelProvidersRouteData } from "./model-providers/route.ts";
 import type { SkillsRouteData } from "./skills/skills-page.ts";
 import { createSkill } from "./skills/view.test-support.ts";
 import type { UsageRefreshPolicy } from "./usage/refresh-policy.ts";
+import { cacheSnapshot } from "./usage/usage-page.test-support.ts";
 import type { UsageRouteData } from "./usage/usage-page.ts";
 import "./cron/cron-page.ts";
 import "./debug/debug-page.ts";
@@ -822,21 +823,47 @@ describe("gateway source replacement across reconnect with a reused client", () 
   });
 
   it("clears usage loaded by the previous provider", async () => {
-    const client = {} as GatewayBrowserClient;
-    const page = createPage("openclaw-usage-page", contextWithClient(client)) as TestPage & {
-      usageResult: unknown;
-      providerUsageSummary: unknown;
+    const snapshot = cacheSnapshot("sessions", "fresh");
+    const result = { ...snapshot.result, sessions: [{ key: "old", usage: null }] };
+    const providerUsage = {
+      updatedAt: 1,
+      providers: [{ provider: "old", displayName: "Old provider", windows: [] }],
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.usage") {
+        return result;
+      }
+      if (method === "usage.cost") {
+        return snapshot.costSummary;
+      }
+      if (method === "usage.status") {
+        return providerUsage;
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const client = { request } as unknown as GatewayBrowserClient;
+    const page = createPage(
+      "openclaw-usage-page",
+      contextWithClient(client, { connected: true }),
+    ) as TestPage & {
+      loadUsage: () => Promise<void>;
+      readonly usageResult: UsageRouteData["result"];
+      readonly usageCostSummary: UsageRouteData["costSummary"];
+      readonly providerUsageSummary: unknown;
       usageSelectedSessions: string[];
     };
     document.body.append(page);
     await page.updateComplete;
-    page.usageResult = { sessions: [{ key: "old" }] };
-    page.providerUsageSummary = { providers: [{ provider: "old" }] };
+    await page.loadUsage();
+    expect(page.usageResult).toBe(result);
+    expect(page.usageCostSummary).toBe(snapshot.costSummary);
+    expect(page.providerUsageSummary).toBe(providerUsage);
     page.usageSelectedSessions = ["old"];
 
     await replaceContext(page, client);
 
     expect(page.usageResult).toBeNull();
+    expect(page.usageCostSummary).toBeNull();
     expect(page.providerUsageSummary).toBeNull();
     expect(page.usageSelectedSessions).toEqual([]);
   });

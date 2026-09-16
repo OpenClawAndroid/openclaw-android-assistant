@@ -556,6 +556,7 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
     stageManagedResults: observations.stageManagedResults,
     stageRunTerminal: observations.stageRunTerminal,
     projectFields: observations.projectFields,
+    prepareProjection: observations.prepareProjection,
     projectRows: observations.projectRows,
     captureEvent,
     primaryList: () => primaryList,
@@ -623,8 +624,7 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
       if (isPrimarySessionListQuery(options)) {
         return refresh(options);
       }
-      const entry = managedList(options);
-      return refreshManagedList(entry, {
+      return refreshManagedList(managedList(options), {
         append: options.append === true,
         ...(options.force === true && options.append !== true ? { invalidated: true } : {}),
         ...(options.offset !== undefined ? { offset: options.offset } : {}),

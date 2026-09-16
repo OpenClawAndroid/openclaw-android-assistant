@@ -78,6 +78,7 @@ type TelegramHandlerLogger = {
 };
 
 export type RegisterTelegramHandlerParams = {
+  nativeCommandNames?: ReadonlyMap<string, string>;
   cfg: OpenClawConfig;
   accountId: string;
   ownerAgentId: string;
@@ -113,7 +114,6 @@ export type TelegramInboundDisposition =
   | { kind: "processed" };
 
 export interface TelegramInboundPipeline {
-  cancelPending: (target: TelegramPendingInboundTarget) => void;
   handle: (ctx: Context) => Promise<TelegramInboundDisposition>;
 }
 

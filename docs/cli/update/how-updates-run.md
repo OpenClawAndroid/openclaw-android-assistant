@@ -186,9 +186,15 @@ then `/readyz` as ready within the runtime validation allowance. Plugin-resoluti
 errors attributed to a named plugin are recorded without rejecting the candidate.
 An invalid plugin inventory, an unattributed registry error, or failure to meet
 the required core startup or readiness checks still fails validation. Failure
-records the phase, elapsed time, and bounded diagnostics; the canary process group
-and temporary state are cleaned up. This proves candidate core startup on copied
-state; live channel and provider behavior are checked after activation.
+records the phase, elapsed time, and bounded diagnostics. The updater attempts
+process-tree termination and temporary-state cleanup. If bounded teardown does
+not confirm both termination-request completion and child closure, it records a
+maintenance warning separately from the validation result. Readiness, child
+closure, and temporary-copy cleanup do not prove that every descendant stopped.
+Temporary-copy cleanup remains best effort. This reporting belongs to the invoking
+updater; candidate code cannot change an older updater's teardown behavior.
+The canary proves candidate core startup on copied state; live channel and provider
+behavior are checked after activation.
 Targets that predate migration continuation record runtime validation as
 unavailable and use the current updater's existing finalization path. A present
 continuation entry with an invalid schema contract still refuses activation.

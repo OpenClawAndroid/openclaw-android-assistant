@@ -3,7 +3,6 @@ import type {
   SessionsAssignOwnerParams,
   SessionsAssignOwnerResult,
 } from "../../../../packages/gateway-protocol/src/index.js";
-import { deriveSessionUnread } from "../../../../src/shared/session-unread.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import { t } from "../../i18n/index.ts";
 import { formatUiError } from "../format-error.ts";
@@ -27,6 +26,7 @@ import type {
 } from "./session-capability.ts";
 import { areUiSessionKeysEquivalent } from "./session-key.ts";
 import type { SessionRefreshOutcome } from "./session-list-query.ts";
+import { projectSessionPatchRowFields } from "./session-patch-row-facts.ts";
 import {
   createOptimisticRowPatches,
   resolvePendingConversation,
@@ -288,6 +288,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
     const normalizedKey = key.trim();
     const patchSnapshot = host.snapshot();
     const pendingConversation =
+      managesModelOverride ||
       patchParams.pinned !== undefined ||
       patchParams.unread === false ||
       patchParams.archived !== undefined ||
@@ -374,7 +375,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
         }
         if (host.connection.isCurrent(scope) && ownsModelOverride()) {
           if (completed && !options.deferListRefresh) {
-            // The refreshed row already carries the Gateway-confirmed selection.
+            // The canonical row carries the Gateway-confirmed selection.
             // Keeping an overlay would hide subsequent external model changes.
             setModelOverride(key, undefined);
           } else {
@@ -454,47 +455,15 @@ export function createSessionMutations(host: SessionMutationsHost) {
         resolvePendingConversation(patchSnapshot, result.key, pendingTarget.agentId)?.identity ===
           pendingTarget.identity;
       if (pendingTarget && rowPatchConfirmed && confirmFields) {
-        const { entry } = result;
         const readCutoff = host.readRevision();
-        const pin = { pinned: entry.pinnedAt !== undefined, pinnedAt: entry.pinnedAt };
-        const read = {
-          unread: deriveSessionUnread(entry),
-          lastReadAt: entry.lastReadAt,
-          markedUnreadAt: entry.markedUnreadAt,
-        };
-        if (typeof patchParams.archived === "boolean") {
+        for (const fields of projectSessionPatchRowFields(patchParams, result)) {
           confirmFields({
             key: pendingTarget.key,
             agentId: pendingTarget.agentId,
             sessionId: pendingTarget.sessionId,
-            updatedAt: entry.updatedAt ?? null,
+            updatedAt: result.entry.updatedAt ?? null,
             readCutoff,
-            fields: projectSessionArchiveFields(patchParams.archived, entry),
-          });
-        }
-        if (patchParams.boardPresentation !== undefined) {
-          confirmFields({
-            key: pendingTarget.key,
-            agentId: pendingTarget.agentId,
-            sessionId: pendingTarget.sessionId,
-            updatedAt: entry.updatedAt ?? null,
-            readCutoff,
-            fields: { boardPresentation: entry.boardPresentation },
-          });
-        }
-        if (patchParams.pinned !== undefined || patchParams.unread === false) {
-          confirmFields({
-            key: pendingTarget.key,
-            agentId: pendingTarget.agentId,
-            sessionId: pendingTarget.sessionId,
-            updatedAt: entry.updatedAt ?? null,
-            readCutoff,
-            fields:
-              patchParams.pinned === undefined
-                ? read
-                : patchParams.unread === false
-                  ? { ...pin, ...read }
-                  : pin,
+            fields,
           });
         }
       }

@@ -14,7 +14,10 @@ import { chatInputOwnerForContext } from "../../app/chat-input-owner.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { loadSettings } from "../../app/settings.ts";
 import { UI_COMMAND_EVENT } from "../../components/panel-toggle-contract.ts";
-import { SESSION_NAVIGATION_INTENT_EVENT } from "../../lib/sessions/navigation-handoff.ts";
+import {
+  runSessionNavigationIntent,
+  SESSION_NAVIGATION_INTENT_EVENT,
+} from "../../lib/sessions/navigation-handoff.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import { QUEUED_EDIT_RETENTION_CHANGE_EVENT } from "./chat-page-retained-sessions.ts";
@@ -637,6 +640,36 @@ describe("chat page retained sessions", () => {
       expect(paneB?.hasAttribute("inert")).toBe(true);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("commits a retained session intent while another route is still loading", async () => {
+    const originalHref = window.location.href;
+    const { page, paneFor } = await mountRetainedPage(
+      "agent:main:a",
+      "agent:main:b",
+      "agent:main:a",
+    );
+    const paneB = expectDefined(paneFor("agent:main:b"), "retained navigation target");
+    const commit = vi.fn(() => true);
+    try {
+      // The router advances history before a cold route replaces the visible Chat page.
+      window.history.pushState(null, "", "/agents");
+      expect(page.presented).toBe(true);
+      runSessionNavigationIntent(paneB, {
+        commit,
+        face: "chat",
+        sessionKey: "agent:main:b",
+      });
+
+      expect(commit).toHaveBeenCalledOnce();
+      expect(paneB.hasAttribute("inert")).toBe(true);
+      expect(paneFor("agent:main:a")?.hasAttribute("inert")).toBe(false);
+      page.presented = false;
+      await page.updateComplete;
+      expect(commit).toHaveBeenCalledOnce();
+    } finally {
+      window.history.replaceState(null, "", originalHref);
     }
   });
 

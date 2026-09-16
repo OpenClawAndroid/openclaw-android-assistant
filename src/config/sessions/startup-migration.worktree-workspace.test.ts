@@ -81,6 +81,7 @@ it("backfills a nested requested workspace once instead of using the agent defau
       cfg,
       env,
       storePath,
+      mode: "doctor-fix",
     });
 
   await runMigration();
@@ -136,9 +137,15 @@ it("repairs a foreign logical row in its source partition without changing a sam
   });
   const siblingBefore = loadSessionEntry(scope);
   const runMigration = () =>
-    migrateManagedWorktreeCanonicalWorkspaces({ agentId: "main", cfg, env, storePath });
+    migrateManagedWorktreeCanonicalWorkspaces({
+      agentId: "main",
+      cfg,
+      env,
+      storePath,
+      mode: "doctor-fix",
+    });
 
-  await expect(runMigration()).resolves.toBe(1);
+  await expect(runMigration()).resolves.toEqual({ found: 1, repaired: 1 });
   expect(loadSessionEntry(sourceScope)).toMatchObject({
     sessionId: "source-session",
     updatedAt: 10,
@@ -150,7 +157,7 @@ it("repairs a foreign logical row in its source partition without changing a sam
     },
   });
   expect(loadSessionEntry(scope)).toEqual(siblingBefore);
-  await expect(runMigration()).resolves.toBe(0);
+  await expect(runMigration()).resolves.toEqual({ found: 0, repaired: 0 });
   expect(loadSessionEntry(scope)).toEqual(siblingBefore);
 });
 
@@ -196,8 +203,14 @@ it.each(["main", "ops"])(
       agents.map((agent) => `${agent.id}-session`),
     );
     const runMigration = () =>
-      migrateManagedWorktreeCanonicalWorkspaces({ agentId, cfg, env, storePath });
-    await expect(runMigration()).resolves.toBe(2);
+      migrateManagedWorktreeCanonicalWorkspaces({
+        agentId,
+        cfg,
+        env,
+        storePath,
+        mode: "doctor-fix",
+      });
+    await expect(runMigration()).resolves.toEqual({ found: 2, repaired: 2 });
     const migrated = readEntries();
     expect(migrated).toEqual(
       agents.map((agent) =>
@@ -213,7 +226,7 @@ it.each(["main", "ops"])(
         }),
       ),
     );
-    await expect(runMigration()).resolves.toBe(0);
+    await expect(runMigration()).resolves.toEqual({ found: 0, repaired: 0 });
     expect(readEntries()).toEqual(migrated);
   },
 );

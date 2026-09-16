@@ -22,7 +22,7 @@ import {
   readSessionTranscriptHistoryEvents,
   readSessionTranscriptHistoryEventById,
 } from "../config/sessions/session-accessor.sqlite-history.test-support.js";
-import { importSqliteSessionRows } from "../config/sessions/session-accessor.sqlite-import.js";
+import { importSqliteSessionRows } from "../config/sessions/session-accessor.sqlite-import.test-support.js";
 import {
   loadTranscriptEventsSync,
   readTranscriptStatsSync,

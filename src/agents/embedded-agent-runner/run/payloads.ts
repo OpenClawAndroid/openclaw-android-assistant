@@ -45,6 +45,7 @@ import type {
   MessagingToolSend,
   MessagingToolSourceReplyPayload,
 } from "../../embedded-agent-messaging.types.js";
+import type { EmbeddedAgentSubscribeState } from "../../embedded-agent-subscribe.handlers.types.js";
 import type { ToolResultFormat } from "../../embedded-agent-subscribe.shared-types.js";
 import {
   extractAssistantThinking,
@@ -124,6 +125,7 @@ function resolveRawAssistantAnswerText(lastAssistant: AssistantMessage | undefin
  */
 export function buildEmbeddedRunPayloads(params: {
   assistantTexts: string[];
+  answerSegments?: EmbeddedAgentSubscribeState["answerSegments"];
   assistantMessageIndex?: number;
   assistantTranscriptOwned?: boolean;
   assistantTranscriptIdempotencyKey?: string;
@@ -195,173 +197,205 @@ export function buildEmbeddedRunPayloads(params: {
   const suppressFailureArtifacts =
     params.didSendDeterministicApprovalPrompt === true ||
     (params.sourceReplyDeliveryMode === "message_tool_only" && completedSourceReplyViaMessageTool);
-  const nonEmptyAssistantTexts = params.assistantTexts
-    .map((text) => sanitizeAssistantVisibleStreamText(text))
-    .filter((text) => text.trim().length > 0);
-  const currentAssistant = params.currentAssistant ?? undefined;
-  const assistantForPayload =
-    currentAssistant ?? (nonEmptyAssistantTexts.length === 1 ? undefined : params.lastAssistant);
-  // Pre-upgrade recovered messages have no stored facts, and recovery intentionally does not
-  // reparse text; one in-flight reply can lose delivery or speech intent across this boundary.
-  const storedDelivery = assistantForPayload?.openclawDelivery;
-  const lastAssistantStopReason = assistantForPayload?.stopReason;
-  const lastAssistantErrored = lastAssistantStopReason === "error";
-  const lastAssistantAborted = lastAssistantStopReason === "aborted";
-  const runAborted = params.runAborted === true || lastAssistantAborted;
-  const lastAssistantNeedsErrorSurface = lastAssistantErrored || lastAssistantAborted;
-  const rawErrorMessage = lastAssistantNeedsErrorSurface
-    ? normalizeOptionalString(assistantForPayload?.errorMessage)
-    : undefined;
-  const oauthRefreshFailure = rawErrorMessage ? classifyOAuthRefreshFailure(rawErrorMessage) : null;
-  const providerLoginRecovery = buildProviderLoginRecovery({
-    provider: oauthRefreshFailure?.provider ?? params.provider,
-    oauthReason: oauthRefreshFailure?.reason,
-  });
-  const errorText =
-    assistantForPayload && lastAssistantNeedsErrorSurface
-      ? suppressFailureArtifacts
-        ? undefined
-        : lastAssistantErrored || rawErrorMessage
-          ? (providerLoginRecovery?.hint ??
-            formatUserFacingAssistantErrorText(assistantForPayload, {
-              cfg: params.config,
-              sessionKey: params.sessionKey,
-              agentId: params.agentId,
-              provider: params.provider,
-              providerOwner: params.providerOwner,
-              model: params.model,
-              authMode: params.authMode,
-            }))
-          : formatAssistantErrorText(assistantForPayload, {
-              cfg: params.config,
-              sessionKey: params.sessionKey,
-              agentId: params.agentId,
-              provider: params.provider,
-              providerOwner: params.providerOwner,
-              model: params.model,
-              authMode: params.authMode,
-            })
-      : undefined;
-  const deferAssistantTimeoutError =
-    params.deferAssistantTimeoutError === true &&
-    rawErrorMessage !== undefined &&
-    isTimeoutErrorMessage(rawErrorMessage) &&
-    errorText === SYNTHESIZED_TIMEOUT_ERROR_TEXT;
-  if (errorText && !deferAssistantTimeoutError) {
-    const errorPayload = {
-      text: errorText,
-      isError: true,
-      ...(providerLoginRecovery ? { presentation: providerLoginRecovery.presentation } : {}),
-    };
-    replyItems.push(setReplyPayloadMetadata(errorPayload, { terminalProviderError: true }));
-  }
-  const reasoningText =
-    suppressAssistantArtifacts || runAborted || lastAssistantNeedsErrorSurface
-      ? ""
-      : assistantForPayload && params.reasoningLevel === "on" && params.thinkingLevel !== "off"
-        ? extractAssistantThinking(assistantForPayload)
-        : "";
-  if (reasoningText) {
-    replyItems.push({ text: reasoningText, isReasoning: true });
-  }
   let hasUserFacingReply =
-    Boolean(errorText) ||
-    completedSourceReplyViaMessageTool ||
-    params.heartbeatToolResponse?.notify === true;
-  if (!suppressAssistantArtifacts && !runAborted && !lastAssistantNeedsErrorSurface) {
-    const fallbackAnswerText = assistantForPayload
-      ? extractAssistantVisibleText(assistantForPayload)
-      : "";
-    const fallbackRawAnswerText = resolveRawAssistantAnswerText(assistantForPayload);
-    const rawAnswerDirectiveState = fallbackRawAnswerText
-      ? parseReplyDirectives(fallbackRawAnswerText)
+    completedSourceReplyViaMessageTool || params.heartbeatToolResponse?.notify === true;
+  const appendSegmentAnswer = ({
+    assistantTexts,
+    lastAssistant,
+    currentAssistant,
+    assistantMessageIndex,
+  }: Pick<
+    typeof params,
+    "assistantTexts" | "lastAssistant" | "currentAssistant" | "assistantMessageIndex"
+  >) => {
+    const nonEmptyAssistantTexts = assistantTexts
+      .map((text) => sanitizeAssistantVisibleStreamText(text))
+      .filter((text) => text.trim().length > 0);
+    const assistantForPayload =
+      currentAssistant ?? (nonEmptyAssistantTexts.length === 1 ? undefined : lastAssistant);
+    // Pre-upgrade recovered messages have no stored facts, and recovery intentionally does not
+    // reparse text; one in-flight reply can lose delivery or speech intent across this boundary.
+    const storedDelivery = assistantForPayload?.openclawDelivery;
+    const lastAssistantStopReason = assistantForPayload?.stopReason;
+    const lastAssistantErrored = lastAssistantStopReason === "error";
+    const lastAssistantAborted = lastAssistantStopReason === "aborted";
+    const runAborted = params.runAborted === true || lastAssistantAborted;
+    const lastAssistantNeedsErrorSurface = lastAssistantErrored || lastAssistantAborted;
+    const rawErrorMessage = lastAssistantNeedsErrorSurface
+      ? normalizeOptionalString(assistantForPayload?.errorMessage)
+      : undefined;
+    const oauthRefreshFailure = rawErrorMessage
+      ? classifyOAuthRefreshFailure(rawErrorMessage)
       : null;
-    const rawAnswerHasMedia =
-      (rawAnswerDirectiveState?.mediaUrls?.length ?? 0) > 0 ||
-      rawAnswerDirectiveState?.audioAsVoice;
-    const normalizedAssistantTexts =
-      rawAnswerHasMedia &&
-      nonEmptyAssistantTexts.length > 0 &&
-      !params.assistantTexts.some((text) => {
-        const parsed = parseReplyDirectives(text);
-        return (parsed.mediaUrls?.length ?? 0) > 0 || parsed.audioAsVoice;
-      })
-        ? normalizeTextForComparison(nonEmptyAssistantTexts.join("\n\n"))
-        : "";
-    const shouldPreferRawAnswerText =
-      rawAnswerHasMedia &&
-      (!nonEmptyAssistantTexts.length ||
-        (normalizedAssistantTexts.length > 0 &&
-          normalizedAssistantTexts ===
-            normalizeTextForComparison(rawAnswerDirectiveState?.text ?? "")));
-    // When streamed text lost media directives but the canonical assistant answer
-    // still contains them, keep the raw answer so attachments are not dropped.
-    const fallbackAnswerSourceText =
-      shouldPreferRawAnswerText && fallbackRawAnswerText
-        ? fallbackRawAnswerText
-        : fallbackAnswerText;
-    const fallbackAnswerDirectiveState =
-      fallbackAnswerSourceText === fallbackRawAnswerText
-        ? rawAnswerDirectiveState
-        : fallbackAnswerSourceText
-          ? parseReplyDirectives(fallbackAnswerSourceText)
-          : null;
-    const normalizedFallbackAnswerSourceText = fallbackAnswerDirectiveState
-      ? normalizeTextForComparison(fallbackAnswerDirectiveState.text)
-      : "";
-    const shouldUseCanonicalFinalAnswer =
-      fallbackAnswerSourceText.length > 0 && normalizedFallbackAnswerSourceText.length > 0;
-    const hasAssistantTextPayload = nonEmptyAssistantTexts.length > 0;
-    const answerTexts = shouldUseCanonicalFinalAnswer
-      ? [fallbackAnswerSourceText]
-      : shouldPreferRawAnswerText && fallbackRawAnswerText
-        ? [fallbackRawAnswerText]
-        : hasAssistantTextPayload
-          ? nonEmptyAssistantTexts
-          : fallbackAnswerText
-            ? [fallbackAnswerText]
-            : [];
-    const preparedAnswerDirectives =
-      shouldUseCanonicalFinalAnswer || shouldPreferRawAnswerText || !hasAssistantTextPayload
-        ? fallbackAnswerDirectiveState
-        : null;
-    for (const text of answerTexts) {
-      const {
-        text: cleanedText,
-        mediaUrls,
-        audioAsVoice,
-        replyToId,
-        replyToTag,
-        replyToCurrent,
-      } = preparedAnswerDirectives ?? parseReplyDirectives(text);
-      const ttsFacts = shouldUseCanonicalFinalAnswer ? storedDelivery?.tts : undefined;
-      const delivery = shouldUseCanonicalFinalAnswer
-        ? {
-            audioAsVoice: storedDelivery?.audioAsVoice,
-            replyToCurrent: storedDelivery?.replyToCurrent,
-            replyToId: storedDelivery?.replyToId,
-            replyToTag: Boolean(storedDelivery?.replyToCurrent || storedDelivery?.replyToId),
-          }
-        : { audioAsVoice, replyToId, replyToTag, replyToCurrent };
-      if (
-        !cleanedText &&
-        (!mediaUrls || mediaUrls.length === 0) &&
-        !delivery.audioAsVoice &&
-        !ttsFacts
-      ) {
-        continue;
-      }
-      const replyPayload = {
-        text: cleanedText,
-        media: mediaUrls,
-        ...delivery,
+    const providerLoginRecovery = buildProviderLoginRecovery({
+      provider: oauthRefreshFailure?.provider ?? params.provider,
+      oauthReason: oauthRefreshFailure?.reason,
+    });
+    const errorText =
+      assistantForPayload && lastAssistantNeedsErrorSurface
+        ? suppressFailureArtifacts
+          ? undefined
+          : lastAssistantErrored || rawErrorMessage
+            ? (providerLoginRecovery?.hint ??
+              formatUserFacingAssistantErrorText(assistantForPayload, {
+                cfg: params.config,
+                sessionKey: params.sessionKey,
+                agentId: params.agentId,
+                provider: params.provider,
+                providerOwner: params.providerOwner,
+                model: params.model,
+                authMode: params.authMode,
+              }))
+            : formatAssistantErrorText(assistantForPayload, {
+                cfg: params.config,
+                sessionKey: params.sessionKey,
+                agentId: params.agentId,
+                provider: params.provider,
+                providerOwner: params.providerOwner,
+                model: params.model,
+                authMode: params.authMode,
+              })
+        : undefined;
+    const deferAssistantTimeoutError =
+      params.deferAssistantTimeoutError === true &&
+      rawErrorMessage !== undefined &&
+      isTimeoutErrorMessage(rawErrorMessage) &&
+      errorText === SYNTHESIZED_TIMEOUT_ERROR_TEXT;
+    if (errorText && !deferAssistantTimeoutError) {
+      const errorPayload = {
+        text: errorText,
+        isError: true,
+        ...(providerLoginRecovery ? { presentation: providerLoginRecovery.presentation } : {}),
       };
-      replyItems.push(
-        ttsFacts ? setReplyPayloadMetadata(replyPayload, { tts: ttsFacts }) : replyPayload,
-      );
-      hasUserFacingReply = true;
+      replyItems.push(setReplyPayloadMetadata(errorPayload, { terminalProviderError: true }));
     }
+    const reasoningText =
+      suppressAssistantArtifacts || runAborted || lastAssistantNeedsErrorSurface
+        ? ""
+        : assistantForPayload && params.reasoningLevel === "on" && params.thinkingLevel !== "off"
+          ? extractAssistantThinking(assistantForPayload)
+          : "";
+    if (reasoningText) {
+      replyItems.push({ text: reasoningText, isReasoning: true });
+    }
+    hasUserFacingReply ||= Boolean(errorText);
+    if (!suppressAssistantArtifacts && !runAborted && !lastAssistantNeedsErrorSurface) {
+      const fallbackAnswerText = assistantForPayload
+        ? extractAssistantVisibleText(assistantForPayload)
+        : "";
+      const fallbackRawAnswerText = resolveRawAssistantAnswerText(assistantForPayload);
+      const rawAnswerDirectiveState = fallbackRawAnswerText
+        ? parseReplyDirectives(fallbackRawAnswerText)
+        : null;
+      const rawAnswerHasMedia =
+        (rawAnswerDirectiveState?.mediaUrls?.length ?? 0) > 0 ||
+        rawAnswerDirectiveState?.audioAsVoice;
+      const normalizedAssistantTexts =
+        rawAnswerHasMedia &&
+        nonEmptyAssistantTexts.length > 0 &&
+        !assistantTexts.some((text) => {
+          const parsed = parseReplyDirectives(text);
+          return (parsed.mediaUrls?.length ?? 0) > 0 || parsed.audioAsVoice;
+        })
+          ? normalizeTextForComparison(nonEmptyAssistantTexts.join("\n\n"))
+          : "";
+      const shouldPreferRawAnswerText =
+        rawAnswerDirectiveState?.isSilent ||
+        (rawAnswerHasMedia &&
+          (!nonEmptyAssistantTexts.length ||
+            (normalizedAssistantTexts.length > 0 &&
+              normalizedAssistantTexts ===
+                normalizeTextForComparison(rawAnswerDirectiveState?.text ?? ""))));
+      // When streamed text lost media directives but the canonical assistant answer
+      // still contains them, keep the raw answer so attachments are not dropped.
+      const fallbackAnswerSourceText =
+        shouldPreferRawAnswerText && fallbackRawAnswerText
+          ? fallbackRawAnswerText
+          : fallbackAnswerText;
+      const fallbackAnswerDirectiveState =
+        fallbackAnswerSourceText === fallbackRawAnswerText
+          ? rawAnswerDirectiveState
+          : fallbackAnswerSourceText
+            ? parseReplyDirectives(fallbackAnswerSourceText)
+            : null;
+      const shouldUseCanonicalFinalAnswer = Boolean(
+        fallbackAnswerDirectiveState &&
+        normalizeTextForComparison(fallbackAnswerDirectiveState.text),
+      );
+      const hasAssistantTextPayload = nonEmptyAssistantTexts.length > 0;
+      const answerTexts =
+        shouldUseCanonicalFinalAnswer || shouldPreferRawAnswerText
+          ? [fallbackAnswerSourceText]
+          : hasAssistantTextPayload
+            ? nonEmptyAssistantTexts
+            : fallbackAnswerText
+              ? [fallbackAnswerText]
+              : [];
+      const preparedAnswerDirectives =
+        shouldUseCanonicalFinalAnswer || shouldPreferRawAnswerText || !hasAssistantTextPayload
+          ? fallbackAnswerDirectiveState
+          : null;
+      for (const text of answerTexts) {
+        const {
+          text: cleanedText,
+          mediaUrls,
+          audioAsVoice,
+          replyToId,
+          replyToTag,
+          replyToCurrent,
+        } = preparedAnswerDirectives ?? parseReplyDirectives(text);
+        const ttsFacts = shouldUseCanonicalFinalAnswer ? storedDelivery?.tts : undefined;
+        const delivery = shouldUseCanonicalFinalAnswer
+          ? {
+              audioAsVoice: storedDelivery?.audioAsVoice,
+              replyToCurrent: storedDelivery?.replyToCurrent,
+              replyToId: storedDelivery?.replyToId,
+              replyToTag: Boolean(storedDelivery?.replyToCurrent || storedDelivery?.replyToId),
+            }
+          : { audioAsVoice, replyToId, replyToTag, replyToCurrent };
+        if (
+          !cleanedText &&
+          (!mediaUrls || mediaUrls.length === 0) &&
+          !delivery.audioAsVoice &&
+          !ttsFacts
+        ) {
+          continue;
+        }
+        const replyPayload = {
+          text: cleanedText,
+          media: mediaUrls,
+          ...delivery,
+        };
+        if (assistantMessageIndex !== undefined) {
+          setReplyPayloadMetadata(replyPayload, { assistantMessageIndex });
+        }
+        replyItems.push(
+          ttsFacts ? setReplyPayloadMetadata(replyPayload, { tts: ttsFacts }) : replyPayload,
+        );
+        hasUserFacingReply = true;
+      }
+    }
+  };
+  let textStart = 0;
+  for (const segment of params.answerSegments ?? []) {
+    const replyStart = replyItems.length;
+    appendSegmentAnswer({
+      assistantTexts: params.assistantTexts.slice(textStart, segment.textEnd),
+      lastAssistant: segment.lastAssistant,
+      currentAssistant: segment.lastAssistant,
+      assistantMessageIndex: segment.messageEnd,
+    });
+    for (const reply of replyItems.slice(replyStart)) {
+      setReplyPayloadMetadata(reply, { precedingInputAnswer: true });
+    }
+    textStart = segment.textEnd;
   }
+  appendSegmentAnswer({
+    assistantTexts: params.assistantTexts.slice(textStart),
+    lastAssistant: params.lastAssistant,
+    currentAssistant: params.currentAssistant,
+    assistantMessageIndex: params.assistantMessageIndex,
+  });
   if (params.lastToolError) {
     // A restart intentionally aborts the active tool while the Gateway takes over.
     // Report the lifecycle status instead of a tool failure.
@@ -405,6 +439,8 @@ export function buildEmbeddedRunPayloads(params: {
   const hasAudioAsVoiceTag = replyItems.some((item) => item.audioAsVoice);
   return replyItems
     .map((item) => {
+      const assistantMessageIndex =
+        getReplyPayloadMetadata(item)?.assistantMessageIndex ?? params.assistantMessageIndex;
       const payload: ReplyPayload = copyReplyPayloadMetadata(item, {
         text: normalizeOptionalString(item.text),
       });
@@ -442,12 +478,10 @@ export function buildEmbeddedRunPayloads(params: {
       if (
         !item.isError &&
         !item.isReasoning &&
-        (params.assistantMessageIndex !== undefined || params.assistantTranscriptOwned === true)
+        (assistantMessageIndex !== undefined || params.assistantTranscriptOwned === true)
       ) {
         setReplyPayloadMetadata(payload, {
-          ...(params.assistantMessageIndex !== undefined
-            ? { assistantMessageIndex: params.assistantMessageIndex }
-            : {}),
+          ...(assistantMessageIndex !== undefined ? { assistantMessageIndex } : {}),
           ...(item.media?.length ? { assistantTranscriptMediaUrls: [...item.media] } : {}),
           ...(params.assistantTranscriptOwned === true ? { assistantTranscriptOwned: true } : {}),
           ...(params.assistantTranscriptIdempotencyKey

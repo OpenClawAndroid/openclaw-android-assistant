@@ -1,10 +1,8 @@
 // Audits config paths and values for diagnostics and safety checks.
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import {
-  createSqliteAuditRecordStore,
-  registerSqliteAuditRecordAsync,
-} from "../infra/sqlite-audit-record-store.js";
+import { registerSqliteAuditRecordAsync } from "../infra/sqlite-audit-record-store.async.js";
+import { createSqliteAuditRecordStore } from "../infra/sqlite-audit-record-store.js";
 import { redactSecrets } from "../logging/redact.js";
 import { resolveConfigAuditStoreEnv } from "./config-journal-snapshot.js";
 import type { ConfigWriteAuditOrigin } from "./io.types.js";

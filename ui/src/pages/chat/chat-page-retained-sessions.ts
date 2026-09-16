@@ -18,6 +18,7 @@ type RetentionHost = HTMLElement & { requestUpdate(): unknown };
 type RetentionBindings = {
   context: () => ApplicationContext | undefined;
   presented: () => boolean;
+  routeHref: () => string;
   layout: () => ChatSplitLayout;
   narrow: () => boolean;
   selectReplacement: (paneId: string, sourceSessionKey: string, sessionKey: string) => void;
@@ -184,7 +185,11 @@ export class ChatPageRetainedSessions {
   }
 
   private readonly handleNavigationIntent = (event: Event) => {
-    if (!this.bindings.presented() || !(event instanceof CustomEvent)) {
+    if (
+      !this.bindings.presented() ||
+      window.location.href !== this.bindings.routeHref() ||
+      !(event instanceof CustomEvent)
+    ) {
       return;
     }
     this.cancelPreview();

@@ -103,9 +103,9 @@ function assistantTexts(history: ChatHistory): string[] {
     );
 }
 
-async function startQuotaProvider(source: BlockSource, responseText: string) {
+export async function startQuotaProvider(source: BlockSource, responseText: string) {
   let phase: Phase = "healthy";
-  let nextSuccessObserver: (() => void) | undefined;
+  let nextSuccessObserver: { observe: () => void; model: string; path: string } | undefined;
   let nextUsageHold: { arrived: Deferred<HeldProviderResponse>; released: Deferred } | undefined;
   let nextCatalogHold: { arrived: Deferred<HeldProviderResponse>; released: Deferred } | undefined;
   const heldUsageResponses: HeldProviderResponse[] = [];
@@ -127,7 +127,7 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
     transport: RequestRecord["transport"],
     bodyBytes?: Buffer,
   ) => {
-    requests.push({
+    const recorded: RequestRecord = {
       phase,
       transport,
       path: request.url ?? "",
@@ -138,7 +138,9 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
       bodyBase64: bodyBytes?.toString("base64"),
       authorization: request.headers.authorization,
       accountId: request.headers["chatgpt-account-id"],
-    });
+    };
+    requests.push(recorded);
+    return recorded;
   };
   const usage = () => {
     const usageExhausted =
@@ -222,10 +224,20 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
       headers,
     };
   };
-  const successEvents = (marker = responseText) => {
-    const observe = nextSuccessObserver;
-    nextSuccessObserver = undefined;
-    observe?.();
+  const successEvents = (request: RequestRecord, marker = responseText) => {
+    const observer = nextSuccessObserver;
+    if (observer && new URL(request.path, "http://127.0.0.1").pathname === observer.path) {
+      let body: unknown;
+      try {
+        body = JSON.parse(request.body ?? "null");
+      } catch {
+        // An unidentified request cannot consume an inference-specific observer.
+      }
+      if (body && typeof body === "object" && "model" in body && body.model === observer.model) {
+        nextSuccessObserver = undefined;
+        observer.observe();
+      }
+    }
     const id = randomUUID().replaceAll("-", "");
     const item = {
       type: "message",
@@ -277,7 +289,7 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
           : encoding === "zstd"
             ? zstdDecompressSync(bodyBytes)
             : undefined;
-      recordRequest(request, decoded?.toString(), "http", bodyBytes);
+      const recorded = recordRequest(request, decoded?.toString(), "http", bodyBytes);
       const requestPath = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
       const json = (
         status: number,
@@ -396,7 +408,7 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
           const event = failure();
           json(event.status, { error: event.error }, event.headers);
         } else {
-          const events = successEvents(backup ? BACKUP_MARKER : responseText);
+          const events = successEvents(recorded, backup ? BACKUP_MARKER : responseText);
           responses.push({ phase, path: requestPath, value: events });
           response.writeHead(200, { "content-type": "text/event-stream" });
           for (const event of events) {
@@ -420,8 +432,8 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
     sockets.handleUpgrade(request, socket, head, (websocket) => {
       websocket.on("error", (error) => errors.push(String(error)));
       websocket.on("message", (raw) => {
-        recordRequest(request, rawDataToString(raw), "websocket");
-        const events = exhausted() || phase === "revoked" ? [failure()] : successEvents();
+        const recorded = recordRequest(request, rawDataToString(raw), "websocket");
+        const events = exhausted() || phase === "revoked" ? [failure()] : successEvents(recorded);
         for (const event of events) {
           responses.push({ phase, path: request.url ?? "", value: event });
           websocket.send(JSON.stringify(event));
@@ -447,8 +459,8 @@ async function startQuotaProvider(source: BlockSource, responseText: string) {
     setPhase(next: Phase) {
       phase = next;
     },
-    observeNextSuccess(observer: () => void) {
-      nextSuccessObserver = observer;
+    observeNextSuccess(observe: () => void, request: { model: string; path: string }) {
+      nextSuccessObserver = { observe, ...request };
     },
     holdNextUsage() {
       if (nextUsageHold) {

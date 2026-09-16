@@ -97,7 +97,7 @@ export class DesktopSessionController {
             if (resolution) {
               void resolution.target
                 .then((target) => {
-                  // Session events omit placement; unchanged updates must keep live input.
+                  // Preserve live input when the exact-row refresh leaves its target unchanged.
                   if (
                     resolution.isCurrent() &&
                     target !== undefined &&

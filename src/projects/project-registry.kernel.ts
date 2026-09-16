@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Selectable } from "kysely";
+import { slugifyWorktreeTitle } from "../agents/worktrees/name.js";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
@@ -15,13 +16,100 @@ export type ProjectRegistryIdentity = {
   source: "workspace" | "registered" | "cloned";
 };
 
+export type ProjectRegistryRecord = ProjectRegistryIdentity & {
+  displayName: string;
+  agentId?: string;
+};
+
+export type ProjectRegistryInsert = {
+  displayName: string;
+  repoRoot: string;
+  originUrl?: string;
+  source: "registered" | "cloned";
+};
+
 type ProjectsDatabase = Pick<OpenClawStateKyselyDatabase, "projects">;
 type ProjectRow = Selectable<ProjectsDatabase["projects"]>;
+
+const PROJECT_ID_MAX_LENGTH = 64;
 
 export const ensureProjectRegistrySchema = createOpenClawStateSchemaEnsurer({
   table: "projects",
   operationLabel: "projects.registry.schema.ensure",
 });
+
+export function rowToProject(row: ProjectRow): ProjectRegistryRecord {
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    repoRoot: row.repo_root,
+    ...(row.origin_url ? { originUrl: row.origin_url } : {}),
+    // SAFETY: The canonical projects.source CHECK permits these two stored values.
+    source: row.source as "registered" | "cloned",
+  };
+}
+
+function allocateProjectId(base: string, existing: ReadonlySet<string>): string {
+  if (!existing.has(base)) {
+    return base;
+  }
+  for (let suffixNumber = 2; ; suffixNumber += 1) {
+    const suffix = `-${suffixNumber}`;
+    const candidate = `${base.slice(0, PROJECT_ID_MAX_LENGTH - suffix.length).replace(/-+$/u, "")}${suffix}`;
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+export function insertProjectRegistryInDatabase(
+  database: DatabaseSync,
+  input: ProjectRegistryInsert,
+): ProjectRegistryRecord {
+  const db = getNodeSqliteKysely<ProjectsDatabase>(database);
+  const sameRoot = executeSqliteQueryTakeFirstSync(
+    database,
+    db.selectFrom("projects").selectAll().where("repo_root", "=", input.repoRoot),
+  );
+  if (sameRoot) {
+    return rowToProject(sameRoot);
+  }
+  if (input.source === "cloned" && input.originUrl) {
+    const duplicate = executeSqliteQueryTakeFirstSync(
+      database,
+      db.selectFrom("projects").selectAll().where("origin_url", "=", input.originUrl),
+    );
+    if (duplicate) {
+      return rowToProject(duplicate);
+    }
+  }
+  const existing = new Set(
+    executeSqliteQuerySync(database, db.selectFrom("projects").select("id")).rows.map(
+      (row) => row.id,
+    ),
+  );
+  const baseId = slugifyWorktreeTitle(input.displayName) ?? "project";
+  const id = allocateProjectId(baseId, existing);
+  const now = Date.now();
+  const row = {
+    id,
+    display_name: input.displayName,
+    repo_root: input.repoRoot,
+    origin_url: input.originUrl ?? null,
+    source: input.source,
+    created_at_ms: now,
+    updated_at_ms: now,
+  };
+  executeSqliteQuerySync(database, db.insertInto("projects").values(row));
+  return rowToProject(row);
+}
+
+export function listProjectRegistryInDatabase(database: DatabaseSync): ProjectRegistryRecord[] {
+  const db = getNodeSqliteKysely<ProjectsDatabase>(database);
+  return executeSqliteQuerySync(database, db.selectFrom("projects").selectAll()).rows.map(
+    rowToProject,
+  );
+}
 
 export function resolveRecordedProjectRootInDatabase(
   database: DatabaseSync,

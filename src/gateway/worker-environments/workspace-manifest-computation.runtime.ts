@@ -28,7 +28,7 @@ import {
 import { preflightWorkspaceApplyImpl } from "./workspace-reconcile-preflight.js";
 import {
   loadStagedWorkerWorkspace,
-  readStagedWorkerWorkspaceEntry,
+  readStagedWorkerWorkspaceEntries,
 } from "./workspace-result-inventory.runtime.js";
 import { buildWorkspaceStageInput } from "./workspace-result-preparation.runtime.js";
 
@@ -90,16 +90,8 @@ export async function executeWorkspaceManifestComputation(
       return await loadStagedWorkerWorkspace(command.input.root, command.input.ref);
     case "workspace.manifest.stage-input":
       return await buildWorkspaceStageInput(command.input);
-    case "workspace.manifest.entry":
-      return ownedGitWorkerBytes(
-        await readStagedWorkerWorkspaceEntry(
-          {
-            root: command.input.root,
-            objectsByPath: new Map([[command.input.entry.path, command.input.object]]),
-          },
-          command.input.entry,
-        ),
-      );
+    case "workspace.manifest.entries":
+      return ownedGitWorkerBytes(await readStagedWorkerWorkspaceEntries(command.input));
     case "workspace.manifest.capture": {
       const input = decodeManifestValue(command);
       return await withHashes(input.hashes, async () => {

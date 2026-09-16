@@ -12,6 +12,7 @@ import {
   testing as nativeHookRelayTesting,
 } from "../agents/harness/native-hook-relay.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
+import { resolveTestNodeExecPath } from "../test-utils/node-process.js";
 import { getFreePort } from "../test-utils/ports.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -185,11 +186,12 @@ async function runHooksCli(params: {
   entryPath?: string;
   label: string;
   env?: NodeJS.ProcessEnv;
+  nodeExecutable?: string;
   stdin?: string;
 }) {
   const startedAt = performance.now();
   const child = spawn(
-    process.execPath,
+    params.nodeExecutable ?? process.execPath,
     ["--import", "tsx", params.entryPath ?? "src/entry.ts", ...params.args],
     {
       cwd: path.resolve("."),
@@ -323,6 +325,7 @@ describe("hooks CLI process lifecycle", () => {
         stdin,
         completion: "exit",
         label: "dedicated relay error",
+        nodeExecutable: resolveTestNodeExecPath(),
         env: {
           LINGER_MARKER: fixture.markerPath,
           NODE_OPTIONS: `--import=${pathToFileURL(fixture.preloadPath).href}`,
@@ -360,7 +363,7 @@ describe("hooks CLI process lifecycle", () => {
           NODE_OPTIONS: `--import=${pathToFileURL(fixture.preloadPath).href}`,
           OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
           OPENCLAW_STATE_DIR: fixture.stateDir,
-          OPENCLAW_TEST_NODE: process.execPath,
+          OPENCLAW_TEST_NODE: resolveTestNodeExecPath(),
           RELAY_PID_LOG: fixture.pidLogPath,
           RELAY_READY_MARKER: fixture.readyMarkerPath,
         },
@@ -445,6 +448,7 @@ describe("hooks CLI process lifecycle", () => {
         ],
         completion: "exit",
         label: "hooks relay explicit state database",
+        nodeExecutable: resolveTestNodeExecPath(),
         env: {
           LINGER_MARKER: fixture.markerPath,
           NODE_OPTIONS: `--import=${pathToFileURL(fixture.preloadPath).href}`,

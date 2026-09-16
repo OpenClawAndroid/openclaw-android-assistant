@@ -242,19 +242,20 @@ export function createSlackMessageHandler(params: {
                   ...last.message,
                   text: combinedText,
                 };
-                const { prepareSlackMessage, dispatchPreparedSlackMessage } =
-                  await loadSlackMessagePipeline();
                 const {
                   dispatchCompletion: _completion,
                   awaitDispatch: _awaitDispatch,
                   turnAdoptionLifecycle,
                   ...lastOpts
                 } = last.opts;
-                let prepared: Awaited<ReturnType<typeof prepareSlackMessage>>;
                 let visibleDrop = false;
                 let settlementHandedOff = false;
                 try {
-                  prepared = await prepareSlackMessage({
+                  admissionLifecycle.abortSignal.throwIfAborted();
+                  const { prepareSlackMessage, dispatchPreparedSlackMessage } =
+                    await loadSlackMessagePipeline();
+                  admissionLifecycle.abortSignal.throwIfAborted();
+                  const prepared = await prepareSlackMessage({
                     ctx: runtimeContext,
                     account: resolveSlackAccount({
                       cfg: runtimeContext.cfg,

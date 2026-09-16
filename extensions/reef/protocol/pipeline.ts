@@ -185,9 +185,12 @@ export async function composeInbound(options: ComposeInboundOptions): Promise<In
   const refreshClaim = async () => {
     await options.replayStore.refresh?.(peer, options.envelope.id);
   };
+  const pendingRefreshes = new Set<Promise<void>>();
   const heartbeat = options.replayStore.refresh
     ? setInterval(() => {
-        void refreshClaim().catch(() => undefined);
+        const pending = refreshClaim().catch(() => undefined);
+        pendingRefreshes.add(pending);
+        void pending.then(() => pendingRefreshes.delete(pending));
       }, REPLAY_CLAIM_HEARTBEAT_MS)
     : undefined;
   heartbeat?.unref?.();
@@ -320,6 +323,7 @@ export async function composeInbound(options: ComposeInboundOptions): Promise<In
     if (heartbeat) {
       clearInterval(heartbeat);
     }
+    await Promise.all(pendingRefreshes);
   }
 }
 

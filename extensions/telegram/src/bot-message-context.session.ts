@@ -248,7 +248,8 @@ export async function buildTelegramInboundContextPayload(params: {
   groupRequireMention: boolean;
   mentionFacts: TelegramMentionFacts;
   groupThread?: GroupThreadMentionFacts;
-  hasControlCommand: boolean;
+  commandSource?: "native" | "text";
+  nativeCommandBody?: string;
   stickerCacheHit?: boolean;
   audioTranscribedMediaIndex?: number;
   commandAuthorized: boolean;
@@ -301,7 +302,8 @@ export async function buildTelegramInboundContextPayload(params: {
     inboundEventKind,
     groupRequireMention,
     mentionFacts,
-    hasControlCommand,
+    commandSource,
+    nativeCommandBody,
     stickerCacheHit,
     audioTranscribedMediaIndex,
     commandAuthorized,
@@ -568,15 +570,13 @@ export async function buildTelegramInboundContextPayload(params: {
     envelope: envelopeOptions,
   });
   const hasGroupHistoryContext = isGroup;
-  const commandBody = normalizeCommandBody(rawBody, {
+  const commandBody = normalizeCommandBody(nativeCommandBody ?? rawBody, {
     botUsername: normalizeOptionalLowercaseString(primaryCtx.me?.username),
     // Preserve multiline text-directive arguments for the core boundary (#138545);
     // native strictness is re-derived core-side from the same text.
     preserveArguments: true,
   });
-  const commandSource =
-    options?.commandSource ??
-    (commandAuthorized && hasControlCommand ? ("text" as const) : undefined);
+
   const conversationKind = isGroup ? "group" : "direct";
   let watermarkedGroupHistoryEntries: HistoryEntry[] | undefined;
   let groupHistoryPromptEntries: HistoryEntry[] = [];

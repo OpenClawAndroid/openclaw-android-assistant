@@ -343,7 +343,10 @@ describe("createTelegramIngressMonitor", () => {
         monitor.start();
         await vi.waitFor(() => expect(participant.current).toBeDefined());
         await monitor.stop();
-        expect((await queue.listClaims()).map((claim) => claim.id)).toEqual([eventId]);
+        expect(await queue.listClaims()).toEqual([]);
+        expect(await queue.listPending({ limit: "all" })).toMatchObject([
+          { id: eventId, attempts: 0 },
+        ]);
 
         participant.current?.settle({ kind: terminalKind });
         await vi.waitFor(async () =>

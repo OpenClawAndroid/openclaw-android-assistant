@@ -65,7 +65,12 @@ describe("maybeWakeRequesterAfterAllChildrenSettled", () => {
     });
     expect(deliveredCallArg().requireVisibleReply).toBeUndefined();
     expect(String(deliveredCallArg().triggerMessage)).toContain("private marker");
-    expect(String(deliveredCallArg().triggerMessage)).toContain("no external response is required");
+    expect(String(deliveredCallArg().triggerMessage)).toContain(
+      "send it through an available, permitted messaging tool",
+    );
+    expect(String(deliveredCallArg().triggerMessage)).toContain(
+      "when no further work or user-facing update is owed, or after sending that update",
+    );
     expect(await maybeWakeRequesterAfterAllChildrenSettled(wakeParams())).toBe(false);
     expect(deliverSpy).toHaveBeenCalledOnce();
     expect(completeBatchSpy.mock.calls[0]?.[2]).not.toHaveProperty(

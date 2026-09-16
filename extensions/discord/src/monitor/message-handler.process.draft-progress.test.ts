@@ -36,7 +36,7 @@ describe("processDiscordMessage draft streaming progress", () => {
         sessionKey: String(params?.ctx?.SessionKey),
         accountId: "default",
         sourceChannelId: "c1",
-        sourceMessageId: "m1",
+        sourceMessageId: "1001",
         threadId: "thread-1",
       });
       await params?.dispatcher.sendFinalReply({ text: "done" });
@@ -72,7 +72,7 @@ describe("processDiscordMessage draft streaming progress", () => {
         sessionKey: String(params?.ctx?.SessionKey),
         accountId: "default",
         sourceChannelId: "c1",
-        sourceMessageId: "m1",
+        sourceMessageId: "1001",
         threadId: "thread-1",
       });
       expect(

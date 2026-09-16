@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { resolveTestNodeExecPath } from "../../test-utils/node-process.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { formatCliProcessFailure, runCliProcessChild } from "../cli-process-child.test-helpers.js";
 
@@ -100,6 +101,7 @@ it.each([
           console.log("STAGED_LOAD_OK");
         `;
       const result = await runCliProcessChild({
+        nodeExecutable: resolveTestNodeExecPath(),
         nodeArgs: ["--import", "./scripts/tsx.mjs", "--input-type=module", "--eval", script],
         env: { PATH: process.env.PATH, ...state.envVars },
       });

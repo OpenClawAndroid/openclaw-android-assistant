@@ -414,11 +414,11 @@ class ChatPositionRailDirective extends AsyncDirective {
     this.previewElement?.ownerDocument.defaultView?.removeEventListener(
       "keydown",
       this.dismissPreview,
-      true,
     );
     this.previewElement = element instanceof HTMLElement ? element : undefined;
     this.scheduleLayout();
-    element?.ownerDocument.defaultView?.addEventListener("keydown", this.dismissPreview, true);
+    // Focused markers handle Escape before the window fallback dismisses hover-only previews.
+    element?.ownerDocument.defaultView?.addEventListener("keydown", this.dismissPreview);
   };
 
   protected override disconnected() {

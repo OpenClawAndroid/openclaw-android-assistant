@@ -11,6 +11,10 @@ import {
 import { invalidateSessionSharingSnapshot } from "../session-sharing.js";
 import { loadGatewaySessionRow } from "../session-utils.js";
 import { resolveVisibleActiveSessionRunState } from "./session-active-runs.js";
+import {
+  readSessionPlacementFields,
+  type SessionPlacementReadContext,
+} from "./session-placement-read-projection.js";
 import type { GatewayRequestContext } from "./types.js";
 
 type SessionChangedPayload = {
@@ -21,14 +25,15 @@ type SessionChangedPayload = {
   compacted?: boolean;
 };
 
-type SessionChangeContext = Pick<
-  GatewayRequestContext,
-  | "broadcastToConnIds"
-  | "chatAbortControllers"
-  | "getRuntimeConfig"
-  | "getSessionEventSubscriberConnIds"
-  | "mentionInbox"
->;
+type SessionChangeContext = SessionPlacementReadContext &
+  Pick<
+    GatewayRequestContext,
+    | "broadcastToConnIds"
+    | "chatAbortControllers"
+    | "getRuntimeConfig"
+    | "getSessionEventSubscriberConnIds"
+    | "mentionInbox"
+  >;
 
 type PendingSessionChange = {
   context: SessionChangeContext;
@@ -90,6 +95,11 @@ function broadcastSessionsChanged(
     return;
   }
   const sessionRow = loadGatewaySessionRow(payload.sessionKey, { agentId: routingAgentId });
+  // Coalescing can replace the mutation reason; read the latest placement with its exact row.
+  const placement =
+    context.workerSessionPlacementService && sessionRow?.sessionId
+      ? readSessionPlacementFields(context, sessionRow.sessionId)
+      : undefined;
   const activeRunState =
     sessionRow && (sessionRow.key !== "global" || routingAgentId !== undefined)
       ? resolveVisibleActiveSessionRunState({
@@ -113,6 +123,9 @@ function broadcastSessionsChanged(
               activeRunState,
             }),
           }
+        : {}),
+      ...(placement
+        ? { placement: placement.placement ?? null, placementMove: placement.placementMove ?? null }
         : {}),
     },
     connIds,

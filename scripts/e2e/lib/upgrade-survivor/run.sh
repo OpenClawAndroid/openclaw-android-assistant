@@ -15,7 +15,7 @@ source scripts/e2e/lib/upgrade-survivor/backup-rollback.sh
 
 SCENARIO="${OPENCLAW_UPGRADE_SURVIVOR_SCENARIO:-base}"
 WORKER_CELL=0
-if [ "$SCENARIO" = "projects-doctor" ] || [ "$SCENARIO" = "taskflow-restoration" ]; then
+if [ "$SCENARIO" = "projects-doctor" ] || [ "$SCENARIO" = "projects-startup-migration" ] || [ "$SCENARIO" = "taskflow-restoration" ]; then
   WORKER_CELL=1
 fi
 
@@ -2017,6 +2017,21 @@ run_projects_doctor() {
     >"$ARTIFACT_ROOT/projects-doctor-$stage.json" 2>"$ARTIFACT_ROOT/projects-doctor-$stage.err"
 }
 
+run_project_worktree_import() {
+  local mode="$1" legacy_store
+  legacy_store="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).legacyStore)' "$ARTIFACT_ROOT/project-worktree-fixture.json")"
+  openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" openclaw doctor \
+    --session-sqlite "$mode" --session-sqlite-store "$legacy_store" \
+    --session-sqlite-agent main --json \
+    >"$ARTIFACT_ROOT/worktree-$mode.json" 2>"$ARTIFACT_ROOT/worktree-$mode.err"
+}
+
+backup_project_worktree_fixture() {
+  openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" openclaw backup create \
+    --output "$ARTIFACT_ROOT/worktree-before-import.tar.gz" --verify --json \
+    >"$ARTIFACT_ROOT/worktree-backup.json" 2>"$ARTIFACT_ROOT/worktree-backup.err"
+}
+
 validate_worker_cell() {
   if [ "$WORKER_CELL" != "1" ]; then
     return 0
@@ -2038,6 +2053,13 @@ if [ "$WORKER_CELL" = "1" ]; then
   phase worker-baseline-identity node scripts/e2e/lib/upgrade-survivor/worker-cell-package.mjs baseline "$(package_root)"
   if [ "$SCENARIO" = "projects-doctor" ]; then
     phase seed-projects-inventory node scripts/e2e/lib/upgrade-survivor/projects-doctor.mjs seed "$(package_root)"
+  elif [ "$SCENARIO" = "projects-startup-migration" ]; then
+    phase seed-project-worktree node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs seed "$(package_root)"
+    phase backup-project-worktree backup_project_worktree_fixture
+    phase dry-run-project-worktree-import run_project_worktree_import dry-run
+    phase import-project-worktree run_project_worktree_import import
+    phase assert-project-worktree-import node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs assert-import "$ARTIFACT_ROOT/worktree-import.json"
+    phase snapshot-published-worktree node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs snapshot published-import "$(package_root)" -
   else
     phase seed-taskflow node scripts/e2e/lib/upgrade-survivor/taskflow-restoration.mjs seed --package-root "$(package_root)"
   fi
@@ -2059,6 +2081,21 @@ if [ "$WORKER_CELL" = "1" ]; then
     phase assert-projects-doctor-repeat node scripts/e2e/lib/upgrade-survivor/projects-doctor.mjs \
       assert-doctor "$ARTIFACT_ROOT/projects-doctor-repeat.json" before-repeat after-repeat
     phase assert-projects-preservation node scripts/e2e/lib/upgrade-survivor/projects-doctor.mjs assert-final
+  elif [ "$SCENARIO" = "projects-startup-migration" ]; then
+    phase snapshot-before-worktree-startup node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs \
+      snapshot before-startup "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
+    for startup in first second; do
+      GATEWAY_LOG="$ARTIFACT_ROOT/worktree-$startup-gateway.log"
+      HEALTHZ_JSON="$ARTIFACT_ROOT/worktree-$startup-healthz.json"
+      READYZ_JSON="$ARTIFACT_ROOT/worktree-$startup-readyz.json"
+      phase "$startup-worktree-gateway-start" start_gateway
+      phase "$startup-worktree-gateway-probes" check_gateway_probes
+      phase "$startup-worktree-gateway-stop" stop_gateway
+      phase "assert-$startup-worktree-startup-log" node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs \
+        assert-logs "$startup" "$GATEWAY_LOG"
+      phase "snapshot-$startup-worktree-stop" node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs \
+        snapshot "after-$startup-stop" "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
+    done
   else
     phase gateway-start start_gateway
     phase gateway-probes check_gateway_probes

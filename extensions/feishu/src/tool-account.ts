@@ -56,8 +56,13 @@ function resolveImplicitToolAccountId(params: {
     return normalizedAccountId;
   }
 
-  const contextualAccountId = normalizeOptionalString(params.defaultAccountId);
-  if (contextualAccountId && listFeishuAccountIds(params.cfg).includes(contextualAccountId)) {
+  const contextualAccountId = normalizeOptionalAccountId(params.defaultAccountId);
+  const hasContextualAccount =
+    contextualAccountId !== undefined &&
+    listFeishuAccountIds(params.cfg).some(
+      (accountId) => normalizeOptionalAccountId(accountId) === contextualAccountId,
+    );
+  if (hasContextualAccount) {
     const contextualAccount = resolveFeishuAccount({
       cfg: params.cfg,
       accountId: contextualAccountId,

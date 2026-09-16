@@ -379,14 +379,13 @@ describe("tasks.list Gateway performance", () => {
             loadSnapshot: () => ({ tasks: accessTasks, deliveryStates: new Map() }),
           },
         });
-        let accessChurnActive = true;
         let accessMutationCount = 0;
-        const accessChurn = async () => {
-          while (true) {
-            if (!accessChurnActive) {
-              return;
-            }
-            const nextVisibility = accessMutationCount % 2 === 0 ? "shared" : "draft";
+        // Invalidate every completed page before the handler checks access again.
+        // A free-running RPC loop can leave a stable gap between its writes.
+        const accessChurn = vi
+          .spyOn(taskRuntime, "listTaskRecordPage")
+          .mockImplementation(async (params) => {
+            const page = await selectPage(params);
             const response = await sendRpc<Record<string, unknown>>(
               admin,
               `visibility-churn-${accessMutationCount}`,
@@ -394,34 +393,33 @@ describe("tasks.list Gateway performance", () => {
               {
                 sessionKey: FOREIGN_SESSION_KEY,
                 agentId: "main",
-                visibility: nextVisibility,
+                visibility: accessMutationCount % 2 === 0 ? "shared" : "draft",
               },
             );
-            if (!response.ok) {
-              throw new Error(`visibility churn failed: ${response.error?.message}`);
-            }
+            expect(response.ok, JSON.stringify(response.error)).toBe(true);
             accessMutationCount += 1;
-          }
-        };
-        const accessChurnPromise = accessChurn();
-        const unstableAccess = await sendRpc<Record<string, unknown>>(
-          viewer,
-          "tasks-unstable-access",
-          "tasks.list",
-          { limit: 1 },
-        );
-        accessChurnActive = false;
-        await accessChurnPromise;
-        expect(accessMutationCount).toBeGreaterThanOrEqual(3);
-        expect(unstableAccess).toMatchObject({
-          ok: false,
-          error: {
-            code: "UNAVAILABLE",
-            message: "Task activity did not stabilize. Wait a moment, then refresh Tasks.",
-            retryable: true,
-            retryAfterMs: 250,
-          },
-        });
+            return page;
+          });
+        try {
+          const unstableAccess = await sendRpc<Record<string, unknown>>(
+            viewer,
+            "tasks-unstable-access",
+            "tasks.list",
+            { limit: 1 },
+          );
+          expect(accessMutationCount).toBe(3);
+          expect(unstableAccess).toMatchObject({
+            ok: false,
+            error: {
+              code: "UNAVAILABLE",
+              message: "Task activity did not stabilize. Wait a moment, then refresh Tasks.",
+              retryable: true,
+              retryAfterMs: 250,
+            },
+          });
+        } finally {
+          accessChurn.mockRestore();
+        }
       } finally {
         sortSpy.mockRestore();
         accessWork.mockRestore();

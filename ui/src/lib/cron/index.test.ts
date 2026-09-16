@@ -17,9 +17,7 @@ import {
   loadCronStatus,
   invalidateCronRefresh,
   loadCronJobsPage,
-  loadCronRuns,
   loadCronScopeStats,
-  loadMoreCronRuns,
   normalizeCronFormState,
   removeCronJob,
   resolveConfiguredCronModelSuggestions,
@@ -27,11 +25,11 @@ import {
   startCronEdit,
   startCronClone,
   updateCronJobsFilter,
-  updateCronRunsFilter,
   validateCronForm,
-  type CronState,
 } from "../../lib/cron/index.ts";
+import type { CronState } from "../../lib/cron/types.ts";
 import { DEFAULT_CRON_FORM } from "../../test-helpers/cron.ts";
+import { loadCronRuns, loadMoreCronRuns, updateCronRunsFilter } from "./runs.ts";
 
 function createState(overrides: Partial<CronState> = {}): CronState {
   return {
@@ -2897,7 +2895,7 @@ describe("cron controller", () => {
 
     expect(state.cronJobsSnapshotRevision).toBe("loaded-empty");
     expect(state.cronJobsError).toBeNull();
-    expect(state.cronError).toBe("run history unavailable");
+    expect(state.cronRunsError).toBe("run history unavailable");
   });
 
   it("loads and appends paged run history", async () => {
@@ -3041,19 +3039,19 @@ describe("cron controller", () => {
       status: "error" as const,
       summary: "filtered result",
     };
-    const { older: olderPage, state } = createCronRunsRace([currentEntry], {
-      cronRuns: [
-        {
-          ts: 2,
-          jobId: "previous-job",
-          action: "finished",
-          status: "ok",
-          summary: "previous",
-        },
-      ],
-      cronRunsHasMore: true,
-      cronRunsNextOffset: 1,
-    });
+    const olderPage = createDeferred<CronRunsResult>();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createCronRunsResult(
+          [{ ts: 2, jobId: "previous-job", action: "finished", status: "ok", summary: "previous" }],
+          { total: 2, hasMore: true, nextOffset: 1 },
+        ),
+      )
+      .mockImplementationOnce(() => olderPage.promise)
+      .mockResolvedValueOnce(createCronRunsResult([currentEntry]));
+    const state = createStateWithRequest(request);
+    await loadCronRuns(state);
 
     const olderLoad = loadCronRuns(state, { append: true });
     expect(state.cronRunsLoadingMore).toBe(true);
@@ -3099,7 +3097,7 @@ describe("cron controller", () => {
 
     await expect(olderLoad).resolves.toBe("skipped");
     expect(state.cronRuns).toEqual([currentEntry]);
-    expect(state.cronError).toBeNull();
+    expect(state.cronRunsError).toBeNull();
   });
 
   it("preserves the current run-history failure when an older response later succeeds", async () => {
@@ -3112,7 +3110,7 @@ describe("cron controller", () => {
 
     const olderLoad = loadCronRuns(state);
     await expect(loadCronRuns(state)).resolves.toBe("error");
-    expect(state.cronError).toBe("current cron history unavailable");
+    expect(state.cronRunsError).toBe("current cron history unavailable");
 
     olderOverview.resolve({
       entries: [{ ts: 1, jobId: "stale-job", action: "finished", status: "ok", summary: "stale" }],
@@ -3123,7 +3121,7 @@ describe("cron controller", () => {
 
     await expect(olderLoad).resolves.toBe("skipped");
     expect(state.cronRuns).toEqual([]);
-    expect(state.cronError).toBe("current cron history unavailable");
+    expect(state.cronRunsError).toBe("current cron history unavailable");
   });
 
   it("scopes jobs and run history requests to the selected agent", async () => {
@@ -3157,7 +3155,7 @@ describe("cron controller", () => {
 
     await expect(loadCronRuns(state)).resolves.toBe("error");
 
-    expect(state.cronError).toBe("cron.runs unavailable");
+    expect(state.cronRunsError).toBe("cron.runs unavailable");
   });
 
   it("preserves queued run feedback when due-mode history refresh fails", async () => {

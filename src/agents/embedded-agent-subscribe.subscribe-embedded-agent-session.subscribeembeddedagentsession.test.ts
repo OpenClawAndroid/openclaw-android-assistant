@@ -23,6 +23,7 @@ import {
   createSubscribedSessionHarness,
   emitAssistantLifecycleErrorAndEnd,
   emitMessageStartAndEndForAssistantText,
+  emitToolRun,
   expectSingleAgentEventText,
   extractAgentEventPayloads,
   findLifecycleErrorAgentEvent,
@@ -244,29 +245,6 @@ describe("subscribeEmbeddedAgentSession", () => {
     });
     expect(harness.subscription.getLastToolError()?.toolName).toBe("write");
     return harness;
-  }
-
-  function emitToolRun(params: {
-    emit: (evt: unknown) => void;
-    toolName: string;
-    toolCallId: string;
-    args?: Record<string, unknown>;
-    isError: boolean;
-    result: unknown;
-  }): void {
-    params.emit({
-      type: "tool_execution_start",
-      toolName: params.toolName,
-      toolCallId: params.toolCallId,
-      args: params.args,
-    });
-    params.emit({
-      type: "tool_execution_end",
-      toolName: params.toolName,
-      toolCallId: params.toolCallId,
-      isError: params.isError,
-      result: params.result,
-    });
   }
 
   async function createGeneratedImageHarness(
@@ -1897,106 +1875,6 @@ describe("subscribeEmbeddedAgentSession", () => {
           replyToTag: Boolean(replyToId),
           audioAsVoice: false,
         });
-      } finally {
-        subscription.unsubscribe();
-      }
-    },
-  );
-
-  it.each([
-    { finalText: "First.\nDone.", deferred: true },
-    { finalText: "", deferred: false },
-  ])(
-    "scopes tool-separated assistant snapshots and preserves authoritative final %j after a late block end",
-    async ({ finalText, deferred }) => {
-      const onAgentEvent = vi.fn();
-      const { emit, subscription } = createSubscribedSessionHarness({
-        runId: "run",
-        onAgentEvent,
-        onBeforeTerminalDelivery: deferred ? () => undefined : undefined,
-      });
-      const assistantPayloads = () =>
-        extractAgentEventPayloads(
-          onAgentEvent.mock.calls.filter(([event]) => event.stream === "assistant"),
-        );
-      const block = (text: string, index: number) =>
-        createOpenAiResponsesTextBlock({ text, id: `answer-${index}`, phase: "final_answer" });
-      const firstBlock = "First block still being revised.";
-      const lastBlock = "Second block still being revised.";
-      const partial = {
-        role: "assistant",
-        api: "openai-responses",
-        provider: "openai",
-        model: "gpt-5.2",
-        stopReason: "stop",
-        content: [block(firstBlock, 0), block(lastBlock, 1)],
-      };
-
-      try {
-        emitMessageStartAndEndForAssistantText({ emit, text: "Before tool." });
-        emitToolRun({
-          emit,
-          toolName: "read",
-          toolCallId: "read-1",
-          args: { path: "notes.txt" },
-          isError: false,
-          result: { content: [{ type: "text", text: "Read complete." }] },
-        });
-        await subscription.waitForPendingEvents();
-
-        emit({ type: "message_start", message: { role: "assistant" } });
-        for (const [contentIndex, delta] of [firstBlock, lastBlock].entries()) {
-          const message = { ...partial, content: partial.content.slice(0, contentIndex + 1) };
-          emit({
-            type: "message_update",
-            message,
-            assistantMessageEvent: { type: "text_delta", contentIndex, delta, partial: message },
-          });
-        }
-        const finalMessage = { ...partial, content: finalText.split("\n").map(block) };
-        emit({ type: "message_end", message: finalMessage });
-        await subscription.waitForPendingEvents();
-        if (deferred) {
-          expect(assistantPayloads()).toEqual([]);
-        }
-        emit({ type: "agent_end", messages: [finalMessage] });
-        await subscription.waitForPendingEvents();
-
-        const finalizedPayloads = assistantPayloads();
-        const firstMessage = expectDefined(
-          finalizedPayloads[0],
-          "first assistant message snapshot",
-        );
-        expect(firstMessage).toMatchObject({ text: "Before tool.", itemId: expect.any(String) });
-        expect(firstMessage.itemId).not.toBe("");
-        const streamed = finalizedPayloads.slice(1, -1);
-        expect(streamed.map((payload) => payload.text)).toEqual([
-          firstBlock,
-          `${firstBlock}\n${lastBlock}`,
-        ]);
-        const secondItemId = expectDefined(streamed[0], "second message preview").itemId;
-        expect(secondItemId).toEqual(expect.any(String));
-        expect(secondItemId).not.toBe("");
-        expect(secondItemId).not.toBe(firstMessage.itemId);
-        expect(streamed.every((payload) => payload.itemId === secondItemId)).toBe(true);
-        expect(finalizedPayloads.at(-1)).toMatchObject({ text: finalText, itemId: secondItemId });
-
-        emit({
-          type: "message_update",
-          message: partial,
-          assistantMessageEvent: {
-            type: "text_end",
-            contentIndex: 1,
-            content: lastBlock,
-            partial,
-          },
-        });
-        await subscription.waitForPendingEvents();
-        expect(assistantPayloads()).toEqual(finalizedPayloads);
-        const latestByMessage = new Map(
-          assistantPayloads().map((payload) => [payload.itemId, payload.text]),
-        );
-        expect([...latestByMessage.values()]).toEqual(["Before tool.", finalText]);
       } finally {
         subscription.unsubscribe();
       }

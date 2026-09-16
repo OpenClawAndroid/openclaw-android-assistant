@@ -91,6 +91,7 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
   private readonly retainedSessions = new ChatPageRetainedSessions(this, {
     context: () => this.context,
     presented: () => this.presented,
+    routeHref: () => this.routeHref,
     layout: () => this.layout ?? this.classicLayout(),
     narrow: () => this.narrow,
     selectReplacement: (paneId, sourceSessionKey, sessionKey) => {

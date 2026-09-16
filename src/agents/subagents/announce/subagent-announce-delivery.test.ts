@@ -1,6 +1,5 @@
 // Subagent announce delivery tests cover the last-mile routing used when child
 // runs report progress or completion back to the requester session.
-import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateAgentParams } from "../../../../packages/gateway-protocol/src/index.js";
@@ -27,6 +26,7 @@ import {
 import { sendMessage as runtimeSendMessage } from "../../../infra/outbound/message.js";
 import { setActivePluginRegistry } from "../../../plugins/runtime.js";
 import { createDeferredCore } from "../../../shared/deferred.js";
+import { closeOpenClawAgentDatabasesAsync } from "../../../state/openclaw-agent-db.js";
 import { captureOpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.js";
 import type { OpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.types.js";
 import {
@@ -70,7 +70,14 @@ const sessionDeliveryQueueMocks = vi.hoisted(() => ({
   scheduleSessionDelivery: vi.fn(async () => true),
 }));
 
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterEach(async () => {
+    for (const dir of tempDirs.dirs) {
+      await closeOpenClawAgentDatabasesAsync(dir);
+    }
+    cleanup();
+  }),
+);
 let fixtureQueueContext: OpenClawStateWorkerContext;
 
 beforeEach(() => {
@@ -385,7 +392,6 @@ async function createRequesterTranscriptFixture(sessionId: string) {
   const dir = tempDirs.make("openclaw-subagent-announce-transcript-");
   const sessionKey = "agent:main:slack:channel:C123:thread:171.222";
   const storePath = path.join(dir, "agents", "main", "sessions", "sessions.json");
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
   const entry: SessionEntry = {
     sessionId,
     sessionFile: formatSqliteSessionFileMarker({ agentId: "main", sessionId, storePath }),
@@ -401,14 +407,7 @@ async function readRequesterTranscriptMessages(fixture: {
   sessionKey: string;
   storePath: string;
 }): Promise<Array<Record<string, unknown>>> {
-  return (
-    await loadTranscriptEvents({
-      agentId: fixture.agentId,
-      sessionId: fixture.sessionId,
-      sessionKey: fixture.sessionKey,
-      storePath: fixture.storePath,
-    })
-  )
+  return (await loadTranscriptEvents(fixture))
     .map((event) => (event as { message?: unknown }).message)
     .filter(
       (message): message is Record<string, unknown> =>

@@ -16,7 +16,9 @@ import {
   readSessionTranscriptActiveStats,
   readSessionTranscriptBoundedMessageTailPage,
 } from "./session-accessor.sqlite-active-events.js";
-import { importSqliteSessionRows } from "./session-accessor.sqlite-import.js";
+import { readSessionTranscriptHistoryEventById } from "./session-accessor.sqlite-history.test-support.js";
+import { seedUnindexedTranscriptForTest } from "./session-accessor.sqlite-import.test-support.js";
+import { runWithSessionTranscriptReadFence } from "./session-transcript-read-fence.js";
 import {
   startSessionTranscriptIndexReconcile,
   waitForSessionTranscriptIndexReconcile,
@@ -270,24 +272,28 @@ it("selects the session header when an exact migrated transcript has no identity
       sessionKey: "agent:ops:main",
       storePath: path.join(state.sessionsDir("ops"), "sessions.json"),
     };
-    await importSqliteSessionRows({
+    await seedUnindexedTranscriptForTest({
       ...scope,
       entry: { sessionId: scope.sessionId, updatedAt: 1 },
-      readExactTranscriptRows: (append) => {
-        append({
-          createdAt: 1,
-          eventJson: JSON.stringify({ type: "session", version: 3, id: scope.sessionId }),
-        });
-        append({
-          createdAt: 2,
-          eventJson: JSON.stringify({
+      events: [
+        {
+          session_id: scope.sessionId,
+          seq: 0,
+          created_at: 1,
+          event_json: JSON.stringify({ type: "session", version: 3, id: scope.sessionId }),
+        },
+        {
+          session_id: scope.sessionId,
+          seq: 1,
+          created_at: 2,
+          event_json: JSON.stringify({
             type: "message",
             id: "message-1",
             parentId: null,
             message: { role: "user", content: "hello" },
           }),
-        });
-      },
+        },
+      ],
     });
 
     const database = openOpenClawAgentDatabase({ agentId: scope.agentId, env: scope.env });
@@ -306,6 +312,63 @@ it("selects the session header when an exact migrated transcript has no identity
       "message-1",
     ]);
     expect(context.events[0]).toMatchObject({ type: "session", version: 3 });
+  });
+});
+
+it("keeps an imported retention anchor before a later indexed duplicate", async () => {
+  await withBoundedContextScope(async (scope) => {
+    const events = [
+      { type: "session", version: 3, id: scope.sessionId },
+      {
+        type: "message",
+        id: "kept",
+        parentId: null,
+        message: { role: "user", content: "Imported kept question." },
+      },
+      {
+        type: "compaction",
+        id: "cut",
+        parentId: "kept",
+        firstKeptEntryId: "kept",
+        summary: "Summary.",
+      },
+      {
+        type: "message",
+        id: "reply",
+        parentId: "cut",
+        message: { role: "assistant", content: "Original reply." },
+      },
+    ];
+    await seedUnindexedTranscriptForTest({
+      ...scope,
+      entry: { sessionId: scope.sessionId, updatedAt: 1 },
+      events: events.map((event, seq) => ({
+        session_id: scope.sessionId,
+        seq,
+        created_at: seq,
+        event_json: JSON.stringify(event),
+      })),
+    });
+    await appendTranscriptMessage(scope, {
+      eventId: "kept",
+      parentId: "reply",
+      message: { role: "assistant", content: "Later indexed duplicate.".repeat(100) },
+    });
+    const context = readSessionTranscriptBoundedActiveContextCore(scope, {
+      maxBytes: 32_768,
+      maxEvents: 10,
+    });
+    const range = context.firstKeptRanges.get("cut");
+    expect(range).toBeDefined();
+    expect(context.events.slice(range!.startIndex, range!.endIndex)).toEqual([
+      expect.objectContaining({
+        id: "kept",
+        message: { role: "user", content: "Imported kept question." },
+      }),
+    ]);
+    expect(
+      readSessionTranscriptHistoryEventById(scope, "kept", { currentOnly: true, maxBytes: 100 }),
+    ).toBeUndefined();
   });
 });
 
@@ -663,5 +726,77 @@ it("counts retained raw bytes without hydrating private native payloads", async 
     } finally {
       parseSpy.mockRestore();
     }
+  });
+});
+
+it("keeps later unindexed feedback payloads outside an admitted context read", async () => {
+  await withBoundedContextScope(async (scope) => {
+    const events = [
+      { type: "session", version: CURRENT_SESSION_VERSION, id: scope.sessionId },
+      {
+        type: "message",
+        id: "imported-user",
+        parentId: null,
+        message: { role: "user", content: "Imported conversation." },
+      },
+    ];
+    await seedUnindexedTranscriptForTest({
+      ...scope,
+      entry: { sessionId: scope.sessionId, updatedAt: 1 },
+      events: events.map((event, seq) => ({
+        session_id: scope.sessionId,
+        seq,
+        created_at: seq,
+        event_json: JSON.stringify(event),
+      })),
+    });
+    const admitted = await appendTranscriptMessage(scope, {
+      eventId: "current-user",
+      parentId: "imported-user",
+      message: { role: "user", content: "Current request.", timestamp: 2 },
+    });
+    const anchor = admitted.anchor;
+    if (!anchor) {
+      throw new Error("missing admission anchor");
+    }
+    const marker = "synthetic-later-feedback-payload:";
+    const privateText = marker + "x".repeat(4096);
+    const details: unknown = JSON.parse(
+      `${"[".repeat(1_001)}${JSON.stringify(privateText)}${"]".repeat(1_001)}`,
+    );
+    const { recordChannelFeedbackEvent } = await import("openclaw/plugin-sdk/channel-inbound");
+    expect(
+      await recordChannelFeedbackEvent({
+        cfg: { session: { store: scope.storePath } },
+        agentId: scope.agentId,
+        sessionKey: scope.sessionKey,
+        event: {
+          type: "custom_message",
+          customType: "synthetic-feedback",
+          content: "Later feedback.",
+          display: true,
+          details,
+        },
+      }),
+    ).toBe(true);
+    await waitForSessionTranscriptProjection(scope);
+    const { db } = openOpenClawAgentDatabase({ agentId: scope.agentId });
+    const acquiredBytes = countAcquiredTranscriptPayloadBytes(db, marker, () => {
+      runWithSessionTranscriptReadFence(
+        { ...anchor, logicalTurnId: "current", role: "user" },
+        () => {
+          const context = readSessionTranscriptBoundedActiveContextCore(scope, {
+            maxBytes: 1024,
+            maxEvents: 10,
+          });
+          expect(context.events.map((event) => (event as { id: string }).id)).toEqual([
+            scope.sessionId,
+            "imported-user",
+          ]);
+          expect(context.activeLeafEntryId).toBe("imported-user");
+        },
+      );
+    });
+    expect(acquiredBytes).toBe(0);
   });
 });

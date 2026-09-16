@@ -84,11 +84,6 @@ export function bindPluginInstanceModuleLoader(params: PluginInstanceModuleLoade
     return;
   }
   const nativeHooks = typeof Module.registerHooks === "function";
-  if (!nativeHooks && params.expectedSourceDigest !== undefined) {
-    throw new Error(
-      "Source-validated plugin reload requires Node.js module hooks; run the Gateway with Node.js.",
-    );
-  }
   const sourceBuilds = new Map<string, ReturnType<typeof buildPluginTypeScriptSource>>();
   const sourceForOutput = (filename: string): PluginSourceFile => {
     for (const build of sourceBuilds.values()) {
@@ -118,9 +113,7 @@ export function bindPluginInstanceModuleLoader(params: PluginInstanceModuleLoade
     );
   }
   bindPluginCacheRoot(params.rootDir, artifact.sourceRoot);
-  if (nativeHooks) {
-    params.instance.sourceDigest = artifact.sourceDigest;
-  }
+  params.instance.sourceDigest = artifact.sourceDigest;
   params.instance.onModuleDispose(artifact.disposeAsync);
   const bindModuleLoader = preparePluginModuleLoaderRecovery(
     params,

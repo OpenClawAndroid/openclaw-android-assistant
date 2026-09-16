@@ -74,7 +74,7 @@ type Host = {
     | "inherit"
     | "observeFields"
     | "stageManagedResults"
-    | "projectRows"
+    | "prepareProjection"
     | "invalidateManagedLists"
     | "inheritRow"
     | "isCurrentRow"
@@ -87,8 +87,12 @@ type Host = {
 
 export function createSessionReconciliation(host: Host) {
   const pendingFields = ["pinned", "pinnedAt", "unread"] as const;
-  const projectRowFields = (row: GatewaySessionRow, agentId?: string | null) => {
-    const projected = host.roster.projectFields(row, agentId);
+  const projectRowFields = (
+    row: GatewaySessionRow,
+    agentId?: string | null,
+    project = host.roster.projectFields,
+  ) => {
+    const projected = project(row, agentId);
     return projected.key === row.key
       ? projected
       : host.roster.inheritRow({ ...projected, key: row.key }, projected);
@@ -474,6 +478,8 @@ export function createSessionReconciliation(host: Host) {
     let acceptedResult:
       | Pick<SessionChangedResult, "applied" | "key" | "row" | "deletedKey">
       | undefined;
+    // Planning shares held rows; each merge still reads their current field receipts.
+    const projection = roster.prepareProjection();
     const projectEventFields = (
       admitted: GatewaySessionRow,
       previousRow: GatewaySessionRow,
@@ -491,7 +497,7 @@ export function createSessionReconciliation(host: Host) {
         createSessionWriteObservation(eventObservation.revision, eventInfo?.updatedAt ?? null),
         ownerAgentId,
       );
-      const projected = projectRowFields(source, ownerAgentId);
+      const projected = projectRowFields(source, ownerAgentId, projection.projectFields);
       if (eventInfo && eventInfo.archived !== null) {
         mutations.observeArchiveState(projected.key, projected.archived === true, projected);
       }
@@ -503,7 +509,7 @@ export function createSessionReconciliation(host: Host) {
       ownerOptions: SessionReconcileOptions | undefined,
       ownerAgentId: string | null,
     ) => {
-      const current = projectSessionResultRows(held, roster.projectRows(held?.sessions ?? []));
+      const current = projectSessionResultRows(held, projection.projectRows(held?.sessions ?? []));
       const result = reconcileSessionChanged(
         current,
         payload,
@@ -558,7 +564,7 @@ export function createSessionReconciliation(host: Host) {
         if (eventInfo.sessionId && eventInfo.sessionId !== entry.row.sessionId) {
           return { row: entry.row };
         }
-        const current = roster.projectFields(entry.row, entry.target.agentId);
+        const current = projection.projectFields(entry.row, entry.target.agentId);
         const reduced = reconcileSessionChangedRow(
           current,
           payload,

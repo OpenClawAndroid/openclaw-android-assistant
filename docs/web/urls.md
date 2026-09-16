@@ -496,6 +496,10 @@ Settings routes that use schema-backed deep links accept `?section=<section>`,
 `?advanced=1`, and `#<setting-id>`. These values select content within the page;
 they do not change the route identity.
 
+Links to Settings sections that moved to another page replace the old URL with
+the current destination while keeping the setting anchor. Back returns to the
+page before the link, and Forward returns to the current destination.
+
 The retired General route and its `/config` alias are replaced once with
 `/settings/appearance?section=__appearance__#settings-language`. The historical
 `#settings-general-model` target instead lands on the Models behavior section.

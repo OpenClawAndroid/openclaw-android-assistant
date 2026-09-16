@@ -8,8 +8,16 @@ import type { WorkerSessionPlacementRecord } from "../worker-environments/placem
 import { isFailedWorkerPlacementEnvironmentGone } from "../worker-environments/session-placement-lifecycle.js";
 import type { GatewayRequestContext } from "./types.js";
 
+export type SessionPlacementReadContext = Pick<
+  GatewayRequestContext,
+  | "workerSessionPlacementService"
+  | "workerEnvironmentService"
+  | "workerPlacementDiskSpaceReader"
+  | "workerPlacementRunnerAvailabilityReader"
+>;
+
 function projectSessionPlacementFields(params: {
-  context: GatewayRequestContext;
+  context: SessionPlacementReadContext;
   sessionId: string | undefined;
   placements?: ReadonlyMap<string, WorkerSessionPlacementRecord>;
   workspaceResultReconcilingSessionIds?: ReadonlySet<string>;
@@ -44,7 +52,7 @@ function projectSessionPlacementFields(params: {
 }
 
 export function createSessionPlacementBatchProjector(
-  context: GatewayRequestContext,
+  context: SessionPlacementReadContext,
   sessions: readonly { sessionId?: string }[],
 ) {
   const sessionIds = sessions.flatMap((session) => (session.sessionId ? [session.sessionId] : []));
@@ -63,7 +71,7 @@ export function createSessionPlacementBatchProjector(
 }
 
 export function readSessionPlacementFields(
-  context: GatewayRequestContext,
+  context: SessionPlacementReadContext,
   sessionId: string | undefined,
 ) {
   return createSessionPlacementBatchProjector(

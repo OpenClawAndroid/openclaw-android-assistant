@@ -121,7 +121,7 @@ export function useSubagentRestartRecoveryFixture() {
   afterEach(async () => {
     testing.setDepsForTest();
     resetSubagentRegistryForTests({ persist: false });
-    await cleanupSessionStateForTest();
+    await cleanupSessionStateForTest({ stateDir: tempStateDir ?? undefined });
     resetTaskRegistryForTests({ persist: false });
     resetTaskFlowRegistryForTests({ persist: false });
     if (tempStateDir) {

@@ -283,11 +283,47 @@ function readActiveTranscriptAppendParentId(
       .orderBy("ti.seq", "desc")
       .limit(1),
   );
-  if (!latest) {
-    return null;
-  }
   const resolveFromNavigation = () =>
     resolveVisibleTranscriptAppendParentId(readTranscriptNavigationEvents(database, sessionId));
+  if (!latest) {
+    // Exact imports captured the append cursor while rebuilding their projection,
+    // even though they did not transfer identity or idempotency ownership.
+    const current = executeSqliteQueryTakeFirstSync(
+      database.db,
+      db
+        .selectFrom("session_transcript_index_state as state")
+        .innerJoin(
+          "transcript_rewrite_watermarks as rewrite",
+          "rewrite.session_id",
+          "state.session_id",
+        )
+        .select("state.leaf_event_id")
+        .where("state.session_id", "=", sessionId)
+        .where("state.needs_rebuild", "=", 0)
+        .where(
+          "state.indexed_seq",
+          "=",
+          db
+            .selectFrom("transcript_events")
+            .select("seq")
+            .where("session_id", "=", sessionId)
+            .orderBy("seq", "desc")
+            .limit(1),
+        )
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom("session_transcript_active_events")
+                .select("session_id")
+                .where("session_id", "=", sessionId)
+                .where("context_eligible", "is", null),
+            ),
+          ),
+        ),
+    );
+    return current ? current.leaf_event_id : resolveFromNavigation();
+  }
   try {
     const event = JSON.parse(latest.event_json) as unknown;
     const treeEntry = parseSessionTranscriptTreeEntry(event);

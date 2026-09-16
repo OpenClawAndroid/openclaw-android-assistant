@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import { resolveStateDir } from "../config/state-dir.js";
 import { assertExistingDatabaseIdentity } from "../infra/sqlite-worker-identity.js";
 import {
@@ -43,7 +44,7 @@ export async function openOpenClawAgentSqliteWorkerStore<Operations extends Sqli
   expectedDatabase: DatabaseSync,
   worker: { moduleUrl: URL; input: unknown },
 ): Promise<OpenClawAgentSqliteWorkerStore<Operations>> {
-  const env = { ...(inputOptions.env ?? process.env) };
+  const env = cloneEnvWithPlatformSemantics(inputOptions.env ?? process.env);
   env.OPENCLAW_STATE_DIR = resolveStateDir(env);
   const options = {
     ...inputOptions,

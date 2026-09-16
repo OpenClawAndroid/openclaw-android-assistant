@@ -96,7 +96,13 @@ function createDashboardHarness(
       }
       const result = await patchReply;
       if (result && result.entry.sessionId === current.sessionId) {
-        current = { ...current, ...result.entry };
+        current = {
+          ...current,
+          ...(result.entry.updatedAt !== undefined ? { updatedAt: result.entry.updatedAt } : {}),
+          ...(Object.hasOwn(result.entry, "boardPresentation")
+            ? { boardPresentation: result.entry.boardPresentation }
+            : {}),
+        };
       }
       return result;
     }

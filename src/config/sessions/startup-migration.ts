@@ -180,26 +180,17 @@ export async function runSessionStartupMigration(params: {
     resolveTargets(params.cfg, { env }).filter(
       (target) => !readAgentDatabaseAdmissionRefusal(target.agentId, { env }),
     );
-  let targets = admittedTargets();
+  const targets = admittedTargets();
   // Stable installations may still have file-backed history. Only Doctor imports it;
   // do not serve an empty SQLite history or rewrite those files during startup.
   assertSessionStoreMigrationComplete({ cfg: params.cfg, env, targets });
   const migrateLegacyMain =
     params.deps?.migrateLegacyMainSessionKeys ?? migrateLegacyMainSessionKeys;
-  const result = await migrateLegacyMain({ cfg: params.cfg, env, mode: "automatic" });
-  if (result.changes.length > 0) {
-    params.log.info(
-      `session: migrated retired main-agent session keys:\n${result.changes.map((change) => `- ${change}`).join("\n")}`,
-    );
-  }
+  const result = await migrateLegacyMain({ cfg: params.cfg, env, mode: "detect" });
   if (result.warnings.length > 0) {
     params.log.warn(
       `session: retired main-agent session migration warnings:\n${result.warnings.map((warning) => `- ${warning}`).join("\n")}`,
     );
-  }
-  if (result.armed) {
-    // A partial move can create the destination before source cleanup succeeds.
-    targets = admittedTargets();
   }
 
   const databases = new Set<string>();
@@ -207,7 +198,7 @@ export async function runSessionStartupMigration(params: {
   const registeredDatabases = new Set(
     listOpenClawRegisteredAgentDatabases({ env }).map((entry) => `${entry.agentId}\0${entry.path}`),
   );
-  let migratedWorktreeSessions = 0;
+  let pendingWorktreeSessions = 0;
   for (const target of targets) {
     const options = toDatabaseOptions(resolveSqliteReadScope({ ...target, env }));
     const databasePath = resolveOpenClawAgentSqlitePath(options);
@@ -248,17 +239,15 @@ export async function runSessionStartupMigration(params: {
         await import("./session-canonical-validation-readiness.js");
       await certifySessionCanonicalValidationPending(options);
       try {
-        // Workspace metadata participates in claim matching. Preserve it during a
-        // partial move so the next attempt can finish removing the source claim.
-        if (!result.armed || result.complete) {
-          migrateWorktreeSessions ??= (await import("./worktree-workspace-migration.js"))
-            .migrateManagedWorktreeCanonicalWorkspaces;
-          migratedWorktreeSessions += await migrateWorktreeSessions({
-            ...target,
-            cfg: params.cfg,
-            env,
-          });
-        }
+        migrateWorktreeSessions ??= (await import("./worktree-workspace-migration.js"))
+          .migrateManagedWorktreeCanonicalWorkspaces;
+        const worktreeReport = await migrateWorktreeSessions({
+          ...target,
+          cfg: params.cfg,
+          env,
+          mode: "detect",
+        });
+        pendingWorktreeSessions += worktreeReport.found;
       } catch (error) {
         params.log.warn(
           `session: SQLite startup maintenance failed for ${target.agentId}; continuing: ${String(error)}`,
@@ -276,9 +265,9 @@ export async function runSessionStartupMigration(params: {
       }
     }
   }
-  if (migratedWorktreeSessions > 0) {
-    params.log.info(
-      `session: recorded canonical workspaces for ${migratedWorktreeSessions} managed-worktree session(s)`,
+  if (pendingWorktreeSessions > 0) {
+    params.log.warn(
+      `session: ${pendingWorktreeSessions} managed-worktree session(s) need canonical workspace repair; run openclaw doctor --fix`,
     );
   }
 }

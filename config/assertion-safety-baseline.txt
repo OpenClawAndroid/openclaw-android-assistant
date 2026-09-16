@@ -1625,7 +1625,7 @@ src/agents/cli-runner/bundle-mcp-runtime.ts	1
 src/agents/cli-runner/bundle-mcp.ts	6
 src/agents/cli-runner/cli-backend-auth-policy.ts	1
 src/agents/cli-runner/cli-run-settlement.ts	1
-src/agents/cli-runner/cli-run-transcript.ts	3
+src/agents/cli-runner/cli-run-transcript.ts	2
 src/agents/cli-runner/delivery-evidence.ts	2
 src/agents/cli-runner/execute-node-claude.ts	5
 src/agents/cli-runner/execute.ts	3
@@ -2491,7 +2491,6 @@ src/config/sessions/archive-compression.ts	1
 src/config/sessions/cleanup-service.ts	3
 src/config/sessions/conversation-delivery-store.ts	2
 src/config/sessions/group.ts	1
-src/config/sessions/legacy-main-session-migration-operations.ts	1
 src/config/sessions/legacy-main-session-migration.ts	5
 src/config/sessions/lifecycle.ts	1
 src/config/sessions/metadata.ts	1
@@ -3263,7 +3262,6 @@ src/plugins/manifest.ts	2
 src/plugins/marketplace.ts	6
 src/plugins/memory-runtime.ts	1
 src/plugins/native-module-require.ts	3
-src/plugins/official-external-plugin-catalog-snapshot-store.ts	4
 src/plugins/official-external-provider-endpoints.ts	1
 src/plugins/openai-compatible-embedding-provider.ts	2
 src/plugins/plugin-command-dispatch-contract.ts	1
@@ -3336,7 +3334,6 @@ src/process/supervisor/adapters/child.ts	2
 src/process/supervisor/adapters/pty.ts	1
 src/process/terminal-pty.ts	1
 src/process/windows-command.ts	1
-src/projects/project-registry.ts	1
 src/provider-runtime/operation-retry.ts	3
 src/proxy-capture/env.ts	1
 src/proxy-capture/runtime.ts	5

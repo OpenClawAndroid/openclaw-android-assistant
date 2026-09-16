@@ -45,15 +45,13 @@ import {
 } from "../../../utils/queue-helpers.js";
 import { resolveReplyScreenToolTarget } from "../reply-tool-authority.js";
 import { isRoutableChannel } from "../route-reply.js";
-import { clearFollowupQueue, FOLLOWUP_QUEUES, trimSummaryElisionsToCap } from "./state.js";
 import {
   admitFollowupRunLifecycle,
   completeFollowupRunLifecycle,
-  isFollowupRunAborted,
-  isFollowupRunDeferredError,
   retireFollowupRunCancellation,
-  type FollowupRun,
-} from "./types.js";
+} from "./lifecycle.js";
+import { clearFollowupQueue, FOLLOWUP_QUEUES, trimSummaryElisionsToCap } from "./state.js";
+import { isFollowupRunAborted, isFollowupRunDeferredError, type FollowupRun } from "./types.js";
 
 type InternalFollowupRun = FollowupRun & {
   /** Keep admission state out of the public plugin-facing FollowupRun contract. */

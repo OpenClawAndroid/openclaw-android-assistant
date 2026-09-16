@@ -546,7 +546,6 @@ async function compactResolvedContextEngine(
         preparedModelRuntime,
         skipAgentDiscovery: true,
         allowBundledStaticCatalogFallback: true,
-        preferBundledStaticCatalogTransport: true,
         workspaceDir: resolvedWorkspaceDir,
         authProfileId,
         authProfileMode,

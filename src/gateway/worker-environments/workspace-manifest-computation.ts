@@ -3,7 +3,10 @@ import type {
   WorkerWorkspaceManifest,
   WorkerWorkspaceManifestEntry,
 } from "./workspace-manifest.js";
-import type { StagedWorkerWorkspaceInventory } from "./workspace-result-inventory.js";
+import type {
+  StagedWorkerWorkspaceInventory,
+  StagedWorkerWorkspaceReadEntry,
+} from "./workspace-result-inventory.js";
 
 export type WorkspaceComputationHashes = {
   owner: "gateway" | "worker";
@@ -119,11 +122,10 @@ export type WorkspaceManifestComputationOperations = {
     input: { root: string; ref: string };
     output: StagedWorkerWorkspaceInventory;
   };
-  "workspace.manifest.entry": {
+  "workspace.manifest.entries": {
     input: {
       root: string;
-      object: { mode: string; objectId: string };
-      entry: WorkerWorkspaceManifestEntry;
+      entries: StagedWorkerWorkspaceReadEntry[];
     };
     output: Uint8Array;
   };

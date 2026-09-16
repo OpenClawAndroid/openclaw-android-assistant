@@ -32,6 +32,7 @@ import {
 import { ReefChannelConfigSchema } from "./config-schema.js";
 import { ReefMessageFlow } from "./flow.js";
 import { ReefFriendManager } from "./friends.js";
+import { REEF_REPLAY_TTL_MS, reefReplayStoreKey } from "./replay-store.js";
 import { createReefRuntimeAuthority } from "./runtime.js";
 import {
   assertReefIdentityBinding,
@@ -46,13 +47,11 @@ import {
   REEF_DELIVERED_NAMESPACE,
   ReefDeliveredStore,
   ReefInboxCursorStore,
-  REEF_REPLAY_TTL_MS,
   REEF_DELIVERED_TTL_MS,
   REEF_REVIEWS_NAMESPACE,
   releaseReefIdentityReservation,
   reserveReefIdentityBinding,
   ReviewApprovalStore,
-  reefReplayStoreKey,
   saveReefSetupSession,
 } from "./state.js";
 import { ReefTransportClient } from "./transport.js";

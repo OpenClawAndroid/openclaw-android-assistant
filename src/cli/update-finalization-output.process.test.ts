@@ -8,6 +8,7 @@ import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.
 import { prepareUpdateFailureReport } from "../infra/update-failure-report-prepare.js";
 import { listUpdateRuns } from "../infra/update-run-ledger.js";
 import { isPidAlive } from "../shared/pid-alive.js";
+import { resolveTestNodeExecPath } from "../test-utils/node-process.js";
 import {
   formatCliProcessFailure,
   runCliProcessChild,
@@ -15,6 +16,7 @@ import {
 } from "./cli-process-child.test-helpers.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const testNodeExecPath = resolveTestNodeExecPath();
 // Keep source transforms reusable across fresh children; each case still owns its state.
 const childTempDir = useAutoCleanupTempDirTracker(afterAll).make("openclaw-update-child-tmp-");
 const fixture = fileURLToPath(
@@ -106,6 +108,7 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
         listUpdateRuns({ limit: 1 }, { env: { HOME: root, OPENCLAW_STATE_DIR: state } })[0];
       let observedPhaseStart: ReturnType<typeof readRun> | undefined;
       const result = await runCliProcessChild({
+        nodeExecutable: testNodeExecPath,
         ...(scenario === "phase-hang"
           ? {
               interact: async (
@@ -131,7 +134,7 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
         ],
         env: {
           ESBUILD_WORKER_THREADS: "0",
-          PATH: path.dirname(process.execPath),
+          PATH: path.dirname(testNodeExecPath),
           HOME: root,
           USERPROFILE: root,
           OPENCLAW_HOME: root,

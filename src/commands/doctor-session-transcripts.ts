@@ -36,6 +36,7 @@ import {
   type ReservedIncognitoKeyRepairReport,
 } from "./doctor-session-incognito-key-repair.js";
 import { formatSessionSqliteMigrationWarnings } from "./doctor-session-sqlite-warnings.js";
+import { repairLegacySessionWorktreeWorkspaces } from "./doctor-session-worktree-workspace.js";
 import {
   DoctorSqliteMaintenanceLockUnavailableError,
   withDoctorSqliteMaintenanceLock,
@@ -237,6 +238,7 @@ async function noteSessionSqliteMigrationHealth(params: {
     repairedGroups: 0,
     scannedStores: 0,
   };
+  let worktreeWorkspaceReport = { found: 0, repaired: 0, scannedStores: 0 };
   let legacyMainSessionResult:
     | Awaited<
         ReturnType<
@@ -282,6 +284,12 @@ async function noteSessionSqliteMigrationHealth(params: {
     reservedKeyReport = await repairReservedIncognitoSessionKeys(repairParams);
     deliveryReport = repairCanonicalSessionDeliveryStates(repairParams);
     repairLegacySessionExecPolicy(repairParams);
+    worktreeWorkspaceReport = await repairLegacySessionWorktreeWorkspaces({
+      ...repairParams,
+      // Workspace metadata participates in an unfinished legacy-main source claim.
+      apply:
+        params.shouldRepair && (!legacyMainSessionResult.armed || legacyMainSessionResult.complete),
+    });
     if (params.postSessionPluginMigrationPlanBound && !params.postSessionPluginMigration) {
       return report;
     }
@@ -371,6 +379,14 @@ async function noteSessionSqliteMigrationHealth(params: {
       message: "Session SQLite maintenance ownership was unavailable.",
     });
     return postSessionPluginReceipt;
+  }
+  if (worktreeWorkspaceReport.found > 0) {
+    note(
+      params.shouldRepair
+        ? `- Repaired canonical workspace metadata for ${worktreeWorkspaceReport.repaired} of ${worktreeWorkspaceReport.found} managed-worktree session(s). Check project/worktree ownership for any remaining entries.`
+        : `- Found ${worktreeWorkspaceReport.found} managed-worktree session(s) missing canonical workspace metadata. Run "openclaw doctor --fix" to repair them.`,
+      "Session worktrees",
+    );
   }
   if (reservedKeyReport.found > 0) {
     note(

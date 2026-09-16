@@ -16,11 +16,11 @@ import {
 import { formatExecDeniedUserMessage } from "../exec-approval-result.js";
 import type { CliTimeoutContext, FallbackAttemptRecord } from "../failover-error.js";
 import { ERROR_PREFIX_RE, renderFormatErrorCopy } from "./assistant-request-failure-copy.js";
+import { classifyFailoverReasonCore } from "./classify-core.js";
 import {
-  classifyFailoverReason,
   isPeriodicUsageLimitErrorMessage,
   isProviderCompletedErrorFinishReasonMessage,
-} from "./classify.js";
+} from "./message-patterns.js";
 import {
   classifyProviderRequestFacets,
   type ProviderRequestFacet,
@@ -201,7 +201,7 @@ export function isLikelyHttpErrorText(raw: string): boolean {
   return Boolean(
     status &&
     status.code >= 400 &&
-    (classifyFailoverReason(raw, { providerPlugin: null }) !== null ||
+    (classifyFailoverReasonCore(raw) !== null ||
       classifyProviderRequestFacets({ status: status.code, message: raw }) !== null),
   );
 }
@@ -251,7 +251,7 @@ export function renderSanitizedUserFacingText(
   if (/incorrect role information|roles must alternate/i.test(trimmed)) {
     return "Message ordering conflict - please try again. If this persists, use /new to start a fresh session.";
   }
-  const reason = classifyFailoverReason(trimmed, { providerPlugin: null });
+  const reason = classifyFailoverReasonCore(trimmed);
   const status = extractLeadingHttpStatus(trimmed);
   const rawPayload = isRawApiErrorPayload(trimmed);
   if (

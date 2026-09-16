@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
@@ -34,6 +35,10 @@ import {
   deleteLifecycleTargetRows,
   readLifecycleTargetSnapshot,
 } from "./session-accessor.sqlite-entry-store.js";
+import {
+  readSqliteSessionGenerationClaim,
+  readSqliteSessionGenerationWindows,
+} from "./session-accessor.sqlite-generation-copy.js";
 import { prepareCommittedSessionEntryRemovals } from "./session-accessor.sqlite-identity.js";
 import {
   assertPlannedLifecycleArtifactEntriesUnchanged,
@@ -44,19 +49,25 @@ import type {
   ReclamationDatabaseOptions,
   ReclamationDeleteParams,
   SessionEntryRemovalPlan,
+  SqliteSessionDeletionScope,
   SqliteSessionReclamationPlan,
   SqliteSessionReclamationResult,
 } from "./session-accessor.sqlite-lifecycle-types.js";
-import { deleteSessionDeliveryArtifacts } from "./session-accessor.sqlite-node-artifacts.js";
+import {
+  deleteSessionDeliveryArtifacts,
+  readSessionNodeArtifactFingerprint,
+} from "./session-accessor.sqlite-node-artifacts.js";
 import { withSqliteReclamationAuthorization } from "./session-accessor.sqlite-reclamation-commit.js";
 import { withSqliteReclamationWorker } from "./session-accessor.sqlite-reclamation-worker.js";
-import { isRecentHistoricalSessionId } from "./session-accessor.sqlite-references.js";
+import {
+  collectSessionStateIdsForEntry,
+  isRecentHistoricalSessionId,
+} from "./session-accessor.sqlite-references.js";
 import {
   cloneSessionEntry,
   getSessionKysely,
   runExclusiveSqliteSessionWrite,
 } from "./session-accessor.sqlite-scope.js";
-import { readSessionTranscriptDigest } from "./session-accessor.sqlite-transcript-digest.js";
 import { withSqliteMutationWorkerLifetime } from "./session-accessor.sqlite-worker-request.js";
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
@@ -122,7 +133,14 @@ export function shouldDeleteSqliteSessionEntryLifecycle(
   database: OpenClawAgentDatabase,
   entry: SessionEntry | undefined,
   params: DeleteSessionEntryLifecycleParams,
+  scope: SqliteSessionDeletionScope = { kind: "entry", phase: "plan" },
 ): entry is SessionEntry {
+  if (
+    params.expectedDatabaseIdentity !== undefined &&
+    params.expectedDatabaseIdentity !== readOpenClawAgentDatabaseIdentity(database).identity
+  ) {
+    return false;
+  }
   if (!entry || (params.expectedEntry && !sqliteSessionEntriesEqual(entry, params.expectedEntry))) {
     return false;
   }
@@ -141,16 +159,92 @@ export function shouldDeleteSqliteSessionEntryLifecycle(
   ) {
     return false;
   }
-  const expectedTranscript = params.expectedTranscript;
-  if (!expectedTranscript) {
-    return true;
+  if (
+    scope.kind === "entry" &&
+    params.expectedNodeArtifactFingerprint !== undefined &&
+    params.expectedNodeArtifactFingerprint !==
+      readSessionNodeArtifactFingerprint(database, params.target.canonicalKey)
+  ) {
+    return false;
   }
-  const digest = readSessionTranscriptDigest(database, expectedTranscript.sessionId);
-  return (
-    entry.sessionId === expectedTranscript.sessionId &&
-    digest.eventCount === expectedTranscript.digest.eventCount &&
-    digest.rollingHash === expectedTranscript.digest.rollingHash
-  );
+  if (params.expectedGenerations) {
+    const expected = new Map(
+      params.expectedGenerations.map((generation) => [generation.window.session_id, generation]),
+    );
+    const windows = readSqliteSessionGenerationWindows(
+      database,
+      scope.kind === "entry" ? [params.target.canonicalKey, ...params.target.storeKeys] : [],
+      scope.kind === "entry" ? collectSessionStateIdsForEntry(entry) : [scope.sessionId],
+    );
+    // Historical cleanup commits one generation at a time; already-copied removals are allowed.
+    if (
+      windows.some((window) => {
+        const generation = expected.get(window.session_id);
+        return (
+          !generation ||
+          !isDeepStrictEqual({ ...generation.window }, { ...window }) ||
+          (scope.phase === "commit" &&
+            generation.fingerprint !==
+              readSqliteSessionGenerationClaim(database, window).fingerprint)
+        );
+      })
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+type SessionDeletionValidation = {
+  deleteParams: DeleteSessionEntryLifecycleParams;
+  preparedTargetSnapshot: SqliteLifecycleTargetSnapshot;
+  scope?: SqliteSessionDeletionScope;
+};
+
+export function readValidatedSessionDeletionTarget(
+  database: OpenClawAgentDatabase,
+  validation: SessionDeletionValidation,
+) {
+  const snapshot = readLifecycleTargetSnapshot(database, validation.deleteParams.target);
+  const entry = snapshot[0]?.entry;
+  if (
+    !sqliteLifecycleTargetSnapshotsEqual(validation.preparedTargetSnapshot, snapshot) ||
+    !shouldDeleteSqliteSessionEntryLifecycle(
+      database,
+      entry,
+      validation.deleteParams,
+      validation.scope,
+    )
+  ) {
+    return undefined;
+  }
+  return { snapshot, entry };
+}
+
+export function* prepareHistoricalGenerationDeletions(params: {
+  deleteParams: DeleteSessionEntryLifecycleParams;
+  preparedTargetSnapshot: SqliteLifecycleTargetSnapshot;
+  sessionIds: readonly string[];
+}): Generator<SessionDeletionValidation & { sessionId: string }> {
+  const expected = params.deleteParams.expectedGenerations
+    ? new Map(
+        params.deleteParams.expectedGenerations.map((generation) => [
+          generation.window.session_id,
+          generation,
+        ]),
+      )
+    : undefined;
+  for (const sessionId of params.sessionIds) {
+    const generation = expected?.get(sessionId);
+    yield {
+      sessionId,
+      deleteParams: expected
+        ? { ...params.deleteParams, expectedGenerations: generation ? [generation] : [] }
+        : params.deleteParams,
+      preparedTargetSnapshot: params.preparedTargetSnapshot,
+      scope: { kind: "historical-generation", phase: "plan", sessionId },
+    };
+  }
 }
 
 function expectedEntryMismatchResult(): DeleteSessionEntryLifecycleResult {
@@ -168,14 +262,14 @@ export function reclaimSqliteSessionInTransaction(
     const value = runSqliteSessionDeletionTransaction<DeleteSessionEntryLifecycleResult>(
       (transactionDb) => {
         callbacks.beforeMutation?.();
-        const snapshot = readLifecycleTargetSnapshot(transactionDb, plan.deleteParams.target);
-        const entry = snapshot[0]?.entry;
-        if (
-          !sqliteLifecycleTargetSnapshotsEqual(plan.preparedTargetSnapshot, snapshot) ||
-          !shouldDeleteSqliteSessionEntryLifecycle(transactionDb, entry, plan.deleteParams)
-        ) {
+        const current = readValidatedSessionDeletionTarget(transactionDb, {
+          ...plan,
+          scope: { kind: "entry", phase: "commit" },
+        });
+        if (!current) {
           return expectedEntryMismatchResult();
         }
+        const { snapshot, entry } = current;
         const sessionKeys = [
           plan.deleteParams.target.canonicalKey,
           ...plan.deleteParams.target.storeKeys,
@@ -197,9 +291,6 @@ export function reclaimSqliteSessionInTransaction(
         }
         deleteSessionBoardRows(transactionDb, sessionKeys);
         callbacks.onCommit?.(transactionDb);
-        if (!entry) {
-          throw new Error("SQLite reclamation plan lost its prepared entry");
-        }
         return {
           archivedTranscripts,
           deleted: true,
@@ -235,22 +326,18 @@ export function reclaimSqliteSessionInTransaction(
     const diskBudget = plan.kind === "history-eviction" ? plan.diskBudget : undefined;
     let excludedSessionKeys: ReadonlySet<string> | undefined;
     if (plan.kind === "historical-generation") {
-      const snapshot = readLifecycleTargetSnapshot(transactionDb, plan.deleteParams.target);
-      if (
-        !sqliteLifecycleTargetSnapshotsEqual(plan.preparedTargetSnapshot, snapshot) ||
-        !shouldDeleteSqliteSessionEntryLifecycle(
-          transactionDb,
-          snapshot[0]?.entry,
-          plan.deleteParams,
-        )
-      ) {
+      const current = readValidatedSessionDeletionTarget(transactionDb, {
+        ...plan,
+        scope: { kind: "historical-generation", phase: "commit", sessionId: plan.sessionId },
+      });
+      if (!current) {
         return { archivedTranscripts: [], deleted: false, expectedEntryMismatch: true as const };
       }
       // Explicit deletion excludes its validated owner; automatic pressure does not.
       excludedSessionKeys = new Set([
         plan.deleteParams.target.canonicalKey,
         ...plan.deleteParams.target.storeKeys,
-        ...snapshot.map((row) => row.sessionKey),
+        ...current.snapshot.map((row) => row.sessionKey),
       ]);
     } else if (
       // Node activity can change after the parent dispatches the Worker.

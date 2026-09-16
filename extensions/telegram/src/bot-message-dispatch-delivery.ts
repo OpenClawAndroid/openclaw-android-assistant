@@ -540,6 +540,7 @@ export async function deliverFinalAnswerText(
 ): Promise<LaneDeliveryResult> {
   const transcriptFinal = await turn.resolveCurrentTurnTranscriptFinal();
   const finalText = await resolveTranscriptBackedChannelFinalText({
+    payload: answerPayload,
     finalText: text,
     resolveCandidateText: async () => transcriptFinal?.text,
   });

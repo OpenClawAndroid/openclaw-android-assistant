@@ -375,7 +375,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: approved shared widget CDN policy for core and channel presenters.
       // +13: runtime-neutral WebSocket client/server, stream, data, and option contracts.
       // +2: approved process-diagnostics predicate and lightweight subsystem logger.
-      4481,
+      // +1: approved shared native-command argument-menu applicability predicate.
+      4482,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -514,7 +515,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: shared per-connection webhook request ordering for channel listeners.
       // +4: runtime-neutral WebSocket client/server and stream constructors.
       // +2: approved process-diagnostics predicate and lightweight subsystem logger.
-      2645,
+      // +1: approved shared native-command argument-menu applicability predicate.
+      2646,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

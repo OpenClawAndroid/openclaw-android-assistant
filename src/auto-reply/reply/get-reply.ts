@@ -73,7 +73,7 @@ import {
 import { handleInlineActions } from "./get-reply-inline-actions.js";
 import { maybeResolveNativeSlashCommandFastReply } from "./get-reply-native-slash-fast-path.js";
 import { runPreparedReply } from "./get-reply-run.js";
-import type { InternalGetReplyOptions as BaseInternalGetReplyOptions } from "./get-reply.types.js";
+import type { InternalGetReplyOptions } from "./get-reply.types.js";
 import { finalizeInboundContext } from "./inbound-context.js";
 import {
   hasInboundAudio,
@@ -105,10 +105,6 @@ import { isStaleHeartbeatAutoFallbackOverride } from "./stored-model-override.js
 import { createTypingController } from "./typing.js";
 
 type ResetCommandAction = "new" | "reset";
-
-type RuntimeInternalGetReplyOptions = BaseInternalGetReplyOptions & {
-  extractedFileImages?: ExtractedFileImage[];
-};
 
 function classifyHeartbeatPendingFinalDelivery(text: string, ackMaxChars: number) {
   const stripped = stripHeartbeatToken(text, {
@@ -263,9 +259,9 @@ function collectStagedAttachmentPaths(ctx: MsgContext): ReadonlyMap<number, stri
 }
 
 function withExtractedFileImages(
-  opts: RuntimeInternalGetReplyOptions | undefined,
+  opts: InternalGetReplyOptions | undefined,
   extractedFileImages: ExtractedFileImage[] | undefined,
-): RuntimeInternalGetReplyOptions | undefined {
+): InternalGetReplyOptions | undefined {
   if (!extractedFileImages || extractedFileImages.length === 0) {
     return opts;
   }
@@ -408,9 +404,7 @@ export async function getReplyFromConfig(
   );
   const optsWithSkillFilter =
     mergedSkillFilter !== undefined ? { ...opts, skillFilter: mergedSkillFilter } : opts;
-  const internalOptsWithSkillFilter = optsWithSkillFilter as
-    | RuntimeInternalGetReplyOptions
-    | undefined;
+  const internalOptsWithSkillFilter = optsWithSkillFilter as InternalGetReplyOptions | undefined;
   let extractedFileImages: ExtractedFileImage[] | undefined;
   let enableLocalPathSelfServe: ApplyMediaUnderstandingResult["enableLocalPathSelfServe"];
   const agentCfg = cfg.agents?.defaults;
@@ -747,8 +741,7 @@ export async function getReplyFromConfig(
   // session first, then keep it completely outside model-locked native runs.
   const admittedSessionSettings =
     // SAFETY: Gateway dispatch owns this internal extension and forwards the same options object here.
-    (optsWithCommandQueueOverride as RuntimeInternalGetReplyOptions | undefined)
-      ?.admittedSessionSettings;
+    (optsWithCommandQueueOverride as InternalGetReplyOptions | undefined)?.admittedSessionSettings;
   const turnToolOverrides = admittedSessionSettings
     ? admittedSessionSettings.toolOverrides
     : sessionEntry.toolOverrides;
@@ -762,7 +755,7 @@ export async function getReplyFromConfig(
     opts: optsWithSessionSkillOverrides,
     disabled: sessionModelSelectionLocked,
   });
-  const internalResolvedOpts = resolvedOpts as RuntimeInternalGetReplyOptions | undefined;
+  const internalResolvedOpts = resolvedOpts as InternalGetReplyOptions | undefined;
   let { abortedLastRun } = sessionState;
   resolverTimingSessionKey = sessionKey ?? resolverTimingSessionKey;
   internalResolvedOpts?.onSessionPrepared?.({

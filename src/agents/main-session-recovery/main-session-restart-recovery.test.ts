@@ -81,6 +81,7 @@ import {
 } from "../../state/openclaw-state-db.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../../test-utils/channel-plugins.js";
 import { withEnvAsync } from "../../test-utils/env.js";
+import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
 import { buildCurrentRunRestartRecoveryClaim } from "../agent-command-restart-recovery.js";
 import { deliverAgentCommandResult } from "../command/delivery.js";
 import { setActiveEmbeddedRunLifecycleGeneration } from "../embedded-agent-runner/run-state.js";
@@ -232,6 +233,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   resetGatewayWorkAdmission();
+  await cleanupSessionStateForTest({ stateDir: tmpDir });
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -783,8 +785,6 @@ describe("main-session-restart-recovery", () => {
       } finally {
         admission?.release();
         removeAgentDeletionJournal(deletion.agentId, deletion.operationId);
-        closeOpenClawAgentDatabasesForTest();
-        closeOpenClawStateDatabaseForTest();
       }
     });
   });

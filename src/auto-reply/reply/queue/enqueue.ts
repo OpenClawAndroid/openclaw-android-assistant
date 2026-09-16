@@ -20,6 +20,7 @@ import {
   rememberFollowupDrainCallback,
   resolveFollowupDeliveryContextKey,
 } from "./drain.js";
+import { completeFollowupRunLifecycle, markFollowupRunEnqueued } from "./lifecycle.js";
 import {
   peekRecentQueueMessageId,
   recordRecentQueueMessageId,
@@ -32,9 +33,7 @@ import {
   trimSummaryElisionsToCap,
 } from "./state.js";
 import {
-  completeFollowupRunLifecycle,
   isFollowupRunAborted,
-  markFollowupRunEnqueued,
   resolveFollowupAbortSignal,
   type EnqueueFollowupRunOptions,
   type FollowupRun,

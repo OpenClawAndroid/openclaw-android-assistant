@@ -137,7 +137,7 @@ export function assertDeferredPluginMigrationsCurrent(params: {
   env?: NodeJS.ProcessEnv;
   expectedPending: readonly DeferredPluginMigration[];
 }): void {
-  assertPendingGeneration(readDeferredPluginMigrations(params), params.expectedPending);
+  withDeferredPluginMigrationsCurrent(params, () => undefined);
 }
 
 /** Keep competing obligation writers excluded until synchronous input publication finishes. */

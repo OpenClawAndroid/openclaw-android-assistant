@@ -393,6 +393,15 @@ An unresolved owner does not stop the scheduler: that job is skipped with an exp
 
 `list` and `show` use human-readable output by default and switch to JSON with `--json`. `scratch` reads raw scratch content by default. With `--json` it prints the scratch plus revision metadata. Scratch writes return the revision result as JSON by default, and accept `--json` as the explicit machine-output spelling.
 
+`automations show` also accepts an exact job name, matched without regard to case.
+Job IDs take precedence. When multiple jobs match the name, including disabled
+jobs, the command reports ambiguity and includes the matching jobs' full IDs,
+names, schedule summaries, enabled state, and status. Retry the same command
+with the intended job ID instead of the name.
+
+With `--json`, the failure envelope includes these summaries in `error.matches`.
+Event schedules appear as `on-exit` or `stream` without their command text.
+
 `automations list --json` and `automations show <job-id> --json` include a top-level `status` field on each job, computed from `enabled`, `state.runningAtMs`, and `state.lastRunStatus`. Values: `disabled`, `running`, `ok`, `error`, `skipped`, or `idle`. JSON status stays canonical and undecorated, so external tooling can read job state without re-deriving it. Human output may decorate repeated `error` statuses with a failure count.
 
 `automations runs` entries include delivery diagnostics with the intended automation target, the resolved target, message-tool sends, fallback use, and delivered state.

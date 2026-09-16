@@ -12,7 +12,7 @@ import {
 import { settleLitElement, settleLitElements } from "../../test-helpers/lit-settle.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import { ConfigPage, configSelectionFromSearch, type ConfigPageId } from "./config-page.ts";
-import type { ConfigRouteData } from "./route-data.ts";
+import { configRouteData, type ConfigRouteData } from "./route-data.ts";
 import { pages } from "./route.ts";
 
 beforeEach(() => {
@@ -232,6 +232,77 @@ describe("ConfigPage route selections", () => {
           search ? "Voice" : "Messages",
         );
       }
+    },
+  );
+});
+
+describe("ConfigPage pending section navigation", () => {
+  it.each(["replacement", "retirement", "disconnect"] as const)(
+    "does not scroll to a stale target after %s",
+    async (transition) => {
+      const provider = createApplicationContextProvider(routeContext());
+      document.body.append(provider);
+      const page = new ConfigPage();
+      page.pageId = "communications";
+      page.routeData = configRouteData({
+        pathname: "/settings/communications",
+        search: "",
+        hash: "",
+      });
+      provider.append(page);
+      await settleLitElement(page);
+      const frames = new Map<number, FrameRequestCallback>();
+      let nextFrameId = 0;
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+        const id = ++nextFrameId;
+        frames.set(id, callback);
+        return id;
+      });
+      vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+        frames.delete(id);
+      });
+      const previousTarget = expectDefined(
+        page.querySelector<HTMLElement>("#config-section-messages"),
+        "rendered Messages section",
+      );
+      const previousScroll = vi.fn();
+      previousTarget.scrollIntoView = previousScroll;
+      page.routeData = configRouteData({
+        pathname: "/settings/communications",
+        search: "",
+        hash: "#config-section-messages",
+      });
+      await settleLitElement(page);
+      expect(previousScroll).not.toHaveBeenCalled();
+      expect(frames.size).toBe(1);
+
+      if (transition === "disconnect") {
+        page.remove();
+      } else {
+        page.routeData = configRouteData({
+          pathname: "/settings/communications",
+          search: transition === "replacement" ? "?section=tts" : "",
+          hash: transition === "replacement" ? "#config-section-tts" : "",
+        });
+        await settleLitElement(page);
+      }
+      const nextScroll = vi.fn();
+      if (transition === "replacement") {
+        expectDefined(
+          page.querySelector<HTMLElement>("#config-section-tts"),
+          "rendered Voice section",
+        ).scrollIntoView = nextScroll;
+        expect(frames.size).toBe(1);
+      } else {
+        expect(frames.size).toBe(0);
+      }
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const frame of pending) {
+        frame(0);
+      }
+      expect(previousScroll).not.toHaveBeenCalled();
+      expect(nextScroll).toHaveBeenCalledTimes(transition === "replacement" ? 1 : 0);
     },
   );
 });

@@ -418,10 +418,15 @@ export function createSlackDurableIngress(
           await routedLifecycle.onAdopted();
         }
       } catch (error) {
-        settleTurn();
+        try {
+          await lifecycle.onFailed?.(error);
+        } finally {
+          settleTurn();
+        }
         throw error;
       }
     },
+    deferredClaims: "wait-on-stop",
     pollIntervalMs: options.pollIntervalMs ?? SLACK_INGRESS_POLL_INTERVAL_MS,
     retention: "standard",
     appendRetryDelaysMs: [0],

@@ -28,7 +28,18 @@
   overflow: hidden;
 }
 
+.chat-message-disclosure:not(.is-expanded):has(> .chat-message-disclosure__toggle:not([hidden]))
+  > .chat-message-disclosure__content {
+  mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--chat-text-size) * 1.5),
+    rgb(0 0 0 / 35%)
+  );
+}
+
 .chat-message-disclosure__toggle {
+  position: relative;
+  top: 6px;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -42,6 +53,10 @@
   font-size: var(--control-ui-text-sm);
   line-height: 1;
   cursor: var(--cursor-action);
+}
+
+.chat-bubble--with-images .chat-message-disclosure__toggle {
+  top: 3px;
 }
 
 .chat-message-disclosure__toggle[hidden] {

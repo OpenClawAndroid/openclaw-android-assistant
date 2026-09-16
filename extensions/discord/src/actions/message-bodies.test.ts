@@ -214,6 +214,11 @@ describe.each(["runtime", "adapter"] as const)("Discord %s message bodies", (ent
     ]);
   });
 
+  it("rejects malformed message IDs before a message mutation", async () => {
+    await expect(edit("Changed caption", cfg, "..")).rejects.toThrow("Invalid Discord message ID");
+    expect(writes()).toEqual([]);
+  });
+
   it.each([undefined, null, 42])(
     "rejects plain sends without string content %j",
     async (content) => {

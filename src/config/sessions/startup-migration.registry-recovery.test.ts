@@ -90,7 +90,7 @@ it("does not create a missing configured agent database during startup maintenan
     agentId: "idle",
     env,
   }).path;
-  const migrateManagedWorktreeCanonicalWorkspaces = vi.fn(async () => 0);
+  const migrateManagedWorktreeCanonicalWorkspaces = vi.fn(async () => ({ found: 0, repaired: 0 }));
 
   await runSessionStartupMigration({
     cfg,
@@ -224,7 +224,10 @@ it("re-registers durable lineage children before configured-only runtime reads",
       ),
     ).toBe(false);
 
-    const migrateManagedWorktreeCanonicalWorkspaces = vi.fn(async () => 0);
+    const migrateManagedWorktreeCanonicalWorkspaces = vi.fn(async () => ({
+      found: 0,
+      repaired: 0,
+    }));
     await runSessionStartupMigration({
       cfg,
       env,
@@ -347,7 +350,7 @@ it.each(["registry", "main-key"] as const)(
           migrateManagedWorktreeCanonicalWorkspaces: async () => {
             maintenanceSawProgress = yielded;
             maintenanceSawSelectedKey = isCanonicalSqliteSessionMainKeyCurrent(options, undefined);
-            return 0;
+            return { found: 0, repaired: 0 };
           },
         },
       });

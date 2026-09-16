@@ -77,7 +77,6 @@ function rewriteSignedPayload(
 async function importRuntimeTokenModule(): Promise<
   typeof import("./agent-runtime-identity-token.js")
 > {
-  vi.resetModules();
   const runtimeToken = await import("./agent-runtime-identity-token.js");
   const stateDb = await import("../state/openclaw-state-db.js");
   reloadedStateDatabaseClosers.add(stateDb.closeOpenClawStateDatabaseForTest);
@@ -117,7 +116,6 @@ afterEach(() => {
   }
   reloadedStateDatabaseClosers.clear();
   execApprovalsStoreTesting.reset();
-  vi.resetModules();
   envSnapshot.restore();
   for (const home of tempHomes.splice(0)) {
     fs.rmSync(home, { recursive: true, force: true });
@@ -243,6 +241,7 @@ describe("agent runtime identity token", () => {
 
   it("persists the local signing secret so tokens verify across processes", async () => {
     useTempHome();
+    vi.resetModules();
     const firstProcess = await importRuntimeTokenModule();
 
     const token = await firstProcess.mintAgentRuntimeIdentityToken({
@@ -255,6 +254,7 @@ describe("agent runtime identity token", () => {
     expect(persistedToken).toEqual(expect.any(String));
     expect(persistedToken).not.toHaveLength(0);
 
+    vi.resetModules();
     const secondProcess = await importRuntimeTokenModule();
     await expect(secondProcess.verifyAgentRuntimeIdentityToken(token)).resolves.toMatchObject({
       kind: "agentRuntime",
@@ -567,6 +567,7 @@ describe("agent runtime identity token", () => {
 
   it("rejects tokens minted from a different local state directory", async () => {
     useTempHome();
+    vi.resetModules();
     const firstProcess = await importRuntimeTokenModule();
     const token = await firstProcess.mintAgentRuntimeIdentityToken({
       agentId: "main",
@@ -576,6 +577,7 @@ describe("agent runtime identity token", () => {
     expect(readExecApprovals().socket?.token).toEqual(expect.any(String));
 
     useTempHome();
+    vi.resetModules();
     const secondProcess = await importRuntimeTokenModule();
     const secondToken = await secondProcess.mintAgentRuntimeIdentityToken({
       agentId: "main",

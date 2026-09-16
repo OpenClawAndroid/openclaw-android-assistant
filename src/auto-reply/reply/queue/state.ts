@@ -8,12 +8,8 @@ import { resolveThinkingDefault } from "../../../agents/model-thinking-default.j
 import { resolveGlobalMap } from "../../../shared/global-singleton.js";
 import { applyQueueRuntimeSettings } from "../../../utils/queue-helpers.js";
 import { normalizeThinkLevel, resolveSupportedThinkingLevel } from "../../thinking.js";
-import {
-  completeFollowupRunLifecycle,
-  type FollowupRun,
-  type QueueDropPolicy,
-  type QueueSettings,
-} from "./types.js";
+import { completeFollowupRunLifecycle } from "./lifecycle.js";
+import type { FollowupRun, QueueDropPolicy, QueueSettings } from "./types.js";
 
 type FollowupQueueState = {
   abortController: AbortController;

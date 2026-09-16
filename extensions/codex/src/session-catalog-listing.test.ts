@@ -220,7 +220,7 @@ describe("Codex supervision catalog", () => {
         archived: false,
         limit: 25,
         modelProviders: [],
-        sortKey: "updated_at",
+        sortKey: "recency_at",
         sortDirection: "desc",
         cwd: "/workspace/one",
       },

@@ -261,21 +261,27 @@ describe("private session source staging", () => {
       db: DatabaseSync;
       withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T>;
     };
+    let shadowPath: string | undefined;
     const withTimeout = owner.withTimeout.bind(owner);
     vi.spyOn(owner, "withTimeout").mockImplementation(
       <T>(promise: Promise<T>, timeoutMs: number, message: string) => {
-        if (
-          !message.startsWith("sqlite-vec load timed out") ||
-          !owner.db.location()?.includes(".memory-reindex-")
-        ) {
+        const databasePath = message.startsWith("sqlite-vec load timed out")
+          ? owner.db.location()
+          : undefined;
+        if (!databasePath?.includes(".memory-reindex-")) {
           return withTimeout(promise, timeoutMs, message);
         }
+        shadowPath = databasePath;
         void promise.catch(() => undefined);
         timedOut.resolve();
         return Promise.reject(new Error(message));
       },
     );
     const run = vi.spyOn(MemoryIndexDatabase.prototype, "replaceSource");
+    // replaceSource queues first; the owned store opens only after private admission.
+    const open = vi.spyOn(sqliteRuntime, "openSqliteWorkerStore");
+    const shadowOpens = () =>
+      open.mock.calls.filter(([options]) => options.databasePath === shadowPath);
     const sync = manager.sync({ reason: "cli", force: true });
     void sync.catch(() => undefined);
     let close: Promise<void> | undefined;
@@ -283,7 +289,8 @@ describe("private session source staging", () => {
     try {
       await Promise.race([Promise.all([entered.promise, timedOut.promise]), sync]);
       await nextTurn();
-      expect(run).not.toHaveBeenCalled();
+      expect(shadowPath).toBeDefined();
+      expect(shadowOpens()).toHaveLength(0);
       close = manager.close().then(() => {
         closed = true;
       });
@@ -292,6 +299,7 @@ describe("private session source staging", () => {
       resume.resolve();
       await Promise.all([sync, close]);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(shadowOpens()).toHaveLength(1);
     } finally {
       resume.resolve();
       await Promise.allSettled([sync, close]);

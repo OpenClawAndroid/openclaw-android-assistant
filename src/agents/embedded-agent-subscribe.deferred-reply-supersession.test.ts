@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { getReplyPayloadMetadata } from "../auto-reply/reply-payload.js";
 import type { AssistantMessage } from "../llm/types.js";
+import { buildEmbeddedRunPayloads } from "./embedded-agent-runner/run/payloads.js";
 import { createSubscribedSessionHarness } from "./embedded-agent-subscribe.e2e-harness.js";
 import { makeAgentAssistantMessage } from "./test-helpers/agent-message-fixtures.js";
 
@@ -48,7 +49,191 @@ function emitAssistantMessage(
   emit({ type: "message_end", message });
 }
 
+function buildSubscriptionPayloads(
+  subscription: ReturnType<typeof createSubscribedSessionHarness>["subscription"],
+) {
+  const currentAssistant = subscription.getCurrentAttemptAssistant();
+  return buildEmbeddedRunPayloads({
+    assistantTexts: subscription.assistantTexts,
+    answerSegments: subscription.answerSegments,
+    assistantMessageIndex: subscription.getLastAssistantTextMessageIndex(),
+    lastAssistant: currentAssistant,
+    currentAssistant: currentAssistant ?? null,
+    sessionKey: "steered-answers",
+  });
+}
+
 describe("subscribeEmbeddedAgentSession deferred reply supersession", () => {
+  it("subscribeEmbeddedAgentSession + buildEmbeddedRunPayloads seals only answered inputs", async () => {
+    const { emit, subscription } = createSubscribedSessionHarness({ runId: "answered-inputs" });
+    const first = makeAgentAssistantMessage({ content: [{ type: "text", text: "A" }] });
+    const final = makeAgentAssistantMessage({ content: [{ type: "text", text: "B" }] });
+    const initialUser = { role: "user", content: "Initial question", timestamp: 0 };
+    const injectedUsers = ["Next question", "Additional detail"].map((content) => ({
+      role: "user",
+      content,
+      timestamp: 0,
+    }));
+    try {
+      emit({ type: "message_start", message: initialUser });
+      emit({ type: "message_end", message: initialUser });
+      emitAssistantMessage(emit, first);
+      emit({ type: "turn_end", message: first, toolResults: [] });
+      await subscription.waitForPendingEvents();
+      expect(buildSubscriptionPayloads(subscription).map((payload) => payload.text)).toEqual(["A"]);
+      expect(subscription.answerSegments).toHaveLength(0);
+
+      for (const message of injectedUsers) {
+        emit({ type: "message_start", message });
+        emit({ type: "message_end", message });
+      }
+      emitAssistantMessage(emit, final);
+      emit({ type: "turn_end", message: final, toolResults: [] });
+      emit({
+        type: "agent_end",
+        messages: [initialUser, first, ...injectedUsers, final],
+        willRetry: false,
+      });
+      await subscription.waitForPendingEvents();
+      expect(subscription.answerSegments).toHaveLength(1);
+      expect(buildSubscriptionPayloads(subscription).map((payload) => payload.text)).toEqual([
+        "A",
+        "B",
+      ]);
+    } finally {
+      subscription.unsubscribe();
+    }
+  });
+
+  it("subscribeEmbeddedAgentSession + buildEmbeddedRunPayloads agrees on final answers in sealed and open segments", async () => {
+    const onBlockReply = vi.fn();
+    const { emit, subscription } = createSubscribedSessionHarness({
+      runId: "sealed-progress",
+      onBlockReply,
+      onBeforeTerminalDelivery: async () => undefined,
+      blockReplyBreak: "message_end",
+    });
+    const progress = makeAgentAssistantMessage({
+      content: [
+        { type: "text", text: "A1" },
+        { type: "toolCall", id: "read-progress", name: "read", arguments: {} },
+      ],
+      stopReason: "toolUse",
+    });
+    const first = makeAgentAssistantMessage({ content: [{ type: "text", text: "A2" }] });
+    const final = makeAgentAssistantMessage({ content: [{ type: "text", text: "A3" }] });
+    const result = { content: [{ type: "text", text: "Read complete." }] };
+    const toolResult = {
+      role: "toolResult",
+      toolCallId: "read-progress",
+      toolName: "read",
+      ...result,
+      isError: false,
+      timestamp: 0,
+    };
+    const user = { role: "user", content: "Next question", timestamp: 0 };
+    try {
+      emitAssistantMessage(emit, progress);
+      emit({
+        type: "tool_execution_start",
+        toolName: "read",
+        toolCallId: "read-progress",
+        args: {},
+      });
+      emit({
+        type: "tool_execution_end",
+        toolName: "read",
+        toolCallId: "read-progress",
+        result,
+        isError: false,
+      });
+      emit({ type: "message_start", message: toolResult });
+      emit({ type: "message_end", message: toolResult });
+      emit({ type: "turn_end", message: progress, toolResults: [toolResult] });
+      emitAssistantMessage(emit, first);
+      emit({ type: "turn_end", message: first, toolResults: [] });
+      emit({ type: "message_start", message: user });
+      emit({ type: "message_end", message: user });
+      emitAssistantMessage(emit, final);
+      emit({ type: "turn_end", message: final, toolResults: [] });
+      emit({
+        type: "agent_end",
+        messages: [progress, toolResult, first, user, final],
+        willRetry: false,
+      });
+      await subscription.waitForPendingEvents();
+      expect(buildSubscriptionPayloads(subscription).map((payload) => payload.text)).toEqual([
+        "A2",
+        "A3",
+      ]);
+      expect(onBlockReply.mock.calls.map(([payload]) => payload.text)).toEqual(["A2", "A3"]);
+    } finally {
+      subscription.unsubscribe();
+    }
+  });
+
+  it.each([false, true])(
+    "subscribeEmbeddedAgentSession + buildEmbeddedRunPayloads delivers each steered answer (deferred: %s)",
+    async (deferred) => {
+      const onBlockReply = vi.fn();
+      const { emit, subscription } = createSubscribedSessionHarness({
+        runId: "steered-answers",
+        onBlockReply: deferred ? onBlockReply : undefined,
+        onBeforeTerminalDelivery: deferred ? async () => undefined : undefined,
+        blockReplyBreak: "message_end",
+      });
+      const first = makeAgentAssistantMessage({
+        content: [
+          { type: "text", text: "A" },
+          { type: "toolCall", id: "skipped-read", name: "read", arguments: {} },
+        ],
+        stopReason: "toolUse",
+      });
+      const final = makeAgentAssistantMessage({ content: [{ type: "text", text: "B" }] });
+      const result = { content: [{ type: "text", text: "Skipped due to queued user message." }] };
+      const toolResult = {
+        role: "toolResult",
+        toolCallId: "skipped-read",
+        toolName: "read",
+        ...result,
+        isError: true,
+        timestamp: 0,
+      };
+      const user = { role: "user", content: "Question B", timestamp: 0 };
+      try {
+        emitAssistantMessage(emit, first);
+        emit({
+          type: "tool_execution_start",
+          toolName: "read",
+          toolCallId: "skipped-read",
+          args: {},
+        });
+        emit({
+          type: "tool_execution_end",
+          toolName: "read",
+          toolCallId: "skipped-read",
+          result,
+          isError: true,
+        });
+        emit({ type: "turn_end", message: first, toolResults: [toolResult] });
+        emit({ type: "message_start", message: user });
+        emit({ type: "message_end", message: user });
+        emitAssistantMessage(emit, final);
+        emit({ type: "turn_end", message: final, toolResults: [] });
+        emit({ type: "agent_end", messages: [first, toolResult, user, final], willRetry: false });
+        await subscription.waitForPendingEvents();
+        const payloads = buildSubscriptionPayloads(subscription);
+        expect(payloads).toHaveLength(2);
+        expect(payloads.map((payload) => payload.text)).toEqual(["A", "B"]);
+        if (deferred) {
+          expect(onBlockReply.mock.calls.map(([payload]) => payload.text)).toEqual(["A", "B"]);
+        }
+      } finally {
+        subscription.unsubscribe();
+      }
+    },
+  );
+
   it.each([
     { terminalText: "Completed answer.", priorStopReason: "toolUse" },
     { terminalText: "NO_REPLY", priorStopReason: "toolUse" },
@@ -153,7 +338,7 @@ describe("subscribeEmbeddedAgentSession deferred reply supersession", () => {
     },
   );
 
-  it("retains completed answers to earlier user inputs in the same run", async () => {
+  it("subscribeEmbeddedAgentSession retains completed answers to earlier user inputs in the same run", async () => {
     const onBlockReply = vi.fn();
     const { emit, subscription } = createSubscribedSessionHarness({
       runId: "run-before-terminal-followups",
@@ -165,10 +350,9 @@ describe("subscribeEmbeddedAgentSession deferred reply supersession", () => {
       makeAgentAssistantMessage({ content: [{ type: "text", text }] }),
     );
     for (const message of messages) {
-      emit({
-        type: "message_start",
-        message: { role: "user", content: "Next question", timestamp: 0 },
-      });
+      const user = { role: "user", content: "Next question", timestamp: 0 };
+      emit({ type: "message_start", message: user });
+      emit({ type: "message_end", message: user });
       emitAssistantMessage(emit, message);
       emit({ type: "turn_end", message, toolResults: [] });
     }

@@ -130,6 +130,11 @@ function handleKeydown(
   items: PaletteItem[],
   activeIndex: number,
 ) {
+  if (e.isComposing || e.keyCode === 229) {
+    // Keep composition keys out of document shortcuts and the modal's Escape handler.
+    e.stopPropagation();
+    return;
+  }
   if (items.length === 0 && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
     return;
   }
@@ -642,6 +647,9 @@ export class CommandPalette extends OpenClawLightDomContentsElement {
   }
 
   private readonly handleGlobalKeydown = (event: KeyboardEvent) => {
+    if (event.isComposing || event.keyCode === 229) {
+      return;
+    }
     if (!event.defaultPrevented && event.key === "Escape" && this.open) {
       event.preventDefault();
       this.togglePalette();

@@ -1,10 +1,11 @@
 // E2E Mock Config Limits tests cover e2e mock config limits script behavior.
-import { type ChildProcess, execFile, spawn, spawnSync } from "node:child_process";
+import { ChildProcess, execFile, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { asOptionalRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
@@ -12,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { validateToolArguments } from "../../packages/llm-core/src/validation.js";
 import { execSchema } from "../../src/agents/bash-tools.schemas.js";
 import { writeJsonAtomic } from "../../src/infra/json-files.js";
+import { redactSensitiveText } from "../../src/logging/redact.js";
 import { captureFullEnv } from "../../src/test-utils/env.js";
 import { createOpenClawTestState } from "../../src/test-utils/openclaw-test-state.js";
 import { getFreePort } from "../../src/test-utils/ports.js";
@@ -82,15 +84,21 @@ function runScript(scriptPath: string, env: Record<string, string>) {
   });
 }
 
-async function waitForListening(child: ChildProcess, port: number, output: () => string) {
+async function waitForListening(
+  child: ChildProcess,
+  port: number,
+  output: () => string,
+  stderr: () => string,
+) {
   return await new Promise<number>((resolve, reject) => {
     let settled = false;
+    let exited = false;
+    const failure = (message: string) =>
+      new Error(
+        `${message}\nstdout tail:\n${redactSensitiveText(output(), { mode: "tools" }).slice(-4_096)}\nstderr tail:\n${redactSensitiveText(stderr(), { mode: "tools" }).slice(-4_096)}`,
+      );
     const timeout = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      reject(new Error(`mock server did not listen on ${port}: ${output()}`));
+      finish(failure(`mock server did not listen on ${port}`));
     }, 3_000);
     const finish = (error?: Error, boundPort = port) => {
       if (settled) {
@@ -98,6 +106,9 @@ async function waitForListening(child: ChildProcess, port: number, output: () =>
       }
       settled = true;
       clearTimeout(timeout);
+      child.stdout?.off("data", checkListening);
+      child.off("exit", onExit);
+      child.off("close", onClose);
       if (error) {
         reject(error);
         return;
@@ -105,6 +116,9 @@ async function waitForListening(child: ChildProcess, port: number, output: () =>
       resolve(boundPort);
     };
     const checkListening = () => {
+      if (exited) {
+        return;
+      }
       const match = /(?:^|\n)mock-openai listening on ([1-9]\d{0,4})(?: \(HTTPS?\))?\r?\n/u.exec(
         output(),
       );
@@ -115,11 +129,17 @@ async function waitForListening(child: ChildProcess, port: number, output: () =>
         }
       }
     };
-    checkListening();
+    const onExit = () => {
+      exited = true;
+    };
+    const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(failure(`mock server exited before listening: code=${code} signal=${signal}`));
+    };
     child.stdout?.on("data", checkListening);
-    child.once("exit", (code, signal) => {
-      finish(new Error(`mock server exited before listening: code=${code} signal=${signal}`));
-    });
+    child.once("exit", onExit);
+    // Close follows stdio drain; exit can arrive before the final diagnostic chunk.
+    child.once("close", onClose);
+    checkListening();
   });
 }
 
@@ -169,7 +189,12 @@ async function withMockServer(
     stderr += chunk;
   });
   try {
-    const boundPort = await waitForListening(child, port, () => stdout);
+    const boundPort = await waitForListening(
+      child,
+      port,
+      () => stdout,
+      () => stderr,
+    );
     await run(`http://127.0.0.1:${boundPort}`, {
       stderr: () => stderr,
       stdout: () => stdout,
@@ -179,6 +204,64 @@ async function withMockServer(
   }
 }
 
+describe("mock server readiness diagnostics", () => {
+  it("includes bounded, redacted output after startup pipes close", async () => {
+    const child = new ChildProcess();
+    const stdout = new PassThrough();
+    child.stdout = stdout;
+    const secret = `synthetic-${"PRIVATE_TOKEN_SEGMENT".repeat(300)}-tail`;
+    let output = `${"s".repeat(6_000)}\nstdout-tail`;
+    let stderr = `${"e".repeat(6_000)}\nAuthorization: Bearer ${secret}\ninitial failure`;
+    const result = waitForListening(
+      child,
+      12_345,
+      () => output,
+      () => stderr,
+    ).then(
+      () => {
+        throw new Error("mock unexpectedly became ready");
+      },
+      (error: unknown) => {
+        if (!(error instanceof Error)) {
+          throw error;
+        }
+        return error;
+      },
+    );
+    let settled = false;
+    void result.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    try {
+      child.emit("exit", 1, null);
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      const settledBeforeClose = settled;
+      output += "\nmock-openai listening on 12345\n";
+      stdout.emit("data", "late readiness marker");
+      stderr += "\nlate stderr cause";
+      child.emit("close", 1, null);
+      const error = await result;
+      expect(error.message).toContain("mock server exited before listening: code=1 signal=null");
+      expect(error.message).toContain("late stderr cause");
+      expect(error.message).toContain("stdout-tail");
+      expect(error.message).not.toContain("PRIVATE_TOKEN_SEGMENT");
+      expect(error.message.length).toBeLessThanOrEqual(8_300);
+      expect(settledBeforeClose).toBe(false);
+    } finally {
+      child.emit("close", 1, null);
+      stdout.destroy();
+      await result.catch(() => undefined);
+    }
+  });
+});
+
 describe("mock OpenAI response markers", () => {
   it.concurrent.for(
     [
@@ -186,7 +269,7 @@ describe("mock OpenAI response markers", () => {
       { api: "responses", stream: true },
       { api: "chat/completions", stream: false },
       { api: "chat/completions", stream: true },
-    ].flatMap((row) => [false, true].map((modelMap) => ({ ...row, modelMap }))),
+    ].flatMap(({ api, stream }) => [false, true].map((modelMap) => ({ api, stream, modelMap }))),
   )(
     "emits native exec draft-proof calls from $api (stream=$stream, modelMap=$modelMap)",
     async ({ api, stream, modelMap }, { expect: taskExpect }) => {

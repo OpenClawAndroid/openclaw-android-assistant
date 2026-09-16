@@ -60,6 +60,8 @@ export function projectResetBoundaryNavigationSql(event: Expression<string>): Ra
     ...TRANSCRIPT_NAVIGATION_KEYS,
     "timestamp",
     "firstKeptEntryId",
+    "customType",
+    "display",
   ]);
   // Non-object rows keep their parser behavior; malformed and SQLite-overdepth JSON
   // must reach JSON.parse unchanged instead of failing inside the metadata projection.

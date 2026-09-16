@@ -27,6 +27,13 @@ import {
 } from "./protocol/index.js";
 import { ReefChannelConfigSchema } from "./src/config-schema.js";
 import {
+  REEF_REPLAY_MAX_ENTRIES,
+  REEF_REPLAY_NAMESPACE,
+  REEF_REPLAY_TTL_MS,
+  reefReplayStoreKey,
+  type ReefReplayRecord,
+} from "./src/replay-store.js";
+import {
   generateAndStoreKeys,
   loadKeys,
   openStores,
@@ -47,21 +54,16 @@ import {
   REEF_DELIVERED_MAX_ENTRIES,
   REEF_DELIVERED_NAMESPACE,
   REEF_DELIVERED_TTL_MS,
-  REEF_REPLAY_MAX_ENTRIES,
-  REEF_REPLAY_NAMESPACE,
-  REEF_REPLAY_TTL_MS,
   REEF_REGISTRATION_IDENTITY_KEY,
   REEF_REGISTRATION_MAX_ENTRIES,
   REEF_REGISTRATION_NAMESPACE,
   REEF_REVIEWS_MAX_ENTRIES,
   REEF_REVIEWS_NAMESPACE,
   reefAuditEntryKey,
-  reefReplayStoreKey,
   type ReefAuditHeadRecord,
   type ReefAuditStateRecord,
   type ReefIdentityBinding,
   type ReefIdentityMigrationRecord,
-  type ReefReplayRecord,
   type ReefReviewRecord,
 } from "./src/state.js";
 import {

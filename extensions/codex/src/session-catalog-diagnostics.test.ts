@@ -717,12 +717,14 @@ describe("registered Codex catalog diagnostics", () => {
       return { data: [] };
     });
     for (let index = 0; index < 32; index++) {
+      f.expire();
       expect((await f.list(`query-${index}`))[0]?.connected).toBe(true);
     }
     await diagnosticRuntime.waitForDiagnosticEventsDrained();
     expect(records).toHaveLength(60);
     expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(32);
     clock += 61_000;
+    f.expire();
     await f.list("after-window");
     expect(fields((await emitted(PAGE)).at(-1))).toMatchObject({ omittedObservations: 4 });
     expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(33);
@@ -754,6 +756,7 @@ describe("registered Codex catalog diagnostics", () => {
         clock += 1_100;
         return { data: [] };
       });
+      f.expire();
       await f.list("after-capacity");
       expect(await emitted(PAGE)).toHaveLength(1);
       expect(await emitted(LIST)).toHaveLength(1);

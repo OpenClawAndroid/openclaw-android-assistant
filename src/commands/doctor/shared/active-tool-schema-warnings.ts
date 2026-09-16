@@ -25,7 +25,7 @@ async function resolveRuntimeModelContext(params: {
 }): Promise<RuntimeModelContext> {
   const { resolveModelAsync } = await import("../../../agents/embedded-agent-runner/model.js");
   const { extractModelCompat } = await import("../../../plugins/provider-model-compat.js");
-  // Doctor diagnostics resolve static transport facts without publishing a live agent generation.
+  // Doctor diagnostics resolve static model facts without publishing a live agent generation.
   const resolution = await resolveModelAsync(
     params.provider,
     params.modelId,
@@ -37,7 +37,6 @@ async function resolveRuntimeModelContext(params: {
       workspaceDir: params.workspaceDir,
       skipAgentDiscovery: true,
       allowBundledStaticCatalogFallback: true,
-      preferBundledStaticCatalogTransport: true,
     },
   );
   const model = resolution.model as ProviderRuntimeModel | undefined;

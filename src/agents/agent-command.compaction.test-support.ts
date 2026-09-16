@@ -19,6 +19,7 @@ import { createSessionDiffBaselineCaptureClaim } from "../config/sessions/sessio
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { rotateAgentEventLifecycleGeneration } from "../infra/agent-events.js";
 import { defaultRuntime } from "../runtime.js";
+import { cleanupSessionStateForTest } from "../test-utils/session-state-cleanup.js";
 import type { runAgentAttempt } from "./command/attempt-execution.runtime.js";
 import { acceptCompactionSuccessor } from "./embedded-agent-runner/compaction-successor.js";
 import type { EmbeddedAgentRunResult } from "./embedded-agent.js";
@@ -308,6 +309,7 @@ export function registerAgentCommandCompactionTestHooks(): void {
           waitForSessionMaintenance(sessionKey),
         ),
       );
+      await cleanupSessionStateForTest({ stateDir: path.dirname(storePath) });
     }
     compactionTestState.cfg = undefined;
     compactionTestState.workspaceDir = undefined;

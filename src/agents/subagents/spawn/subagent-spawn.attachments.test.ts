@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { withEnvAsync } from "../../../test-utils/env.js";
+import { cleanupSessionStateForTest } from "../../../test-utils/session-state-cleanup.js";
 import {
   createSubagentSpawnTestConfig,
   loadSubagentSpawnModuleForTest,
@@ -336,6 +337,7 @@ describe("spawnSubagentDirect filename validation", () => {
         expect(persistedStore?.[childSessionKey]?.spawnedCwd).toBe(expectedCwd);
       });
     } finally {
+      await cleanupSessionStateForTest({ stateDir: path.join(homeDir, ".openclaw") });
       fs.rmSync(homeDir, { recursive: true, force: true });
     }
   });

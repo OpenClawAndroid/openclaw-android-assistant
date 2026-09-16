@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import path from "node:path";
 import { it, vi } from "vitest";
 import { stopChild } from "../../scripts/lib/gateway-bench-child.js";
 import { getFreePort } from "../../scripts/lib/gateway-bench-probes.js";
@@ -84,9 +83,8 @@ it.for(cases)(
         verifyCleanup: fixture.verifyCleanup,
         env: {
           OPENCLAW_TEST_MINIMAL_GATEWAY: undefined,
-          OPENCLAW_DISABLE_BUNDLED_PLUGINS: undefined,
-          OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(process.cwd(), "extensions"),
-          OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: "1",
+          // The configured loopback provider uses the built-in Responses adapter.
+          OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
           OPENCLAW_SKIP_CHANNELS: "1",
           OPENCLAW_SKIP_GMAIL_WATCHER: "1",
           OPENCLAW_SKIP_CRON: "1",
@@ -214,7 +212,7 @@ it.for(cases)(
             },
           },
         },
-        plugins: { enabled: true, allow: ["openai"], slots: { memory: "none" } },
+        plugins: { slots: { memory: "none" } },
         tools: { deny: ["*"] },
         gateway: { auth: { mode: "token", token } },
       } satisfies OpenClawConfig;

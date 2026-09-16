@@ -15,7 +15,10 @@ import {
 } from "../../agents/cron-creator-authority-context.js";
 import { isTimeoutError } from "../../agents/failover-error.js";
 import type { MainSessionRecoveryPendingTarget } from "../../agents/main-session-recovery/main-session-recovery-store.js";
-import { isAgentRunRestartAbortReason } from "../../agents/run-termination.js";
+import {
+  isAgentRunDirectAbortReason,
+  isAgentRunRestartAbortReason,
+} from "../../agents/run-termination.js";
 import { runWithCanonicalSkillWorkspace } from "../../agents/skill-workshop-workspace-context.js";
 import {
   createExecutionStartedOwnerBinding,
@@ -79,7 +82,8 @@ function isGatewayAbortSignalReason(reason: unknown): boolean {
 
 function isGatewayAgentAbortRejection(error: unknown, signal: AbortSignal): boolean {
   if (!signal.aborted) {
-    return false;
+    // The run can cancel its own controller without aborting the Gateway observer.
+    return isAgentRunDirectAbortReason(error);
   }
   if (isAgentRunRestartAbortReason(signal.reason)) {
     return true;
@@ -111,7 +115,7 @@ const RESOLVED_GATEWAY_STATUS_BY_TERMINAL_CLASSIFICATION = {
 
 function projectRejectedGatewayStatus(outcome: AgentRunTerminalOutcome): "error" | "timeout" {
   // The shipped wire keeps raw provider/AbortError rejections as errors. Only
-  // signal-owned cancellation/timeout metadata promotes a rejection to timeout.
+  // owner-recorded cancellation/timeout metadata promotes a rejection to timeout.
   return outcome.reason === "cancelled" ||
     outcome.reason === "superseded" ||
     outcome.stopReason === "timeout"

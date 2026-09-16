@@ -11,6 +11,7 @@ import {
   getAgentEventLifecycleGeneration,
   rotateAgentEventLifecycleGeneration,
 } from "../../infra/agent-events.js";
+import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
 import * as recoveryOwnerRelease from "./main-session-recovery-owner-release.js";
 import {
   claimMainSessionRecoveryOwner,
@@ -46,8 +47,9 @@ describe("main session recovery store", () => {
     storePath = path.join(dir, "sessions.json");
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await cleanupSessionStateForTest({ stateDir: dir });
   });
 
   async function write(entry: SessionEntry): Promise<void> {

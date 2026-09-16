@@ -1,8 +1,6 @@
+import { sql } from "kysely";
 import type { TranscriptDisplayPosition } from "../../chat/transcript-display-position.js";
-import {
-  executeSqliteQuerySync,
-  executeSqliteQueryTakeFirstSync,
-} from "../../infra/kysely-sync.js";
+import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import {
   resolveHistoryAnchorPageRange,
   resolveTranscriptPageEnd,
@@ -22,8 +20,8 @@ import type {
 } from "./session-accessor.sqlite-contract.js";
 import { positionTranscriptDisplayEvents } from "./session-accessor.sqlite-display-position.js";
 import {
-  isVisibleHistoryNonMessageEventSql,
   parseStoredTranscriptEvent,
+  readDisplayableActiveEventById,
   readHistoricalHistoryAnchorPage,
   resolveHistoricalHistoryEventById,
 } from "./session-accessor.sqlite-history-interval.js";
@@ -60,9 +58,7 @@ function readBoundaryEvents(
   boundaries: Iterable<VisibleHistoryBoundary>,
 ): Map<number, TranscriptEvent> {
   const eventSeqs = Array.from(boundaries, (boundary) => boundary.eventSeq);
-  const [firstSeq] = eventSeqs;
-  const lastSeq = eventSeqs.at(-1);
-  if (firstSeq === undefined || lastSeq === undefined) {
+  if (eventSeqs.length === 0) {
     return new Map();
   }
   const db = getActiveTranscriptKysely(projection.database);
@@ -70,29 +66,15 @@ function readBoundaryEvents(
     executeSqliteQuerySync(
       projection.database.db,
       db
-        .selectFrom("session_transcript_active_events as active")
-        .innerJoin("transcript_event_identities as identity", (join) =>
-          join
-            .onRef("identity.session_id", "=", "active.session_id")
-            .onRef("identity.seq", "=", "active.event_seq"),
-        )
-        .innerJoin("transcript_events as event", (join) =>
-          join
-            .onRef("event.session_id", "=", "active.session_id")
-            .onRef("event.seq", "=", "active.event_seq"),
-        )
+        .selectFrom("transcript_events as event")
         .select(["event.seq", "event.event_json"])
-        .where("active.session_id", "=", projection.resolved.sessionId)
-        .where((eb) =>
-          isVisibleHistoryNonMessageEventSql(
-            eb.ref("identity.event_type"),
-            eb.ref("event.event_json"),
-            eb.ref("active.event_seq"),
-            eb.ref("event.seq"),
-          ),
-        )
-        .where("identity.seq", ">=", firstSeq)
-        .where("identity.seq", "<=", lastSeq),
+        .where("event.session_id", "=", projection.resolved.sessionId)
+        .where(
+          "event.seq",
+          "in",
+          /* kysely-allow-raw: boundaries were selected in this snapshot; bind their physical rows once. */
+          sql<number>`(SELECT value FROM json_each(${JSON.stringify(eventSeqs)}))`,
+        ),
     ).rows.map((row) => [row.seq, parseStoredTranscriptEvent(row.event_json)]),
   );
 }
@@ -214,29 +196,7 @@ function readVisibleMessageById(
   history: VisibleHistoryProjection,
   maxBytes?: number,
 ): SessionTranscriptMessageById | undefined {
-  const db = getActiveTranscriptKysely(projection.database);
-  let query = db
-    .selectFrom("transcript_event_identities as identity")
-    .innerJoin("session_transcript_active_events as active", (join) =>
-      join
-        .onRef("active.session_id", "=", "identity.session_id")
-        .onRef("active.event_seq", "=", "identity.seq"),
-    )
-    .innerJoin("transcript_events as event", (join) =>
-      join
-        .onRef("event.session_id", "=", "active.session_id")
-        .onRef("event.seq", "=", "active.event_seq"),
-    )
-    .select(["active.event_seq", "active.message_position", "event.event_json"])
-    .where("identity.session_id", "=", projection.resolved.sessionId)
-    .where("identity.event_id", "=", eventId)
-    .where("active.message_position", "is not", null);
-  if (maxBytes !== undefined) {
-    query = query.where((eb) =>
-      eb(eb.fn<number>("octet_length", ["event.event_json"]), "<=", maxBytes),
-    );
-  }
-  const row = executeSqliteQueryTakeFirstSync(projection.database.db, query);
+  const row = readDisplayableActiveEventById(projection, eventId, maxBytes);
   if (!row || row.message_position === null) {
     return undefined;
   }

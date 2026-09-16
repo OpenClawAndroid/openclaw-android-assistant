@@ -246,12 +246,8 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
       scrollToFn: (offset, options, instance) => {
         const before = this.scrollElement?.scrollTop ?? 0;
         elementScroll(offset, options, instance);
-        // Record the write without feeding the virtualizer's pending target back as reader input.
+        // The observer owns provenance for every write, including absolute compensation retries.
         this.offsetState.recordProgrammaticScroll?.(before, this.scrollElement?.scrollTop ?? 0);
-        // Measurement compensation can clamp to the end before the sizer commits.
-        // Its native read-back must not grant permission to follow the next delta.
-        this.offsetState.measurementScrollOffset =
-          options.adjustments !== undefined ? (this.scrollElement?.scrollTop ?? null) : null;
       },
       observeElementRect: (instance, callback) =>
         observeElementRect(instance, (rect) => {
@@ -413,7 +409,7 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     this.expandedAssistantMessages.clear();
     this.expandedAssistantMessages = new Map();
     this.offsetState.scrollCommand = null;
-    this.offsetState.measurementScrollOffset = null;
+    this.offsetState.maintenanceScrollOffset = null;
     this.prependAnchor.clear();
     this.offsetState.touching = false;
     this.offsetState.touchScrolling = false;
@@ -569,10 +565,12 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     const element = this.scrollElement;
     // Lit's scroll listener can precede TanStack's offset observer. Read the
     // committed viewport so the final event publishes the settled end policy.
-    const distanceFromEnd = (maxTranscriptScrollOffset(element) ?? 0) - (element?.scrollTop ?? 0);
+    const maxOffset = maxTranscriptScrollOffset(element) ?? 0;
+    const distanceFromEnd = maxOffset - (element?.scrollTop ?? 0);
     return (
-      (this.offsetState.measurementScrollOffset !== null &&
-        this.offsetState.measurementScrollOffset === element?.scrollTop) ||
+      // A shrinking viewport range can clamp the write before its native read-back arrives.
+      (this.offsetState.maintenanceScrollOffset !== null &&
+        Math.min(this.offsetState.maintenanceScrollOffset, maxOffset) === element?.scrollTop) ||
       this.offsetState.pendingScrollOffset !== null ||
       (this.offsetState.scrollCommand !== null &&
         distanceFromEnd > CHAT_TRANSCRIPT_END_THRESHOLD_PX)

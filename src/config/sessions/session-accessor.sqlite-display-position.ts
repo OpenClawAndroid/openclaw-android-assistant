@@ -7,6 +7,7 @@ import {
   createTranscriptDisplaySource,
 } from "../../sessions/transcript-display-position.js";
 import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
+import { iterateUnindexedTranscriptNavigation } from "./session-accessor.sqlite-history-navigation.js";
 import {
   getActiveTranscriptKysely,
   type CurrentTranscriptProjection,
@@ -70,6 +71,20 @@ export function positionTranscriptDisplayEvents<
     ).rows;
     for (const row of rows) {
       sequences.set(row.event_id, row.seq);
+    }
+  }
+  if (projection.hasUnindexedPrefix) {
+    const missing = new Set(anchors.filter((id) => !sequences.has(id)));
+    if (missing.size > 0) {
+      for (const row of iterateUnindexedTranscriptNavigation(projection, {
+        eventIds: [...missing],
+        maxRawSeq: maxSeq,
+      })) {
+        const id = typeof row.event.id === "string" ? row.event.id.trim() : undefined;
+        if (id !== undefined && missing.has(id)) {
+          sequences.set(id, row.event_seq);
+        }
+      }
     }
   }
   return events.map((row) => ({

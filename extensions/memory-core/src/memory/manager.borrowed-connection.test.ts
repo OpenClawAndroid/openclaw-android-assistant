@@ -559,6 +559,7 @@ describe("memory manager shared agent connection", () => {
     const writer = new DatabaseSync(shared.path);
     writer.exec("BEGIN IMMEDIATE");
     const started = performance.now();
+    const writerReleased = createDeferred<void>();
     const observedCacheCounts = new Set<number>();
     let observeCacheTimer: NodeJS.Immediate | undefined;
     const observeCache = () => {
@@ -574,12 +575,15 @@ describe("memory manager shared agent connection", () => {
       if (scenario === "cache-prune") {
         observeCache();
       }
+      writerReleased.resolve();
     }, 100);
     const sync = manager.sync({ reason: sessionWork ? "session-delta" : "watch" });
+    void sync.catch(() => undefined);
     try {
-      const [results] = await Promise.all([reader.search("Alpha"), sync]);
+      const [results] = await Promise.all([reader.search("Alpha"), writerReleased.promise]);
       expect(results.some((result) => result.path === "memory/2026-01-12.md")).toBe(true);
       expect(performance.now() - started).toBeLessThan(1000);
+      await sync;
       if (scenario === "deleted-memory") {
         expect(
           shared.db

@@ -72,7 +72,7 @@ function listLegacyWorktreeSessionEntries(params: {
         .selectFrom("session_nodes")
         .selectAll()
         .where(
-          /* kysely-allow-raw: Startup migration targets the retired JSON shape without materializing every session. */
+          /* kysely-allow-raw: Legacy worktree detection targets the retired JSON shape without materializing every session. */
           sql<boolean>`session_nodes.entry_valid != 1 OR (
             json_valid(session_nodes.entry_json)
             AND json_type(session_nodes.entry_json, '$.worktree') = 'object'
@@ -97,15 +97,20 @@ export async function migrateManagedWorktreeCanonicalWorkspaces(params: {
   cfg: OpenClawConfig;
   env?: NodeJS.ProcessEnv;
   storePath: string;
-}): Promise<number> {
+  mode: "detect" | "doctor-fix";
+}): Promise<{ found: number; repaired: number }> {
   const env = params.env ?? process.env;
-  const worktrees = listRegistryWorktreesForMigration(env);
-  let migrated = 0;
-  for (const { databasePath, entry, sessionKey } of listLegacyWorktreeSessionEntries({
+  const entries = listLegacyWorktreeSessionEntries({
     agentId: params.agentId,
     env,
     storePath: params.storePath,
-  })) {
+  });
+  if (params.mode !== "doctor-fix") {
+    return { found: entries.length, repaired: 0 };
+  }
+  const worktrees = listRegistryWorktreesForMigration(env);
+  let repaired = 0;
+  for (const { databasePath, entry, sessionKey } of entries) {
     // Select the workspace by logical owner, but keep writes in the source database:
     // resolving a custom store selector for another agent can choose a sibling partition.
     const agentId = resolveAgentIdFromSessionKey(sessionKey, params.agentId);
@@ -137,8 +142,8 @@ export async function migrateManagedWorktreeCanonicalWorkspaces(params: {
       { preserveActivity: true, skipMaintenance: true },
     );
     if (updated?.worktree?.canonicalWorkspaceDir === canonicalWorkspaceDir) {
-      migrated += 1;
+      repaired += 1;
     }
   }
-  return migrated;
+  return { found: entries.length, repaired };
 }

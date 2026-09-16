@@ -89,7 +89,7 @@ type UsageDataState = {
   providerUsageUnavailable: boolean;
 };
 
-export type UsageFilterState = {
+type UsageFilterState = {
   startDate: string;
   endDate: string;
   scope: "instance" | "family";

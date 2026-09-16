@@ -554,6 +554,14 @@ export function handleReplyError(
   err: Parameters<ErrorCallback>[0],
   info: Parameters<ErrorCallback>[1],
 ): void {
+  if (info.kind === "final") {
+    if (isChannelPartialDeliveryError(err)) {
+      turn.deliveryState.markDelivered();
+      markFinalDelivered(turn);
+    } else {
+      turn.finalReplyOutcome = "failed";
+    }
+  }
   const errorPolicy = resolveTelegramErrorPolicy({
     accountConfig: turn.telegramCfg,
     groupConfig: turn.context.groupConfig,

@@ -377,16 +377,6 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
         // to handlers that did not create one.
         const participant = result.deferredWork;
         if (participant) {
-          let abortedWhilePending = participant.wasOwnerAbortedWhilePending();
-          const onAbort = () => {
-            if (!participant.isSettled()) {
-              abortedWhilePending = true;
-            }
-          };
-          telegramLifecycle.abortSignal.addEventListener("abort", onAbort, { once: true });
-          const removeAbortListener = () => {
-            telegramLifecycle.abortSignal.removeEventListener("abort", onAbort);
-          };
           const settleAfterOwnerAbort = async (error?: unknown) => {
             // A lost owner did not finish a delivery attempt. Preserve only the
             // rollback failure for which replay is unsafe after a dispatch key
@@ -409,8 +399,7 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
           void participant.task
             .then(
               async (terminal) => {
-                removeAbortListener();
-                if (abortedWhilePending) {
+                if (participant.wasOwnerAbortedWhilePending() && terminal.kind !== "completed") {
                   await settleAfterOwnerAbort(
                     terminal.kind === "failed-retryable" ? terminal.error : undefined,
                   );
@@ -423,8 +412,7 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
                 await lifecycle.onAdopted();
               },
               async (error: unknown) => {
-                removeAbortListener();
-                if (abortedWhilePending) {
+                if (participant.wasOwnerAbortedWhilePending()) {
                   await settleAfterOwnerAbort(error);
                   return;
                 }
@@ -493,6 +481,7 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
       ...(params.onLog ? { onLog: params.onLog } : {}),
     },
     ...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+    deferredClaims: "wait-on-stop",
     admissionMode: "while-running",
     createStoppedError: () => new Error("Telegram ingress monitor is stopped."),
     ...(params.onDurableAdmission ? { onDurableAdmission: params.onDurableAdmission } : {}),

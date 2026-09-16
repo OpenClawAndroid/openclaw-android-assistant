@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Locator } from "playwright";
 import { expect, it } from "vitest";
 import {
   captureUiProofEnabled,
@@ -9,6 +10,25 @@ import {
 import { createControlUiE2eContextOptions } from "./control-ui-e2e-suite.test-support.ts";
 
 const suite = createChatFlowE2eSuite();
+
+async function expectCenteredToggle(bubble: Locator) {
+  const { above, below } = await bubble.evaluate((element) => {
+    const content = element.querySelector(".chat-message-disclosure__content")!;
+    const toggle = element.querySelector(".chat-message-disclosure__toggle")!;
+    const surface = element.classList.contains("chat-bubble--with-images")
+      ? content.parentElement!
+      : element;
+    const button = toggle.getBoundingClientRect();
+    return {
+      above: button.top - content.getBoundingClientRect().bottom,
+      below:
+        surface.getBoundingClientRect().bottom -
+        Number.parseFloat(getComputedStyle(surface).borderBottomWidth) -
+        button.bottom,
+    };
+  });
+  expect(Math.abs(above - below)).toBeLessThanOrEqual(1);
+}
 
 suite.define(() => {
   it("keeps seven short lines fully visible", async () => {
@@ -48,55 +68,108 @@ suite.define(() => {
     }
   });
 
-  it("clamps a 1300-character prompt to five lines and toggles the complete prompt", async () => {
-    const text =
-      `${"This long prompt stays mounted while its preview is clamped. ".repeat(22)}Final prompt tail.`.slice(
-        0,
-        1_300,
-      );
-    const context = await suite.newBrowserContext({
-      locale: "en-US",
-      serviceWorkers: "block",
-      viewport: { height: 844, width: 390 },
-    });
-    const page = await context.newPage();
-    await installMockGateway(page, {
-      historyMessages: [{ role: "user", content: [{ type: "text", text }], timestamp: 1 }],
-    });
+  it.each(
+    (["light", "dark"] as const).flatMap((theme) =>
+      [1440, 390].flatMap((width) =>
+        [false, true].map((withImage) => ({ theme, width, withImage })),
+      ),
+    ),
+  )(
+    "clamps and centers a long prompt in $theme at $width px (image: $withImage)",
+    async ({ theme, width, withImage }) => {
+      const text =
+        `${"This long prompt stays mounted while its preview is clamped. ".repeat(22)}Final prompt tail.`.slice(
+          0,
+          1_300,
+        );
+      const context = await suite.newBrowserContext({
+        locale: "en-US",
+        serviceWorkers: "block",
+        viewport: { height: 844, width },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      await installMockGateway(page, {
+        historyMessages: [
+          {
+            role: "user",
+            content: [
+              ...(withImage
+                ? [
+                    {
+                      type: "image",
+                      url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='32'%3E%3Crect width='64' height='32' fill='teal'/%3E%3C/svg%3E",
+                    },
+                  ]
+                : []),
+              { type: "text", text },
+            ],
+            timestamp: 1,
+          },
+          // Source exceeds the disclosure threshold; its rendered link fits on one line.
+          {
+            role: "user",
+            content: `[Short link](https://example.com/${"a".repeat(1_300)})`,
+            timestamp: 2,
+          },
+        ],
+      });
 
-    try {
-      await page.goto(`${suite.server.baseUrl}chat`);
-      const bubble = page.locator(".chat-group.user .chat-bubble");
-      await bubble.waitFor({ state: "visible", timeout: 10_000 });
-      const content = bubble.locator(".chat-message-disclosure__content");
-      const toggle = bubble.getByRole("button", { name: "Show more" });
+      try {
+        await page.goto(`${suite.server.baseUrl}chat`);
+        const bubbles = page.locator(".chat-group.user .chat-bubble");
+        const bubble = bubbles.first();
+        await bubble.waitFor({ state: "visible", timeout: 10_000 });
+        const content = bubble.locator(".chat-message-disclosure__content");
+        const toggle = bubble.getByRole("button", { name: "Show more" });
 
-      expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-      const lineHeight = await content
-        .locator(".chat-text")
-        .evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
-      expect((await content.textContent())?.trim()).toBe(text);
-      const collapsedHeight = await content.evaluate((element) => element.clientHeight);
-      expect(collapsedHeight).toBeLessThanOrEqual(5 * lineHeight + 1);
-      expect(await content.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
-        true,
-      );
-      if (captureUiProofEnabled) {
-        await bubble.screenshot({
-          path: path.join(suite.artifactDir, "user-bubble-clamp", "long-message-collapsed.png"),
-        });
+        await page.evaluate(() => document.fonts.ready);
+        await expectCenteredToggle(bubble);
+        expect(await content.evaluate((element) => getComputedStyle(element).maskImage)).not.toBe(
+          "none",
+        );
+        const fitting = bubbles.nth(1);
+        await fitting.locator(".chat-message-disclosure__toggle").waitFor({ state: "hidden" });
+        expect(
+          await fitting
+            .locator(".chat-message-disclosure__content")
+            .evaluate((element) => getComputedStyle(element).maskImage),
+        ).toBe("none");
+        expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+        const lineHeight = await content
+          .locator(".chat-text")
+          .evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
+        expect((await content.textContent())?.trim()).toBe(text);
+        const collapsedHeight = await content.evaluate((element) => element.clientHeight);
+        expect(collapsedHeight).toBeLessThanOrEqual(5 * lineHeight + 1);
+        expect(
+          await content.evaluate((element) => element.scrollHeight > element.clientHeight),
+        ).toBe(true);
+        if (captureUiProofEnabled) {
+          await bubble.screenshot({
+            path: path.join(
+              suite.artifactDir,
+              "user-bubble-clamp",
+              `${theme}-${width}-${withImage ? "image" : "text"}-collapsed.png`,
+            ),
+          });
+        }
+
+        await toggle.click();
+        const collapse = bubble.getByRole("button", { name: "Show less" });
+        expect(await collapse.getAttribute("aria-expanded")).toBe("true");
+        await expectCenteredToggle(bubble);
+        expect(await content.evaluate((element) => getComputedStyle(element).maskImage)).toBe(
+          "none",
+        );
+        expect(await content.evaluate((element) => element.clientHeight)).toBeGreaterThan(
+          collapsedHeight,
+        );
+      } finally {
+        await suite.closeBrowserContext(context);
       }
-
-      await toggle.click();
-      const collapse = bubble.getByRole("button", { name: "Show less" });
-      expect(await collapse.getAttribute("aria-expanded")).toBe("true");
-      expect(await content.evaluate((element) => element.clientHeight)).toBeGreaterThan(
-        collapsedHeight,
-      );
-    } finally {
-      await suite.closeBrowserContext(context);
-    }
-  });
+    },
+  );
 
   it.each([
     { name: "desktop", width: 1280, height: 900 },

@@ -17,7 +17,6 @@ import {
   resolveSqliteScope,
   toDatabaseOptions,
 } from "../config/sessions/session-accessor.sqlite-scope.js";
-import { getActiveGatewayRootWorkHolders } from "../process/gateway-work-admission.js";
 import { runExclusiveSessionLifecycleMutation } from "../sessions/session-lifecycle-admission.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -28,6 +27,7 @@ import {
   ensureSessionPendingInputsSchema,
 } from "../state/openclaw-agent-pending-inputs-schema.js";
 import { setAbortedAgentDedupeEntries } from "./agent-turn/agent-dedupe.js";
+import * as agentJobs from "./agent-turn/agent-job.js";
 import { abortChatRunById } from "./chat-abort.js";
 import { dispatchGatewayMethodInProcess } from "./server-plugin-in-process-dispatch.js";
 import { startGatewayServerHarness, type GatewayServerHarness } from "./server.e2e-ws-harness.js";
@@ -549,6 +549,18 @@ describe("private subagent completion processing receipts", () => {
       (value) => ({ value }),
       (error: unknown) => ({ error }),
     );
+    const childWaitEntered = createDeferred();
+    const waitForAgentJob = agentJobs.waitForAgentJob;
+    const waitObservation = vi.spyOn(agentJobs, "waitForAgentJob").mockImplementation((params) => {
+      const wait = waitForAgentJob(params);
+      if (params.runId === descendantRunId) {
+        childWaitEntered.resolve();
+      }
+      return wait;
+    });
+    // Cancellation must release the admission barrier so cleanup can join both producers.
+    const releaseWaitAdmission = () => childWaitEntered.resolve();
+    signal.addEventListener("abort", releaseWaitAdmission, { once: true });
     try {
       await Promise.race([
         childStarted.promise,
@@ -577,7 +589,9 @@ describe("private subagent completion processing receipts", () => {
           ),
         )
         .toBe(true);
-      await expect.poll(() => getActiveGatewayRootWorkHolders()).toContain("ws:agent.wait");
+      signal.throwIfAborted();
+      await childWaitEntered.promise;
+      signal.throwIfAborted();
       expect(
         await kernel.gatewayInstanceRuntime.recovery.dispatchSessionMethod("chat.abort", {
           sessionKey,
@@ -586,6 +600,8 @@ describe("private subagent completion processing receipts", () => {
       ).toMatchObject({ aborted: true });
       expect(childAbortSignal?.aborted).toBe(true);
     } finally {
+      signal.removeEventListener("abort", releaseWaitAdmission);
+      waitObservation.mockRestore();
       if (kernel.gatewayRequestContext.chatAbortControllers.has(runId)) {
         await kernel.gatewayInstanceRuntime.recovery.dispatchSessionMethod("chat.abort", {
           sessionKey,

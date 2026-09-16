@@ -11,7 +11,12 @@ import { runGit, runGitBuffered } from "../agents/worktrees/git.js";
 import type { SessionDiffBaseline } from "../config/sessions/types.js";
 import { GIT_TIMEOUT_MS } from "../infra/git-exec.js";
 import type { GitCheckoutDiffInput, GitReadOperations } from "../infra/git-read-operations.js";
-import { parseNameStatusZ, parseNumstatZ, splitPatchByFile } from "./session-diff-parser.js";
+import {
+  parseDiffInventoryZ,
+  parseNameStatusZ,
+  parseNumstatZ,
+  splitPatchByFile,
+} from "./session-diff-parser.js";
 import {
   loadSessionDiffBranchMetadata,
   resolveSessionDiffBase,
@@ -217,16 +222,24 @@ async function collectTrackedFiles(
   budget: PatchBudget,
 ): Promise<{ files: SessionDiffFile[]; truncated: boolean }> {
   const diffArgs = (options: string[]) => ["diff", "-M", ...options, ...revisions, "--"];
-  const nameStatus = await gitOut(root, diffArgs(["--name-status", "-z"]));
-  if (nameStatus === null) {
-    return { files: [], truncated: false };
+  const inventoryText = await gitOut(root, diffArgs(["--raw", "--numstat", "--no-color", "-z"]));
+  let inventory: ReturnType<typeof parseDiffInventoryZ>;
+  if (inventoryText !== null) {
+    inventory = parseDiffInventoryZ(inventoryText);
+  } else {
+    // Preserve filename-only results when Git cannot compute line counts.
+    const nameStatus = await gitOut(root, diffArgs(["--name-status", "-z"]));
+    const entries = parseNameStatusZ(nameStatus ?? "");
+    if (entries.length === 0) {
+      return { files: [], truncated: false };
+    }
+    const numstatText = (await gitOut(root, diffArgs(["--numstat", "-z"]))) ?? "";
+    inventory = { entries, numstat: parseNumstatZ(numstatText) };
   }
-  const entries = parseNameStatusZ(nameStatus);
+  const { entries, numstat } = inventory;
   if (entries.length === 0) {
     return { files: [], truncated: false };
   }
-  const numstatText = (await gitOut(root, diffArgs(["--numstat", "-z"]))) ?? "";
-  const numstat = parseNumstatZ(numstatText);
   const totalChangedLines = [...numstat.values()].reduce(
     (sum, entry) => sum + entry.additions + entry.deletions,
     0,

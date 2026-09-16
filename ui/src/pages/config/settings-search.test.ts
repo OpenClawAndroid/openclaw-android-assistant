@@ -595,6 +595,11 @@ describe("findSettingsSearchBlocks", () => {
   it.each([
     ["language", "Language", "#settings-language"],
     ["locale", "Language", "#settings-language"],
+    ["typography", "Typography", "#settings-appearance-typography"],
+    ["font", "Typography", "#settings-appearance-typography"],
+    ["typeface", "Typography", "#settings-appearance-typography"],
+    ["interface", "Typography", "#settings-appearance-typography"],
+    ["chat prose", "Typography", "#settings-appearance-typography"],
     ["sidebar", "Sidebar", "#settings-appearance-sidebar"],
     ["live agent activity", "Sidebar", "#settings-appearance-sidebar"],
     ["session observer", "Sidebar", "#settings-appearance-sidebar"],

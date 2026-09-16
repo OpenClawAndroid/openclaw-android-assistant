@@ -12,6 +12,7 @@ import {
 } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import {
+  assertDeferredPluginMigrationsCurrent,
   readDeferredPluginMigrations,
   recordDeferredPluginMigrations,
   withDeferredPluginMigrationsCurrent,
@@ -126,6 +127,36 @@ describe("deferred configured-plugin migrations", () => {
       } else {
         runOpenClawStateWriteTransaction(publish, { env });
       }
+    },
+  );
+
+  it.each(["prior", "current"] as const)(
+    "checks the %s pending generation against its publication transaction",
+    (generation) => {
+      const { env } = fixture();
+      const pending = {
+        pluginId: "fixture-plugin",
+        reason: "The configured plugin is not installed.",
+        command: "openclaw doctor --fix",
+      };
+      const current = { ...pending, requiresStateMigration: true as const };
+      recordDeferredPluginMigrations({ env, pending: [pending] });
+      withDeferredPluginMigrationsCurrent({ env, expectedPending: [pending] }, () => {
+        expect(recordDeferredPluginMigrations({ env, pending: [current] })).toEqual([current]);
+        // Discovery still observes committed rows; publication must see its own writes.
+        expect(readDeferredPluginMigrations({ env })).toEqual([pending]);
+        const check = () =>
+          assertDeferredPluginMigrationsCurrent({
+            env,
+            expectedPending: [generation === "prior" ? pending : current],
+          });
+        if (generation === "prior") {
+          expect(check).toThrow("Plugin migration obligations changed");
+        } else {
+          expect(check).not.toThrow();
+        }
+      });
+      expect(readDeferredPluginMigrations({ env })).toEqual([current]);
     },
   );
 

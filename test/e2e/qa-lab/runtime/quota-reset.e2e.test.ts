@@ -173,10 +173,13 @@ describe.each([
             headers: {},
           });
           let beforeRecoveryReply: ReturnType<typeof stats>;
-          provider.observeNextSuccess(() => {
-            beforeRecoveryReply = stats();
-            turns.push({ beforeRecoveryReply });
-          });
+          provider.observeNextSuccess(
+            () => {
+              beforeRecoveryReply = stats();
+              turns.push({ beforeRecoveryReply });
+            },
+            { model: "gpt-5.5", path: "/v1/responses" },
+          );
           provider.setPhase("restored");
           expect(await turn(), evidence()).toEqual({ status: "ok", output: [MARKER] });
           expect(beforeRecoveryReply?.blockedUntil, evidence()).toBeUndefined();

@@ -14,6 +14,21 @@ native compaction, and app-server execution. OpenClaw still owns chat
 channels, session files, model selection, OpenClaw dynamic tools, approvals,
 media delivery, and the visible transcript mirror.
 
+The native session catalog requests at most 64 threads per page and shortens
+previews to 500 characters before delivering them to catalog consumers. An unfiltered
+first list fetches one native page; older pages load on demand. Title searches retain
+their bounded scan. A single native preview
+can still make its response large because the native API has no preview byte limit.
+Pages use native recency order with tie-safe cursors.
+
+Polls reuse the existing 32-second page cache. The plugin remembers bounded display
+rows and an update watermark in memory. An unchanged newest thread can satisfy a
+refresh with a one-row probe; tied timestamps require a page and an overlap read.
+Every tenth refresh rechecks the bounded head page for title, status, or archive
+changes that do not advance the newest timestamp. Refreshes update only the walked
+prefix, and native cursors keep older sessions available after cache eviction.
+Nothing is persisted, and restarting the Gateway starts with an empty cache.
+
 Pasted text saved as a `.txt` attachment is extracted by OpenClaw and included in
 the current turn as untrusted external content, subject to the existing file
 extraction limits. This also applies to adopted and forked Codex sessions with

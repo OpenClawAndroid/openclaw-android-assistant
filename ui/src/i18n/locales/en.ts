@@ -5123,6 +5123,7 @@ export const en: TranslationMap & {
       searchResults: "Search results",
       parentFolder: "Parent folder",
       noBrowserFiles: "No files in this folder.",
+      folderUnavailable: "This folder is unavailable. Open its parent folder to continue browsing.",
       noSearchResults: "No matching files.",
       truncated: "Showing the first matching files. Refine the search to narrow results.",
       session: "Session",

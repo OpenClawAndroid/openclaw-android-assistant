@@ -265,6 +265,18 @@ export const SETTINGS_SEARCH_TARGETS = {
     ],
     aliases: "colour swatch palette highlight green purple neutral",
   },
+  appearanceTypography: {
+    routeId: "appearance",
+    labelKey: "configView.appearance.typography",
+    search: "?section=__appearance__",
+    hash: `#${APPEARANCE_SETTINGS_TARGET_IDS.typography}`,
+    searchKeys: [
+      "configView.appearance.fonts.ui",
+      "configView.appearance.fonts.chat",
+      "configView.appearance.fonts.themeDefault",
+    ],
+    aliases: "font fonts typeface",
+  },
   appearanceTextSize: {
     routeId: "appearance",
     labelKey: "configView.appearance.textSize",

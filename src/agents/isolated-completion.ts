@@ -629,7 +629,6 @@ async function runIsolatedCompletionOwned(
                     authProfileMode,
                     skipAgentDiscovery: true,
                     allowBundledStaticCatalogFallback: true,
-                    preferBundledStaticCatalogTransport: true,
                   }),
               });
               assertCurrent();

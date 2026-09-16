@@ -2,8 +2,10 @@ import {
   createChannelPartialDeliveryError,
   isChannelPartialDeliveryError,
 } from "openclaw/plugin-sdk/channel-inbound";
+import { setReplyPayloadMetadata } from "openclaw/plugin-sdk/reply-payload-testing";
 import { expect, it } from "vitest";
 import {
+  allDeliveredReplyTexts,
   appendAssistantMirrorMessageByIdentity,
   type DispatchReplyWithBufferedBlockDispatcherArgs,
   describeTelegramDispatch,
@@ -132,6 +134,32 @@ describeTelegramDispatch("dispatchTelegramMessage progress-updates", () => {
     });
 
     expectDeliveredReply(0, { text: fullAnswer });
+  });
+
+  it("dispatchTelegramMessage delivers an earlier excerpt and the latest transcript answer in order", async () => {
+    const earlierAnswer =
+      "Here is the earlier answer with enough stable prefix text before the ellipsis...";
+    const latestAnswer =
+      "Here is the earlier answer with enough stable prefix text before the ellipsis and a much longer answer to the next question.";
+    const context = createContext();
+    context.ctxPayload.SessionKey = "agent:default:telegram:direct:123";
+    mockDefaultSessionEntry();
+    readLatestAssistantTextByIdentity.mockResolvedValue({
+      text: latestAnswer,
+      timestamp: Date.now() + 1_000,
+    });
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
+      await dispatcherOptions.deliver(
+        setReplyPayloadMetadata({ text: earlierAnswer }, { precedingInputAnswer: true }),
+        { kind: "final" },
+      );
+      await dispatcherOptions.deliver({ text: latestAnswer }, { kind: "final" });
+      return { queuedFinal: true };
+    });
+
+    await dispatchWithContext({ context, streamMode: "off" });
+
+    expect(allDeliveredReplyTexts()).toEqual([earlierAnswer, latestAnswer]);
   });
 
   it("hands the complete long final to draft-owned pagination", async () => {

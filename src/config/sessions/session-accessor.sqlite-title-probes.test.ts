@@ -12,7 +12,7 @@ import {
   readSessionTranscriptTitleProbeBatch,
   replaceTranscriptEvents,
 } from "./session-accessor.js";
-import { importSqliteSessionRows } from "./session-accessor.sqlite-import.js";
+import { seedUnindexedTranscriptForTest } from "./session-accessor.sqlite-import.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -67,14 +67,15 @@ test.each([
     try {
       const events = [...messages, ...boundaries, ...metadata];
       if (source === "exact-import") {
-        await importSqliteSessionRows({
+        await seedUnindexedTranscriptForTest({
           ...scope,
           entry: { sessionId: scope.sessionId, updatedAt: 1 },
-          readExactTranscriptRows: (append) => {
-            for (const event of events) {
-              append({ createdAt: 1, eventJson: JSON.stringify(event) });
-            }
-          },
+          events: events.map((event, seq) => ({
+            session_id: scope.sessionId,
+            seq,
+            created_at: 1,
+            event_json: JSON.stringify(event),
+          })),
         });
       } else {
         await replaceTranscriptEvents(scope, events);

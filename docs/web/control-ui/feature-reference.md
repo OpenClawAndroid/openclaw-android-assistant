@@ -96,6 +96,7 @@ Control UI capabilities grouped by area, each with the Gateway RPC methods behin
     - Provider cards call `usage.status` and show live plan names, quota windows, balances, spend, and budgets reported by configured provider plugins.
     - A provider usage failure does not block the session/cost dashboard; unavailable provider cards show their own error state.
     - Incomplete session/cost totals stay readable while the visible, focused page checks for updates. Automatic checks are bounded; if they pause, select **Refresh** to check again.
+    - Changing the date range, agent, session scope, or time zone hides the previous query's session/cost totals until the new query loads. A failed refresh of the same query keeps its last totals visible. Provider billing cards remain separate from these filters.
     - **Refresh** also reloads the selected session's timeline, conversation, and system-prompt breakdown.
     - If a selected session is deleted and recreated, its new details replace the old ones and clear the previous timeline interval without clearing your session selection. An unfinished drag on the old timeline cannot change the new interval. Refreshing the same instance retains its selected interval. Context details from a different session instance show an error and can be retried with **Refresh**.
     - The overview loads session summaries first. Full system-prompt breakdowns load when you select a session; the `has:context` filter still works before opening details.
@@ -115,9 +116,10 @@ Control UI capabilities grouped by area, each with the Gateway RPC methods behin
   </Accordion>
   <Accordion title="Automations panel notes">
     - Scheduler status, automation lists, and run history pause background refreshes while the browser tab is hidden and catch up when you return. Your current filters and unsaved draft stay in place; saves and runs already submitted continue.
+    - A pending edit save can finish after you navigate away without replacing the current editor or showing that save's errors in it.
     - Selecting a row opens a full-page detail view with an Active/Paused switch and Run now in the header (run-if-due, clone, and remove in its menu); the Settings tab edits the automation inline (prompt, details, frequency, advanced overrides) and the Run history tab shows that automation's runs. Switching tasks while Run now is pending keeps history attached to the selected task.
     - Cloning an agent task retains its stored tool allowlist, model fallback list, lightweight-context setting, and external-content setting, including empty lists and explicit `false` values. Fields you change in the copy's form take precedence. The new task is authorized by the current operator; captured execution grants are not copied.
-    - Changing run-history filters starts at the first page. Load more runs becomes available after that page finishes loading; if it fails, use Refresh to try again.
+    - Changing the selected automation or run-history filters clears the previous results and starts at the first page. Refreshing the same history keeps its last results while loading. Load more runs becomes available after the first page finishes loading; if it fails, use Refresh to try again. A successful retry clears the history error without dismissing feedback from other automation actions.
     - Both Run history views show a recorded delivery-suppression reason alongside the delivery status when available. Intentional suppression remains separate from delivery errors; the history does not infer a reason from a successful run.
     - Starter automations under the table prefill the create form with an editable prompt and schedule.
     - New isolated tasks default to internal-only delivery. Select announce explicitly to send a summary to a channel.
