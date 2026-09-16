@@ -73,6 +73,7 @@ export type OpenClawTestInstance = {
   state: OpenClawTestState;
   stdout: string[];
   stderr: string[];
+  readonly readiness: readonly GatewayReadinessDiagnostic[];
   child?: OpenClawTestProcess;
   env: NodeJS.ProcessEnv;
   entrypoint: () => Promise<string[]>;
@@ -84,6 +85,31 @@ export type OpenClawTestInstance = {
   stopGateway: () => Promise<void>;
   logs: () => string;
   cleanup: () => Promise<void>;
+};
+
+type ReadinessProbe = {
+  attempt: number;
+  phase: "headers" | "body" | "complete";
+  elapsedMs: number;
+  status?: number;
+  ready?: boolean;
+  failing?: string[];
+  omittedFailing?: number;
+  error?: "timeout" | "child-exit" | "fetch-failed" | "invalid-json" | "body-failed" | "aborted";
+};
+
+export type GatewayReadinessDiagnostic = {
+  probe: "GET /readyz";
+  startedAtMs: number;
+  deadlineMs: number;
+  elapsedMs: number;
+  outcome: "ready" | "timeout" | "child-exit" | "aborted";
+  attempts: number;
+  probes: Array<ReadinessProbe & { startedAtMs: number; deadlineMs: number }>;
+  omittedProbes: number;
+  lastProbe: ReadinessProbe | null;
+  child: { pid: number | null; exitCode: number | null; signalCode: NodeJS.Signals | null };
+  logs: { stdout: string; stderr: string } | null;
 };
 
 const GATEWAY_START_TIMEOUT_MS = 60_000;
@@ -275,20 +301,13 @@ async function waitForGatewayReady(
   timeoutMs: number,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
+  record?: (diagnostic: GatewayReadinessDiagnostic) => void,
 ) {
-  type ProbeObservation = {
-    attempt: number;
-    phase: "headers" | "body" | "complete";
-    elapsedMs: number;
-    status?: number;
-    ready?: boolean;
-    failing?: string[];
-    omittedFailing?: number;
-    error?: "timeout" | "child-exit" | "fetch-failed" | "invalid-json" | "body-failed";
-  };
   const startedAt = Date.now();
+  const probes: GatewayReadinessDiagnostic["probes"] = [];
+  let outcome: GatewayReadinessDiagnostic["outcome"] = "timeout";
   let attempts = 0;
-  let lastProbe: ProbeObservation | undefined;
+  let lastProbe: ReadinessProbe | undefined;
   const startupError = (message: string, probe = lastProbe) =>
     new Error(
       `${message}\n[openclaw-test-instance] readiness ${JSON.stringify({
@@ -305,115 +324,143 @@ async function waitForGatewayReady(
       )})`,
       probe,
     );
-  while (Date.now() - startedAt < timeoutMs) {
-    signal?.throwIfAborted();
-    if (hasChildExited(proc)) {
-      throw exitedBeforeReadinessError();
-    }
-
-    const remainingMs = timeoutMs - (Date.now() - startedAt);
-    const attemptTimeoutMs = Math.min(1_000, Math.max(1, remainingMs));
-    const attemptStartedAt = Date.now();
-    const probe: ProbeObservation = { attempt: ++attempts, phase: "headers", elapsedMs: 0 };
-    const probeAbort = new AbortController();
-    const abortProbe = () => probeAbort.abort(signal?.reason);
-    signal?.addEventListener("abort", abortProbe, { once: true });
-    if (signal?.aborted) {
-      abortProbe();
-    }
-    let attemptTimeout: ReturnType<typeof setTimeout> | undefined;
-    let handleExit = () => {};
-    const exitPromise = new Promise<never>((_resolve, reject) => {
-      handleExit = () => {
-        probe.error = "child-exit";
-        probe.elapsedMs = Date.now() - attemptStartedAt;
-        const error = exitedBeforeReadinessError(probe);
-        probeAbort.abort(error);
-        reject(error);
-      };
-      proc.once("exit", handleExit);
-    });
-    const timeoutPromise = new Promise<never>((_resolve, reject) => {
-      attemptTimeout = setTimeout(() => {
-        probe.error = "timeout";
-        const error = new Error("gateway readiness probe timed out");
-        probeAbort.abort(error);
-        reject(error);
-      }, attemptTimeoutMs);
-      attemptTimeout.unref?.();
-    });
-    try {
-      // A dead child cannot complete readiness. Race the owner lifecycle against
-      // both HTTP headers and body parsing so a stuck probe never hides its exit.
-      const ready = await Promise.race([
-        (async () => {
-          const response = await fetchImpl(`http://127.0.0.1:${port}/readyz`, {
-            signal: probeAbort.signal,
-          });
-          probe.status = response.status;
-          probe.phase = "body";
-          const readiness: unknown = await response.json();
-          probe.phase = "complete";
-          if (isRecord(readiness)) {
-            if (typeof readiness.ready === "boolean") {
-              probe.ready = readiness.ready;
-            }
-            if (Array.isArray(readiness.failing)) {
-              // Channel IDs and arbitrary startup reasons are private; retain only core categories.
-              probe.failing = readiness.failing.slice(0, 8).map((reason) => {
-                switch (reason) {
-                  case "startup-sidecars":
-                  case "gateway-draining":
-                  case "state-database":
-                  case "internal":
-                    return reason;
-                  default:
-                    return "other";
-                }
-              });
-              probe.omittedFailing = Math.max(0, readiness.failing.length - 8);
-            }
-          }
-          return response.ok && isRecord(readiness) && readiness.ready === true;
-        })(),
-        exitPromise,
-        timeoutPromise,
-      ]);
+  try {
+    while (Date.now() - startedAt < timeoutMs) {
       signal?.throwIfAborted();
-      if (ready) {
-        return;
-      }
-    } catch (error) {
-      signal?.throwIfAborted();
-      probe.elapsedMs = Date.now() - attemptStartedAt;
       if (hasChildExited(proc)) {
-        probe.error ??= "child-exit";
-        throw exitedBeforeReadinessError(probe);
+        throw exitedBeforeReadinessError();
       }
-      probe.error ??=
-        probe.phase === "headers"
-          ? "fetch-failed"
-          : error instanceof SyntaxError
-            ? "invalid-json"
-            : "body-failed";
-      // keep polling
-    } finally {
-      // A fetch that ignores abort may finish later; keep its mutations out of the retained receipt.
-      lastProbe = { ...probe, elapsedMs: Date.now() - attemptStartedAt };
-      if (attemptTimeout) {
-        clearTimeout(attemptTimeout);
-      }
-      proc.off("exit", handleExit);
-      signal?.removeEventListener("abort", abortProbe);
-    }
 
-    const delayMs = Math.min(10, timeoutMs - (Date.now() - startedAt));
-    if (delayMs > 0) {
-      await sleep(delayMs);
+      const remainingMs = timeoutMs - (Date.now() - startedAt);
+      const attemptTimeoutMs = Math.min(1_000, Math.max(1, remainingMs));
+      const attemptStartedAt = Date.now();
+      const probe: ReadinessProbe = { attempt: ++attempts, phase: "headers", elapsedMs: 0 };
+      const probeAbort = new AbortController();
+      const abortProbe = () => probeAbort.abort(signal?.reason);
+      signal?.addEventListener("abort", abortProbe, { once: true });
+      if (signal?.aborted) {
+        abortProbe();
+      }
+      let attemptTimeout: ReturnType<typeof setTimeout> | undefined;
+      let handleExit = () => {};
+      const exitPromise = new Promise<never>((_resolve, reject) => {
+        handleExit = () => {
+          probe.error = "child-exit";
+          probe.elapsedMs = Date.now() - attemptStartedAt;
+          const error = exitedBeforeReadinessError(probe);
+          probeAbort.abort(error);
+          reject(error);
+        };
+        proc.once("exit", handleExit);
+      });
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        attemptTimeout = setTimeout(() => {
+          probe.error = "timeout";
+          const error = new Error("gateway readiness probe timed out");
+          probeAbort.abort(error);
+          reject(error);
+        }, attemptTimeoutMs);
+        attemptTimeout.unref?.();
+      });
+      try {
+        // A dead child cannot complete readiness. Race the owner lifecycle against
+        // both HTTP headers and body parsing so a stuck probe never hides its exit.
+        const ready = await Promise.race([
+          (async () => {
+            const response = await fetchImpl(`http://127.0.0.1:${port}/readyz`, {
+              signal: probeAbort.signal,
+            });
+            probe.status = response.status;
+            probe.phase = "body";
+            const readiness: unknown = await response.json();
+            probe.phase = "complete";
+            if (isRecord(readiness)) {
+              if (typeof readiness.ready === "boolean") {
+                probe.ready = readiness.ready;
+              }
+              if (Array.isArray(readiness.failing)) {
+                // Channel IDs and arbitrary startup reasons are private; retain only core categories.
+                probe.failing = readiness.failing.slice(0, 8).map((reason) => {
+                  switch (reason) {
+                    case "startup-sidecars":
+                    case "gateway-draining":
+                    case "state-database":
+                    case "internal":
+                      return reason;
+                    default:
+                      return "other";
+                  }
+                });
+                probe.omittedFailing = Math.max(0, readiness.failing.length - 8);
+              }
+            }
+            return response.ok && isRecord(readiness) && readiness.ready === true;
+          })(),
+          exitPromise,
+          timeoutPromise,
+        ]);
+        signal?.throwIfAborted();
+        if (ready) {
+          outcome = "ready";
+          return;
+        }
+      } catch (error) {
+        signal?.throwIfAborted();
+        probe.elapsedMs = Date.now() - attemptStartedAt;
+        if (hasChildExited(proc)) {
+          probe.error ??= "child-exit";
+          throw exitedBeforeReadinessError(probe);
+        }
+        probe.error ??=
+          probe.phase === "headers"
+            ? "fetch-failed"
+            : error instanceof SyntaxError
+              ? "invalid-json"
+              : "body-failed";
+        // keep polling
+      } finally {
+        // A fetch that ignores abort may finish later; keep its mutations out of the retained receipt.
+        if (signal?.aborted) {
+          probe.error ??= "aborted";
+        }
+        lastProbe = { ...probe, elapsedMs: Date.now() - attemptStartedAt };
+        // The 60-second desktop wait cannot exceed this bound at its existing 10ms cadence.
+        if (probes.length < 8192) {
+          probes.push({
+            ...lastProbe,
+            startedAtMs: attemptStartedAt,
+            deadlineMs: attemptStartedAt + attemptTimeoutMs,
+          });
+        }
+        if (attemptTimeout) {
+          clearTimeout(attemptTimeout);
+        }
+        proc.off("exit", handleExit);
+        signal?.removeEventListener("abort", abortProbe);
+      }
+
+      const delayMs = Math.min(10, timeoutMs - (Date.now() - startedAt));
+      if (delayMs > 0) {
+        await sleep(delayMs);
+      }
     }
+    signal?.throwIfAborted();
+    throw startupError(`timeout waiting for gateway readiness on port ${port}`);
+  } finally {
+    record?.({
+      probe: "GET /readyz",
+      startedAtMs: startedAt,
+      deadlineMs: startedAt + timeoutMs,
+      elapsedMs: Date.now() - startedAt,
+      outcome: signal?.aborted ? "aborted" : hasChildExited(proc) ? "child-exit" : outcome,
+      attempts,
+      probes,
+      omittedProbes: attempts - probes.length,
+      lastProbe: lastProbe ?? null,
+      child: { pid: proc.pid ?? null, exitCode: proc.exitCode, signalCode: proc.signalCode },
+      logs: outcome === "ready" ? null : { stdout: chunksOut.join(""), stderr: chunksErr.join("") },
+    });
   }
-  signal?.throwIfAborted();
-  throw startupError(`timeout waiting for gateway readiness on port ${port}`);
 }
 
 function hasGatewayProcessClosed(child: OpenClawTestProcess, platform: NodeJS.Platform): boolean {
@@ -716,6 +763,7 @@ export async function createOpenClawTestInstance(
 
   const stdout = createBoundedStringLog();
   const stderr = createBoundedStringLog();
+  const readiness: GatewayReadinessDiagnostic[] = [];
   const env = createInstanceEnv({
     stateEnv: state.env,
     extraEnv: options.env ?? {},
@@ -813,6 +861,7 @@ export async function createOpenClawTestInstance(
     state,
     stdout,
     stderr,
+    readiness,
     get child() {
       return child?.process;
     },
@@ -858,6 +907,7 @@ export async function createOpenClawTestInstance(
         if (child?.ready && !hasChildExited(child.process)) {
           return;
         }
+        readiness.length = 0;
         const commandEntrypoint = await entrypoint();
         signal?.throwIfAborted();
         const gatewayArgs = [
@@ -898,7 +948,16 @@ export async function createOpenClawTestInstance(
           const owner = { process: attempt, ready: false };
           child = owner;
           try {
-            await waitForGatewayReady(attempt, stdout, stderr, port, remainingMs, fetch, signal);
+            await waitForGatewayReady(
+              attempt,
+              stdout,
+              stderr,
+              port,
+              remainingMs,
+              fetch,
+              signal,
+              (diagnostic) => readiness.push(diagnostic),
+            );
             signal?.throwIfAborted();
             owner.ready = true;
             return;
@@ -908,6 +967,7 @@ export async function createOpenClawTestInstance(
             // Startup expiry stops retry admission, not ownership cleanup. Use the
             // same separate shutdown budget as explicit stop, retaining failed owners.
             let closed = false;
+            const cleanupErrors: unknown[] = [];
             try {
               await verifyCleanup(async () => {
                 closed = await releaseGatewayChild(attempt, Date.now() + stopTimeoutMs * 2, {
@@ -926,9 +986,16 @@ export async function createOpenClawTestInstance(
                 await reserveIdlePort();
               }
             } catch (cleanupError) {
-              throw new AggregateError([err, cleanupError], "gateway startup and cleanup failed", {
-                cause: cleanupError,
-              });
+              cleanupErrors.push(cleanupError);
+            }
+            if (cleanupErrors.length > 0) {
+              throw new AggregateError(
+                [err, ...cleanupErrors],
+                "gateway startup and cleanup failed",
+                {
+                  cause: err,
+                },
+              );
             }
             const shouldRestart =
               !signal?.aborted &&

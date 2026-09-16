@@ -4,10 +4,6 @@
 import { existsSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import {
-  normalizeOptionalLowercaseString,
-  normalizeOptionalString,
-} from "@openclaw/normalization-core/string-coerce";
-import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
 } from "../../packages/gateway-protocol/src/client-info.js";
@@ -24,6 +20,7 @@ import { defaultSlotIdForKey } from "../plugins/slots.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
 import { resolveTailscalePublishedHost } from "../shared/tailscale-status.js";
+import type { MemoryPluginStatus } from "../status/memory-plugin.js";
 import type { StatusSummary } from "../status/summary.js";
 import { pickGatewaySelfPresence } from "./gateway-presence.js";
 import { isProbeReachable } from "./gateway-status/helpers.js";
@@ -122,12 +119,6 @@ async function hasBuiltInMemoryState(databasePath: string): Promise<boolean> {
 
 export type MemoryStatusSnapshot = MemoryProviderStatus & {
   agentId: string;
-};
-
-export type MemoryPluginStatus = {
-  enabled: boolean;
-  slot: string | null;
-  reason?: string;
 };
 
 export type GatewayProbeSnapshot = {
@@ -259,19 +250,6 @@ function hasExplicitMemorySearchConfig(cfg: OpenClawConfig, agentId: string): bo
       agent.memory != null &&
       Object.hasOwn(agent.memory, "search"),
   );
-}
-
-/** Resolves whether memory status should be shown and which slot owns it. */
-export function resolveMemoryPluginStatus(cfg: OpenClawConfig): MemoryPluginStatus {
-  const pluginsEnabled = cfg.plugins?.enabled !== false;
-  if (!pluginsEnabled) {
-    return { enabled: false, slot: null, reason: "plugins disabled" };
-  }
-  const raw = normalizeOptionalString(cfg.plugins?.slots?.memory) ?? "";
-  if (normalizeOptionalLowercaseString(raw) === "none") {
-    return { enabled: false, slot: null, reason: 'plugins.slots.memory="none"' };
-  }
-  return { enabled: true, slot: raw || defaultSlotIdForKey("memory") };
 }
 
 /** Resolves gateway connection details, probe result, auth warnings, and call overrides. */

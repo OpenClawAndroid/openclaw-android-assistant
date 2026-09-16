@@ -189,6 +189,9 @@ describe("agent command static capabilities", () => {
           }
           const baseUrl = `http://127.0.0.1:${address.port}/proxy/v1`;
           const env = { OPENCLAW_STATE_DIR: stateDir, OPENCLAW_CONFIG_PATH: configPath };
+          if (testCase.inventory === "replace") {
+            await fs.writeFile(configPath, JSON.stringify({ models: { mode: "replace" } }));
+          }
           const onboard = runBuiltCli(
             home,
             [
@@ -215,10 +218,19 @@ describe("agent command static capabilities", () => {
           expect(onboard.status, onboard.stderr).toBe(0);
           const config = JSON.parse(await fs.readFile(configPath, "utf8"));
           if (testCase.inventory === "authored") {
-            config.models.providers.litellm.models[0].contextWindow = 640_000;
-            config.models.providers.litellm.models[0].reasoning = false;
+            config.models.providers.litellm.models = [
+              {
+                id: config.agents.defaults.model.primary.slice("litellm/".length),
+                name: "Authored fixture",
+                reasoning: false,
+                input: ["text", "image"],
+                contextWindow: 640_000,
+                maxTokens: 128_000,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              },
+            ];
           } else if (testCase.inventory === "replace") {
-            config.models.mode = "replace";
+            expect(config.models.providers.litellm.models).toHaveLength(1);
           } else if (testCase.inventory === "generic") {
             config.models.providers = {
               "proxy-fixture": { baseUrl, api: "openai-completions", apiKey: key, models: [] },

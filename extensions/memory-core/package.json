@@ -5,7 +5,8 @@
   "description": "OpenClaw core memory search plugin",
   "type": "module",
   "exports": {
-    "./api.js": "./api.ts"
+    "./api.js": "./api.ts",
+    "./session-search-visibility-api.js": "./session-search-visibility-api.ts"
   },
   "dependencies": {
     "chokidar": "5.0.0",

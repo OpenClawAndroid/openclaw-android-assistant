@@ -60,3 +60,24 @@ export function readCodexNativeSubagentHistoryOwner(
   const { lifecycleRevision, ...required } = owner.data;
   return lifecycleRevision === undefined ? required : { ...required, lifecycleRevision };
 }
+
+export function assertHistoryOwnerMatchesRegistration(
+  saved: CodexNativeSubagentHistoryOwner | undefined,
+  current: CodexNativeSubagentHistoryOwner | undefined,
+  parentThreadId: string,
+  requireSaved = false,
+): void {
+  if (requireSaved && !saved) {
+    throw new Error("Subagent completion history owner is missing.");
+  }
+  if (
+    saved &&
+    (!current ||
+      saved.parentThreadId !== parentThreadId ||
+      saved.connectionFingerprint !== current.connectionFingerprint ||
+      saved.sessionId !== current.sessionId ||
+      saved.lifecycleRevision !== current.lifecycleRevision)
+  ) {
+    throw new Error("Subagent completion history owner is contradictory.");
+  }
+}

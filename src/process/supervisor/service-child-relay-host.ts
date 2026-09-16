@@ -26,7 +26,12 @@ import {
   type ServiceChildRelayMessage,
   type ServiceChildStart,
 } from "./service-child-protocol.js";
-import type { ProcessAdapterConstruction, SpawnProcessAdapter, SpawnSecretInput } from "./types.js";
+import type {
+  ProcessAdapterConstruction,
+  ProcessAdapterStartup,
+  SpawnProcessAdapter,
+  SpawnSecretInput,
+} from "./types.js";
 
 type ServiceChildRelayAdapter = SpawnProcessAdapter<NodeJS.Signals | null> & {
   waitForExtinction: () => Promise<void>;
@@ -68,7 +73,7 @@ export async function createServiceChildRelayAdapter(
     oomScoreWrapperSelected: boolean;
     windowsShellCommand?: string;
   },
-): Promise<ServiceChildRelayAdapter> {
+): Promise<ProcessAdapterStartup<ServiceChildRelayAdapter>> {
   const generation = randomUUID();
   const useWindowsJobAnchor =
     process.platform === "win32" && params.windowsShellCommand !== undefined;
@@ -83,10 +88,22 @@ export async function createServiceChildRelayAdapter(
   const stdio: StdioEntry[] = useWindowsJobAnchor
     ? ["ignore", "ignore", "ignore"]
     : [params.stdinMode === "inherit" ? "inherit" : "pipe", "pipe", "pipe"];
-  using secretDelivery = prepareSecretInputStdio(
+  const secretDelivery = prepareSecretInputStdio(
     stdio,
     useWindowsJobAnchor ? undefined : params.secretInput,
   );
+  let deliveryTransferred = false;
+  using constructionDelivery = {
+    transfer() {
+      deliveryTransferred = true;
+      return secretDelivery;
+    },
+    [Symbol.dispose]() {
+      if (!deliveryTransferred) {
+        secretDelivery?.[Symbol.dispose]();
+      }
+    },
+  };
   const controlFd = useWindowsJobAnchor ? undefined : reserveStdioEntry(stdio, "pipe");
   const lineageFd = useWindowsJobAnchor ? undefined : reserveStdioEntry(stdio, "pipe");
   reserveStdioEntry(stdio, "ipc");
@@ -128,20 +145,30 @@ export async function createServiceChildRelayAdapter(
     params.stdoutConsumption === "awaited"
       ? () => requestedSignal !== "SIGKILL" && kill("SIGKILL")
       : undefined;
-  const stdoutRelay = createOutputRelay(child.stdout ?? undefined, false, stopOnOutputFailure);
+  const events = createProcessAdapterEvents();
+  const outputFailure = (stream: "stdout" | "stderr", error: Error) => {
+    resultError ??= error;
+    events.emitError(error, stream);
+    settleWait();
+  };
+  const stdoutRelay = createOutputRelay(
+    child.stdout ?? undefined,
+    false,
+    stopOnOutputFailure,
+    (error) => outputFailure("stdout", error),
+  );
   const stderrRelay = createOutputRelay(
     child.stderr ?? undefined,
     Boolean(params.stderrDestination),
+    undefined,
+    (error) => outputFailure("stderr", error),
   );
-  const events = createProcessAdapterEvents();
   const unpipeStderr =
     child.stderr && params.stderrDestination
       ? pipeProcessOutput(child.stderr, params.stderrDestination, (error) =>
           events.emitError(error, "stderr"),
         )
       : undefined;
-  child.stdout?.on("error", (error) => events.emitError(error, "stdout"));
-  child.stderr?.on("error", (error) => events.emitError(error, "stderr"));
   child.stdin?.on("error", (error) => events.emitError(error, "stdin"));
 
   let state: AuthorityState = "starting";
@@ -599,48 +626,52 @@ export async function createServiceChildRelayAdapter(
   };
   const stdin = createManagedChildStdin(child.stdin);
   params.abortSignal?.addEventListener("abort", onConstructionAbort, { once: true });
-  try {
-    params.assertCurrent?.();
-    if (params.abortSignal?.aborted) {
-      onConstructionAbort();
-    }
-    params.beforeSpawn?.();
-    await Promise.race([sendChildMessage(start), constructionAbort.promise]);
-    params.assertCurrent?.();
-    const [startupResult, secretDeliveryResult] = await Promise.allSettled([
-      startup.promise,
-      secretDelivery?.deliverTo(child, { abortSignal: params.abortSignal }),
-    ]);
-    const startupError = startupResult.status === "rejected" ? startupResult.reason : undefined;
-    const secretDeliveryError =
-      secretDeliveryResult.status === "rejected" ? secretDeliveryResult.reason : undefined;
-    // Preserve admission failure over the secret pipe it closes as a consequence.
-    if (startupError !== undefined || secretDeliveryError !== undefined) {
-      if (useWindowsJobAnchor && startupError !== undefined) {
-        await startupErrorAckDelivery;
-        await extinctionCompletion.promise;
+  const ready = (async () => {
+    using delivery = constructionDelivery.transfer();
+    try {
+      params.assertCurrent?.();
+      if (params.abortSignal?.aborted) {
+        onConstructionAbort();
       }
-      throw startupError ?? secretDeliveryError;
+      params.beforeSpawn?.();
+      await Promise.race([sendChildMessage(start), constructionAbort.promise]);
+      params.assertCurrent?.();
+      const [startupResult, secretDeliveryResult] = await Promise.allSettled([
+        startup.promise,
+        delivery?.deliverTo(child, { abortSignal: params.abortSignal }),
+      ]);
+      const startupError = startupResult.status === "rejected" ? startupResult.reason : undefined;
+      const secretDeliveryError =
+        secretDeliveryResult.status === "rejected" ? secretDeliveryResult.reason : undefined;
+      // Preserve admission failure over the secret pipe it closes as a consequence.
+      if (startupError !== undefined || secretDeliveryError !== undefined) {
+        if (useWindowsJobAnchor && startupError !== undefined) {
+          await startupErrorAckDelivery;
+          await extinctionCompletion.promise;
+        }
+        throw startupError ?? secretDeliveryError;
+      }
+      if (params.abortSignal?.aborted || waitError) {
+        throw waitError ?? new Error("service child construction aborted");
+      }
+      params.assertCurrent?.();
+      if (params.input !== undefined) {
+        stdin?.write(params.input);
+        stdin?.end();
+      } else if (params.stdinMode === "pipe-closed") {
+        stdin?.end();
+      }
+    } catch (error) {
+      void stdoutRelay.drain();
+      unpipeStderr?.();
+      void stderrRelay.drain();
+      child.kill("SIGKILL");
+      throw error;
+    } finally {
+      removeConstructionAbortListener();
     }
-    if (params.abortSignal?.aborted || waitError) {
-      throw waitError ?? new Error("service child construction aborted");
-    }
-    params.assertCurrent?.();
-    if (params.input !== undefined) {
-      stdin?.write(params.input);
-      stdin?.end();
-    } else if (params.stdinMode === "pipe-closed") {
-      stdin?.end();
-    }
-  } catch (error) {
-    void stdoutRelay.drain();
-    unpipeStderr?.();
-    void stderrRelay.drain();
-    child.kill("SIGKILL");
-    throw error;
-  } finally {
-    removeConstructionAbortListener();
-  }
+  })();
+  void ready.catch(() => {});
 
   function kill(signal: NodeJS.Signals = "SIGKILL") {
     const normalized = signal === "SIGTERM" ? "SIGTERM" : "SIGKILL";
@@ -667,8 +698,10 @@ export async function createServiceChildRelayAdapter(
     });
   }
 
-  return {
-    pid: commandPid,
+  const adapter: ServiceChildRelayAdapter = {
+    get pid() {
+      return commandPid;
+    },
     stdin,
     oomScoreWrapperSelected: params.oomScoreWrapperSelected,
     supportsRawOutput: !useWindowsJobAnchor,
@@ -698,4 +731,5 @@ export async function createServiceChildRelayAdapter(
       events.clear();
     },
   };
+  return { adapter, ready };
 }

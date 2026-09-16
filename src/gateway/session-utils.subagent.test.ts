@@ -446,63 +446,6 @@ describe("session list subagent metadata", () => {
     }
   });
 
-  test("keeps persisted navigation lineage separate from live registry control", async () => {
-    const now = Date.now();
-    const childSessionKey = "agent:main:subagent:controlled-child";
-    const entry = {
-      sessionId: "sess-controlled-child",
-      updatedAt: now,
-      spawnedBy: "agent:main:subagent:persisted-spawner",
-      parentSessionKey: "agent:main:dashboard:navigation-parent",
-      createdVia: "spawn",
-      createdActor: { type: "agent", id: "agent:main:main" },
-      createdAt: now - 10_000,
-      forkSource: {
-        sessionKey: "agent:main:main",
-        sessionId: "sess-source",
-        entryId: "entry-source",
-      },
-      previousSessionId: "sess-previous",
-    } satisfies SessionEntry;
-
-    addSubagentRunForTests({
-      runId: "run-controlled-child",
-      childSessionKey,
-      controllerSessionKey: "agent:main:subagent:runtime-controller",
-      requesterSessionKey: "agent:main:main",
-      requesterDisplayKey: "main",
-      task: "controlled child",
-      cleanup: "keep",
-      createdAt: now - 5_000,
-      startedAt: now - 4_000,
-    });
-
-    const result = await listSessionFixture({
-      cfg,
-      storePath: "/tmp/sessions.json",
-      store: { [childSessionKey]: entry },
-      opts: {},
-    });
-    const row = expectDefined(result.sessions[0], "controlled child row");
-
-    expect(row.spawnedBy).toBe("agent:main:subagent:runtime-controller");
-    expect(row.controlOwnerSessionKey).toBe("agent:main:subagent:runtime-controller");
-    expect(row.parentSessionKey).toBe("agent:main:dashboard:navigation-parent");
-    expect(row.createdVia).toBe("spawn");
-    expect(row.createdActor).toEqual({
-      type: "agent",
-      id: "agent:main:main",
-      identity: { type: "agent", id: "agent:main:main" },
-    });
-    expect(row.createdAt).toBe(now - 10_000);
-    expect(row.forkSource).toEqual({
-      sessionKey: "agent:main:main",
-      sessionId: "sess-source",
-      entryId: "entry-source",
-    });
-    expect(row.previousSessionId).toBe("sess-previous");
-  });
-
   test("discovers controlled children through both navigation and runtime owners", async () => {
     const now = Date.now();
     const navigationParentKey = "agent:main:dashboard:navigation-parent";

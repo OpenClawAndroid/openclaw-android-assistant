@@ -346,6 +346,7 @@ export function collectNestedErrorCandidates(err: unknown): unknown[] {
       readProperty(current, "reason"),
       readProperty(current, "original"),
       readProperty(current, "error"),
+      readProperty(current, "suppressed"),
       readProperty(current, "data"),
     ];
     const errors = readProperty(current, "errors");

@@ -18,7 +18,6 @@ import {
 } from "openclaw/plugin-sdk/agent-harness-task-runtime";
 import { KeyedAsyncQueue } from "openclaw/plugin-sdk/keyed-async-queue";
 import {
-  asFiniteNumber,
   normalizeOptionalString,
   readStringField as readString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
@@ -31,7 +30,20 @@ import {
 import type { CodexAppServerClient } from "./client.js";
 import { projectNormalizedToolItem } from "./event-projector-events.js";
 import { readItem } from "./event-projector-values.js";
-import type { CodexNativeSubagentHistoryOwner } from "./native-subagent-history-owner.js";
+import {
+  readThreadTurnRecovery,
+  toChildTurnCompletion,
+  systemErrorFallbackCompletion,
+  readTurnCompletion,
+  normalizeIdentifier,
+  type ChildAssistantMessages,
+  type RecoveredCompletion,
+} from "./native-subagent-completion.js";
+import {
+  assertHistoryOwnerMatchesRegistration,
+  readCodexNativeSubagentHistoryOwner,
+  type CodexNativeSubagentHistoryOwner,
+} from "./native-subagent-history-owner.js";
 import {
   codexNativeSubagentNotifications as nativeSubagentNotifications,
   type CodexNativeSubagentCompletion,
@@ -112,6 +124,8 @@ type ChildState = {
   pendingCompletion?: RecoveredCompletion;
   completionTaskPhase?: "finalize" | "delivery";
   completionTaskId?: string;
+  // Cold reconstruction cannot use a later live registration as historical ownership.
+  requiresHistoryOwner?: true;
   subscriptionClosed?: true;
   nativeCompletionDelivered: boolean;
   completionDeliveryAttempt: number;
@@ -120,17 +134,6 @@ type ChildState = {
   deliveryOwnerKey?: string;
   settledWithoutCompletion: boolean;
   releaseDirectChild?: () => void;
-};
-
-type ChildAssistantMessages = {
-  texts: Map<string, string>;
-  order: string[];
-  commentaryIds: Set<string>;
-  finalMessageIds: Set<string>;
-};
-
-type RecoveredCompletion = CodexNativeSubagentCompletion & {
-  completedAt?: number;
 };
 
 type ThreadRecovery = {
@@ -150,6 +153,7 @@ type ThreadStatusRevision = {
 };
 
 type TaskRecoveryCandidate = {
+  readonly taskId: string;
   parentState: ParentState;
   nativeCompletionReceipts: Set<string>;
   childThreadId: string;
@@ -1381,19 +1385,16 @@ class Monitor {
       return false;
     }
     const runId = codexNativeSubagentRunId(completion.childThreadId);
-    if (
-      child.completionTaskId &&
-      state.taskRuntime?.listTaskRecords().find((task) => task.runId === runId)?.taskId !==
-        child.completionTaskId
-    ) {
+    if (!this.claimCompletionDelivery(state, child)) {
       this.unregisterChild(child);
       return false;
     }
+    const currentTask = state.taskRuntime?.listTaskRecords().find((task) => task.runId === runId);
+    if (currentTask?.deliveryStatus === "delivered") {
+      child.nativeCompletionDelivered = true;
+      child.completionTaskPhase = undefined;
+    }
     if (child.completionTaskPhase === "finalize") {
-      if (!this.claimCompletionDelivery(state, child)) {
-        this.unregisterChild(child);
-        return false;
-      }
       const eventAt = completion.completedAt ?? this.now();
       const updated = state.taskRuntime?.finalizeTaskRunByRunId({
         runId,
@@ -1489,8 +1490,38 @@ class Monitor {
       if (state.owners.size > 0 || !state.taskRuntimeScope) {
         return;
       }
+      const task = state.taskRuntime
+        ?.listTaskRecords()
+        .find((record) => record.runId === codexNativeSubagentRunId(completion.childThreadId));
+      let historyOwner: CodexNativeSubagentHistoryOwner | undefined;
+      try {
+        historyOwner = readCodexNativeSubagentHistoryOwner(task?.detail);
+        assertHistoryOwnerMatchesRegistration(
+          historyOwner,
+          state.historyOwner,
+          state.parentThreadId,
+          childState.requiresHistoryOwner === true,
+        );
+      } catch (error) {
+        embeddedAgentLog.warn("Holding native completion with unresolved history owner", {
+          childThreadId: completion.childThreadId,
+          error: formatErrorMessage(error),
+        });
+        // Keep the durable task pending, but release this contradictory process
+        // projection so a later valid registration can own its delivery.
+        this.unregisterChild(childState);
+        return;
+      }
       const delivery = await this.runtime.deliverAgentHarnessTaskCompletion({
         scope: state.taskRuntimeScope,
+        ...(historyOwner
+          ? {
+              expectedRequester: {
+                sessionId: historyOwner.sessionId,
+                lifecycleRevision: historyOwner.lifecycleRevision,
+              },
+            }
+          : {}),
         childSessionKey: codexNativeSubagentRunId(completion.childThreadId),
         childSessionId: completion.childThreadId,
         announceId: `codex-native:${state.parentThreadId}:${completion.childThreadId}:${completion.status}`,
@@ -1508,10 +1539,28 @@ class Monitor {
       ) {
         return;
       }
+      if (!this.claimCompletionDelivery(state, childState)) {
+        this.unregisterChild(childState);
+        return;
+      }
       if (isDurableAgentHarnessCompletionDelivery(delivery)) {
         childState.nativeCompletionDelivered = true;
         childState.completionTaskPhase = "delivery";
         this.persistPendingCompletion(state, childState);
+        return;
+      }
+      if (delivery.recoveryBlocked) {
+        // No live recovery can settle this process projection. Preserve the
+        // durable pending task for a valid owner without an endless poll loop.
+        this.unregisterChild(childState);
+        return;
+      }
+      if (delivery.recoveryPending) {
+        this.scheduleCompletionDeliveryRetry(
+          childState,
+          delivery.error ?? "requester recovery owns completion",
+          false,
+        );
         return;
       }
       const error = delivery.error ?? "completion delivery did not produce a parent response";
@@ -1526,6 +1575,10 @@ class Monitor {
         this.childStates.get(childState.childThreadId) !== childState ||
         this.parentStates.get(state.parentThreadId) !== state
       ) {
+        return;
+      }
+      if (!this.claimCompletionDelivery(state, childState)) {
+        this.unregisterChild(childState);
         return;
       }
       const message = formatErrorMessage(error);
@@ -1586,7 +1639,11 @@ class Monitor {
     }
   }
 
-  private scheduleCompletionDeliveryRetry(childState: ChildState, error: string): void {
+  private scheduleCompletionDeliveryRetry(
+    childState: ChildState,
+    error: string,
+    chargeAttempt = true,
+  ): void {
     if (
       !childState.pendingCompletion ||
       childState.completionDeliveryTimer ||
@@ -1595,6 +1652,7 @@ class Monitor {
       return;
     }
     if (
+      chargeAttempt &&
       !childState.completionTaskPhase &&
       childState.completionDeliveryAttempt >= this.completionDeliveryMaxRetries
     ) {
@@ -1609,7 +1667,7 @@ class Monitor {
     }
     const delayMs = delayForAttempt(
       this.completionDeliveryRetryDelaysMs,
-      childState.completionDeliveryAttempt++,
+      chargeAttempt ? childState.completionDeliveryAttempt++ : childState.completionDeliveryAttempt,
     );
     childState.completionDeliveryTimer = setTimeout(() => {
       childState.completionDeliveryTimer = undefined;
@@ -1943,14 +2001,38 @@ class Monitor {
       return true;
     }
     const key = `${requesterSessionKey}\0${childState.childThreadId}`;
+    const runId = codexNativeSubagentRunId(childState.childThreadId);
+    const tasks =
+      state.taskRuntime?.listTaskRecords().filter((record) => record.runId === runId) ?? [];
+    const task = tasks[0];
+    if (
+      tasks.length > 1 ||
+      (childState.completionTaskId && task?.taskId !== childState.completionTaskId)
+    ) {
+      return false;
+    }
+    // A durable winner and the saved requester identity outrank this process
+    // projection, including when they change across an awaited delivery.
+    if (task?.deliveryStatus === "delivered") {
+      return false;
+    }
+    try {
+      assertHistoryOwnerMatchesRegistration(
+        readCodexNativeSubagentHistoryOwner(task?.detail),
+        state.historyOwner,
+        state.parentThreadId,
+        childState.requiresHistoryOwner === true,
+      );
+    } catch (error) {
+      embeddedAgentLog.warn("Holding native completion with unresolved history owner", {
+        childThreadId: childState.childThreadId,
+        error: formatErrorMessage(error),
+      });
+      return false;
+    }
     const owner = completionDeliveryOwners.get(key);
     if (owner) {
       return owner === childState;
-    }
-    const runId = codexNativeSubagentRunId(childState.childThreadId);
-    const task = state.taskRuntime?.listTaskRecords().find((record) => record.runId === runId);
-    if (task?.deliveryStatus === "delivered") {
-      return false;
     }
     childState.completionTaskId = task?.taskId;
     // Delivery no longer needs the app-server client. Keep one process owner
@@ -2126,6 +2208,7 @@ class Monitor {
       }
       const childThreadId = task.runId!.slice(CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX.length).trim();
       candidates.set(childThreadId, {
+        taskId: task.taskId,
         parentState: state,
         nativeCompletionReceipts: state.nativeCompletionReceipts,
         requesterSessionKey: state.requesterSessionKey,
@@ -2193,15 +2276,26 @@ class Monitor {
       return;
     }
     const runId = codexNativeSubagentRunId(candidate.childThreadId);
-    const task = candidate.taskRuntime.listTaskRecords().find((record) => record.runId === runId);
+    const tasks = candidate.taskRuntime
+      .listTaskRecords()
+      .filter((record) => record.runId === runId);
+    const task = tasks[0];
     if (
+      tasks.length !== 1 ||
       !task ||
+      task.taskId !== candidate.taskId ||
       task.requesterSessionKey !== candidate.requesterSessionKey ||
       !this.shouldReconcileCodexNativeTask(task)
     ) {
       return;
     }
     const childBeforeRead = this.childStates.get(candidate.childThreadId);
+    if (
+      childBeforeRead?.completionTaskId &&
+      childBeforeRead.completionTaskId !== candidate.taskId
+    ) {
+      return;
+    }
     const statusRead = this.retainThreadStatusRevision(candidate.childThreadId);
     try {
       let recovery: ThreadRecovery;
@@ -2227,6 +2321,32 @@ class Monitor {
         this.scheduleTaskCandidateReconciliation(candidate);
         return;
       }
+      // The history response proves lineage, not ownership of this connection.
+      // Re-read the durable locator after the await before mirroring or delivering it.
+      const currentTasks = candidate.taskRuntime
+        .listTaskRecords()
+        .filter((record) => record.runId === runId);
+      const currentTask = currentTasks[0];
+      if (
+        currentTasks.length !== 1 ||
+        !currentTask ||
+        currentTask.taskId !== candidate.taskId ||
+        currentTask.requesterSessionKey !== candidate.requesterSessionKey ||
+        !this.shouldReconcileCodexNativeTask(currentTask)
+      ) {
+        return;
+      }
+      try {
+        assertHistoryOwnerMatchesRegistration(
+          readCodexNativeSubagentHistoryOwner(currentTask.detail),
+          candidate.parentState.historyOwner,
+          parentThreadId,
+          true,
+        );
+      } catch (error) {
+        this.logRecoveryFailure(candidate.childThreadId, error);
+        return;
+      }
       let state = this.parentStates.get(parentThreadId);
       if (state && state.requesterSessionKey !== candidate.requesterSessionKey) {
         return;
@@ -2243,6 +2363,11 @@ class Monitor {
           taskRuntimeScope: candidate.taskRuntimeScope,
           agentId: candidate.agentId,
           taskRuntime: candidate.taskRuntime,
+          ...(candidate.parentState.historyOwner
+            ? {
+                historyOwner: { ...candidate.parentState.historyOwner, parentThreadId },
+              }
+            : {}),
         };
         this.prepareParentTaskRuntime(state);
         this.parentStates.set(parentThreadId, state);
@@ -2256,6 +2381,8 @@ class Monitor {
         this.pruneParentIfUnused(state);
         return;
       }
+      childState.requiresHistoryOwner = true;
+      childState.completionTaskId ??= candidate.taskId;
       if (
         [...childState.agentPathKeys].some((key) => candidate.nativeCompletionReceipts.has(key))
       ) {
@@ -2324,150 +2451,6 @@ export const codexNativeSubagentMonitorRuntime = {
   },
 };
 
-function readThreadTurnRecovery(
-  thread: JsonObject,
-  childThreadId: string,
-): { completion?: RecoveredCompletion; resumable: boolean } {
-  const turns = Array.isArray(thread.turns) ? thread.turns : [];
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    const turn = turns[index];
-    if (!isJsonObject(turn)) {
-      continue;
-    }
-    const status = normalizeIdentifier(readString(turn, "status"));
-    return {
-      completion: readTurnCompletion(turn, childThreadId),
-      resumable: status === "interrupted",
-    };
-  }
-  return { resumable: false };
-}
-
-function toChildTurnCompletion(
-  childState: ChildState,
-  turn: JsonObject,
-): CodexNativeSubagentCompletion | undefined {
-  const status = normalizeIdentifier(readString(turn, "status"));
-  if (status === "completed") {
-    const turnId = readString(turn, "id");
-    const result = turnId ? lastChildAssistantMessage(childState, turnId) : undefined;
-    return {
-      childThreadId: childState.childThreadId,
-      status: "succeeded",
-      statusLabel: result ? "turn_completed" : "completed_without_final_message",
-      result: result ?? "Subagent completed without a final assistant message.",
-    };
-  }
-  if (status === "failed") {
-    return {
-      childThreadId: childState.childThreadId,
-      status: "failed",
-      statusLabel: "turn_failed",
-      result: readTurnErrorMessage(turn) ?? "Subagent failed.",
-    };
-  }
-  return undefined;
-}
-
-function lastChildAssistantMessage(childState: ChildState, turnId: string): string | undefined {
-  const messages = childState.assistantMessagesByTurn.get(turnId);
-  if (!messages) {
-    return undefined;
-  }
-  for (const itemId of messages.order.toReversed()) {
-    if (messages.finalMessageIds.has(itemId) && !messages.commentaryIds.has(itemId)) {
-      const text = normalizeOptionalString(messages.texts.get(itemId));
-      if (text) {
-        return text;
-      }
-    }
-  }
-  return undefined;
-}
-
-function readTurnErrorMessage(turn: JsonObject): string | undefined {
-  const error = isJsonObject(turn.error) ? turn.error : undefined;
-  return (
-    normalizeOptionalString(readString(error, "message")) ??
-    normalizeOptionalString(
-      isJsonObject(error?.codexErrorInfo) ? readString(error.codexErrorInfo, "message") : undefined,
-    )
-  );
-}
-
-function systemErrorFallbackCompletion(childThreadId: string): RecoveredCompletion {
-  return {
-    childThreadId,
-    status: "failed",
-    statusLabel: "system_error",
-    result: "Subagent runtime reported a system error.",
-  };
-}
-
-function readTurnCompletion(
-  turn: JsonObject,
-  childThreadId: string,
-): RecoveredCompletion | undefined {
-  const status = normalizeIdentifier(readString(turn, "status"));
-  if (status === "inprogress" || !status) {
-    return undefined;
-  }
-  const result = readLastAgentMessage(turn);
-  const completedAtSeconds = asFiniteNumber(turn.completedAt);
-  const completedAt =
-    completedAtSeconds === undefined ? undefined : Math.round(completedAtSeconds * 1_000);
-  if (status === "completed") {
-    return {
-      childThreadId,
-      status: "succeeded",
-      statusLabel: result ? "task_complete" : "completed_without_final_message",
-      result: result ?? "Subagent completed without a final assistant message.",
-      completedAt,
-    };
-  }
-  // Codex keeps interrupted subagents resumable. They remain a running task
-  // until a later turn reaches an authoritative terminal state.
-  if (status === "interrupted") {
-    return undefined;
-  }
-  if (status === "failed") {
-    return {
-      childThreadId,
-      status: "failed",
-      statusLabel: "task_failed",
-      result: readTurnErrorMessage(turn) ?? result ?? "Subagent failed.",
-      completedAt,
-    };
-  }
-  return undefined;
-}
-
-function readLastAgentMessage(turn: JsonObject): string | undefined {
-  const items = Array.isArray(turn.items) ? turn.items : [];
-  let legacyResult: string | undefined;
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (!isJsonObject(item)) {
-      continue;
-    }
-    if (normalizeIdentifier(readString(item, "type")) !== "agentmessage") {
-      continue;
-    }
-    const text = readString(item, "text")?.trim();
-    if (!text) {
-      continue;
-    }
-    const phase = normalizeIdentifier(readString(item, "phase"));
-    if (phase === "finalanswer") {
-      return text;
-    }
-    if (!phase) {
-      legacyResult ??= text;
-    }
-  }
-  return legacyResult;
-}
-
 function buildParentAgentPathKey(parentThreadId: string, agentPath: string): string {
   return `${parentThreadId}\0${agentPath}`;
 }
@@ -2505,10 +2488,6 @@ function readStringArray(value: unknown): string[] {
 
 function readObjectStringKeys(value: JsonValue | undefined): string[] {
   return isJsonObject(value) ? Object.keys(value).filter((entry) => entry.trim() !== "") : [];
-}
-
-function normalizeIdentifier(value: string | undefined): string | undefined {
-  return value?.replace(/[^a-z0-9]/giu, "").toLowerCase();
 }
 
 function unrefTimer(timer: ReturnType<typeof setTimeout>): void {

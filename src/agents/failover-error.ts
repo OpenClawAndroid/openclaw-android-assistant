@@ -31,6 +31,10 @@ import {
   AgentHarnessSessionSupersededError,
   isAgentHarnessPreflightError,
 } from "./harness/errors.js";
+import {
+  isSessionPlacementSettlementClosedError,
+  isAgentRunSupersededAbortReason,
+} from "./run-termination.js";
 
 export {
   FailoverError,
@@ -64,16 +68,26 @@ export function recordModelFallbackStop(error: Error): void {
 }
 
 export function hasModelFallbackStop(error: unknown): boolean {
-  return collectErrorGraphCandidates(error, resolveNestedErrors).some(
-    (candidate) =>
-      (candidate instanceof Error && modelFallbackStops.has(candidate)) ||
-      (isFailoverError(candidate) && isCliTerminalStopCode(candidate.code)),
+  return (
+    isSessionPlacementSettlementClosedError(error) ||
+    isAgentRunSupersededAbortReason(error) ||
+    collectErrorGraphCandidates(error, resolveNestedErrors).some(
+      (candidate) =>
+        (candidate instanceof Error && modelFallbackStops.has(candidate)) ||
+        (isFailoverError(candidate) && isCliTerminalStopCode(candidate.code)),
+    )
   );
 }
 
 function resolveNestedErrors(candidate: Record<string, unknown>): unknown[] {
   const errors = candidate.errors;
-  return [candidate.error, candidate.cause, ...(Array.isArray(errors) ? errors : [])];
+  const nested = [candidate.error, candidate.cause, ...(Array.isArray(errors) ? errors : [])];
+  try {
+    nested.push(candidate.suppressed);
+  } catch {
+    // An opaque disposal branch must not hide the other recorded CLI facts.
+  }
+  return nested;
 }
 
 /**

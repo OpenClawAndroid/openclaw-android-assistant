@@ -1,6 +1,5 @@
-/** Tests live model switching behavior in active agent command sessions. */
-
 import fs from "node:fs/promises";
+/** Tests live model switching behavior in active agent command sessions. */
 import os from "node:os";
 import path from "node:path";
 import { expectDefined, toStringifiedError } from "@openclaw/normalization-core";
@@ -42,6 +41,7 @@ import {
   createTestModelSelection,
   createTestModelVisibilityPolicy,
 } from "./agent-command.live-model-switch.test-helpers.js";
+import { registerAgentCommandRecoveryCases } from "./agent-command.restart-recovery.test-harness.js";
 import { createApiKeyCredential } from "./auth-profiles/credential-fixtures.test-support.js";
 import type { FailoverReason } from "./failover/signal.js";
 import { formatAgentInternalEventsForPrompt, type AgentInternalEvent } from "./internal-events.js";
@@ -1000,6 +1000,16 @@ function expectFallbackOverrideCalls(first: boolean, second: boolean) {
   expectRecordFields(mockCallArg(state.resolveEffectiveModelFallbacksMock, 1), {
     hasSessionModelOverride: second,
   });
+}
+
+function getAgentCommandRecoveryFixture() {
+  return {
+    state,
+    agentCommand,
+    setupSingleAttemptFallback,
+    setupBareStoredSession,
+    makeSuccessResult,
+  };
 }
 
 describe("agentCommand – LiveSessionModelSwitchError retry", () => {
@@ -3049,37 +3059,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     }
   });
 
-  it("persists and clears current run delivery context for restart recovery", async () => {
-    setupSingleAttemptFallback();
-    state.runAgentAttemptMock.mockResolvedValue(makeSuccessResult("openai", "gpt-5.4"));
-    setupBareStoredSession();
-    state.deliverAgentCommandResultMock.mockResolvedValue({ deliverySucceeded: true });
-
-    await agentCommand({
-      message: "hello",
-      channel: "discord",
-      to: "discord:dm:123",
-      accountId: "main",
-      threadId: "reply-1",
-      deliver: true,
-    });
-
-    const persistedContexts = state.persistSessionEntryMock.mock.calls.map((call) => {
-      const params = call[0] as { entry?: SessionEntry };
-      return params.entry?.restartRecoveryDeliveryContext;
-    });
-    expect(persistedContexts).toContainEqual({
-      channel: "discord",
-      to: "discord:dm:123",
-      accountId: "main",
-      threadId: "reply-1",
-    });
-    const cleanupParams = state.persistSessionEntryMock.mock.calls.at(-1)?.[0] as
-      | { sessionStore?: Record<string, SessionEntry> }
-      | undefined;
-    const stored = cleanupParams?.sessionStore?.["agent:main:main"];
-    expect(stored?.restartRecoveryDeliveryContext).toBeUndefined();
-  });
+  registerAgentCommandRecoveryCases(getAgentCommandRecoveryFixture);
 
   it("records generated-media delivery runs as durable terminal sources", async () => {
     setupSingleAttemptFallback();

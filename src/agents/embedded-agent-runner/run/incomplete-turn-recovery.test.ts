@@ -61,50 +61,62 @@ describe("incomplete-turn recovery policy", () => {
     },
   );
 
-  it.each([
-    {
-      name: "a completed reaction",
-      aborted: false,
-      timedOut: false,
-      yielded: false,
-      error: false,
-      silent: true,
-    },
-    {
-      name: "a failed reaction",
-      aborted: false,
-      timedOut: false,
-      yielded: false,
-      error: true,
-      silent: false,
-    },
-    {
-      name: "an aborted turn",
-      aborted: true,
-      timedOut: false,
-      yielded: false,
-      error: false,
-      silent: false,
-    },
-    {
-      name: "a timed-out turn",
-      aborted: false,
-      timedOut: true,
-      yielded: false,
-      error: false,
-      silent: false,
-    },
-    {
-      name: "pending work",
-      aborted: false,
-      timedOut: false,
-      yielded: true,
-      error: false,
-      silent: false,
-    },
-  ])(
-    "classifies explicit silence after $name without replaying tools",
-    ({ aborted, timedOut, yielded, error, silent }) => {
+  it.each(
+    [
+      {
+        name: "a completed reaction",
+        aborted: false,
+        timedOut: false,
+        yielded: false,
+        error: false,
+        silent: true,
+      },
+      {
+        name: "a failed reaction",
+        aborted: false,
+        timedOut: false,
+        yielded: false,
+        error: true,
+        silent: false,
+      },
+      {
+        name: "an aborted turn",
+        aborted: true,
+        timedOut: false,
+        yielded: false,
+        error: false,
+        silent: false,
+      },
+      {
+        name: "a timed-out turn",
+        aborted: false,
+        timedOut: true,
+        yielded: false,
+        error: false,
+        silent: false,
+      },
+      {
+        name: "pending work",
+        aborted: false,
+        timedOut: false,
+        yielded: true,
+        error: false,
+        silent: false,
+      },
+    ].flatMap(({ name, aborted, timedOut, yielded, error, silent }) =>
+      [true, false, undefined].map((allowEmptyAssistantReplyAsSilent) => ({
+        name,
+        aborted,
+        timedOut,
+        yielded,
+        error,
+        silent,
+        allowEmptyAssistantReplyAsSilent,
+      })),
+    ),
+  )(
+    "classifies explicit silence after $name (allow empty: $allowEmptyAssistantReplyAsSilent)",
+    ({ aborted, timedOut, yielded, error, silent, allowEmptyAssistantReplyAsSilent }) => {
       const assistant = emptyAssistant({ content: [{ type: "text", text: "NO_REPLY" }] });
       const attempt = makeEmbeddedRunnerAttempt({
         assistantTexts: ["NO_REPLY"],
@@ -120,7 +132,7 @@ describe("incomplete-turn recovery policy", () => {
       // conflate permission to stay silent with permission to replay that effect.
       expect(
         shouldTreatEmptyAssistantReplyAsSilent({
-          allowEmptyAssistantReplyAsSilent: true,
+          allowEmptyAssistantReplyAsSilent,
           terminalReplyExpectation: "required",
           onlyExplicitSilentReply: true,
           payloadCount: 0,

@@ -74,6 +74,52 @@ describe("plugin package facts", () => {
     });
   });
 
+  it.each(["native", "javascript"] as const)(
+    "reuses the provider catalog source resolved by the %s filesystem path",
+    (resolver) => {
+      const dir = fs.realpathSync(tempDirs.make("plugin-provider-source-"));
+      const providerDiscoverySource = path.join(dir, "provider-discovery.js");
+      fs.writeFileSync(
+        path.join(dir, "openclaw.plugin.json"),
+        JSON.stringify({
+          id: "cached-provider",
+          providers: ["cached-provider"],
+          providerCatalogEntry: "./provider-discovery.js",
+          configSchema: { type: "object" },
+        }),
+      );
+      fs.writeFileSync(providerDiscoverySource, "export default {};\n", "utf8");
+      const nativeRealpathSpy = vi.spyOn(fs.realpathSync, "native");
+      if (resolver === "javascript") {
+        nativeRealpathSpy.mockImplementation(() => {
+          throw new Error("native realpath unavailable");
+        });
+      }
+      const realpathSpy = vi.spyOn(fs, "realpathSync");
+      const resolverSpy = resolver === "native" ? nativeRealpathSpy : realpathSpy;
+
+      withPluginCache(createPluginCache(), () => {
+        for (let build = 0; build < 2; build += 1) {
+          const registry = loadPluginManifestRegistryCore({
+            installRecords: {},
+            candidates: [
+              {
+                idHint: "cached-provider",
+                rootDir: dir,
+                source: path.join(dir, "index.js"),
+                origin: "bundled",
+              },
+            ],
+          });
+          expect(registry.plugins[0]?.providerDiscoverySource).toBe(providerDiscoverySource);
+          expect(
+            resolverSpy.mock.calls.filter(([filePath]) => filePath === providerDiscoverySource),
+          ).toHaveLength(1);
+        }
+      });
+    },
+  );
+
   it("withPluginLifecycleLease refreshes enclosing operation facts while retaining its callbacks", async () => {
     const root = tempDirs.make("plugin-lease-parent-");
     const filePath = path.join(root, "catalog.json");

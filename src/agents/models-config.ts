@@ -35,7 +35,6 @@ import { planOpenClawModelsJson, type PreparedModelsConfigContext } from "./mode
 import { repairPluginModelCatalogTransportMetadata } from "./plugin-model-catalog-repair.js";
 import {
   decodePluginModelCatalogRelativePathPluginId,
-  loadPersistedPluginModelCatalogs,
   loadPersistedPluginModelCatalogsReadOnly,
   replacePersistedPluginModelCatalogs,
   type PersistedPluginModelCatalog,
@@ -69,16 +68,6 @@ type PlannedOpenClawModelsJsonSource = Readonly<{
   pluginCatalogs: readonly PersistedPluginModelCatalog[];
 }>;
 
-function listPreparedPluginModelCatalogs(agentDir: string) {
-  const { catalogs, warnings } = loadPersistedPluginModelCatalogs(agentDir);
-  if (warnings.length > 0) {
-    throw new Error(
-      `Cannot safely prepare provider models until legacy catalog migration succeeds: ${warnings.join("; ")}. Run openclaw doctor --fix.`,
-    );
-  }
-  return catalogs;
-}
-
 async function readFileMtimeMs(pathname: string): Promise<number | null> {
   try {
     const stat = await fs.stat(pathname);
@@ -94,7 +83,7 @@ async function buildModelsJsonFingerprint(context: PreparedModelsConfigContext):
   const authProfilesWalMtimeMs = await readFileMtimeMs(`${authProfilesSqlitePath}-wal`);
   const modelsFileMtimeMs = await readFileMtimeMs(path.join(context.agentDir, "models.json"));
   const pluginCatalogFingerprint = createHash("sha256")
-    .update(stableStringify(listPreparedPluginModelCatalogs(context.agentDir)))
+    .update(stableStringify(loadPersistedPluginModelCatalogsReadOnly(context.agentDir)))
     .digest("base64url");
   const pluginMetadataSnapshotIndexFingerprint = context.pluginMetadataSnapshot
     ? resolveInstalledManifestRegistryIndexFingerprint(context.pluginMetadataSnapshot.index)
@@ -299,7 +288,7 @@ export async function ensureOpenClawModelsJson(
       context,
       existingRaw: existingModelsFile.raw,
       existingParsed: existingModelsFile.parsed,
-      pluginCatalogs: listPreparedPluginModelCatalogs(agentDir),
+      pluginCatalogs: loadPersistedPluginModelCatalogsReadOnly(agentDir),
     });
 
     if (plan.action === "skip") {

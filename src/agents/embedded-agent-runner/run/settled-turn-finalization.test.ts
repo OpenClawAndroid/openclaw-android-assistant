@@ -316,6 +316,52 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
     });
   });
 
+  it.each([false, undefined])(
+    "preserves an explicit silent reply after a successful reaction (allow empty: %s)",
+    async (allowEmptyAssistantReplyAsSilent) => {
+      const attempt = settledSuccessfulAttempt();
+      const toolAssistant = buildEmbeddedRunnerAssistant({
+        stopReason: "toolUse",
+        content: [
+          { type: "toolCall", id: "reaction", name: "message", arguments: { action: "react" } },
+        ],
+      });
+      const assistant = buildEmbeddedRunnerAssistant({
+        content: [{ type: "text", text: SILENT_REPLY_TOKEN }],
+      });
+      attempt.messagesSnapshot = [
+        toolAssistant,
+        {
+          role: "toolResult",
+          toolCallId: "reaction",
+          toolName: "message",
+          content: [{ type: "text", text: "Reaction added" }],
+          isError: false,
+          timestamp: 1,
+        },
+        assistant,
+      ];
+      attempt.toolMetas = [{ toolName: "message", meta: "react", replaySafe: false }];
+      attempt.itemLifecycle = { startedCount: 1, completedCount: 1, activeCount: 0 };
+      attempt.assistantTexts = [SILENT_REPLY_TOKEN];
+      attempt.lastAssistant = assistant;
+      attempt.currentAttemptAssistant = assistant;
+      attempt.currentAttemptCompletedAssistant = assistant;
+      attempt.settledTurnFinalizationContext = undefined;
+      const input = finalizationInput(attempt);
+      input.terminalBase.runParams.trigger = "user";
+      input.terminalBase.runParams.allowEmptyAssistantReplyAsSilent =
+        allowEmptyAssistantReplyAsSilent;
+
+      const result = await prepareTerminalWithSettledTurnFinalization(input);
+
+      expect(result.finalizationOutcome).toBe("not-attempted");
+      expect(result.prepared.finalAssistantRawText).toBe(SILENT_REPLY_TOKEN);
+      expect(result.prepared.payloadsWithToolMedia).toEqual([]);
+      expect(result.attempt).toBe(attempt);
+    },
+  );
+
   it("keeps a failed command followed by NO_REPLY out of summary recovery", async () => {
     const attempt = settledFailedAttempt();
     const assistant = buildEmbeddedRunnerAssistant({
@@ -524,12 +570,20 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
       silent: false,
     },
     {
-      name: "silence disabled",
+      name: "optional authored silence with empty replies disabled",
       text: SILENT_REPLY_TOKEN,
       optional: true,
       allowed: false,
       failedTool: false,
-      silent: false,
+      silent: true,
+    },
+    {
+      name: "optional authored silence with empty-reply policy unspecified",
+      text: SILENT_REPLY_TOKEN,
+      optional: true,
+      allowed: undefined,
+      failedTool: false,
+      silent: true,
     },
     {
       name: "blank output",

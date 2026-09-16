@@ -439,13 +439,13 @@ async function startPreparedPluginServices({
     failures?: unknown[],
     candidate = false,
   ): Promise<boolean> => {
-    const service = entry.service;
+    const { service, id } = entry;
     const record = registry.plugins.find((plugin) => plugin.id === entry.pluginId);
     const instance = record && getPluginInstance(record);
     // Native service receivers retain their brands; registration owns their invocation scope.
     const runServiceCleanup = <T>(run: () => T): T =>
       instance ? instance.runCleanup(run) : runPluginCleanup(service, run);
-    const traceName = `sidecars.plugin-services.${encodeStartupTraceSegment(entry.pluginId)}.${encodeStartupTraceSegment(entry.service.id)}`;
+    const traceName = `sidecars.plugin-services.${encodeStartupTraceSegment(entry.pluginId)}.${encodeStartupTraceSegment(entry.id)}`;
     const lease = createPluginRuntimeCapabilityLease("plugin service");
     const pluginId = entry.pluginId;
     const broadcast = broadcastPluginEvent;
@@ -486,9 +486,9 @@ async function startPreparedPluginServices({
         })
       : undefined;
     const isDiagnosticsExporter =
-      entry?.pluginId === entry?.service.id &&
-      (entry?.service.id === "diagnostics-otel" || entry?.service.id === "diagnostics-prometheus");
-    const isOtelExporter = isDiagnosticsExporter && entry.service.id === "diagnostics-otel";
+      entry?.pluginId === entry?.id &&
+      (entry?.id === "diagnostics-otel" || entry?.id === "diagnostics-prometheus");
+    const isOtelExporter = isDiagnosticsExporter && entry.id === "diagnostics-otel";
     const grantsInternalDiagnostics =
       isDiagnosticsExporter &&
       (entry?.origin === "bundled" || entry?.trustedOfficialInstall === true);
@@ -522,7 +522,7 @@ async function startPreparedPluginServices({
             },
             reportExporterHealth: (update) => {
               if (lease.isActive()) {
-                recordDiagnosticExporterHealth(entry.service.id, update);
+                recordDiagnosticExporterHealth(entry.id, update);
               }
             },
           }
@@ -560,13 +560,13 @@ async function startPreparedPluginServices({
     const recordCleanupFailure = (error: unknown) => {
       ownedService.cleanupErrors.push(error);
       health.reportFailure(error);
-      log.warn(`plugin service stop failed (${service.id}): ${formatErrorMessage(error)}`);
+      log.warn(`plugin service stop failed (${id}): ${formatErrorMessage(error)}`);
     };
     const ownedService: OwnedPluginService = {
       owner,
       cleaned: false,
       cleanupErrors: [],
-      id: service.id,
+      id,
       pluginId: entry.pluginId,
       registration: entry,
       registry,
@@ -632,13 +632,13 @@ async function startPreparedPluginServices({
         () => (startupTrace ? startupTrace.measure(traceName, invokeStart) : invokeStart()),
         candidate ? Date.now() + PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS : undefined,
         "plugin service startup",
-        `${entry.pluginId}/${service.id}`,
+        `${entry.pluginId}/${id}`,
       );
     } catch (err) {
       failures?.push(err);
       serviceContext.serviceHealth?.reportFailure(err);
       log.error(
-        `plugin service failed (${service.id}, plugin=${entry.pluginId}, root=${entry.rootDir ?? "unknown"}): ${formatErrorMessage(err)}`,
+        `plugin service failed (${id}, plugin=${entry.pluginId}, root=${entry.rootDir ?? "unknown"}): ${formatErrorMessage(err)}`,
       );
       if (candidate && err instanceof PluginServiceTimeoutError) {
         ownedService.owner.stopped.add(entry);
@@ -669,7 +669,7 @@ async function startPreparedPluginServices({
       if (!canStart(entry)) {
         if (throwOnStartError && owner.stopped.has(entry)) {
           throw new Error(
-            `Previous plugin service cleanup remains pending (${entry.pluginId}/${entry.service.id})`,
+            `Previous plugin service cleanup remains pending (${entry.pluginId}/${entry.id})`,
           );
         }
         continue;

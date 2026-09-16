@@ -4553,14 +4553,17 @@ describe("gateway healthHandlers.status scope handling", () => {
     vi.mocked(statusModule.getStatusSummary).mockClear();
   });
 
-  async function runHealthStatus(scopes: string[]) {
+  async function runHealthStatus(
+    scopes: string[],
+    params: { includeChannelSummary?: boolean } = {},
+  ) {
     const respond = vi.fn();
 
     await expectDefined(healthHandlers.status, "healthHandlers.status test invariant").call(
       healthHandlers,
       {
         req: {} as never,
-        params: {} as never,
+        params,
         respond: respond as never,
         context: {} as never,
         client: { connect: { role: "operator", scopes } } as never,
@@ -4582,29 +4585,21 @@ describe("gateway healthHandlers.status scope handling", () => {
       expect(vi.mocked(statusModule.getStatusSummary)).toHaveBeenCalledWith({
         includeSensitive,
         includeChannelSummary: true,
+        includeCliProjection: false,
       });
       expect(respond).toHaveBeenCalledWith(true, expect.objectContaining({ ok: true }), undefined);
     },
   );
 
   it("can skip channel summary work for liveness-only status requests", async () => {
-    const respond = vi.fn();
-
-    await expectDefined(healthHandlers.status, "healthHandlers.status test invariant").call(
-      healthHandlers,
-      {
-        req: {} as never,
-        params: { includeChannelSummary: false },
-        respond: respond as never,
-        context: {} as never,
-        client: { connect: { role: "operator", scopes: ["operator.read"] } } as never,
-        isWebchatConnect: () => false,
-      },
-    );
+    const respond = await runHealthStatus(["operator.read"], {
+      includeChannelSummary: false,
+    });
 
     expect(vi.mocked(statusModule.getStatusSummary)).toHaveBeenCalledWith({
       includeSensitive: false,
       includeChannelSummary: false,
+      includeCliProjection: false,
     });
     expect(respond).toHaveBeenCalledWith(true, expect.objectContaining({ ok: true }), undefined);
   });

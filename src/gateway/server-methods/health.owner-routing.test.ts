@@ -17,12 +17,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function callStatus(config: OpenClawConfig, scopes = ["operator.read"]) {
+async function callStatus(
+  config: OpenClawConfig,
+  scopes = ["operator.read"],
+  options: { includeCliProjection?: boolean } = {},
+) {
   setRuntimeConfigSnapshot(config, config);
   const respond = vi.fn();
   await healthHandlers.status!({
     req: {} as never,
-    params: { includeChannelSummary: false },
+    params: { includeChannelSummary: false, ...options },
     respond: respond as never,
     context: {} as never,
     client: { connect: { role: "operator", scopes } } as never,
@@ -32,6 +36,50 @@ async function callStatus(config: OpenClawConfig, scopes = ["operator.read"]) {
 }
 
 describe("Gateway status owner routing", () => {
+  it("projects requested CLI facts without choosing a fleet owner or widening read scopes", async () => {
+    await withStateDirEnv("openclaw-gateway-cli-status-", async ({ stateDir }) => {
+      const config = {
+        agents: {
+          ownership: "explicit",
+          entries: { alpha: { name: "Alpha" }, beta: { identity: { name: "Beta" } } },
+        },
+        update: { channel: "beta" },
+        plugins: { slots: { memory: "none" } },
+        session: { store: path.join(stateDir, "agents", "{agentId}", "sessions.json") },
+      } satisfies OpenClawConfig;
+
+      const ordinary = await callStatus(config);
+      expect(ordinary.mock.calls[0]?.[1]).not.toHaveProperty("cliProjection");
+
+      const requested = await callStatus(config, ["operator.read"], { includeCliProjection: true });
+      expect(requested.mock.calls[0]?.[0]).toBe(true);
+      expect(requested.mock.calls[0]?.[1]).toMatchObject({
+        cliProjection: {
+          agents: {
+            defaultId: null,
+            ownership: "explicit",
+            selectionRequired: true,
+            rows: [
+              { id: "alpha", name: "Alpha" },
+              { id: "beta", name: "Beta" },
+            ],
+          },
+          updateChannel: "beta",
+          memoryPlugin: { enabled: false, slot: null, reason: 'plugins.slots.memory="none"' },
+        },
+        sessions: {
+          paths: [],
+          defaults: { model: null, contextTokens: null },
+          recent: [],
+          byAgent: [
+            { agentId: "alpha", path: "[redacted]", recent: [] },
+            { agentId: "beta", path: "[redacted]", recent: [] },
+          ],
+        },
+      });
+    });
+  });
+
   it("reports current startup recovery failures with restricted details until their store heals", async () => {
     await withStateDirEnv("openclaw-gateway-recovery-warning-", async ({ stateDir }) => {
       const target = { agentId: "main", storePath: path.join(stateDir, "sessions.json") };

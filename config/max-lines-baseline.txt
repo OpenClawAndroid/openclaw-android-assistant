@@ -730,7 +730,6 @@ src/plugins/loader.hooks-and-runtime.test-utils.ts
 src/plugins/loader.registration.test-utils.ts
 src/plugins/loader.test-harness.ts
 src/plugins/manifest-registry.test.ts
-src/plugins/manifest-registry.ts
 src/plugins/marketplace.test.ts
 src/plugins/marketplace.ts
 src/plugins/official-external-plugin-catalog.test.ts

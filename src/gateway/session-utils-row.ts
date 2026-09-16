@@ -556,6 +556,7 @@ export function materializeSessionRow(input: ReturnType<typeof readSessionRowInp
     hasAutomation: input.hasAutomation,
     // Navigation lineage is persisted; runtime control is exposed separately above.
     parentSessionKey: entry?.parentSessionKey,
+    parentSessionId: entry?.parentSessionId,
     childSessions: undefined,
     responseUsage: entry?.responseUsage,
     effectiveResponseUsage: resolveEffectiveResponseUsage(

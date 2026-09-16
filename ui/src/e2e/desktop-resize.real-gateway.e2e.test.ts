@@ -18,7 +18,10 @@ import {
 import { getFreePort } from "../../../src/test-utils/ports.ts";
 import { startSkillLibraryNodeProcess } from "../../../test/e2e/qa-lab/runtime/skill-library-node-process.ts";
 import { SkillLibraryWireClient } from "../../../test/e2e/qa-lab/runtime/skill-library-wire-fixture.ts";
-import { createOpenClawTestInstance } from "../../../test/helpers/openclaw-test-instance.ts";
+import {
+  createOpenClawTestInstance,
+  type GatewayReadinessDiagnostic,
+} from "../../../test/helpers/openclaw-test-instance.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import { captureControlUiE2eFailureDiagnostics } from "../test-helpers/control-ui-e2e.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
@@ -44,6 +47,7 @@ declare module "vitest" {
   interface TaskMeta {
     desktopProofPhase?: DesktopProofPhase;
     desktopViewerResizeFailure?: DesktopViewerResizeFailure;
+    desktopGatewayReadiness?: GatewayReadinessDiagnostic[];
   }
 }
 
@@ -292,7 +296,12 @@ suite.define(() => {
           phase("gateway-start");
           // /readyz waits for the full worker/plugin sidecars. The unrelated
           // subagent-restoration tail is not a desktop readiness requirement.
-          await gateway.startGateway();
+          try {
+            await gateway.startGateway();
+          } finally {
+            // Keep the probe's outcome even when startup rollback also fails.
+            context.task.meta.desktopGatewayReadiness = [...gateway.readiness];
+          }
           context.signal.throwIfAborted();
           if (fixture.carrier === "node") {
             const endpoint = {

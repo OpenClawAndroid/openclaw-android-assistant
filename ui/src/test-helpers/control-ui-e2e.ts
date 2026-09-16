@@ -2231,6 +2231,15 @@ function installControlUiMockGateway(
     }
   }
 
+  function parseMockConfig(raw: string, fallback: unknown): unknown {
+    try {
+      return parseJson5(raw);
+    } catch {
+      // Invalid raw keeps the caller's last valid fixture object.
+      return fallback;
+    }
+  }
+
   function buildResponse(method: string, params: unknown): unknown {
     if (configState && baseConfigResponse) {
       if (method === "config.get") {
@@ -2253,15 +2262,14 @@ function installControlUiMockGateway(
           };
           persistConfigState();
         }
-        let parsedConfig: unknown = configuredConfig.config;
-        try {
-          parsedConfig = parseJson5(configState.raw);
-        } catch {
-          // Invalid raw keeps the last valid fixture object for generic mock scenarios.
-        }
+        const parsedConfig = parseMockConfig(configState.raw, configuredConfig.config);
         return {
           ...configuredConfig,
           config: parsedConfig,
+          // Editable projections describe this saved revision, not the initial
+          // fixture; stale aliases undo acknowledged edits during applied polling.
+          ...(hasOwn(configuredConfig, "sourceConfig") ? { sourceConfig: parsedConfig } : {}),
+          ...(hasOwn(configuredConfig, "resolved") ? { resolved: parsedConfig } : {}),
           hash: mockConfigHash(),
           configRevisionHash: mockConfigHash(),
           appliedConfigHash: mockAppliedConfigHash(),
@@ -2295,12 +2303,6 @@ function installControlUiMockGateway(
           };
           persistConfigState();
         }
-        let parsedConfig: unknown = baseConfigResponse.config;
-        try {
-          parsedConfig = parseJson5(configState.raw);
-        } catch {
-          // Invalid raw keeps the last valid fixture object for generic mock scenarios.
-        }
         const configured = configuredResponse(method, params);
         const configuredAck = isRecord(configured.value) ? configured.value : {};
         // Like the real gateway, return the persisted config and its new hash.
@@ -2309,7 +2311,7 @@ function installControlUiMockGateway(
           ok: true,
           path: baseConfigResponse.path,
           hash: mockConfigHash(),
-          config: parsedConfig,
+          config: parseMockConfig(configState.raw, baseConfigResponse.config),
         };
       }
     }

@@ -119,87 +119,101 @@ describe("mock gateway stateful config", () => {
     expect(replacement?.readyState).toBe(window.WebSocket.OPEN);
   });
 
-  it("round-trips config.set through config.get with an advancing hash", async ({
-    gatewayPage,
-  }) => {
-    const { execute } = gatewayPage;
-    const raw = '{\n  "logging": {\n    "level": "info"\n  }\n}\n';
-    const script = createControlUiMockGatewayInitScript({
-      methodResponses: {
-        "config.get": {
-          raw,
-          config: { logging: { level: "info" } },
-          hash: "fixture-hash",
-          valid: true,
-          issues: [],
+  it.for([false, true])(
+    "round-trips config.set through config.get with an advancing hash (projections: %s)",
+    async (projections, { gatewayPage }) => {
+      const { execute } = gatewayPage;
+      const raw = '{\n  "logging": {\n    "level": "info"\n  }\n}\n';
+      const script = createControlUiMockGatewayInitScript({
+        methodResponses: {
+          "config.get": {
+            raw,
+            config: { logging: { level: "info" } },
+            ...(projections
+              ? {
+                  sourceConfig: { logging: { level: "info" } },
+                  resolved: { logging: { level: "info" } },
+                }
+              : {}),
+            hash: "fixture-hash",
+            valid: true,
+            issues: [],
+          },
         },
-      },
-    });
-    // Execute the generated init script the way the browser <script> tag does.
-    execute(script);
+      });
+      // Execute the generated init script the way the browser <script> tag does.
+      execute(script);
 
-    const { request } = gatewayPage.connect();
-    await flushMockTimers();
+      const { request } = gatewayPage.connect();
+      await flushMockTimers();
 
-    const initial = await request("get-1", "config.get", {});
-    expect(initial).toMatchObject({
-      raw,
-      hash: "fixture-hash",
-      configRevisionHash: "fixture-hash",
-      appliedConfigHash: "fixture-hash",
-    });
-    expect(initial.config).toEqual({ logging: { level: "info" } });
+      const initial = await request("get-1", "config.get", {});
+      expect(initial).toMatchObject({
+        raw,
+        hash: "fixture-hash",
+        configRevisionHash: "fixture-hash",
+        appliedConfigHash: "fixture-hash",
+      });
+      expect(initial.config).toEqual({ logging: { level: "info" } });
 
-    const nextRaw = raw.replace("info", "debug");
-    const set = await request("set-1", "config.set", {
-      raw: nextRaw,
-      baseHash: "fixture-hash",
-    });
-    // Acks carry the persisted hash, mirroring the real gateway contract.
-    expect(set).toEqual({
-      ok: true,
-      hash: "mock-config-hash-1",
-      config: { logging: { level: "debug" } },
-    });
+      const nextRaw = raw.replace("info", "debug");
+      const set = await request("set-1", "config.set", {
+        raw: nextRaw,
+        baseHash: "fixture-hash",
+      });
+      // Acks carry the persisted hash, mirroring the real gateway contract.
+      expect(set).toEqual({
+        ok: true,
+        hash: "mock-config-hash-1",
+        config: { logging: { level: "debug" } },
+      });
 
-    const reloaded = await request("get-2", "config.get", {});
-    expect(reloaded).toMatchObject({
-      raw: nextRaw,
-      hash: "mock-config-hash-1",
-      configRevisionHash: "mock-config-hash-1",
-      appliedConfigHash: "fixture-hash",
-    });
-    expect(reloaded.config).toEqual({ logging: { level: "debug" } });
+      const reloaded = await request("get-2", "config.get", {});
+      expect(reloaded).toMatchObject({
+        raw: nextRaw,
+        hash: "mock-config-hash-1",
+        configRevisionHash: "mock-config-hash-1",
+        appliedConfigHash: "fixture-hash",
+      });
+      expect(reloaded.config).toEqual({ logging: { level: "debug" } });
+      for (const key of ["sourceConfig", "resolved"]) {
+        if (projections) {
+          expect(reloaded[key]).toEqual({ logging: { level: "debug" } });
+        } else {
+          expect(reloaded).not.toHaveProperty(key);
+        }
+      }
 
-    const applied = await request("apply-1", "config.apply", {
-      raw: nextRaw,
-      baseHash: "mock-config-hash-1",
-    });
-    expect(applied).toEqual({
-      ok: true,
-      hash: "mock-config-hash-2",
-      config: { logging: { level: "debug" } },
-    });
-    expect(await request("get-3", "config.get", {})).toMatchObject({
-      hash: "mock-config-hash-2",
-      configRevisionHash: "mock-config-hash-2",
-      appliedConfigHash: "mock-config-hash-2",
-    });
+      const applied = await request("apply-1", "config.apply", {
+        raw: nextRaw,
+        baseHash: "mock-config-hash-1",
+      });
+      expect(applied).toEqual({
+        ok: true,
+        hash: "mock-config-hash-2",
+        config: { logging: { level: "debug" } },
+      });
+      expect(await request("get-3", "config.get", {})).toMatchObject({
+        hash: "mock-config-hash-2",
+        configRevisionHash: "mock-config-hash-2",
+        appliedConfigHash: "mock-config-hash-2",
+      });
 
-    const json5Raw = '{\n  // Keep this comment.\n  logging: { level: "warn", },\n}\n';
-    const json5Ack = await request("set-json5", "config.set", {
-      raw: json5Raw,
-      baseHash: "mock-config-hash-2",
-    });
-    expect(json5Ack).toEqual({
-      ok: true,
-      hash: "mock-config-hash-3",
-      config: { logging: { level: "warn" } },
-    });
-    const json5Reloaded = await request("get-json5", "config.get", {});
-    expect(json5Reloaded).toMatchObject({ raw: json5Raw, hash: "mock-config-hash-3" });
-    expect(json5Reloaded.config).toEqual({ logging: { level: "warn" } });
-  });
+      const json5Raw = '{\n  // Keep this comment.\n  logging: { level: "warn", },\n}\n';
+      const json5Ack = await request("set-json5", "config.set", {
+        raw: json5Raw,
+        baseHash: "mock-config-hash-2",
+      });
+      expect(json5Ack).toEqual({
+        ok: true,
+        hash: "mock-config-hash-3",
+        config: { logging: { level: "warn" } },
+      });
+      const json5Reloaded = await request("get-json5", "config.get", {});
+      expect(json5Reloaded).toMatchObject({ raw: json5Raw, hash: "mock-config-hash-3" });
+      expect(json5Reloaded.config).toEqual({ logging: { level: "warn" } });
+    },
+  );
 
   it("leaves config methods untouched when the scenario has no raw fixture", async ({
     gatewayPage,

@@ -127,6 +127,8 @@ auth health, sandbox images, and plugin installs.
 
     Doctor also reports auth profiles that are temporarily unusable due to short cooldowns (rate limits/timeouts/auth failures) or longer disables (billing/credit failures).
 
+    Doctor also imports legacy generated provider catalogs (`plugins/*/catalog.json` and retained migration claims) into agent SQLite while preserving provider credentials. Run `openclaw doctor --fix` to import these catalogs or repair persisted generated models whose transport API cannot be derived. Ordinary model loading reads canonical SQLite catalogs without importing sidecars or repairing saved rows. Initial disk discovery and explicit registry refresh report legacy catalogs with a Doctor command; hot model lookups and lifecycle-captured catalogs do not inspect legacy files. Newly generated catalogs are still normalized before publication.
+
     Legacy Codex OAuth profiles with encrypted sidecar credentials are repaired only by doctor. Run `openclaw doctor --fix` from an interactive terminal on the original host so it can recover the legacy encryption key, including from macOS Keychain when needed, and import supported credentials into the SQLite auth store. If the legacy material cannot be recovered, sign in again with `openclaw models auth login --provider openai` on the Gateway host.
 
   </Accordion>

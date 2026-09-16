@@ -77,43 +77,103 @@ describe("runCliProcessChild", () => {
     },
   );
 
-  it("names the deadlock guard and keeps partial output when a child never exits", async () => {
-    await expect(
-      runCliProcessChild({
-        nodeArgs: ["-e", "process.stdout.write('partial'); setInterval(() => {}, 1_000);"],
-        env: process.env,
-        timeoutMs: 500,
-      }),
-    ).rejects.toThrow(/500ms deadlock guard[\s\S]*partial/u);
-  });
+  it("names the live handle and keeps partial output when a child never exits", async () => {
+    const failure = await runCliProcessChild({
+      nodeArgs: [
+        "-e",
+        [
+          "process.stdout.write('partial');",
+          "globalThis.pending = new Promise(() => {});",
+          "process.on('SIGUSR2', () => process.stderr.write('x'.repeat(8_100) + '\\nlast-stderr-line\\n'));",
+          "setInterval(() => {}, 1_000);",
+        ].join("\n"),
+      ],
+      env: process.env,
+      timeoutMs: 500,
+    }).catch((error: unknown) => error);
 
-  it("reaps the child and releases its pipes when interactive input fails", async () => {
-    let child: ChildProcessWithoutNullStreams | undefined;
-    let exited: Promise<unknown> | undefined;
-    try {
-      await expect(
-        runCliProcessChild({
-          nodeArgs: ["-e", "process.stdout.write('ready'); setInterval(() => {}, 1_000);"],
-          env: process.env,
-          interact: async (runningChild) => {
-            child = runningChild;
-            exited = once(runningChild, "exit");
-            await once(runningChild.stdout, "data");
-            throw new Error("interactive input failed");
-          },
-        }),
-      ).rejects.toThrow("interactive input failed");
-
-      expect(child?.killed).toBe(true);
-      expect(child?.stdin.destroyed).toBe(true);
-      expect(child?.stdout.destroyed).toBe(true);
-      expect(child?.stderr.destroyed).toBe(true);
-      await exited;
-    } finally {
-      child?.kill("SIGKILL");
-      await exited;
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toMatch(/500ms deadlock guard[\s\S]*partial/u);
+    if (process.platform !== "win32" && !process.versions.bun) {
+      expect(String(failure)).toContain('"Timeout":1');
+      expect(String(failure)).toContain('"activeHandles"');
+      expect(String(failure)).toMatch(/"pendingPromises":\{"tracked":[1-9]/u);
+      expect(String(failure)).toContain("last-stderr-line");
     }
   });
+
+  it.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
+    "keeps a timeout failure when the child exits during diagnostic grace",
+    async () => {
+      await expect(
+        runCliProcessChild({
+          nodeArgs: [
+            "-e",
+            "process.on('SIGUSR2', () => process.exit(0)); setInterval(() => {}, 1_000);",
+          ],
+          env: process.env,
+          timeoutMs: 500,
+        }),
+      ).rejects.toThrow(/500ms deadlock guard[\s\S]*received/u);
+    },
+  );
+
+  it.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
+    "bounds diagnostics when the child's event loop cannot handle the signal",
+    async () => {
+      await expect(
+        runCliProcessChild({
+          nodeArgs: ["-e", "process.stdout.write('blocked'); while (true) {}"],
+          env: process.env,
+          timeoutMs: 500,
+        }),
+      ).rejects.toThrow(/500ms deadlock guard[\s\S]*no response[\s\S]*blocked/u);
+    },
+  );
+
+  it.each([false, true])(
+    "preserves an input failure and releases pipes (kill fails=%s)",
+    async (killFails) => {
+      let child: ChildProcessWithoutNullStreams | undefined;
+      let exited: Promise<unknown> | undefined;
+      let restoreKill: (() => void) | undefined;
+      try {
+        await expect(
+          runCliProcessChild({
+            nodeArgs: ["-e", "process.stdout.write('ready'); setInterval(() => {}, 1_000);"],
+            env: process.env,
+            interact: async (runningChild) => {
+              child = runningChild;
+              exited = once(runningChild, "exit");
+              await once(runningChild.stdout, "data");
+              if (killFails) {
+                const kill = runningChild.kill.bind(runningChild);
+                restoreKill = () => {
+                  runningChild.kill = kill;
+                };
+                runningChild.kill = () => {
+                  throw new Error("cleanup kill failed");
+                };
+              }
+              throw new Error("interactive input failed");
+            },
+          }),
+        ).rejects.toThrow("interactive input failed");
+
+        expect(child?.killed).toBe(!killFails);
+        expect(child?.stdin.destroyed).toBe(true);
+        expect(child?.stdout.destroyed).toBe(true);
+        expect(child?.stderr.destroyed).toBe(true);
+        if (!killFails) {
+          await exited;
+        }
+      } finally {
+        restoreKill?.();
+        child?.kill("SIGKILL");
+        await exited;
+      }
+    },
+  );
 
   it("stops reading a detached grandchild's pipes once the guard fires", async () => {
     // The CLI's own respawn topology: stdio handed to a detached grandchild in its own

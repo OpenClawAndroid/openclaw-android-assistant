@@ -12,8 +12,18 @@ import {
   type ServiceChildAnchorPayload,
   type ServiceChildControlMessage,
 } from "./service-child-protocol.js";
-import { createServiceChildRelayAdapter } from "./service-child-relay-host.js";
+import { createServiceChildRelayAdapter as startServiceChildRelayAdapter } from "./service-child-relay-host.js";
 import { createProcessSupervisor } from "./supervisor.js";
+
+// Direct factory assertions concern completed readiness; caller regressions
+// below consume the production split startup directly.
+async function createServiceChildRelayAdapter(
+  params: Parameters<typeof startServiceChildRelayAdapter>[0],
+) {
+  const { adapter, ready } = await startServiceChildRelayAdapter(params);
+  await ready;
+  return adapter;
+}
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", async (importOriginal) => ({
@@ -171,12 +181,13 @@ function createWritableRelayChild() {
       callback();
     },
   });
+  const lineage = new PassThrough();
   Object.defineProperty(stub.child, "stdio", {
-    value: [stub.child.stdin, stub.child.stdout, stub.child.stderr, control, new PassThrough()],
+    value: [stub.child.stdin, stub.child.stdout, stub.child.stderr, control, lineage],
     configurable: true,
   });
   mocks.spawn.mockReturnValue(stub.child);
-  return { ...stub, control };
+  return { ...stub, control, lineage };
 }
 
 it.each(["before", "after"] as const)(

@@ -22,6 +22,7 @@ import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import type { PluginServiceRegistration } from "../plugins/registry-types.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
+import { createServiceRegistration } from "../plugins/services.test-support.js";
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import type { OpenClawPluginServiceContext } from "../plugins/types.js";
 import {
@@ -2206,11 +2207,8 @@ describe("startGatewayPostAttachRuntime", () => {
       const broadcastPluginEvent = vi.fn();
       let emit: (() => void) | undefined;
       registry.services.push(
-        {
-          pluginId: "published-startup",
-          source: "test",
-          origin: "workspace",
-          service: {
+        createServiceRegistration(
+          {
             id: "published-startup-service",
             start: (context) => {
               emit = () => context.gatewayEvents?.emit("ready", {}, { scope: "operator.read" });
@@ -2222,19 +2220,18 @@ describe("startGatewayPostAttachRuntime", () => {
             },
             stop: serviceStop,
           },
-        },
-        {
-          pluginId: "blocked-startup",
-          source: "test",
-          origin: "workspace",
-          service: {
+          { pluginId: "published-startup" },
+        ),
+        createServiceRegistration(
+          {
             id: "blocked-startup-service",
             start: () => {
               siblingStarted.resolve();
               return releaseSibling.promise;
             },
           },
-        },
+          { pluginId: "blocked-startup" },
+        ),
       );
       let services: PluginServicesHandle | null = null;
       const generation = createGatewayPluginRuntimeGeneration({
@@ -2323,19 +2320,19 @@ describe("startGatewayPostAttachRuntime", () => {
     const cleanup = createDeferred();
     const serviceStop = vi.fn(() => cleanup.promise);
     const registry = createEmptyPluginRegistry();
-    registry.services.push({
-      pluginId: "retained-startup-cleanup",
-      source: "test",
-      origin: "workspace",
-      service: {
-        id: "retained-startup-cleanup",
-        start: () => {
-          startupEntered.resolve();
-          return startup.promise;
+    registry.services.push(
+      createServiceRegistration(
+        {
+          id: "retained-startup-cleanup",
+          start: () => {
+            startupEntered.resolve();
+            return startup.promise;
+          },
+          stop: serviceStop,
         },
-        stop: serviceStop,
-      },
-    });
+        { pluginId: "retained-startup-cleanup" },
+      ),
+    );
     const publishedOwner: { current: PluginServicesHandle | null } = { current: null };
     const generation = createGatewayPluginRuntimeGeneration({
       getServices: () => publishedOwner.current,
@@ -2596,12 +2593,12 @@ describe("startGatewayPostAttachRuntime", () => {
       await vi.importActual<typeof import("../plugins/services.js")>("../plugins/services.js");
     const registry = createEmptyPluginRegistry();
     const start = vi.fn();
-    registry.services.push({
-      pluginId: "close-before-start",
-      source: "test",
-      origin: "workspace",
-      service: { id: "close-before-start", start },
-    });
+    registry.services.push(
+      createServiceRegistration(
+        { id: "close-before-start", start },
+        { pluginId: "close-before-start" },
+      ),
+    );
     let actualOwner: PluginServicesHandle | undefined;
     hoisted.startPluginServices.mockImplementationOnce((params) =>
       actualServices.startPluginServices({
@@ -2661,18 +2658,13 @@ describe("startGatewayPostAttachRuntime", () => {
       const sibling = { id: "sibling", start: vi.fn(), stop: vi.fn() };
       const replacementService = { id: "first", start: vi.fn(), stop: vi.fn() };
       const registry = createEmptyPluginRegistry();
-      const siblingRegistration: PluginServiceRegistration = {
+      const siblingRegistration: PluginServiceRegistration = createServiceRegistration(sibling, {
         pluginId: "sibling",
-        source: "test",
-        origin: "workspace",
-        service: sibling,
-      };
-      registry.services.push(siblingRegistration, {
-        pluginId: "first",
-        source: "test",
-        origin: "workspace",
-        service: first,
       });
+      registry.services.push(
+        siblingRegistration,
+        createServiceRegistration(first, { pluginId: "first" }),
+      );
       const owner = createPluginServicesOwner();
       const startupClaim = owner.currentClaim();
       const handles: { startup?: PluginServicesHandle; next?: PluginServicesHandle } = {};
@@ -2724,12 +2716,12 @@ describe("startGatewayPostAttachRuntime", () => {
         expect(sibling.stop).not.toHaveBeenCalled();
 
         const nextRegistry = createEmptyPluginRegistry();
-        nextRegistry.services.push(siblingRegistration, {
-          pluginId: "first",
-          source: "test",
-          origin: "workspace",
-          service: settlement === "commits" ? replacementService : first,
-        });
+        nextRegistry.services.push(
+          siblingRegistration,
+          createServiceRegistration(settlement === "commits" ? replacementService : first, {
+            pluginId: "first",
+          }),
+        );
         if (settlement === "rejects") {
           reservation.reject();
         }
@@ -2774,12 +2766,7 @@ describe("startGatewayPostAttachRuntime", () => {
         await vi.importActual<typeof import("../plugins/services.js")>("../plugins/services.js");
       const registry = createEmptyPluginRegistry();
       const service = { id: "admission", start: vi.fn(), stop: vi.fn() };
-      registry.services.push({
-        pluginId: "admission",
-        source: "test",
-        origin: "workspace",
-        service,
-      });
+      registry.services.push(createServiceRegistration(service, { pluginId: "admission" }));
       const replacementHandle =
         transition === "commit" || transition === "recovery"
           ? await actualServices.startPluginServices({ registry, config: {} })
@@ -2863,28 +2850,28 @@ describe("startGatewayPostAttachRuntime", () => {
     const broadcastPluginEvent = vi.fn();
     let context: OpenClawPluginServiceContext | undefined;
     const { promise: cleanupReleased, resolve: releaseCleanup } = createDeferred();
-    registry.services.push({
-      pluginId: "deferred-deadline",
-      source: "test",
-      origin: "workspace",
-      service: {
-        id: "deferred-deadline-service",
-        start: async (serviceContext) => {
-          context = serviceContext;
-          registerPluginHttpRoute({
-            path: "/deferred-deadline-route",
-            auth: "plugin",
-            handler: vi.fn(),
-          });
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 4_900);
-          });
+    registry.services.push(
+      createServiceRegistration(
+        {
+          id: "deferred-deadline-service",
+          start: async (serviceContext) => {
+            context = serviceContext;
+            registerPluginHttpRoute({
+              path: "/deferred-deadline-route",
+              auth: "plugin",
+              handler: vi.fn(),
+            });
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, 4_900);
+            });
+          },
+          stop: async () => {
+            await cleanupReleased;
+          },
         },
-        stop: async () => {
-          await cleanupReleased;
-        },
-      },
-    });
+        { pluginId: "deferred-deadline" },
+      ),
+    );
     hoisted.startPluginServices.mockImplementationOnce(actualServices.startPluginServices);
     const publishedOwner: { current: PluginServicesHandle | null } = { current: null };
     let stopping: ReturnType<PluginServicesHandle["stop"]> | undefined;

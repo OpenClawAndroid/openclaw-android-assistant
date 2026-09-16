@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { normalizeHomeDirValue } from "@openclaw/normalization-core/home-dir";
 import { pathExists as fsSafePathExists } from "./infra/fs-safe.js";
 import {
   resolveEffectiveHomeDir,
@@ -86,7 +87,7 @@ function resolveHomeDisplayPrefix(): { home: string; prefix: string } | undefine
   if (!home) {
     return undefined;
   }
-  const explicitHome = process.env.OPENCLAW_HOME?.trim();
+  const explicitHome = normalizeHomeDirValue(process.env.OPENCLAW_HOME);
   if (explicitHome) {
     return { home, prefix: "$OPENCLAW_HOME" };
   }

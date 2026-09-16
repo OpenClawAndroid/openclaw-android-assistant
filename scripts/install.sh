@@ -158,13 +158,15 @@ download_file() {
     if [[ "$DOWNLOADER" == "curl" ]]; then
         if [[ "$redirect_mode" == "deny" ]]; then
             curl -fsSL --max-redirs 0 --proto '=https' --tlsv1.2 \
+                --connect-timeout "$UPDATE_NETWORK_TIMEOUT_SECONDS" \
                 --speed-limit 1 --speed-time "$UPDATE_NETWORK_TIMEOUT_SECONDS" \
                 --retry 3 --retry-delay 1 --retry-connrefused \
                 -o "$output" "$url"
             return
         fi
-        # Bound post-connect stalls without imposing a total download duration.
+        # Bound connection and transfer stalls without a total download duration.
         curl -fsSL --proto '=https' --tlsv1.2 \
+            --connect-timeout "$UPDATE_NETWORK_TIMEOUT_SECONDS" \
             --speed-limit 1 --speed-time "$UPDATE_NETWORK_TIMEOUT_SECONDS" \
             --retry 3 --retry-delay 1 --retry-connrefused \
             -o "$output" "$url"

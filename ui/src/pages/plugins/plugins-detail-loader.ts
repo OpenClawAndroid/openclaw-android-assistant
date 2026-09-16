@@ -12,6 +12,7 @@ import type { PluginsPageDetail } from "./plugins-page-model.ts";
 /** Local inspection owns availability; optional metadata never delays the installed controls. */
 export async function loadInstalledPluginDetail(params: {
   plugin: PluginCatalogItem;
+  detail: PluginsPageDetail;
   client: GatewayBrowserClient;
   catalog?: PluginDiscoveryDetailResult;
   includeTools: boolean;
@@ -19,7 +20,7 @@ export async function loadInstalledPluginDetail(params: {
   onChange: (detail: PluginsPageDetail) => void;
 }): Promise<void> {
   const { plugin, client } = params;
-  let detail: PluginsPageDetail = { pluginId: plugin.id, inspection: null, error: null };
+  let detail = params.detail;
   const publish = (next: PluginsPageDetail) => {
     if (!params.isCurrent()) {
       return;
@@ -37,7 +38,7 @@ export async function loadInstalledPluginDetail(params: {
     if (!params.isCurrent()) {
       return;
     }
-    publish({ ...detail, inspection });
+    publish({ pluginId: plugin.id, inspection, error: null });
     void tools.then((catalog) => {
       if (!catalog) {
         return;

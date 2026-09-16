@@ -167,6 +167,7 @@ export const healthHandlers: GatewayRequestHandlers = {
     const status = await getStatusSummary({
       includeSensitive: scopes.includes(ADMIN_SCOPE),
       includeChannelSummary: params.includeChannelSummary !== false,
+      includeCliProjection: params.includeCliProjection === true,
       ...(hostDesktopStatus ? { hostDesktopStatus } : {}),
     });
     respond(

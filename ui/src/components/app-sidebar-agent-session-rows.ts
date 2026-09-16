@@ -285,6 +285,7 @@ export function projectSidebarAgentSessionRows({
   // fetched child rows: a catalog-adopted promoted child intentionally
   // renders as its live row inside the Coding catalog, never as a thread.
   const projected = projectSessionTree({
+    mainSessionKeys,
     roots: orderedRootRows.filter(
       (row) => !adopted.has(row.key) && (!grouped || visibleRowsByKey.has(row.key)),
     ),

@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { createRequire, isBuiltin } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { build } from "tsdown";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -319,6 +320,54 @@ describe("tsdown config", () => {
       }
     },
   );
+
+  it("routes HTML-only mail and advances the cursor through packaged imap-watch", async () => {
+    const entryName = "extensions/imap/index";
+    const selected = configs.find((config) =>
+      hasWorkerEntry(config, entryName, "extensions/imap/index.ts"),
+    );
+    if (!selected) {
+      throw new Error("Missing IMAP build config");
+    }
+    const root = fs.realpathSync(createTempDir("openclaw-tsdown-imap-"));
+    fs.writeFileSync(path.join(root, "package.json"), '{"type":"module"}');
+    fs.symlinkSync(fs.realpathSync("node_modules"), path.join(root, "node_modules"), "dir");
+    const { bundles } = await build({
+      ...selected,
+      config: false,
+      entry: {
+        [entryName]: "extensions/imap/index.ts",
+        "plugin-sdk/plugin-state-store-runtime": "src/plugin-sdk/plugin-state-store-runtime.ts",
+      },
+      outDir: path.join(root, "dist"),
+      dts: false,
+      logLevel: "silent",
+    });
+    try {
+      const result = await new Promise<{ error: Error | null; stdout: string; stderr: string }>(
+        (resolve) => {
+          execFile(
+            testNodeExecPath,
+            [
+              fileURLToPath(new URL("./imap-packaged-service.test-support.mjs", import.meta.url)),
+              root,
+            ],
+            {
+              cwd: root,
+              env: { ...process.env, OPENCLAW_STATE_DIR: path.join(root, "state") },
+              timeout: 30_000,
+            },
+            (error, stdout, stderr) => resolve({ error, stdout, stderr }),
+          );
+        },
+      );
+      expect(result.error, result.stderr || result.stdout).toBeNull();
+    } finally {
+      for (const bundle of bundles) {
+        await bundle[Symbol.asyncDispose]();
+      }
+    }
+  });
 
   it("keeps writable database and session lifecycle outside the archive worker bootstrap", async () => {
     const workerEntry = "config/sessions/session-accessor.sqlite-archive.worker";

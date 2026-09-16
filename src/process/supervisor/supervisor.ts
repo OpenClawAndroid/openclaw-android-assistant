@@ -278,6 +278,8 @@ export function createProcessSupervisor(): ProcessSupervisor & {
     let resultSettled = false;
     let lastOutputAtMs = startedAtMs;
     let cleanupSettled = false;
+    const outputCompletion = createDeferredCore();
+    let outputError: Error | undefined;
     const captured = { stdout: "", stderr: "" };
     // Forced settlement (kill-wait fallback, Windows forced close) resolves the
     // result while inherited pipes stay open, and callers finalize their own
@@ -416,10 +418,18 @@ export function createProcessSupervisor(): ProcessSupervisor & {
                 abortSignal: constructionAbort.signal,
                 onSpawnCleanup,
               });
-      const extinctionPromise = startupPromise
+      const nativeExtinctionPromise = startupPromise
         .then(
           async ({ adapter: started, ready }) => {
             ownedAdapter = started;
+            // The adapter retains errors from construction. Subscribe before readiness
+            // and keep observation until both output and native cleanup settle.
+            started.onError?.((error, source) => {
+              if (source === "stdout" || source === "stderr") {
+                outputError ??= error;
+                recordScopeCleanupFailure(owner, error);
+              }
+            });
             if (external || !started.waitForExtinction) {
               for (const scope of owner.cleanupOwners) {
                 if (requiresProcessTree(scope, external)) {
@@ -455,6 +465,16 @@ export function createProcessSupervisor(): ProcessSupervisor & {
             ownedAdapter?.dispose();
           }
         });
+      // Successful cleanup joins every output tail. A known native failure must
+      // remain reportable even if an inherited pipe never produces EOF.
+      const extinctionPromise = Promise.all([
+        nativeExtinctionPromise,
+        outputCompletion.promise,
+      ]).then(() => {
+        if (outputError) {
+          throw outputError;
+        }
+      });
       void extinctionPromise.then(
         () => {
           ownedRuns.delete(owner);
@@ -469,6 +489,7 @@ export function createProcessSupervisor(): ProcessSupervisor & {
       );
       const settleAbortedConstruction = (reason: TerminationReason) => {
         resultSettled = true;
+        outputCompletion.resolve();
         overallDeadline.clear();
         outputDeadline.clear();
         detachOutput();
@@ -490,6 +511,7 @@ export function createProcessSupervisor(): ProcessSupervisor & {
 
       const settleResult = () => {
         resultSettled = true;
+        outputCompletion.resolve();
         overallDeadline.clear();
         outputDeadline.clear();
         detachOutput();
@@ -641,6 +663,7 @@ export function createProcessSupervisor(): ProcessSupervisor & {
       return managedRun;
     } catch (err) {
       resultSettled = true;
+      outputCompletion.resolve();
       overallDeadline.clear();
       outputDeadline.clear();
       detachOutput();

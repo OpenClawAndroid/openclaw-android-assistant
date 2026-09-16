@@ -17,7 +17,12 @@ wrappers can predate this policy.
 On serial hosts with less than 24 GiB of memory, full lint runs core targets in
 five disjoint batches and plugins in smaller chunks. These runs retain the same
 type-aware rules and TypeScript configuration while bounding checker caches.
-Explicit split-core and parallel execution selections remain unchanged.
+Automatic Linux CI on at least four CPUs and 15 GiB of verified memory capacity
+uses sixteen-directory plugin chunks to amortize type-graph startup. Capacity
+includes physical RAM and ancestor cgroup limits. Smaller or unknown capacity,
+local runs, Windows, explicit plugin stripes, and explicit serial selections keep
+eight-directory chunks. Explicit split-core and parallel execution selections
+remain unchanged.
 
 Oxlint keeps `eslint/no-redeclare` enabled for JavaScript. For `.ts`, `.tsx`,
 `.mts`, and `.cts`, `tsgo` owns declaration validity, including intentional

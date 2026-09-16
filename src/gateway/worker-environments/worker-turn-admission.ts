@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createSessionPlacementSettlementClosedAbortError } from "../../agents/run-termination.js";
 import type {
   SessionPlacementTurnParams,
   LocalTurnPlacementClaim,
@@ -278,7 +279,7 @@ export async function executeLocalTurn<T>(params: {
       settle,
       () => {
         if (closed || !params.placements.validateTurnClaim(turnClaim)) {
-          throw createAbortError("session placement turn settlement is closed");
+          throw createSessionPlacementSettlementClosedAbortError();
         }
       },
       params.runLocal,

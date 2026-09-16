@@ -155,6 +155,7 @@ export const SessionRowSchema = Type.Object(
     activeLeafEntryId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
     spawnedBy: Type.Optional(Type.String()),
     parentSessionKey: Type.Optional(Type.String()),
+    parentSessionId: Type.Optional(Type.String()),
     controlOwnerSessionKey: Type.Optional(Type.String()),
     childSessions: Type.Optional(Type.Array(Type.String())),
     forkedFromParent: Type.Optional(Type.Boolean()),

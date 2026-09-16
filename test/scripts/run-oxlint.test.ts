@@ -646,6 +646,62 @@ describe("run-oxlint", () => {
   );
 
   it.each([
+    { name: "Linux CI", env: { CI: "true" }, chunkSize: 16 },
+    { name: "GitHub Actions", env: { GITHUB_ACTIONS: "true" }, chunkSize: 16 },
+    { name: "three CPUs", logicalCpuCount: 3, chunkSize: 8 },
+    { name: "below capacity threshold", memoryCapacityBytes: 15 * 1024 ** 3 - 1, chunkSize: 8 },
+    { name: "ancestor memory cap", memoryCapacityBytes: 8 * 1024 ** 3, chunkSize: 8 },
+    { name: "unknown capacity", memoryCapacityBytes: null, chunkSize: 8 },
+    { name: "local Linux", env: {}, chunkSize: 8 },
+    { name: "macOS", platform: "darwin", chunkSize: 8 },
+    { name: "Windows", platform: "win32", chunkSize: 8 },
+    { name: "explicit stripes", splitExtensions: true, chunkSize: 8 },
+    {
+      name: "explicit serial",
+      env: { CI: "true", OPENCLAW_OXLINT_SHARDS_SERIAL: "1" },
+      chunkSize: 8,
+    },
+  ] as const)("preserves complete plugin coverage with $name batches", (scenario) => {
+    const directories = Array.from(
+      { length: 17 },
+      (_, index) => `plugin-${String(index).padStart(2, "0")}`,
+    );
+    const shards = filterOxlintShards(
+      createOxlintShards({
+        cwd: "/repo",
+        env: { CI: "true" },
+        platform: "linux",
+        ...scenario,
+        hostResources: {
+          totalMemoryBytes: 16 * 1024 ** 3,
+          logicalCpuCount: scenario.logicalCpuCount ?? 4,
+          memoryCapacityBytes:
+            "memoryCapacityBytes" in scenario ? scenario.memoryCapacityBytes : 15 * 1024 ** 3,
+        },
+        readDir: (target) =>
+          target.endsWith("/extensions")
+            ? ([
+                ...directories
+                  .toReversed()
+                  .map((name) => ({ name, isDirectory: () => true, isFile: () => false })),
+                { name: "root.test.ts", isDirectory: () => false, isFile: () => true },
+                { name: "notes.md", isDirectory: () => false, isFile: () => true },
+              ] as never)
+            : [],
+      }),
+      new Set(["extensions"]),
+    );
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual(
+      scenario.chunkSize === 16 ? [1, 16, 1] : [1, 8, 8, 1],
+    );
+    expect(shards.flatMap((shard) => shard.args.slice(2))).toEqual([
+      "extensions/root.test.ts",
+      ...directories.map((directory) => `extensions/${directory}`),
+    ]);
+    expect(shouldPrepareExtensionPackageBoundaryArtifactsForShards(shards)).toBe(true);
+  });
+
+  it.each([
     { name: "explicit full speed", memoryGiB: 16, env: { OPENCLAW_LOCAL_CHECK_MODE: "full" } },
     { name: "explicit fast mode", memoryGiB: 16, env: { OPENCLAW_LOCAL_CHECK_MODE: "fast" } },
     { name: "explicit parallel", memoryGiB: 16, env: { OPENCLAW_OXLINT_SHARDS_SERIAL: "0" } },

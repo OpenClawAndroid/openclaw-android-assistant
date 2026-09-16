@@ -61,6 +61,24 @@ to separate the Gateway response from local report collection. Gateway
 [Prometheus RPC timings](/gateway/prometheus) exclude CLI startup and connection
 setup; a slow CLI can finish without a slow Gateway handler.
 
+When the Gateway is reachable and authorized, `status --json` uses its status
+projection instead of scanning every agent's plugin metadata and database
+ownership locally. The Gateway supplies session counts, heartbeat and task
+state, runtime vitals, and agent roster facts. The request keeps `operator.read`
+scope, including its redaction of session paths, recent sessions, model defaults,
+and detailed admission refusals.
+
+JSON `collection.notCollected` names fields that were not inspected and explains
+why. Online status leaves workspace and bootstrap checks unknown, including
+`agents.bootstrapPendingCount: null`. It also skips local config validation,
+channel and memory credential inspection, and the local plugin inspections
+normally requested by `--all` or `--deep`. Requested security audit and plugin
+compatibility sections report `collected: false`; memory remains `null`. Use
+`openclaw security audit`, `openclaw plugins inspect --all`, or
+`openclaw memory status --deep` for those local inspections. `--deep` still requests
+Gateway health, and `--usage --agent <id>` retains its credential scope.
+When the Gateway is unavailable, JSON status retains local diagnostics.
+
 For Git installs, plain status compares cached remote-tracking refs without a
 network fetch. If the latest recorded update fetch failed and no later update
 run records a completed fetch, the Update row shows

@@ -656,7 +656,7 @@ extensions/matrix/src/matrix/poll-types.ts	10
 extensions/matrix/src/matrix/probe.ts	1
 extensions/matrix/src/matrix/reaction-common.ts	1
 extensions/matrix/src/matrix/sdk.ts	8
-extensions/matrix/src/matrix/sdk/client-base.ts	7
+extensions/matrix/src/matrix/sdk/client-base.ts	6
 extensions/matrix/src/matrix/sdk/client-core.ts	15
 extensions/matrix/src/matrix/sdk/client-event-bridge.ts	2
 extensions/matrix/src/matrix/sdk/client-support.ts	1
@@ -977,7 +977,7 @@ extensions/qa-lab/src/live-transports/whatsapp/scenario-runtime.ts	6
 extensions/qa-lab/src/live-transports/whatsapp/whatsapp-live.setup.ts	1
 extensions/qa-lab/src/mantis/crabbox-runtime.ts	2
 extensions/qa-lab/src/mantis/discord-smoke.runtime.ts	3
-extensions/qa-lab/src/mantis/run.runtime.ts	3
+extensions/qa-lab/src/mantis/run.runtime.ts	1
 extensions/qa-lab/src/mantis/slack-desktop-smoke.runtime.ts	4
 extensions/qa-lab/src/mantis/visual-task.runtime.ts	2
 extensions/qa-lab/src/manual-lane.runtime.ts	2
@@ -1558,7 +1558,6 @@ src/agents/agent-command.ts	1
 src/agents/agent-hooks/compaction-safeguard.ts	14
 src/agents/agent-project-settings-snapshot.ts	5
 src/agents/agent-run-terminal-delivery.ts	1
-src/agents/agent-run-terminal-error.ts	1
 src/agents/agent-run-terminal-outcome.ts	2
 src/agents/agent-run-terminal-receipt.ts	1
 src/agents/agent-runtime-config.ts	1
@@ -1850,7 +1849,6 @@ src/agents/sandbox/backend.ts	1
 src/agents/sandbox/config.ts	3
 src/agents/sandbox/container-engine.ts	1
 src/agents/sandbox/podman-runtime.ts	1
-src/agents/sandbox/provisioning-error.ts	1
 src/agents/sandbox/registry.ts	3
 src/agents/sandbox/test-args.ts	1
 src/agents/sandbox/tool-policy.ts	2
@@ -1872,7 +1870,7 @@ src/agents/sessions/extensions/loader.ts	7
 src/agents/sessions/extensions/runner.ts	17
 src/agents/sessions/extensions/types.ts	1
 src/agents/sessions/keybindings.ts	2
-src/agents/sessions/model-registry.ts	13
+src/agents/sessions/model-registry.ts	12
 src/agents/sessions/package-manager.ts	3
 src/agents/sessions/resolve-config-value.ts	1
 src/agents/sessions/sdk.ts	3
@@ -2324,7 +2322,6 @@ src/commands/doctor-heartbeat-main-session-repair.ts	1
 src/commands/doctor-heartbeat-scratch-migration.ts	5
 src/commands/doctor-main-session-recovery.ts	1
 src/commands/doctor-model-catalog-credentials.ts	1
-src/commands/doctor-plugin-model-catalog.ts	1
 src/commands/doctor-plugin-registry.ts	1
 src/commands/doctor-post-upgrade.ts	1
 src/commands/doctor-prompter.ts	1
@@ -3607,7 +3604,7 @@ ui/src/components/config-form-copy-on-write.ts	1
 ui/src/components/config-form-structured-draft.ts	3
 ui/src/components/config-form.analyze.ts	1
 ui/src/components/config-form.node.collection.ts	2
-ui/src/components/config-form.node.scalar.ts	5
+ui/src/components/config-form.node.scalar.ts	4
 ui/src/components/config-form.node.shared.ts	3
 ui/src/components/config-form.node.ts	1
 ui/src/components/config-form.render.ts	1

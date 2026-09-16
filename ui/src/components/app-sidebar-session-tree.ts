@@ -1,9 +1,6 @@
 import type { GatewaySessionRow } from "../api/types.ts";
-import {
-  areUiSessionKeysEquivalent,
-  isSubagentSessionKey,
-  resolveUiSessionNavigationParentKey,
-} from "../lib/sessions/session-key.ts";
+import { areUiSessionKeysEquivalent, isSubagentSessionKey } from "../lib/sessions/session-key.ts";
+import { resolveSidebarSessionParentKey } from "./app-sidebar-session-parent.ts";
 import {
   summarizeSidebarSessionAttention,
   type SidebarKnownSessionAttention,
@@ -28,12 +25,20 @@ function attributeChildAttention(
  */
 export function projectSessionTree(params: {
   roots: readonly GatewaySessionRow[];
+  mainSessionKeys?: ReadonlySet<string>;
   rowsByKey: ReadonlyMap<string, GatewaySessionRow>;
   loadingChildKeys: ReadonlySet<string>;
   knownSessionAttention: readonly SidebarKnownSessionAttention[];
   toSidebarSession: (row: GatewaySessionRow, isChild?: boolean) => SidebarRecentSession;
 }): SidebarRecentSession[] {
-  const { roots, rowsByKey, loadingChildKeys, knownSessionAttention, toSidebarSession } = params;
+  const {
+    roots,
+    mainSessionKeys = new Set<string>(),
+    rowsByKey,
+    loadingChildKeys,
+    knownSessionAttention,
+    toSidebarSession,
+  } = params;
   const childKeysByParent = new Map<string, string[]>();
   const hasRootCategory = (row: GatewaySessionRow | undefined) =>
     typeof row?.category === "string" &&
@@ -54,16 +59,16 @@ export function projectSessionTree(params: {
       if (hasRootCategory(child)) {
         continue;
       }
-      const navigationParentKey = resolveUiSessionNavigationParentKey(child);
+      const navigationParentKey = resolveSidebarSessionParentKey(child, mainSessionKeys, row.key);
       // Runtime control and sidebar navigation can have different parents;
       // known children belong to their explicit navigation parent only.
-      if (!navigationParentKey || areUiSessionKeysEquivalent(navigationParentKey, row.key)) {
+      if (areUiSessionKeysEquivalent(navigationParentKey, row.key)) {
         appendChild(row.key, childKey);
       }
     }
   }
   for (const row of rowsByKey.values()) {
-    const parentKey = resolveUiSessionNavigationParentKey(row);
+    const parentKey = resolveSidebarSessionParentKey(row, mainSessionKeys);
     if (parentKey && !hasRootCategory(row)) {
       appendChild(parentKey, row.key);
     }
@@ -167,7 +172,7 @@ export function projectSessionTree(params: {
       if (hasRootCategory(row)) {
         return true;
       }
-      const parentKey = resolveUiSessionNavigationParentKey(row);
+      const parentKey = resolveSidebarSessionParentKey(row, mainSessionKeys);
       return !parentKey || !rootKeys.has(parentKey);
     })
     .map((row) => build(row, false, new Set()));

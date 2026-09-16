@@ -45,12 +45,6 @@
       "nodeId": "node-1",
       "seq": 1,
       "chunk": "é"
-    },
-    "invalid": {
-      "invokeId": "invoke-1",
-      "nodeId": "node-1",
-      "seq": -1,
-      "chunk": "invalid"
     }
   },
   "results": {
@@ -69,15 +63,6 @@
       "error": {
         "code": "LOCAL_POLICY_DENIED",
         "message": "command is outside the embedding's current local policy"
-      }
-    },
-    "invalid": {
-      "id": "invoke-2",
-      "nodeId": "node-1",
-      "ok": false,
-      "error": {
-        "code": "",
-        "message": "missing error code"
       }
     }
   }

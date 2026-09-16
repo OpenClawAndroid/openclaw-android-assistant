@@ -49,6 +49,7 @@ async function startService(getCronService?: () => CronService) {
     pluginId: "test-plugin",
     origin: "workspace",
     source: "test",
+    id: "maintenance",
     service: {
       id: "maintenance",
       start: (ctx) => {
@@ -122,6 +123,7 @@ describe("plugin service scheduler ownership", () => {
       pluginId: "added-plugin",
       origin: "workspace",
       source: "test",
+      id: addedService.id.trim(),
       service: addedService,
     });
     const successor = await startPluginServices({
@@ -234,6 +236,7 @@ it("shares the canonical runtime identity only while the exporter lease is activ
     pluginId: "diagnostics-prometheus",
     origin: "bundled",
     source: "test",
+    id: "diagnostics-prometheus",
     service: {
       id: "diagnostics-prometheus",
       start: (ctx) => {

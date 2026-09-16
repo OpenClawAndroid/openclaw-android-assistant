@@ -1,4 +1,5 @@
 // Matrix plugin module implements transport behavior.
+import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { captureChannelReadAuthority } from "openclaw/plugin-sdk/fetch-runtime";
 import { parseMediaContentLength } from "openclaw/plugin-sdk/media-runtime";
 import { MatrixMediaSizeLimitError } from "../media-errors.js";
@@ -150,6 +151,7 @@ async function fetchWithMatrixDispatcher(params: {
   url: string;
   init: MatrixDispatcherRequestInit;
   assertCurrent?: () => void;
+  onDispatch?: () => void;
 }): Promise<Response> {
   // Keep this dispatcher-routing logic local to Matrix transport. Shared SSRF
   // fetches must stay fail-closed unless a retry path can preserve the
@@ -157,6 +159,7 @@ async function fetchWithMatrixDispatcher(params: {
   // through undici runtime fetch so the pinned dispatcher is preserved.
   params.assertCurrent?.();
   params.init.signal?.throwIfAborted();
+  params.onDispatch?.();
   return await fetchWithRuntimeDispatcherOrMockedGlobal(params.url, params.init);
 }
 
@@ -168,6 +171,7 @@ async function fetchWithMatrixGuardedRedirects(params: {
   ssrfPolicy?: SsrFPolicy;
   dispatcherPolicy?: PinnedDispatcherPolicy;
   assertCurrent?: () => void;
+  beforeDispatch?: () => Promise<void> | undefined;
 }): Promise<{ response: Response; release: () => Promise<void>; finalUrl: string }> {
   params.assertCurrent?.();
   let currentUrl = new URL(params.url);
@@ -183,6 +187,7 @@ async function fetchWithMatrixGuardedRedirects(params: {
     url: params.url,
   });
 
+  let dispatched = false;
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
     let dispatcher: ReturnType<typeof createPinnedDispatcher> | undefined;
     try {
@@ -193,9 +198,16 @@ async function fetchWithMatrixGuardedRedirects(params: {
         signal,
       });
       dispatcher = createPinnedDispatcher(pinned, params.dispatcherPolicy, params.ssrfPolicy);
+      // The guard can persist dispatch custody, so reject stale requests before it runs.
+      params.assertCurrent?.();
+      signal?.throwIfAborted();
+      await params.beforeDispatch?.();
       const response = await fetchWithMatrixDispatcher({
         url: currentUrl.toString(),
         assertCurrent: params.assertCurrent,
+        onDispatch: () => {
+          dispatched = true;
+        },
         init: {
           ...params.init,
           method,
@@ -266,6 +278,26 @@ async function fetchWithMatrixGuardedRedirects(params: {
     } catch (error) {
       cleanup();
       await closeDispatcher(dispatcher);
+      if (!dispatched) {
+        if (error instanceof PlatformMessageNotDispatchedError) {
+          throw error;
+        }
+        // The durable callback must precede I/O, but it is not proof of I/O.
+        // Roll back its queue marker if the final fence rejects the first fetch.
+        throw new PlatformMessageNotDispatchedError(
+          error instanceof Error ? error.message : "Matrix request rejected before dispatch",
+          { cause: error },
+        );
+      }
+      if (error instanceof PlatformMessageNotDispatchedError) {
+        // A later redirect fence describes only that hop, not the earlier request.
+        // Keep an unproven branch so the queue cannot misread it as a whole-send proof.
+        throw new AggregateError(
+          [error, new Error("An earlier Matrix request crossed the fetch boundary")],
+          error.message,
+          { cause: error },
+        );
+      }
       throw error;
     }
   }
@@ -279,6 +311,7 @@ export function createMatrixGuardedFetch(params: {
   dispatcherPolicy?: PinnedDispatcherPolicy;
   captureRequestAuthority?: () => (() => void) | undefined;
   signal?: AbortSignal;
+  beforeRequest?: (resource: RequestInfo | URL, init?: RequestInit) => Promise<void> | undefined;
 }): typeof fetch {
   return (async (resource: RequestInfo | URL, init?: RequestInit) => {
     const assertCurrent = params.captureRequestAuthority?.() ?? captureChannelReadAuthority();
@@ -289,6 +322,7 @@ export function createMatrixGuardedFetch(params: {
       params.signal && signal
         ? AbortSignal.any([params.signal, signal])
         : (params.signal ?? signal ?? undefined);
+    const beforeRequest = params.beforeRequest;
     const { response, release } = await fetchWithMatrixGuardedRedirects({
       url,
       init: requestInit,
@@ -296,6 +330,8 @@ export function createMatrixGuardedFetch(params: {
       assertCurrent,
       ssrfPolicy: params.ssrfPolicy,
       dispatcherPolicy: params.dispatcherPolicy,
+      // Redirects belong to the same original timeline operation and task owner.
+      beforeDispatch: beforeRequest ? () => beforeRequest(resource, init) : undefined,
     });
 
     try {

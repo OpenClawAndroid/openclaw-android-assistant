@@ -36,6 +36,7 @@ import {
   PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
   startPluginServices,
 } from "../plugins/services.js";
+import { createServiceRegistration } from "../plugins/services.test-support.js";
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import type { OpenClawPluginService } from "../plugins/types.js";
 import { getProcessSupervisor, type ManagedRun } from "../process/supervisor/index.js";
@@ -877,12 +878,9 @@ describe("createGatewayCloseHandler", () => {
         stop,
       });
       const registry = createEmptyPluginRegistry();
-      registry.services.push({
-        pluginId: "diagnostics-otel",
-        service,
-        source: "test",
-        origin: "bundled",
-      });
+      registry.services.push(
+        createServiceRegistration(service, { pluginId: "diagnostics-otel", origin: "bundled" }),
+      );
       setActivePluginRegistry(registry);
       const pluginServices = await startPluginServices({ registry, config: {} });
       if (failureKind === "admission") {
@@ -1604,12 +1602,12 @@ describe("createGatewayCloseHandler", () => {
       const cleanup = createDeferredCore();
       const stop = vi.fn(() => cleanup.promise);
       const registry = createEmptyPluginRegistry();
-      registry.services.push({
-        pluginId: "shutdown-test",
-        service: { id: "pending-cleanup", start() {}, stop },
-        source: "test",
-        origin: "workspace",
-      });
+      registry.services.push(
+        createServiceRegistration(
+          { id: "pending-cleanup", start() {}, stop },
+          { pluginId: "shutdown-test" },
+        ),
+      );
       setActivePluginRegistry(registry);
       const pluginServices = await startPluginServices({ registry, config: {} });
       const strictStopping = pluginServices.stop({

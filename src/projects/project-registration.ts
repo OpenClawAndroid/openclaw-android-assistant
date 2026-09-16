@@ -1,4 +1,5 @@
 import path from "node:path";
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
 import type { OpenClawStateLeaseContext } from "../state/openclaw-state-lease.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
@@ -69,7 +70,7 @@ export async function registerResolvedProject(
   input: ProjectRegistrationInput,
   options: Pick<OpenClawStateDatabaseOptions, "path" | "env">,
 ): Promise<ProjectRegistryRecord> {
-  const env = { ...(options.env ?? process.env) };
+  const env = cloneEnvWithPlatformSemantics(options.env ?? process.env);
   const context = captureOpenClawStateWorkerContext({ path: options.path, env });
   const prepared = await prepareProjectRegistration(input);
   return await withProjectCheckoutLifecycle(

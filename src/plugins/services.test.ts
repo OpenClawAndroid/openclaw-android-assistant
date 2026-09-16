@@ -49,6 +49,7 @@ function createRegistry(
   const registry = createEmptyPluginRegistry();
   registry.services = services.map((service) => ({
     pluginId,
+    id: service.id.trim(),
     service,
     source: "test",
     origin,

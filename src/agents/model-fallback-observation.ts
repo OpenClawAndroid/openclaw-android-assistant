@@ -356,6 +356,8 @@ export type ModelFallbackChainStopReason =
   | "caller_signal_aborted"
   | "agent_run_direct_abort"
   | "agent_run_restart_abort"
+  | "agent_run_superseded_abort"
+  | "session_placement_settlement_closed"
   | "terminal_abort_wrapper";
 
 /** Record a local or terminal stop separately from provider-failure decisions. */

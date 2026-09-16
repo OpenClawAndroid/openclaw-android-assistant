@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import { listAgentIds, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   executeSqliteQuerySync,
@@ -200,7 +201,7 @@ export async function removeProjectRegistry(
     source: project.source,
     originUrl: project.originUrl,
   };
-  const env = { ...(options.env ?? process.env) };
+  const env = cloneEnvWithPlatformSemantics(options.env ?? process.env);
   const context = captureOpenClawStateWorkerContext({ path: options.path, env });
   return await withProjectCheckoutLifecycle(
     selectedProject.repoRoot,

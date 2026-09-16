@@ -99,12 +99,15 @@ describe("createChildAdapter", () => {
       flush: () => "",
     }));
     createServiceChildRelayAdapterMock.mockResolvedValue({
-      pid: 9999,
-      onStdout: vi.fn(),
-      onStderr: vi.fn(),
-      wait: vi.fn(),
-      kill: vi.fn(),
-      dispose: vi.fn(),
+      ready: Promise.resolve(),
+      adapter: {
+        pid: 9999,
+        onStdout: vi.fn(),
+        onStderr: vi.fn(),
+        wait: vi.fn(),
+        kill: vi.fn(),
+        dispose: vi.fn(),
+      },
     });
     delete process.env.OPENCLAW_SERVICE_MARKER;
     vi.useRealTimers();

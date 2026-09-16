@@ -202,6 +202,11 @@ export abstract class MatrixClientBase {
       dispatcherPolicy: opts.dispatcherPolicy,
       captureRequestAuthority: this.captureRequestAuthority,
       signal: this.requestAbortController.signal,
+      beforeRequest: async (resource, init) => {
+        // Complete admitted key persistence before checking live wire authority.
+        await this.recoveryKeyStore.drainPendingPersistence();
+        await this.messageWireDispatchGuards.beforeRequest(resource, init);
+      },
     });
     this.client = createMatrixJsClient({
       baseUrl: homeserver,
@@ -210,16 +215,7 @@ export abstract class MatrixClientBase {
       deviceId: opts.deviceId,
       logger: createMatrixJsSdkClientLogger("MatrixClient"),
       localTimeoutMs: this.localTimeoutMs,
-      fetchFn: (async (resource: RequestInfo | URL, init?: RequestInit) => {
-        // The SDK cache callback is void; even stores without a key getter must
-        // settle its admitted writes before another request reaches the wire.
-        await this.recoveryKeyStore.drainPendingPersistence();
-        const pendingGuard = this.messageWireDispatchGuards.beforeRequest(resource, init);
-        if (pendingGuard) {
-          await pendingGuard;
-        }
-        return await guardedFetch(resource, init);
-      }) as typeof fetch,
+      fetchFn: guardedFetch,
       store: this.syncStore,
       cryptoCallbacks: cryptoCallbacks as never,
       verificationMethods: [

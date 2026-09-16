@@ -142,7 +142,7 @@ export function shouldTreatEmptyAssistantReplyAsSilent(params: {
     hasOnlySilentAssistantReply(params.attempt.assistantTexts);
   const tolerateSideEffects = terminalReplyOptional || explicitSilentReply;
   if (
-    !params.allowEmptyAssistantReplyAsSilent ||
+    (!params.allowEmptyAssistantReplyAsSilent && !explicitSilentReply) ||
     shouldSkipNonVisibleTurnRetry({ ...params, tolerateSideEffects })
   ) {
     return false;

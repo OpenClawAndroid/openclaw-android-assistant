@@ -127,7 +127,7 @@ export async function createChildAdapter(
   params: ChildAdapterInput,
 ): Promise<ProcessAdapterStartup<WorkerChildAdapter>> {
   if (params.anchoredShellCommand !== undefined) {
-    const adapter = await createServiceChildRelayAdapter({
+    const startup = await createServiceChildRelayAdapter({
       assertCurrent: params.assertCurrent,
       beforeSpawn: params.beforeSpawn,
       command: process.platform === "win32" ? params.anchoredShellCommand : "/bin/sh",
@@ -141,7 +141,7 @@ export async function createChildAdapter(
       onSpawnCleanup: params.onSpawnCleanup,
       stderrDestination: params.stderrDestination,
     });
-    return { adapter, ready: Promise.resolve() };
+    return startup;
   }
 
   const baseEnv = params.env ? toStringEnv(params.env) : undefined;
@@ -169,7 +169,7 @@ export async function createChildAdapter(
     params.ownedWorker === undefined &&
     (params.ownProcessTree === true || process.env.OPENCLAW_SERVICE_MARKER?.trim())
   ) {
-    const adapter = await createServiceChildRelayAdapter({
+    const startup = await createServiceChildRelayAdapter({
       assertCurrent: params.assertCurrent,
       beforeSpawn: params.beforeSpawn,
       command: preparedSpawn.command,
@@ -186,7 +186,7 @@ export async function createChildAdapter(
       stderrDestination: params.stderrDestination,
       stdoutConsumption: params.stdoutConsumption,
     });
-    return { adapter, ready: Promise.resolve() };
+    return startup;
   }
 
   // A detached POSIX child is still a descendant in the service cgroup/job, but

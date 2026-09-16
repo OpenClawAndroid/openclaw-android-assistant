@@ -222,12 +222,14 @@ type PluginHookRegistration = {
 };
 
 export type PluginServiceRegistration = PluginRegistrationOwner & {
+  readonly id: string;
   service: OpenClawPluginService;
   origin: PluginOrigin;
   trustedOfficialInstall?: boolean;
 };
 
 export type PluginGatewayDiscoveryServiceRegistration = PluginRegistrationOwner & {
+  readonly id: string;
   service: OpenClawGatewayDiscoveryService;
   instance?: PluginInstanceExecution;
 };

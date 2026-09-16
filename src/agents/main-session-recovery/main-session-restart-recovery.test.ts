@@ -107,6 +107,7 @@ import {
   waitForFast,
 } from "../subagent-test-fixtures.test-helpers.js";
 import { subagentRuns } from "../subagents/registry/subagent-registry-memory.js";
+import { registerHarnessCompletionRecoveryCases } from "./main-session-harness-completion.test-harness.js";
 import * as recoveryOwnerRelease from "./main-session-recovery-owner-release.js";
 import {
   claimMainSessionRecoveryOwner,
@@ -529,6 +530,23 @@ function codeModeWaitCallMessage() {
       },
     ],
     stopReason: "toolUse",
+  };
+}
+
+function getHarnessRecoveryFixture() {
+  return {
+    tmpDir,
+    makeSessionsDir,
+    mainSessionEntry,
+    writeStore,
+    writeTranscript,
+    expectRecovery,
+    loadSessionEntry,
+    sendRecoveryNotice,
+    dispatchSettlement,
+    discordDeliveryContext,
+    runningSessionEntry,
+    gatewayParams,
   };
 }
 
@@ -1652,35 +1670,7 @@ describe("main-session-restart-recovery", () => {
     expect(readStore(storePath)[fixture.sessionKey]).not.toHaveProperty("restartRecoveryRuns");
   });
 
-  it("resumes an explicit human run despite stale completion provenance", async () => {
-    const sessionsDir = await makeSessionsDir();
-    const sessionKey = "agent:main:telegram:group:-100:topic:41818";
-    await writeStore(sessionsDir, {
-      [sessionKey]: {
-        ...runningSessionEntry("topic-41818-session"),
-        abortedLastRun: true,
-        restartRecoveryRuns: [{ runId: "human-run-2", lifecycleGeneration: "generation-old" }],
-      },
-    });
-    await writeTranscript(sessionsDir, "topic-41818-session", [
-      {
-        role: "user",
-        content: "A background task finished.",
-        provenance: {
-          kind: "inter_session",
-          sourceSessionKey: "agent:main:subagent:child",
-          sourceChannel: "internal",
-          sourceTool: "subagent_announce",
-        },
-      },
-      { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "exec" }] },
-      { role: "toolResult", content: "done" },
-    ]);
-
-    await expectRecovery({ started: 1, settled: 0, failed: 0, skipped: 0 });
-    expect(callGateway).toHaveBeenCalledOnce();
-    expect(gatewayParams().sessionKey).toBe(sessionKey);
-  });
+  registerHarnessCompletionRecoveryCases(getHarnessRecoveryFixture);
 
   it("retries when a human recovery run appears during announce reconciliation", async () => {
     const sessionsDir = await makeSessionsDir();

@@ -685,7 +685,14 @@ describe("collectPublishablePluginPackages", () => {
   });
 
   it("keeps publishable plugin dist trees out of the core npm package unless bundled", () => {
-    const corePackageRuntimePluginIds = new Set(["discord"]);
+    // These publication targets intentionally remain in the core distribution.
+    // bundledDist: true would defer their separate npm/ClawHub publication.
+    const corePackageRuntimePluginIds = new Set([
+      "discord",
+      "logbook",
+      "memory-wiki",
+      "onepassword",
+    ]);
     const rootPackage = JSON.parse(readFileSync("package.json", "utf8")) as {
       files?: unknown;
     };

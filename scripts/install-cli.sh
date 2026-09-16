@@ -179,8 +179,9 @@ download_file() {
     detect_downloader
   fi
   if [[ "$DOWNLOADER" == "curl" ]]; then
-    # Bound post-connect stalls without imposing a total download duration.
+    # Bound connection and transfer stalls without a total download duration.
     curl -fsSL --proto '=https' --tlsv1.2 \
+      --connect-timeout "$UPDATE_NETWORK_TIMEOUT_SECONDS" \
       --speed-limit 1 --speed-time "$UPDATE_NETWORK_TIMEOUT_SECONDS" \
       --retry 3 --retry-delay 1 --retry-connrefused \
       -o "$output" "$url"

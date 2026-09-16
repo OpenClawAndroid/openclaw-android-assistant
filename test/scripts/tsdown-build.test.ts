@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readProcessMemoryCapacity } from "../../scripts/lib/process-memory.mts";
 import {
   TSDOWN_NON_SDK_DTS_CONFIG_GROUPS,
   TSDOWN_PACKAGE_CONFIG_GROUP,
@@ -784,35 +785,41 @@ describe("resolveTsdownBuildInvocation", () => {
       ],
     ]);
     const fsFixture = createMemoryFileSystem(cgroupFiles);
-    const result = resolveTsdownBuildPlan({
+    const memory = {
       env: {},
       cgroupMemoryLimitPaths: ["/test/memory.max"],
       physicalMemoryBytes: 16 * 1024 * 1024 * 1024,
       processResidentMemoryBytes: 64 * 1024 * 1024,
       procMeminfoPath: "/openclaw-test-missing-proc-meminfo",
       fs: fsFixture,
-    });
+    };
+    const result = resolveTsdownBuildPlan(memory);
 
     // Credit 768 MiB of inactive file pages and this wrapper's 64 MiB RSS. Anonymous memory,
     // shmem, and the remaining 128 MiB kernel charge all compete with the child heap.
     expect(result.maxOldSpaceMb).toBe(3520);
     expect(result.heapShortfall?.fatal).toBe(true);
+    expect(readProcessMemoryCapacity(memory)).toMatchObject({
+      capacityBytes: 5 * 1024 * 1024 * 1024,
+      limitBytes: 4288 * 1024 * 1024,
+      usageKnown: true,
+      unresolved: false,
+    });
 
     cgroupFiles.set("/test/memory.current", `${832 * 1024 * 1024}\n`);
     cgroupFiles.set(
       "/test/memory.stat",
       `anon ${64 * 1024 * 1024}\nshmem 0\nfile ${768 * 1024 * 1024}\ninactive_file ${768 * 1024 * 1024}\nkernel 0\n`,
     );
-    const isolated = resolveTsdownBuildPlan({
-      env: {},
-      cgroupMemoryLimitPaths: ["/test/memory.max"],
-      physicalMemoryBytes: 16 * 1024 * 1024 * 1024,
-      processResidentMemoryBytes: 64 * 1024 * 1024,
-      procMeminfoPath: "/openclaw-test-missing-proc-meminfo",
-      fs: fsFixture,
-    });
+    const isolated = resolveTsdownBuildPlan(memory);
     expect(isolated.maxOldSpaceMb).toBe(4352);
     expect(isolated.heapShortfall).toBeNull();
+    expect(readProcessMemoryCapacity(memory)).toMatchObject({
+      capacityBytes: 5 * 1024 * 1024 * 1024,
+      limitBytes: 5 * 1024 * 1024 * 1024,
+      usageKnown: true,
+      unresolved: false,
+    });
   });
 
   it("refuses to start when the host budget cannot fit the build", () => {
@@ -1051,18 +1058,47 @@ describe("resolveTsdownBuildInvocation", () => {
 
     expect(resolveTsdownBuildPlan(base).maxOldSpaceMb).toBe(3328);
     expect(resolveTsdownBuildPlan({ ...base, availableMemoryBytes: 0 }).maxOldSpaceMb).toBe(1);
+    expect(readProcessMemoryCapacity(base)).toMatchObject({
+      capacityBytes: 8 * 1024 * 1024 * 1024,
+      limitBytes: 4 * 1024 * 1024 * 1024,
+      availableBytes: 4 * 1024 * 1024 * 1024,
+    });
+    expect(readProcessMemoryCapacity({ ...base, availableMemoryBytes: 0 })).toMatchObject({
+      capacityBytes: 8 * 1024 * 1024 * 1024,
+      limitBytes: 0,
+      availableBytes: 0,
+    });
   });
 
   it("caps an oversized cgroup limit by physical memory", () => {
-    const result = resolveTsdownBuildPlan({
+    const memory = {
       env: {},
       cgroupMemoryLimitBytes: 64 * 1024 * 1024 * 1024,
       procMeminfoPath: "/openclaw-test-missing-proc-meminfo",
       physicalMemoryBytes: 4 * 1024 * 1024 * 1024,
-    });
+    };
+    const result = resolveTsdownBuildPlan(memory);
 
     expect(result.maxOldSpaceMb).toBe(3328);
     expect(result.heapShortfall?.fatal).toBe(true);
+    expect(readProcessMemoryCapacity(memory).capacityBytes).toBe(4 * 1024 * 1024 * 1024);
+  });
+
+  it("keeps raw capacity unknown when a finite controller has no known physical bound", () => {
+    const memory = {
+      platform: "linux",
+      cgroupMemoryLimitBytes: 8 * 1024 * 1024 * 1024,
+      physicalMemoryBytes: Number.NaN,
+      availableMemoryBytes: 4 * 1024 * 1024 * 1024,
+      fs: createMemoryFileSystem(new Map()),
+    };
+
+    expect(readProcessMemoryCapacity(memory)).toMatchObject({
+      capacityBytes: null,
+      limitBytes: 4 * 1024 * 1024 * 1024,
+      availableBytes: 4 * 1024 * 1024 * 1024,
+      unresolved: false,
+    });
   });
 
   it("caps the tsdown heap using the process's own cgroup slice budget", () => {
@@ -1090,11 +1126,13 @@ describe("resolveTsdownBuildInvocation", () => {
       ["/sys/fs/cgroup/user.slice/memory.max", `${5 * 1024 * 1024 * 1024}\n`],
     ]);
 
-    const nodeOptions = resolveTestNodeOptions({
+    const memory = {
       fs: createMemoryFileSystem(cgroupFiles),
-    });
+    };
+    const nodeOptions = resolveTestNodeOptions(memory);
 
     expect(nodeOptions).toBe("--max-old-space-size=4352");
+    expect(readProcessMemoryCapacity(memory).capacityBytes).toBe(5 * 1024 * 1024 * 1024);
   });
 
   it("uses a resolved v1 memory limit when a hybrid host's v2 view is inherited", () => {
@@ -1170,6 +1208,12 @@ describe("resolveTsdownBuildInvocation", () => {
       fs: fsFixture,
     });
 
+    expect(readProcessMemoryCapacity({ fs: fsFixture })).toMatchObject({
+      capacityBytes: null,
+      limitBytes: null,
+      availableBytes: null,
+      unresolved: true,
+    });
     expect(result.maxOldSpaceMb).toBe(1);
     expect(result.heapShortfall?.fatal).toBe(true);
     expect(result.heapShortfall?.message).toContain(
@@ -1492,14 +1536,16 @@ describe("resolveTsdownBuildInvocation", () => {
       [`/sys/fs/cgroup${slicePath}/memory.limit_in_bytes`, "9223372036854771712\n"],
     ]);
 
-    const nodeOptions = resolveTestNodeOptions({
+    const memory = {
       platform: "linux",
       constrainedMemoryBytes: 5 * 1024 * 1024 * 1024,
       procMemTotalBytes: 16 * 1024 * 1024 * 1024,
       fs: createMemoryFileSystem(cgroupFiles),
-    });
+    };
+    const nodeOptions = resolveTestNodeOptions(memory);
 
     expect(nodeOptions).toBe("--max-old-space-size=3328");
+    expect(readProcessMemoryCapacity(memory).capacityBytes).toBe(4 * 1024 * 1024 * 1024);
   });
 
   it("ignores a cgroup-v1 parent limit when hierarchy accounting is disabled", () => {
