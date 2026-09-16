@@ -679,16 +679,19 @@ describe("session history HTTP endpoints", () => {
     });
   });
 
-  test.each(["", "?cursor=", "?cursor=%20"])("returns history for query %j", async (query) => {
+  test("returns history for default and blank cursor queries", async () => {
     await seedSession({ text: "hello from history" });
     await withGatewayHarness(async (harness) => {
-      const body = await readSessionHistoryBody(harness.port, "agent:main:main", { query });
-      expect(body.sessionKey).toBe("agent:main:main");
-      expect(body.messages).toHaveLength(1);
-      expect(body.messages?.[0]?.content?.[0]?.text).toBe("hello from history");
-      expectOpenClawMetadata(body.messages?.[0]?.["__openclaw"], {
-        seq: 1,
-      });
+      for (const query of ["", "?cursor=", "?cursor=%20"]) {
+        const context = `query ${JSON.stringify(query)}`;
+        const res = await fetchSessionHistory(harness.port, "agent:main:main", { query });
+        expect(res.status, context).toBe(200);
+        const body = (await res.json()) as SessionHistoryBody;
+        expect(body.sessionKey, context).toBe("agent:main:main");
+        expect(body.messages, context).toHaveLength(1);
+        expect(body.messages?.[0]?.content?.[0]?.text, context).toBe("hello from history");
+        expect(body.messages?.[0]?.["__openclaw"]?.seq, context).toBe(1);
+      }
     });
   });
 
@@ -1395,65 +1398,71 @@ describe("session history HTTP endpoints", () => {
     });
   });
 
-  test.each(["", " ", "abc", "0", "-5", "1.5"])(
-    "rejects invalid limit %j with 400",
-    async (limit) => {
-      await seedSession({ text: "first message" });
-      await withGatewayHarness(async (harness) => {
+  test("rejects invalid limits with 400", async () => {
+    await seedSession({ text: "first message" });
+    await withGatewayHarness(async (harness) => {
+      for (const limit of ["", " ", "abc", "0", "-5", "1.5"]) {
+        const context = `limit ${JSON.stringify(limit)}`;
         const res = await fetchSessionHistory(harness.port, "agent:main:main", {
           query: `?limit=${encodeURIComponent(limit)}`,
         });
-        expect(res.status).toBe(400);
+        expect(res.status, context).toBe(400);
         const body = await res.json();
-        expect(body.error?.type).toBe("invalid_request_error");
-        expect(body.error?.message).toBe("limit must be a positive integer");
-      });
-    },
-  );
-
-  test.each([
-    "garbage",
-    "seq:garbage",
-    "seq:2next",
-    "seq:0",
-    "seq:99999999999999999999",
-    "0",
-    "-1",
-    "1.5",
-  ])("rejects invalid cursor %j with 400", async (cursor) => {
-    await seedSession({ text: "first message" });
-    await withGatewayHarness(async (harness) => {
-      const res = await fetchSessionHistory(harness.port, "agent:main:main", {
-        query: `?cursor=${encodeURIComponent(cursor)}`,
-      });
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.error?.type).toBe("invalid_request_error");
-      expect(body.error?.message).toBe("cursor must be a positive integer");
+        expect(body.error?.type, context).toBe("invalid_request_error");
+        expect(body.error?.message, context).toBe("limit must be a positive integer");
+      }
     });
   });
 
-  test.each(["1", "+1"])(
-    "returns the requested bounded history for valid limit %s",
-    async (limit) => {
-      const { storePath } = await seedSession({ text: "first message" });
-      await appendVisibleAssistantMessage({
-        sessionKey: "agent:main:main",
-        text: "second message",
-        storePath,
-      });
+  test("rejects invalid cursors with 400", async () => {
+    await seedSession({ text: "first message" });
+    await withGatewayHarness(async (harness) => {
+      for (const cursor of [
+        "garbage",
+        "seq:garbage",
+        "seq:2next",
+        "seq:0",
+        "seq:99999999999999999999",
+        "0",
+        "-1",
+        "1.5",
+      ]) {
+        const context = `cursor ${JSON.stringify(cursor)}`;
+        const res = await fetchSessionHistory(harness.port, "agent:main:main", {
+          query: `?cursor=${encodeURIComponent(cursor)}`,
+        });
+        expect(res.status, context).toBe(400);
+        const body = await res.json();
+        expect(body.error?.type, context).toBe("invalid_request_error");
+        expect(body.error?.message, context).toBe("cursor must be a positive integer");
+      }
+    });
+  });
 
-      await withGatewayHarness(async (harness) => {
-        const body = await readSessionHistoryBody(harness.port, "agent:main:main", {
+  test("returns the requested bounded history for valid limits", async () => {
+    const { storePath } = await seedSession({ text: "first message" });
+    await appendVisibleAssistantMessage({
+      sessionKey: "agent:main:main",
+      text: "second message",
+      storePath,
+    });
+
+    await withGatewayHarness(async (harness) => {
+      for (const limit of ["1", "+1"]) {
+        const context = `limit ${JSON.stringify(limit)}`;
+        const res = await fetchSessionHistory(harness.port, "agent:main:main", {
           query: `?limit=${encodeURIComponent(limit)}`,
         });
-        expect(body.messages?.map((message) => message.content?.[0]?.text)).toEqual([
-          "second message",
-        ]);
-        expect(body.hasMore).toBe(true);
-      });
-    },
-  );
+        expect(res.status, context).toBe(200);
+        const body = (await res.json()) as SessionHistoryBody;
+        expect(
+          body.messages?.map((message) => message.content?.[0]?.text),
+          context,
+        ).toEqual(["second message"]);
+        expect(body.hasMore, context).toBe(true);
+      }
+    });
+  });
 
   test("streams bounded history windows over SSE", async () => {
     const { storePath } = await seedSession({ text: "first message" });

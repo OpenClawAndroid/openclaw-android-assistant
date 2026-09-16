@@ -2,7 +2,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import { createInitialCronState, loadCronRuns, loadCronStatus, type CronState } from "./index.ts";
+import {
+  createInitialCronState,
+  loadCronRuns,
+  loadCronStatus,
+  loadMoreCronRuns,
+  type CronState,
+} from "./index.ts";
 
 function createRefreshHarness(method: "cron.status" | "cron.runs") {
   const pending: Array<ReturnType<typeof createDeferred<unknown>>> = [];
@@ -161,6 +167,42 @@ describe.each(["cron.status", "cron.runs"] as const)("%s event refresh ownership
 });
 
 describe("cron event refresh replacement", () => {
+  it("requires a successful replacement page before appending after a failed refresh", async () => {
+    const harness = createRefreshHarness("cron.runs");
+    try {
+      harness.state.cronRuns = [{ ts: 1, jobId: "job", action: "finished", status: "ok" }];
+      harness.state.cronRunsHasMore = true;
+      harness.state.cronRunsNextOffset = 50;
+      harness.state.cronRunsQuery = "new filter";
+      const replacement = harness.load(false);
+      harness.response(0).reject(new Error("History unavailable"));
+      await replacement;
+      expect(harness.state.cronError).toBe("History unavailable");
+      const append = loadMoreCronRuns(harness.state);
+      expect(harness.request).toHaveBeenCalledTimes(1);
+      await append;
+
+      const retry = harness.load(false);
+      harness
+        .response(1)
+        .resolve({ ...harness.payload(2), total: 2, hasMore: true, nextOffset: 1 });
+      await retry;
+      const nextPage = loadMoreCronRuns(harness.state);
+      expect(harness.request).toHaveBeenLastCalledWith(
+        "cron.runs",
+        expect.objectContaining({
+          query: "new filter",
+          offset: 1,
+        }),
+      );
+      harness.response(2).resolve(harness.payload(3));
+      await nextPage;
+      expect(harness.state.cronRuns.map((entry) => entry.ts)).toEqual([2, 3]);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it.each<Partial<CronState>>([
     { cronRunsQuery: "new filter" },
     { cronRunsScope: "job", cronRunsJobId: "selected-job" },

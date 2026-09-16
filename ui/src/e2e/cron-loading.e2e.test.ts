@@ -34,6 +34,94 @@ function tableListRequests(requests: MockGatewayRequest[]) {
 }
 
 suite.define(() => {
+  it("keeps filtered history on page zero while replacement results are pending", async () => {
+    await suite.withPage(
+      { locale: "en-US", serviceWorkers: "block", viewport: { width: 1280, height: 900 } },
+      async ({ page }) => {
+        const run = (ts: number, summary: string) => ({
+          ts,
+          jobId: "museum-inventory",
+          jobName: "Museum inventory",
+          action: "finished",
+          status: "ok",
+          summary,
+        });
+        const oldRun = run(1, "Previous unfiltered inventory");
+        const firstRun = run(2, "Lunar inventory first page");
+        const secondRun = run(3, "Lunar inventory second page");
+        const firstPage = {
+          entries: [firstRun],
+          total: 2,
+          offset: 0,
+          hasMore: true,
+          nextOffset: 1,
+        };
+        const gateway = await installMockGateway(page, {
+          methodResponses: {
+            "cron.list": emptyList,
+            "cron.status": { enabled: true, jobs: 0, nextWakeAtMs: null },
+            "cron.runs": {
+              entries: [oldRun],
+              total: 51,
+              offset: 0,
+              hasMore: true,
+              nextOffset: 50,
+            },
+          },
+        });
+        await page.goto(`${suite.server.baseUrl}cron`);
+        await page.getByRole("tab", { name: "Run history", exact: true }).click();
+        await page.getByText(oldRun.summary, { exact: true }).waitFor();
+        await gateway.deferNext("cron.runs");
+        await gateway.setMethodResponse("cron.runs", {
+          entries: [secondRun],
+          total: 2,
+          offset: 50,
+          hasMore: false,
+          nextOffset: null,
+        });
+        await page.getByRole("searchbox", { name: "Search runs" }).fill("Lunar");
+        await expect
+          .poll(
+            async () =>
+              (await gateway.getRequests("cron.runs", { query: "Lunar", offset: 0 })).length,
+          )
+          .toBe(1);
+        const loadMore = page.getByRole("button", { name: "Load more runs", exact: true });
+        if ((await loadMore.isVisible()) && (await loadMore.isEnabled())) {
+          await loadMore.click();
+        }
+        await gateway.resolveDeferred("cron.runs", firstPage);
+        await page.screenshot({ path: path.join(suite.artifactDir, "filtered-history.png") });
+        const filteredRequests = await gateway.getRequests("cron.runs", { query: "Lunar" });
+        writeFileSync(
+          path.join(suite.artifactDir, "filtered-requests.json"),
+          JSON.stringify(filteredRequests, null, 2),
+        );
+        expect(filteredRequests.map(({ params }) => isRecord(params) && params.offset)).toEqual([
+          0,
+        ]);
+        await page.getByText(firstRun.summary, { exact: true }).waitFor();
+        expect(await page.getByText(oldRun.summary, { exact: true }).count()).toBe(0);
+        await gateway.setMethodResponse("cron.runs", {
+          entries: [secondRun],
+          total: 2,
+          offset: 1,
+          hasMore: false,
+          nextOffset: null,
+        });
+        await loadMore.click();
+        await page.getByText(secondRun.summary, { exact: true }).waitFor();
+        expect(await page.getByText(firstRun.summary, { exact: true }).count()).toBe(1);
+        expect(
+          (await gateway.getRequests("cron.runs", { query: "Lunar" })).map(
+            ({ params }) => isRecord(params) && params.offset,
+          ),
+        ).toEqual([0, 1]);
+      },
+    );
+  });
+
   it("bounds a held cron event burst and displays the completed run", async () => {
     const artifactDir = suite.artifactDir;
     await suite.withPage(

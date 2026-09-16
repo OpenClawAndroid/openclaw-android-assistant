@@ -206,7 +206,11 @@ required migrations remain errors. Historical runs cannot recover facts that
 their updater never recorded.
 
 Current updaters record their process identities and refresh the ledger
-every 30 seconds during long build, install, and finalization phases. The Gateway checks for
+every 30 seconds during long build, install, and finalization phases. Finalization
+pauses those writes while repair Doctor runs, including the post-plugin Doctor.
+These phases record their start and completion; the recorded driver identity
+protects the running update while its last-activity timestamp stays unchanged.
+The Gateway checks for
 abandoned runs at startup and while following active updates. After more than
 30 minutes without step or heartbeat activity, verifiably dead recorded drivers
 allow the Gateway to finish the run as `failed` with reason `abandoned` and a

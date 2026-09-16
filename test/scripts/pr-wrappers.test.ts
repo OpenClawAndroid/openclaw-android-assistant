@@ -1249,6 +1249,7 @@ exit 99
   describe("alias wrapper trust delegation", () => {
     function makeAliasFixture() {
       const fixture = makeMismatchedWrapperRepo({ realModules: true });
+      linkPrWrapperDependencies(fixture.linked);
       fixture.git(fixture.linked, ["checkout", "--detach", "refs/remotes/origin/main"]);
       for (const alias of ["pr-prepare", "pr-review", "pr-merge"]) {
         cpSync(join("scripts", alias), join(fixture.linked, "scripts", alias));
@@ -1260,7 +1261,9 @@ exit 99
       );
       fixture.git(fixture.canonical, ["add", "scripts/pr"]);
       fixture.git(fixture.canonical, ["commit", "-m", "test: stale canonical wrapper"]);
-      // Stop at the real supervisor handoff, before locks or native PR actions.
+      // Install dependencies before recording Node calls so the fixture reaches
+      // supervisor handoff without entering dependency materialization first.
+      linkPrWrapperDependencies(fixture.linked);
       const recorder = join(fixture.bin, "node");
       writeFileSync(recorder, '#!/bin/sh\nprintf \'%s\\0\' "$PWD" "$@"\nexit 73\n');
       chmodSync(recorder, 0o755);

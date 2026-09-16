@@ -41,6 +41,8 @@ export type ReplyOperationRunState = {
     }>;
   };
   admission?: ReplyOperationAdmissionSnapshot;
+  /** The Gateway accepted this question answer or rejected its values before commitment. */
+  questionInputHandled?: true;
   messageInjectionAborted?: true;
   agentTurn?: ReturnType<typeof resolveAgentTurnExecutionStatus>;
   agentTurnOwner?: ReplyOperation;

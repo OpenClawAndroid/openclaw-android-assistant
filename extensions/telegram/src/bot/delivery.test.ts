@@ -2857,25 +2857,31 @@ describe("deliverReplies", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("falls back to plain text when a rich message is rejected for empty rich content", async () => {
+  it.each([
+    createRichContentRequiredError(),
+    new Error(
+      "GrammyError: Call to 'sendRichMessage' failed! (400: Bad Request: rich message must be non-empty)",
+    ),
+  ])("delivers a plain reply after a definite rich-content rejection: %s", async (error) => {
     const runtime = createRuntime();
     const sendMessage = vi.fn().mockResolvedValue({
       message_id: 15,
       chat: { id: "123" },
     });
     const bot = createBot({ sendMessage });
-    (bot.api.raw as unknown as { sendRichMessage: ReturnType<typeof vi.fn> }).sendRichMessage = vi
-      .fn()
-      .mockRejectedValue(createRichContentRequiredError());
-    const text = "delivery continues as plain text";
+    const sendRichMessage = vi.fn().mockRejectedValue(error);
+    Object.assign(bot.api.raw, { sendRichMessage });
+    const text = "system notice delivered through fallback";
 
-    await deliverWith({
+    const outcome = await deliverWith({
       replies: [{ text }],
       runtime,
       bot,
       richMessages: true,
     });
 
+    expect(outcome.delivered).toBe(true);
+    expect(sendRichMessage).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(firstMockCallArg(sendMessage, 0)).toBe("123");
     expect(firstMockCallArg(sendMessage, 1)).toBe(text);

@@ -1,4 +1,5 @@
 import { html, nothing } from "lit";
+import { html as staticHtml, literal } from "lit/static-html.js";
 import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import type { RouteId } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
@@ -18,11 +19,13 @@ import {
 } from "../../lib/presence-users.ts";
 import { resolveSessionDisplayName } from "../../lib/session-display.ts";
 import {
+  isSessionKeyAddressable,
   resolveSessionNavigationAgentId,
   resolveSessionPreferredFace,
   sessionNavigationTarget,
 } from "../../lib/sessions/route-navigation.ts";
 import {
+  isUiGlobalScopeConfigured,
   parseAgentSessionKey,
   resolveUiConfiguredMainKey,
   scopedSessionArtifactKey,
@@ -259,17 +262,27 @@ function renderSessionLink(
     row.agentId ??
     resolveSessionNavigationAgentId(context);
   const face = resolveSessionPreferredFace(row);
-  const target = sessionNavigationTarget({
-    face,
-    sessionKey: row.key,
-    fallbackAgentId: resolveSessionNavigationAgentId(context),
-    basePath: context.basePath,
-    row,
-    mainKey: resolveUiConfiguredMainKey({
+  const addressable = isSessionKeyAddressable(
+    row.key,
+    isUiGlobalScopeConfigured({
       agentsList: context.agents.state.agentsList,
       hello: context.gateway.snapshot.hello,
     }),
-  });
+  );
+  const target = addressable
+    ? sessionNavigationTarget({
+        face,
+        sessionKey: row.key,
+        fallbackAgentId: row.key === "global" ? agentId : resolveSessionNavigationAgentId(context),
+        basePath: context.basePath,
+        row,
+        mainKey: resolveUiConfiguredMainKey({
+          agentsList: context.agents.state.agentsList,
+          hello: context.gateway.snapshot.hello,
+        }),
+      })
+    : null;
+  const tag = target ? literal`a` : literal`div`;
   const owner = sessionActivityOwner(row);
   const ownerName = presenceViewerLabel(owner);
   const activityAt = sessionActivityTimestamp(row);
@@ -282,13 +295,13 @@ function renderSessionLink(
   const scope = row.channel ? t("activityFeed.channelLabel", { value: row.channel }) : null;
   const showAgent = row.kind !== "global" || Boolean(row.agentId);
   const source = row.createdVia === "cron" ? t("activityFeed.automation") : null;
-  return html`<div class="activity-feed__session-row">
-    <a
+  return staticHtml`<div class="activity-feed__session-row">
+    <${tag}
       class="activity-feed__session"
       data-activity-session=${row.key}
-      href=${target.href}
+      href=${target?.href ?? nothing}
       @click=${(event: MouseEvent) => {
-        if (shouldHandleNavigationClick(event)) {
+        if (target && shouldHandleNavigationClick(event)) {
           event.preventDefault();
           context.navigate(face, target.options);
         }
@@ -344,7 +357,7 @@ function renderSessionLink(
             : nothing
         }
       </span>
-    </a>
+    </${tag}>
     ${renderSessionActivitySummary(row, onSummaryRetry)}
     <openclaw-activity-session-git
       .context=${context}

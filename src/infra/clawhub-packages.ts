@@ -291,7 +291,9 @@ function parseOptionalSecurityRelease(value: unknown): ClawHubPackageSecurityRes
   return result;
 }
 
-function parseClawHubPackageSecurityResponse(value: unknown): ClawHubPackageSecurityResponse {
+export function parseClawHubPackageSecurityResponse(
+  value: unknown,
+): ClawHubPackageSecurityResponse {
   if (!isJsonObject(value)) {
     throw new Error("Malformed ClawHub security response: expected an object.");
   }

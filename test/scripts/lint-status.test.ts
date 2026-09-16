@@ -1,10 +1,13 @@
+import { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { toErrorObject } from "../../scripts/lib/error-format.mts";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
-import { isProcessAlive, waitForPidFile } from "../helpers/process-wait.js";
+import { isProcessAlive, waitForFixtureFile } from "../helpers/process-wait.js";
 import { runNodeScript } from "../helpers/run-node-script.js";
+import * as nodeScript from "../helpers/run-node-script.js";
 import { formatShimResult } from "./direct-run-entrypoints.test-support.js";
 
 const fixture = createFixtureLifetime();
@@ -185,6 +188,7 @@ async function runLintFixture(
       : parallel
         ? ["--only=core", "--only=extensions", "--only=scripts"]
         : ["--only=extensions"];
+  let readiness: Promise<void> | undefined;
   const command = fixture.track(
     runNodeScript(
       [
@@ -208,22 +212,29 @@ async function runLintFixture(
         requireProcessTreeExit: true,
         onReady(child) {
           if (forwarded) {
-            void fixture.track(
-              (async () => {
-                const ready = path.join(
-                  root,
-                  phase === "oxlint" ? "extensions.pid" : `${phase}.pid`,
-                );
-                await waitForPidFile(ready, 5_000);
-                child.kill(forwarded);
-              })(),
-            );
+            // The lifetime schedules this after command is initialized and joins it during cleanup.
+            readiness = fixture.run(async () => {
+              const ready = path.join(root, phase === "oxlint" ? "extensions.pid" : `${phase}.pid`);
+              await waitForFixtureFile(
+                ready,
+                command.then((result) => {
+                  if (result.error !== undefined) {
+                    throw toErrorObject(
+                      result.error,
+                      "Lint command failed before signal readiness",
+                    );
+                  }
+                }),
+              );
+              child.kill(forwarded);
+            });
           }
         },
       },
     ),
   );
   const result = await command;
+  await readiness;
   const details = formatShimResult(result);
   expect(result.error, details).toBeUndefined();
   if (timeout) {
@@ -255,6 +266,33 @@ async function runLintFixture(
 }
 
 describe.skipIf(process.platform === "win32")("lint failure reporting boundary", () => {
+  it.for(["exited", "failed"] as const)(
+    "reports signal readiness when the command %s before its receipt",
+    async (outcome, { signal }) => {
+      const failure = outcome === "failed" ? new Error("fixture command failed") : undefined;
+      const child = new ChildProcess();
+      const kill = vi.spyOn(child, "kill").mockReturnValue(true);
+      const run = vi.spyOn(nodeScript, "runNodeScript").mockImplementationOnce(async (...args) => {
+        args[3]?.onReady?.(child, () => ({ stdout: "", stderr: "" }));
+        return { error: failure, status: failure ? null : 0, stdout: "", stderr: "" };
+      });
+      try {
+        await expect(
+          fixture.run(() =>
+            runLintFixture("run-lint.mts", "wait", signal, { forwarded: "SIGINT" }),
+          ),
+        ).rejects.toMatchObject({
+          message: expect.stringContaining(`Child ${outcome} before writing`),
+          ...(failure ? { cause: failure } : {}),
+        });
+        expect(kill).not.toHaveBeenCalled();
+      } finally {
+        run.mockRestore();
+        kill.mockRestore();
+      }
+    },
+  );
+
   it.for(
     entries.flatMap((entry) =>
       (["success", "nonzero", "signal"] as const).map((mode) => ({ entry, mode })),

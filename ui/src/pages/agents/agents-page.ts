@@ -64,8 +64,10 @@ import {
   loadAgentFileContent,
   overwriteAgentFile,
   reloadAgentFile,
+  retainAgentFileDrafts,
   resetAgentFile,
   saveAgentFile,
+  type RetainedAgentFileDrafts,
 } from "./files.ts";
 import {
   resetIdentityDraft,
@@ -125,6 +127,7 @@ class AgentsPage
   @state() agentFileActive: string | null = null;
   @state() agentFileSaving = false;
   readonly agentFileWriteRevisions = new Map<string, number>();
+  private readonly retainedFileDrafts = new Map<string, RetainedAgentFileDrafts>();
   @state() agentIdentityLoading = false;
   @state() agentIdentityError: string | null = null;
   @state() identityDraft: AgentIdentityDraft = { name: null, emoji: null, avatar: null };
@@ -378,8 +381,23 @@ class AgentsPage
   private syncSettingsSelection() {
     const selectedId = this.context.settingsAgentSelection.state.selectedId;
     if (selectedId !== this.agentsSelectedId) {
+      if (this.agentsSelectedId) {
+        const drafts = retainAgentFileDrafts(this);
+        if (drafts) {
+          this.retainedFileDrafts.set(this.agentsSelectedId, drafts);
+        }
+      }
       this.agentsSelectedId = selectedId;
       this.resetSelectionState();
+      const retained = selectedId ? this.retainedFileDrafts.get(selectedId) : undefined;
+      if (retained && selectedId) {
+        this.retainedFileDrafts.delete(selectedId);
+        this.agentFileDrafts = retained.drafts;
+        this.agentFileHashes = retained.hashes;
+        this.agentFileActive = retained.active;
+        this.agentFileConflict = retained.conflict;
+        // Loaded bases stay empty: returning must read disk while retaining the draft's ancestry.
+      }
     }
   }
 
@@ -409,6 +427,7 @@ class AgentsPage
   }
 
   private resetForSourceChange() {
+    this.retainedFileDrafts.clear();
     this.agentsList = null;
     this.agentsSelectedId = null;
     this.resetSelectionState();

@@ -70,6 +70,11 @@ keeps its last data and refreshes automatically once the Gateway accepts work ag
 failures remain visible inline with their message and are retried automatically when the Gateway
 becomes available again. These refresh callouts have no manual **Retry** button.
 
+Opening a view for the first time can fail if its interface files cannot be downloaded.
+Check the connection, then use **Reload**. The same error can occur after an update;
+it does not by itself mean a new version was installed. If unsaved work blocks the
+reload, follow the displayed save or cancel guidance, then try again.
+
 If chat history times out, its **Retry** action reloads the saved conversation and restores
 its live session subscription, including approval updates.
 
@@ -124,6 +129,10 @@ attachments. If you switched conversations, recovery stays with the original con
 
 Queued messages and drafts keep the conversation and agent selected when they were created.
 Switching agents, opening a split pane, or reloading does not move them to another destination.
+When split panes show the same conversation, returning to an older pane after visiting other
+conversations does not replace a newer saved draft. Text, selected recipients, Goal mode,
+and attachments follow the same draft revision. Switching quickly between split panes keeps
+the last selected conversation active, including when narrowing the window.
 A literal `global` conversation keeps its captured agent; an agent's main conversation stays
 separate unless the Gateway is configured with global session scope.
 

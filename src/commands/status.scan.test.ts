@@ -203,7 +203,7 @@ describe("scanStatus", () => {
       }),
     ).toBe(false);
     expect(mocks.getUpdateCheckResult).toHaveBeenCalledWith({
-      timeoutMs: 2500,
+      timeoutMs: 10_000,
       fetchGit: false,
       includeRegistry: false,
       updateConfigChannel: null,

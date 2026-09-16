@@ -203,21 +203,27 @@ export class UpdateFinalizationLifecycle {
     this.active = active;
     this.record(active, "in_progress", startedAtMs);
     const output = new UpdateFinalizationOutput();
-    const heartbeat = setInterval(() => {
-      try {
-        if (this.runId) {
-          heartbeatUpdateRun(this.runId, this.driver, this.ledgerOptions);
-        }
-      } catch (error) {
-        if (!this.warnedHeartbeat) {
-          this.warnedHeartbeat = true;
-          console.warn(
-            `[update finalize] Could not refresh the update heartbeat; continuing: ${formatErrorMessage(error).slice(0, 500)}`,
-          );
-        }
-      }
-    }, UPDATE_RUN_HEARTBEAT_MS);
-    heartbeat.unref();
+    // Doctor holds the state-lifecycle coordinator while repairing shared state.
+    // Keep its parent out of that database; recorded driver liveness still
+    // prevents abandonment while phase-start and phase-end records report progress.
+    const heartbeat =
+      phase === "doctor" || phase === "targetConfigConvergence"
+        ? undefined
+        : setInterval(() => {
+            try {
+              if (this.runId) {
+                heartbeatUpdateRun(this.runId, this.driver, this.ledgerOptions);
+              }
+            } catch (error) {
+              if (!this.warnedHeartbeat) {
+                this.warnedHeartbeat = true;
+                console.warn(
+                  `[update finalize] Could not refresh the update heartbeat; continuing: ${formatErrorMessage(error).slice(0, 500)}`,
+                );
+              }
+            }
+          }, UPDATE_RUN_HEARTBEAT_MS);
+    heartbeat?.unref();
     const end = (
       result: Outcome,
       detail?: string,

@@ -1063,15 +1063,7 @@ describe("resolvePluginTools optional tools", () => {
       plugin: createFeishuToolManifest(),
     });
     loadOpenClawPluginsMock.mockReturnValue(
-      createToolRegistry([
-        {
-          pluginId: "feishu",
-          optional: false,
-          source: "/tmp/feishu.js",
-          names: ["feishu_doc"],
-          factory,
-        },
-      ]),
+      createToolRegistry([createNamedToolEntry("feishu", "feishu_doc", { factory })]),
     );
 
     const tools = resolvePluginTools({
@@ -1137,15 +1129,7 @@ describe("resolvePluginTools optional tools", () => {
       },
     });
     loadOpenClawPluginsMock.mockReturnValue(
-      createToolRegistry([
-        {
-          pluginId: "account-demo",
-          optional: false,
-          source: "/tmp/account-demo.js",
-          names: ["account_demo_image"],
-          factory,
-        },
-      ]),
+      createToolRegistry([createNamedToolEntry("account-demo", "account_demo_image", { factory })]),
     );
 
     const tools = resolvePluginTools({
@@ -1186,15 +1170,7 @@ describe("resolvePluginTools optional tools", () => {
       plugin: createFeishuToolManifest(),
     });
     loadOpenClawPluginsMock.mockReturnValue(
-      createToolRegistry([
-        {
-          pluginId: "feishu",
-          optional: false,
-          source: "/tmp/feishu.js",
-          names: ["feishu_doc"],
-          factory,
-        },
-      ]),
+      createToolRegistry([createNamedToolEntry("feishu", "feishu_doc", { factory })]),
     );
 
     const tools = resolvePluginTools({
@@ -1901,13 +1877,7 @@ describe("resolvePluginTools optional tools", () => {
   it("does not invoke named optional tool factories without a matching allowlist", () => {
     const factory = vi.fn(() => makeTool("optional_tool"));
     setRegistry([
-      {
-        pluginId: "optional-demo",
-        optional: true,
-        source: "/tmp/optional-demo.js",
-        names: ["optional_tool"],
-        factory,
-      },
+      createNamedToolEntry("optional-demo", "optional_tool", { optional: true, factory }),
     ]);
 
     expect(resolveOptionalDemoTools()).toHaveLength(0);
@@ -1941,20 +1911,11 @@ describe("resolvePluginTools optional tools", () => {
     const ownerFactory = vi.fn(() => makeTool("optional_tool"));
     const foreignFactory = vi.fn(() => makeTool("optional_tool"));
     setRegistry([
-      {
-        pluginId: "optional-demo",
+      createNamedToolEntry("optional-demo", "optional_tool", {
         optional: true,
-        source: "/tmp/optional-demo.js",
-        names: ["optional_tool"],
         factory: ownerFactory,
-      },
-      {
-        pluginId: "multi",
-        optional: true,
-        source: "/tmp/multi.js",
-        names: ["optional_tool"],
-        factory: foreignFactory,
-      },
+      }),
+      createNamedToolEntry("multi", "optional_tool", { optional: true, factory: foreignFactory }),
     ]);
 
     const tools = resolvePluginTools(
@@ -2522,15 +2483,7 @@ describe("resolvePluginTools optional tools", () => {
   });
 
   it("rejects plugin id collisions with core tool names", () => {
-    const registry = setRegistry([
-      {
-        pluginId: "message",
-        optional: false,
-        source: "/tmp/message.js",
-        names: ["optional_tool"],
-        factory: () => makeTool("optional_tool"),
-      },
-    ]);
+    const registry = setRegistry([createNamedToolEntry("message", "optional_tool")]);
 
     const tools = resolvePluginTools(
       createResolveToolsParams({
@@ -2544,20 +2497,8 @@ describe("resolvePluginTools optional tools", () => {
 
   it("allows a plugin to register a second tool when one tool shares the plugin id", () => {
     const registry = setRegistry([
-      {
-        pluginId: "demo",
-        optional: false,
-        source: "/tmp/demo.js",
-        names: ["demo"],
-        factory: () => makeTool("demo"),
-      },
-      {
-        pluginId: "demo",
-        optional: false,
-        source: "/tmp/demo.js",
-        names: ["extra_tool"],
-        factory: () => makeTool("extra_tool"),
-      },
+      createNamedToolEntry("demo", "demo"),
+      createNamedToolEntry("demo", "extra_tool"),
     ]);
 
     const tools = resolvePluginTools(createResolveToolsParams({}));
@@ -2906,15 +2847,7 @@ describe("resolvePluginTools optional tools", () => {
         },
       };
     });
-    setRegistry([
-      {
-        pluginId: "cache-test",
-        optional: false,
-        source: "/tmp/cache-test.js",
-        names: ["cached_tool"],
-        factory,
-      },
-    ]);
+    setRegistry([createNamedToolEntry("cache-test", "cached_tool", { factory })]);
 
     const first = resolvePluginTools(
       createResolveToolsParams({
@@ -2951,13 +2884,7 @@ describe("resolvePluginTools optional tools", () => {
   it("retains a scoped plugin registry across unrelated active registry replacement", async () => {
     const factory = vi.fn(() => makeTool("cached_lifecycle_tool"));
     setRegistry([
-      {
-        pluginId: "cache-lifecycle-test",
-        optional: false,
-        source: "/tmp/cache-lifecycle-test.js",
-        names: ["cached_lifecycle_tool"],
-        factory,
-      },
+      createNamedToolEntry("cache-lifecycle-test", "cached_lifecycle_tool", { factory }),
     ]);
     const scopedRegistry = createToolRegistry([
       createNamedToolEntry("cache-lifecycle-test", "cached_lifecycle_tool", { factory }),
@@ -2980,13 +2907,7 @@ describe("resolvePluginTools optional tools", () => {
     expect(tool?.name).toBe("cached_lifecycle_tool");
     expect(factory).toHaveBeenCalledTimes(2);
 
-    const unrelatedEntry: MockRegistryToolEntry = {
-      pluginId: "unrelated-live",
-      optional: false,
-      source: "/tmp/unrelated-live.js",
-      names: ["unrelated_live_tool"],
-      factory: () => makeTool("unrelated_live_tool"),
-    };
+    const unrelatedEntry = createNamedToolEntry("unrelated-live", "unrelated_live_tool");
     const replacementRegistry = createToolRegistry([unrelatedEntry]);
     replacementRegistry.plugins.push(createToolRuntimeRecord("cache-lifecycle-test"));
     setActivePluginRegistry?.(replacementRegistry as never, "provider-runtime", "default", "/tmp");
@@ -3031,15 +2952,7 @@ describe("resolvePluginTools optional tools", () => {
           };
         });
       const factory = makeFactory(1);
-      setRegistry([
-        {
-          pluginId: "cache-test",
-          optional: false,
-          source: "/tmp/cache-test.js",
-          names: ["cached_tool"],
-          factory,
-        },
-      ]);
+      setRegistry([createNamedToolEntry("cache-test", "cached_tool", { factory })]);
 
       const first = resolvePluginTools(
         createResolveToolsParams({
@@ -3151,15 +3064,7 @@ describe("resolvePluginTools optional tools", () => {
 
   it("keeps cached ordinary plugin tools free of network provenance", async () => {
     const factory = vi.fn(() => makeTool("cached_ordinary_tool"));
-    setRegistry([
-      {
-        pluginId: "optional-demo",
-        optional: false,
-        source: "/tmp/optional-demo.js",
-        names: ["cached_ordinary_tool"],
-        factory,
-      },
-    ]);
+    setRegistry([createNamedToolEntry("optional-demo", "cached_ordinary_tool", { factory })]);
 
     const [fresh] = resolvePluginTools(createResolveToolsParams());
     const [cached] = resolvePluginTools(createResolveToolsParams());
@@ -3188,15 +3093,7 @@ describe("resolvePluginTools optional tools", () => {
         };
       },
     }));
-    setRegistry([
-      {
-        pluginId: "optional-demo",
-        optional: false,
-        source: "/tmp/optional-demo.js",
-        names: ["cached_network_tool"],
-        factory,
-      },
-    ]);
+    setRegistry([createNamedToolEntry("optional-demo", "cached_network_tool", { factory })]);
 
     const [fresh] = resolvePluginTools(createResolveToolsParams());
     const [cached] = resolvePluginTools(createResolveToolsParams());
@@ -3273,15 +3170,7 @@ describe("resolvePluginTools optional tools", () => {
         },
       },
     ]);
-    setRegistry([
-      {
-        pluginId: "fuzzplugin",
-        optional: false,
-        source: "/tmp/fuzzplugin.js",
-        names: ["mockplugin_status"],
-        factory,
-      },
-    ]);
+    setRegistry([createNamedToolEntry("fuzzplugin", "mockplugin_status", { factory })]);
 
     const first = resolvePluginTools(createResolveToolsParams());
     const second = resolvePluginTools(createResolveToolsParams());
@@ -3306,15 +3195,7 @@ describe("resolvePluginTools optional tools", () => {
         },
       };
     });
-    setRegistry([
-      {
-        pluginId: "cache-session-test",
-        optional: false,
-        source: "/tmp/cache-session-test.js",
-        names: ["cached_session_tool"],
-        factory,
-      },
-    ]);
+    setRegistry([createNamedToolEntry("cache-session-test", "cached_session_tool", { factory })]);
 
     const first = resolvePluginTools(
       createResolveToolsParams({
@@ -3367,15 +3248,7 @@ describe("resolvePluginTools optional tools", () => {
           },
         };
       });
-      setRegistry([
-        {
-          pluginId: "cache-origin-test",
-          optional: false,
-          source: "/tmp/cache-origin-test.js",
-          names: ["cached_origin_tool"],
-          factory,
-        },
-      ]);
+      setRegistry([createNamedToolEntry("cache-origin-test", "cached_origin_tool", { factory })]);
 
       resolvePluginTools(
         createResolveToolsParams({
@@ -3789,15 +3662,7 @@ describe("resolvePluginTools optional tools", () => {
       const ctx = rawCtx as { sandboxed?: boolean };
       return ctx.sandboxed ? null : makeTool("sandbox_sensitive_tool");
     });
-    setRegistry([
-      {
-        pluginId: "sandbox-sensitive",
-        optional: false,
-        source: "/tmp/sandbox-sensitive.js",
-        names: ["sandbox_sensitive_tool"],
-        factory,
-      },
-    ]);
+    setRegistry([createNamedToolEntry("sandbox-sensitive", "sandbox_sensitive_tool", { factory })]);
 
     const hostTools = resolvePluginTools(
       createResolveToolsParams({

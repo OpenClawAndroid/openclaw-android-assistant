@@ -97,7 +97,6 @@ export async function createStatusScanCoreBootstrap<TAgentStatus>(
     all: params.opts.all,
   });
   const statusTimeoutMs = params.opts.timeoutMs ?? 10_000;
-  const updateTimeoutMs = Math.min(params.opts.all ? 6500 : 2500, statusTimeoutMs);
   const tailscaleTimeoutMs = Math.min(1200, statusTimeoutMs);
   const tailscaleDnsPromise =
     tailscaleMode === "off"
@@ -112,7 +111,7 @@ export async function createStatusScanCoreBootstrap<TAgentStatus>(
   const updatePromise = skipNetworkUpdate
     ? Promise.resolve(buildColdStartUpdateResult())
     : params.getUpdateCheckResult({
-        timeoutMs: updateTimeoutMs,
+        timeoutMs: statusTimeoutMs,
         fetchGit: params.fetchGitUpdate ?? true,
         includeRegistry: params.includeRegistryUpdate ?? true,
         updateConfigChannel: params.cfg.update?.channel ?? null,

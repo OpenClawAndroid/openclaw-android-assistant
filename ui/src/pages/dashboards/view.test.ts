@@ -18,6 +18,7 @@ function routeData(sessions: SessionsListResult["sessions"], basePath = ""): Das
     basePath,
     fallbackAgentId: "main",
     mainKey: "main",
+    globalScope: false,
   };
 }
 

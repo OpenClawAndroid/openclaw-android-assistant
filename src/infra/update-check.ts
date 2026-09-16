@@ -25,7 +25,12 @@ import type { UpdateFetchFailure } from "./update-run-record.js";
 import { UPDATE_RUNNER_TIMEOUT_MS } from "./update-run-timeouts.js";
 
 type PackageManager = "pnpm" | "bun" | "npm" | "unknown";
-type GitUpdateOptions = { timeoutMs?: number; signal?: AbortSignal };
+type GitUpdateOptions = {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  /** Reports settled local probes without changing updater failure or process-join semantics. */
+  onGitProbeTimeout?: (timeoutMs: number) => void;
+};
 
 type GitUpdateStatus = {
   root: string;
@@ -103,6 +108,7 @@ export type UpdateCheckResult = {
   git?: GitUpdateStatus;
   deps?: DepsStatus;
   registry?: RegistryStatus;
+  error?: { status: "unknown" | "failed"; message: string; timeoutMs?: number };
 };
 
 const PUBLIC_NPM_REGISTRY_URL = "https://registry.npmjs.org/";
@@ -220,7 +226,7 @@ export async function resolveUpdateInstallKind(
     return "unknown";
   }
   const result = await runUpdateGitCommand(root, ["rev-parse", "--show-toplevel"], {
-    signal: options.signal,
+    ...options,
     timeoutMs: options.timeoutMs ?? UPDATE_RUNNER_TIMEOUT_MS,
   });
   options.signal?.throwIfAborted();
@@ -252,7 +258,15 @@ async function runUpdateGitCommand(root: string, args: string[], options: GitUpd
   if (options.signal?.aborted) {
     return null;
   }
-  return executeGitCommand(root, args, { ...options, killProcessTree: true }).catch(() => null);
+  const { onGitProbeTimeout, ...commandOptions } = options;
+  const result = await executeGitCommand(root, args, {
+    ...commandOptions,
+    killProcessTree: true,
+  }).catch(() => null);
+  if (result?.termination === "timeout" && args[0] !== "fetch") {
+    onGitProbeTimeout?.(result.timeoutMs);
+  }
+  return result;
 }
 
 async function readGitUpdateIdentity(
@@ -280,6 +294,7 @@ async function checkGitUpdateStatus(params: {
   identity: Promise<NonNullable<UpdateInstallIdentity["git"]>>;
   timeoutMs: number | undefined;
   signal?: AbortSignal;
+  onGitProbeTimeout?: GitUpdateOptions["onGitProbeTimeout"];
   fetch?: boolean;
   useDetachedDevUpstream?: boolean;
   upstreamFallback?: { currentSha: string; upstreamRef: string };
@@ -287,7 +302,11 @@ async function checkGitUpdateStatus(params: {
   const timeoutMs = params.timeoutMs ?? (params.fetch ? UPDATE_NETWORK_TIMEOUT_MS : 6000);
   const root = path.resolve(params.root);
   const runGit = (...args: string[]) =>
-    runUpdateGitCommand(root, args, { timeoutMs, signal: params.signal });
+    runUpdateGitCommand(root, args, {
+      timeoutMs,
+      signal: params.signal,
+      onGitProbeTimeout: params.onGitProbeTimeout,
+    });
   const readGit = async (...args: string[]) => {
     const result = await runGit(...args);
     return result?.code === 0 ? result.stdout.trim() || null : null;
@@ -607,6 +626,7 @@ export async function checkUpdateStatus(params: {
   root: string | null;
   timeoutMs?: number;
   signal?: AbortSignal;
+  onGitProbeTimeout?: GitUpdateOptions["onGitProbeTimeout"];
   fetchGit?: boolean;
   useDetachedDevUpstream?: boolean;
   gitUpstreamFallback?: { currentSha: string; upstreamRef: string };
@@ -641,6 +661,7 @@ export async function checkUpdateStatus(params: {
   const installKind = await resolveUpdateInstallKind(root, {
     signal: params.signal,
     timeoutMs: params.timeoutMs,
+    onGitProbeTimeout: params.onGitProbeTimeout,
   });
   const isGit = installKind === "git";
   const packageManager = isGit
@@ -665,6 +686,7 @@ export async function checkUpdateStatus(params: {
     ? readGitUpdateIdentity(root, {
         timeoutMs: params.timeoutMs ?? (params.fetchGit ? UPDATE_NETWORK_TIMEOUT_MS : 6000),
         signal: params.signal,
+        onGitProbeTimeout: params.onGitProbeTimeout,
       })
     : undefined;
   const registryPromise = Promise.resolve(identity).then((git) => {
@@ -690,6 +712,7 @@ export async function checkUpdateStatus(params: {
           identity,
           timeoutMs: params.timeoutMs,
           signal: params.signal,
+          onGitProbeTimeout: params.onGitProbeTimeout,
           fetch: Boolean(params.fetchGit),
           useDetachedDevUpstream: params.useDetachedDevUpstream,
           upstreamFallback: params.gitUpstreamFallback,
