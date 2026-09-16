@@ -10,7 +10,10 @@ import type {
   SessionBranchSummaryReadRequest,
   SessionBranchSummaryReadResult,
 } from "./session-accessor.sqlite-branches.js";
-import type { readSessionTranscriptModelContext } from "./session-accessor.sqlite-model-context.js";
+import type {
+  readSessionTranscriptModelContext,
+  SessionModelContextLimits,
+} from "./session-accessor.sqlite-model-context.js";
 import type { SessionTranscriptRuntimeTarget } from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type {
@@ -29,6 +32,7 @@ export type SessionModelContextWorkerInput = {
   target: SessionTranscriptRuntimeTarget;
   admission?: UserTurnTranscriptAdmissionReceipt;
   through?: TranscriptEntryAnchor;
+  limits?: SessionModelContextLimits;
 };
 
 export type SessionEntryWorkerInput = {
@@ -62,7 +66,6 @@ type SessionTranscriptWorkerValues = {
   "session-entry": {
     entry: SessionFileEntry | null;
     resetRecallCutoff: ReturnType<typeof readSessionEntryResetRecallCutoff>;
-    readError?: string;
   };
 };
 
@@ -102,7 +105,11 @@ serveWorkerTasks(
               await import("./session-accessor.sqlite-model-context.js");
             return {
               ok: true,
-              value: readSessionTranscriptModelContext(request.target, request.through),
+              value: readSessionTranscriptModelContext(
+                request.target,
+                request.through,
+                request.limits,
+              ),
             };
           }
           if (request.kind === "history-page") {
@@ -138,14 +145,10 @@ serveWorkerTasks(
           const { buildSessionEntryInProcess, readSessionEntryResetRecallCutoff } =
             await import("../../../packages/memory-host-sdk/src/host/session-files.js");
           const { createSensitiveTextRedactor } = await import("../../logging/redact.js");
-          let readError: string | undefined;
           const entry = await buildSessionEntryInProcess(
             request.absPath,
             request.options,
             createSensitiveTextRedactor(request.redaction),
-            (error) => {
-              readError = String(error);
-            },
           );
           return {
             ok: true,
@@ -154,7 +157,6 @@ serveWorkerTasks(
               resetRecallCutoff: entry
                 ? readSessionEntryResetRecallCutoff(entry)
                 : { state: "absent" },
-              ...(readError !== undefined ? { readError } : {}),
             },
           };
         },

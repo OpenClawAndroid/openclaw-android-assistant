@@ -71,7 +71,13 @@ type StandardRawEventAdmission<TInspection> =
   | { kind: "durable" | (null extends TInspection ? "ignored" : never) };
 type StandardRawEventIngressOptions<TRaw, TMetadata, TInspection> = Omit<
   CreateChannelIngressMonitorOptions<TRaw, string, StandardRawEventPayload, TMetadata>,
-  "admissionMode" | "drain" | "inspect" | "payload" | "pollIntervalMs" | "retention"
+  | "admissionMode"
+  | "drain"
+  | "inspect"
+  | "inspectAsync"
+  | "payload"
+  | "pollIntervalMs"
+  | "retention"
 > & {
   inspect: (raw: TRaw) => TInspection;
   payload: Omit<

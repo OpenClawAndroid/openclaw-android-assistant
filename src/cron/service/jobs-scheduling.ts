@@ -15,6 +15,7 @@ import type { CronJob, CronSchedule } from "../types.js";
 import { autoDisableCronJob } from "./auto-disable.js";
 import { normalizePayloadToSystemText } from "./normalize.js";
 import type { CronServiceState, DeferredCronNotifications } from "./state.js";
+import { hasPendingCronTriggerInterval } from "./trigger-interval.js";
 
 const STAGGER_OFFSET_CACHE_MAX = 4096;
 const staggerOffsetCache = new Map<string, number>();
@@ -203,16 +204,6 @@ function isStaggeredCronRunAtMs(job: CronJob, runAtMs: number): boolean {
   return previous === runAtMs;
 }
 
-function isPendingErrorBackoffSlot(params: {
-  job: CronJob;
-  nextRunAtMs: number;
-  nowMs: number;
-}): boolean {
-  const { job, nextRunAtMs, nowMs } = params;
-  const backoffUntilMs = resolveJobErrorBackoffUntilMs(job, DEFAULT_ERROR_BACKOFF_SCHEDULE_MS);
-  return backoffUntilMs !== undefined && nowMs < backoffUntilMs && nextRunAtMs <= backoffUntilMs;
-}
-
 export function isStaleFutureCronSlot(job: CronJob, nowMs: number): boolean {
   const nextRun = job.state.nextRunAtMs;
   if (
@@ -225,8 +216,12 @@ export function isStaleFutureCronSlot(job: CronJob, nowMs: number): boolean {
     return false;
   }
 
-  // Preserve non-cron retry timestamps only while their error backoff is pending.
-  if (isPendingErrorBackoffSlot({ job, nextRunAtMs: nextRun, nowMs })) {
+  // Retry and trigger floors can fall between expression slots.
+  const backoffUntilMs = resolveJobErrorBackoffUntilMs(job, DEFAULT_ERROR_BACKOFF_SCHEDULE_MS);
+  if (
+    (backoffUntilMs !== undefined && nowMs < backoffUntilMs && nextRun <= backoffUntilMs) ||
+    hasPendingCronTriggerInterval(job, nowMs)
+  ) {
     return false;
   }
   let naturalNext: number | undefined;

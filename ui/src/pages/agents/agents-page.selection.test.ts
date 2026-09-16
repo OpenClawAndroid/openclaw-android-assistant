@@ -170,6 +170,80 @@ describe("AgentsPage routing", () => {
     page.subscriptions.hostDisconnected();
   });
 
+  it.each(["request", "roster refresh"])(
+    "retires an identity save during its %s without losing the draft or settling a newer save",
+    async (stage) => {
+      const oldRequest = deferred();
+      const oldRefresh = deferred<AgentsListResult>();
+      const newRequest = deferred();
+      const request = vi
+        .fn()
+        .mockImplementationOnce(() => oldRequest.promise)
+        .mockImplementationOnce(() => newRequest.promise);
+      const client = { request } as unknown as GatewayBrowserClient;
+      const currentGateway = gateway(snapshot(client));
+      const agents = agentsCapability(async () => files("main", "main"));
+      if (stage === "roster refresh") {
+        vi.mocked(agents.refreshList).mockImplementationOnce(() => oldRefresh.promise);
+      }
+      const context = pageContext(currentGateway, agents);
+      const mutations: Promise<unknown>[] = [];
+      const runExternalMutation: ApplicationContext["runtimeConfig"]["runExternalMutation"] = (
+        task,
+      ) => {
+        const mutation = task(client).then((value) => ({
+          ok: true as const,
+          value,
+          refresh: { ok: true as const },
+        }));
+        mutations.push(mutation);
+        return mutation;
+      };
+      const page = document.createElement("openclaw-agents-page") as TestAgentsPage;
+      page.context = {
+        ...context,
+        agentIdentity: { ...context.agentIdentity, invalidate: vi.fn() },
+        runtimeConfig: {
+          ...context.runtimeConfig,
+          runExternalMutation,
+        },
+      };
+      setPageGateway(page, client);
+      page.agentsSelectedId = "main";
+      page.identityDraft = { name: "Lunar museum guide", emoji: null, avatar: null };
+      page.saveIdentityDraft();
+      await waitForFast(() => expect(request).toHaveBeenCalledOnce());
+      if (stage === "roster refresh") {
+        oldRequest.resolve();
+        await waitForFast(() => expect(agents.refreshList).toHaveBeenCalledOnce());
+      }
+      setPageGateway(page, client, false);
+      setPageGateway(page, client);
+      expect(page.identityDraft.name).toBe("Lunar museum guide");
+      expect(page.identitySaving).toBe(false);
+
+      page.identityDraft = { name: "Lunar museum curator", emoji: null, avatar: null };
+      page.saveIdentityDraft();
+      await waitForFast(() => expect(request).toHaveBeenCalledTimes(2));
+      if (stage === "request") {
+        oldRequest.reject(new Error("Retired identity request"));
+        await mutations[0]?.catch(() => undefined);
+      } else {
+        oldRefresh.resolve(agentsList);
+        await waitForFast(() => expect(page.context.agentIdentity.ensure).toHaveBeenCalledOnce());
+      }
+      await Promise.resolve();
+      expect(page.identitySaving).toBe(true);
+      expect(page.identityDraft.name).toBe("Lunar museum curator");
+      expect(page.identityError).toBeNull();
+
+      newRequest.resolve();
+      await waitForFast(() => expect(page.identitySaving).toBe(false));
+      expect(page.identityDraft).toEqual({ name: null, emoji: null, avatar: null });
+      expect(page.identityError).toBeNull();
+    },
+  );
+
   it("does not dispatch a queued identity write after the Settings target changes", async () => {
     const admission = deferred();
     const request = vi.fn();

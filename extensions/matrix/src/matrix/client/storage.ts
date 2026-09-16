@@ -443,7 +443,7 @@ async function migrateLegacySyncCacheToSqlite(params: {
       payload: persisted,
       store,
     });
-    claimCurrentTokenStorageState({
+    await claimCurrentTokenStorageState({
       rootDir: params.targetRootDir,
     });
     params.migrations.push({
@@ -518,7 +518,46 @@ export function writeStorageMeta(params: {
   });
 }
 
-export function claimCurrentTokenStorageState(params: { rootDir: string }): boolean {
+export async function claimCurrentTokenStorageState(params: { rootDir: string }): Promise<boolean> {
+  try {
+    const store = getMatrixRuntime().state.openKeyedStore<MatrixStorageMetadata>(
+      openMatrixStorageMetaStoreOptions(params.rootDir),
+    );
+    if (!store.observe || !store.compareAndApply) {
+      // Preserve Matrix's published >=2026.9.4 host floor until comparison support is required.
+      return claimCurrentTokenStorageStateSync(params);
+    }
+    let observation = await store.observe(STORAGE_META_STATE_KEY);
+    for (;;) {
+      const metadata =
+        normalizeMatrixStorageMetadata(observation.value) ??
+        normalizeMatrixStorageMetadata(
+          loadJsonFile(path.join(params.rootDir, STORAGE_META_FILENAME)),
+        );
+      if (!metadata?.accessTokenHash?.trim()) {
+        return false;
+      }
+      const result = await store.compareAndApply(STORAGE_META_STATE_KEY, observation.comparison, {
+        operation: "update",
+        action: "set",
+        value: {
+          ...metadata,
+          accountId: metadata.accountId ?? DEFAULT_ACCOUNT_KEY,
+          currentTokenStateClaimed: true,
+          createdAt: metadata.createdAt ?? new Date().toISOString(),
+        },
+      });
+      if (result.status !== "conflict") {
+        return true;
+      }
+      observation = result.current;
+    }
+  } catch {
+    return false;
+  }
+}
+
+function claimCurrentTokenStorageStateSync(params: { rootDir: string }): boolean {
   const metadata = readStoredRootMetadata(params.rootDir);
   if (!metadata.accessTokenHash?.trim()) {
     return false;

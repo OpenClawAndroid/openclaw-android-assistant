@@ -22,10 +22,15 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/server-methods/models-list.native-lifecycle.integration.test.ts",
   "src/gateway/server-methods/requester-cron-authority.integration.test.ts",
   "src/gateway/server-methods/server-methods.test.ts",
+  "src/gateway/server-methods/sessions-list-persisted-worker.test.ts",
   "src/gateway/server-methods/worktrees.authorization.test.ts",
   "src/gateway/server-methods/worktrees.test.ts",
+  "src/gateway/server.sessions.create-worktree-spawn.test.ts",
   "src/gateway/session-delivery-clock-jump.integration.test.ts",
+  "src/gateway/session-swarm-summary.test.ts",
+  "src/gateway/session-utils.subagent.test.ts",
   "src/gateway/setup-inference.first-signin.integration.test.ts",
+  "src/gateway/worker-environments/provider-crabbox-runtime-preflight.test.ts",
 ];
 
 // Canonical file ownership for the non-isolated Gateway server Vitest project.
@@ -44,8 +49,10 @@ export const gatewayMethodsIsolatedTestFiles = [
   "src/gateway/server-methods/agent.test.ts",
   "src/gateway/server-methods/board.runtime-boundaries.test.ts",
   "src/gateway/server-methods/chat.reset-visible-yield.test.ts",
+  "src/gateway/server-methods/environments.pairing-snapshot.test.ts",
   // Status uses the host-owned shared SQLite broker.
   "src/gateway/server-methods/health.owner-routing.test.ts",
+  "src/gateway/server-methods/sessions.send-yield-resume.test.ts",
   "src/gateway/server-methods/system-agent-nested-inference.integration.test.ts",
   "src/gateway/server-methods/system-agent-setup-control-ui.test.ts",
   "src/gateway/server-methods/users-preferences.test.ts",
@@ -59,6 +66,7 @@ export const gatewayServerIsolatedTestFiles = [
   "src/gateway/server-plugin-subagent-runtime.overrides.test.ts",
   // Loads the real plugin runtime that neighboring server tests replace with mocks.
   "src/gateway/server.chat-cli-auth.test.ts",
+  "src/gateway/server.placement-abandonment.lifecycle.test.ts",
   "src/gateway/server.placement-abandonment.test.ts",
   "src/gateway/server.sessions.compaction-read-errors.test.ts",
 ];

@@ -4,6 +4,7 @@ import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
+  createPluginStateKeyedStoreForTests,
   createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
@@ -41,21 +42,29 @@ describe("Reef setup wizard identity binding", () => {
         ...options,
         env: { OPENCLAW_STATE_DIR: stateDir },
       });
+    runtime.state.openKeyedStore = <T>(options: OpenKeyedStoreOptions) =>
+      createPluginStateKeyedStoreForTests<T>("reef", {
+        ...options,
+        env: { OPENCLAW_STATE_DIR: stateDir },
+      });
     runtime.state.resolveStateDir = () => stateDir;
     setReefRuntime(runtime);
     return runtime;
   }
 
-  function bindIdentity(runtime: ReturnType<typeof installRuntime>, handle: string): void {
-    finalizeReefIdentityBinding(
+  async function bindIdentity(
+    runtime: ReturnType<typeof installRuntime>,
+    handle: string,
+  ): Promise<void> {
+    await finalizeReefIdentityBinding(
       runtime,
-      reserveReefIdentityBinding(runtime, { handle, relayUrl: "https://reefwire.ai" }),
+      await reserveReefIdentityBinding(runtime, { handle, relayUrl: "https://reefwire.ai" }),
     );
   }
 
   it("rejects a different handle before reusing the stored identity keys", async () => {
     const runtime = installRuntime();
-    bindIdentity(runtime, "existing");
+    await bindIdentity(runtime, "existing");
     const textAnswers = [
       "https://reefwire.ai",
       "owner@example.com",
@@ -98,7 +107,7 @@ describe("Reef setup wizard identity binding", () => {
 
     await reefSetupWizard.configureInteractive({ cfg: {}, prompter: prompter as never });
 
-    expect(loadReefIdentityBinding(runtime)).toEqual({
+    expect(await loadReefIdentityBinding(runtime)).toEqual({
       handle: "molty",
       relayUrl: "https://reefwire.ai",
     });
@@ -460,7 +469,7 @@ describe("Reef setup wizard identity binding", () => {
     await expect(
       reefSetupWizard.configureInteractive({ cfg: {}, prompter: prompter as never }),
     ).rejects.toThrow("handle_unavailable");
-    expect(loadReefIdentityBinding(runtime)).toBeUndefined();
+    expect(await loadReefIdentityBinding(runtime)).toBeUndefined();
   });
 
   it("keeps a binding after an ambiguous handle-claim failure", async () => {
@@ -479,7 +488,7 @@ describe("Reef setup wizard identity binding", () => {
     await expect(
       reefSetupWizard.configureInteractive({ cfg: {}, prompter: prompter as never }),
     ).rejects.toThrow("connection reset");
-    expect(loadReefIdentityBinding(runtime)).toEqual({
+    expect(await loadReefIdentityBinding(runtime)).toEqual({
       handle: "molty",
       relayUrl: "https://reefwire.ai",
     });
@@ -504,7 +513,7 @@ describe("Reef setup wizard identity binding", () => {
     await expect(
       reefSetupWizard.configureInteractive({ cfg: {}, prompter: prompter as never }),
     ).rejects.toThrow("invalid_signature");
-    expect(loadReefIdentityBinding(runtime)).toEqual({
+    expect(await loadReefIdentityBinding(runtime)).toEqual({
       handle: "molty",
       relayUrl: "https://reefwire.ai",
     });

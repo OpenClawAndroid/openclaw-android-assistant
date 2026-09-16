@@ -18,6 +18,7 @@ import {
   recordUpdateRunRepairContinuation,
 } from "../../infra/update-run-ledger.js";
 import type { UpdateRunRecord } from "../../infra/update-run-record.js";
+import { DEFAULT_UPDATE_STEP_TIMEOUT_MS } from "../../infra/update-run-timeouts.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { assertOpenClawStateWriteAllowedAtPath } from "../../state/openclaw-state-ownership.js";
@@ -75,7 +76,7 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
     return;
   }
   const env = resolveServiceRefreshEnv(process.env, tryResolveInvocationCwd());
-  const options = { env };
+  const options = { env, busyTimeoutMs: timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS };
   assertConfigWriteAllowedInCurrentMode({ env });
   await assertOpenClawStateWriteAllowedAtPath({
     databasePath: resolveOpenClawStateSqlitePath(env),

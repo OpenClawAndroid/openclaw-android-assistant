@@ -257,6 +257,8 @@ describe("chat pane embedded panels", () => {
     });
     await file.promise;
     await renderPanels();
+    // Lit update completion does not include the editor's detached module load.
+    await vi.dynamicImportSettled();
     const editorElement = await vi.waitFor(() =>
       expectDefined(mount.querySelector<HTMLElement>(".cm-editor"), "file editor"),
     );
@@ -991,6 +993,7 @@ describe("chat pane embedded panels", () => {
     const onRefreshTasks = vi.fn();
     const params = {} as NonNullable<Parameters<typeof sidebarPanelDefinitions>[0]>;
     params.connected = true;
+    params.companion = { turns: [], loading: false, draft: "" };
     params.onRefreshTasks = onRefreshTasks;
     params.tasksLoading = false;
     const tasks = sidebarPanelDefinitions(params).find((definition) => definition.slot === "tasks");

@@ -376,7 +376,15 @@ async function executeDetachedCronJob(
       job,
       abortSignal,
     });
-    if (abortSignal?.aborted) {
+    if (
+      abortSignal?.aborted &&
+      !(
+        abortSignal.reason instanceof Error &&
+        abortSignal.reason.name === "TimeoutError" &&
+        res.failureNotificationDetail?.kind === "command-timeout" &&
+        res.failureNotificationDetail.mode === "wall-clock"
+      )
+    ) {
       return interrupted();
     }
     return {

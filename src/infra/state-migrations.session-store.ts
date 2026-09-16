@@ -988,7 +988,11 @@ export async function migrateLegacyAcpSessionMetadata(params: {
       continue;
     }
 
-    const readVerifiedCoreImport = prepareDeferredPluginSessionImportReader({ storePath, env });
+    const readVerifiedCoreImport = prepareDeferredPluginSessionImportReader({
+      cfg: params.cfg,
+      target,
+      env,
+    });
     const normalized = Object.create(null) as Record<string, SessionEntry>;
     let migrated = 0;
     let consumed = 0;

@@ -5,6 +5,8 @@ import type { SessionManager } from "../../sessions/session-manager.js";
 import type { NormalizedUsage } from "../../usage.js";
 
 type CompactionAccountingRecorder = CompactionRequestConstraints & {
+  /** A precheck can require budget recovery while its user request is still pending. */
+  pendingRequestState?: "unresolved";
   /** The caller's buffer owns recovery; its portable identity grants no durable access. */
   memoryTranscript?: {
     sessionManager: SessionManager;

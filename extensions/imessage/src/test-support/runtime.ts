@@ -14,8 +14,14 @@ import {
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
 import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/temp-path";
-import { vi } from "vitest";
+import { afterAll, vi } from "vitest";
 import { setIMessageRuntime } from "../runtime.js";
+
+afterAll(async () => {
+  const { closeOpenClawStateDatabaseAsync } =
+    await import("openclaw/plugin-sdk/sqlite-runtime-testing");
+  await closeOpenClawStateDatabaseAsync();
+});
 
 function createIMessageTestEnv(): NodeJS.ProcessEnv & { OPENCLAW_STATE_DIR: string } {
   const stateDir = fs.realpathSync(

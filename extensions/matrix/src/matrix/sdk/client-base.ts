@@ -15,7 +15,7 @@ import type { PinnedDispatcherPolicy } from "openclaw/plugin-sdk/ssrf-dispatcher
 import type { SsrFPolicy } from "openclaw/plugin-sdk/ssrf-runtime";
 import { SqliteBackedMatrixSyncStore } from "../client/file-sync-store.js";
 import { createMatrixJsSdkClientLogger } from "../client/logging.js";
-import type { MatrixSyncStateRuntime } from "../crypto-state-store.js";
+import type { MatrixSnapshotStateRuntime } from "../crypto-state-store.js";
 import { createMatrixStartupAbortError, throwIfMatrixStartupAborted } from "../startup-abort.js";
 import {
   isMatrixReadySyncState,
@@ -84,7 +84,7 @@ export abstract class MatrixClientBase {
   protected readonly syncStore?: SqliteBackedMatrixSyncStore;
   protected readonly idbSnapshotPath?: string;
   protected readonly cryptoDatabasePrefix?: string;
-  protected readonly stateRuntime?: MatrixSyncStateRuntime;
+  protected readonly stateRuntime?: MatrixSnapshotStateRuntime;
   protected bridgeRegistered = false;
   protected started = false;
   protected cryptoBootstrapped = false;
@@ -165,7 +165,7 @@ export abstract class MatrixClientBase {
       autoBootstrapCrypto?: boolean;
       ssrfPolicy?: SsrFPolicy;
       dispatcherPolicy?: PinnedDispatcherPolicy;
-      stateRuntime?: MatrixSyncStateRuntime;
+      stateRuntime?: MatrixSnapshotStateRuntime;
     } = {},
   ) {
     this.transactionScopeHomeserver = homeserver;

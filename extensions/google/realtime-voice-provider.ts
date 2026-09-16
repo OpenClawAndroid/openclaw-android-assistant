@@ -1,4 +1,3 @@
-// Google provider module implements model/runtime integration.
 import { randomUUID } from "node:crypto";
 import {
   ActivityHandling,
@@ -57,9 +56,12 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { canonicalizeGoogleProviderBase64 } from "./base64.js";
 import { createGoogleGenAI } from "./google-genai-runtime.js";
+import {
+  GOOGLE_REALTIME_DEFAULT_MODEL,
+  GOOGLE_REALTIME_VOICE_METADATA,
+} from "./realtime-voice-metadata.js";
 import { resolveGoogleGemini3ThinkingLevel } from "./thinking-api.js";
 
-const GOOGLE_REALTIME_DEFAULT_MODEL = "gemini-3.1-flash-live-preview";
 const GOOGLE_REALTIME_DEFAULT_VOICE = "Kore";
 const GOOGLE_REALTIME_DEFAULT_API_VERSION = "v1beta";
 const GOOGLE_REALTIME_INPUT_SAMPLE_RATE = 16_000;
@@ -1390,10 +1392,7 @@ async function createGoogleRealtimeBrowserSession(
 
 export function buildGoogleRealtimeVoiceProvider(): RealtimeVoiceProviderPlugin {
   return {
-    id: "google",
-    label: "Google Live Voice",
-    defaultModel: GOOGLE_REALTIME_DEFAULT_MODEL,
-    autoSelectOrder: 20,
+    ...GOOGLE_REALTIME_VOICE_METADATA,
     capabilities: {
       transports: ["provider-websocket", "gateway-relay"],
       inputAudioFormats: [

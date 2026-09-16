@@ -5,8 +5,8 @@ import type { PreparedAnnounceResult } from "./subagents/announce/subagent-annou
 import type {
   PendingFinalDeliveryPayload,
   SubagentCompletionDeliveryState,
-  SubagentRunRecord,
-} from "./subagents/registry/subagent-registry.types.js";
+} from "./subagents/registry/subagent-registry-read.types.js";
+import type { SubagentRunRecord } from "./subagents/registry/subagent-registry.types.js";
 
 // Steering queue utilities for delivering completed subagent results back into
 // the requester session. Items are leased before injection to avoid duplicate

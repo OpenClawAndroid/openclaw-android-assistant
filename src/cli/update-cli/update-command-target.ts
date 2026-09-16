@@ -170,7 +170,6 @@ export async function resolveUpdateCommandTarget(
     return undefined;
   }
   let tag = explicitTag ?? channelToNpmTag(channel);
-  let currentVersion: string | null = null;
   let targetVersion: string | null = null;
   let downgradeRisk = false;
   let fallbackToLatest = false;
@@ -216,6 +215,7 @@ export async function resolveUpdateCommandTarget(
     assertUpdatePackageActivationAdmission(captureUpdateCommandExecutorAuthority(fence).installKey);
   }
 
+  const currentVersion = await readPackageVersion(root);
   if (updateInstallKind !== "git") {
     recoveryState.triageTarget.root = root;
     recoveryState.triageTarget.nodeRunner = packageUpdateNodeRunner;
@@ -285,7 +285,6 @@ export async function resolveUpdateCommandTarget(
     }
     const npmMetadataCommand =
       packageInstallTarget?.manager === "npm" ? packageInstallTarget.command : undefined;
-    currentVersion = await readPackageVersion(root);
     if (channel === "extended-stable") {
       const extendedStable = await resolveExtendedStablePackage({
         installKind: updateInstallKind,

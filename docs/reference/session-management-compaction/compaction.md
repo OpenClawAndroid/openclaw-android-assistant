@@ -55,6 +55,8 @@ Two additional guards run outside these paths:
 
 ## Compaction settings
 
+Checkpoint replay prechecks distinguish predicted pressure from a provider-confirmed overflow. A matching measured Responses request supplies the covered context count; only appended content is estimated. If the current checkpoint or covered input changes, that measurement is no longer used. Predicted pressure can use native budget compaction, including the public OpenAI compact endpoint by default, while actual provider overflow retains client-side recovery. Both paths preserve the unresolved user request when client summarization is required.
+
 ```json5
 {
   agents: {

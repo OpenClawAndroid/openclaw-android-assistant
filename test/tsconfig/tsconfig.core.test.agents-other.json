@@ -17,6 +17,8 @@
     "../../src/agents/command/**/*.test.tsx",
     "../../src/agents/sandbox/**/*.test.ts",
     "../../src/agents/sandbox/**/*.test.tsx",
+    "../../src/agents/sessions/**/*.test.ts",
+    "../../src/agents/sessions/**/*.test.tsx",
     "../../src/agents/tools/**/*.test.ts",
     "../../src/agents/tools/**/*.test.tsx",
     "../../src/agents/worktrees/**/*.test.ts",

@@ -1,10 +1,20 @@
 // Live OpenAI AgentSession coverage for repeated automatic compaction and long-context opt-in.
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "openclaw/plugin-sdk/llm";
+import { cleanupSessionResources } from "@openclaw/ai/internal/runtime";
+import { createOpenAIResponsesTransportStreamFn } from "@openclaw/ai/transports";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import type { Message, Model, Tool } from "openclaw/plugin-sdk/llm";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { isTruthyEnvValue } from "../../infra/env.js";
+import {
+  estimateToolSchemaTokenPressure,
+  shouldPreemptivelyCompactBeforePrompt,
+} from "../embedded-agent-runner/run/preemptive-compaction.js";
+import { attemptServerEndpointCompaction } from "../embedded-agent-runner/server-endpoint-compaction.js";
 import { AgentSession } from "./agent-session.js";
 import { AuthStorage } from "./auth-storage.js";
 import { createExtensionRuntime } from "./extensions/loader.js";
@@ -172,6 +182,185 @@ afterEach(async () => {
 });
 
 describeLive("OpenAI AgentSession repeated compaction live", () => {
+  it(
+    "uses native budget checkpoints and measured usage across two saved tool-output continuations",
+    async () => {
+      const model = {
+        id: MODEL_ID,
+        name: MODEL_ID,
+        api: "openai-responses",
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128_000,
+        maxTokens: 1_024,
+      } satisfies Model<"openai-responses">;
+      const sessionId = randomUUID();
+      const durableMarker = `OPENAI-CHECKPOINT-${randomUUID()}`;
+      const systemPrompt = "Preserve the durable marker and follow the user's output instructions.";
+      const tools: Tool[] = [
+        {
+          name: "read_synthetic_context",
+          description: "Read synthetic context records for this compaction test.",
+          parameters: Type.Object({}, { additionalProperties: false }),
+        },
+      ];
+      const toolSchemaTokens = estimateToolSchemaTokenPressure(tools);
+      const streamFn = createOpenAIResponsesTransportStreamFn();
+      const requestOptions = {
+        apiKey: API_KEY,
+        sessionId,
+        transport: "sse",
+        reasoning: "low",
+        maxTokens: 1_024,
+        timeoutMs: 2 * 60 * 1000,
+      } as const;
+      let sessionManager = SessionManager.inMemory();
+      const messages = () =>
+        sessionManager
+          .buildSessionContext()
+          .messages.filter(
+            (message): message is Message =>
+              message.role === "user" ||
+              message.role === "assistant" ||
+              message.role === "toolResult",
+          );
+      const reopen = () => {
+        const persisted = JSON.stringify(sessionManager.getPersistedEntries());
+        sessionManager = SessionManager.fromEntries(JSON.parse(persisted));
+      };
+      const complete = async (toolChoice: "none" | "required") => {
+        try {
+          const options = {
+            ...requestOptions,
+            toolChoice,
+          } satisfies Parameters<typeof attemptServerEndpointCompaction>[0]["requestOptions"];
+          const stream = await Promise.resolve(
+            streamFn(model, { systemPrompt, messages: messages(), tools }, options),
+          );
+          const response = await stream.result();
+          expect(response.errorMessage).toBeUndefined();
+          expect(response.stopReason).toBe(toolChoice === "required" ? "toolUse" : "stop");
+          sessionManager.appendMessage(response);
+          return response;
+        } finally {
+          // Each subsequent request must work from persisted replay, without process-local continuation state.
+          cleanupSessionResources(sessionId);
+        }
+      };
+
+      try {
+        sessionManager.appendMessage({
+          role: "user",
+          content: `Remember durable marker ${durableMarker}. Reply with exactly ${durableMarker}.`,
+          timestamp: Date.now(),
+        });
+        await complete("none");
+
+        for (let cycle = 1; cycle <= 2; cycle += 1) {
+          const compacted = await attemptServerEndpointCompaction({
+            trigger: "budget",
+            streamFn,
+            model,
+            context: { systemPrompt, messages: messages() },
+            sessionManager,
+            extraParams: {},
+            requestOptions,
+          });
+          expect(compacted).toBeDefined();
+          if (!compacted) {
+            throw new Error(`native budget compaction did not complete on cycle ${cycle}`);
+          }
+          reopen();
+          const owner = messages().at(-1);
+          expect(owner).toMatchObject({
+            role: "assistant",
+            providerReplay: { data: compacted.item.encrypted_content },
+          });
+
+          sessionManager.appendMessage({
+            role: "user",
+            content:
+              "Call read_synthetic_context exactly once, then reply with exactly the durable marker I asked you to remember.",
+            timestamp: Date.now(),
+          });
+          const requested = await complete("required");
+          const calls = requested.content.filter((block) => block.type === "toolCall");
+          expect(calls).toHaveLength(1);
+          const call = calls[0];
+          if (!call || call.name !== "read_synthetic_context") {
+            throw new Error("provider did not request the synthetic context tool");
+          }
+          sessionManager.appendMessage({
+            role: "toolResult",
+            toolCallId: call.id,
+            toolName: call.name,
+            content: [{ type: "text", text: buildContextChunk(24_000) }],
+            isError: false,
+            timestamp: Date.now(),
+          });
+          const response = await complete("none");
+          expect(
+            response.content
+              .filter((block) => block.type === "text")
+              .map((block) => block.text)
+              .join("")
+              .trim(),
+          ).toBe(durableMarker);
+          reopen();
+          expect(messages().at(-1)).toHaveProperty(
+            "openclawResponsesInputReplay.contextUsage.totalTokens",
+            response.usage.contextUsage?.state === "available"
+              ? response.usage.contextUsage.totalTokens
+              : undefined,
+          );
+          expect(response.usage.contextUsage?.state).toBe("available");
+
+          const savedMessages = messages();
+          const unboundMessages = structuredClone(savedMessages);
+          for (const message of unboundMessages) {
+            if (
+              "openclawResponsesInputReplay" in message &&
+              isRecord(message.openclawResponsesInputReplay)
+            ) {
+              delete message.openclawResponsesInputReplay.contextUsage;
+            }
+          }
+          const precheck = (history: Message[], contextTokenBudget: number) => {
+            const decision = shouldPreemptivelyCompactBeforePrompt({
+              messages: history,
+              systemPrompt,
+              prompt: "Continue remembering the durable marker.",
+              contextTokenBudget,
+              reserveTokens: 0,
+              toolSchemaTokens,
+              replay: { model, sessionId },
+            });
+            return decision.compactionReplay ?? decision;
+          };
+          const measured = precheck(savedMessages, model.contextWindow);
+          const conservative = precheck(unboundMessages, model.contextWindow);
+          expect(measured.pressureSource).toBe("provider_context_usage");
+          expect(measured.estimatedPromptTokens).toBeLessThan(conservative.estimatedPromptTokens);
+          // This smaller budget exercises host routing only; it is never sent to the provider.
+          const diagnosticBudget = Math.floor(
+            (measured.estimatedPromptTokens + conservative.estimatedPromptTokens) / 2,
+          );
+          expect(precheck(savedMessages, diagnosticBudget).route).toBe("fits");
+          expect(precheck(unboundMessages, diagnosticBudget).overflowTokens).toBeGreaterThan(0);
+          process.stderr.write(
+            `[openai-checkpoint-live] cycle=${cycle} measured=${measured.estimatedPromptTokens} conservative=${conservative.estimatedPromptTokens} budget=${diagnosticBudget} marker=preserved\n`,
+          );
+        }
+      } finally {
+        cleanupSessionResources(sessionId);
+      }
+    },
+    10 * 60 * 1000,
+  );
+
   it(
     "compacts multiple times and preserves durable conversation state",
     async () => {

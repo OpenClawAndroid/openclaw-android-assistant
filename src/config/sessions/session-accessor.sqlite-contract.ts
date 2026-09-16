@@ -16,6 +16,13 @@ import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
 export type SessionEntryStatus = NonNullable<SessionEntry["status"]>;
 
+export type CanonicalSessionValidationResult = {
+  validatedRows: number;
+  certifiedRows: number;
+  hasMore: boolean;
+  oversizedRows: number;
+};
+
 /** Worker operation facts; no Worker object or plan payload is retained. */
 export type SqliteSessionReclamationDiagnostics = {
   kind?:

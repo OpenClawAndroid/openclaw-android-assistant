@@ -139,6 +139,51 @@ Fast requests and requests with diagnostics disabled emit no summary. The
 record adds no job identifiers, content, query strings, targets or error text,
 and does not change individual slow-page warnings or response payloads.
 
+### Slow Codex catalog pages
+
+With diagnostics and warning logging enabled, a Codex catalog page taking at
+least one second emits `slow Codex catalog page producer`. Its existing phase
+totals distinguish client acquisition, request waiting, and page processing.
+`diagnosticEpoch` and `operationId` identify the page observation;
+`listOperationId` links its originating logical list when available.
+
+`controlWaitersV1` is a JSON-encoded array joining sampled page waits to the
+physical client and JSON-RPC attempt. Decode the string with `JSON.parse` to
+read its tuples. It keeps the first two and latest two completed waiter summaries.
+`controlWaitersOmitted` counts summaries excluded by the bounds. Each entry has
+these positions:
+
+| Index | Meaning                                                       |
+| ----: | ------------------------------------------------------------- |
+|     0 | Control request ordinal within the page                       |
+|     1 | Overload attempt ordinal within that control request          |
+|     2 | Physical client instance UUID                                 |
+|     3 | JSON-RPC request id                                           |
+|     4 | Waiter ordinal within that wire attempt                       |
+|     5 | `new` or `joined` attempt                                     |
+|     6 | Attempt creation time                                         |
+|     7 | First possible write time, or `null` before any write attempt |
+|     8 | Waiter attachment time                                        |
+|     9 | Waiter settlement time                                        |
+|    10 | Waiter outcome                                                |
+|    11 | Wire outcome observed when the waiter settled                 |
+|    12 | Wire outcome observation time, or `null` while pending        |
+
+Times are rounded process-local monotonic milliseconds, comparable within the
+same process. A later waiter retains the original attempt and possible-write
+times. Waiter outcomes distinguish `resolved`, `native-error`, `timed-out`,
+`aborted`, `authority-rejected`, `local-failed`, and `client-closed`. Wire outcomes
+are `retained-pending`, `native-ok`, `native-error`, `ingress-rejected`,
+`correlation-closed`, or `not-written`.
+
+A possible write does not prove native acceptance. A joined waiter does not
+mean another request was sent, and a timed-out waiter can leave the wire attempt
+pending. Later wire settlement is not promised after the page observation closes.
+These records contain no query, cursor, path, title, authentication data, or raw
+error. Existing bounds remain 64 active observations, 60 warnings per minute,
+28 metadata keys, and 2,048 bytes. Missing or omitted summaries are unavailable
+evidence, not zero activity; durations do not attribute native CPU or client receipt.
+
 ## Console capture
 
 The CLI captures `console.log/info/warn/error/debug/trace`, writes them to file logs, and still prints to stdout/stderr.

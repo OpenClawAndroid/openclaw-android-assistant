@@ -78,7 +78,9 @@ const scopedGatewayMethodsIsolatedTestFiles = [
   "server-methods/agent.test.ts",
   "server-methods/board.runtime-boundaries.test.ts",
   "server-methods/chat.reset-visible-yield.test.ts",
+  "server-methods/environments.pairing-snapshot.test.ts",
   "server-methods/health.owner-routing.test.ts",
+  "server-methods/sessions.send-yield-resume.test.ts",
   "server-methods/system-agent-nested-inference.integration.test.ts",
   "server-methods/system-agent-setup-control-ui.test.ts",
   "server-methods/users-preferences.test.ts",
@@ -754,7 +756,12 @@ describe("projects vitest config", () => {
       source: "approval-reactions.ts",
       siblings: ["approval-reactions.test.ts", "approval-reaction-poller.test.ts"],
     },
-    { file: "send.sqlite.test.ts", source: "send.ts", siblings: ["send.test.ts"] },
+    {
+      file: "send.sqlite.test.ts",
+      source: "send.ts",
+      siblings: ["outbound-tool-trace-sanitize.test.ts"],
+    },
+    { file: "send.test.ts", source: "send.ts", siblings: ["outbound-tool-trace-sanitize.test.ts"] },
   ])(
     "routes iMessage $file through its worker owner without moving sibling tests",
     ({ file: basename, source, siblings }) => {

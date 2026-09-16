@@ -64,8 +64,7 @@ type SessionHistoryPathResolution =
   | { error: "invalid-session-key"; matched: true }
   | { matched: true; sessionKey: string };
 
-function resolveSessionHistoryPath(req: IncomingMessage): SessionHistoryPathResolution {
-  const url = new URL(req.url ?? "/", "http://localhost");
+function resolveSessionHistoryPath(url: URL): SessionHistoryPathResolution {
   const match = url.pathname.match(/^\/sessions\/([^/]+)\/history$/);
   if (!match) {
     return { matched: false };
@@ -84,12 +83,8 @@ function shouldStreamSse(req: IncomingMessage): boolean {
   return hasExplicitAcceptableMediaRange(getHeader(req, "accept"), SSE_CONTENT_TYPE);
 }
 
-function getRequestUrl(req: IncomingMessage): URL {
-  return new URL(req.url ?? "/", "http://localhost");
-}
-
-function resolveLimit(req: IncomingMessage): Result<number | undefined, string> {
-  const raw = getRequestUrl(req).searchParams.get("limit");
+function resolveLimit(url: URL): Result<number | undefined, string> {
+  const raw = url.searchParams.get("limit");
   if (raw == null) {
     return ok(undefined);
   }
@@ -144,7 +139,8 @@ export async function handleSessionHistoryHttpRequest(
     rateLimiter?: AuthRateLimiter;
   },
 ): Promise<boolean> {
-  const sessionKeyResolution = resolveSessionHistoryPath(req);
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const sessionKeyResolution = resolveSessionHistoryPath(url);
   if (!sessionKeyResolution.matched) {
     return false;
   }
@@ -211,13 +207,13 @@ export async function handleSessionHistoryHttpRequest(
     sendSessionNotFound();
     return true;
   }
-  const limitResult = resolveLimit(req);
+  const limitResult = resolveLimit(url);
   if (!limitResult.ok) {
     sendInvalidRequest(res, limitResult.error);
     return true;
   }
   const limit = limitResult.value;
-  const cursor = normalizeOptionalString(getRequestUrl(req).searchParams.get("cursor"));
+  const cursor = normalizeOptionalString(url.searchParams.get("cursor"));
   if (cursor !== undefined && resolveCursorSeq(cursor) === undefined) {
     sendInvalidRequest(res, "cursor must be a positive integer");
     return true;
@@ -350,6 +346,7 @@ export async function handleSessionHistoryHttpRequest(
   });
   let streamStopped = false;
   let streamQueue = Promise.resolve();
+  let pendingRefresh: (() => Promise<void>) | undefined;
   const streamResources: {
     heartbeat?: ReturnType<typeof setInterval>;
     unsubscribe?: () => void;
@@ -365,16 +362,13 @@ export async function handleSessionHistoryHttpRequest(
     sseState.retainRecentMessages(MAX_SESSION_HISTORY_LIMIT);
   }
 
-  async function writeAuthorizedStreamHistory(
-    snapshot: ReturnType<SessionHistorySseState["snapshot"]>,
-  ) {
-    if (
-      !(await publishAuthorizedHistory(() => {
-        if (!isStreamClosed()) {
-          writeStreamHistory(snapshot);
-        }
-      }))
-    ) {
+  async function publishStream(publish: () => void) {
+    const authorized = await publishAuthorizedHistory(() => {
+      if (!isStreamClosed()) {
+        publish();
+      }
+    });
+    if (!authorized) {
       closeStream();
     }
   }
@@ -453,12 +447,7 @@ export async function handleSessionHistoryHttpRequest(
   }
   const queueStreamWork = (work: () => Promise<void>) => {
     streamQueue = streamQueue
-      .then(async () => {
-        if (isStreamClosed()) {
-          return;
-        }
-        await work();
-      })
+      .then(() => (isStreamClosed() ? undefined : work()))
       .catch((error: unknown) => {
         // Surface the underlying error so operators can distinguish transient
         // infrastructure failures (for example a `getRuntimeConfig()` read error
@@ -468,35 +457,41 @@ export async function handleSessionHistoryHttpRequest(
       });
   };
 
+  const queueStreamRefresh = () => {
+    if (pendingRefresh) {
+      return;
+    }
+    const refresh = async () => {
+      await publishStream(() => {
+        // Updates after this read starts need one trailing refresh.
+        if (pendingRefresh === refresh) {
+          pendingRefresh = undefined;
+        }
+      });
+      if (!isStreamClosed()) {
+        const snapshot = await sseState.refreshAsync();
+        await publishStream(() => writeStreamHistory(snapshot));
+      }
+    };
+    pendingRefresh = refresh;
+    queueStreamWork(refresh);
+  };
+
   // The listener is installed before this queued delivery runs. Refresh once if a
   // commit crossed the initial read; subsequent updates queue behind this snapshot.
   queueStreamWork(async () => {
     if (snapshotVersion !== readSessionTranscriptUpdateVersion()) {
       await sseState.refreshAsync();
     }
-    await writeAuthorizedStreamHistory(sseState.snapshot());
+    await publishStream(() => writeStreamHistory(sseState.snapshot()));
   });
 
   streamResources.heartbeat = setInterval(() => {
-    queueStreamWork(async () => {
-      if (
-        !(await publishAuthorizedHistory(() => {
-          if (!isStreamClosed()) {
-            res.write(": keepalive\n\n");
-          }
-        }))
-      ) {
-        closeStream();
-      }
-    });
+    queueStreamWork(() => publishStream(() => res.write(": keepalive\n\n")));
   }, 15_000);
 
   streamResources.unsubscribe = onInternalSessionTranscriptUpdate((update) => {
-    // Filter to candidate sessions synchronously before enqueueing any async
-    // work. Transcript updates use a global fan-out listener, so every
-    // transcript write in the gateway would otherwise append a Promise-chain
-    // entry capturing `update.message` to every open SSE stream's queue —
-    // O(streams × updates) for busy deployments.
+    // Filter the global fan-out before retaining messages or scheduling async work.
     const updateMatchesIdentity =
       update.target?.sessionId === historyTarget.sessionId &&
       normalizeAgentId(update.target.agentId) === normalizeAgentId(target.agentId);
@@ -504,18 +499,18 @@ export async function handleSessionHistoryHttpRequest(
     if (!updateMatchesIdentity && (!updatePath || !transcriptCandidates.has(updatePath))) {
       return;
     }
+    if (update.message === undefined || limit !== undefined || cursor !== undefined) {
+      queueStreamRefresh();
+      return;
+    }
+    // Inline delivery is an ordering barrier: a later invalidation must still
+    // repair this append even if an earlier refresh already contains its row.
+    pendingRefresh = undefined;
     queueStreamWork(async () => {
       let refresh = false;
-      const authorized = await publishAuthorizedHistory(() => {
-        if (isStreamClosed()) {
-          return;
-        }
-        if (update.message === undefined || limit !== undefined || cursor !== undefined) {
-          refresh = true;
-          return;
-        }
-        if (sseState.shouldRefreshForTranscriptPath(updatePath)) {
-          refresh = true;
+      await publishStream(() => {
+        refresh = sseState.shouldRefreshForTranscriptPath(updatePath);
+        if (refresh) {
           return;
         }
         const nextEvent = sseState.appendInlineMessage({
@@ -523,14 +518,8 @@ export async function handleSessionHistoryHttpRequest(
           messageId: update.messageId,
           messageSeq: update.messageSeq,
         });
-        if (!nextEvent) {
-          return;
-        }
-        if (nextEvent.shouldRefresh) {
-          refresh = true;
-          return;
-        }
-        if (nextEvent.message === undefined) {
+        refresh = nextEvent?.shouldRefresh === true;
+        if (refresh || nextEvent?.message === undefined) {
           return;
         }
         sseState.retainRecentMessages(MAX_SESSION_HISTORY_LIMIT);
@@ -541,10 +530,9 @@ export async function handleSessionHistoryHttpRequest(
           messageSeq: nextEvent.messageSeq,
         });
       });
-      if (!authorized) {
-        closeStream();
-      } else if (refresh && !isStreamClosed()) {
-        await writeAuthorizedStreamHistory(await sseState.refreshAsync());
+      if (refresh && !isStreamClosed()) {
+        const snapshot = await sseState.refreshAsync();
+        await publishStream(() => writeStreamHistory(snapshot));
       }
     });
   });

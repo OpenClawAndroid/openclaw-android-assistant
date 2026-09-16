@@ -7,13 +7,13 @@ import {
   prepareSqliteQueryTakeFirstSync,
 } from "../../infra/kysely-sync.js";
 import type { TranscriptReadWindow } from "../../sessions/transcript-read-window.js";
+import { readTranscriptDisplaySource } from "./session-accessor.sqlite-display-position.js";
+import { isVisibleHistoryNonMessageEventSql } from "./session-accessor.sqlite-history-interval.js";
 import {
   getActiveTranscriptKysely,
   type CurrentTranscriptProjection,
   type SessionTranscriptMessageEvent,
-} from "./session-accessor.sqlite-active-projection.js";
-import { readTranscriptDisplaySource } from "./session-accessor.sqlite-display-position.js";
-import { isVisibleHistoryNonMessageEventSql } from "./session-accessor.sqlite-history-interval.js";
+} from "./session-accessor.sqlite-projection-read.js";
 import {
   resolveTranscriptBoundaryWindow,
   resolveVisibleMessagePositions,

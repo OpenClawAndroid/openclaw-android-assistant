@@ -70,6 +70,8 @@ export type TestAgentsPage = HTMLElement & {
   clearAgentSkills: (agentId: string) => void;
   saveAgentConfig: () => void;
   identityDraft: { name: string | null; emoji: string | null; avatar: string | null };
+  identitySaving: boolean;
+  identityError: string | null;
   saveIdentityDraft: () => void;
   setDefaultAgent: (agentId: string) => void;
 };

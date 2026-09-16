@@ -15,7 +15,8 @@ function* sortEntriesWork<T extends object>(
   let sorted = entries.slice();
   // Native sorting keeps each run cheap; merging provides checkpoints for wide windows.
   for (let start = 0; start < sorted.length; start += SORT_RUN_SIZE) {
-    const run = sorted.slice(start, start + SORT_RUN_SIZE).toSorted(compare);
+    const run = sorted.slice(start, start + SORT_RUN_SIZE);
+    run.sort(compare);
     for (let index = 0; index < run.length; index++) {
       sorted[start + index] = run[index]!;
     }

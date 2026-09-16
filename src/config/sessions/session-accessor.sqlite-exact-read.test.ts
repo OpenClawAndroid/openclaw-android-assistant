@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { trackSqliteStatementExecutions } from "../../../test/helpers/sqlite-statement-execution-counter.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { clearNodeSqliteKyselyCacheForDatabase } from "../../infra/kysely-sync.js";
+import { invalidateOpenClawAgentDatabaseValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import {
+  closeOpenClawAgentDatabaseByPath,
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
@@ -14,7 +18,12 @@ import {
   recordSessionParticipant,
   replaceSessionEntrySync,
 } from "./session-accessor.js";
+import { loadExactSessionEntryCandidates } from "./session-accessor.sqlite-exact-read.js";
 import { ensureTranscriptSessionRoot } from "./session-accessor.sqlite-transcript-state.js";
+import {
+  assertCanonicalSqliteSessionKeysCurrent,
+  setCanonicalSqliteSessionMainKey,
+} from "./session-canonical-key.js";
 
 const autoTempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -24,6 +33,89 @@ afterEach(() => {
 });
 
 describe("exact SQLite session batches", () => {
+  it.each(["cold", "warm", "policy", "receipt"] as const)(
+    "uses an admission snapshot only when the exact reader requires it (%s)",
+    (admission) => {
+      const env = { OPENCLAW_STATE_DIR: autoTempDirs.make("openclaw-exact-read-snapshot-") };
+      const scope = { agentId: "main", env, sessionKey: "agent:main:snapshot" };
+      const entry = { sessionId: "snapshot", updatedAt: 1, label: "before" };
+      replaceSessionEntrySync(scope, entry);
+      const original = openOpenClawAgentDatabase(scope);
+      closeOpenClawAgentDatabaseByPath(original.path);
+      const database = openOpenClawAgentDatabase(scope);
+      if (admission !== "cold") {
+        expect(loadExactSessionEntryReadOnly(scope)?.entry.label).toBe("before");
+      }
+      if (admission === "policy") {
+        setCanonicalSqliteSessionMainKey(database, "custom");
+      } else if (admission === "receipt") {
+        invalidateOpenClawAgentDatabaseValidation(database.path);
+      }
+      const external = new DatabaseSync(database.path);
+      clearNodeSqliteKyselyCacheForDatabase(database.db);
+      const prepare = database.db.prepare.bind(database.db);
+      let selectedInTransaction: boolean | undefined;
+      const prepareSpy = vi.spyOn(database.db, "prepare").mockImplementation((sql) => {
+        const statement = prepare(sql);
+        if (
+          selectedInTransaction === undefined &&
+          /^select \* from "session_nodes" where "session_key" = /i.test(sql)
+        ) {
+          selectedInTransaction = database.db.isTransaction;
+          external
+            .prepare(
+              "UPDATE session_nodes SET entry_json = ?, label = 'after' WHERE session_key = ?",
+            )
+            .run(JSON.stringify({ ...entry, label: "after" }), scope.sessionKey);
+          external
+            .prepare("UPDATE session_nodes SET entry_valid = 1 WHERE session_key = ?")
+            .run(scope.sessionKey);
+        }
+        return statement;
+      });
+      try {
+        expect(loadExactSessionEntryReadOnly(scope)?.entry.label).toBe(
+          admission === "warm" ? "after" : "before",
+        );
+        expect(selectedInTransaction).toBe(admission !== "warm");
+        expect(database.db.isTransaction).toBe(false);
+        expect(loadExactSessionEntryReadOnly(scope)?.entry.label).toBe("after");
+      } finally {
+        prepareSpy.mockRestore();
+        external.close();
+      }
+    },
+  );
+
+  it("rolls back failed cold admission and restores its private snapshot scope", () => {
+    const env = { OPENCLAW_STATE_DIR: autoTempDirs.make("openclaw-exact-read-failed-admission-") };
+    const scope = { agentId: "main", env, sessionKey: "agent:main:snapshot" };
+    replaceSessionEntrySync(scope, { sessionId: "snapshot", updatedAt: 1 });
+    const original = openOpenClawAgentDatabase(scope);
+    closeOpenClawAgentDatabaseByPath(original.path);
+    const database = openOpenClawAgentDatabase(scope);
+    const failure = new Error("read source callback failed");
+    expect(() =>
+      loadExactSessionEntryCandidates({
+        ...scope,
+        readOnly: true,
+        sessionKeys: [scope.sessionKey],
+        onReadSource: () => {
+          throw failure;
+        },
+      }),
+    ).toThrow(failure);
+    expect(database.db.isTransaction).toBe(false);
+    database.db
+      .prepare("UPDATE session_nodes SET parent_session_key = ? WHERE session_key = ?")
+      .run("agent:main:divergent", scope.sessionKey);
+    // An ordinary unscoped guard must receive the real validation refusal, not
+    // the private retry signal or a receipt leaked from the rolled-back read.
+    expect(() => assertCanonicalSqliteSessionKeysCurrent(database)).toThrow(
+      "invalid persisted session row",
+    );
+  });
+
   it.each(["full", "list"] as const)(
     "batches fresh entry and participant reads while preserving %s results",
     (projection) => {

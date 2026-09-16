@@ -32,6 +32,7 @@ const enModelControls = {
         "This model can chat, but it cannot use tools. Choose another model for files, commands, web, or media tasks.",
       loadingModels: "Loading models…",
       modelPending: "Model pending",
+      modelStarting: "Starting…",
       modelsUnavailable: "Models unavailable",
       runtimeUnavailable: "This harness is unavailable for this model.",
       modelsRefreshFailed: "Some models could not be refreshed. Open Models to try again.",

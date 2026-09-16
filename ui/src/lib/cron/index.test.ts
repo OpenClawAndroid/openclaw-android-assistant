@@ -14,6 +14,8 @@ import {
   cancelCronEdit,
   createInitialCronState,
   toggleCronJob,
+  loadCronStatus,
+  invalidateCronRefresh,
   loadCronJobsPage,
   loadCronRuns,
   loadCronScopeStats,
@@ -3644,4 +3646,241 @@ describe("failure alert form round trips", () => {
     expect(state.cronFieldErrors.failureAlertCooldownSeconds).toBeTruthy();
     expect(request).not.toHaveBeenCalled();
   });
+});
+
+describe("selected automation runtime refresh", () => {
+  it.each(["close and reopen", "agent", "connection", "invalidate"] as const)(
+    "rejects a retained read after %s changes its owner",
+    async (change) => {
+      const job = createCronJob({ id: "selected", name: "Saved", state: { triggerEvalCount: 1 } });
+      const pending = createDeferred<CronJob>();
+      const request = vi.fn(async (method: string) =>
+        method === "cron.get" ? pending.promise : { enabled: true, jobs: 1 },
+      );
+      const state = createStateWithRequest(request);
+      startCronEdit(state, job);
+      const read = loadCronStatus(state);
+      expect(request).toHaveBeenCalledWith("cron.get", { id: job.id });
+      if (change === "close and reopen") {
+        cancelCronEdit(state, state.cronAgentId);
+        startCronEdit(state, job);
+      } else if (change === "agent") {
+        state.cronAgentId = "other";
+      } else if (change === "connection") {
+        state.client = createStateWithRequest(request).client;
+      } else {
+        invalidateCronRefresh(state);
+      }
+      pending.resolve({ ...job, state: { triggerEvalCount: 99 } });
+      await read;
+      expect(state.cronEditingJob).toBe(job);
+      expect(job.state.triggerEvalCount).toBe(1);
+      expect(state.cronError).toBeNull();
+    },
+  );
+
+  it.each(["save", "conflict", "toggle"] as const)(
+    "does not let an earlier runtime read overwrite the %s result",
+    async (mutation) => {
+      const job = createCronJob({ id: "selected", name: "Saved", state: { triggerEvalCount: 1 } });
+      const updated = { ...job, configRevision: "new-revision", state: { triggerEvalCount: 9 } };
+      const pending = createDeferred<CronJob>();
+      let mutationStarted = false;
+      const request = vi.fn(async (method: string) => {
+        if (method === "cron.get") {
+          return mutationStarted ? updated : pending.promise;
+        }
+        if (method === "cron.update") {
+          mutationStarted = true;
+          if (mutation === "conflict") {
+            throw Object.assign(new Error("cron job definition changed"), {
+              name: "GatewayRequestError",
+              details: { code: "CRON_JOB_CHANGED" },
+            });
+          }
+          return updated;
+        }
+        if (method === "cron.list") {
+          return cronJobsListResponse([updated]);
+        }
+        return { enabled: true, jobs: 1 };
+      });
+      const state = createStateWithRequest(request);
+      startCronEdit(state, job);
+      const read = loadCronStatus(state);
+      if (mutation === "toggle") {
+        expect(await toggleCronJob(state, job, false)).toBe(true);
+      } else {
+        expect(await addCronJob(state)).toEqual(
+          mutation === "save" ? { saved: true, jobId: job.id } : { saved: false },
+        );
+      }
+      const currentError = state.cronError;
+      pending.resolve({ ...job, state: { triggerEvalCount: 99 } });
+      await read;
+      expect(state.cronEditingJob).toBe(updated);
+      expect(state.cronEditingJob?.state.triggerEvalCount).toBe(9);
+      expect(state.cronEditingJob?.configRevision).toBe("new-revision");
+      expect(state.cronError).toBe(currentError);
+    },
+  );
+
+  it.each([
+    { operation: "save", method: "cron.get", readFirst: true, failWhileBusy: false },
+    { operation: "toggle", method: "cron.status", readFirst: true, failWhileBusy: false },
+    { operation: "run", method: "cron.get", readFirst: false, failWhileBusy: false },
+    { operation: "run", method: "cron.status", readFirst: false, failWhileBusy: false },
+    { operation: "save", method: "cron.get", readFirst: false, failWhileBusy: true },
+    { operation: "toggle", method: "cron.status", readFirst: false, failWhileBusy: true },
+  ] as const)(
+    "preserves $operation feedback against $method (readFirst=$readFirst, failWhileBusy=$failWhileBusy)",
+    async ({ operation, method: readMethod, readFirst, failWhileBusy }) => {
+      const job = createCronJob({ id: "selected", name: "Saved", state: {} });
+      const pending = createDeferred<unknown>();
+      const operationResponse = createDeferred<unknown>();
+      const request = vi.fn(async (method: string) => {
+        if (method === readMethod) {
+          return pending.promise;
+        }
+        if (method === "cron.get") {
+          return job;
+        }
+        if (method === "cron.update" || method === "cron.run") {
+          return operationResponse.promise;
+        }
+        if (method === "cron.runs") {
+          return { entries: [], total: 0, offset: 0, hasMore: false };
+        }
+        return { enabled: true, jobs: 1 };
+      });
+      const state = createStateWithRequest(request);
+      startCronEdit(state, job);
+      const mutate = () =>
+        operation === "save"
+          ? addCronJob(state)
+          : operation === "toggle"
+            ? toggleCronJob(state, job, false)
+            : runCronJob(state, job.id);
+      const refresh = () => loadCronStatus(state, { coalesce: true });
+      const read = readFirst ? refresh() : undefined;
+      const firstQueued = readFirst ? refresh() : undefined;
+      const mutation = mutate();
+      const activeRead = read ?? refresh();
+      expect(request).toHaveBeenCalledWith(
+        readMethod,
+        readMethod === "cron.get" ? { id: job.id } : {},
+      );
+      const queued = failWhileBusy ? Promise.resolve() : (firstQueued ?? refresh());
+      if (failWhileBusy) {
+        pending.reject(new Error("Background refresh failed"));
+        await activeRead;
+        expect(state.cronError).toBeNull();
+      }
+      if (operation === "run") {
+        operationResponse.resolve({ ok: true, enqueued: true, runId: "queued-run" });
+      } else {
+        operationResponse.reject(new Error("Update rejected by Gateway"));
+      }
+      await mutation;
+      const expectedFeedback =
+        operation === "run" ? "Run queued. Run ID: queued-run" : "Update rejected by Gateway";
+      expect(state.cronError).toBe(expectedFeedback);
+      if (!failWhileBusy) {
+        pending.reject(new Error("Older refresh failed"));
+      }
+      await Promise.all([activeRead, queued]);
+      expect(state.cronError).toBe(expectedFeedback);
+      expect(state.cronEditingJob).toBe(job);
+    },
+  );
+
+  it("keeps final event data and the trailing refresh after Run now settles", async () => {
+    const job = createCronJob({ id: "selected", name: "Saved", state: { triggerEvalCount: 1 } });
+    const runResponse = createDeferred<unknown>();
+    const firstJob = createDeferred<CronJob>();
+    const lastJob = createDeferred<CronJob>();
+    const firstStatus = createDeferred<unknown>();
+    let jobReads = 0;
+    let statusReads = 0;
+    const request = vi.fn(async (method: string) => {
+      if (method === "cron.run") {
+        return runResponse.promise;
+      }
+      if (method === "cron.get") {
+        jobReads += 1;
+        return jobReads === 1 ? firstJob.promise : lastJob.promise;
+      }
+      if (method === "cron.status") {
+        statusReads += 1;
+        return statusReads === 1 ? firstStatus.promise : { enabled: true, jobs: 9 };
+      }
+      return { entries: [], total: 0, offset: 0, hasMore: false };
+    });
+    const state = createStateWithRequest(request);
+    startCronEdit(state, job);
+    const mutation = runCronJob(state, job.id);
+    const read = loadCronStatus(state, { coalesce: true });
+    const queued = loadCronStatus(state, { coalesce: true });
+    let queuedSettled = false;
+    void queued.then(() => {
+      queuedSettled = true;
+    });
+    runResponse.resolve({ ok: true, enqueued: true, runId: "queued-run" });
+    await mutation;
+    firstJob.resolve({ ...job, state: { triggerEvalCount: 7 } });
+    firstStatus.resolve({ enabled: true, jobs: 7 });
+    await read;
+    expect(job.state.triggerEvalCount).toBe(7);
+    expect(jobReads).toBe(2);
+    expect(queuedSettled).toBe(false);
+    lastJob.resolve({ ...job, state: { triggerEvalCount: 9 } });
+    await queued;
+    expect(job.state.triggerEvalCount).toBe(9);
+    expect(state.cronStatus?.jobs).toBe(9);
+    expect(state.cronError).toBe("Run queued. Run ID: queued-run");
+  });
+
+  it.each([
+    { failedMethod: "cron.get", queueEvent: false },
+    { failedMethod: "cron.status", queueEvent: false },
+    { failedMethod: "cron.get", queueEvent: true },
+    { failedMethod: "cron.status", queueEvent: true },
+  ] as const)(
+    "keeps explicit reconciliation errors visible for $failedMethod with queueEvent=$queueEvent",
+    async ({ failedMethod, queueEvent }) => {
+      const job = createCronJob({ id: "selected", name: "Saved", state: {} });
+      const failure = createDeferred<unknown>();
+      let failedMethodReads = 0;
+      const request = vi.fn(async (method: string) => {
+        if (method === failedMethod) {
+          failedMethodReads += 1;
+          return failedMethodReads === 1
+            ? failure.promise
+            : failedMethod === "cron.get"
+              ? job
+              : { enabled: true, jobs: 1 };
+        }
+        if (method === "cron.update" || method === "cron.get") {
+          return job;
+        }
+        if (method === "cron.list") {
+          return cronJobsListResponse([job]);
+        }
+        return { enabled: true, jobs: 1 };
+      });
+      const state = createStateWithRequest(request);
+      startCronEdit(state, job);
+      const mutation = toggleCronJob(state, job, false);
+      await vi.waitFor(() => expect(request).toHaveBeenCalledWith("cron.status", {}));
+      expect(request).toHaveBeenCalledWith(
+        failedMethod,
+        failedMethod === "cron.get" ? { id: job.id } : {},
+      );
+      const queued = queueEvent ? loadCronStatus(state, { coalesce: true }) : Promise.resolve();
+      failure.reject(new Error("Reconciliation unavailable"));
+      expect(await mutation).toBe(true);
+      await queued;
+      expect(state.cronError).toBe("Reconciliation unavailable");
+    },
+  );
 });

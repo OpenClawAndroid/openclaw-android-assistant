@@ -4,15 +4,15 @@ import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
 } from "../../infra/kysely-sync.js";
-import {
-  getActiveTranscriptKysely,
-  withCurrentProjectionSnapshot,
-  type CurrentTranscriptProjection,
-} from "./session-accessor.sqlite-active-projection.js";
+import { withCurrentProjectionSnapshot } from "./session-accessor.sqlite-active-projection.js";
 import type {
   SessionTranscriptReadScope,
   TranscriptEvent,
 } from "./session-accessor.sqlite-contract.js";
+import {
+  getActiveTranscriptKysely,
+  type CurrentTranscriptProjection,
+} from "./session-accessor.sqlite-projection-read.js";
 import { resolveTranscriptBoundaryWindow } from "./session-accessor.sqlite-reset-window.js";
 import {
   readTranscriptContextVersionInTransaction,

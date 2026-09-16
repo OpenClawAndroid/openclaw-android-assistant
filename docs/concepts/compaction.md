@@ -206,6 +206,10 @@ The memory-flush model override is exact and does not inherit the active session
 
 When an embedded Responses provider returns a compacted window, OpenClaw preserves the complete returned context alongside the checkpoint. Recent-turn history limits do not discard an eligible checkpoint, and the retained context still counts toward the model's prompt budget. The saved checkpoint is limited to 16 MiB; oversized or incompatible endpoint output uses the normal client-side compaction path instead of being truncated.
 
+After a successful continuation, OpenClaw uses the provider's measured context usage when the saved request prefix still matches the current checkpoint, conversation, and provider identity. New content and current request overhead still receive a local estimate. Edited or incompatible history falls back to estimation without changing the saved conversation.
+
+Predicted context pressure uses budget compaction before the next request. The public OpenAI Responses API and native xAI can use their compact endpoint by default; `params.responsesCompactEndpoint: false` disables that endpoint for a model. A provider-confirmed overflow keeps the client recovery path because compact endpoints also require their input to fit. Endpoint failures fall back to client-side summarization.
+
 If an older version or transcript redaction removes the complete window needed for replay, OpenClaw asks you to run `/compact`. That command rebuilds context from the saved conversation through client-side compaction. It does not guess the missing provider context or delete the transcript.
 
 ### Successor transcripts

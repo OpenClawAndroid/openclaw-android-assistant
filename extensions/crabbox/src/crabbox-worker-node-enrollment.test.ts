@@ -10,6 +10,7 @@ import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import * as tar from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { crabboxState } from "./crabbox-state.test-support.js";
 import {
   createCrabboxNodeEnrollmentSetup,
   createCrabboxNodeRuntimeSetup,
@@ -363,6 +364,7 @@ describe.skipIf(process.platform === "win32")("source node bootstrap", () => {
       timeoutMs: () => 60_000,
     });
     const manager = createCrabboxWarmImageManager({
+      state: crabboxState,
       warn: (message) => {
         throw new Error(message);
       },
@@ -425,11 +427,12 @@ describe.skipIf(process.platform === "win32")("source node bootstrap", () => {
     await expectSetupPhases(
       enroll(homes.get(initial.id)!, oldArtifact.nodeBootstrap, undefined, true),
     );
-    manager.markEnrolled(initial.id);
+    await manager.markEnrolled(initial.id);
     expect(await manager.capture(initial)).toBe(true);
     await manager.release(initial);
     fs.rmSync(homes.get(initial.id)!, { recursive: true });
-    const originalCheckpoint = openCrabboxWarmImageStore().entries()[0]!.value.image!.checkpointId;
+    const originalCheckpoint = (await openCrabboxWarmImageStore(crabboxState).entries())[0]!.value
+      .image!.checkpointId;
 
     const upgraded = context("cbx_upgraded", currentArtifact.nodeBootstrap.sha256);
     expect(await manager.allocate(upgraded)).toEqual({
@@ -445,11 +448,12 @@ describe.skipIf(process.platform === "win32")("source node bootstrap", () => {
         path.join(runtimeRoot(homes.get(upgraded.id)!), currentArtifact.nodeBootstrap.sha256),
       ),
     ).toBe(true);
-    manager.markEnrolled(upgraded.id);
+    await manager.markEnrolled(upgraded.id);
     const refreshed = await manager.capture(upgraded);
     await manager.release(upgraded);
     fs.rmSync(homes.get(upgraded.id)!, { recursive: true });
-    const retainedCheckpoint = openCrabboxWarmImageStore().entries()[0]!.value.image!.checkpointId;
+    const retainedCheckpoint = (await openCrabboxWarmImageStore(crabboxState).entries())[0]!.value
+      .image!.checkpointId;
 
     const next = context("cbx_next", currentArtifact.nodeBootstrap.sha256);
     const nextChoice = await manager.allocate(next);
@@ -466,8 +470,10 @@ describe.skipIf(process.platform === "win32")("source node bootstrap", () => {
     expect(nextChoice).toEqual({ kind: "checkpoint", checkpointId: retainedCheckpoint });
     expect(currentWasCached).toBe(true);
     expect(repeatPhases).not.toContain("openclaw-bootstrap-installation");
-    expect(openCrabboxWarmImageStore().entries()).toHaveLength(1);
-    expect(Object.keys(openCrabboxWarmImageStore().entries()[0]!.value.allocations)).toEqual([]);
+    expect(await openCrabboxWarmImageStore(crabboxState).entries()).toHaveLength(1);
+    expect(
+      Object.keys((await openCrabboxWarmImageStore(crabboxState).entries())[0]!.value.allocations),
+    ).toEqual([]);
   }, 60_000);
 
   it.each(["file", "directory"] as const)(

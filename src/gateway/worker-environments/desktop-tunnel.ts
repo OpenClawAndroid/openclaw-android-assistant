@@ -1,6 +1,7 @@
 import path from "node:path";
 import { withTimeout } from "../../infra/fs-safe.js";
 import { registerSecretValueForRedaction } from "../../logging/secret-redaction-registry.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type {
   WorkerDesktopApp,
   WorkerDesktopEndpoint,
@@ -31,6 +32,7 @@ import {
 
 const PASSWORD_READ_TIMEOUT_MS = 20_000;
 const APP_LAUNCH_TIMEOUT_MS = 30_000;
+const log = createSubsystemLogger("gateway/desktop");
 
 type DesktopAcquireRequest = {
   environmentId: string;
@@ -94,6 +96,7 @@ export function createWorkerDesktopTunnels(deps: {
   const createSessionHooks = (request: DesktopAcquireRequest) => {
     let prepared: PreparedWorkerSsh | undefined;
     let child: WorkerSshProcess | undefined;
+    let stopRequested = false;
 
     const start = async (
       isCurrent: () => boolean,
@@ -144,7 +147,13 @@ export function createWorkerDesktopTunnels(deps: {
           timeoutMs: Number.MAX_SAFE_INTEGER,
         }),
       );
-      void child.exited.then(() => {
+      void child.exited.then(({ code, signal }) => {
+        try {
+          // Record the transport's terminal fact before registry cleanup requests a stop.
+          log.info("desktop SSH tunnel exited", { code, signal, stopRequested });
+        } catch {
+          // Best-effort diagnostics must not prevent the existing owner cleanup.
+        }
         void stopOwner();
       });
       await child.ready;
@@ -186,6 +195,7 @@ export function createWorkerDesktopTunnels(deps: {
     return {
       start,
       teardown: async () => {
+        stopRequested = true;
         await child?.stop();
       },
       dispose: async () => {

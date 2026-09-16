@@ -1469,6 +1469,7 @@ async function prepareCliRunContextWithinReadFence(
             context: mcpGrantContext,
             runtimeOwnerToken: mcpLoopbackRuntime.ownerToken,
             admittedRunContext: params.admittedRunContext,
+            messageActionTurnCapability: params.messageActionTurnCapability,
             abortSignal: params.abortSignal,
             assertCurrent: params.assertCurrent,
             // MCP owns a canonical main target even when the native callback is sessionless.

@@ -307,8 +307,9 @@ export function registerDiscordMonitorListeners(params: {
     new DiscordThreadDeleteListener(params.cfg, params.accountId, params.logger),
   );
 
+  let presenceListener: DiscordPresenceListener | undefined;
   if (params.discordConfig.intents?.presence) {
-    const presenceListener = new DiscordPresenceListener({
+    presenceListener = new DiscordPresenceListener({
       readPolicy: params.readPolicy,
       cfg: params.cfg,
       logger: params.logger,
@@ -331,4 +332,7 @@ export function registerDiscordMonitorListeners(params: {
     );
     params.runtime.log?.("discord: GuildPresences intent enabled — presence listener registered");
   }
+  return async () => {
+    await presenceListener?.stop();
+  };
 }

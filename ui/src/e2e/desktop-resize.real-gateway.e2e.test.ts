@@ -11,6 +11,10 @@ import type {
   desktopProofTestReport,
   readDesktopProofPhase,
 } from "../../../scripts/lib/desktop-resize-proof.mts";
+import {
+  readDesktopProofGatewayCloses,
+  readDesktopProofNodeStreamCloses,
+} from "../../../scripts/lib/desktop-resize-proof.mts";
 import { getFreePort } from "../../../src/test-utils/ports.ts";
 import { startSkillLibraryNodeProcess } from "../../../test/e2e/qa-lab/runtime/skill-library-node-process.ts";
 import { SkillLibraryWireClient } from "../../../test/e2e/qa-lab/runtime/skill-library-wire-fixture.ts";
@@ -21,6 +25,7 @@ import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts"
 import {
   createDesktopResizeGuest,
   observeDesktopEndpointPackets,
+  observeDesktopProofRfbLifecycle,
   readDesktopResizeFixture,
   resizeSources,
   seedDesktopResizeSources,
@@ -207,6 +212,7 @@ suite.define(() => {
         },
       });
       const state = gateway.state;
+      const gatewayLogFile = path.join(state.root, "desktop-gateway.log");
       state.applyEnv();
       let guest: Awaited<ReturnType<typeof createDesktopResizeGuest>> | undefined;
       let node: Awaited<ReturnType<typeof startSkillLibraryNodeProcess>> | undefined;
@@ -238,6 +244,7 @@ suite.define(() => {
             userHeader: "x-forwarded-user",
           };
           await state.writeConfig({
+            logging: { file: gatewayLogFile },
             agents: {
               defaults: {
                 workspace: state.workspaceDir,
@@ -432,6 +439,7 @@ suite.define(() => {
           phase("initial-framebuffer");
           const initial = await guest.geometry();
           await expect.poll(() => framebuffer(canvas)).toEqual(initial);
+          await panel.evaluate(observeDesktopProofRfbLifecycle);
           if (fixture.carrier === "node") {
             expect(observations.length).toBeGreaterThan(0);
             expect(
@@ -639,9 +647,17 @@ suite.define(() => {
               socketCount: null,
               latestReadyState: null,
               socketCloses: null,
+              nodeStreamCloses: null,
+              endpointCloses: packetProbe.terminalSnapshot(),
+              rfbLifecycle: null,
+              gatewayCloses: null,
             };
             // Retain known facts even if the one read-only browser snapshot cannot settle.
             context.task.meta.desktopViewerResizeFailure = diagnostic;
+            diagnostic.gatewayCloses = await readDesktopProofGatewayCloses(gatewayLogFile);
+            if (node) {
+              diagnostic.nodeStreamCloses = await readDesktopProofNodeStreamCloses(node.logFile);
+            }
             let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
             try {
               const snapshot = await Promise.race([
@@ -651,7 +667,9 @@ suite.define(() => {
                   const closes: unknown = Reflect.get(window, "desktopProofSocketCloses");
                   const latest: unknown = Array.isArray(sockets) ? sockets.at(-1) : null;
                   const readyState = latest instanceof WebSocket ? latest.readyState : null;
+                  const lifecycle: unknown = Reflect.get(window, "desktopProofRfbLifecycle");
                   return {
+                    rfbLifecycle: typeof lifecycle === "function" ? lifecycle() : null,
                     canvasCount: canvases.length,
                     snapshotFramebuffer:
                       surface instanceof HTMLCanvasElement

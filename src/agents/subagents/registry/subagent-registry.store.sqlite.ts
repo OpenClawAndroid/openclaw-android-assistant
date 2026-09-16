@@ -29,11 +29,8 @@ import {
   normalizeSubagentRunState,
   projectSubagentRunForMaintenance,
 } from "./subagent-delivery-state.js";
-import type {
-  SubagentRunMaintenanceRecord,
-  SubagentRunReadRecord,
-  SubagentRunRecord,
-} from "./subagent-registry.types.js";
+import type { SubagentRunReadRecord } from "./subagent-registry-read.types.js";
+import type { SubagentRunMaintenanceRecord, SubagentRunRecord } from "./subagent-registry.types.js";
 import { collectSubagentSessionReadKeys } from "./subagent-session-read-scope.js";
 
 type SubagentRunsTable = OpenClawStateKyselyDatabase["subagent_runs"];
@@ -348,7 +345,7 @@ const subagentMaintenancePayload =
 
 function readSubagentSessionListRows(
   scope?: { controllerSessionKeys?: readonly string[]; runIds?: readonly string[] },
-  database = openOpenClawStateDatabase(),
+  database: Pick<OpenClawStateDatabase, "db"> = openOpenClawStateDatabase(),
 ): SubagentRunReadSqliteRow[] {
   const { db } = database;
   const stateDb = getNodeSqliteKysely<SubagentRegistryDatabase>(db);
@@ -550,13 +547,14 @@ export function loadSubagentMaintenanceRunsFromSqlite(): Map<string, SubagentRun
 /** Loads only the canonical fields needed to build session-list topology metadata. */
 export function loadSubagentSessionListRunsFromSqlite(
   controllerSessionKeys?: readonly string[],
+  database?: Pick<OpenClawStateDatabase, "db">,
 ): Map<string, SubagentRunReadRecord> {
   const runs = new Map<string, SubagentRunReadRecord>();
   const keys = controllerSessionKeys?.map((key) => key.trim()).filter(Boolean);
   if (keys?.length === 0) {
     return runs;
   }
-  for (const row of readSubagentSessionListRows({ controllerSessionKeys: keys })) {
+  for (const row of readSubagentSessionListRows({ controllerSessionKeys: keys }, database)) {
     const entry = rowToSubagentRunReadRecord(row);
     if (entry) {
       runs.set(entry.runId, entry);
@@ -612,7 +610,8 @@ export function loadSubagentRunsForSessionsFromSqlite(
       .filter((row) => selectedRunIds.has(row.run_id.trim()))
       .map((row) => row.run_id);
     const runs = new Map<string, SubagentRunReadRecord>();
-    const complete = projection === "full" && runIds.length === identities.length;
+    // Each projection has its own cache; only complete physical coverage may seed it.
+    const complete = runIds.length === identities.length;
     if (runIds.length) {
       if (projection === "full") {
         for (const row of readSubagentRegistryRows(

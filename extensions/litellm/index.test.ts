@@ -2,8 +2,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { capturePluginRegistration } from "openclaw/plugin-sdk/plugin-test-runtime";
-import { describe, expect, it, vi } from "vitest";
+import {
+  capturePluginRegistration,
+  registerProviderPlugin,
+  requireRegisteredProvider,
+  runProviderCatalog,
+} from "openclaw/plugin-sdk/plugin-test-runtime";
+import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRuntimeSpies } from "../test-support/runtime-spies.js";
 import plugin from "./index.js";
 
@@ -30,6 +36,66 @@ function registerProvider() {
 }
 
 describe("litellm plugin", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearLiveCatalogCacheForTests();
+  });
+
+  it.each([
+    {
+      name: "default proxy base URL",
+      baseUrl: undefined,
+      endpoint: "http://localhost:4000/v1/models",
+    },
+    {
+      name: "unversioned explicit base URL",
+      baseUrl: "https://litellm.example",
+      endpoint: "https://litellm.example/v1/models",
+    },
+    {
+      name: "versioned explicit base URL",
+      baseUrl: "https://litellm.example/v1",
+      endpoint: "https://litellm.example/v1/models",
+    },
+    {
+      name: "versioned explicit base URL with a path prefix and trailing slashes",
+      baseUrl: " https://proxy.example/litellm/v1// ",
+      endpoint: "https://proxy.example/litellm/v1/models",
+    },
+    {
+      name: "versioned explicit base URL under a mixed-case provider key",
+      providerKey: "LiteLLM",
+      baseUrl: "https://litellm.example/v1",
+      endpoint: "https://litellm.example/v1/models",
+    },
+  ])("discovers models from the $name", async ({ providerKey = "litellm", baseUrl, endpoint }) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
+      input === endpoint
+        ? Response.json({ object: "list", data: [{ id: "proxy-model", object: "model" }] })
+        : new Response("Not Found", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { providers } = await registerProviderPlugin({
+      plugin,
+      id: "litellm",
+      name: "LiteLLM Provider",
+    });
+
+    const result = await runProviderCatalog({
+      provider: requireRegisteredProvider(providers, "litellm"),
+      config: baseUrl ? { models: { providers: { [providerKey]: { baseUrl, models: [] } } } } : {},
+      env: {},
+      resolveProviderApiKey: () => ({ apiKey: "LITELLM_API_KEY", discoveryApiKey: "sk-test" }),
+      resolveProviderAuth: () => ({ apiKey: undefined, mode: "none", source: "none" }),
+    });
+
+    expect(fetchMock.mock.calls.map(([input]) => input)).toEqual([endpoint]);
+    expect(result).toMatchObject({
+      provider: { models: [expect.objectContaining({ id: "proxy-model" })] },
+      outcomes: [{ provider: "litellm", status: "ready" }],
+    });
+  });
+
   it("honors --custom-base-url in non-interactive API-key setup", async () => {
     const provider = registerProvider();
     const auth = provider?.auth?.[0];

@@ -946,8 +946,8 @@ describe("runPostCorePluginConvergence", () => {
 
     expect(result.warnings).toStrictEqual([
       {
-        reason: "Failed to repair managed npm OpenClaw host peer links: EACCES: permission denied",
-        message: "Failed to repair managed npm OpenClaw host peer links: EACCES: permission denied",
+        reason: "Failed to repair installed OpenClaw host peer links: EACCES: permission denied",
+        message: "Failed to repair installed OpenClaw host peer links: EACCES: permission denied",
         guidance: ["Run `openclaw update repair` to retry plugin repair."],
       },
     ]);

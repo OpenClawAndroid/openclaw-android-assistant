@@ -1033,19 +1033,34 @@ describe("openclaw-github-link-hovercard-provider", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it.each(["pending", "held"])(
+    "retires a %s GitHub preview when its pane becomes inert",
+    async (phase) => {
+      const { anchor, provider, request } = createIssueLink();
+      const pane = document.createElement("section");
+      provider.append(pane);
+      pane.append(anchor);
+      anchor.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, composed: true }));
+      if (phase === "held") {
+        await vi.advanceTimersByTimeAsync(250);
+        expect(hovercard()).not.toBeNull();
+        hovercard()!.dispatchEvent(new MouseEvent("pointerenter"));
+      }
+      pane.setAttribute("inert", "");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(hovercard()).toBeNull();
+      expect(anchor.hasAttribute("aria-expanded")).toBe(false);
+      if (phase === "pending") {
+        expect(request).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it("closes when route replacement removes its active link", async () => {
-    const provider = document.createElement(
-      GITHUB_LINK_HOVERCARD_ELEMENT_NAME,
-    ) as GitHubLinkHovercardProviderElement;
-    provider.client = {
-      request: vi.fn().mockResolvedValue(issuePreviewResponse({ comments: 1 })),
-    } as unknown as GatewayBrowserClient;
+    const { provider, anchor } = createIssueLink(issuePreviewResponse({ comments: 1 }));
     const route = document.createElement("main");
-    const anchor = document.createElement("a");
-    anchor.href = ISSUE_HREF;
     route.append(anchor);
     provider.append(route);
-    document.body.append(provider);
 
     await hover(anchor);
     expect(document.querySelector(".github-link-hovercard")).not.toBeNull();

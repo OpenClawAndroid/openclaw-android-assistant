@@ -411,9 +411,15 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; d
   }
 
   if (service.runtime?.missingUnit) {
-    defaultRuntime.error(errorText("Service unit not found."));
-    const recovery = installBlock ?? `Run: ${installCommand}`;
-    defaultRuntime.error(errorText(recovery));
+    if (serviceTargetsProbe) {
+      defaultRuntime.error(errorText("Service unit not found."));
+      const recovery = installBlock ?? `Run: ${installCommand}`;
+      defaultRuntime.error(errorText(recovery));
+    } else {
+      defaultRuntime.log(
+        infoText("Native service is not installed; diagnostic only, not the probe target."),
+      );
+    }
   } else if (
     service.runtime?.missingGuiSession ||
     (serviceLoaded && service.runtime?.status === "stopped")

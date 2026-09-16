@@ -294,7 +294,7 @@ if [ "${1-}" = merge-run ] || [ "${1-}" = merge-recover ]; then
     fi
     merge_cli_args+=("$merge_cli_arg")
     merge_cli_body_next=false
-    [ "$merge_cli_arg" != --body-file ] || merge_cli_body_next=true
+    if [ "$merge_cli_arg" = --body-file ] || [ "$merge_cli_arg" = --legacy-refusal ]; then merge_cli_body_next=true; fi
   done
   set -- "${merge_cli_args[@]}"
 fi
@@ -346,7 +346,7 @@ Usage:
     --body-file snapshots a regular UTF-8 file relative to the caller, replacing squash prose.
     Empty files are valid. Explicit/source co-authors and preview credit backed by tree-changing PR commits or PR authorship are retained; known machine credit is excluded. Queue merges reject it.
     Repeated merge-run reconciles retained outcomes; it never retries an uncertain dispatch.
-  scripts/pr merge-recover <PR> <OUTCOME_OID> --confirmed-operator-recovery [--replacement-head <SHA>] [--body-file <path>]
+  scripts/pr merge-recover <PR> <OUTCOME_OID> --confirmed-operator-recovery [--replacement-head <SHA>] [--body-file <path>] [--legacy-refusal <evidence-directory>]
     Explicitly authorize one new attempt after inspecting the retained outcome and remote history.
     Defaults to the retained head; replacement requires an explicitly approved full lowercase 40-character SHA,
     freshly authored exact-head review/preparation and completed CI proof. Never rebases automatically.
@@ -448,7 +448,7 @@ main() {
         [[ "$2" =~ ^[0-9a-f]{40}$ ]] && [ "$3" = --confirmed-operator-completion ] || { usage; exit 2; }
       ;;
     merge-run | merge-recover)
-      local merge_pr="${1-}" auto_merge=false recovery_oid="" replacement_head="" body_path=""
+      local merge_pr="${1-}" auto_merge=false recovery_oid="" replacement_head="" body_path="" legacy_directory=""
       [ -n "$merge_pr" ] || { usage; exit 2; }
       shift
       if [ "$cmd" = merge-recover ]; then
@@ -469,6 +469,11 @@ main() {
             body_path="$2"
             shift 2
             ;;
+          --legacy-refusal)
+            [ "$cmd" = merge-recover ] && [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$legacy_directory" ] || { usage; exit 2; }
+            legacy_directory="$2"
+            shift 2
+            ;;
           --replacement-head)
             [ "$cmd" = merge-recover ] && [ "$#" -ge 2 ] &&
               [[ "$2" =~ ^[0-9a-f]{40}$ ]] && [ -z "$replacement_head" ] || { usage; exit 2; }
@@ -481,6 +486,7 @@ main() {
       if [ "$cmd" = merge-run ] && [ "${OPENCLAW_PR_AUTO_MERGE:-}" = 1 ]; then
         auto_merge=true
       fi
+      [ -z "$legacy_directory" ] || [ -n "$replacement_head" ] || { usage; exit 2; }
       set -- "$merge_pr"
       ;;
     review-init | review-checkout-main | review-checkout-pr | review-claim | review-guard | review-artifacts-init | review-validate-artifacts | prepare-init | prepare-validate-commit | prepare-gates | prepare-push | prepare-sync-head | prepare-run | ci-dispatch | merge-verify)
@@ -605,7 +611,7 @@ main() {
       merge_verify "$pr"
       ;;
     merge-run | merge-recover)
-      merge_run "$merge_pr" "$auto_merge" "$recovery_oid" "$replacement_head" "$body_path"
+      merge_run "$merge_pr" "$auto_merge" "$recovery_oid" "$replacement_head" "$body_path" "$legacy_directory"
       ;;
     merge-complete)
       merge_complete "$1" "$2"

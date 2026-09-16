@@ -14,6 +14,13 @@ vi.mock("./realtime-voice-provider.js", () => ({
 }));
 beforeEach(() => createRealtimeBridgeMock.mockReset());
 
+it("lists the default model and prebuilt voices before connecting", () => {
+  const provider = createLazyGoogleRealtimeVoiceProvider();
+  expect(provider.defaultModel).toBe("gemini-3.1-flash-live-preview");
+  expect(provider.voices).toEqual(expect.arrayContaining(["Kore", "Puck"]));
+  expect(createRealtimeBridgeMock).not.toHaveBeenCalled();
+});
+
 it("fences all nonterminal callbacks from a closed Google provider generation", async () => {
   const first = createMockRealtimeBridge();
   const replacement = createMockRealtimeBridge();

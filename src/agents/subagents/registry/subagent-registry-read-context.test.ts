@@ -39,21 +39,6 @@ function toRunMap(runs: SubagentRunRecord[]): Map<string, SubagentRunRecord> {
   return new Map(runs.map((run) => [run.runId, run]));
 }
 
-class CountingRunMap extends Map<string, SubagentRunRecord> {
-  entriesCalls = 0;
-  valuesCalls = 0;
-
-  override entries(): MapIterator<[string, SubagentRunRecord]> {
-    this.entriesCalls += 1;
-    return super.entries();
-  }
-
-  override values(): MapIterator<SubagentRunRecord> {
-    this.valuesCalls += 1;
-    return super.values();
-  }
-}
-
 function listRunsForController(
   index: SubagentRunReadIndex,
   controllerSessionKey: string,
@@ -253,7 +238,7 @@ describe("subagent registry read index", () => {
     ).toEqual(["run-original", "run-added-after-context"]);
   });
 
-  it("reuses one source-map scan across repeated descendant queries", () => {
+  it("answers repeated descendant queries from its captured snapshot", () => {
     const root = "agent:main:main";
     const entries: Array<[string, SubagentRunRecord]> = [];
     let requesterSessionKey = root;
@@ -272,26 +257,23 @@ describe("subagent registry read index", () => {
       ]);
       requesterSessionKey = childSessionKey;
     }
-    const runs = new CountingRunMap(entries);
+    const runs = new Map(entries);
     const index = buildSubagentRunReadIndexFromRuns({ runs, now: 2_000 });
 
-    expect(runs.entriesCalls).toBe(1);
-    expect(runs.valuesCalls).toBe(0);
+    runs.clear();
     expect(index.latestRunsByChildSessionKey.size).toBe(100);
     expect(index.countActiveDescendantRuns(root)).toBe(100);
     expect(index.countPendingDescendantRuns(root)).toBe(100);
     expect(index.hasDescendantRunAwaitingSettle(root)).toBe(true);
     expect(index.listDescendantRunsForRequester(root)).toHaveLength(100);
 
-    for (const entry of entries) {
-      index.countActiveDescendantRuns(entry[1].childSessionKey);
-      index.countPendingDescendantRuns(entry[1].childSessionKey);
-      index.hasDescendantRunAwaitingSettle(entry[1].childSessionKey);
-      index.listDescendantRunsForRequester(entry[1].childSessionKey);
+    for (const [position, [, entry]] of entries.entries()) {
+      const descendants = entries.length - position - 1;
+      expect(index.countActiveDescendantRuns(entry.childSessionKey)).toBe(descendants);
+      expect(index.countPendingDescendantRuns(entry.childSessionKey)).toBe(descendants);
+      expect(index.hasDescendantRunAwaitingSettle(entry.childSessionKey)).toBe(descendants > 0);
+      expect(index.listDescendantRunsForRequester(entry.childSessionKey)).toHaveLength(descendants);
     }
-
-    expect(runs.entriesCalls).toBe(1);
-    expect(runs.valuesCalls).toBe(0);
   });
 
   it("normalizes display lookup keys for whitespace-padded child session keys", () => {

@@ -290,7 +290,7 @@ describe("runEmbeddedAgent mid-turn precheck retry", () => {
     }
   });
 
-  it("preserves overflow recovery guidance when compaction fails after settled tools", async () => {
+  it("preserves compaction failure guidance after settled tools", async () => {
     mockedRunEmbeddedAttempt.mockResolvedValueOnce(makeReplayUnsafeMidTurnOverflow());
     mockedCompactDirect.mockResolvedValueOnce({
       ok: false,
@@ -305,7 +305,11 @@ describe("runEmbeddedAgent mid-turn precheck retry", () => {
 
     expect(mockedCompactDirect).toHaveBeenCalledOnce();
     expect(mockedRunEmbeddedAttempt).toHaveBeenCalledOnce();
-    expect(result.payloads?.[0]?.text).toContain("Try /reset (or /new)");
+    expect(result.payloads?.[0]?.text).toContain("Try again or run /compact");
     expect(result.payloads?.[0]?.text).toContain("Completed tool actions were not replayed");
+    expect(result.meta.error).toMatchObject({
+      kind: "compaction_failure",
+      message: expect.stringContaining("compaction unavailable"),
+    });
   });
 });

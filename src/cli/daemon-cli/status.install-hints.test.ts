@@ -229,6 +229,41 @@ describe.each(deniedInvocations)(
 );
 
 describe("eligible status recovery", () => {
+  it.each([true, false])(
+    "gateway status keeps a missing diagnostic-only unit informational when probe ok=%s",
+    async (ok) => {
+      await withStatusFixture(
+        (accountHome) => ({ OPENCLAW_HOME: path.join(accountHome, "external") }),
+        async (accountHome) => {
+          const status = await createStatus("missing-unit", accountHome);
+          status.service.targetRole = "diagnostic-only";
+          status.rpc = { ok, error: ok ? undefined : "connect ECONNREFUSED" };
+          const gather = await import("./status.gather.js");
+          vi.spyOn(gather, "gatherDaemonStatus").mockResolvedValue(status);
+          const { runDaemonStatus } = await import("./status.js");
+
+          await runDaemonStatus({ rpc: {}, probe: true, requireRpc: false, json: false });
+
+          const output = humanOutput();
+          expect(output).toContain(`Connectivity probe: ${ok ? "ok" : "failed"}`);
+          expect(defaultRuntime.log).toHaveBeenCalledWith(
+            expect.stringContaining(
+              "Native service is not installed; diagnostic only, not the probe target.",
+            ),
+          );
+          expect(output).not.toContain("Service unit not found");
+          expect(output).not.toContain("Gateway install blocked:");
+          expect(output).not.toMatch(/\bgateway\s+install\b/);
+          if (!ok) {
+            expect(defaultRuntime.error).toHaveBeenCalledWith(
+              expect.stringContaining("connect ECONNREFUSED"),
+            );
+          }
+        },
+      );
+    },
+  );
+
   it.each(surfaces)(
     "keeps the canonical default installation's $name advice",
     async ({ kind, fact, command }) => {

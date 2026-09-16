@@ -174,36 +174,40 @@ describe("telegram ingress spool mapping", () => {
       });
 
       monitor.start();
-      await monitor.waitForIdle();
-      const admissions = await Promise.all([
-        monitor.admit(voteUpdate),
-        monitor.admit(messageUpdate),
-      ]);
-      expect(admissions.map((result) => result.kind)).toEqual(["durable", "durable"]);
-      expect(await queue.listPending({ limit: "all" })).toEqual([
-        expect.objectContaining({
-          id: telegramQueueEventId(9),
-          payload: expect.objectContaining({
-            preparedPollAnswer: {
-              entry: expect.objectContaining({ threadSpec: { scope: "forum", id: 99 } }),
-            },
+      try {
+        await monitor.waitForIdle();
+        const admissions = await Promise.all([
+          monitor.admit(voteUpdate),
+          monitor.admit(messageUpdate),
+        ]);
+        expect(admissions.map((result) => result.kind)).toEqual(["durable", "durable"]);
+        await monitor.waitForPumpIdle();
+        await vi.waitFor(() => expect(dispatchOrder).toEqual([9]));
+        expect(onError).not.toHaveBeenCalled();
+        expect(await queue.listClaims()).toEqual([
+          expect.objectContaining({
+            id: telegramQueueEventId(9),
+            laneKey: "telegram:-100123:topic:99",
+            payload: expect.objectContaining({
+              preparedPollAnswer: {
+                entry: expect.objectContaining({ threadSpec: { scope: "forum", id: 99 } }),
+              },
+            }),
           }),
-        }),
-        expect.objectContaining({ id: telegramQueueEventId(10) }),
-      ]);
-      await monitor.waitForPumpIdle();
-      expect(onError).not.toHaveBeenCalled();
-      expect(dispatchOrder).toEqual([9]);
-      expect(await queue.listClaims()).toEqual([
-        expect.objectContaining({ laneKey: "telegram:-100123:topic:99" }),
-      ]);
-      expect(await queue.listPending({ limit: "all" })).toEqual([
-        expect.objectContaining({ laneKey: "telegram:-100123:topic:99" }),
-      ]);
-      releaseVote();
-      await monitor.waitForIdle();
-      expect(dispatchOrder).toEqual([9, 10]);
-      await monitor.stop();
+        ]);
+        expect(await queue.listPending({ limit: "all" })).toEqual([
+          expect.objectContaining({
+            id: telegramQueueEventId(10),
+            laneKey: "telegram:-100123:topic:99",
+          }),
+        ]);
+        releaseVote();
+        await monitor.waitForIdle();
+        expect(dispatchOrder).toEqual([9, 10]);
+      } finally {
+        releaseVote();
+        await monitor.stop();
+      }
     });
   });
 

@@ -6,7 +6,7 @@ import type { findModelCatalogEntry } from "../agents/model-catalog-lookup.js";
 import type { selectModelCatalogRuntimeEntry } from "../agents/model-catalog-view.js";
 import type { resolveSessionModelRef } from "../agents/session-model-ref.js";
 import type { SubagentRunReadIndex } from "../agents/subagents/registry/subagent-registry-read.js";
-import type { SubagentRunReadRecord } from "../agents/subagents/registry/subagent-registry.types.js";
+import type { SubagentRunReadRecord } from "../agents/subagents/registry/subagent-registry-read.types.js";
 import type { ThinkLevel, listThinkingLevelOptions } from "../auto-reply/thinking.js";
 import type { SessionAcpMeta, SessionEntry } from "../config/sessions.js";
 import type { SessionEntryReadSource } from "../config/sessions/session-accessor.js";

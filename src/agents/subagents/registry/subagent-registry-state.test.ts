@@ -4,6 +4,7 @@ import {
   onSessionLifecycleEvent,
   type SessionLifecycleEvent,
 } from "../../../sessions/session-lifecycle-events.js";
+import type { SubagentRunReadRecord } from "./subagent-registry-read.types.js";
 import {
   clearSubagentRunsReadCacheForTest,
   getSubagentSessionListRunsSnapshotForRead,
@@ -19,7 +20,7 @@ import {
   publishSubagentRunsAfterAtomicStore,
   restoreSubagentRunsFromDisk,
 } from "./subagent-registry-state.js";
-import type { SubagentRunReadRecord, SubagentRunRecord } from "./subagent-registry.types.js";
+import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
 const mocks = vi.hoisted(() => ({
   loadSubagentRunsForChildSessionFromSqlite:

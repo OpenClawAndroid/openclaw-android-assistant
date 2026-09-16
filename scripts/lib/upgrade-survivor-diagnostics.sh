@@ -4,7 +4,9 @@ prepare_diagnostics_capture() {
   # A previous attempt must never be published as this container's evidence.
   if [ -L "$ARTIFACT_DIR" ] || [ -L "$ARTIFACT_DIR/diagnostics" ] ||
     ! rm -f "$ARTIFACT_DIR/diagnostics/raw.json" "$ARTIFACT_DIR/diagnostics/post-core.json" "$ARTIFACT_DIR/diagnostics/last-rpc" "$ARTIFACT_DIR/summary.json" \
-      "$ARTIFACT_DIR/update.json" "$ARTIFACT_DIR/repair.json" "$ARTIFACT_DIR/recovery-update.json"; then
+      "$ARTIFACT_DIR/update.json" "$ARTIFACT_DIR/repair.json" "$ARTIFACT_DIR/recovery-update.json" \
+      "$ARTIFACT_DIR/sibling-registrations.jsonl" "$ARTIFACT_DIR/sibling-source.json" "$ARTIFACT_DIR/sibling-canary.json" \
+      "$ARTIFACT_DIR"/diagnostics/doctor-*.json; then
     echo "Upgrade survivor diagnostics missing: private capture setup failed." >&2
     return 0
   fi

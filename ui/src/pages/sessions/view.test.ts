@@ -395,6 +395,7 @@ describe("sessions view", () => {
         transcriptSearchQuery: "launch code",
         transcriptSearch: {
           status: "results",
+          sessions: [{ key: "agent:main:launch", kind: "direct", label: "Launch planning" }],
           results: [
             {
               sessionKey: "agent:main:launch",

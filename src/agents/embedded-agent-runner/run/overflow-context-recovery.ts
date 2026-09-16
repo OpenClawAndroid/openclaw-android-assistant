@@ -13,6 +13,7 @@ import {
 } from "../../embedded-agent-helpers.js";
 import type { FailoverClassification } from "../../failover/signal.js";
 import { withSessionManagerWrite } from "../../sessions/session-manager-write-admission.js";
+import { classifyCompactionReason } from "../compact-reasons.js";
 import { runContextEngineMaintenance } from "../context-engine-maintenance.js";
 import { log } from "../logger.js";
 import {
@@ -36,17 +37,22 @@ import {
   resetNoRealConversationTokenSnapshot,
 } from "./session-bootstrap.js";
 
-function renderOverflowResetGuidance(
+function renderRecoverySideEffectCaution(
   attempt: EmbeddedRunCompactionRecoveryInput["attempt"],
 ): string {
   const replayMetadata = attempt.currentAttemptReplayMetadata ?? attempt.replayMetadata;
-  const sideEffectCaution = replayMetadata.hadPotentialSideEffects
+  return replayMetadata.hadPotentialSideEffects
     ? " Completed tool actions were not replayed; verify their effects before retrying."
     : "";
+}
+
+function renderOverflowResetGuidance(
+  attempt: EmbeddedRunCompactionRecoveryInput["attempt"],
+): string {
   return (
     "Context overflow: prompt too large for the model. " +
     "Try /reset (or /new) to start a fresh session, or use a larger-context model." +
-    sideEffectCaution
+    renderRecoverySideEffectCaution(attempt)
   );
 }
 
@@ -129,6 +135,12 @@ export async function recoverEmbeddedRunOverflow(
   input.assertRecoveryActive();
   const contextTokenBudget = input.contextTokenBudget;
   const terminal = projectAgentRunAttemptTerminal(input.attempt.terminal);
+  const isPreflightRecovery = terminal.promptErrorSource === "precheck";
+  const compactionTrigger = isPreflightRecovery ? "budget" : "overflow";
+  const recoveryReason = isPreflightRecovery ? "context budget recovery" : "overflow recovery";
+  const pressureDescription = isPreflightRecovery
+    ? "predicted context pressure"
+    : "context overflow";
   const providerPromptRejection =
     contextOverflowError.source === "assistantError" || terminal.promptErrorSource === "prompt"
       ? markLastProviderPromptContextRejected(getProviderPromptState(input.runParams.runId))
@@ -168,14 +180,14 @@ export async function recoverEmbeddedRunOverflow(
     });
   };
   const preflightPromptBudget =
-    terminal.promptErrorSource === "precheck" &&
-    preflightRecovery?.source === "mid-turn" &&
-    typeof preflightRecovery.promptBudgetBeforeReserve === "number" &&
+    isPreflightRecovery &&
+    typeof preflightRecovery?.promptBudgetBeforeReserve === "number" &&
     Number.isFinite(preflightRecovery.promptBudgetBeforeReserve) &&
     preflightRecovery.promptBudgetBeforeReserve > 0
       ? Math.floor(preflightRecovery.promptBudgetBeforeReserve)
       : undefined;
   const preflightEstimatedPromptTokens =
+    isPreflightRecovery &&
     typeof preflightRecovery?.estimatedPromptTokens === "number" &&
     Number.isFinite(preflightRecovery.estimatedPromptTokens) &&
     preflightRecovery.estimatedPromptTokens > 0
@@ -189,6 +201,7 @@ export async function recoverEmbeddedRunOverflow(
   log.warn(
     `[context-overflow-diag] sessionKey=${runParams.sessionKey ?? runParams.sessionId} ` +
       `provider=${input.modelSelection.provider}/${input.modelSelection.model} source=${contextOverflowError.source} ` +
+      `trigger=${compactionTrigger} ` +
       `messages=${input.attempt.messagesSnapshot?.length ?? 0} sessionFile=${activeSession.file} ` +
       `diagId=${overflowDiagId} compactionAttempts=${input.state.overflowCompactionAttempts} ` +
       `observedTokens=${observedOverflowTokens ?? "unknown"} ` +
@@ -223,6 +236,7 @@ export async function recoverEmbeddedRunOverflow(
   // redeem parked nested work. The compaction itself stays committed (hooks and
   // maintenance still run); only the mid-turn continuation is withheld.
   let parkedWorkBlocksContinuation = false;
+  let failedCompactionReason: string | undefined;
   if (
     !isCompactionFailure &&
     input.attemptCompactionCount > 0 &&
@@ -231,7 +245,7 @@ export async function recoverEmbeddedRunOverflow(
     input.markOwnedTranscriptRetry();
     input.state.overflowCompactionAttempts += 1;
     log.warn(
-      `context overflow persisted after in-attempt compaction (attempt ${input.state.overflowCompactionAttempts}/${MAX_OVERFLOW_COMPACTION_ATTEMPTS}); retrying prompt without additional compaction for ${input.modelSelection.provider}/${input.modelSelection.model}`,
+      `${pressureDescription} persisted after in-attempt compaction (attempt ${input.state.overflowCompactionAttempts}/${MAX_OVERFLOW_COMPACTION_ATTEMPTS}); retrying prompt without additional compaction for ${input.modelSelection.provider}/${input.modelSelection.model}`,
     );
     if (requiresTranscriptContinuation) {
       input.prepareCurrentTranscriptRetry();
@@ -253,11 +267,11 @@ export async function recoverEmbeddedRunOverflow(
     }
     input.state.overflowCompactionAttempts += 1;
     log.warn(
-      `context overflow detected (attempt ${input.state.overflowCompactionAttempts}/${MAX_OVERFLOW_COMPACTION_ATTEMPTS}); attempting auto-compaction for ${input.modelSelection.provider}/${input.modelSelection.model}`,
+      `${pressureDescription} detected (attempt ${input.state.overflowCompactionAttempts}/${MAX_OVERFLOW_COMPACTION_ATTEMPTS}); attempting auto-compaction for ${input.modelSelection.provider}/${input.modelSelection.model}`,
     );
     const compaction = await compactEmbeddedRunForRecovery(input, {
       tokenBudget: preflightPromptBudget ?? input.contextTokenBudget,
-      trigger: "overflow",
+      trigger: compactionTrigger,
       diagId: overflowDiagId,
       attempt: input.state.overflowCompactionAttempts,
       maxAttempts: MAX_OVERFLOW_COMPACTION_ATTEMPTS,
@@ -299,7 +313,7 @@ export async function recoverEmbeddedRunOverflow(
         input.assertRecoveryActive();
       }
     }
-    await input.runOwnsCompactionAfterHook("overflow recovery", compactResult, previousSessionId);
+    await input.runOwnsCompactionAfterHook(recoveryReason, compactResult, previousSessionId);
     input.assertRecoveryActive();
 
     if (preflightRecovery && isNoRealConversationCompactionNoop(compactResult)) {
@@ -357,8 +371,9 @@ export async function recoverEmbeddedRunOverflow(
         return { action: "retry" };
       }
     } else {
+      failedCompactionReason = formatErrorMessage(compactResult.reason ?? "nothing to compact");
       log.warn(
-        `auto-compaction failed for ${input.modelSelection.provider}/${input.modelSelection.model}: ${compactResult.reason ?? "nothing to compact"}`,
+        `auto-compaction failed for ${input.modelSelection.provider}/${input.modelSelection.model}: ${failedCompactionReason}`,
       );
     }
   }
@@ -408,11 +423,19 @@ export async function recoverEmbeddedRunOverflow(
         `attempt=${input.state.overflowCompactionAttempts} maxAttempts=${MAX_OVERFLOW_COMPACTION_ATTEMPTS}`,
     );
   }
-  const kind = isCompactionFailure ? "compaction_failure" : "context_overflow";
-  const userText = renderOverflowResetGuidance(input.attempt);
+  const preflightCompactionFailed = isPreflightRecovery && failedCompactionReason !== undefined;
+  const kind =
+    isCompactionFailure || preflightCompactionFailed ? "compaction_failure" : "context_overflow";
+  const failureText = preflightCompactionFailed
+    ? `Auto-compaction failed before the next model request: ${failedCompactionReason}`
+    : errorText;
+  const userText = preflightCompactionFailed
+    ? `${classifyCompactionReason(failedCompactionReason) === "timeout" ? "Auto-compaction timed out" : "Auto-compaction failed"} before the next model request. Try again or run /compact.` +
+      renderRecoverySideEffectCaution(input.attempt)
+    : renderOverflowResetGuidance(input.attempt);
   log.warn(
-    `[context-overflow-recovery] exhausted provider overflow recovery for ${input.modelSelection.provider}/${input.modelSelection.model}; ` +
-      `livenessState=blocked suggestedAction=reset_or_new kind=${kind}`,
+    `[context-overflow-recovery] exhausted ${isPreflightRecovery ? "context budget" : "provider overflow"} recovery for ${input.modelSelection.provider}/${input.modelSelection.model}; ` +
+      `livenessState=blocked suggestedAction=${preflightCompactionFailed ? "retry_or_compact" : "reset_or_new"} kind=${kind}`,
   );
-  return { action: "surface", kind, errorText, userText };
+  return { action: "surface", kind, errorText: failureText, userText };
 }

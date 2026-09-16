@@ -65,6 +65,7 @@ import {
 import { updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
 import {
   AUTO_UPDATE_STEP_TIMEOUT_MS,
+  DEFAULT_UPDATE_STEP_TIMEOUT_MS,
   UPDATE_RUNNER_TIMEOUT_MS,
 } from "../../infra/update-run-timeouts.js";
 import type { UpdateRunResult, UpdateStepProgress } from "../../infra/update-runner.js";
@@ -233,6 +234,10 @@ export async function admitUpdateCommandRun(params: {
     });
   }
   const driver = readUpdateRunDriver();
+  const ledgerOptions = {
+    env,
+    busyTimeoutMs: parseUpdateTimeoutMs(params.opts.timeout) ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS,
+  };
   const created = createUpdateRun(
     {
       runId: env[UPDATE_RUN_ID_ENV]?.trim() || params.initialization?.runId,
@@ -244,9 +249,9 @@ export async function admitUpdateCommandRun(params: {
       target: { channel: params.opts.channel, tag: params.opts.tag },
       before: { version: VERSION },
     },
-    { env },
+    ledgerOptions,
   );
-  const record = adoptUpdateRun(created.runId, { env });
+  const record = adoptUpdateRun(created.runId, ledgerOptions);
   const requester = resolveManagedUpdateRequester(record.origin.requester);
   const requesterAuthority = requester
     ? await createManagedUpdateRequesterAuthority(requester, env)

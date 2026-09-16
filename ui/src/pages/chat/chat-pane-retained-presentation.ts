@@ -1,14 +1,28 @@
+import type { ProgressCard } from "@openclaw/gateway-protocol";
 import { html, nothing } from "lit";
 import "../../components/modal-dialog.ts";
+import { gatewayPresentationScope } from "../../app/gateway-presentation-scope.ts";
 import { t } from "../../i18n/index.ts";
 import { boardProviderCacheKey } from "../../lib/board/provider.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import { sessionPullRequestsForGateway } from "../../lib/session-pull-requests.ts";
-import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
+import { parseCatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
+import { runSessionNavigationIntent } from "../../lib/sessions/navigation-handoff.ts";
+import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
+import {
+  areUiSessionKeysEquivalent,
+  resolveUiSelectedSessionAgentId,
+} from "../../lib/sessions/session-key.ts";
 import { storeChatComposerMemoryFallback } from "./chat-composer-memory-fallback.ts";
 import { loadChatBranches, retireChatBranchRequests } from "./chat-history-branches.ts";
-import { getChatHistoryLoadState, isInitialChatHistoryUnavailable } from "./chat-history-state.ts";
+import {
+  chatHistoryRequests,
+  getAcceptedChatHistorySession,
+  getChatHistoryLoadState,
+  isInitialChatHistoryUnavailable,
+} from "./chat-history-state.ts";
 import { loadChatHistory } from "./chat-history.ts";
+import { QUEUED_EDIT_RETENTION_CHANGE_EVENT } from "./chat-page-retained-sessions.ts";
 import { ChatPaneBoard } from "./chat-pane-board.ts";
 import { consumePaneSessionHandoff, type PaneSessionHandoff } from "./chat-pane-shared.ts";
 import { retirePullRequestRefreshes } from "./chat-pull-request-refresh.ts";
@@ -16,6 +30,7 @@ import { stopChatRealtimeTalk } from "./chat-realtime.ts";
 import { retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
 import { setChatError } from "./chat-send-queue-state.ts";
 import { refreshCurrentChatSessionList } from "./chat-session.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
 import { invalidateImageLightbox } from "./chat-state-page.ts";
 import { refreshChatMetadata } from "./chat-state-refresh.ts";
 import { selectedChatSessionRow } from "./chat-state-route.ts";
@@ -24,14 +39,174 @@ import { dismissConfirmedActionPopovers } from "./components/chat-message.ts";
 import { clearSessionWorkspacePreviews } from "./components/chat-session-workspace-state.ts";
 import { resetTaskDetail } from "./components/chat-task-detail-state.ts";
 import { resetTranscriptSession } from "./components/chat-thread-interactions.ts";
+import { activeQueuedMessageEdit } from "./queued-message-edit.ts";
 
 const COMPOSER_PREFILL_ATTENTION_DURATION_MS = 600;
 const COMPOSER_PREFILL_ATTENTION_CLASS = "agent-chat__input--prefill-attention";
 
 /** Owns foreground resources and composer state that follow one retained presentation. */
 export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
+  private retainedQueuedEdit = false;
+
+  get hasQueuedMessageEdit(): boolean {
+    return Boolean(this.state?.chatQueuedEdit);
+  }
+
+  protected syncQueuedEditRetention(): void {
+    const retained = this.hasQueuedMessageEdit;
+    if (retained !== this.retainedQueuedEdit) {
+      this.retainedQueuedEdit = retained;
+      this.dispatchEvent(new Event(QUEUED_EDIT_RETENTION_CHANGE_EVENT, { bubbles: true }));
+    }
+  }
+
   protected abstract syncActiveBindings(): void;
   protected abstract activateComposerPresentation(): void;
+
+  protected reviewQueuedMessageEdit(pageState: ChatPageHost): void {
+    const edit = activeQueuedMessageEdit(pageState);
+    if (!edit || this.state !== pageState || !this.isConnected) {
+      return;
+    }
+    const client = pageState.client;
+    const target = sessionNavigationTarget({
+      context: this.context,
+      face: "chat",
+      sessionKey: edit.sessionKey,
+      agentId: edit.agentId,
+      exactKey: true,
+    });
+    runSessionNavigationIntent(this, {
+      face: "chat",
+      sessionKey: edit.sessionKey,
+      commit: () => {
+        if (
+          this.state !== pageState ||
+          pageState.client !== client ||
+          this.context.gateway.snapshot.client !== client ||
+          activeQueuedMessageEdit(pageState) !== edit
+        ) {
+          return false;
+        }
+        this.onFocusPane?.(this.paneId, "review-edit");
+        this.context.navigate("chat", target.options);
+        return true;
+      },
+    });
+  }
+
+  private progressPresentationSessionKey: string | undefined;
+  private progressPresentationReady = false;
+  private retainedProgressCard:
+    | {
+        gatewayScope: object;
+        client: ChatPageHost["client"];
+        sessionKey: string;
+        sessionId: ChatPageHost["currentSessionId"];
+        agentId: string | undefined;
+        card: ProgressCard;
+        identity: string;
+      }
+    | undefined;
+
+  protected get progressCardPresentation(): { card: ProgressCard; identity: string } | null {
+    const state = this.state;
+    if (
+      !state ||
+      !this.presented ||
+      this.isCurrentSessionArchived(state) ||
+      parseCatalogSessionKey(state.sessionKey)
+    ) {
+      this.retainedProgressCard = undefined;
+      return null;
+    }
+    const gatewayScope = gatewayPresentationScope(this.context.gateway);
+    const agentId = resolveUiSelectedSessionAgentId(state);
+    const previous = this.retainedProgressCard;
+    if (
+      previous &&
+      (!chatHistoryRequests(state).acceptedHistory ||
+        previous.gatewayScope !== gatewayScope ||
+        previous.client !== state.client ||
+        previous.sessionKey !== state.sessionKey ||
+        previous.sessionId !== state.currentSessionId ||
+        previous.agentId !== agentId)
+    ) {
+      this.retainedProgressCard = undefined;
+    }
+    const card = this.progressCard.card;
+    const target = this.resolveChatReadTarget();
+    if (card && target) {
+      this.retainedProgressCard = {
+        gatewayScope,
+        client: state.client,
+        sessionKey: state.sessionKey,
+        sessionId: state.currentSessionId,
+        agentId,
+        card,
+        // Global and ordinary sessions can share the progress-card wire key.
+        identity: JSON.stringify([target.agentId ?? null, target.sessionKey]),
+      };
+    } else if (!this.progressCard.loading) {
+      this.retainedProgressCard = undefined;
+    }
+    // Reconnect retires read admission, not the mounted card's disclosure state.
+    return this.retainedProgressCard ?? null;
+  }
+
+  protected override initialProgressCardTarget() {
+    const state = this.state;
+    if (
+      !state?.connected ||
+      !this.presented ||
+      document.visibilityState === "hidden" ||
+      this.isCurrentSessionArchived(state) ||
+      parseCatalogSessionKey(state.sessionKey) ||
+      (!this.transcriptReady && !getAcceptedChatHistorySession(state))
+    ) {
+      return undefined;
+    }
+    // Unlike secondary metadata, the progress card determines transcript geometry.
+    return this.resolveChatReadTarget();
+  }
+
+  protected get progressCardInitialLoading(): boolean {
+    const state = this.state;
+    if (!state) {
+      return false;
+    }
+    if (this.progressPresentationSessionKey !== state.sessionKey) {
+      this.progressPresentationSessionKey = state.sessionKey;
+      this.progressPresentationReady = false;
+    }
+    if (this.progressPresentationReady) {
+      return false;
+    }
+    const phase = this.context.gateway.snapshot.phase;
+    if (
+      !this.isCurrentSessionArchived(state) &&
+      !parseCatalogSessionKey(state.sessionKey) &&
+      getChatHistoryLoadState(state).phase !== "failed"
+    ) {
+      if (phase === "connecting" || phase === "starting") {
+        return true;
+      }
+      if (
+        state.connected &&
+        (!this.presented ||
+          document.visibilityState === "hidden" ||
+          (!this.transcriptReady && !getAcceptedChatHistorySession(state)) ||
+          (this.initialProgressCardTarget() &&
+            this.progressCard.loading &&
+            !this.progressCard.error))
+      ) {
+        return true;
+      }
+    }
+    // Only the first read reserves an empty card slot; refreshes retain the mounted card.
+    this.progressPresentationReady = true;
+    return false;
+  }
 
   protected clearComposerPrefillAttention(): void {
     if (this.composerPrefillAttentionTimer !== null) {
@@ -157,6 +332,7 @@ export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
   protected override presentedChanged(presented: boolean): void {
     if (!presented) {
       this.dashboardPresentationActivation = undefined;
+      this.retainedProgressCard = undefined;
     }
     if (!this.isConnected) {
       return;

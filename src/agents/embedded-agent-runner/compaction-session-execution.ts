@@ -523,7 +523,9 @@ export async function executePreparedCompactionSession(runtime: PreparedCompacti
               async (_signal, resetTimeout) => {
                 resetCompactionTimeout = resetTimeout;
                 setCompactionSafeguardCancellation(compactionSessionManager, undefined);
-                const requestState = trigger === "overflow" ? ("unresolved" as const) : undefined;
+                const requestState =
+                  accountingRecorder?.pendingRequestState ??
+                  (trigger === "overflow" ? ("unresolved" as const) : undefined);
                 if (trigger === "manual") {
                   return {
                     status: "completed" as const,

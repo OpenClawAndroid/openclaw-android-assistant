@@ -46,7 +46,7 @@ const failureFamilies = {
     "head-verification-failed",
     "target-sha-mismatch",
   ],
-  schema: ["database-schema-preflight"],
+  schema: ["database-schema-preflight", "invalid-config"],
   doctor: [
     "post-update-failed",
     "doctor-failed",

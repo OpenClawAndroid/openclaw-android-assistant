@@ -275,7 +275,13 @@ export function resolveSqliteTargetFromSessionStorePath(
       registeredDatabases,
       options.isSameDatabasePath ?? isSameOpenClawAgentDatabasePath,
     );
-    const databaseOwner = resolveDatabaseOwner(unsuffixedTarget.path);
+    let databaseOwner: string | undefined;
+    if (registeredOwners.length === 1) {
+      // Registry precedence makes inspection redundant, but filesystem errors still propagate.
+      hasFilesystemEntry(unsuffixedTarget.path);
+    } else {
+      databaseOwner = resolveDatabaseOwner(unsuffixedTarget.path);
+    }
     const configuredDefaultAgentId = normalizeAgentId(
       options.defaultAgentId ?? LEGACY_IMPLICIT_AGENT_ID,
     );

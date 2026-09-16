@@ -673,13 +673,14 @@ An explicit tool model remains selected; the Grok 4.3 examples below are overrid
 
     Other Responses-compatible providers can opt in with
     `params.responsesCompactEndpoint: true`; non-Responses routes ignore the
-    setting. OpenAI's native Responses API does not need this option because
-    its `context_management` compaction is already managed by
-    `responsesServerCompaction`.
+    setting. The public OpenAI Responses API also enables this endpoint by
+    default for budget compaction. Its inline `context_management`
+    compaction is separately controlled by `responsesServerCompaction`.
 
     Endpoint failures fall back to OpenClaw's client-side summarization.
-    Overflow recovery never calls the endpoint because xAI requires the input
-    to fit the model context window before compaction.
+    Provider-confirmed overflow recovery never calls the endpoint because
+    xAI requires the input to fit the model context window before compaction.
+    Predicted pressure can try the endpoint before submitting the next turn.
 
   </Accordion>
 

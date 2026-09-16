@@ -12,6 +12,7 @@ import type {
 } from "./session-accessor.sqlite-contract.js";
 import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
 import { projectTranscriptNavigationSql } from "./session-model-context-projection.js";
+import { resolveSessionTranscriptQuestionAnswer } from "./session-transcript-read-fence.js";
 import {
   isSessionTranscriptLeafControl,
   parseSessionTranscriptTreeEntry,
@@ -117,8 +118,20 @@ export function canRebasePreparedAssistantInTransaction(
             .onRef("event.session_id", "=", "identity.session_id")
             .onRef("event.seq", "=", "identity.seq"),
         )
+        .leftJoin("session_transcript_active_events as active", (join) =>
+          join
+            .onRef("active.session_id", "=", "identity.session_id")
+            .onRef("active.event_seq", "=", "identity.seq"),
+        )
+        .leftJoin("transcript_rewrite_watermarks as rewrite", (join) =>
+          join.onRef("rewrite.session_id", "=", "identity.session_id"),
+        )
         .select([
           "identity.event_id",
+          "identity.seq",
+          "identity.parent_id",
+          "active.message_position",
+          "rewrite.generation",
           /* kysely-allow-raw: validate the canonical message role without hydrating content. */
           sql<string>`json_extract(event.event_json, '$.message.role')`.as("message_role"),
         ])
@@ -130,7 +143,24 @@ export function canRebasePreparedAssistantInTransaction(
         .limit(PREPARED_ASSISTANT_MAX_NEWER_MESSAGES),
     ),
   );
-  return newerRoles.every((row) => row.message_role !== "user" || row.event_id === admittedUserId);
+  return newerRoles.every((row) => {
+    if (row.message_role !== "user" || row.event_id === admittedUserId) {
+      return true;
+    }
+    const answer = resolveSessionTranscriptQuestionAnswer(
+      database,
+      sessionId,
+      row.event_id,
+      admittedUserId,
+    );
+    return (
+      answer !== undefined &&
+      answer.rawSeq === row.seq &&
+      answer.effectiveParentId === row.parent_id &&
+      answer.activeMessagePosition === row.message_position &&
+      answer.generation === row.generation
+    );
+  });
 }
 
 export function resolveTranscriptEventAppendParent(

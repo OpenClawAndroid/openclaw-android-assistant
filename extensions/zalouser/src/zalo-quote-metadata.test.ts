@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
+  createPluginStateKeyedStoreForTests,
   createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
@@ -106,6 +107,8 @@ function createInboundMessage(data: Record<string, unknown>): Message {
 beforeEach(() => {
   resetPluginStateStoreForTests();
   const runtime = createPluginRuntimeMock();
+  runtime.state.openKeyedStore = <T>(options: OpenKeyedStoreOptions) =>
+    createPluginStateKeyedStoreForTests<T>("zalouser", options);
   runtime.state.openSyncKeyedStore = <T>(options: OpenKeyedStoreOptions) =>
     createPluginStateSyncKeyedStoreForTests<T>("zalouser", options);
   setZalouserRuntime(runtime);

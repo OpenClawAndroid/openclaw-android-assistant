@@ -239,8 +239,8 @@ state errors use their existing codec; other native causes retain bounded causal
 messages and error codes. Arbitrary custom properties and original stacks do not
 cross the worker boundary.
 
-Slack uses scalar conditional deletion when relinquishing a presence cooldown.
-On older hosts without that optional capability, it leaves the cooldown to expire
+Discord and Slack use scalar conditional deletion when relinquishing a presence
+cooldown. On older hosts without that optional capability, they leave it to expire
 instead of risking deletion of a newer reservation.
 
 This deprecation adds editor annotations, documentation, and compatibility

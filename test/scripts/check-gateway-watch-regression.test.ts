@@ -43,6 +43,11 @@ vi.mock("../../scripts/lib/managed-child-process.mts", async (importOriginal) =>
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
+class WatchChildProcess extends ChildProcess {
+  override readonly stdout = new PassThrough();
+  override readonly stderr = new PassThrough();
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -56,12 +61,9 @@ function createWatchChildFixture(outputDir: string) {
     code: null,
     signal: null,
   };
-  const child = Object.assign(new ChildProcess(), {
-    pid: 1234,
-    stdout: new PassThrough(),
-    stderr: new PassThrough(),
-  });
+  const child = new WatchChildProcess();
   Object.defineProperties(child, {
+    pid: { configurable: true, value: 1234 },
     exitCode: { get: () => exitState.code },
     signalCode: { get: () => exitState.signal },
   });
@@ -715,10 +717,7 @@ describe("check-gateway-watch-regression", () => {
 
   it("removes the isolated watch home after spawn failures", async () => {
     const outputDir = tempDirs.make("openclaw-gateway-watch-output-");
-    const child = Object.assign(new ChildProcess(), {
-      stdout: new PassThrough(),
-      stderr: new PassThrough(),
-    });
+    const child = new WatchChildProcess();
     let sleepSettled = false;
     const sleep = vi.fn(async (ms: number, signal: AbortSignal) => {
       try {

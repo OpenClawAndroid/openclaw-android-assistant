@@ -1,4 +1,5 @@
 // Control UI tests cover control ui e2e behavior.
+import { EventEmitter } from "node:events";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { format } from "node:util";
@@ -9,6 +10,7 @@ import { captureSidebarUiProof } from "../e2e/sidebar-customization.test-support
 import { createControlUiE2eArtifactDir } from "./control-ui-e2e-artifacts.ts";
 import {
   captureControlUiE2eFailureDiagnostics,
+  installAgentFileRpcDiagnostics,
   resolvePlaywrightChromiumExecutablePath,
   systemChromiumExecutableCandidates,
   waitForControlUiRoute,
@@ -79,7 +81,19 @@ describe("shared proof capture", () => {
       badge.className = "settings-status";
       badge.textContent = failure === "none" ? "Ready" : "private-badge";
       providerHead.append(badge);
-      document.body.append(app, composer, send, providerHead);
+      const agentPage = document.createElement("openclaw-agents-page");
+      Object.assign(agentPage, {
+        agentsSelectedId: "private-agent",
+        agentsPanel: "files",
+        agentFileActive: failure === "none" ? "AGENTS.md" : "private-file",
+        agentFilesLoading: false,
+        agentFilesList: { agentId: "private-agent", workspace: "private-path" },
+      });
+      const fileEditor = document.createElement("textarea");
+      fileEditor.className = "agent-file-textarea";
+      fileEditor.value = "private-file-content";
+      agentPage.append(fileEditor);
+      document.body.append(app, composer, send, providerHead, agentPage);
       const modelResponses =
         failure === "none"
           ? {}
@@ -139,7 +153,9 @@ describe("shared proof capture", () => {
       vi.stubEnv("GITHUB_RUN_ATTEMPT", "2");
       writeFileSync(path.join(parent, "prior.png"), "prior-proof");
       // SAFETY: this fixture implements the Page boundary used by failure diagnostics.
+      const pageEvents = new EventEmitter();
       const page = {
+        on: pageEvents.on.bind(pageEvents),
         evaluate: async (read: () => unknown) => read(),
         isClosed: () => false,
         url: () => "http://127.0.0.1/chat",
@@ -154,6 +170,35 @@ describe("shared proof capture", () => {
           return Buffer.from("failure-proof");
         },
       } as unknown as Page;
+      installAgentFileRpcDiagnostics(page);
+      const socket = new EventEmitter();
+      pageEvents.emit("websocket", socket);
+      const sendFrame = (direction: string, frame: unknown) =>
+        socket.emit(direction, { payload: JSON.stringify(frame) });
+      sendFrame("framesent", {
+        type: "req",
+        id: "private-auth-id",
+        method: "connect",
+        params: { token: "private-token" },
+      });
+      sendFrame("framereceived", {
+        type: "res",
+        id: "private-auth-id",
+        ok: true,
+        payload: { token: "private-token" },
+      });
+      sendFrame("framesent", {
+        type: "req",
+        id: "private-file-id",
+        method: "agents.files.get",
+        params: { agentId: "private-agent" },
+      });
+      sendFrame("framereceived", {
+        type: "res",
+        id: "private-file-id",
+        ok: false,
+        error: { message: "private-error" },
+      });
       const frameEvent = {
         at: "2026-09-01T00:00:00.000Z",
         source: "framenavigated" as const,
@@ -188,7 +233,23 @@ describe("shared proof capture", () => {
         expect(rendered).not.toContain("private-");
         const summary = JSON.parse(rendered.slice("[control-ui-e2e] failure state ".length));
         expect(summary).toMatchObject({
+          agentFileRpc: [
+            { method: "agents.files.get", outcome: "sent" },
+            { method: "agents.files.get", outcome: "error" },
+          ],
           browser: {
+            agentFiles: {
+              pathname: "other",
+              pagePresent: true,
+              selectedAgentPresent: true,
+              selectionMatchesPath: null,
+              listMatchesSelection: true,
+              panel: "files",
+              activeFile: failure === "none" ? "AGENTS.md" : "unknown",
+              loading: false,
+              editorPresent: true,
+              editorLength: fileEditor.value.length,
+            },
             gatewayPhase: failure === "storage" ? "unknown" : "connected",
             connected: true,
             documentReadyState: expect.stringMatching(/^(?:loading|interactive|complete)$/u),

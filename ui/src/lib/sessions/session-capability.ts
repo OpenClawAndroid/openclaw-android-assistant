@@ -185,6 +185,8 @@ export type SessionCapability = {
     ) => GitHubPublicationBinding | null;
   };
   readonly state: SessionState;
+  /** Memory-only roster presentation; never authority for mutations or live row observations. */
+  readonly presentation: Pick<SessionState, "result" | "agentId" | "resultCached">;
   /** Advances only when a canonical sessions.list result is published. */
   readonly canonicalListRevision: number;
   whenCachedRosterSettled: () => Promise<void>;

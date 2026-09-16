@@ -38,6 +38,7 @@
     <string name="native_0174f83136630e7e" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s खाते"</string>
     <string name="native_01ac1c298e0cbd9a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"क्रॉन में बदलाव के लिए operator.admin आवश्यक है. सेटअप कोड जानबूझकर यह अनुमति नहीं देते हैं. एडमिन ऐक्सेस का अनुरोध करने के लिए Gateway के साझा टोकन या पासवर्ड से फिर से कनेक्ट करें. यदि इस डिवाइस के पास अब भी यह अनुमति नहीं है, तो किसी मौजूदा एडमिन क्लाइंट से लंबित स्कोप अपग्रेड को स्वीकृति दें."</string>
     <string name="native_01bcfe7a9296b6d6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Apply Patch"</string>
+    <string name="native_01c14c9eadedae4d" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s Gateway"</string>
     <string name="native_01cfb797d96a35b6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पिंच करना"</string>
     <string name="native_024f9605eda4caf4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"लगातार छोड़े गए"</string>
     <string name="native_027d7c7db6d8b3ef" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"इस फ़ोल्डर में अभी कोई फ़ाइल नहीं है."</string>
@@ -65,6 +66,7 @@
     <string name="native_0692ff7848b2cfc2" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कमांड का argv JSON ऐरे"</string>
     <string name="native_06ee275ccdbbf862" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"वह इमेज नहीं पढ़ी जा सकी. openclaw qr से मिले QR कोड का स्पष्ट स्क्रीनशॉट या इमेज चुनें."</string>
     <string name="native_06fcc3f73af64b5b" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Skill Workshop प्रस्ताव पर %1$s कार्रवाई नहीं की जा सकी."</string>
+    <string name="native_07136574d470a4bb" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway बदलने से पहले रिकॉर्डिंग पूरी करें या डिक्टेशन या Talk बंद करें।"</string>
     <string name="native_071c496aa34a4fd5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कहीं और जवाब दिया गया"</string>
     <string name="native_0728ba404eb8f8bd" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway ने एक बार के लिए स्वीकृति दर्ज की."</string>
     <string name="native_073c1634c496cdb6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"status"</string>
@@ -100,6 +102,7 @@
     <string name="native_0c77fe09ab336a3e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"क्लाइंट"</string>
     <string name="native_0c79a9c222840ed0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"लागू किया गया"</string>
     <string name="native_0cab1c9617404faf" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"वीडियो"</string>
+    <string name="native_0cd4747a6064d7b9" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पहले से सहेजा गया है। आपकी सहेजी गई कनेक्शन सेटिंग्स का उपयोग किया जाएगा।"</string>
     <string name="native_0cf04463c4276a62" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"प्रचारित"</string>
     <string name="native_0d21bd52022ca7f7" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ऑनलाइन"</string>
     <string name="native_0d5644ff52ce2ba3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"दायरे"</string>
@@ -200,6 +203,7 @@
     <string name="native_1a9e3989a89e862b" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"लिप्यंतरण उपलब्ध नहीं है: %1$s"</string>
     <string name="native_1aa4cb0bcca76e92" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"छवि"</string>
     <string name="native_1afff5a07eab0e88" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ज्वार के साथ बह रहे हैं"</string>
+    <string name="native_1b68e1a6b3cff1cf" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"इस Gateway से कनेक्ट करें?"</string>
     <string name="native_1b7f9ecb7cd6a212" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"तेज़ मोड"</string>
     <string name="native_1b9e1aa135771a2f" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"छवि का पूर्वावलोकन बंद करें"</string>
     <string name="native_1b9f384c1436f607" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अपठित"</string>
@@ -247,6 +251,7 @@
     <string name="native_21c71243e8cba796" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ऐप और Gateway के प्रोटोकॉल संस्करण एक-दूसरे के साथ संगत नहीं हैं. दोनों पर OpenClaw अपडेट करें, फिर दोबारा कोशिश करें."</string>
     <string name="native_21f30f631394a9da" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"हाल की फ़ोटो और मीडिया पढ़ें"</string>
     <string name="native_225d29f6201e1a63" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सुनें"</string>
+    <string name="native_2263a54d9ea50d12" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"इस छवि से QR कोड पढ़ा नहीं जा सका।"</string>
     <string name="native_226c9a1ebc5a9f75" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"यह पता Tailscale का उपयोग कर सकता है। Tailscale खोलें और Gateway के tailnet से कनेक्ट करें, फिर दोबारा कोशिश करें। जाँचें कि Gateway कंप्यूटर ऑनलाइन है और OpenClaw चल रहा है।"</string>
     <string name="native_22965568d22a14ee" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कनेक्ट है"</string>
     <string name="native_22a970d2e5b1cc23" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पूरा हुआ"</string>
@@ -491,6 +496,7 @@
     <string name="native_42e3a99c21767def" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"डिवाइस की स्वीकृति की प्रतीक्षा में"</string>
     <string name="native_430798d3e8250938" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"थ्रेड लोड हो रहा है"</string>
     <string name="native_430df68ec29a85a2" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"यह Gateway अब ऐसा प्रमाणपत्र प्रस्तुत करता है जिस पर यह डिवाइस भरोसा करता है."</string>
+    <string name="native_432af41f893dc7e6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कोई मेल खाता Gateway नहीं मिला"</string>
     <string name="native_4387e5d3966fc436" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"प्रयास"</string>
     <string name="native_43905968a540af6a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"समय-अंतर मिलीसेकंड"</string>
     <string name="native_43988c156beabf7d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"event create"</string>
@@ -563,6 +569,7 @@
     <string name="native_4d419bb3db38b6dd" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"हमेशा अनुमति दें"</string>
     <string name="native_4d4c7eee2e28d03c" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"present"</string>
     <string name="native_4d5e590b23745b4d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway पर इंस्टॉल किए गए Skills यहाँ दिखाई देंगे."</string>
+    <string name="native_4da4a2f43118d878" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"1 Gateway"</string>
     <string name="native_4dee3342f86128c1" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"हो सकता है कि कोड की वैधता समाप्त हो गई हो या वह किसी दूसरे Gateway के लिए बनाया गया हो."</string>
     <string name="native_4e8c72cab82e0711" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"स्वचालन का कॉन्फ़िगरेशन अमान्य है."</string>
     <string name="native_4ec30e9d85725d41" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अनुमति सूची"</string>
@@ -656,6 +663,7 @@
     <string name="native_5ab9d81fd481e71f" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"चयनित ऐप्स"</string>
     <string name="native_5b36e77f2018303f" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"बदलाव वापस लें"</string>
     <string name="native_5b4ddab77c412d6a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"मंज़ूरी का कमांड कॉपी किया गया"</string>
+    <string name="native_5b66be89c860e983" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कैमरा शुरू नहीं किया जा सका।"</string>
     <string name="native_5b7c4c081e9c5810" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"डिलीवरी की स्थिति"</string>
     <string name="native_5ba2fce40231fd9c" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"QR कोड स्वीकार नहीं किया गया"</string>
     <string name="native_5bb88b338f9e14ff" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कोई आउटपुट नहीं — टूल विफल हुआ।"</string>
@@ -779,6 +787,7 @@
     <string name="native_6c8785f581c130a3" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s%% शेष %2$s"</string>
     <string name="native_6c94e063660eaecd" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सेटअप कोड की समय-सीमा समाप्त हो गई"</string>
     <string name="native_6c9cc6e775076481" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Help diagnose this OpenClaw Android gateway connection failure.\n\n"</string>
+    <string name="native_6caf345db0815300" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सेटअप कोड पेस्ट करने के लिए “सेटअप कोड दर्ज करें” विकल्प का उपयोग करें।"</string>
     <string name="native_6cb1e6a563098eba" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"डायरी"</string>
     <string name="native_6cd6f41455d78245" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"notify"</string>
     <string name="native_6d46878b8f2895d5" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s कॉन्फ़िगर किए गए मॉडल"</string>
@@ -864,6 +873,7 @@
     <string name="native_7703e4288a7ca2db" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Session Settings"</string>
     <string name="native_7728331d12fcfc1a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सुरक्षा सूचना"</string>
     <string name="native_773e7729b237d4ea" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अन्य उत्तर"</string>
+    <string name="native_774e93aa11fcfe25" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway खोजें"</string>
     <string name="native_77a9c080491599ff" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"उप-एजेंट का काम पूरा हुआ"</string>
     <string name="native_77ab6bb71f77154d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सिस्टम एक्सेस खोलें"</string>
     <string name="native_7804f7a79a9eee32" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पूरा हुआ"</string>
@@ -940,10 +950,12 @@
     <string name="native_838337fd9ab30454" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"हाल के थ्रेड और अगले चरणों का सारांश दें."</string>
     <string name="native_83e2faed20a3cda4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"OpenClaw दिखाई देने के दौरान डिवाइस पर चलता है।"</string>
     <string name="native_844e5b02f3ef05ca" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s काम कर रहा है"</string>
+    <string name="native_845572939fd74dd5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"बातचीत विफल हुई: आवाज़ नहीं बदली जा सकी। बातचीत फिर से शुरू करें।"</string>
     <string name="native_846b345b42cfe527" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s फ़ाइलें संपादित कीं"</string>
     <string name="native_8477f18620f1ef69" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Background Shell"</string>
     <string name="native_848123d14f84faa2" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अपरिष्कृत"</string>
     <string name="native_848f54e89660cea4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"रन"</string>
+    <string name="native_849383969287566c" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway प्रबंधित करें"</string>
     <string name="native_849ccb784cf30af6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अभी चलाएँ"</string>
     <string name="native_84a2e27466832efd" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"शीर्षक रहित शाखा"</string>
     <string name="native_84aebc69a1bf739a" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कॉन्फ़िगर किया गया"</string>
@@ -1070,6 +1082,7 @@
     <string name="native_94da52ecd6c5c3b7" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"डिफ़ॉल्ट एजेंट"</string>
     <string name="native_94ea9b1d33a02975" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कम दिखाएँ"</string>
     <string name="native_94f5698f54d7d31a" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s घंटे"</string>
+    <string name="native_950d8a36aaa486ac" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"चुनी गई इमेज में कोई QR कोड नहीं मिला।"</string>
     <string name="native_9514b7ff4860ead7" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Plugins"</string>
     <string name="native_95204ae1796ddfab" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ClawHub से %1$s इंस्टॉल नहीं किया जा सका."</string>
     <string name="native_953a8bd0a18d7a3d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"OpenClaw में आपका स्वागत है"</string>
@@ -1170,6 +1183,7 @@
     <string name="native_a424e33d90931d1e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"लॉक है"</string>
     <string name="native_a450ea5e177b4787" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ऑटोमेशन संपादित करें"</string>
     <string name="native_a484bc216860979e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"उसी नेटवर्क या सुरक्षित रिमोट Gateway URL का उपयोग करें."</string>
+    <string name="native_a4a3dc943aa02669" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पासवर्ड (वैकल्पिक)"</string>
     <string name="native_a4ae750b610e875e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"एंकर"</string>
     <string name="native_a52403af63fa3f46" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"यह ऐप Gateway से पुराना है। इस डिवाइस पर OpenClaw अपडेट करें, फिर दोबारा कोशिश करें।"</string>
     <string name="native_a52ace420f2175d0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सभी"</string>
@@ -1399,6 +1413,7 @@
     <string name="native_c7b6dfd5c3a183c3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway भूल जाएँ?"</string>
     <string name="native_c7b7b7f01360f6a5" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"वैकल्पिक विवरण"</string>
     <string name="native_c7e1091492cdd0d9" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s खोलें"</string>
+    <string name="native_c7f32adc081d9303" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"टोकन (वैकल्पिक)"</string>
     <string name="native_c82c37f336bc03f4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सपना देख रहा है"</string>
     <string name="native_c83fa24c856f0b06" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s से %2$s"</string>
     <string name="native_c8864e27d32de6c4" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"फ़ाइल साझा करें"</string>
@@ -1422,6 +1437,7 @@
     <string name="native_cae98462b30650eb" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अभी तक कोई मेल खाने वाले थ्रेड नहीं मिले."</string>
     <string name="native_caf85b0888d78f1f" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"स्रोत"</string>
     <string name="native_cba62d81f910c7f0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway की पेयरिंग सफल रही.\nऑपरेटर UI से इस फ़ोन की नोड क्षमताओं को स्वीकृति दें."</string>
+    <string name="native_cbb96d163f80c1f0" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"चुनी गई छवि पढ़ी नहीं जा सकी।"</string>
     <string name="native_cc4b66e7e22230c3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"यह कौशल इंस्टॉल है लेकिन फ़िलहाल चलने के योग्य नहीं है. कॉन्फ़िगरेशन में बदलाव के लिए डेस्कटॉप या CLI का उपयोग करें."</string>
     <string name="native_cc5f45fb30a26e07" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पहचान प्रणाली व्यस्त है"</string>
     <string name="native_cc721e25d73938a6" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"होम Gateway"</string>
@@ -1442,6 +1458,7 @@
     <string name="native_cd6ab55bb453dd5f" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"हर %1$s घंटे"</string>
     <string name="native_cde2cb25263fd770" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"OpenClaw अनुवाद · %1$s"</string>
     <string name="native_cdf742c6da3ba485" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कमांड अनुरोध"</string>
+    <string name="native_ce2058c8b7c34b29" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Gateway बदलने से पहले मीडिया इंपोर्ट करना पूरा करें या भेजने की प्रक्रिया पूरी होने तक प्रतीक्षा करें।"</string>
     <string name="native_ce29b7f85b9eaf7d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"अप टू डेट"</string>
     <string name="native_ce4683e7013a18cd" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"चैनल"</string>
     <string name="native_ce58c189f2045434" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"नया समूह…"</string>
@@ -1623,6 +1640,7 @@
     <string name="native_e68e23dc04b0f986" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ऑटोमेशन हटाएँ?"</string>
     <string name="native_e7053d96b6704dbb" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s आज · %2$s कुल"</string>
     <string name="native_e72d5d8d0b167d21" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"विस्तृत"</string>
+    <string name="native_e7444ad2130be880" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"QR कोड पढ़ा जा रहा है…"</string>
     <string name="native_e794667eb54f0f2a" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"प्रगति अपडेट की गई — %1$s/%2$s · %3$s"</string>
     <string name="native_e7cf3ef4f17c3999" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"पासवर्ड"</string>
     <string name="native_e7dda143005d7e2e" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"प्रस्ताव को अलग रखें?"</string>
@@ -1645,6 +1663,7 @@
     <string name="native_eaa2090d6781a821" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"SMS भेजें"</string>
     <string name="native_eabec9fd718dea48" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"OpenClaw आपकी सामान्य चैट में आगे बढ़ने के लिए तैयार है."</string>
     <string name="native_eac0d0947c6fa808" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कोई कमांड नहीं मिली"</string>
+    <string name="native_ead77cf0387a667d" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"जब तक आप कनेक्ट करें नहीं चुनते, आपका मौजूदा कनेक्शन अपरिवर्तित रहेगा।"</string>
     <string name="native_ead79d5de1e67915" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"%1$s%2$s का उपयोग किया"</string>
     <string name="native_eadb3e64a1178e71" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"टर्मिनल के लिए कनेक्ट किया गया Gateway ज़रूरी है"</string>
     <string name="native_eae47ccdd51f34b3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"Exec"</string>
@@ -1677,6 +1696,7 @@
     <string name="native_f0763ccb558be5df" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कोई दूसरी छवि चुनें"</string>
     <string name="native_f09247433bef8304" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"छवि का पूर्वावलोकन"</string>
     <string name="native_f0ac2eabb5a584e3" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"कदमों और गतिविधि की जानकारी साझा करें"</string>
+    <string name="native_f0bf9ec9c04449ae" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"बातचीत विफल हुई: आवाज़ बदलना रद्द कर दिया गया था। बातचीत फिर से शुरू करें।"</string>
     <string name="native_f0cae79a3657c1db" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"सेटअप आवश्यक है"</string>
     <string name="native_f0d1fb4ac220db11" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"OpenClaw सेटिंग्स सहायक का उपयोग करने के लिए इस Gateway को अपडेट करें."</string>
     <string name="native_f113b3bd283e216c" formatted="false" tools:ignore="Typos,TypographyDashes,TypographyEllipsis">"ClawHub कौशल इंस्टॉल करने के लिए इस Gateway कनेक्शन को operator.admin की आवश्यकता है."</string>

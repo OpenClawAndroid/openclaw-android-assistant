@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { OpenClawConfig } from "../../../config/config.js";
 import { replaceSessionEntry } from "../../../config/sessions/session-accessor.js";
 import { withEnvAsync } from "../../../test-utils/env.js";
+import { withOpenClawTestState } from "../../../test-utils/openclaw-test-state.js";
 import { cleanupSessionStateForTest } from "../../../test-utils/session-state-cleanup.js";
 import { SUBAGENT_ENDED_REASON_KILLED } from "./subagent-lifecycle-events.js";
 import { buildSubagentList } from "./subagent-list.js";
@@ -38,6 +39,57 @@ beforeEach(() => {
 });
 
 describe("buildSubagentList", () => {
+  it("reads fresh active and recent metadata from each visible child's store", async () => {
+    await withOpenClawTestState({ label: "subagent-list-selection" }, async (state) => {
+      const cfg: OpenClawConfig = {
+        session: { store: state.statePath("agents/{agentId}/sessions/sessions.json") },
+      };
+      const now = Date.now();
+      const runs = [
+        { agentId: "main", name: "active", ended: false },
+        { agentId: "main", name: "recent", ended: true },
+        { agentId: "research", name: "other-store", ended: false },
+        { agentId: "research", name: "missing", ended: false },
+      ].map(({ agentId, name, ended }, index): SubagentRunRecord => ({
+        runId: `run-${name}`,
+        childSessionKey: `agent:${agentId}:subagent:${name}`,
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        task: name,
+        model: "openai/run-fallback",
+        cleanup: "keep",
+        createdAt: now - 1000 - index,
+        execution: ended
+          ? { status: "terminal", endedAt: now - 100, outcome: { status: "ok" } }
+          : { status: "running", startedAt: now - 1000 - index },
+      }));
+      for (const run of runs.slice(0, 3)) {
+        await replaceSessionEntry(
+          { sessionKey: run.childSessionKey },
+          {
+            sessionId: run.runId,
+            updatedAt: now,
+            modelProvider: "openai",
+            model: `saved-${run.task}`,
+          },
+        );
+      }
+      const list = () =>
+        buildSubagentList({ cfg, runs, recentMinutes: 30, readSnapshot: new Map() });
+      expect(list().active.map(({ sessionKey, model }) => ({ sessionKey, model }))).toEqual([
+        { sessionKey: runs[0]!.childSessionKey, model: "openai/saved-active" },
+        { sessionKey: runs[2]!.childSessionKey, model: "openai/saved-other-store" },
+        { sessionKey: runs[3]!.childSessionKey, model: "openai/run-fallback" },
+      ]);
+      expect(list().recent).toMatchObject([{ model: "openai/saved-recent" }]);
+      await replaceSessionEntry(
+        { sessionKey: runs[0]!.childSessionKey },
+        { sessionId: runs[0]!.runId, updatedAt: now + 1, model: "openai/replaced" },
+      );
+      expect(list().active[0]?.model).toBe("openai/replaced");
+    });
+  });
+
   it("keeps a yielded child visible with its real wait and independent delivery state", () => {
     const now = Date.now();
     const parent: SubagentRunRecord = {

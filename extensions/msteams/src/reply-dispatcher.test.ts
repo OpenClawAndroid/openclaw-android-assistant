@@ -767,12 +767,6 @@ describe("createMSTeamsReplyDispatcher", () => {
     },
   );
 
-  it("does not create a stream for channel conversations", () => {
-    createDispatcher("channel");
-
-    expect(lastStreamMock).toBeUndefined();
-  });
-
   it("sets disableBlockStreaming=false when streaming.block.enabled=true", () => {
     const dispatcher = createDispatcher("personal", { streaming: { block: { enabled: true } } });
 

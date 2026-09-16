@@ -11,6 +11,11 @@ import type { ManifestModelSuppressionResolver } from "./manifest-model-suppress
 import type { PluginManifestRecord } from "./manifest-registry.types.js";
 import type { PluginMetadataSnapshot } from "./plugin-metadata-snapshot.types.js";
 
+export type ProviderPolicyOwnerIndex = {
+  bundled: Map<string, PluginManifestRecord>;
+  trusted: Map<string, PluginManifestRecord[]>;
+};
+
 type CurrentPluginMetadataCacheState = {
   snapshot: PluginMetadataSnapshot | undefined;
   owner: "gateway" | "operation";
@@ -51,6 +56,7 @@ export type PluginCacheMetadata = {
     projectionSources: WeakMap<PluginMetadataSnapshot, PluginMetadataSnapshot>;
     completions: WeakMap<PluginMetadataSnapshot, PluginMetadataSnapshot>;
     indexFacts: WeakMap<InstalledPluginIndex, InstalledPluginIndexFacts>;
+    providerPolicyOwners: WeakMap<object, ProviderPolicyOwnerIndex>;
     channelAdapters: WeakMap<PluginManifestRecord, Map<string, ManifestChannelPlugin | undefined>>;
     bundledChannelCatalogs: Map<string, BundledChannelCatalogEntry[]>;
     staticCatalogStates: WeakMap<object, WeakMap<OpenClawConfig, BundledStaticCatalogState>>;

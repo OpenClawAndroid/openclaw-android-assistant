@@ -11,6 +11,7 @@ import type { GatewayRequestHandlerOptions } from "./types.js";
 const mocks = vi.hoisted(() => ({
   resolveAdvertisedLanHostCore: vi.fn(async () => "192.168.1.20"),
   runCommandWithTimeout: vi.fn(),
+  statfs: vi.fn(),
 }));
 
 vi.mock("../../process/exec.js", async (importOriginal) => ({
@@ -18,12 +19,29 @@ vi.mock("../../process/exec.js", async (importOriginal) => ({
   runCommandWithTimeout: mocks.runCommandWithTimeout,
 }));
 
-const mountedVolumeOutput = (argv: string[]) => ({
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    default: {
+      ...actual,
+      stat: (...args: Parameters<typeof actual.stat>) => {
+        if (args[0] === "/Volumes/Data") {
+          return Promise.resolve({ dev: 2n });
+        }
+        if (args[0] === "/dev/data") {
+          return Promise.resolve({ rdev: 2n });
+        }
+        return actual.stat(...args);
+      },
+      statfs: mocks.statfs,
+    },
+  };
+});
+
+const mountedVolumeOutput = () => ({
   code: 0,
-  stdout:
-    argv[0] === "mount"
-      ? "/dev/root on / (apfs, local)\n/dev/data on /Volumes/Data (apfs, local)\n"
-      : "/dev/root 1000 600 400 60% /\n/dev/data 2000 500 1500 25% /Volumes/Data\n",
+  stdout: "/dev/root on / (apfs, local)\n/dev/data on /Volumes/Data (apfs, local)\n",
   stderr: "",
 });
 
@@ -43,6 +61,11 @@ describe("system.info", () => {
     vi.spyOn(Date, "now").mockReturnValue(sampleTime);
     vi.spyOn(os, "platform").mockReturnValue("darwin");
     mocks.runCommandWithTimeout.mockReset().mockImplementation(mountedVolumeOutput);
+    mocks.statfs.mockReset().mockImplementation(async (path: string) => ({
+      blocks: path === "/" ? 1000n : 2000n,
+      bavail: path === "/" ? 400n : 1500n,
+      frsize: 1024n,
+    }));
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -80,6 +103,7 @@ describe("system.info", () => {
     )(request);
 
     expect(respond).toHaveBeenCalledTimes(2);
+    expect(mocks.runCommandWithTimeout.mock.calls.map(([argv]) => argv)).toEqual([["mount"]]);
     expect(mocks.resolveAdvertisedLanHostCore).toHaveBeenCalledTimes(1);
     const [ok, payload, error] = respond.mock.calls[0] ?? [];
     expect(ok).toBe(true);
@@ -107,7 +131,7 @@ describe("system.info", () => {
     ]);
   });
 
-  it.each(["throw", "mount-exit", "df-exit", "empty"])(
+  it.each(["throw", "mount-exit", "statfs-error", "empty"])(
     "preserves the state-directory snapshot only when discovery is unavailable (%s)",
     async (failure) => {
       vi.spyOn(diskSpace, "tryReadDiskSpace").mockImplementation((targetPath) => ({
@@ -118,10 +142,9 @@ describe("system.info", () => {
       }));
       if (failure === "throw") {
         mocks.runCommandWithTimeout.mockRejectedValueOnce(new Error("unavailable"));
+      } else if (failure === "statfs-error") {
+        mocks.statfs.mockRejectedValue(new Error("filesystem unavailable"));
       } else {
-        if (failure === "df-exit") {
-          mocks.runCommandWithTimeout.mockImplementationOnce(mountedVolumeOutput);
-        }
         mocks.runCommandWithTimeout.mockResolvedValueOnce({
           code: failure === "empty" ? 0 : 1,
           stdout: "",

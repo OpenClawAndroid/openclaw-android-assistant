@@ -9,13 +9,13 @@ import {
   type TranscriptAnchorPageOptions,
 } from "../../sessions/transcript-anchor-page.js";
 import type { SessionTranscriptMessageAnchorPage } from "./session-accessor.sqlite-active-events.js";
+import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
+import { positionTranscriptDisplayEvents } from "./session-accessor.sqlite-display-position.js";
 import {
   getActiveTranscriptKysely,
   type CurrentTranscriptProjection,
   type SessionTranscriptMessageEvent,
-} from "./session-accessor.sqlite-active-projection.js";
-import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
-import { positionTranscriptDisplayEvents } from "./session-accessor.sqlite-display-position.js";
+} from "./session-accessor.sqlite-projection-read.js";
 import {
   resolveClosedResetInterval,
   type ClosedResetInterval,

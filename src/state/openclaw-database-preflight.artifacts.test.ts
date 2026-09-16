@@ -364,7 +364,7 @@ describe("schema preflight source artifacts", () => {
     const paths = [...fixture.paths, configPath];
     const before = sourceArtifacts(paths);
     await expect(checkTargetDatabaseSchemas(supportedVersions, fixture.env)).rejects.toMatchObject({
-      reason: "database-schema-preflight",
+      reason: "invalid-config",
     });
     expect(
       await checkTargetDatabaseSchemasForContexts(undefined, [{ env: fixture.env, config: {} }]),

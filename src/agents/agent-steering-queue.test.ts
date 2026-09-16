@@ -7,10 +7,8 @@ import {
   releaseLeasedAgentSteeringItemsFromSubagentRuns,
 } from "./agent-steering-queue.js";
 import { resolveSubagentCompletionResultText } from "./subagents/completion/subagent-completion-result.js";
-import type {
-  PendingFinalDeliveryPayload,
-  SubagentRunRecord,
-} from "./subagents/registry/subagent-registry.types.js";
+import type { PendingFinalDeliveryPayload } from "./subagents/registry/subagent-registry-read.types.js";
+import type { SubagentRunRecord } from "./subagents/registry/subagent-registry.types.js";
 
 const readResult = async (entry: SubagentRunRecord) => ({
   text: resolveSubagentCompletionResultText(entry),

@@ -232,7 +232,7 @@ export class SqliteBackedMatrixSyncStore extends MemoryStore {
     try {
       await this.persistLock(async () => {
         writeMatrixSyncCacheStateToSyncStore({ payload, store: this.store });
-        claimCurrentTokenStorageState({
+        await claimCurrentTokenStorageState({
           rootDir: this.storageRootDir,
         });
       });

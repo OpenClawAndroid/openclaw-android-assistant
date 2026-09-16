@@ -1,20 +1,26 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { resolveAuthProfileOrder } from "../agents/auth-profiles/order.js";
+import { loadAuthProfileStoreWithoutExternalProfiles } from "../agents/auth-profiles/store-runtime.js";
 import { readCodexCliActiveApiKey } from "../agents/cli-credentials.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { isProviderAuthError } from "../agents/model-auth-runtime-shared.js";
+import { resolveApiKeyForProviderCore } from "../agents/model-auth.js";
 import { registerSecretValueForRedaction } from "../logging/secret-redaction-registry.js";
 import { normalizePluginTargetConfig } from "../plugins/config-state.js";
 import { enablePluginWithCapabilityConsent } from "../plugins/enable.js";
 import { stripPendingPluginInstallRecords } from "../plugins/install-record-commit.js";
 import { withPluginLifecycleLease } from "../plugins/plugin-lifecycle-lease.js";
+import { resolveManifestProviderAuthChoices } from "../plugins/provider-auth-choices.js";
 import { createPluginCapabilityConsentPrompter } from "../wizard/plugin-capability-consent.js";
 import { createQuickstartNotePrompter } from "./setup-apply.js";
+import { listSetupInferenceAuthOptions } from "./setup-inference-auth-options.js";
 import {
   SetupInferenceActivationIndeterminateError,
+  throwIfSetupInferenceCancelled,
   type StageContext,
   type StagedCandidate,
   type StageFailure,
 } from "./setup-inference-core.js";
-import { saveSetupCredential } from "./setup-inference-credentials.js";
+import { saveSetupCredential, stageProviderAuthCandidate } from "./setup-inference-credentials.js";
 
 export async function stageCodexCandidate(
   ctx: StageContext,
@@ -78,53 +84,93 @@ export async function stageCodexCandidate(
           "Codex setup needs a local stdio app-server. Finish sign-in on the remote app-server host or remove the transport override before retrying.",
       };
     }
+    const candidate = {
+      modelRef,
+      agentRuntimeId: "codex",
+      pendingPluginInstalls: config.plugins?.installs,
+      config,
+    };
+    if (appServer.homeScope === "user") {
+      return candidate;
+    }
+    const store = loadAuthProfileStoreWithoutExternalProfiles(ctx.agentDir);
+    const existingProfileId = resolveAuthProfileOrder({
+      cfg: config,
+      store,
+      provider: "openai",
+      forModel: modelRef.slice("openai/".length),
+    })[0];
+    if (existingProfileId) {
+      return { ...candidate, authProfileId: existingProfileId };
+    }
+    // The normal auth owner checks configured/env keys without native discovery or refresh.
+    try {
+      const auth = await (ctx.deps.resolveApiKeyForProvider ?? resolveApiKeyForProviderCore)({
+        cfg: config,
+        store,
+        provider: "openai",
+        agentDir: ctx.agentDir,
+        workspaceDir: ctx.workspace,
+        allowAuthProfileFallback: false,
+        skipSetupProviderFallback: true,
+        secretSentinels: true,
+      });
+      throwIfSetupInferenceCancelled(ctx.params);
+      if (auth.apiKey) {
+        return { ...candidate, authProfileId: auth.profileId };
+      }
+    } catch (error) {
+      if (!isProviderAuthError(error, "missing-provider-auth")) {
+        throw error;
+      }
+    }
+    throwIfSetupInferenceCancelled(ctx.params);
     const credential = (ctx.deps.readCodexCliActiveApiKey ?? readCodexCliActiveApiKey)({
       allowKeychainPrompt: true,
     });
-    let authProfileId: string | undefined;
-    let authenticatedConfig: OpenClawConfig = {
-      ...config,
-      plugins: {
-        ...config.plugins,
-        entries: {
-          ...config.plugins?.entries,
-          codex: {
-            ...entry,
-            enabled: true,
-            config: {
-              ...pluginConfig,
-              appServer: {
-                ...appServer,
-                transport: "stdio",
-                homeScope: credential ? "agent" : "user",
-              },
-            },
-          },
-        },
-      },
-    };
-    if (credential) {
-      registerSecretValueForRedaction(credential.key);
-      const saved = await saveSetupCredential({
-        profile: { profileId: "openai:codex-cli-api-key", credential },
-        config: authenticatedConfig,
-        baseConfig: ctx.cfg,
-        modelRef,
-        pluginId: "codex",
-        agentRuntimeId: "codex",
-        agentDir: ctx.agentDir,
-        beforePersistentEffect: () => ctx.beforePersistentEffect("credential"),
+    if (!credential) {
+      const choices = (
+        ctx.deps.resolveManifestProviderAuthChoices ?? resolveManifestProviderAuthChoices
+      )({
+        config,
+        workspaceDir: ctx.workspace,
+        includeUntrustedWorkspacePlugins: false,
+        includeWorkspacePlugins: false,
       });
-      ctx.credentialsSaved = true;
-      authProfileId = saved.profile.profileId;
-      authenticatedConfig = saved.config;
+      const options = listSetupInferenceAuthOptions(choices).filter(
+        (choice) =>
+          choice.brandId === "openai" && (choice.kind === "oauth" || choice.kind === "device-code"),
+      );
+      const choice = options.find((option) => option.id === ctx.params.authChoice) ?? options[0];
+      if (!choice) {
+        return {
+          error:
+            "OpenAI sign-in is unavailable. Connect OpenAI in Model Setup, then retry Codex setup.",
+        };
+      }
+      const authContext: StageContext = {
+        ...ctx,
+        cfg: config,
+        params: { ...ctx.params, modelRef, authChoice: choice.id },
+      };
+      try {
+        return await stageProviderAuthCandidate(authContext, true, "codex");
+      } finally {
+        ctx.credentialsSaved = authContext.credentialsSaved;
+      }
     }
-    return {
+    registerSecretValueForRedaction(credential.key);
+    const saved = await saveSetupCredential({
+      profile: { profileId: "openai:codex-cli-api-key", credential },
+      config,
+      baseConfig: ctx.cfg,
       modelRef,
+      pluginId: "codex",
       agentRuntimeId: "codex",
-      ...(authProfileId ? { authProfileId } : {}),
-      pendingPluginInstalls: config.plugins?.installs,
-      config: authenticatedConfig,
-    };
+      agentDir: ctx.agentDir,
+      beforePersistentEffect: () => ctx.beforePersistentEffect("credential"),
+    });
+    ctx.credentialsSaved = true;
+    return { ...candidate, authProfileId: saved.profile.profileId, config: saved.config };
   });
 }

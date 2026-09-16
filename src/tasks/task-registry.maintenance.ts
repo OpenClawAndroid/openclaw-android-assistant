@@ -266,19 +266,18 @@ function getSessionEntryLookup(
   storePath: string,
   context?: BackingSessionLookupContext,
 ): SessionEntryLookup {
-  if (!context) {
-    return buildSessionEntryLookup(
-      taskRegistryMaintenanceRuntime.listSessionEntries({ storePath, projection: "list" }),
-    );
-  }
-  const cached = context.sessionEntriesByPath.get(storePath);
+  const cached = context?.sessionEntriesByPath.get(storePath);
   if (cached) {
     return cached;
   }
   const lookup = buildSessionEntryLookup(
-    taskRegistryMaintenanceRuntime.listSessionEntries({ storePath, projection: "list" }),
+    taskRegistryMaintenanceRuntime.listSessionEntries({
+      storePath,
+      projection: "list",
+      clone: false,
+    }),
   );
-  context.sessionEntriesByPath.set(storePath, lookup);
+  context?.sessionEntriesByPath.set(storePath, lookup);
   return lookup;
 }
 

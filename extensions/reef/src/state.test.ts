@@ -1,16 +1,19 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync, StatementSync } from "node:sqlite";
 import type {
   OpenKeyedStoreOptions,
   PluginStateSyncKeyedStore,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
+  createPluginStateKeyedStoreForTests,
   createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
   setMaxPluginStateEntriesPerPluginForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { createPluginRuntimeMock } from "openclaw/plugin-sdk/plugin-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   base64url,
@@ -46,20 +49,34 @@ const auditKey = base64url(Uint8Array.from({ length: 32 }, (_, index) => index +
 const replayKey = base64url(Uint8Array.from({ length: 32 }, (_, index) => 255 - index));
 const receiptId = "01JZ0000000000000000000000";
 
-function createRuntime(stateDir: string) {
+function createRuntime(stateDir: string, registrationHost: "worker" | "legacy" = "worker") {
   const runtime = createPluginRuntimeMock();
   runtime.state.openSyncKeyedStore = <T>(options: OpenKeyedStoreOptions) =>
     createPluginStateSyncKeyedStoreForTests<T>("reef", {
       ...options,
       env: { OPENCLAW_STATE_DIR: stateDir },
     });
+  runtime.state.openKeyedStore = <T>(options: OpenKeyedStoreOptions) => {
+    const store = createPluginStateKeyedStoreForTests<T>("reef", {
+      ...options,
+      env: { OPENCLAW_STATE_DIR: stateDir },
+    });
+    if (registrationHost === "legacy") {
+      const { observe: _observe, compareAndApply: _compareAndApply, ...legacy } = store;
+      return legacy;
+    }
+    return store;
+  };
   return runtime;
 }
 
-function bindIdentity(runtime: ReturnType<typeof createRuntime>, handle: string): void {
-  finalizeReefIdentityBinding(
+async function bindIdentity(
+  runtime: ReturnType<typeof createRuntime>,
+  handle: string,
+): Promise<void> {
+  await finalizeReefIdentityBinding(
     runtime,
-    reserveReefIdentityBinding(runtime, { handle, relayUrl: "https://reefwire.ai" }),
+    await reserveReefIdentityBinding(runtime, { handle, relayUrl: "https://reefwire.ai" }),
   );
 }
 
@@ -71,8 +88,11 @@ describe("Reef SQLite state", () => {
     stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-reef-state-"));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    // Drain worker admissions before deleting files whose physical identity can be reused.
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
@@ -222,108 +242,181 @@ describe("Reef SQLite state", () => {
   it("persists keys and registration state without creating Reef files", async () => {
     const runtime = createRuntime(stateDir);
     const keys = await generateAndStoreKeys(runtime);
-    bindIdentity(runtime, "molty");
-    saveReefSetupSession(runtime, {
+    expect(await loadKeys(createRuntime(stateDir))).toEqual(keys);
+    const sql = [
+      vi.spyOn(DatabaseSync.prototype, "prepare"),
+      vi.spyOn(DatabaseSync.prototype, "exec"),
+      ...(["get", "all", "run", "iterate"] as const).map((method) =>
+        vi.spyOn(StatementSync.prototype, method),
+      ),
+    ];
+    await bindIdentity(runtime, "molty");
+    await saveReefSetupSession(runtime, {
       session: "setup-secret",
       relayUrl: "https://reefwire.ai",
       email: "molty@example.com",
     });
 
-    expect(await loadKeys(createRuntime(stateDir))).toEqual(keys);
-    expect(loadReefIdentityBinding(createRuntime(stateDir))).toEqual({
+    expect(await loadReefIdentityBinding(createRuntime(stateDir))).toEqual({
       handle: "molty",
       relayUrl: "https://reefwire.ai",
     });
-    expect(loadReefSetupSession(createRuntime(stateDir))?.session).toBe("setup-secret");
-    clearReefSetupSession(runtime);
-    expect(loadReefSetupSession(runtime)).toBeUndefined();
+    expect((await loadReefSetupSession(createRuntime(stateDir)))?.session).toBe("setup-secret");
+    await clearReefSetupSession(runtime);
+    expect(await loadReefSetupSession(runtime)).toBeUndefined();
+    for (const operation of sql) {
+      expect(operation).not.toHaveBeenCalled();
+    }
     expect(fs.existsSync(path.join(stateDir, "state", "openclaw.sqlite"))).toBe(true);
     expect(fs.existsSync(path.join(stateDir, "data", "reef"))).toBe(false);
   });
 
-  it("atomically rejects redirecting stored identity keys to another handle", () => {
-    const runtime = createRuntime(stateDir);
-    bindIdentity(runtime, "molty");
+  it.each(["worker", "legacy"] as const)(
+    "atomically rejects redirecting stored identity keys to another handle (%s)",
+    async (registrationHost) => {
+      const runtime = createRuntime(stateDir, registrationHost);
+      await bindIdentity(runtime, "molty");
 
-    expect(() =>
-      reserveReefIdentityBinding(runtime, {
-        handle: "other",
-        relayUrl: "https://reefwire.ai",
-      }),
-    ).toThrow("already holds the Reef identity @molty");
-    expect(loadReefIdentityBinding(runtime)).toEqual({
-      handle: "molty",
-      relayUrl: "https://reefwire.ai",
-    });
-    expect(() =>
-      assertReefIdentityBinding(runtime, {
-        handle: "other",
-        relayUrl: "https://reefwire.ai",
-      }),
-    ).toThrow("already holds the Reef identity @molty");
-  });
-
-  it("conditionally releases or finalizes an identity reservation", () => {
-    const runtime = createRuntime(stateDir);
-    const released = reserveReefIdentityBinding(runtime, {
-      handle: "first",
-      relayUrl: "https://reefwire.ai",
-    });
-    releaseReefIdentityReservation(runtime, released);
-    expect(loadReefIdentityBinding(runtime)).toBeUndefined();
-
-    const finalized = reserveReefIdentityBinding(runtime, {
-      handle: "second",
-      relayUrl: "https://reefwire.ai",
-    });
-    finalizeReefIdentityBinding(runtime, finalized);
-    releaseReefIdentityReservation(runtime, finalized);
-    expect(loadReefIdentityBinding(runtime)).toEqual({
-      handle: "second",
-      relayUrl: "https://reefwire.ai",
-    });
-  });
-
-  it("does not transfer a live reservation to a concurrent retry", () => {
-    const runtime = createRuntime(stateDir);
-    const reservation = reserveReefIdentityBinding(runtime, {
-      handle: "molty",
-      relayUrl: "https://reefwire.ai",
-    });
-
-    expect(() =>
-      reserveReefIdentityBinding(runtime, {
+      await expect(
+        reserveReefIdentityBinding(runtime, {
+          handle: "other",
+          relayUrl: "https://reefwire.ai",
+        }),
+      ).rejects.toThrow("already holds the Reef identity @molty");
+      expect(await loadReefIdentityBinding(runtime)).toEqual({
         handle: "molty",
         relayUrl: "https://reefwire.ai",
-      }),
-    ).toThrow("already holds the Reef identity @molty");
-    finalizeReefIdentityBinding(runtime, reservation);
-    expect(loadReefIdentityBinding(runtime)?.handle).toBe("molty");
-  });
+      });
+      await expect(
+        assertReefIdentityBinding(runtime, {
+          handle: "other",
+          relayUrl: "https://reefwire.ai",
+        }),
+      ).rejects.toThrow("already holds the Reef identity @molty");
+    },
+  );
 
-  it("allows only the same binding to take over an expired reservation", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-16T00:00:00.000Z"));
-    const runtime = createRuntime(stateDir);
-    reserveReefIdentityBinding(runtime, {
-      handle: "molty",
-      relayUrl: "https://reefwire.ai",
-    });
-    vi.advanceTimersByTime(10 * 60_000 + 1);
-
-    expect(() =>
-      reserveReefIdentityBinding(runtime, {
-        handle: "other",
+  it.each(["worker", "legacy"] as const)(
+    "conditionally releases or finalizes an identity reservation (%s)",
+    async (registrationHost) => {
+      const runtime = createRuntime(stateDir, registrationHost);
+      const released = await reserveReefIdentityBinding(runtime, {
+        handle: "first",
         relayUrl: "https://reefwire.ai",
-      }),
-    ).toThrow("already holds the Reef identity @molty");
-    const retry = reserveReefIdentityBinding(runtime, {
-      handle: "molty",
-      relayUrl: "https://reefwire.ai",
-    });
-    finalizeReefIdentityBinding(runtime, retry);
-    expect(loadReefIdentityBinding(runtime)?.handle).toBe("molty");
-  });
+      });
+      await releaseReefIdentityReservation(runtime, released);
+      expect(await loadReefIdentityBinding(runtime)).toBeUndefined();
+
+      const finalized = await reserveReefIdentityBinding(runtime, {
+        handle: "second",
+        relayUrl: "https://reefwire.ai",
+      });
+      await finalizeReefIdentityBinding(runtime, finalized);
+      await releaseReefIdentityReservation(runtime, finalized);
+      expect(await loadReefIdentityBinding(runtime)).toEqual({
+        handle: "second",
+        relayUrl: "https://reefwire.ai",
+      });
+    },
+  );
+
+  it.each(["worker", "legacy"] as const)(
+    "does not transfer a live reservation to a concurrent retry (%s)",
+    async (registrationHost) => {
+      const runtime = createRuntime(stateDir, registrationHost);
+      const reservation = await reserveReefIdentityBinding(runtime, {
+        handle: "molty",
+        relayUrl: "https://reefwire.ai",
+      });
+
+      await expect(
+        reserveReefIdentityBinding(runtime, {
+          handle: "molty",
+          relayUrl: "https://reefwire.ai",
+        }),
+      ).rejects.toThrow("already holds the Reef identity @molty");
+      await finalizeReefIdentityBinding(runtime, reservation);
+      expect((await loadReefIdentityBinding(runtime))?.handle).toBe("molty");
+    },
+  );
+
+  it.each(["worker", "legacy"] as const)(
+    "allows only the same binding to take over an expired reservation (%s)",
+    async (registrationHost) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-16T00:00:00.000Z"));
+      const runtime = createRuntime(stateDir, registrationHost);
+      const original = await reserveReefIdentityBinding(runtime, {
+        handle: "molty",
+        relayUrl: "https://reefwire.ai",
+      });
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+
+      await expect(
+        reserveReefIdentityBinding(runtime, {
+          handle: "other",
+          relayUrl: "https://reefwire.ai",
+        }),
+      ).rejects.toThrow("already holds the Reef identity @molty");
+      const retry = await reserveReefIdentityBinding(runtime, {
+        handle: "molty",
+        relayUrl: "https://reefwire.ai",
+      });
+      await releaseReefIdentityReservation(runtime, original);
+      await expect(finalizeReefIdentityBinding(runtime, original)).rejects.toThrow(
+        "reservation was replaced",
+      );
+      await finalizeReefIdentityBinding(runtime, retry);
+      expect((await loadReefIdentityBinding(runtime))?.handle).toBe("molty");
+    },
+  );
+
+  it.each(["worker", "legacy"] as const)(
+    "reserves only one identity when registrations overlap (%s)",
+    async (registrationHost) => {
+      const outcomes = await Promise.allSettled(
+        ["first", "second"].map((handle) =>
+          reserveReefIdentityBinding(createRuntime(stateDir, registrationHost), {
+            handle,
+            relayUrl: "https://reefwire.ai",
+          }),
+        ),
+      );
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+      const winner = outcomes.find((outcome) => outcome.status === "fulfilled");
+      if (winner?.status !== "fulfilled") {
+        throw new Error("expected one registration to reserve the identity");
+      }
+      await finalizeReefIdentityBinding(createRuntime(stateDir, registrationHost), winner.value);
+      expect(await loadReefIdentityBinding(createRuntime(stateDir, registrationHost))).toEqual(
+        winner.value.binding,
+      );
+    },
+  );
+
+  it.each(["observe", "compareAndApply"] as const)(
+    "does not switch to native callbacks when worker %s fails",
+    async (method) => {
+      const runtime = createRuntime(stateDir);
+      const failure = new Error("registration worker unavailable");
+      const open = runtime.state.openKeyedStore;
+      runtime.state.openKeyedStore = <T>(options: OpenKeyedStoreOptions) => ({
+        ...open<T>(options),
+        [method]: async () => {
+          throw failure;
+        },
+      });
+      const openNative = vi.spyOn(runtime.state, "openSyncKeyedStore");
+      await expect(
+        reserveReefIdentityBinding(runtime, {
+          handle: "molty",
+          relayUrl: "https://reefwire.ai",
+        }),
+      ).rejects.toBe(failure);
+      expect(openNative).not.toHaveBeenCalled();
+    },
+  );
 
   it("appends and reopens a verified audit chain", async () => {
     const identity = generateIdentity();
@@ -648,8 +741,9 @@ describe("Reef delivered markers", () => {
     stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-reef-state-"));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
     fs.rmSync(stateDir, { recursive: true, force: true });
   });

@@ -191,7 +191,7 @@ describe.each([false, true])("Gateway thinking catalog indexed=%s", (indexed) =>
     );
     expect(profile.thinkingDefault).toBe(scenario.expected);
     expect(logicalPolicy).toHaveBeenCalledTimes(scenario.configured ? 0 : 1);
-    expect(donorPolicy).toHaveBeenCalledTimes(2);
+    expect(donorPolicy).toHaveBeenCalledTimes(1);
   });
 
   it("retains an authoritative absent policy across all default and clamp reads", () => {

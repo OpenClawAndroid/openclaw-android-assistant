@@ -76,20 +76,21 @@ export class UpdateFinalizationLifecycle {
     this.driver = readUpdateRunDriver();
     const inherited = process.env[UPDATE_RUN_ID_ENV]?.trim();
     this.ledgerOptions = { env: { ...process.env } };
+    const admissionOptions = { ...this.ledgerOptions, busyTimeoutMs: this.budget("preflight") };
     this.runId = createUpdateRun(
       { runId: inherited || undefined, trigger: "cli" },
-      this.ledgerOptions,
+      admissionOptions,
     ).runId;
     this.ownsRun = !inherited;
-    adoptUpdateRun(this.runId, this.ledgerOptions);
+    adoptUpdateRun(this.runId, admissionOptions);
     if (repair && this.ownsRun) {
-      recordUpdateRunRepairContinuation(this.runId, this.runId, this.ledgerOptions);
+      recordUpdateRunRepairContinuation(this.runId, this.runId, admissionOptions);
     }
     if (this.active) {
       recordUpdateRunStep(
         this.runId,
         { step: this.active.step, status: "in_progress", startedAtMs: this.active.startedAtMs },
-        this.ledgerOptions,
+        admissionOptions,
       );
     }
     return this.runId;

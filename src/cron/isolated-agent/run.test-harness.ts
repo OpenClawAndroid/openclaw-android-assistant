@@ -111,7 +111,6 @@ const resolveCronStyleNowMock = createMock();
 export const resolveCronAgentLaneMock = createMock();
 const resolveAgentTimeoutMsMock = createMock();
 export const deriveSessionTotalTokensMock = createMock();
-const hasNonzeroUsageMock = createMock();
 export const ensureAgentWorkspaceMock = createMock();
 const normalizeThinkLevelMock = createMock();
 const normalizeVerboseLevelMock = createMock();
@@ -159,7 +158,9 @@ vi.mock("./run.runtime.js", async () => ({
   getSkillsSnapshotVersion: getSkillsSnapshotVersionMock,
   resolveAgentTimeoutMs: resolveAgentTimeoutMsMock,
   deriveSessionTotalTokens: deriveSessionTotalTokensMock,
-  hasNonzeroUsage: hasNonzeroUsageMock,
+  hasNonzeroUsage: (
+    await vi.importActual<typeof import("../../agents/usage.js")>("../../agents/usage.js")
+  ).hasNonzeroUsage,
   DEFAULT_IDENTITY_FILENAME: "IDENTITY.md",
   ensureAgentWorkspace: ensureAgentWorkspaceMock,
   normalizeThinkLevel: normalizeThinkLevelMock,
@@ -555,22 +556,6 @@ function resetRunConfigMocks(): void {
   });
   resolveAgentTimeoutMsMock.mockReturnValue(60_000);
   deriveSessionTotalTokensMock.mockReturnValue(30);
-  hasNonzeroUsageMock.mockImplementation(
-    (
-      usage:
-        | {
-            input?: unknown;
-            output?: unknown;
-            cacheRead?: unknown;
-            cacheWrite?: unknown;
-            total?: unknown;
-          }
-        | undefined,
-    ) =>
-      [usage?.input, usage?.output, usage?.cacheRead, usage?.cacheWrite, usage?.total].some(
-        (value) => typeof value === "number" && Number.isFinite(value) && value > 0,
-      ),
-  );
   ensureAgentWorkspaceMock.mockResolvedValue({ dir: "/tmp/workspace" });
   normalizeThinkLevelMock.mockImplementation((value: unknown) => value);
   isThinkingLevelSupportedMock.mockReturnValue(true);

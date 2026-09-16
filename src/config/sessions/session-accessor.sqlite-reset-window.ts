@@ -14,7 +14,7 @@ import {
   parseActiveTranscriptMessageRow,
   type CurrentTranscriptProjection,
   type SessionTranscriptMessageEvent,
-} from "./session-accessor.sqlite-active-projection.js";
+} from "./session-accessor.sqlite-projection-read.js";
 import { projectModelContextNavigationSql } from "./session-model-context-projection.js";
 
 type VisibleMessagePositions = {

@@ -192,6 +192,15 @@ export async function saveSetupCredential(params: {
     credential: candidate.credential,
     pluginId: params.pluginId,
   });
+  // A guided provider login can belong to a separately selected runtime plugin.
+  // Retain its connection settings with the saved credential for a cold retry.
+  const runtimePlugin = params.agentRuntimeId
+    ? prepared.plugins?.entries?.[params.agentRuntimeId]
+    : undefined;
+  if (params.agentRuntimeId && runtimePlugin) {
+    ((retryConfig.plugins ??= {}).entries ??= {})[params.agentRuntimeId] =
+      structuredClone(runtimePlugin);
+  }
   if (prepared.plugins?.installs) {
     (retryConfig.plugins ??= {}).installs = prepared.plugins.installs;
   }
@@ -278,6 +287,7 @@ async function stagePreparedCandidate(
       modelRef,
       pluginId,
       authChoice: params.choice?.choiceId,
+      agentRuntimeId: params.agentRuntimeId,
       agentDir: ctx.agentDir,
       beforePersistentEffect: () => ctx.beforePersistentEffect("credential"),
     });
@@ -448,6 +458,7 @@ export async function stageProviderAutoCandidate(
 export async function stageProviderAuthCandidate(
   ctx: StageContext,
   interactive: boolean,
+  agentRuntimeId?: string,
 ): Promise<StagedCandidate | StageFailure> {
   const { params } = ctx;
   const apiKey = params.apiKey?.trim();
@@ -483,6 +494,7 @@ export async function stageProviderAuthCandidate(
       result: { profiles, defaultModel: `${prepared.providerId}/${prepared.modelId}` },
       config,
       credentialState: "new",
+      agentRuntimeId,
     });
   }
   const choice = authChoice
@@ -547,6 +559,7 @@ export async function stageProviderAuthCandidate(
           choice,
           provider,
           pendingPluginInstalls: prepared.pendingPluginInstalls,
+          agentRuntimeId,
         });
       },
     );
@@ -664,6 +677,8 @@ export async function stageProviderAuthCandidate(
           choice,
           credentialState: "new",
           ...(choice.appGuidedDiscovery ? {} : { provider: loaded.provider }),
+          agentRuntimeId,
+          pendingPluginInstalls: config.plugins?.installs,
         });
       } catch (error) {
         if (error instanceof SetupInferenceCancelledError || params.signal?.aborted) {

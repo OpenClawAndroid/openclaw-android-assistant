@@ -26,12 +26,13 @@
       "agentic-agents-support#selector-240-7818352ad8a2#generation-0e457cd483eb#part-3-of-4#include-62-cfe45c4748f3": 110,
       "agentic-agents-support#selector-240-7818352ad8a2#generation-0e457cd483eb#part-4-of-4#include-62-74867344ad49": 88,
       "agentic-agents-tools": 120,
-      "agentic-cli": 136,
+      "agentic-cli": 595,
       "agentic-cli-process#selector-19-4f46963f9c67#generation-5f1ca4b9056b#part-1-of-5#include-1-479c1a04519b": 115,
       "agentic-cli-process#selector-19-4f46963f9c67#generation-5f1ca4b9056b#part-2-of-5#include-4-d908085490cb": 32,
       "agentic-cli-process#selector-19-4f46963f9c67#generation-5f1ca4b9056b#part-3-of-5#include-4-99ee0ae1a0e9": 117,
       "agentic-cli-process#selector-19-4f46963f9c67#generation-5f1ca4b9056b#part-4-of-5#include-4-013265b2ead9": 72,
       "agentic-cli-process#selector-19-4f46963f9c67#generation-5f1ca4b9056b#part-5-of-5#include-6-ead538ecd745": 156,
+      "agentic-cli-process#selector-44-c896d15834af#generation-9971083e0f85#part-4-of-7#include-5-0a875c70dd51": 89,
       "agentic-command-support": 57,
       "agentic-commands-agent-channel": 71,
       "agentic-commands-doctor": 61,
@@ -495,7 +496,7 @@
     "test/skills-proposal-manual-target.e2e.test.ts": 2,
     "test/status-shared-state-readonly.e2e.test.ts": 83
   },
-  "source": "median of 3 successful CI and release-check runs: 33537556582, 33537739443, 33543106647; runtime placement medians from successful compact jobs in runs 34668723570 and 34678360461 (the former workflow failed elsewhere)",
+  "source": "median of 2 successful CI and release-check runs: 35042635751, 35044335386",
   "uiE2e": {
     "fileSeconds": {
       "ui/src/e2e/about.e2e.test.ts": 1,
@@ -843,6 +844,6 @@
     },
     "perFileOverheadSeconds": 0.8
   },
-  "updatedAt": "2026-09-12",
+  "updatedAt": "2026-09-16",
   "version": 1
 }

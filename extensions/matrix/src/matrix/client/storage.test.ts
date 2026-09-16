@@ -103,7 +103,7 @@ describe("matrix client storage paths", () => {
     });
   }
 
-  function setupCurrentTokenBackfillScenario(params: {
+  async function setupCurrentTokenBackfillScenario(params: {
     currentRootFiles: "thread-bindings" | "startup-verification";
     oldRootFiles: "crypto-only" | "thread-bindings";
   }) {
@@ -137,7 +137,7 @@ describe("matrix client storage paths", () => {
         ],
       });
       expect(
-        claimCurrentTokenStorageState({
+        await claimCurrentTokenStorageState({
           rootDir: canonicalPaths.rootDir,
         }),
       ).toBe(true);
@@ -852,8 +852,8 @@ describe("matrix client storage paths", () => {
     expectCanonicalRootForNewDevice(stateDir);
   });
 
-  it("keeps the current-token storage root stable after deviceId backfill when startup claimed state there", () => {
-    const { stateDir, canonicalPaths } = setupCurrentTokenBackfillScenario({
+  it("keeps the current-token storage root stable after deviceId backfill when startup claimed state there", async () => {
+    const { stateDir, canonicalPaths } = await setupCurrentTokenBackfillScenario({
       currentRootFiles: "thread-bindings",
       oldRootFiles: "crypto-only",
     });
@@ -879,8 +879,8 @@ describe("matrix client storage paths", () => {
     expect(restartedPaths.rootDir).toBe(canonicalPaths.rootDir);
   });
 
-  it("does not keep the current-token storage root sticky when only marker files exist after backfill", () => {
-    const { stateDir, oldStoragePaths } = setupCurrentTokenBackfillScenario({
+  it("does not keep the current-token storage root sticky when only marker files exist after backfill", async () => {
+    const { stateDir, oldStoragePaths } = await setupCurrentTokenBackfillScenario({
       currentRootFiles: "startup-verification",
       oldRootFiles: "thread-bindings",
     });

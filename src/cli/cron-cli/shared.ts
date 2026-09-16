@@ -382,8 +382,8 @@ export function parseCronStringList(input: unknown): string[] | undefined {
       : "";
   return raw
     .split(/[,\s]+/u)
-    .map((fallback) => normalizeOptionalString(fallback))
-    .filter((fallback): fallback is string => Boolean(fallback));
+    .map((entry) => normalizeOptionalString(entry))
+    .filter((entry): entry is string => Boolean(entry));
 }
 
 /**

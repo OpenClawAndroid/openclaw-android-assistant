@@ -5,7 +5,7 @@
  * output without directly mutating page state.
  */
 import type { BrowserActionPathResult } from "./client-actions-types.js";
-import { buildProfileQuery, withBaseUrl } from "./client-actions-url.js";
+import { postBrowserJson, withBaseUrl } from "./client-actions-url.js";
 import { fetchBrowserJson } from "./client-fetch.js";
 import type {
   BrowserConsoleMessage,
@@ -38,12 +38,10 @@ export async function browserConsoleMessages(
     ["targetId", opts.targetId],
     ["profile", opts.profile],
   ]);
-  return await fetchBrowserJson<{
-    ok: true;
-    messages: BrowserConsoleMessage[];
-    targetId: string;
-    url?: string;
-  }>(withBaseUrl(baseUrl, `/console${suffix}`), { timeoutMs: 20000, signal: opts.signal });
+  return await fetchBrowserJson(withBaseUrl(baseUrl, `/console${suffix}`), {
+    timeoutMs: 20000,
+    signal: opts.signal,
+  });
 }
 
 /** Read the collected network request log for a tab. */
@@ -123,16 +121,7 @@ export async function browserEmulateSetting(
     signal?: AbortSignal;
   },
 ): Promise<{ ok: true; targetId: string }> {
-  return await fetchBrowserJson(
-    withBaseUrl(baseUrl, `/set/${opts.setting}${buildProfileQuery(opts.profile)}`),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(opts.body),
-      timeoutMs: 20000,
-      signal: opts.signal,
-    },
-  );
+  return await postBrowserJson(baseUrl, `/set/${opts.setting}`, opts.body, 20000, opts);
 }
 
 /** Save the current page as PDF through browser control. */
@@ -140,12 +129,5 @@ export async function browserPdfSave(
   baseUrl: string | undefined,
   opts: { targetId?: string; profile?: string; signal?: AbortSignal } = {},
 ): Promise<BrowserActionPathResult> {
-  const q = buildProfileQuery(opts.profile);
-  return await fetchBrowserJson<BrowserActionPathResult>(withBaseUrl(baseUrl, `/pdf${q}`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targetId: opts.targetId }),
-    timeoutMs: 20000,
-    signal: opts.signal,
-  });
+  return await postBrowserJson(baseUrl, "/pdf", { targetId: opts.targetId }, 20000, opts);
 }

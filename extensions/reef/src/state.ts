@@ -19,7 +19,13 @@ import { generateIdentity } from "../protocol/identity.js";
 import type { ReviewApproval, ReviewRequest } from "../protocol/pipeline.js";
 import type { SignedReceipt } from "../protocol/receipts.js";
 import { openReefAuditStore } from "./audit-state.js";
-import { loadReefIdentityBinding, type ReefIdentityBinding } from "./registration-state.js";
+import {
+  parseReefIdentityBinding,
+  REEF_REGISTRATION_IDENTITY_KEY,
+  REEF_REGISTRATION_NAMESPACE,
+  REEF_REGISTRATION_MAX_ENTRIES,
+  type ReefIdentityBinding,
+} from "./registration-state.js";
 import type { ReefKeys } from "./types.js";
 
 export * from "./audit-state.js";
@@ -120,7 +126,17 @@ function assertReefIdentityMigrationComplete(runtime: PluginRuntime): void {
 
 export async function generateAndStoreKeys(runtime: PluginRuntime): Promise<ReefKeys> {
   assertReefIdentityMigrationComplete(runtime);
-  const binding = loadReefIdentityBinding(runtime);
+  // Key creation retains its uninterrupted native guard-and-insert path until
+  // the storage owner can compare the migration and binding rows with the insert.
+  const binding = parseReefIdentityBinding(
+    runtime.state
+      .openSyncKeyedStore<ReefIdentityBinding>({
+        namespace: REEF_REGISTRATION_NAMESPACE,
+        maxEntries: REEF_REGISTRATION_MAX_ENTRIES,
+        overflowPolicy: "reject-new",
+      })
+      .lookup(REEF_REGISTRATION_IDENTITY_KEY),
+  );
   if (binding) {
     throw new Error(
       `Reef identity @${binding.handle} on ${binding.relayUrl} has no canonical keys; restore the original keys before registration`,

@@ -14,6 +14,7 @@ import {
   mintMessageActionTurnCapability,
   revokeMessageActionTurnCapability,
 } from "../gateway/message-action-turn-capability.js";
+import { resolveGatewayScopedTools } from "../gateway/tool-resolution.js";
 import { buildOutboundMediaLoadOptions } from "../media/load-options.js";
 import { loadWebMediaRaw } from "../media/web-media.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
@@ -407,6 +408,40 @@ describe("createOpenClawTools browser plugin integration", () => {
     expect(
       (firstResolvePluginToolsParams().context as { delivery?: unknown } | undefined)?.delivery,
     ).toBeUndefined();
+  });
+
+  it("does not expose CLI message-only authority to plugin delivery", () => {
+    const sessionKey = "agent:main:telegram:group:123";
+    const turnCapability = mintMessageActionTurnCapability({
+      agentId: "main",
+      runId: "cli-message-only",
+      sessionId: "session-cli",
+      sessionKey,
+      requesterAccountId: "work",
+      requesterSenderId: "sender-1",
+    });
+    try {
+      hoisted.resolvePluginTools.mockReturnValue([]);
+      setActivePluginRegistry(createEmptyPluginRegistry());
+      resolveGatewayScopedTools({
+        cfg: { tools: { allow: ["message"] } },
+        surface: "loopback",
+        sessionKey,
+        agentId: "main",
+        runId: "cli-message-only",
+        sessionId: "session-cli",
+        messageProvider: "telegram",
+        accountId: "work",
+        currentChannelId: "123",
+        senderIsOwner: false,
+        messageActionTurnCapability: turnCapability,
+      });
+      expect(
+        (firstResolvePluginToolsParams().context as { delivery?: unknown } | undefined)?.delivery,
+      ).toBeUndefined();
+    } finally {
+      revokeMessageActionTurnCapability(turnCapability);
+    }
   });
 
   it("does not expose process-local plugin delivery to gateway-owned channels", () => {

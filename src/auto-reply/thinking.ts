@@ -407,7 +407,7 @@ export function isThinkingLevelSupported(params: {
   }).levels.some((entry) => entry.id === level);
 }
 
-function resolveSupportedThinkingLevelFromProfile(
+export function resolveSupportedThinkingLevelFromProfile(
   profile: ResolvedThinkingProfile,
   level: ThinkLevel,
 ): ThinkLevel {

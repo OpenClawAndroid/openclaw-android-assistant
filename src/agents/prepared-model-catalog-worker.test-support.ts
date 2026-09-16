@@ -339,6 +339,7 @@ export function createCatalogFixture(
   options?: {
     hydrateExternalCliProviderIds?: readonly string[];
     codexNativeOwner?: boolean;
+    codexNativeHomeScope?: "agent" | "user";
     builtPluginVersion?: string;
     asyncSyntheticAuth?: boolean;
   },
@@ -383,7 +384,15 @@ export function createCatalogFixture(
         ...(options?.codexNativeOwner
           ? {
               openai: { enabled: true },
-              codex: { enabled: true, config: { discovery: { enabled: false } } },
+              codex: {
+                enabled: true,
+                config: {
+                  discovery: { enabled: false },
+                  ...(options.codexNativeHomeScope
+                    ? { appServer: { homeScope: options.codexNativeHomeScope } }
+                    : {}),
+                },
+              },
             }
           : {}),
       },

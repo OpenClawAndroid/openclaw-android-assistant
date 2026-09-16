@@ -67,18 +67,29 @@ export function registerWorktreesCli(program: Command): void {
     .argument("<repoRoot>", "Source git checkout")
     .option("--name <name>", "Managed worktree name")
     .option("--base-ref <ref>", "Git ref to branch from")
+    .option(
+      "--source-profile <name>",
+      "Repository source profile; repeat to combine (default: full source)",
+      (value: string, previous: string[] | undefined) => [...(previous ?? []), value],
+    )
     .option("--json", "Output JSON", false)
-    .action(async (repoRoot: string, opts: JsonOption & { name?: string; baseRef?: string }) => {
-      printRecord(
-        await managedWorktrees.create({
-          repoRoot,
-          name: opts.name,
-          baseRef: opts.baseRef,
-          ownerKind: "manual",
-        }),
-        opts.json === true,
-      );
-    });
+    .action(
+      async (
+        repoRoot: string,
+        opts: JsonOption & { name?: string; baseRef?: string; sourceProfile?: string[] },
+      ) => {
+        printRecord(
+          await managedWorktrees.create({
+            repoRoot,
+            name: opts.name,
+            baseRef: opts.baseRef,
+            ...(opts.sourceProfile?.length ? { profiles: opts.sourceProfile } : {}),
+            ownerKind: "manual",
+          }),
+          opts.json === true,
+        );
+      },
+    );
 
   worktrees
     .command("remove")

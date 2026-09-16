@@ -6,6 +6,7 @@ import path from "node:path";
 import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { makeAgentAssistantMessage } from "../agents/test-helpers/agent-message-fixtures.js";
 import { createZeroUsageFixture } from "../agents/test-helpers/usage-fixtures.js";
 import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
@@ -1492,6 +1493,80 @@ describe("session history HTTP endpoints", () => {
       });
 
       await stream.reader.cancel();
+    });
+  });
+
+  test.each([
+    { mode: "limited", query: "?limit=2" },
+    { mode: "cursor", query: "?limit=2&cursor=3" },
+    { mode: "transcript-only", query: undefined },
+  ])("coalesces $mode updates committed during an SSE refresh", async ({ mode, query }) => {
+    const sessionKey = "agent:main:main";
+    const seeds = ["seed-1", "seed-2", "seed-3", "seed-4"];
+    const { storePath } = await seedSession({ text: seeds[0] });
+    for (const text of seeds.slice(1)) {
+      await appendVisibleAssistantMessage({ sessionKey, storePath, text });
+    }
+
+    await withGatewayHarness(async (harness) => {
+      const stream = await openSessionHistorySse(harness.port, sessionKey, { query });
+      const firstRead = createDeferred();
+      const release = createDeferred();
+      // oxlint-disable-next-line typescript/unbound-method -- The spy replays this method with the intercepted instance via .call(this).
+      const refresh = SessionHistorySseState.prototype.refreshAsync;
+      const reads = new Set<Promise<unknown>>();
+      let refreshCount = 0;
+      const refreshSpy = vi.spyOn(SessionHistorySseState.prototype, "refreshAsync");
+      const expectedPage = (texts: string[]) =>
+        mode === "cursor" ? seeds.slice(0, 2) : mode === "limited" ? texts.slice(-2) : texts;
+      try {
+        await expectHistoryEventTexts(stream, expectedPage(seeds));
+        refreshSpy.mockImplementation(function (this: SessionHistorySseState) {
+          const ordinal = ++refreshCount;
+          const read = (async () => {
+            const snapshot = await refresh.call(this);
+            if (ordinal === 1) {
+              firstRead.resolve();
+              await release.promise;
+            }
+            return snapshot;
+          })();
+          reads.add(read);
+          void read.then(
+            () => reads.delete(read),
+            () => reads.delete(read),
+          );
+          return read;
+        });
+        const append = (text: string) =>
+          appendTranscriptMessage({
+            sessionKey,
+            storePath,
+            message: makeTranscriptAssistantMessage({ text }),
+            emitInlineMessage: mode !== "transcript-only",
+          });
+        const burst = Array.from({ length: 12 }, (_, index) => `burst-${index + 1}`);
+        await append("burst-1");
+        await firstRead.promise;
+        for (const text of burst.slice(1)) {
+          await append(text);
+        }
+        expect(refreshCount).toBe(1);
+
+        release.resolve();
+        await expectHistoryEventTexts(stream, expectedPage([...seeds, "burst-1"]));
+        await expectHistoryEventTexts(stream, expectedPage([...seeds, ...burst]));
+        expect(refreshCount).toBe(2);
+
+        await append("after burst");
+        await expectHistoryEventTexts(stream, expectedPage([...seeds, ...burst, "after burst"]));
+        expect(refreshCount).toBe(3);
+      } finally {
+        release.resolve();
+        await stream.reader.cancel();
+        await Promise.allSettled(reads);
+        refreshSpy.mockRestore();
+      }
     });
   });
 

@@ -62,7 +62,6 @@ export function createGatewayStartupTrace(log: GatewayLogger, startedAt = perfor
       case "config.snapshot":
         return "config.load";
       case "config.auth":
-      case "config.final-snapshot":
       case "runtime.config":
         return "config.normalize";
       case "plugins.bootstrap":

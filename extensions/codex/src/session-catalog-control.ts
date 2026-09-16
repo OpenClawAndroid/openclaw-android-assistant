@@ -53,7 +53,8 @@ import type {
 } from "./session-catalog-types.js";
 
 const CODEX_SESSION_CATALOG_LIST_TTL_MS = 32_000;
-const CODEX_SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES = 32;
+// Each source can need 20 exclusion pages; retain several homes and query shapes together.
+const CODEX_SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES = 128;
 
 type CodexCatalogRequestOptions = {
   agentDir: string | undefined;

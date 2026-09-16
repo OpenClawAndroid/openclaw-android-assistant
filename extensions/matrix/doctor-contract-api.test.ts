@@ -371,7 +371,9 @@ describe("matrix doctor contract state migrations", () => {
     expect(JSON.parse(fs.readFileSync(archivePath ?? "", "utf8"))).toEqual(snapshot);
 
     expect(scoreMatrixCryptoStateInStore(storageRootDir)).toBe(5);
-    expect(JSON.parse(readMatrixIdbSnapshotJson(storageRootDir) ?? "null")).toEqual(snapshot);
+    expect(JSON.parse((await readMatrixIdbSnapshotJson(storageRootDir)) ?? "null")).toEqual(
+      snapshot,
+    );
     expect(fs.existsSync(path.join(storageRootDir, "legacy-crypto-migration.json"))).toBe(false);
     expect(fs.existsSync(snapshotPath)).toBe(false);
 
@@ -447,17 +449,17 @@ describe("matrix doctor contract state migrations", () => {
       data: "[",
     });
     const currentSnapshot = JSON.stringify([{ name: "current", version: 1, stores: [] }]);
-    writeMatrixIdbSnapshotJson({
+    await writeMatrixIdbSnapshotJson({
       storageRootDir: conflictRoot,
       snapshotJson: currentSnapshot,
       databaseCount: 1,
     });
-    writeMatrixIdbSnapshotJson({
+    await writeMatrixIdbSnapshotJson({
       storageRootDir: equivalentRoot,
       snapshotJson: JSON.stringify(equivalentSnapshot),
       databaseCount: 1,
     });
-    writeMatrixIdbSnapshotJson({
+    await writeMatrixIdbSnapshotJson({
       storageRootDir: invalidRoot,
       snapshotJson: JSON.stringify({ malformed: true }),
       databaseCount: 1,
@@ -483,11 +485,13 @@ describe("matrix doctor contract state migrations", () => {
     expect(JSON.parse(fs.readFileSync(conflictArchivePath ?? "", "utf8"))).toEqual(
       conflictSnapshot,
     );
-    expect(JSON.parse(readMatrixIdbSnapshotJson(partialRoot) ?? "null")).toEqual(partialSnapshot);
-    expect(JSON.parse(readMatrixIdbSnapshotJson(invalidRoot) ?? "null")).toEqual(
+    expect(JSON.parse((await readMatrixIdbSnapshotJson(partialRoot)) ?? "null")).toEqual(
+      partialSnapshot,
+    );
+    expect(JSON.parse((await readMatrixIdbSnapshotJson(invalidRoot)) ?? "null")).toEqual(
       invalidReplacement,
     );
-    expect(readMatrixIdbSnapshotJson(conflictRoot)).toBe(currentSnapshot);
+    expect(await readMatrixIdbSnapshotJson(conflictRoot)).toBe(currentSnapshot);
     expect(fs.existsSync(path.join(partialRoot, MATRIX_IDB_SNAPSHOT_FILENAME))).toBe(false);
     expect(fs.existsSync(path.join(conflictRoot, MATRIX_IDB_SNAPSHOT_FILENAME))).toBe(false);
     expect(fs.existsSync(path.join(equivalentRoot, MATRIX_IDB_SNAPSHOT_FILENAME))).toBe(false);

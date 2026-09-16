@@ -1106,27 +1106,36 @@ describe("runCopilotAttempt", () => {
     expect(cfg.hooks?.onPreToolUse).toEqual(expect.any(Function));
   });
 
-  it("does not emit llm_output when cancellation happens before the SDK turn starts", async () => {
-    const llmOutput = vi.fn();
-    initializeGlobalHookRunner(
-      createMockPluginRegistry([{ hookName: "llm_output", handler: llmOutput }]),
-    );
-    const controller = new AbortController();
-    const sdk = makeFakeSdk();
+  it.each(["sync", "async"] as const)(
+    "does not emit llm_output when cancellation happens during %s session establishment",
+    async (mode) => {
+      const llmOutput = vi.fn();
+      initializeGlobalHookRunner(
+        createMockPluginRegistry([{ hookName: "llm_output", handler: llmOutput }]),
+      );
+      const controller = new AbortController();
+      const sdk = makeFakeSdk();
 
-    const result = await runCopilotAttempt(
-      makeParams({ abortSignal: controller.signal } as never),
-      {
-        onSessionEstablished: () => controller.abort(),
-        pool: makeFakePool(sdk),
-      },
-    );
-    await waitForEventLoopTurn();
+      const result = await runCopilotAttempt(
+        makeParams({ abortSignal: controller.signal } as never),
+        {
+          onSessionEstablished:
+            mode === "sync"
+              ? () => controller.abort()
+              : async () => {
+                  await waitForEventLoopTurn();
+                  controller.abort();
+                },
+          pool: makeFakePool(sdk),
+        },
+      );
+      await waitForEventLoopTurn();
 
-    expect(projectAgentRunAttemptTerminal(result.terminal).aborted).toBe(true);
-    expect(sdk.sessions[0]?.sendAndWait).not.toHaveBeenCalled();
-    expect(llmOutput).not.toHaveBeenCalled();
-  });
+      expect(projectAgentRunAttemptTerminal(result.terminal).aborted).toBe(true);
+      expect(sdk.sessions[0]?.sendAndWait).not.toHaveBeenCalled();
+      expect(llmOutput).not.toHaveBeenCalled();
+    },
+  );
 
   it("waits for agent_end hooks before resolving one-shot attempts", async () => {
     let releaseAgentEnd: () => void = () => undefined;

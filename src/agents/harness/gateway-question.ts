@@ -43,6 +43,7 @@ type PendingAgentGatewayQuestion = {
   questionId: string;
   sessionKey: string;
   answerAuthority?: PreparedQuestionAnswerAuthority;
+
   questions: readonly AgentHarnessUserInputQuestion[];
   gatewayCall: GatewayQuestionCall;
   supportsSourceBound: boolean;
@@ -332,6 +333,7 @@ async function claimQuestionAnswer(
       consumed = state.settle(params.text);
       return consumed;
     }
+    state.answerAuthority?.admitTranscriptAnswer?.(sourceRecorder);
     const parsed = buildAgentHarnessUserInputAnswers(state.questions, params.text);
     const answers: QuestionAnswers = {
       answers: Object.fromEntries(

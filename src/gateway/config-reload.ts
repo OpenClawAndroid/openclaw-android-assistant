@@ -180,7 +180,6 @@ export function startGatewayConfigReloader(opts: {
     sourceConfig: OpenClawConfig;
     previousSourceConfig: OpenClawConfig;
   }) => Promise<PreparedGatewayConfigCandidate>;
-  initialInternalWriteHash?: string | null;
   readSnapshot: (activeSourceConfig: OpenClawConfig) => Promise<ConfigFileSnapshot>;
   /** Pauses restart emission synchronously when a matching disk candidate is observed. */
   onConfigCandidateObserved?: () => void;
@@ -320,7 +319,6 @@ export function startGatewayConfigReloader(opts: {
   ) => {
     candidate?.application?.settle(status);
   };
-  let startupInternalWriteHash = opts.initialInternalWriteHash ?? null;
   let lastAppliedWriteHash: string | null = null;
   let lastSourceOnly:
     | {
@@ -1102,19 +1100,6 @@ export function startGatewayConfigReloader(opts: {
       const previousObservedRawHash = lastObservedRawHash;
       const newObservedRawHash = observedRawHash !== previousObservedRawHash;
       lastObservedRawHash = observedRawHash;
-      if (startupInternalWriteHash && typeof snapshot.hash === "string") {
-        const matchesStartupWrite =
-          snapshot.valid &&
-          snapshot.hash === startupInternalWriteHash &&
-          diffConfigPaths(currentSourceConfig, snapshot.sourceConfig).length === 0;
-        // This hash comes from the startup write itself. Consume only its
-        // first source-identical watcher echo; includes can change under it.
-        startupInternalWriteHash = null;
-        if (matchesStartupWrite) {
-          await acceptCurrentRuntimeEcho(transactionEpoch, snapshot, true, assertLeaseOwned);
-          return;
-        }
-      }
       if (
         intentCandidate &&
         snapshot.valid &&
@@ -1439,9 +1424,6 @@ export function startGatewayConfigReloader(opts: {
         application?.settle("stopped");
         return;
       }
-      // A live writer notification owns any following watcher echo. Do not
-      // let the startup token discard its intent or prepared runtime metadata.
-      startupInternalWriteHash = null;
       opts.onConfigCandidateObserved?.();
       sourceObservation = {
         epoch: sourceObservation.epoch + 1,

@@ -437,6 +437,7 @@ class AgentsPage
     this.gateway.invalidate();
     this.agentFilesLoading = false;
     this.agentFileSaving = false;
+    this.identitySaving = false;
     this.agentIdentityLoading = false;
     this.agentSkillsLoading = false;
     this.toolsCatalogLoading = false;

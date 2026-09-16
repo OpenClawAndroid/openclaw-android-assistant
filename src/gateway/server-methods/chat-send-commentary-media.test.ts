@@ -38,7 +38,7 @@ import {
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { projectChatDisplayMessages } from "../chat-display-projection.js";
 import { listManagedImageRecordEntries } from "../managed-image-record-store.js";
-import { projectTranscriptEntryMessage } from "../session-transcript-message.js";
+import { projectTranscriptEntryMessage } from "../session-transcript-entry-message.js";
 import { loadSessionEntry } from "../session-utils.js";
 import { createChatSendReplyDispatch } from "./chat-send-reply-dispatch.js";
 

@@ -11,20 +11,26 @@ import {
 } from "./jobs-scheduling.js";
 import type { CronServiceState } from "./state.js";
 import { isScheduledTerminalOneShotRetry } from "./timer-trigger.js";
+import { hasPendingCronTriggerInterval } from "./trigger-interval.js";
 
 /**
- * Reports whether a cron job's last completed run is older than its previous
+ * Reports whether a cron job's last completed occurrence is older than its previous
  * effective slot, which is how restart catch-up detects a missed run once
  * nextRunAtMs has already advanced past it.
  */
 export function hasMissedCronSlotSinceLastRun(job: CronJob, nowMs: number): boolean {
-  const lastRunAtMs = job.state.lastRunAtMs;
+  const lastTriggerEvalAtMs = job.trigger ? job.state.lastTriggerEvalAtMs : undefined;
+  const lastRunAtMs =
+    lastTriggerEvalAtMs === undefined
+      ? job.state.lastRunAtMs
+      : Math.max(job.state.lastRunAtMs ?? lastTriggerEvalAtMs, lastTriggerEvalAtMs);
   const nextRunAtMs = job.state.nextRunAtMs;
   // Pacing supersedes intervening natural slots. Both startup admission and
   // backoff repair must retain that occurrence instead of inventing a miss.
   if (
     typeof lastRunAtMs !== "number" ||
     !Number.isFinite(lastRunAtMs) ||
+    hasPendingCronTriggerInterval(job, nowMs) ||
     (hasScheduledNextRunAtMs(nextRunAtMs) &&
       job.state.pacedNextRunAtMs === nextRunAtMs &&
       nowMs < nextRunAtMs)

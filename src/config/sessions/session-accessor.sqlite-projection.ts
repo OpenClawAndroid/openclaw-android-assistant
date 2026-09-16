@@ -6,6 +6,7 @@ import {
   resolveAgentHarnessSessionStoreTransitionError,
 } from "../../sessions/agent-harness-session-key.js";
 import {
+  deferOpenClawAgentPostCommitPublication,
   openOpenClawAgentDatabase,
   type OpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
@@ -269,7 +270,7 @@ export async function applySessionEntryLifecycleMutation(params: {
   afterUpsertsInTransaction?: (database: OpenClawAgentDatabase) => void;
   /** Synchronous caller-authority guard checked immediately before lifecycle writes. */
   beforeCommitInTransaction?: () => void;
-  /** Runs after the SQLite commit and before fallible artifact publication. */
+  /** Non-throwing notification after outer COMMIT, before lifecycle publication and owner cleanup. */
   onLifecycleCommitted?: () => void;
 }): Promise<SessionEntryLifecycleMutationResult> {
   const resolved = resolveSqliteScope({
@@ -349,7 +350,6 @@ export async function applySessionEntryLifecycleMutation(params: {
     "session.lifecycle.mutate",
   );
   const committed = preparedWrite.result;
-  params.onLifecycleCommitted?.();
 
   function commitProjectedLifecycleMutation(
     removalPlans: MaterializedSessionStateDeletePlan[],
@@ -361,6 +361,9 @@ export async function applySessionEntryLifecycleMutation(params: {
     const maintenancePlans: SessionEntryMaintenancePlan[] = [];
     const publish = runOpenClawAgentWriteTransaction((transactionDb) => {
       params.beforeCommitInTransaction?.();
+      if (params.onLifecycleCommitted) {
+        deferOpenClawAgentPostCommitPublication(transactionDb, params.onLifecycleCommitted);
+      }
       beforeCount = readSessionEntryCount(transactionDb);
       const validatedRemovals = projected.removals.filter((removal) => {
         if (materializationFailed && removal.removal.archiveRemovedTranscript === true) {

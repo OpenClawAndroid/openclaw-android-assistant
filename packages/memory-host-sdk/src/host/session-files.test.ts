@@ -338,6 +338,7 @@ describe("listSessionTranscriptCorpusEntriesForAgent", () => {
       absPath: sessionKey,
       path: liveEntry.path,
       mtimeMs: liveEntry.mtimeMs,
+      revisionMs: liveEntry.revisionMs,
       size: liveEntry.size,
     });
     expect(archiveEntry.path).toBe(

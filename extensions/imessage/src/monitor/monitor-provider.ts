@@ -469,7 +469,7 @@ export async function monitorIMessageProvider(opts: MonitorIMessageOpts = {}): P
     dbPath,
     remoteHost,
   });
-  const recoveryCursorRowid = loadIMessageRecoveryCursor(
+  const recoveryCursorRowid = await loadIMessageRecoveryCursor(
     accountInfo.accountId,
     recoveryCursorDbIdentity,
     { migrateLegacyCatchup: !catchupCfg.enabled, watermarkRowid: recoveryBoundaryRowid },
@@ -497,7 +497,7 @@ export async function monitorIMessageProvider(opts: MonitorIMessageOpts = {}): P
     return min;
   }
 
-  function advanceRecoveryCursorAfterDurableEnqueue(rowid: number): void {
+  async function advanceRecoveryCursorAfterDurableEnqueue(rowid: number): Promise<void> {
     if (catchupCfg.enabled) {
       return;
     }
@@ -509,7 +509,7 @@ export async function monitorIMessageProvider(opts: MonitorIMessageOpts = {}): P
       holdFloor !== null && maxDurableRowid >= holdFloor ? holdFloor - 1 : maxDurableRowid;
 
     if (nextCursorRowid >= 0 && nextCursorRowid > latestAdvancedRecoveryCursorRowid) {
-      advanceIMessageRecoveryCursor(
+      await advanceIMessageRecoveryCursor(
         accountInfo.accountId,
         recoveryCursorDbIdentity,
         nextCursorRowid,
@@ -1488,7 +1488,7 @@ export async function monitorIMessageProvider(opts: MonitorIMessageOpts = {}): P
       return { kind: "deferred" };
     },
     onDurableEnqueue: async (facts) => {
-      advanceRecoveryCursorAfterDurableEnqueue(facts.rowid);
+      await advanceRecoveryCursorAfterDurableEnqueue(facts.rowid);
       await maybeAdvanceLiveCatchupCursor({ id: facts.rowid, created_at: facts.createdAt });
     },
     onDurableEnqueueFailure: (rowid) => {

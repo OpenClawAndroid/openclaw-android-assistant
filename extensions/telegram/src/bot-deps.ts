@@ -75,7 +75,7 @@ export type TelegramBotDeps = {
   buildModelsProviderData: typeof buildPreparedModelsProviderData;
   listSkillCommandsForAgents: typeof listSkillCommandsForAgents;
   syncTelegramMenuCommands?: typeof syncTelegramMenuCommands;
-  wasSentByBot: typeof wasSentByBot;
+  wasSentByBot: (...args: Parameters<typeof wasSentByBot>) => boolean | Promise<boolean>;
   resolveApproval?: ResolveTelegramApproval;
   createTelegramDraftStream?: typeof createTelegramDraftStream;
   deliverReplies?: typeof deliverReplies;

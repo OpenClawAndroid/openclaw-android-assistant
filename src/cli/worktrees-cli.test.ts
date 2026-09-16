@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { managedWorktrees } from "../agents/worktrees/service.js";
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../config/config.js";
 import { defaultRuntime } from "../runtime.js";
+import { parseCliProfileArgs } from "./profile.js";
 import { registerWorktreesCli } from "./worktrees-cli.js";
 
 afterEach(() => {
@@ -11,6 +12,108 @@ afterEach(() => {
 });
 
 describe("worktrees cli", () => {
+  it.each([
+    { runtime: [], selected: [], profiles: undefined, state: null },
+    { runtime: [], selected: ["--source-profile", "alpha"], profiles: ["alpha"], state: null },
+    {
+      runtime: ["--profile", "work"],
+      selected: ["--source-profile", "alpha", "--source-profile=beta"],
+      profiles: ["alpha", "beta"],
+      state: "work",
+    },
+    { runtime: ["--dev"], selected: ["--source-profile=alpha"], profiles: ["alpha"], state: "dev" },
+    {
+      runtime: [],
+      selected: ["--source-profile=alpha", "--profile", "work"],
+      profiles: ["alpha"],
+      state: "work",
+    },
+  ])(
+    "passes source profiles through early parsing without changing runtime state: $state $selected",
+    async ({ runtime, selected, profiles, state }) => {
+      const create = vi.spyOn(managedWorktrees, "create").mockResolvedValue({
+        id: "created",
+        name: "task",
+        repoFingerprint: "fingerprint",
+        repoRoot: "/repo",
+        path: "/state/task",
+        branch: "openclaw/task",
+        baseRef: "HEAD",
+        ownerKind: "manual",
+        createdAt: 1,
+        lastActiveAt: 1,
+      });
+      vi.spyOn(defaultRuntime, "writeJson").mockImplementation(() => undefined);
+      const parsed = parseCliProfileArgs([
+        "node",
+        "openclaw",
+        ...runtime,
+        "worktrees",
+        "create",
+        "/repo",
+        "--name",
+        "task",
+        "--json",
+        ...selected,
+      ]);
+      if (!parsed.ok) {
+        throw new Error(parsed.error);
+      }
+      expect(parsed.profile).toBe(state);
+      const program = new Command().name("openclaw").exitOverride();
+      registerWorktreesCli(program);
+      await program.parseAsync(parsed.argv);
+      expect(create).toHaveBeenCalledWith({
+        repoRoot: "/repo",
+        name: "task",
+        baseRef: undefined,
+        ownerKind: "manual",
+        ...(profiles ? { profiles } : {}),
+      });
+    },
+  );
+
+  it("leaves missing source profile values to Commander and performs no creation", async () => {
+    const create = vi.spyOn(managedWorktrees, "create");
+    const parsed = parseCliProfileArgs([
+      "node",
+      "openclaw",
+      "worktrees",
+      "create",
+      "/repo",
+      "--source-profile",
+    ]);
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+    const program = new Command()
+      .name("openclaw")
+      .exitOverride()
+      .configureOutput({ writeErr: () => undefined });
+    registerWorktreesCli(program);
+    await expect(program.parseAsync(parsed.argv)).rejects.toThrow(/argument missing/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it.each(["create", "list", "remove", "restore", "gc"])(
+    "preserves late runtime --profile on worktrees %s",
+    (command) => {
+      const parsed = parseCliProfileArgs([
+        "node",
+        "openclaw",
+        "worktrees",
+        command,
+        "--profile",
+        "work",
+      ]);
+      expect(parsed).toEqual({
+        ok: true,
+        profile: "work",
+        argv: ["node", "openclaw", "worktrees", command],
+      });
+    },
+  );
+
   it.each([false, true])(
     "reports the existing lossless owner outcome, removed=%s",
     async (removed) => {

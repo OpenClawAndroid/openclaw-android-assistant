@@ -244,6 +244,9 @@ export async function waitForProviderAuth<T>(
     return await promise;
   }
   if (signal.aborted) {
+    // The provider can cancel synchronously while constructing this already-started promise.
+    // Retain its rejection handler even though cancellation wins immediately.
+    void promise.catch(() => {});
     throw new SetupInferenceCancelledError();
   }
   let rejectAborted: ((reason: unknown) => void) | undefined;

@@ -808,9 +808,11 @@ describe("createSessionVisibilityGuard", () => {
 
   it("keeps incognito targets hidden from scoped grants", async () => {
     const targetSessionKey = "agent:main:dashboard:incognito-private";
-    const unregister = createSessionVisibilityChecker.registerScopedAccessProvider(() => ({
-      expectedSessionId: "incognito-incarnation",
-    }));
+    const asyncProvider = vi.fn(async () => ({ expectedSessionId: "incognito-incarnation" }));
+    const unregister = createSessionVisibilityChecker.registerScopedAccessProvider(
+      () => ({ expectedSessionId: "incognito-incarnation" }),
+      { resolveAsync: asyncProvider },
+    );
     try {
       const gateway = vi.fn();
       const access = await resolveSessionToolAccess({
@@ -842,6 +844,7 @@ describe("createSessionVisibilityGuard", () => {
         ).toBe(`Session not visible from session tools: ${targetSessionKey}`);
       }
       expect(gateway).not.toHaveBeenCalled();
+      expect(asyncProvider).not.toHaveBeenCalled();
     } finally {
       unregister();
     }

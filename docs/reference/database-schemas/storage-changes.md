@@ -24,6 +24,12 @@ and publishes the result. Avoid exposing a generic SQL callback to application
 code or adding an asynchronous wrapper around an existing asynchronous facade.
 The plugin KV API already has asynchronous methods over its SQLite owner.
 
+Copilot SDK session bindings use these worker-backed data operations. The harness
+serializes binding reads, writes, and in-memory publication per OpenClaw session;
+reset and shutdown join admitted binding work and deferred compaction cleanup.
+Failed persistence retains the existing in-memory fallback. Binding formats,
+compatibility checks, namespace limits, and expiry remain unchanged.
+
 Asynchronous mutable cron-store loads run in the shared-state worker, including
 the existing retired-job deletion and runtime-authority repairs. The connection-bound
 load kernel preserves their separate transactions, partition keys, and fingerprints.
@@ -54,6 +60,29 @@ joins worker cleanup before the send publishes its receipt. Numeric message IDs 
 rules, including the five-second polling deadline. This does not migrate
 iMessage's startup watermark or conversation-binding queries.
 
+iMessage persisted echo reads, writes, and failed-send cleanup use the plugin-state
+worker. Sends await provisional echo persistence before transport and cleanup
+before reporting failure. Inbound echo matching awaits persisted facts before
+choosing whether to dispatch. Hosts with plugin-state comparison methods use the
+worker for recovery cursor writes; conditional writes preserve the greatest
+admitted row for each account and database. The declared OpenClaw 2026.9.4 peer
+and plugin API floor remains supported: hosts without those comparison methods
+run the same row decision in the retained synchronous store's transactional
+`update` callback. Failures from an available comparison method never fall back
+to synchronous writes. Remove this fallback only when the declared host floor
+excludes hosts without comparison support. Durable ingress joins each cursor
+update before admitting the next row and joins admitted work on shutdown.
+Existing namespaces, stored values, expiry, migration, and best-effort failure
+policies remain unchanged. Reply-cache hydration and the synchronous action-alias
+lookup retain their existing owner.
+
+Discord presence cooldown reads, claims, and conditional rollback use the shared
+state worker. The listener rechecks current policy and Gateway generation after
+storage waits, queues greetings only after a durable claim, and joins admitted
+work and rollback during provider shutdown, including work detached by reconnect.
+The same namespace, eight-hour expiry, and capacity policy remain in use. Thread
+binding persistence retains its synchronous owner and public completion contract.
+
 Memory-host event appends and bounded journal reads execute on the shared state
 worker. The plugin-state owner allocates the sequence, rereads the cursor and
 retained tail, writes both rows, and applies retention in one synchronous write
@@ -62,6 +91,18 @@ the owner adds the sequence while preserving the existing stored JSON and keys.
 Reads use the existing-only worker path and do not create a missing database.
 Public event helpers and exports await durable completion. Cursor eviction,
 namespace-wide append ordering, sibling row budgets, and rollback remain unchanged.
+
+Reef registration binding reads, reservations, finalization, release, and setup-session
+persistence use the shared-state worker. Reservation mutations compare the current
+row before writing; a conflict rereads ownership before retrying. The CLI, setup
+wizard, and channel startup await these operations. Keys, migration gates, trust,
+audit, replay, review, delivery, and inbox-cursor state retain their existing native
+owners. Key creation still performs its synchronous guard checks and insert without
+an event-loop yield; those separate operations do not form a cross-process transaction.
+Stored registration JSON, reservation expiry, namespace limits, and Doctor imports
+are unchanged. Hosts predating the comparison API retain their existing atomic native
+registration callbacks until an approved minimum host version permits removal. A
+worker failure never switches an operation to that compatibility path.
 
 Use Kysely for ordinary queries and mutations. The current
 `getNodeSqliteKysely` facade compiles queries; `executeSqliteQuerySync` runs them
@@ -86,6 +127,17 @@ use one snapshot and bypass secondary indexes so stale indexes cannot hide rows.
 Only pending reads coalesce; completed results are not cached. Physical integrity
 verification remains with full registry restoration and Doctor, while known
 database failures and quarantine still refuse summary reads.
+
+Session listing loads complete persisted subagent metadata in the shared-state
+worker through a read-only connection. The existing cache coalesces pending fills
+and applies intervening named updates and deletions before publishing its first
+complete snapshot. Full replacement, registry ownership changes, and database
+retirement fence obsolete replies. Its 500 ms freshness policy and retention
+rules remain unchanged. Gateway, embedded, and TUI callers merge accepted rows
+with current host memory and scheduler facts before building the full topology.
+Pure topology grouping yields through the shared session-list work budget.
+Synchronous readers reuse the same SQL and row decoder; runtime reads do not
+repair storage.
 
 Gateway user-preference RPCs and Talk appearance reads resolve merged profile IDs
 and access preferences in the shared-state worker. Preference writes keep profile
@@ -119,8 +171,17 @@ current ownership and session tombstones after awaited preparation.
 Incognito databases, archive materialization, and caller-owned transcript
 observers retain their existing local execution. Index publication and
 restoration remain with their existing database and lifecycle owners.
-Worker admission and transport failures preserve the published index and its
-retry state. The existing chunking revision triggers a one-time rebuild to repair
+Cold memory exports restore through the host's existing transcript owner only
+after a read reports cold storage; hot exports add no host SQLite reads.
+Unreadable canonical transcripts, worker admission, and transport failures
+preserve the published index and retry state. Startup checks batch transcript
+statistics and use the transcript mutation watermark, so same-size rewrites are
+detected independently of session activity. The memory source hash carries this
+revision alongside its content hash; source modification times retain activity
+for temporal ranking. Legacy source hashes refresh once without rebuilding
+unchanged chunks. Transcript export hashes and provenance stay unchanged.
+The existing chunking revision
+triggers a one-time rebuild to repair
 previously indexed reset boundaries. Rebuilds reuse cached embeddings when
 available and retain the existing atomic publication path.
 
@@ -196,12 +257,24 @@ ordering while awaiting its driver.
 Read-only callbacks made while a cached agent writer holds a transaction use a
 separate read-only companion connection. Each call rereads committed rows and
 checks the current schema, agent owner, and physical file identity. The companion
-retains prepared statements and connection-local canonical-key validation, never
-an authorization result or an open read transaction. Canonical validation checks
-the committed main-key policy before reuse. The companion retires with its writer's
+retains prepared statements, never an authorization result or an open read
+transaction. Canonical validation belongs to the admitted physical database:
+first admission requires full proof, then the schema-21 pending-key projection
+records changes independently of connection lifetime. Startup and initial Gateway
+authorization of an unadmitted reader use the existing mutation worker for pending
+validation and recheck live authority after awaiting it. Native readers preserve
+their existing main-key admission and raw-row parser behavior; each new reader
+checks pending keys without rescanning unrelated certified entries. Synchronous commit guards still read committed
+rows. See [incremental canonical validation](/reference/database-schemas/agent-schema-history#incremental-canonical-session-validation)
+for migration and rollback behavior. The companion retires with its writer's
 native close, disposal, or replacement, including eviction and update cleanup.
-Cold readers outside the history worker and extension-capable readers remain
-one-shot; incognito reads retain their existing process-local owner.
+Cold session search retains one read-only connection while synchronously listing
+entries and checking each entry's current visibility. The entry accessor closes
+that connection before transcript search, including on errors; inherited async
+callbacks fall back to ordinary fresh reads. This scope preserves the same
+per-read admission and committed-row checks without caching visibility decisions.
+Other cold readers outside the history worker and extension-capable readers
+remain one-shot; incognito reads retain their existing process-local owner.
 
 The history worker retains one read-only connection across requests, rechecking
 schema, agent owner, and physical file identity before reuse. Every request keeps

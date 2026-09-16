@@ -78,7 +78,7 @@ test.each(["channel-only", "slow-warning"])("attributes %s operations", async (m
     const context = requestContext(await seedSessions());
     context.subscribeSessionEvents = vi.fn();
     const client = { ...identifiedClient("owner@example.com"), connId: "private-connection" };
-    const request = { agentId: "main", limit: 1 };
+    const request = { agentId: "main", limit: 1, includeDerivedTitles: true };
     const warn = mode === "slow-warning";
     const catalogDelay = warn ? 1_100 : 0;
     setDiagnosticsEnabledForProcess(warn);
@@ -174,7 +174,7 @@ test("captures a fast failed projection while preserving the original error", as
         listSessions({
           client: identifiedClient("owner@example.com"),
           context,
-          request: { agentId: "main", limit: 1 },
+          request: { agentId: "main", limit: 1, includeDerivedTitles: true },
         }),
       ).rejects.toBe(failure);
       expect(events).toHaveLength(1);
@@ -198,7 +198,7 @@ test("separates producer work, follower wait, and completed hits under their own
     const config = await seedSessions();
     const context = requestContext(config);
     const client = identifiedClient("owner@example.com");
-    const request = { agentId: "main", limit: 1 };
+    const request = { agentId: "main", limit: 1, includeDerivedTitles: true };
     const catalog = vi.fn(async () => undefined);
     context.readPreparedGatewayModelCatalog = catalog;
     const projection = controlProjectionClock();
@@ -314,7 +314,7 @@ test("accumulates the bounded visibility repairs without counting yielded waits 
     const result = await listSessions({
       client: identifiedClient("viewer@example.com"),
       context: requestContext(config),
-      request: { agentId: "main", limit: 1 },
+      request: { agentId: "main", limit: 1, includeDerivedTitles: true },
     });
     expect(result.sessions.map((row) => row.key)).toEqual(["agent:main:repair-fourth"]);
     expect(records).toHaveLength(1);
@@ -387,7 +387,7 @@ test("preserves the original projection error even when its slow diagnostic sink
       listSessions({
         client: identifiedClient("owner@example.com"),
         context,
-        request: { agentId: "main" },
+        request: { agentId: "main", includeDerivedTitles: true },
       }),
     ).rejects.toBe(failure);
     expect(sessionLog.warn).toHaveBeenCalledOnce();

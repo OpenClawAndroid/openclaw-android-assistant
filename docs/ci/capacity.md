@@ -54,6 +54,15 @@ Small precise PR changes use a focused Node plan. Broad, deleted or unknown chan
 
 The shared plugin catch-all, QA and provider suites use native Vitest sharding, sized from the existing 90-file envelope budget. Their complete configs still own discovery and exclusions; the counting inventory never narrows execution to the directly changed plugin. At `2f7fb353`, the catch-all has 486 counting entries and 474 effective files across six jobs, QA has 238/232 across three, and providers have 275/256 across four. Counting entries include files excluded by Vitest, so the budget is conservative. Each job retains its existing worker limits, isolation policy and per-file module cleanup.
 
+Process-bounded plugin fallback uses each test file's effective config owner,
+including files migrated from ordinary plugin suites to database workers.
+Broad fallback retains the complete selected config inventory, including
+built-in plugins without package manifests; plugin-only changes keep their scope.
+Even a single bounded envelope retains its explicit file scope, so it cannot
+silently execute the larger whole config. Uneven bounded chunks use their own
+file counts with the existing cost rates; native Vitest shards retain equal
+shares of the complete config estimate.
+
 Precise and fallback plugin envelopes share the same packing owner and a 240-second aggregate estimated budget per job, including multiple envelopes of the same config. Members retain compatible runner/dist requirements and run one at a time; total cost bounds packing rather than a pair limit. Each envelope retains its original child process, environment, native shard arguments and include scope, including process-bounded Codex, Matrix and Telegram work. Runtime-preparing envelopes remain separate. Co-location preserves each original file/process bound and native shard partition; a physical job may contain several such envelopes. Workers, timeouts and serial stop-on-failure behavior stay unchanged. Costs retain the larger complete-family rate from [run 33676780376](https://github.com/openclaw/openclaw/actions/runs/33676780376) and [run 33747183683](https://github.com/openclaw/openclaw/actions/runs/33747183683), rounded up per counting file without lowering prior floors. Both cohorts used two CPUs and two workers; counting inputs include the config-owned exclusions, and runtime preparation is charged separately. Repacking the retained 78 envelopes with these rates projects 30 jobs instead of 32. The largest sum of matching observed child spans is 340.128 seconds. This is a forecast across different source revisions, not measured combined-job latency; native CI must verify elapsed time and cleanup within the eight-minute end-to-end objective.
 
 Eligible Blacksmith and hybrid compact bins with multiple ordinary groups request the existing 32-vCPU runner and two child-process slots. They admit 360 predicted aggregate seconds; compatible small groups can fill that budget without the ten-group cutoff retained by serial jobs. Initial packing separates runtime consumers from groups that need no build; the measured hybrid placement pass below can use spare ordinary capacity. Blacksmith serial jobs retain their 200/276-second budgets; hybrid serial jobs retain 210 seconds. Exclusive jobs retain 150 seconds by default. Only complete ordinary hybrid bins of non-build CLI groups may use 250 seconds and share split siblings; every child must still fit 150 seconds. Groups above their existing serial cap stay alone. Exclusive groups, single groups, dist descriptors and jobs with runtime preparation remain serial. Hybrid exclusive and dist bins retain their existing prerequisite sharing. The shard executor admits at most two processes only when the actual host has at least eight available CPUs and 24 GiB of memory; smaller capacity admits one. Each overlapping child keeps two Vitest workers, inner project parallelism remains one, and commands retain their serial file policy. The primary `github` profile stays serial at 210 seconds. Preflight records the actual row count for each source revision; canonical inventory comparisons must preserve every original child plan and test input. Native elapsed-time, memory and cleanup evidence must establish the actual effect.
@@ -189,6 +198,17 @@ Use `--repo <owner/repo>` to select a repository, `--out <path>` to write elsewh
 or `--dry-run` to report changes without writing. The report separates main and
 release observations, including run IDs, attempts, workflow SHAs, creation dates,
 parsed profiles and timing-job counts.
+
+For a scoped repair using already downloaded main-job logs, use the same
+`refitTestTimings` reducer with verified successful job metadata and the current
+timing file. Preserve independent run IDs and runner labels. Two contributing
+runs refresh eligible keys without enabling the three-run pruning rule for
+unobserved groups; do not substitute job totals or local timings for child spans.
+Keep the input run IDs and replacement table in the PR. The September 16 CLI
+refresh used successful jobs in runs `35042635751` and `35044335386`: complete
+child spans of 569.841 and 620.791 seconds replace the stale 136-second weight
+with a rounded median of 595 seconds. Plugin fallback costs have a separate
+estimator and are not inputs to this compact timing reducer.
 
 Fewer than two independent main compact contributors fails the invocation.
 It also fails if neither a compact key nor a runtime-placement observation meets the existing independent-run sampling rules.

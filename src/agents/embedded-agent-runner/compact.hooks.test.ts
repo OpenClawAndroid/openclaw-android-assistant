@@ -3464,21 +3464,32 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
     },
   );
 
-  it("carries unresolved request state into safeguard overflow compaction", async () => {
-    resolveEffectiveCompactionModeMock.mockReturnValue("safeguard");
+  it.each(["overflow", "budget"] as const)(
+    "carries the pending request into safeguard %s recovery after endpoint fallback",
+    async (trigger) => {
+      const { attachCompactionAccountingRecorder } =
+        await import("./run/compaction-accounting-bridge.js");
+      const contextEngineRuntimeContext = {};
+      if (trigger === "budget") {
+        attachCompactionAccountingRecorder(contextEngineRuntimeContext, {
+          pendingRequestState: "unresolved",
+        });
+      }
+      resolveEffectiveCompactionModeMock.mockReturnValue("safeguard");
 
-    const result = await compactEmbeddedAgentSessionDirect(
-      wrappedCompactionArgs({ trigger: "overflow" }),
-    );
+      const result = await compactEmbeddedAgentSessionDirect(
+        wrappedCompactionArgs({ trigger, contextEngineRuntimeContext }),
+      );
 
-    expect(result).toMatchObject({ ok: true, compacted: true });
-    expect(sessionAutomaticCompactionMock).toHaveBeenCalledWith(
-      TEST_CUSTOM_INSTRUCTIONS,
-      "unresolved",
-      "none",
-    );
-    expect(sessionManualCompactionMock).not.toHaveBeenCalled();
-  });
+      expect(result).toMatchObject({ ok: true, compacted: true });
+      expect(sessionAutomaticCompactionMock).toHaveBeenCalledWith(
+        TEST_CUSTOM_INSTRUCTIONS,
+        "unresolved",
+        "none",
+      );
+      expect(sessionManualCompactionMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("skips compaction when the transcript only contains boilerplate replies and tool output", () => {
     const messages = [

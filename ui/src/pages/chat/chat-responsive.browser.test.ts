@@ -2899,7 +2899,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
                 return (
                   (!needsMetadata &&
                     element.querySelector(".chat-assistant-attachment-card--compact") !== null) ||
-                  (media !== null && (!needsMetadata || media.readyState >= 1))
+                  (media !== null && media.readyState >= 1)
                 );
               },
               { type, requireMetadata },

@@ -1022,15 +1022,19 @@ describe("session list resolver cache", () => {
         });
 
         titleBatchSpy.mockClear();
-        await listSessionFixture({
+        const withoutTranscriptFields = await listSessionFixture({
           cfg,
           storePath,
           store,
           ownerFirstActorId: ownerId,
           opts: { includeDerivedTitles: false, includeLastMessage: false, limit: scenario.limit },
         });
-        expect(titleBatchSpy).toHaveBeenCalledOnce();
-        expect(titleBatchSpy).toHaveBeenCalledWith([]);
+        expect(titleBatchSpy).not.toHaveBeenCalled();
+        expect(withoutTranscriptFields.sessions).toHaveLength(scenario.rows);
+        for (const row of withoutTranscriptFields.sessions) {
+          expect(row.derivedTitle).toBeUndefined();
+          expect(row.lastMessagePreview).toBeUndefined();
+        }
       } finally {
         titleBatchSpy.mockRestore();
       }

@@ -602,6 +602,7 @@ suite.define(() => {
           await page.waitForURL((url) => url.pathname === controlUiSessionPath(sessionKey));
         } finally {
           chatModule.release();
+          await page.unrouteAll({ behavior: "wait" });
         }
       });
     },

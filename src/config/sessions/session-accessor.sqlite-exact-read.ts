@@ -18,7 +18,10 @@ import {
   type SessionSqliteTargetResolutionCache,
 } from "./session-accessor.sqlite-scope.js";
 import type { SessionEntryReadScope } from "./session-accessor.types.js";
-import { assertCanonicalSqliteSessionKeysCurrent } from "./session-canonical-key.js";
+import {
+  assertCanonicalSqliteSessionKeysCurrent,
+  readWithCanonicalSessionAdmission,
+} from "./session-canonical-key.js";
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
 type ResolvedSqliteSessionEntry = {
@@ -47,7 +50,10 @@ export function resolveSessionEntry(
     };
   };
   if (options.readOnly) {
-    const result = withOpenClawAgentDatabaseReadOnly(read, toDatabaseOptions(resolved));
+    const result = withOpenClawAgentDatabaseReadOnly(
+      (database) => readWithCanonicalSessionAdmission(database, () => read(database)),
+      toDatabaseOptions(resolved),
+    );
     return result.found
       ? result.value
       : { existing: undefined, legacyKeys: [], normalizedKey: resolved.sessionKey };
@@ -103,7 +109,10 @@ export function loadExactSessionEntryCandidates(
   if (!scope.readOnly) {
     return read(openOpenClawAgentDatabase(options));
   }
-  const result = withOpenClawAgentDatabaseReadOnly(read, options);
+  const result = withOpenClawAgentDatabaseReadOnly(
+    (database) => readWithCanonicalSessionAdmission(database, () => read(database)),
+    options,
+  );
   return result.found ? result.value : [];
 }
 

@@ -401,41 +401,110 @@ describe("Sessions transcript search scope", () => {
     );
   });
 
-  it("does not narrow or retire transcript search when the metadata query changes", async () => {
-    const request = vi.fn(async () => ({ results: [] }));
-    const mutableGateway = createGateway({ request } as unknown as GatewayBrowserClient);
-    mutableGateway.emit({
-      hello: { features: { methods: ["sessions.search"] } } as ApplicationGatewaySnapshot["hello"],
-    });
-    const listed = {
-      count: 1,
-      sessions: [{ key: "agent:main:content-only", kind: "direct" }],
-    } as SessionsListResult;
-    const managed = createManagedSessions({ list: vi.fn(async () => listed) });
-    const page = await createRenderedPage(
-      createContext(mutableGateway.gateway, managed.sessions),
-      listed,
-    );
-    page.updateTranscriptSearchQuery("needle");
-    await page.runTranscriptSearch();
-    await page.updateComplete;
-    expect(page.querySelector(".sessions-transcript-search__empty")).not.toBeNull();
-    const completedRequests = request.mock.calls.length;
-    const input = page.querySelector<HTMLInputElement>(".sessions-toolbar__search input")!;
-    input.value = "metadata-only";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    await page.updateComplete;
-    expect(page.querySelector(".sessions-transcript-search__empty")).not.toBeNull();
-    expect(request).toHaveBeenCalledTimes(completedRequests);
-    await page.runTranscriptSearch();
-    for (const [options] of vi.mocked(managed.sessions.list).mock.calls) {
-      expect(options?.search).toBeUndefined();
-    }
-    expect(request).toHaveBeenCalledWith(
-      "sessions.search",
-      expect.objectContaining({ sessionKeys: ["agent:main:content-only"] }),
-    );
-  });
+  it.each([false, true])(
+    "keeps transcript match titles independent of metadata filtering (initially in table: %s)",
+    async (initiallyInTable) => {
+      const matchingRow = {
+        key: "agent:main:content-only",
+        kind: "direct" as const,
+        label: "Lunar museum itinerary",
+        updatedAt: 1,
+      };
+      const metadataRow = {
+        key: "agent:main:metadata-only",
+        kind: "direct" as const,
+        label: "Metadata-only task",
+        updatedAt: 2,
+      };
+      const request = vi.fn(async () => ({
+        results: [
+          {
+            sessionKey: matchingRow.key,
+            sessionId: "content-only",
+            messageId: "message-content-only",
+            role: "assistant" as const,
+            timestamp: 1,
+            snippet: "A needle in the lunar museum itinerary.",
+            score: 1,
+          },
+        ],
+      }));
+      const mutableGateway = createGateway({ request } as unknown as GatewayBrowserClient);
+      mutableGateway.emit({
+        hello: {
+          features: { methods: ["sessions.search"] },
+        } as ApplicationGatewaySnapshot["hello"],
+      });
+      const listed = sessionsResult([matchingRow, metadataRow], 1);
+      const managed = createManagedSessions({ list: vi.fn(async () => listed) });
+      const page = await createRenderedPage(
+        createContext(mutableGateway.gateway, managed.sessions),
+        sessionsResult(initiallyInTable ? [matchingRow, metadataRow] : [metadataRow], 1),
+      );
+      const heading = () =>
+        page.querySelector(".sessions-transcript-search__result-header strong")?.textContent;
+      const form = () => page.querySelector<HTMLFormElement>(".sessions-transcript-search__form")!;
+      try {
+        const transcriptInput = page.querySelector<HTMLInputElement>(
+          ".sessions-transcript-search__input input",
+        )!;
+        transcriptInput.value = "needle";
+        transcriptInput.dispatchEvent(new Event("input", { bubbles: true }));
+        await page.updateComplete;
+        await vi.waitFor(() =>
+          expect(form().querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(
+            false,
+          ),
+        );
+        form().dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(heading()).toBe(matchingRow.label));
+        expect(request).toHaveBeenCalledOnce();
+        expect(managed.sessions.list).toHaveBeenCalledOnce();
+
+        const input = page.querySelector<HTMLInputElement>(".sessions-toolbar__search input")!;
+        input.value = "metadata-only";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        await page.updateComplete;
+        expect(heading()).toBe(matchingRow.label);
+        await vi.waitFor(() =>
+          expect(managed.refreshList).toHaveBeenCalledWith(
+            expect.objectContaining({ search: "metadata-only" }),
+          ),
+        );
+        const [query] = managed.subscribeList.mock.calls.at(-1)!;
+        managed.publish(query, {
+          result: sessionsResult([metadataRow], 2),
+          agentId: "main",
+          loading: false,
+          error: null,
+        });
+        await page.updateComplete;
+        expect(page.result?.sessions.map((row) => row.key)).toEqual([metadataRow.key]);
+        expect(heading()).toBe(matchingRow.label);
+        expect(page.querySelector(".sessions-transcript-search__snippet")?.textContent).toBe(
+          "A needle in the lunar museum itinerary.",
+        );
+        expect(request).toHaveBeenCalledOnce();
+        expect(managed.sessions.list).toHaveBeenCalledOnce();
+
+        form().dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(heading()).toBe(matchingRow.label));
+        expect(managed.sessions.list).toHaveBeenCalledTimes(2);
+        for (const [options] of vi.mocked(managed.sessions.list).mock.calls) {
+          expect(options?.search).toBeUndefined();
+        }
+        expect(request).toHaveBeenLastCalledWith(
+          "sessions.search",
+          expect.objectContaining({
+            sessionKeys: [matchingRow.key, metadataRow.key],
+          }),
+        );
+      } finally {
+        page.remove();
+      }
+    },
+  );
 
   it.each(["completed", "pending"])(
     "retires %s active-session matches when the route changes to archived sessions",

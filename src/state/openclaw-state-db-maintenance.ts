@@ -22,7 +22,7 @@ import {
   hasDanglingSkillWorkshopCollectionReviewIndex,
   LEGACY_SKILL_WORKSHOP_COLLECTION_REVIEWS_INDEX,
   withSqliteWritableSchema,
-} from "./openclaw-state-db-dangling-workshop-index.js";
+} from "./openclaw-state-db-doctor-schema.js";
 import { ensureColumn, tableExists, tableHasColumn } from "./openclaw-state-db-schema-helpers.js";
 import { migrateJsonCanonicalWideRowsV13 } from "./openclaw-state-db-schema-v13-widerow.js";
 import {
@@ -541,10 +541,13 @@ export function runStateSchemaMigrationTransaction<T>(
   pathname: string,
   migrate: () => T,
   transactionOptions: SqliteTransactionOptions,
+  prepareSchema?: () => void,
 ): T {
   return runSqliteImmediateTransactionSync(
     db,
     () => {
+      // Doctor restores catalog readability before the publication prelude reads it.
+      prepareSchema?.();
       const publishedVersion = readSqliteUserVersion(db);
       const blocker =
         publishedVersion < OPENCLAW_STATE_SCHEMA_VERSION

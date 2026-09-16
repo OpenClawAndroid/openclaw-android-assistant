@@ -23,7 +23,7 @@ import {
   readChatHistoryMessageSeq as resolveMessageSeq,
   readIncrementalChatHistoryTail,
 } from "./session-history-tail.js";
-import { readTranscriptMessageIdempotencyKey } from "./session-transcript-message.js";
+import { readTranscriptMessageIdempotencyKey } from "./session-transcript-entry-message.js";
 import { resolveTranscriptPathForComparison } from "./session-transcript-path.js";
 import {
   attachOpenClawTranscriptMeta,

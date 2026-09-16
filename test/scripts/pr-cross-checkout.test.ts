@@ -251,8 +251,12 @@ describePosix("native PR wrapper repository ownership", () => {
             ? "did not include a head SHA"
             : "targets owner-release",
       );
-      expect(f.readCalls()).toHaveLength(1);
-      expect(f.readCalls()[0]).toContain(`${f.owner}\tpr view 123 --json `);
+      const metadataCall = command === "review-init" ? 1 : 0;
+      expect(f.readCalls()).toHaveLength(metadataCall + 1);
+      if (command === "review-init") {
+        expect(f.readCalls()[0]).toBe(`${f.owner}\trepo view --json nameWithOwner,url`);
+      }
+      expect(f.readCalls()[metadataCall]).toContain(`${f.owner}\tpr view 123 --json `);
       expect(f.git(f.owner, ["rev-parse", outcomeRef])).toBe(f.intent);
       expect(f.git(f.owner, ["for-each-ref", "--format=%(refname)", lockRef])).toBe("");
       expect(f.git(f.caller, ["for-each-ref", "--format=%(refname)", "refs/openclaw"])).toBe("");

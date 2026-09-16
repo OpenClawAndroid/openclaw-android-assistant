@@ -31,6 +31,7 @@ import { resolveWorkerPlacementModelRuntime } from "./worker-environments/placem
 export function buildSessionListRowMetadataContext(params: {
   now: number;
   sessionKeys?: readonly string[];
+  subagentRuns?: SessionListRowContext["subagentRuns"];
   userProfileIdentityById?: Map<string, SessionActorProfileIdentity | undefined>;
 }): SessionListRowContext {
   const catalogEntries = new WeakMap<
@@ -42,7 +43,8 @@ export function buildSessionListRowMetadataContext(params: {
     Map<string, ReturnType<typeof selectModelCatalogRuntimeEntry>>
   >();
   return {
-    subagentRuns: buildSubagentSessionListReadIndex(params.now, params.sessionKeys),
+    subagentRuns:
+      params.subagentRuns ?? buildSubagentSessionListReadIndex(params.now, params.sessionKeys),
     selectedModelByOverrideRef: new Map(),
     thinkingMetadataByModelRef: new Map(),
     findModelCatalogEntry: (catalog, query) => {

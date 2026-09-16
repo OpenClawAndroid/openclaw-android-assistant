@@ -82,7 +82,7 @@ import { getChatSessionProjection, publishChatSessionProjection } from "./histor
 import { handleChatInputHistoryKey } from "./input-history.ts";
 import { installOutboxBrowserStorage } from "./outbox-browser.test-support.ts";
 import { prepareOutboxPayload } from "./outbox-payloads.ts";
-import { updateQueuedMessageEdit } from "./queued-message-edit.ts";
+import { cancelQueuedMessageEdit, updateQueuedMessageEdit } from "./queued-message-edit.ts";
 import { handleChatScrollTakeover } from "./scroll.ts";
 import {
   cacheChatSessionSnapshot,
@@ -1413,6 +1413,70 @@ describe("refreshChat", () => {
     }
     expect(host.request).toHaveBeenCalledWith("chat.send", expect.objectContaining(expectedSend));
     expect(host.chatQueue).toEqual([]);
+  });
+
+  it("keeps a timed-out startup settled through an outbox wake until explicit history retry", async () => {
+    vi.useFakeTimers();
+    const sessionKey = "agent:main:dashboard";
+    const startup = createDeferred<ChatHistoryResult>();
+    const recovered = {
+      messages: [],
+      sessionInfo: row(sessionKey, {
+        sessionId: "dashboard-session",
+        hasActiveRun: false,
+        status: "done",
+      }),
+    };
+    const host = makeChatHost({
+      sessionKey,
+      chatMessage: "Send after recovery",
+      requestHandlers: {
+        "chat.startup": () => startup.promise,
+        "chat.history": recovered,
+        "chat.send": (params: unknown) => ({
+          runId: requireRecord(params, "recovered send").idempotencyKey,
+          status: "started",
+          messageSeq: 1,
+        }),
+      },
+    });
+    try {
+      const initialLoad = loadChatHistory(host, { startup: true, deferBranches: true });
+      const send = handleSendChat(host);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(host.chatQueue).toEqual([
+        expect.objectContaining({ text: "Send after recovery", sendState: "waiting-idle" }),
+      ]);
+      host.chatMessage = "Keep my next draft";
+      await vi.advanceTimersByTimeAsync(60_001);
+      await initialLoad;
+      await send;
+      expect(getChatHistoryLoadState(host)).toMatchObject({ phase: "failed" });
+      const wake = flushChatQueueForEvent(host);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.startup")).toHaveLength(
+        1,
+      );
+      expect(getChatHistoryLoadState(host)).toMatchObject({ phase: "failed" });
+      await wake;
+      expect(host.chatLoading).toBe(false);
+      expect(host.chatMessage).toBe("Keep my next draft");
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+
+      startup.resolve(recovered);
+      await loadChatHistory(host, { startup: true, deferBranches: true });
+      await flushChatQueueForEvent(host);
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.startup")).toHaveLength(
+        2,
+      );
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(1);
+      expect(host.chatMessage).toBe("Keep my next draft");
+    } finally {
+      startup.resolve(recovered);
+      await vi.advanceTimersByTimeAsync(0);
+      host.sessions.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("drains a message submitted during startup after stale active history becomes idle", async () => {
@@ -8142,6 +8206,95 @@ describe("handleSendChat", () => {
       } finally {
         stopRecovered();
         stopSource();
+      }
+    },
+  );
+
+  it.each(["move", "remove", "edit"] as const)(
+    "honors a queue %s while attachment hydration is pending",
+    async (action) => {
+      const { attachments, dataUrls } = createDeliveryAttachmentBatch();
+      const request = makeRequestMock({
+        "chat.history": () => idleChatHistory(),
+        "chat.send": (params: unknown) => ({
+          runId: requireRecord(params, "reordered attachment send").idempotencyKey,
+          status: "ok",
+          messageSeq: 1,
+        }),
+      });
+      sessionStorage.setItem("openclaw.control.outboxTab.v1", "test-outbox-tab");
+      const host = makeChatHost({
+        client: clientWithRequest(request),
+        connected: false,
+        chatMessage: "attachment A",
+        chatAttachments: attachments,
+      });
+      const unsubscribe = subscribeChatOutboxProjection(host);
+      const readStarted = createDeferred();
+      const releaseRead = createDeferred();
+      let drain: Promise<void> | undefined;
+      try {
+        await handleSendChat(host);
+        host.chatMessage = "text B";
+        await handleSendChat(host);
+        const [first, second] = host.chatQueue;
+        expect(first?.attachmentPayload).toBeDefined();
+        expect(second?.text).toBe("text B");
+        const readPayload = outboxPayloadStore.readOutboxPayload;
+        vi.spyOn(outboxPayloadStore, "readOutboxPayload").mockImplementationOnce(
+          async (...args) => {
+            const result = await readPayload(...args);
+            readStarted.resolve();
+            await releaseRead.promise;
+            return result;
+          },
+        );
+        host.connected = true;
+        drain = retryReconnectableQueuedChatSends(host);
+        await readStarted.promise;
+        if (action === "move") {
+          expect(moveQueuedChatMessage(host, second!.id, first!.id)).toBe("moved");
+        } else if (action === "remove") {
+          expect(removeQueuedMessage(host, first!.id)).toBe("removed");
+        } else {
+          expect(beginQueuedMessageEdit(host, first!.id)).toBe("started");
+          updateQueuedMessageEdit(host, "unfinished correction");
+        }
+        const expected =
+          action === "move"
+            ? ["text B", "attachment A"]
+            : action === "remove"
+              ? ["text B"]
+              : ["attachment A", "text B"];
+        expect(listStoredChatOutboxes(host)[0]?.queue.map((item) => item.text)).toEqual(expected);
+        expect(request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+        releaseRead.resolve();
+        await drain;
+        if (action === "edit") {
+          expect(request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+          expect(host.chatQueuedEdit?.draftText).toBe("unfinished correction");
+          expect(cancelQueuedMessageEdit(host)).toBe(true);
+          await retryReconnectableQueuedChatSends(host);
+        }
+        const sends = request.mock.calls
+          .filter(([method]) => method === "chat.send")
+          .map(([, params]) => requireRecord(params, "reordered delivery"));
+        expect(sends.map((params) => params.message)).toEqual(expected);
+        if (action !== "remove") {
+          expect(sends.find((params) => params.message === "attachment A")?.attachments).toEqual(
+            attachments.map((attachment, index) => ({
+              type: attachment.mimeType.startsWith("image/") ? "image" : "file",
+              mimeType: attachment.mimeType,
+              fileName: attachment.fileName,
+              content: dataUrls[index]!.split(",")[1],
+            })),
+          );
+        }
+        expect(listStoredChatOutboxes(host)).toEqual([]);
+      } finally {
+        releaseRead.resolve();
+        await drain;
+        unsubscribe();
       }
     },
   );

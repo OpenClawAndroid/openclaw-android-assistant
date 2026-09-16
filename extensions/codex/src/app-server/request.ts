@@ -90,9 +90,12 @@ export async function requestCodexAppServerClientJson<T = JsonValue | undefined>
     const timeoutMs = params.timeoutMs ?? 60_000;
     const method = params.method;
     const requestParams = params.requestParams;
+    const attemptWaiterFinished =
+      method === "thread/list" ? params.controlObservation?.attemptWaiterFinished : undefined;
     const options = {
       timeoutMs,
       signal: params.signal,
+      ...(attemptWaiterFinished ? { attemptWaiterFinished } : {}),
       ...(params.assertCurrent
         ? { assertCurrent: () => assertRequestOwnerCurrent(params.assertCurrent) }
         : {}),
@@ -210,7 +213,7 @@ export async function readCodexAppServerUsage(options: {
   authRequirement?: CodexAppServerClientOptions["authRequirement"];
   assertCurrent?: () => void;
 }): Promise<{ rateLimits: JsonValue; accountEmail?: string }> {
-  const deadline = Date.now() + options.timeoutMs;
+  const deadline = performance.now() + options.timeoutMs;
   return await withCodexAppServerJsonClient(
     {
       timeoutMs: options.timeoutMs,
@@ -253,7 +256,7 @@ async function readCodexAccountEmailBestEffort(
 ): Promise<string | undefined> {
   const boundMs = Math.min(
     CODEX_ACCOUNT_READ_MAX_TIMEOUT_MS,
-    deadline - Date.now() - CODEX_USAGE_DEADLINE_RESERVE_MS,
+    deadline - performance.now() - CODEX_USAGE_DEADLINE_RESERVE_MS,
   );
   if (boundMs <= 0) {
     return undefined;
@@ -301,8 +304,9 @@ export async function withCodexAppServerJsonClient<T>(
   let errorPhase: CodexControlRequestPhase | undefined;
   observeControlPhase(params.controlObservation, activePhase);
   const timeoutController = new AbortController();
-  const deadline = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Date.now() + timeoutMs : undefined;
-  const isPastDeadline = () => deadline !== undefined && Date.now() >= deadline;
+  const deadline =
+    Number.isFinite(timeoutMs) && timeoutMs > 0 ? performance.now() + timeoutMs : undefined;
+  const isPastDeadline = () => deadline !== undefined && performance.now() >= deadline;
   const throwIfAbandoned = () => {
     if (timeoutController.signal.aborted && timeoutController.signal.reason instanceof Error) {
       throw timeoutController.signal.reason;
@@ -313,7 +317,7 @@ export async function withCodexAppServerJsonClient<T>(
   };
   const remainingTimeoutMs = () => {
     throwIfAbandoned();
-    return deadline === undefined ? timeoutMs : Math.max(1, deadline - Date.now());
+    return deadline === undefined ? timeoutMs : Math.max(1, deadline - performance.now());
   };
 
   try {
@@ -390,9 +394,14 @@ export async function withCodexAppServerJsonClient<T>(
               assertCurrent();
               const method = request.method;
               const requestParams = request.requestParams;
+              const attemptWaiterFinished =
+                method === "thread/list"
+                  ? params.controlObservation?.attemptWaiterFinished
+                  : undefined;
               const requestOptions = {
                 timeoutMs: remainingTimeoutMs(),
                 signal: timeoutController.signal,
+                ...(attemptWaiterFinished ? { attemptWaiterFinished } : {}),
                 ...(params.catalogListKey ? { catalogListKey: params.catalogListKey } : {}),
                 assertCurrent: () => {
                   assertCurrent();

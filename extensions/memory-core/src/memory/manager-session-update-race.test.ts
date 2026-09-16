@@ -208,7 +208,7 @@ describe("memory session update sync", () => {
         },
       });
       const unchangedTranscript = await readSessionTranscriptEvents(target);
-      let legacySourceHash: string | undefined;
+      let expectedSourceHash: string | undefined;
       if (mode === "unchanged legacy index") {
         const corpus = (await listSessionTranscriptCorpusEntriesForAgent("main")).find(
           (entry) => entry.sessionId === sessionId,
@@ -244,7 +244,7 @@ describe("memory session update sync", () => {
             "UPDATE memory_index_meta SET value = json_set(value, '$.chunkingVersion', 4) WHERE key = 'memory_index_meta_v1'",
           )
           .run();
-        legacySourceHash = entry.hash;
+        expectedSourceHash = `sqlite:${entry.revisionMs}:${entry.hash}`;
         await manager.close();
         manager = await getFreshManager(cfg, "cli");
         await manager.sync({ reason: "watch" });
@@ -273,14 +273,14 @@ describe("memory session update sync", () => {
             text: "User: Retained owner preference.\nAssistant: Retained derived answer.",
           },
         ]);
-        if (legacySourceHash !== undefined) {
+        if (expectedSourceHash !== undefined) {
           expect(
             observer
               .prepare(
                 "SELECT hash FROM memory_index_sources WHERE path = ? AND source = 'sessions'",
               )
               .get(`sessions/main/${sessionId}.jsonl`)?.hash,
-          ).toBe(legacySourceHash);
+          ).toBe(expectedSourceHash);
           expect(
             observer
               .prepare(

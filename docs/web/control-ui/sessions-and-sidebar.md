@@ -106,7 +106,7 @@ In the default chip mode, the sidebar organizes everything around the active age
 
 Choose **Show all agents** in the agent switcher to enter **team mode**, which shows every selectable agent as a collapsible session group. It is off by default, and the browser remembers your choice and each agent's collapsed state. Groups start expanded. Headers emphasize the agent's avatar and name. Activity, attention, unread, and workspace indicators sit on the right of session rows; collapsed parents and agents summarize hidden work and outcomes there. A row shows each status once, even when both the parent and a hidden child share that status. Session titles align with the left edge of the agent avatar. Nested children indent 16px per level without moving the right edge of the trailing indicators. Groups keep the configured agent order as activity changes. Agent headers are 48px tall with 36px avatars; session rows stay on one line at 32px on desktop. Main conversations appear as session rows too, so expanded headers do not repeat session activity.
 
-Pending questions and approvals show their specific request when you hover or keyboard-focus the attention icon. The tooltip includes the oldest question, compact command, or approval title, plus a count of additional questions or approvals. This works in the regular list, Home, and team mode, including collapsed parents and agent groups. Questions and approvals take priority over agent attention notes and failed runs; requests at the same priority show the oldest first. Answering, approving, cancelling, or expiry clears that request and reveals the next one. Previews wrap and truncate without adding another line to session rows. Secret questions show only the question text, never entered answers.
+Pending questions and approvals show their specific request when you tap, hover, or keyboard-focus the attention icon. Tapping the icon keeps the sidebar open; tap again or press Escape to dismiss the preview. The tooltip includes the oldest question, compact command, or approval title, plus a count of additional questions or approvals. This works in the regular list, Home, and team mode, including collapsed parents and agent groups. Questions and approvals take priority over agent attention notes and failed runs; requests at the same priority show the oldest first. Answering, approving, cancelling, or expiry clears that request and reveals the next one. Previews wrap and truncate without adding another line to session rows. Secret questions show only the question text, never entered answers.
 
 The top row becomes a neutral workspace header with the configured Gateway display name, or **OpenClaw**, and the OpenClaw mark. Its menu contains **Show one agent**, **Agent settings**, and the documentation, help, community, and changelog links. Choose **Show one agent** to restore the agent chip and its full switcher menu. The sidebar header toolbar contains collapse, search, session filters, and **+** controls.
 
@@ -157,7 +157,7 @@ Native CLI catalogs appear only when they contain sessions matching the current 
 
 **Mark as unread** creates a reminder that remains unread while the current chat stays open, including while a run streams or completes. Leave and reopen the session, or choose **Mark as read**, to clear it.
 
-Opening a read-only or suggestion session as a viewer leaves its unread marker intact. Draft sessions acknowledge reads automatically only for their owner or an administrator.
+Opening a session as a viewer leaves its unread marker intact, including shared sessions. Draft sessions acknowledge reads automatically only for their owner or an administrator. If the Gateway rejects an automatic read acknowledgement because of invalid session state or missing access, the UI reports the error once for that unread episode and waits for a new episode or for you to reopen the session. Temporary failures can retry on a later session update. Manual unread reminders still remain until you reopen the session or choose **Mark as read**.
 
 **Delete** removes the confirmed selection from loaded session lists immediately and leaves any deleted conversation that is open. The Gateway finishes deletion in the background, safely stopping and reclaiming an attached cloud worker first. If deletion fails, the affected session can reappear with an error; other successful deletions and any navigation you made in the meantime are preserved. Browser drafts are retired only after deletion is confirmed, not while the request is pending.
 
@@ -175,6 +175,8 @@ your custom name.
 ### Session menu
 
 Root sessions and ordinary Home-linked dashboard sessions can be pinned; spawned, subagent, and nested-child sessions live in their parent's tree and reject pin requests, including when they appear as top-level threads.
+
+Pinned parents keep their indented child trees and vertical guides in the Pages section. Expanding or collapsing a pinned parent shows or hides its children together.
 
 The menu groups routine actions first: **Pin/Unpin**, **Rename**, **Mark as unread/read**, and **Archive/Unarchive**. **Delete** stays separate at the bottom.
 

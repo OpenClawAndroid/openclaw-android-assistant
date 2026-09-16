@@ -23,8 +23,8 @@ import {
 import {
   mergeAgentRunTerminalReplySnapshot,
   normalizeAgentRunTerminalReplySnapshot,
-  type AgentRunTerminalReplySnapshot,
 } from "../../agents/agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../../agents/agent-run-terminal-reply.types.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
 import { formatErrorMessageForDisplay } from "../../infra/error-diagnostics.js";
 import { isNonTerminalAgentRunStatus } from "../../shared/agent-run-status.js";

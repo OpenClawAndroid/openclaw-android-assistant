@@ -8,6 +8,7 @@ import { classifyFailoverSignal } from "../failover/classify.js";
 import { SessionManager } from "../sessions/session-manager.js";
 import { createZeroUsageFixture } from "../test-helpers/usage-fixtures.js";
 import { makeAttemptResult } from "./run.overflow-compaction.fixture.js";
+import { readCompactionAccountingRecorder } from "./run/compaction-accounting-bridge.js";
 import { createEmbeddedRunContextRecoveryState } from "./run/context-recovery-state.js";
 import { recoverEmbeddedRunOverflow } from "./run/overflow-context-recovery.js";
 import type { EmbeddedRunAttemptResult } from "./run/types.js";
@@ -389,6 +390,37 @@ describe("recoverEmbeddedRunOverflow", () => {
     expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining("auto-compaction failed"));
   });
 
+  it.each([
+    { reason: "Compaction timed out after 180000ms", summary: "Auto-compaction timed out" },
+    { reason: "The summary provider is unavailable", summary: "Auto-compaction failed" },
+  ])("preserves a precheck compaction failure: $reason", async ({ reason, summary }) => {
+    mocks.compact.mockResolvedValueOnce({ ok: false, compacted: false, reason });
+    const promptError = overflowError();
+    const input = makeInput({
+      promptError,
+      attempt: {
+        terminal: { kind: "failed", source: "precheck", error: promptError },
+        preflightRecovery: { route: "compact_only" },
+      },
+    });
+
+    const result = await recoverEmbeddedRunOverflow(input);
+
+    expect(result).toMatchObject({
+      action: "surface",
+      kind: "compaction_failure",
+      errorText: expect.stringContaining(reason),
+      userText: expect.stringContaining(`${summary} before the next model request.`),
+    });
+    if (result.action !== "surface") {
+      throw new Error("expected precheck compaction failure");
+    }
+    expect(result.userText).toContain("Try again or run /compact");
+    expect(result.userText).not.toContain("Context overflow");
+    expect(mocks.markProviderPromptRejected).not.toHaveBeenCalled();
+    expect(input.prepareCurrentTranscriptRetry).not.toHaveBeenCalled();
+  });
+
   it("falls back to append-only tool-result truncation after failed compaction", async () => {
     const projectionState: ToolResultPromptProjectionState = {
       replacements: new Map(),
@@ -651,33 +683,48 @@ describe("recoverEmbeddedRunOverflow", () => {
     expect(mocks.compact).not.toHaveBeenCalled();
   });
 
-  it("forwards preflight prompt estimates into synthetic overflow compaction", async () => {
-    const promptError = overflowError();
-    const result = await recoverEmbeddedRunOverflow(
-      makeInput({
+  it.each([undefined, "mid-turn"] as const)(
+    "compacts predicted prompt pressure as a budget request with source=%s",
+    async (source) => {
+      const promptError = overflowError();
+      const input = makeInput({
         promptError,
         attempt: {
           terminal: { kind: "failed", source: "precheck", error: promptError },
           preflightRecovery: {
             route: "compact_then_truncate",
-            source: "mid-turn",
+            source,
             estimatedPromptTokens: 268_138,
             promptBudgetBeforeReserve: 241_616,
             overflowTokens: 26_522,
           },
         },
-      }),
-    );
+      });
+      const result = await recoverEmbeddedRunOverflow(input);
 
-    expect(result).toEqual({ action: "retry" });
-    expect(mocks.compact).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tokenBudget: 241_616,
-        currentTokenCount: 268_138,
-        runtimeContext: expect.objectContaining({ trigger: "overflow" }),
-      }),
-    );
-  });
+      expect(result).toEqual({ action: "retry" });
+      expect(mocks.compact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tokenBudget: 241_616,
+          currentTokenCount: 268_138,
+          runtimeContext: expect.objectContaining({ trigger: "budget" }),
+          runtimeSettings: expect.objectContaining({
+            diagnostics: expect.objectContaining({ degradedReason: null }),
+          }),
+        }),
+      );
+      expect(mocks.markProviderPromptRejected).not.toHaveBeenCalled();
+      expect(input.runOwnsCompactionBeforeHook).toHaveBeenCalledWith("context budget recovery");
+      expect(input.runOwnsCompactionAfterHook).toHaveBeenCalledWith(
+        "context budget recovery",
+        expect.objectContaining({ compacted: true, ok: true }),
+        undefined,
+      );
+      expect(
+        readCompactionAccountingRecorder(mocks.compact.mock.calls[0]?.[0]?.runtimeContext),
+      ).toMatchObject({ pendingRequestState: "unresolved" });
+    },
+  );
 
   it("keeps the raw budget for provider overflow with preflight metadata", async () => {
     const result = await recoverEmbeddedRunOverflow(
@@ -695,7 +742,13 @@ describe("recoverEmbeddedRunOverflow", () => {
     );
 
     expect(result).toEqual({ action: "retry" });
-    expect(mocks.compact).toHaveBeenCalledWith(expect.objectContaining({ tokenBudget: 200_000 }));
+    expect(mocks.compact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokenBudget: 200_000,
+        currentTokenCount: 200_001,
+        runtimeContext: expect.objectContaining({ trigger: "overflow" }),
+      }),
+    );
   });
 
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(

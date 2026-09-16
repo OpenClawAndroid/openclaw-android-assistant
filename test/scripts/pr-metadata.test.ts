@@ -22,7 +22,8 @@ if [[ "$*" == *'{owner}'* || "$*" == *'{repo}'* ]]; then
   exit 19
 fi
 if [ "$1 $2" = "repo view" ]; then
-  printf 'base-owner/base-repo\\n'
+  if [[ "$*" == *--jq* ]]; then printf 'base-owner/base-repo\\n'; exit 0; fi
+  printf '{"nameWithOwner":"base-owner/base-repo","url":"https://github.com/base-owner/base-repo"}\\n'
   exit 0
 fi
 
@@ -57,10 +58,13 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
       echo "GraphQL: Resource not accessible by integration (repository.pullRequest.reviewRequests.nodes.0.requestedReviewer)" >&2
       exit 1
     fi
-    jq -nc --arg headRefOid "\${FAKE_HEAD_BEFORE-head-a}" --argjson changedFiles "\${FAKE_CHANGED_FILES:-101}" --argjson fileCount "\${FAKE_GRAPHQL_FILE_COUNT:-100}" --argjson includeChangeType "\${FAKE_GRAPHQL_CHANGE_TYPE:-true}" '
+    jq -nc --arg headRefOid "\${FAKE_HEAD_BEFORE-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" --argjson changedFiles "\${FAKE_CHANGED_FILES:-101}" --argjson fileCount "\${FAKE_GRAPHQL_FILE_COUNT:-100}" --argjson includeChangeType "\${FAKE_GRAPHQL_CHANGE_TYPE:-true}" '
       {
         number: 42,
-        url: "https://example.test/pr/42",
+        url: "https://github.com/base-owner/base-repo/pull/42",
+        baseRefOid: "cccccccccccccccccccccccccccccccccccccccc",
+        baseRefName: "main",
+        headRefName: "topic",
         headRefOid: $headRefOid,
         headRepository: {nameWithOwner: "fork-owner/fork-repo"},
         changedFiles: $changedFiles,
@@ -75,10 +79,16 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
               changeType: (if . == ($fileCount - 1) then "removed" else "modified" end)
             } else {} end)
         ]
-      }
+      } | . + (env.FAKE_INITIAL_PATCH | fromjson)
+        | if env.FAKE_MISSING_FILES == "1" then del(.files) else . end
     '
   else
-    printf '{"headRefOid":"%s"}\n' "\${FAKE_HEAD_AFTER:-head-a}"
+    jq -nc --arg head "\${FAKE_HEAD_AFTER:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" '
+      {number:42,url:"https://github.com/base-owner/base-repo/pull/42",
+       baseRefOid:"cccccccccccccccccccccccccccccccccccccccc",baseRefName:"main",
+       headRefName:"topic",headRefOid:$head,
+       headRepository:{nameWithOwner:"fork-owner/fork-repo"}}
+      | . + (env.FAKE_FINAL_PATCH | fromjson)'
   fi
   exit 0
 fi
@@ -86,6 +96,10 @@ fi
 if [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
   [[ "$*" == *'repos/base-owner/base-repo/pulls/42/files?per_page=100'* ]] || { echo "unexpected repository" >&2; exit 4; }
   [[ "$*" == *'Cache-Control: max-age=0'* ]] || { echo "authoritative files require revalidation" >&2; exit 18; }
+  if [ -n "\${FAKE_REST_PAGE:-}" ]; then
+    printf '%s\n' "$FAKE_REST_PAGE"
+    exit 0
+  fi
   if [ "\${FAKE_REST_FILE_COUNT:-101}" = "2" ]; then
     jq -nc '[range(0; 2) | {filename: ("src/file-" + (tostring) + ".ts"), status: (if . == 1 then "removed" else "modified" end), additions: 1, deletions: 0}]'
     exit 0
@@ -111,6 +125,10 @@ function readPrMetadata(
   fakeGhDir: string,
   options: {
     changedFiles?: string;
+    initialPatch?: Record<string, unknown>;
+    finalPatch?: Record<string, unknown>;
+    missingFiles?: boolean;
+    restPage?: string;
     filesApiFailure?: boolean;
     graphqlChangeType?: boolean;
     graphqlFileCount?: string;
@@ -141,12 +159,16 @@ function readPrMetadata(
       cwd: process.cwd(),
       env: {
         ...process.env,
+        FAKE_INITIAL_PATCH: JSON.stringify(options.initialPatch ?? {}),
+        FAKE_FINAL_PATCH: JSON.stringify(options.finalPatch ?? {}),
+        FAKE_MISSING_FILES: options.missingFiles ? "1" : "0",
+        FAKE_REST_PAGE: options.restPage ?? "",
         FAKE_CHANGED_FILES: options.changedFiles ?? "101",
         FAKE_FILES_API_FAILURE: options.filesApiFailure ? "1" : "0",
         FAKE_GRAPHQL_CHANGE_TYPE: options.graphqlChangeType === false ? "false" : "true",
         FAKE_GRAPHQL_FILE_COUNT: options.graphqlFileCount ?? "100",
-        FAKE_HEAD_AFTER: options.headAfter ?? "head-a",
-        FAKE_HEAD_BEFORE: options.headBefore ?? "head-a",
+        FAKE_HEAD_AFTER: options.headAfter ?? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        FAKE_HEAD_BEFORE: options.headBefore ?? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         FAKE_PR_VIEW_COUNT_FILE: join(fakeGhDir, "pr-view-count"),
         FAKE_PR_VIEW_FAILURE_COUNT: options.prViewFailureCount ?? "-1",
         FAKE_PR_VIEW_FAILURE_MODE: options.prViewFailureMode ?? "",
@@ -275,11 +297,13 @@ describe("PR metadata", () => {
   });
 
   it("rejects files collected while the PR head changes", () => {
-    const result = readPrMetadata(createFakeGh(), { headAfter: "head-b" });
+    const result = readPrMetadata(createFakeGh(), {
+      headAfter: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    });
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
-      "PR head changed while collecting file metadata for #42 (started at head-a, ended at head-b). Retry review initialization.",
+      "PR head changed while collecting file metadata for #42 (started at aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, ended at bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb). Retry review initialization.",
     );
   });
 
@@ -358,6 +382,123 @@ describe("PR metadata", () => {
     expect(result.stderr).toBe("");
     expect(result.prViewAttempts).toBe(3);
     expect(result.retryDelays).toEqual([1]);
-    expect(JSON.parse(result.stdout)).toMatchObject({ headRefOid: "head-a", changedFiles: 2 });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      headRefOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      changedFiles: 2,
+    });
+  });
+  it("accepts an explicit empty diff with a stable base repository and pair, including forks", () => {
+    const result = readPrMetadata(createFakeGh(), {
+      changedFiles: "0",
+      graphqlFileCount: "0",
+      filesApiFailure: true,
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      number: 42,
+      baseRefOid: "cccccccccccccccccccccccccccccccccccccccc",
+      headRefOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      changedFiles: 0,
+      files: [],
+      headRepository: { nameWithOwner: "fork-owner/fork-repo" },
+    });
+  });
+
+  it.each([null, {}, "unavailable"] as const)(
+    "rejects unavailable or malformed files %j, not an empty diff",
+    (files) => {
+      const result = readPrMetadata(createFakeGh(), {
+        changedFiles: "0",
+        graphqlFileCount: "0",
+        initialPatch: { files },
+      });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("files must be an explicit array");
+    },
+  );
+
+  it("rejects missing files instead of normalizing them to empty", () => {
+    const result = readPrMetadata(createFakeGh(), {
+      changedFiles: "0",
+      graphqlFileCount: "0",
+      missingFiles: true,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("null or missing files are unavailable");
+  });
+
+  it.each([
+    { number: 43 },
+    { url: "https://github.com/other/repo/pull/42" },
+    { baseRefOid: null },
+    { baseRefOid: "not-a-sha" },
+    { baseRefName: "" },
+    { headRefOid: "not-a-sha" },
+  ])("rejects mismatched or incomplete initial PR identity %j", (initialPatch) => {
+    const result = readPrMetadata(createFakeGh(), { initialPatch });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Invalid PR identity");
+  });
+
+  it.each([
+    { baseRefOid: "dddddddddddddddddddddddddddddddddddddddd" },
+    { baseRefOid: null },
+    { baseRefName: "release" },
+    { number: 43 },
+    { url: "https://github.com/other/repo/pull/42" },
+    { headRefName: "different" },
+    { headRepository: { nameWithOwner: "another/fork" } },
+  ])("rejects changed or unavailable post-collection identity %j", (finalPatch) => {
+    const result = readPrMetadata(createFakeGh(), { finalPatch });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "base/head or repository identity changed or became unavailable",
+    );
+  });
+
+  it("rejects a zero count contradicted by explicit file entries", () => {
+    const result = readPrMetadata(createFakeGh(), { changedFiles: "0", graphqlFileCount: "1" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("consistent with changedFiles");
+  });
+
+  it("collects a valid truncated small array through REST", () => {
+    const result = readPrMetadata(createFakeGh(), {
+      changedFiles: "2",
+      graphqlFileCount: "1",
+      restFileCount: "2",
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).files).toHaveLength(2);
+  });
+
+  it.each(["null", "{}", "[]\nnull"])(
+    "rejects malformed REST pages %s without publishing metadata",
+    (restPage) => {
+      const result = readPrMetadata(createFakeGh(), { restPage });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Failed to collect paginated PR file metadata");
+    },
+  );
+
+  it.each([
+    [{ filename: "x", status: "modified", additions: -1, deletions: 0 }],
+    [{ filename: "x", status: "modified", additions: 0.5, deletions: 0 }],
+    [{ filename: "", status: "modified", additions: 0, deletions: 0 }],
+    [
+      { filename: "x", status: "modified", additions: 0, deletions: 0 },
+      { filename: "x", status: "modified", additions: 0, deletions: 0 },
+    ],
+  ])("rejects invalid or duplicate REST entries %j", (...entries) => {
+    const result = readPrMetadata(createFakeGh(), { restPage: JSON.stringify(entries) });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("expected unique valid file entries");
   });
 });

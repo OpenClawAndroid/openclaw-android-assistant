@@ -263,8 +263,8 @@ export async function appendExpectedSessionTranscriptTurn(
 
         // Append-owned metadata (including history coverage) is part of this same
         // transaction. Do not overwrite it with the pre-append entry snapshot.
-        const appendedEntry =
-          readSessionEntryRow(transactionDb, resolved.sessionKey)?.entry ?? currentEntry;
+        const appended = readSessionEntryRow(transactionDb, resolved.sessionKey);
+        const appendedEntry = appended?.entry ?? currentEntry;
         const sessionPatch = buildExpectedTranscriptTurnSessionPatch({
           appendedMessages,
           currentEntry: appendedEntry,
@@ -283,7 +283,14 @@ export async function appendExpectedSessionTranscriptTurn(
         let publishIdentity: (() => void) | undefined;
         if (initialEntry || next !== appendedEntry) {
           const identityKeys = collectSessionEntryLookupKeys(transactionDb, resolved.sessionKey);
-          const previousIdentity = readSessionIdentitySnapshot(transactionDb, identityKeys);
+          const previousIdentity = readSessionIdentitySnapshot(
+            transactionDb,
+            identityKeys.filter((key) => key !== resolved.sessionKey),
+          );
+          // The selected row is still current in this write reservation; read only its siblings.
+          if (appended) {
+            previousIdentity.set(resolved.sessionKey, appended.entry);
+          }
           writeSessionEntry(transactionDb, resolved.sessionKey, next, {
             canonicalPreviousEntry: previousIdentity.get(resolved.sessionKey) ?? null,
           });

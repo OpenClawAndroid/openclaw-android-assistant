@@ -21,6 +21,12 @@ export class PortaledHovercardController {
   private placement: PortaledHovercardPlacement = "vertical";
   private stopPositioning: (() => void) | null = null;
   private trigger: HTMLElement | null = null;
+  private triggerAncestors: Node[] = [];
+  private readonly presentationObserver = new MutationObserver(() => {
+    if (this.checkPresentation()) {
+      this.observePresentation();
+    }
+  });
   private unmountContents: (() => void) | null = null;
   private readonly handleCardPointerEnter = (event: PointerEvent) => {
     if (event.currentTarget === this.card) {
@@ -114,10 +120,14 @@ export class PortaledHovercardController {
     return [...(this.card?.querySelectorAll<HTMLElement>('a[href]:not([tabindex="-1"])') ?? [])];
   }
 
-  scheduleOpen(delay: number, open: () => void): void {
+  scheduleOpen(delay: number, open: () => void, trigger = this.trigger): void {
+    this.trigger = trigger;
+    this.observePresentation();
     this.openTimer = window.setTimeout(() => {
       this.openTimer = null;
-      open();
+      if (this.checkPresentation()) {
+        open();
+      }
     }, delay);
   }
 
@@ -147,8 +157,66 @@ export class PortaledHovercardController {
   }
 
   markTrigger(trigger: HTMLElement): void {
+    if (this.trigger !== trigger) {
+      clearPortaledHovercardTrigger(this.trigger);
+    }
     this.trigger = trigger;
     markPortaledHovercardTrigger(trigger);
+    this.observePresentation();
+  }
+
+  private presentationAncestors(): Node[] {
+    const ancestors: Node[] = [];
+    let node: Node | null = this.trigger;
+    while (node) {
+      ancestors.push(node);
+      node =
+        node instanceof Element && node.assignedSlot
+          ? node.assignedSlot
+          : node instanceof ShadowRoot
+            ? node.host
+            : node.parentNode;
+    }
+    return ancestors;
+  }
+
+  private checkPresentation(): boolean {
+    if (
+      this.trigger &&
+      (!this.trigger.isConnected ||
+        this.presentationAncestors().some(
+          (node) =>
+            node instanceof Element &&
+            (node.hasAttribute("inert") ||
+              node.hasAttribute("hidden") ||
+              node.getAttribute("aria-hidden") === "true"),
+        ))
+    ) {
+      this.dismiss();
+      return false;
+    }
+    return true;
+  }
+
+  private observePresentation(): void {
+    const ancestors = this.presentationAncestors();
+    if (
+      ancestors.length === this.triggerAncestors.length &&
+      ancestors.every((node, index) => node === this.triggerAncestors[index])
+    ) {
+      return;
+    }
+    this.presentationObserver.disconnect();
+    this.triggerAncestors = ancestors;
+    // Only the active trigger's ancestry: retained panes can retire without removal,
+    // and document subtree observers cannot see inside a shadow root.
+    for (const node of ancestors) {
+      this.presentationObserver.observe(node, {
+        childList: true,
+        attributes: true,
+        attributeFilter: ["inert", "hidden", "aria-hidden", "slot", "name"],
+      });
+    }
   }
 
   mount(
@@ -158,6 +226,11 @@ export class PortaledHovercardController {
     observeVisualViewport = true,
     unmountContents?: () => void,
   ): void {
+    if (!this.checkPresentation()) {
+      unmountContents?.();
+      card.remove();
+      return;
+    }
     this.clearCard();
     this.anchor = anchor;
     this.card = card;
@@ -228,6 +301,8 @@ export class PortaledHovercardController {
   }
 
   reset(exitDurationMs = 0): void {
+    this.presentationObserver.disconnect();
+    this.triggerAncestors = [];
     if (this.openTimer !== null) {
       window.clearTimeout(this.openTimer);
       this.openTimer = null;

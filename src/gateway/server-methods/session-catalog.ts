@@ -37,6 +37,11 @@ import {
   type SessionCatalogInstances,
 } from "./session-catalog-entry-snapshot.js";
 import {
+  getSessionCatalogListCache,
+  retireSessionCatalogLists,
+  type CatalogListEnumeration,
+} from "./session-catalog-list-cache.js";
+import {
   SessionCatalogListLifetime,
   type CatalogListProgressSubscriber,
 } from "./session-catalog-list-lifetime.js";
@@ -45,7 +50,6 @@ import {
   createSessionCatalogRequestNodeSnapshot,
   listSessionCatalogProvider,
   catalogRegistrationSnapshot,
-  type CatalogRegistrationSnapshot,
 } from "./session-catalog-provider-access.js";
 import { readAuthorizedSessionCatalog } from "./session-catalog-read.js";
 import { catalogStartHandler } from "./session-catalog-terminal-start.js";
@@ -103,20 +107,6 @@ const providerCreateTargetsByConfig = new WeakMap<
 >();
 
 type CatalogListResult = { catalogs: SessionCatalog[] };
-type CatalogListEnumeration = CatalogListResult & { instances: SessionCatalogInstances };
-
-type CatalogListCacheEntry = {
-  expiresAt?: number;
-  progress: SessionCatalogListLifetime;
-  result: Promise<CatalogListEnumeration>;
-};
-
-type CatalogListCacheState = {
-  registrations: CatalogRegistrationSnapshot;
-  entries: Map<string, CatalogListCacheEntry>;
-};
-
-const catalogListsByConfig = new WeakMap<OpenClawConfig, CatalogListCacheState>();
 const catalogCallerIds = new WeakMap<GatewayClient, number>();
 let nextCatalogCallerId = 0;
 
@@ -223,18 +213,6 @@ function sessionCatalogListKey(params: {
     params.client?.connect?.role ?? null,
     params.client?.connect?.device?.id ?? null,
   ]);
-}
-
-function catalogListCache(
-  config: OpenClawConfig,
-  registrationSnapshot: CatalogRegistrationSnapshot,
-): Map<string, CatalogListCacheEntry> {
-  let state = catalogListsByConfig.get(config);
-  if (!state || state.registrations !== registrationSnapshot) {
-    state = { registrations: registrationSnapshot, entries: new Map() };
-    catalogListsByConfig.set(config, state);
-  }
-  return state.entries;
 }
 
 function providerOrRespond(
@@ -443,21 +421,23 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
       allowProcessHomeFallback: allowHomeFallback,
       visibilityKey: resolveSessionCatalogVisibility(client, config).cacheKey,
     });
-    const cache = catalogListCache(config, catalogRegistrations);
-    const cached = cache.get(listKey);
-    if (cached && (cached.expiresAt === undefined || cached.expiresAt > Date.now())) {
-      // progressId is connection-owned and excluded from the work key. Active followers register
-      // for the remaining host frames; settled followers receive only the authoritative result.
-      if (cached.expiresAt === undefined) {
-        subscribe(cached.progress);
-      }
-      cache.delete(listKey);
-      cache.set(listKey, cached);
+    const cache = getSessionCatalogListCache(config, catalogRegistrations);
+    const pending = cache.pending.get(listKey);
+    if (pending) {
+      // progressId is connection-owned and excluded from the work key.
+      subscribe(pending.progress);
+      respond(true, projectResult(await pending.result));
+      return;
+    }
+    const cached = cache.entries.get(listKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      cache.entries.delete(listKey);
+      cache.entries.set(listKey, cached);
       respond(true, projectResult(await cached.result));
       return;
     }
     if (cached) {
-      cache.delete(listKey);
+      cache.entries.delete(listKey);
     }
     const registry = catalogRegistrations.registry;
     const scopedRuntime = getPluginRuntimeGatewayRequestScope()?.pluginRegistry === registry;
@@ -536,24 +516,30 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
       );
       return { catalogs: catalogList, instances };
     })();
-    const entry: CatalogListCacheEntry = { progress, result: operation };
-    // Raw enumeration stays shareable for 3s within the caller's authority partition. Privacy
-    // and creator projection are refreshed per delivery, independently of metadata expiry.
-    cache.set(listKey, entry);
-    pruneMapToMaxSize(cache, SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES);
+    const entry = { progress, result: operation };
+    // Retaining completed results must not evict ownership of an active enumeration.
+    cache.pending.set(listKey, entry);
     try {
       const result = await operation;
-      if (cache.get(listKey) === entry) {
-        entry.expiresAt = Date.now() + SESSION_CATALOG_SHARE_WINDOW_MS;
+      if (cache.pending.get(listKey) === entry) {
+        cache.pending.delete(listKey);
+        cache.entries.set(
+          listKey,
+          Object.assign(entry, { expiresAt: Date.now() + SESSION_CATALOG_SHARE_WINDOW_MS }),
+        );
+        pruneMapToMaxSize(cache.entries, SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES);
       }
       respond(true, projectResult(result));
     } catch (error) {
       progress.retire(error);
-      if (cache.get(listKey) === entry) {
-        cache.delete(listKey);
+      if (cache.entries.get(listKey) === entry) {
+        cache.entries.delete(listKey);
       }
       throw error;
     } finally {
+      if (cache.pending.get(listKey) === entry) {
+        cache.pending.delete(listKey);
+      }
       progress.finishListing();
     }
   },
@@ -720,14 +706,7 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
         agentId: authorization.agentId,
         allowProcessHomeFallback: authorization.allowProcessHomeFallback,
       });
-      const cache = catalogListsByConfig.get(context.getRuntimeConfig())?.entries;
-      if (cache) {
-        // Host publications can outlive the aggregate response and still contain the deleted row.
-        for (const entry of cache.values()) {
-          entry.progress.retire();
-        }
-        cache.clear();
-      }
+      retireSessionCatalogLists(context.getRuntimeConfig());
       respond(true, result);
     } catch (error) {
       const details = catalogError(error);

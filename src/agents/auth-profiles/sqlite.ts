@@ -9,6 +9,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { safeParseJson } from "@openclaw/normalization-core";
 import { resolveStateDir } from "../../config/paths.js";
 import { sha256HexPrefixCore } from "../../infra/crypto-digest.js";
+import { executeWithCachedStatement } from "../../infra/kysely-sync-cache-state.js";
 import {
   clearNodeSqliteKyselyCacheForDatabase,
   enableNodeSqliteKyselyStatementCache,
@@ -267,9 +268,12 @@ function inspectAuthProfileTable(
       : target === "store"
         ? "auth_profile_store"
         : "auth_profile_state";
-  const schemaObject = db
-    .prepare("SELECT type FROM sqlite_master WHERE name = ?")
-    .get(tableName) as { type?: unknown } | undefined;
+  const schemaObject = executeWithCachedStatement(
+    db,
+    "SELECT type FROM sqlite_master WHERE name = ?",
+    [tableName],
+    (statement) => statement.get(tableName),
+  ) as { type?: unknown } | undefined;
   if (!schemaObject) {
     // Agent databases shipped before SQLite auth storage do not have these
     // additive tables until their next writable bootstrap.

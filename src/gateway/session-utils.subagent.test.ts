@@ -33,10 +33,8 @@ import {
   closeOpenClawAgentDatabasesForTest,
   resolveIncognitoOpenClawAgentSqlitePath,
 } from "../state/openclaw-agent-db.js";
-import {
-  closeOpenClawStateDatabaseForTest,
-  openOpenClawStateDatabase,
-} from "../state/openclaw-state-db.js";
+import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db-cache.js";
+import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { listSessionFixture } from "./session-list.test-support.js";
@@ -62,9 +60,9 @@ async function seedSessionEntry(
 }
 
 describe("session list subagent metadata", () => {
-  afterEach(() => {
+  afterEach(async () => {
     resetAgentEventsForTest({ preserveListeners: true });
-    closeOpenClawStateDatabaseForTest();
+    await closeOpenClawStateDatabaseAsync();
     resetSubagentRegistryForTests({ persist: false });
   });
   beforeEach(() => {
@@ -162,7 +160,7 @@ describe("session list subagent metadata", () => {
             expect(unrelatedInspections).toBe(0);
           }
         } finally {
-          closeOpenClawStateDatabaseForTest();
+          await closeOpenClawStateDatabaseAsync();
           nativeJson.close();
           resetConfigRuntimeState();
         }
@@ -174,6 +172,8 @@ describe("session list subagent metadata", () => {
     await withStateDirEnv("openclaw-lifecycle-registry-projection-", async () => {
       await withEnvAsync({ OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" }, async () => {
         const now = Date.now();
+        // Stack formatting can parse this test’s source map; only runtime bytes identify stored tasks.
+        const retainedTaskMarker = `retained-task-payload:${now}:`;
         const parentKey = "agent:main:main";
         const childKey = "agent:main:subagent:lifecycle-child";
         const navigationKey = "agent:main:dashboard:navigation-parent";
@@ -195,7 +195,7 @@ describe("session list subagent metadata", () => {
               childSessionKey: `agent:main:subagent:${runId}`,
               requesterSessionKey: parentKey,
               requesterDisplayKey: "main",
-              task: `retained-task-payload:${"x".repeat(16_384)}`,
+              task: `${retainedTaskMarker}${"x".repeat(16_384)}`,
               cleanup: "keep",
               createdAt: now - 10_000,
               startedAt: now - 9_000,
@@ -234,9 +234,9 @@ describe("session list subagent metadata", () => {
             });
             expect(parent).not.toHaveProperty("swarm");
             expect(child).not.toHaveProperty("swarm");
-            expect(
-              parse.mock.calls.some(([value]) => value.includes("retained-task-payload:")),
-            ).toBe(false);
+            expect(parse.mock.calls.some(([value]) => value.includes(retainedTaskMarker))).toBe(
+              false,
+            );
           } finally {
             parse.mockRestore();
           }
@@ -1256,7 +1256,7 @@ describe("session list subagent metadata", () => {
       expect(row?.endedAt).toBe(now - 1_800);
       expect(row?.runtimeMs).toBe(100);
     } finally {
-      closeOpenClawStateDatabaseForTest();
+      await closeOpenClawStateDatabaseAsync();
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
@@ -1313,7 +1313,7 @@ describe("session list subagent metadata", () => {
 
     const snapshotSpy = vi.spyOn(
       subagentRegistryState,
-      "getSubagentSessionListRunsSnapshotForRead",
+      "withSubagentSessionListRunsSnapshotForRead",
     );
     try {
       const result = await withEnvAsync(
@@ -1336,7 +1336,7 @@ describe("session list subagent metadata", () => {
       expect(snapshotSpy).toHaveBeenCalledTimes(1);
     } finally {
       snapshotSpy.mockRestore();
-      closeOpenClawStateDatabaseForTest();
+      await closeOpenClawStateDatabaseAsync();
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
@@ -1349,7 +1349,7 @@ describe("session list subagent metadata", () => {
 
     const snapshotSpy = vi.spyOn(
       subagentRegistryState,
-      "getSubagentSessionListRunsSnapshotForRead",
+      "withSubagentSessionListRunsSnapshotForRead",
     );
     try {
       const result = await withEnvAsync(
@@ -1375,7 +1375,7 @@ describe("session list subagent metadata", () => {
       expect(snapshotSpy).not.toHaveBeenCalled();
     } finally {
       snapshotSpy.mockRestore();
-      closeOpenClawStateDatabaseForTest();
+      await closeOpenClawStateDatabaseAsync();
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });

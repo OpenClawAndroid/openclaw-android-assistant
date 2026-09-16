@@ -30,6 +30,16 @@ function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+function resolveCachedPnpmExecPath() {
+  const version = /^pnpm@([^+]+)/u.exec(packageManager)?.[1];
+  const corepackHome = process.env.COREPACK_HOME;
+  if (!version || !corepackHome) {
+    return undefined;
+  }
+  const candidate = path.join(corepackHome, "v1", "pnpm", version, "bin", "pnpm.mjs");
+  return existsSync(candidate) ? candidate : undefined;
+}
+
 function write(root: string, relative: string, contents: string, mode?: number) {
   const file = path.join(root, relative);
   mkdirSync(path.dirname(file), { recursive: true });
@@ -146,10 +156,9 @@ describe.skipIf(process.platform === "win32")("Crabbox dependency hydration", ()
       }
       const nodeExecPath = resolveTestNodeExecPath();
       const bootstrap = resolvePnpmRunner({ nodeExecPath });
-      const npmExecPath = execFileSync(
-        bootstrap.command,
-        [...bootstrap.args, "--silent", "run", "pnpm-path"],
-        {
+      const npmExecPath =
+        resolveCachedPnpmExecPath() ??
+        execFileSync(bootstrap.command, [...bootstrap.args, "--silent", "run", "pnpm-path"], {
           cwd: workspace,
           encoding: "utf8",
           timeout: 20_000,
@@ -159,8 +168,7 @@ describe.skipIf(process.platform === "win32")("Crabbox dependency hydration", ()
             PNPM_CONFIG_REGISTRY: "http://127.0.0.1:9",
             PNPM_CONFIG_FETCH_RETRIES: "0",
           },
-        },
-      ).trim();
+        }).trim();
       const pnpm = resolvePnpmRunner({ nodeExecPath, npmExecPath });
       // The setup action prepends NODE_BIN; keep Node and the pinned pnpm runner together.
       symlinkSync(nodeExecPath, path.join(bin, "node"));

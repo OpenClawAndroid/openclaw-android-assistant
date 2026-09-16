@@ -12,7 +12,9 @@ const HEARTBEAT_CONTEXT_PROMPT = `Follow the heartbeat monitor scratch context w
 export const HEARTBEAT_PROMPT = `${HEARTBEAT_CONTEXT_PROMPT} If nothing needs attention, reply ${SILENT_REPLY_TOKEN}.`;
 export const HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS =
   "Use heartbeat_respond to report the wake outcome. Set notify=false when nothing needs the user's attention. Set notify=true with notificationText only when the user should be interrupted.";
-export const HEARTBEAT_RESPONSE_TOOL_PROMPT = `${HEARTBEAT_CONTEXT_PROMPT} ${HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS}`;
+// A fallback backend may lack the direct-only tool; preserve both quiet and alert outcomes.
+const HEARTBEAT_RESPONSE_TOOL_FALLBACK_INSTRUCTIONS = `If the heartbeat_respond tool is not available in this run, reply ${SILENT_REPLY_TOKEN} when nothing needs the user's attention; when the user should be interrupted, reply with only the alert text instead of a prose report.`;
+export const HEARTBEAT_RESPONSE_TOOL_PROMPT = `${HEARTBEAT_CONTEXT_PROMPT} ${HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS} ${HEARTBEAT_RESPONSE_TOOL_FALLBACK_INSTRUCTIONS}`;
 export const INTERNAL_WAKE_TRANSCRIPT_PROMPTS = {
   heartbeat: "[OpenClaw heartbeat poll]",
   exec: "[OpenClaw exec completion]",
@@ -100,9 +102,16 @@ export function resolveHeartbeatPromptForResponseTool(raw?: string): string {
   if (!prompt) {
     return HEARTBEAT_RESPONSE_TOOL_PROMPT;
   }
-  return prompt.includes(HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS)
-    ? prompt
-    : `${prompt}\n\n${HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS}`;
+  let resolved = prompt;
+  for (const instructions of [
+    HEARTBEAT_RESPONSE_TOOL_INSTRUCTIONS,
+    HEARTBEAT_RESPONSE_TOOL_FALLBACK_INSTRUCTIONS,
+  ]) {
+    if (!resolved.includes(instructions)) {
+      resolved = `${resolved}\n\n${instructions}`;
+    }
+  }
+  return resolved;
 }
 
 type StripHeartbeatMode = "heartbeat" | "message";

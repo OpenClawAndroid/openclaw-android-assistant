@@ -87,6 +87,15 @@ the CLI fallback on the Gateway host.
 ## Reason codes
 
 - `dirty`, `no-upstream`: repair the source checkout before retrying.
+- `update-ledger-busy`: another process held the state database's write lock
+  beyond the update step budget. The command exited successfully without admitting
+  a run and left previous history intact. Retry once the Gateway's writes settle.
+  The update command's JSON output contains the deferred note;
+  `openclaw update status --json` shows the previous recorded run.
+  If required finalization after a core update is deferred, its child exits
+  nonzero so existing parents cannot mistake it for completed plugin convergence.
+  Updated Gateways record the skipped reason and do not restart; retrying the
+  update runs finalization again, including when the core is already current.
 - `plugin-target-unavailable`: an enabled configured npm plugin has no resolvable
   target for the selected core, or its registry metadata could not be read. The
   refusal identifies the plugin, package target, and registry error before the

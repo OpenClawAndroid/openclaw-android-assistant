@@ -27,10 +27,8 @@ import {
   createChannelTestPluginBase,
   createTestRegistry,
 } from "../../../test-utils/channel-plugins.js";
-import {
-  buildAgentRunTerminalReplySnapshot,
-  type AgentRunTerminalReplySnapshot,
-} from "../../agent-run-terminal-reply.js";
+import { buildAgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.types.js";
 import {
   buildAnnounceIdFromChildRun,
   buildAnnounceIdempotencyKey,

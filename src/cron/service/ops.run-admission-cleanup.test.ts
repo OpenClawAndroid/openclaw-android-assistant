@@ -460,12 +460,24 @@ describe("cron service run admission cleanup", () => {
       throw new Error("queued admission failed");
     });
     const failure = expect(failed).rejects.toThrow("queued admission failed");
+    const cancellation = new AbortController();
+    const cancelled = runWithCronAdmission(
+      state,
+      async () => {
+        executionOrder.push("cancelled");
+      },
+      undefined,
+      cancellation.signal,
+    );
     const queued = runWithCronAdmission(state, async () => {
       executionOrder.push("queued");
       return "queued";
     });
 
     expect(state.runAdmission.active).toBe(DEFAULT_CRON_MAX_CONCURRENT_RUNS);
+    expect(state.runAdmission.waiters).toHaveLength(3);
+    cancellation.abort();
+    await expect(cancelled).resolves.toEqual({ kind: "stopped" });
     expect(state.runAdmission.waiters).toHaveLength(2);
 
     releaseFirst.resolve();

@@ -143,7 +143,7 @@ async function prepareCodexAppServerClient(options?: CodexAppServerClientOptions
     }
   };
   assertCurrent();
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const context = await withCodexAppServerAcquireDeadline(
     options?.timeoutMs ?? 0,
     ownCodexStartup(lifetime, resolveCodexAppServerClientStartContext(options)),
@@ -569,13 +569,13 @@ export async function withLeasedCodexAppServerClientStartSelectionRetry<T>(param
     throw new Error("Codex app-server selection retry requires an active client lease");
   }
   const timeoutMs = params.options?.timeoutMs ?? 60_000;
-  const deadline = Date.now() + timeoutMs;
+  const deadline = performance.now() + timeoutMs;
   const signal = params.signal ?? params.options?.abandonSignal;
   const requestOptions = () => {
     if (signal?.aborted) {
       throw new CodexAppServerStartupError("aborted", "Codex app-server selection retry aborted");
     }
-    const remainingTimeoutMs = deadline - Date.now();
+    const remainingTimeoutMs = deadline - performance.now();
     if (remainingTimeoutMs <= 0) {
       throw new CodexAppServerStartupError(
         "timed_out",
@@ -834,7 +834,7 @@ function resolveRemainingAcquireTimeout(timeoutMs: number, startedAt: number): n
   if (!(timeoutMs > 0)) {
     return timeoutMs;
   }
-  const remaining = timeoutMs - (Date.now() - startedAt);
+  const remaining = timeoutMs - (performance.now() - startedAt);
   if (remaining <= 0) {
     throw new CodexAppServerStartupError("timed_out", "codex app-server initialize timed out");
   }
@@ -961,7 +961,7 @@ function trackIsolatedCodexAppServerClient(client: CodexAppServerClient): void {
 async function startInitializedCodexAppServerClient(
   params: CodexAppServerClientStartupOptions,
 ): Promise<CodexAppServerClient> {
-  const acquireStartedAt = Date.now();
+  const acquireStartedAt = performance.now();
   const timeoutMs = params.timeoutMs ?? 0;
   const abandonSignal = params.abandonSignal
     ? AbortSignal.any([params.lifetime.controller.signal, params.abandonSignal])

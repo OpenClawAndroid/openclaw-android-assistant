@@ -17,6 +17,7 @@ import { EventStatus } from "matrix-js-sdk/lib/models/event-status.js";
 import { SyncApi, SyncState } from "matrix-js-sdk/lib/sync.js";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 // Matrix tests cover sdk plugin behavior.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
@@ -33,7 +34,12 @@ import { LogService } from "./sdk/logger.js";
 
 const createSharedMatrixClientMock = vi.hoisted(() => vi.fn());
 const captureReadAuthorityMock = vi.hoisted(() => vi.fn<() => (() => void) | undefined>());
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterEach(async () => {
+    await closeOpenClawStateDatabaseAsync();
+    cleanup();
+  }),
+);
 const READ_CALLERS = [
   { caller: "legacy", assertReadAuthority: undefined },
   { caller: "host-authorized", assertReadAuthority: () => undefined },
@@ -2762,7 +2768,7 @@ describe("MatrixClient crypto bootstrapping", () => {
 
       initCrypto.resolve();
       await expectAbortError(startup);
-      expect(readMatrixIdbSnapshotJson(tempDir)).toBeNull();
+      expect(await readMatrixIdbSnapshotJson(tempDir)).toBeNull();
       expect(databasesSpy).not.toHaveBeenCalled();
       expect(matrixJsClient.startClient).not.toHaveBeenCalled();
     } finally {
@@ -3265,7 +3271,7 @@ describe("MatrixClient crypto bootstrapping", () => {
 
       pendingDatabases.resolve([]);
       await shutdown;
-      expect(readMatrixIdbSnapshotJson(tempDir)).toBeNull();
+      expect(await readMatrixIdbSnapshotJson(tempDir)).toBeNull();
       expect(warnSpy).not.toHaveBeenCalled();
     } finally {
       pendingDatabases.resolve([]);

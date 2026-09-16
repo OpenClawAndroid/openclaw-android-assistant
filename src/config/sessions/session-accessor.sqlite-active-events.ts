@@ -6,18 +6,18 @@ import {
   iterateSqliteQuerySync,
 } from "../../infra/kysely-sync.js";
 import type { TranscriptReadWindow } from "../../sessions/transcript-read-window.js";
-import {
-  getActiveTranscriptKysely,
-  parseActiveTranscriptMessageRow,
-  withCurrentProjectionSnapshot,
-  type SessionTranscriptMessageEvent,
-} from "./session-accessor.sqlite-active-projection.js";
+import { withCurrentProjectionSnapshot } from "./session-accessor.sqlite-active-projection.js";
 import type {
   SessionTranscriptVisibleMessageDeltaLimits,
   SessionTranscriptVisibleMessageDeltaResult,
   SessionTranscriptReadScope,
   TranscriptEvent,
 } from "./session-accessor.sqlite-contract.js";
+import {
+  getActiveTranscriptKysely,
+  parseActiveTranscriptMessageRow,
+  type SessionTranscriptMessageEvent,
+} from "./session-accessor.sqlite-projection-read.js";
 import {
   iterateVisibleMessageRange,
   iterateVisibleMessageMetadata,
@@ -45,7 +45,7 @@ export {
   isSessionTranscriptProjectionUnavailableError,
   SessionTranscriptProjectionUnavailableError,
 } from "./session-transcript-projection-error.js";
-export type { SessionTranscriptMessageEvent } from "./session-accessor.sqlite-active-projection.js";
+export type { SessionTranscriptMessageEvent } from "./session-accessor.sqlite-projection-read.js";
 
 export type SessionTranscriptMessageEventPage = {
   /** Source offset for the next older bounded page, independent of rendered message count. */

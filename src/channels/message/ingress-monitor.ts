@@ -9,6 +9,7 @@ import {
 } from "../../process/gateway-work-admission.js";
 import { sleep } from "../../utils/sleep.js";
 import { createChannelIngressDrain, type ChannelIngressDrain } from "./ingress-drain.js";
+import { waitForPending } from "./ingress-monitor-tasks.js";
 import type {
   ChannelIngressMonitorDeliveryResult,
   ChannelIngressMonitorFacts,
@@ -62,6 +63,7 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
     ? AbortSignal.any([shutdown.signal, options.abortSignal])
     : shutdown.signal;
   const activeDeliveries = new Set<Promise<unknown>>();
+  const activeInspections = new Set<Promise<unknown>>();
   // Deliveries that deferred: still live work awaited by stop, but no longer
   // holding a start slot. Deferral already released the lane and handed the
   // claim off, so counting them against startLimit would let a few waiting
@@ -119,7 +121,9 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
   };
 
   const publishActivity = (): void => {
-    const active = activeDeliveries.size > 0 || (running && (requested || pumping !== undefined));
+    const active =
+      activeInspections.size + activeDeliveries.size > 0 ||
+      (running && (requested || pumping !== undefined));
     if (active === lastReportedActive) {
       return;
     }
@@ -177,15 +181,7 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
 
   const isAborted = () => drainAbortSignal.aborted;
 
-  const waitForPending = async (read: () => Iterable<Promise<unknown>>, reject = false) => {
-    for (;;) {
-      const pending = [...read()];
-      if (pending.length === 0) {
-        return;
-      }
-      await (reject ? Promise.all(pending) : Promise.allSettled(pending));
-    }
-  };
+  const inspect = options.inspectAsync ?? options.inspect;
   const waitForActiveDeliveries = () => waitForPending(() => activeDeliveries);
   // A rejected pump wrapper remains caller-visible; delivery joins observe every outcome.
   const waitForPumpIdle = () => waitForPending(() => (pumping ? [pumping] : []), true);
@@ -203,32 +199,56 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
       },
       formatError: options.drain?.formatError ?? formatErrorMessage,
       dispatchClaimedEvent: async (claim, lifecycle) => {
-        if (!running || isAborted() || lifecycle.abortSignal.aborted) {
-          return { kind: "failed-retryable", error: createStoppedError() };
-        }
-        let decoded: { version: unknown; body: TBody };
-        if (options.payload.storage === "raw-event") {
-          const stored = claim.payload as { version?: unknown; rawEvent?: unknown };
-          if (!stored || typeof stored.rawEvent !== "string") {
+        // Preparation owns cancellation settlement as well as the inspection read.
+        const inspection = (async () => {
+          if (!running || isAborted() || lifecycle.abortSignal.aborted) {
+            await lifecycle.onCancelled?.();
+            return undefined;
+          }
+          let decoded: { version: unknown; body: TBody };
+          if (options.payload.storage === "raw-event") {
+            const stored = claim.payload as { version?: unknown; rawEvent?: unknown };
+            if (!stored || typeof stored.rawEvent !== "string") {
+              throw options.payload.createClaimError("invalid-version", claim);
+            }
+            decoded = { version: stored.version, body: stored.rawEvent as TBody };
+          } else {
+            decoded = options.payload.decode(claim.payload, { claim });
+          }
+          if (decoded.version !== options.payload.version) {
             throw options.payload.createClaimError("invalid-version", claim);
           }
-          decoded = { version: stored.version, body: stored.rawEvent as TBody };
-        } else {
-          decoded = options.payload.decode(claim.payload, { claim });
+          const raw = options.payload.deserialize(decoded.body, { claim });
+          const claimedLaneKey = claim.laneKey ?? options.drain?.deriveLaneKey?.(claim);
+          const facts = await inspect(raw, {
+            phase: "claim",
+            claimedId: claim.id,
+            claimedLaneKey,
+          });
+          if (!running || isAborted() || lifecycle.abortSignal.aborted) {
+            await lifecycle.onCancelled?.();
+            return undefined;
+          }
+          if (!facts || facts.eventId !== claim.id || facts.laneKey !== claimedLaneKey) {
+            throw options.payload.createClaimError("identity-mismatch", claim);
+          }
+          return { raw };
+        })();
+        activeInspections.add(inspection);
+        publishActivity();
+        let prepared: Awaited<typeof inspection>;
+        try {
+          prepared = await inspection;
+        } finally {
+          activeInspections.delete(inspection);
+          if (!prepared) {
+            publishActivity();
+          }
         }
-        if (decoded.version !== options.payload.version) {
-          throw options.payload.createClaimError("invalid-version", claim);
+        if (!prepared) {
+          return { kind: "deferred" };
         }
-        const raw = options.payload.deserialize(decoded.body, { claim });
-        const claimedLaneKey = claim.laneKey ?? options.drain?.deriveLaneKey?.(claim);
-        const facts = options.inspect(raw, {
-          phase: "claim",
-          claimedId: claim.id,
-          claimedLaneKey,
-        });
-        if (!facts || facts.eventId !== claim.id || facts.laneKey !== claimedLaneKey) {
-          throw options.payload.createClaimError("identity-mismatch", claim);
-        }
+        const { raw } = prepared;
 
         let handedOff = false;
         let deferredHandoff = false;
@@ -312,9 +332,12 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
 
         // Adoption can complete before delivery returns; track both lifetimes so stop
         // never drops channel work merely because the durable claim already settled.
-        const delivery = Promise.resolve().then(() =>
-          options.deliver(raw, wrappedLifecycle, claim),
-        );
+        const delivery = Promise.resolve().then(() => {
+          if (!running || isAborted() || lifecycle.abortSignal.aborted) {
+            return wrappedLifecycle.onCancelled?.();
+          }
+          return options.deliver(raw, wrappedLifecycle, claim);
+        });
         activeDeliveries.add(delivery);
         publishActivity();
         let result: ChannelIngressMonitorDeliveryResult | void;
@@ -437,7 +460,8 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
               isAborted() ||
               getGatewaySuspendAdmissionPhase() !== "accepting" ||
               (options.drain?.startLimit !== undefined &&
-                activeDeliveries.size - deferredStartCapacity >= options.drain.startLimit),
+                activeDeliveries.size + activeInspections.size - deferredStartCapacity >=
+                  options.drain.startLimit),
           }),
         );
         if (waitForDeliveryIdleBeforeRepump) {
@@ -591,7 +615,7 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
     },
   ) => {
     try {
-      const facts = admitOptions.facts ?? options.inspect(raw, { phase: "admission" });
+      const facts = admitOptions.facts ?? (await inspect(raw, { phase: "admission" }));
       if (!facts) {
         return { kind: "ignored" } as const;
       }
@@ -723,6 +747,7 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
         await admissionTail;
         shutdown.abort(createStoppedError());
         await waitForPumpIdle();
+        await waitForPending(() => activeInspections);
         if (options.waitForDeliveryIdleOnStop !== false) {
           await waitForActiveDeliveries();
         }
@@ -741,10 +766,11 @@ export function createChannelIngressMonitor<TRaw, TBody, TStoredPayload, TMetada
       for (;;) {
         await admissionTail;
         await waitForPumpIdle();
+        await waitForPending(() => activeInspections);
         await waitForActiveDeliveries();
         await drain?.waitForIdle();
         await restartFenceWake;
-        if (!pumping && activeDeliveries.size === 0 && !requested) {
+        if (!pumping && activeInspections.size === 0 && activeDeliveries.size === 0 && !requested) {
           return;
         }
       }

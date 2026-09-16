@@ -33,7 +33,6 @@ import { assertRealOutputRoot } from "./lib/output-root-guard.mjs";
 import { sanitizeBundlerHelperDtsExportTree } from "./lib/sanitize-bundler-helper-dts-exports.mts";
 import {
   TSDOWN_PACKAGE_CONFIG_GROUP,
-  TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS,
   TSDOWN_UNIFIED_CONFIG_GROUP,
   TSDOWN_UNIFIED_DTS_CONFIG_GROUPS,
 } from "./lib/tsdown-config-groups.mts";
@@ -1192,16 +1191,15 @@ function resolveTsdownMemoryBudget(params: ResolvedMemoryLimitParams = {}) {
   };
 }
 
-/** Only independently staged SDK misses may share an unchanged aggregate heap budget. */
-export function resolveStagedSdkDeclarationConcurrency(
+/** Independently staged misses may overlap within the two largest compiler budgets. */
+export function resolveStagedDeclarationConcurrency(
   groups: readonly { name: string; maxOldSpaceMb: number }[],
   params: MemoryLimitParams & { availableParallelism?: number } = {},
 ): 1 | 2 {
   if (
-    groups.length !== 2 ||
-    !TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS.every((name) =>
-      groups.some((group) => group.name === name),
-    ) ||
+    groups.length < 2 ||
+    groups.some((group) => !isUnifiedDtsGroup(group.name)) ||
+    new Set(groups.map((group) => group.name)).size !== groups.length ||
     (params.availableParallelism ?? os.availableParallelism()) < 2
   ) {
     return 1;
@@ -1209,10 +1207,11 @@ export function resolveStagedSdkDeclarationConcurrency(
   // Frozen or explicit per-child heaps do not establish available batch capacity.
   // Unknown available memory stays serial; retain native headroom for each child.
   const capacity = readTsdownMemoryCapacity(params);
-  const requiredBytes = groups.reduce(
-    (sum, group) => sum + (group.maxOldSpaceMb + TSDOWN_CGROUP_MEMORY_HEADROOM_MB) * 1024 * 1024,
-    0,
-  );
+  const requiredBytes = groups
+    .map((group) => group.maxOldSpaceMb)
+    .toSorted((left, right) => right - left)
+    .slice(0, 2)
+    .reduce((sum, heap) => sum + (heap + TSDOWN_CGROUP_MEMORY_HEADROOM_MB) * 1024 * 1024, 0);
   return !capacity.unresolved &&
     capacity.usageKnown &&
     capacity.availableBytes !== null &&

@@ -256,6 +256,18 @@ describe("resolveSqliteTargetFromSessionStorePath", () => {
     ).toThrow(expect.objectContaining({ code: "ENOTDIR" }));
   });
 
+  it("propagates path inspection errors for an exact locator with one registered owner", () => {
+    const dir = tempDirs.make("openclaw-registered-session-inspection-");
+    const storePath = path.join(dir, "invalid\0.sqlite");
+
+    expect(() =>
+      resolveSqliteTargetFromSessionStorePath(storePath, {
+        registeredDatabases: [{ agentId: "main", path: storePath }],
+        isSameDatabasePath: (left, right) => left === right,
+      }),
+    ).toThrow(expect.objectContaining({ code: "ERR_INVALID_ARG_VALUE" }));
+  });
+
   it("keeps shared custom sessions.json targets distinct by agent", () => {
     const storePath = path.join("tmp", "stores", "sessions.json");
 

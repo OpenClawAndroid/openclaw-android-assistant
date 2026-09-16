@@ -185,6 +185,23 @@ Those default release runs pin this scenario to the published 2026.9.4 driver,
 including when the source candidate still reports version 2026.9.4; other
 scenarios retain their existing baseline selection.
 
+The opt-in `projects-doctor` and `taskflow-restoration` scenarios require the exact
+published `openclaw@2026.9.4` baseline and a frozen candidate tarball. They use
+isolated state, manual restart, and no live providers or registry companion fixtures;
+neither runs through `reported-issues` or `far-reaching`. Both verify the original
+published driver and installed candidate payload bytes, including when their version
+strings are equal. Select one with `OPENCLAW_UPGRADE_SURVIVOR_SCENARIO` and set
+`OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC=openclaw@2026.9.4`.
+
+`projects-doctor` preserves one registered project and one configured workspace,
+then runs the real `doctor --lint --only core/doctor/project-clone-shape --json`
+twice. It checks stored rows, schema, sentinels, and read-only snapshot cleanup.
+`taskflow-restoration` preserves three terminal tasks and two flows, starts a fresh
+candidate Gateway, exercises awaited task SDK reads through a synthetic local plugin,
+and reads two task pages on the same Gateway connection. Complete task, delivery,
+and flow records are checked again after Gateway shutdown. These cells cover
+terminal persisted state; they do not exercise active task recovery or provider work.
+
 The `legacy-operator-state` scenario uses the published baseline's own CLI to
 create a second agent, allowlist exec approvals, and two command cron jobs: one
 without an explicit agent and one owned by `ops`. It leaves `systemAgent`

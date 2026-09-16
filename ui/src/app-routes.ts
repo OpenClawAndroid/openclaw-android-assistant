@@ -31,6 +31,7 @@ import { page as approvalsPage } from "./pages/approvals/route.ts";
 import { page as appsPage } from "./pages/apps/route.ts";
 import { page as channelsPage } from "./pages/channels/route.ts";
 import { pages as chatPages } from "./pages/chat/route.ts";
+import type { ChatRouteData } from "./pages/chat/session-route-data.ts";
 import { page as cloudWorkersPage } from "./pages/cloud-workers/route.ts";
 import { pages as configPages } from "./pages/config/route.ts";
 import { page as connectionPage } from "./pages/connection/route.ts";
@@ -253,12 +254,69 @@ export async function startApplicationRouter(
     listen: (listener) => {
       let listening = true;
       let recoveryQueued = false;
+      let lastHello = context.gateway.snapshot.hello;
       let interrupted:
-        | { controller: AbortController; scope: ReturnType<typeof gatewayPresentationScope> }
+        | {
+            controller: AbortController;
+            scope: ReturnType<typeof gatewayPresentationScope>;
+            verifySession: boolean;
+          }
         | undefined;
       const currentTarget = () => {
         const state = router.getState();
         return state.pendingMatches[0] ?? state.matches[0];
+      };
+      const verifyReconnectedSession = async (
+        target: NonNullable<ReturnType<typeof currentTarget>>,
+        verifySession: boolean,
+      ) => {
+        // SAFETY: The caller accepts only chat/dashboard matches, both loaded by loadChatRoute.
+        const data = target.data as ChatRouteData | undefined;
+        if (data?.kind !== "session" || (!verifySession && !data.sessionResolutionFromCache)) {
+          return;
+        }
+        const { client, hello } = context.gateway.snapshot;
+        const scope = gatewayPresentationScope(context.gateway);
+        const current = () =>
+          listening &&
+          context.gateway.snapshot.phase === "connected" &&
+          context.gateway.snapshot.client === client &&
+          context.gateway.snapshot.hello === hello &&
+          gatewayPresentationScope(context.gateway) === scope &&
+          currentTarget()?.abortController === target.abortController &&
+          router.getState().pendingMatches.length === 0;
+        try {
+          const { sessionRouteTargetFromLocation } = await import("./pages/chat/route-loader.ts");
+          if (!current()) {
+            return;
+          }
+          const reference = sessionRouteTargetFromLocation(context, target.location)?.target;
+          // Home and explicit literal creation routes need not exist in storage.
+          if (
+            !reference ||
+            !(
+              reference.kind === "short" ||
+              (reference.kind === "literal" && reference.slugCandidate)
+            )
+          ) {
+            return;
+          }
+          const { querySessionReference } =
+            await import("./pages/chat/route-loader-session-reference.ts");
+          if (!current()) {
+            return;
+          }
+          const resolution = await querySessionReference(
+            context,
+            { key: data.sessionKey, agentId: reference.agentId },
+            target.abortController.signal,
+          );
+          if (resolution?.kind === "not-found" && current()) {
+            await router.revalidate(context, target.routeId);
+          }
+        } catch {
+          // Failed discovery is not deletion; keep the established conversation.
+        }
       };
       const recoverSessionRoute = () => {
         const target = currentTarget();
@@ -274,13 +332,30 @@ export async function startApplicationRouter(
           return;
         }
         if (context.gateway.snapshot.phase !== "connected") {
-          if (target.status === "pending" || target.isFetching === "loader") {
-            interrupted = { controller: target.abortController, scope };
+          if (
+            target.status === "pending" ||
+            target.status === "success" ||
+            target.isFetching === "loader"
+          ) {
+            interrupted = {
+              controller: target.abortController,
+              scope,
+              // The first pending loader owns startup discovery; only interrupted
+              // connections or data already presented offline need another lookup.
+              verifySession:
+                interrupted?.verifySession === true ||
+                lastHello !== null ||
+                target.data !== undefined,
+            };
           }
           return;
         }
         if (target.status === "success" && !target.isFetching) {
+          const pendingVerification = interrupted;
           interrupted = undefined;
+          if (pendingVerification) {
+            void verifyReconnectedSession(target, pendingVerification.verifySession);
+          }
         }
         if (!interrupted || recoveryQueued || target.status !== "error") {
           return;
@@ -318,7 +393,6 @@ export async function startApplicationRouter(
         });
       };
       const stopSessionRecovery = router.subscribe(recoverSessionRoute);
-      let lastHello = context.gateway.snapshot.hello;
       const stopGateway = context.gateway.subscribe((snapshot) => {
         recoverSessionRoute();
         if (lastHello === snapshot.hello) {

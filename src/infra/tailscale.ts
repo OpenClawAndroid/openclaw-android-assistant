@@ -16,6 +16,7 @@ import { signalProcessTree } from "../process/kill-tree.js";
 import { extractTailscaleServeGatewayUrls } from "../shared/tailscale-status.js";
 import { isVitestRuntimeEnv } from "./env.js";
 import { toErrorObject } from "./errors.js";
+import { resolveExecutableFromPathEnv } from "./executable-path.js";
 import { retryAsync } from "./retry.js";
 import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerUrl } from "./runtime-worker-url.js";
@@ -60,7 +61,7 @@ function tailnetHostnameFromStatus(parsed: Record<string, unknown>): string {
 
 /**
  * Locate Tailscale binary using multiple strategies:
- * 1. PATH lookup (via which command)
+ * 1. Filesystem PATH lookup
  * 2. Known macOS app path
  * 3. locate database (if available)
  *
@@ -80,15 +81,22 @@ export async function findTailscaleBinary(): Promise<string | null> {
     }
   };
 
-  // Strategy 1: which command
+  // Strategy 1: PATH lookup
   try {
-    const { stdout } = await runExec("which", ["tailscale"]);
-    const fromPath = stdout.trim();
+    const fromPath = resolveExecutableFromPathEnv(
+      "tailscale",
+      process.env.PATH ?? "",
+      process.env,
+      {
+        cwd: process.cwd(),
+        useCache: false,
+      },
+    );
     if (fromPath && (await checkBinary(fromPath))) {
       return fromPath;
     }
   } catch {
-    // which failed, continue
+    // PATH lookup failed, continue
   }
 
   // Strategy 2: Known macOS app path

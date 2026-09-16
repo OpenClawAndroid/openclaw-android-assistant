@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { isMainThread } from "node:worker_threads";
+import { compareReleaseVersions } from "../../../lib/release-version.mjs";
 
 // Capture and snapshot validation stay plain Node. The host entrypoint owns
 // the redactor; neither candidate code nor raw fixture data owns uploads.
@@ -25,6 +27,11 @@ const logNames = [
   "post-update-validate.err",
   "doctor.log",
   "baseline-doctor.log",
+  "workshop-doctor-recovery.json",
+  "workshop-published-refusal.json",
+  "workshop-baseline-doctor.json",
+  "workshop-recovered-upgrade.json",
+  "workshop-candidate-doctor.json",
   "gateway.log",
   "gateway.log.doctor",
   "baseline-service-install.err",
@@ -66,6 +73,7 @@ const reasons = [
   "input exceeds cap; omitted whole",
   "input changed while reading; omitted whole",
   "invalid observation; omitted",
+  "SQLite journal state requires an artifact-preserving reader; omitted before native open",
 ];
 const omissions = {};
 
@@ -248,9 +256,11 @@ export function readPostCoreSnapshot(artifactRoot) {
 
 // The published updater discards unknown IPC fields and deletes the file after
 // its child exits. Observe the child's existing receipt without changing its lifetime.
-function readDoctorResult() {
+function readDoctorResult(
+  project = doctorResult,
+  resultPath = process.env.OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH,
+) {
   try {
-    const resultPath = process.env.OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH;
     if (!resultPath || !path.isAbsolute(resultPath)) {
       return undefined;
     }
@@ -274,7 +284,7 @@ function readDoctorResult() {
     ) {
       return undefined;
     }
-    return doctorResult(JSON.parse(readOwned(directory, path.basename(resultPath), "Doctor IPC")));
+    return project(JSON.parse(readOwned(directory, path.basename(resultPath), "Doctor IPC")));
   } catch {
     return undefined;
   }
@@ -360,6 +370,343 @@ function readDoctorResults(root) {
   return pairs;
 }
 
+// Project only the existing Doctor IPC contract, never config changes or receipt payloads.
+function doctorIpcResult(value, sanitize = (text) => text) {
+  // Preserve Main's existing IPC status/fact-count/field limits before adding migration fields.
+  doctorResult(value);
+  return {
+    status: value.status,
+    warnings: boundedList(value.warnings ?? []).map(
+      (text) => textFields({ text }, ["text"], sanitize).text,
+    ),
+    failureFacts: boundedList(value.failureFacts ?? []).map((fact) =>
+      textFields(fact, ["check", "code", "message", "affectedKey", "pluginId"], sanitize),
+    ),
+  };
+}
+
+function doctorArtifactIdentity(root) {
+  return createHash("sha256").update(fs.realpathSync(root)).digest("hex");
+}
+
+function captureDoctorIpc(artifactRoot, resultPath, exitCode) {
+  if (!resultPath) {
+    return;
+  }
+  // Reuse Main's secure temp-owner boundary; do not add a broader parallel IPC reader.
+  const result = readDoctorResult(doctorIpcResult, resultPath);
+  if (!result) {
+    return;
+  }
+  writeReport(
+    artifactRoot,
+    path.join(artifactRoot, "diagnostics"),
+    `doctor-${process.pid}.json`,
+    {
+      artifactRootSha256: doctorArtifactIdentity(artifactRoot),
+      pid: process.pid,
+      stateDir: process.env.OPENCLAW_STATE_DIR,
+      exitCode,
+      result,
+    },
+    inputLimit,
+  );
+}
+
+function migrationProjection(section, value, sanitize = (text) => text) {
+  const fields = (entry, names) => textFields(entry, names, sanitize);
+  if (section === "doctor") {
+    return {
+      processes: boundedList(value.processes).map((observation) => {
+        if (
+          !Number.isInteger(observation.exitCode) ||
+          observation.exitCode < 0 ||
+          observation.exitCode > 255
+        ) {
+          throw new Error();
+        }
+        return Object.assign(fields(observation, ["stateDir"]), {
+          exitCode: observation.exitCode,
+          result: doctorIpcResult(observation.result, sanitize),
+        });
+      }),
+    };
+  }
+  if (section === "sessions") {
+    return {
+      deferred: boundedList(value.deferred).map((row) =>
+        fields(row, ["pluginId", "status", "reason"]),
+      ),
+      imports: boundedList(value.imports).map((row) => {
+        if (typeof row.removedSource !== "boolean") {
+          throw new Error();
+        }
+        return Object.assign(fields(row, ["sourcePath", "sourceSha256", "status"]), {
+          removedSource: row.removedSource,
+          pluginIds: boundedList(row.pluginIds).map((text) => fields({ text }, ["text"]).text),
+          sources: boundedList(row.sources).map((source) => fields(source, ["path", "sha256"])),
+        });
+      }),
+    };
+  }
+  if (section === "archives") {
+    return {
+      runs: boundedList(value.runs).map((run) =>
+        Object.assign(fields(run, ["runId", "completedAt", "failedAt"]), {
+          targets: boundedList(run.targets).map((target) => {
+            if (
+              !Number.isInteger(target.plannedMoveCount) ||
+              target.plannedMoveCount < 0 ||
+              !["not_run", "passed", "failed"].includes(target.validationBeforeArchive)
+            ) {
+              throw new Error();
+            }
+            return Object.assign(
+              fields(target, ["agentId", "storePath", "sqlitePath", "validationBeforeArchive"]),
+              {
+                plannedMoveCount: target.plannedMoveCount,
+                completedMoves: boundedList(target.completedMoves).map((move) =>
+                  fields(move, ["kind", "sourcePath", "archivePath"]),
+                ),
+                issues: boundedList(target.issues).map((issue) =>
+                  fields(issue, ["code", "message"]),
+                ),
+              },
+            );
+          }),
+        }),
+      ),
+    };
+  }
+  if (section === "sibling") {
+    return {
+      registrations: boundedList(value.registrations).map((event) => {
+        if (
+          !["runtime", "doctor-module", "doctor-contract"].includes(event.surface) ||
+          typeof event.updateCanary !== "boolean"
+        ) {
+          throw new Error();
+        }
+        return Object.assign(
+          fields(event, ["surface", "stateDir", "source", "sharedSource"]),
+          {
+            updateCanary: event.updateCanary,
+          },
+          Object.fromEntries(
+            ["sourceSha256", "sharedSourceSha256"].flatMap((key) =>
+              typeof event[key] === "string" && /^[a-f0-9]{64}$/u.test(event[key])
+                ? [[key, event[key]]]
+                : [],
+            ),
+          ),
+        );
+      }),
+    };
+  }
+  throw new Error();
+}
+
+// A native read-only open can create missing WAL sidecars or require journal recovery.
+// This bootstrap observer never copies operator databases or imports a migrating runtime reader.
+function assertNativeSqliteObservationSafe(handles, label) {
+  const database = handles.find(({ file }) =>
+    file.endsWith(`${path.sep}state${path.sep}openclaw.sqlite`),
+  );
+  if (!database) {
+    return;
+  }
+  const header = Buffer.alloc(20);
+  if (
+    fs.readSync(database.fd, header, 0, header.length, 0) !== header.length ||
+    header.subarray(0, 16).toString("utf8") !== "SQLite format 3\0" ||
+    !unchangedFile(database.stat, fs.fstatSync(database.fd))
+  ) {
+    throw new Error();
+  }
+  const has = (suffix) => handles.some(({ file }) => file === database.file + suffix);
+  // Even a complete WAL family can change SHM read marks. Preserve every source byte;
+  // richer inspection belongs to the existing artifact-preserving runtime owner, not a new dump.
+  if (header[18] !== 1 || header[19] !== 1 || ["-wal", "-shm", "-journal"].some(has)) {
+    omissions[label] = reasons[4];
+    throw new Error();
+  }
+}
+
+function readMigrationSessions(stateRoot) {
+  const handles = [];
+  let db;
+  try {
+    for (const relative of [
+      "state/openclaw.sqlite",
+      "state/openclaw.sqlite-wal",
+      "state/openclaw.sqlite-shm",
+      "state/openclaw.sqlite-journal",
+    ]) {
+      try {
+        const handle = openOwned(stateRoot, relative);
+        handles.push(handle);
+        if (handle.stat.size > 64 * 1024 * 1024) {
+          throw new Error();
+        }
+      } catch (error) {
+        if (relative.endsWith(".sqlite") || error.code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }
+    assertNativeSqliteObservationSafe(handles, "migration-sessions");
+    db = new DatabaseSync(handles[0].file, { readOnly: true });
+    db.exec("BEGIN");
+    // Read only these two existing receipt owners. No runtime store imports or state bootstrap.
+    const read = (table, predicate, columns, parameter) => {
+      const lengths = boundedList(
+        db
+          .prepare(
+            `SELECT length(CAST(report_json AS BLOB)) AS bytes FROM ${table} WHERE ${predicate} LIMIT 129`,
+          )
+          .all(parameter),
+      );
+      if (
+        lengths.some(({ bytes }) => !Number.isInteger(bytes) || bytes < 0 || bytes > inputLimit) ||
+        lengths.reduce((sum, row) => sum + row.bytes, 0) > indexLimit
+      ) {
+        throw new Error();
+      }
+      return boundedList(
+        db
+          .prepare(`SELECT ${columns}, report_json FROM ${table} WHERE ${predicate} LIMIT 129`)
+          .all(parameter),
+      );
+    };
+    const deferred = read(
+      "migration_runs",
+      "id LIKE ?",
+      "status",
+      "deferred-plugin-migration:%",
+    ).map(({ status, report_json }) =>
+      Object.assign(
+        textFields(JSON.parse(report_json), ["pluginId", "reason"], (text) => text),
+        { status },
+      ),
+    );
+    const imports = read(
+      "migration_sources",
+      "migration_kind = ?",
+      "source_path, source_sha256, status, removed_source",
+      "deferred-plugin-session-import",
+    ).map((row) => {
+      const value = JSON.parse(row.report_json);
+      return {
+        sourcePath: row.source_path,
+        sourceSha256: row.source_sha256 ?? undefined,
+        status: row.status,
+        removedSource: row.removed_source === 1,
+        pluginIds: value.pluginIds,
+        sources: boundedList(value.sources).map((source) => ({
+          path: source.path,
+          sha256: source.identity?.sha256,
+        })),
+      };
+    });
+    db.exec("COMMIT");
+    db.close();
+    db = undefined;
+    for (const { fd, stat, file } of handles) {
+      const matches = file.endsWith("-shm") ? sameFileIdentity : unchangedFile;
+      if (!matches(stat, fs.fstatSync(fd)) || !matches(stat, fs.lstatSync(file))) {
+        throw new Error();
+      }
+    }
+    return { deferred, imports };
+  } finally {
+    db?.close();
+    for (const { fd } of handles) {
+      fs.closeSync(fd);
+    }
+  }
+}
+
+function captureMigrationEvidence(stateRoot, artifactRoot, observationRoot) {
+  const readJson = (root, relative, label) => {
+    const raw = readOwned(root, relative, label);
+    if (raw === null) {
+      throw new Error();
+    }
+    return JSON.parse(raw);
+  };
+  const names = (root, relative, pattern) =>
+    boundedList(
+      fs.readdirSync(ownedPath(root, relative)).filter((name) => pattern.test(name)),
+    ).toSorted((left, right) => left.localeCompare(right));
+  const sources = {
+    doctor: () => {
+      const root = observationRoot || artifactRoot;
+      const processes = names(root, "diagnostics", /^doctor-\d+\.json$/u).map((name) => {
+        const value = readJson(root, `diagnostics/${name}`, "migration-doctor");
+        if (
+          value.artifactRootSha256 !== doctorArtifactIdentity(root) ||
+          name !== `doctor-${value.pid}.json`
+        ) {
+          throw new Error();
+        }
+        return value;
+      });
+      if (!processes.length) {
+        throw new Error();
+      }
+      return { processes };
+    },
+    sessions: () => readMigrationSessions(stateRoot),
+    archives: () => ({
+      runs: names(
+        stateRoot,
+        "session-sqlite-migration-runs",
+        /^(?!.*\.failure\.json$).*\.json$/u,
+      ).map((name) => {
+        const value = readJson(
+          stateRoot,
+          `session-sqlite-migration-runs/${name}`,
+          "migration-archives",
+        );
+        return Object.assign(
+          textFields(value, ["runId", "completedAt", "failedAt"], (text) => text),
+          {
+            targets: boundedList(value.targets).map((target) =>
+              Object.assign(target, {
+                plannedMoveCount: boundedList(target.plannedMoves).length,
+              }),
+            ),
+          },
+        );
+      }),
+    }),
+    sibling: () => {
+      const raw = readOwned(artifactRoot, "sibling-registrations.jsonl", "migration-sibling");
+      if (raw === null) {
+        throw new Error();
+      }
+      return {
+        registrations: boundedList(raw.split(/\r?\n/u).filter(Boolean)).map((line) => {
+          const event = JSON.parse(line);
+          return Object.assign(event, {
+            updateCanary: boundedList(event.argv).includes("--update-canary"),
+          });
+        }),
+      };
+    },
+  };
+  return Object.fromEntries(
+    Object.entries(sources).map(([section, read]) => {
+      try {
+        return [section, { availability: "captured", ...migrationProjection(section, read()) }];
+      } catch {
+        omissions[`migration-${section}`] ??= reasons[3];
+        return [section, { availability: "unavailable" }];
+      }
+    }),
+  );
+}
+
 function armUpgradeProcessCapture() {
   const command = process.argv[2];
   const artifactRoot = process.env.OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT;
@@ -405,7 +752,16 @@ function armUpgradeProcessCapture() {
       { ...identity, event: "started" },
       1024,
     );
+    const doctorResultPath =
+      command === "doctor"
+        ? process.env.OPENCLAW_UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH
+        : undefined;
     process.once("exit", (exitCode) => {
+      try {
+        captureDoctorIpc(artifactRoot, doctorResultPath, exitCode);
+      } catch {
+        // The parent still owns consumption; observation must not alter Doctor exit.
+      }
       try {
         const result = identity.role === "doctor" ? readDoctorResult() : undefined;
         writeReport(
@@ -494,6 +850,7 @@ async function pluginIdentities(stateRoot, artifactRoot) {
       "state/openclaw.sqlite",
       "state/openclaw.sqlite-wal",
       "state/openclaw.sqlite-shm",
+      "state/openclaw.sqlite-journal",
       "plugins/installs.json",
     ]) {
       try {
@@ -508,6 +865,7 @@ async function pluginIdentities(stateRoot, artifactRoot) {
         }
       }
     }
+    assertNativeSqliteObservationSafe(handles, "plugin identity");
     const { readPluginInstallIndex } = await import("../plugin-index-sqlite.mjs");
     const index = readPluginInstallIndex({ stateDir: stateRoot, configPath: null });
     for (const { fd, stat, file } of handles) {
@@ -641,7 +999,7 @@ async function pluginIdentities(stateRoot, artifactRoot) {
       .filter(Boolean);
     return { ...unavailable, availability: plugins.length ? "observed" : "unknown", plugins };
   } catch {
-    omissions["plugin identity"] = reasons[3];
+    omissions["plugin identity"] ??= reasons[3];
     return unavailable;
   } finally {
     for (const { fd } of handles) {
@@ -750,6 +1108,7 @@ async function capture(artifactRoot, phase, exitStatus, signal = "", observation
   }
   const stateRoot = process.env.OPENCLAW_STATE_DIR;
   report.pluginIdentity = await pluginIdentities(stateRoot, artifactRoot);
+  report.migration = captureMigrationEvidence(stateRoot, artifactRoot, observationRoot);
   report.postCore = {
     availability: "unavailable",
     reason: "No complete exit snapshot; original outcome unknown",
@@ -841,6 +1200,160 @@ function publishedPostCore(snapshot, sanitize) {
   };
 }
 
+function publishedBackupRollback(snapshot, sanitize) {
+  const invalid = () => {
+    throw new Error("Invalid backup rollback evidence");
+  };
+  const proof = snapshot.backupRollback;
+  if (proof === undefined || proof === null) {
+    if (snapshot.scenario === "legacy-operator-state") {
+      const comparison =
+        typeof snapshot.baseline?.version === "string"
+          ? compareReleaseVersions(snapshot.baseline.version, "2026.9.4")
+          : null;
+      if (comparison === null || comparison >= 0) {
+        invalid();
+      }
+    }
+    return undefined;
+  }
+  const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : invalid());
+  const digest = (value) =>
+    typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : invalid();
+  const name = (value) =>
+    typeof value === "string" && /^[a-z0-9_][a-z0-9_-]{0,127}$/.test(value)
+      ? sanitize(value, "backup rollback")
+      : invalid();
+  const versions = (value) => ({ state: count(value?.state), agent: count(value?.agent) });
+  const releaseVersion = (value) =>
+    typeof value === "string" &&
+    value.trim() === value &&
+    compareReleaseVersions(value, value) !== null
+      ? sanitize(value, "backup rollback")
+      : invalid();
+  if (
+    snapshot.scenario !== "legacy-operator-state" ||
+    proof.baselineVersion !== snapshot.baseline.version
+  ) {
+    invalid();
+  }
+  if (proof.status === "not-applicable") {
+    if (
+      proof.minimumBaseline !== "2026.9.4" ||
+      compareReleaseVersions(proof.baselineVersion, proof.minimumBaseline) >= 0
+    ) {
+      invalid();
+    }
+    return {
+      status: "not-applicable",
+      baselineVersion: releaseVersion(proof.baselineVersion),
+      minimumBaseline: releaseVersion(proof.minimumBaseline),
+    };
+  }
+  if (
+    proof.status !== "passed" ||
+    proof.runtime?.version !== proof.baselineVersion ||
+    proof.candidateVersion !== snapshot.candidate.version ||
+    proof.candidateVersion !== snapshot.installedVersion
+  ) {
+    invalid();
+  }
+  const baselineSchemaVersions = versions(proof.runtime.schemaVersions);
+  const preflights = boundedList(proof.preflights);
+  const sessionReads = boundedList(proof.sessionReads);
+  const databases = boundedList(proof.before?.databases).map((database) => {
+    if (!["state", "agent"].includes(database.kind) || typeof database.present !== "boolean") {
+      invalid();
+    }
+    const result = {
+      kind: database.kind,
+      present: database.present,
+    };
+    if (database.kind === "agent") {
+      result.agentId = name(database.agentId);
+    }
+    if (!database.present) {
+      return result;
+    }
+    for (const session of boundedList(database.sessions)) {
+      if (typeof session?.key !== "string" || typeof session.sessionId !== "string") {
+        invalid();
+      }
+    }
+    Object.assign(result, {
+      userVersion: count(database.userVersion),
+      contentVersion: count(database.contentVersion),
+      sessionCount: boundedList(database.sessions).length,
+      tables: boundedList(database.tables).map((table) => ({
+        table: name(table.table),
+        rows: count(table.rows),
+        sha256: digest(table.sha256),
+      })),
+    });
+    if (database.kind === "agent") {
+      const matchingPreflights = preflights.filter((entry) => entry.agentId === database.agentId);
+      const matchingReads = sessionReads.filter((entry) => entry.agentId === database.agentId);
+      const preflight = matchingPreflights[0];
+      const read = matchingReads[0];
+      if (
+        matchingPreflights.length !== 1 ||
+        matchingReads.length !== 1 ||
+        preflight?.status !== "exact" ||
+        preflight.foundVersion !== database.userVersion ||
+        preflight.targetVersion !== baselineSchemaVersions.agent ||
+        database.userVersion !== baselineSchemaVersions.agent ||
+        database.contentVersion !== database.userVersion ||
+        read?.count !== result.sessionCount
+      ) {
+        invalid();
+      }
+      Object.assign(result, {
+        preflight: {
+          status: "exact",
+          foundVersion: count(preflight.foundVersion),
+          targetVersion: count(preflight.targetVersion),
+        },
+        sessionRead: { count: count(read.count) },
+      });
+    }
+    return result;
+  });
+  const presentAgents = databases.filter(
+    (database) => database.kind === "agent" && database.present,
+  );
+  if (
+    preflights.length !== presentAgents.length ||
+    sessionReads.length !== presentAgents.length ||
+    new Set(presentAgents.map((database) => database.agentId)).size !== presentAgents.length ||
+    !presentAgents.some(
+      (database) =>
+        database.sessionCount > 0 &&
+        database.tables.some((table) => table.table === "transcript_events" && table.rows > 0),
+    )
+  ) {
+    invalid();
+  }
+  return {
+    status: "passed",
+    baselineVersion: releaseVersion(proof.baselineVersion),
+    candidateVersion: releaseVersion(proof.candidateVersion),
+    baselineSchemaVersions,
+    candidateSchemaVersions: versions(proof.candidateSchemaVersions),
+    archiveSha256: digest(proof.archive?.sha256),
+    baselineRuntime: {
+      manifestSha256: digest(proof.runtime.manifestSha256),
+      entrySha256: digest(proof.runtime.entrySha256),
+    },
+    databases,
+    files: boundedList(proof.before.files).map((file) => {
+      if (!["legacy-store", "transcript", "trajectory", "skill-prompt"].includes(file.kind)) {
+        invalid();
+      }
+      return { kind: file.kind, sha256: digest(file.sha256) };
+    }),
+  };
+}
+
 function publishedSuccessSummary(artifactRoot, sanitize) {
   const raw = readOwned(artifactRoot, "summary.json", "summary");
   if (raw === null) {
@@ -898,6 +1411,7 @@ function publishedSuccessSummary(artifactRoot, sanitize) {
     updateRecovery: sanitize(snapshot.updateRecovery, "summary"),
     updateRestartSource: sanitize(snapshot.updateRestartSource, "summary"),
     firstHopPostCore: publishedPostCore(snapshot.firstHopPostCore, sanitize),
+    backupRollback: publishedBackupRollback(snapshot, sanitize),
     timings,
     phases: boundedList(snapshot.phases).map((event) => {
       if (
@@ -912,10 +1426,14 @@ function publishedSuccessSummary(artifactRoot, sanitize) {
       return { phase: sanitize(event.phase, "phase"), status: event.status, at: event.at };
     }),
     logs: Object.fromEntries(
-      ["update.json", "repair.json", "recovery-update.json"].map((name) => [
-        name,
-        sanitize(readOwned(artifactRoot, name, name), name),
-      ]),
+      [
+        "update.json",
+        "repair.json",
+        "recovery-update.json",
+        ...(snapshot.scenario === "workshop-doctor-recovery"
+          ? ["workshop-doctor-recovery.json", "baseline-doctor.log", "doctor.log"]
+          : []),
+      ].map((name) => [name, sanitize(readOwned(artifactRoot, name, name), name)]),
     ),
     omissions,
   };
@@ -973,6 +1491,7 @@ export function publishDiagnostics(
     "child exit",
     "post-core",
     "plugin identity",
+    ...["doctor", "sessions", "archives", "sibling"].map((section) => `migration-${section}`),
   ]) {
     if (reasons.includes(snapshot.omissions?.[label])) {
       omissions[label] = snapshot.omissions[label];
@@ -1089,6 +1608,23 @@ export function publishDiagnostics(
       omissions["plugin identity"] = reasons[3];
     }
   }
+  report.migration = Object.fromEntries(
+    ["doctor", "sessions", "archives", "sibling"].map((section) => {
+      try {
+        const value = snapshot.migration?.[section];
+        if (value?.availability !== "captured") {
+          throw new Error();
+        }
+        return [
+          section,
+          { availability: "captured", ...migrationProjection(section, value, sanitize) },
+        ];
+      } catch {
+        omissions[`migration-${section}`] ??= reasons[3];
+        return [section, { availability: "unavailable" }];
+      }
+    }),
+  );
   writeReport(artifactRoot, destination, "failure.json", report, publicLimit);
   if (Object.keys(omissions).length) {
     process.stderr.write(

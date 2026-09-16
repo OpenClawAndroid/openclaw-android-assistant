@@ -413,6 +413,7 @@ describe("saved update failure resolution", () => {
     "global-install-failed",
     "runtime-verification-failed",
     "database-schema-preflight",
+    "invalid-config",
     "finalize:doctor",
     "post-update-plugins",
     "restart-unhealthy",
@@ -420,13 +421,18 @@ describe("saved update failure resolution", () => {
   ])("requires a later verified updater outcome for %s", async (reason) => {
     failedRun.reason = reason;
     const savedFailure = failure(reason);
-    expect(await validate(savedFailure)).toMatchObject({ ok: true });
-
+    const successfulRun = latestRun;
     latestRun = failedRun;
     expect(await validate(savedFailure)).toMatchObject({
       ok: false,
       summary: expect.stringContaining("Next step:"),
     });
+
+    latestRun = successfulRun;
+    expect(await validate(savedFailure)).toMatchObject({ ok: true });
+
+    vi.mocked(verifyPreviousGatewayForUpdate).mockResolvedValue(false);
+    expect(await validate(savedFailure)).toMatchObject({ ok: false });
   });
 
   it.each([

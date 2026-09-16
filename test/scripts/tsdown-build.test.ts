@@ -27,7 +27,7 @@ import {
   resolveTsdownBuildInvocation,
   resolveTsdownBuildInvocations,
   resolveTsdownBuildPlan,
-  resolveStagedSdkDeclarationConcurrency,
+  resolveStagedDeclarationConcurrency,
   resolveTsdownCleanOutputRoots,
   runTsdownBuild,
   runTsdownBuildInvocation as runTsdownBuildInvocationImpl,
@@ -2882,11 +2882,15 @@ describe("runTsdownBuildInvocation", () => {
   );
 });
 
-describe("staged SDK declaration admission", () => {
+describe("staged declaration admission", () => {
   const GiB = 1024 ** 3;
   const groups = TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS.map((name) => ({
     name,
     maxOldSpaceMb: 12288,
+  }));
+  const unequalGroups = TSDOWN_NON_SDK_DTS_CONFIG_GROUPS.map((name, index) => ({
+    name,
+    maxOldSpaceMb: [2048, 3072, 4096, 12288, 6144, 10240][index]!,
   }));
   const capacity = {
     platform: "linux",
@@ -2914,6 +2918,18 @@ describe("staged SDK declaration admission", () => {
       expected: 1,
     },
     {
+      name: "six groups at the two largest heaps plus headroom",
+      selected: unequalGroups,
+      facts: { availableMemoryBytes: 23.5 * GiB },
+      expected: 2,
+    },
+    {
+      name: "six groups one byte below the two largest heaps plus headroom",
+      selected: unequalGroups,
+      facts: { availableMemoryBytes: 23.5 * GiB - 1 },
+      expected: 1,
+    },
+    {
       name: "sixteen GiB cgroup despite explicit override",
       facts: { cgroupMemoryLimitBytes: 16 * GiB },
       expected: 1,
@@ -2930,12 +2946,10 @@ describe("staged SDK declaration admission", () => {
     },
     { name: "one delivered CPU", facts: { availableParallelism: 1 }, expected: 1 },
     { name: "unknown available memory", facts: { availableMemoryBytes: Number.NaN }, expected: 1 },
-  ])("uses actual capacity for $name", ({ facts, expected }) => {
-    const before = structuredClone(groups);
-    expect(resolveStagedSdkDeclarationConcurrency(groups, { ...capacity, ...facts })).toBe(
-      expected,
-    );
-    expect(groups).toEqual(before);
+  ])("uses actual capacity for $name", ({ facts, expected, selected = groups }) => {
+    const before = structuredClone(selected);
+    expect(resolveStagedDeclarationConcurrency(selected, { ...capacity, ...facts })).toBe(expected);
+    expect(selected).toEqual(before);
   });
 
   it.each([
@@ -3002,7 +3016,7 @@ describe("staged SDK declaration admission", () => {
         cgroupMemoryLimitPaths: [`/test/${limit}`],
         fs: createMemoryFileSystem(files),
       };
-      expect(resolveStagedSdkDeclarationConcurrency(groups, facts)).toBe(expected);
+      expect(resolveStagedDeclarationConcurrency(groups, facts)).toBe(expected);
       expect(resolveTsdownBuildPlan({ ...facts, env: {} }).maxOldSpaceMb).toBe(12288);
       expect(resolveTsdownBuildPlan(facts).maxOldSpaceMb).toBe(49152);
     },
@@ -3020,7 +3034,7 @@ describe("staged SDK declaration admission", () => {
         ]),
       ),
     };
-    expect(resolveStagedSdkDeclarationConcurrency(groups, facts)).toBe(1);
+    expect(resolveStagedDeclarationConcurrency(groups, facts)).toBe(1);
     expect(resolveTsdownBuildPlan({ ...facts, env: {} }).maxOldSpaceMb).toBe(12288);
   });
 
@@ -3029,12 +3043,17 @@ describe("staged SDK declaration admission", () => {
     { name: "one miss", selected: groups.slice(0, 1) },
     { name: "repeated partition", selected: [groups[0]!, groups[0]!] },
     {
-      name: "other declaration groups",
+      name: "mixed SDK and base groups",
       selected: [groups[0]!, { name: "openclaw-dts-base", maxOldSpaceMb: 12288 }],
+      expected: 2,
     },
-    { name: "three programs", selected: [...groups, groups[0]!] },
-  ])("keeps $name serial", ({ selected }) => {
-    expect(resolveStagedSdkDeclarationConcurrency(selected, capacity)).toBe(1);
+    {
+      name: "unknown declaration group",
+      selected: [groups[0]!, { name: "unknown-declaration", maxOldSpaceMb: 12288 }],
+    },
+    { name: "duplicate among three programs", selected: [...groups, groups[0]!] },
+  ])("bounds admission for $name", ({ selected, expected = 1 }) => {
+    expect(resolveStagedDeclarationConcurrency(selected, capacity)).toBe(expected);
   });
 
   it("does not use an explicit heap to conceal an unresolved cgroup", () => {
@@ -3048,7 +3067,7 @@ describe("staged SDK declaration admission", () => {
       ]),
     );
     expect(
-      resolveStagedSdkDeclarationConcurrency(groups, {
+      resolveStagedDeclarationConcurrency(groups, {
         ...capacity,
         cgroupMemoryLimitPaths: undefined,
         fs: memoryFs,

@@ -163,7 +163,6 @@ export type ContextState = {
 export const pageStates = new WeakMap<Page, PageState>();
 export const contextStates = new WeakMap<BrowserContext, ContextState>();
 export const observedContexts = new WeakSet<BrowserContext>();
-export const observedPages = new WeakSet<Page>();
 
 export const MAX_CONSOLE_MESSAGES = 500;
 export const MAX_PAGE_ERRORS = 200;

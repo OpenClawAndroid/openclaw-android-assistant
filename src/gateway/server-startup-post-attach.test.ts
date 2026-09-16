@@ -3010,47 +3010,48 @@ describe("startGatewayPostAttachRuntime", () => {
     );
   });
 
-  it("emits a startup trace span when channel startup is skipped", async () => {
-    const trace = createStartupTraceRecorder();
-    const logChannels = { info: vi.fn(), error: vi.fn() };
-    const prewarmPrimaryModel = vi.fn(async () => {});
-    const onChannelsStarted = vi.fn();
+  it.each([undefined, "1"])(
+    "publishes models and traces skipped channels with prewarm flag %s",
+    async (skipPrewarm) => {
+      const trace = createStartupTraceRecorder();
+      const logChannels = { info: vi.fn(), error: vi.fn() };
+      const onChannelsStarted = vi.fn();
 
-    await withEnvAsync(
-      { OPENCLAW_SKIP_CHANNELS: "1", OPENCLAW_SKIP_PROVIDERS: undefined },
-      async () => {
-        await startGatewaySidecars({
-          cfg: {
-            hooks: { internal: { enabled: false } },
-            agents: { defaults: { model: "openai/gpt-5.6" } },
-          } as never,
-          pluginRegistry: createPostAttachParams().pluginRegistry,
-          defaultWorkspaceDir: testState.workspaceDir,
-          deps: {} as never,
-          startChannels: vi.fn(async () => {}),
-          log: { warn: vi.fn() },
-          logHooks: createInfoWarnErrorLogger(),
-          logChannels,
-          startupTrace: trace.startupTrace,
-          prewarmPrimaryModel,
-          onChannelsStarted,
-        });
-      },
-    );
+      await withEnvAsync(
+        {
+          OPENCLAW_SKIP_CHANNELS: "1",
+          OPENCLAW_SKIP_PROVIDERS: undefined,
+          OPENCLAW_SKIP_STARTUP_MODEL_PREWARM: skipPrewarm,
+        },
+        async () => {
+          await startGatewaySidecars({
+            cfg: {
+              hooks: { internal: { enabled: false } },
+              agents: { defaults: { model: "openai/gpt-5.6" } },
+            } as never,
+            pluginRegistry: createPostAttachParams().pluginRegistry,
+            defaultWorkspaceDir: testState.workspaceDir,
+            deps: {} as never,
+            startChannels: vi.fn(async () => {}),
+            log: { warn: vi.fn() },
+            logHooks: createInfoWarnErrorLogger(),
+            logChannels,
+            startupTrace: trace.startupTrace,
+            onChannelsStarted,
+          });
+        },
+      );
 
-    await waitForGatewayTestState(() => {
-      expect(prewarmPrimaryModel).toHaveBeenCalledOnce();
-    });
-    expect(trace.measures).toContain("sidecars.channels");
-    expect(trace.measures).toContain("sidecars.channel-skip");
-    expect(prewarmPrimaryModel).toHaveBeenCalledWith(
-      expect.objectContaining({ startupTrace: trace.startupTrace }),
-    );
-    expect(logChannels.info).toHaveBeenCalledWith(
-      "skipping channel start (OPENCLAW_SKIP_CHANNELS=1 or OPENCLAW_SKIP_PROVIDERS=1)",
-    );
-    expect(onChannelsStarted).toHaveBeenCalledOnce();
-  });
+      expect(hoisted.refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledOnce();
+      expect(trace.measures).toContain("sidecars.model-runtime");
+      expect(trace.measures).toContain("sidecars.channels");
+      expect(trace.measures).toContain("sidecars.channel-skip");
+      expect(logChannels.info).toHaveBeenCalledWith(
+        "skipping channel start (OPENCLAW_SKIP_CHANNELS=1 or OPENCLAW_SKIP_PROVIDERS=1)",
+      );
+      expect(onChannelsStarted).toHaveBeenCalledOnce();
+    },
+  );
 
   it("continues startup tracing after a recovered channel startup error", async () => {
     const trace = createStartupTraceRecorder();
@@ -3186,7 +3187,6 @@ describe("startGatewayPostAttachRuntime", () => {
     const publication = testing.publishConfiguredModelRuntimeSnapshots({
       cfg: initialConfig,
       getConfig: () => currentConfig,
-      log: { warn: vi.fn() },
     } as never);
     currentConfig = nextConfig;
     await publication;
@@ -3232,7 +3232,6 @@ describe("startGatewayPostAttachRuntime", () => {
     const publication = testing.publishConfiguredModelRuntimeSnapshots({
       cfg: {},
       isCurrent: () => current,
-      log: { warn: vi.fn() },
     } as never);
     current = false;
 
@@ -3265,7 +3264,6 @@ describe("startGatewayPostAttachRuntime", () => {
         return {};
       },
       isCurrent: () => current,
-      log: { warn: vi.fn() },
     } as never);
 
     await configStarted.promise;
@@ -3278,7 +3276,7 @@ describe("startGatewayPostAttachRuntime", () => {
 
   it("prepares the model runtime with the active Gateway plugin registry", async () => {
     const pluginRegistry = createPostAttachParams().pluginRegistry;
-    const prewarmPrimaryModel = vi.fn(async () => {
+    hoisted.refreshPreparedModelRuntimeSnapshots.mockImplementationOnce(async () => {
       expect(getPluginRuntimeGatewayRequestScope()?.pluginRegistry).toBe(pluginRegistry);
     });
 
@@ -3291,17 +3289,16 @@ describe("startGatewayPostAttachRuntime", () => {
       log: { warn: vi.fn() },
       logHooks: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       logChannels: { info: vi.fn(), error: vi.fn() },
-      prewarmPrimaryModel,
     });
 
-    expect(prewarmPrimaryModel).toHaveBeenCalledOnce();
+    expect(hoisted.refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledOnce();
     expect(getPluginRuntimeGatewayRequestScope()).toBeUndefined();
   });
 
   it("marks startup main-session orphans before model runtime and channel startup", async () => {
     const events: string[] = [];
     let releaseMarking: (() => void) | undefined;
-    const prewarmPrimaryModel = vi.fn(async () => {
+    hoisted.refreshPreparedModelRuntimeSnapshots.mockImplementationOnce(async () => {
       events.push("model-runtime");
     });
     const startChannels = vi.fn(async () => {
@@ -3324,7 +3321,6 @@ describe("startGatewayPostAttachRuntime", () => {
       defaultWorkspaceDir: testState.workspaceDir,
       deps: {} as never,
       startChannels,
-      prewarmPrimaryModel,
       log: { warn: vi.fn() },
       logHooks: createInfoWarnErrorLogger(),
       logChannels: createInfoErrorLogger(),
@@ -3347,7 +3343,7 @@ describe("startGatewayPostAttachRuntime", () => {
       "model-runtime",
       "channels",
     ]);
-    expect(prewarmPrimaryModel).toHaveBeenCalledTimes(1);
+    expect(hoisted.refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledTimes(1);
     expect(startChannels).toHaveBeenCalledTimes(1);
     expect(hoisted.scheduleRestartAbortedMainSessionRecovery).not.toHaveBeenCalled();
   });
@@ -3361,7 +3357,6 @@ describe("startGatewayPostAttachRuntime", () => {
           releaseMarking = () => resolve({ marked: 0, skipped: 0 });
         }),
     );
-    const prewarmPrimaryModel = vi.fn(async () => {});
     const sidecars = startGatewaySidecars({
       cfg: {},
       pluginRegistry: createPostAttachParams().pluginRegistry,
@@ -3371,7 +3366,6 @@ describe("startGatewayPostAttachRuntime", () => {
       log: { warn: vi.fn() },
       logHooks: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       logChannels: { info: vi.fn(), error: vi.fn() },
-      prewarmPrimaryModel,
       pluginRuntimeClaim: {
         isCurrent: () => current,
         waitForUnblocked: async () => current,
@@ -3384,7 +3378,7 @@ describe("startGatewayPostAttachRuntime", () => {
 
     await sidecars;
 
-    expect(prewarmPrimaryModel).not.toHaveBeenCalled();
+    expect(hoisted.refreshPreparedModelRuntimeSnapshots).not.toHaveBeenCalled();
   });
 
   it("awaits reply runtime after model publication and before channels and readiness", async () => {
@@ -3476,9 +3470,7 @@ describe("startGatewayPostAttachRuntime", () => {
   it("marks startup main-session orphans before propagating model runtime failure", async () => {
     const modelRuntimeError = new Error("model runtime unavailable");
     const startChannels = vi.fn(async () => {});
-    const prewarmPrimaryModel = vi.fn(async () => {
-      throw modelRuntimeError;
-    });
+    hoisted.refreshPreparedModelRuntimeSnapshots.mockRejectedValueOnce(modelRuntimeError);
     hoisted.markStartupOrphanedMainSessionsForRecovery.mockResolvedValueOnce({
       marked: 1,
       skipped: 0,
@@ -3491,7 +3483,6 @@ describe("startGatewayPostAttachRuntime", () => {
         defaultWorkspaceDir: testState.workspaceDir,
         deps: {} as never,
         startChannels,
-        prewarmPrimaryModel,
         log: { warn: vi.fn() },
         logHooks: createInfoWarnErrorLogger(),
         logChannels: createInfoErrorLogger(),
@@ -3499,7 +3490,7 @@ describe("startGatewayPostAttachRuntime", () => {
     ).rejects.toBe(modelRuntimeError);
 
     expect(hoisted.markStartupOrphanedMainSessionsForRecovery).toHaveBeenCalledTimes(1);
-    expect(prewarmPrimaryModel).toHaveBeenCalledTimes(1);
+    expect(hoisted.refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledTimes(1);
     expect(startChannels).not.toHaveBeenCalled();
   });
 

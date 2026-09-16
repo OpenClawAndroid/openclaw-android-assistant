@@ -28,10 +28,8 @@ import {
   type ClaudeCliFallbackSeed,
   readClaudeCliFallbackSeed,
 } from "../../gateway/cli-session-history.js";
-import {
-  buildAgentRunTerminalReplySnapshot,
-  type AgentRunTerminalReplySnapshot,
-} from "../agent-run-terminal-reply.js";
+import { buildAgentRunTerminalReplySnapshot } from "../agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../agent-run-terminal-reply.types.js";
 import { cliBackendLog } from "../cli-runner/log.js";
 import { resolveClaudeCliProjectDirForWorkspace } from "./claude-cli-project-dir.js";
 

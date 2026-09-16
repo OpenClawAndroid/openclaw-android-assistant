@@ -41,7 +41,8 @@ export async function attemptServerEndpointCompaction(params: {
   if (
     params.trigger === "overflow" ||
     params.customInstructions?.trim() ||
-    !resolveOpenAIResponsesCompactEndpointPlan(params.model, params.extraParams).enabled
+    !resolveOpenAIResponsesCompactEndpointPlan(params.model, params.extraParams, params.trigger)
+      .enabled
   ) {
     return undefined;
   }

@@ -223,6 +223,7 @@ class SessionsPage extends OpenClawLightDomElement {
         return initialState;
       }
       const {
+        sessions,
         results,
         indexing = false,
         truncated = false,
@@ -237,7 +238,7 @@ class SessionsPage extends OpenClawLightDomElement {
         resolveAgentId: (sessionKey) =>
           parseAgentSessionKey(sessionKey)?.agentId ?? this.sessionAgentId(sessionKey, context),
       });
-      return { results, indexing, truncated, archivedTranscriptsExcluded };
+      return { sessions, results, indexing, truncated, archivedTranscriptsExcluded };
     },
   });
 

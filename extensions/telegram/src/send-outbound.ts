@@ -181,7 +181,7 @@ export async function finalizeTelegramOutbound(params: {
 }): Promise<TelegramSendResult> {
   const { cfg, account, ownerAgentId } = params.context;
   const messageId = resolveTelegramMessageIdOrThrow(params.result, params.resultContext);
-  recordSentMessage(params.prepared.chatId, messageId, cfg, {
+  await recordSentMessage(params.prepared.chatId, messageId, cfg, {
     accountId: account.accountId,
     agentId: ownerAgentId,
   });

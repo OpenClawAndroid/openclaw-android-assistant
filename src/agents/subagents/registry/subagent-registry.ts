@@ -45,7 +45,10 @@ import {
   createSubagentRunManager,
   type RegisterSubagentRunParams,
 } from "./subagent-registry-run-manager.js";
-import { clearSubagentRunsReadCacheForTest } from "./subagent-registry-state.js";
+import {
+  clearSubagentRunsReadCacheForTest,
+  invalidateSubagentSessionListReadCache,
+} from "./subagent-registry-state.js";
 import { SUBAGENT_SUSPENDED_DELIVERY_HARD_CAP } from "./subagent-registry-suspended-delivery.js";
 import { resolveSubagentTaskForRun } from "./subagent-registry-sweep-kill.js";
 import {
@@ -383,6 +386,7 @@ const subagentRestorer = createSubagentRegistryRestorer({
     if (!lifecycleGatewayContextResolver?.()) {
       return false;
     }
+    let rebound = false;
     for (let entry of subagentRuns.values()) {
       const resolver = getGatewayContextResolver(entry);
       if (resolver) {
@@ -393,6 +397,10 @@ const subagentRestorer = createSubagentRegistryRestorer({
         // Claim a fresh owner; never revive a retained row or an active child turn.
         entry = structuredClone(entry);
         subagentRuns.set(entry.runId, entry);
+      }
+      if (!rebound) {
+        invalidateSubagentSessionListReadCache();
+        rebound = true;
       }
       bindGatewayContextResolver(entry, lifecycleGatewayContextResolver);
       subagentRuns.commitOwnership(entry);
@@ -570,6 +578,8 @@ export function adoptPausedSubagentRunForFollowUp(params: {
   childSessionKey: string;
   runId: string;
   task: string;
+  /** Exact paused owner captured by explicit task-resume admission. */
+  expected?: SubagentRunRecord;
   gatewayContextResolver?: GatewayContextResolver;
 }): boolean {
   const childSessionKey = params.childSessionKey.trim();
@@ -585,7 +595,7 @@ export function adoptPausedSubagentRunForFollowUp(params: {
     childSessionKey,
     (entry) => entry.pauseReason === "sessions_yield",
   );
-  if (!paused) {
+  if (!paused || (params.expected && paused !== params.expected)) {
     return false;
   }
   return subagentRunManager.replaceSubagentRunAfterSteer({

@@ -198,6 +198,15 @@ Quality stays separate from security so quality findings can be scheduled, measu
 
 ## Maintenance workflows
 
+### Comment automation
+
+Comment jobs reject known no-ops before acquiring a hosted runner. Maintainer
+Command Reactions skips comments without `/` only when using its default command
+list; any nonempty `MAINTAINER_COMMAND_REACTIONS` override retains the full matcher,
+including commands without slashes. Auto response skips Bot-authored issue
+comments that Barnacle already ignores. Other issue and PR events retain their
+existing admission rules, including meaningful automation-authored updates.
+
 ### Dependency Audit
 
 `Dependency Audit` runs the production lockfile audit daily at 07:23 UTC and on

@@ -80,9 +80,28 @@ export function createSessionCapability(
     groupSettings: cacheOptions.bootRecord?.groups ?? [],
     sectionOrder: cacheOptions.bootRecord?.sectionOrder ?? [],
   };
+  let presentation: SessionCapability["presentation"] = { result: null, agentId: null };
+  let reconnectListRevision: number | null = null;
+  let presentationProfileId =
+    gateway.snapshot.phase === "connected"
+      ? (gateway.snapshot.selfUser?.id.trim() ?? null)
+      : cacheOptions.bootRecord?.profileId;
+  const retirePresentation = () => {
+    if (presentation.result || state.result || reconnectListRevision !== null) {
+      reconnectListRevision = canonicalListRevision + 1;
+    }
+    presentation = { result: null, agentId: null };
+  };
   const cacheLifecycle = createSessionRosterCacheLifecycle(gateway, agentSelection, cacheOptions, {
     readState: () => state,
-    publish: (next) => publish(next),
+    publish: (next) => {
+      // Cache admission and retirement already own credential/profile boundaries.
+      retirePresentation();
+      if (next.resultCached) {
+        presentation = { result: next.result, agentId: next.agentId, resultCached: true };
+      }
+      publish(next);
+    },
     connected: () => connection.capture() !== null,
     query: () => roster.lastOptions(),
   });
@@ -116,6 +135,12 @@ export function createSessionCapability(
   let sessionEventSubscriptionError: string | null = null;
   let publishedErrorSource: "session-observer" | "operation" | null = null;
 
+  const notifySubscribers = () => {
+    for (const listener of listeners) {
+      listener(state);
+    }
+  };
+
   const publish = (next: SessionState, errorSource?: "session-observer" | "operation") => {
     if (next.error === null) {
       publishedErrorSource = null;
@@ -124,11 +149,19 @@ export function createSessionCapability(
     }
     roster.bindOwner(next.result, next.agentId);
     state = next;
+    if (reconnectListRevision === null || canonicalListRevision >= reconnectListRevision) {
+      presentation = {
+        result: next.result,
+        agentId: next.agentId,
+        resultCached: next.resultCached,
+      };
+      if (!next.resultCached) {
+        reconnectListRevision = null;
+      }
+    }
     githubPublication.observeRows(next.result?.sessions ?? [], next.agentId);
     cacheLifecycle.persist(next);
-    for (const listener of listeners) {
-      listener(state);
-    }
+    notifySubscribers();
   };
 
   const retirePullRequestSummary = (key: string) => {
@@ -406,6 +439,18 @@ export function createSessionCapability(
     const connected = next.phase === "connected";
     const selfUserId = next.selfUser?.id.trim() || null;
     const connectionChanged = connection.transition(next);
+    if (connected) {
+      if (presentationProfileId !== undefined && presentationProfileId !== selfUserId) {
+        retirePresentation();
+        notifySubscribers();
+      }
+      presentationProfileId = selfUserId;
+    } else if (!next.client) {
+      retirePresentation();
+    } else if (presentation.result && reconnectListRevision === null) {
+      // Keep the paired presentation through partial startup reads until the canonical list lands.
+      reconnectListRevision = canonicalListRevision + 1;
+    }
     roster.observeGateway(next, connectionChanged);
     cacheLifecycle.synchronize(next);
     connectionClient = next.client;
@@ -485,6 +530,8 @@ export function createSessionCapability(
       return;
     }
     selectedAgentId = nextAgentId;
+    retirePresentation();
+    notifySubscribers();
     // Selection publishes before Gateway hydration. A new connection bootstraps
     // the current selection; route changes on a hydrated connection replace its roster.
     if (nextAgentId && hydratedClient === gateway.snapshot.client) {
@@ -581,6 +628,9 @@ export function createSessionCapability(
     get state() {
       return state;
     },
+    get presentation() {
+      return presentation;
+    },
     get canonicalListRevision() {
       return canonicalListRevision;
     },
@@ -659,6 +709,7 @@ export function createSessionCapability(
       return () => listeners.delete(listener);
     },
     dispose() {
+      retirePresentation();
       cacheLifecycle.dispose();
       githubPublication.clear();
       roster.dispose();

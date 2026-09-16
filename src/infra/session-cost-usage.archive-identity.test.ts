@@ -8,6 +8,10 @@ import {
   readSessionArchiveContentSync,
 } from "../config/sessions/archive-compression.js";
 import {
+  formatSqliteSessionFileMarker,
+  parseSqliteSessionFileMarker,
+} from "../config/sessions/legacy-sqlite-marker.js";
+import {
   deleteSessionEntryLifecycle,
   loadSessionEntry,
   persistSessionTranscriptTurn,
@@ -18,6 +22,7 @@ import { resolveSessionColdArchivePath } from "../config/sessions/session-cold-s
 import { readSessionColdTranscript } from "../config/sessions/session-cold-storage-state.js";
 import { runSessionColdStorageMaintenance } from "../config/sessions/session-cold-storage.js";
 import type { AssistantMessage } from "../llm/types.js";
+import { AsyncWorkScope } from "../shared/async-work-scope.js";
 import type { DB } from "../state/openclaw-agent-db.generated.js";
 import {
   openOpenClawAgentDatabase,
@@ -148,6 +153,129 @@ describe("usage archive identity", () => {
     await state.cleanup();
   });
 
+  it.each(["shared.sqlite", "my-store.json", "shared-link.sqlite"])(
+    "keeps %s usage with its logical agent before and after archival",
+    async (storeName) => {
+      const storePath = state.statePath("custom", storeName);
+      if (storeName === "shared-link.sqlite") {
+        const database = openOpenClawAgentDatabase({ agentId: "main", env: state.env });
+        await fs.mkdir(path.dirname(storePath), { recursive: true });
+        await fs.symlink(database.path, storePath);
+      }
+      const scopedConfig = {
+        ...config,
+        session: { store: storePath },
+      };
+      await state.writeConfig(scopedConfig);
+      const fixtures = [
+        { agentId: "main", sessionId: "main-usage", tokens: 17 },
+        { agentId: "ops", sessionId: "ops-usage", tokens: 29 },
+      ];
+      for (const fixture of fixtures) {
+        const scope = {
+          ...fixture,
+          sessionKey: `agent:${fixture.agentId}:usage`,
+          storePath,
+        };
+        await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: archiveTime });
+        await persistSessionTranscriptTurn(scope, {
+          messages: [{ message: assistant(fixture.tokens) }],
+        });
+      }
+      for (const archived of [false, true]) {
+        if (archived) {
+          for (const { agentId } of fixtures) {
+            const sessionKey = `agent:${agentId}:usage`;
+            await deleteSessionEntryLifecycle({
+              agentId,
+              storePath,
+              archiveTranscript: true,
+              target: { canonicalKey: sessionKey, storeKeys: [sessionKey] },
+            });
+          }
+        }
+        for (const { agentId, sessionId, tokens } of fixtures) {
+          const files = await listUsageCountedTranscriptStats(agentId);
+          expect(files).toEqual([
+            expect.objectContaining({ sessionId, kind: archived ? "jsonl" : "sqlite" }),
+          ]);
+          if (!archived) {
+            expect(parseSqliteSessionFileMarker(files[0]?.filePath)).toMatchObject({ agentId });
+          }
+          expect(
+            await loadCostUsageSummary({
+              agentId,
+              config: scopedConfig,
+              startMs: 0,
+              endMs: Date.now(),
+            }),
+          ).toMatchObject({ totals: { totalTokens: tokens } });
+        }
+      }
+      const legacy = transcript(11);
+      const legacyPath = path.join(
+        path.dirname(storePath),
+        `${legacy.getSessionId()}.jsonl.reset.${archiveStamp}`,
+      );
+      await fs.writeFile(legacyPath, serialize(legacy));
+      for (const { agentId, sessionId, tokens } of fixtures) {
+        const files = await listUsageCountedTranscriptStats(agentId);
+        expect(files).toHaveLength(2);
+        expect(new Set(files.map((file) => file.sessionId))).toEqual(
+          new Set([sessionId, legacy.getSessionId()]),
+        );
+        expect(
+          await loadCostUsageSummary({
+            agentId,
+            config: scopedConfig,
+            startMs: 0,
+            endMs: Date.now(),
+          }),
+        ).toMatchObject({ totals: { totalTokens: tokens + 11 } });
+      }
+    },
+  );
+
+  it.each(["default", "runtime", "request"] as const)(
+    "refreshes retained rollups in the %s-configured store",
+    async (source) => {
+      const storePath =
+        source === "default"
+          ? path.join(state.sessionsDir(), "sessions.json")
+          : state.statePath("custom.sqlite");
+      const scopedConfig = { ...config, session: { store: storePath } };
+      if (source !== "request") {
+        await state.writeConfig(scopedConfig);
+      }
+      const scope = {
+        agentId: "main",
+        sessionId: "refresh-usage",
+        sessionKey: "agent:main:refresh-usage",
+        storePath,
+      };
+      await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: archiveTime });
+      await persistSessionTranscriptTurn(scope, { messages: [{ message: assistant(17) }] });
+      const params = { agentId: "main", config: scopedConfig, startMs: 0, endMs: Date.now() };
+      expect(
+        await loadCostUsageSummaryFromCache({ ...params, refreshMode: "sync-when-empty" }),
+      ).toMatchObject({ totals: { totalTokens: 17 }, cacheStatus: { status: "fresh" } });
+      await persistSessionTranscriptTurn(scope, { messages: [{ message: assistant(29) }] });
+      const work = new AsyncWorkScope();
+      try {
+        await work.track(() =>
+          loadCostUsageSummaryFromCache({ ...params, refreshMode: "background" }),
+        );
+        await work.runWhenIdle(() => undefined);
+        expect(
+          await loadCostUsageSummaryFromCache({ ...params, requestRefresh: false }),
+        ).toMatchObject({ totals: { totalTokens: 46 }, cacheStatus: { status: "fresh" } });
+        expect(readSessionCostUsageRollupRows("main")).toHaveLength(1);
+      } finally {
+        await work.drain();
+      }
+    },
+  );
+
   it("keeps cold usage inventory cheap, restores for scanning, and reports a missing archive", async () => {
     const scope = {
       agentId: "main",
@@ -188,8 +316,19 @@ describe("usage archive identity", () => {
       messages: [{ message: assistant(17) }],
       touchSessionEntry: false,
     });
+    const hotScope = { ...scope, sessionId: "hot-usage", sessionKey: "agent:main:hot-usage" };
+    await upsertSessionEntryCore(hotScope, {
+      sessionId: hotScope.sessionId,
+      updatedAt: Date.now(),
+    });
+    await persistSessionTranscriptTurn(hotScope, { messages: [{ message: assistant(19) }] });
     await replaceSessionEntry(scope, { sessionId: "current-usage", updatedAt: Date.now() });
     await ageTranscript(scope);
+    await loadSessionCostSummary({
+      agentId: "main",
+      config,
+      sessionFile: formatSqliteSessionFileMarker(hotScope),
+    });
     const before = (await listUsageCountedTranscriptStats("main")).find(
       (file) => file.sessionId === scope.sessionId,
     )!;
@@ -204,6 +343,24 @@ describe("usage archive identity", () => {
     ).toEqual(before);
     const database = openOpenClawAgentDatabase({ agentId: "main", env: state.env });
     expect(readSessionColdTranscript(database.db, scope.sessionId)).toBeDefined();
+    const sessions = [
+      before.filePath,
+      formatSqliteSessionFileMarker(hotScope),
+      formatSqliteSessionFileMarker(hotScope),
+      formatSqliteSessionFileMarker({ ...scope, sessionId: "absent" }),
+    ].map((sessionFile) => ({ sessionFile }));
+    expect(
+      await loadSessionCostSummariesFromCache({
+        agentId: "main",
+        config,
+        sessions,
+        requestRefresh: false,
+      }),
+    ).toMatchObject({
+      summaries: [null, { totalTokens: 19 }, { totalTokens: 19 }, null],
+      cacheStatus: { cachedFiles: 2, pendingFiles: 2 },
+    });
+    expect(readSessionColdTranscript(database.db, scope.sessionId)).toBeDefined();
     expect(
       await loadCostUsageSummary({
         agentId: "main",
@@ -211,7 +368,7 @@ describe("usage archive identity", () => {
         startMs: 0,
         endMs: Date.now() + 86_400_000,
       }),
-    ).toMatchObject({ totals: { totalTokens: 17 } });
+    ).toMatchObject({ totals: { totalTokens: 36 } });
     expect(readSessionColdTranscript(database.db, scope.sessionId)).toBeUndefined();
     const rollups = readSessionCostUsageRollupRows("main");
     const missingScope = {

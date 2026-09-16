@@ -381,7 +381,7 @@ export async function linkOpenClawPeerDependencies(params: {
 }
 
 /**
- * Repair only npm-owned legacy installs named by the authoritative install ledger.
+ * Repair registry-owned installs named by the authoritative install ledger.
  * Local/path installs and symlink escapes remain developer-owned and are never mutated.
  */
 export async function reconcileRegisteredOpenClawHostLinks(params: {
@@ -407,7 +407,7 @@ export async function reconcileRegisteredOpenClawHostLinks(params: {
   for (const [pluginId, record] of Object.entries(params.installRecords).toSorted(
     ([left], [right]) => left.localeCompare(right),
   )) {
-    if (record.source !== "npm" || !record.installPath?.trim()) {
+    if ((record.source !== "npm" && record.source !== "clawhub") || !record.installPath?.trim()) {
       continue;
     }
 

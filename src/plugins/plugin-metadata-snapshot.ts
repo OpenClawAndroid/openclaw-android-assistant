@@ -55,6 +55,7 @@ import { createPluginRegistryIdNormalizer } from "./plugin-registry-id-normalize
 import { loadPluginRegistrySnapshotWithMetadata } from "./plugin-registry-snapshot.js";
 import { normalizePluginIdScope, serializePluginIdScope } from "./plugin-scope.js";
 import { buildDeclaredProviderOwnerIndex } from "./provider-owner-index.js";
+import { registerProviderPolicyOwnerIndexes } from "./provider-policy-owners.js";
 
 const MAX_PLUGIN_METADATA_PROJECTIONS = 64;
 export type {
@@ -129,6 +130,8 @@ export function finalizePluginMetadataSnapshot(
 ): PluginMetadataSnapshot {
   freezeSnapshotValue(snapshot);
   bindPluginMetadataSnapshotCache(snapshot);
+  const cache = getPluginMetadataSnapshotCache(snapshot);
+  registerProviderPolicyOwnerIndexes(snapshot, cache);
   return snapshot;
 }
 
@@ -354,6 +357,7 @@ export function projectPluginMetadataSnapshot(
     pluginIds: selectedIds,
   });
   bindPluginMetadataSnapshotCache(projected, cache);
+  registerProviderPolicyOwnerIndexes(projected, cache);
   cache.metadata.projectionSources.set(projected, snapshot);
   selections.set(key, projected);
   // Request-specific selections may be unbounded; evicting a view never discards package facts.

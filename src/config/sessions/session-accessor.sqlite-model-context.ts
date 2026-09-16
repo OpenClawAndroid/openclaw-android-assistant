@@ -4,7 +4,9 @@ import { sql } from "kysely";
 import {
   iterateSessionContextEntries,
   iterateSessionContextMessages,
+  projectSessionEntryMessage,
 } from "../../../packages/agent-core/src/harness/session/session.js";
+import { classifyToolUseResultPairing } from "../../../packages/agent-core/src/harness/session/tool-result-pairing.js";
 import {
   executeSqliteQueryTakeFirstSync,
   iterateSqliteQuerySync,
@@ -46,12 +48,14 @@ import {
 export type { SessionTranscriptContextVersion } from "./session-accessor.sqlite-transcript-state.js";
 
 type ContextEntry = SessionTreeEntry & { seq: number };
+export type SessionModelContextLimits = { maxBytes: number; maxEvents: number };
 type ModelContextRequest = { entry: ContextEntry; omitCheckpoint: boolean };
 type TranscriptContextSnapshot = {
   header: TranscriptEvent;
   entries: ContextEntry[];
   version: SessionTranscriptContextVersion;
   readEntry: (entry: ContextEntry) => SessionTreeEntry;
+  readModelEntrySizes: (requests: readonly ModelContextRequest[]) => Map<ContextEntry, number>;
   readModelEntries: (
     requests: readonly ModelContextRequest[],
   ) => Map<ContextEntry, SessionTreeEntry>;
@@ -149,17 +153,107 @@ export function validateSessionTranscriptContextAdmission(
   }
 }
 
+/** Select an owned suffix before SQLite payloads can enter JavaScript or cross a worker. */
+function selectBoundedModelRequests(
+  requests: ModelContextRequest[],
+  sizes: Map<ContextEntry, number>,
+  limits: SessionModelContextLimits,
+): ModelContextRequest[] {
+  const boundary = requests.find(
+    ({ entry }) => entry.type === "compaction" || entry.type === "reset",
+  );
+  const candidates = requests.filter((request) => request !== boundary);
+  let bytes = boundary ? sizes.get(boundary.entry)! : 0;
+  let events = boundary ? 1 : 0;
+  if (bytes > limits.maxBytes || events > limits.maxEvents) {
+    throw new RangeError("Required session context boundary exceeds the model-context limit");
+  }
+  let cut = candidates.length;
+  for (const request of candidates.toReversed()) {
+    const size = sizes.get(request.entry)!;
+    if (bytes + size > limits.maxBytes || events + 1 > limits.maxEvents) {
+      break;
+    }
+    bytes += size;
+    events += 1;
+    cut -= 1;
+  }
+  if (cut === 0) {
+    return requests;
+  }
+  const messages = candidates.flatMap(({ entry }) => {
+    const message = entry.type === "message" ? entry.message : projectSessionEntryMessage(entry);
+    return message ? [message] : [];
+  });
+  const positions = new Map<AgentMessage, number>();
+  for (const [index, { entry }] of candidates.entries()) {
+    if (entry.type === "message") {
+      positions.set(entry.message, index);
+    }
+  }
+  const original = classifyToolUseResultPairing(messages);
+  const owners = new Map<AgentMessage, AgentMessage>();
+  // Occurrence ownership, including displaced results, forbids cuts through a tool frame.
+  // Frames are ordered by their assistant, so advancing the cut needs only one pass.
+  for (const frame of original.frames) {
+    const start = positions.get(frame.assistant)!;
+    for (const occurrence of frame.occurrences) {
+      if (occurrence.sourceResult) {
+        owners.set(occurrence.sourceResult, frame.assistant);
+        const end = positions.get(occurrence.sourceResult)!;
+        if (start < cut && cut <= end) {
+          cut = end + 1;
+        }
+      }
+    }
+  }
+  if (cut === candidates.length) {
+    throw new RangeError(
+      "Newest session context cannot fit the model-context limit without splitting a tool frame",
+    );
+  }
+  const selected = candidates.slice(cut);
+  const selectedMessages = selected.flatMap(({ entry }) =>
+    entry.type === "message" ? [entry.message] : [],
+  );
+  // Removing an older repeated ID must not turn an ambiguous result into a different call's result.
+  const selectedOwners = new Map<AgentMessage, AgentMessage>();
+  for (const frame of classifyToolUseResultPairing(selectedMessages).frames) {
+    for (const occurrence of frame.occurrences) {
+      if (occurrence.sourceResult) {
+        selectedOwners.set(occurrence.sourceResult, frame.assistant);
+      }
+    }
+  }
+  for (const message of selectedMessages) {
+    if (message.role === "toolResult" && owners.get(message) !== selectedOwners.get(message)) {
+      throw new RangeError("Session context limit would change tool-result ownership");
+    }
+  }
+  return boundary ? [boundary, ...selected] : selected;
+}
+
 /** Read a transient context without opening the writer lifecycle or copying native evidence. */
 export function readSessionTranscriptModelContext(
   scope: SessionTranscriptReadScope,
   through?: TranscriptEntryAnchor,
+  limits?: SessionModelContextLimits,
 ): {
   events: TranscriptEvent[];
   version?: SessionTranscriptContextVersion;
 } {
+  if (
+    limits &&
+    (!Number.isSafeInteger(limits.maxBytes) ||
+      limits.maxBytes <= 0 ||
+      !Number.isSafeInteger(limits.maxEvents) ||
+      limits.maxEvents <= 0)
+  ) {
+    throw new RangeError("Model-context byte and event limits must be positive safe integers");
+  }
   const result = withTranscriptContextSnapshot(
     scope,
-    ({ header, entries, readModelEntries, version }) => {
+    ({ header, entries, readModelEntries, readModelEntrySizes, version }) => {
       const requests: ModelContextRequest[] = [];
       for (const { entry, context } of iterateSessionContextEntries(entries)) {
         const omitCheckpoint =
@@ -169,7 +263,65 @@ export function readSessionTranscriptModelContext(
           isCompactionReplayCheckpoint(entry.message.providerReplay);
         requests.push({ entry, omitCheckpoint });
       }
-      const payloads = readModelEntries(requests);
+      const selected = limits
+        ? selectBoundedModelRequests(requests, readModelEntrySizes(requests), limits)
+        : requests;
+      const payloads = readModelEntries(selected);
+      if (limits) {
+        const model = entries.findLast(
+          (entry) =>
+            entry.type === "model_change" ||
+            (entry.type === "message" && entry.message.role === "assistant"),
+        );
+        const thinking = entries.findLast((entry) => entry.type === "thinking_level_change");
+        const detached = entries.flatMap((entry) => {
+          const payload = payloads.get(entry);
+          if (payload) {
+            return [payload];
+          }
+          if (entry === thinking || (entry === model && entry.type === "model_change")) {
+            return [entry];
+          }
+          if (entry === model && entry.type === "message" && entry.message.role === "assistant") {
+            return [
+              {
+                type: "model_change" as const,
+                id: entry.id,
+                parentId: entry.parentId,
+                timestamp: entry.timestamp,
+                provider: entry.message.provider,
+                modelId: entry.message.model,
+              },
+            ];
+          }
+          return [];
+        });
+        const boundaryIndex = detached.findIndex(
+          (entry) => entry.type === "compaction" || entry.type === "reset",
+        );
+        const boundary = detached[boundaryIndex];
+        if (boundary?.type === "compaction" || boundary?.type === "reset") {
+          boundary.firstKeptEntryId =
+            detached
+              .slice(0, boundaryIndex)
+              .find(
+                (entry) =>
+                  entry.type === "message" ||
+                  entry.type === "custom_message" ||
+                  entry.type === "branch_summary",
+              )?.id ?? boundary.id;
+        }
+        return {
+          events: [
+            ...(header ? [header] : []),
+            ...detached.map((entry, index) => {
+              entry.parentId = detached[index - 1]?.id ?? null;
+              return entry;
+            }),
+          ],
+          version,
+        };
+      }
       return {
         events: [
           ...(header ? [header] : []),
@@ -289,6 +441,35 @@ function withTranscriptContextSnapshot<T>(
                 ...(JSON.parse(row!.event_json) as SessionTreeEntry),
                 parentId: entry.parentId,
               };
+            },
+            readModelEntrySizes: (requests) => {
+              const sizes = new Map<ContextEntry, number>();
+              for (
+                let offset = 0;
+                offset < requests.length;
+                offset += MODEL_CONTEXT_PAYLOAD_BATCH_SIZE
+              ) {
+                const batch = requests.slice(offset, offset + MODEL_CONTEXT_PAYLOAD_BATCH_SIZE);
+                const bySeq = new Map(batch.map(({ entry }) => [entry.seq, entry]));
+                const omitted = batch
+                  .filter(({ omitCheckpoint }) => omitCheckpoint)
+                  .map(({ entry }) => entry.seq);
+                const query = base
+                  .select((eb) => {
+                    const projected = projectModelContextEventSql(
+                      eb.ref("event_json"),
+                      omitted.length
+                        ? eb.case().when("seq", "in", omitted).then(1).else(0).end()
+                        : eb.val(0),
+                    );
+                    return ["seq", eb.fn<number>("octet_length", [projected]).as("bytes")];
+                  })
+                  .where("seq", "in", [...bySeq.keys()]);
+                for (const row of iterateSqliteQuerySync(database.db, query)) {
+                  sizes.set(bySeq.get(row.seq)!, row.bytes);
+                }
+              }
+              return sizes;
             },
             readModelEntries: (requests) => {
               const payloads = new Map<ContextEntry, SessionTreeEntry>();

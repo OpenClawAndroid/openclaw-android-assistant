@@ -71,14 +71,8 @@ export function createManagedServiceManagerBoundary({
       await vi.importActual<typeof import("node:child_process")>("node:child_process");
     const { startManagedServiceUpdateHandoff } =
       await import("./update-managed-service-handoff.js");
-    const root = await fs.realpath(
-      await fs.mkdtemp(
-        path.join(
-          os.tmpdir(),
-          `openclaw-${kind}-manager-boundary-${options?.updaterOutput === "split-utf8" ? "安装-" : ""}`,
-        ),
-      ),
-    );
+    const prefix = `openclaw-${kind}-manager-boundary-${options?.updaterOutput === "split-utf8" ? "安装-" : ""}`;
+    const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));
     tempDirs.add(root);
     const commandsPath = path.join(root, "manager-commands.log");
     const statePath = path.join(root, "manager-state.json");
@@ -455,7 +449,6 @@ export function createManagedServiceManagerBoundary({
           // the updater's validation signal permits revocation or activation below.
           await waitForFile(validationStartedPath, DEFAULT_VITEST_TEST_TIMEOUT_MS);
           await expect(pathExists(commandsPath)).resolves.toBe(false);
-          await expect(pathExists(validationStartedPath)).resolves.toBe(true);
           const validationClockAdvanceMs = options.validationClockAdvanceMs;
           if (validationClockAdvanceMs) {
             await vi.waitFor(async () => {

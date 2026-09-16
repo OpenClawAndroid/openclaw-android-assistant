@@ -57,8 +57,6 @@ import {
 import { startUpdateRunWatcher, wakeUpdateRunWatcher } from "./update-run-watcher.js";
 const ACP_BACKEND_READY_TIMEOUT_MS = 5_000;
 const ACP_BACKEND_READY_POLL_MS = 50;
-const DEFERRED_SIDECAR_START_DELAY_MS = 100;
-const SKIP_STARTUP_MODEL_PREWARM_ENV = "OPENCLAW_SKIP_STARTUP_MODEL_PREWARM";
 type Awaitable<T> = T | Promise<T>;
 
 const loadMainSessionRestartRecoveryModule = createLazyRuntimeModule(
@@ -93,10 +91,6 @@ export type GatewayPostReadySidecarHandle = {
 
 function shouldCheckRestartSentinel(env: NodeJS.ProcessEnv = process.env): boolean {
   return !env.VITEST && env.NODE_ENV !== "test";
-}
-
-function shouldSkipStartupModelPrewarm(env: NodeJS.ProcessEnv = process.env): boolean {
-  return isTruthyEnvValue(env[SKIP_STARTUP_MODEL_PREWARM_ENV]);
 }
 
 function schedulePostReadySidecarTask(params: {
@@ -349,18 +343,6 @@ async function waitForAcpRuntimeBackendReady(params: {
   return false;
 }
 
-async function prewarmConfiguredPrimaryModel(params: {
-  cfg: OpenClawConfig;
-  getConfig?: () => OpenClawConfig | Promise<OpenClawConfig>;
-  isCurrent?: () => boolean;
-  pluginMetadataSnapshot?: PluginMetadataSnapshot;
-  workspaceDir?: string;
-  log: { warn: (msg: string) => void };
-  startupTrace?: GatewayStartupTrace;
-}): Promise<void> {
-  await publishConfiguredModelRuntimeSnapshots(params);
-}
-
 type StartupExternalAuthHydrationDeps = {
   listAgentIds: (cfg: OpenClawConfig) => string[];
   resolveAgentDir: (cfg: OpenClawConfig, agentId: string) => string;
@@ -427,7 +409,6 @@ async function publishConfiguredModelRuntimeSnapshots(params: {
   isCurrent?: () => boolean;
   pluginMetadataSnapshot?: PluginMetadataSnapshot;
   workspaceDir?: string;
-  log: { warn: (msg: string) => void };
   startupTrace?: GatewayStartupTrace;
 }): Promise<void> {
   const { refreshPreparedModelRuntimeSnapshots } =
@@ -475,24 +456,6 @@ async function publishConfiguredModelRuntimeSnapshots(params: {
   });
 }
 
-async function publishStartupModelRuntime(
-  params: {
-    cfg: OpenClawConfig;
-    getConfig?: () => OpenClawConfig | Promise<OpenClawConfig>;
-    isCurrent?: () => boolean;
-    pluginMetadataSnapshot?: PluginMetadataSnapshot;
-    workspaceDir?: string;
-    log: { warn: (msg: string) => void };
-    startupTrace?: GatewayStartupTrace;
-  },
-  prewarm: typeof prewarmConfiguredPrimaryModel = prewarmConfiguredPrimaryModel,
-): Promise<void> {
-  const publication = shouldSkipStartupModelPrewarm()
-    ? publishConfiguredModelRuntimeSnapshots
-    : prewarm;
-  await publication(params);
-}
-
 /** Start post-ready sidecars such as channels, hooks, plugin services, and cleanup tasks. */
 export async function startGatewaySidecars(params: {
   cfg: OpenClawConfig;
@@ -506,7 +469,6 @@ export async function startGatewaySidecars(params: {
   shouldStartChannels?: () => boolean;
   refreshChatMetadata?: () => Promise<void>;
   onChannelsStarted?: () => Awaitable<void>;
-  prewarmPrimaryModel?: typeof prewarmConfiguredPrimaryModel;
   onPluginServices?: (pluginServices: PluginServicesHandle | null) => void;
   onPostReadySidecars: (...sidecars: GatewayPostReadySidecarHandle[]) => void;
   shouldCreatePostReadySidecars?: () => boolean;
@@ -603,26 +565,22 @@ export async function startGatewaySidecars(params: {
   if ((await params.pluginRuntimeClaim?.waitForUnblocked()) !== false) {
     await measureStartup(params.startupTrace, "sidecars.model-runtime", () =>
       withPluginRuntimeRegistryScope(params.pluginRegistry, () =>
-        publishStartupModelRuntime(
-          {
-            cfg: params.cfg,
-            getConfig: async () =>
-              await measureStartup(params.startupTrace, "sidecars.model-auth", () =>
-                hydrateConfiguredExternalCliAuth({
-                  getConfig: getModelRuntimeConfig,
-                  log: params.log,
-                }),
-              ),
-            isCurrent: params.pluginRuntimeClaim?.isCurrent,
-            ...(params.pluginMetadataSnapshot
-              ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }
-              : {}),
-            workspaceDir: params.defaultWorkspaceDir,
-            log: params.log,
-            startupTrace: params.startupTrace,
-          },
-          params.prewarmPrimaryModel,
-        ),
+        publishConfiguredModelRuntimeSnapshots({
+          cfg: params.cfg,
+          getConfig: () =>
+            measureStartup(params.startupTrace, "sidecars.model-auth", () =>
+              hydrateConfiguredExternalCliAuth({
+                getConfig: getModelRuntimeConfig,
+                log: params.log,
+              }),
+            ),
+          isCurrent: params.pluginRuntimeClaim?.isCurrent,
+          ...(params.pluginMetadataSnapshot
+            ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }
+            : {}),
+          workspaceDir: params.defaultWorkspaceDir,
+          startupTrace: params.startupTrace,
+        }),
       ),
     );
   }
@@ -1340,13 +1298,6 @@ export async function startGatewayPostAttachRuntime(
   };
   const waitForSidecarStartTurn = () =>
     new Promise<void>((resolve) => {
-      if (params.sidecarStartup === "defer") {
-        // Give startup logging and bind observers a deterministic head start
-        // when tests or callers request deferred sidecar startup.
-        const timer = setTimeout(resolve, DEFERRED_SIDECAR_START_DELAY_MS);
-        timer.unref?.();
-        return;
-      }
       setImmediate(resolve);
     });
 
@@ -1650,12 +1601,9 @@ export async function startGatewayPostAttachRuntime(
 }
 
 export const testing = {
-  prewarmConfiguredPrimaryModel,
   hydrateConfiguredExternalCliAuth,
   publishConfiguredModelRuntimeSnapshots,
-  publishStartupModelRuntime,
   refreshLatestUpdateRestartSentinelIfPresent,
   scheduleRestartSentinelWakeAfterReady,
-  shouldSkipStartupModelPrewarm,
 };
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

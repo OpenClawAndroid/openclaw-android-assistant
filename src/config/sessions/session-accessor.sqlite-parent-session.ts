@@ -312,7 +312,10 @@ export async function forkSessionEntryFromParentTarget(
           writeDatabase,
           sessionTarget.canonicalKey,
           mergeSessionEntry(freshBase, forkIdentityPatch),
-          { previousEntry: freshBase },
+          {
+            previousEntry: freshBase,
+            canonicalPreviousEntry: previousIdentity.get(sessionTarget.canonicalKey) ?? null,
+          },
         );
         const currentIdentity = readSessionIdentitySnapshot(writeDatabase, [
           sessionTarget.canonicalKey,
@@ -359,6 +362,7 @@ function persistSqliteParentForkSkipPatch(params: {
     const previousIdentity = readSessionIdentitySnapshot(database, [params.sessionKey]);
     writeSessionEntry(database, params.sessionKey, next, {
       previousEntry: params.entry,
+      canonicalPreviousEntry: previousIdentity.get(params.sessionKey) ?? null,
     });
     const currentIdentity = readSessionIdentitySnapshot(database, [params.sessionKey]);
     return prepareSessionIdentityPublication(

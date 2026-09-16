@@ -20,6 +20,7 @@ export type ChatRouteData =
       face: BoardFace;
       shortId?: string;
       routeLoadingSkeleton?: true;
+      sessionResolutionFromCache?: true;
       canonicalLocation?: RouteLocation;
       canonicalLocationReady?: Promise<RouteLocation | null>;
       canonicalLocationSource?: RouteLocation;

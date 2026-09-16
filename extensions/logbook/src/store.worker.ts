@@ -276,11 +276,17 @@ class LogbookDatabaseStore {
     return row ? { capturedAtMs: row.captured_at_ms, contentHash: row.content_hash } : null;
   }
 
-  unbatchedActiveFrames(limit: number): LogbookFrame[] {
+  unbatchedActiveFrames(limit: number): Pick<LogbookFrame, "id" | "capturedAtMs">[] {
     return executeSqliteQuerySync(
       this.db,
-      this.framesQuery.where("batch_id", "is", null).where("idle", "=", 0).limit(limit),
-    ).rows.map(toFrame);
+      this.framesQuery
+        .clearSelect()
+        // Preserve native integer overflow rejection while omitting unused frame strings.
+        .select(["id", "captured_at_ms", "screen_index", "width", "height", "byte_size", "idle"])
+        .where("batch_id", "is", null)
+        .where("idle", "=", 0)
+        .limit(limit),
+    ).rows.map((row) => ({ id: row.id, capturedAtMs: row.captured_at_ms }));
   }
 
   countUnbatchedActiveFrames(): number {

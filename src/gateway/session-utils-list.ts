@@ -5,6 +5,7 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import type { SessionsListParams } from "../../packages/gateway-protocol/src/index.js";
 import { listAgentIds, withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.js";
+import { prepareSubagentSessionListReadIndex } from "../agents/subagents/registry/subagent-registry-read.js";
 import { tryResolveLegacyCompatibilityAgentId } from "../config/legacy.default-agent-owner.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { GatewayStoredSessionTargets } from "../config/sessions/combined-store-gateway.js";
@@ -17,6 +18,8 @@ import {
 } from "../routing/session-key.js";
 import { SESSIONS_LIST_OWNER_LIMIT } from "../shared/session-list-limits.js";
 import { runSynchronousWork, type SynchronousWork } from "../shared/synchronous-work.js";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
+import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
 import { readPreparedGatewayModelCatalogMetadata } from "./server-model-catalog-view.js";
 import { projectActivitySummaryList } from "./session-activity-summary-list.js";
 import {
@@ -47,6 +50,16 @@ import type {
 
 // Bound synchronous projection work without repeatedly requeueing cheap prepared rows.
 const SESSIONS_LIST_YIELD_INTERVAL_MS = 12;
+let activeSessionListProjections = 0;
+let sharedSessionListWorkStartedAt = 0;
+let sessionListYield: Promise<void> | undefined;
+
+function yieldSessionListWork(): Promise<void> {
+  return (sessionListYield ??= yieldToEventLoop().then(() => {
+    sharedSessionListWorkStartedAt = performance.now();
+    sessionListYield = undefined;
+  }));
+}
 
 const SESSIONS_LIST_DEFAULT_LIMIT = 100;
 const SESSIONS_LIST_TRANSCRIPT_FIELD_ROWS = 100;
@@ -156,14 +169,27 @@ function* selectSessionEntries(
   };
 }
 
-function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: () => boolean) {
+function* prepareSessionList(
+  params: ListSessionsFromStoreParams,
+  shouldYield: () => boolean,
+  stateContext: OpenClawStateWorkerContext,
+) {
   const { cfg, store, opts } = params;
   const now = Date.now();
   const userProfileIdentityById = new Map<string, SessionActorProfileIdentity | undefined>();
   const configuredAgentIds = new Set(listAgentIds(cfg));
   let rowContext: SessionListRowContext | undefined;
-  const getRowContext = () =>
-    (rowContext ??= buildSessionListRowMetadataContext({ now, userProfileIdentityById }));
+  const prepareRowContext = function* () {
+    let work: Awaited<ReturnType<typeof prepareSubagentSessionListReadIndex>> | undefined;
+    yield prepareSubagentSessionListReadIndex(now, stateContext, shouldYield).then((prepared) => {
+      work = prepared;
+    });
+    const subagentRuns = yield* expectDefined(work, "prepared subagent index work");
+    stateContext.maintenanceScope?.assertAdmission();
+    stateContext.admission.assertCurrent();
+    rowContext = buildSessionListRowMetadataContext({ now, userProfileIdentityById, subagentRuns });
+  };
+  const getRowContext = () => expectDefined(rowContext, "prepared session row context");
   const hasSpawnedByFilter = typeof opts.spawnedBy === "string" && opts.spawnedBy.length > 0;
   const filteredSessionKeys = new Set<string>();
   let hasIncognito = false;
@@ -175,6 +201,9 @@ function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: (
     hasIncognito ||= entry.incognito === true || isIncognitoSessionKey(key);
     return true;
   };
+  if (hasSpawnedByFilter || normalizeOptionalString(opts.search)) {
+    yield* prepareRowContext();
+  }
   const selection = yield* selectSessionEntries({
     cfg,
     modelCatalog: params.modelCatalog,
@@ -196,6 +225,9 @@ function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: (
     shouldYield,
   });
   // Filtering, child links, and row display share one registry snapshot per response.
+  if (selection.entries.length > 0 && !rowContext) {
+    yield* prepareRowContext();
+  }
   const sharedRowContext = selection.entries.length > 0 ? getRowContext() : undefined;
   const storePath = hasIncognito ? params.storePath : (params.durableStorePath ?? params.storePath);
   const storeChildSessionsByKey = yield* buildStoreChildSessionIndexWork(
@@ -234,7 +266,7 @@ function* prepareSessionList(params: ListSessionsFromStoreParams, shouldYield: (
 
 function buildSessionsListResult(
   params: ListSessionsFromStoreParams,
-  list: ReturnType<typeof prepareSessionList> extends SynchronousWork<infer T> ? T : never,
+  list: ReturnType<typeof prepareSessionList> extends Generator<unknown, infer T> ? T : never,
   sessions: GatewaySessionRow[],
 ): SessionsListResult {
   projectActivitySummaryList(params, sessions);
@@ -313,6 +345,7 @@ export async function listSessionsFromStoreAsync(
     projectionTiming?: SessionListProjectionTiming;
   },
 ): Promise<SessionsListResult> {
+  const stateContext = captureOpenClawStateWorkerContext();
   // Pin the active plugin-registry workspace dir for the duration of this
   // call so per-row metadata lookups use a stable memo key. Without this pin,
   // concurrent agent turns / crons mutate the process-global workspace dir
@@ -320,12 +353,18 @@ export async function listSessionsFromStoreAsync(
   // loadPluginMetadataSnapshot scan (~100 ms).
   return withPinnedActivePluginRegistryWorkspaceDir(async () => {
     let workStartedAt = params.workStartedAt ?? performance.now();
+    if (activeSessionListProjections++ === 0) {
+      sharedSessionListWorkStartedAt = workStartedAt;
+    }
     const timing = params.projectionTiming;
     let syncStartedAt = timing ? performance.now() : 0;
     let syncPhase: "prepareSyncMs" | "rowSyncMs" | undefined = "prepareSyncMs";
     const yieldIfNeeded = (): Promise<void> | undefined => {
       const checkpoint = performance.now();
-      if (checkpoint - workStartedAt < SESSIONS_LIST_YIELD_INTERVAL_MS) {
+      if (
+        checkpoint - workStartedAt < SESSIONS_LIST_YIELD_INTERVAL_MS &&
+        checkpoint - sharedSessionListWorkStartedAt < SESSIONS_LIST_YIELD_INTERVAL_MS
+      ) {
         return undefined;
       }
       const phase = syncPhase;
@@ -333,7 +372,7 @@ export async function listSessionsFromStoreAsync(
         timing[phase] += checkpoint - syncStartedAt;
       }
       syncPhase = undefined;
-      return yieldToEventLoop().then(() => {
+      return yieldSessionListWork().then(() => {
         workStartedAt = performance.now();
         if (timing) {
           timing.yieldWaitMs += workStartedAt - checkpoint;
@@ -347,13 +386,31 @@ export async function listSessionsFromStoreAsync(
       const { cfg, store, targetsBySessionKey } = params;
       let checkedItems = 0;
       // Sample the clock in small batches, and leave nested generators only when work is due.
-      const shouldYieldPreparation = () =>
-        ++checkedItems % 16 === 0 &&
-        performance.now() - workStartedAt >= SESSIONS_LIST_YIELD_INTERVAL_MS;
-      const preparation = prepareSessionList(params, shouldYieldPreparation);
+      const shouldYieldPreparation = () => {
+        if (++checkedItems % 16 !== 0) {
+          return false;
+        }
+        const now = performance.now();
+        return (
+          now - workStartedAt >= SESSIONS_LIST_YIELD_INTERVAL_MS ||
+          now - sharedSessionListWorkStartedAt >= SESSIONS_LIST_YIELD_INTERVAL_MS
+        );
+      };
+      const preparation = prepareSessionList(params, shouldYieldPreparation, stateContext);
       // Each chunk shares roster facts, then releases them before another request can run.
       let step = withAgentRosterFactsBatch(cfg, () => preparation.next());
       while (!step.done) {
+        if (step.value) {
+          const checkpoint = performance.now();
+          if (timing) {
+            timing.prepareSyncMs += checkpoint - syncStartedAt;
+          }
+          syncPhase = undefined;
+          await step.value;
+          workStartedAt = performance.now();
+          syncStartedAt = workStartedAt;
+          syncPhase = "prepareSyncMs";
+        }
         const pause = yieldIfNeeded();
         if (pause) {
           await pause;
@@ -363,23 +420,24 @@ export async function listSessionsFromStoreAsync(
       const list = step.value;
       const sessions: GatewaySessionRow[] = [];
       const includeTranscriptFields = list.includeDerivedTitles || list.includeLastMessage;
-      const transcriptScopes = list.entries
-        .slice(0, list.transcriptFieldRows)
-        .flatMap(([key, entry]) => {
-          if (!entry.sessionId || !includeTranscriptFields) {
-            return [];
-          }
-          const target = expectDefined(targetsBySessionKey.get(key), "transcript row target");
-          return [
-            {
-              ...target.storeTarget,
-              sessionEntry: entry,
-              sessionId: entry.sessionId,
-              sessionKey: target.storeKey ?? key,
-            },
-          ];
-        });
-      const transcriptFields = readScopedSessionTitleFieldsFromTranscriptBatch(transcriptScopes);
+      const transcriptFields = includeTranscriptFields
+        ? readScopedSessionTitleFieldsFromTranscriptBatch(
+            list.entries.slice(0, list.transcriptFieldRows).flatMap(([key, entry]) => {
+              if (!entry.sessionId) {
+                return [];
+              }
+              const target = expectDefined(targetsBySessionKey.get(key), "transcript row target");
+              return [
+                {
+                  ...target.storeTarget,
+                  sessionEntry: entry,
+                  sessionId: entry.sessionId,
+                  sessionKey: target.storeKey ?? key,
+                },
+              ];
+            }),
+          )
+        : [];
       // Optional transcript reads can spend the remaining budget even for an empty page.
       const checkpoint = performance.now();
       if (timing) {
@@ -443,6 +501,7 @@ export async function listSessionsFromStoreAsync(
 
       return buildSessionsListResult(params, list, sessions);
     } finally {
+      activeSessionListProjections--;
       if (timing && syncPhase) {
         timing[syncPhase] += performance.now() - syncStartedAt;
       }

@@ -7,6 +7,7 @@ import { createStartAccountContext } from "openclaw/plugin-sdk/channel-test-help
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
+  createPluginStateKeyedStoreForTests,
   createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
@@ -150,6 +151,11 @@ describe("Reef conversation directory", () => {
         ...options,
         env: { OPENCLAW_STATE_DIR: stateDir },
       });
+    runtime.state.openKeyedStore = <T>(options: OpenKeyedStoreOptions) =>
+      createPluginStateKeyedStoreForTests<T>("reef", {
+        ...options,
+        env: { OPENCLAW_STATE_DIR: stateDir },
+      });
     setReefRuntime(runtime);
     const identity = generateIdentity();
     openReefTrustStore(runtime, resolveReefConfig({ channels: { reef: { handle: "clawd" } } })).set(
@@ -239,11 +245,16 @@ describe("Reef gateway account ownership", () => {
         ...options,
         env: { OPENCLAW_STATE_DIR: stateDir },
       });
+    runtime.state.openKeyedStore = <T>(options: OpenKeyedStoreOptions) =>
+      createPluginStateKeyedStoreForTests<T>("reef", {
+        ...options,
+        env: { OPENCLAW_STATE_DIR: stateDir },
+      });
     runtime.state.resolveStateDir = () => stateDir;
     await generateAndStoreKeys(runtime);
-    finalizeReefIdentityBinding(
+    await finalizeReefIdentityBinding(
       runtime,
-      reserveReefIdentityBinding(runtime, {
+      await reserveReefIdentityBinding(runtime, {
         handle: cfg.channels.reef.handle,
         relayUrl: "https://reefwire.ai",
       }),

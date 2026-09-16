@@ -359,62 +359,65 @@ enter_worktree() {
 pr_meta_json() {
   local pr="$1"
   local metadata files expected_file_count actual_file_count head_before head_after head_after_json
-  metadata=$(read_pr_view_json "$pr" "number,title,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,url,body,labels,assignees,changedFiles,additions,deletions,statusCheckRollup,files") || return 1
+  local repo_json repo_nwo repo_url identity_filter identity_before identity_after
+  repo_json=$(gh_plain repo view --json nameWithOwner,url) || return 1
+  if ! repo_nwo=$(printf '%s\n' "$repo_json" | jq -er '.nameWithOwner | select(type == "string" and test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))') ||
+    ! repo_url=$(printf '%s\n' "$repo_json" | jq -er --arg repo "$repo_nwo" '.url | select(type == "string" and test("^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$") and endswith("/" + $repo))'); then
+    echo "Invalid base repository identity for PR #$pr." >&2
+    return 1
+  fi
+  # Pin the base repository, not the fork's headRepository. Keep the exact
+  # observed base/head pair; neither a local main ref nor a newer snapshot is a substitute.
+  identity_filter='
+    select(.number == $pr and .url == ($repo_url + "/pull/" + ($pr | tostring)))
+    | select(all(.baseRefOid, .headRefOid; type == "string" and test("^[0-9a-f]{40}$")))
+    | select(all(.baseRefName, .headRefName; type == "string" and length > 0))
+    | {number,url,baseRefOid,headRefOid,baseRefName,headRefName,headRepository,headRepositoryOwner}'
+  metadata=$(GH_REPO="$repo_nwo" read_pr_view_json "$pr" "number,title,state,isDraft,author,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner,url,body,labels,assignees,changedFiles,additions,deletions,statusCheckRollup,files") || return 1
   head_before=$(pr_view_string_field "$metadata" "headRefOid" "$pr" "Retry review initialization.") || return 1
+  if ! identity_before=$(printf '%s\n' "$metadata" | jq -ceS --argjson pr "$pr" --arg repo_url "$repo_url" "$identity_filter"); then
+    echo "Invalid PR identity for #$pr: expected $repo_url/pull/$pr and complete base/head OIDs and refs." >&2
+    return 1
+  fi
   if ! expected_file_count=$(printf '%s\n' "$metadata" | jq -er '.changedFiles | if type == "number" and . >= 0 and . == floor then . else error("invalid changed file count") end' 2>/dev/null); then
     echo "Invalid PR metadata for #$pr: changedFiles must be a non-negative integer." >&2
     return 1
   fi
 
-  # `gh pr view --json files` is cacheable but stops at 100 entries. Use it
-  # when complete; only large or incomplete responses spend uncached REST quota.
-  files='[]'
-  if [ "$expected_file_count" -le 100 ]; then
-    files=$(printf '%s\n' "$metadata" | jq -c '
-      .files
-      | if type == "array"
-          and all(.[];
-            (.path | type == "string")
-            and (.additions | type == "number")
-            and (.deletions | type == "number")
-            and (.changeType | type == "string" and length > 0)
-          )
-        then map({
-            path: .path,
-            additions: .additions,
-            deletions: .deletions,
-            changeType: (
-              if (.changeType | ascii_downcase) == "removed"
-                or (.changeType | ascii_downcase) == "deleted"
-              then "DELETED"
-              else (.changeType | ascii_upcase)
-              end
-            )
-          })
-        else []
-        end
-    ' 2>/dev/null || printf '[]')
+  # gh truncates large file arrays at 100. A valid partial list (or a missing
+  # changeType on older gh versions) can use REST, but null is never an empty diff.
+  if ! printf '%s\n' "$metadata" | jq -e '
+    def count: type == "number" and . >= 0 and . == floor;
+    .changedFiles as $count | .files
+    | type == "array" and length <= $count
+      and all(.[]; (.path | type == "string" and length > 0)
+        and (.additions | count) and (.deletions | count))
+      and (map(.path) | length == (unique | length))
+  ' >/dev/null 2>&1; then
+    echo "Invalid PR file metadata for #$pr: files must be an explicit array of unique valid entries consistent with changedFiles; null or missing files are unavailable." >&2
+    return 1
   fi
-
-  actual_file_count=$(printf '%s\n' "$files" | jq -r 'length')
-  if [ "$actual_file_count" -ne "$expected_file_count" ]; then
-    local repo_nwo
-    repo_nwo=$(gh_plain repo view --json nameWithOwner --jq .nameWithOwner) || return 1
-    # Pin the base repository and revalidate every page before the final head check.
+  files=$(printf '%s\n' "$metadata" | jq -c '.files') || return 1
+  actual_file_count=$(printf '%s\n' "$files" | jq -r 'length') || return 1
+  if [ "$actual_file_count" -eq "$expected_file_count" ] &&
+    printf '%s\n' "$files" | jq -e 'all(.[]; .changeType | type == "string" and length > 0)' >/dev/null; then
+    files=$(printf '%s\n' "$files" | jq -c 'map({
+      path, additions, deletions,
+      changeType: (if (.changeType | ascii_downcase) == "removed" or (.changeType | ascii_downcase) == "deleted"
+        then "DELETED" else (.changeType | ascii_upcase) end)
+    })') || return 1
+  else
     if ! files=$(
       set -o pipefail
       gh_plain api --paginate "repos/$repo_nwo/pulls/$pr/files?per_page=100" -H 'Cache-Control: max-age=0' |
-        jq -cs '
-          add
+        jq -ces '
+          if length > 0 and all(.[]; type == "array") then add
+          else error("expected complete array pages") end
           | map({
               path: .filename,
               additions: .additions,
               deletions: .deletions,
-              changeType: (
-                if .status == "removed" then "DELETED"
-                else (.status | ascii_upcase)
-                end
-              )
+              changeType: (if .status == "removed" then "DELETED" else (.status | ascii_upcase) end)
             })
         '
     ); then
@@ -423,18 +426,29 @@ pr_meta_json() {
     fi
   fi
 
-  head_after_json=$(read_pr_view_json "$pr" "headRefOid") || return 1
+  head_after_json=$(GH_REPO="$repo_nwo" read_pr_view_json "$pr" "number,url,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner") || return 1
   head_after=$(pr_view_string_field "$head_after_json" "headRefOid" "$pr" "Retry review initialization.") || return 1
   if [ "$head_after" != "$head_before" ]; then
     echo "PR head changed while collecting file metadata for #$pr (started at $head_before, ended at $head_after). Retry review initialization." >&2
     return 1
   fi
+  if ! identity_after=$(printf '%s\n' "$head_after_json" | jq -ceS --argjson pr "$pr" --arg repo_url "$repo_url" "$identity_filter") ||
+    [ "$identity_after" != "$identity_before" ]; then
+    echo "PR base/head or repository identity changed or became unavailable while collecting file metadata for #$pr. Retry review initialization." >&2
+    return 1
+  fi
 
   if ! actual_file_count=$(
-    printf '%s\n' "$files" |
-      jq -er 'if type == "array" then length else error("expected an array") end'
+    printf '%s\n' "$files" | jq -er '
+      def count: type == "number" and . >= 0 and . == floor;
+      if type == "array" and all(.[];
+          (.path | type == "string" and length > 0)
+          and (.additions | count) and (.deletions | count)
+          and (.changeType | type == "string" and length > 0))
+        and (map(.path) | length == (unique | length))
+      then length else error("invalid or duplicate file entries") end'
   ); then
-    echo "Invalid paginated PR file metadata for #$pr: expected a JSON array." >&2
+    echo "Invalid paginated PR file metadata for #$pr: expected unique valid file entries." >&2
     return 1
   fi
   if [ "$actual_file_count" -ne "$expected_file_count" ]; then

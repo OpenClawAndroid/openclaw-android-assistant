@@ -1,7 +1,7 @@
 // Discord plugin module implements listeners behavior.
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { requestHeartbeat } from "openclaw/plugin-sdk/heartbeat-runtime";
-import type { PluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
+import type { PluginStateKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { danger } from "openclaw/plugin-sdk/runtime-env";
 import { enqueueRoutedSystemEvent } from "openclaw/plugin-sdk/system-event-runtime";
@@ -113,7 +113,9 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
   private readonly pendingGuildSeeds = new Map<string, Promise<boolean>>();
   private readonly guildPresenceState = new Map<string, GuildPresenceState>();
   private gatewayGeneration = 0;
-  private readonly cooldownStore: PluginStateSyncKeyedStore<number>;
+  private stopped = false;
+  private readonly activeRuns = new Set<Promise<void>>();
+  private readonly cooldownStore: PluginStateKeyedStore<number>;
   private readonly emissionGate: DiscordPresenceEmissionGate;
 
   constructor(
@@ -125,7 +127,7 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
       readPolicy?: DiscordLivePolicyReader;
       guildEntries?: Record<string, DiscordGuildEntryResolved>;
       nowMs?: () => number;
-      cooldownStore?: PluginStateSyncKeyedStore<number>;
+      cooldownStore?: PluginStateKeyedStore<number>;
       presenceBaseline?: DiscordPresenceBaselineCache;
       emissionGate?: DiscordPresenceEmissionGate;
     },
@@ -137,6 +139,9 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
   }
 
   async seedGuildSnapshot(data: GuildCreateEvent): Promise<void> {
+    if (this.stopped) {
+      return;
+    }
     // Cache metadata before awaiting greeting policy so updates and READY retain dispatch order.
     if (data.unavailable !== true && "presences" in data && Array.isArray(data.presences)) {
       for (const presence of data.presences) {
@@ -217,12 +222,15 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
 
   async handle(data: PresenceUpdateEvent, client: Client) {
     const userId = data.user?.id;
-    if (!userId) {
+    if (!userId || this.stopped) {
       return;
     }
     setPresence(this.params.accountId, userId, data);
     const pendingSeed = this.pendingGuildSeeds.get(data.guild_id);
     if (pendingSeed && !(await pendingSeed)) {
+      return;
+    }
+    if (this.stopped) {
       return;
     }
     const presenceKey = `${this.params.accountId}:${data.guild_id}:${userId}`;
@@ -236,16 +244,25 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
         this.handleSerial(data, client, userId, presenceKey, gatewayGeneration, guildGeneration),
     );
     this.pendingByGuildUser.set(presenceKey, run);
+    this.activeRuns.add(run);
     try {
       await run;
     } catch (err) {
       const logger = this.params.logger ?? discordEventQueueLog;
       logger.error(danger(`discord presence handler failed: ${String(err)}`));
     } finally {
+      this.activeRuns.delete(run);
       if (this.pendingByGuildUser.get(presenceKey) === run) {
         this.pendingByGuildUser.delete(presenceKey);
       }
     }
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    this.resetGatewaySession();
+    // Generation resets detach dispatch queues; shutdown still joins their admitted writes.
+    await Promise.allSettled(this.activeRuns);
   }
 
   resetGatewaySession(): void {
@@ -310,6 +327,13 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
       return;
     }
 
+    const lastEmittedAtMs = await this.cooldownStore.lookup(presenceKey);
+    if (
+      !this.isCurrentGeneration(data.guild_id, gatewayGeneration, guildGeneration) ||
+      policy?.isCurrent() === false
+    ) {
+      return;
+    }
     const nowMs = this.params.nowMs?.() ?? Date.now();
     const presenceScope = data.guild_id;
     // A complete GUILD_CREATE lists currently online members. A later first-seen member is newly
@@ -326,7 +350,7 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
       availabilityKind,
       botUserId: this.params.botUserId,
       nowMs,
-      lastEmittedAtMs: this.cooldownStore.lookup(presenceKey),
+      lastEmittedAtMs,
     });
     if (!presenceEvent) {
       if (isDiscordOfflineStatus(data.status)) {
@@ -420,9 +444,15 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
       });
 
       try {
-        cooldownReserved = this.cooldownStore.registerIfAbsent(presenceKey, nowMs, {
+        cooldownReserved = await this.cooldownStore.registerIfAbsent(presenceKey, nowMs, {
           ttlMs: DISCORD_PRESENCE_GREETING_COOLDOWN_MS,
         });
+        if (
+          !this.isCurrentGeneration(data.guild_id, gatewayGeneration, guildGeneration) ||
+          policy?.isCurrent() === false
+        ) {
+          return;
+        }
         if (!cooldownReserved) {
           // Another live listener won the durable claim while this one awaited Discord. Treat the
           // member as online locally so overlapping provider generations cannot retry the greeting.
@@ -469,8 +499,8 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
       if (!burstCommitted) {
         this.emissionGate.releaseBurst(data.guild_id, burstReservation);
       }
-      if (cooldownReserved && !burstCommitted && this.cooldownStore.lookup(presenceKey) === nowMs) {
-        this.cooldownStore.delete(presenceKey);
+      if (cooldownReserved && !burstCommitted) {
+        await this.cooldownStore.deleteIfEqual?.(presenceKey, nowMs);
       }
     }
   }
@@ -481,6 +511,7 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
     guildGeneration: number,
   ): boolean {
     return (
+      !this.stopped &&
       gatewayGeneration === this.gatewayGeneration &&
       guildGeneration === (this.guildPresenceState.get(guildId)?.generation ?? 0)
     );

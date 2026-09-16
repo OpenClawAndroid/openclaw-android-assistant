@@ -885,3 +885,45 @@ describe("readCodexMirroredSessionHistoryMessages", () => {
     ]);
   });
 });
+
+it.each([false, true])(
+  "bounds prepared Codex history without truncating native evidence (incognito=%s)",
+  async (incognito) => {
+    const fixture = await writeSqliteSession({ incognito });
+    const source = SessionManager.open(fixture.sessionTarget);
+    for (let index = 0; index < 30; index += 1) {
+      source.appendMessage({
+        role: "user",
+        content: `old-${index}:` + "x".repeat(2048),
+        timestamp: index + 3,
+      });
+    }
+    source.appendMessage({ role: "user", content: "latest question", timestamp: 40 });
+    const target = {
+      sessionFile: fixture.marker,
+      sessionId: fixture.sessionTarget.sessionId,
+      sessionKey: fixture.sessionKey,
+      sessionTarget: fixture.sessionTarget,
+    };
+    const prepared = await readCodexMirroredSessionHistoryMessages(
+      target,
+      undefined,
+      "model-context",
+      undefined,
+      128,
+    );
+    expect(prepared).toMatchObject([{ role: "user", content: "latest question" }]);
+    const native = await readCodexMirroredSessionHistoryMessages(target);
+    expect(native).toHaveLength(33);
+    expect(native?.[2]).toMatchObject({ content: "old-0:" + "x".repeat(2048) });
+    source.appendMessage({
+      role: "user",
+      content: "oversized latest:" + "x".repeat(2048),
+      timestamp: 41,
+    });
+    await expect(
+      readCodexMirroredSessionHistoryMessages(target, undefined, "model-context", undefined, 128),
+    ).rejects.toThrow(/model-context limit/);
+    expect(await readCodexMirroredSessionHistoryMessages(target)).toHaveLength(34);
+  },
+);

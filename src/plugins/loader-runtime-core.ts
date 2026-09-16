@@ -81,6 +81,14 @@ export type NativePluginLoadBindings = Pick<PluginRuntime, "modelAuth" | "modelC
   capabilityCatalogContext: NonNullable<PluginLoadOptions["capabilityCatalogContext"]>;
 };
 
+function createCapabilityCatalogContextResolver(
+  context: NativePluginLoadBindings["capabilityCatalogContext"],
+) {
+  // Registrars retain this callback. Keep it outside the loader's lexical scope so
+  // a live replacement cannot retain options.previousRegistry and all older generations.
+  return () => context;
+}
+
 export function loadOpenClawPluginsCore(
   options: PluginLoadOptions,
   nativeBindings: NativePluginLoadBindings,
@@ -180,7 +188,8 @@ export function loadOpenClawPluginsCore(
     registryBuilder = createPluginRegistry({
       logger,
       runtime,
-      resolveCapabilityCatalogContext: () => capabilityCatalogContext,
+      resolveCapabilityCatalogContext:
+        createCapabilityCatalogContextResolver(capabilityCatalogContext),
       allowProcessHomeSessionCatalogs: options.allowProcessHomeSessionCatalogs ?? true,
       coreGatewayHandlers: options.coreGatewayHandlers,
       ...(options.coreGatewayMethodNames !== undefined && {

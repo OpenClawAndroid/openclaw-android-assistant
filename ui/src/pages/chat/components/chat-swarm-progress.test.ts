@@ -2,7 +2,7 @@
 
 import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SubagentRunReadRecord } from "../../../../../src/agents/subagents/registry/subagent-registry.types.js";
+import type { SubagentRunReadRecord } from "../../../../../src/agents/subagents/registry/subagent-registry-read.types.js";
 import { buildSessionSwarmSummary } from "../../../../../src/gateway/session-swarm-summary.js";
 import type { GatewaySessionRow } from "../../../api/types.ts";
 import { i18n } from "../../../i18n/index.ts";

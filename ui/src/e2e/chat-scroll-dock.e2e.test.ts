@@ -150,6 +150,8 @@ suite.define(() => {
         }
         await thread.hover();
         await page.mouse.wheel(0, -32);
+        await expect.poll(() => chatThreadDistanceFromBottom(page)).toBeGreaterThan(0);
+        await card.locator("summary").click();
         await expect.poll(() => card.getAttribute("open")).toBeNull();
         // Emit real deltas while the native fold is still changing the viewport.
         for (let line = 1; line <= 12; line++) {
@@ -175,11 +177,14 @@ suite.define(() => {
         }
         await page.locator('.chat-scroll-to-bottom[data-visible="true"]').click();
         await waitForChatScrollIdle(page);
+        expect(await card.getAttribute("open")).toBeNull();
+        await card.locator("summary").click();
+        await waitForChatScrollIdle(page);
         expect(await card.getAttribute("open")).toBe("");
         if (proofDir) {
           await page.screenshot({ path: path.join(proofDir, "03-latest.png") });
         }
-        // An explicit return resumes normal streaming without another card toggle.
+        // Streaming follows the end after an explicit return and manual reopen.
         for (let line = 17; line <= 20; line++) {
           await streamLine(line);
           await waitForChatScrollIdle(page);
@@ -290,6 +295,8 @@ suite.define(() => {
       }
 
       await scrollChatThreadToTop(page);
+      expect(await card.getAttribute("open")).toBe("");
+      await card.locator("summary").click();
       if (proofDir) {
         await waitForChatScrollIdle(page);
         await page.screenshot({ path: path.join(proofDir, "02-reading-history.png") });
@@ -302,53 +309,20 @@ suite.define(() => {
       await button.click();
       await waitForChatScrollIdle(page);
       report.afterButton = await dockGeometry(page);
+      expect(await card.getAttribute("open")).toBeNull();
+      await card.locator("summary").click();
       await expect.poll(() => card.getAttribute("open")).toBe("");
+      await waitForChatScrollIdle(page);
+      report.afterManualOpen = await dockGeometry(page);
       expectDockClear(report);
       if (proofDir) {
         await page.screenshot({ path: path.join(proofDir, "03-returned-to-bottom.png") });
       }
 
-      // Shrinking the dock can clamp the offset to its new end. That resize
-      // must not be mistaken for a reader returning to the latest messages.
-      await page.locator(".chat-thread").evaluate((thread) => {
-        thread.scrollTop -= 32;
-      });
-      await waitForChatScrollIdle(page);
-      expect(await card.getAttribute("open")).toBeNull();
-      await page.locator(".chat-thread").dispatchEvent("pointerdown");
-      await waitForChatScrollIdle(page);
-      expect(await card.getAttribute("open")).toBeNull();
-      await page.locator(".chat-thread").hover();
-      await page.mouse.wheel(0, -1);
-      await waitForChatScrollIdle(page);
-      expect(await card.getAttribute("open")).toBeNull();
-      await page.mouse.wheel(0, 600);
-      await waitForChatScrollIdle(page);
-      await expect.poll(() => card.getAttribute("open")).toBe("");
-
-      await page.locator(".chat-thread").evaluate((thread) => {
-        thread.scrollTop -= 32;
-      });
-      await waitForChatScrollIdle(page);
-      await page.locator(".chat-thread").evaluate((thread) => {
-        const touch = new Touch({ identifier: 1, target: thread, clientY: 200 });
-        thread.dispatchEvent(new TouchEvent("touchstart", { touches: [touch] }));
-      });
-      await waitForChatScrollIdle(page);
-      expect(await card.getAttribute("open")).toBeNull();
-      await page.locator(".chat-thread").evaluate((thread) => {
-        const touch = new Touch({ identifier: 1, target: thread, clientY: 100 });
-        thread.dispatchEvent(new TouchEvent("touchmove", { touches: [touch] }));
-        thread.dispatchEvent(new TouchEvent("touchend"));
-      });
-      await waitForChatScrollIdle(page);
-      expect(await card.getAttribute("open")).toBe("");
-
-      // Pin the card open while reading, then interrupt an active Latest return.
+      // Interrupt an active Latest return with an explicit keyboard close.
       const thread = page.locator(".chat-thread");
       await thread.press("Home");
       await waitForChatScrollIdle(page);
-      await card.locator("summary").click();
       await button.click();
       // Keyboard activation, like pointer input, pins the explicit choice.
       await card.locator("summary").press("Enter");

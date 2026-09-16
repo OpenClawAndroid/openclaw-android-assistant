@@ -316,7 +316,7 @@ describe("monitorIMessageProvider watch.subscribe startup retry", () => {
     const sender = "+15550002222";
     const chatId = 456;
     const scope = `default:chat_id:${chatId}`;
-    rememberPersistedIMessageEcho({ scope, text: "loop echo" });
+    await rememberPersistedIMessageEcho({ scope, text: "loop echo" });
     let onNotification:
       | ((message: { method: string; params: unknown }) => void | Promise<void>)
       | undefined;

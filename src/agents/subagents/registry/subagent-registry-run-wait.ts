@@ -15,10 +15,8 @@ import {
   type AgentRunTerminalOutcome,
 } from "../../agent-run-terminal-outcome.js";
 import { waitForAgentRun } from "../../run-wait.js";
-import {
-  type SubagentRunOutcome,
-  withSubagentOutcomeTiming,
-} from "../announce/subagent-announce-output.js";
+import { withSubagentOutcomeTiming } from "../announce/subagent-announce-output.js";
+import type { SubagentRunOutcome } from "../subagent-run-outcome.types.js";
 import { classifySubagentTerminalOutcome } from "../subagent-terminal-outcome.js";
 import {
   SUBAGENT_ENDED_REASON_COMPLETE,

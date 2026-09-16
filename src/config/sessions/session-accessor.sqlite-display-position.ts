@@ -6,11 +6,11 @@ import {
   createTranscriptDisplayPosition,
   createTranscriptDisplaySource,
 } from "../../sessions/transcript-display-position.js";
+import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
 import {
   getActiveTranscriptKysely,
   type CurrentTranscriptProjection,
-} from "./session-accessor.sqlite-active-projection.js";
-import type { TranscriptEvent } from "./session-accessor.sqlite-contract.js";
+} from "./session-accessor.sqlite-projection-read.js";
 import { resolveSqliteSessionTranscriptReadFence } from "./session-transcript-read-fence.js";
 
 export function readTranscriptDisplaySource(

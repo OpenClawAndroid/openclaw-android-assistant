@@ -43,6 +43,8 @@ export type CreateManagedWorktreeParams = {
   /** Derived default name; collisions receive a stable numeric suffix. */
   suggestedName?: string;
   baseRef?: string;
+  /** Repository-owned source cone lists; selection never requests dependency setup. */
+  profiles?: string[];
   /** Verified immutable checkout point when baseRef retains the publication target. */
   checkoutCommit?: string;
   ownerKind?: ManagedWorktreeOwnerKind;

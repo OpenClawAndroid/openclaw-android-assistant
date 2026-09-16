@@ -31,6 +31,7 @@ import { makeCronJob } from "../delivery.test-helpers.js";
 import { createCliDeps } from "../isolated-agent.delivery.test-helpers.js";
 import { commitCurrentSessionCronCompletion } from "./current-session-completion.js";
 import type { DispatchCronDeliveryParams } from "./delivery-dispatch-types.js";
+import { dispatchCronDelivery } from "./delivery-dispatch.js";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=",
@@ -127,6 +128,43 @@ async function createCompletionFixture(state: OpenClawTestState) {
 }
 
 describe("current-session completion delivery", () => {
+  it.each(["leading-token", "silent-media-caption"] as const)(
+    "normalizes %s output before committing the conversation",
+    async (mode) => {
+      await withOpenClawTestState({ layout: "state-only" }, async (state) => {
+        const fixture = await createCompletionFixture(state);
+        try {
+          const hasMedia = mode === "silent-media-caption";
+          const text = hasMedia ? "Report complete.\nNO_REPLY" : "NO_REPLY\nReport complete.";
+          fixture.params.deliveryPayloads = [
+            { text, ...(hasMedia ? { mediaUrl: fixture.payload.mediaUrl } : {}) },
+          ];
+          fixture.params.deliveryPayloadHasStructuredContent = hasMedia;
+          fixture.params.synthesizedText = text;
+          fixture.params.outputText = text;
+          fixture.params.summary = text;
+
+          const delivery = await dispatchCronDelivery(fixture.params);
+          expect(delivery.delivered).toBe(true);
+          const messages = await fixture.messages();
+          expect(messages).toHaveLength(1);
+          const message = readTranscriptEventMessage(messages[0]);
+          expect(message?.content).toEqual([
+            { type: "text", text: hasMedia ? "report.png" : "Report complete." },
+          ]);
+          if (hasMedia) {
+            expect(readAssistantDisplayContent(message)).toEqual([
+              expect.objectContaining({ type: "image" }),
+            ]);
+            expect(fixture.records()).toHaveLength(1);
+          }
+        } finally {
+          fixture.unsubscribe();
+        }
+      });
+    },
+  );
+
   it.each([{ to: "recipient" }, { accountId: "work" }, { threadId: 0 }])(
     "preserves the committed report and reports unresolved explicit intent %j",
     async (coordinates) => {

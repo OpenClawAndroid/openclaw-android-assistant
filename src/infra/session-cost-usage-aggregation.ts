@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { Result } from "@openclaw/normalization-core/result";
 import { resolveAgentDir } from "../agents/agent-scope-config.js";
 import { parseSqliteSessionFileMarker } from "../config/sessions/legacy-sqlite-marker.js";
@@ -8,6 +9,7 @@ import {
   loadTranscriptEventRowsAfterSeqSync,
   readTranscriptEventAtSeqSync,
 } from "../config/sessions/session-accessor.js";
+import { resolveSessionStorePathForScope } from "../config/sessions/session-store-path.js";
 import {
   isCanonicalSessionTranscriptEntry,
   isSessionTranscriptLeafControl,
@@ -28,6 +30,7 @@ import {
 import {
   listUsageCountedTranscriptStats,
   resolveUsageCostTranscriptFile,
+  resolveUsageCostTranscriptFiles,
   type UsageCostTranscriptFile,
 } from "./session-cost-usage-collection.js";
 import {
@@ -503,17 +506,12 @@ async function scanSqliteUsageRollup(params: {
   pricingFingerprint: string;
   resolveCost: UsageCostResolver;
 }): Promise<UsageCostRollupEntry> {
-  const marker = parseSqliteSessionFileMarker(params.file.filePath);
-  if (!marker) {
+  const scope = parseSqliteSessionFileMarker(params.file.filePath);
+  if (!scope) {
     throw new Error(`invalid SQLite transcript marker: ${params.file.filePath}`);
   }
   const maxSeq = params.file.maxSeq ?? 0;
   const eventCount = params.file.eventCount ?? 0;
-  const scope = {
-    agentId: marker.agentId,
-    sessionId: marker.sessionId,
-    storePath: marker.storePath,
-  };
   const { restoreSessionColdTranscript } =
     await import("../config/sessions/session-cold-storage.js");
   await restoreSessionColdTranscript(scope);
@@ -544,11 +542,7 @@ async function scanSqliteUsageRollup(params: {
   );
   const afterSeq = appendCandidate ? (previousCheckpoint?.maxSeq ?? 0) : 0;
   const rows = loadTranscriptEventRowsAfterSeqSync(scope, afterSeq, maxSeq);
-  const rawRecords = rows.flatMap((row) =>
-    row.event && typeof row.event === "object" && !Array.isArray(row.event)
-      ? [row.event as Record<string, unknown>]
-      : [],
-  );
+  const rawRecords = rows.map((row) => row.event).filter(isRecord);
   const incremental = appendCandidate
     ? selectIncrementalSqliteRecords(rawRecords, previousCheckpoint?.visibleLeafId)
     : undefined;
@@ -557,11 +551,7 @@ async function scanSqliteUsageRollup(params: {
     appendOnly || afterSeq === 0 ? rows : loadTranscriptEventRowsAfterSeqSync(scope, 0, maxSeq);
   const allRecords = appendOnly
     ? (incremental?.records ?? [])
-    : selectVisibleTranscriptEvents(allRows.map((row) => row.event)).flatMap((event) =>
-        event && typeof event === "object" && !Array.isArray(event)
-          ? [event as Record<string, unknown>]
-          : [],
-      );
+    : selectVisibleTranscriptEvents(allRows.map((row) => row.event)).filter(isRecord);
   const scan = createUsageRollupScan({ ...params, appendOnly });
   scan.addRecords(allRecords);
   const postFile = await resolveUsageCostTranscriptFile(params.file.filePath);
@@ -589,17 +579,6 @@ async function scanSqliteUsageRollup(params: {
   });
 }
 
-async function scanUsageFileForRollup(params: {
-  file: UsageCostTranscriptFile;
-  previous?: UsageCostStoredRollup;
-  pricingFingerprint: string;
-  resolveCost: UsageCostResolver;
-}): Promise<UsageCostRollupEntry> {
-  return params.file.kind === "sqlite"
-    ? await scanSqliteUsageRollup(params)
-    : await scanJsonlUsageRollup(params);
-}
-
 export async function refreshCostUsageCacheForAgent(params: {
   config?: OpenClawConfig;
   agentId: string;
@@ -607,9 +586,13 @@ export async function refreshCostUsageCacheForAgent(params: {
   databasePath?: string;
   maxFiles?: number;
   sessionsDir?: string;
+  storePath?: string;
   sessionFiles?: string[];
   startMs?: number;
 }): Promise<UsageCostRefreshResult> {
+  const storePath =
+    params.storePath ??
+    (params.sessionsDir ? undefined : resolveSessionStorePathForScope(params, params.config));
   const databasePath = resolveOpenClawAgentSqlitePath({
     agentId: normalizeAgentId(params.agentId),
     path: params.databasePath,
@@ -627,17 +610,13 @@ export async function refreshCostUsageCacheForAgent(params: {
     const rollups = readUsageCostRollups(params.agentId, pricingFingerprint, databasePath, {
       rows,
     });
-    const discoveredFiles = await listUsageCountedTranscriptStats(
-      params.agentId,
-      params.sessionsDir ? { sessionsDir: params.sessionsDir } : undefined,
-    );
-    const requestedFiles: UsageCostTranscriptFile[] = [];
-    for (const requested of params.sessionFiles ?? []) {
-      const resolved = await resolveUsageCostTranscriptFile(requested);
-      if (resolved) {
-        requestedFiles.push(resolved);
-      }
-    }
+    const discoveredFiles = await listUsageCountedTranscriptStats(params.agentId, {
+      sessionsDir: params.sessionsDir,
+      storePath,
+    });
+    const requestedFiles = (
+      await resolveUsageCostTranscriptFiles(params.sessionFiles ?? [])
+    ).filter((file) => file !== undefined);
     const filesByPath = new Map(discoveredFiles.map((file) => [file.filePath, file]));
     for (const file of requestedFiles) {
       filesByPath.set(file.filePath, file);
@@ -650,10 +629,7 @@ export async function refreshCostUsageCacheForAgent(params: {
       rows,
     });
 
-    const requestedPaths = new Set<string>();
-    for (const file of requestedFiles) {
-      requestedPaths.add(file.filePath);
-    }
+    const requestedPaths = new Set(requestedFiles.map((file) => file.filePath));
     const refreshFiles =
       requestedPaths.size > 0
         ? files.filter((file) => requestedPaths.has(file.filePath))
@@ -671,7 +647,8 @@ export async function refreshCostUsageCacheForAgent(params: {
 
     for (const file of staleFiles) {
       const previous = rollups.get(file.filePath);
-      const entry = await scanUsageFileForRollup({
+      const scan = file.kind === "sqlite" ? scanSqliteUsageRollup : scanJsonlUsageRollup;
+      const entry = await scan({
         file,
         previous,
         pricingFingerprint,

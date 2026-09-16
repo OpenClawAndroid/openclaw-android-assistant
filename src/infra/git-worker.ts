@@ -98,6 +98,11 @@ export type GitWorkerOperationOptions = {
   transferList?: (command: GitWorkerCommand) => readonly Transferable[];
   signal?: AbortSignal;
   assertCurrent?: () => void;
+  /** Host-owned Git policy; the broker still owns authority and process settlement. */
+  git?: {
+    text: typeof runGitBytes;
+    buffered: typeof runGitBuffered;
+  };
   onInventoryChunk?: (bytes: Uint8Array, context: { signal: AbortSignal }) => Promise<void>;
   onEffect?: (
     effect: GitWorktreeEffect,
@@ -125,7 +130,10 @@ export async function runGitWorkerOperation<Command extends GitWorkerCommand>(
     ? structuredClone(command, { transfer: [...new Set(transferList)] })
     : structuredClone(command);
   const baseEnv = { ...process.env };
-  const operation = executeOperation(poolFor(state, admitted), admitted, baseEnv, { ...options });
+  const operation = executeOperation(poolFor(state, admitted), admitted, baseEnv, {
+    ...options,
+    git: options.git ? { text: options.git.text, buffered: options.git.buffered } : undefined,
+  });
   state.pending.add(operation);
   void operation.then(
     () => state.pending.delete(operation),
@@ -156,25 +164,33 @@ async function executeOperation(
       let result: unknown;
       const transferList: Transferable[] = [];
       if (effect.type === "git.text") {
-        const output = await runGitBytes(effect.input.cwd, effect.input.args, {
-          ...effect.input.options,
-          baseEnv,
-          signal,
-          beforeRun: options.assertCurrent,
-          killProcessTree: true,
-        });
+        const output = await (options.git?.text ?? runGitBytes)(
+          effect.input.cwd,
+          effect.input.args,
+          {
+            ...effect.input.options,
+            baseEnv,
+            signal,
+            beforeRun: options.assertCurrent,
+            killProcessTree: true,
+          },
+        );
         const stdout = ownedGitWorkerBytes(output.stdout);
         const stderr = ownedGitWorkerBytes(output.stderr);
         result = { ...output, stdout, stderr };
         transferList.push(stdout.buffer, stderr.buffer);
       } else if (effect.type === "git.buffer") {
-        const output = await runGitBuffered(effect.input.cwd, effect.input.args, {
-          ...effect.input.options,
-          baseEnv,
-          signal,
-          beforeRun: options.assertCurrent,
-          killProcessTree: true,
-        });
+        const output = await (options.git?.buffered ?? runGitBuffered)(
+          effect.input.cwd,
+          effect.input.args,
+          {
+            ...effect.input.options,
+            baseEnv,
+            signal,
+            beforeRun: options.assertCurrent,
+            killProcessTree: true,
+          },
+        );
         const stdout = ownedGitWorkerBytes(output.stdout);
         const stderr = ownedGitWorkerBytes(output.stderr);
         result = { ...output, stdout, stderr };

@@ -1380,6 +1380,39 @@ describe("shared Codex app-server client", () => {
     },
   );
 
+  it.each(["shared", "isolated"] as const)(
+    "preserves the elapsed startup budget across a wall-clock jump for a %s client",
+    async (kind) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const harness = createAutoInitializingClientHarness();
+      vi.spyOn(CodexAppServerClient, "start").mockResolvedValue(harness.client);
+      const entered = createDeferred<void>();
+      const released = createDeferred<void>();
+      mocks.resolveManagedCodexAppServerStartOptions.mockImplementationOnce(
+        async (startOptions) => {
+          entered.resolve();
+          await released.promise;
+          return startOptions;
+        },
+      );
+      const acquire =
+        kind === "shared" ? getSharedCodexAppServerClient : createIsolatedCodexAppServerClient;
+      const pending = acquire({ timeoutMs: 1_000 });
+      const accepted = expect(pending).resolves.toBe(harness.client);
+      try {
+        await entered.promise;
+        vi.setSystemTime(Date.now() + 300_100);
+        released.resolve();
+        await accepted;
+        expect(harness.process.stdin.destroyed).toBe(false);
+      } finally {
+        released.resolve();
+        vi.useRealTimers();
+        await harness.client.closeAndWait();
+      }
+    },
+  );
+
   it("closes and clears a shared app-server when initialize times out", async () => {
     vi.useFakeTimers();
     const first = createClientHarness();
@@ -1563,7 +1596,7 @@ describe("shared Codex app-server client", () => {
     const harness = createClientHarness();
     vi.spyOn(CodexAppServerClient, "start").mockResolvedValue(harness.client);
     let now = 0;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.spyOn(performance, "now").mockImplementation(() => now);
 
     const clientPromise = createIsolatedCodexAppServerClient({ timeoutMs: 100 });
     await vi.waitFor(() => expect(harness.writes.length).toBeGreaterThanOrEqual(1));

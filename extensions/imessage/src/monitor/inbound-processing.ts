@@ -253,13 +253,13 @@ export function rememberIMessageSkippedFromMeForSelfChatDedupe(params: {
   }
 }
 
-function hasIMessageEchoMatch(params: {
+async function hasIMessageEchoMatch(params: {
   echoCache: {
     has: (
       scope: string,
       lookup: { text?: string; media?: MediaPlaceholderTextFact; messageId?: string },
       options?: boolean | { skipIdShortCircuit?: boolean; includePendingText?: boolean },
-    ) => boolean;
+    ) => boolean | Promise<boolean>;
   };
   scope: string | readonly string[];
   text?: string;
@@ -267,7 +267,7 @@ function hasIMessageEchoMatch(params: {
   messageIds: string[];
   skipIdShortCircuit?: boolean;
   includePendingText?: boolean;
-}): boolean {
+}): Promise<boolean> {
   // Outbound sends persist echo scopes keyed by whichever target shape was
   // used (chat_id, chat_guid, chat_identifier, or imessage:<handle>). Inbound
   // messages from chat.db typically carry chat_id + chat_guid + chat_identifier
@@ -282,7 +282,7 @@ function hasIMessageEchoMatch(params: {
       continue;
     }
     for (const messageId of params.messageIds) {
-      if (params.echoCache.has(scope, { messageId })) {
+      if (await params.echoCache.has(scope, { messageId })) {
         return true;
       }
     }
@@ -291,7 +291,7 @@ function hasIMessageEchoMatch(params: {
       continue;
     }
     if (
-      params.echoCache.has(
+      await params.echoCache.has(
         scope,
         { text: params.text, media: params.media, messageId: fallbackMessageId },
         {
@@ -420,7 +420,7 @@ export async function resolveIMessageInboundDecision(params: {
       scope: string,
       lookup: { text?: string; media?: MediaPlaceholderTextFact; messageId?: string },
       options?: boolean | { skipIdShortCircuit?: boolean; includePendingText?: boolean },
-    ) => boolean;
+    ) => boolean | Promise<boolean>;
   };
   selfChatCache?: SelfChatCache;
   reactionNotifications?: IMessageReactionNotificationMode;
@@ -518,7 +518,7 @@ export async function resolveIMessageInboundDecision(params: {
       if (
         params.echoCache &&
         (bodyText || inboundMessageId || mediaFacts.length > 0) &&
-        hasIMessageEchoMatch({
+        (await hasIMessageEchoMatch({
           echoCache: params.echoCache,
           scope: echoScope,
           text: bodyText || undefined,
@@ -526,7 +526,7 @@ export async function resolveIMessageInboundDecision(params: {
           messageIds: inboundMessageIds,
           skipIdShortCircuit: !hasInboundGuid,
           includePendingText: true,
-        })
+        }))
       ) {
         return { kind: "drop", reason: "agent echo in self-chat" };
       }
@@ -642,7 +642,7 @@ export async function resolveIMessageInboundDecision(params: {
     const targetIsOwn = Boolean(
       targetGuid &&
       ((params.echoCache &&
-        hasIMessageEchoMatch({
+        (await hasIMessageEchoMatch({
           echoCache: params.echoCache,
           scope: buildIMessageEchoScope({
             accountId: params.accountId,
@@ -653,7 +653,7 @@ export async function resolveIMessageInboundDecision(params: {
             sender,
           }),
           messageIds: targetGuids,
-        })) ||
+        }))) ||
         targetGuids.some((messageId) =>
           isKnownFromMeIMessageReactionTarget({
             messageId,
@@ -726,7 +726,7 @@ export async function resolveIMessageInboundDecision(params: {
       sender,
     });
     if (
-      hasIMessageEchoMatch({
+      await hasIMessageEchoMatch({
         echoCache: params.echoCache,
         scope: echoScope,
         text: bodyText || undefined,

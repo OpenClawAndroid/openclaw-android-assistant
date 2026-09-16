@@ -46,7 +46,7 @@ extensions/browser/src/browser-proxy-envelope.ts	8
 extensions/browser/src/browser-proxy-upload.ts	2
 extensions/browser/src/browser-tool-binding.ts	3
 extensions/browser/src/browser-tool-session-tabs.ts	3
-extensions/browser/src/browser-tool.actions.ts	13
+extensions/browser/src/browser-tool.actions.ts	10
 extensions/browser/src/browser-tool.snapshot.ts	2
 extensions/browser/src/browser-tool.ts	6
 extensions/browser/src/browser/bridge-server.ts	2
@@ -80,7 +80,6 @@ extensions/browser/src/browser/pw-download-capture.ts	1
 extensions/browser/src/browser/pw-role-snapshot.ts	1
 extensions/browser/src/browser/pw-session-actions.ts	2
 extensions/browser/src/browser/pw-session-navigation.ts	1
-extensions/browser/src/browser/pw-session.page-cdp.ts	2
 extensions/browser/src/browser/pw-tools-core.interactions.actions.ts	2
 extensions/browser/src/browser/pw-tools-core.interactions.content.ts	1
 extensions/browser/src/browser/pw-tools-core.interactions.execution.ts	4
@@ -96,7 +95,6 @@ extensions/browser/src/browser/routes/agent.storage.ts	2
 extensions/browser/src/browser/routes/basic.ts	6
 extensions/browser/src/browser/routes/permissions.ts	1
 extensions/browser/src/browser/routes/tabs.ts	8
-extensions/browser/src/browser/routes/utils.ts	1
 extensions/browser/src/browser/server-context.remote-tab-ops.harness.ts	2
 extensions/browser/src/browser/server-context.selection.ts	2
 extensions/browser/src/browser/server-context.tab-ops.ts	4
@@ -931,7 +929,6 @@ extensions/qa-lab/src/cron-run-wait.ts	1
 extensions/qa-lab/src/discovery-eval.ts	1
 extensions/qa-lab/src/docker-up.runtime.ts	1
 extensions/qa-lab/src/evidence-gallery.ts	2
-extensions/qa-lab/src/execution-identity-storage-inspection.ts	1
 extensions/qa-lab/src/fixture-utils.ts	10
 extensions/qa-lab/src/gateway-child-artifacts.ts	1
 extensions/qa-lab/src/gateway-process-boundary.ts	1
@@ -2507,7 +2504,6 @@ src/config/sessions/session-accessor.sqlite-archive-store.ts	1
 src/config/sessions/session-accessor.sqlite-archive.worker.ts	7
 src/config/sessions/session-accessor.sqlite-canonical-inventory.ts	1
 src/config/sessions/session-accessor.sqlite-checkpoint.ts	3
-src/config/sessions/session-accessor.sqlite-delta.ts	2
 src/config/sessions/session-accessor.sqlite-entry-availability.ts	1
 src/config/sessions/session-accessor.sqlite-entry-cache.ts	2
 src/config/sessions/session-accessor.sqlite-entry.ts	1
@@ -2758,8 +2754,6 @@ src/gateway/server-methods/skills-workspace-handler.ts	1
 src/gateway/server-methods/skills.ts	3
 src/gateway/server-methods/system-agent-chat-params.ts	2
 src/gateway/server-methods/system-changes.ts	9
-src/gateway/server-methods/talk-shared.ts	6
-src/gateway/server-methods/talk.ts	5
 src/gateway/server-methods/task-suggestions.ts	7
 src/gateway/server-methods/terminal-upload.ts	1
 src/gateway/server-methods/terminal.ts	6
@@ -2809,7 +2803,6 @@ src/gateway/session-sharing-target-input.ts	2
 src/gateway/session-sharing.ts	1
 src/gateway/session-transcript-derived-readers.ts	2
 src/gateway/session-transcript-files.fs.ts	2
-src/gateway/session-transcript-message.ts	3
 src/gateway/session-transcript-title-reader.ts	1
 src/gateway/session-utils-core.ts	1
 src/gateway/session-utils-row.ts	1
@@ -2818,9 +2811,11 @@ src/gateway/session-utils.fs.ts	2
 src/gateway/sessions-history-http.ts	1
 src/gateway/stale-install.ts	1
 src/gateway/system-ca-warmup.ts	1
-src/gateway/talk-agent-consult.ts	2
-src/gateway/talk-realtime-relay-forced-consults.ts	1
-src/gateway/talk-realtime-relay-session-create.ts	1
+src/gateway/talk/agent-consult.ts	2
+src/gateway/talk/handlers/index.ts	5
+src/gateway/talk/relay/forced-consults.ts	1
+src/gateway/talk/relay/session-create.ts	1
+src/gateway/talk/session-config.ts	6
 src/gateway/terminal/node-relay.ts	1
 src/gateway/test-http-response.ts	4
 src/gateway/test-temp-config.ts	1
@@ -2978,7 +2973,7 @@ src/infra/restart-sentinel-store.ts	10
 src/infra/restart-sentinel.ts	1
 src/infra/restart-stale-pids.ts	3
 src/infra/retry-policy.ts	3
-src/infra/session-cost-usage-aggregation.ts	5
+src/infra/session-cost-usage-aggregation.ts	3
 src/infra/session-cost-usage-cache.sqlite.ts	1
 src/infra/session-cost-usage-collection.ts	3
 src/infra/session-cost-usage-pricing.ts	6
@@ -3735,7 +3730,6 @@ ui/src/pages/chat/chat-send-ack.ts	2
 ui/src/pages/chat/chat-send-composer.ts	1
 ui/src/pages/chat/chat-send-request.ts	1
 ui/src/pages/chat/chat-send-timing.ts	6
-ui/src/pages/chat/chat-session-companion.ts	3
 ui/src/pages/chat/chat-state-events.ts	6
 ui/src/pages/chat/chat-state-page.ts	5
 ui/src/pages/chat/chat-state-route.ts	1
@@ -3774,15 +3768,15 @@ ui/src/pages/chat/critical-observer-notice.ts	1
 ui/src/pages/chat/export.ts	1
 ui/src/pages/chat/input-history.ts	3
 ui/src/pages/chat/performance.ts	1
-ui/src/pages/chat/realtime-talk-gateway-relay.ts	1
-ui/src/pages/chat/realtime-talk-google-live.ts	2
-ui/src/pages/chat/realtime-talk-shared.ts	7
-ui/src/pages/chat/realtime-talk-webrtc.ts	2
-ui/src/pages/chat/realtime-talk.ts	2
 ui/src/pages/chat/run-lifecycle.ts	1
 ui/src/pages/chat/scroll.ts	1
 ui/src/pages/chat/session-cache.ts	2
 ui/src/pages/chat/stream-reconciliation.ts	9
+ui/src/pages/chat/talk/gateway-relay.ts	1
+ui/src/pages/chat/talk/google-live.ts	2
+ui/src/pages/chat/talk/session.ts	2
+ui/src/pages/chat/talk/shared.ts	7
+ui/src/pages/chat/talk/webrtc.ts	2
 ui/src/pages/chat/workspace-conflict.ts	2
 ui/src/pages/config/config-page.ts	1
 ui/src/pages/config/config-sections.ts	1

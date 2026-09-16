@@ -3,6 +3,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { validatePluginCategories } from "../../packages/plugin-package-contract/src/index.js";
 import {
   fetchClawHubJson,
+  isClawHubTelemetryDisabled,
   readClawHubStringArrayField,
   readClawHubStringField,
   readRequiredClawHubBooleanField as readRequiredBoolean,
@@ -450,6 +451,7 @@ function parseVersions(value: unknown): ClawHubPluginVersion[] {
 export async function fetchClawHubPluginCatalog(
   params: ClawHubReadOptions & {
     query?: string;
+    searchSource?: "openclaw-control-ui";
     intent?: "all" | "trending" | "official" | "featured";
     category?: string;
     cursor?: string;
@@ -464,11 +466,15 @@ export async function fetchClawHubPluginCatalog(
     fetchImpl: params.fetchImpl,
   };
   if (query) {
+    const searchSource = isClawHubTelemetryDisabled() ? undefined : params.searchSource;
     const value = await fetchClawHubJson<unknown>({
       ...shared,
       path: "/api/v1/plugins/search",
+      // Marked searches record demand; replay could duplicate a committed observation.
+      retryTransientReads: searchSource === undefined,
       search: {
         q: query,
+        searchSource,
         category: params.category,
         isOfficial: params.intent === "official" ? "true" : undefined,
         limit: params.limit ? String(params.limit) : undefined,

@@ -25,7 +25,7 @@ type ArchiveDatabase = Pick<DB, "session_transcript_archives">;
 
 export function listTranscriptArchivesFromDatabase(
   { db, agentId }: Pick<OpenClawAgentDatabase, "db" | "agentId">,
-  logicalAgentId: string,
+  logicalAgentId: string | undefined,
   selectors: readonly string[],
   archiveNames: readonly string[],
 ) {
@@ -48,9 +48,11 @@ export function listTranscriptArchivesFromDatabase(
     ]),
   );
   const rows = executeSqliteQuerySync(db, query).rows;
-  return rows.filter(
-    (row) => resolveAgentIdFromSessionKey(row.sessionKey, agentId) === logicalAgentId,
-  );
+  return rows
+    .map((row) =>
+      Object.assign(row, { agentId: resolveAgentIdFromSessionKey(row.sessionKey, agentId) }),
+    )
+    .filter((row) => logicalAgentId === undefined || row.agentId === logicalAgentId);
 }
 
 /** Scan one canonical read snapshot without constructing the decoded history. */
@@ -152,12 +154,49 @@ async function findArchivedFinal(
   const result: TranscriptArchiveReadResult = {};
   const scan = async (source: Readable) => {
     const lines = createInterface({ input: source, crlfDelay: Infinity });
+    const fragments: string[] = [];
+    let depth = 0;
     try {
       for await (const line of lines) {
-        if (!line.trim()) {
-          continue;
+        let event: unknown;
+        if (fragments.length === 0) {
+          if (!line.trim()) {
+            continue;
+          }
+          try {
+            event = JSON.parse(line);
+          } catch {
+            // Exact SQLite imports retain multiline JSON values.
+            fragments.push(line);
+          }
+        } else {
+          fragments.push(line);
         }
-        const event: unknown = JSON.parse(line);
+        if (fragments.length > 0) {
+          let quoted = false;
+          let escaped = false;
+          for (const character of line) {
+            if (escaped) {
+              escaped = false;
+            } else if (quoted && character === "\\") {
+              escaped = true;
+            } else if (character === '"') {
+              quoted = !quoted;
+            } else if (!quoted) {
+              if (character === "{" || character === "[") {
+                depth += 1;
+              } else if (character === "}" || character === "]") {
+                depth -= 1;
+              }
+            }
+          }
+          // JSON strings cannot cross physical lines; parse now to reject the invalid value.
+          if (!quoted && depth > 0) {
+            continue;
+          }
+          event = JSON.parse(fragments.join("\n"));
+          fragments.length = 0;
+        }
         if (!headerRead) {
           if (!isRecord(event) || event.type !== "session" || event.id !== sessionId) {
             throw new Error("Archived transcript header does not match its registered session.");
@@ -166,6 +205,9 @@ async function findArchivedFinal(
         } else if (isVisibleSubagentResultEventForRun(event, runId)) {
           result.event = event;
         }
+      }
+      if (fragments.length > 0) {
+        throw new SyntaxError("Unterminated archived transcript JSON.");
       }
     } finally {
       lines.close();

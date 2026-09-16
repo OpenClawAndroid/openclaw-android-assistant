@@ -523,6 +523,7 @@ describe("scripts/test-extension.mts", () => {
           "mattermost",
           "memory-core",
           "msteams",
+          "qa-lab",
           "telegram",
           "voice-call",
           "zalo",
@@ -536,7 +537,7 @@ describe("scripts/test-extension.mts", () => {
               ),
           ),
           bundledPluginRoot("memory-core"),
-          ...["msteams", "acpx"].flatMap((extensionId) =>
+          ...["msteams", "acpx", "qa-lab"].flatMap((extensionId) =>
             databaseWorkerExtensionTestFiles.filter((file) =>
               file.startsWith(`extensions/${extensionId}/`),
             ),

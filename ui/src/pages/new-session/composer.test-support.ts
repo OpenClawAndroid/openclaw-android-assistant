@@ -4,7 +4,7 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import type { SessionToolOverrides } from "../../lib/sessions/patch.ts";
 import { NewSessionAttachmentDraft } from "./attachment-draft.ts";
-import { NewSessionComposerTextareaController } from "./composer.ts";
+import { NewSessionComposerTextareaController } from "./composer-controller.ts";
 import type { NewSessionVisibility } from "./create-params.ts";
 import { renderNewSessionDraftComposer } from "./draft-composer.ts";
 import { NewSessionModelControl } from "./model-control.ts";

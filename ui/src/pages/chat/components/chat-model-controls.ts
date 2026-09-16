@@ -326,7 +326,11 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
           props.modelCatalog,
         );
   const modelPending = executionPending && !activeModelValue;
-  const triggerModelValue = modelPending ? "" : activeModelValue || currentOverride;
+  // A pending execution does not erase the saved choice or reuse the previous
+  // turn's fallback. Keep the choice visible until this run identifies its model.
+  const triggerModelValue = activeModelValue || currentOverride;
+  const modelStarting =
+    modelPending && Boolean(triggerModelValue || (!props.modelSelectionLocked && defaultModel));
   const defaultProviderHint = props.sessionsResult?.defaults?.modelProvider ?? "";
   const defaultCatalogEntry = catalog.entry(defaultModel);
   const canonicalDefaultLabel = resolveChatModelPickerLabel(defaultCatalogEntry, defaultLabel);
@@ -577,12 +581,15 @@ export function renderChatModelControls(props: ChatModelControlsProps) {
         sessionModelPinned,
         sessionKey: props.sessionKey,
         triggerModelLabel: formatPickerModelLabel(committedModelLabel),
-        triggerModelValue: modelPending ? "" : triggerModelValue || undefined,
-        triggerStatusLabel: modelPending
-          ? t("chat.modelControls.modelPending")
-          : props.modelSelectionLocked
-            ? undefined
-            : catalogTriggerStatus,
+        triggerModelValue: modelPending && !modelStarting ? "" : triggerModelValue || undefined,
+        triggerStarting: modelStarting,
+        triggerStatusLabel: modelStarting
+          ? undefined
+          : modelPending
+            ? t("chat.modelControls.modelPending")
+            : props.modelSelectionLocked
+              ? undefined
+              : catalogTriggerStatus,
         triggerLoading:
           !modelPending &&
           !props.modelSelectionLocked &&

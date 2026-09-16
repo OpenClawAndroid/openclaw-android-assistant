@@ -46,7 +46,18 @@ The monitor serializes admissions so append backoff cannot invert a lane. The
 default bounded append delays are `0`, `100`, and `300` ms; exhaustion rejects
 the transport callback instead of dispatching an event that was not made
 durable. At claim time it decodes the versioned payload, re-runs `inspect`, and
-rejects an id or lane mismatch before delivery.
+rejects an id or lane mismatch before delivery. Set optional `inspectAsync(raw, context)` when inspection needs asynchronous
+preparation. Supporting hosts prefer it over `inspect` in both admission and
+claim validation. Keep `inspect` as a synchronous fallback for older hosts, which
+ignore the companion. Both callbacks must derive the same identity and lane.
+The standard raw-event convenience monitor retains its synchronous inspection contract.
+
+Asynchronous inspection stays inside the existing admission order. Shutdown and `waitForIdle()` join
+accepted inspections and their durable appends, including pending claim inspection
+when the channel owns its separate delivery grace. Claim inspection rechecks shutdown
+and claim cancellation before delivery. Pending claim inspections consume the
+existing start slots and keep `onActivityChange` busy until they finish or transfer
+to delivery.
 
 `onDurableAdmission(raw, context)` runs after every durable enqueue, including
 duplicates. `context.isNew` is `true` if and only if this admission inserted the

@@ -1,5 +1,4 @@
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
-import { executeSqliteQueryTakeFirstSync } from "../../infra/kysely-sync.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
 import { createDeferredCore } from "../../shared/deferred.js";
@@ -16,11 +15,14 @@ import { registerOpenClawAgentDatabaseAsyncResource } from "../../state/openclaw
 import { readSessionBranchSummaries } from "./session-accessor.sqlite-branch-summaries.js";
 import { readSessionEntryRow } from "./session-accessor.sqlite-entry-store.js";
 import {
-  getSessionKysely,
   normalizeSqliteSessionKey,
   resolveSqliteScope,
   toDatabaseOptions,
 } from "./session-accessor.sqlite-scope.js";
+import {
+  readSessionTranscriptHotWatermark,
+  type SessionTranscriptWatermark,
+} from "./session-accessor.sqlite-transcript-watermark.js";
 import type {
   SessionBranchListParams,
   SessionBranchListResult,
@@ -31,8 +33,7 @@ import { assertSessionTranscriptHot } from "./session-cold-storage-state.js";
 
 const SESSION_BRANCH_CACHE_MAX_ENTRIES = 32;
 
-type SessionBranchWatermark = { generation: string | null; maxSeq: number | null };
-type SessionBranchCacheEntry = SessionBranchWatermark & {
+type SessionBranchCacheEntry = SessionTranscriptWatermark & {
   branches: SessionBranchSummary[];
   identity: OpenClawAgentDatabaseIdentity;
 };
@@ -45,7 +46,7 @@ export type SessionBranchSummaryReadRequest = {
   lifecycleRevision?: string;
 };
 export type SessionBranchSummaryReadResult =
-  | ({ status: "ok"; branches: SessionBranchSummary[] } & SessionBranchWatermark)
+  | ({ status: "ok"; branches: SessionBranchSummary[] } & SessionTranscriptWatermark)
   | { status: "missing-session" | "failed" };
 
 // Host and worker isolates share this policy, each retaining only their compact derived results.
@@ -62,7 +63,7 @@ function cloneSessionBranchSummaries(branches: readonly SessionBranchSummary[]) 
 function readCachedSessionBranchSummaries(
   database: OpenClawAgentReadOnlyDatabase,
   sessionId: string,
-  watermark: SessionBranchWatermark,
+  watermark: SessionTranscriptWatermark,
 ): SessionBranchSummary[] | undefined {
   const cacheKey = sessionBranchCacheKey(database.path, sessionId);
   const cached = sessionBranchCache.get(cacheKey);
@@ -82,7 +83,7 @@ function readCachedSessionBranchSummaries(
 function cacheSessionBranchSummaries(
   database: OpenClawAgentReadOnlyDatabase,
   sessionId: string,
-  snapshot: SessionBranchWatermark & { branches: SessionBranchSummary[] },
+  snapshot: SessionTranscriptWatermark & { branches: SessionBranchSummary[] },
 ): void {
   const cacheKey = sessionBranchCacheKey(database.path, sessionId);
   sessionBranchCache.delete(cacheKey);
@@ -93,28 +94,6 @@ function cacheSessionBranchSummaries(
     identity: readOpenClawAgentDatabaseIdentity(database).identity,
   });
   pruneMapToMaxSize(sessionBranchCache, SESSION_BRANCH_CACHE_MAX_ENTRIES);
-}
-
-function readSessionBranchWatermark(
-  database: Pick<OpenClawAgentReadOnlyDatabase, "db">,
-  sessionId: string,
-): SessionBranchWatermark {
-  const db = getSessionKysely(database.db);
-  const maxSeq = executeSqliteQueryTakeFirstSync(
-    database.db,
-    db
-      .selectFrom("transcript_events")
-      .select((eb) => eb.fn.max<number>("seq").as("max_seq"))
-      .where("session_id", "=", sessionId),
-  )?.max_seq;
-  const generation = executeSqliteQueryTakeFirstSync(
-    database.db,
-    db
-      .selectFrom("transcript_rewrite_watermarks")
-      .select("generation")
-      .where("session_id", "=", sessionId),
-  )?.generation;
-  return { generation: generation ?? null, maxSeq: maxSeq ?? null };
 }
 
 function readSessionBranchSnapshot(
@@ -147,7 +126,7 @@ function readSessionBranchSnapshot(
       }
       assertSessionTranscriptHot(database.db, expected.sessionId);
       // The watermark and rows must describe the same snapshot, even when a peer appends.
-      const watermark = readSessionBranchWatermark(database, expected.sessionId);
+      const watermark = readSessionTranscriptHotWatermark(database, expected.sessionId);
       const cached = readCachedSessionBranchSummaries(database, expected.sessionId, watermark);
       const branches = cached ?? readSessionBranchSummaries(database, expected.sessionId);
       if (!cached) {
@@ -222,7 +201,7 @@ export async function listSessionBranches(
         { ...params, agentId: resolved.agentId, sessionId: selected.sessionId },
         async (): Promise<SessionBranchListResult> => {
           assertCurrent();
-          const watermark = readSessionBranchWatermark(database, selected.sessionId);
+          const watermark = readSessionTranscriptHotWatermark(database, selected.sessionId);
           const cached = readCachedSessionBranchSummaries(database, selected.sessionId, watermark);
           let snapshot: SessionBranchSummaryReadResult;
           if (cached) {

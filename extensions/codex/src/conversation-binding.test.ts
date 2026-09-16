@@ -1512,13 +1512,12 @@ describe("codex conversation binding", () => {
         client: harness.client,
         release: vi.fn(),
       });
-      vi.useFakeTimers({ toFake: ["Date"] });
-      const startedAt = Date.now();
+      const elapsedClock = vi.spyOn(performance, "now").mockReturnValue(0);
       let resumeAccepted = false;
       const request = vi.spyOn(harness.client, "request").mockImplementation(async (method) => {
         if (method === "thread/read") {
           if (expiresDuring === "preflight") {
-            vi.setSystemTime(startedAt + 1_001);
+            elapsedClock.mockReturnValue(1_001);
           }
           return { thread: response.thread } as never;
         }
@@ -1547,14 +1546,14 @@ describe("codex conversation binding", () => {
                     throw new Error("Invalid Codex app-server binding row");
                   }
                   if (expiresDuring === "retention") {
-                    vi.setSystemTime(startedAt + 1_001);
+                    elapsedClock.mockReturnValue(1_001);
                   }
                 }
                 return testCodexAppServerBindingStore.read(identity);
               },
               mutate: async (...args) => {
                 if (expiresDuring === "commit") {
-                  vi.setSystemTime(startedAt + 1_001);
+                  elapsedClock.mockReturnValue(1_001);
                 }
                 return await testCodexAppServerBindingStore.mutate(...args);
               },
@@ -1584,7 +1583,7 @@ describe("codex conversation binding", () => {
       } finally {
         retry.mockRestore();
         harness.client.close();
-        vi.useRealTimers();
+        elapsedClock.mockRestore();
       }
     },
   );

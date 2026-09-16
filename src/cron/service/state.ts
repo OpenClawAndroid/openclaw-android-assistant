@@ -298,6 +298,7 @@ type QueuedCronRunReservation = {
   markerAtMs: number;
   runReceipt: CronRunReceiptHandle;
   preserveWhenDisabled: boolean;
+  onExit?: boolean;
   activationPreviousLastError?: { value: string | undefined };
 };
 

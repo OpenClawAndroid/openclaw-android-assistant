@@ -883,11 +883,28 @@ describe("external shared-state ownership", () => {
     expect(claimInjected).toBe(true);
   });
 
-  it("fences injected and pre-claim handles on their next canonical write", () => {
+  it("fences cached and injected handles after another connection commits an owner", () => {
     const externalEnv = createEnv(true);
-    const opened = openOpenClawStateDatabase({ env: externalEnv });
-    claimOpenClawStateOwnership("gateway-supervisor", { env: externalEnv });
     const unmarkedEnv = withoutExternalMarker(externalEnv);
+    const opened = openOpenClawStateDatabase({ env: unmarkedEnv });
+    expect(openOpenClawStateDatabase({ env: unmarkedEnv })).toBe(opened);
+    const ownership = {
+      version: 1 as const,
+      mode: "external" as const,
+      managerId: "late-supervisor",
+      claimedAt: 1,
+    };
+    const { DatabaseSync } = requireNodeSqlite();
+    const claimant = new DatabaseSync(opened.path);
+    try {
+      claimant
+        .prepare(
+          "INSERT INTO config_machine_state (state_key, value_json, updated_at_ms) VALUES (?, ?, ?)",
+        )
+        .run(STATE_SUPERVISION_KEY, JSON.stringify(ownership), ownership.claimedAt);
+    } finally {
+      claimant.close();
+    }
 
     expect(() => openOpenClawStateDatabase({ env: unmarkedEnv })).toThrow(
       OpenClawStateOwnershipError,
@@ -895,12 +912,19 @@ describe("external shared-state ownership", () => {
     expect(() => openOpenClawStateDatabase({ env: unmarkedEnv, database: opened })).toThrow(
       OpenClawStateOwnershipError,
     );
+    const write = vi.fn();
+    expect(() => runOpenClawStateWriteTransaction(write, { env: unmarkedEnv })).toThrow(
+      OpenClawStateOwnershipError,
+    );
     expect(() =>
-      runOpenClawStateWriteTransaction(() => undefined, {
+      runOpenClawStateWriteTransaction(write, {
         env: unmarkedEnv,
         database: opened,
       }),
     ).toThrow(OpenClawStateOwnershipError);
+    expect(write).not.toHaveBeenCalled();
+    expect(openOpenClawStateDatabase({ env: externalEnv })).toBe(opened);
+    expect(inspectOpenClawStateOwnershipAtPath(opened.path)).toEqual(ownership);
   });
 
   it("reports checkpoint failure and lets the same durable claim retry", () => {

@@ -337,6 +337,9 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
     get state() {
       return state;
     },
+    get presentation() {
+      return state;
+    },
     get canonicalListRevision() {
       return canonicalListRevision;
     },

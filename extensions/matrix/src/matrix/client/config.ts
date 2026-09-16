@@ -512,8 +512,9 @@ export async function resolveMatrixAuth(params?: {
   const homeserver = await resolveValidatedMatrixHomeserverUrl(resolved.homeserver, {
     dangerouslyAllowPrivateNetwork: resolved.allowPrivateNetwork,
   });
-  const { loadMatrixCredentials, credentialsMatchConfig } = await loadMatrixCredentialsReadDeps();
-  const cached = loadMatrixCredentials(env, accountId);
+  const { loadMatrixCredentialsAsync, credentialsMatchConfig } =
+    await loadMatrixCredentialsReadDeps();
+  const cached = await loadMatrixCredentialsAsync(env, accountId);
   const cachedCredentials =
     cached &&
     credentialsMatchConfig(cached, {
@@ -698,13 +699,17 @@ export async function backfillMatrixAuthDeviceIdAfterStartup(params: {
   }
 
   const env = params.env ?? process.env;
-  const { loadMatrixCredentials } = await loadMatrixCredentialsReadDeps();
+  const { loadMatrixCredentialsAsync } = await loadMatrixCredentialsReadDeps();
   if (
     !credentialsMatchBackfillAuthLineage({
-      stored: loadMatrixCredentials(env, params.auth.accountId),
+      stored: await loadMatrixCredentialsAsync(env, params.auth.accountId),
       auth: params.auth,
     })
   ) {
+    return undefined;
+  }
+
+  if (isAbortSignalTriggered(params.abortSignal)) {
     return undefined;
   }
 

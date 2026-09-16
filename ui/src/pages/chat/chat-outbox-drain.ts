@@ -499,6 +499,14 @@ async function drainStoredChatOutbox(
     lane.outcomes.set(item.id, result);
     lane.pendingOptions.delete(item.id);
     if (result === "pending") {
+      const current = readStoredChatOutbox(host, scope)?.queue.find(
+        (entry) => entry.id === item.id,
+      );
+      if (!current || current.orderKey !== item.orderKey) {
+        // A removal or move during preparation invalidates this selection.
+        // Reselect immediately so the newly ordered head does not lose its wakeup.
+        continue;
+      }
       // A later submission still owns its wakeup if this row became stale while waiting.
       if (!pendingOptions?.pendingSettings && lane.freshAdmissions.size === 0) {
         lane.rerun = false;

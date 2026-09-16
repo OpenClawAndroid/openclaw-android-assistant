@@ -6,7 +6,7 @@ import {
   resolveInternalSessionKey,
   resolveMainSessionAlias,
 } from "../agents/tools/sessions-resolution.js";
-import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db-cache.js";
 import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
@@ -52,8 +52,8 @@ async function withCollectors(runs: SubagentRunRecord[], run: () => Promise<void
   });
 }
 
-afterEach(() => {
-  closeOpenClawStateDatabaseForTest();
+afterEach(async () => {
+  await closeOpenClawStateDatabaseAsync();
   clearSubagentRunsReadCacheForTest();
 });
 

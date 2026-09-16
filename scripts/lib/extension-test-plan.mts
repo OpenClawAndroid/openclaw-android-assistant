@@ -389,11 +389,12 @@ export function estimateExtensionTestCost(config: string, testFileCount: number)
   return Math.max(1, Math.ceil(testFileCount * multiplier));
 }
 
-/** Resolve the dedicated Vitest config for an extension root. */
-export function resolveExtensionTestConfig(root: string) {
-  if (databaseWorkerExtensionTestFiles.includes(root)) {
+/** Resolve the dedicated Vitest config for an extension root or test file. */
+export function resolveExtensionTestConfig(target: string) {
+  if (databaseWorkerExtensionTestFiles.includes(target)) {
     return "test/vitest/vitest.extension-database-workers.config.ts";
   }
+  const root = target.split("/").slice(0, 2).join("/");
   const splitChannelShard = resolveSplitChannelExtensionShard(root);
   if (splitChannelShard) {
     return splitChannelShard.config;

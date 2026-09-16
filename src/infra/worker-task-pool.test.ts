@@ -630,25 +630,41 @@ describe("worker task pool", () => {
     expect(workers).toHaveLength(1);
   });
 
-  it("terminates only the cancelled worker before admitting its replacement", async () => {
-    const pool = createPool();
-    const counters = new SharedArrayBuffer(8);
-    const controller = new AbortController();
-    const reason = new Error("cancel execution");
-    const active = pool.run(
-      { label: "cancelled", counters, wait: true },
-      { timeoutMs: 10_000, signal: controller.signal },
-    );
-    const rejected = expect(active).rejects.toBe(reason);
-    await expect.poll(() => Atomics.load(new Int32Array(counters), 0)).toBe(1);
-    const cancelledWorker = workers[0];
-    const replacement = pool.run({ label: "replacement" }, { timeoutMs: 10_000 });
-    controller.abort(reason);
-    await rejected;
-    expect(cancelledWorker?.threadId).toBe(-1);
-    await expect(replacement).resolves.toMatchObject({ label: "replacement" });
-    expect(workers).toHaveLength(2);
-  });
+  it.each(["abort", "deadline"] as const)(
+    "terminates the running worker on %s before admitting its replacement",
+    async (ending) => {
+      const pool = createPool();
+      const counters = new SharedArrayBuffer(8);
+      const controller = new AbortController();
+      const reason = new Error("cancel execution");
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const active = pool.run(
+        { label: "cancelled", counters, wait: true },
+        { timeoutMs: 10_000, signal: controller.signal },
+      );
+      const rejected =
+        ending === "abort"
+          ? expect(active).rejects.toBe(reason)
+          : expect(active).rejects.toMatchObject({ code: "timeout" });
+      try {
+        await expect.poll(() => Atomics.load(new Int32Array(counters), 0)).toBe(1);
+        const cancelledWorker = workers[0];
+        const replacement = pool.run({ label: "replacement" }, {});
+        if (ending === "abort") {
+          controller.abort(reason);
+        } else {
+          await vi.advanceTimersByTimeAsync(10_000);
+        }
+        await rejected;
+        expect(cancelledWorker?.threadId).toBe(-1);
+        await expect(replacement).resolves.toMatchObject({ label: "replacement" });
+        expect(workers).toHaveLength(2);
+      } finally {
+        await pool.close();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it.each([0, 1])(
     "rejects exit code %i before a response and recovers capacity",

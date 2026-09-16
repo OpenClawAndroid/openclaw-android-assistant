@@ -72,11 +72,12 @@ export async function readSessionTranscriptModelContextAsync(
   admission: SessionModelContextWorkerInput["admission"],
   signal?: AbortSignal,
   through?: SessionModelContextWorkerInput["through"],
+  limits?: SessionModelContextWorkerInput["limits"],
 ): Promise<ReturnType<typeof readSessionTranscriptModelContext>> {
   signal?.throwIfAborted();
   return unwrapReply<"model-context">(
     await modelContextReads.run(
-      { kind: "model-context", target, admission, through },
+      { kind: "model-context", target, admission, through, limits },
       { timeoutMs: 60_000, signal },
     ),
   );

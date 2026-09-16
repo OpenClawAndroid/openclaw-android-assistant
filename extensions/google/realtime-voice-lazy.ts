@@ -11,6 +11,7 @@ import {
   asOptionalRecord,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { GOOGLE_REALTIME_VOICE_METADATA } from "./realtime-voice-metadata.js";
 
 const loadGoogleRealtimeVoiceProvider = createLazyRuntimeSurface(
   () => import("./realtime-voice-provider.js"),
@@ -417,9 +418,7 @@ function createLazyGoogleRealtimeVoiceBridge(
 
 export function createLazyGoogleRealtimeVoiceProvider(): RealtimeVoiceProviderPlugin {
   return {
-    id: "google",
-    label: "Google Live Voice",
-    autoSelectOrder: 20,
+    ...GOOGLE_REALTIME_VOICE_METADATA,
     resolveConfig: ({ cfg, rawConfig }) => resolveGoogleRealtimeProviderConfig(rawConfig, cfg),
     isConfigured: ({ cfg, providerConfig }) =>
       Boolean(

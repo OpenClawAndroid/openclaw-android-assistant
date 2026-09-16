@@ -1,10 +1,8 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { composeTranscriptDisplay } from "../../chat/transcript-display-position.js";
 import type { SessionTranscriptReadScope } from "../../config/sessions/session-accessor.js";
-import {
-  readTranscriptDisplayDelta,
-  type SessionTranscriptDisplayDeltaResult,
-} from "../../config/sessions/session-accessor.sqlite-history-events.js";
+import { readTranscriptDisplayDelta } from "../../config/sessions/session-accessor.sqlite-history-events.js";
+import type { SessionTranscriptDisplayDeltaResult } from "../../config/sessions/session-accessor.sqlite-history-query.js";
 import { jsonUtf8BytesOrInfinity } from "../../infra/json-utf8-bytes.js";
 import { isOpenClawDeliveryMirrorAssistantMessage } from "../../shared/transcript-only-openclaw-assistant.js";
 import {
@@ -12,9 +10,9 @@ import {
   isAssistantTtsSupplementMessage,
 } from "../chat-display-projection.js";
 import { resolveCurrentUserProfileDisplay } from "../current-user-profile-display.js";
+import { projectTranscriptEntryMessage } from "../session-transcript-entry-message.js";
 import {
   projectSessionMessagePayload,
-  projectTranscriptEntryMessage,
   type SessionMessageProjectionState,
 } from "../session-transcript-message.js";
 

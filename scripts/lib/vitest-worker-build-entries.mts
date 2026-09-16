@@ -29,6 +29,7 @@ import {
   publishedSdkBridgeEntrypoints,
 } from "../../src/plugins/loader-sdk-bridge-artifacts.test-support.ts";
 import { persistenceRuntimeEntrypoint } from "../../src/skills/library/persistence-runtime.test-support.ts";
+import { agentDatabaseModuleIdentityEntrypoints } from "../../src/state/openclaw-agent-db-module-identity-runtime.test-support.ts";
 import {
   agentDatabaseHeldRuntimeEntrypoint,
   stateLeaseProcessExitRuntimeEntrypoint,
@@ -83,6 +84,7 @@ export const vitestWorkerBuildEntries = {
       logbookSqliteBackendEntrypoint,
       teamReportsSqliteBackendEntrypoint,
       workboardSqliteBackendEntrypoint,
+      ...Object.values(agentDatabaseModuleIdentityEntrypoints),
       stateLeaseProcessExitRuntimeEntrypoint,
       agentDatabaseHeldRuntimeEntrypoint,
     ].map((entry) => [

@@ -93,6 +93,7 @@ export async function readCodexMirroredSessionHistoryMessages(
   admission?: TranscriptTurnAdmission,
   view: CodexHistoryView = "native-evidence",
   signal?: AbortSignal,
+  contextTokenBudget?: number,
 ): Promise<AgentMessage[] | undefined> {
   signal?.throwIfAborted();
   try {
@@ -108,6 +109,13 @@ export async function readCodexMirroredSessionHistoryMessages(
         const loaded = await SessionManager.openModelContextAsync(resolved.target, {
           admission,
           signal,
+          limits: {
+            maxBytes: Math.min(
+              64 * 1024 * 1024,
+              Math.max(1024, Math.floor((contextTokenBudget ?? 128_000) * 8)),
+            ),
+            maxEvents: 10_000,
+          },
         });
         result = consumeCodexHistory(
           loaded.buildSessionContext().messages,
@@ -123,8 +131,12 @@ export async function readCodexMirroredSessionHistoryMessages(
     }
     signal?.throwIfAborted();
     return result;
-  } catch {
+  } catch (error) {
     signal?.throwIfAborted();
+    // A rejected bounded read is not an empty transcript: preserve the existing session.
+    if (view === "model-context") {
+      throw error;
+    }
     return undefined;
   }
 }

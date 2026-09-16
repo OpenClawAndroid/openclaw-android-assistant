@@ -609,7 +609,6 @@ export async function prepareGatewayStartupConfig(params: {
   authOverride?: GatewayAuthConfig;
   tailscaleOverride?: GatewayTailscaleConfig;
   activateRuntimeSecrets: ActivateRuntimeSecrets;
-  persistStartupAuth?: boolean;
   log?: GatewayStartupLog;
   measure?: GatewayStartupConfigMeasure;
 }): Promise<Awaited<ReturnType<typeof ensureGatewayStartupAuth>>> {
@@ -693,8 +692,6 @@ export async function prepareGatewayStartupConfig(params: {
       authOverride: preflightAuthOverride,
       tailscaleOverride: params.tailscaleOverride,
       warn: params.log?.warn,
-      persist: params.persistStartupAuth ?? false,
-      baseHash: params.configSnapshot.hash,
     }),
   );
   const runtimeStartupConfig = await measure("config.auth.runtime-startup-overrides", () =>

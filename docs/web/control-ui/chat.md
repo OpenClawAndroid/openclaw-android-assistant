@@ -17,21 +17,25 @@ While you watch a running session, the Gateway shows the model's latest safe pre
 
 Side chat answers questions about the selected session and its project without entering or interrupting the main agent run. On the first question, the Gateway lazily loads a bounded visible snapshot of the selected session before starting the utility model. If history is temporarily unavailable, the question stays visible with **Retry** instead of being treated as an empty session. Side chat uses read-only access to the target session's history/search and agent workspace. Its bounded thread is held in Gateway memory, is restored when you switch sessions in the Control UI, and is cleared by the rail's trash button, a session reset or deletion, Gateway restart, or idle expiry. It never enters `chat.history`, and private reference context is not stored as operator dialogue. Open it with Shift-Command-S on Apple platforms or Ctrl-Shift-S elsewhere, or type `/btw` or `/side` in the main Control UI composer and press Enter to open the rail and focus its question box. Selecting `/btw` from the slash menu does the same. Add a question after either command to send it to Side chat; focus moves to its question box when the request finishes. Other clients keep their existing BTW behavior.
 
+The Control UI keeps the latest 24 Side chat turns, including failed questions. Sending a follow-up keeps earlier failures in order; **Retry** resends that question in place. Failed questions stay in the current pane through a reconnect, but are not persisted across a page reload.
+
 The question box wraps and grows like the main composer; Enter (or your configured send shortcut) asks the question, and Shift+Enter adds a line. Highlighting text in a chat message offers **Ask in side chat**, which opens the rail with a quoted draft ready to edit.
 
 Highlight text and choose **Add to chat** to attach a comment to the main
-composer. The optional comment field stays compact while you type; confirm or
-press Enter to save it. Saving keeps your existing draft and does not send a message.
+composer. The optional comment field starts on one line, grows to five lines,
+then scrolls internally. Confirm or press Enter to save; Shift+Enter adds a line.
+Saving keeps your existing draft and does not send a message.
 
 Saving leaves a small, filled comment marker beside the selected passage. Click
-that marker to reopen its comment in the larger editor beside it. **Save**, Command-Enter, or
-Ctrl-Enter saves changes; **Cancel** or Escape discards the edit; and the trash
+that marker, or the pencil in the comment count's hover preview, to reopen the
+same editor beside it. **Save** or Enter saves changes; **Cancel** or Escape discards the edit; and the trash
 button deletes the comment. The composer's comment count is a passive indicator.
 Saved comments and their source markers follow the composer's existing draft and
 queue recovery behavior. When you send, each comment is attached as a text file
 containing the selection, comment, and source message reference; its draft marker is removed.
 Hover, keyboard-focus, or tap the sent comment count to read its selection and
-comment. Tap outside the preview to dismiss it.
+comment in a compact, scrollable preview. Sent comments remain read-only.
+Press Escape or tap outside the preview to dismiss it.
 
 The headline owns that run's sidebar subtitle instead of heuristic live activity. It is shared with the official iOS and Android session lists. A final done or failed digest remains visible while the session is unread, then the row returns to its normal work subtitle.
 
@@ -71,7 +75,27 @@ In **Connectors**, administrators can select **Add MCP server…** and choose a 
 
 Capability toggles stay disabled until the Gateway, session, and runtime config are loaded, and read-only operators cannot change them. Adding a server requires administrator access. See [Connect MCP servers](/tools/mcp) for the Settings, CLI, and config paths.
 
+## Emoji shortcodes
+
+In Chat and New Session, type a colon followed by an emoji name, such as
+`:smi`, to see a compact list above the shortcode. The list sizes to its matches
+and stays inside the viewport. Use the up and down arrows
+to choose a match, then press Enter or Tab to insert it. You can also click a
+match. Escape dismisses the suggestions without changing your draft. Selecting
+an emoji does not send the message.
+
+Typing a recognized complete shortcode, such as `:smile:`, inserts its Unicode
+emoji directly into your draft. Code spans and code blocks, URLs, escaped
+shortcodes, and unknown names stay literal. Existing messages are not rewritten.
+You can still paste emoji or use your operating system’s emoji keyboard; there
+is no separate emoji picker in the composer.
+
 ## Chat behavior
+
+When you send a message, the model picker keeps your selected model visible with
+a small starting indicator until the Gateway confirms the model handling the turn.
+If a fallback takes over, the label updates to that model without changing your
+saved selection. A turn with no known selection still shows **Model pending**.
 
 New Session shows the agent's known default model while the model catalog loads.
 Model choices are cached in memory for the current connection, agent, session,
@@ -108,7 +132,8 @@ chat confirms its current session and conversation branch before delivery
 continues automatically. Switching chats keeps queued messages tied to their
 original conversation. If history fails to load, the queued message stays
 available while you resolve the history error. Goals and other slash commands
-wait for history; `/stop` and `/approve` remain available.
+wait for history; `/stop` and `/approve` remain available. The initial task progress
+read reserves only its card slot; the transcript and composer stay available.
 
 When you open a short chat link, identity prepared during the current connection
 can make the composer ready sooner. The original link stays in place until the
@@ -157,7 +182,7 @@ Chat error banners, including cloud runner failures, show short messages in full
     - Root sessions and ordinary Home-linked dashboard sessions can be pinned; spawned, subagent, and nested-child sessions live in their parent's tree and reject pin requests.
     - The sidebar lists every loaded active session by agent section and pinned/channel/work/custom/Chats buckets with a single New Session action that opens the draft dialog. Opening a visible row moves only the highlight. Sessions can be dropped onto Pinned to pin them, or onto a custom group or Chats to move them; custom groups are collapsible and drag-reorderable, group names and order sync through the gateway, and collapsed state stays in the browser. A new dashboard session asynchronously gets a concise generated title from its first non-command message; explicit names and authenticated sender identity remain separate, so account names are never used as generated titles. When New Session creates a worktree without an explicit worktree name, OpenClaw also uses the session label or generated title for its branch name, falling back to a readable crustacean-themed name. Set `agents.defaults.utilityModel` (or `agents.entries.*.utilityModel`) to route this separate model call to a lower-cost model; if that distinct model fails, title generation retries once with the primary model. Expanding another agent section browses that agent's sessions without leaving the open chat.
     - Search the active transcript with **⌘F** on Mac or **Ctrl+F** on Windows/Linux; Mac **Ctrl+F** remains available for native text navigation.
-    - Thread search in the command palette (⌘K on Mac, Ctrl+K on Windows/Linux, or the search button in the top-left control cluster) follows a bounded number of matching pages across agents, searches active sessions, filters internal child/cron rows, and lists visible matches next to navigation commands. On the **Sessions** page at `/sessions`, the quick filter searches visible session metadata on the Gateway before pagination, including names, agent identity, model/runtime labels, run status, and goal text and usage. The selected agent (or **All agents**) and **Active / Archived / All** filters still apply. **Limit** sets the server page size (50 by default); **Load more sessions** appends the next matching page. Table sorting, grouping, overview counts, and **Rows per page** operate on the loaded rows, not a globally sorted result. **Search transcripts** searches message content separately and is not narrowed by the quick filter.
+    - Thread search in the command palette (⌘K on Mac, Ctrl+K on Windows/Linux, or the search button in the top-left control cluster) follows a bounded number of matching pages across agents, searches active sessions, filters internal child/cron rows, and lists visible matches next to navigation commands. On the **Sessions** page at `/sessions`, the quick filter searches visible session metadata on the Gateway before pagination, including names, agent identity, model/runtime labels, run status, and goal text and usage. The selected agent (or **All agents**) and **Active / Archived / All** filters still apply. **Limit** sets the server page size (50 by default); **Load more sessions** appends the next matching page. Table sorting, grouping, overview counts, and **Rows per page** operate on the loaded rows, not a globally sorted result. **Search transcripts** searches message content separately and is not narrowed by the quick filter. Available session titles stay with transcript matches even when their sessions are outside the filtered table.
     - Each sidebar row keeps direct pin access plus a full context menu for unread state, rename, fork, grouping, archive, and delete. Cmd/Ctrl-click opens the session in a new browser tab. Multi-selected rows (Alt/Option-click, Shift-click for ranges) get a batch menu covering unread state, grouping, archive, and delete; batch Archive reports per-session failures while archiving eligible rows, whereas batch Delete keeps its separate idle-or-already-archived eligibility. Archive stays disabled for agent main sessions (including `global` in global scope) and the `unknown` sentinel. For any other session, including one with active work, the Gateway stops and fully drains that session's work before archiving it. The selected archived session stays open with an archived notice and **Unarchive** action; deleting the selected session switches Chat back to that agent's main session.
     - In the macOS app, the OpenClaw mark uses the otherwise-empty native titlebar strip next to the window controls instead of consuming a sidebar row.
     - On desktop widths, chat controls stay on one compact row and collapse while scrolling down the transcript; scrolling up, returning to the top, or reaching the bottom restores the controls.
@@ -407,10 +432,16 @@ Use the mouse wheel or trackpad over the composer or its surrounding space to
 scroll the conversation while the composer stays pinned. Long drafts, task
 progress cards, and menus keep their own scrolling when their content overflows.
 
-Scrolling up to read earlier messages collapses the task progress card above the
-composer. Streaming output and layout adjustments keep that reading mode intact.
-Scroll back to the end or select **Latest** to resume following the conversation;
-an explicit choice to expand or collapse the card stays in effect for that task.
+The task progress card above the composer collapses after deliberate upward
+scrolling settles. Returning to the end and progress updates leave it collapsed;
+completion can reopen it only while you are already at the end. Manual choices
+are remembered per session. Continued scrolling after a manual reopen uses a
+higher threshold, and a second reopen keeps it open for that visit and task.
+See [Task progress cards](/tools/progress-card#where-the-card-appears) for gesture thresholds,
+manual-choice scope, and reset behavior.
+
+Streaming output and layout adjustments keep reading mode intact. Scroll back to
+the end or select **Latest** to resume following the conversation.
 
 Completed replies can show a compact **Sources** strip when their web links match
 recorded `web_search` or `web_fetch` results from the same run. Select a title and

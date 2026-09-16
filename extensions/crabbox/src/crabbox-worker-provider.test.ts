@@ -11,6 +11,7 @@ import {
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import * as processRuntime from "openclaw/plugin-sdk/process-runtime";
 import type { SpawnResult } from "openclaw/plugin-sdk/process-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import {
   resolveTestNodeExecPath,
   useAutoCleanupTempDirTracker,
@@ -18,6 +19,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findCrabboxBinary, resolveCrabboxBinary } from "./crabbox-binary.js";
 import { ensureManagedCrabboxBinary, type CrabboxBinary } from "./crabbox-managed-binary.js";
+import { crabboxState } from "./crabbox-state.test-support.js";
 import { createNodeBootstrapFixture } from "./crabbox-worker-node-enrollment.test-support.js";
 import { operationLeaseId, parseCrabboxProfile } from "./crabbox-worker-profile.js";
 import { createCrabboxWorkerProvider, resolveOpenClawRoot } from "./crabbox-worker-provider.js";
@@ -69,6 +71,7 @@ const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
       await Promise.all([...providers].map((provider) => provider.dispose()));
     } finally {
       providers.clear();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       vi.unstubAllEnvs();
       cleanup();
@@ -153,6 +156,7 @@ function providerWithRawRunner(
   sleep: (milliseconds: number) => Promise<void> = async () => {},
 ): WorkerProvider {
   const provider = createCrabboxWorkerProvider({
+    state: crabboxState,
     runCommand,
     openclawRoot: OPENCLAW_ROOT,
     pathEnv: "",
@@ -1131,7 +1135,9 @@ describe("Crabbox worker provider", () => {
     const tempDir = tempDirs.make("openclaw-crabbox-wallpaper-");
     const wallpaperPath = path.join(tempDir, "wallpaper.png");
     fs.writeFileSync(wallpaperPath, bytes);
-    expect(() => createCrabboxWorkerProvider({ wallpaperPath })).toThrow(message);
+    expect(() => createCrabboxWorkerProvider({ state: crabboxState, wallpaperPath })).toThrow(
+      message,
+    );
   });
 
   it.each([
@@ -1898,6 +1904,7 @@ describe("Crabbox worker provider", () => {
     const calls: string[][] = [];
     let warmed = false;
     const provider = createCrabboxWorkerProvider({
+      state: crabboxState,
       runCommand: async (argv) => {
         calls.push(argv);
         if (argv[1] === "config") {
@@ -3084,6 +3091,7 @@ describe("Crabbox worker provider", () => {
     let inspections = 0;
     const now = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
     const provider = createCrabboxWorkerProvider({
+      state: crabboxState,
       runCommand: async (argv) => {
         calls.push(argv);
         if (argv[1] === "config") {
@@ -3200,6 +3208,7 @@ describe("Crabbox worker provider", () => {
     const binary = path.resolve(path.sep, "custom", "crabbox");
     const calls: string[][] = [];
     const provider = createCrabboxWorkerProvider({
+      state: crabboxState,
       runCommand: async (argv) => {
         calls.push(argv);
         return argv[1] === "inspect" ? commandResult({ stdout: inspectJson() }) : commandResult();

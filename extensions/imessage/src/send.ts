@@ -610,7 +610,7 @@ async function trySendAttachmentForTarget(params: {
   let pendingEchoKey: string | undefined;
   try {
     if (echoScope) {
-      pendingEchoKey = rememberPersistedIMessageEcho({
+      pendingEchoKey = await rememberPersistedIMessageEcho({
         scope: echoScope,
         text: params.echoText,
         media: params.echoMedia,
@@ -659,7 +659,7 @@ async function trySendAttachmentForTarget(params: {
       ]);
     });
   } catch (error) {
-    forgetPersistedIMessageEchoKey(pendingEchoKey);
+    await forgetPersistedIMessageEchoKey(pendingEchoKey);
     if (!params.audioAsVoice && isAttachmentCommandFallbackError(error)) {
       return null;
     }
@@ -668,7 +668,7 @@ async function trySendAttachmentForTarget(params: {
   const failure = resolveIMessageSendFailure(result);
   if (failure) {
     const error = new Error(failure);
-    forgetPersistedIMessageEchoKey(pendingEchoKey);
+    await forgetPersistedIMessageEchoKey(pendingEchoKey);
     if (!params.audioAsVoice && isAttachmentCommandFallbackError(error)) {
       return null;
     }
@@ -684,7 +684,7 @@ async function trySendAttachmentForTarget(params: {
   });
   const messageId = resolvedId ?? (result.ok || result.success ? "ok" : "unknown");
   if (echoScope) {
-    rememberPersistedIMessageEcho({
+    await rememberPersistedIMessageEcho({
       scope: echoScope,
       text: params.echoText,
       media: params.echoMedia,
@@ -991,7 +991,7 @@ export async function sendMessageIMessage(
   try {
     try {
       if (echoScope) {
-        pendingEchoKey = rememberPersistedIMessageEcho({
+        pendingEchoKey = await rememberPersistedIMessageEcho({
           scope: echoScope,
           text: echoText,
           media: echoMedia,
@@ -1070,7 +1070,7 @@ export async function sendMessageIMessage(
       });
     }
     if (echoScope) {
-      rememberPersistedIMessageEcho({
+      await rememberPersistedIMessageEcho({
         scope: echoScope,
         text: echoText,
         media: echoMedia,
@@ -1131,7 +1131,7 @@ export async function sendMessageIMessage(
       }),
     };
   } catch (error) {
-    forgetPersistedIMessageEchoKey(pendingEchoKey);
+    await forgetPersistedIMessageEchoKey(pendingEchoKey);
     throw error;
   } finally {
     if (shouldClose) {

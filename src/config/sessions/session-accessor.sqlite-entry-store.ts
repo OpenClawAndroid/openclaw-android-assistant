@@ -54,6 +54,7 @@ import {
   assertCanonicalSessionKeyWriteMatchesDatabase,
   canonicalSessionKeyMigrationRequiredError,
 } from "./session-canonical-key.js";
+import { certifyCanonicalSessionValidationRows } from "./session-canonical-validation.js";
 import { preserveCreationStamp } from "./session-entry-provenance.js";
 import { resolveSessionPublicShare } from "./session-public-share.js";
 import { resolveDeliveryProvenCanonicalSessionKey } from "./store-entry.js";
@@ -342,6 +343,7 @@ function clearSqliteSessionEntryPreservingWindows(
       .set({ entry_valid: -1 })
       .where("session_key", "=", params.sessionKey),
   );
+  certifyCanonicalSessionValidationRows(database, [params.sessionKey]);
 }
 
 export function deleteLifecycleTargetRows(
@@ -569,32 +571,32 @@ export function writeSessionEntry(
         .insertInto("session_nodes")
         .values(sessionNode)
         .onConflict((conflict) =>
-          conflict.column("session_key").doUpdateSet({
-            current_session_id: sessionNode.current_session_id,
-            entry_json: sessionNode.entry_json,
-            entry_valid: sessionNode.entry_valid,
-            updated_at: sessionNode.updated_at,
-            status: sessionNode.status,
-            created_at: sessionNode.created_at,
-            created_via: sessionNode.created_via,
-            created_actor_type: sessionNode.created_actor_type,
-            created_actor_id: sessionNode.created_actor_id,
-            project_id: sessionNode.project_id,
-            parent_session_key: sessionNode.parent_session_key,
-            spawned_by: sessionNode.spawned_by,
-            fork_source_session_key: sessionNode.fork_source_session_key,
-            fork_source_session_id: sessionNode.fork_source_session_id,
-            fork_source_entry_id: sessionNode.fork_source_entry_id,
-            label: sessionNode.label,
-            display_name: sessionNode.display_name,
-            category: sessionNode.category,
-            icon: sessionNode.icon,
-            pinned_at: sessionNode.pinned_at,
-            archived_at: sessionNode.archived_at,
-            last_read_at: sessionNode.last_read_at,
-            last_interaction_at: sessionNode.last_interaction_at,
-            last_activity_at: sessionNode.last_activity_at,
-          }),
+          conflict.column("session_key").doUpdateSet((eb) => ({
+            current_session_id: eb.ref("excluded.current_session_id"),
+            entry_json: eb.ref("excluded.entry_json"),
+            entry_valid: eb.ref("excluded.entry_valid"),
+            updated_at: eb.ref("excluded.updated_at"),
+            status: eb.ref("excluded.status"),
+            created_at: eb.ref("excluded.created_at"),
+            created_via: eb.ref("excluded.created_via"),
+            created_actor_type: eb.ref("excluded.created_actor_type"),
+            created_actor_id: eb.ref("excluded.created_actor_id"),
+            project_id: eb.ref("excluded.project_id"),
+            parent_session_key: eb.ref("excluded.parent_session_key"),
+            spawned_by: eb.ref("excluded.spawned_by"),
+            fork_source_session_key: eb.ref("excluded.fork_source_session_key"),
+            fork_source_session_id: eb.ref("excluded.fork_source_session_id"),
+            fork_source_entry_id: eb.ref("excluded.fork_source_entry_id"),
+            label: eb.ref("excluded.label"),
+            display_name: eb.ref("excluded.display_name"),
+            category: eb.ref("excluded.category"),
+            icon: eb.ref("excluded.icon"),
+            pinned_at: eb.ref("excluded.pinned_at"),
+            archived_at: eb.ref("excluded.archived_at"),
+            last_read_at: eb.ref("excluded.last_read_at"),
+            last_interaction_at: eb.ref("excluded.last_interaction_at"),
+            last_activity_at: eb.ref("excluded.last_activity_at"),
+          })),
         ),
     );
     executeSqliteQuerySync(
@@ -615,35 +617,35 @@ export function writeSessionEntry(
       .insertInto("session_windows")
       .values(sessionRow)
       .onConflict((conflict) =>
-        conflict.column("session_id").doUpdateSet({
+        conflict.column("session_id").doUpdateSet((eb) => ({
           // Logical nodes can share a physical window. Only creation or a
           // generation change claims it; metadata updates retain its owner.
           ...(canonicalPreviousEntry?.sessionId === normalizedEntry.sessionId
             ? {}
-            : { session_key: sessionKey }),
-          previous_session_id: sessionRow.previous_session_id,
-          reason: sessionRow.reason,
-          session_scope: sessionRow.session_scope,
-          transcript_observed_at: transcriptObservedAt,
-          session_entry_provenance: sessionRow.session_entry_provenance,
-          acp_owned: sessionRow.acp_owned,
-          plugin_owner_id: sessionRow.plugin_owner_id,
-          hook_external_content_source: sessionRow.hook_external_content_source,
-          updated_at: updatedAt,
-          started_at: sessionRow.started_at,
-          ended_at: sessionRow.ended_at,
-          status: sessionRow.status,
-          chat_type: sessionRow.chat_type,
-          channel: sessionRow.channel,
-          account_id: sessionRow.account_id,
-          primary_conversation_id: sessionRow.primary_conversation_id,
-          model_provider: sessionRow.model_provider,
-          model: sessionRow.model,
-          agent_harness_id: sessionRow.agent_harness_id,
-          parent_session_key: sessionRow.parent_session_key,
-          spawned_by: sessionRow.spawned_by,
-          display_name: sessionRow.display_name,
-        }),
+            : { session_key: eb.ref("excluded.session_key") }),
+          previous_session_id: eb.ref("excluded.previous_session_id"),
+          reason: eb.ref("excluded.reason"),
+          session_scope: eb.ref("excluded.session_scope"),
+          transcript_observed_at: eb.ref("excluded.transcript_observed_at"),
+          session_entry_provenance: eb.ref("excluded.session_entry_provenance"),
+          acp_owned: eb.ref("excluded.acp_owned"),
+          plugin_owner_id: eb.ref("excluded.plugin_owner_id"),
+          hook_external_content_source: eb.ref("excluded.hook_external_content_source"),
+          updated_at: eb.ref("excluded.updated_at"),
+          started_at: eb.ref("excluded.started_at"),
+          ended_at: eb.ref("excluded.ended_at"),
+          status: eb.ref("excluded.status"),
+          chat_type: eb.ref("excluded.chat_type"),
+          channel: eb.ref("excluded.channel"),
+          account_id: eb.ref("excluded.account_id"),
+          primary_conversation_id: eb.ref("excluded.primary_conversation_id"),
+          model_provider: eb.ref("excluded.model_provider"),
+          model: eb.ref("excluded.model"),
+          agent_harness_id: eb.ref("excluded.agent_harness_id"),
+          parent_session_key: eb.ref("excluded.parent_session_key"),
+          spawned_by: eb.ref("excluded.spawned_by"),
+          display_name: eb.ref("excluded.display_name"),
+        })),
       ),
   );
   if (conversation) {
@@ -654,6 +656,9 @@ export function writeSessionEntry(
       conversation,
       updatedAt,
     });
+  }
+  if (!options.allowStoredAliases) {
+    certifyCanonicalSessionValidationRows(database, [sessionKey]);
   }
   publishSessionEntryCacheInvalidation(
     database,

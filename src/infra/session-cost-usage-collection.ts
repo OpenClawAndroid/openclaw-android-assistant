@@ -15,6 +15,7 @@ import {
   type SqliteSessionFileMarker,
 } from "../config/sessions/legacy-sqlite-marker.js";
 import {
+  resolveSessionArtifactDirectory,
   resolveSessionFilePathCore,
   resolveSessionTranscriptsDirForAgent,
 } from "../config/sessions/paths.js";
@@ -23,18 +24,22 @@ import {
   listSessionTranscriptInstances,
   loadSessionEntry,
   loadTranscriptEventsSync,
+  readTranscriptStatsBatchReadOnlySync,
   readTranscriptStatsSync,
 } from "../config/sessions/session-accessor.js";
-import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
+import {
+  listDurableSqliteTargetPathsForSessionStorePath,
+  resolveSqliteTargetFromSessionStorePath,
+} from "../config/sessions/session-sqlite-target.js";
 import { resolveSessionStorePathForScope } from "../config/sessions/session-store-path.js";
 import { streamSessionTranscriptLines } from "../config/sessions/transcript-stream.js";
 import { selectVisibleTranscriptEvents } from "../config/sessions/transcript-visible-events.js";
 import type { SessionEntry } from "../config/sessions/types.js";
-import { parseAgentSessionKey } from "../routing/session-key.js";
-import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
+import { normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
 import { runTasksWithConcurrency } from "../utils/run-with-concurrency.js";
+import { resolveRealpathOrAbsolute } from "./boundary-path.js";
 
-export const USAGE_COST_TRANSCRIPT_STAT_CONCURRENCY = 32;
+const USAGE_COST_TRANSCRIPT_STAT_CONCURRENCY = 32;
 
 export type UsageCostTranscriptFile = {
   filePath: string;
@@ -49,19 +54,6 @@ export type UsageCostTranscriptFile = {
   eventCount?: number;
   maxSeq?: number;
 };
-
-function resolveUsageCostSessionStorePath(params: {
-  agentId: string;
-  sessionsDir?: string;
-  storePath?: string;
-}): string {
-  return (
-    params.storePath ??
-    (params.sessionsDir
-      ? path.join(params.sessionsDir, "sessions.json")
-      : resolveSessionStorePathForScope({ agentId: params.agentId }))
-  );
-}
 
 async function resolveUsageCostJsonlFile(
   sourcePath: string,
@@ -85,12 +77,13 @@ async function resolveUsageCostJsonlFile(
 
 async function listUsageCountedTranscriptFileStats(
   agentId: string,
-  params?: {
+  params: {
     minMtimeMs?: number;
-    sessionsDir?: string;
+    sessionsDir: string;
+    storePath: string;
   },
 ): Promise<UsageCostTranscriptFile[]> {
-  const sessionsDir = params?.sessionsDir ?? resolveSessionTranscriptsDirForAgent(agentId);
+  const { sessionsDir, storePath } = params;
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(sessionsDir, { withFileTypes: true });
@@ -100,16 +93,42 @@ async function listUsageCountedTranscriptFileStats(
     }
     throw error;
   }
-  const tasks = entries
-    .filter((entry) => entry.isFile() && isUsageCountedSessionTranscriptFileName(entry.name))
+  const transcripts = entries.filter(
+    (entry) => entry.isFile() && isUsageCountedSessionTranscriptFileName(entry.name),
+  );
+  const archiveNames = transcripts.map((entry) => entry.name);
+  const stores = new Map(
+    transcripts.length > 0
+      ? listDurableSqliteTargetPathsForSessionStorePath(storePath).map((databasePath) => [
+          resolveRealpathOrAbsolute(databasePath),
+          databasePath,
+        ])
+      : [],
+  );
+  const archives = new Map(
+    [...stores.values()]
+      .flatMap((databasePath) =>
+        listSessionTranscriptArchivesReadOnly({
+          agentId,
+          archiveNames,
+          includeAllAgents: true,
+          storePath: databasePath,
+        }),
+      )
+      .map((archive) => [archive.archiveName, archive]),
+  );
+  const tasks = transcripts
+    .filter((entry) => (archives.get(entry.name)?.agentId ?? agentId) === agentId)
     .map((entry) => async (): Promise<UsageCostTranscriptFile | undefined> => {
       const filePath = path.join(sessionsDir, entry.name);
       try {
         const stats = await fs.promises.stat(filePath);
-        if (params?.minMtimeMs !== undefined && stats.mtimeMs < params.minMtimeMs) {
+        if (params.minMtimeMs !== undefined && stats.mtimeMs < params.minMtimeMs) {
           return undefined;
         }
-        return await resolveUsageCostJsonlFile(filePath, stats);
+        const file = await resolveUsageCostJsonlFile(filePath, stats);
+        file.sessionId = archives.get(entry.name)?.sessionId ?? file.sessionId;
+        return file;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
           return undefined;
@@ -127,46 +146,36 @@ async function listUsageCountedTranscriptFileStats(
   return results.filter((file): file is UsageCostTranscriptFile => Boolean(file));
 }
 
-function listUsageCountedSqliteTranscriptStats(
-  agentId: string,
-  params: { minMtimeMs?: number; storePath: string },
-): UsageCostTranscriptFile[] {
-  const storePath = params.storePath;
-  const files: UsageCostTranscriptFile[] = [];
-  // Usage needs transcript identity/timestamps, not saved prompt snapshots.
-  const instances = listSessionTranscriptInstances({ agentId, storePath, projection: "list" });
-  for (const instance of instances) {
-    const marker = { agentId, sessionId: instance.sessionId, storePath };
-    const mtimeMs = instance.updatedAtMs;
-    if (params.minMtimeMs !== undefined && mtimeMs < params.minMtimeMs) {
-      continue;
+function readUsageCostSqliteFiles(
+  markers: SqliteSessionFileMarker[],
+): Array<UsageCostTranscriptFile | undefined> {
+  const statsByIndex =
+    markers.length === 1
+      ? markers.map(readTranscriptStatsSync)
+      : readTranscriptStatsBatchReadOnlySync(markers);
+  return markers.map((marker, index): UsageCostTranscriptFile | undefined => {
+    const stats = statsByIndex[index];
+    if (!stats) {
+      return undefined;
     }
-    // Usage scans run across every session on hot paths; byte sizes come from
-    // a SQL aggregate so no transcript row is materialized (#86718 class).
-    const stats = readTranscriptStatsSync({
-      agentId: marker.agentId,
-      sessionId: marker.sessionId,
-      storePath: marker.storePath,
-    });
     const filePath = formatCanonicalUsageCostSqliteMarker(marker);
-    files.push({
+    return {
       filePath,
       sourcePath: filePath,
       kind: "sqlite",
-      mtimeMs,
+      mtimeMs: stats.lastMutationAtMs ?? 0,
       sessionId: marker.sessionId,
       size: stats.sizeBytes,
       eventCount: stats.eventCount,
       maxSeq: stats.maxSeq,
-    });
-  }
-  return files;
+    };
+  });
 }
 
 function formatCanonicalUsageCostSqliteMarker(marker: SqliteSessionFileMarker): string {
-  const storePath =
-    resolveSqliteTargetFromSessionStorePath(marker.storePath, { agentId: marker.agentId }).path ??
-    resolveOpenClawAgentSqlitePath({ agentId: marker.agentId });
+  const { path: storePath } = resolveSqliteTargetFromSessionStorePath(marker.storePath, {
+    agentId: marker.agentId,
+  });
   return formatSqliteSessionFileMarker({ ...marker, storePath });
 }
 
@@ -174,33 +183,28 @@ export async function listUsageCountedTranscriptStats(
   agentId: string,
   params?: { minMtimeMs?: number; sessionsDir?: string; storePath?: string },
 ): Promise<UsageCostTranscriptFile[]> {
-  const storePath = resolveUsageCostSessionStorePath({
+  const logicalAgentId = normalizeAgentId(agentId);
+  const storePath = resolveSessionStorePathForScope({
     agentId,
-    ...(params?.sessionsDir ? { sessionsDir: params.sessionsDir } : {}),
-    ...(params?.storePath ? { storePath: params.storePath } : {}),
+    storePath:
+      params?.storePath ??
+      (params?.sessionsDir ? path.join(params.sessionsDir, "sessions.json") : undefined),
   });
-  const sessionsDir = params?.sessionsDir ?? path.dirname(storePath);
-  const fileBacked = await listUsageCountedTranscriptFileStats(agentId, {
-    ...(params?.minMtimeMs !== undefined ? { minMtimeMs: params.minMtimeMs } : {}),
+  const sessionsDir = params?.sessionsDir ?? resolveSessionArtifactDirectory(storePath);
+  const fileBacked = await listUsageCountedTranscriptFileStats(logicalAgentId, {
+    minMtimeMs: params?.minMtimeMs,
     sessionsDir,
-  });
-  const archiveSessionIds = new Map(
-    listSessionTranscriptArchivesReadOnly({
-      agentId,
-      archiveNames: fileBacked.map((file) => path.basename(file.sourcePath)),
-      storePath,
-    }).map((archive) => [archive.archiveName, archive.sessionId]),
-  );
-  for (const file of fileBacked) {
-    const sessionId = archiveSessionIds.get(path.basename(file.sourcePath));
-    if (sessionId) {
-      file.sessionId = sessionId;
-    }
-  }
-  const sqliteBacked = listUsageCountedSqliteTranscriptStats(agentId, {
-    ...(params?.minMtimeMs !== undefined ? { minMtimeMs: params.minMtimeMs } : {}),
     storePath,
   });
+  const sqliteBacked = readUsageCostSqliteFiles(
+    listSessionTranscriptInstances({ agentId, storePath, projection: "list" })
+      .filter(
+        (instance) =>
+          instance.agentId === logicalAgentId &&
+          (params?.minMtimeMs === undefined || instance.updatedAtMs >= params.minMtimeMs),
+      )
+      .map((instance) => ({ agentId: logicalAgentId, sessionId: instance.sessionId, storePath })),
+  ).filter((file) => file !== undefined);
   const sqliteSessionIds = new Set(sqliteBacked.map((file) => file.sessionId).filter(Boolean));
   const canonicalFileBacked = fileBacked.filter(
     (file) => !file.sessionId || !sqliteSessionIds.has(file.sessionId),
@@ -213,22 +217,7 @@ export async function resolveUsageCostTranscriptFile(
 ): Promise<UsageCostTranscriptFile | undefined> {
   const marker = parseSqliteSessionFileMarker(sessionFile);
   if (marker) {
-    const stats = readTranscriptStatsSync({
-      agentId: marker.agentId,
-      sessionId: marker.sessionId,
-      storePath: marker.storePath,
-    });
-    const filePath = formatCanonicalUsageCostSqliteMarker(marker);
-    return {
-      filePath,
-      sourcePath: filePath,
-      kind: "sqlite",
-      mtimeMs: stats.lastMutationAtMs ?? 0,
-      sessionId: marker.sessionId,
-      size: stats.sizeBytes,
-      eventCount: stats.eventCount,
-      maxSeq: stats.maxSeq,
-    };
+    return readUsageCostSqliteFiles([marker])[0];
   }
   try {
     const stats = await fs.promises.stat(sessionFile);
@@ -238,16 +227,27 @@ export async function resolveUsageCostTranscriptFile(
   }
 }
 
-function loadSqliteUsageTranscriptEvents(
-  marker: SqliteSessionFileMarker,
-): Record<string, unknown>[] {
-  return selectVisibleTranscriptEvents(
-    loadTranscriptEventsSync({
-      agentId: marker.agentId,
-      sessionId: marker.sessionId,
-      storePath: marker.storePath,
-    }),
-  ).filter(isRecord);
+export async function resolveUsageCostTranscriptFiles(
+  sessionFiles: readonly string[],
+): Promise<Array<UsageCostTranscriptFile | undefined>> {
+  const markers = sessionFiles.map(parseSqliteSessionFileMarker);
+  const sqliteFiles = readUsageCostSqliteFiles(markers.filter((marker) => marker !== undefined));
+  if (sqliteFiles.length === sessionFiles.length) {
+    return sqliteFiles;
+  }
+  let sqliteIndex = 0;
+  const tasks = sessionFiles.map((sessionFile, index) => {
+    if (markers[index]) {
+      const file = sqliteFiles[sqliteIndex++];
+      return async () => file;
+    }
+    return () => resolveUsageCostTranscriptFile(sessionFile);
+  });
+  const { results } = await runTasksWithConcurrency({
+    tasks,
+    limit: USAGE_COST_TRANSCRIPT_STAT_CONCURRENCY,
+  });
+  return results;
 }
 
 export async function* readTranscriptRecords(
@@ -257,13 +257,11 @@ export async function* readTranscriptRecords(
   if (marker) {
     const { restoreSessionColdTranscript } =
       await import("../config/sessions/session-cold-storage.js");
-    await restoreSessionColdTranscript({
-      agentId: marker.agentId,
-      sessionId: marker.sessionId,
-      storePath: marker.storePath,
-    });
-    for (const event of loadSqliteUsageTranscriptEvents(marker)) {
-      yield event;
+    await restoreSessionColdTranscript(marker);
+    for (const event of selectVisibleTranscriptEvents(loadTranscriptEventsSync(marker))) {
+      if (isRecord(event)) {
+        yield event;
+      }
     }
     return;
   }

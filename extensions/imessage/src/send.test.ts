@@ -5,6 +5,7 @@ import path from "node:path";
 import { isChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
 import { sanitizeForPlainText } from "openclaw/plugin-sdk/channel-outbound";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
+import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { createOpenClawTestState, type OpenClawTestState } from "openclaw/plugin-sdk/test-state";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IMessageRpcClient } from "./client.js";
@@ -1453,6 +1454,76 @@ describe("sendMessageIMessage receipts", () => {
     expect(result.receipt.sentAt).toBeGreaterThan(0);
   });
 
+  it("joins pending echo persistence before sending and its rollback before rejecting", async () => {
+    const { getIMessageRuntime } = await import("./runtime.js");
+    const state = getIMessageRuntime().state;
+    const openStore = state.openKeyedStore.bind(state);
+    const writeStarted = createDeferred<void>();
+    const writeGate = createDeferred<void>();
+    const deleteStarted = createDeferred<void>();
+    const deleteGate = createDeferred<void>();
+    const openSpy = vi
+      .spyOn(state, "openKeyedStore")
+      .mockImplementation(<T>(options: OpenKeyedStoreOptions) => {
+        const store = openStore<T>(options);
+        if (options.namespace === "imessage.sent-echoes") {
+          const register = store.register.bind(store);
+          const remove = store.delete.bind(store);
+          vi.spyOn(store, "register").mockImplementation(async (...args) => {
+            writeStarted.resolve();
+            await writeGate.promise;
+            await register(...args);
+          });
+          vi.spyOn(store, "delete").mockImplementation(async (...args) => {
+            deleteStarted.resolve();
+            await deleteGate.promise;
+            return await remove(...args);
+          });
+        }
+        return store;
+      });
+    const client = createClient({ success: false, error: "recipient is not registered" });
+    let settled = false;
+    const send = sendMessageIMessage("+15551234567", "hello", {
+      config: IMESSAGE_TEST_CFG,
+      client,
+    }).catch((error: unknown) => {
+      settled = true;
+      return error;
+    });
+    try {
+      await Promise.race([
+        writeStarted.promise,
+        send.then(() => {
+          throw new Error("Send settled before pending echo persistence");
+        }),
+      ]);
+      expect(getClientMocks(client).request).not.toHaveBeenCalled();
+      writeGate.resolve();
+      await Promise.race([
+        deleteStarted.promise,
+        send.then(() => {
+          throw new Error("Send settled before pending echo rollback");
+        }),
+      ]);
+      expect(settled).toBe(false);
+      deleteGate.resolve();
+      expect(await send).toEqual(new Error("recipient is not registered"));
+      expect(
+        await hasPersistedIMessageEcho({
+          scope: "default:imessage:+15551234567",
+          text: "hello",
+          includePendingText: true,
+        }),
+      ).toBe(false);
+    } finally {
+      writeGate.resolve();
+      deleteGate.resolve();
+      await send;
+      openSpy.mockRestore();
+    }
+  });
+
   it("rejects an unsuccessful RPC send instead of acknowledging a delivered message", async () => {
     const client = createClient({ success: false, error: "recipient is not registered" });
 
@@ -1464,7 +1535,7 @@ describe("sendMessageIMessage receipts", () => {
     ).rejects.toThrow("recipient is not registered");
 
     expect(
-      hasPersistedIMessageEcho({
+      await hasPersistedIMessageEcho({
         scope: "default:imessage:+15551234567",
         text: "hello",
         includePendingText: true,
@@ -2252,7 +2323,7 @@ describe("sendMessageIMessage receipts", () => {
       expect.objectContaining({ messageId: "p:0/media-guid", isFromMe: true }),
     );
     expect(
-      hasPersistedIMessageEcho({
+      await hasPersistedIMessageEcho({
         scope: "default:chat_guid:chat-1",
         messageId: "p:0/media-guid",
       }),
@@ -3003,7 +3074,7 @@ describe("sendMessageIMessage receipts", () => {
     expect(result.receipt.parts.map((part) => part.kind)).toEqual(["media"]);
     expect(onDeliveryResult).not.toHaveBeenCalled();
     expect(
-      hasPersistedIMessageEcho({
+      await hasPersistedIMessageEcho({
         scope: "default:imessage:+15550004567",
         messageId: "p:0/caption-guid",
       }),
@@ -3059,11 +3130,11 @@ describe("sendMessageIMessage receipts", () => {
       }),
     );
     const scope = "default:imessage:+15550004567";
-    expect(hasPersistedIMessageEcho({ scope, text: "caption" })).toBe(false);
+    expect(await hasPersistedIMessageEcho({ scope, text: "caption" })).toBe(false);
     expect(
-      hasPersistedIMessageEcho({ scope, media: { contentType: "image/png", kind: "image" } }),
+      await hasPersistedIMessageEcho({ scope, media: { contentType: "image/png", kind: "image" } }),
     ).toBe(true);
-    expect(hasPersistedIMessageEcho({ scope, messageId: "p:0/dm-media-guid" })).toBe(true);
+    expect(await hasPersistedIMessageEcho({ scope, messageId: "p:0/dm-media-guid" })).toBe(true);
   });
 
   it("stops before a caption when accepted attachment custody cannot be recorded", async () => {
@@ -3206,14 +3277,13 @@ describe("sendMessageIMessage receipts", () => {
   });
 
   it("persists an echo marker before awaiting the bridge send result", async () => {
-    let resolveRequest!: (value: Record<string, unknown>) => void;
+    const requestStarted = createDeferred<void>();
+    const response = createDeferred<Record<string, unknown>>();
     const client = {
-      request: vi.fn(
-        () =>
-          new Promise<Record<string, unknown>>((resolve) => {
-            resolveRequest = resolve;
-          }),
-      ),
+      request: vi.fn(() => {
+        requestStarted.resolve();
+        return response.promise;
+      }),
       stop: vi.fn(async () => {}),
     } as unknown as IMessageRpcClient;
 
@@ -3222,30 +3292,29 @@ describe("sendMessageIMessage receipts", () => {
       client,
     });
 
-    await vi.waitFor(() => expect(getClientMocks(client).request).toHaveBeenCalled());
+    await requestStarted.promise;
     expect(
-      hasPersistedIMessageEcho({
+      await hasPersistedIMessageEcho({
         scope: "default:imessage:+15551234567",
         text: "hello",
         includePendingText: true,
       }),
     ).toBe(true);
 
-    resolveRequest({ guid: "p:0/imsg-1" });
+    response.resolve({ guid: "p:0/imsg-1" });
     await expect(send).resolves.toMatchObject({ messageId: "p:0/imsg-1" });
   });
 
   it("keeps the pending echo marker alive for slow default-timeout sends", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-04T00:00:00Z"));
-    let resolveRequest!: (value: Record<string, unknown>) => void;
+    const requestStarted = createDeferred<void>();
+    const response = createDeferred<Record<string, unknown>>();
     const client = {
-      request: vi.fn(
-        () =>
-          new Promise<Record<string, unknown>>((resolve) => {
-            resolveRequest = resolve;
-          }),
-      ),
+      request: vi.fn(() => {
+        requestStarted.resolve();
+        return response.promise;
+      }),
       stop: vi.fn(async () => {}),
     } as unknown as IMessageRpcClient;
 
@@ -3253,18 +3322,18 @@ describe("sendMessageIMessage receipts", () => {
       config: IMESSAGE_TEST_CFG,
       client,
     });
-    await vi.waitFor(() => expect(getClientMocks(client).request).toHaveBeenCalled());
+    await requestStarted.promise;
 
-    vi.advanceTimersByTime(61_000);
+    vi.setSystemTime(new Date("2026-06-04T00:01:01Z"));
     expect(
-      hasPersistedIMessageEcho({
+      await hasPersistedIMessageEcho({
         scope: "default:imessage:+15551234567",
         text: "slow hello",
         includePendingText: true,
       }),
     ).toBe(true);
 
-    resolveRequest({ guid: "p:0/imsg-slow" });
+    response.resolve({ guid: "p:0/imsg-slow" });
     await expect(send).resolves.toMatchObject({ messageId: "p:0/imsg-slow" });
   });
 

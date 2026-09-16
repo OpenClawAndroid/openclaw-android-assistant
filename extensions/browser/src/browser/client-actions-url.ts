@@ -1,16 +1,33 @@
 /**
- * URL helpers for browser client action requests.
+ * URL and JSON request construction for browser clients.
  */
-/** Build a query string for profile-scoped browser requests. */
-export function buildProfileQuery(profile?: string): string {
-  return profile ? `?profile=${encodeURIComponent(profile)}` : "";
-}
+import { fetchBrowserJson } from "./client-fetch.js";
 
-/** Prefix a browser-control path with an optional base URL. */
-export function withBaseUrl(baseUrl: string | undefined, path: string): string {
+/** Prefix a browser-control path with an optional base URL and profile query. */
+export function withBaseUrl(baseUrl: string | undefined, path: string, profile?: string): string {
+  const profilePath = profile
+    ? `${path}${path.includes("?") ? "&" : "?"}profile=${encodeURIComponent(profile)}`
+    : path;
   const trimmed = baseUrl?.trim();
   if (!trimmed) {
-    return path;
+    return profilePath;
   }
-  return `${trimmed.replace(/\/$/, "")}${path}`;
+  return `${trimmed.replace(/\/$/, "")}${profilePath}`;
+}
+
+/** Send an explicit JSON payload without including transport options in the body. */
+export async function postBrowserJson<T>(
+  baseUrl: string | undefined,
+  path: string,
+  body: object,
+  timeoutMs: number,
+  opts?: { profile?: string; signal?: AbortSignal },
+): Promise<T> {
+  return await fetchBrowserJson<T>(withBaseUrl(baseUrl, path, opts?.profile), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    timeoutMs,
+    signal: opts?.signal,
+  });
 }

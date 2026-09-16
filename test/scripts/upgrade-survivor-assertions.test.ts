@@ -394,27 +394,32 @@ describe("upgrade recovery result assertions", () => {
     );
   });
 
-  it("accepts clean updates for baselines that already have consent", () => {
-    const result = {
-      status: "ok",
-      after: { version: "2026.8.1" },
-      steps: [{ name: "global update", exitCode: 0 }],
-    };
-    expect(runJsonAssertion("assert-successful-update-json", result, "2026.8.1").status).toBe(0);
-    expect(
-      runJsonAssertion(
-        "assert-successful-update-json",
-        {
-          ...result,
-          steps: [{ name: "global update", exitCode: 1 }],
-        },
-        "2026.8.1",
-      ).status,
-    ).not.toBe(0);
-    expect(
-      runPrefixedJsonAssertion("assert-successful-update-json", result, "2026.8.1").status,
-    ).toBe(0);
-  });
+  it.each(["base", "workshop-doctor-recovery"])(
+    "accepts clean updates for baselines that already have consent (%s)",
+    (scenario) =>
+      withEnv({ OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: scenario }, () => {
+        const result = {
+          status: "ok",
+          after: { version: "2026.8.1" },
+          steps: [{ name: "global update", exitCode: 0 }],
+        };
+        const update = runJsonAssertion("assert-successful-update-json", result, "2026.8.1");
+        expect(update.status, update.stderr).toBe(0);
+        expect(
+          runJsonAssertion(
+            "assert-successful-update-json",
+            {
+              ...result,
+              steps: [{ name: "global update", exitCode: 1 }],
+            },
+            "2026.8.1",
+          ).status,
+        ).not.toBe(0);
+        expect(
+          runPrefixedJsonAssertion("assert-successful-update-json", result, "2026.8.1").status,
+        ).toBe(0);
+      }),
+  );
 
   describe("missing Codex migration update result", () => {
     const scenarioEnv = {
@@ -1112,6 +1117,11 @@ function assertCompanionPluginRecords(
       const isolatedScripts = join(root, "production-assertion-runtime", "scripts");
       const isolatedLib = join(isolatedScripts, "e2e", "lib");
       cpSync("scripts/e2e/lib", isolatedLib, { recursive: true });
+      mkdirSync(join(isolatedScripts, "lib"), { recursive: true });
+      cpSync(
+        "scripts/lib/release-version.mjs",
+        join(isolatedScripts, "lib", "release-version.mjs"),
+      );
       cpSync(
         "scripts/prepublish-plugin-registry-artifact.mjs",
         join(isolatedScripts, "prepublish-plugin-registry-artifact.mjs"),

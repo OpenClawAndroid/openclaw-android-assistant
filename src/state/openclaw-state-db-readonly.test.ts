@@ -3,7 +3,7 @@ import { once } from "node:events";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { constants, DatabaseSync } from "node:sqlite";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stopChildProcess } from "../../test/helpers/stop-child-process.js";
@@ -58,6 +58,37 @@ it("keeps fresh synchronous read callbacks from returning asynchronous work", as
     ).toThrow("SQLite source read must remain synchronous");
     const exclusion = await acquireOpenClawStateDatabaseFileExclusion(options.path);
     exclusion.release();
+  });
+});
+
+it("preserves read admission denial and recovers the cached reader", async () => {
+  await withOpenClawTestState({ label: "state-readonly-authorizer" }, async ({ env }) => {
+    const options = { env };
+    const opened = openOpenClawStateDatabase(options);
+    const operation = vi.fn(() => "unexpected");
+    let denied = false;
+    opened.db.setAuthorizer((action) => {
+      if (action === constants.SQLITE_SELECT && !denied) {
+        denied = true;
+        return constants.SQLITE_DENY;
+      }
+      return constants.SQLITE_OK;
+    });
+    try {
+      expect(() => withExistingOpenClawStateDatabaseReadOnly(operation, options)).toThrow(
+        /not authorized/,
+      );
+    } finally {
+      opened.db.setAuthorizer(null);
+    }
+    expect(denied).toBe(true);
+    expect(operation).not.toHaveBeenCalled();
+    expect(
+      withExistingOpenClawStateDatabaseReadOnly(({ db }) => {
+        expect(db).toBe(opened.db);
+        return db.prepare("SELECT role FROM schema_meta").get();
+      }, options),
+    ).toEqual({ role: "global" });
   });
 });
 
@@ -307,7 +338,7 @@ describe.each(["admission", "explicit", "async"] as const)("%s read-only state r
       expect(fs.readFileSync(options.path)).toEqual(before);
     });
   });
-  it("reads through the exact dangling Workshop index without changing its source", async () => {
+  it("requires Doctor for the exact dangling Workshop index without changing its source", async () => {
     await withTempDir("openclaw-state-readonly-dangling-workshop-", async (stateDir) => {
       const options = createOptions(stateDir);
       const opened = openOpenClawStateDatabase(options);
@@ -339,9 +370,11 @@ describe.each(["admission", "explicit", "async"] as const)("%s read-only state r
       }
       const before = fs.readFileSync(options.path);
 
-      expect(
-        await readState(({ db }) => db.prepare("SELECT role FROM schema_meta").get(), options),
-      ).toEqual({ role: "global" });
+      await expect(
+        Promise.resolve().then(() =>
+          readState(({ db }) => db.prepare("SELECT role FROM schema_meta").get(), options),
+        ),
+      ).rejects.toThrow(/legacy-workshop-review-index.*openclaw doctor --fix/);
       expect(fs.readFileSync(options.path)).toEqual(before);
     });
   });

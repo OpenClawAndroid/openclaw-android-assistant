@@ -98,8 +98,9 @@ function historyMessages() {
   }));
 }
 
-async function openQuestionPage(viewport = { height: 900, width: 1440 }) {
+async function openQuestionPage(viewport = { height: 900, width: 1440 }, hasTouch = false) {
   context = await suite.browser.newContext({
+    hasTouch,
     locale: "en-US",
     serviceWorkers: "block",
     viewport,
@@ -214,6 +215,52 @@ suite.define(() => {
   afterEach(async () => {
     await context?.close().catch(() => {});
     context = undefined;
+  });
+
+  it("reveals sidebar attention on touch without navigating or closing the drawer", async () => {
+    const { gateway, page } = await openQuestionPage({ width: 390, height: 844 }, true);
+    const request = questionRecord("sidebar-touch-question", [
+      {
+        questionId: "environment",
+        header: "Environment",
+        question: "Which environment should I use for the preview?",
+        options: [{ label: "Staging" }, { label: "Production" }],
+        isOther: false,
+      },
+    ]);
+    await emitRequested(gateway, request);
+    await expectQuestionAttention(page, request.questions[0]!.question);
+    await page.locator(".topbar-nav-toggle:visible, .chat-pane__nav-toggle:visible").first().tap();
+    const row = page.locator(`[data-session-key="${questionSessionKey}"]`).first();
+    const shell = page.locator(".shell");
+    const attention = row.locator('[data-session-attention="question"]');
+    const tooltip = row.locator("openclaw-tooltip wa-tooltip[open]");
+    const route = page.url();
+
+    await attention.tap();
+    try {
+      await expect.poll(() => tooltip.count()).toBe(1);
+    } finally {
+      await screenshot(page, "01-sidebar-attention-tapped.png");
+    }
+    expect(await shell.getAttribute("class")).toContain("shell--nav-drawer-open");
+    expect(page.url()).toBe(route);
+    expect(await row.getByText(request.questions[0]!.question, { exact: true }).isVisible()).toBe(
+      true,
+    );
+    expect(await gateway.getRequests("question.resolve")).toHaveLength(0);
+
+    await attention.tap();
+    await expect.poll(() => tooltip.count()).toBe(0);
+    expect(await shell.getAttribute("class")).toContain("shell--nav-drawer-open");
+    await attention.tap();
+    await expect.poll(() => tooltip.count()).toBe(1);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => tooltip.count()).toBe(0);
+    expect(await shell.getAttribute("class")).toContain("shell--nav-drawer-open");
+
+    await row.locator(".sidebar-recent-session__link").tap();
+    await expect.poll(() => shell.getAttribute("class")).not.toContain("shell--nav-drawer-open");
   });
 
   it("opens an external question step without answering until completion is submitted", async () => {

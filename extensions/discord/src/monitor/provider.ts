@@ -325,6 +325,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   let lifecycleStarted = false;
   let gatewaySupervisor: ReturnType<typeof createDiscordGatewaySupervisor> | undefined;
   let deactivateMessageHandler: (() => Promise<void>) | undefined;
+  let stopPresenceListener: (() => Promise<void>) | undefined;
   let autoPresenceController: Awaited<
     ReturnType<typeof createDiscordMonitorClient>
   >["autoPresenceController"] = null;
@@ -495,7 +496,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
           opts.setStatus?.({ lastEventAt: at, lastInboundAt: at });
         }
       : undefined;
-    registerDiscordMonitorListeners({
+    stopPresenceListener = registerDiscordMonitorListeners({
       readPolicy,
       cfg,
       client,
@@ -553,6 +554,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   } finally {
     await cleanupDiscordProviderStartup({
       deactivateMessageHandler,
+      stopPresenceListener,
       autoPresenceController,
       setStatus: opts.setStatus,
       onEarlyGatewayDebug,

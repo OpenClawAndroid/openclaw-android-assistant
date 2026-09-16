@@ -144,6 +144,12 @@ of worker compilation.
 Other worker-thread entries and arbitrary source CLI fixtures remain outside
 this declared set.
 
+The agent database module-identity test shares the compiled host and SQLite SDK
+entries while forcing a separate plugin transform of the SDK. Its standalone and
+watch runs retain a disposable build from current source because this regression
+specifically checks a packaged graph. Both modes use the same assertions and
+subprocess deadline.
+
 The session-title and child-link retention tests declare their title-reader,
 session-utils, and listing roots in this same generation. Each fresh
 heap-measurement child runs their JavaScript without spending its execution

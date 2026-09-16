@@ -1,3 +1,5 @@
+import type { SynchronousWork } from "../../../shared/synchronous-work.js";
+import type { OpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.types.js";
 /**
  * Read-only subagent registry accessors.
  *
@@ -9,6 +11,7 @@ import { getSubagentRunsForChildSession, subagentRuns } from "./subagent-registr
 import {
   buildLatestSubagentRunReadIndexFromRuns,
   buildSubagentRunReadIndexFromRuns,
+  buildSubagentRunReadIndexWork,
   countActiveDescendantRunsFromRuns,
   countPendingDescendantRunsFromRuns,
   getLatestSubagentRunByChildSessionKeyFromRuns,
@@ -22,8 +25,10 @@ import {
   type LatestSubagentRunReadIndex,
   type SubagentRunReadIndex,
 } from "./subagent-registry-queries.js";
+import type { SubagentRunReadRecord } from "./subagent-registry-read.types.js";
 import {
   getSubagentSessionListRunsSnapshotForRead,
+  withSubagentSessionListRunsSnapshotForRead,
   getSubagentSessionListRunsSnapshotForSessions,
   getSubagentRunsSnapshotForChildSession,
   getSubagentRunsSnapshotForController,
@@ -31,7 +36,7 @@ import {
   getSubagentRunsSnapshotForSessions,
 } from "./subagent-registry-state.js";
 import { loadSubagentRunsForChildSessionFromSqlite } from "./subagent-registry.store.sqlite.js";
-import type { SubagentRunReadRecord, SubagentRunRecord } from "./subagent-registry.types.js";
+import type { SubagentRunRecord } from "./subagent-registry.types.js";
 import { isSubagentRunLive } from "./subagent-run-liveness.js";
 export { isSubagentRunLive, isSubagentRunQueued } from "./subagent-run-liveness.js";
 
@@ -62,6 +67,16 @@ export function buildSubagentSessionListReadIndex(
       : subagentRuns.values(),
     now,
   });
+}
+
+export function prepareSubagentSessionListReadIndex(
+  now: number,
+  context: OpenClawStateWorkerContext,
+  shouldYield: () => boolean,
+): Promise<SynchronousWork<SubagentRunReadIndex<SubagentRunReadRecord>>> {
+  return withSubagentSessionListRunsSnapshotForRead(subagentRuns, context, (runs) =>
+    buildSubagentRunReadIndexWork({ runs, inMemoryRuns: subagentRuns.values(), now }, shouldYield),
+  );
 }
 
 /** Direct-child discovery needs only its controllers, without building global topology. */

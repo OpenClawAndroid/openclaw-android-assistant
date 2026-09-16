@@ -12,7 +12,7 @@ import type { ContextEngineSessionTarget } from "../../context-engine/types.js";
 import type { DiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import type { AcceptedSessionSpawn } from "../accepted-session-spawn.js";
 import type { AgentRunTerminalReceipt } from "../agent-run-terminal-receipt.js";
-import type { AgentRunTerminalReplySnapshot } from "../agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../agent-run-terminal-reply.types.js";
 import type {
   MessagingToolSend,
   MessagingToolSourceReplyPayload,

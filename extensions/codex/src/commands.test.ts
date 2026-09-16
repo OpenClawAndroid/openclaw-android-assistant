@@ -908,8 +908,7 @@ describe("codex command", () => {
         }
         throw new Error(`unexpected Codex method ${method}`);
       });
-      vi.useFakeTimers({ toFake: ["Date"] });
-      const startedAt = Date.now();
+      const elapsedClock = vi.spyOn(performance, "now").mockReturnValue(0);
       try {
         const result = await runCommand(
           `resume ${threadId}`,
@@ -922,7 +921,7 @@ describe("codex command", () => {
                   if (failure === "read") {
                     throw new Error("Invalid Codex app-server binding row");
                   }
-                  vi.setSystemTime(startedAt + 1_001);
+                  elapsedClock.mockReturnValue(1_001);
                 }
                 return testCodexAppServerBindingStore.read(bindingIdentity);
               },
@@ -962,7 +961,7 @@ describe("codex command", () => {
         releaseLease.mockRestore();
         acquireClient.mockRestore();
         harness.client.close();
-        vi.useRealTimers();
+        elapsedClock.mockRestore();
       }
     },
   );

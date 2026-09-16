@@ -28,6 +28,8 @@ open the run's session.
 
 For a `current` job using `announce` (the default), the final assistant result is a first-class session completion, not a WebChat-specific outbound message. OpenClaw waits for active turns in the creation-bound conversation, verifies that the same session generation still owns the key, and commits the result through the canonical transcript writer with cron job/run provenance and a job/run idempotency key. A retry cannot append the same result twice.
 
+Current-session results use the same silent-reply handling as channel announcements. Internal control tokens stay out of conversation history, and suppressing a caption preserves its attached media.
+
 If the run is canceled while waiting for the conversation, it stops waiting without interrupting the active turn or appending a result.
 
 WebChat receives the committed `session.message` event immediately. The same assistant result comes from `chat.history` after a refresh or reconnect; no follow-up user message is required. Delivery is successful only after that transcript/event commit succeeds.

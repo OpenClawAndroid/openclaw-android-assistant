@@ -46,6 +46,11 @@ const subagentRegistryReadMock = vi.hoisted(() => {
   });
   return {
     buildSubagentSessionListReadIndex,
+    prepareSubagentSessionListReadIndex: async () =>
+      (function* () {
+        yield;
+        return buildSubagentSessionListReadIndex();
+      })(),
     listSubagentSessionListRunsForControllers: (keys: readonly string[]) => {
       const index = buildSubagentSessionListReadIndex();
       return keys.flatMap((key) => index.runsByControllerSessionKey.get(key) ?? []);

@@ -72,6 +72,36 @@ describe("worktree Git size estimates", () => {
     return { root, source, origin, clone, commit, missing };
   }
 
+  it("preserves admitted caller ownership config through text and buffered sizing without changing defaults", async () => {
+    const root = tempDirs.make("openclaw-capacity-caller-git-");
+    const repo = path.join(root, "repo");
+    await git(root, "init", "--template=", "-b", "main", repo);
+    await git(repo, "config", "user.name", "OpenClaw Test");
+    await git(repo, "config", "user.email", "openclaw-test@example.invalid");
+    await git(repo, "config", "commit.gpgSign", "false");
+    await fs.writeFile(path.join(repo, "README.md"), "capacity\n");
+    await git(repo, "add", "README.md");
+    await git(repo, "commit", "-m", "initial");
+    vi.stubEnv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
+    vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+    vi.stubEnv("GIT_CONFIG_GLOBAL", gitExec.gitNullConfigPath());
+    vi.stubEnv("GIT_CONFIG_COUNT", "1");
+    vi.stubEnv("GIT_CONFIG_KEY_0", "safe.directory");
+    vi.stubEnv("GIT_CONFIG_VALUE_0", await fs.realpath(repo));
+    // Managed Git intentionally replaces caller config with its hook/fsmonitor policy.
+    await expect(estimateWorktreeGitBytes(repo, "HEAD")).rejects.toThrow("dubious ownership");
+    const pending = estimateWorktreeGitBytes(repo, "HEAD", {
+      git: {
+        text: gitExec.executeGitCommandBytes,
+        buffered: gitExec.executeGitCommandBuffered,
+      },
+    });
+    // Later caller changes must not replace the environment captured at admission.
+    vi.stubEnv("GIT_CONFIG_VALUE_0", path.join(root, "not-the-repository"));
+    await expect(pending).resolves.toBe(4096);
+    await expect(estimateWorktreeGitBytes(repo, "HEAD")).rejects.toThrow("dubious ownership");
+  });
+
   it.each(["remote promisor", "partialclone extension"])(
     "prefetches missing blobs once from the %s and skips fetching local objects",
     async (remoteConfig) => {

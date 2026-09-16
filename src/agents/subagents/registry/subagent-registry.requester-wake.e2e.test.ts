@@ -11,7 +11,7 @@ import {
   getGatewayContextResolver,
 } from "../../../plugins/runtime/gateway-request-scope.js";
 import { prepareSystemAgentRunAdmission } from "../../admitted-run-context.js";
-import type { AgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.types.js";
 import type { deliverAgentCommandResult } from "../../command/delivery.js";
 import type { EmbeddedAgentRunResult } from "../../embedded-agent-runner/types.js";
 import { createSubagentRunParams } from "../../subagent-test-fixtures.test-helpers.js";

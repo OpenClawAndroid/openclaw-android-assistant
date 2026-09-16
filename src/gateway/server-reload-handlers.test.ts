@@ -232,7 +232,6 @@ function startManagedGatewayConfigReloader(params: ManagedReloaderTestParams) {
     minimalTestGateway: false,
     initialPluginInstallRecords: {},
     initialCompareConfig: params.initialConfig,
-    initialInternalWriteHash: null,
     watchPath: "/tmp/openclaw.json",
     promoteSnapshot: vi.fn(async () => true) as never,
     deps: {} as never,

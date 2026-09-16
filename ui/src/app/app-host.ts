@@ -284,7 +284,9 @@ class OpenClawShell
       ? normalizeAgentLabel(agent)
       : resolveSessionDisplayName(
           sessionKey,
-          context.sessions.state.result?.sessions.find((session) => session.key === sessionKey),
+          context.sessions.presentation.result?.sessions.find(
+            (session) => session.key === sessionKey,
+          ),
         );
   }
 

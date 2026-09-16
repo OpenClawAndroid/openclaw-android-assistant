@@ -77,6 +77,7 @@ suite.define(() => {
       await page.mouse.wheel(200, 0);
       await waitForChatScrollIdle(page);
       expect(await thread.evaluate((element) => element.scrollTop)).toBe(beforeFooter);
+      await page.waitForTimeout(201); // Start a second gesture beyond the 200 ms burst window.
       await page.mouse.wheel(0, -200);
       await expect
         .poll(() => thread.evaluate((element) => element.scrollTop))
@@ -86,6 +87,9 @@ suite.define(() => {
       const progress = page.locator(
         ".session-progress-card--composer .session-progress-card__body",
       );
+      await expect
+        .poll(() => page.locator(".session-progress-card--composer").getAttribute("open"))
+        .toBeNull();
       await page.locator(".session-progress-card--composer > summary").click();
       await progress.waitFor();
       await waitForChatScrollIdle(page);

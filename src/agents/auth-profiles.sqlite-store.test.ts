@@ -267,7 +267,30 @@ describe("auth profile sqlite store", () => {
           )
           .get(),
       ).toEqual({ value_json: JSON.stringify({ location: "state-db" }) });
-      database.close();
+      try {
+        for (const [key, lastUsed] of [
+          ["synthetic-shared-first", 789],
+          ["synthetic-shared-second", 790],
+        ] as const) {
+          database
+            .prepare("UPDATE config_machine_state SET value_json = ? WHERE state_key = ?")
+            .run(JSON.stringify(apiKeyStore(key)), "authProfiles.store");
+          database
+            .prepare("UPDATE config_machine_state SET value_json = ? WHERE state_key = ?")
+            .run(
+              JSON.stringify({ version: 1, usageStats: { "openai:default": { lastUsed } } }),
+              "authProfiles.state",
+            );
+          const loaded = loadAuthProfileStoreForRuntime(undefined, { readOnly: true });
+          expect(loaded).toMatchObject({
+            ...apiKeyStore(key),
+            usageStats: { "openai:default": { lastUsed } },
+          });
+          expect(loaded.order).toBeUndefined();
+        }
+      } finally {
+        database.close();
+      }
       expect(fs.existsSync(resolveAuthProfileDatabasePath(agentDir))).toBe(false);
     });
   });
@@ -581,15 +604,50 @@ describe("auth profile sqlite store", () => {
     });
   });
 
-  it("treats a non-table auth schema object as unreadable", async () => {
+  it("keeps auth schema classifications fresh after external schema changes", async () => {
     await withAgentDirEnv("openclaw-auth-sqlite-invalid-schema-", (agentDir) => {
       const database = new DatabaseSync(resolveAuthProfileDatabasePath(agentDir));
-      database.exec(
-        "CREATE VIEW auth_profile_store AS SELECT 'primary' AS store_key, '{}' AS store_json;",
-      );
-      database.close();
+      const createTable = `
+        CREATE TABLE auth_profile_store (
+          store_key TEXT NOT NULL PRIMARY KEY,
+          store_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `;
+      try {
+        database.exec(
+          "CREATE VIEW auth_profile_store AS SELECT 'primary' AS store_key, '{}' AS store_json;",
+        );
+        expect(inspectPersistedAuthProfileStoreRaw(agentDir)).toEqual({ status: "unreadable" });
+        expect(() => loadAuthProfileStoreForRuntime(agentDir, { readOnly: true })).toThrow(
+          "is unreadable",
+        );
 
-      expect(inspectPersistedAuthProfileStoreRaw(agentDir)).toEqual({ status: "unreadable" });
+        for (const key of ["synthetic-first", "synthetic-recreated"]) {
+          database.exec(`DROP VIEW auth_profile_store; ${createTable}`);
+          database
+            .prepare("INSERT INTO auth_profile_store VALUES ('primary', ?, 1)")
+            .run(JSON.stringify(apiKeyStore(key)));
+          expect(loadAuthProfileStoreForRuntime(agentDir, { readOnly: true })).toMatchObject(
+            apiKeyStore(key),
+          );
+          database.exec("DROP TABLE auth_profile_store;");
+          expect(inspectPersistedAuthProfileStoreRaw(agentDir)).toEqual({
+            status: "missing",
+            reason: "table",
+          });
+          expect(loadAuthProfileStoreForRuntime(agentDir, { readOnly: true }).profiles).toEqual({});
+          database.exec(
+            "CREATE VIEW auth_profile_store AS SELECT 'primary' AS store_key, '{}' AS store_json;",
+          );
+          expect(inspectPersistedAuthProfileStoreRaw(agentDir)).toEqual({ status: "unreadable" });
+          expect(() => loadAuthProfileStoreForRuntime(agentDir, { readOnly: true })).toThrow(
+            "is unreadable",
+          );
+        }
+      } finally {
+        database.close();
+      }
     });
   });
 
@@ -635,6 +693,35 @@ describe("auth profile sqlite store", () => {
         const secondDatabase = openSpy.mock.results[1]?.value as DatabaseSync | undefined;
         expect(firstDatabase?.isOpen).toBe(true);
         expect(secondDatabase?.isOpen).toBe(true);
+        const prepare = vi.spyOn(
+          expectDefined(firstDatabase, "first pooled auth reader"),
+          "prepare",
+        );
+        const writer = new DatabaseSync(resolveAuthProfileDatabasePath(agentDir));
+        try {
+          expect(loadPersistedAuthProfileStore(agentDir)).toMatchObject(apiKeyStore("sk-test"));
+          writer
+            .prepare("UPDATE auth_profile_store SET store_json = ? WHERE store_key = 'primary'")
+            .run(JSON.stringify(apiKeyStore("synthetic-external")));
+          writer
+            .prepare(
+              `INSERT INTO auth_profile_state (state_key, state_json, updated_at)
+               VALUES ('primary', ?, 1)
+               ON CONFLICT (state_key) DO UPDATE SET state_json = excluded.state_json`,
+            )
+            .run(
+              JSON.stringify({ version: 1, usageStats: { "openai:default": { lastUsed: 456 } } }),
+            );
+          expect(loadPersistedAuthProfileStore(agentDir)).toMatchObject({
+            ...apiKeyStore("synthetic-external"),
+            usageStats: { "openai:default": { lastUsed: 456 } },
+          });
+          // Warm reads reuse statements, but each execution still observes committed rows.
+          expect(prepare).not.toHaveBeenCalled();
+        } finally {
+          prepare.mockRestore();
+          writer.close();
+        }
 
         replaceRuntimeAuthProfileStoreSnapshots([{ agentDir, store: apiKeyStore("sk-test") }]);
 

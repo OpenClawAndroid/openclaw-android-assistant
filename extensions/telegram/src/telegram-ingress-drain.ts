@@ -27,6 +27,7 @@ import {
   getPreparedTelegramPollAnswer,
   isEligibleTelegramPollAnswerUpdate,
   prepareTelegramPollAnswerContext,
+  prepareTelegramPollAnswerContextAsync,
   recordPreparedTelegramPollAnswer,
   settleTelegramPollAnswerContext,
 } from "./poll-answer-context.js";
@@ -297,6 +298,21 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
         isEligibleTelegramPollAnswerUpdate(update)
       ) {
         prepareTelegramPollAnswerContext({ update, accountId: params.accountId });
+      }
+      return inspectTelegramSpooledUpdate(
+        update,
+        params.botInfo,
+        context.phase === "claim" ? context.claimedLaneKey : undefined,
+      );
+    },
+    inspectAsync: async (update, context) => {
+      if (
+        context.phase === "admission" &&
+        typeof update === "object" &&
+        update !== null &&
+        isEligibleTelegramPollAnswerUpdate(update)
+      ) {
+        await prepareTelegramPollAnswerContextAsync({ update, accountId: params.accountId });
       }
       return inspectTelegramSpooledUpdate(
         update,

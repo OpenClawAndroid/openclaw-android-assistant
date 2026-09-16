@@ -163,10 +163,10 @@ export function createTelegramEventBindings({
         }
         if (
           reactionMode === "own" &&
-          !telegramDeps.wasSentByBot(chatId, messageId, authorizationCfg, {
+          !(await telegramDeps.wasSentByBot(chatId, messageId, authorizationCfg, {
             accountId,
             agentId: ownerAgentId,
-          })
+          }))
         ) {
           logVerbose(
             `telegram: skipped reaction on msg ${messageId} in chat ${chatId} (own mode, not sent by bot)`,

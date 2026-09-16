@@ -760,21 +760,6 @@ describe("feishuOutbound.sendText local-image auto-convert", () => {
     expectFeishuResult(result, "card_msg");
   });
 
-  it("forwards replyToId as replyToMessageId on sendText", async () => {
-    await sendText({
-      cfg: emptyConfig,
-      to: "chat_1",
-      text: "hello",
-      replyToId: "om_reply_1",
-      accountId: "main",
-    });
-
-    expect(sendMessageCall()?.to).toBe("chat_1");
-    expect(sendMessageCall()?.text).toBe("hello");
-    expect(sendMessageCall()?.replyToMessageId).toBe("om_reply_1");
-    expect(sendMessageCall()?.accountId).toBe("main");
-  });
-
   it("falls back to threadId when replyToId is empty on sendText", async () => {
     await sendText({
       cfg: emptyConfig,

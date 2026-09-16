@@ -21,6 +21,7 @@ import {
   suppressOpenAIResponsesCompaction,
   type OpenAIResponsesReplayMode,
 } from "../transports/openai-responses-compaction-replay.js";
+import { recordResponsesContextUsage } from "../transports/openai-responses-context-usage.js";
 import { responsesPromptObserver } from "../transports/openai-responses-contracts.js";
 import { ResponsesStreamFailure } from "../transports/openai-responses-debug.js";
 import { resolveOpenAIResponsesTextFormat } from "../transports/openai-responses-params-internal.js";
@@ -32,6 +33,7 @@ import {
   type ResponsesEncryptedContentAttempt,
 } from "../transports/openai-responses-replay-internal.js";
 import { processResponsesStream } from "../transports/openai-responses-stream-internal.js";
+import type { CompletedResponse } from "../transports/openai-responses-stream-types-internal.js";
 import {
   createOpenAIProviderAcceptanceHook,
   createOpenAIResponseHook,
@@ -344,7 +346,7 @@ export const streamOpenAICodexResponses: StreamFunction<
           websocketStarted = false;
           websocketRequestSent = false;
           try {
-            await processWebSocketStream(
+            const terminal = await processWebSocketStream(
               resolveCodexWebSocketUrl(model.baseUrl),
               activeAttempt.request,
               websocketHeaders,
@@ -372,6 +374,16 @@ export const streamOpenAICodexResponses: StreamFunction<
             }
             if (output.stopReason === "aborted" || output.stopReason === "error") {
               throw new CodexApiError(output.errorMessage ?? "An unknown error occurred");
+            }
+            if (terminal && activeAttempt.kind === "initial") {
+              recordResponsesContextUsage(
+                output,
+                model,
+                options,
+                activeAttempt.request,
+                terminal.output,
+                "provider",
+              );
             }
             stream.push({
               type: "done",
@@ -545,7 +557,7 @@ export const streamOpenAICodexResponses: StreamFunction<
         hook: createOpenAIProviderAcceptanceHook(options, response, model),
         onReady: () => stream.push({ type: "start", partial: output }),
       });
-      await processResponsesStream(hookedResponseStream, output, stream, model, {
+      const terminal = await processResponsesStream(hookedResponseStream, output, stream, model, {
         serviceTier: options?.serviceTier,
         firstEventTimeoutMs: getFirstStreamEventTimeoutMs(options),
         abortFirstEventStream: firstEventAbort.abort,
@@ -568,6 +580,16 @@ export const streamOpenAICodexResponses: StreamFunction<
         throw new Error(output.errorMessage ?? "An unknown error occurred");
       }
 
+      if (terminal && semanticAttempt.kind === "initial") {
+        recordResponsesContextUsage(
+          output,
+          model,
+          options,
+          semanticAttempt.request,
+          terminal.output,
+          "provider",
+        );
+      }
       stream.push({
         type: "done",
         reason: output.stopReason as "stop" | "length" | "toolUse",
@@ -686,7 +708,8 @@ function buildRequestBody(
   }
 
   if (context.tools) {
-    const tools = convertResponsesToolPayload(context.tools, { strict: null });
+    // Explicit false prevents the backend from normalizing optional properties into required ones.
+    const tools = convertResponsesToolPayload(context.tools, { strict: false });
     if (tools.length > 0) {
       body.tools = tools;
       body.tool_choice = "auto";
@@ -1536,7 +1559,7 @@ async function processWebSocketStream(
   // watchdog listens there, while `options.signal` here is the request-scoped
   // abort composite that nothing outside this provider observes.
   activitySignal?: AbortSignal,
-): Promise<void> {
+): Promise<CompletedResponse | null | undefined> {
   const { socket, entry, release } = await acquireWebSocket(
     url,
     headers,
@@ -1561,7 +1584,7 @@ async function processWebSocketStream(
     });
     socket.send(JSON.stringify({ type: "response.create", ...requestBody }));
     onRequestSent?.();
-    await processResponsesStream(
+    const terminal = await processResponsesStream(
       startWebSocketOutputOnFirstEvent(
         mapCodexEvents(parseWebSocket(socket, options?.signal)),
         output,
@@ -1615,6 +1638,7 @@ async function processWebSocketStream(
         lastResponseItems: responseItems,
       };
     }
+    return terminal;
   } catch (error) {
     if (entry) {
       entry.continuation = undefined;

@@ -1,4 +1,4 @@
-import type { AgentRunTerminalReplySnapshot } from "../../agents/agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../../agents/agent-run-terminal-reply.types.js";
 import type { NormalizeReplySkipReason } from "../../auto-reply/reply/normalize-reply-skip-reason.js";
 /** Result types returned by isolated cron agent runs. */
 import type {

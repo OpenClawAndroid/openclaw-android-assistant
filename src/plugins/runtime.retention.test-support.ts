@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { setImmediate } from "node:timers/promises";
+import { withEnvAsync } from "../test-utils/env.js";
 import {
   createPluginCache,
   getPluginCacheRetirementSignal,
   retirePluginCache,
+  withPluginCache,
 } from "./plugin-cache.js";
 import { PluginInstance } from "./plugin-instance.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
@@ -62,7 +67,7 @@ async function retireCapturedSource() {
   const reference = new WeakRef(source);
   instance.bindModuleLoader(
     () => 42,
-    (path) => path === source.path,
+    (modulePath) => modulePath === source.path,
   );
   assert.equal(instance.hasModuleSource(source.path), true);
   assert.equal(instance.loadModule(source.path), 42);
@@ -70,7 +75,93 @@ async function retireCapturedSource() {
   return { instance, reference };
 }
 
+async function loadReplacement(root: string) {
+  const { loadOpenClawPlugins } = await import("./loader.js");
+  const previous = createEmptyPluginRegistry();
+  const reference = new WeakRef(previous);
+  const cache = createPluginCache();
+  const registry = withPluginCache(cache, () =>
+    loadOpenClawPlugins({
+      config: {
+        plugins: {
+          allow: ["retention-fixture"],
+          load: { paths: [path.join(root, "index.cjs")] },
+          slots: { memory: "none" },
+        },
+      },
+      pluginSdkResolution: "src",
+      activate: false,
+      cache: false,
+      previousRegistry: previous,
+    }),
+  );
+  assert.deepEqual(
+    registry.plugins.map((record) => record.status),
+    ["loaded"],
+  );
+  assert.deepEqual(
+    await disposePluginRegistryInstances(previous, registry, { cfg: {} }),
+    emptyResult,
+  );
+  assert.deepEqual(await waitForPluginRegistryRetirement(previous), emptyResult);
+  return { registry, cache, reference };
+}
+
 switch (process.argv[2]) {
+  case "loader": {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "plugin-retention-")));
+    try {
+      fs.writeFileSync(
+        path.join(root, "openclaw.plugin.json"),
+        JSON.stringify({
+          id: "retention-fixture",
+          configSchema: { type: "object", additionalProperties: false },
+          contracts: { tools: ["retention_fixture"] },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(root, "index.cjs"),
+        `module.exports = {
+        id: "retention-fixture",
+        register(api) {
+          api.registerTool({ name: "retention_fixture", label: "Retention fixture", description: "Returns a marker",
+            parameters: { type: "object", properties: {} },
+            execute: async () => ({ content: [{ type: "text", text: "current generation" }] }) });
+        }
+      };`,
+      );
+      await withEnvAsync(
+        {
+          OPENCLAW_HOME: root,
+          OPENCLAW_STATE_DIR: path.join(root, "state"),
+          OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+          OPENCLAW_BUNDLED_PLUGINS_DIR: undefined,
+        },
+        async () => {
+          const { registry, cache, reference } = await loadReplacement(root);
+          try {
+            await collect();
+            assert.equal(
+              reference.deref(),
+              undefined,
+              "Live replacement retained its predecessor registry",
+            );
+            const tool = registry.tools[0]?.factory({ config: {} });
+            assert.ok(tool && !Array.isArray(tool));
+            assert.deepEqual(await tool.execute("retention-call", {}), {
+              content: [{ type: "text", text: "current generation" }],
+            });
+          } finally {
+            await disposePluginRegistryInstances(registry, undefined, { cfg: {} });
+            await retirePluginCache(cache);
+          }
+        },
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    break;
+  }
   case "formatter": {
     const cache = createPluginCache();
     const formatter = Object.getOwnPropertyDescriptor(Error, "prepareStackTrace");

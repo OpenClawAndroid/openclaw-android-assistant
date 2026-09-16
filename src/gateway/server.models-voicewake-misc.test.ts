@@ -616,9 +616,8 @@ describe("gateway server models + voicewake", () => {
       agentDiscoveryMock.enabled = true;
       agentDiscoveryMock.models = startupModels;
       const { getRuntimeConfig } = await import("../config/io.js");
-      await startupTesting.publishStartupModelRuntime({
+      await startupTesting.publishConfiguredModelRuntimeSnapshots({
         cfg: getRuntimeConfig(),
-        log: { warn: () => {} },
       });
     };
     const readMethods = [

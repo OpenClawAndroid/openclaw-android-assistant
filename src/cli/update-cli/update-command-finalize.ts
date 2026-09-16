@@ -54,7 +54,7 @@ import {
   updatePluginsAfterCoreUpdate,
   type PostCorePluginUpdateResult,
 } from "./update-command-plugins.js";
-import { UpdateCommandFailure } from "./update-command-result.js";
+import { UpdateCommandFailure, withUpdateAdmissionReporting } from "./update-command-result.js";
 import { completeSourceUpdateRuntime } from "./update-command-runtime.js";
 import { resolveServiceRefreshEnv, withUpdateInProgressEnv } from "./update-command-service-env.js";
 import { reportPreMutationUpdateResult } from "./update-command-terminal.js";
@@ -83,27 +83,35 @@ export async function updateFinalizeCommand(
   await withCommandProcessScope(async (stopChildren) => {
     const lifecycle = new UpdateFinalizationLifecycle(Boolean(opts.json), timeoutMs, stopChildren);
     try {
-      const { root, installKind, runId } = await withUpdateInProgressEnv(invocationCwd, () =>
-        lifecycle.run("preflight", async () => {
-          // Refused invocations cannot create a ledger or write failure-triage artifacts.
-          // A missing canonical path can be an interrupted publication, not a
-          // fresh installation. Only the recovery executor may reconcile it.
-          await assertUpdateRecoveryAdmission({ env: process.env });
-          assertConfigWriteAllowedInCurrentMode();
-          await assertOpenClawStateWriteAllowedAtPath({
-            databasePath: resolveOpenClawStateSqlitePath(process.env),
-            recoverOrphanedSidecars: false,
-          });
-          await retainCliProcessJobUntilExit();
-          // Public repair supplies a recovery selection, even when it is empty.
-          const admittedRunId = lifecycle.attachLedger(recoveryRunIds !== undefined);
-          const resolvedRoot = await resolveUpdateRoot();
-          const resolvedInstallKind = await resolveUpdateInstallKind(resolvedRoot, {
-            timeoutMs: lifecycle.budget("preflight"),
-          });
-          lifecycle.recordInstallKind(resolvedInstallKind, await readPackageVersion(resolvedRoot));
-          return { root: resolvedRoot, installKind: resolvedInstallKind, runId: admittedRunId };
-        }),
+      const { root, installKind, runId } = await withUpdateAdmissionReporting(
+        opts,
+        () =>
+          withUpdateInProgressEnv(invocationCwd, () =>
+            lifecycle.run("preflight", async () => {
+              // Refused invocations cannot create a ledger or write failure-triage artifacts.
+              // A missing canonical path can be an interrupted publication, not a
+              // fresh installation. Only the recovery executor may reconcile it.
+              await assertUpdateRecoveryAdmission({ env: process.env });
+              assertConfigWriteAllowedInCurrentMode();
+              await assertOpenClawStateWriteAllowedAtPath({
+                databasePath: resolveOpenClawStateSqlitePath(process.env),
+                recoverOrphanedSidecars: false,
+              });
+              await retainCliProcessJobUntilExit();
+              // Public repair supplies a recovery selection, even when it is empty.
+              const admittedRunId = lifecycle.attachLedger(recoveryRunIds !== undefined);
+              const resolvedRoot = await resolveUpdateRoot();
+              const resolvedInstallKind = await resolveUpdateInstallKind(resolvedRoot, {
+                timeoutMs: lifecycle.budget("preflight"),
+              });
+              lifecycle.recordInstallKind(
+                resolvedInstallKind,
+                await readPackageVersion(resolvedRoot),
+              );
+              return { root: resolvedRoot, installKind: resolvedInstallKind, runId: admittedRunId };
+            }),
+          ),
+        recoveryRunIds === undefined ? "finalize" : "unknown",
       );
       lifecycle.root = root;
       const target = {

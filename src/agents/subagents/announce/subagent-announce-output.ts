@@ -18,6 +18,7 @@ import { buildAgentRunTerminalOutcomeFromWaitResult } from "../../agent-run-term
 import { extractStoredAssistantText } from "../../tools/chat-history-text.js";
 import { isAnnounceSkip } from "../../tools/sessions-send-tokens.js";
 import { recordLatestSubagentRun } from "../registry/subagent-run-generation.js";
+import type { SubagentRunOutcome } from "../subagent-run-outcome.types.js";
 import { classifySubagentTerminalOutcome } from "../subagent-terminal-outcome.js";
 import {
   captureSubagentCompletionReplyUsing,
@@ -88,14 +89,6 @@ type AgentWaitResult = {
   pendingError?: boolean;
   timeoutPhase?: string;
   providerStarted?: boolean;
-};
-
-export type SubagentRunOutcome = {
-  status: "ok" | "error" | "timeout" | "unknown";
-  error?: string;
-  startedAt?: number;
-  endedAt?: number;
-  elapsedMs?: number;
 };
 
 export function withSubagentOutcomeTiming(

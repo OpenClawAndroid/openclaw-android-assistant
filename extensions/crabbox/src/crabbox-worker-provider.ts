@@ -31,6 +31,7 @@ import {
 import {
   CRABBOX_WORKER_PROVIDER_ID,
   nonEmptyString,
+  assertCrabboxLeaseId,
   operationLeaseId,
   operationSlug,
   parseCrabboxOperatingSystem,
@@ -72,6 +73,7 @@ import {
 } from "./crabbox-worker-timeouts.js";
 import { loadCrabboxWorkerWallpaperBase64 } from "./crabbox-worker-wallpaper.js";
 import type { CrabboxWarmImagePolicy } from "./crabbox-worker-warm-image-policy.js";
+import type { CrabboxState } from "./crabbox-worker-warm-image-store.js";
 import { createCrabboxWarmImageManager } from "./crabbox-worker-warm-image.js";
 
 export { resolveOpenClawRoot } from "./crabbox-worker-profile.js";
@@ -79,14 +81,6 @@ export { resolveOpenClawRoot } from "./crabbox-worker-profile.js";
 // Local pack creation, two seed commands, upload, and runtime installation precede capture.
 const CRABBOX_PROJECT_PREPARATION_TIMEOUT_MS =
   4 * CRABBOX_SETUP_TIMEOUT_MS + CRABBOX_NODE_ENROLLMENT_TIMEOUT_MS;
-const LEASE_ID_PATTERN = /^(?:cbx_|tbx_)[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-
-function assertCrabboxLeaseId(leaseId: string): void {
-  if (!LEASE_ID_PATTERN.test(leaseId)) {
-    throw new Error("Crabbox lease id is invalid");
-  }
-}
-
 type CrabboxProfile = ReturnType<typeof parseCrabboxProfile>;
 
 type LeaseHeartbeatContext = LeaseCommandContext &
@@ -100,6 +94,7 @@ type CrabboxWorkerProviderDependencies = {
   runCommand?: CrabboxCommandRunner;
   sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   wallpaperPath: string;
+  state: CrabboxState;
   warn?: (message: string) => void;
   warmImagePolicy?: CrabboxWarmImagePolicy;
 };
@@ -214,6 +209,7 @@ export function createCrabboxWorkerProvider(
     warn,
   });
   const warmImages = createCrabboxWarmImageManager({
+    state: dependencies.state,
     runCommand,
     runArgs: leaseRunArgs,
     warn,
@@ -323,7 +319,7 @@ export function createCrabboxWorkerProvider(
       signal?.throwIfAborted();
       // Completed setup can survive a crash before its capture requirement returns.
       // Sample before allocate creates the first-call record; enrolled replay stays closed.
-      const priorAllocation = project?.preparation ? warmImages.lookupLease(leaseId) : undefined;
+      const priorAllocation = project?.preparation && (await warmImages.lookupLease(leaseId));
       const preparedReplay = priorAllocation && priorAllocation.phase !== "enrolled";
       const allocationChoice = await warmImages.allocate({
         ...context,
@@ -403,7 +399,7 @@ export function createCrabboxWorkerProvider(
           setup: desktopSetup,
         });
       }
-      if (project?.preparation && warmImages.lookupLease(leaseId)?.phase === "enrolled") {
+      if (project?.preparation && (await warmImages.lookupLease(leaseId))?.phase === "enrolled") {
         // An enrolled replay may have lost its response before core registration.
         // Verify the preserved completion only; setup and capture remain closed.
         try {
@@ -422,7 +418,7 @@ export function createCrabboxWorkerProvider(
           return await failProvisionAfterCleanup({ ...context, id: leaseId, stopLease }, error);
         }
       }
-      if (project && warmImages.lookupLease(leaseId)?.phase !== "enrolled") {
+      if (project && (await warmImages.lookupLease(leaseId))?.phase !== "enrolled") {
         let preparationFailed = false;
         let captured: boolean;
         try {
@@ -436,7 +432,10 @@ export function createCrabboxWorkerProvider(
             timeoutMs: () => remainingProvisionTimeout(setupDeadline, CRABBOX_SETUP_TIMEOUT_MS),
           });
           project.assertCurrent();
-          warmImages.markPrepared(leaseId, project.baseCommit);
+          await warmImages.markPrepared(leaseId, project.baseCommit, () => {
+            preparationSignal?.throwIfAborted();
+            project.assertCurrent();
+          });
           captured = await warmImages.capture(
             {
               ...context,
@@ -570,7 +569,12 @@ export function createCrabboxWorkerProvider(
         );
       }
       if (parsed.warmImage) {
-        warmImages.markEnrolled(leaseId);
+        await warmImages.markEnrolled(leaseId, () => {
+          signal?.throwIfAborted();
+          enrollment.signal?.throwIfAborted();
+        });
+        signal?.throwIfAborted();
+        enrollment.signal?.throwIfAborted();
       }
       heartbeats.start({
         binary,
@@ -656,9 +660,8 @@ export function createCrabboxWorkerProvider(
         ? { machineClass: effective.class, platform: effective.target }
         : undefined;
     },
-    async notePreparedDemand(lease, preparation) {
-      warmImages.notePreparedDemand(lease.leaseId, preparation);
-    },
+    notePreparedDemand: async (lease, preparation) =>
+      await warmImages.notePreparedDemand(lease.leaseId, preparation),
     resolveAllocation,
     resolveProvisionTimeoutMs(profile) {
       const parsed = parseCrabboxProfile(profile);
@@ -711,7 +714,7 @@ export function createCrabboxWorkerProvider(
       // the class and OS that own the warm policy and reusable image after restart.
       let captureError: unknown;
       try {
-        const allocation = warmImages.lookupLease(context.id);
+        const allocation = await warmImages.lookupLease(context.id);
         const captureProfile = resolveCrabboxWarmImageProfile(
           profile,
           allocation?.machineClass ?? profile.class,

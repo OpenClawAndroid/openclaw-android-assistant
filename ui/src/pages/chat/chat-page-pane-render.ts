@@ -28,7 +28,7 @@ type ChatPagePaneRenderOptions = {
   onboarding: boolean;
   onClosePane?: (paneId: string) => void;
   onFaceChange: (paneId: string, sessionKey: string, face: BoardFace) => void;
-  onFocusPane: (paneId: string) => void;
+  onFocusPane: (paneId: string, intent?: "review-edit") => void;
   onOpenSplitView?: () => void;
   onPaneSessionChange: (
     paneId: string,
@@ -52,7 +52,7 @@ type ChatPagePaneRenderOptions = {
 };
 
 export function renderChatPagePaneCell(options: ChatPagePaneRenderOptions) {
-  const sessions = options.context?.sessions?.state.result?.sessions ?? [];
+  const sessions = options.context?.sessions?.presentation.result?.sessions ?? [];
   return html`
     <div
       class="chat-split-view__cell ${

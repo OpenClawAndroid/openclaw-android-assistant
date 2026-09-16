@@ -305,7 +305,11 @@ describe("Logbook native statement and read budgets", () => {
       distractions: [],
     },
   ];
-  function insertCandidate(backend: SqliteWorkerBackend<LogbookOperations>, capturedAtMs: number) {
+  function insertCandidate(
+    backend: SqliteWorkerBackend<LogbookOperations>,
+    capturedAtMs: number,
+    idle = false,
+  ) {
     return backend.execute({
       type: "insertFrame",
       input: {
@@ -317,10 +321,59 @@ describe("Logbook native statement and read budgets", () => {
         height: 480,
         byteSize: 10,
         contentHash: "synthetic",
-        idle: false,
+        idle,
       },
     });
   }
+
+  it("selects ordered pending frames without decoding unused text or narrowing full readers", () => {
+    const { backend } = openBackend();
+    insertCandidate(backend, 3000);
+    insertCandidate(backend, 1000);
+    insertCandidate(backend, 1000);
+    insertCandidate(backend, 2000);
+    insertCandidate(backend, 500, true);
+    insertCandidate(backend, 750);
+    backend.execute({
+      type: "createBatch",
+      input: { day, startMs: 750, endMs: 751, frameIds: [6] },
+    });
+    const expected = [
+      { id: 2, capturedAtMs: 1000 },
+      { id: 3, capturedAtMs: 1000 },
+      { id: 4, capturedAtMs: 2000 },
+      { id: 1, capturedAtMs: 3000 },
+    ];
+    for (const limit of [0, 2, 10]) {
+      reads.frameRows = 0;
+      reads.frameTextBytes = 0;
+      const pending = backend.execute({ type: "unbatchedActiveFrames", input: { limit } });
+      expect(reads.frameRows).toBe(Math.min(limit, expected.length));
+      expect.soft(reads.frameTextBytes).toBe(0);
+      expect(pending).toEqual(expected.slice(0, limit));
+    }
+
+    const fullFrame = {
+      id: 6,
+      capturedAtMs: 750,
+      day,
+      path: `captures/${"nested/".repeat(12)}750.jpg`,
+      screenIndex: 0,
+      width: 640,
+      height: 480,
+      byteSize: 10,
+      idle: false,
+    };
+    expect(backend.execute({ type: "frameById", input: { id: 6 } })).toEqual(fullFrame);
+    expect(backend.execute({ type: "framesInRange", input: { startMs: 750, endMs: 751 } })).toEqual(
+      [fullFrame],
+    );
+    expect(backend.execute({ type: "batchFrames", input: { batchId: 1 } })).toEqual([fullFrame]);
+    expect(backend.execute({ type: "sampledBatchFrames", input: { batchId: 1 } })).toEqual([
+      fullFrame,
+    ]);
+    expect(reads.frameTextBytes).toBeGreaterThan(0);
+  });
 
   it.each([0, 1, 120])(
     "selects keyframes without reading path/day payloads for %i candidates",
@@ -376,7 +429,7 @@ describe("Logbook native statement and read budgets", () => {
     { column: "height", emptyDrafts: false, value: 9007199254740992n },
     { column: "byte_size", emptyDrafts: true, value: -9007199254740992n },
   ] as const)(
-    "retains native $column overflow rejection and prior cards (empty drafts=$emptyDrafts)",
+    "retains native $column overflow rejection in frame readers and prior cards (empty drafts=$emptyDrafts)",
     ({ column, emptyDrafts, value }) => {
       const { backend, databasePath } = openBackend();
       insertCandidate(backend, 1000);
@@ -401,6 +454,18 @@ describe("Logbook native statement and read budgets", () => {
         throw new Error("Expected the full frame reader to reject the unsafe integer fixture");
       }
       expect(originalError).toMatchObject({ code: "ERR_OUT_OF_RANGE" });
+      let pendingError: unknown;
+      try {
+        backend.execute({ type: "unbatchedActiveFrames", input: { limit: 1 } });
+      } catch (error) {
+        pendingError = error;
+      }
+      expect(pendingError).toBeInstanceOf(Error);
+      expect(pendingError).toMatchObject({
+        code: "ERR_OUT_OF_RANGE",
+        name: originalError.name,
+        message: originalError.message,
+      });
       let replacementError: unknown;
       try {
         backend.execute({

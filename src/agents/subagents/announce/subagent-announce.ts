@@ -25,7 +25,7 @@ import {
   isDeliverableMessageChannel,
   normalizeMessageChannel,
 } from "../../../utils/message-channel.js";
-import type { AgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../../agent-run-terminal-reply.types.js";
 import {
   buildAnnounceIdFromChildRun,
   buildAnnounceIdempotencyKey,
@@ -47,6 +47,7 @@ import {
 import { deleteSubagentSessionForCleanup } from "../registry/subagent-session-cleanup.js";
 import { getSubagentDepthFromSessionStore } from "../spawn/subagent-depth.js";
 import type { SpawnSubagentMode } from "../spawn/subagent-spawn.types.js";
+import type { SubagentRunOutcome } from "../subagent-run-outcome.types.js";
 import {
   deliverSubagentAnnouncement,
   loadRequesterSessionEntry,
@@ -68,7 +69,6 @@ import {
   readLatestSubagentOutputWithRetry,
   readSubagentOutput,
   readSubagentTimeoutProgress,
-  type SubagentRunOutcome,
   waitForSubagentRunOutcome,
 } from "./subagent-announce-output.js";
 import {
@@ -104,7 +104,6 @@ function loadSubagentRegistryRuntime() {
 }
 
 export { captureSubagentCompletionReply } from "./subagent-announce-output.js";
-export type { SubagentRunOutcome } from "./subagent-announce-output.js";
 
 type SubagentAnnounceType = "subagent task" | "cron job";
 export type SubagentAnnounceFlowOutcome =

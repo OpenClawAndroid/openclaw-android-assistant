@@ -1,4 +1,4 @@
-import type { SubagentRunReadRecord } from "./subagent-registry.types.js";
+import type { SubagentRunReadRecord } from "./subagent-registry-read.types.js";
 
 type RunIdentity = Pick<SubagentRunReadRecord, "childSessionKey" | "requesterSessionKey">;
 

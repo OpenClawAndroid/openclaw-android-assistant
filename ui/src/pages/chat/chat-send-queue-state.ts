@@ -310,10 +310,7 @@ export async function prepareQueuedChatPayload(
     !connectionIsCurrent() ||
     !ownerIsCurrent() ||
     !current ||
-    current.sendRunId !== original.sendRunId ||
-    current.attachmentPayload?.key !== original.attachmentPayload?.key ||
-    current.sendAttempts !== original.sendAttempts ||
-    current.sendState !== original.sendState ||
+    !sameQueuedDeliveryVersion(current, original) ||
     isQueuedMessageBeingEdited(host, id)
   ) {
     if (payload.status === "ready" && !original.attachmentPayload) {

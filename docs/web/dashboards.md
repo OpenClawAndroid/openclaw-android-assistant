@@ -135,6 +135,9 @@ never needs the agent.
   **Auto height** from the widget menu to fit the content again.
 - **Tabs.** A board can have several pages — say, an overview tab and a
   focused tab with one big widget. Each tab remembers its widget layout.
+  Visited tabs stay loaded while the dashboard is retained, preserving local
+  filters and widget interactions when you switch back. Unvisited tabs load on
+  demand; changed content still refreshes, and removed tabs release their widgets.
 - **Dashboard view.** The board can occupy the main area or a resizable side
   panel. With Dashboard active in the side panel, choose **Swap** in the task
   toolbar, then **Focus** for a dashboard-only view. **Restore split** brings

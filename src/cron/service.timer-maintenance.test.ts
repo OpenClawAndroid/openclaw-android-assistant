@@ -143,21 +143,27 @@ describe("cron timer maintenance admission", () => {
     expect(result.jobs[0]?.state.nextRunAtMs).toBeGreaterThan(nowMs);
   });
 
-  it("repairs a stale future cron slot with one sweep", async () => {
-    const nowMs = Date.now();
-    const expected = Math.floor(nowMs / 60_000) * 60_000 + 60_000;
-    const stale = job(
-      "stale-future",
-      nowMs,
-      { kind: "cron", expr: "0 * * * * *", tz: "UTC", staggerMs: 0 },
-      { nextRunAtMs: nowMs + 7 * 24 * 60 * 60_000 + 30_000 },
-    );
-    stale.payload = { kind: "systemEvent", text: "repair stale future slot" };
+  it.each([false, true])(
+    "repairs a stale future cron slot with one sweep (trigger=%s)",
+    async (trigger) => {
+      const nowMs = Date.now();
+      const expected = Math.floor(nowMs / 60_000) * 60_000 + 60_000;
+      const stale = job(
+        "stale-future",
+        nowMs,
+        { kind: "cron", expr: "0 * * * * *", tz: "UTC", staggerMs: 0 },
+        { nextRunAtMs: nowMs + 7 * 24 * 60 * 60_000 + 30_000 },
+      );
+      stale.payload = { kind: "systemEvent", text: "repair stale future slot" };
+      if (trigger) {
+        stale.trigger = { script: "json({ fire: false })" };
+      }
 
-    const result = await runTimer([stale], nowMs);
-    expect(result.maintenanceCount).toBe(1);
-    expect(result.jobs[0]?.state.nextRunAtMs).toBe(expected);
-  });
+      const result = await runTimer([stale], nowMs);
+      expect(result.maintenanceCount).toBe(1);
+      expect(result.jobs[0]?.state.nextRunAtMs).toBe(expected);
+    },
+  );
 
   it("keeps retrying malformed timed schedules until the third failure disables them", async () => {
     const nowMs = Date.now();

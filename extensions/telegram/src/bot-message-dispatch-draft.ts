@@ -123,7 +123,7 @@ export function createDraftState(params: TurnConfig): TelegramDraftStateSlice {
               }
             : {}),
           onProviderMessage: async (message) => {
-            recordSentMessage(params.context.chatId, message.message_id, params.cfg, {
+            await recordSentMessage(params.context.chatId, message.message_id, params.cfg, {
               accountId: params.context.route.accountId,
               agentId: params.opts.ownerAgentId,
             });

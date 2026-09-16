@@ -15,6 +15,11 @@ function keepAttentionFocusOnTooltip(event: FocusEvent) {
   event.stopPropagation();
 }
 
+function revealAttentionWithoutNavigation(event: MouseEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export function renderSessionAttentionIcon(
   attention: SidebarSessionAttention,
   showTooltip = false,
@@ -39,6 +44,7 @@ export function renderSessionAttentionIcon(
     aria-hidden=${label ? nothing : "true"}
     tabindex=${label ? "0" : nothing}
     @focusin=${label ? keepAttentionFocusOnTooltip : nothing}
+    @click=${label ? revealAttentionWithoutNavigation : nothing}
     >${icon}</span
   >`;
   return showTooltip && label ? renderSessionAttentionTooltip(attention, content) : content;
@@ -103,7 +109,7 @@ function renderSessionAttentionTooltip(
   trigger: TemplateResult,
 ) {
   const { status, preview, more } = sessionAttentionTooltipParts(attention);
-  return html`<openclaw-tooltip .content=${preview ? "" : status}>
+  return html`<openclaw-tooltip .content=${preview ? "" : status} open-on-click>
     ${trigger}
     ${
       preview

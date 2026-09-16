@@ -7,10 +7,8 @@ import {
   type WorkerLiveEventParams,
 } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
 import { makeTextToolResult } from "../../../test/helpers/text-tool-result.js";
-import {
-  buildAgentRunTerminalReplySnapshot,
-  type AgentRunTerminalReplySnapshot,
-} from "../../agents/agent-run-terminal-reply.js";
+import { buildAgentRunTerminalReplySnapshot } from "../../agents/agent-run-terminal-reply.js";
+import type { AgentRunTerminalReplySnapshot } from "../../agents/agent-run-terminal-reply.types.js";
 import { runEmbeddedAgentEntry } from "../../agents/embedded-agent-runner/run-entry.js";
 import { runEmbeddedAgent } from "../../agents/embedded-agent-runner/run.js";
 import { resolveModelFallbackError } from "../../agents/failover-error.js";

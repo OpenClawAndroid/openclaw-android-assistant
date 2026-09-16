@@ -360,7 +360,7 @@ export async function createMatrixThreadBindingManager(params: {
           env: params.env,
           stateDir: sqliteStateDir,
         });
-        claimCurrentTokenStorageState({ rootDir: sqliteStateDir });
+        await claimCurrentTokenStorageState({ rootDir: sqliteStateDir });
       });
     persistQueue = next;
     return next;

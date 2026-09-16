@@ -3,7 +3,8 @@ import fs from "node:fs";
 import type { Bot } from "grammy";
 import { isChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import type { PluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
+import type { PluginStateKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
   createPluginStateKeyedStoreForTests,
   createPluginStateSyncKeyedStoreForTests,
@@ -28,6 +29,7 @@ import {
   beginTelegramPollRegistration,
   getPreparedTelegramPollAnswer,
   prepareTelegramPollAnswerContext,
+  prepareTelegramPollAnswerContextAsync,
   settleTelegramPollAnswerContext,
 } from "./poll-answer-context.js";
 import { recordTelegramPollRegistryEntry } from "./poll-registry.js";
@@ -245,7 +247,7 @@ type PersistedSentMessageForTest = {
   messageId: string;
   timestamp: number;
 };
-let sentMessageStore: PluginStateSyncKeyedStore<PersistedSentMessageForTest>;
+let sentMessageStore: PluginStateKeyedStore<PersistedSentMessageForTest>;
 
 function markdownTable(columns: number): string {
   return [
@@ -261,34 +263,34 @@ function countTelegramRichBlocks(blocks: readonly InputRichBlock[] | undefined):
   return countInputRichBlocks(blocks ?? []);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPluginStateStoreForTests({ closeDatabase: false });
-  sentMessageStore = createPluginStateSyncKeyedStoreForTests("telegram", {
+  sentMessageStore = createPluginStateKeyedStoreForTests("telegram", {
     namespace: TELEGRAM_SENT_MESSAGE_CACHE_NAMESPACE,
     maxEntries: TELEGRAM_SENT_MESSAGE_CACHE_MAX_ENTRIES,
   });
-  sentMessageStore.clear();
+  await sentMessageStore.clear();
   installTelegramStateRuntimeForTest(sentMessageStore);
   resetTelegramSentMessageCacheForTest();
 });
 
 function installTelegramStateRuntimeForTest(
-  syncStore: PluginStateSyncKeyedStore<PersistedSentMessageForTest>,
+  sentStore: PluginStateKeyedStore<PersistedSentMessageForTest>,
 ): void {
   setTelegramRuntime({
     state: {
       openKeyedStore: ((options) =>
-        createPluginStateKeyedStoreForTests(
-          "telegram",
-          options,
-        )) as TelegramRuntime["state"]["openKeyedStore"],
-      openSyncKeyedStore: ((options) =>
         options.namespace === TELEGRAM_SENT_MESSAGE_CACHE_NAMESPACE
-          ? syncStore
-          : createPluginStateSyncKeyedStoreForTests(
+          ? sentStore
+          : createPluginStateKeyedStoreForTests(
               "telegram",
               options,
-            )) as TelegramRuntime["state"]["openSyncKeyedStore"],
+            )) as TelegramRuntime["state"]["openKeyedStore"],
+      openSyncKeyedStore: ((options) =>
+        createPluginStateSyncKeyedStoreForTests(
+          "telegram",
+          options,
+        )) as TelegramRuntime["state"]["openSyncKeyedStore"],
     },
     channel: {},
   } as TelegramRuntime);
@@ -534,25 +536,50 @@ describe("sent-message-cache", () => {
     vi.useRealTimers();
   });
 
-  it("records and retrieves sent messages", () => {
-    recordSentMessage(123, 1);
-    recordSentMessage(123, 2);
-    recordSentMessage(456, 10);
+  it("records and retrieves sent messages", async () => {
+    await recordSentMessage(123, 1);
+    await recordSentMessage(123, 2);
+    await recordSentMessage(456, 10);
 
-    expect(wasSentByBot(123, 1)).toBe(true);
-    expect(wasSentByBot(123, 2)).toBe(true);
-    expect(wasSentByBot(456, 10)).toBe(true);
-    expect(wasSentByBot(123, 3)).toBe(false);
-    expect(wasSentByBot(789, 1)).toBe(false);
+    expect(await wasSentByBot(123, 1)).toBe(true);
+    expect(await wasSentByBot(123, 2)).toBe(true);
+    expect(await wasSentByBot(456, 10)).toBe(true);
+    expect(await wasSentByBot(123, 3)).toBe(false);
+    expect(await wasSentByBot(789, 1)).toBe(false);
   });
 
-  it("handles string chat IDs", () => {
-    recordSentMessage("123", 1);
-    expect(wasSentByBot("123", 1)).toBe(true);
-    expect(wasSentByBot(123, 1)).toBe(true);
+  it("shares cold hydration and waits for sent-message persistence", async () => {
+    const hydration = createDeferred<Awaited<ReturnType<typeof sentMessageStore.entries>>>();
+    const persistence = createDeferred<void>();
+    const entries = vi.fn(() => hydration.promise);
+    const register = vi.fn(() => persistence.promise);
+    installTelegramStateRuntimeForTest({ ...sentMessageStore, entries, register });
+
+    let recorded = false;
+    const recording = recordSentMessage(123, 1).then(() => {
+      recorded = true;
+    });
+    const lookup = wasSentByBot(123, 1);
+    expect(entries).toHaveBeenCalledOnce();
+    expect(recorded).toBe(false);
+    hydration.resolve([]);
+
+    await expect(lookup).resolves.toBe(true);
+    expect(register).toHaveBeenCalledOnce();
+    expect(recorded).toBe(false);
+    persistence.resolve();
+    await recording;
+    expect(recorded).toBe(true);
+    expect(await wasSentByBot(123, 1)).toBe(true);
   });
 
-  it("keeps sent-message cache storage failures best-effort", () => {
+  it("handles string chat IDs", async () => {
+    await recordSentMessage("123", 1);
+    expect(await wasSentByBot("123", 1)).toBe(true);
+    expect(await wasSentByBot(123, 1)).toBe(true);
+  });
+
+  it("keeps sent-message cache storage failures best-effort", async () => {
     installTelegramStateRuntimeForTest({
       ...sentMessageStore,
       entries() {
@@ -563,42 +590,42 @@ describe("sent-message-cache", () => {
       },
     });
 
-    expect(() => recordSentMessage(123, 1)).not.toThrow();
-    expect(wasSentByBot(123, 1)).toBe(true);
+    await expect(recordSentMessage(123, 1)).resolves.toBeUndefined();
+    expect(await wasSentByBot(123, 1)).toBe(true);
   });
 
-  it("persists only the newly recorded sent-message row", () => {
+  it("persists only the newly recorded sent-message row", async () => {
     const persistedMessageIds: string[] = [];
     installTelegramStateRuntimeForTest({
       ...sentMessageStore,
-      register(key, value, options) {
-        sentMessageStore.register(key, value, options);
+      async register(key, value, options) {
+        await sentMessageStore.register(key, value, options);
         persistedMessageIds.push(value.messageId);
       },
     });
 
-    recordSentMessage(123, 1);
-    recordSentMessage(123, 2);
-    recordSentMessage(456, 10);
+    await recordSentMessage(123, 1);
+    await recordSentMessage(123, 2);
+    await recordSentMessage(456, 10);
 
     expect(persistedMessageIds).toEqual(["1", "2", "10"]);
   });
 
-  it("persists sent-message rows with a per-entry ttl", () => {
+  it("persists sent-message rows with a per-entry ttl", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-26T12:00:00.000Z"));
     const ttlByMessageId = new Map<string, number>();
     installTelegramStateRuntimeForTest({
       ...sentMessageStore,
-      register(key, value, options) {
-        sentMessageStore.register(key, value, options);
+      async register(key, value, options) {
+        await sentMessageStore.register(key, value, options);
         ttlByMessageId.set(value.messageId, options?.ttlMs ?? 0);
       },
     });
 
-    recordSentMessage(123, 1);
+    await recordSentMessage(123, 1);
     vi.advanceTimersByTime(60 * 60 * 1000);
-    recordSentMessage(123, 2);
+    await recordSentMessage(123, 2);
 
     expect(ttlByMessageId.get("1")).toBe(24 * 60 * 60 * 1000);
     expect(ttlByMessageId.get("2")).toBe(24 * 60 * 60 * 1000);
@@ -608,8 +635,8 @@ describe("sent-message-cache", () => {
     const persistedStorePath = `/tmp/openclaw-telegram-send-tests-${process.pid}-restart.json`;
     const sentMessageCfg = { session: { store: persistedStorePath } };
 
-    recordSentMessage(123, 1, sentMessageCfg);
-    expect(wasSentByBot(123, 1, sentMessageCfg)).toBe(true);
+    await recordSentMessage(123, 1, sentMessageCfg);
+    expect(await wasSentByBot(123, 1, sentMessageCfg)).toBe(true);
 
     resetTelegramSentMessageCacheForTest();
 
@@ -617,10 +644,10 @@ describe("sent-message-cache", () => {
       import.meta.url,
       "./sent-message-cache.js?scope=restart",
     );
-    expect(restartedCache.wasSentByBot(123, 1, sentMessageCfg)).toBe(true);
+    expect(await restartedCache.wasSentByBot(123, 1, sentMessageCfg)).toBe(true);
   });
 
-  it("keeps expired custom-store cleanup away from the default store", () => {
+  it("keeps expired custom-store cleanup away from the default store", async () => {
     const customStorePath = `/tmp/openclaw-telegram-send-tests-${process.pid}-custom-cleanup.json`;
     const customCfg = { session: { store: customStorePath } };
     const startedAt = new Date("2026-01-01T00:00:00.000Z");
@@ -628,38 +655,38 @@ describe("sent-message-cache", () => {
     vi.setSystemTime(startedAt);
 
     try {
-      recordSentMessage(123, 2, customCfg);
+      await recordSentMessage(123, 2, customCfg);
 
       vi.setSystemTime(startedAt.getTime() + 24 * 60 * 60 * 1000 + 1);
-      recordSentMessage(123, 1);
+      await recordSentMessage(123, 1);
 
-      expect(wasSentByBot(123, 2, customCfg)).toBe(false);
-      expect(wasSentByBot(123, 1)).toBe(true);
+      expect(await wasSentByBot(123, 2, customCfg)).toBe(false);
+      expect(await wasSentByBot(123, 1)).toBe(true);
     } finally {
       fs.rmSync(customStorePath, { force: true });
       fs.rmSync(`${customStorePath}.telegram-sent-messages.json`, { force: true });
     }
   });
 
-  it("keeps default and custom stores isolated while both are loaded", () => {
+  it("keeps default and custom stores isolated while both are loaded", async () => {
     const customStorePath = `/tmp/openclaw-telegram-send-tests-${process.pid}-custom-isolated.json`;
     const customCfg = { session: { store: customStorePath } };
 
     try {
-      recordSentMessage(123, 1);
-      recordSentMessage(123, 2, customCfg);
+      await recordSentMessage(123, 1);
+      await recordSentMessage(123, 2, customCfg);
 
-      expect(wasSentByBot(123, 1)).toBe(true);
-      expect(wasSentByBot(123, 2)).toBe(false);
-      expect(wasSentByBot(123, 1, customCfg)).toBe(false);
-      expect(wasSentByBot(123, 2, customCfg)).toBe(true);
+      expect(await wasSentByBot(123, 1)).toBe(true);
+      expect(await wasSentByBot(123, 2)).toBe(false);
+      expect(await wasSentByBot(123, 1, customCfg)).toBe(false);
+      expect(await wasSentByBot(123, 2, customCfg)).toBe(true);
     } finally {
       fs.rmSync(customStorePath, { force: true });
       fs.rmSync(`${customStorePath}.telegram-sent-messages.json`, { force: true });
     }
   });
 
-  it("keeps sent-message ownership isolated across differently routed accounts", () => {
+  it("keeps sent-message ownership isolated across differently routed accounts", async () => {
     const multiAgentCfg = {
       agents: {
         ownership: "explicit",
@@ -682,13 +709,13 @@ describe("sent-message-cache", () => {
       },
     } as OpenClawConfig;
 
-    recordSentMessage(123, 1, multiAgentCfg, { accountId: "primary" });
+    await recordSentMessage(123, 1, multiAgentCfg, { accountId: "primary" });
 
-    expect(wasSentByBot(123, 1, multiAgentCfg, { accountId: "primary" })).toBe(true);
-    expect(wasSentByBot(123, 1, multiAgentCfg, { accountId: "alerts" })).toBe(false);
+    expect(await wasSentByBot(123, 1, multiAgentCfg, { accountId: "primary" })).toBe(true);
+    expect(await wasSentByBot(123, 1, multiAgentCfg, { accountId: "alerts" })).toBe(false);
 
-    recordSentMessage(123, 1, multiAgentCfg, { accountId: "alerts" });
-    expect(wasSentByBot(123, 1, multiAgentCfg, { accountId: "alerts" })).toBe(true);
+    await recordSentMessage(123, 1, multiAgentCfg, { accountId: "alerts" });
+    expect(await wasSentByBot(123, 1, multiAgentCfg, { accountId: "alerts" })).toBe(true);
   });
 
   it("shares sent-message state across distinct module instances", async () => {
@@ -703,8 +730,8 @@ describe("sent-message-cache", () => {
     resetTelegramSentMessageCacheForTest();
 
     try {
-      cacheA.recordSentMessage(123, 1);
-      expect(cacheB.wasSentByBot(123, 1)).toBe(true);
+      await cacheA.recordSentMessage(123, 1);
+      expect(await cacheB.wasSentByBot(123, 1)).toBe(true);
     } finally {
       resetTelegramSentMessageCacheForTest();
     }
@@ -3512,8 +3539,8 @@ describe("sendMessageTelegram", () => {
       "Champ de Mars",
       expect.any(Object),
     );
-    expect(wasSentByBot(chatId, 301)).toBe(true);
-    expect(wasSentByBot(chatId, 302)).toBe(true);
+    expect(await wasSentByBot(chatId, 301)).toBe(true);
+    expect(await wasSentByBot(chatId, 302)).toBe(true);
   });
 
   it.each([
@@ -5239,7 +5266,7 @@ describe("sendStickerTelegram", () => {
       expect(sendSticker).toHaveBeenCalledWith(chatId, testCase.expectedFileId, undefined);
       expect(res.messageId).toBe(String(testCase.expectedMessageId));
       expect(res.chatId).toBe(chatId);
-      expect(wasSentByBot(chatId, testCase.expectedMessageId)).toBe(true);
+      expect(await wasSentByBot(chatId, testCase.expectedMessageId)).toBe(true);
     });
   }
 
@@ -6179,7 +6206,7 @@ describe("sendPollTelegram", () => {
       expect(sendPollCall[1]).toBe("Q");
       expect(sendPollCall[2]).toEqual(["A", "B"]);
       expect(requireRecord(sendPollCall[3], "send poll params").open_period).toBe(durationSeconds);
-      expect(wasSentByBot("123", 123)).toBe(true);
+      expect(await wasSentByBot("123", 123)).toBe(true);
     },
   );
 
@@ -6484,7 +6511,7 @@ describe("sendPollTelegram", () => {
         user: { id: 9, first_name: "Ada", is_bot: false },
       },
     };
-    prepareTelegramPollAnswerContext({ update });
+    await prepareTelegramPollAnswerContextAsync({ update });
     expect(getPreparedTelegramPollAnswer(update)).toMatchObject({
       entry: { pollId: "poll-fast-answer", chat: { id: -1001234567890 } },
       registrationPending: true,
@@ -6501,21 +6528,32 @@ describe("sendPollTelegram", () => {
     expect(getPreparedTelegramPollAnswer(update)).toEqual({ entry });
   });
 
+  it("prepares a poll route synchronously for older ingress monitor hosts", async () => {
+    const entry = await recordTelegramPollRegistryEntry({
+      pollId: "legacy-monitor-poll",
+      chat: { id: -100123, type: "supergroup", title: "Reviewers", is_forum: true },
+      messageId: 125,
+      threadSpec: { scope: "forum", id: 9 },
+      question: "Ready?",
+      options: ["Yes", "No"],
+    });
+    const update = {
+      poll_answer: {
+        poll_id: entry.pollId,
+        option_ids: [0],
+        user: { is_bot: false },
+      },
+    };
+    prepareTelegramPollAnswerContext({ update });
+    expect(getPreparedTelegramPollAnswer(update)).toEqual({ entry });
+  });
+
   it("does not reread or delay unknown poll answers", async () => {
     const store = await installPollRegistryStore();
-    const syncStore = createPluginStateSyncKeyedStoreForTests<TelegramPollRegistryEntry>(
-      "telegram",
-      {
-        namespace: TELEGRAM_POLL_REGISTRY_NAMESPACE,
-        maxEntries: TELEGRAM_POLL_REGISTRY_MAX_ENTRIES,
-        overflowPolicy: "reject-new",
-      },
-    );
-    const lookup = vi.spyOn(syncStore, "lookup");
+    const lookup = vi.spyOn(store, "lookup");
     setTelegramRuntime({
       state: {
         openKeyedStore: (() => store) as TelegramRuntime["state"]["openKeyedStore"],
-        openSyncKeyedStore: (() => syncStore) as TelegramRuntime["state"]["openSyncKeyedStore"],
       },
       channel: {},
     } as TelegramRuntime);
@@ -6528,7 +6566,7 @@ describe("sendPollTelegram", () => {
       },
     };
 
-    prepareTelegramPollAnswerContext({ update });
+    await prepareTelegramPollAnswerContextAsync({ update });
 
     expect(getPreparedTelegramPollAnswer(update)?.entry).toBeNull();
     expect(lookup).toHaveBeenCalledTimes(1);
@@ -6577,9 +6615,10 @@ describe("sendPollTelegram", () => {
     });
     setTelegramRuntime({
       state: {
-        openKeyedStore: (() => pollRegistryStore) as TelegramRuntime["state"]["openKeyedStore"],
-        openSyncKeyedStore: (() =>
-          sentMessageStore) as TelegramRuntime["state"]["openSyncKeyedStore"],
+        openKeyedStore: ((options) =>
+          options.namespace === TELEGRAM_SENT_MESSAGE_CACHE_NAMESPACE
+            ? sentMessageStore
+            : pollRegistryStore) as TelegramRuntime["state"]["openKeyedStore"],
       },
       channel: {},
     } as TelegramRuntime);

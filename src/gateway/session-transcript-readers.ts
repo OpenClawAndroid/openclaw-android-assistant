@@ -16,29 +16,29 @@ import {
   readSessionTranscriptHistoryEventLookup,
   readSessionTranscriptHistoryEventPage,
   readSessionTranscriptHistoryEvents,
-  type SessionTranscriptMessageByIdOptions,
 } from "../config/sessions/session-accessor.sqlite-history-events.js";
+import type { SessionTranscriptMessageByIdOptions } from "../config/sessions/session-accessor.sqlite-history-query.js";
 import { readRestoredSessionTranscript } from "../config/sessions/session-cold-storage-read.js";
 import type { TranscriptRecentReadLimits } from "../sessions/transcript-anchor-page.js";
 import type {
   TranscriptReadWindow,
   TranscriptReadWindowOptions,
 } from "../sessions/transcript-read-window.js";
-import { projectTranscriptEntryMessage } from "./session-transcript-message.js";
+import type {
+  ReadRecentSessionMessagesOptions,
+  ReadSessionMessagesAsyncOptions,
+} from "./session-transcript-archive-reader.js";
+import { ArchivedTranscriptReader } from "./session-transcript-archive-reader.js";
+import { projectTranscriptEntryMessage } from "./session-transcript-entry-message.js";
 import {
   resolveTranscriptReadTarget,
   toTranscriptReadScope,
   type ResolvedTranscriptReadTarget,
 } from "./session-transcript-read-target.js";
-import type {
-  ReadRecentSessionMessagesOptions,
-  ReadSessionMessagesAsyncOptions,
-} from "./session-utils.fs.js";
-import { ArchivedTranscriptReader } from "./session-utils.fs.js";
 
 export type { ReadSessionMessagesAsyncOptions };
 export { capArrayByJsonBytes } from "./session-utils.fs.js";
-export { attachOpenClawTranscriptMeta } from "./session-transcript-message.js";
+export { attachOpenClawTranscriptMeta } from "./session-transcript-entry-message.js";
 export { readSessionTranscriptVisibleMessageDeltaCore } from "../config/sessions/session-accessor.sqlite-active-events.js";
 
 export type { SessionTranscriptReadScope };

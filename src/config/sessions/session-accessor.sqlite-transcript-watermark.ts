@@ -32,6 +32,30 @@ export type SessionTranscriptWatermark = {
   maxSeq: number | null;
 };
 
+/** Reads hot append and rewrite tokens together for transcript-derived caches. */
+export function readSessionTranscriptHotWatermark(
+  database: Pick<OpenClawAgentDatabase, "db">,
+  sessionId: string,
+): SessionTranscriptWatermark {
+  const db = getNodeSqliteKysely<WatermarkDatabase>(database.db);
+  const row = executeSqliteQueryTakeFirstSync(
+    database.db,
+    db.selectNoFrom((eb) => [
+      eb
+        .selectFrom("transcript_events")
+        .select((inner) => inner.fn.max<number>("seq").as("max_seq"))
+        .where("session_id", "=", sessionId)
+        .as("max_seq"),
+      eb
+        .selectFrom("transcript_rewrite_watermarks")
+        .select("generation")
+        .where("session_id", "=", sessionId)
+        .as("generation"),
+    ]),
+  );
+  return { generation: row?.generation ?? null, maxSeq: row?.max_seq ?? null };
+}
+
 /** Reads the append and rewrite tokens that validate transcript-derived caches. */
 export function readSessionTranscriptWatermark(
   scope: SessionTranscriptReadScope,
@@ -42,23 +66,9 @@ export function readSessionTranscriptWatermark(
       runSqliteDeferredTransactionSync(
         database.db,
         () => {
-          const db = getNodeSqliteKysely<WatermarkDatabase>(database.db);
-          const maxSeq = executeSqliteQueryTakeFirstSync(
-            database.db,
-            db
-              .selectFrom("transcript_events")
-              .select((eb) => eb.fn.max<number>("seq").as("max_seq"))
-              .where("session_id", "=", resolved.sessionId),
-          )?.max_seq;
-          const generation = executeSqliteQueryTakeFirstSync(
-            database.db,
-            db
-              .selectFrom("transcript_rewrite_watermarks")
-              .select("generation")
-              .where("session_id", "=", resolved.sessionId),
-          )?.generation;
+          const watermark = readSessionTranscriptHotWatermark(database, resolved.sessionId);
           const cold = readSessionColdTranscript(database.db, resolved.sessionId);
-          return { generation: generation ?? null, maxSeq: cold?.last_seq ?? maxSeq ?? null };
+          return { ...watermark, maxSeq: cold?.last_seq ?? watermark.maxSeq };
         },
         { databaseLabel: database.path, operationLabel: "session transcript watermark read" },
       ),

@@ -62,6 +62,57 @@ The fast path is limited to OpenClaw's private source-only templates; do not cus
 
 ReFS cloning can take longer than native Git checkout for repositories with many small files because each file needs independent metadata and Git refreshes its index. Use `worktreeAcceleration: false` if checkout latency matters more than source storage savings.
 
+## Repository source profiles
+
+Full source remains the default. To select a repository-owned sparse source
+profile when creating a **new** worktree:
+
+```bash
+openclaw worktrees create /path/to/repo --name gateway-task --source-profile gateway
+openclaw worktrees create /path/to/repo --name combined-task --source-profile gateway --source-profile tooling
+```
+
+Track plain UTF-8 cone-directory lists in
+`.openclaw/worktree-profiles/<name>`. Names use lowercase letters, digits and
+hyphens (up to 64 characters, starting with a letter or digit). Each nonempty
+line names a tracked repository-relative directory; do not use comments, globs,
+absolute paths or parent traversal. Selected lists compose as a sorted union.
+Git cone mode also retains files at the root and ancestor directories. OpenClaw
+includes the definition directory so the selection remains inspectable.
+
+Definitions are read from the immutable checkout commit, not uncommitted source
+files. A default-remote retry loads the definitions again from its fallback
+commit. Selection finishes before ignored-file provisioning and setup. It does
+not request a dependency install or build, and an existing repository setup
+script retains its independent policy. Profiles cannot reshrink reused or
+restored worktrees; choose a new name.
+
+The existing `--profile` option still selects runtime state; `--source-profile`
+only selects repository source:
+
+```bash
+openclaw --profile work worktrees create /path/to/repo --name task --source-profile gateway
+```
+
+Expand intentionally before native work or whole-repository checks:
+
+```bash
+git -C /path/to/worktree sparse-checkout disable
+```
+
+If sparse materialization fails after registration, keep the partial checkout
+and Git registration for recovery. A retry with the same name does not shrink
+that partial state; inspect it before choosing a new worktree name.
+
+Selected profiles currently use ordinary Git checkout. Git enables shared
+per-worktree configuration when setting sparse rules, so subsequent full
+checkouts of that repository also use Git fallback, including after a native
+full expansion. Existing checkouts retain their own source and indexes.
+
+Then run the separately requested dependency/build preparation. PR
+whole-repository gates still require full source. Sparse checkout changes source
+materialization, not shared Git objects or history; it is not shallow cloning.
+
 ## Layout and names
 
 Each worktree lives at:
@@ -210,7 +261,7 @@ A branch at a shallow history boundary can still be snapshotted and restored. If
 
 ```bash
 openclaw worktrees list [--json]
-openclaw worktrees create <repo-root> [--name <name>] [--base-ref <ref>] [--json]
+openclaw worktrees create <repo-root> [--name <name>] [--base-ref <ref>] [--source-profile <name>]... [--json]
 openclaw worktrees remove <id> [--force | --if-lossless] [--json]
 openclaw worktrees restore <id> [--json]
 openclaw worktrees gc [--json]

@@ -381,7 +381,9 @@ function resolveChangedExtensionRoots(changedPaths: string[]) {
 
 function createChangedExtensionConfigShards(
   extensionRoots: string[],
+  options: { fullConfigInventory?: boolean } = {},
 ): ChangedExtensionConfigShard[] {
+  const selectedRoots = new Set(extensionRoots);
   const rootsByConfig = new Map<string, string[]>();
   for (const root of extensionRoots) {
     const config = resolveExtensionTestConfig(root);
@@ -389,8 +391,15 @@ function createChangedExtensionConfigShards(
   }
   const filesByConfig = new Map<string, string[]>();
   for (const file of rootsByConfig.size > 0 ? listExtensionTestFilesForRoots(["extensions"]) : []) {
-    const config = resolveExtensionTestConfig(file.split("/").slice(0, 2).join("/"));
+    const config = resolveExtensionTestConfig(file);
     filesByConfig.set(config, [...(filesByConfig.get(config) ?? []), file]);
+    const root = file.split("/").slice(0, 2).join("/");
+    if (selectedRoots.has(root)) {
+      const roots = rootsByConfig.get(config) ?? [];
+      if (!roots.includes(root)) {
+        rootsByConfig.set(config, [...roots, root]);
+      }
+    }
   }
   const plans: Array<{
     config: string;
@@ -400,30 +409,38 @@ function createChangedExtensionConfigShards(
   }> = [...rootsByConfig].flatMap(([config, roots]) => {
     const splitProcesses = shouldSplitExtensionTestProcesses(config);
     const testFiles = (filesByConfig.get(config) ?? []).filter(
-      (file) => !splitProcesses || roots.some((root) => file.startsWith(`${root}/`)),
+      (file) =>
+        !splitProcesses ||
+        options.fullConfigInventory ||
+        roots.some((root) => file.startsWith(`${root}/`)),
     );
     const chunks = testFiles.length > 0 ? splitExtensionTestJobTargets(config, testFiles) : [roots];
-    const predictedSeconds = Math.ceil(
+    const partitionSeconds = Math.ceil(
       estimateExtensionTestCost(config, testFiles.length) / chunks.length,
     );
-    return chunks.length > 1
-      ? chunks.map((includePatterns, index) =>
-          Object.assign(
-            { config, predictedSeconds },
-            splitProcesses
-              ? { includePatterns }
-              : {
-                  // Counts size jobs only. Vitest owns the complete config inventory,
-                  // including unrelated plugin roots, excludes and untracked tests.
-                  env: {
-                    OPENCLAW_NODE_TEST_VITEST_ARGS_JSON: JSON.stringify([
-                      `--shard=${index + 1}/${chunks.length}`,
-                    ]),
-                  },
+    return chunks.map((includePatterns, index) =>
+      Object.assign(
+        {
+          config,
+          predictedSeconds: splitProcesses
+            ? estimateExtensionTestCost(config, includePatterns.length)
+            : partitionSeconds,
+        },
+        splitProcesses
+          ? { includePatterns }
+          : chunks.length > 1
+            ? {
+                // Counts size jobs only. Vitest owns the complete config inventory,
+                // including unrelated plugin roots, excludes and untracked tests.
+                env: {
+                  OPENCLAW_NODE_TEST_VITEST_ARGS_JSON: JSON.stringify([
+                    `--shard=${index + 1}/${chunks.length}`,
+                  ]),
                 },
-          ),
-        )
-      : [{ config, predictedSeconds }];
+              }
+            : {},
+      ),
+    );
   });
   return plans.map(({ config, env, includePatterns, predictedSeconds }, index) => {
     const suffix = plans.length === 1 ? "" : `-${index + 1}`;
@@ -498,6 +515,7 @@ export function createChangedExtensionFallbackShards(
   const shards = hasCoreExtensionImpact(changedPaths, { cwd })
     ? createChangedExtensionConfigShards(
         listAvailableExtensionIds().map((extensionId) => `extensions/${extensionId}`),
+        { fullConfigInventory: true },
       )
     : createChangedExtensionConfigShardsForPaths(changedPaths, cwd);
   const jobs = packChangedExtensionConfigShards(shards);
@@ -528,6 +546,7 @@ function packChangedExtensionConfigShards(
       ) &&
       bin.reduce((seconds, entry) => seconds + entry.predictedSeconds, shard.predictedSeconds) <=
         CHANGED_EXTENSION_JOB_SECONDS,
+    true,
   );
   // Singleton objects keep their full metadata and original relative order.
   return bins

@@ -12,7 +12,7 @@ import { readAgentDatabaseAdmissionRefusal } from "../../state/agent-database-ad
 import { readAgentDeletionJournal } from "../../state/agent-deletion-journal.js";
 import { listOpenClawRegisteredAgentDatabases } from "../../state/openclaw-agent-db-registry.js";
 import {
-  closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync,
   isOpenClawAgentDatabaseOpen,
   withOpenClawAgentDatabaseAsync,
   resolveOpenClawAgentSqlitePath,
@@ -35,7 +35,7 @@ import {
 } from "./session-canonical-key.js";
 import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
 import { resolveAllAgentSessionStoreTargetsSync, resolveSessionStoreTargets } from "./targets.js";
-import { migrateManagedWorktreeCanonicalWorkspaces } from "./worktree-workspace-migration.js";
+import type { migrateManagedWorktreeCanonicalWorkspaces } from "./worktree-workspace-migration.js";
 
 export type SessionStartupMigrationLogger = Record<"info" | "warn", (message: string) => void>;
 
@@ -51,7 +51,7 @@ export function assertSessionStoreMigrationComplete(params: {
   ).filter(
     (target) => !target.agentId || !readAgentDatabaseAdmissionRefusal(target.agentId, { env }),
   );
-  const pending = readDeferredPluginMigrations({ env });
+  let pending: ReturnType<typeof readDeferredPluginMigrations> | undefined;
   const legacyRootStore = path.join(resolveStateDir(env), "sessions", "sessions.json");
   const legacyTargets = fs.existsSync(legacyRootStore)
     ? resolveSessionStoreTargets(params.cfg, { allAgents: true }, { env }).map((target) => ({
@@ -84,8 +84,10 @@ export function assertSessionStoreMigrationComplete(params: {
     for (const target of candidates) {
       if (
         !target.agentId ||
-        deferredPluginSessionStoreIds({ target: { ...target, agentId: target.agentId }, pending })
-          .length === 0
+        deferredPluginSessionStoreIds({
+          target: { ...target, agentId: target.agentId },
+          pending: (pending ??= readDeferredPluginMigrations({ env })),
+        }).length === 0
       ) {
         return true;
       }
@@ -123,7 +125,9 @@ export function assertSessionStoreMigrationComplete(params: {
     let hasUnindexedHistory: boolean | undefined;
     return [...required].some(({ target, destination }) => {
       const receipt = readDeferredPluginSessionImport({
-        target: { ...target, sqlitePath: destination },
+        cfg: params.cfg,
+        target,
+        sqlitePath: destination,
         env,
       });
       // Owners without a database can never hold a replayable receipt (receipts bind
@@ -198,9 +202,7 @@ export async function runSessionStartupMigration(params: {
   }
 
   const databases = new Set<string>();
-  const migrateWorktreeSessions =
-    params.deps?.migrateManagedWorktreeCanonicalWorkspaces ??
-    migrateManagedWorktreeCanonicalWorkspaces;
+  let migrateWorktreeSessions = params.deps?.migrateManagedWorktreeCanonicalWorkspaces;
   const registeredDatabases = new Set(
     listOpenClawRegisteredAgentDatabases({ env }).map((entry) => `${entry.agentId}\0${entry.path}`),
   );
@@ -234,9 +236,22 @@ export async function runSessionStartupMigration(params: {
             setCanonicalSqliteSessionMainKey(database, mainKey),
           );
         }
+      } catch (error) {
+        params.log.warn(
+          `session: SQLite startup maintenance failed for ${target.agentId}; continuing: ${String(error)}`,
+        );
+      }
+      // Canonical refusal is readiness failure. Drain before worktree and runtime
+      // visitors can otherwise parse a whole migrated store on the main thread.
+      const { certifySessionCanonicalValidationPending } =
+        await import("./session-canonical-validation-readiness.js");
+      await certifySessionCanonicalValidationPending(options);
+      try {
         // Workspace metadata participates in claim matching. Preserve it during a
         // partial move so the next attempt can finish removing the source claim.
         if (!result.armed || result.complete) {
+          migrateWorktreeSessions ??= (await import("./worktree-workspace-migration.js"))
+            .migrateManagedWorktreeCanonicalWorkspaces;
           migratedWorktreeSessions += await migrateWorktreeSessions({
             ...target,
             cfg: params.cfg,
@@ -255,8 +270,8 @@ export async function runSessionStartupMigration(params: {
         handedOff = true;
       }
     } finally {
-      if (!alreadyOpen && !handedOff && isOpenClawAgentDatabaseOpen(databasePath)) {
-        closeOpenClawAgentDatabaseByPath(databasePath);
+      if (!alreadyOpen && !handedOff) {
+        await closeOpenClawAgentDatabaseByPathAsync(databasePath);
       }
     }
   }

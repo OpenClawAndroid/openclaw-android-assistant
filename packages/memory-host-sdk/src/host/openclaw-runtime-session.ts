@@ -8,7 +8,10 @@ import {
 } from "../../../../src/config/sessions/session-accessor.js";
 
 export { readTranscriptStatsBatchReadOnlySync };
+export { readAccessorTranscriptStatsSync as readTranscriptStatsSync };
 export { readTranscriptExportSnapshotReadOnlySync };
+export { readRestoredSessionTranscript } from "../../../../src/config/sessions/session-cold-storage-read.js";
+export { SessionTranscriptColdError } from "../../../../src/config/sessions/session-cold-storage-state.js";
 export {
   listSessionEntriesCore,
   listSessionEntriesReadOnly,
@@ -61,7 +64,6 @@ export type { SessionEntry } from "../../../../src/config/sessions/types.js";
 export { isExecCompletionEvent } from "../../../../src/infra/heartbeat-events-filter.js";
 export {
   parseSqliteSessionFileMarker,
-  readTranscriptStatsSync,
   resolveStorePath,
 } from "../../../../src/plugin-sdk/session-store-runtime.js";
 export { hasInterSessionUserProvenance } from "../../../../src/sessions/input-provenance.js";

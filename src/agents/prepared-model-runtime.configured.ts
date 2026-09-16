@@ -97,6 +97,7 @@ export function collectPreparedModelRuntimeProviderIds(
       resolveConfiguredModelHarnessRuntime({
         config,
         modelRef: ref.value,
+        modelRefKind: ref.kind,
         agentId,
         includeImplicitRuntimePreferences: false,
       }) ?? "",

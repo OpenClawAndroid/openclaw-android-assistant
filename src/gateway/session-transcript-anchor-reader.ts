@@ -2,13 +2,13 @@ import type { SessionTranscriptReadScope } from "../config/sessions/session-acce
 import { readSessionTranscriptHistoryAnchorPage } from "../config/sessions/session-accessor.sqlite-history-events.js";
 import { readRestoredSessionTranscript } from "../config/sessions/session-cold-storage-read.js";
 import type { TranscriptAnchorPageOptions } from "../sessions/transcript-anchor-page.js";
-import { projectTranscriptEntryMessage } from "./session-transcript-message.js";
+import { ArchivedTranscriptReader } from "./session-transcript-archive-reader.js";
+import { projectTranscriptEntryMessage } from "./session-transcript-entry-message.js";
 import {
   resolveTranscriptReadTarget,
   toTranscriptReadScope,
 } from "./session-transcript-read-target.js";
 import type { ReadRecentSessionMessagesResult } from "./session-transcript-readers.js";
-import { ArchivedTranscriptReader } from "./session-utils.fs.js";
 
 type ReadSessionMessagesAroundIdResult = ReadRecentSessionMessagesResult & {
   found: boolean;

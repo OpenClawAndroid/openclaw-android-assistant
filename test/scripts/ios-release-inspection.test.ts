@@ -159,7 +159,7 @@ function inspect(scenario: string) {
     plan: fs.existsSync(planPath) ? JSON.parse(fs.readFileSync(planPath, "utf8")) : null,
     reportPath,
     files: fs.existsSync(path.join(root, "output"))
-      ? fs.readdirSync(path.join(root, "output"))
+      ? fs.readdirSync(path.join(root, "output")).toSorted()
       : [],
   };
 }

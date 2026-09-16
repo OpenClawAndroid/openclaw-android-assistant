@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { Command } from "commander";
 import { assert, describe, expect, it, vi } from "vitest";
 import { withTriageTerminal } from "../../commands/triage.test-support.js";
 import * as tempRoot from "../../infra/tmp-openclaw-dir.js";
@@ -18,6 +19,7 @@ import {
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { removePreparedWorkerOwnershipColumns } from "../../state/openclaw-state-schema-v17.test-support.js";
 import * as oneShotExit from "../one-shot-exit.js";
+import { registerUpdateCli } from "../update-cli.js";
 import * as shared from "./shared.js";
 import * as execution from "./update-command-execution.js";
 import * as executorOwner from "./update-command-executor.js";
@@ -433,6 +435,30 @@ describe("update command admission with fresh state", () => {
       expect(outcome === undefined).toBe(fault === "healthy");
     },
   );
+
+  it("registered update CLI reports the installed version for fresh saved-dev previews", async () => {
+    fs.mkdirSync(path.dirname(process.env.OPENCLAW_CONFIG_PATH!), { recursive: true });
+    fs.writeFileSync(
+      process.env.OPENCLAW_CONFIG_PATH!,
+      JSON.stringify({ update: { channel: "dev" } }),
+    );
+    vi.stubEnv("OPENCLAW_GIT_DIR", path.join(fixture.root, "missing-checkout"));
+    const program = new Command();
+    registerUpdateCli(program);
+
+    await program.parseAsync(["update", "--dry-run", "--json", "--no-restart"], { from: "user" });
+
+    expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentVersion: "2026.9.3",
+        targetVersion: null,
+        targetVersionReason: expect.stringContaining("Git"),
+        switchToGit: true,
+      }),
+    );
+    expect(vi.mocked(defaultRuntime.writeJson).mock.calls[0]?.[0]).toHaveProperty("run", undefined);
+    expectFreshStatePreserved();
+  });
 
   it.each(inheritedRunIds)(
     "previews an older stable without runtime state (inherited run: %s)",

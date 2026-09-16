@@ -75,6 +75,7 @@ export async function prepareCodexAttemptContext(
     const messages = await readMirroredSessionHistoryMessages({
       ...activeTranscriptTarget,
       signal: connection.runAbortController.signal,
+      contextTokenBudget: effectiveContextTokenBudget,
       ...(transcriptReadFence ? { admission: transcriptReadFence } : {}),
     });
     connection.runAbortController.signal.throwIfAborted();

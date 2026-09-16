@@ -1,8 +1,7 @@
-import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
+import { resolveSessionStorePathForScope } from "../config/sessions/session-store-path.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getAsyncWorkSignal, trackAsyncWork } from "../shared/async-work-scope.js";
-import { runTasksWithConcurrency } from "../utils/run-with-concurrency.js";
 import { formatErrorMessage } from "./errors.js";
 import {
   countUsableUsageCostRollups,
@@ -18,8 +17,7 @@ import {
 import { isSessionCostUsageRefreshRunning } from "./session-cost-usage-cache.sqlite.js";
 import {
   listUsageCountedTranscriptStats,
-  resolveUsageCostTranscriptFile,
-  USAGE_COST_TRANSCRIPT_STAT_CONCURRENCY,
+  resolveUsageCostTranscriptFiles,
 } from "./session-cost-usage-collection.js";
 import {
   buildCostUsageSummaryFromRollups,
@@ -43,7 +41,11 @@ type UsageCostRefreshState = {
   databasePath: string;
   fullRefreshRequested: boolean;
   pendingSessionFiles: Set<string>;
-  sessionsDir: string;
+  storePath: string;
+};
+
+type UsageCostRefreshRequest = Pick<UsageCostRefreshState, "agentId" | "config" | "storePath"> & {
+  sessionFiles?: string[];
 };
 
 // Only active queues retain their scope; one owner cannot adopt another owner's work.
@@ -67,15 +69,17 @@ export async function loadCostUsageSummary(params: {
   const endMs = params.endMs ?? now;
   const agentDir = resolveUsageCostAgentDir(params.config, params.agentId);
   const databasePath = resolveUsageCostCacheDatabasePath(params.agentId);
+  const storePath = resolveSessionStorePathForScope(params, params.config);
   const result = await refreshCostUsageCacheForAgent({
     config: params.config,
     agentId: params.agentId,
     agentDir,
     databasePath,
+    storePath,
   });
   const pricingFingerprint = await resolveUsageCostPricingFingerprint(params.config, agentDir);
   const rollups = readUsageCostRollups(params.agentId, pricingFingerprint, databasePath);
-  const files = await listUsageCountedTranscriptStats(params.agentId);
+  const files = await listUsageCountedTranscriptStats(params.agentId, { storePath });
   return buildCostUsageSummaryFromRollups({
     rollups,
     files,
@@ -100,9 +104,10 @@ export async function loadCostUsageSummaryFromCache(params: {
 }): Promise<CostUsageSummary> {
   const agentDir = resolveUsageCostAgentDir(params.config, params.agentId);
   const databasePath = resolveUsageCostCacheDatabasePath(params.agentId);
+  const storePath = resolveSessionStorePathForScope(params, params.config);
   const pricingFingerprint = await resolveUsageCostPricingFingerprint(params.config, agentDir);
   let rollups = readUsageCostRollups(params.agentId, pricingFingerprint, databasePath);
-  let files = await listUsageCountedTranscriptStats(params.agentId);
+  let files = await listUsageCountedTranscriptStats(params.agentId, { storePath });
   const staleFiles = getUsageCostStaleRollupFiles({ rollups, files });
   if (params.requestRefresh !== false && staleFiles.length > 0) {
     const cachedFiles = countUsableUsageCostRollups({ rollups, files });
@@ -111,15 +116,16 @@ export async function loadCostUsageSummaryFromCache(params: {
         config: params.config,
         agentId: params.agentId,
         agentDir,
+        storePath,
         startMs: params.startMs,
       });
       rollups = readUsageCostRollups(params.agentId, pricingFingerprint, databasePath);
-      files = await listUsageCountedTranscriptStats(params.agentId);
+      files = await listUsageCountedTranscriptStats(params.agentId, { storePath });
       if (result === "refreshed" && getUsageCostStaleRollupFiles({ rollups, files }).length > 0) {
-        requestCostUsageCacheRefresh({ config: params.config, agentId: params.agentId });
+        requestCostUsageCacheRefresh({ config: params.config, agentId: params.agentId, storePath });
       }
     } else {
-      requestCostUsageCacheRefresh({ config: params.config, agentId: params.agentId });
+      requestCostUsageCacheRefresh({ config: params.config, agentId: params.agentId, storePath });
     }
   }
   return buildCostUsageSummaryFromRollups({
@@ -146,14 +152,11 @@ export async function loadSessionCostSummariesFromCache(params: {
 }): Promise<{ summaries: Array<SessionCostSummary | null>; cacheStatus: UsageCacheStatus }> {
   const agentDir = resolveUsageCostAgentDir(params.config, params.agentId);
   const databasePath = resolveUsageCostCacheDatabasePath(params.agentId);
+  const storePath = resolveSessionStorePathForScope(params, params.config);
   const pricingFingerprint = await resolveUsageCostPricingFingerprint(params.config, agentDir);
-  const fileTasks = params.sessions.map(
-    (session) => async () => await resolveUsageCostTranscriptFile(session.sessionFile),
+  const files = await resolveUsageCostTranscriptFiles(
+    params.sessions.map((session) => session.sessionFile),
   );
-  const { results: files } = await runTasksWithConcurrency({
-    tasks: fileTasks,
-    limit: USAGE_COST_TRANSCRIPT_STAT_CONCURRENCY,
-  });
   const rollups = readUsageCostRollups(params.agentId, pricingFingerprint, databasePath, {
     filePaths: files.flatMap((file) => (file ? [file.filePath] : [])),
   });
@@ -186,6 +189,7 @@ export async function loadSessionCostSummariesFromCache(params: {
     requestCostUsageCacheRefresh({
       config: params.config,
       agentId: params.agentId,
+      storePath,
       sessionFiles: [...staleFiles],
     });
   }
@@ -209,11 +213,7 @@ export async function loadSessionCostSummariesFromCache(params: {
   };
 }
 
-function requestCostUsageCacheRefresh(params: {
-  config?: OpenClawConfig;
-  agentId: string;
-  sessionFiles?: string[];
-}): void {
+function requestCostUsageCacheRefresh(params: UsageCostRefreshRequest): void {
   const scopeSignal = getAsyncWorkSignal();
   if (scopeSignal?.aborted) {
     return;
@@ -232,7 +232,7 @@ function requestCostUsageCacheRefresh(params: {
     databasePath,
     fullRefreshRequested: false,
     pendingSessionFiles: new Set(),
-    sessionsDir: resolveSessionTranscriptsDirForAgent(params.agentId),
+    storePath: params.storePath,
   };
   mergeUsageCostRefreshRequest(state, params);
   usageCostRefreshes.set(scopeSignal, refreshes);
@@ -243,16 +243,11 @@ function requestCostUsageCacheRefresh(params: {
 
 function mergeUsageCostRefreshRequest(
   state: UsageCostRefreshState,
-  params: {
-    config?: OpenClawConfig;
-    agentId: string;
-    sessionFiles?: string[];
-  },
+  params: UsageCostRefreshRequest,
 ): void {
-  if (params.config) {
-    state.config = params.config;
-  }
+  state.config = params.config ?? state.config;
   state.agentId = params.agentId;
+  state.storePath = params.storePath;
   if (!params.sessionFiles) {
     state.fullRefreshRequested = true;
     return;
@@ -305,7 +300,7 @@ async function runQueuedUsageCostRefresh(
             config: state.config,
             agentId: state.agentId,
             databasePath: state.databasePath,
-            sessionsDir: state.sessionsDir,
+            storePath: state.storePath,
             sessionFiles: fullRefreshRequested ? undefined : sessionFiles,
           });
           if (signal?.aborted) {

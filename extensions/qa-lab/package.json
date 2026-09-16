@@ -36,6 +36,9 @@
     "extensions": [
       "./index.ts"
     ],
+    "build": {
+      "workerEntries": ["./src/execution-identity-storage-inspection.worker.ts"]
+    },
     "compat": {
       "pluginApi": ">=2026.9.4"
     }

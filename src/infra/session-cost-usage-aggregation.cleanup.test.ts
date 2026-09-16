@@ -27,6 +27,7 @@ vi.mock("./session-cost-usage-cache.sqlite.js", () => ({
 vi.mock("./session-cost-usage-collection.js", () => ({
   listUsageCountedTranscriptStats: mocks.listFiles,
   resolveUsageCostTranscriptFile: vi.fn(),
+  resolveUsageCostTranscriptFiles: vi.fn(async () => []),
 }));
 vi.mock("../state/openclaw-agent-db.js", () => ({
   resolveOpenClawAgentSqlitePath: () => "/synthetic/usage.sqlite",
@@ -57,6 +58,7 @@ const refresh = () =>
     agentId: "usage-test",
     agentDir: "/synthetic/agent",
     databasePath: "/synthetic/usage.sqlite",
+    storePath: "/synthetic/sessions.sqlite",
   });
 
 async function rejectedRefresh(): Promise<unknown> {

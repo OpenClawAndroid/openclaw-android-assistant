@@ -418,7 +418,7 @@ export async function runCopilotExecution(context: {
     }
     if (sdkSessionId && deps.onSessionEstablished && !settledToolFinalization) {
       try {
-        deps.onSessionEstablished({
+        await deps.onSessionEstablished({
           compactionSessionConfig,
           sdkSessionId,
           pooledClient: handle,
@@ -614,7 +614,7 @@ export async function runCopilotExecution(context: {
         .catch(() => undefined);
       if (sdkSessionId && !settledToolFinalization) {
         try {
-          deps.onDeferredCompaction?.({
+          await deps.onDeferredCompaction?.({
             abort: () => cleanupAbort.abort(),
             cleanup,
             sdkSessionId,

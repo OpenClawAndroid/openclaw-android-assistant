@@ -504,17 +504,21 @@ export class GitHubLinkHovercardProvider extends ReactiveElement {
       attributeFilter: ["href"],
     });
     // Unseeded links stay quiet until this identity has shown useful remote details.
-    this.hovercard.scheduleOpen(delay, () => {
-      if (this.syncPreviewContext() !== context) {
-        return;
-      }
-      this.requestStarted = true;
-      const seed = this.seedPreview(target);
-      if (seed) {
-        this.show(anchor, seed, true);
-      }
-      void this.previewTask.run([target]);
-    });
+    this.hovercard.scheduleOpen(
+      delay,
+      () => {
+        if (this.syncPreviewContext() !== context) {
+          return;
+        }
+        this.requestStarted = true;
+        const seed = this.seedPreview(target);
+        if (seed) {
+          this.show(anchor, seed, true);
+        }
+        void this.previewTask.run([target]);
+      },
+      anchor,
+    );
   }
 
   private show(anchor: HTMLAnchorElement, preview?: GitHubPreview, seeded = false): void {

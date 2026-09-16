@@ -111,6 +111,8 @@ openclaw automations create "*/15 * * * *" \
 
 Delivered text is derived from process output: non-empty stdout wins; if stdout is empty and stderr is non-empty, stderr is delivered; if both are present, the scheduler sends a small `stdout:` / `stderr:` block. Exit code `0` records the run `ok`; non-zero exit, signal, timeout, or no-output timeout records `error` and can trigger failure alerts. A command that prints only `NO_REPLY` uses the normal automation silent-token suppression and posts nothing back to chat.
 
+When the run deadline stops a command, run history retains its captured output and command timeout reason after bounded process cleanup. Completion delivery does not start after that deadline.
+
 ### Script payloads
 
 Script payloads run headlessly in the same code-mode executor as trigger scripts, without starting a conversational agent turn. They are available by default; setting `cron.triggers.enabled: false` disables creation and execution of script payloads together with condition-trigger scripts and stream schedules. Script jobs support only `main` and `isolated` session targets.

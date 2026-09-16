@@ -84,6 +84,62 @@ afterEach(() => {
 });
 
 describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
+  it("retains loaded tab documents and their local state while switching tabs", async () => {
+    const view = await mount();
+    const cell = view.querySelector("openclaw-board-widget-cell")!;
+    const frame = cell.querySelector("iframe")!;
+    const messages: string[] = [];
+    const receive = (event: MessageEvent) => {
+      if (event.source === frame.contentWindow && typeof event.data?.tabState === "string") {
+        messages.push(event.data.tabState);
+      }
+    };
+    window.addEventListener("message", receive);
+    try {
+      frame.srcdoc = `<input value="All observations"><script>
+        let visits = 0;
+        addEventListener("message", ({ data }) => {
+          if (data !== "visit") return;
+          const input = document.querySelector("input");
+          if (++visits === 1) input.value = "Last 30 days";
+          parent.postMessage({ tabState: input.value + ":" + visits }, "*");
+        });
+        parent.postMessage({ tabState: "ready" }, "*");
+      </script>`;
+      await vi.waitFor(() => expect(messages).toEqual(["ready"]));
+      frame.contentWindow!.postMessage("visit", "*");
+      await vi.waitFor(() => expect(messages.at(-1)).toBe("Last 30 days:1"));
+
+      view.callbacks = { ...view.callbacks!, selectTab: (tabId) => (view.activeTabId = tabId) };
+      const switchTab = async (tabId: string) => {
+        view
+          .querySelector(".board-tabs__track")!
+          .dispatchEvent(
+            new CustomEvent("wa-tab-show", { detail: { name: tabId }, bubbles: true }),
+          );
+        await view.updateComplete;
+        await cell.updateComplete;
+      };
+      await switchTab("ops");
+      expect(view.querySelector('[data-test-id="board-empty"]')).not.toBeNull();
+      expect(frame.isConnected).toBe(true);
+      expect(cell.active).toBe(false);
+      expect(cell.inert).toBe(true);
+      expect(frame.getBoundingClientRect().height).toBe(0);
+
+      await switchTab("main");
+      expect(cell.querySelector("iframe")).toBe(frame);
+      expect(cell.active).toBe(true);
+      expect(frame.getBoundingClientRect().height).toBeGreaterThan(0);
+      frame.contentWindow!.postMessage("visit", "*");
+      await vi.waitFor(() =>
+        expect(messages).toEqual(["ready", "Last 30 days:1", "Last 30 days:2"]),
+      );
+    } finally {
+      window.removeEventListener("message", receive);
+    }
+  });
+
   it("lays out adjacent first-fit cells without pixel overlap", async () => {
     const view = await mount();
     view.style.width = "1200px";

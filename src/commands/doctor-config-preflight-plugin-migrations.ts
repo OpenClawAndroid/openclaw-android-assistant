@@ -58,12 +58,14 @@ export function createDoctorPluginMigrationPreparation(params: {
   const completedIds = new Set<string>();
   const reported = new Map<string, LegacyStateMigrationStepReceipt>();
   let statelessPluginIds = new Set<string>();
+  let runtimePluginAliases = new Set<string>();
   const inspectedStatelessPluginIds = new Set<string>();
   const learn = (inspection: PluginMigrationInspection | undefined) => {
     if (!inspection) {
       return;
     }
     statelessPluginIds = new Set(inspection.statelessPluginIds);
+    runtimePluginAliases = new Set(inspection.runtimePluginAliases);
     for (const pluginId of inspection.requiredPluginIds) {
       const pending = previousById.get(pluginId);
       if (pending) {
@@ -161,6 +163,7 @@ export function createDoctorPluginMigrationPreparation(params: {
       deferred = error.pending;
       completedIds.clear();
       statelessPluginIds.clear();
+      runtimePluginAliases.clear();
       inspectedStatelessPluginIds.clear();
       refreshSnapshot = true;
       for (const plugin of deferred) {
@@ -248,14 +251,31 @@ export function createDoctorPluginMigrationPreparation(params: {
       }
       const unavailableIds = new Set(deferred.map((plugin) => plugin.pluginId));
       const resolvedPluginIds = [...previousById.values()]
-        .filter(
-          (plugin) =>
-            completedIds.has(plugin.pluginId) ||
-            (!plugin.requiresStateMigration &&
-              !unavailableIds.has(plugin.pluginId) &&
-              (inspectedStatelessPluginIds.has(plugin.pluginId) ||
-                (!plugin.requiresDoctorInspection && statelessPluginIds.has(plugin.pluginId)))),
-        )
+        .filter((plugin) => {
+          if (completedIds.has(plugin.pluginId)) {
+            return true;
+          }
+          if (plugin.requiresStateMigration || unavailableIds.has(plugin.pluginId)) {
+            return false;
+          }
+          if (inspectedStatelessPluginIds.has(plugin.pluginId)) {
+            return true;
+          }
+          if (plugin.requiresDoctorInspection) {
+            return false;
+          }
+          // A runtime name has no plugin-owned inputs; the old collector could retain the
+          // shared session locator even when no plugin migration existed for that name.
+          return (
+            statelessPluginIds.has(plugin.pluginId) ||
+            (runtimePluginAliases.has(plugin.pluginId) &&
+              !plugin.validationExcludedPaths?.length &&
+              (plugin.configPaths ?? []).every(
+                (segments) =>
+                  segments.length === 2 && segments[0] === "session" && segments[1] === "store",
+              ))
+          );
+        })
         .map((plugin) => plugin.pluginId);
       const resolvedIds = new Set(resolvedPluginIds);
       const pending = [...previousById.values()]

@@ -27,6 +27,8 @@ import { createZalouserSendReceipt } from "./send-receipt.js";
 import {
   clearStoredZaloCredentials,
   loadStoredZaloCredentials,
+  loadStoredZaloCredentialsAsync,
+  normalizeZalouserCredentialProfile as normalizeProfile,
   refreshStoredZaloCredentials,
   saveStoredZaloCredentials,
   type StoredZaloCredentials,
@@ -70,6 +72,7 @@ const MAX_SAFE_ZALO_TIMESTAMP_SECONDS = Number.MAX_SAFE_INTEGER / 1000;
 const apiByProfile = new Map<string, API>();
 const apiInitByProfile = new Map<string, Promise<API>>();
 const credentialSignaturesByProfile = new Map<string, string>();
+const credentialRefreshesByProfile = new Map<string, Promise<void>>();
 
 type CredentialPersistenceMode = "persist" | "read-only";
 type CredentialPersistenceOptions = { credentialPersistence?: CredentialPersistenceMode };
@@ -99,11 +102,6 @@ const activeListeners = new Map<string, ActiveZaloListener>();
 const groupContextCache = new Map<string, { value: ZaloGroupContext; expiresAt: number }>();
 
 type AccountInfoResponse = Awaited<ReturnType<API["fetchAccountInfo"]>>;
-
-function normalizeProfile(profile?: string | null): string {
-  const trimmed = profile?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : "default";
-}
 
 function clampTextStyles(
   text: string,
@@ -560,11 +558,7 @@ function canonicalCredentialCookie(cookie: Credentials["cookie"]): unknown {
   );
 }
 
-function writeCredentials(
-  profile: string,
-  credentials: ZaloCredentialPayload,
-  allowRevokedReplace: boolean,
-): boolean {
+function writeCredentials(profile: string, credentials: ZaloCredentialPayload): void {
   const existing = readCredentials(profile);
   const now = new Date().toISOString();
   const next: StoredZaloCredentials = {
@@ -574,14 +568,8 @@ function writeCredentials(
     lastUsedAt: now,
   };
   const { profile: _profile, ...stored } = next;
-  const saved = allowRevokedReplace
-    ? (saveStoredZaloCredentials(profile, stored), true)
-    : refreshStoredZaloCredentials(profile, stored);
-  if (!saved) {
-    return false;
-  }
+  saveStoredZaloCredentials(profile, stored);
   credentialSignaturesByProfile.set(profile, credentialSignature(next));
-  return true;
 }
 
 function snapshotApiCredentials(
@@ -600,11 +588,13 @@ function snapshotApiCredentials(
   if (!imei || !refreshedCookies || !userAgent) {
     throw new Error("Zalo API session did not expose refreshed credentials");
   }
+  const language =
+    normalizeOptionalString(ctx.language) ?? normalizeOptionalString(fallback?.language);
   return {
     imei,
     cookie: refreshedCookies as Credentials["cookie"],
     userAgent,
-    language: normalizeOptionalString(ctx.language) ?? normalizeOptionalString(fallback?.language),
+    ...(language ? { language } : {}),
   };
 }
 
@@ -612,26 +602,38 @@ function writeApiCredentials(
   profile: string,
   api: API,
   fallback?: Partial<ZaloCredentialPayload>,
-  allowRevokedReplace = false,
 ): void {
-  writeCredentials(profile, snapshotApiCredentials(api, fallback), allowRevokedReplace);
+  writeCredentials(profile, snapshotApiCredentials(api, fallback));
 }
 
-function writeApiCredentialsIfChanged(profile: string, api: API): boolean {
-  const credentials = snapshotApiCredentials(api);
-  const signature = credentialSignature(credentials);
-  if (credentialSignaturesByProfile.get(profile) === signature) {
-    return false;
-  }
-  return writeCredentials(profile, credentials, false);
-}
-
-function persistApiCredentialsIfChanged(profile: string, api: API): void {
+async function persistApiCredentialsIfChanged(profile: string, api: API): Promise<void> {
+  const previous = credentialRefreshesByProfile.get(profile) ?? Promise.resolve();
+  const refresh = previous.then(async () => {
+    try {
+      const isCurrent = () => apiByProfile.get(profile) === api;
+      if (!isCurrent()) {
+        return;
+      }
+      const credentials = snapshotApiCredentials(api);
+      const signature = credentialSignature(credentials);
+      if (credentialSignaturesByProfile.get(profile) === signature) {
+        return;
+      }
+      if ((await refreshStoredZaloCredentials(profile, credentials, isCurrent)) && isCurrent()) {
+        credentialSignaturesByProfile.set(profile, signature);
+      }
+    } catch {
+      // Do not fail an already-successful Zalo operation only because the
+      // best-effort session refresh could not be persisted.
+    }
+  });
+  credentialRefreshesByProfile.set(profile, refresh);
   try {
-    writeApiCredentialsIfChanged(profile, api);
-  } catch {
-    // Do not fail an already-successful Zalo operation only because the
-    // best-effort session refresh could not be persisted.
+    await refresh;
+  } finally {
+    if (credentialRefreshesByProfile.get(profile) === refresh) {
+      credentialRefreshesByProfile.delete(profile);
+    }
   }
 }
 
@@ -663,9 +665,10 @@ async function ensureApi(
     return await pending;
   }
 
-  const initPromise = (async () => {
-    const stored = readCredentials(profile);
-    if (!stored) {
+  const initPromise: Promise<API> = (async () => {
+    const isCurrent = () => apiInitByProfile.get(profile) === initPromise;
+    const stored = await loadStoredZaloCredentialsAsync(profile).catch(() => null);
+    if (!stored || !isCurrent()) {
       throw new Error(`No saved Zalo session for profile "${profile}"`);
     }
     const zalo = await createZalo({
@@ -682,10 +685,19 @@ async function ensureApi(
       timeoutMs,
       { message: `Timed out restoring Zalo session for profile "${profile}"` },
     );
-    apiByProfile.set(profile, api);
-    if (credentialPersistence === "persist") {
-      writeApiCredentials(profile, api, stored);
+    const persisted =
+      credentialPersistence === "persist"
+        ? await refreshStoredZaloCredentials(
+            profile,
+            snapshotApiCredentials(api, stored),
+            isCurrent,
+          )
+        : stored;
+    if (!isCurrent() || !persisted) {
+      throw new Error(`Zalo session restore was superseded for profile "${profile}"`);
     }
+    credentialSignaturesByProfile.set(profile, credentialSignature(persisted));
+    apiByProfile.set(profile, api);
     return api;
   })();
 
@@ -693,10 +705,14 @@ async function ensureApi(
   try {
     return await initPromise;
   } catch (error) {
-    apiByProfile.delete(profile);
+    if (apiInitByProfile.get(profile) === initPromise) {
+      apiByProfile.delete(profile);
+    }
     throw error;
   } finally {
-    apiInitByProfile.delete(profile);
+    if (apiInitByProfile.get(profile) === initPromise) {
+      apiInitByProfile.delete(profile);
+    }
   }
 }
 
@@ -714,7 +730,7 @@ async function withZaloApi<T>(
   const api = await ensureApi(profile, options.timeoutMs, credentialPersistence);
   const result = await operation(api);
   if (credentialPersistence === "persist" && (options.shouldPersist?.(result) ?? true)) {
-    persistApiCredentialsIfChanged(profile, api);
+    await persistApiCredentialsIfChanged(profile, api);
   }
   return result;
 }
@@ -918,26 +934,29 @@ function truncatePayloadText(text: string): string {
   return truncateUtf16Safe(text, 2000);
 }
 
-function zalouserSessionExists(profileInput?: string | null): boolean {
-  const profile = normalizeProfile(profileInput);
-  return readCredentials(profile) !== null;
-}
-
 export async function checkZaloAuthenticated(
   profileInput?: string | null,
   options?: CredentialPersistenceOptions,
 ): Promise<boolean> {
   const profile = normalizeProfile(profileInput);
-  if (!zalouserSessionExists(profile)) {
+  if (!(await loadStoredZaloCredentialsAsync(profile).catch(() => null))) {
     return false;
   }
   try {
     await withZaloApi(
       profile,
-      async (api) =>
-        await withTimeout(api.fetchAccountInfo(), 12_000, {
-          message: "Timed out checking Zalo session",
-        }),
+      async (api) => {
+        try {
+          return await withTimeout(api.fetchAccountInfo(), 12_000, {
+            message: "Timed out checking Zalo session",
+          });
+        } catch (error) {
+          if (apiByProfile.get(profile) === api) {
+            invalidateApi(profile);
+          }
+          throw error;
+        }
+      },
       {
         timeoutMs: 12_000,
         credentialPersistence: options?.credentialPersistence ?? "persist",
@@ -945,7 +964,6 @@ export async function checkZaloAuthenticated(
     );
     return true;
   } catch {
-    invalidateApi(profile);
     return false;
   }
 }
@@ -1576,7 +1594,7 @@ export async function startZaloQrLogin(params: {
         if (!owned || owned.id !== login.id) {
           return;
         }
-        writeApiCredentials(profile, api, capturedCredentials ?? undefined, true);
+        writeApiCredentials(profile, api, capturedCredentials ?? undefined);
         invalidateApi(profile);
         apiByProfile.set(profile, api);
         current.connected = true;

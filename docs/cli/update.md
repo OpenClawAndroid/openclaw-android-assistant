@@ -60,6 +60,20 @@ openclaw --update
 `openclaw --update` rewrites to `openclaw update` (useful for shells and
 launcher scripts).
 
+Invalid or unreadable configuration reports `invalid-config` before database
+schema inspection. The diagnostic identifies invalid fields and recommends
+`openclaw doctor --fix`, followed by correcting any remaining errors. A dry run
+keeps this guidance in its JSON `notes` without changing the configuration.
+Guided recovery recognizes the saved config failure after a later successful
+update and still verifies the installed runtime and Gateway readiness.
+
+The 2026.9.4 updater reports this condition as `database-schema-preflight` and
+can show `mode: unknown` even after resolving an npm target. Before another
+update or dry run replaces the latest history, run `openclaw update status --json`
+and inspect `lastRun.origin.nextAction` and `lastRun.target` for the recorded
+reason and target. A candidate release cannot repair an installed updater that
+refuses before staging it; correct the configuration before retrying.
+
 Update admission recognizes orphan `task_delivery_state` rows whose parent tasks
 are missing as repairable. When it can acquire Doctor's ownership fences, it runs
 the same [preservation-first recovery](/reference/database-schemas/integrity-and-recovery#doctor-reports-orphan-task-delivery-rows)
@@ -229,6 +243,13 @@ Preparation uses the original package spec and owning package manager.
 A fresh-profile `--dry-run` leaves the database absent and does not record a run.
 If package metadata cannot be resolved, retry with an exact published `--tag`;
 failed target selection does not initialize the profile with the updater's schema.
+
+`--dry-run --json` reports the known installed version in `currentVersion` for
+package and Git installs, including a saved dev channel that selects conversion
+to Git. If the target version is unresolved, `targetVersion` remains `null` and
+the additive `targetVersionReason` field explains why. Resolved targets omit this
+field. The text preview also shows the installed version and explains unresolved
+targets.
 
 `--yes` also skips the optional shell-completion setup prompt. Existing
 completion profiles and caches are still repaired when needed; installing

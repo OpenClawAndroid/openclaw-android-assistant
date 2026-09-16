@@ -354,7 +354,6 @@ export function startManagedGatewayConfigReloader(
     ...(params.prepareConfigCandidate
       ? { prepareConfigCandidate: params.prepareConfigCandidate }
       : {}),
-    initialInternalWriteHash: params.initialInternalWriteHash,
     runTransaction: (run) =>
       runWithGatewayIndependentRootWorkAdmission(run, "reload:config", lifecycle.signal).catch(
         (error: unknown) => {

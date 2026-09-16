@@ -184,7 +184,7 @@ export abstract class MemoryManagerSourceSyncOps extends MemoryManagerSessionSyn
   }): Promise<MemorySourceSyncPlan> {
     const updateUnchangedSessionSourceMetadata = this.db.prepare(
       `UPDATE memory_index_sources
-       SET mtime = ?, size = ?
+       SET mtime = ?, size = ?, hash = ?
        WHERE path = ? AND source = 'sessions' AND hash = ?`,
     );
     const corpusEntries = params.corpusEntries ?? (await this.listSessionCorpusEntries());
@@ -300,18 +300,28 @@ export abstract class MemoryManagerSourceSyncOps extends MemoryManagerSessionSyn
         path: entry.path,
         existingHashes,
       });
-      if (!params.needsFullReindex && existingHash === entry.hash) {
+      const hash =
+        entry.revisionMs === undefined ? entry.hash : `sqlite:${entry.revisionMs}:${entry.hash}`;
+      const existingContentHash = existingHash?.startsWith("sqlite:")
+        ? existingHash.slice(existingHash.lastIndexOf(":") + 1)
+        : existingHash;
+      if (
+        !params.needsFullReindex &&
+        existingHash !== undefined &&
+        existingContentHash === entry.hash
+      ) {
         // Converge restored source fingerprints without replacing unchanged chunks.
         if (
-          this.sessionsDirtyFiles.has(absPath) &&
+          (this.sessionsDirtyFiles.has(absPath) || existingHash !== hash) &&
           !(await runSqliteImmediateTransaction(
             this.db,
             async () => () =>
               updateUnchangedSessionSourceMetadata.run(
                 entry.mtimeMs,
                 entry.size,
+                hash,
                 entry.path,
-                entry.hash,
+                existingHash,
               ).changes === 1,
             undefined,
             (write) => this.withDatabaseWrite(write),
@@ -325,7 +335,7 @@ export abstract class MemoryManagerSourceSyncOps extends MemoryManagerSessionSyn
         return null;
       }
       // Keep the prepared entry's non-enumerable reset boundary.
-      return Object.assign(entry, { sessionId: corpusEntryForPath(absPath).sessionId });
+      return Object.assign(entry, { hash, sessionId: corpusEntryForPath(absPath).sessionId });
     };
 
     if (params.deferIndex) {

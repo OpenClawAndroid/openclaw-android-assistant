@@ -16,8 +16,9 @@ it("releases closed shared database wrappers after path and global retirement", 
     } from ${JSON.stringify(moduleUrl)};
     import { closeOpenClawStateDatabaseByPath } from ${JSON.stringify(cacheModuleUrl)};
 
+    const control = new WeakRef({ uncached: true });
     function retire(byPath) {
-      const owner = openOpenClawStateDatabase();
+      let owner = openOpenClawStateDatabase();
       const ref = new WeakRef(owner.db);
       for (let i = 0; i < 3; i++) {
         assert.equal(openOpenClawStateDatabase(), owner);
@@ -28,6 +29,7 @@ it("releases closed shared database wrappers after path and global retirement", 
         closeOpenClawStateDatabase();
       }
       assert.equal(owner.db.isOpen, false);
+      owner = undefined;
       return ref;
     }
     const refs = [retire(true), retire(false)];
@@ -35,6 +37,7 @@ it("releases closed shared database wrappers after path and global retirement", 
       await new Promise(setImmediate);
       globalThis.gc();
     }
+    assert.equal(control.deref(), undefined, "the unowned GC control must be collected");
     process.stdout.write(JSON.stringify(refs.map(ref => ref.deref() === undefined)));
   `;
   const result = spawnSync(

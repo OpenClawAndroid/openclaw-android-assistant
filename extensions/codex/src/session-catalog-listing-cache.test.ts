@@ -6,6 +6,7 @@ import type { CodexSessionCatalogControl } from "./session-catalog-types.js";
 import {
   commandRpcMocks,
   createCodexSessionCatalogControl,
+  createCodexSessionCatalogControlFactory,
   config,
   idleThread,
   resolveDefaultAgentDir,
@@ -13,12 +14,68 @@ import {
 } from "./session-catalog.test-helpers.js";
 
 async function fillPageCache(control: CodexSessionCatalogControl) {
-  for (let index = 0; index < 32; index += 1) {
+  for (let index = 0; index < 128; index += 1) {
     await control.listPage({ cursor: `pressure-${index}`, limit: 1 });
   }
 }
 
 describe("Codex supervision catalog", () => {
+  it("reuses native pages across repeated multi-home exclusion walks", async () => {
+    const { listVisiblePage } = await import("./session-catalog-visible-page.js");
+    commandRpcMocks.codexControlRequest.mockImplementation(
+      async (
+        _pluginConfig: unknown,
+        _method: string,
+        request: { cursor?: string },
+        options: { agentDir: string },
+      ) => {
+        const page = Number(request.cursor ?? 0);
+        return {
+          data: [
+            idleThread({
+              id: page === 19 ? `visible-${options.agentDir}` : "managed",
+              source: "cli",
+            }),
+          ],
+          ...(page < 19 ? { nextCursor: String(page + 1) } : {}),
+        };
+      },
+    );
+    const factory = createCodexSessionCatalogControlFactory({
+      getPluginConfig: () => ({ supervision: { enabled: true } }),
+      getRuntimeConfig: () => config,
+      now: () => 1_000,
+    });
+    const primary = factory.homesForAgent("main")[0]!;
+    const controls = ["one", "two", "three"].map((homeId) =>
+      factory.forRequest("main", {
+        ...primary,
+        sourceHomeId: homeId,
+        agentDir: `/agents/${homeId}`,
+      }),
+    );
+    const list = async () => {
+      const pages = [];
+      // Serial homes preserve the scan order without racing Vitest's cold dynamic mocks.
+      for (const control of controls) {
+        pages.push(
+          await listVisiblePage({ control, excludedThreadIds: new Set(["managed"]), limit: 1 }),
+        );
+      }
+      return pages;
+    };
+
+    const first = await list();
+    expect(first.map((page) => page.sessions.map((session) => session.threadId))).toEqual([
+      ["visible-/agents/one"],
+      ["visible-/agents/two"],
+      ["visible-/agents/three"],
+    ]);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(60);
+    await expect(list()).resolves.toEqual(first);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(60);
+  });
+
   it("memoizes cloned request options until runtime config identity changes", async () => {
     let runtimeConfig = { agents: { defaults: { workspace: "/workspace/a" } } } as OpenClawConfig;
     commandRpcMocks.codexControlRequest.mockResolvedValue({ thread: idleThread() });
@@ -283,7 +340,7 @@ describe("Codex supervision catalog", () => {
     },
   );
 
-  it("keeps only 32 settled pages and refreshes their recency on hits", async () => {
+  it("keeps only 128 settled pages and refreshes their recency on hits", async () => {
     commandRpcMocks.codexControlRequest.mockResolvedValue({ data: [] });
     const control = createCodexSessionCatalogControl({
       getPluginConfig: () => ({ supervision: { enabled: true } }),
@@ -292,12 +349,12 @@ describe("Codex supervision catalog", () => {
     });
     await fillPageCache(control);
     await control.listPage({ cursor: "pressure-0", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(32);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(128);
     await control.listPage({ cursor: "newest", limit: 1 });
     await control.listPage({ cursor: "pressure-0", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(33);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(129);
     await control.listPage({ cursor: "pressure-1", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(34);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(130);
   });
 
   it("keeps pending page settlement within its captured config", async () => {

@@ -3562,6 +3562,58 @@ function createMockGatewayControls(
   };
 }
 
+const agentFileRpcDiagnostics = new WeakMap<Page, Array<{ method: string; outcome: string }>>();
+
+/** Observe only method/outcome facts; never retain Gateway payloads or authority. */
+export function installAgentFileRpcDiagnostics(page: Page): void {
+  const events: Array<{ method: string; outcome: string }> = [];
+  agentFileRpcDiagnostics.set(page, events);
+  const record = (method: string, outcome: string) => {
+    events.push({ method, outcome });
+    if (events.length > 32) {
+      events.shift();
+    }
+  };
+  page.on("websocket", (socket) => {
+    const pending = new Map<string, string>();
+    socket.on("framesent", ({ payload }) => {
+      try {
+        const frame = asOptionalRecord(JSON.parse(String(payload)));
+        if (
+          frame?.type === "req" &&
+          typeof frame.id === "string" &&
+          typeof frame.method === "string" &&
+          ["agents.list", "agents.files.list", "agents.files.get", "agents.files.set"].includes(
+            frame.method,
+          )
+        ) {
+          if (pending.size >= 32) {
+            pending.delete(pending.keys().next().value!);
+          }
+          pending.set(frame.id, frame.method);
+          record(frame.method, "sent");
+        }
+      } catch {
+        // Non-JSON frames carry no diagnostic facts.
+      }
+    });
+    socket.on("framereceived", ({ payload }) => {
+      try {
+        const frame = asOptionalRecord(JSON.parse(String(payload)));
+        const id = frame?.type === "res" && typeof frame.id === "string" ? frame.id : undefined;
+        const method = id ? pending.get(id) : undefined;
+        if (method && id) {
+          pending.delete(id);
+          record(method, frame?.ok === true ? "ok" : "error");
+        }
+      } catch {
+        // Non-JSON frames carry no diagnostic facts.
+      }
+    });
+    socket.on("close", () => pending.clear());
+  });
+}
+
 type ControlUiE2eFailureDiagnosticsOptions = {
   error: Error;
   label: string;
@@ -3730,8 +3782,46 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
       // may reach CI logs; private reports retain the existing detailed state.
       const safeValue = (value: unknown, allowed: string[]) =>
         allowed.find((entry) => entry === value) ?? "unknown";
+      const agentPage = document.querySelector("openclaw-agents-page");
+      const selectedAgent = agentPage ? Reflect.get(agentPage, "agentsSelectedId") : undefined;
+      const fileList = agentPage ? Reflect.get(agentPage, "agentFilesList") : undefined;
+      const fileEditor = document.querySelector<HTMLTextAreaElement>(".agent-file-textarea");
+      const agentPath = window.location.pathname.match(
+        /^\/settings\/agents\/([^/]+)\/(overview|files|tools|skills|channels|cron)$/u,
+      );
       return {
         failureSummary: {
+          agentFiles: {
+            pathname: agentPath ? `/settings/agents/:agent/${agentPath[2]}` : "other",
+            pagePresent: Boolean(agentPage),
+            selectedAgentPresent: typeof selectedAgent === "string" && selectedAgent.length > 0,
+            selectionMatchesPath: agentPath ? selectedAgent === agentPath[1] : null,
+            listMatchesSelection: fileList ? fileList.agentId === selectedAgent : null,
+            panel: safeValue(agentPage ? Reflect.get(agentPage, "agentsPanel") : undefined, [
+              "overview",
+              "files",
+              "tools",
+              "skills",
+              "channels",
+              "cron",
+            ]),
+            activeFile: safeValue(
+              agentPage ? Reflect.get(agentPage, "agentFileActive") : undefined,
+              [
+                "AGENTS.md",
+                "SOUL.md",
+                "USER.md",
+                "BOOTSTRAP.md",
+                "MEMORY.md",
+                "IDENTITY.md",
+                "TOOLS.md",
+                "HEARTBEAT.md",
+              ],
+            ),
+            loading: agentPage ? Reflect.get(agentPage, "agentFilesLoading") === true : null,
+            editorPresent: Boolean(fileEditor),
+            editorLength: fileEditor?.value.length ?? null,
+          },
           gatewayPhase: safeValue(gatewaySnapshot?.phase, [
             "stopped",
             "connecting",
@@ -3846,7 +3936,14 @@ async function captureControlUiE2eFailureDiagnosticsUnsafe(
   // capture I/O so a broken screenshot or output directory cannot hide the state.
   // JSON preserves nested facts that Node's default object rendering collapses.
   const models = modelResponses ? summarizeRecordedModelResponses(modelResponses) : null;
-  console.error("[control-ui-e2e] failure state", JSON.stringify({ browser: summary, models }));
+  console.error(
+    "[control-ui-e2e] failure state",
+    JSON.stringify({
+      browser: summary,
+      models,
+      agentFileRpc: agentFileRpcDiagnostics.get(page) ?? [],
+    }),
+  );
   const configuredDir = process.env.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR?.trim();
   const artifactDir = createControlUiE2eArtifactDir(
     "failure",

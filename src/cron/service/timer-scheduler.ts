@@ -31,6 +31,7 @@ import {
   tryAcquireCronRunSlots,
 } from "./run-admission.js";
 import { skipCronJobsWithoutOwners } from "./run-owner.js";
+import { emitInterruptedCronRun } from "./run-recovery-events.js";
 import {
   recomputeUnownedCronSchedules,
   recoverNonTerminalCronRunReceipts,
@@ -203,6 +204,9 @@ async function onAdmittedTimer(state: CronServiceState) {
       }
       if (leaseRecovery.repaired) {
         await ensureLoaded(state, { forceReload: true, skipRecompute: true });
+      }
+      for (const interrupted of leaseRecovery.interruptedRuns) {
+        emitInterruptedCronRun(state, interrupted);
       }
       const dueCheckNow = state.deps.nowMs();
       const due = skipCronJobsWithoutOwners(

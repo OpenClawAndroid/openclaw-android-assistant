@@ -72,7 +72,7 @@ import {
 } from "./group-history-window.js";
 import { registerTelegramOutboundGroupHistoryRecorder } from "./outbound-message-context.js";
 import {
-  prepareTelegramPollAnswerContext,
+  prepareTelegramPollAnswerContextAsync,
   settleTelegramPollAnswerContext,
 } from "./poll-answer-context.js";
 import { formatTelegramRawUpdateForLog } from "./raw-update-log.js";
@@ -264,7 +264,10 @@ export function createTelegramBotCore(
   // sequentialize so the vote shares the same lane as ordinary session turns.
   bot.use(async (ctx, next) => {
     try {
-      prepareTelegramPollAnswerContext({ update: ctx.update, accountId: account.accountId });
+      await prepareTelegramPollAnswerContextAsync({
+        update: ctx.update,
+        accountId: account.accountId,
+      });
     } catch (error) {
       if (isTelegramSpooledReplayUpdate(ctx.update)) {
         recordTelegramMessageProcessingResult({ kind: "failed-retryable", error });

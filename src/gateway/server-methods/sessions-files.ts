@@ -15,7 +15,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
-import { sqliteMessageEventWithSeq } from "../session-transcript-message.js";
+import { sqliteMessageEventWithSeq } from "../session-transcript-entry-message.js";
 import {
   resolveTranscriptReadTarget,
   toTranscriptReadScope,

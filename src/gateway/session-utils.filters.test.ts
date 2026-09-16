@@ -229,7 +229,7 @@ it("finds sparse metadata matches beyond 200 rows before facets and pagination w
   const second = await listSessionFixture({ cfg, storePath, store, opts: { ...opts, offset: 2 } });
   expect(second.sessions.map((row) => row.sessionId)).toEqual(["match-2"]);
   expect(second).toMatchObject({ totalCount: 3, nextOffset: null, hasMore: false });
-  expect(readTitles.mock.calls).toEqual([[[]], [[]]]);
+  expect(readTitles).not.toHaveBeenCalled();
 });
 
 it("distinguishes profile involvement from creation and uses participants beyond the display summary", async () => {

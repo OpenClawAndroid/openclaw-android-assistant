@@ -150,14 +150,26 @@ openclaw-session-owner-chip {
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
+}
+
+.session-owner-chip,
+.session-owner-stack__overflow {
   transition:
     filter var(--duration-fast) ease,
     opacity var(--duration-fast) ease;
 }
 
-.session-owner-chip--away {
+.session-owner-chip--away,
+.session-owner-stack:has(.session-owner-chip--away) .session-owner-stack__overflow {
   filter: grayscale(0.8);
   opacity: 0.45;
+}
+
+/* Center capitals and counts by the font's cap box, excluding its descender space. */
+.session-owner-chip__initials,
+.session-owner-stack__count,
+openclaw-session-owner-chip .viewer-avatar__initials {
+  text-box: trim-both cap alphabetic;
 }
 
 .session-owner-chip .viewer-avatar {
@@ -174,6 +186,7 @@ openclaw-session-owner-chip {
 
 .session-owner-stack {
   position: relative;
+  isolation: isolate;
   display: inline-flex;
   width: 28px;
   height: 20px;
@@ -193,15 +206,17 @@ openclaw-session-owner-chip {
   height: 18px;
   border: 1px solid var(--sidebar-bg, var(--bg));
   border-radius: var(--radius-full);
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .session-owner-stack__overflow {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-elevated);
-  color: var(--muted);
+  display: grid;
+  place-items: center;
+  /* Follow the row fill while keeping the overlapping primary behind an opaque face. */
+  background:
+    linear-gradient(color-mix(in srgb, var(--text-strong) 16%, transparent) 0 0),
+    linear-gradient(var(--session-row-bg, transparent) 0 0), var(--sidebar-bg, var(--bg));
+  color: var(--text-strong);
   font-weight: 700;
   line-height: 1;
 }
@@ -211,6 +226,7 @@ openclaw-session-owner-chip {
   z-index: 1;
   width: 18px;
   height: 18px;
+  font-size: 9px;
 }
 
 .sidebar-recent-session .session-owner-stack__front,
@@ -247,6 +263,21 @@ openclaw-session-owner-chip {
 
 .sidebar-recent-session .session-owner-stack::after {
   right: 0;
+}
+
+.session-owner-stack--overflow {
+  justify-content: flex-start;
+}
+
+.session-owner-stack--overflow .session-owner-stack__back {
+  right: 0;
+  left: auto;
+  z-index: 2;
+}
+
+.sidebar-recent-session .session-owner-stack__overflow {
+  border-color: color-mix(in srgb, var(--text-strong) 8%, transparent);
+  background-clip: border-box;
 }
 
 /* Leading slot shared by every sidebar row: the row's own artwork plus a run

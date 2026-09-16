@@ -24,6 +24,7 @@ export const SKIPPED_UPDATE_OUTCOMES: Readonly<Record<string, "pending" | "noop"
   "container-image-install": "noop",
   "unmanaged-package-install": "noop",
   "package-update-requires-cli": "noop",
+  "update-ledger-busy": "noop",
 };
 
 /** A skipped update can be a handoff, an intentional no-op, or a failed attempt. */

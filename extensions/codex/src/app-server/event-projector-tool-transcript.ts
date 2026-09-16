@@ -599,8 +599,9 @@ export class CodexToolTranscriptProjection {
           sessionTarget: this.params.sessionTarget,
         },
         undefined,
-        "native-evidence",
+        "model-context",
         signal,
+        this.params.contextTokenBudget,
       )) ?? []
     );
   }

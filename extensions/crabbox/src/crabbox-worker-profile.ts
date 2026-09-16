@@ -436,6 +436,14 @@ export function operationSlug(operationId: string): string {
   return `openclaw-${createHash("sha256").update(operationId).digest("hex").slice(0, 32)}`;
 }
 
+const LEASE_ID_PATTERN = /^(?:cbx_|tbx_)[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+
+export function assertCrabboxLeaseId(leaseId: string): void {
+  if (!LEASE_ID_PATTERN.test(leaseId)) {
+    throw new Error("Crabbox lease id is invalid");
+  }
+}
+
 export function operationLeaseId(operationId: string): string {
   if (!operationId.trim()) {
     throw new Error("Crabbox provision requires an operation id");
