@@ -335,7 +335,15 @@ describe("doctor session transcript repair", () => {
   it("keeps session SQLite dry-run read-only without taking maintenance ownership", async () => {
     const sessionsDir = path.join(root, "agents", "main", "sessions");
     await fs.mkdir(sessionsDir, { recursive: true });
+    const storePath = path.join(sessionsDir, "sessions.json");
+    const warning = "Session entry is missing a valid sessionId.";
     runDoctorSessionSqlite.mockResolvedValueOnce({
+      targets: [
+        {
+          storePath,
+          issues: [{ code: "entry_invalid", message: warning, sessionKey: "agent:main:invalid" }],
+        },
+      ],
       totals: {
         archivedTranscriptFiles: 0,
         archivedUnreferencedJsonlFiles: 0,
@@ -373,6 +381,10 @@ describe("doctor session transcript repair", () => {
       expect.stringContaining(
         'Inspect with "openclaw doctor --session-sqlite dry-run --session-sqlite-all-agents".',
       ),
+      "Session SQLite",
+    );
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining(`${storePath}: [entry_invalid] ${warning}`),
       "Session SQLite",
     );
   });

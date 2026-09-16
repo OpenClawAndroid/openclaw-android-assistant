@@ -629,7 +629,7 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
     expect(fixture.setContextReplacementHook).toHaveBeenCalledOnce();
     const replacementHook = fixture.setContextReplacementHook.mock.calls[0]?.[0];
     expect(replacementHook).toEqual(expect.any(Function));
-    replacementHook?.(40);
+    replacementHook?.(40, 120);
     expect(fixture.skillInstructionDeliveryCache.size).toBe(0);
     expect(fixture.order).toEqual([
       "guards",
@@ -725,7 +725,7 @@ describe("runEmbeddedAttemptExecutionPhase", () => {
       if (typeof replacementHook !== "function") {
         throw new Error("expected the attempt-owned context replacement hook");
       }
-      replacementHook(40);
+      replacementHook(40, 120);
       eventsBeforeCleanup = [...events];
       cacheSizeBeforeCleanup = fixture.skillInstructionDeliveryCache.size;
       throw cleanupError;

@@ -14,13 +14,19 @@ import {
   createSessionColdStorageFixture,
   maintenanceConfig,
 } from "../config/sessions/session-cold-storage.test-support.js";
-import { withSessionHistoryWorkerDatabase } from "../config/sessions/session-transcript-worker-runtime.js";
+import {
+  prepareSessionEntryPresenceRead,
+  withSessionHistoryWorkerDatabase,
+} from "../config/sessions/session-transcript-worker-runtime.js";
 import { DEFAULT_WORKER_PENDING_BYTES } from "../infra/worker-task-capacity.js";
 import { KeyedAsyncQueue } from "../plugin-sdk/keyed-async-queue.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { closeOpenClawAgentDatabaseByPathAsync } from "../state/openclaw-agent-db-lifecycle.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
-import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.paths.js";
+import {
+  resolveIncognitoOpenClawAgentSqlitePath,
+  resolveOpenClawAgentSqlitePath,
+} from "../state/openclaw-agent-db.paths.js";
 import {
   withOpenClawTestState,
   type OpenClawTestState,
@@ -42,8 +48,9 @@ vi.mock("node:worker_threads", async (importOriginal) => {
     ...actual,
     Worker: class extends actual.Worker {
       override postMessage(...args: Parameters<Worker["postMessage"]>): void {
+        const kind = asOptionalRecord(asOptionalRecord(args[0])?.input)?.kind;
         if (
-          asOptionalRecord(asOptionalRecord(args[0])?.input)?.kind === "history-page" &&
+          (kind === "history-page" || kind === "session-row-presence") &&
           !observed.workers.includes(this)
         ) {
           observed.workers.push(this);
@@ -80,6 +87,90 @@ afterEach(() => {
   for (const worker of observed.workers.splice(0)) {
     expect(worker.threadId).toBe(-1);
   }
+});
+
+it.each([false, true])(
+  "reads exact row presence without creating a database (incognito=%s)",
+  async (incognito) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const target = {
+        agentId: "main",
+        sessionKey: incognito
+          ? "agent:main:dashboard:incognito-presence"
+          : "agent:main:dashboard:presence",
+        storePath: path.join(state.agentDir(), "presence.sqlite"),
+        env: state.env,
+      };
+      const databasePath = incognito
+        ? resolveIncognitoOpenClawAgentSqlitePath(target)
+        : target.storePath;
+      const { read } = prepareSessionEntryPresenceRead(target);
+      const workersBefore = observed.workers.length;
+      expect(await read()).toBe(false);
+      expect(fs.existsSync(databasePath)).toBe(false);
+      await replaceSessionEntry(target, { sessionId: "metadata-without-transcript", updatedAt: 1 });
+      expect(await read()).toBe(true);
+      expect(
+        await prepareSessionEntryPresenceRead({
+          ...target,
+          sessionKey: target.sessionKey.toUpperCase(),
+        }).read(),
+      ).toBe(true);
+      expect(
+        await prepareSessionEntryPresenceRead({
+          ...target,
+          sessionKey: `${target.sessionKey}-sibling`,
+        }).read(),
+      ).toBe(false);
+      if (incognito) {
+        expect(observed.workers).toHaveLength(workersBefore);
+        expect(fs.existsSync(databasePath)).toBe(false);
+      } else {
+        expect(observed.workers.length).toBeGreaterThan(workersBefore);
+      }
+    });
+  },
+);
+
+it("retains the prepared metadata target when caller scope and environment change", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const target = {
+      agentId: "main",
+      sessionKey: "agent:main:dashboard:captured-presence",
+      storePath: path.join(state.agentDir(), "captured.sqlite"),
+      env: { ...state.env },
+    };
+    await replaceSessionEntry(target, { sessionId: "captured-row", updatedAt: 1 });
+    const { read } = prepareSessionEntryPresenceRead(target);
+    target.storePath = path.join(state.agentDir(), "replacement.sqlite");
+    target.env.OPENCLAW_STATE_DIR = state.path("different-state");
+    expect(await read()).toBe(true);
+    expect(await prepareSessionEntryPresenceRead(target).read()).toBe(false);
+    expect(fs.existsSync(target.storePath)).toBe(false);
+  });
+});
+
+it("joins native worker exit when metadata-read custody is revoked during dispatch", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const target = {
+      agentId: "main",
+      sessionKey: "agent:main:dashboard:revoked-presence",
+      storePath: path.join(state.agentDir(), "revoked.sqlite"),
+      env: state.env,
+    };
+    await replaceSessionEntry(target, { sessionId: "revoked-row", updatedAt: 1 });
+    let closing: Promise<boolean> | undefined;
+    observed.dispatch = (message) => {
+      if (asOptionalRecord(asOptionalRecord(message)?.input)?.kind === "session-row-presence") {
+        observed.dispatch = undefined;
+        closing = closeOpenClawAgentDatabaseByPathAsync(target.storePath, target.agentId);
+      }
+    };
+    await expect(prepareSessionEntryPresenceRead(target).read()).rejects.toThrow("revoked");
+    expect(closing).toBeDefined();
+    await closing;
+    expect(observed.workers.at(-1)?.threadId).toBe(-1);
+  });
 });
 
 async function seed(state: OpenClawTestState, agentId: string, sessionId: string) {

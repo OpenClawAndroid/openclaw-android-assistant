@@ -443,11 +443,12 @@ export async function withWorkerCompactionAdoption<T>(
       admittedRunContext,
       sessionTarget: { ...sessionTarget, ...writerFence },
     };
-    const sessionPromptState = createEmbeddedRunSessionPromptState({
+    await using sessionPromptState = await createEmbeddedRunSessionPromptState({
       runParams,
       sessionAgentId: sessionTarget.agentId,
       resolvedSessionKey: sessionTarget.sessionKey,
       lifecycleGeneration: getAgentRunLifecycleGeneration(),
+      onInterrupt: () => {},
     });
     const unexpected = async (): Promise<never> => {
       throw new Error("unexpected context-engine execution during successor acceptance");

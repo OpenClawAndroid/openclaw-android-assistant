@@ -235,6 +235,27 @@ A candidate can be running while verification fails. Recovery guidance uses the
 latest observed service state and names the running version when known; an
 earlier activation stop does not mean the service remains stopped.
 
+When the readiness allowance expires for the same running PID or boot generation
+while the restart owner reports waiting for a listener, startup migration, or
+healthy settling, the updater records the elapsed wait and startup phase as a warning. It leaves the process starting, keeps readiness
+unconfirmed, and retains recovery backups. The run ends `skipped` with reason
+`gateway-readiness-unverified`, recording an intentional unverified outcome rather
+than success or an indefinite pending run. Observed PID or boot-generation changes
+remain failures and enter recovery. Check `openclaw gateway status --deep`
+before retiring those backups. A timeout alone does not authorize a recovery
+restart or rollback; a refused rollback also leaves the candidate untouched.
+A running status alone, a failed probe on an established listener, or an HTTP
+`/readyz` failure does not establish startup progress. Those unhealthy-service
+observations and concrete version, build, channel, or stopped-service failures
+remain failures with their own diagnostics. Doctor reports a qualifying startup
+timeout explicitly as `gateway-readiness-unverified`, including after migrated
+finalization, and tells the operator that readiness remains unconfirmed.
+
+This warning handling belongs to the updater already running. The published
+2026.9.3 and 2026.9.4 parents cannot distinguish pending readiness from verified
+success when completing a migrated update, so candidate-only updates cannot
+change their backup-retirement and Windows autostart decisions.
+
 Plugin packages download and sync against the installed target before the managed
 Gateway restarts. The service remains stopped through channel/config writes,
 plugin convergence, and any required full Doctor migrations. Downloads therefore

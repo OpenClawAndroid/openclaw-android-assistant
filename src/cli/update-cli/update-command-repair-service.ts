@@ -100,7 +100,7 @@ export async function repairUpdateService(params: {
       // service owner gets one restart; the independent oracle decides success.
       if (turnPendingValidation) {
         turnPendingValidation = false;
-        if (!validation.ok) {
+        if (!validation.ok && !validation.stopReason) {
           const state = await inspectOwner(signal);
           assertCurrent();
           await maybeResumeWindowsTaskAutoStartAfterPackageUpdate(
@@ -159,7 +159,10 @@ export async function repairUpdateService(params: {
       return validation;
     },
   });
-  return repair.status === "repaired"
+  return repair.status === "repaired" ||
+    (repair.status === "unrepaired" &&
+      repair.reason === "gateway-readiness-pending" &&
+      repair.finalValidation.stopReason === "gateway-readiness-pending")
     ? { ...result, status: "ok", reason: undefined, recovery: undefined }
     : result;
 }

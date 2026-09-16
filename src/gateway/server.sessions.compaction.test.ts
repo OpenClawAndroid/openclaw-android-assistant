@@ -18,7 +18,10 @@ import {
   getExistingFollowupQueue,
   getFollowupQueue,
 } from "../auto-reply/reply/queue/state.js";
-import type { SessionCompactionCheckpoint } from "../config/sessions.js";
+import {
+  SESSION_TOTAL_TOKENS_VERSION,
+  type SessionCompactionCheckpoint,
+} from "../config/sessions.js";
 import {
   appendTranscriptMessage,
   appendTranscriptEvent,
@@ -1092,6 +1095,45 @@ test("sessions.compact accounts against the host-accepted successor before retur
   }
 });
 
+test("sessions.compact keeps prior usage stale when the compactor returns a negative estimate", async () => {
+  const { storePath } = await createSessionStoreDir();
+  const sessionId = "sess-invalid-compaction-usage";
+  const sessionKey = "agent:main:main";
+  await seedSessionEntry({
+    entry: sessionStoreEntry(sessionId, {
+      compactionCount: 2,
+      totalTokens: 54_321,
+      totalTokensFresh: true,
+      totalTokensVersion: SESSION_TOTAL_TOKENS_VERSION,
+    }),
+    sessionKey,
+    storePath,
+  });
+  await seedTranscriptRows({ sessionId, sessionKey, storePath, totalLines: 3 });
+  embeddedRunMock.compactEmbeddedAgentSession.mockResolvedValueOnce({
+    ok: true,
+    compacted: true,
+    compactionKind: "context-engine",
+    result: { summary: "summary", firstKeptEntryId: "entry-1", tokensAfter: -1 },
+  });
+
+  const { ws } = await openClient();
+  try {
+    const compacted = await rpcReq(ws, "sessions.compact", { key: "main" });
+
+    expectMainCompactionResult(compacted, true);
+    const entry = loadSessionEntry({ sessionKey, storePath });
+    expect(entry).toMatchObject({
+      compactionCount: 3,
+      totalTokens: 54_321,
+      totalTokensFresh: false,
+    });
+    expect(entry?.totalTokensVersion).toBeUndefined();
+  } finally {
+    ws.close();
+  }
+});
+
 test("sessions.compact records terminal Codex native compaction", async () => {
   const { storePath } = await createSessionStoreDir();
   await seedSessionEntry({
@@ -1101,6 +1143,7 @@ test("sessions.compact records terminal Codex native compaction", async () => {
       compactionCount: 2,
       totalTokens: 54_321,
       totalTokensFresh: true,
+      totalTokensVersion: SESSION_TOTAL_TOKENS_VERSION,
       cliSessionIds: { "codex-cli": "thread-1" },
       cliSessionBindings: { "codex-cli": { sessionId: "thread-1" } },
     }),
@@ -1161,15 +1204,16 @@ test("sessions.compact records terminal Codex native compaction", async () => {
   });
 
   // Terminal Codex native compaction persists via the accessor: the count
-  // advances and stale token accounting is cleared for recomputation.
+  // advances and the previous context snapshot becomes stale for recomputation.
   const codexEntry = loadSessionEntry({ sessionKey: "agent:main:main", storePath });
   expect(codexEntry?.compactionCount).toBe(3);
   expect(codexEntry?.cliSessionIds).toEqual({ "codex-cli": "thread-1" });
   expect(codexEntry?.cliSessionBindings).toEqual({
     "codex-cli": { sessionId: "thread-1" },
   });
-  expect(codexEntry?.totalTokens).toBeUndefined();
-  expect(codexEntry?.totalTokensFresh).toBeUndefined();
+  expect(codexEntry?.totalTokens).toBe(54_321);
+  expect(codexEntry?.totalTokensFresh).toBe(false);
+  expect(codexEntry?.totalTokensVersion).toBeUndefined();
 
   ws.close();
 });

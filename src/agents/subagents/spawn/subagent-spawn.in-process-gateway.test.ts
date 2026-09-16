@@ -883,7 +883,7 @@ describe("spawnSubagentDirect in-process Gateway collector launch", () => {
 
   it("keeps the queued registry row when a collector starts out of process", async () => {
     const gatewayContext = makeGatewayContext();
-    const trackingModes: string[] = [];
+    const trackingModes: ReturnType<typeof resolveGatewayAgentTaskTrackingMode>[] = [];
     subagentSpawnTesting.setDepsForTest({
       hasInProcessGatewayContext: () => false,
       callGateway: async <T>(request: { method: string; params?: unknown }) => {

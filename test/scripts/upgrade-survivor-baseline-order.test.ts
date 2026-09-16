@@ -207,7 +207,10 @@ phase() {
 }
 ${phases}
 `;
-  const result = spawnSync("bash", ["-c", script], {
+  // The Darwin Bash guard must be able to replay this injected runner.
+  const scriptPath = path.join(root, "runner.sh");
+  writeFileSync(scriptPath, script);
+  const result = spawnSync("bash", [scriptPath], {
     encoding: "utf8",
     env: {
       ...process.env,

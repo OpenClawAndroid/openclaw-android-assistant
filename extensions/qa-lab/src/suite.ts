@@ -2,7 +2,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { OpenClawCrablineChannelDriverSelection } from "@openclaw/crabline";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { parseStrictPositiveInteger } from "openclaw/plugin-sdk/number-runtime";
 import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
@@ -24,12 +23,13 @@ import type { QaSuiteGatewayHeapSnapshot, QaSuiteGatewayRssSample } from "./suit
 import { shouldUseIsolatedQaSuiteScenarioWorkers, splitModelRef } from "./suite-planning.js";
 import { runQaSuiteScenarioDefinition, runQaSuiteScenarioSteps } from "./suite-runtime-flow.js";
 import type { QaSuiteSummaryJson } from "./suite-summary.js";
-import type {
-  QaSuiteEnvironment,
-  QaSuiteResult as QaSuiteBaseResult,
-  QaSuiteRunParams as QaSuiteBaseRunParams,
-  QaSuiteScenarioResult,
-  QaSuiteStartLabFn,
+import {
+  rejectRemovedQaChannelDriverSelection,
+  type QaSuiteEnvironment,
+  type QaSuiteResult as QaSuiteBaseResult,
+  type QaSuiteRunParams as QaSuiteBaseRunParams,
+  type QaSuiteScenarioResult,
+  type QaSuiteStartLabFn,
 } from "./suite-types.js";
 
 export type { QaSuiteScenarioResult, QaSuiteStartLabFn };
@@ -82,35 +82,7 @@ export type QaSuiteRunParams = QaSuiteBaseRunParams & {
   // Profile runs prove every applicable declared channel. Direct channel lanes
   // still treat execution.channels as an OR eligibility list.
   expandScenarioChannels?: boolean;
-  /** @deprecated Use channelDriver and channelId. Scheduled for removal after 2026-10-15. */
-  channelDriverSelection?: OpenClawCrablineChannelDriverSelection | null;
 };
-
-export function normalizeQaSuiteRunParams(
-  params: QaSuiteRunParams | undefined,
-): QaSuiteRunParams | undefined {
-  const selection = params?.channelDriverSelection;
-  if (!params || !selection) {
-    return params;
-  }
-  if (params.channelDriver && params.channelDriver !== selection.channelDriver) {
-    throw new Error(
-      `channelDriver=${params.channelDriver} conflicts with adapter setup driver=${selection.channelDriver}`,
-    );
-  }
-  if (params.channelId && params.channelId !== selection.channel) {
-    throw new Error(
-      `channel=${params.channelId} conflicts with adapter setup channel=${selection.channel}`,
-    );
-  }
-  const { channelDriverSelection: _legacySelection, ...canonical } = params;
-  const normalized = {
-    ...canonical,
-    channelDriver: selection.channelDriver,
-    channelId: selection.channel,
-  };
-  return isQaSuiteNestedRun(params) ? markQaSuiteNestedRun(normalized) : normalized;
-}
 
 export function shouldLogQaSuiteProgress(env: NodeJS.ProcessEnv = process.env) {
   const override = parseBooleanValue(env.OPENCLAW_QA_SUITE_PROGRESS);
@@ -532,6 +504,7 @@ export type { QaSuiteSummaryJsonParams } from "./suite-artifacts.js";
 export type { QaSuiteSummaryJson } from "./suite-summary.js";
 
 export async function runQaFlowSuite(params?: QaSuiteRunParams): Promise<QaSuiteResult> {
+  rejectRemovedQaChannelDriverSelection(params);
   const { runQaFlowSuiteFromRuntime } = await import("./suite-run.runtime.js");
-  return await runQaFlowSuiteFromRuntime(normalizeQaSuiteRunParams(params));
+  return await runQaFlowSuiteFromRuntime(params);
 }

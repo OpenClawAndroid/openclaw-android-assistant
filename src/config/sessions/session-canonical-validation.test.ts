@@ -13,6 +13,7 @@ import {
   replaceSessionEntrySync,
 } from "./session-accessor.js";
 import { writeSessionEntry } from "./session-accessor.sqlite-entry-store.js";
+import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
 import {
   compareAndCertifyCanonicalSessionValidationBatch,
   hasPendingCanonicalSessionValidation,
@@ -220,3 +221,44 @@ it.each(["serialized identity", "native text conversion"])(
     });
   },
 );
+
+it("certifies fresh keys and metadata without recompiling warm writer certification", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async ({ env }) => {
+    const scope = { agentId: "main", env };
+    const replace = (id: string, updatedAt: number) =>
+      replaceSessionEntrySync(
+        { ...scope, sessionKey: `agent:main:${id}` },
+        { sessionId: id, updatedAt, label: `${id}-${updatedAt}` },
+      );
+    replace("first", 1);
+    replace("second", 1);
+    const database = openOpenClawAgentDatabase(scope);
+    const compile = vi.spyOn(getSessionKysely(database.db).getExecutor(), "compileQuery");
+    let certificationCompiles: string[];
+    try {
+      replace("second", 2);
+      replace("first", 3);
+      certificationCompiles = compile.mock.results.flatMap((result) =>
+        result.type === "return" &&
+        (result.value.sql.includes('"session_canonical_validation_pending"') ||
+          result.value.sql.includes('"retained_window"'))
+          ? [result.value.sql]
+          : [],
+      );
+    } finally {
+      compile.mockRestore();
+    }
+    expect(loadSessionEntry({ ...scope, sessionKey: "agent:main:first" })).toMatchObject({
+      sessionId: "first",
+      updatedAt: 3,
+      label: "first-3",
+    });
+    expect(loadSessionEntry({ ...scope, sessionKey: "agent:main:second" })).toMatchObject({
+      sessionId: "second",
+      updatedAt: 2,
+      label: "second-2",
+    });
+    expect(hasPendingCanonicalSessionValidation(database)).toBe(false);
+    expect(certificationCompiles).toEqual([]);
+  });
+});

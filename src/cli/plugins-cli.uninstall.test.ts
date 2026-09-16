@@ -641,7 +641,7 @@ describe("plugins cli uninstall", () => {
       });
       const { runPluginUninstallCommand } = await import("./plugins-uninstall-command.js");
       await expect(
-        runPluginUninstallCommand("alpha", {
+        runPluginUninstallCommand(["alpha"], {
           force: true,
           beforePersistentApply: () => {
             if (

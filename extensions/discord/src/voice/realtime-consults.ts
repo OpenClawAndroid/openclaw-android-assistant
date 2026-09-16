@@ -92,7 +92,6 @@ export class DiscordRealtimeConsults {
       runAgentTurn: (params: VoiceRealtimeAgentTurnParams) => Promise<string>;
       resolveSpeakerContext: (userId: string) => Promise<DiscordVoiceIngressContext | null>;
       stopped: () => boolean;
-      detached?: () => boolean;
       turns: DiscordRealtimeTurns;
       usesRealtimeAgentHandoff: () => boolean;
       wakeNamePolicy: () => RealtimeVoiceWakeNamePolicy;
@@ -142,7 +141,7 @@ export class DiscordRealtimeConsults {
       signal: request.signal,
     });
     request.signal?.throwIfAborted();
-    if (this.params.stopped() && !this.params.detached?.()) {
+    if (this.params.stopped() && this.detachedProviderEpoch === undefined) {
       throw new Error("Discord realtime speaker session is closed");
     }
     return { text };
@@ -221,7 +220,7 @@ export class DiscordRealtimeConsults {
       const recentConsult =
         nativeConsult.kind === "in_flight" || nativeConsult.kind === "already_delivered"
           ? nativeConsult.handle
-          : this.findRecentAgentProxyConsultContext(consultMessage);
+          : this.params.harness.forcedConsults.findRecent(consultMessage);
       if (recentConsult) {
         const recentSpeaker = recentConsult.context?.speaker;
         if (this.params.turns.hasPendingSpeakerAudioContext()) {
@@ -391,22 +390,26 @@ export class DiscordRealtimeConsults {
     context?: DiscordRealtimeSpeakerContext;
     message: string;
     signal?: AbortSignal;
-    deliveryOwner?: VoiceRealtimeAgentTurnParams["deliveryOwner"];
+    deliveryOwner?: "consult";
   }): Promise<string> {
     const context = params.context;
     if (!context) {
       return "";
     }
     const providerEpoch = this.params.providerEpoch();
-    return this.params.runAgentTurn({
+    const text = await this.params.runAgentTurn({
       context,
       message: params.message,
       toolsAllow: this.params.consultToolsAllow(),
       userId: context.userId,
       isCurrent: () => !this.params.stopped() && providerEpoch === this.params.providerEpoch(),
-      deliveryOwner: params.deliveryOwner,
       ...(params.signal ? { signal: params.signal } : {}),
     });
+    params.signal?.throwIfAborted();
+    if (params.deliveryOwner !== "consult" && this.detachedProviderEpoch === providerEpoch) {
+      this.params.playback.deliverRetainedSpeech(text);
+    }
+    return text;
   }
 
   private prepareForcedAgentProxyConsult(
@@ -430,7 +433,7 @@ export class DiscordRealtimeConsults {
     }
     const context = speakerContext ?? this.params.turns.consumePendingSpeakerContext();
     if (!context) {
-      const recent = this.findRecentAgentProxyConsultContext(question);
+      const recent = this.params.harness.forcedConsults.findRecent(question);
       if (recent) {
         logVoiceVerbose(
           `realtime forced agent consult skipped (already delegated): guild ${this.params.entry.guildId} channel ${this.params.entry.channelId} speaker ${recent.context?.speaker.userId ?? "unknown"}`,
@@ -565,12 +568,6 @@ export class DiscordRealtimeConsults {
       state.promise = tracked;
     }
     return tracked;
-  }
-
-  private findRecentAgentProxyConsultContext(
-    consultMessage: string,
-  ): AgentProxyConsultHandle | undefined {
-    return this.params.harness.forcedConsults.findRecent(consultMessage);
   }
 
   private async submitTerminalRealtimeToolResult(

@@ -48,6 +48,7 @@ const standaloneBundledChannelSmokeFiles = [
   "scripts/lib/record-shared.mjs",
   "scripts/lib/root-package-bundled-plugin-excludes.mjs",
   "scripts/process-warning-filter.mts",
+  "src/shared/non-packaged-plugin-dirs.ts",
 ];
 
 function linkFixtureParent(packageRoot: string) {

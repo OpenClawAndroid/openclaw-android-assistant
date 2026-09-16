@@ -373,18 +373,8 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
           },
           telegramLifecycle,
         );
-        const outcome = result.value;
-        if (outcome && typeof outcome === "object" && "kind" in outcome) {
-          if (outcome.kind === "failed-retryable") {
-            return { kind: "failed-retryable", error: outcome.error };
-          }
-          if (outcome.kind === "completed" || outcome.kind === "skipped") {
-            await lifecycle.onAdopted();
-            return { kind: "completed" };
-          }
-        }
-        // Every spooled participant gets deferredWork. Forward its terminal
-        // result without retaining Telegram's ingress serialization lane.
+        // A participant owns durable disposition; frame outcomes apply only
+        // to handlers that did not create one.
         const participant = result.deferredWork;
         if (participant) {
           let abortedWhilePending = participant.wasOwnerAbortedWhilePending();
@@ -452,14 +442,22 @@ export function createTelegramIngressMonitor(params: CreateTelegramIngressMonito
             });
           return { kind: "deferred" };
         }
-        if (!participant) {
-          // A dispatched update that records no outcome and defers no participant
-          // was consumed silently; completing here tombstones the spool row with
-          // attempts=0 and no trace, so keep a diagnostic trail for regressions.
-          params.onLog?.(
-            `telegram ingress: update ${resolveTelegramUpdateId(update) ?? "unknown"} completed without a recorded processing outcome`,
-          );
+        const outcome = result.value;
+        if (outcome && typeof outcome === "object" && "kind" in outcome) {
+          if (outcome.kind === "failed-retryable") {
+            return { kind: "failed-retryable", error: outcome.error };
+          }
+          if (outcome.kind === "completed" || outcome.kind === "skipped") {
+            await lifecycle.onAdopted();
+            return { kind: "completed" };
+          }
         }
+        // A dispatched update that records no outcome and defers no participant
+        // was consumed silently; completing here tombstones the spool row with
+        // attempts=0 and no trace, so keep a diagnostic trail for regressions.
+        params.onLog?.(
+          `telegram ingress: update ${resolveTelegramUpdateId(update) ?? "unknown"} completed without a recorded processing outcome`,
+        );
         await lifecycle.onAdopted();
         return { kind: "completed" };
       } catch (error) {

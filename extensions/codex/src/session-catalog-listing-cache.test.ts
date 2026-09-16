@@ -14,7 +14,7 @@ import {
 } from "./session-catalog.test-helpers.js";
 
 async function fillPageCache(control: CodexSessionCatalogControl) {
-  for (let index = 0; index < 128; index += 1) {
+  for (let index = 0; index < 32; index += 1) {
     await control.listPage({ cursor: `pressure-${index}`, limit: 1 });
   }
 }
@@ -47,17 +47,17 @@ describe("Codex supervision catalog", () => {
       now: () => 1_000,
     });
     const primary = factory.homesForAgent("main")[0]!;
-    const controls = ["one", "two", "three"].map((homeId) =>
+    const controls = ["one", "two", "three", "four", "five", "six", "seven"].map((homeId) =>
       factory.forRequest("main", {
         ...primary,
         sourceHomeId: homeId,
         agentDir: `/agents/${homeId}`,
       }),
     );
-    const list = async () => {
+    const list = async (selectedControls = controls) => {
       const pages = [];
       // Serial homes preserve the scan order without racing Vitest's cold dynamic mocks.
-      for (const control of controls) {
+      for (const control of selectedControls) {
         pages.push(
           await listVisiblePage({ control, excludedThreadIds: new Set(["managed"]), limit: 1 }),
         );
@@ -70,10 +70,18 @@ describe("Codex supervision catalog", () => {
       ["visible-/agents/one"],
       ["visible-/agents/two"],
       ["visible-/agents/three"],
+      ["visible-/agents/four"],
+      ["visible-/agents/five"],
+      ["visible-/agents/six"],
+      ["visible-/agents/seven"],
     ]);
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(60);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(140);
     await expect(list()).resolves.toEqual(first);
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(60);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(140);
+
+    await fillPageCache(controls[0]!);
+    await expect(list(controls.slice(1))).resolves.toEqual(first.slice(1));
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(172);
   });
 
   it("memoizes cloned request options until runtime config identity changes", async () => {
@@ -340,7 +348,7 @@ describe("Codex supervision catalog", () => {
     },
   );
 
-  it("keeps only 128 settled pages and refreshes their recency on hits", async () => {
+  it("keeps only 32 settled pages per source and refreshes their recency on hits", async () => {
     commandRpcMocks.codexControlRequest.mockResolvedValue({ data: [] });
     const control = createCodexSessionCatalogControl({
       getPluginConfig: () => ({ supervision: { enabled: true } }),
@@ -349,12 +357,12 @@ describe("Codex supervision catalog", () => {
     });
     await fillPageCache(control);
     await control.listPage({ cursor: "pressure-0", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(128);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(32);
     await control.listPage({ cursor: "newest", limit: 1 });
     await control.listPage({ cursor: "pressure-0", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(129);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(33);
     await control.listPage({ cursor: "pressure-1", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(130);
+    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(34);
   });
 
   it("keeps pending page settlement within its captured config", async () => {

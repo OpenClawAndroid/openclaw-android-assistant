@@ -302,6 +302,7 @@ describe("native link routing", () => {
       appendLink("https://example.com/file", { "data-file-path": "README.md" }),
       appendLink("https://example.com/archive.zip", { download: "archive.zip" }),
       appendLink("mailto:hello@example.com"),
+      appendLink("openclaw://dashboard"),
     ];
     for (const anchor of links) {
       expect(clickWithoutNavigation(anchor)).toBe(false);

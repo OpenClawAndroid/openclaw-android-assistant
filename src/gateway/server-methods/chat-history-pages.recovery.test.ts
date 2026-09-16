@@ -8,10 +8,11 @@ import {
 import * as nestedActivity from "../../sessions/nested-tool-activity.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import * as historySanitize from "../chat-display-projection.sanitize.js";
+import { resolveCurrentUserProfileDisplay } from "../current-user-profile-display.js";
 import { readChatHistoryMessageId } from "../session-history-tail.js";
-import * as anchorReader from "../session-transcript-anchor-reader.js";
+import * as anchorReader from "../session-transcript-readers.js";
 import { readSessionMessagesAsync } from "../session-transcript-readers.js";
-import { readChatHistoryPageLocal } from "./chat-history-pages.js";
+import { readChatHistoryPageKernel } from "./chat-history-page-kernel.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -30,7 +31,7 @@ const answer = {
   __openclaw: { runId: "recovered-run" },
 };
 
-type PageOptions = Pick<Parameters<typeof readChatHistoryPageLocal>[0], "offset" | "messageId"> & {
+type PageOptions = Pick<Parameters<typeof readChatHistoryPageKernel>[0], "offset" | "messageId"> & {
   maxHistoryBytes?: number;
 };
 
@@ -38,7 +39,7 @@ async function withTranscript(
   messages: Array<[id: string, message: Record<string, unknown>]>,
   use: (fixture: {
     append: (id: string, message: Record<string, unknown>) => Promise<unknown>;
-    read: (options: PageOptions) => ReturnType<typeof readChatHistoryPageLocal>;
+    read: (options: PageOptions) => ReturnType<typeof readChatHistoryPageKernel>;
     raw: () => ReturnType<typeof readSessionMessagesAsync>;
   }) => Promise<void>,
 ) {
@@ -63,19 +64,22 @@ async function withTranscript(
     await use({
       append: (id, message) => appendTranscriptMessage(scope, { eventId: id, message }),
       read: (options) =>
-        readChatHistoryPageLocal({
-          entry,
-          provider: "openai",
-          sessionId: scope.sessionId,
-          storePath: scope.storePath,
-          sessionAgentId: scope.agentId,
-          canonicalKey: scope.sessionKey,
-          max: 1,
-          maxHistoryBytes: 100_000,
-          effectiveMaxChars: 10_000,
-          ignoreCliSessionImports: true,
-          ...options,
-        }),
+        readChatHistoryPageKernel(
+          {
+            entry,
+            provider: "openai",
+            sessionId: scope.sessionId,
+            storePath: scope.storePath,
+            sessionAgentId: scope.agentId,
+            canonicalKey: scope.sessionKey,
+            max: 1,
+            maxHistoryBytes: 100_000,
+            effectiveMaxChars: 10_000,
+            ignoreCliSessionImports: true,
+            ...options,
+          },
+          { readers: anchorReader, resolveCurrentUserProfileDisplay },
+        ),
       raw: () => readSessionMessagesAsync(scope, { mode: "full", reason: "recovery immutability" }),
     });
   });

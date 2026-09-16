@@ -82,20 +82,11 @@ export async function executeScreenshotAction({
     labels,
     timeoutMs: effectiveTimeoutMs,
   } satisfies Parameters<typeof browserScreenshotAction>[1];
-  const result = proxyRequest
-    ? ((await proxyRequest({
-        method: "POST",
-        path: "/screenshot",
-        profile,
-        timeoutMs: effectiveTimeoutMs,
-        body: request,
-        // SAFETY: The browser proxy preserves the /screenshot response contract used by the local client.
-      })) as Awaited<ReturnType<typeof browserScreenshotAction>>)
-    : await browserScreenshotAction(baseUrl, {
-        ...request,
-        profile,
-        signal,
-      });
+  const result = await browserScreenshotAction(proxyRequest ?? baseUrl, {
+    ...request,
+    profile,
+    signal,
+  });
   onTabActivity(readStringValue(result.targetId) ?? targetId);
   if (opts?.screenshotResultMode === "path") {
     const artifactPath = opts.persistScreenshot

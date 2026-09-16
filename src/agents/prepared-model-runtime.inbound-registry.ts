@@ -3,7 +3,6 @@ import {
   listRuntimePluginIdsFromRegistry,
   createRuntimePluginManifestLookup,
 } from "../plugins/active-runtime-registry.js";
-import { getCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-snapshot.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 import type { PluginRegistry } from "../plugins/registry-types.js";
 import {
@@ -11,6 +10,7 @@ import {
   getActivePluginRegistryWorkspaceDir,
   getActivePluginRuntimeSubagentMode,
 } from "../plugins/runtime.js";
+import { getReusablePluginRuntimeActivation } from "../plugins/runtime/load-context.js";
 import type { RuntimePluginLoadPurpose } from "./harness/runtime-plugin-load-plan.js";
 import { prepareOwnedPluginLoadContext } from "./prepared-model-runtime.plugin-context.js";
 import type { PreparedModelRuntimeBuildResources } from "./prepared-model-runtime.resources.js";
@@ -67,19 +67,20 @@ export function loadPreparedInboundPluginRegistry(
   onPrimaryRegistry?: (registry: PluginRegistry) => void,
 ): PluginRegistry {
   const activeRegistry = getActivePluginRegistry();
-  // Identity is the generation authority. Manifest equivalence alone could let a
-  // stale active registry satisfy a newer bundled snapshot.
+  // Registry-owned facts survive an outer reload cache without allowing stale
+  // metadata or changed activation inputs to reuse already-registered callbacks.
   const reusableGatewayRegistry =
     input.allowGatewaySubagentBinding === true &&
     input.env === undefined &&
     getActivePluginRuntimeSubagentMode() === "gateway-bindable" &&
     activeRegistry &&
     getActivePluginRegistryWorkspaceDir() === metadataSnapshot.workspaceDir &&
-    getCurrentPluginMetadataSnapshot({
+    getReusablePluginRuntimeActivation(activeRegistry, {
       config: input.config,
+      env: process.env,
       workspaceDir: metadataSnapshot.workspaceDir,
-      allowWorkspaceScopedSnapshot: true,
-    }) === metadataSnapshot &&
+      metadataSnapshot,
+    }) &&
     listRuntimePluginIdsFromRegistry(activeRegistry).every(
       createRuntimePluginManifestLookup(activeRegistry, metadataSnapshot.manifestRegistry.plugins),
     )

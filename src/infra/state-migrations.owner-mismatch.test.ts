@@ -69,7 +69,7 @@ it("preserves refused archives when a healthy database shares their directory", 
     expect(readDatabaseSnapshot(healthyPath).version.user_version).toBe(
       OPENCLAW_AGENT_SCHEMA_VERSION,
     );
-    expect(fs.readFileSync(target)).toEqual(original);
+    expect(fs.readFileSync(target).equals(original)).toBe(true);
     expect(fs.readFileSync(archivePath)).toEqual(archiveBytes);
   });
 });
@@ -83,7 +83,7 @@ it("continues Doctor after an identical database copy has the wrong agent owner"
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
     const original = fs.readFileSync(source);
-    expect(fs.readFileSync(target)).toEqual(original);
+    expect(fs.readFileSync(target).equals(original)).toBe(true);
 
     const result = await autoMigrateLegacyState({
       cfg,
@@ -99,7 +99,9 @@ it("continues Doctor after an identical database copy has the wrong agent owner"
       .readdirSync(path.dirname(target))
       .filter((file) => file.startsWith("openclaw-agent.sqlite.corrupt-"));
     expect(copies).toHaveLength(1);
-    expect(fs.readFileSync(path.join(path.dirname(target), copies[0]!))).toEqual(original);
+    expect(fs.readFileSync(path.join(path.dirname(target), copies[0]!)).equals(original)).toBe(
+      true,
+    );
     expect(result.warnings.join("\n")).toContain(copies[0]);
     const fresh = openOpenClawAgentDatabase({ agentId: "cleaner", env: state.env });
     expect(
@@ -170,7 +172,7 @@ it("continues independent Doctor repairs while preserving a divergent wrong-owne
         )
         .get()?.default_security,
     ).toBe("allowlist");
-    expect(fs.readFileSync(target)).toEqual(original);
+    expect(fs.readFileSync(target).equals(original)).toBe(true);
     expect(result.stepReceipts.find((receipt) => receipt.id === "media-persistence")).toMatchObject(
       {
         outcome: "refused",
@@ -211,6 +213,6 @@ it("continues independent Doctor repairs while preserving a divergent wrong-owne
     expect(result.stepReceipts.find((receipt) => receipt.id === "media-persistence")?.outcome).toBe(
       "warning",
     );
-    expect(fs.readFileSync(target)).toEqual(original);
+    expect(fs.readFileSync(target).equals(original)).toBe(true);
   });
 });

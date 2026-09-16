@@ -53,6 +53,18 @@ export type QaSuiteEnvironment = {
 
 export type QaSuiteStartLabFn = (params?: QaLabServerStartParams) => Promise<QaLabServerHandle>;
 
+export function rejectRemovedQaChannelDriverSelection(value: unknown): void {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    Object.hasOwn(value, "channelDriverSelection")
+  ) {
+    throw new TypeError(
+      "channelDriverSelection was removed; pass channelDriver with channelId for suite runs or channel for summaries",
+    );
+  }
+}
+
 export type QaSuiteRunParams = {
   adapterOptions?: QaTransportFactoryContext["adapterOptions"];
   adapterFactories?: readonly QaTransportAdapterFactory[];

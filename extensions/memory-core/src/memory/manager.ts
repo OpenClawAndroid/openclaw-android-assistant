@@ -448,9 +448,29 @@ export class MemoryIndexManager extends MemorySearchOrchestration implements Mem
         const dbPath = resolveUserPath(this.settings.store.databasePath);
         const lock = await waitForMemoryReindexLock(dbPath, { waitForActive: true });
         try {
+          // A previous failed close still owns native/lease cleanup. Finish it
+          // before opening a new generation instead of reusing a revoked owner.
+          await this.publishedDatabase.closePublicationWorker();
           this.beginSyncProviderGeneration({ forceFtsOnly: keywordOnly });
           try {
-            await this.runSync(params);
+            // Keep one native publication connection for this generation, then
+            // release its broker capacity even when the manager stays cached.
+            await this.runSync(params).then(
+              () => this.publishedDatabase.closePublicationWorker(),
+              async (error: unknown) => {
+                const [cleanup] = await Promise.allSettled([
+                  this.publishedDatabase.closePublicationWorker(),
+                ]);
+                if (cleanup.status === "rejected") {
+                  throw new AggregateError(
+                    [error, cleanup.reason],
+                    `${String(error)}; Memory sync cleanup failed: ${String(cleanup.reason)}`,
+                    { cause: error },
+                  );
+                }
+                throw error;
+              },
+            );
           } finally {
             this.endSyncProviderGeneration();
           }
@@ -709,6 +729,7 @@ export class MemoryIndexManager extends MemorySearchOrchestration implements Mem
     try {
       await this.retryFailedClose();
     } finally {
+      await this.publishedDatabase.closePublicationWorker();
       this.publishedDatabase.release();
       this.closeTeardownComplete = true;
     }

@@ -113,6 +113,18 @@ async function framebuffer(canvas: Locator) {
   });
 }
 
+async function sampledFramebufferColors(canvas: Locator): Promise<number> {
+  return canvas.evaluate((element) => {
+    const surface = element as HTMLCanvasElement;
+    const pixels = surface.getContext("2d")!.getImageData(0, 0, surface.width, surface.height).data;
+    const colors = new Set<number>();
+    for (let index = 0; index < pixels.length; index += 128) {
+      colors.add((pixels[index]! << 16) | (pixels[index + 1]! << 8) | pixels[index + 2]!);
+    }
+    return colors.size;
+  });
+}
+
 async function resizeWindow(page: Page, width: number, height: number) {
   const cdp = await page.context().newCDPSession(page);
   try {
@@ -581,9 +593,21 @@ suite.define(() => {
           expect(await resized.result).toBe(0);
           await resizeWindow(observer, 700, 700);
           expect(await guest.geometry()).toEqual(fitted);
+          const formerControllerCanvas = await canvas.elementHandle();
+          if (!formerControllerCanvas) {
+            throw new Error("Desktop controller canvas is unavailable before handoff");
+          }
           await observerPanel.getByRole("button", { name: "Take control", exact: true }).click();
           await expect.poll(() => observerPanel.locator('option[value="match"]').count()).toBe(1);
           await expect.poll(() => panel.locator('option[value="match"]').count()).toBe(0);
+          // Losing control starts a new read-only connection; the flag alone is not readiness.
+          // Wait for pixels from that replacement before the sequential resize matrix:
+          // TigerVNC can close a peer resized before its encodings have been negotiated.
+          await expect
+            .poll(() => formerControllerCanvas.evaluate((element) => element.isConnected))
+            .toBe(false);
+          await expect.poll(() => framebuffer(canvas)).toEqual(fitted);
+          await expect.poll(() => sampledFramebufferColors(canvas)).toBeGreaterThan(8);
           await observerPanel.getByRole("combobox", { name: "Desktop size" }).selectOption("match");
           for (const [stage, width, height] of [
             ["05-portrait", 390, 900],
@@ -597,17 +621,7 @@ suite.define(() => {
               await observerPanel.locator(".desktop-touch-action, .desktop-sizing").count(),
             ).toBe(5);
           }
-          const colorCount = await observerCanvas.evaluate((element) => {
-            const surface = element as HTMLCanvasElement;
-            const pixels = surface
-              .getContext("2d")!
-              .getImageData(0, 0, surface.width, surface.height).data;
-            const colors = new Set<number>();
-            for (let index = 0; index < pixels.length; index += 128) {
-              colors.add((pixels[index]! << 16) | (pixels[index + 1]! << 8) | pixels[index + 2]!);
-            }
-            return colors.size;
-          });
+          const colorCount = await sampledFramebufferColors(observerCanvas);
           expect(colorCount).toBeGreaterThan(8);
           await guest.run(["rm", "-f", "/tmp/openclaw-desktop-resize-input"]);
           await guest.run([

@@ -293,21 +293,21 @@ describe("kysely sync helpers", () => {
           Array.from({ length: parameterCount }, (_, index) => index + 1),
         );
 
+    for (let parameterCount = 1; parameterCount <= 128; parameterCount += 1) {
+      expect(executeSqliteQuerySync(database, variableSelect(parameterCount)).rows).toEqual([]);
+      expect(executeSqliteQuerySync(database, variableSelect(parameterCount)).rows).toEqual([]);
+    }
+    expect(prepares.calls()).toBe(256);
+
+    for (let parameterCount = 65; parameterCount <= 128; parameterCount += 1) {
+      expect(executeSqliteQuerySync(database, variableSelect(parameterCount)).rows).toEqual([]);
+    }
+    expect(prepares.calls()).toBe(256);
+
     for (let parameterCount = 1; parameterCount <= 64; parameterCount += 1) {
       expect(executeSqliteQuerySync(database, variableSelect(parameterCount)).rows).toEqual([]);
-      expect(executeSqliteQuerySync(database, variableSelect(parameterCount)).rows).toEqual([]);
     }
-    expect(prepares.calls()).toBe(128);
-
-    for (let parameterCount = 33; parameterCount <= 64; parameterCount += 1) {
-      expect(executeSqliteQuerySync(database, variableSelect(parameterCount)).rows).toEqual([]);
-    }
-    expect(prepares.calls()).toBe(128);
-
-    for (let parameterCount = 1; parameterCount <= 32; parameterCount += 1) {
-      expect(executeSqliteQuerySync(database, variableSelect(parameterCount)).rows).toEqual([]);
-    }
-    expect(prepares.calls()).toBe(160);
+    expect(prepares.calls()).toBe(320);
   });
 
   it("does not retain one-shot variable-cardinality SQL statements", () => {
@@ -316,7 +316,7 @@ describe("kysely sync helpers", () => {
     const db = getNodeSqliteKysely<SyncHelperTestDatabase>(database);
     const prepares = countPrepares(database);
     const runVariableSelects = () => {
-      for (let parameterCount = 1; parameterCount <= 64; parameterCount += 1) {
+      for (let parameterCount = 1; parameterCount <= 128; parameterCount += 1) {
         const ids = Array.from({ length: parameterCount }, (_, index) => index + 1);
         const select = db.selectFrom("items").selectAll().where("id", "not in", ids);
         expect(executeSqliteQuerySync(database!, select).rows).toEqual([]);
@@ -326,7 +326,7 @@ describe("kysely sync helpers", () => {
     runVariableSelects();
     runVariableSelects();
     runVariableSelects();
-    expect(prepares.calls()).toBe(192);
+    expect(prepares.calls()).toBe(384);
   });
 
   it.each(["ordinary", "prepared"])("keeps nested lazy iterations independent (%s)", (mode) => {

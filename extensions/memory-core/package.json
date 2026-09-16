@@ -29,7 +29,8 @@
     "build": {
       "workerEntries": [
         "./src/memory/manager-search.worker.ts",
-        "./src/memory/manager-index.worker.ts"
+        "./src/memory/manager-index.worker.ts",
+        "./src/memory/manager-publication.worker.ts"
       ]
     },
     "extensions": [

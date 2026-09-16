@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import WebSocket, { WebSocketServer } from "ws";
+import { WebSocketServer } from "../../../packages/gateway-client/src/websocket.test-support.js";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { ensureSecretEgressProxyCa, generateLocalProxyLeaf } from "../../proxy-capture/ca.js";
 import { sealSecretSentinel } from "../sentinel.js";
@@ -19,7 +19,6 @@ const run = { instanceId: "websocket-instance", runId: "websocket-run" };
 const value = "synthetic-websocket-credential";
 const seedDirs = createTempDirTracker();
 const sockets = new Set<Socket>();
-const clients = new Set<WebSocket>();
 let seedDir: string;
 let leaf: Awaited<ReturnType<typeof generateLocalProxyLeaf>>;
 let caDir: string;
@@ -81,21 +80,6 @@ async function connectTls(): Promise<tls.TLSSocket> {
   return socket;
 }
 
-async function websocket(
-  params: { direct?: boolean; credential?: string; pathname?: string } = {},
-) {
-  const socket = params.direct ? undefined : await connectTls();
-  const client = new WebSocket(`wss://localhost:${port}${params.pathname ?? "/"}`, {
-    ...(socket ? { createConnection: () => socket } : { agent: false }),
-    ca: fs.readFileSync(proxy.caCertPath),
-    headers: { Authorization: `Bearer ${params.credential ?? sentinel}` },
-    handshakeTimeout: 2_000,
-  });
-  clients.add(client);
-  client.on("error", () => {});
-  return client;
-}
-
 async function rawUpgrade(
   params: {
     credential?: string;
@@ -138,11 +122,32 @@ async function rawUpgrade(
   return { socket, received, closed };
 }
 
-async function receive(request: Awaited<ReturnType<typeof rawUpgrade>>, text: string) {
-  while (!Buffer.concat(request.received).includes(Buffer.from(text))) {
+async function receiveBytes(request: Awaited<ReturnType<typeof rawUpgrade>>, expected: Buffer) {
+  while (!Buffer.concat(request.received).includes(expected)) {
     await once(request.socket, "data");
   }
-  return Buffer.concat(request.received).toString();
+  return Buffer.concat(request.received);
+}
+
+async function receive(request: Awaited<ReturnType<typeof rawUpgrade>>, text: string) {
+  return (await receiveBytes(request, Buffer.from(text))).toString();
+}
+
+function clientFrame(
+  payload: string | Buffer,
+  options: { fin?: boolean; opcode?: number } = {},
+): Buffer {
+  const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
+  if (bytes.length > 125) {
+    throw new Error("fixture frame payload is too large");
+  }
+  const mask = Buffer.from([1, 2, 3, 4]);
+  const encoded = Buffer.from(bytes.map((byte, index) => byte ^ mask[index % mask.length]!));
+  return Buffer.concat([
+    Buffer.from([(options.fin === false ? 0 : 0x80) | (options.opcode ?? 1), 0x80 | bytes.length]),
+    mask,
+    encoded,
+  ]);
 }
 
 beforeAll(async () => {
@@ -194,6 +199,12 @@ beforeEach(async () => {
       return;
     }
     if (request.url === "/pending") {
+      if (process.versions.bun) {
+        // oxlint-disable-next-line no-warning-comments -- remove after the upstream Bun fix ships.
+        // TODO(bun): Remove after https://github.com/oven-sh/bun/pull/42855.
+        socket.once("end", () => socket.destroy());
+      }
+      socket.resume();
       return;
     }
     socket.cork();
@@ -214,10 +225,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  for (const client of clients) {
-    client.terminate();
-  }
-  clients.clear();
   for (const client of wss.clients) {
     client.terminate();
   }
@@ -253,28 +260,25 @@ describe("secret egress WebSocket forwarding", () => {
   });
 
   it("substitutes handshake credentials and preserves bidirectional framed data", async () => {
-    const direct = await websocket({ direct: true, credential: value });
-    expect((await once(direct, "message"))[0].toString()).toBe("ready");
-    direct.close();
-
-    const client = await websocket({ pathname: `/socket?key=${sentinel}` });
-    expect((await once(client, "message"))[0].toString()).toBe("ready");
+    const client = await rawUpgrade({ pathname: `/socket?key=${sentinel}` });
+    expect(await receive(client, "ready")).toMatch(/^HTTP\/1\.1 101 /);
     expect(observed).toEqual([
-      { authorization: `Bearer ${value}`, url: "/", proxyAuth: undefined },
       { authorization: `Bearer ${value}`, url: `/socket?key=${value}`, proxyAuth: undefined },
     ]);
     // Frames are opaque, not HTTP bodies: masked/fragmented payloads must not be rewritten.
     const payload = `opaque:${sentinel}`;
-    const echoed = once(client, "message");
-    client.send(payload.slice(0, 10), { fin: false });
-    client.send(payload.slice(10), { fin: true });
-    expect((await echoed)[0].toString()).toBe(payload);
-    const binary = once(client, "message");
-    client.send(Buffer.from([0, 255, 128, 1]));
-    expect((await binary)[0]).toEqual(Buffer.from([0, 255, 128, 1]));
-    const clientClosed = once(client, "close");
-    client.close(1000, "done");
-    expect((await clientClosed)[0]).toBe(1000);
+    client.socket.write(clientFrame(payload.slice(0, 10), { fin: false }));
+    client.socket.write(clientFrame(payload.slice(10), { opcode: 0 }));
+    await receiveBytes(client, Buffer.from(payload));
+    const binary = Buffer.from([0, 255, 128, 1]);
+    client.socket.write(clientFrame(binary, { opcode: 2 }));
+    await receiveBytes(client, binary);
+    const closePayload = Buffer.alloc(2 + Buffer.byteLength("done"));
+    closePayload.writeUInt16BE(1000);
+    closePayload.write("done", 2);
+    client.socket.write(clientFrame(closePayload, { opcode: 8 }));
+    await client.closed;
+    expect(Buffer.concat(client.received).includes(closePayload)).toBe(true);
     expect(auditEvents).toEqual([{ kind: "forwarded", host: "localhost", substituted: true }]);
   });
 
@@ -387,7 +391,8 @@ describe("secret egress WebSocket forwarding", () => {
     if (action === "revocation") {
       proxy.revokeRun(run);
     } else {
-      request.socket.destroy();
+      request.socket.write(clientFrame("early-frame"));
+      request.socket.end();
     }
     await Promise.all([request.closed, originClosed]);
     expect(Buffer.concat(request.received)).toHaveLength(0);
@@ -406,13 +411,12 @@ describe("secret egress WebSocket forwarding", () => {
   });
 
   it("closes both ends of an established WebSocket when the owning run is revoked", async () => {
-    const client = await websocket();
-    await once(client, "message");
+    const client = await rawUpgrade();
+    await receive(client, "ready");
     const originClient = [...wss.clients][0]!;
     const originClosed = once(originClient, "close");
-    const clientClosed = once(client, "close");
     proxy.revokeRun(run);
-    await Promise.all([originClosed, clientClosed]);
+    await Promise.all([originClosed, client.closed]);
     expect((await connectTunnel()).status).toBe(407);
   });
 });

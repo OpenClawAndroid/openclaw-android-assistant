@@ -891,9 +891,15 @@ describe("failed package update recovery safety", () => {
 });
 
 describe("live repair ownership after activation", () => {
-  it.each([false, true])(
-    "repairs a still-running restart failure using its own ledger (transient read=%s)",
-    async (transientRead) => {
+  it.each([
+    { transientRead: false, pending: false, repairStatus: "repaired" },
+    { transientRead: true, pending: false, repairStatus: "repaired" },
+    { transientRead: false, pending: true, repairStatus: "unrepaired" },
+    { transientRead: false, pending: true, repairStatus: "unavailable" },
+    { transientRead: false, pending: true, repairStatus: "aborted" },
+  ] as const)(
+    "rechecks a restart failure using its own ledger (transient read=$transientRead, pending=$pending, repair=$repairStatus)",
+    async ({ transientRead, pending, repairStatus }) => {
       const stateDir = tempDirs.make("update-live-repair-owner-");
       const configPath = path.join(stateDir, "openclaw.json");
       await fs.writeFile(configPath, "{}\n", { mode: 0o600 });
@@ -929,12 +935,33 @@ describe("live repair ownership after activation", () => {
         status: "running",
         phase: "verifying",
       });
+      const commandsBeforeRepair = mocks.gatewayCommand.mock.calls.length;
       const failed = { ok: false, score: 0, summary: "Candidate boot failed." };
       const verified = { ok: true, score: 1, summary: "Gateway is ready." };
+      const stillStarting = {
+        ok: false,
+        score: 1,
+        summary: "Gateway is still starting; readiness remains unverified.",
+        stopReason: "gateway-readiness-pending",
+      };
       const verify = vi
         .spyOn(verificationOwner, "verifyUpdatedGateway")
         .mockResolvedValueOnce(failed)
-        .mockResolvedValueOnce(failed)
+        .mockImplementationOnce(async ({ result }) => {
+          if (!pending) {
+            return failed;
+          }
+          result.steps.push({
+            name: "gateway verification",
+            command: "gateway verification",
+            cwd: "/repo",
+            durationMs: 90_000,
+            exitCode: 0,
+            termination: "timeout",
+            advisory: { kind: "recoverable-maintenance", message: stillStarting.summary },
+          });
+          return stillStarting;
+        })
         .mockResolvedValueOnce(verified);
       const prepare = vi
         .spyOn(repairAgent, "prepareUnattendedUpdateRepair")
@@ -962,9 +989,13 @@ describe("live repair ownership after activation", () => {
             model: "gpt-5.6-luna",
           });
           const validation = await repair.validate(signal);
-          expect(validation).toEqual(verified);
-          repair.onEvent?.({ type: "stopped", status: "repaired" });
-          return { status: "repaired", attempts: [], finalValidation: validation };
+          expect(validation).toEqual(pending ? stillStarting : verified);
+          const reason =
+            repairStatus === "unavailable" || repairStatus === "aborted"
+              ? "worker failed after validation"
+              : validation.stopReason;
+          repair.onEvent?.({ type: "stopped", status: repairStatus, reason });
+          return { status: repairStatus, reason, attempts: [], finalValidation: validation };
         });
       const result = await repairUpdateService({
         result: {
@@ -984,13 +1015,25 @@ describe("live repair ownership after activation", () => {
         timeoutMs: 1_000,
         expectedService: { serviceEnv },
       });
-      expect(result).toMatchObject({ status: "ok" });
+      const repairFailed = repairStatus === "unavailable" || repairStatus === "aborted";
+      expect(result).toMatchObject({ status: repairFailed ? "error" : "ok" });
+      expect(mocks.gatewayCommand).toHaveBeenCalledTimes(commandsBeforeRepair + (pending ? 0 : 1));
       expect(prepare).toHaveBeenCalledOnce();
-      expect(verify).toHaveBeenCalledTimes(3);
+      expect(verify).toHaveBeenCalledTimes(pending ? 2 : 3);
       expect(getUpdateRun(run.runId, { env })).toMatchObject({
         status: "running",
-        repair: [expect.objectContaining({ status: "succeeded" })],
+        repair: [expect.objectContaining({ status: pending ? "failed" : "succeeded" })],
       });
+      if (pending) {
+        expect(result.reason).toBe(repairFailed ? "restart-unhealthy" : undefined);
+        expect(result.recovery).toBeUndefined();
+        expect(result.steps).toEqual([
+          expect.objectContaining({
+            termination: "timeout",
+            advisory: { kind: "recoverable-maintenance", message: stillStarting.summary },
+          }),
+        ]);
+      }
     },
   );
 });

@@ -32,10 +32,9 @@ import { SqliteBackedMatrixSyncStore } from "./src/matrix/client/file-sync-store
 import { openMatrixStorageMetaStoreOptions } from "./src/matrix/client/storage-metadata.js";
 import {
   MATRIX_IDB_SNAPSHOT_FILENAME,
-  MATRIX_RECOVERY_KEY_FILENAME,
   openMatrixIdbSnapshotStoreOptions,
   readMatrixIdbSnapshotJson,
-  readMatrixRecoveryKeyStateForPath,
+  openMatrixRecoveryKeyStoreOptions,
   scoreMatrixCryptoStateInStore,
   writeMatrixIdbSnapshotJson,
   type MatrixIdbSnapshotRecord,
@@ -305,8 +304,12 @@ describe("matrix doctor contract state migrations", () => {
     });
 
     expect(
-      readMatrixRecoveryKeyStateForPath(path.join(storageRootDir, MATRIX_RECOVERY_KEY_FILENAME))
-        ?.keyId,
+      (
+        await createPluginStateKeyedStoreForTests<{ keyId: string }>(
+          "matrix",
+          openMatrixRecoveryKeyStoreOptions(storageRootDir),
+        ).lookup("current")
+      )?.keyId,
     ).toBe("SSSS");
     expect(fs.existsSync(path.join(storageRootDir, "recovery-key.json"))).toBe(false);
   });

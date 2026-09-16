@@ -28,7 +28,10 @@ function liveEventBytes(event: WorkerLiveEvent): number {
 }
 
 function truncateLiveText(value: string): string {
-  if (Buffer.byteLength(value, "utf8") <= MAX_LIVE_PREVIEW_BYTES) {
+  if (
+    value.length <= MAX_LIVE_PREVIEW_BYTES &&
+    Buffer.byteLength(value, "utf8") <= MAX_LIVE_PREVIEW_BYTES
+  ) {
     return value;
   }
   const suffix = "…";
@@ -59,7 +62,10 @@ function redactLiveText(value: string): string {
 }
 
 function boundLiveEvent(event: WorkerLiveEvent): WorkerLiveEvent {
-  if (liveEventBytes(event) <= MAX_LIVE_EVENT_BYTES) {
+  const textExceedsLimit =
+    (event.kind === "assistant" || event.kind === "thinking") &&
+    event.payload.text.length > MAX_LIVE_EVENT_BYTES;
+  if (!textExceedsLimit && liveEventBytes(event) <= MAX_LIVE_EVENT_BYTES) {
     return event;
   }
   let bounded: WorkerLiveEvent;

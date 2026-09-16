@@ -2,6 +2,11 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import {
+  createSessionSqliteMigrationRun,
+  updateMigrationManifestTarget,
+  writeSessionSqliteMigrationManifest,
+} from "../../commands/doctor-session-sqlite-migration-run.js";
 import { buildStatusUpdateRows } from "../../commands/status-update-restart.js";
 import { recordDeferredPluginMigrations } from "../../infra/deferred-plugin-migrations.js";
 import * as runtimeGuard from "../../infra/runtime-guard.js";
@@ -272,6 +277,33 @@ afterEach(() => {
   tempDirs.cleanup();
 });
 
+describe("update status readiness outcome", () => {
+  it("shows installed but unverified as a closed non-success outcome", async () => {
+    const run = createUpdateRun({ trigger: "cli" });
+    recordUpdateRunVerification(run.runId, { serviceRunning: true, readyz: false, settled: false });
+    const finished = finishUpdateRun(run.runId, {
+      status: "skipped",
+      reason: "gateway-readiness-unverified",
+      after: { version: "2026.9.4" },
+    });
+    await updateStatusCommand({});
+    expect(runtime.log.mock.calls.flat().join("\n")).toContain(
+      "OpenClaw 2026.9.4 installed; Gateway readiness unverified; recovery backups retained.",
+    );
+    await updateStatusCommand({ json: true });
+    expect(runtime.writeJson.mock.lastCall?.[0]).toMatchObject({
+      lastRun: {
+        ...finished,
+        phase: "finished",
+        confirmedAtMs: null,
+        finishedAtMs: expect.any(Number),
+      },
+    });
+    expect(runtime.writeJson.mock.lastCall?.[0].activeRun).toBeUndefined();
+    expect(getUpdateRun(run.runId)).toEqual(finished);
+  });
+});
+
 describe("update status abandoned-run reporting", () => {
   it.each([true, false])(
     "qualifies historical recovery advice using the recorded port (responding=%s)",
@@ -342,8 +374,70 @@ describe("update status abandoned-run reporting", () => {
       } else {
         const output = runtime.log.mock.calls.flat().join("\n");
         expect(output).toContain("OpenClaw update status");
-        expect(output).toContain("Pending plugin migration status unavailable:");
+        expect(output).toContain("Pending migration status unavailable:");
       }
+    },
+  );
+
+  it.each([true, false])(
+    "reports retained session migration warnings without an update ledger (JSON: %s)",
+    async (json) => {
+      const stateDir = process.env.OPENCLAW_STATE_DIR!;
+      const targets = ["main", "other"].map((agentId) => ({
+        agentId,
+        storePath: path.join(stateDir, "agents", agentId, "sessions", "sessions.json"),
+        sqlitePath: path.join(stateDir, "agents", agentId, "agent", "openclaw-agent.sqlite"),
+      }));
+      const invalidEntry = {
+        code: "entry_invalid",
+        message: "Session entry is missing a valid sessionId.",
+        sessionKey: "agent:main:invalid",
+      };
+      const malformedTranscript = {
+        code: "transcript_malformed",
+        message: `${path.join(path.dirname(targets[1]!.storePath), "broken.jsonl")}: SyntaxError: malformed JSONL line`,
+        sessionKey: "agent:other:broken",
+      };
+      const first = createSessionSqliteMigrationRun(process.env, targets);
+      for (const [index, target] of targets.entries()) {
+        updateMigrationManifestTarget(
+          first,
+          target,
+          [index === 0 ? invalidEntry : malformedTranscript],
+          { validationBeforeArchive: "passed" },
+        );
+      }
+      first.manifest.completedAt = new Date().toISOString();
+      writeSessionSqliteMigrationManifest(first);
+      const expectedWarnings = [
+        `${targets[0]!.storePath}: [entry_invalid] ${invalidEntry.message}`,
+        `${targets[1]!.storePath}: [transcript_malformed] ${malformedTranscript.message}`,
+      ];
+      const expectWarnings = async (warnings: string[]) => {
+        runtime.log.mockClear();
+        runtime.writeJson.mockClear();
+        await updateStatusCommand({ json });
+        if (json) {
+          const result = runtime.writeJson.mock.lastCall?.[0];
+          expect(result.migrationWarnings).toEqual(warnings);
+          expect(result).not.toHaveProperty("lastRun");
+        } else {
+          const output = runtime.log.mock.calls.flat().join("\n");
+          for (const warning of expectedWarnings) {
+            expect(output.includes(warning)).toBe(warnings.includes(warning));
+          }
+        }
+      };
+      await expectWarnings(expectedWarnings);
+
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 1_000);
+      const retry = createSessionSqliteMigrationRun(process.env, [targets[0]!]);
+      await expectWarnings(expectedWarnings);
+      retry.manifest.completedAt = new Date().toISOString();
+      updateMigrationManifestTarget(retry, targets[0]!, [], {
+        validationBeforeArchive: "passed",
+      });
+      await expectWarnings(expectedWarnings.slice(1));
     },
   );
 

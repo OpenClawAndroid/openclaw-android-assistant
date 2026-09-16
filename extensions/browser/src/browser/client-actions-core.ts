@@ -21,8 +21,12 @@ import type {
   BrowserBatchAbort,
   BrowserBatchActionResult,
 } from "./client-actions-types.js";
-import { postBrowserJson } from "./client-actions-url.js";
 import type { BrowserActRequest } from "./client-actions.types.js";
+import {
+  browserClientTimeout,
+  postBrowserJson,
+  type BrowserClientTarget,
+} from "./client-request.js";
 import {
   DEFAULT_BROWSER_DOWNLOAD_TIMEOUT_MS,
   DEFAULT_BROWSER_SCREENSHOT_TIMEOUT_MS,
@@ -55,7 +59,7 @@ function resolveBrowserOperationRequestTimeoutMs(timeoutMs: unknown): number {
 
 /** Navigate a browser tab through the control server. */
 export async function browserNavigate(
-  baseUrl: string | undefined,
+  baseUrl: BrowserClientTarget,
   opts: {
     url: string;
     targetId?: string;
@@ -76,7 +80,7 @@ export async function browserNavigate(
 
 /** Arm a one-shot browser dialog handler. */
 export async function browserArmDialog(
-  baseUrl: string | undefined,
+  baseUrl: BrowserClientTarget,
   opts: {
     accept: boolean;
     promptText?: string;
@@ -97,14 +101,18 @@ export async function browserArmDialog(
       targetId: opts.targetId,
       timeoutMs: opts.timeoutMs,
     },
-    resolveBrowserOperationRequestTimeoutMs(opts.timeoutMs),
+    browserClientTimeout(
+      baseUrl,
+      undefined,
+      resolveBrowserOperationRequestTimeoutMs(opts.timeoutMs),
+    ),
     opts,
   );
 }
 
 /** Arm or execute a browser file chooser upload. */
 export async function browserArmFileChooser(
-  baseUrl: string | undefined,
+  baseUrl: BrowserClientTarget,
   opts: {
     paths: string[];
     ref?: string;
@@ -127,14 +135,18 @@ export async function browserArmFileChooser(
       targetId: opts.targetId,
       timeoutMs: opts.timeoutMs,
     },
-    resolveBrowserOperationRequestTimeoutMs(opts.timeoutMs),
+    browserClientTimeout(
+      baseUrl,
+      undefined,
+      resolveBrowserOperationRequestTimeoutMs(opts.timeoutMs),
+    ),
     opts,
   );
 }
 
 /** Wait for the next managed browser download and save it under the guarded download root. */
 export async function browserWaitForDownload(
-  baseUrl: string | undefined,
+  baseUrl: BrowserClientTarget,
   opts: {
     path?: string;
     targetId?: string;
@@ -158,7 +170,7 @@ export async function browserWaitForDownload(
 
 /** Click a snapshot ref and save its download under the guarded download root. */
 export async function browserDownload(
-  baseUrl: string | undefined,
+  baseUrl: BrowserClientTarget,
   opts: {
     ref: string;
     path: string;
@@ -184,7 +196,7 @@ export async function browserDownload(
 
 /** Execute one normalized browser action request. */
 export async function browserAct(
-  baseUrl: string | undefined,
+  baseUrl: BrowserClientTarget,
   req: BrowserActRequest,
   opts?: { profile?: string; timeoutMs?: number; signal?: AbortSignal },
 ): Promise<BrowserActResponse> {
@@ -199,7 +211,7 @@ export async function browserAct(
 
 /** Capture a screenshot through the browser control server. */
 export async function browserScreenshotAction(
-  baseUrl: string | undefined,
+  baseUrl: BrowserClientTarget,
   opts: {
     targetId?: string;
     fullPage?: boolean;

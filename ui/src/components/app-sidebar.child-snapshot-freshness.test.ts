@@ -582,7 +582,9 @@ describe("sidebar child snapshot freshness", () => {
       await vi.advanceTimersByTimeAsync(250);
       expect(harness.list).toHaveBeenCalledTimes(1);
       initial.resolve(result([child]));
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(harness.list).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
       expect(harness.list).toHaveBeenCalledTimes(2);
       await load;
       queued.reject(new Error("Child refresh failed"));
@@ -597,7 +599,7 @@ describe("sidebar child snapshot freshness", () => {
       expect(sidebar.sessionData.loadedChildSessionKeys.has(parentKey)).toBe(false);
 
       publishChildChanged();
-      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(harness.list).toHaveBeenCalledTimes(2);
       expect(sidebar.sessionData.childSessionErrorsByParent.get(parentKey)).toBe(
         "Child refresh failed",

@@ -268,6 +268,11 @@ Session store reads do not prune or cap entries during Gateway startup, so
 startup and isolated cron sessions do not pay for a full store cleanup.
 `openclaw sessions cleanup --enforce` applies the cap immediately.
 
+Ordinary entry writes also arm background maintenance at the next age boundary,
+with a periodic recheck every 30 minutes while the store remains open. This lets
+eligible sessions age out without further traffic. Writes that cannot change
+age or count maintenance outcomes skip candidate scans.
+
 `maxEntries` defaults to 5000 unarchived session rows. Archived rows do not consume
 the cap. Existing explicit limits remain unchanged.
 When pressure exceeds the cap, cleanup archives the oldest eligible ordinary

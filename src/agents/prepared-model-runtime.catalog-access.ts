@@ -61,7 +61,8 @@ export function createFullModelCatalogAccess(params: {
   catalogFacts: PreparedModelRuntimeCatalogFacts;
   pluginGeneration: PreparedModelRuntimePluginGeneration;
   isCurrent: () => boolean;
-  inventoryOwner: Pick<PreparedModelRuntimeOwner, "catalogInventory" | "catalogAttempt">;
+  inventoryOwner: Pick<PreparedModelRuntimeOwner, "catalogInventory" | "catalogAttempt"> &
+    Partial<Pick<PreparedModelRuntimeOwner, "provenance">>;
 }): PreparedModelRuntimeCatalogAccess {
   const readUsage = createPreparedRuntimeAuthProfileUsageReader(
     params.agentFacts.input.agentDir,
@@ -653,6 +654,10 @@ export function createFullModelCatalogAccess(params: {
       return publishedRuntimeModels;
     },
     loadFullModelCatalog: async (options) => {
+      // Standalone commands cannot publish background discovery after their process exits.
+      if (options?.refresh && params.inventoryOwner.provenance === "standalone") {
+        return await acquireCatalog(options);
+      }
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         return await Promise.race([

@@ -1,11 +1,11 @@
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import type { Socket } from "node:net";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocket } from "ws";
-import { WebSocketServer } from "../../packages/gateway-client/src/websocket.test-support.js";
+import type WebSocketClient from "ws";
 import { closeGatewayTestWebSocket } from "../../test/helpers/gateway-websocket.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { runQaGatewayFixture } from "../../test/helpers/qa-gateway-cleanup.js";
@@ -17,6 +17,12 @@ import {
   sendMinimalGatewayConnectChallenge,
 } from "./minimal-gateway.test-helpers.js";
 import { createGatewayFixtureFork } from "./server.fixture-lifetime.test-support.js";
+
+const require = createRequire(import.meta.url);
+const { WebSocket, WebSocketServer }: typeof import("ws") = require(
+  path.join(path.dirname(require.resolve("ws/package.json")), "index.js"),
+);
+type WebSocket = WebSocketClient;
 
 afterEach(() => {
   vi.doUnmock("ws");

@@ -59,6 +59,8 @@ is not replayed because newer work may start in that session before the connecti
 
 Queued messages follow the order shown in the queue, including moves made while
 attachment bytes are loading after reconnect. A message already being sent keeps its place.
+If another pane is editing a message, finish or cancel that edit before moving
+messages across it. A successful retry clears that edit-conflict notice.
 
 Editing an unsent queued message remains safe if the connection drops mid-edit.
 Open queued-message edits stay available when you switch conversations, even after

@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { gcm } from "@noble/ciphers/aes.js";
 import { concatBytes, randomBytes } from "@noble/hashes/utils.js";
 import type { PluginRuntime } from "openclaw/plugin-sdk/core";
-import type { PluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
+import type {
+  OpenKeyedStoreOptions,
+  PluginStateKeyedStore,
+  PluginStateSyncKeyedStore,
+} from "openclaw/plugin-sdk/plugin-state-runtime";
 // Import from defining modules, not the protocol barrel: index.js re-exports
 // guard-adapters, whose provider-http graph doctor enumeration must not cold-load.
 import { canonicalBytes } from "../protocol/canonical.js";
@@ -420,6 +424,7 @@ class ReefSqliteReplayStore implements ReplayStore {
 
 export class ReviewApprovalStore {
   readonly #store: PluginStateSyncKeyedStore<ReefReviewRecord>;
+  readonly #reader: PluginStateKeyedStore<ReefReviewRecord>;
   readonly #maxEntries: number;
 
   constructor(
@@ -428,11 +433,14 @@ export class ReviewApprovalStore {
     private readonly authoritySignal?: AbortSignal,
   ) {
     this.#maxEntries = maxEntries;
-    this.#store = runtime.state.openSyncKeyedStore<ReefReviewRecord>({
+    const options: OpenKeyedStoreOptions = {
       namespace: REEF_REVIEWS_NAMESPACE,
       maxEntries,
       overflowPolicy: "reject-new",
-    });
+    };
+    // Mutations must remain uninterrupted after the live channel-authority check.
+    this.#store = runtime.state.openSyncKeyedStore<ReefReviewRecord>(options);
+    this.#reader = runtime.state.openKeyedStore<ReefReviewRecord>(options);
   }
 
   #makeRoomForPendingReview(): void {
@@ -481,7 +489,8 @@ export class ReviewApprovalStore {
     approvalDigest: string,
   ): Promise<"none" | "pending" | { approved: boolean }> {
     this.authoritySignal?.throwIfAborted();
-    const current = this.#store.lookup(approvalDigest);
+    const current = await this.#reader.lookup(approvalDigest);
+    this.authoritySignal?.throwIfAborted();
     if (!current) {
       return "none";
     }
@@ -507,18 +516,19 @@ export class ReviewApprovalStore {
 
   async list(): Promise<ReviewRequest[]> {
     this.authoritySignal?.throwIfAborted();
-    return this.#store
-      .entries()
+    const entries = await this.#reader.entries();
+    this.authoritySignal?.throwIfAborted();
+    return entries
       .filter((entry) => entry.value.approved === undefined)
       .map((entry) => structuredClone(entry.value.review));
   }
 }
 
 export class ReefDeliveredStore {
-  readonly #delivered: PluginStateSyncKeyedStore<{ id: string }>;
+  readonly #delivered: PluginStateKeyedStore<{ id: string }>;
 
   constructor(runtime: PluginRuntime, maxEntries = REEF_DELIVERED_MAX_ENTRIES) {
-    this.#delivered = runtime.state.openSyncKeyedStore<{ id: string }>({
+    this.#delivered = runtime.state.openKeyedStore<{ id: string }>({
       namespace: REEF_DELIVERED_NAMESPACE,
       maxEntries,
       overflowPolicy: "reject-new",
@@ -529,16 +539,16 @@ export class ReefDeliveredStore {
   }
 
   async has(id: string): Promise<boolean> {
-    return this.#delivered.lookup(id)?.id === id;
+    return (await this.#delivered.lookup(id))?.id === id;
   }
 
   async status(id: string): Promise<"delivered" | undefined> {
-    return this.#delivered.lookup(id)?.id === id ? "delivered" : undefined;
+    return (await this.#delivered.lookup(id))?.id === id ? "delivered" : undefined;
   }
 
   async confirm(id: string): Promise<void> {
-    const inserted = this.#delivered.registerIfAbsent(id, { id });
-    if (!inserted && this.#delivered.lookup(id)?.id !== id) {
+    const inserted = await this.#delivered.registerIfAbsent(id, { id });
+    if (!inserted && (await this.#delivered.lookup(id))?.id !== id) {
       throw new Error("Failed persisting Reef delivered marker");
     }
   }
@@ -567,32 +577,82 @@ function parseReefInboxCursorRecord(value: unknown): ReefInboxCursorRecord | und
 
 /** Durable relay progress for the single Reef identity bound to this state DB. */
 export class ReefInboxCursorStore {
-  readonly #store: PluginStateSyncKeyedStore<ReefInboxCursorRecord>;
+  readonly #store: PluginStateKeyedStore<ReefInboxCursorRecord>;
+  readonly #openLegacy: () => PluginStateSyncKeyedStore<ReefInboxCursorRecord>;
 
   constructor(
     runtime: PluginRuntime,
     readonly binding: ReefIdentityBinding,
   ) {
-    this.#store = runtime.state.openSyncKeyedStore<ReefInboxCursorRecord>({
+    const options = {
       namespace: REEF_INBOX_CURSOR_NAMESPACE,
       maxEntries: REEF_INBOX_CURSOR_MAX_ENTRIES,
-      overflowPolicy: "reject-new",
-    });
+      overflowPolicy: "reject-new" as const,
+    };
+    this.#store = runtime.state.openKeyedStore<ReefInboxCursorRecord>(options);
+    this.#openLegacy = () => runtime.state.openSyncKeyedStore<ReefInboxCursorRecord>(options);
   }
 
-  load(): number {
-    const value = this.#store.lookup(REEF_INBOX_CURSOR_KEY);
+  async load(): Promise<number> {
+    const value = await this.#store.lookup(REEF_INBOX_CURSOR_KEY);
     if (value === undefined) {
       return 0;
     }
     return this.#requireBoundRecord(value).cursor;
   }
 
-  advance(cursor: number): void {
+  async advance(cursor: number): Promise<void> {
     if (!Number.isSafeInteger(cursor) || cursor < 0) {
       throw new Error("invalid Reef inbox cursor");
     }
-    const update = this.#store.update;
+    const { observe, compareAndApply } = this.#store;
+    if (observe && compareAndApply) {
+      let observation = await observe(REEF_INBOX_CURSOR_KEY);
+      for (;;) {
+        let existing: ReefInboxCursorRecord | undefined;
+        try {
+          existing =
+            observation.value === undefined
+              ? undefined
+              : this.#requireBoundRecord(observation.value);
+        } catch (error) {
+          // Refuse only a still-current invalid row; a concurrent repair must
+          // be revalidated before publishing the observed domain error.
+          const result = await compareAndApply(REEF_INBOX_CURSOR_KEY, observation.comparison, {
+            operation: "update",
+            action: "keep",
+          });
+          if (result.status !== "conflict") {
+            throw error;
+          }
+          observation = result.current;
+          continue;
+        }
+        const value = existing
+          ? cursor > existing.cursor
+            ? { ...existing, cursor }
+            : existing
+          : { ...this.binding, cursor };
+        const result = await compareAndApply(REEF_INBOX_CURSOR_KEY, observation.comparison, {
+          operation: "update",
+          action: "set",
+          value,
+        });
+        if (result.status !== "conflict") {
+          break;
+        }
+        observation = result.current;
+      }
+      const persisted = await this.#store.lookup(REEF_INBOX_CURSOR_KEY);
+      if (!persisted || this.#requireBoundRecord(persisted).cursor < cursor) {
+        throw new Error("failed persisting Reef inbox cursor");
+      }
+      return;
+    }
+    // Older supported hosts keep the original atomic update. Select this path
+    // before awaiting; worker failures must never retry through native storage.
+    const store = this.#openLegacy();
+    const update = store.update;
     if (!update) {
       throw new Error("Reef inbox cursor requires atomic plugin-state updates");
     }
@@ -603,7 +663,7 @@ export class ReefInboxCursorStore {
       const existing = this.#requireBoundRecord(current);
       return cursor > existing.cursor ? { ...existing, cursor } : existing;
     });
-    const persisted = this.#store.lookup(REEF_INBOX_CURSOR_KEY);
+    const persisted = store.lookup(REEF_INBOX_CURSOR_KEY);
     if (!persisted || this.#requireBoundRecord(persisted).cursor < cursor) {
       throw new Error("failed persisting Reef inbox cursor");
     }

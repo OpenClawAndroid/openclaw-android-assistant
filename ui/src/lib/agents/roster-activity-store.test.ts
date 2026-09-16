@@ -68,6 +68,41 @@ function createStore(load: (params: unknown) => Promise<SessionsListResult>) {
 }
 
 describe("roster activity lifecycle", () => {
+  it("paces sustained invalidation from actual roster read settlement", async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    const load = vi.fn(async () => {
+      reads += 1;
+      if (reads > 1) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 1_000);
+        });
+      }
+      return result("Current activity");
+    });
+    const { store, emit } = createStore(load);
+    const detach = store.subscribe(() => {});
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads).toBe(1);
+      for (let index = 0; index < 600; index += 1) {
+        emit({
+          type: "event",
+          event: "sessions.changed",
+          payload: { sessionKey: "agent:main:main", reason: "patch" },
+        });
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      console.info(`activity roster events/s=10 fetchMs=1000 requests/min=${reads - 1}`);
+      expect(reads - 1).toBeGreaterThan(1);
+      expect(reads - 1).toBeLessThanOrEqual(15);
+    } finally {
+      detach();
+      await vi.advanceTimersByTimeAsync(1_000);
+      vi.useRealTimers();
+    }
+  });
+
   it.each([false, true])(
     "does not admit unknown active events into the shared window (involvingMe=%s)",
     async (involvingMe) => {

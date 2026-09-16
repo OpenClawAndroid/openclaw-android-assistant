@@ -402,7 +402,7 @@ describe.skipIf(process.platform === "win32")("dist artifact ownership", () => {
     await withProcesses(async ({ checkpoint, waitEvent, start }) => {
       const root = createCheckout();
       write(root, "dist/entry.js", "export {};\n");
-      write(root, "dist/.buildstamp", JSON.stringify({ head: "fixture-head" }));
+      write(root, "dist/.buildstamp", JSON.stringify({ head: "fixture-head", inputsClean: true }));
       const marker = path.join(root, "dist/postbuild-finished");
       const writerScript = write(
         root,

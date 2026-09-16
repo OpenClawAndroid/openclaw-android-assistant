@@ -149,7 +149,7 @@ describe("chat metadata with published model owners", () => {
       });
       try {
         await runtime.refresh();
-        expect(builds).toBe(count);
+        expect(builds).toBe(0);
         counting = true;
         try {
           await runtime.refresh();
@@ -157,36 +157,39 @@ describe("chat metadata with published model owners", () => {
           counting = false;
         }
         const unchangedReads = reads;
-        expect(builds).toBe(count);
+        expect(builds).toBe(0);
         for (const entry of configured) {
+          await expect(runtime.readStartup({ agentId: entry.id })).resolves.toBeUndefined();
+          expect((await runtime.read({ agentId: entry.id })).models).toContainEqual(expectedModel);
           const output = await runtime.readStartup({ agentId: entry.id, readPolicy: "ready" });
           expect(output).toEqual({
             defaultModelCatalog: published.get(entry.id)!.modelCatalog.entries,
             sessionModelCatalog: published.get(entry.id)!.modelCatalog.entries,
           });
-          expect(output?.defaultModelCatalog).toContainEqual(expectedModel);
-          expect(output?.sessionModelCatalog).toContainEqual(expectedModel);
         }
         const replacement = await publish(configured[0]!, true);
         await runtime.refresh();
-        expect(builds).toBe(2 * count);
+        expect(builds).toBe(count);
         expect(getPublishedPreparedModelCatalogOwnerSnapshot({ agentId: "main", config })).toBe(
           replacement,
         );
+        expect((await runtime.read({ agentId: "main" })).models).toContainEqual(expectedModel);
+        expect(builds).toBe(count + 1);
         const added = add("added");
         await expect(runtime.refresh()).rejects.toBeInstanceOf(
           ChatMetadataSnapshotUnavailableError,
         );
         await publish(added);
         await runtime.refresh();
-        expect(builds).toBe(3 * count + 1);
+        expect((await runtime.read({ agentId: "added" })).models).toContainEqual(expectedModel);
+        expect(builds).toBe(count + 2);
         delete entries.added;
         list.pop();
         await runtime.refresh();
         await expect(runtime.read({ agentId: "added" })).rejects.toBeInstanceOf(
           ChatMetadataSnapshotUnavailableError,
         );
-        expect(builds).toBe(4 * count + 1);
+        expect(builds).toBe(count + 2);
         // Leave substantial linear headroom; fail repeated per-agent roster traversal.
         expect(unchangedReads).toBeLessThanOrEqual(8 * count);
       } finally {

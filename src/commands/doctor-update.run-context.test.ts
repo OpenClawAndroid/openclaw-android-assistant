@@ -64,7 +64,7 @@ describe("Doctor update run lifecycle", () => {
     expect(mocks.stopGatewayService).not.toHaveBeenCalled();
   });
 
-  it.each(["terminal", "lost-response"] as const)(
+  it.each(["terminal", "lost-response", "readiness-unverified"] as const)(
     "leaves migrated terminal ownership with the installed runtime: %s",
     async (outcome) => {
       mockGitCheckout();
@@ -77,11 +77,27 @@ describe("Doctor update run lifecycle", () => {
       if (outcome === "lost-response") {
         mocks.continueMigratedUpdateInFreshProcess.mockRejectedValue(failure);
       }
-      const offer = runOffer({ confirm: vi.fn().mockResolvedValue(true) });
+      if (outcome === "readiness-unverified") {
+        mocks.continueMigratedUpdateInFreshProcess.mockImplementation(async ({ result }) => ({
+          result: { ...result, status: "skipped", reason: "gateway-readiness-unverified" },
+          exitCode: 0,
+        }));
+      }
+      const outro = vi.fn();
+      const offer = runOffer({ confirm: vi.fn().mockResolvedValue(true), outro });
       if (outcome === "lost-response") {
         await expect(offer).rejects.toBe(failure);
       } else {
-        await expect(offer).resolves.toEqual({ updated: true, handled: true });
+        await expect(offer).resolves.toEqual({
+          updated: true,
+          handled: true,
+          ...(outcome === "readiness-unverified" ? { reason: "gateway-readiness-unverified" } : {}),
+        });
+        if (outcome === "readiness-unverified") {
+          expect(outro).toHaveBeenCalledWith(
+            expect.stringContaining("readiness remains unverified"),
+          );
+        }
       }
       const run = await mocks.admitUpdateCommandRun.mock.results[0]!.value;
       expect(mocks.continueMigratedUpdateInFreshProcess).toHaveBeenCalledWith(

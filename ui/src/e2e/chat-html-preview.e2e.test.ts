@@ -157,13 +157,13 @@ suite.define(() => {
               const outer = panel.locator(".chat-html-preview__frame");
               await outer.waitFor();
               const document = outer.contentFrame().frameLocator("iframe");
-              expect(await outer.contentFrame().locator("iframe").getAttribute("sandbox")).toBe(
-                mode === "strict" ? "" : "allow-scripts allow-forms",
-              );
               await document.getByRole("heading", { name: "Local HTML page" }).waitFor();
               await panel
                 .locator("openclaw-chat-html-preview [role=status]")
                 .waitFor({ state: "hidden" });
+              expect(await outer.contentFrame().locator("iframe").getAttribute("sandbox")).toBe(
+                mode === "strict" ? "" : "allow-scripts allow-forms",
+              );
               expect(
                 await document.locator("h1").evaluate((heading) => getComputedStyle(heading).color),
               ).toBe("rgb(12, 34, 56)");

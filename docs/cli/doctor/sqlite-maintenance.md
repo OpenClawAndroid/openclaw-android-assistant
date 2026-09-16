@@ -303,7 +303,9 @@ artifacts to their original paths. This supports recovery from retained original
 it does not reverse SQLite schema migrations or replace a pre-update backup.
 
 Run recovery before `openclaw update cleanup` retires those originals. After
-cleanup, restore reports intentional disposal and cannot recreate them. Sessions
-created only in SQLite will not appear to an older file-backed runtime. If you
+cleanup, restore reports intentional disposal and cannot recreate them.
+Shared-state discovery uses private read-only snapshots, including for custom
+stores, so a refused restore leaves the shared database and its WAL unchanged.
+Sessions created only in SQLite will not appear to an older file-backed runtime. If you
 upgrade again, use the normal migration validation sequence above to compare
 restored artifacts with SQLite rows before importing.

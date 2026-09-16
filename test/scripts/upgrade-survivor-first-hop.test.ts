@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -251,11 +252,54 @@ describe("upgrade survivor rollback publication", () => {
   });
 });
 
+function seedSessionMigration(root: string, issueCount = 1) {
+  const directory = join(root, "session-sqlite-migration-runs");
+  mkdirSync(directory);
+  const runId = "session-sqlite-1789528941490-661aa836";
+  const target = {
+    agentId: "private-agent-value",
+    sqlitePath: join(root, "private.sqlite"),
+    storePath: join(root, "private-sessions.json"),
+    validationBeforeArchive: "passed",
+    issues: Array.from({ length: issueCount }, (_, index) => ({
+      code: index < 10 ? "transcript_missing" : "active_sqlite_transcript_jsonl",
+      message: `private-issue-value ${"x".repeat(150)}`,
+      sessionKey: "private-session-key",
+    })),
+  };
+  const manifest = `${JSON.stringify(
+    {
+      runId,
+      manifestVersion: 3,
+      openClawVersion: "2026.8.1",
+      startedAt: "2026-09-16T03:22:21.490Z",
+      failureReports: { jsonPath: "/outside/do-not-read.json" },
+      targets: [{ ...target, completedMoves: [], plannedMoves: [] }],
+    },
+    null,
+    2,
+  )}\n`;
+  const failureReport = `${JSON.stringify(
+    {
+      runId,
+      version: "2026.8.1",
+      restoreStatus: "not_attempted",
+      targets: [{ ...target, completedMoves: 0, plannedMoves: 0 }],
+    },
+    null,
+    2,
+  )}\n`;
+  writeFileSync(join(directory, `${runId}.json`), manifest);
+  writeFileSync(join(directory, `${runId}.failure.json`), failureReport);
+  return { directory, runId, manifest, failureReport };
+}
+
 describe("upgrade survivor first-hop process evidence", () => {
   it.each([0, 1])("retains first-hop identities and Doctor IPC on exit %i", async (code) => {
     const root = realpathSync(tempDirs.make("survivor-first-hop-"));
     const artifacts = join(root, "artifacts");
     mkdirSync(artifacts);
+    const migration = code === 1 ? seedSessionMigration(root, 4791) : null;
     const tmp = join(root, "tmp");
     const ipcRoot = join(tmp, `openclaw${process.getuid ? `-${process.getuid()}` : ""}`);
     mkdirSync(ipcRoot, { recursive: true, mode: 0o700 });
@@ -353,10 +397,24 @@ if (process.argv[2] === 'update') {
       },
     );
     expect(capture.status, capture.stderr).toBe(0);
+    if (migration) {
+      expect(Buffer.byteLength(migration.manifest)).toBeGreaterThan(256 * 1024);
+      expect(Buffer.byteLength(migration.failureReport)).toBeGreaterThan(256 * 1024);
+      const raw = JSON.parse(readFileSync(join(artifacts, "diagnostics/raw.json"), "utf8"));
+      expect(raw.sessionMigration).toEqual({
+        runId: migration.runId,
+        manifest: migration.manifest,
+        failureReport: migration.failureReport,
+      });
+      // Publication must still work after the failed container's runtime is gone.
+      rmSync(migration.directory, { recursive: true });
+    }
     const { publishDiagnostics } = await import(observer);
     const published = join(root, "published");
     publishDiagnostics(artifacts, published, (text: string) =>
-      text.replaceAll("private-doctor-value", "[REDACTED]"),
+      text
+        .replaceAll("private-doctor-value", "[REDACTED]")
+        .replaceAll("private-agent-value", "main"),
     );
     const report = JSON.parse(readFileSync(join(published, "failure.json"), "utf8"));
     expect(report.doctorResults).toEqual({
@@ -379,23 +437,161 @@ if (process.argv[2] === 'update') {
       ],
     });
     expect(JSON.stringify(report)).not.toMatch(
-      /private-doctor-value|private-ignored-value|private-config-value/,
+      /private-doctor-value|private-ignored-value|private-config-value|private-issue-value|private-agent-value|private-session-key|outside\/do-not-read/,
     );
+    if (migration) {
+      const projected = {
+        version: "2026.8.1",
+        targets: [
+          {
+            agentId: "main",
+            validationBeforeArchive: "passed",
+            completedMoves: 0,
+            plannedMoves: 0,
+            issueCount: 4791,
+            issueHistogram: [
+              { code: "active_sqlite_transcript_jsonl", count: 4781 },
+              { code: "transcript_missing", count: 10 },
+            ],
+          },
+        ],
+      };
+      expect(report.sessionMigration).toEqual({
+        availability: "captured",
+        runId: migration.runId,
+        manifest: projected,
+        failureReport: projected,
+      });
+    }
     const rawPath = join(artifacts, "diagnostics/raw.json");
     const raw = JSON.parse(readFileSync(rawPath, "utf8"));
     raw.doctorResults[0].exited.parentPid++;
+    if (migration) {
+      raw.sessionMigration.manifest = JSON.stringify({
+        ...JSON.parse(migration.manifest),
+        runId: "session-sqlite-1789528941490-00000000",
+      });
+    }
     writeFileSync(rawPath, JSON.stringify(raw));
     const mismatched = join(root, "mismatched");
     publishDiagnostics(artifacts, mismatched, (text: string) => text);
     expect(
       JSON.parse(readFileSync(join(mismatched, "failure.json"), "utf8")).doctorResults,
     ).toEqual({ availability: "unknown", observations: [] });
+    if (migration) {
+      const changed = JSON.parse(readFileSync(join(mismatched, "failure.json"), "utf8"));
+      expect(changed.sessionMigration.manifest).toBeNull();
+      expect(changed.omissions["session migration manifest"]).toBe("invalid observation; omitted");
+    }
     const serialized = JSON.stringify(reports);
     expect(serialized).not.toContain("private-argument-value");
     expect(serialized).not.toContain("private-environment-value");
     expect(serialized).not.toContain(root);
     expect(serialized).not.toMatch(/private-ignored-value|private-config-value/);
   });
+
+  it.each([
+    ["missing", "missing or unsafe file"],
+    ["oversized", "input exceeds cap; omitted whole"],
+    ["malformed", "invalid observation; omitted"],
+    ...(process.platform === "win32" ? [] : [["symlink", "missing or unsafe file"]]),
+  ])("retains manifest evidence when the migration failure report is %s", async (kind, reason) => {
+    const root = realpathSync(tempDirs.make("survivor-migration-evidence-"));
+    const artifacts = join(root, "artifacts");
+    mkdirSync(artifacts);
+    const migration = seedSessionMigration(root);
+    const failurePath = join(migration.directory, `${migration.runId}.failure.json`);
+    rmSync(failurePath);
+    if (kind === "oversized" || kind === "malformed") {
+      writeFileSync(failurePath, kind === "oversized" ? "x".repeat(2 * 1024 * 1024 + 1) : "{");
+    } else if (kind === "symlink") {
+      const external = join(root, "external.json");
+      writeFileSync(external, migration.failureReport);
+      symlinkSync(external, failurePath);
+    }
+    const captured = spawnSync(process.execPath, [observer, "capture", artifacts, "doctor", "1"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        OPENCLAW_STATE_DIR: root,
+        OPENCLAW_CONFIG_PATH: join(root, "absent.json"),
+      },
+    });
+    expect(captured.status, captured.stderr).toBe(0);
+    const raw = JSON.parse(readFileSync(join(artifacts, "diagnostics/raw.json"), "utf8"));
+    expect(raw.sessionMigration.manifest).toBe(migration.manifest);
+    expect(raw.sessionMigration.failureReport).toBeNull();
+    expect(raw.omissions["session migration failure report"]).toBe(reason);
+    const { publishDiagnostics } = await import(observer);
+    const published = join(root, "published");
+    publishDiagnostics(artifacts, published, (text: string) => text);
+    const report = JSON.parse(readFileSync(join(published, "failure.json"), "utf8"));
+    expect(report.sessionMigration).toMatchObject({
+      availability: "captured",
+      failureReport: null,
+    });
+    expect(report.omissions["session migration failure report"]).toBe(reason);
+  });
+
+  it.each(["available", "unavailable", "absent", "invalid"])(
+    "publishes %s baseline companion coverage in successful receipts",
+    async (availability) => {
+      const root = realpathSync(tempDirs.make("survivor-companion-receipt-"));
+      const baselineCompanion =
+        availability === "absent"
+          ? null
+          : {
+              package: "@openclaw/discord",
+              version: "2026.8.1-beta.1",
+              availability,
+              reason:
+                availability === "available"
+                  ? null
+                  : "Exact companion version is not published on npm (E404).",
+            };
+      writeFileSync(
+        join(root, "summary.json"),
+        JSON.stringify({
+          status: "passed",
+          baseline: { spec: "2026.8.1-beta.1", version: "2026.8.1-beta.1" },
+          candidate: { kind: "package", version: "2026.9.4" },
+          scenario: "legacy-operator-state",
+          installedVersion: "2026.9.4",
+          candidateInstallMode: "published",
+          updateRestartMode: "manual",
+          updateOutcome: "success",
+          phases: [],
+          baselineCompanion,
+        }),
+      );
+      const { publishDiagnostics } = await import(observer);
+      const published = join(root, "published");
+      const publish = () =>
+        publishDiagnostics(
+          root,
+          published,
+          (text: string) => text.replaceAll("E404", "redacted"),
+          "passed",
+        );
+      if (availability === "invalid") {
+        expect(publish).toThrow();
+        expect(existsSync(join(published, "summary.json"))).toBe(false);
+        return;
+      }
+      publish();
+      expect(
+        JSON.parse(readFileSync(join(published, "summary.json"), "utf8")).baselineCompanion,
+      ).toEqual(
+        baselineCompanion
+          ? {
+              ...baselineCompanion,
+              reason: baselineCompanion.reason?.replaceAll("E404", "redacted") ?? null,
+            }
+          : null,
+      );
+    },
+  );
 
   it.each([
     "outside",

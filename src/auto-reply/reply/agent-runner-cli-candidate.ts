@@ -378,6 +378,7 @@ export async function runCliFallbackCandidate(
               }),
             ),
             modelProvider: params.provider,
+            requesterModel: { provider: params.provider, model: params.model },
             modelHasVision,
             modelContextWindow: selectedModelEntry?.contextWindow,
             modelContextTokens: selectedModelEntry?.contextTokens,

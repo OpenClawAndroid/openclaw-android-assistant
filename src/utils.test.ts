@@ -134,13 +134,11 @@ describe("normalizeE164", () => {
 });
 
 describe("resolveConfigDir", () => {
-  it("resolves the default config directory", async () => {
-    await withTestDir({ prefix: "openclaw-config-dir-" }, async (root) => {
-      const newDir = path.join(root, ".openclaw");
-      await fs.promises.mkdir(newDir, { recursive: true });
-      const resolved = resolveConfigDir({} as NodeJS.ProcessEnv, () => root);
-      expect(resolved).toBe(newDir);
-    });
+  it("resolves the default config directory", () => {
+    const root = path.resolve("config-dir-home");
+    const newDir = path.join(root, ".openclaw");
+    const resolved = resolveConfigDir({} as NodeJS.ProcessEnv, () => root);
+    expect(resolved).toBe(newDir);
   });
 
   it("expands OPENCLAW_STATE_DIR using the provided env", () => {

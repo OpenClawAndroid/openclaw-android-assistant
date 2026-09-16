@@ -5,6 +5,7 @@ import { WORKER_SKILL_WORKSHOP_FEATURE } from "../../../packages/gateway-protoco
 import { mapThinkingLevelForProvider } from "../../agents/embedded-agent-runner/utils.js";
 import { recordModelFallbackStop } from "../../agents/failover-error.js";
 import { convertToLlm } from "../../agents/sessions/messages.js";
+import { withSessionManagerWrite } from "../../agents/sessions/session-manager-write-admission.js";
 import { SessionManager } from "../../agents/sessions/session-manager.js";
 import { withGatewayToolCallerIdentity } from "../../agents/tools/gateway-caller-context.js";
 import { createLibrarySkillWorkshopTool } from "../../agents/tools/skill-workshop-tool-library.js";
@@ -301,7 +302,17 @@ export async function executeWorkerTurn(
           mediaImageBlockFactIndexes: media.imageFactIndexes,
         },
       };
-      baseLeafId = manager.appendMessage(message);
+      baseLeafId = await withSessionManagerWrite(manager, () => {
+        params.assertRunCurrent?.();
+        if (!isAuthorized()) {
+          throw new Error("Worker turn authority changed before transcript write");
+        }
+        resolveWorkerTurnTranscriptTarget({
+          ...transcriptTarget,
+          sessionTarget: transcriptTarget,
+        });
+        return manager.appendMessage(message);
+      });
       turn.onUserMessagePersisted?.(message);
     }
     const initialMessagePlan = windowInitialMessages(media.history);

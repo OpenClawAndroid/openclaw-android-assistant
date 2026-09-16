@@ -588,6 +588,7 @@ async function ensureSandboxContainerLifecycle(
     workdir: params.cfg.docker.workdir,
     workspaceAccess: params.cfg.workspaceAccess,
     binds: params.cfg.docker.binds,
+    tmpfs: params.cfg.docker.tmpfs,
   });
   const genericConfigHash = computeSandboxConfigHash({
     docker: params.cfg.docker,

@@ -130,8 +130,20 @@ to finish before disposal; retaining an old function does not make it a current
 runtime handle.
 
 Context engines selected by an admitted turn remain owned through that turn's
-commit and engine disposal. Reload can report their cleanup as deferred; starting
-engine disposal closes normal engine callbacks while cleanup finishes.
+commit and engine disposal. Replacing an enabled plugin waits for those consumers
+to close before registering its successor. Disabling or removing a plugin can
+report their cleanup as deferred; starting engine disposal closes normal engine
+callbacks while cleanup finishes.
+
+Replacement validates metadata and configuration first, then stops services and
+channels, drains admitted work, runs `gateway_stop`, and disposes the old instance
+before invoking the new registration. Pre-publication failure triggers automatic
+recovery by registering the captured previous code with its previous config;
+a stopped instance is not assumed to be restartable. A plugin cannot synchronously
+replace itself from its own active call: the operation rejects before shutdown
+and can be retried after that call finishes. Cleanup that cannot finish within
+its budget can prevent safe replacement or recovery. Unaffected instances remain
+active, and the Gateway process stays running.
 
 Managed instances expose `api.lifecycle.signal` and
 `api.lifecycle.onDispose(cleanup)`. The signal aborts when disposal reaches

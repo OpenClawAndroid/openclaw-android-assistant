@@ -1,3 +1,4 @@
+import type { PreparedSessionHistoryReadTarget } from "../../gateway/session-history-readonly-reader.js";
 import {
   DEFAULT_WORKER_PENDING_BYTES,
   DEFAULT_WORKER_PENDING_TASKS,
@@ -8,8 +9,10 @@ import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.pa
 import type { SessionTranscriptReadScope } from "./session-accessor.js";
 import {
   resolveSqliteTranscriptReadScope,
+  resolveSqliteScope,
   toDatabaseOptions,
 } from "./session-accessor.sqlite-scope.js";
+import { prepareSessionTranscriptReadTargetCore } from "./session-accessor.transcript-read-target.js";
 import { readRestoredSessionTranscript } from "./session-cold-storage-read.js";
 import type {
   ChatHistoryPage,
@@ -92,13 +95,38 @@ export async function readSessionHistoryPageInWorker(
       ? {
           agentId: request.params.sessionAgentId,
           sessionId: request.params.sessionId,
+          sessionEntry: request.params.entry,
           sessionKey: request.params.canonicalKey,
           storePath: request.params.storePath,
         }
       : request.params.target;
   const resolved = resolveSqliteTranscriptReadScope(scope);
   const admission = resolveSessionTranscriptReadFence(resolved);
+  const bound = prepareSessionTranscriptReadTargetCore(scope);
+  const entryValidationKey = bound.entryValidationScope
+    ? resolveSqliteScope(bound.entryValidationScope).sessionKey
+    : undefined;
+  const sessionKey = entryValidationKey ?? bound.sessionKey;
+  const transcript = {
+    agentId: bound.agentId,
+    sessionId: scope.sessionId,
+    ...(sessionKey ? { sessionKey } : {}),
+    storePath: bound.storePath,
+  };
+  const readScope = resolveSqliteTranscriptReadScope(transcript);
   const databaseOptions = toDatabaseOptions(resolved);
+  const target: Omit<PreparedSessionHistoryReadTarget, "database"> = {
+    transcript: {
+      agentId: readScope.agentId,
+      sessionId: scope.sessionId,
+      ...(readScope.sessionKey ? { sessionKey: readScope.sessionKey } : {}),
+      storePath: bound.storePath,
+      // Projection/fence identity is normalized; archive and presentation hints retain their input.
+      sessionFile: sessionKey ?? scope.sessionId,
+    },
+    ...(entryValidationKey ? { entryValidationKey } : {}),
+  };
+
   const input: SessionTranscriptHistoryWorkerInput = {
     kind: "history-page",
     database: {
@@ -106,6 +134,7 @@ export async function readSessionHistoryPageInWorker(
       path: resolveOpenClawAgentSqlitePath(databaseOptions),
     },
     request,
+    target,
     ...(admission ? { admission: { ...admission } } : {}),
   };
   const key = JSON.stringify(input);

@@ -7,8 +7,7 @@ import {
   ensureMemoryIndexSchema,
   loadSqliteVecExtension,
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
-import * as storage from "openclaw/plugin-sdk/memory-core-host-engine-storage";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   configureMemoryCoreDreamingStateForTests,
   resetMemoryCoreDreamingStateForTests,
@@ -17,7 +16,7 @@ import {
   cleanupAgedMemoryReindexTempFiles,
   closeMemoryDatabase,
   openMemoryDatabaseAtPath,
-  prepareMemoryDatabasePublication,
+  publishMemoryDatabaseTables,
   readMemoryDatabaseRevision,
   MemoryIndexRevisionConflictError,
   resetMemoryDatabase,
@@ -37,10 +36,21 @@ async function expectPathMissing(targetPath: string): Promise<void> {
 }
 
 async function publishPreparedMemoryDatabase(
-  params: Parameters<typeof prepareMemoryDatabasePublication>[0],
+  params: Parameters<typeof publishMemoryDatabaseTables>[0] & {
+    sourceHasVectors: boolean;
+    vectorExtensionPath?: string;
+  },
 ): Promise<void> {
-  const publish = await prepareMemoryDatabasePublication(params);
-  publish();
+  if (params.sourceHasVectors) {
+    const loaded = await loadSqliteVecExtension({
+      db: params.targetDb,
+      extensionPath: params.vectorExtensionPath,
+    });
+    if (!loaded.ok) {
+      throw new Error(loaded.error);
+    }
+  }
+  publishMemoryDatabaseTables(params);
 }
 
 describe("memory manager database publication", () => {
@@ -378,7 +388,7 @@ describe("memory manager database publication", () => {
     }
   });
 
-  it("loads sqlite-vec on the target before publishing a shadow vector table", async () => {
+  it("publishes a prepared shadow vector table", async () => {
     const targetPath = path.join(fixtureRoot, "target.sqlite");
     const sourcePath = path.join(fixtureRoot, "source.sqlite");
     const targetDb = new DatabaseSync(targetPath, { allowExtension: true });
@@ -401,32 +411,14 @@ describe("memory manager database publication", () => {
         .run("vector", JSON.stringify([0, 1, 0]));
       sourceDb.close();
 
-      const originalLoad = storage.loadSqliteVecExtension;
-      const load = vi
-        .spyOn(storage, "loadSqliteVecExtension")
-        .mockImplementationOnce(async (params) => {
-          // Provider/import preparation can yield; the shared target must still be
-          // usable by unrelated agent writes with no attached shadow in that window.
-          await Promise.resolve();
-          expect(targetDb.prepare("PRAGMA database_list").all()).not.toContainEqual(
-            expect.objectContaining({ name: "memory_reindex" }),
-          );
-          targetDb.exec("BEGIN IMMEDIATE; COMMIT;");
-          return originalLoad(params);
-        });
-      try {
-        await publishPreparedMemoryDatabase({
-          targetDb,
-          sourcePath,
-          sourceHasVectors: true,
-          metaKey: "memory_index_meta",
-          expectedRevision: readMemoryDatabaseRevision(targetDb),
-          vectorExtensionPath: sourceVector.extensionPath,
-        });
-        expect(load).toHaveBeenCalledOnce();
-      } finally {
-        load.mockRestore();
-      }
+      await publishPreparedMemoryDatabase({
+        targetDb,
+        sourcePath,
+        sourceHasVectors: true,
+        metaKey: "memory_index_meta",
+        expectedRevision: readMemoryDatabaseRevision(targetDb),
+        vectorExtensionPath: sourceVector.extensionPath,
+      });
 
       expect(targetDb.prepare("SELECT id FROM memory_index_chunks_vec").all()).toEqual([
         { id: "vector" },

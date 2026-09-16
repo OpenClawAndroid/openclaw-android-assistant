@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { detectCurrentSqliteCapabilities, nodeRuntimeFailure } from "../../../node-sqlite.mjs";
 import { formatDocsLink } from "../../../packages/terminal-core/src/links.js";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
-import { defaultRuntime } from "../../runtime.js";
+import { defaultRuntime, ExitError } from "../../runtime.js";
 import { formatErrorMessage as formatError, runCommandWithRuntime } from "../cli-utils.js";
 import { hasExplicitOptions } from "../command-options.js";
 import { isDoctorMachineOutput } from "../doctor-output-mode.js";
@@ -34,11 +34,11 @@ const STATE_SQLITE_CONFLICTING_OPTION_NAMES = [
   "only",
 ] as const;
 
-function exitDoctorError(message: string, json: boolean): never {
+function exitDoctorError(error: unknown, json: boolean): never {
   if (json) {
-    defaultRuntime.writeJson(formatCliJsonFailure(message));
+    defaultRuntime.writeJson(formatCliJsonFailure(error));
   } else {
-    defaultRuntime.error(message);
+    defaultRuntime.error(formatError(error));
   }
   exitCliAfterOutput(defaultRuntime, 2);
 }
@@ -186,28 +186,21 @@ export function registerMaintenanceCommands(program: Command) {
           opts.json === true,
         );
       }
-      if (lintMode) {
-        return await runCommandWithRuntime(
-          defaultRuntime,
-          async () => {
-            const { runDoctorLintCli } = await import("../../commands/doctor-lint.js");
-            const exitCode = await runDoctorLintCli(defaultRuntime, {
-              json: Boolean(opts.json),
-              severityMin: typeof opts.severityMin === "string" ? opts.severityMin : undefined,
-              includeAllChecks: Boolean(opts.all),
-              skipIds: Array.isArray(opts.skip) ? opts.skip : [],
-              onlyIds: Array.isArray(opts.only) ? opts.only : [],
-              allowExec: Boolean(opts.allowExec),
-              deep: Boolean(opts.deep),
-            });
-            exitCliAfterOutput(defaultRuntime, jsonImpliesLint ? 0 : exitCode);
-          },
-          (err) => exitDoctorError(formatError(err), opts.json === true || !process.stdout.isTTY),
-        );
-      }
-      await runCommandWithRuntime(
-        defaultRuntime,
-        async () => {
+      try {
+        if (lintMode) {
+          const { runDoctorLintCli } = await import("../../commands/doctor-lint.js");
+          const exitCode = await runDoctorLintCli(defaultRuntime, {
+            json: Boolean(opts.json),
+            severityMin: typeof opts.severityMin === "string" ? opts.severityMin : undefined,
+            includeAllChecks: Boolean(opts.all),
+            skipIds: Array.isArray(opts.skip) ? opts.skip : [],
+            onlyIds: Array.isArray(opts.only) ? opts.only : [],
+            allowExec: Boolean(opts.allowExec),
+            deep: Boolean(opts.deep),
+          });
+          exitCliAfterOutput(defaultRuntime, jsonImpliesLint ? 0 : exitCode);
+        }
+        return await runCommandWithRuntime(defaultRuntime, async () => {
           const { doctorCommand } = await import("../../commands/doctor.js");
           await doctorCommand(defaultRuntime, {
             workspaceSuggestions: opts.workspaceSuggestions,
@@ -232,9 +225,14 @@ export function registerMaintenanceCommands(program: Command) {
             json: Boolean(opts.json),
           });
           exitCliAfterOutput(defaultRuntime, 0);
-        },
-        opts.json ? (err: unknown) => exitDoctorError(formatError(err), true) : undefined,
-      );
+        });
+      } catch (error) {
+        // Completed reports retain their status and the shared output-drain lifecycle.
+        if (error instanceof ExitError || (!lintMode && !opts.json)) {
+          throw error;
+        }
+        exitDoctorError(error, opts.json === true || !process.stdout.isTTY);
+      }
     });
   setCommandJsonMode(doctor, "output", isDoctorMachineOutput);
 
@@ -248,7 +246,10 @@ export function registerMaintenanceCommands(program: Command) {
     )
     .option("--json", "Output sanitized handoff paths, finding counts, and commands as JSON", false)
     .option("--no-export", "Skip the sanitized diagnostics archive")
-    .option("--agent <name>", "Select a coding agent (claude|codex|opencode|pi)")
+    .option(
+      "--agent <name>",
+      "Select a coding agent (claude|codex|cursor|grok|kimi|muse|opencode|pi|qwen)",
+    )
     .option("--run", "Run one embedded agent turn after verifying model inference", false)
     .option(
       "--non-interactive",
@@ -271,11 +272,16 @@ export function registerMaintenanceCommands(program: Command) {
         agent !== undefined &&
         agent !== "claude" &&
         agent !== "codex" &&
+        agent !== "cursor" &&
+        agent !== "grok" &&
+        agent !== "kimi" &&
+        agent !== "muse" &&
         agent !== "opencode" &&
-        agent !== "pi"
+        agent !== "pi" &&
+        agent !== "qwen"
       ) {
         return exitDoctorError(
-          "Invalid --agent. Use claude, codex, opencode, or pi.",
+          "Invalid --agent. Use claude, codex, cursor, grok, kimi, muse, opencode, pi, or qwen.",
           opts.json === true,
         );
       }

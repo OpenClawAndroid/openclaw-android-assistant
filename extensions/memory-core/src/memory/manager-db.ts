@@ -26,6 +26,7 @@ import {
 import { withMemoryWorkspaceLock } from "../memory-workspace-lock.js";
 import { withMemoryIndexPublishGeneration } from "./manager-index-generation-lease.js";
 import { waitForMemoryReindexLock } from "./manager-reindex-lock.js";
+import { markMemoryVectorIndexClean } from "./manager-vector-rebuild-state.js";
 
 const MEMORY_REINDEX_SCHEMA = "memory_reindex";
 const MEMORY_INDEX_STATE_ID = 1;
@@ -100,7 +101,9 @@ export function readMemoryDatabaseRevision(db: DatabaseSync): number {
   return row.revision;
 }
 
-export class MemoryIndexRevisionConflictError extends Error {}
+export class MemoryIndexRevisionConflictError extends Error {
+  override name = "MemoryIndexRevisionConflictError";
+}
 
 /** Reset derived content without replacing the shared agent database or its schema. */
 export async function resetMemoryDatabase(params: {
@@ -216,35 +219,29 @@ function replaceMemoryPathFtsTable(db: DatabaseSync): void {
   );
 }
 
-/** Prepare a shadow publication; its caller admits the synchronous commit on the borrowed owner. */
-export async function prepareMemoryDatabasePublication(params: {
+/** The native publication owner receives prepared connection and source facts. */
+type MemoryDatabasePublication = {
   targetDb: DatabaseSync;
   sourcePath: string;
   metaKey: string;
   expectedRevision: number;
-  sourceHasVectors: boolean;
-  vectorExtensionPath?: string;
-}): Promise<() => void> {
-  if (params.sourceHasVectors && !hasSqliteVecExtension(params.targetDb)) {
-    const loaded = await loadSqliteVecExtension({
-      db: params.targetDb,
-      extensionPath: params.vectorExtensionPath,
-    });
-    if (!loaded.ok) {
-      throw new Error(
-        `Failed to load sqlite-vec before publishing the full memory reindex: ` +
-          (loaded.error ?? "unknown sqlite-vec load error"),
-      );
-    }
-  }
-  return () => {
-    ensureMemoryRecallMetadataSchema(params.targetDb);
-    // Existing pre-provenance databases need this before the publication writes it.
-    ensureMemoryChunkProvenance(params.targetDb);
-    // Admission precedes ATTACH; no shadow attachment or transaction crosses an await.
-    params.targetDb.prepare(`ATTACH DATABASE ? AS ${MEMORY_REINDEX_SCHEMA}`).run(params.sourcePath);
-    try {
-      runSqliteImmediateTransactionSync(params.targetDb, () => {
+  onBegin?: () => void;
+  withCommit?: (commit: () => void) => void;
+  vectorIndexComplete?: boolean;
+};
+
+/** The admitted connection owns ATTACH, atomic replacement, COMMIT and DETACH. */
+export function publishMemoryDatabaseTables(params: MemoryDatabasePublication): void {
+  ensureMemoryRecallMetadataSchema(params.targetDb);
+  // Existing pre-provenance databases need this before the publication writes it.
+  ensureMemoryChunkProvenance(params.targetDb);
+  // Admission precedes ATTACH; no shadow attachment or transaction crosses an await.
+  params.targetDb.prepare(`ATTACH DATABASE ? AS ${MEMORY_REINDEX_SCHEMA}`).run(params.sourcePath);
+  try {
+    runSqliteImmediateTransactionSync(
+      params.targetDb,
+      () => {
+        params.onBegin?.();
         const liveRevision = readMemoryDatabaseRevision(params.targetDb);
         if (liveRevision !== params.expectedRevision) {
           throw new MemoryIndexRevisionConflictError(
@@ -317,11 +314,15 @@ export async function prepareMemoryDatabasePublication(params: {
           // rebuild before that table can be queried again.
           ignoreDropErrorWhenSourceMissing: true,
         });
-      });
-    } finally {
-      params.targetDb.exec(`DETACH DATABASE ${MEMORY_REINDEX_SCHEMA}`);
-    }
-  };
+        if (params.vectorIndexComplete) {
+          markMemoryVectorIndexClean(params.targetDb);
+        }
+      },
+      { withCommit: params.withCommit },
+    );
+  } finally {
+    params.targetDb.exec(`DETACH DATABASE ${MEMORY_REINDEX_SCHEMA}`);
+  }
 }
 
 /** Remove one closed shadow memory database and its journal-mode sidecars. */

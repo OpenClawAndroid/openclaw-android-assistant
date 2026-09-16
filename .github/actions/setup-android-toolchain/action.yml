@@ -13,6 +13,12 @@ outputs:
   cache-mode:
     description: Validated cache authority for downstream save gates.
     value: ${{ inputs.cache-mode }}
+  gradle-java-home:
+    description: Pinned Java installation for Gradle invocations.
+    value: ${{ steps.gradle-java.outputs.path }}
+  gradle-java-version:
+    description: Resolved Java version for Gradle invocations.
+    value: ${{ steps.gradle-java.outputs.version }}
 runs:
   using: composite
   steps:
@@ -43,6 +49,15 @@ runs:
         distribution: temurin
         # Keep sdkmanager on the stable JDK path for Linux CI runners.
         java-version: 17
+
+    - name: Setup Gradle Java
+      id: gradle-java
+      uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      with:
+        distribution: temurin
+        # Pin Gradle's runtime without changing later SDK tool invocations.
+        java-version: "21.0.12+101.0.LTS"
+        set-default: false
 
     - name: Setup Gradle cache
       if: inputs.cache-mode != 'off'

@@ -829,11 +829,12 @@ test("sessions.create with an empty message preserves its owned checkout above t
     const kept = managedWorktrees.listRegistryRecords();
     const key = "agent:main:worktree-above-cleanup-target";
     const scope = { agentId: "main", sessionKey: key, storePath };
-    const originalCreate = managedWorktrees.create.bind(managedWorktrees);
+    const originalCreate = managedWorktrees.createWithOutcome.bind(managedWorktrees);
     const createSpy = vi
-      .spyOn(managedWorktrees, "create")
+      .spyOn(managedWorktrees, "createWithOutcome")
       .mockImplementationOnce(async (params) => {
-        const record = await originalCreate(params);
+        const outcome = await originalCreate(params);
+        const record = outcome.record;
         // GC can run after allocation but before the session row is published.
         expect(loadSessionEntry(scope)).toBeUndefined();
         expect(
@@ -841,7 +842,7 @@ test("sessions.create with an empty message preserves its owned checkout above t
         ).toMatchObject({ removed: [] });
         expect(managedWorktrees.findLiveByOwner("session", key)).toEqual(record);
         expect(await fs.readFile(path.join(record.path, "README.md"), "utf8")).toBe("project\n");
-        return record;
+        return outcome;
       });
     const context = { chatAbortControllers: new Map<string, ChatAbortControllerEntry>() };
     try {

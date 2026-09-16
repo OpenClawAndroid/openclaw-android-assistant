@@ -266,7 +266,7 @@ export type ChannelManager = {
   getRuntimeSnapshot: (options?: ChannelRuntimeSnapshotOptions) => ChannelRuntimeSnapshot;
   pauseChannelStarts: (
     channelIds: Iterable<ChannelId>,
-  ) => (outcome: "published" | "rollback") => void;
+  ) => (outcome: "published" | "rollback", channelIds?: ReadonlySet<ChannelId>) => void;
   startChannels: () => Promise<void>;
   startChannel: (
     channel: ChannelId,
@@ -1719,14 +1719,17 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
               ? captureChannelSnapshot(plugin)
               : undefined,
         };
-        return { store, previous, fence };
+        return { channelId, store, previous, fence };
       });
       // Capture every target before pausing any of them; a failed capture must not strand a sibling.
       for (const { store, fence } of reservations) {
         store.startFence = fence;
       }
-      return (outcome) => {
-        for (const { store, previous, fence } of reservations) {
+      return (outcome, selected) => {
+        for (const { channelId, store, previous, fence } of reservations) {
+          if (selected && !selected.has(channelId)) {
+            continue;
+          }
           if (store.startFence === fence && fence.paused) {
             // Publication keeps the token so delayed predecessor preparation stays stale.
             // A cancelled retry restores an earlier failed replacement's pause.

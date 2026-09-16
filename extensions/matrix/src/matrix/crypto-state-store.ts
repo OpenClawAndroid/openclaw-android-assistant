@@ -101,15 +101,6 @@ function readMatrixRecoveryKeyState(storageRootDir: string): MatrixStoredRecover
   });
 }
 
-export function readMatrixRecoveryKeyStateForPath(
-  recoveryKeyPath: string,
-): MatrixStoredRecoveryKey | null {
-  return readMatrixRecoveryKeyStateWithKey({
-    storageRootDir: path.dirname(recoveryKeyPath),
-    stateKey: resolveRecoveryKeyStateKeyForPath(recoveryKeyPath),
-  });
-}
-
 function readMatrixRecoveryKeyStateWithKey(params: {
   storageRootDir: string;
   stateKey: string;
@@ -121,15 +112,77 @@ function readMatrixRecoveryKeyStateWithKey(params: {
   );
 }
 
-export function writeMatrixRecoveryKeyStateForPath(params: {
+export async function readMatrixRecoveryKeyStateForPathAsync(
+  recoveryKeyPath: string,
+  stateRuntime: MatrixSnapshotStateRuntime,
+): Promise<MatrixStoredRecoveryKey | null> {
+  const store = stateRuntime.openKeyedStore<MatrixStoredRecoveryKey>(
+    openMatrixRecoveryKeyStoreOptions(path.dirname(recoveryKeyPath)),
+  );
+  return normalizeMatrixStoredRecoveryKey(
+    await store.lookup(resolveRecoveryKeyStateKeyForPath(recoveryKeyPath)),
+  );
+}
+
+export async function writeMatrixRecoveryKeyStateForPathAsync(params: {
   recoveryKeyPath: string;
   payload: MatrixStoredRecoveryKey;
-}): void {
-  writeMatrixRecoveryKeyStateWithKey({
-    storageRootDir: path.dirname(params.recoveryKeyPath),
-    stateKey: resolveRecoveryKeyStateKeyForPath(params.recoveryKeyPath),
-    payload: params.payload,
-  });
+  stateRuntime: MatrixSnapshotStateRuntime;
+  preserveEncodedPrivateKey?: boolean;
+}): Promise<void> {
+  const payload = normalizeMatrixStoredRecoveryKey(params.payload);
+  if (!payload) {
+    throw new Error("Invalid Matrix recovery key state");
+  }
+  if (params.preserveEncodedPrivateKey) {
+    await updateMatrixRecoveryKeyState(
+      params,
+      (current) =>
+        normalizeMatrixStoredRecoveryKey({
+          ...payload,
+          encodedPrivateKey: normalizeMatrixStoredRecoveryKey(current)?.encodedPrivateKey,
+        }) ?? undefined,
+    );
+    return;
+  }
+  await params.stateRuntime
+    .openKeyedStore<MatrixStoredRecoveryKey>(
+      openMatrixRecoveryKeyStoreOptions(path.dirname(params.recoveryKeyPath)),
+    )
+    .register(resolveRecoveryKeyStateKeyForPath(params.recoveryKeyPath), payload);
+}
+
+async function updateMatrixRecoveryKeyState(
+  params: { recoveryKeyPath: string; stateRuntime: MatrixSnapshotStateRuntime },
+  update: (current: MatrixStoredRecoveryKey | undefined) => MatrixStoredRecoveryKey | undefined,
+): Promise<void> {
+  const store = params.stateRuntime.openKeyedStore<MatrixStoredRecoveryKey>(
+    openMatrixRecoveryKeyStoreOptions(path.dirname(params.recoveryKeyPath)),
+  );
+  const key = resolveRecoveryKeyStateKeyForPath(params.recoveryKeyPath);
+  if (!store.observe || !store.compareAndApply) {
+    // The published >=2026.9.4 host floor supplies callback updates, before data-only CAS.
+    if (!store.update) {
+      throw new Error("Matrix recovery key store does not support atomic updates");
+    }
+    await store.update(key, update);
+    return;
+  }
+  let observation = await store.observe(key);
+  for (;;) {
+    const value = update(observation.value);
+    const result = await store.compareAndApply(
+      key,
+      observation.comparison,
+      value === undefined
+        ? { operation: "update", action: "keep" }
+        : { operation: "update", action: "set", value },
+    );
+    if (result.status !== "conflict") {
+      return;
+    }
+    observation = result.current;
+  }
 }
 
 function writeMatrixRecoveryKeyStateWithKey(params: {
@@ -263,16 +316,26 @@ export async function writeMatrixIdbSnapshotJsonToStore(params: {
 }
 
 export function migrateLegacyMatrixRecoveryKeyFileToStore(storageRootDir: string): boolean {
-  return migrateLegacyMatrixRecoveryKeyFilePathToStore(
-    path.join(storageRootDir, MATRIX_RECOVERY_KEY_FILENAME),
-  );
-}
-
-export function migrateLegacyMatrixRecoveryKeyFilePathToStore(recoveryKeyPath: string): boolean {
-  const existing = readMatrixRecoveryKeyStateForPath(recoveryKeyPath);
+  const recoveryKeyPath = path.join(storageRootDir, MATRIX_RECOVERY_KEY_FILENAME);
+  const existing = readMatrixRecoveryKeyState(storageRootDir);
   const legacy = readLegacyMatrixRecoveryKeyFile(recoveryKeyPath);
   if (!existing && legacy) {
-    writeMatrixRecoveryKeyStateForPath({ recoveryKeyPath, payload: legacy });
+    writeMatrixRecoveryKeyStateWithKey({ storageRootDir, stateKey: STATE_KEY, payload: legacy });
+  }
+  return archiveLegacyStateFileIfPossible(recoveryKeyPath);
+}
+
+export async function migrateLegacyMatrixRecoveryKeyFilePathToStoreAsync(
+  recoveryKeyPath: string,
+  stateRuntime: MatrixSnapshotStateRuntime,
+): Promise<boolean> {
+  const legacy = readLegacyMatrixRecoveryKeyFile(recoveryKeyPath);
+  if (legacy) {
+    await updateMatrixRecoveryKeyState({ recoveryKeyPath, stateRuntime }, (current) =>
+      normalizeMatrixStoredRecoveryKey(current) ? undefined : legacy,
+    );
+  } else {
+    await readMatrixRecoveryKeyStateForPathAsync(recoveryKeyPath, stateRuntime);
   }
   return archiveLegacyStateFileIfPossible(recoveryKeyPath);
 }

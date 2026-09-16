@@ -80,13 +80,29 @@ async function started(index: number) {
   await vi.waitFor(() => expect(replies).toHaveLength(index + 1));
   return replies[index]!;
 }
-function read() {
+function read(yieldIfNeeded?: () => Promise<void> | undefined) {
   return withSubagentSessionListRunsSnapshotForRead(
     memory,
     captureOpenClawStateWorkerContext(),
     (snapshot) => [...snapshot.values()].map((run) => run.model),
+    yieldIfNeeded,
   );
 }
+
+it("captures in-memory-only reads after the budget pause without reading persisted rows", async () => {
+  vi.stubEnv("OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE", "0");
+  memory = runs("before");
+  const pause = createDeferredCore();
+  let holdRead = true;
+  const first = read(() => (holdRead ? pause.promise : undefined));
+  for (const [id, entry] of runs("current")) {
+    memory.set(id, entry);
+  }
+  holdRead = false;
+  pause.resolve();
+  expect(await first).toEqual(["current"]);
+  expect(transport.execute).not.toHaveBeenCalled();
+});
 
 it("coalesces a fill and projects current memory after the reply", async () => {
   const first = read();
@@ -130,7 +146,7 @@ it.each([
     clearSubagentRunsReadCacheForTest();
   }
   replies[0]!.resolve(runs("old"));
-  if (["restore", "ownership rebind", "reset"].includes(change)) {
+  if (["ownership rebind", "reset"].includes(change)) {
     (await started(1)).resolve(runs("current"));
   }
   expect(await first).toEqual(change === "named deletion" ? [] : ["current"]);
@@ -254,7 +270,7 @@ it("keeps unrelated publication context failures visible", () => {
 });
 
 it.each([1600, 900])(
-  "lets a waiting caller consume a slow or clock-shifted fill once (%i)",
+  "reuses a completed fill after idle time and clock shifts (%i)",
   async (completedAt) => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1000);
     const first = read();
@@ -262,10 +278,10 @@ it.each([1600, 900])(
     now.mockReturnValue(completedAt);
     replies[0]!.resolve(runs("first"));
     expect(await first).toEqual(["first"]);
-    const second = read();
-    await started(1);
-    replies[1]!.resolve(runs("second"));
-    expect(await second).toEqual(["second"]);
+    now.mockReturnValue(completedAt + 60_000);
+    transport.execute.mockResolvedValueOnce(runs("first"));
+    expect(await read()).toEqual(["first"]);
+    expect(transport.execute).toHaveBeenCalledTimes(1);
   },
 );
 
@@ -294,7 +310,21 @@ it.each(["read failure", "absent database"])(
         }
         return undefined;
       });
-    const readers = Array.from({ length: 8 }, () => read());
+    const resumed = createDeferredCore();
+    const paused = createDeferredCore();
+    let holdReaders = false;
+    let waitingReaders = 0;
+    const readers = Array.from({ length: 8 }, () =>
+      read(() => {
+        if (!holdReaders) {
+          return undefined;
+        }
+        if (++waitingReaders === 8) {
+          paused.resolve();
+        }
+        return resumed.promise;
+      }),
+    );
     await vi.waitFor(() => expect(operation).toHaveBeenCalledTimes(1));
     for (const [id, run] of runs("memory", "memory")) {
       memory.set(id, run);
@@ -303,17 +333,25 @@ it.each(["read failure", "absent database"])(
       new Map([...runs("written", "written"), ...runs("deleted", "deleted")]),
       ["written", "deleted"],
     );
-    persistSubagentRunsToDisk(new Map(), ["deleted"]);
+    holdReaders = true;
     settled.resolve();
+    await paused.promise;
+    persistSubagentRunsToDisk(runs("resumed-written", "written"), ["written"]);
+    persistSubagentRunsToDisk(new Map(), ["deleted"]);
+    for (const [id, entry] of runs("resumed-memory", "memory")) {
+      memory.set(id, entry);
+    }
+    holdReaders = false;
+    resumed.resolve();
     expect(await Promise.all(readers)).toEqual(
-      Array.from({ length: 8 }, () => ["written", "memory"]),
+      Array.from({ length: 8 }, () => ["resumed-written", "resumed-memory"]),
     );
     expect(operation).toHaveBeenCalledTimes(1);
     operation.mockRestore();
 
     const retry = read();
     (await started(0)).resolve(runs("persisted", "persisted"));
-    expect(await retry).toEqual(["persisted", "written", "memory"]);
+    expect(await retry).toEqual(["persisted", "resumed-written", "resumed-memory"]);
   },
 );
 
@@ -327,6 +365,7 @@ it.each(["reset", "ownership rebind"])("supersedes a settled fallback after %s",
       } else {
         invalidateSubagentSessionListReadCache();
       }
+      persistSubagentRunsToDisk(runs("published", "published"), ["published"]);
     },
   );
   await started(0);
@@ -334,7 +373,7 @@ it.each(["reset", "ownership rebind"])("supersedes a settled fallback after %s",
   replies[0]!.reject(new Error("read failed"));
   await first;
   (await started(1)).resolve(runs("current"));
-  expect(await second).toEqual(["current"]);
+  expect(await second).toEqual(["current", "published"]);
 });
 
 it("rejects a reply after its captured maintenance scope has retired", async () => {
@@ -385,15 +424,12 @@ it.each([false, true])(
     replies[0]!.resolve(initial);
     expect(await first).toEqual(["durable", "current-7"]);
     now.mockReturnValue(1600);
-    const second = read();
-    await started(1);
     for (let index = 8; index < 16; index++) {
       persistSubagentRunsToDisk(runs(`current-${index}`), ["one"]);
       persistSubagentRunsToDisk(new Map(), ["deleted"]);
     }
-    replies[1]!.resolve(new Map([...runs("stale"), ...runs("deleted", "deleted")]));
-    expect(await second).toEqual(["durable", "current-15"]);
-    expect(replies).toHaveLength(2);
+    expect(await read()).toEqual(["durable", "current-15"]);
+    expect(replies).toHaveLength(1);
   },
 );
 

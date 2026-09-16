@@ -131,7 +131,7 @@ function resolveArchivedSource(
   return undefined;
 }
 
-function resolveVerifiedSessionSource(
+export function resolveVerifiedSessionSource(
   source: DeferredPluginSessionImport["sources"][number],
   target: SessionImportTarget,
   env: NodeJS.ProcessEnv,
@@ -168,7 +168,7 @@ function assertVerifiedSessionSources(
   const issues: Array<{ code: string; message: string }> = [];
   const source = readLegacySessionStoreEntries(params.target, issues, { sourcePath });
   if (
-    issues.length > 0 ||
+    issues.some((issue) => issue.code !== "entry_invalid") ||
     !source.bytes ||
     source.bytes.length !== index.identity.size ||
     createHash("sha256").update(source.bytes).digest("hex") !== index.identity.sha256

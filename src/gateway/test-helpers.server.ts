@@ -10,7 +10,7 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import "./test-helpers.mocks.js";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, vi } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "../../packages/gateway-client/src/websocket.js";
 import { PROTOCOL_VERSION } from "../../packages/gateway-protocol/src/index.js";
 import { acquireGatewayTestWebSocket } from "../../test/helpers/gateway-websocket.js";
 import { runQaGatewayFixture } from "../../test/helpers/qa-gateway-cleanup.js";
@@ -741,7 +741,7 @@ export function onceMessage<T extends GatewayTestMessage = GatewayTestMessage>(
       cleanup();
       reject(new Error(`closed ${code}: ${reason.toString()}`));
     }
-    function handler(data: WebSocket.RawData) {
+    function handler(data: RawData) {
       const obj = JSON.parse(rawDataToString(data)) as T;
       if (filter(obj)) {
         cleanup();

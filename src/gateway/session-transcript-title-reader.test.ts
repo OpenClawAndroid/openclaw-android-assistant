@@ -176,8 +176,8 @@ function boundedTitleEventReadCount(): number {
 
 test.each([
   "src/gateway/session-transcript-title-reader.ts",
-  "src/gateway/session-transcript-anchor-reader.ts",
-])("keeps %s independent of the full transcript reader", (entry) => {
+  "src/gateway/session-transcript-read-kernel.ts",
+])("keeps %s independent of the host transcript reader", (entry) => {
   expect(findSourceImportBackedges(entry, ["src/gateway/session-transcript-readers.ts"])).toEqual(
     [],
   );

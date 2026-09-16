@@ -8,6 +8,8 @@ import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js"
 import { asResolvedSourceConfig, asRuntimeConfig } from "../../config/materialize.js";
 import { GATEWAY_SERVICE_SELECTOR_ENV_KEYS } from "../../daemon/constants.js";
 import type { GatewayServiceState } from "../../daemon/service-types.js";
+import * as gatewayService from "../../daemon/service.js";
+import { createRetainedPackageSwap } from "../../infra/package-update-swap.test-support.js";
 import { readUpdateStateSchemaVersions } from "../../infra/update-candidate-state.js";
 import type { UpdateRepairParams } from "../../infra/update-repair-protocol.js";
 import {
@@ -15,9 +17,11 @@ import {
   finishUpdateRun,
   getUpdateRun,
   recordUpdateRunPhase,
+  recordUpdateRunVerification,
 } from "../../infra/update-run-ledger.js";
 import { defaultRuntime } from "../../runtime.js";
 import { finishUpdate, type FinishUpdateParams } from "./update-command-post-update.js";
+import { taskRecovery } from "./update-command-post-update.test-support.js";
 import { repairUpdateService } from "./update-command-repair-service.js";
 import { revalidateManagedGatewayServiceAfterUpdate } from "./update-command-service-maintenance.js";
 import { verifyUpdatedGateway } from "./update-command-verification.js";
@@ -236,6 +240,93 @@ describe("post-activation repair after rollback refusal or failure", () => {
     vi.spyOn(defaultRuntime, "error").mockImplementation(() => undefined);
   });
 
+  it.each([false, true])(
+    "records the bounded readiness outcome and retains only unverified backups (ready=%s)",
+    async (ready) => {
+      const params = fixture();
+      const run = params.opts.run!;
+      const { transaction, packageRoot } = await createRetainedPackageSwap(
+        dirs.make("update-readiness-pending-"),
+      );
+      params.root = packageRoot;
+      params.result.root = packageRoot;
+      params.packageTransaction = transaction;
+      const windowsRecovery = taskRecovery();
+      params.preManagedServiceStop!.windowsTaskAutoStartRecovery = windowsRecovery;
+      params.preManagedServiceStop!.stoppedAtMs = Date.now() - 90_000;
+      const complete = vi.spyOn(transaction, "complete");
+      const observation =
+        "Gateway readiness exceeded 90000ms; service running (PID 7376), waiting for Gateway listener. Gateway left starting.";
+      mocks.restart.mockImplementationOnce(async ({ result, onVerified }) => {
+        recordUpdateRunVerification(
+          run.runId,
+          {
+            serviceRunning: true,
+            pid: 7376,
+            settled: ready,
+            readyz: ready,
+            channelsReady: ready,
+            versionMatch: true,
+            pluginErrors: [],
+          },
+          { env: run.env },
+        );
+        if (ready) {
+          onVerified?.(Date.now());
+          return "ok";
+        }
+        result.steps.push({
+          name: "gateway verification",
+          command: "gateway verification",
+          cwd: packageRoot,
+          durationMs: 90_000,
+          exitCode: 0,
+          termination: "timeout",
+          advisory: { kind: "recoverable-maintenance", message: observation },
+        });
+        return "readiness-pending";
+      });
+
+      await expect(finishUpdate(params)).resolves.toMatchObject(
+        ready ? { status: "ok" } : { status: "skipped", reason: "gateway-readiness-unverified" },
+      );
+
+      expect(mocks.restart).toHaveBeenCalledOnce();
+      expect(mocks.rollback).not.toHaveBeenCalled();
+      expect(mocks.repair).not.toHaveBeenCalled();
+      expect(mocks.stop).not.toHaveBeenCalled();
+      expect(mocks.restartCommand).not.toHaveBeenCalled();
+      expect(windowsRecovery.complete).toHaveBeenCalledWith(true);
+      expect(windowsRecovery.complete).not.toHaveBeenCalledWith(false);
+      expect(complete).toHaveBeenCalledTimes(ready ? 1 : 0);
+      if (ready) {
+        await expect(fs.stat(transaction.backupRoot)).rejects.toMatchObject({ code: "ENOENT" });
+      } else {
+        await expect(
+          fs.readFile(path.join(transaction.backupRoot, "package.json"), "utf8"),
+        ).resolves.toContain('"version":"1.0.0"');
+      }
+      await expect(fs.readFile(path.join(packageRoot, "package.json"), "utf8")).resolves.toContain(
+        '"version":"2.0.0"',
+      );
+      const recorded = getUpdateRun(run.runId, { env: run.env });
+      expect(recorded).toMatchObject({
+        status: ready ? "succeeded" : "skipped",
+        reason: ready ? null : "gateway-readiness-unverified",
+        phase: "finished",
+        finishedAtMs: expect.any(Number),
+        confirmedAtMs: ready ? expect.any(Number) : null,
+        downtimeMs: ready ? expect.any(Number) : null,
+        verification: { serviceRunning: true, pid: 7376, settled: ready, readyz: ready },
+      });
+      if (!ready) {
+        expect(recorded?.steps).toContainEqual(
+          expect.objectContaining({ step: "warning:gateway verification", detail: observation }),
+        );
+      }
+    },
+  );
+
   it("terminalizes a failed final native read after current-core plugin parking", async () => {
     const params = fixture();
     params.coreAlreadyCurrent = true;
@@ -291,6 +382,13 @@ describe("post-activation repair after rollback refusal or failure", () => {
   ])(
     "$rollback rollback with repaired=$repaired readinessUnavailable=$readinessUnavailable",
     async ({ rollback, repaired, healthy, readinessUnavailable }) => {
+      const unready = Boolean(healthy && readinessUnavailable);
+      if (unready) {
+        vi.spyOn(gatewayService, "resolveGatewayService").mockReturnValue({
+          ...gatewayService.resolveGatewayService(),
+          readRuntime: async () => ({ status: mocks.healthy ? "running" : "stopped", pid: 4321 }),
+        });
+      }
       if (readinessUnavailable) {
         mocks.readyz.mockResolvedValue({ readyz: 503 });
       }
@@ -410,9 +508,14 @@ describe("post-activation repair after rollback refusal or failure", () => {
           validation,
         };
         repair.onEvent?.({ type: "turn-finished", ...attempt });
-        repair.onEvent?.({ type: "stopped", status: validation.ok ? "repaired" : "unrepaired" });
+        repair.onEvent?.({
+          type: "stopped",
+          status: validation.ok ? "repaired" : "unrepaired",
+          reason: validation.stopReason,
+        });
         return {
           status: validation.ok ? "repaired" : "unrepaired",
+          reason: validation.stopReason,
           finalValidation: validation,
           attempts: [attempt],
         };
@@ -470,7 +573,14 @@ describe("post-activation repair after rollback refusal or failure", () => {
         true,
       );
       expect(getUpdateRun(run.runId, { env: run.env })).toMatchObject({
-        status: repaired ? (rollback === "restored" ? "rolled-back" : "succeeded") : "failed",
+        status:
+          rollback === "restored"
+            ? repaired
+              ? "rolled-back"
+              : "failed"
+            : repaired
+              ? "succeeded"
+              : "failed",
         after: { version: rollback === "restored" ? "2026.9.1" : "2026.9.3" },
         ...(rollback === "restored" ? { reason: "readyz-unhealthy" } : {}),
         repair: [expect.objectContaining({ attempt: 1 })],
@@ -484,6 +594,12 @@ describe("post-activation repair after rollback refusal or failure", () => {
             }
           : {}),
       });
+      if (unready) {
+        expect(getUpdateRun(run.runId, { env: run.env })).toMatchObject({
+          confirmedAtMs: null,
+          verification: { serviceRunning: true, readyz: false, settled: false },
+        });
+      }
     },
   );
 
@@ -599,8 +715,13 @@ describe("post-activation repair after rollback refusal or failure", () => {
           const validation = await repair.validate(signal);
           expect(validation.ok).toBe(activated && finalProof);
           const status = validation.ok ? "repaired" : "unrepaired";
-          repair.onEvent?.({ type: "stopped", status });
-          return { status, attempts: [], finalValidation: validation };
+          repair.onEvent?.({ type: "stopped", status, reason: validation.stopReason });
+          return {
+            status,
+            reason: validation.stopReason,
+            attempts: [],
+            finalValidation: validation,
+          };
         });
         mocks.converge.mockImplementation(
           async (convergence: {
@@ -631,14 +752,14 @@ describe("post-activation repair after rollback refusal or failure", () => {
             result: { status: "error" },
           });
         }
-        // The outer command retains the original handle after finalization rotates owners.
+        // Refused rollback leaves the original recovery owner in charge.
         await originalRecovery.restore();
         await originalRecovery.complete();
         expect(mocks.rollback).toHaveBeenCalledOnce();
         expect(mocks.repair).toHaveBeenCalledOnce();
         expect(mocks.restart).toHaveBeenCalledOnce();
         expect(mocks.restartCommand).toHaveBeenCalledOnce();
-        expect(mocks.stop).toHaveBeenCalledOnce();
+        expect(mocks.stop).not.toHaveBeenCalled();
         expect(enabled).toBe(activated && finalProof);
         expect(signals.map((signal) => process.listenerCount(signal))).toEqual(baselineListeners);
       } finally {

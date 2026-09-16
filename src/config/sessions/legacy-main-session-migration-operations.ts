@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import { isSameOpenClawAgentDatabasePath } from "../../state/openclaw-agent-db-registry.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
@@ -9,7 +7,6 @@ import type {
   LegacyMainSessionMigrationOutcome,
   PhysicalStore,
   SessionClaim,
-  TranscriptDigest,
 } from "./legacy-main-session-migration.contract.js";
 import { readExactSessionEntryRowForCanonicalRepair } from "./session-accessor.sqlite-canonical-repair.js";
 import {
@@ -24,10 +21,8 @@ import {
 import { importSqliteSessionRows } from "./session-accessor.sqlite-import.js";
 import { deleteSessionEntryLifecycle } from "./session-accessor.sqlite-lifecycle.js";
 import { replaceSessionOwnerInTransaction } from "./session-accessor.sqlite-owner.js";
-import {
-  getSessionKysely,
-  runExclusiveSqliteSessionWrite,
-} from "./session-accessor.sqlite-scope.js";
+import { runExclusiveSqliteSessionWrite } from "./session-accessor.sqlite-scope.js";
+import { readSessionTranscriptDigest } from "./session-accessor.sqlite-transcript-digest.js";
 import type { SessionEntry } from "./types.js";
 
 function projectEntryIdentity(entry: SessionEntry): SessionEntry {
@@ -38,18 +33,6 @@ function projectEntryIdentity(entry: SessionEntry): SessionEntry {
   delete projected.sessionFile;
   delete projected.transcriptPath;
   return projected;
-}
-
-function digestTranscriptRows(rows: readonly { eventJson: string }[]): TranscriptDigest {
-  let rollingHash = "";
-  for (const row of rows) {
-    rollingHash = createHash("sha256")
-      .update(rollingHash)
-      .update("\0")
-      .update(row.eventJson)
-      .digest("hex");
-  }
-  return { eventCount: rows.length, rollingHash };
 }
 
 export function claimsMatch(left: SessionClaim, right: SessionClaim): boolean {
@@ -65,24 +48,16 @@ export function readClaim(
   store: PhysicalStore,
   key: string,
   canonicalKey: string,
+  append?: (row: { createdAt: number; eventJson: string }) => void,
 ): SessionClaim | undefined {
   const row = readExactSessionEntryRowForCanonicalRepair(database, key);
   if (!row) {
     return undefined;
   }
-  const transcriptRows = executeSqliteQuerySync(
-    database.db,
-    getSessionKysely(database.db)
-      .selectFrom("transcript_events")
-      .select(["created_at", "event_json"])
-      .where("session_id", "=", row.entry.sessionId)
-      .orderBy("seq", "asc"),
-  ).rows.map((event) => ({ createdAt: event.created_at, eventJson: event.event_json }));
   return {
     canonicalKey,
-    digest: digestTranscriptRows(transcriptRows),
+    digest: readSessionTranscriptDigest(database, row.entry.sessionId, append),
     entry: row.entry,
-    eventRows: transcriptRows,
     key,
     store,
   };
@@ -220,21 +195,44 @@ async function copyClaimCrossStore(params: {
   env: NodeJS.ProcessEnv;
   source: SessionClaim;
 }): Promise<SessionClaim | undefined> {
-  await importSqliteSessionRows({
-    beforePersistentApply: params.beforePersistentApply,
-    agentId: params.destination.databaseAgentId,
-    defaultAgentId: params.destination.databaseAgentId,
-    env: params.env,
-    storePath: params.destination.path,
-    sessionKey: params.canonicalKey,
-    entry: params.source.entry,
-    skipIfExists: true,
-    readExactTranscriptRows: (append) => {
-      for (const row of params.source.eventRows) {
-        append(row);
-      }
-    },
-  });
+  const sourceChanged = new Error("legacy session source changed before import");
+  try {
+    await importSqliteSessionRows({
+      beforePersistentApply: params.beforePersistentApply,
+      agentId: params.destination.databaseAgentId,
+      defaultAgentId: params.destination.databaseAgentId,
+      env: params.env,
+      storePath: params.destination.path,
+      sessionKey: params.canonicalKey,
+      entry: params.source.entry,
+      skipIfExists: true,
+      readExactTranscriptRows: (append) => {
+        const source = withOpenClawAgentDatabaseReadOnly(
+          (database) =>
+            readClaim(
+              database,
+              params.source.store,
+              params.source.key,
+              params.canonicalKey,
+              append,
+            ),
+          {
+            agentId: params.source.store.databaseAgentId,
+            env: params.env,
+            path: params.source.store.path,
+          },
+        );
+        if (!source.found || !source.value || !claimsMatch(source.value, params.source)) {
+          throw sourceChanged;
+        }
+      },
+    });
+  } catch (error) {
+    if (error === sourceChanged) {
+      return undefined;
+    }
+    throw error;
+  }
   const destination = withOpenClawAgentDatabaseReadOnly(
     (database) => readClaim(database, params.destination, params.canonicalKey, params.canonicalKey),
     {
@@ -258,7 +256,7 @@ async function deleteExpectedClaim(
     expectedEntry: claim.entry,
     expectedTranscript: {
       sessionId: claim.entry.sessionId,
-      eventJson: claim.eventRows.map((row) => row.eventJson),
+      digest: claim.digest,
     },
     requireWriteSuccess: true,
     storePath: claim.store.ownerStorePath,

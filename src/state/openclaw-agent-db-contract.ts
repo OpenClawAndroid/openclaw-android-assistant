@@ -53,3 +53,5 @@ export type OpenClawAgentDatabaseOwnerInspection =
   | { status: "owned"; agentId: string }
   | { status: "unowned" }
   | { status: "unreadable" };
+
+export const SESSION_PARTICIPANTS_TABLE = "session_participants";

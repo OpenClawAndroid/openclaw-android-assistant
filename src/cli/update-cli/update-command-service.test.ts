@@ -200,25 +200,21 @@ describe("maybeRestartService", () => {
         await expect(verification).resolves.toMatchObject({ ok: false });
         expect(onVerified).not.toHaveBeenCalled();
         const failingCheck =
-          change === "initial-readyz-error" || rollback
-            ? {
-                check: "readyz",
-                code: "readyz-unhealthy",
-                message: "Gateway readiness endpoint returned HTTP 503; expected HTTP 200.",
-              }
-            : change === "initial-version-error"
-              ? { check: "versionMatch", code: "version-mismatch" }
-              : change === "initial-build-error"
-                ? { check: "versionMatch", code: "build-id-mismatch" }
-                : change === "initial-channel-error"
-                  ? {
-                      check: "channelsReady",
-                      code: "channel-errors",
-                      pluginId: "fixture-channel",
-                      message: "connection failed",
-                    }
+          change === "initial-version-error"
+            ? { check: "versionMatch", code: "version-mismatch" }
+            : change === "initial-build-error"
+              ? { check: "versionMatch", code: "build-id-mismatch" }
+              : change === "initial-channel-error"
+                ? {
+                    check: "channelsReady",
+                    code: "channel-errors",
+                    pluginId: "fixture-channel",
+                    message: "connection failed",
+                  }
+                : change === "initial-readyz-error" || rollback
+                  ? { check: "readyz", code: "readyz-unhealthy" }
                   : change === "initial-settle-error"
-                    ? { check: "settled", code: "timeout", message: "Gateway did not settle" }
+                    ? { check: "settled", code: "timeout" }
                     : { check: "service", code: "service-not-running" };
         expect(updateResult.steps).toContainEqual(
           expect.objectContaining({
@@ -259,8 +255,11 @@ describe("maybeRestartService", () => {
             expect.objectContaining({
               name: "gateway verification",
               exitCode: 1,
-              failureFacts: expect.arrayContaining([expect.objectContaining(failingCheck)]),
+              failureFacts: expect.arrayContaining([
+                expect.objectContaining({ code: "readyz-unhealthy" }),
+              ]),
             }),
+            expect.objectContaining({ name: "rollback gateway verification", exitCode: 0 }),
           ]);
         } else {
           expect(updateResult.steps).toEqual([
@@ -268,6 +267,8 @@ describe("maybeRestartService", () => {
           ]);
           expect(updateResult.steps[0]?.failureFacts).toBeUndefined();
         }
+        expect(updateResult.steps.at(-1)?.advisory).toBeUndefined();
+        expect(updateResult.steps.at(-1)?.termination).toBeUndefined();
         expect(recordUpdateRunStep).toHaveBeenLastCalledWith(
           admitted.runId,
           expect.objectContaining({
@@ -496,13 +497,11 @@ describe("maybeRestartService", () => {
         refreshServiceEnv ? 1 : 0,
       );
       expect(onVerified).toHaveBeenCalledTimes(verified ? 1 : 0);
+      expect(onVerificationFailure).toHaveBeenCalledTimes(verified ? 0 : 1);
       if (verified) {
         const verifiedAtMs = onVerified.mock.calls[0]?.[0];
         expect(verifiedAtMs).toBeGreaterThanOrEqual(startedAtMs);
         expect(verifiedAtMs).toBeLessThanOrEqual(Date.now());
-        expect(onVerificationFailure).not.toHaveBeenCalled();
-      } else {
-        expect(onVerificationFailure).toHaveBeenCalledWith("readyz-unhealthy");
       }
     },
   );

@@ -224,14 +224,20 @@ async function worker(stateDir: string, profile: Profile, operation: Operation) 
   const history = await import("../src/config/sessions/session-accessor.sqlite-history-events.js");
   const gateway =
     operation === "gateway-tail"
-      ? await import("../src/gateway/session-history-tail.js")
+      ? {
+          tail: await import("../src/gateway/session-history-tail.js"),
+          readers: await import("../src/gateway/session-transcript-readers.js"),
+          profile: await import("../src/gateway/current-user-profile-display.js"),
+        }
       : undefined;
   const { openOpenClawAgentDatabase, closeOpenClawAgentDatabasesForTest } =
     await import("../src/state/openclaw-agent-db.js");
   const importMs = performance.now() - importStarted;
   const read = async () => {
     if (gateway) {
-      const result = await gateway.readIncrementalChatHistoryTail({
+      const result = await gateway.tail.readIncrementalChatHistoryTail({
+        readers: gateway.readers,
+        resolveCurrentUserProfileDisplay: gateway.profile.resolveCurrentUserProfileDisplay,
         entry: undefined,
         readScope: scope,
         effectiveMaxChars: 8000,

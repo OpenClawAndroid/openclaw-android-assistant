@@ -126,6 +126,7 @@ export async function executePreparedCompactionSession(runtime: PreparedCompacti
   try {
     const compactionTimeoutMs = resolveCompactionTimeoutMs(params.config);
     const accountingRecorder = readCompactionAccountingRecorder(params.contextEngineRuntimeContext);
+    const recordCompaction = accountingRecorder?.recordCompaction;
     const memoryTranscript = accountingRecorder?.memoryTranscript;
     const sessionTarget =
       memoryTranscript?.sessionTarget ??
@@ -283,7 +284,14 @@ export async function executePreparedCompactionSession(runtime: PreparedCompacti
         );
         session = createdSession.session;
         session[agentSessionSetContextReplacementHook](
-          accountingRecorder?.recordCompaction,
+          recordCompaction
+            ? (tokensAfter, tokensBefore) =>
+                recordCompaction({
+                  tokensBefore,
+                  tokensAfter,
+                  compactionKind: "context-engine",
+                })
+            : undefined,
           assertActive,
         );
         session.setActiveToolsByName(sessionToolAllowlist);
@@ -475,7 +483,7 @@ export async function executePreparedCompactionSession(runtime: PreparedCompacti
         // Setup completed: give the first provider request a full safety window.
         params.compactionTimeoutReset?.();
         let serverTokensAfter: number | undefined;
-        const recordServerCompaction = () => {
+        const recordServerCompaction = (tokensBefore: number) => {
           // Endpoint output_tokens omits retained inputs; observe the actual
           // replacement window synchronously with its accepted rewrite.
           serverTokensAfter = estimateLlmBoundaryTokenPressure({
@@ -489,7 +497,11 @@ export async function executePreparedCompactionSession(runtime: PreparedCompacti
               enabled: compactionReplayEnabled,
             },
           });
-          accountingRecorder?.recordCompaction?.(serverTokensAfter);
+          recordCompaction?.({
+            tokensBefore,
+            tokensAfter: serverTokensAfter,
+            compactionKind: "server-endpoint",
+          });
         };
         const serverResult = params.transcriptBytePreflightAuthority
           ? undefined

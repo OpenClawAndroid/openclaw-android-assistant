@@ -14,6 +14,7 @@ const native = vi.hoisted(() => ({
   tracingCategories: vi.fn(),
   unsupported: false,
 }));
+const hostBunVersion = Object.getOwnPropertyDescriptor(process.versions, "bun");
 vi.mock("node:timers/promises", () => ({ setTimeout: native.wait }));
 vi.mock("node:trace_events", () => ({ getEnabledCategories: native.tracingCategories }));
 vi.mock("../infra/openclaw-root.js", async (importOriginal) => ({
@@ -82,6 +83,11 @@ async function capture(signal = new AbortController().signal, hasAuthority = () 
 }
 
 beforeEach(() => {
+  if (hostBunVersion) {
+    // Most cases exercise the Node inspector owner through a mocked native
+    // session. The dedicated Bun case below retains the unsupported contract.
+    Object.defineProperty(process.versions, "bun", { ...hostBunVersion, value: undefined });
+  }
   vi.resetModules();
   vi.resetAllMocks();
   vi.stubEnv("NODE_OPTIONS", "");
@@ -106,7 +112,12 @@ beforeEach(() => {
   );
   native.wait.mockResolvedValue(undefined);
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  if (hostBunVersion) {
+    Object.defineProperty(process.versions, "bun", hostBunVersion);
+  }
+  vi.unstubAllEnvs();
+});
 
 describe("diagnostic CPU profile owner", () => {
   it("returns a complete sanitized graph only after native cleanup", async () => {

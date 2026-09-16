@@ -695,7 +695,9 @@ describe("filtered sidebar session event refresh", () => {
     expect(list).toHaveBeenCalledOnce();
 
     resolveFirstRefresh(refreshedPage);
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(list).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
 
     expect(list).toHaveBeenCalledTimes(2);
     expect(controller.sessionsResult?.sessions[0]?.updatedAt).toBe(2);

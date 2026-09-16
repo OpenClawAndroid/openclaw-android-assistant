@@ -379,7 +379,11 @@ describe("compactEmbeddedRunForRecovery", () => {
         expect(recorder?.requestBudget).toBe(requestBudget);
         expect(runtimeContext).not.toHaveProperty("requestBudget");
         recorder?.recordUsage?.({ input: 100, output: 50, total: 150 });
-        recorder?.recordCompaction?.(40);
+        recorder?.recordCompaction?.({
+          tokensBefore: 120,
+          tokensAfter: 40,
+          compactionKind: "context-engine",
+        });
         state.observeContextAccounting({ kind: "model", contextTokens: 20 });
         if (outcome === "failed") {
           throw error;
@@ -523,11 +527,12 @@ describe("createEmbeddedRunCompactionRuntime", () => {
       sessionTarget: currentTarget,
       sessionManager: SessionManager.inMemory(baseRunParams.workspaceDir),
     };
-    const sessionPromptState = createEmbeddedRunSessionPromptState({
+    const sessionPromptState = await createEmbeddedRunSessionPromptState({
       runParams,
       sessionAgentId: "main",
       resolvedSessionKey: baseRunParams.sessionKey,
       lifecycleGeneration: getAgentRunLifecycleGeneration(),
+      onInterrupt: () => {},
     });
     const runtime = createEmbeddedRunCompactionRuntime({
       runParams,

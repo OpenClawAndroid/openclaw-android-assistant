@@ -25,6 +25,11 @@ Embedded OpenClaw compaction uses the provider's compaction thinking preference,
 
 Each summarization request uses one primary format. Safeguard history summaries use its structured checkpoint format, while split-turn prefixes use the prefix format. Operator focus and identifier-preservation guidance remain additional instructions; they do not add a competing set of required headings.
 
+Branch-navigation summaries budget the text actually sent for summarization,
+including bounded tool output, instructions, and output headroom. An older
+summary cannot override that budget. If visible branch history cannot fit,
+summarization reports a failure instead of claiming there was no content.
+
 AGENTS.md section reinjection after compaction remains opt-in via `agents.defaults.compaction.postCompactionSections`. Plugins can add other prompt context through `before_prompt_build`.
 
 ### Chunk boundaries and tool pairing
@@ -87,6 +92,12 @@ Set `enabled: false` to disable threshold-driven auto-compaction inside the embe
 Manual `/compact` uses `agents.defaults.compaction.keepRecentTokens` (default: `20000`) and keeps that recent-tail cut point.
 
 OpenClaw adopts an explicit successor identity returned by a context engine. The built-in SQLite compactor keeps the current session identity. Branch/restore checkpoint actions use a returned successor when present; legacy pre-compaction checkpoint files remain readable while referenced.
+
+Recovery follows the active successor's tool-result projections and timeout state.
+A checkpoint branch or restore preserves its selected model and workspace and
+follows the normal creator and isolation rules. It starts without the source run's writer claim,
+native CLI binding, pending delivery, or recovery work. Starting a checkpoint
+branch does not interrupt its source conversation.
 
 ## Pluggable compaction providers
 

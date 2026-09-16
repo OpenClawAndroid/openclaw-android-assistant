@@ -6,6 +6,7 @@ import {
 import { readAcpSessionMeta } from "../../acp/runtime/session-meta.js";
 import { getLatestLiveSubagentRunByChildSessionKey } from "../../agents/subagents/registry/subagent-registry-read.js";
 import { resolveAgentIdFromSessionKey, resolveAgentMainSessionKey } from "../../config/sessions.js";
+import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginSubagentRequesterContext } from "../../plugins/runtime/subagent-requester-context.js";
 import { isAcpSessionKey } from "../../routing/session-key.js";
@@ -86,12 +87,18 @@ type GatewayAgentTaskTerminalStatus = Extract<
   TaskStatus,
   "succeeded" | "failed" | "timed_out" | "cancelled"
 >;
-export type GatewayAgentTaskTrackingMode = "cli" | "plugin_subagent" | "none";
+export type GatewayAgentTaskTrackingMode =
+  | "cli"
+  | "plugin_subagent"
+  | "none"
+  | { kind: "session_followup"; requesterSessionKey: string; label?: string };
 
 export function resolveGatewayAgentTaskTrackingMode(params: {
   client: GatewayRequestHandlerOptions["client"];
   sessionKey?: string;
   inputProvenance?: InputProvenance;
+  canUseInternalRuntimeHandoff?: boolean;
+  sessionEntry?: Pick<SessionEntry, "spawnedBy" | "label" | "displayName" | "acp">;
   confirmedAcpManualSpawn?: boolean;
   modelRun?: boolean;
   runId?: string;
@@ -104,7 +111,28 @@ export function resolveGatewayAgentTaskTrackingMode(params: {
   if (!params.sessionKey?.trim()) {
     return "none";
   }
+  const existingTask = params.runId ? findTaskByRunId(params.runId) : undefined;
   if (params.inputProvenance?.kind === "inter_session") {
+    const requesterSessionKey = normalizeOptionalString(params.inputProvenance.sourceSessionKey);
+    if (
+      params.canUseInternalRuntimeHandoff === true &&
+      params.inputProvenance.sourceTool === "sessions_send" &&
+      requesterSessionKey &&
+      requesterSessionKey !== params.sessionKey.trim() &&
+      requesterSessionKey === params.sessionEntry?.spawnedBy &&
+      !params.sessionEntry.acp &&
+      !isAcpSessionKey(params.sessionKey) &&
+      !params.confirmedAcpManualSpawn &&
+      !existingTask
+    ) {
+      // The new turn owns activity only. The original subagent keeps its
+      // accepted result or yield obligation; sessions_send still owns replies.
+      return {
+        kind: "session_followup",
+        requesterSessionKey,
+        label: params.sessionEntry.label ?? params.sessionEntry.displayName,
+      };
+    }
     // Only the settlement batch owns automatic paused-run adoption. Individual
     // announcements and descendant wakes retain their own delivery lifecycle.
     const pausedYieldRun =
@@ -121,7 +149,6 @@ export function resolveGatewayAgentTaskTrackingMode(params: {
   }
   // The subagent registry created the authoritative row before its host-owned
   // gateway dispatch. A CLI row here would represent the same run twice.
-  const existingTask = params.runId ? findTaskByRunId(params.runId) : undefined;
   if (
     existingTask?.runtime === "subagent" &&
     existingTask.childSessionKey === params.sessionKey?.trim()

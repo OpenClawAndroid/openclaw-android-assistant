@@ -4,8 +4,9 @@ import { extractTextCached } from "../../../lib/chat/message-extract.ts";
 import { visibleChatHistoryMessages } from "../../../lib/chat/message-visibility.ts";
 import type { UiSessionDefaultsHost } from "../../../lib/sessions/session-key.ts";
 import type { TaskSummary } from "../../../lib/tasks/task-summary.ts";
+import type { AssistantMessageExpansionState } from "../chat-message-recovery.ts";
 import { readChatThreadMessageIdentity } from "../chat-thread-items.ts";
-import { setExpansionState, type AssistantMessageExpansionState } from "../chat-thread.ts";
+import { setExpansionState } from "../chat-thread.ts";
 import type { SidebarFullMessageLoader } from "./chat-sidebar-content-types.ts";
 
 const TASK_TRANSCRIPT_REFRESH_MS = 2_000;

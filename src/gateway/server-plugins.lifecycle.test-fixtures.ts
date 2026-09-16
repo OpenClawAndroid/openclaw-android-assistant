@@ -82,7 +82,7 @@ export async function withPluginServiceStopDeadline<T>(
         throw new Error("plugin operation settled before plugin cleanup started");
       }),
     ]);
-    // Best-effort replacement observes service stop, active-call drain, then instance disposal.
+    // Observe service stop and both bounded drains without releasing the actual stop.
     await vi.advanceTimersByTimeAsync(5_000);
     await vi.advanceTimersByTimeAsync(5_000);
     await vi.advanceTimersByTimeAsync(5_000);

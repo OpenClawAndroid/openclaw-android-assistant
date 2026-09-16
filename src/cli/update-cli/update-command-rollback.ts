@@ -26,7 +26,6 @@ import { assertUpdateRecoveryAdmission } from "../../infra/update-run-recovery-a
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
-import { confirmGatewayReachable } from "../daemon-cli/restart-health-probe.js";
 import type { UpdateCommandOptions } from "./shared.js";
 import {
   readUpdateConfigSnapshot,
@@ -267,28 +266,15 @@ export async function rollbackFailedUpdate(params: {
     }
     return stopped;
   };
-  const stopIfUnreachable = async () => {
-    assertCurrent();
-    if (port !== undefined) {
-      const { reachable } = await confirmGatewayReachable({ port, env });
-      assertCurrent();
-      if (!reachable) {
-        await stop();
-      }
-    }
-  };
   try {
     assertCurrent();
     if (params.rollbackBlockedReason) {
-      await stopIfUnreachable();
       return failed(params.rollbackBlockedReason);
     }
     if (!params.schemaVersions) {
-      await stopIfUnreachable();
       return failed("rollback-state-unverified");
     }
     if (!(await stateUnchanged())) {
-      await stopIfUnreachable();
       return failed("state-migrated-no-rollback");
     }
     await packageTransaction?.assertRollbackSafe?.();
@@ -483,7 +469,7 @@ export async function rollbackFailedUpdate(params: {
       ...(verifiedAtMs === undefined ? {} : { verifiedAtMs }),
     };
   } catch (error) {
-    let detail = formatErrorMessage(error);
+    const detail = formatErrorMessage(error);
     try {
       assertCurrent();
     } catch (cause) {
@@ -500,19 +486,6 @@ export async function rollbackFailedUpdate(params: {
     }
     if (error instanceof NativePackageRollbackError) {
       failureReason = error.reason;
-    }
-    if (
-      failureReason === "rollback-state-unverified" ||
-      failureReason === "state-migrated-no-rollback" ||
-      error instanceof NativePackageRollbackError
-    ) {
-      const reason = failureReason;
-      try {
-        await stopIfUnreachable();
-        failureReason = reason;
-      } catch (stopError) {
-        detail += `; ${formatErrorMessage(stopError)}`;
-      }
     }
     assertCurrent();
     if (opts.run) {

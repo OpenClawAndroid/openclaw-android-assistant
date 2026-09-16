@@ -12,18 +12,22 @@ import {
 import type { SubagentRunRecord } from "../../agents/subagents/registry/subagent-registry.types.js";
 import { setRuntimeConfigSnapshot } from "../../config/config.js";
 import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { AsyncWorkScope, getAsyncWorkSignal } from "../../shared/async-work-scope.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { closeOpenClawStateDatabaseAsync } from "../../state/openclaw-state-db-cache.js";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import { runOpenClawStateWorkerOperation } from "../../state/openclaw-state-worker-store.js";
+import { ensureProfileForEmail } from "../../state/user-profiles.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { sessionByKeyReadHandlers } from "./sessions-read-by-key.js";
 import {
   identifiedClient,
   listSessions,
   requestContext,
 } from "./sessions-read-cache.test-support.js";
+import type { RespondFn } from "./types.js";
 
 function run(runId: string, overrides: Partial<SubagentRunRecord> = {}): SubagentRunRecord {
   const now = Date.now();
@@ -49,6 +53,137 @@ function readPersisted() {
     { existingOnly: true },
   );
 }
+
+function pausePersistedRead(onDispatch?: () => void) {
+  const dispatched = createDeferredCore();
+  let resumeRead: (() => void) | undefined;
+  // oxlint-disable-next-line typescript/unbound-method -- apply below preserves the intercepted Worker receiver.
+  const postMessage = Worker.prototype.postMessage;
+  vi.spyOn(Worker.prototype, "postMessage").mockImplementation(function (
+    this: Worker,
+    ...args: Parameters<Worker["postMessage"]>
+  ) {
+    const message: unknown = args[0];
+    if (isRecord(message) && message.type === "execute" && message.input instanceof Uint8Array) {
+      const command: unknown = deserialize(message.input);
+      if (isRecord(command) && command.type === "subagents.sessionList") {
+        onDispatch?.();
+        resumeRead = () => postMessage.apply(this, args);
+        dispatched.resolve();
+        return;
+      }
+    }
+    return postMessage.apply(this, args);
+  });
+  return {
+    dispatched: dispatched.promise,
+    resume() {
+      const dispatch = resumeRead;
+      resumeRead = undefined;
+      dispatch?.();
+    },
+  };
+}
+
+it.each(["replaced", "made private"])(
+  "describes current session metadata after a worker read while the session is %s",
+  async (change) => {
+    await withOpenClawTestState(
+      { scenario: "minimal", env: { OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" } },
+      async () => {
+        const cfg: OpenClawConfig = {
+          agents: { entries: { main: {} } },
+          gateway: {
+            roles: {
+              default: "reader",
+              definitions: {
+                reader: { agents: "*", scopes: ["operator.read"], sessions: { others: "view" } },
+              },
+            },
+          },
+        };
+        setRuntimeConfigSnapshot(cfg);
+        const controller = "agent:main:controller";
+        const ownerId = ensureProfileForEmail("owner@example.com").id;
+        const viewerId = ensureProfileForEmail("viewer@example.com").id;
+        await upsertSessionEntryCore(
+          { agentId: "main", sessionKey: controller },
+          {
+            sessionId: "original-session",
+            updatedAt: Date.now(),
+            visibility: "shared",
+            createdActor: { type: "human", source: "profile", id: ownerId },
+          },
+        );
+        const child = run("child", {
+          requesterSessionKey: "agent:main:requester",
+          controllerSessionKey: controller,
+        });
+        await upsertSessionEntryCore(
+          { agentId: "main", sessionKey: child.childSessionKey },
+          { sessionId: "child-session", updatedAt: Date.now(), visibility: "shared" },
+        );
+        const collector = run("deleted", {
+          collect: true,
+          groupId: "retained-group",
+          swarmRequesterSessionKey: controller,
+          collectorCompletion: { status: "done" },
+        });
+        saveSubagentRegistryToSqlite(
+          new Map([child, collector].map((entry) => [entry.runId, entry])),
+        );
+        clearSubagentRunsReadCacheForTest();
+        const read = pausePersistedRead();
+        const respond = vi.fn<RespondFn>();
+        const request = sessionByKeyReadHandlers["sessions.describe"]!({
+          req: { type: "req", id: "describe-worker", method: "sessions.describe" },
+          params: { key: controller },
+          client: identifiedClient(viewerId),
+          context: requestContext(cfg),
+          isWebchatConnect: () => false,
+          respond,
+        });
+        try {
+          expect(
+            await Promise.race([
+              read.dispatched.then(() => "worker"),
+              Promise.resolve(request).then(() => "response"),
+            ]),
+          ).toBe("worker");
+          await upsertSessionEntryCore(
+            { agentId: "main", sessionKey: controller },
+            change === "replaced"
+              ? { sessionId: "replacement-session", label: "Current conversation" }
+              : { visibility: "draft" },
+          );
+          read.resume();
+          await request;
+          expect(respond).toHaveBeenCalledTimes(1);
+          expect(respond.mock.calls[0]?.[0]).toBe(true);
+          const result = respond.mock.calls[0]?.[1];
+          if (change === "made private") {
+            expect(result).toEqual({ session: null });
+          } else {
+            expect(result).toMatchObject({
+              session: {
+                sessionId: "replacement-session",
+                displayName: "Current conversation",
+                childSessions: [child.childSessionKey],
+                swarm: { groups: [{ groupId: "retained-group", done: 1, failed: 0 }] },
+              },
+            });
+            expect(JSON.stringify(result)).not.toContain("retained synthetic");
+          }
+        } finally {
+          vi.restoreAllMocks();
+          read.resume();
+          await Promise.allSettled([request]);
+          clearSubagentRunsReadCacheForTest();
+        }
+      },
+    );
+  },
+);
 
 it("lists off-page controller links and deleted-collector totals while a sibling worker write settles", async () => {
   await withOpenClawTestState(
@@ -208,37 +343,9 @@ it("keeps the shared native fill outside a retired initiating request scope", as
       clearSubagentRunsReadCacheForTest();
       const firstScope = new AsyncWorkScope();
       const secondScope = new AsyncWorkScope();
-      const dispatched = createDeferredCore();
       const joined = createDeferredCore();
       const dispatchSignals: Array<AbortSignal | undefined> = [];
-      let resumeRead: (() => void) | undefined;
-      const resume = () => {
-        const dispatch = resumeRead;
-        resumeRead = undefined;
-        dispatch?.();
-      };
-      // oxlint-disable-next-line typescript/unbound-method -- apply below preserves the intercepted Worker receiver.
-      const postMessage = Worker.prototype.postMessage;
-      vi.spyOn(Worker.prototype, "postMessage").mockImplementation(function (
-        this: Worker,
-        ...args: Parameters<Worker["postMessage"]>
-      ) {
-        const message: unknown = args[0];
-        if (
-          isRecord(message) &&
-          message.type === "execute" &&
-          message.input instanceof Uint8Array
-        ) {
-          const command: unknown = deserialize(message.input);
-          if (isRecord(command) && command.type === "subagents.sessionList") {
-            dispatchSignals.push(getAsyncWorkSignal());
-            resumeRead = () => postMessage.apply(this, args);
-            dispatched.resolve();
-            return;
-          }
-        }
-        return postMessage.apply(this, args);
-      });
+      const read = pausePersistedRead(() => dispatchSignals.push(getAsyncWorkSignal()));
       const prepare = registryRead.prepareSubagentSessionListReadIndex;
       let callers = 0;
       vi.spyOn(registryRead, "prepareSubagentSessionListReadIndex").mockImplementation(
@@ -264,7 +371,7 @@ it("keeps the shared native fill outside a retired initiating request scope", as
       );
       let second: ReturnType<typeof listSessions> | undefined;
       try {
-        await dispatched.promise;
+        await read.dispatched;
         second = secondScope.track(() =>
           listSessions({
             client: identifiedClient("second@example.com"),
@@ -275,7 +382,7 @@ it("keeps the shared native fill outside a retired initiating request scope", as
         await joined.promise;
         await firstScope.drain();
         expect(firstScope.signal.aborted).toBe(true);
-        resume();
+        read.resume();
         expect(await second).toMatchObject({
           sessions: [
             { key: controller, swarm: { groups: [{ groupId: "scope-retained-group", done: 1 }] } },
@@ -283,7 +390,7 @@ it("keeps the shared native fill outside a retired initiating request scope", as
         });
         expect(dispatchSignals).toEqual([undefined]);
       } finally {
-        resume();
+        read.resume();
         await Promise.allSettled([observedFirst, second]);
         await firstScope.drain();
         await secondScope.drain();

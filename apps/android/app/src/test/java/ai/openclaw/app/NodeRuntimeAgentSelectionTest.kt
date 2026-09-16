@@ -12,6 +12,7 @@ import ai.openclaw.app.gateway.GatewayRequestRejected
 import ai.openclaw.app.gateway.GatewaySession
 import android.content.Context
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -832,6 +833,8 @@ class NodeRuntimeAgentSelectionTest {
     val archiveRequested = CompletableDeferred<Unit>()
     val releaseArchive = CompletableDeferred<Unit>()
     val lookupStarted = AtomicReference<CompletableDeferred<Job>?>(null)
+    val mainAdoptionStarted = AtomicReference<CompletableDeferred<Job>?>(null)
+    val releaseInitialAdoption = CompletableDeferred<Unit>()
     val preservesChoice = archiveAckOrder !in setOf(ArchiveAckOrder.Active, ArchiveAckOrder.AfterAgentSwitch)
     val archiveSessionId = if (archiveAckOrder == ArchiveAckOrder.AfterDifferentArchivedIdentity) "replacement-$chosenKey" else "session-$chosenKey"
     var exactLookups = 0
@@ -874,6 +877,7 @@ class NodeRuntimeAgentSelectionTest {
             assertEquals(JsonPrimitive("scout"), request["agentId"])
             assertEquals(JsonPrimitive(archiveSessionId), request["expectedSessionId"])
             assertEquals(JsonPrimitive(true), request["archived"])
+            assertEquals("session-$chosenKey", runtime.chatSessionId.value)
             description.set(RememberedSessionState.ArchivedAck)
             archiveRequested.complete(Unit)
             releaseArchive.await()
@@ -883,6 +887,10 @@ class NodeRuntimeAgentSelectionTest {
           }
 
           "sessions.describe" -> {
+            mainAdoptionStarted.get()?.complete(currentCoroutineContext().job)
+            if (archiveAckOrder == ArchiveAckOrder.AfterDifferentArchivedIdentity) {
+              releaseInitialAdoption.await()
+            }
             check(request.keys.all { it in setOf("key", "includeDerivedTitles", "includeLastMessage") })
             val key = request.getValue("key").jsonPrimitive.content
             val agentId = requireNotNull(resolveAgentIdFromMainSessionKey(key))
@@ -939,19 +947,44 @@ class NodeRuntimeAgentSelectionTest {
       }
       installChatGateway(runtime, requestGateway, requestLeaseGeneration = leaseGeneration::get)
 
-      suspend fun selectAgentAndWait(agentId: String) {
+      suspend fun selectAgentAndWait(
+        agentId: String,
+        verifyDelayedAdoption: Boolean = false,
+      ) {
         val started = CompletableDeferred<Job>()
+        val mainAdoption = CompletableDeferred<Job>()
         lookupStarted.set(started)
+        mainAdoptionStarted.set(mainAdoption)
         runtime.selectChatAgent(agentId)
         withTimeout(2_000) {
-          started.await().join()
-          runtime.chatSessionId.first { it != null }
-          runtime.chatHistoryLoading.first { !it }
+          suspend fun awaitSelection() {
+            started.await().join()
+            // Main adoption can refresh the selected chat after the selector has finished.
+            mainAdoption.await().join()
+            runtime.chatSessionId.first { it != null }
+            runtime.chatHistoryLoading.first { !it }
+          }
+
+          if (verifyDelayedAdoption) {
+            val adoption = mainAdoption.await()
+            started.await().join()
+            runtime.chatSessionId.first { it == "session-$chosenKey" }
+            runtime.chatHistoryLoading.first { !it }
+            assertFalse(adoption.isCompleted)
+            // The old waits are already satisfied; run inline to prove adoption still blocks completion.
+            val selection = async(start = CoroutineStart.UNDISPATCHED) { awaitSelection() }
+            assertFalse("Selection must wait for the held main adoption", selection.isCompleted)
+            releaseInitialAdoption.complete(Unit)
+            selection.await()
+          } else {
+            awaitSelection()
+          }
         }
         lookupStarted.compareAndSet(started, null)
+        mainAdoptionStarted.compareAndSet(mainAdoption, null)
       }
 
-      selectAgentAndWait("scout")
+      selectAgentAndWait("scout", verifyDelayedAdoption = archiveAckOrder == ArchiveAckOrder.AfterDifferentArchivedIdentity)
       assertEquals(chosenKey, runtime.chatSessionKey.value)
 
       runtime.switchChatSession(chosenKey, "scout")
@@ -1065,6 +1098,7 @@ class NodeRuntimeAgentSelectionTest {
         }
       }
     } finally {
+      releaseInitialAdoption.complete(Unit)
       releaseArchive.complete(Unit)
       closeNodeRuntimeTestFixture(runtime)
     }

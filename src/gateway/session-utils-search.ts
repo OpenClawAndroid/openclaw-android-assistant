@@ -41,7 +41,12 @@ import {
   resolveGatewaySessionRuntimeProjection,
   populateSessionListAcpMetadataWork,
 } from "./session-utils-projection.js";
-import { buildGatewaySessionRow } from "./session-utils-row.js";
+import {
+  buildGatewaySessionRow,
+  readSessionRowInputs,
+  materializeSessionRow,
+  presentSessionRow,
+} from "./session-utils-row.js";
 import { createGatewaySessionEntryReader } from "./session-utils-store-lookup.js";
 import {
   isGroupOrChannelDisplaySession,
@@ -279,28 +284,29 @@ function loadGatewaySessionSnapshot(
     ? buildSessionListRowMetadataContext({ now })
     : undefined;
   const lifecycleRunId = (entry as InternalSessionEntry).lifecycleRunId;
+  const { inputs, presentation } = readSessionRowInputs({
+    cfg,
+    storePath,
+    store,
+    modelSource: {
+      entry,
+      loadSessionEntry: createGatewaySessionEntryReader({ cfg, agentId, store, readSource }),
+    },
+    key: canonicalKey,
+    entry,
+    now,
+    includeDerivedTitles: options?.includeDerivedTitles,
+    includeLastMessage: options?.includeLastMessage,
+    transcriptUsageMaxBytes: options?.transcriptUsageMaxBytes,
+    skipTranscriptUsageFallback: lightweight,
+    lightweightListRow: lightweight,
+    agentId,
+    // Event snapshots carry complete counts, while ordinary exact-row reads stay scoped.
+    rowContext,
+  });
   return {
     ...(lifecycleRunId === undefined ? {} : { lifecycleRunId }),
-    row: buildGatewaySessionRow({
-      cfg,
-      storePath,
-      store,
-      modelSource: {
-        entry,
-        loadSessionEntry: createGatewaySessionEntryReader({ cfg, agentId, store, readSource }),
-      },
-      key: canonicalKey,
-      entry,
-      now,
-      includeDerivedTitles: options?.includeDerivedTitles,
-      includeLastMessage: options?.includeLastMessage,
-      transcriptUsageMaxBytes: options?.transcriptUsageMaxBytes,
-      skipTranscriptUsageFallback: lightweight,
-      lightweightListRow: lightweight,
-      agentId,
-      // Event snapshots carry complete counts, while ordinary exact-row reads stay scoped.
-      rowContext,
-    }),
+    row: presentSessionRow(materializeSessionRow(inputs), presentation),
   };
 }
 
@@ -330,15 +336,8 @@ export function buildGatewaySessionInfo(params: {
   modelCatalog?: ModelCatalogEntry[];
 }): GatewaySessionRow {
   return buildGatewaySessionRow({
-    cfg: params.cfg,
-    storePath: params.storePath,
-    store: params.store,
+    ...params,
     modelSource: { entry: params.entry, loadSessionEntry: createGatewaySessionEntryReader(params) },
-    key: params.key,
-    entry: params.entry,
-    agentId: params.agentId,
-    modelCatalog: params.modelCatalog,
-    now: params.now,
     skipTranscriptUsageFallback: true,
     lightweightListRow: true,
   });

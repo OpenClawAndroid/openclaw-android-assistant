@@ -34,13 +34,13 @@ import type { InboxEntry } from "./types.js";
 const oauthGuardModel = "gpt-5.6-terra";
 const oauthGuardResponseModel = `${oauthGuardModel}-2026-08-01`;
 
-beforeEach(() => {
-  resetFlowStoresForTests();
+beforeEach(async () => {
+  await resetFlowStoresForTests();
   setReefRuntime(createPluginRuntimeMock());
 });
 afterEach(() => {
   vi.unstubAllEnvs();
-  resetFlowStoresForTests();
+  return resetFlowStoresForTests();
 });
 
 describe("createConfiguredGuard", () => {
@@ -716,14 +716,6 @@ describe("ReefMessageFlow outbound", () => {
 });
 
 describe("ReefMessageFlow delivery-store capacity", () => {
-  beforeEach(() => {
-    resetFlowStoresForTests();
-  });
-
-  afterEach(() => {
-    resetFlowStoresForTests();
-  });
-
   it("parks after ingress without retaining bookkeeping when the delivered store fills before confirm", async () => {
     const alice = generateIdentity();
     const bob = reefKeys();

@@ -1,7 +1,7 @@
 // Session creation tests protect dashboard-origin session records, transcript
 // creation, parent linkage, and model/provider overrides exposed by the gateway API.
 import { execFile } from "node:child_process";
-import { constants as fsConstants, readdirSync } from "node:fs";
+import fsSync, { constants as fsConstants, readdirSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -89,7 +89,7 @@ import {
 } from "./local-user-ingress.js";
 import { createMentionInbox } from "./mention-inbox.js";
 import { sessionLog } from "./server-methods/sessions-shared.js";
-import { identifiedClient } from "./server-methods/sessions-sharing.test-support.js";
+import { identifiedClient, soloClient } from "./server-methods/sessions-sharing.test-support.js";
 import type { GatewayClient } from "./server-methods/types.js";
 import { listSessionGroups } from "./session-groups.js";
 import {
@@ -97,6 +97,7 @@ import {
   SessionMutationAuthorizationChangedError,
 } from "./session-sharing.js";
 import { resolveGatewaySessionStoreTarget } from "./session-utils.js";
+import { loadGatewayTestConfig } from "./test-helpers.config-runtime.js";
 import {
   agentCommandMock,
   agentDiscoveryMock,
@@ -2483,6 +2484,139 @@ test("sessions.create rolls back failed provisioning before a same-key creator p
   }
 });
 
+test.each([
+  { source: "repository", change: "restore" },
+  { source: "repository", change: "remove" },
+  { source: "empty", change: "restore" },
+  { source: "empty", change: "remove" },
+] as const)(
+  "sessions.create rolls back only its own allocation after concurrent $source worktree $change",
+  async ({ source, change }) => {
+    const openClawState = await createOpenClawTestState({
+      layout: "state-only",
+      prefix: "openclaw-session-worktree-allocation-outcome-",
+    });
+    const workspace = await initializeGitWorkspace(openClawState.root);
+    closeOpenClawStateDatabaseForTest();
+    const disk = fsSync.statfsSync(openClawState.root);
+    const diskSpace = vi.spyOn(fsSync, "statfsSync").mockReturnValue({
+      type: disk.type,
+      files: disk.files,
+      frsize: disk.frsize,
+      ffree: disk.ffree,
+      bsize: 4096,
+      blocks: 1024 ** 4 / 4096,
+      bavail: (100 * 1024 ** 3) / 4096,
+      bfree: (100 * 1024 ** 3) / 4096,
+    });
+    const key = "agent:main:dashboard:worktree-allocation-outcome";
+    const owner = { ownerKind: "session" as const, ownerId: key, name: "allocation-outcome" };
+    const worktree =
+      source === "empty"
+        ? await managedWorktrees.createEmpty(owner)
+        : await managedWorktrees.create({ ...owner, repoRoot: workspace });
+    await fs.writeFile(path.join(worktree.path, "draft.txt"), "Keep the restored checkout.\n");
+    if (change === "restore") {
+      await managedWorktrees.remove({ id: worktree.id, reason: "manual-delete" });
+    }
+    const { storePath } = await createSessionStoreDir();
+    testState.agentConfig = { workspace };
+    testState.sessionConfig = { sharing: { drafts: false } };
+    const cfg = loadGatewayTestConfig();
+    (await getGatewayConfigModule()).setRuntimeConfigSnapshot(cfg);
+    const entered = createDeferredCore();
+    const proceed = createDeferredCore();
+    const beforeAllocation = async () => {
+      entered.resolve();
+      await proceed.promise;
+    };
+    const create = managedWorktrees.createWithOutcome.bind(managedWorktrees);
+    const createEmpty = managedWorktrees.createEmptyWithOutcome.bind(managedWorktrees);
+    const createSpy = vi
+      .spyOn(managedWorktrees, "createWithOutcome")
+      .mockImplementationOnce(async (params) => {
+        await beforeAllocation();
+        return await create(params);
+      });
+    const createEmptySpy = vi
+      .spyOn(managedWorktrees, "createEmptyWithOutcome")
+      .mockImplementationOnce(async (params) => {
+        await beforeAllocation();
+        return await createEmpty(params);
+      });
+    const client = soloClient();
+    client.connect.scopes = ["operator.admin"];
+    const creation = directSessionReq(
+      "sessions.create",
+      {
+        key,
+        agentId: "main",
+        visibility: "draft",
+        worktree: true,
+        worktreeName: owner.name,
+        ...(source === "empty" ? { worktreeSource: "empty" } : {}),
+      },
+      { client, context: { getRuntimeConfig: () => cfg } },
+    );
+    try {
+      await Promise.race([
+        entered.promise,
+        creation.then((result) => {
+          throw new Error(`Creation returned before allocation: ${JSON.stringify(result)}`);
+        }),
+      ]);
+      if (change === "restore") {
+        await managedWorktrees.restore({ id: worktree.id });
+      } else {
+        await managedWorktrees.remove({ id: worktree.id, reason: "manual-delete" });
+      }
+      proceed.resolve();
+      await expect(creation).resolves.toMatchObject({
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: "session visibility is disabled: draft" },
+      });
+      expect(loadSessionEntry({ sessionKey: key, storePath })).toBeUndefined();
+      const record = getRegistryWorktree(process.env, worktree.id);
+      if (change === "restore") {
+        expect(record?.removedAt).toBeUndefined();
+        await expect(fs.readFile(path.join(worktree.path, "draft.txt"), "utf8")).resolves.toBe(
+          "Keep the restored checkout.\n",
+        );
+      } else {
+        expect(record?.removedAt).toEqual(expect.any(Number));
+        await expect(fs.stat(worktree.path)).rejects.toMatchObject({ code: "ENOENT" });
+        expect(
+          (
+            await execFileAsync("git", [
+              "-C",
+              worktree.repoRoot,
+              "show",
+              `${record!.snapshotRef}:draft.txt`,
+            ])
+          ).stdout,
+        ).toBe("Keep the restored checkout.\n");
+      }
+    } finally {
+      proceed.resolve();
+      await Promise.allSettled([creation]);
+      createSpy.mockRestore();
+      createEmptySpy.mockRestore();
+      if (getRegistryWorktree(process.env, worktree.id)?.removedAt === undefined) {
+        await managedWorktrees.remove({
+          id: worktree.id,
+          reason: "test-cleanup",
+          allowSnapshotLoss: true,
+        });
+      }
+      diskSpace.mockRestore();
+      closeOpenClawStateDatabaseForTest();
+      testState.agentConfig = undefined;
+      testState.sessionConfig = undefined;
+      await openClawState.cleanup();
+    }
+  },
+);
+
 test("sessions.create provisions and reuses a session worktree for later runs", async () => {
   const openClawState = await createOpenClawTestState({
     layout: "state-only",
@@ -2494,11 +2628,13 @@ test("sessions.create provisions and reuses a session worktree for later runs", 
   closeOpenClawStateDatabaseForTest();
   testState.agentConfig = { workspace };
   const { storePath } = await createSessionStoreDir();
-  const originalCreate = managedWorktrees.create.bind(managedWorktrees);
-  const createSpy = vi.spyOn(managedWorktrees, "create").mockImplementation(async (params) => {
-    expect(isSessionLifecycleMutationActive(storePath, [params.ownerId])).toBe(true);
-    return await originalCreate(params);
-  });
+  const originalCreate = managedWorktrees.createWithOutcome.bind(managedWorktrees);
+  const createSpy = vi
+    .spyOn(managedWorktrees, "createWithOutcome")
+    .mockImplementation(async (params) => {
+      expect(isSessionLifecycleMutationActive(storePath, [params.ownerId])).toBe(true);
+      return await originalCreate(params);
+    });
   let worktreeId: string | undefined;
   try {
     const created = await directSessionReq<{
@@ -3215,89 +3351,93 @@ test("sessions.create keeps the crustacean fallback when no title source exists"
   }
 });
 
-test("sessions.create maps worktree options and preserves a nested workspace cwd", async () => {
-  const openClawState = await createOpenClawTestState({
-    layout: "state-only",
-    prefix: "openclaw-session-worktree-options-",
-  });
-  const repoRoot = await initializeGitWorkspace(openClawState.root);
-  const workspace = path.join(repoRoot, "packages", "app");
-  const worktreePath = path.join(openClawState.root, "managed-worktree");
-  const key = "agent:main:dashboard:worktree-options";
-  await execFileAsync("git", ["-C", repoRoot, "branch", "base-branch"]);
-  await Promise.all([
-    fs.mkdir(workspace, { recursive: true }),
-    fs.mkdir(worktreePath, { recursive: true }),
-  ]);
-  closeOpenClawStateDatabaseForTest();
-  testState.agentConfig = { workspace };
-  await createSessionStoreDir();
-  const createSpy = vi.spyOn(managedWorktrees, "create").mockResolvedValue(
-    managedWorktreeFixture({
-      id: "worktree-options",
-      name: "target-task",
-      ownerId: key,
-      path: worktreePath,
-      repoRoot,
-    }),
-  );
-  try {
-    const created = await directSessionReq<{
-      entry: {
-        permissionMode?: string;
-        sessionRoot?: string;
-        spawnedCwd?: string;
-        worktree?: { id: string; branch: string; repoRoot: string };
-      };
-      worktree: { id: string; path: string; branch: string };
-    }>(
-      "sessions.create",
-      {
-        agentId: "main",
-        key,
-        worktree: true,
-        worktreeName: "target-task",
-        worktreeBaseRef: "base-branch",
-        permissionMode: "workspace",
-      },
-      { client: { connect: { scopes: ["operator.admin"] } } as never },
-    );
-
-    expect(created.ok).toBe(true);
-    expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repoRoot: workspace,
-        ownerKind: "session",
-        ownerId: key,
-        name: "target-task",
-        baseRef: "base-branch",
-      }),
-    );
-    expect(created.payload?.entry).toMatchObject({
-      permissionMode: "workspace",
-      sessionRoot: worktreePath,
-      spawnedCwd: path.join(worktreePath, "packages", "app"),
-      worktree: {
-        id: "worktree-options",
-        branch: "openclaw/target-task",
-        repoRoot,
-      },
+test.each(["packages/app", "..notes"])(
+  "sessions.create maps worktree options and preserves nested workspace cwd %s",
+  async (workspaceRelativePath) => {
+    const openClawState = await createOpenClawTestState({
+      layout: "state-only",
+      prefix: "openclaw-session-worktree-options-",
     });
-    await expect(fs.stat(path.join(worktreePath, "packages", "app"))).resolves.toBeDefined();
-
-    const rejected = await directSessionReq(
-      "sessions.create",
-      { agentId: "main", worktreeName: "no-flag" },
-      { client: { connect: { scopes: ["operator.admin"] } } as never },
-    );
-    expect(rejected.ok).toBe(false);
-  } finally {
-    createSpy.mockRestore();
+    const repoRoot = await initializeGitWorkspace(openClawState.root);
+    const workspace = path.join(repoRoot, workspaceRelativePath);
+    const worktreePath = path.join(openClawState.root, "managed-worktree");
+    const key = "agent:main:dashboard:worktree-options";
+    await execFileAsync("git", ["-C", repoRoot, "branch", "base-branch"]);
+    await Promise.all([
+      fs.mkdir(workspace, { recursive: true }),
+      fs.mkdir(worktreePath, { recursive: true }),
+    ]);
     closeOpenClawStateDatabaseForTest();
-    testState.agentConfig = undefined;
-    await openClawState.cleanup();
-  }
-});
+    testState.agentConfig = { workspace };
+    await createSessionStoreDir();
+    const createSpy = vi.spyOn(managedWorktrees, "createWithOutcome").mockResolvedValue({
+      record: managedWorktreeFixture({
+        id: "worktree-options",
+        name: "target-task",
+        ownerId: key,
+        path: worktreePath,
+        repoRoot,
+      }),
+      materialized: true,
+    });
+    try {
+      const created = await directSessionReq<{
+        entry: {
+          permissionMode?: string;
+          sessionRoot?: string;
+          spawnedCwd?: string;
+          worktree?: { id: string; branch: string; repoRoot: string };
+        };
+        worktree: { id: string; path: string; branch: string };
+      }>(
+        "sessions.create",
+        {
+          agentId: "main",
+          key,
+          worktree: true,
+          worktreeName: "target-task",
+          worktreeBaseRef: "base-branch",
+          permissionMode: "workspace",
+        },
+        { client: { connect: { scopes: ["operator.admin"] } } as never },
+      );
+
+      expect(created.ok).toBe(true);
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repoRoot: workspace,
+          ownerKind: "session",
+          ownerId: key,
+          name: "target-task",
+          baseRef: "base-branch",
+        }),
+      );
+      expect(created.payload?.entry).toMatchObject({
+        permissionMode: "workspace",
+        sessionRoot: worktreePath,
+        spawnedCwd: path.join(worktreePath, workspaceRelativePath),
+        worktree: {
+          id: "worktree-options",
+          branch: "openclaw/target-task",
+          repoRoot,
+        },
+      });
+      await expect(fs.stat(path.join(worktreePath, workspaceRelativePath))).resolves.toBeDefined();
+
+      const rejected = await directSessionReq(
+        "sessions.create",
+        { agentId: "main", worktreeName: "no-flag" },
+        { client: { connect: { scopes: ["operator.admin"] } } as never },
+      );
+      expect(rejected.ok).toBe(false);
+    } finally {
+      createSpy.mockRestore();
+      closeOpenClawStateDatabaseForTest();
+      testState.agentConfig = undefined;
+      await openClawState.cleanup();
+    }
+  },
+);
 
 test("sessions.create maps an admin-selected worktree cwd and rejects repository changes", async () => {
   const openClawState = await createOpenClawTestState({
@@ -3325,7 +3465,9 @@ test("sessions.create maps an admin-selected worktree cwd and rejects repository
   closeOpenClawStateDatabaseForTest();
   testState.agentConfig = { workspace: configuredWorkspace };
   await createSessionStoreDir();
-  const createSpy = vi.spyOn(managedWorktrees, "create").mockResolvedValue(record);
+  const createSpy = vi
+    .spyOn(managedWorktrees, "createWithOutcome")
+    .mockResolvedValue({ record, materialized: true });
   const findSpy = vi.spyOn(managedWorktrees, "findLiveById").mockReturnValue(record);
   try {
     const created = await directSessionReq<{
@@ -4866,14 +5008,16 @@ test("sessions.create removes a provisioned worktree when authority closes befor
   let authorityCurrent = true;
   let allocatedWorktree: { id: string; path: string } | undefined;
   let allocatedDirectoryExists = false;
-  const createWorktree = managedWorktrees.create.bind(managedWorktrees);
-  const createSpy = vi.spyOn(managedWorktrees, "create").mockImplementation(async (params) => {
-    const worktree = await createWorktree(params);
-    allocatedWorktree = worktree;
-    allocatedDirectoryExists = (await fs.stat(worktree.path)).isDirectory();
-    authorityCurrent = false;
-    return worktree;
-  });
+  const createWorktree = managedWorktrees.createWithOutcome.bind(managedWorktrees);
+  const createSpy = vi
+    .spyOn(managedWorktrees, "createWithOutcome")
+    .mockImplementation(async (params) => {
+      const outcome = await createWorktree(params);
+      allocatedWorktree = outcome.record;
+      allocatedDirectoryExists = (await fs.stat(outcome.record.path)).isDirectory();
+      authorityCurrent = false;
+      return outcome;
+    });
 
   try {
     const created = await directSessionReq(

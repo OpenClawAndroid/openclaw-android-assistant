@@ -9,14 +9,14 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { buildSessionCreationStamp } from "../config/sessions/session-entry-provenance.js";
 import { createSessionTranscriptHeader } from "../config/sessions/transcript-header.js";
-import type { SessionEntry } from "../config/sessions/types.js";
+import type { InternalSessionEntry } from "../config/sessions/types.js";
 import { isIncognitoOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
 import type { AgentRunSessionTarget } from "./run-session-target.js";
 
 type InternalSessionEffectsTarget = Required<
   Pick<AgentRunSessionTarget, "agentId" | "sessionId" | "sessionKey" | "storePath">
 > & {
-  sessionEntry: SessionEntry;
+  sessionEntry: InternalSessionEntry;
   sessionFile: string;
 };
 
@@ -46,7 +46,7 @@ export function resolveInternalSessionEffectsTarget(params: {
 
 function toInternalSessionEffectsTarget(params: {
   agentId: string;
-  entry: SessionEntry;
+  entry: InternalSessionEntry;
   sessionKey: string;
   storePath: string;
 }): InternalSessionEffectsTarget {
@@ -165,17 +165,34 @@ export function createInternalSessionEffectsCleanup(params: {
 /** Hard-deletes a run-owned hidden session and its SQLite transcript rows. */
 export async function removeInternalSessionEffectsSession(
   target: AgentRunSessionTarget | undefined,
+  expectedOwner?: Pick<InternalSessionEntry, "lifecycleRevision" | "activeWriterRunId">,
 ): Promise<void> {
   if (!target?.sessionKey || !target.storePath) {
     return;
   }
-  await applySessionEntryLifecycleMutation({
+  const scope = {
     ...(target.agentId ? { agentId: target.agentId } : {}),
     storePath: target.storePath,
+  };
+  const expectedEntry = expectedOwner
+    ? loadExactSessionEntry({ ...scope, sessionKey: target.sessionKey })?.entry
+    : undefined;
+  if (
+    expectedOwner &&
+    (!expectedEntry ||
+      expectedEntry.sessionId !== target.sessionId ||
+      expectedEntry.lifecycleRevision !== expectedOwner.lifecycleRevision ||
+      expectedEntry.activeWriterRunId !== expectedOwner.activeWriterRunId)
+  ) {
+    return;
+  }
+  await applySessionEntryLifecycleMutation({
+    ...scope,
     removals: [
       {
         sessionKey: target.sessionKey,
         ...(target.sessionId ? { expectedSessionId: target.sessionId } : {}),
+        ...(expectedEntry ? { expectedEntry } : {}),
         archiveRemovedTranscript: false,
       },
     ],

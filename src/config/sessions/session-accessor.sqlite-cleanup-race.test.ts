@@ -1,3 +1,4 @@
+import { hash } from "node:crypto";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
@@ -588,7 +589,7 @@ describe("SQLite lifecycle cleanup races", () => {
       archiveTranscript: true,
       expectedEntry: currentEntry,
       expectedTranscript: {
-        eventJson: [JSON.stringify(events[2])],
+        digest: { eventCount: 1, rollingHash: hash("sha256", `\0${JSON.stringify(events[2])}`) },
         sessionId: sessionIds[2]!,
       },
       storePath,

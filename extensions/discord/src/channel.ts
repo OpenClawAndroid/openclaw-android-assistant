@@ -438,7 +438,7 @@ export const discordPlugin: ChannelPlugin<ResolvedDiscordAccount, DiscordProbe> 
         bindingStore: "adapter",
         defaultTopLevelPlacement,
         createManager: async ({ cfg, accountId }) =>
-          (await loadDiscordThreadBindingsManagerModule()).createThreadBindingManager({
+          (await loadDiscordThreadBindingsManagerModule()).createThreadBindingManagerAsync({
             cfg,
             accountId: accountId ?? undefined,
             persist: false,

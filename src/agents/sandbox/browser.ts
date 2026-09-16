@@ -283,6 +283,7 @@ async function ensureSandboxBrowserContainer(
     workdir: params.cfg.docker.workdir,
     workspaceAccess: params.cfg.workspaceAccess,
     binds: browserDockerCfg.binds,
+    tmpfs: browserDockerCfg.tmpfs,
   });
   const expectedHash = computeSandboxBrowserConfigHash({
     docker: browserDockerCfg,

@@ -94,6 +94,31 @@ afterEach(() => {
 });
 
 describe("native device settings pages", () => {
+  it("switches the advertised Mac experience and follows the native owner's saved value", async () => {
+    const native = createCapability();
+    const page = await mount("openclaw-device-page", native.capability);
+    const title = "Native experience (Experimental)";
+    const experience = row(page, title);
+    expect(experience.querySelector<ToggleElement>("wa-switch")!.checked).toBe(false);
+    expect(experience.textContent).toContain("When off, use the Web experience");
+    toggle(page, title, true);
+    expect(native.capability.set).toHaveBeenCalledExactlyOnceWith(
+      "app.nativeExperienceEnabled",
+      true,
+    );
+    const saved = createNativeDeviceSettingsSnapshot();
+    saved.app.nativeExperienceEnabled = true;
+    native.publish(saved);
+    await page.updateComplete;
+    expect(experience.querySelector<ToggleElement>("wa-switch")!.checked).toBe(true);
+    toggle(page, title, false);
+    expect(native.capability.set).toHaveBeenLastCalledWith("app.nativeExperienceEnabled", false);
+    delete saved.app.nativeExperienceEnabled;
+    native.publish(saved);
+    await page.updateComplete;
+    expect(page.textContent).not.toContain(title);
+  });
+
   it("shows native desktop state and reconciles unattended hosting with the native owner", async () => {
     const snapshot = createNativeDeviceSettingsSnapshot();
     const native = createCapability({

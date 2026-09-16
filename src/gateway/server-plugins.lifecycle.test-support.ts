@@ -2,9 +2,49 @@ import { afterEach, beforeEach, expect, vi } from "vitest";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import {
   INSTANCE_BINDING_PROBE_METHOD,
+  type ChannelBindingProof,
   type InstanceBindingProbeResult,
 } from "./server-plugins.lifecycle.test-fixtures.js";
 import { type connectWebchatClient, rpcReq } from "./test-helpers.server.js";
+
+export async function installChannelBindingRuntimeLoader(proof: ChannelBindingProof) {
+  // Keep the real host factory in Vitest's module graph; fixture plugins still
+  // load normally, with their original registry and instance runtime options.
+  const [loaderModule, sdkAlias, fullRuntime] = await Promise.all([
+    import("../plugins/loader-module-runtime.js"),
+    import("../plugins/sdk-alias.js"),
+    import("../plugins/runtime/index.js"),
+  ]);
+  const observation = {
+    phase: "runtime-module-loader",
+    resolvedTargets: [] as string[],
+    factoryCalls: 0,
+  };
+  proof.observations.push(observation);
+  const resolveRuntime = vi.spyOn(sdkAlias, "resolvePluginRuntimeModulePathWithDiagnostics");
+  const createLoader = loaderModule.createPluginModuleLoader;
+  const loaderSpy = vi
+    .spyOn(loaderModule, "createPluginModuleLoader")
+    .mockImplementation((loaderOptions) => {
+      const load = createLoader(loaderOptions);
+      return (modulePath, owner) => {
+        if (!owner && modulePath === resolveRuntime.mock.results.at(-1)?.value?.resolvedPath) {
+          observation.resolvedTargets.push(modulePath);
+          return {
+            createPluginRuntime: (...args: Parameters<typeof fullRuntime.createPluginRuntime>) => {
+              observation.factoryCalls += 1;
+              return fullRuntime.createPluginRuntime(...args);
+            },
+          };
+        }
+        return load(modulePath, owner);
+      };
+    });
+  return () => {
+    loaderSpy.mockRestore();
+    resolveRuntime.mockRestore();
+  };
+}
 
 export async function patchInstanceBindingTestConfig(
   socket: Awaited<ReturnType<typeof connectWebchatClient>>,

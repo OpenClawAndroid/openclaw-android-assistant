@@ -8,10 +8,8 @@ import { createServer } from "node:http";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import {
-  loadSubagentRunsByRunIdsFromSqlite,
-  saveSubagentRegistryChangesToSqlite,
-} from "../agents/subagents/registry/subagent-registry.store.sqlite.js";
+import { persistSubagentRunsToDiskOrThrow } from "../agents/subagents/registry/subagent-registry-state.js";
+import { loadSubagentRunsByRunIdsFromSqlite } from "../agents/subagents/registry/subagent-registry.store.sqlite.js";
 import {
   listSubagentRunsForRequester,
   registerSubagentRun,
@@ -226,10 +224,8 @@ describe("Completed child results on a real parent-agent turn", () => {
             completion: { required: true, resultText: result, capturedAt: endedAt },
             delivery: { status: "failed" },
           };
-          // Model a result committed by another process, not a local registry publication.
-          saveSubagentRegistryChangesToSqlite(new Map([[retained.runId, retained]]), [
-            retained.runId,
-          ]);
+          // Publish retained custody through the owner without registering an active child.
+          persistSubagentRunsToDiskOrThrow(new Map([[retained.runId, retained]]), [retained.runId]);
           const before = loadSubagentRunsByRunIdsFromSqlite([retained.runId]);
           const cursor = requests.length;
           await runParentAgentTurn(gateway.client, "Continue using any outstanding child result.");
@@ -249,7 +245,7 @@ describe("Completed child results on a real parent-agent turn", () => {
             `OPENCLAW_ISOLATED_GATEWAY_CATCHUP_VERDICT ${JSON.stringify({
               surface: "isolated-gateway",
               path: "real-parent-model-request",
-              source: "seeded-cross-process-SQLite-result",
+              source: "seeded-registry-owner-result",
               result,
               resultAgeMs: 7_200_000,
               spawnDenied: true,

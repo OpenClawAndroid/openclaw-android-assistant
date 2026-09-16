@@ -53,9 +53,9 @@ import {
   scenarioRequiresIsolatedQaSuiteWorker,
 } from "./suite-planning.js";
 import { createQaSuiteProgressController } from "./suite-progress.js";
+import { rejectRemovedQaChannelDriverSelection } from "./suite-types.js";
 import {
   buildQaSuiteSummaryJson,
-  normalizeQaSuiteRunParams,
   shouldLogQaSuiteProgress,
   type QaSuiteResult,
   type QaSuiteRunParams,
@@ -1735,7 +1735,8 @@ async function runUnifiedQaSuite(params: {
 }
 
 export async function runQaSuite(...args: [QaSuiteRunParams?]): Promise<QaSuiteRuntimeResult> {
-  const runParams = normalizeQaSuiteRunParams(args[0]);
+  const runParams = args[0];
+  rejectRemovedQaChannelDriverSelection(runParams);
   const plan = await resolveSuiteExecutionPlan(runParams);
   if (plan.kind === "unified") {
     const { observedCells, ...result } = await runUnifiedQaSuite({

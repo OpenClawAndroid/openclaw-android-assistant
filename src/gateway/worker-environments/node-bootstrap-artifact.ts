@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants as fsConstants, createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { finished, pipeline } from "node:stream/promises";
 import { isDeepStrictEqual } from "node:util";
@@ -17,6 +18,7 @@ import {
 } from "../../../scripts/lib/package-lifecycle-marker.mjs";
 import { validateBundledPackageDependencyAlignment } from "../../../scripts/package-source-dependencies.mjs";
 import { racePromiseWithAbortSignal } from "../../infra/abort-signal.js";
+import { root as openFsRoot } from "../../infra/fs-safe.js";
 import {
   collectPackageDistInventory,
   PACKAGE_DIST_INVENTORY_RELATIVE_PATH,
@@ -25,7 +27,10 @@ import {
   composePackagePlugins,
   type DistributionPackageManifest,
 } from "../../infra/package-plugin-composition.js";
+import { collectPackageRootImports } from "../../infra/package-root-imports.js";
+import { readRuntimeDependencyOwnership } from "../../infra/runtime-dependency-ownership.js";
 import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js";
+import { NON_PACKAGED_BUNDLED_PLUGIN_DIRS } from "../../shared/non-packaged-plugin-dirs.js";
 import {
   DEFAULT_WORKER_BUNDLE_ARCHIVE_LIMITS,
   readWorkerBundleArchiveManifest,
@@ -101,6 +106,85 @@ async function readPackageManifest(root: string): Promise<NodePackageManifest> {
     throw new Error("Node distribution requires a named package with an exact version");
   }
   return value;
+}
+
+async function omitPrivateRuntimeChunks(packageRoot: string, files: string[]) {
+  const ownership = readRuntimeDependencyOwnership(packageRoot);
+  const privateChunks = new Map(
+    files.flatMap((file) => {
+      if (
+        !file.startsWith("dist/") ||
+        !/\.[cm]?js$/u.test(file) ||
+        file.startsWith("dist/extensions/")
+      ) {
+        return [];
+      }
+      const owner = ownership?.chunks[file.slice("dist/".length)];
+      return owner?.extensions.every((id) => NON_PACKAGED_BUNDLED_PLUGIN_DIRS.has(id))
+        ? [[file, owner] as const]
+        : [];
+    }),
+  );
+  const sourceFacts = new Map<string, { sha256: string; imports: PackageDistImport[] }>();
+  if (privateChunks.size === 0) {
+    return { files, sourceFacts };
+  }
+  const root = await openFsRoot(packageRoot, {
+    hardlinks: "allow",
+    symlinks: "reject",
+    nonBlockingRead: true,
+  });
+  const fileSet = new Set(files);
+  const imports = new Map<string, string[]>();
+  // Parsing is synchronous; read one input at a time so buffers cannot multiply the byte bound.
+  for (const file of files.filter((candidate) => /\.[cm]?js$/u.test(candidate))) {
+    const { buffer } = await root.read(file, {
+      hardlinks: "allow",
+      symlinks: "reject",
+      maxBytes: DEFAULT_WORKER_BUNDLE_ARCHIVE_LIMITS.maxExpandedBytes,
+    });
+    const sha256 = createHash("sha256").update(buffer).digest("hex");
+    const owner = privateChunks.get(file);
+    if (owner && sha256 !== owner.sha256) {
+      throw new Error(`Runtime dependency ownership does not match ${file}; rebuild the Gateway`);
+    }
+    const source = buffer.toString("utf8");
+    const fileImports = collectPackageDistImports({
+      files: [file],
+      readText: () => source,
+    });
+    sourceFacts.set(file, { sha256, imports: fileImports });
+    const dependencies = new Set(fileImports.map(({ importedPath }) => importedPath));
+    const resolveImport = createRequire(path.join(packageRoot, file)).resolve;
+    for (const specifier of collectPackageRootImports(source)) {
+      if (!specifier.startsWith(".")) {
+        continue;
+      }
+      const specifierPath = specifier.replace(/[?#].*$/u, "");
+      const direct = path.posix.normalize(path.posix.join(path.posix.dirname(file), specifierPath));
+      if (fileSet.has(direct) && dependencies.has(direct)) {
+        continue;
+      }
+      try {
+        dependencies.add(
+          path.relative(packageRoot, resolveImport(specifierPath)).split(path.sep).join("/"),
+        );
+      } catch {
+        // The archive's closure check owns missing relative imports.
+      }
+    }
+    imports.set(file, [...dependencies]);
+  }
+  // Current root and shared imports override build ownership, including native require edges.
+  const retained = files.filter((file) => !privateChunks.has(file));
+  for (const file of retained) {
+    for (const dependency of imports.get(file) ?? []) {
+      if (privateChunks.delete(dependency)) {
+        retained.push(dependency);
+      }
+    }
+  }
+  return { files: files.filter((file) => !privateChunks.has(file)), sourceFacts };
 }
 
 function requireRunningBuild(options: ArtifactOptions, text: string, version: string): string {
@@ -284,7 +368,7 @@ async function prepareNodeBootstrapArtifact(
   const externalPluginPrefixes = plugins
     .filter((plugin) => !plugin.bundled)
     .map(({ id }) => `dist/extensions/${id}/`);
-  const files = (
+  const publicFiles = (
     await collectPackageDistInventory(packageRoot, { packageManifest: packageJson })
   ).filter(
     // The Gateway serves Control UI assets; nodes install their worker bundle separately.
@@ -294,21 +378,22 @@ async function prepareNodeBootstrapArtifact(
       !relative.startsWith("dist/control-ui/") &&
       !externalPluginPrefixes.some((prefix) => relative.startsWith(prefix)),
   );
+  const scripts = (sourcePackage.files ?? []).filter(
+    (relative) =>
+      relative.startsWith("scripts/") && !relative.includes("*") && !relative.endsWith("/"),
+  );
+  const { files, sourceFacts } = await omitPrivateRuntimeChunks(
+    packageRoot,
+    [...BOOTSTRAP_LAUNCHER_FILES, ...publicFiles, ...scripts].filter(
+      (relative) => relative !== LEGACY_PACKAGE_INSTALL_GUARD_RELATIVE_PATH,
+    ),
+  );
   if (!files.includes("dist/entry.js") && !files.includes("dist/entry.mjs")) {
     throw new Error(
       "Cloud bootstrap is missing its built CLI entry; run pnpm build and restart the Gateway",
     );
   }
-  const scripts = (sourcePackage.files ?? []).filter(
-    (relative) =>
-      relative.startsWith("scripts/") && !relative.includes("*") && !relative.endsWith("/"),
-  );
-  addFiles(
-    packageRoot,
-    [...BOOTSTRAP_LAUNCHER_FILES, ...files, ...scripts].filter(
-      (relative) => relative !== LEGACY_PACKAGE_INSTALL_GUARD_RELATIVE_PATH,
-    ),
-  );
+  addFiles(packageRoot, files);
   // Keep real install guards/pruning, but source-only prepare/prepack commands must not run on a node.
   packageJson.scripts = Object.fromEntries(
     Object.entries(packageJson.scripts ?? {}).filter(([name]) =>
@@ -448,18 +533,23 @@ async function prepareNodeBootstrapArtifact(
         const [relative, entry] = batch[index]!;
         const { contents, mode } = read.results[index]!;
         const importerPath = relative.slice(entry.scope.prefix.length);
-        entry.scope.imports.push(
-          ...collectPackageDistImports({
-            files: [importerPath],
-            readText: () => contents.toString("utf8"),
-          }),
-        );
         const identity = {
           path: `package/${relative}`,
           size: contents.byteLength,
           mode: process.platform === "win32" ? WORKER_BUNDLE_ARTIFACT_MODE : mode,
           sha256: createHash("sha256").update(contents).digest("hex"),
         };
+        const inspected = sourceFacts.get(relative);
+        if (inspected && identity.sha256 !== inspected.sha256) {
+          throw new Error(`Node distribution changed after import inspection: ${relative}`);
+        }
+        entry.scope.imports.push(
+          ...(inspected?.imports ??
+            collectPackageDistImports({
+              files: [importerPath],
+              readText: () => contents.toString("utf8"),
+            })),
+        );
         manifest.push(identity);
         const input = new tar.ReadEntry(
           new tar.Header({

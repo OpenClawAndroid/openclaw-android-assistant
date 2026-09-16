@@ -12,6 +12,7 @@ import {
   createChangedExtensionFallbackShards,
   createChangedNodeTestShards,
   hasBuildArtifactAffectingChange,
+  hasControlUiPerformanceAffectingChange,
   hasCoreExtensionImpact,
   hasPromptSnapshotAffectingChange,
   hasQaSmokeAffectingChange,
@@ -449,7 +450,7 @@ describe("CI changed Node test plan", () => {
         );
         expect(shard.predictedSeconds).toBeGreaterThan(0);
         if (runnerBackend === "blacksmith" && !shard.requiresDist) {
-          expect(shard.runner).toBe("blacksmith-32vcpu-ubuntu-2404");
+          expect(shard.runner).toBe("blacksmith-16vcpu-ubuntu-2404");
         }
       }
       expect(new Set((shards ?? []).flatMap(resolveTestGitCommits))).toEqual(
@@ -921,8 +922,8 @@ describe("CI changed Node test plan", () => {
     // Smoke drives matrix + telegram; other channel plugins are invisible to it.
     expect(hasQaSmokeAffectingChange(["extensions/telegram/src/index.ts"])).toBe(true);
     expect(hasQaSmokeAffectingChange(["extensions/discord/src/index.ts"])).toBe(false);
-    // Broad runtime changes ride the main-push smoke run instead of taxing
-    // every PR with the six-part matrix; only QA-owned surfaces select it.
+    // Broad runtime changes wait for release validation; only QA owners
+    // select smoke on automatic PR and main runs.
     expect(hasQaSmokeAffectingChange(["ui/src/app.ts"])).toBe(false);
     expect(hasQaSmokeAffectingChange(["src/infra/retry.ts"])).toBe(false);
     expect(hasQaSmokeAffectingChange(["packages/llm-core/src/index.ts"])).toBe(false);
@@ -934,6 +935,26 @@ describe("CI changed Node test plan", () => {
     expect(hasQaSmokeAffectingChange([".github/actions/setup-node-env/action.yml"])).toBe(true);
     expect(hasQaSmokeAffectingChange(["scripts/lib/ci-changed-node-test-plan.mts"])).toBe(true);
     expect(hasQaSmokeAffectingChange([".github/workflows/labeler.yml"])).toBe(false);
+  });
+
+  it.each([
+    ["ui/src/main.ts", true],
+    ["ui/vite.config.ts", true],
+    ["ui/src/pages/chat/chat-gateway.test.ts", false],
+    ["packages/gateway-client/src/index.ts", true],
+    ["pnpm-lock.yaml", true],
+    ["patches/@awesome.me__webawesome@3.12.0.patch", true],
+    [".npmrc", true],
+    ["scripts/check-control-ui-performance-base.mts", true],
+    ["scripts/lib/control-ui-i18n-config.ts", true],
+    ["src/gateway/control-ui-asset-manifest.ts", true],
+    ["src/infra/retry.ts", true],
+    ["src/commands/doctor.ts", true],
+    ["src/cli/cron-cli/shared.ts", false],
+    ["extensions/telegram/src/index.ts", false],
+    ["docs/ci.md", false],
+  ] as const)("selects UI performance for %s: %s", (file, expected) => {
+    expect(hasControlUiPerformanceAffectingChange([file])).toBe(expected);
   });
 
   it.each([

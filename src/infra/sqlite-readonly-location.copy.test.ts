@@ -174,7 +174,7 @@ describe("stable read-only snapshot copies", () => {
 
       expectSnapshot(fixture, after);
       expect(replaced).toBe(true);
-      expect(fs.readFileSync(displacedPath)).toEqual(before);
+      expect(fs.readFileSync(displacedPath).equals(before)).toBe(true);
       expect(fs.readdirSync(fixture.sourceRoot).toSorted()).toEqual([
         "displaced.sqlite",
         "source.sqlite",

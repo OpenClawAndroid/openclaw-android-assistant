@@ -23,7 +23,7 @@ export type RequestBody = SqliteWorkerRequest extends infer Request
     ? Omit<Request, "id">
     : never
   : never;
-type DispatchState = { dispatched: boolean };
+type DispatchState = { dispatched: boolean; openNotEntered?: boolean };
 export type Job = {
   maintenanceScope?: OpenClawDatabaseMaintenanceScope;
   maintenanceSchemaFence?: { actor: Actor; delegate: StateLifecycleDelegate };
@@ -110,9 +110,12 @@ export type SqliteWorkerStoreOptions = {
   databasePath: string;
   input: unknown;
   existingOnly?: boolean;
+  admission?: { identity: string; assertCurrent(): void };
 };
 
 export type PreparedSqliteWorkerOpen = {
+  expectedIdentity?: string;
+  createOpenAdmission?: SqliteWorkerAdmissionFactory;
   maintenanceScope?: OpenClawDatabaseMaintenanceScope;
   retainCleanup?: (cleanup: SqliteWorkerAdmissionCleanup) => void;
   assertCurrent?: () => void;

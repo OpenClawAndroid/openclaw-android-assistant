@@ -292,6 +292,7 @@ export async function beginDoctorMaintenance(params: {
                   loadForInspection: {
                     managerUid: before.serviceManagerUid,
                     assertCurrent: assertMaintenanceCurrent,
+                    assertReadCurrent: assertCurrent,
                   },
                 }
               : {}),

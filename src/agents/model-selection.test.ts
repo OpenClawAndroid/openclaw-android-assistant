@@ -2448,6 +2448,46 @@ describe("model-selection", () => {
 
     it.each([
       {
+        name: "resolves a provider-qualified alias for a configured primary",
+        primary: "nemotron-bolt/fast",
+        modelEntries: {
+          "nemotron-bolt/nemotron-3-super-120b": { alias: "fast" },
+          "openai/gpt-5.5": { alias: "fast" },
+        },
+        providers: nemotronProvider,
+        defaultProvider: "openai",
+        defaultModel: "gpt-5.4",
+        expected: { provider: "nemotron-bolt", model: "nemotron-3-super-120b" },
+      },
+      {
+        name: "resolves a provider-qualified alias with a profile for a configured primary",
+        primary: "nemotron-bolt/Fast@work",
+        modelEntries: {
+          "nemotron-bolt/nemotron-3-super-120b": { alias: "fast" },
+          "openai/gpt-5.5": { alias: "fast" },
+        },
+        providers: nemotronProvider,
+        defaultProvider: "openai",
+        defaultModel: "gpt-5.4",
+        expected: { provider: "nemotron-bolt", model: "nemotron-3-super-120b" },
+      },
+      {
+        name: "keeps a literal model before a same-provider alias",
+        primary: "nemotron-bolt/fast",
+        modelEntries: {
+          "nemotron-bolt/nemotron-3-super-120b": { alias: "fast" },
+        },
+        providers: {
+          "nemotron-bolt": {
+            ...nemotronProvider["nemotron-bolt"],
+            models: [...nemotronProvider["nemotron-bolt"].models, { id: "fast", name: "Fast" }],
+          },
+        },
+        defaultProvider: "openai",
+        defaultModel: "gpt-5.4",
+        expected: { provider: "nemotron-bolt", model: "fast" },
+      },
+      {
         name: "keeps exact configured provider refs before alias values that point to them",
         primary: "nemotron-bolt/nemotron-3-super-120b",
         modelEntries: {
@@ -3350,7 +3390,9 @@ describe("resolveSubagentSpawnModelSelection", () => {
   ])("$name", ({ config, agentId, modelOverride, expected }) => {
     const cfg = createSubagentSelectionConfig(config);
 
-    expect(resolveSubagentSpawnModelSelection({ cfg, agentId, modelOverride })).toBe(expected);
+    expect(resolveSubagentSpawnModelSelection({ cfg, agentId, modelOverride })).toEqual({
+      model: expected,
+    });
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

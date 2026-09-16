@@ -15,11 +15,13 @@ import {
   upsertSessionEntryCore,
 } from "../config/sessions/session-accessor.sqlite-entry.js";
 import {
-  readSessionTranscriptHistoryEvents,
-  readSessionTranscriptHistoryEventById,
   readSessionTranscriptHistoryEventCount,
   readSessionTranscriptHistoryEventPage,
 } from "../config/sessions/session-accessor.sqlite-history-events.js";
+import {
+  readSessionTranscriptHistoryEvents,
+  readSessionTranscriptHistoryEventById,
+} from "../config/sessions/session-accessor.sqlite-history.test-support.js";
 import { importSqliteSessionRows } from "../config/sessions/session-accessor.sqlite-import.js";
 import {
   loadTranscriptEventsSync,
@@ -38,6 +40,7 @@ import {
   claimOpenClawAgentDatabaseLease,
   releaseOpenClawAgentDatabaseLease,
 } from "../state/openclaw-agent-db-lease.js";
+import { invalidateRegisteredAgentDatabasesMemo } from "../state/openclaw-agent-db-registry-listing.js";
 import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
@@ -1936,6 +1939,68 @@ describe("runDoctorSessionSqlite", () => {
     ).toBe(true);
   });
 
+  it.each(["absent", "populated"] as const)(
+    "preserves shared database bytes with WAL %s when custom restore refuses disposed sources",
+    async (wal) => {
+      const store = createLegacyStore({
+        customStore: true,
+        transcriptLines: RECOVERY_TRANSCRIPT_LINES,
+      });
+      fs.unlinkSync(store.trajectoryPath);
+      fs.unlinkSync(store.unreferencedJsonlPath);
+      store.stateDir = store.tempDir;
+      store.env.OPENCLAW_STATE_DIR = store.stateDir;
+      process.env.OPENCLAW_STATE_DIR = store.stateDir;
+      const cfg = { session: { store: store.storePath } };
+      const imported = await runPublicSessionSqlite(store, "import");
+      expect(imported.exitCode).toBe(0);
+      expect(imported.report.totals.importedEntries).toBe(1);
+      closeOpenClawAgentDatabasesForTest();
+      const cleanup = await retireSessionSqliteRecovery({
+        env: store.env,
+        preview: inspectSessionSqliteRecovery({ cfg, env: store.env }),
+        readConfig: async () => cfg,
+        confirm: async () => true,
+      });
+      expect(cleanup.status).toBe("complete");
+      expect(cleanup.totals.removedFiles).toBe(2);
+      closeOpenClawStateDatabaseForTest();
+      // A new CLI process has neither a live connection nor a warm registry memo.
+      invalidateRegisteredAgentDatabasesMemo({ env: store.env });
+      const shared = resolveOpenClawStateSqlitePath(store.env);
+      const writer = wal === "populated" ? nodeSqlite.openNodeSqliteDatabase(shared) : undefined;
+      try {
+        writer?.exec(
+          "PRAGMA wal_autocheckpoint = 0; UPDATE schema_meta SET updated_at = updated_at + 1",
+        );
+        const readArtifacts = () =>
+          [shared, `${shared}-wal`].map((file) =>
+            fs.existsSync(file) ? fs.readFileSync(file) : undefined,
+          );
+        const before = readArtifacts();
+        expect(before[0]?.length).toBeGreaterThan(0);
+        if (wal === "absent") {
+          expect(before[1]).toBeUndefined();
+        } else {
+          expect(before[1]?.length).toBeGreaterThan(32);
+        }
+        const restored = await runPublicSessionSqlite(store, "restore");
+        expect(restored.exitCode).toBe(1);
+        expect(restored.report.targets[0]?.restore?.restoredFiles).toEqual([]);
+        expect(restored.report.targets[0]?.restore?.conflicts).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ reason: expect.stringContaining("intentionally disposed") }),
+          ]),
+        );
+        expect(readArtifacts()).toEqual(before);
+        expect(fs.existsSync(store.storePath)).toBe(false);
+        expect(fs.existsSync(store.transcriptPath)).toBe(false);
+      } finally {
+        writer?.close();
+      }
+    },
+  );
+
   it("retains archived source mappings after more than 50 successful migration runs", async () => {
     const store = createLegacyStore();
     const original = fs.readFileSync(store.transcriptPath);
@@ -2750,7 +2815,9 @@ describe("runDoctorSessionSqlite", () => {
     expect(report.targets[0]?.issues).toEqual([
       {
         code: "entry_invalid",
-        message: "Session entry is missing a valid sessionId.",
+        message: expect.stringContaining(
+          `${store.storePath}: session entry is missing a valid sessionId`,
+        ),
         sessionKey: cronStubKey,
       },
     ]);

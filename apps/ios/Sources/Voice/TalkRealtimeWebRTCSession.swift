@@ -144,6 +144,19 @@ final class TalkRealtimeTranscriptStore {
     }
 }
 
+/// Captured at creation, including the account and physical socket admission.
+struct TalkRealtimeVoiceSessionOwner: Equatable {
+    let gateway: GatewayNodeSession
+    let route: GatewayNodeSessionRoute
+    let sessionKey: String
+    let voiceSessionId: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.gateway === rhs.gateway && lhs.route == rhs.route &&
+            lhs.sessionKey == rhs.sessionKey && lhs.voiceSessionId == rhs.voiceSessionId
+    }
+}
+
 @MainActor
 final class TalkRealtimeWebRTCSession: NSObject {
     private static let logger = Logger(subsystem: "ai.openclawfoundation.app", category: "TalkRealtimeWebRTC")
@@ -226,6 +239,12 @@ final class TalkRealtimeWebRTCSession: NSObject {
 
     var voiceSessionId: String? {
         self.adoptedVoiceSessionId
+    }
+
+    var voiceSessionOwner: TalkRealtimeVoiceSessionOwner? {
+        guard let voiceSessionId, let gatewayRoute else { return nil }
+        return TalkRealtimeVoiceSessionOwner(
+            gateway: self.gateway, route: gatewayRoute, sessionKey: self.sessionKey, voiceSessionId: voiceSessionId)
     }
 
     func start(

@@ -12,9 +12,11 @@ const longComment =
   "Please verify the deployment checklist and retain the original context. ".repeat(24);
 let container: HTMLDivElement;
 let originalTheme: string | undefined;
+let originalPalette: string | undefined;
 
 beforeEach(async () => {
   originalTheme = document.documentElement.dataset.themeMode;
+  originalPalette = document.documentElement.dataset.theme;
   await page.viewport(1440, 900);
   container = document.createElement("div");
   document.body.append(container);
@@ -28,6 +30,11 @@ afterEach(() => {
     delete document.documentElement.dataset.themeMode;
   } else {
     document.documentElement.dataset.themeMode = originalTheme;
+  }
+  if (originalPalette === undefined) {
+    delete document.documentElement.dataset.theme;
+  } else {
+    document.documentElement.dataset.theme = originalPalette;
   }
 });
 
@@ -222,32 +229,35 @@ function openEditor(expanded = false) {
 
 describe("annotation editor", () => {
   it.each(["light", "dark"])("keeps creation and edit focus frames subtle in %s", async (theme) => {
+    document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.themeMode = theme;
+    await page.elementLocator(document.body).hover({ position: { x: 2, y: 2 } });
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d")!;
-    const expectNonRed = (color: string) => {
+    const expectNonRed = (color: string, surface: string) => {
       context.fillStyle = "white";
       context.fillRect(0, 0, 1, 1);
       context.fillStyle = color;
       context.fillRect(0, 0, 1, 1);
       const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data;
       if (alpha) {
-        expect(red! - Math.max(green!, blue!)).toBeLessThanOrEqual(8);
+        expect(red! - Math.max(green!, blue!), `${surface}: ${color}`).toBeLessThanOrEqual(8);
       }
     };
     const expectQuietFrame = (element: HTMLElement) => {
       const style = getComputedStyle(element);
+      const surface = `${element.localName}.${element.className}`;
       expect(Number.parseFloat(style.borderTopWidth)).toBeLessThanOrEqual(1);
       if (Number.parseFloat(style.borderTopWidth) > 0) {
-        expectNonRed(style.borderTopColor);
+        expectNonRed(style.borderTopColor, `${surface} border`);
       }
       if (style.outlineStyle !== "none") {
         expect(Number.parseFloat(style.outlineWidth)).toBeLessThanOrEqual(1);
-        expectNonRed(style.outlineColor);
+        expectNonRed(style.outlineColor, `${surface} outline`);
       }
       for (const color of style.boxShadow.match(/(?:rgba?|color)\([^)]*\)/g) ?? []) {
-        expectNonRed(color);
+        expectNonRed(color, `${surface} shadow`);
       }
     };
     for (const expanded of [false, true]) {

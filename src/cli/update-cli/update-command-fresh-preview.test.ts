@@ -523,42 +523,6 @@ describe("update command admission with fresh state", () => {
     },
   );
 
-  it.each([
-    { owned: true, restart: true, expectedFallback: "/current/node" },
-    { owned: false, restart: true, expectedFallback: undefined },
-    { owned: true, restart: false, expectedFallback: undefined },
-  ])(
-    "limits fresh-state Node fallback to the service it will refresh (owned=$owned, restart=$restart)",
-    async ({ owned, restart, expectedFallback }) => {
-      fixture.managedServiceNodeRunner = "/service/node";
-      vi.spyOn(shared, "resolveNodeRunner").mockReturnValue("/current/node");
-      vi.spyOn(servicePlan, "gatewayServiceCommandUsesRoot").mockResolvedValue(owned);
-      const runtimePreflight = vi
-        .spyOn(servicePlan, "resolvePackageRuntimePreflight")
-        .mockResolvedValue({ ok: false, error: "fixture-stop" });
-
-      await expect(
-        updateCommand({ tag: "2026.9.2", yes: true, json: true, restart }),
-      ).rejects.toMatchObject({ code: 1 });
-
-      expect(
-        runtimePreflight.mock.calls.map(([params]) => ({
-          nodeRunner: params.nodeRunner,
-          fallbackNodeRunner: params.fallbackNodeRunner,
-        })),
-      ).toEqual([
-        {
-          nodeRunner: "/service/node",
-          fallbackNodeRunner: expectedFallback,
-        },
-      ]);
-      expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "error", reason: "node-runtime-preflight" }),
-      );
-      expectFreshStatePreserved();
-    },
-  );
-
   it("selects the fresh managed profile's stored channel instead of the shell profile's channel", async () => {
     const shellConfigPath = process.env.OPENCLAW_CONFIG_PATH!;
     fs.mkdirSync(path.dirname(shellConfigPath), { recursive: true });

@@ -5,6 +5,40 @@ import { canonicalizeActTargetIds, normalizeActRequest } from "./agent.act.norma
 
 const MAX_SAFE_TIMEOUT_DELAY_MS = 2_147_483_647;
 
+it("projects nested actions without leaking caller control fields or dropping false and empty values", () => {
+  expect(
+    normalizeActRequest({
+      kind: "batch",
+      targetId: 123,
+      stopOnError: false,
+      signal: "caller-signal",
+      actions: [
+        {
+          kind: "click",
+          ref: " e1 ",
+          doubleClick: false,
+          delayMs: 0,
+          resolvedPage: { targetId: "other-page" },
+          assertCurrent: "caller-authority",
+        },
+        { kind: "type", selector: " input ", text: "", submit: false, slowly: false },
+        { kind: "select", ref: "e2", values: ["", " spaced "] },
+        { kind: "close", timeoutMs: "ignored-for-close" },
+      ],
+    }),
+  ).toStrictEqual({
+    kind: "batch",
+    targetId: "123",
+    stopOnError: false,
+    actions: [
+      { kind: "click", ref: "e1", doubleClick: false, delayMs: 0 },
+      { kind: "type", selector: "input", text: "", submit: false, slowly: false },
+      { kind: "select", ref: "e2", values: ["", " spaced "] },
+      { kind: "close" },
+    ],
+  });
+});
+
 describe("canonicalizeActTargetIds", () => {
   const canonical = "abcd1234";
   const tab = { targetId: canonical, suggestedTargetId: "sg-1", tabId: "tab-7", label: "Inbox" };

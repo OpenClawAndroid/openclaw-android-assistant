@@ -938,10 +938,6 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
   ): Promise<void> {
     await withMemoryWorkspaceLock(this.workspaceDir, async () => {
       const database = this.database;
-      const shadowDeadline =
-        database.isShadow && source === "sessions"
-          ? database.captureShadowWriteDeadline()
-          : undefined;
       const assertCurrent = () => {
         if (
           this.closed ||
@@ -987,7 +983,7 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
             }
           : { source }),
       });
-      const prepare = async (): Promise<MemorySourceIndexReplacement | undefined> => {
+      const prepare = async (): Promise<boolean> => {
         if (source === "memory") {
           const current = await buildFileEntry(
             entry.absPath,
@@ -999,51 +995,20 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
             log.debug("memory source changed while indexing; queued incremental retry", {
               path: entry.path,
             });
-            return undefined;
+            return false;
           }
         }
-        return createReplacement();
+        assertCurrent();
+        return true;
       };
-      const sessionReplacement = source === "sessions" ? createReplacement() : undefined;
-      const staging =
-        shadowDeadline !== undefined && sessionReplacement?.source === "sessions"
-          ? await database.replaceShadowSession(sessionReplacement, assertCurrent, shadowDeadline)
-          : undefined;
-      const published =
-        staging?.kind === "staged"
-          ? { databaseRevision: undefined }
-          : await runSqliteImmediateTransaction(
-              database.db,
-              async () => {
-                const replacement = await prepare();
-                if (!replacement) {
-                  return undefined;
-                }
-                return () => {
-                  assertCurrent();
-                  if (
-                    generation &&
-                    database.db === generation.database.db &&
-                    readMemoryDatabaseRevision(database.db) !== generation.databaseRevision
-                  ) {
-                    generation.cacheWritesInvalidated = true;
-                  }
-                  database.sourceIndex.replace(replacement);
-                  return {
-                    databaseRevision:
-                      generation && database.db === generation.database.db
-                        ? readMemoryDatabaseRevision(database.db)
-                        : undefined,
-                  };
-                };
-              },
-              staging?.kind === "caller" ? { beginDeadlineNs: staging.beginDeadlineNs } : undefined,
-              (write) => this.withDatabaseWrite(write),
-            );
+      const published = await database.replaceSource(createReplacement(), assertCurrent, prepare);
       if (!published) {
         return;
       }
-      if (generation && published.databaseRevision !== undefined) {
+      if (generation && database === generation.database) {
+        if (published.beforeRevision !== generation.databaseRevision) {
+          generation.cacheWritesInvalidated = true;
+        }
         // Admission can resume another writer before this continuation runs.
         // Adopt only the revision captured by our committed publication.
         generation.databaseRevision = published.databaseRevision;

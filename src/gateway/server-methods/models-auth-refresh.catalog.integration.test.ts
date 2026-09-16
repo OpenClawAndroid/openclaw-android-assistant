@@ -138,8 +138,11 @@ describe("models.authRefresh learned catalog", () => {
           });
           return result.models.filter((model) => model.provider === provider);
         };
-        const original = await list(true);
-        expect(original.map((model) => model.id)).toEqual(["account-one-learned"]);
+        // A refresh can return the static catalog while account discovery continues.
+        await list(true);
+        await expect
+          .poll(async () => (await list()).map((model) => model.id))
+          .toEqual(["account-one-learned"]);
         expect(requests.length).toBeGreaterThan(0);
         expect(
           requests.every((authorization) => authorization === "Bearer account-one-original"),

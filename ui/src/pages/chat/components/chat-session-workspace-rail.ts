@@ -2,6 +2,7 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import { html, nothing, type TemplateResult } from "lit";
 import { keyed } from "lit/directives/keyed.js";
 import { renderCopyButton } from "../../../components/copy-button.ts";
+import { shortestFileLabels } from "../../../components/file-kind.ts";
 import { icons } from "../../../components/icons.ts";
 import { renderPanelLoadingSkeleton } from "../../../components/panel-loading-skeleton.ts";
 import "../../../components/tooltip.ts";
@@ -12,6 +13,7 @@ import {
   isApplePlatform,
   KEYBOARD_SHORTCUT_COMBOS,
 } from "../../../lib/keyboard-shortcut-catalog.ts";
+import { isSessionWorkspaceFileSelected } from "../../../lib/sessions/workspace.ts";
 import type {
   SessionWorkspaceFilter,
   SessionWorkspaceProps,
@@ -89,7 +91,12 @@ function renderRailRow({
       ${active ? "chat-workspace-rail__file--active" : ""}"
       role="listitem"
     >
-      <button class="chat-workspace-rail__file-open" type="button" @click=${onOpen}>
+      <button
+        class="chat-workspace-rail__file-open"
+        type="button"
+        aria-label=${tooltip}
+        @click=${onOpen}
+      >
         <span class="chat-workspace-rail__file-icon">${icon}</span>
         <span class="chat-workspace-rail__file-main">
           <openclaw-tooltip .content=${tooltip}>
@@ -115,6 +122,7 @@ export function renderSessionWorkspaceRail(
   // would crush the thread below its readable minimum.
   const dock = sessionWorkspace.narrowLayout ? "bottom" : sessionWorkspace.dock;
   const files = sessionWorkspace.list?.files ?? [];
+  const fileLabels = shortestFileLabels(files.map((file) => file.path || file.name));
   const artifacts = sessionWorkspace.list?.artifacts ?? [];
   const browser = sessionWorkspace.list?.browser;
   const entries = browser?.entries ?? [];
@@ -197,10 +205,16 @@ export function renderSessionWorkspaceRail(
               const onOpen = () => sessionWorkspace.onOpenFile(file.path, "session");
               return renderRailRow({
                 icon: icons.fileText,
-                name: file.path || file.name,
+                name: fileLabels.get(file.path || file.name) ?? file.name,
+                tooltip: file.path || file.name,
                 meta: formatWorkspaceFileSize(file.size),
                 onOpen,
-                active: `file:${file.path}` === sessionWorkspace.activeId,
+                active: isSessionWorkspaceFileSelected(
+                  sessionWorkspace.activeId,
+                  sessionWorkspace.list?.root,
+                  file.path,
+                  file.workspacePath,
+                ),
                 badge: file.missing
                   ? html`<span class="chat-workspace-rail__file-badge"
                       >${t("chat.workspaceFiles.missing")}</span
@@ -249,7 +263,12 @@ export function renderSessionWorkspaceRail(
             : [entry.path, formatWorkspaceFileSize(entry.size)].filter(Boolean).join(" / "),
           onOpen,
           directory,
-          active: `file:${entry.path}` === sessionWorkspace.activeId,
+          active: isSessionWorkspaceFileSelected(
+            sessionWorkspace.activeId,
+            sessionWorkspace.list?.root,
+            entry.path,
+            entry.path,
+          ),
           badge: kind
             ? html`<span
                 class="chat-workspace-rail__file-badge chat-workspace-rail__file-badge--kind"

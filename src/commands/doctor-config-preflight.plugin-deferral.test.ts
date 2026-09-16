@@ -1,8 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { readConfigFileSnapshot } from "../config/io.js";
 import { readDeferredPluginMigrations } from "../infra/deferred-plugin-migrations.js";
+import { requireNodeSqlite } from "../infra/node-sqlite.js";
+import { OPENCLAW_STATE_SCHEMA_VERSION } from "../state/openclaw-state-db-contract.js";
+import { closeOpenClawStateDatabaseByPathAsync } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { runDoctorConfigPreflight } from "./doctor-config-preflight.js";
 import { withDoctorConfigPreflightHome } from "./doctor-config-preflight.test-support.js";
@@ -532,7 +536,7 @@ describe("configured plugin migration deferral", () => {
     },
   );
 
-  it.each(["doctor", "startup", "candidate", "stale-candidate"] as const)(
+  it.each(["doctor", "startup", "candidate", "stale-candidate", "published-candidate"] as const)(
     "%s preserves pending inputs and retries after the package becomes available",
     async (entry) => {
       await withDoctorConfigPreflightHome(async (home) => {
@@ -564,8 +568,26 @@ describe("configured plugin migration deferral", () => {
         await fs.mkdir(path.dirname(configPath), { recursive: true });
         await fs.writeFile(configPath, JSON.stringify(config));
         await fs.writeFile(source, '{"binding":"retained"}\n');
+        const databasePath = path.join(home, ".openclaw", "state", "openclaw.sqlite");
+        if (entry === "published-candidate") {
+          await fs.mkdir(path.dirname(databasePath), { recursive: true });
+          await fs.writeFile(
+            databasePath,
+            gunzipSync(
+              await fs.readFile(
+                new URL(
+                  "../../test/fixtures/sqlite/openclaw-state-v2026.7.1-2.sqlite.gz",
+                  import.meta.url,
+                ),
+              ),
+            ),
+          );
+        }
         const original = await fs.readFile(configPath, "utf8");
         const options = {
+          ...(entry === "published-candidate"
+            ? { observe: false, preparePluginMetadataSnapshot: true }
+            : {}),
           migrateLegacyConfig: false,
           invalidConfigNote: false,
           doctorOnlyStateMigrations: entry !== "startup",
@@ -597,6 +619,26 @@ describe("configured plugin migration deferral", () => {
             ]);
             expect(await fs.readFile(configPath, "utf8")).toBe(original);
             expect(await fs.readFile(source, "utf8")).toBe('{"binding":"retained"}\n');
+            if (entry === "published-candidate") {
+              await closeOpenClawStateDatabaseByPathAsync(databasePath);
+              expect(readDeferredPluginMigrations()).toEqual([
+                expect.objectContaining({ pluginId, command: "openclaw update repair" }),
+              ]);
+              const { DatabaseSync } = requireNodeSqlite();
+              const database = new DatabaseSync(databasePath, { readOnly: true });
+              try {
+                expect(database.prepare("PRAGMA user_version").get()).toEqual({
+                  user_version: OPENCLAW_STATE_SCHEMA_VERSION,
+                });
+                expect(
+                  database
+                    .prepare("SELECT sequence, event_id FROM audit_events WHERE event_id = ?")
+                    .get("fixture-audit-event"),
+                ).toEqual({ sequence: 7, event_id: "fixture-audit-event" });
+              } finally {
+                database.close();
+              }
+            }
             if (entry === "stale-candidate") {
               await expect(fs.stat(path.join(pluginRoot, "stale-called"))).rejects.toMatchObject({
                 code: "ENOENT",

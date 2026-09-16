@@ -436,6 +436,22 @@ describe("scripts/test-extension.mts", () => {
     expect(plan.testFileCount).toBe(0);
   });
 
+  it("keeps native hook relay consumers on the broker in changed extension plans", () => {
+    const plan = resolveExtensionBatchPlan({ extensionIds: ["codex"] });
+    const groups = plan.planGroups.map((group) => ({
+      config: group.config,
+      files: createExtensionTestProcessTargetChunks(group.config, group.roots).flat(),
+    }));
+    for (const file of [
+      "extensions/codex/src/app-server/run-attempt-one-shot-cleanup.test.ts",
+      "extensions/codex/src/app-server/run-attempt.context-engine.test.ts",
+    ]) {
+      expect(
+        groups.filter((group) => group.files.includes(file)).map((group) => group.config),
+      ).toEqual(["test/vitest/vitest.extension-database-workers.config.ts"]);
+    }
+  });
+
   it("batches extensions into config-specific vitest invocations", () => {
     const batch = resolveExtensionBatchPlan({
       cwd: process.cwd(),

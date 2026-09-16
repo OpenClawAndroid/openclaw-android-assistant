@@ -1,4 +1,3 @@
-import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { html, nothing } from "lit";
 import { CHAT_PENDING_INPUT_MESSAGE_PREFIX } from "../../../../../packages/gateway-protocol/src/schema/chat-history-constants.js";
@@ -12,7 +11,12 @@ import {
   normalizeRoleForGrouping,
 } from "../../../lib/chat/message-normalizer.ts";
 import { stripThinkingTags } from "../../../lib/strip-thinking-tags.ts";
-import { persistedMessageEntryId, type AssistantMessageExpansionState } from "../chat-thread.ts";
+import {
+  resolveCappedMessageId,
+  resolveSourceMessageId,
+  type AssistantMessageExpansionState,
+} from "../chat-message-recovery.ts";
+import { persistedMessageEntryId } from "../chat-thread.ts";
 import { extractMessageMediaText } from "./chat-message-media.ts";
 
 registerChatMessageMetadataEnglish();
@@ -34,30 +38,6 @@ export type MessageActionDetails = {
 
 // Loading and completion each advance the revision: three automatic attempts.
 export const FULL_MESSAGE_RETRY_REVISION_LIMIT = 6;
-
-function resolveSourceMessageId(message: unknown): string | undefined {
-  const record = asNullableRecord(message);
-  const metadata = asNullableRecord(record?.["__openclaw"]);
-  return typeof metadata?.id === "string"
-    ? metadata.id
-    : typeof record?.messageId === "string"
-      ? record.messageId
-      : undefined;
-}
-
-export function resolveCappedMessageId(message: unknown, role: string): string | undefined {
-  const record = asNullableRecord(message);
-  const metadata = asNullableRecord(record?.["__openclaw"]);
-  const messageId = resolveSourceMessageId(message);
-  // Only the Gateway marker proves a display cap; sentinel text can be literal.
-  // Pending user inputs share read-only recovery with assistant messages.
-  return (normalizeRoleForGrouping(role) === "assistant" ||
-    messageId?.startsWith(CHAT_PENDING_INPUT_MESSAGE_PREFIX)) &&
-    !record?.openclawMessageToolMirror &&
-    metadata?.truncated === true
-    ? messageId
-    : undefined;
-}
 
 // Options and action handlers outlive a render; keep this preparation separate from them.
 export function prepareChatMessageRender(message: unknown) {

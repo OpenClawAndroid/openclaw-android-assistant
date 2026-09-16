@@ -11,7 +11,10 @@ import {
   type SqliteWorkerOperations,
   type SqliteWorkerStore,
 } from "./sqlite-worker-contract.js";
-import type { SqliteWorkerAdmissionFactory } from "./sqlite-worker-operation-admission.js";
+import {
+  createSqliteWorkerOperationAdmission,
+  type SqliteWorkerAdmissionFactory,
+} from "./sqlite-worker-operation-admission.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
 
 function withCallerErrors<T>(result: Promise<T>): Promise<T> {
@@ -69,6 +72,40 @@ function resolveSqliteWorkerBroker() {
     () => new SqliteWorkerBroker(),
     (broker) => withCallerErrors(broker.close()),
   );
+}
+
+/**
+ * Retain an admitted writer through native settlement. Backends request authority
+ * after BEGIN and again immediately before COMMIT; the host never joins a native
+ * writer lock. A successful commit grant linearizes against subsequent revocation.
+ */
+export function runSqliteWorkerStoreWrite<Operations extends SqliteWorkerOperations, T>(
+  store: SqliteWorkerStore<Operations>,
+  operation: (scope: Pick<SqliteWorkerStore<Operations>, "execute">) => Promise<T>,
+  assertCurrent: () => void,
+  nativeLocations: readonly string[],
+): Promise<T> {
+  return runSqliteWorkerStoreOperation(store, operation, undefined, assertCurrent, () => {
+    let phase: "waiting" | "transaction" | "commit" = "waiting";
+    return {
+      nativeLocations,
+      admission: createSqliteWorkerOperationAdmission((request, grant) => {
+        if (
+          !(
+            (phase === "waiting" && request.stage === "transaction") ||
+            (phase === "transaction" && request.stage === "commit")
+          )
+        ) {
+          throw new Error("SQLite worker write authority requested out of order");
+        }
+        assertCurrent();
+        if (!grant()) {
+          throw new Error("SQLite worker write authority expired");
+        }
+        phase = phase === "waiting" ? "transaction" : "commit";
+      }),
+    };
+  });
 }
 
 /** Read the broker's recorded lifecycle state without probing native storage. */

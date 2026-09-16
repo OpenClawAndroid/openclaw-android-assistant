@@ -16,7 +16,8 @@ describe("favicon presentation ownership", () => {
   let previousIcons: HTMLLinkElement[];
   let previousTitle: string;
   let previousStyle: string | null;
-  let palette: HTMLStyleElement;
+  let previousTheme: string | undefined;
+  let previousThemeMode: string | undefined;
   let svgIcon: HTMLLinkElement;
   let pngIcon: HTMLLinkElement;
   let originals: [[string, string], [string, string]];
@@ -26,16 +27,20 @@ describe("favicon presentation ownership", () => {
     previousIcons.forEach((icon) => icon.remove());
     previousTitle = document.title;
     previousStyle = document.documentElement.getAttribute("style");
-    palette = document.createElement("style");
-    palette.textContent = `:root {
-      --warn: rgb(210, 150, 60);
-      --accent: rgb(80, 120, 160);
-      --ok: rgb(100, 180, 120);
-      --muted: rgb(130, 130, 130);
-      --bg: rgb(240, 240, 240);
-      --control-ui-environment-blue: rgb(40, 100, 180);
-    }`;
-    document.head.append(palette);
+    previousTheme = document.documentElement.dataset.theme;
+    previousThemeMode = document.documentElement.dataset.themeMode;
+    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.themeMode = "dark";
+    for (const [name, value] of [
+      ["--warn", "rgb(210, 150, 60)"],
+      ["--accent", "rgb(80, 120, 160)"],
+      ["--ok", "rgb(100, 180, 120)"],
+      ["--muted", "rgb(130, 130, 130)"],
+      ["--bg", "rgb(240, 240, 240)"],
+      ["--control-ui-environment-blue", "rgb(40, 100, 180)"],
+    ] as const) {
+      document.documentElement.style.setProperty(name, value);
+    }
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 32;
     originals = [
@@ -59,13 +64,22 @@ describe("favicon presentation ownership", () => {
     applyControlUiPresentation({ environment: null });
     svgIcon.remove();
     pngIcon.remove();
-    palette.remove();
     document.head.append(...previousIcons);
     document.title = previousTitle;
     if (previousStyle === null) {
       document.documentElement.removeAttribute("style");
     } else {
       document.documentElement.setAttribute("style", previousStyle);
+    }
+    if (previousTheme === undefined) {
+      delete document.documentElement.dataset.theme;
+    } else {
+      document.documentElement.dataset.theme = previousTheme;
+    }
+    if (previousThemeMode === undefined) {
+      delete document.documentElement.dataset.themeMode;
+    } else {
+      document.documentElement.dataset.themeMode = previousThemeMode;
     }
     vi.restoreAllMocks();
   });

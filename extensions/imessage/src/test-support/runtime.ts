@@ -82,6 +82,10 @@ export async function loadFreshIMessageReplyCacheForTest(options?: {
   preservePersistentState?: boolean;
 }): Promise<typeof import("../monitor-reply-cache.js")> {
   if (!options?.preservePersistentState) {
+    const { closeOpenClawStateDatabaseAsync } =
+      await import("openclaw/plugin-sdk/sqlite-runtime-testing");
+    // Drain worker-only stores before rotating the fixture state directory.
+    await closeOpenClawStateDatabaseAsync();
     closeOpenClawStateDatabaseForTest();
     imessageTestEnv = createIMessageTestEnv();
   }

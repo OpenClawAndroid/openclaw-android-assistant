@@ -150,7 +150,7 @@ describe("attemptServerEndpointCompaction", () => {
         },
       });
       expect(owner.message.providerReplay).not.toHaveProperty("replayIndex");
-      expect(onCompactionCommitted).toHaveBeenCalledExactlyOnceWith();
+      expect(onCompactionCommitted).toHaveBeenCalledExactlyOnceWith(1_000);
       expect(committedOwner).toMatchObject({
         id: owner.id,
         message: {

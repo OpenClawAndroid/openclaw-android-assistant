@@ -102,7 +102,6 @@ export class RealtimeTalkSession {
   private transportGeneration = 0;
   private transcriptItems: ClientVoiceTranscriptQueue | undefined;
   private acceptingTranscripts = false;
-  private serverOwnedVoiceSession = false;
   private transcriptQueue = VOICE_TRANSCRIPT_QUEUE_POLICY.createQueue();
   private clientVoiceSessionOwner: ClientVoiceSessionOwner | undefined;
 
@@ -266,7 +265,6 @@ export class RealtimeTalkSession {
         this.voiceSessionId = voiceSessionId;
         this.transportGeneration = nextTransportGeneration;
         this.acceptingTranscripts = true;
-        this.serverOwnedVoiceSession = true;
         owner.release();
       }
       ownerTransferred = true;
@@ -385,8 +383,8 @@ export class RealtimeTalkSession {
     }
   }
 
-  private async createRelaySession(options: RealtimeTalkLaunchOptions) {
-    const relaySession = await this.client.request<RealtimeTalkSessionResult>(
+  private createRelaySession(options: RealtimeTalkLaunchOptions) {
+    return this.client.request<RealtimeTalkSessionResult>(
       "talk.session.create",
       compactLaunchParams({
         sessionKey: this.sessionKey,
@@ -398,12 +396,6 @@ export class RealtimeTalkSession {
       }),
       { timeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS },
     );
-    return resolveRealtimeTalkTransport(relaySession) === "gateway-relay"
-      ? {
-          ...relaySession,
-          voiceSessionId: (relaySession as RealtimeTalkGatewayRelaySessionResult).relaySessionId,
-        }
-      : relaySession;
   }
 
   stop(): Promise<void> {
@@ -480,7 +472,6 @@ export class RealtimeTalkSession {
     transcriptQueue.seal();
     void this.closeLogicalVoiceSession({
       voiceSessionId,
-      serverOwned: false,
       transcriptQueue,
       owner,
     });
@@ -622,19 +613,19 @@ export class RealtimeTalkSession {
     if (!voiceSessionId) {
       return undefined;
     }
-    const detached = {
-      voiceSessionId,
-      serverOwned: this.serverOwnedVoiceSession,
-      generation: this.transportGeneration,
-      transcriptQueue: this.transcriptQueue,
-      owner: this.clientVoiceSessionOwner,
-    } satisfies DetachedVoiceSession;
+    const detached: DetachedVoiceSession | undefined = this.clientVoiceSessionOwner
+      ? {
+          voiceSessionId,
+          generation: this.transportGeneration,
+          transcriptQueue: this.transcriptQueue,
+          owner: this.clientVoiceSessionOwner,
+        }
+      : undefined;
     const missingItems = this.transcriptItems?.close() ?? [];
     this.transcriptItems = undefined;
-    detached.transcriptQueue.seal();
+    this.transcriptQueue.seal();
     this.voiceSessionId = undefined;
     this.acceptingTranscripts = false;
-    this.serverOwnedVoiceSession = false;
     this.transcriptQueue = VOICE_TRANSCRIPT_QUEUE_POLICY.createQueue();
     this.clientVoiceSessionOwner = undefined;
     if (missingItems.length > 0) {
@@ -645,11 +636,7 @@ export class RealtimeTalkSession {
   }
 
   private closeLogicalVoiceSession(detached: DetachedVoiceSession): Promise<void> {
-    if (detached.serverOwned) {
-      detached.owner?.release();
-      return Promise.resolve();
-    }
-    const owner = detached.owner!;
+    const owner = detached.owner;
     owner.beginDrain();
     const closing = detached.transcriptQueue
       .flush()

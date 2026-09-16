@@ -77,6 +77,15 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     };
   }
 
+  get pathMappings(): NonNullable<SandboxFsBridge["pathMappings"]> {
+    const mounts = this.getMounts();
+    // Use the resolver's exact-target owner, including agent/protected ties.
+    return [...new Set(mounts.map((mount) => mount.containerRoot))].map((containerRoot) => ({
+      hostRoot: resolveRemoteMountByContainerPath(mounts, containerRoot)!.localRoot,
+      containerRoot,
+    }));
+  }
+
   async [SANDBOX_FILE_IDENTITY](params: {
     filePath: string;
     cwd?: string;

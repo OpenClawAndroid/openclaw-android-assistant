@@ -135,6 +135,15 @@ describe("subagent activity rows", () => {
 
   it.each([
     {
+      title: "Continued review",
+      label: "Continued review",
+      runtime: "cli" as const,
+      childSessionKey: "agent:main:subagent:review",
+      status: "running" as const,
+      description: "Running",
+      moving: true,
+    },
+    {
       title: "  Layout review  ",
       label: "Layout review",
       status: "running" as const,

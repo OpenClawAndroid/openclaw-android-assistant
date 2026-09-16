@@ -29,10 +29,8 @@ import {
 } from "./legacy-store-inspection.js";
 import { SessionStoreMigrationRequiredError } from "./migration-required.js";
 import { resolveSqliteReadScope, toDatabaseOptions } from "./session-accessor.sqlite-scope.js";
-import {
-  isCanonicalSqliteSessionMainKeyCurrent,
-  setCanonicalSqliteSessionMainKey,
-} from "./session-canonical-key.js";
+import { isCanonicalSqliteSessionMainKeyCurrent } from "./session-canonical-key-read.js";
+import { setCanonicalSqliteSessionMainKey } from "./session-canonical-key.js";
 import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
 import { resolveAllAgentSessionStoreTargetsSync, resolveSessionStoreTargets } from "./targets.js";
 import type { migrateManagedWorktreeCanonicalWorkspaces } from "./worktree-workspace-migration.js";
@@ -102,16 +100,19 @@ export function assertSessionStoreMigrationComplete(params: {
     }
     // A roster entry is only a possible importer. Inspect retained source ownership
     // here, never in runtime session access, and bind parsed bytes to every receipt.
-    const issues: Array<{ code: string; message: string }> = [];
+    const issues: Array<{ code: string; message: string; sessionKey?: string }> = [];
     const source = readLegacySessionStoreEntries({ storePath }, issues);
-    if (issues.length > 0 || !source.bytes) {
+    if (issues.some((issue) => issue.code !== "entry_invalid") || !source.bytes) {
       return true;
     }
     const sourceSha256 = createHash("sha256").update(source.bytes).digest("hex");
     // Empty indexes may have unindexed history: retain the existing requirement
     // for every named owner's verified receipt rather than infer ownership here.
     const required = new Set<SourceOwner>(source.entries.length === 0 ? owners.values() : []);
-    for (const { sessionKey } of source.entries) {
+    for (const sessionKey of [
+      ...source.entries.map((entry) => entry.sessionKey),
+      ...issues.flatMap((issue) => (issue.sessionKey ? [issue.sessionKey] : [])),
+    ]) {
       const matches = [...owners.values()].filter(
         ({ target }) =>
           !shouldFilterLegacySessionRecordsByTarget(target) ||

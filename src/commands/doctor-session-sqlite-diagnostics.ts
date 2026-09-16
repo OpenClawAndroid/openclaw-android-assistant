@@ -38,7 +38,7 @@ export function appendActiveSqliteTranscriptFileIssues(
       if (transcriptPath && !retainedPaths?.has(canonicalMigrationFilePath(transcriptPath))) {
         report.issues.push({
           code: "active_sqlite_transcript_jsonl",
-          message: `SQLite-backed session still has an active JSONL transcript file: ${transcriptPath}`,
+          message: `SQLite-backed session still has an unverified active JSONL transcript file: ${transcriptPath}. It may contain history absent from SQLite. Preserve this file, inspect openclaw update status --json, then run openclaw doctor --session-sqlite recover --session-sqlite-all-agents with the Gateway stopped.`,
           sessionKey,
         });
       }

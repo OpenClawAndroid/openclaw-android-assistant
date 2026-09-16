@@ -17,7 +17,10 @@ import {
 } from "./shared.js";
 import { handleDryRunPreflightError, printUpdateDryRun } from "./update-command-dry-run.js";
 import type { RefuseUpdate } from "./update-command-result.js";
-import type { ManagedServiceRootRedirect } from "./update-command-service-plan.js";
+import {
+  resolvePackageRuntimePreflight,
+  type ManagedServiceRootRedirect,
+} from "./update-command-service-plan.js";
 import type { resolveUpdateCommandTarget } from "./update-command-target.js";
 
 /** Render prepared preview facts without initializing runtime state. */
@@ -77,6 +80,9 @@ export async function preflightUpdateCommandSchemas(params: {
   packageTargetSchemaVersions?: OpenClawSchemaVersions;
   packageTargetVersion?: string;
   packageInstallSpec?: string | null;
+  packageRuntimeTarget?: { version: string; nodeEngine: string | null };
+  packageAlreadyCurrent?: boolean;
+  managedServiceNodeRunner?: string;
   opts: Pick<UpdateCommandOptions, "dryRun" | "json" | "run">;
   refuseUpdate: RefuseUpdate;
 }): Promise<
@@ -140,6 +146,22 @@ export async function preflightUpdateCommandSchemas(params: {
         admission.contexts,
       );
       if (opts.dryRun && updateInstallKind === "package") {
+        const runtime = await resolvePackageRuntimePreflight({
+          ...params,
+          target: params.packageRuntimeTarget,
+          nodeRunner: params.managedServiceNodeRunner,
+          timeoutMs: updateStepTimeoutMs,
+          alreadyCurrent: params.packageAlreadyCurrent,
+          service: admission.service,
+          installedRoot: params.packageAlreadyCurrent ? root : undefined,
+        });
+        if (!runtime.ok) {
+          preflightNotes.push(`Would refuse update: ${runtime.error}`);
+        } else if (runtime.value.replacedNodeRunner) {
+          preflightNotes.push(
+            `Would replace managed gateway service Node (${runtime.value.replacedNodeRunner}) with current Node (${runtime.value.nodeRunner}) for openclaw@${runtime.value.targetVersion}.`,
+          );
+        }
         if (
           params.packageInstallSpec &&
           !canResolveRegistryVersionForPackageTarget(params.packageInstallSpec)

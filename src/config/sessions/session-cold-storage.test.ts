@@ -20,7 +20,7 @@ import {
 } from "../../state/openclaw-agent-db.js";
 import { replaceSessionEntry } from "./session-accessor.js";
 import * as archiveWorkers from "./session-accessor.sqlite-archive.js";
-import { readSessionTranscriptHistoryEvents } from "./session-accessor.sqlite-history-events.js";
+import { readSessionTranscriptHistoryEvents } from "./session-accessor.sqlite-history.test-support.js";
 import { planSessionStateDeleteIfUnreferenced } from "./session-accessor.sqlite-lifecycle-state.js";
 import {
   loadTranscriptEvents,

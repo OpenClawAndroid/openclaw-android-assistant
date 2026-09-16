@@ -3039,6 +3039,21 @@ function completedPluginMigrationFields(
   };
 }
 
+/** Admit preflight's shared-state writers through the same schema step as later migrations. */
+export async function prepareLegacyStateDatabaseSchema(
+  env: NodeJS.ProcessEnv,
+): Promise<LegacyStateMigrationStepReceipt> {
+  const { receipts } = await runLegacyStateMigrationSteps([
+    createStateSchemaMigrationStep({
+      stateDir: resolveStateDir(env),
+      env,
+      mode: "automatic",
+      requiredness: "conditional",
+    }),
+  ]);
+  return receipts[0]!;
+}
+
 export async function runLegacyStateMigrations(params: {
   detected: LegacyStateDetection;
   config?: OpenClawConfig;

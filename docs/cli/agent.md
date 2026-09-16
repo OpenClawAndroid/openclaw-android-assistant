@@ -179,7 +179,11 @@ pnpm qa:code-mode-models -- --model openai/gpt-5.6-luna --mode code \
 ```
 
 `--runtime-dir` uses existing build artifacts without rebuilding. It requires a
-clean committed checkout and build stamps matching that commit. The matrix
+clean committed checkout and both build stamps matching that commit and recording
+clean build inputs. On a revision with provenance-capable stamp writers, run
+`pnpm build` in the clean checkout to refresh stale or older stamps. Historical
+revisions without those writers are unsupported as frozen runtimes; rebuilding
+them alone cannot add this provenance. The matrix
 records source and artifact hashes and refuses a comparison when paired cells
 or their workload fingerprints differ. Add `--model` for another model and
 repeat task selectors to include more scenarios. Failed trials remain in the

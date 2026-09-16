@@ -615,6 +615,16 @@ export function createChangedCheckPlan(
   }
   add("conflict markers", ["check:no-conflict-markers"]);
   if (
+    result.paths.some((file) => /\.(?:ts|tsx|mts|mjs)$/u.test(file) || file === ".oxlintrc.json")
+  ) {
+    add("line-cap growth ratchet", [
+      "check:line-cap-ratchet",
+      ...(options.staged ? ["--staged"] : []),
+      "--base",
+      options.staged ? "HEAD" : (options.base ?? "origin/main"),
+    ]);
+  }
+  if (
     result.paths.some(
       (filePath) =>
         filePath === SHRINK_RATCHET_OWNER_PATH ||

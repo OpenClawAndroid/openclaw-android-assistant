@@ -1,3 +1,4 @@
+import { hash } from "node:crypto";
 import { channel } from "node:diagnostics_channel";
 import fs from "node:fs";
 import path from "node:path";
@@ -194,7 +195,10 @@ describe("SQLite lifecycle cleanup reclamation", () => {
     const result = await deleteSessionEntryLifecycle({
       archiveTranscript: true,
       expectedEntry: currentEntry,
-      expectedTranscript: { eventJson: [JSON.stringify(events[0])], sessionId },
+      expectedTranscript: {
+        digest: { eventCount: 1, rollingHash: hash("sha256", `\0${JSON.stringify(events[0])}`) },
+        sessionId,
+      },
       storePath,
       target: { canonicalKey: sessionKey, storeKeys: [sessionKey] },
     });

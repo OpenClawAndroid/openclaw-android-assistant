@@ -8,6 +8,7 @@ import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import type { FastMode } from "../../../shared/fast-mode.js";
 import { splitTrailingAuthProfile } from "../../model-ref-profile.js";
 import {
+  type ModelRef,
   resolveDefaultModelForAgent,
   resolveSubagentConfiguredModelSelection,
   resolveSubagentSpawnModelSelection,
@@ -61,13 +62,16 @@ export function resolveSubagentModelAndThinkingPlan(params: {
   modelOverride?: string;
   thinkingOverrideRaw?: string;
   callerThinkingRaw?: string;
+  inheritedModel?: ModelRef;
   fastMode?: FastMode;
 }) {
-  const rawResolvedModel = resolveSubagentSpawnModelSelection({
-    cfg: params.cfg,
-    agentId: params.targetAgentId,
-    modelOverride: params.modelOverride,
-  });
+  const { model: rawResolvedModel, resolvedModel: inheritedModel } =
+    resolveSubagentSpawnModelSelection({
+      cfg: params.cfg,
+      agentId: params.targetAgentId,
+      modelOverride: params.modelOverride,
+      inheritedModel: params.inheritedModel,
+    });
   const { model: resolvedModel, profile: authProfileId } =
     splitTrailingAuthProfile(rawResolvedModel);
 
@@ -90,15 +94,16 @@ export function resolveSubagentModelAndThinkingPlan(params: {
   }
 
   const modelOverrideSource = params.modelOverride?.trim() ? "user" : "auto";
-  const hasConfiguredAutoModel =
+  const hasSelectedAutoModel =
     modelOverrideSource === "auto" &&
     Boolean(
+      params.inheritedModel ??
       resolveSubagentConfiguredModelSelection({
         cfg: params.cfg,
         agentId: params.targetAgentId,
       }),
     );
-  const configuredModelRef = hasConfiguredAutoModel ? splitModelRef(resolvedModel) : undefined;
+  const configuredModelRef = hasSelectedAutoModel ? splitModelRef(resolvedModel) : undefined;
   const modelOrigin = configuredModelRef?.model
     ? {
         provider:
@@ -114,6 +119,7 @@ export function resolveSubagentModelAndThinkingPlan(params: {
   return {
     status: "ok" as const,
     resolvedModel,
+    ...(inheritedModel ? { inheritedModel } : {}),
     modelApplied: Boolean(resolvedModel),
     thinkingOverride: thinkingPlan.thinkingOverride,
     initialSessionPatch: {
@@ -123,7 +129,7 @@ export function resolveSubagentModelAndThinkingPlan(params: {
             modelOverrideSource,
             ...(modelOrigin
               ? {
-                  // Config-selected models are session overrides, not legacy fallback residue.
+                  // Selected child models are session overrides, not legacy fallback residue.
                   // Self-origin metadata keeps cleanup from discarding them before first use.
                   modelOverrideFallbackOriginProvider: modelOrigin.provider,
                   modelOverrideFallbackOriginModel: modelOrigin.model,

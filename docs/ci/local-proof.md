@@ -86,6 +86,43 @@ user, system, or already-localized data.
 
 ## Surface ratchets
 
+Line caps are cumulative gates: independently green changes can exceed a cap
+when merged together. All six `max-lines` scopes in `.oxlintrc.json` warn in
+ordinary lint, including hosted stripes on main and PRs, local `pnpm check`,
+`pnpm check:changed`, and landing lint gates. These warnings do not fail lint.
+Read the individual `eslint(max-lines)` diagnostics and oxlint's final
+error/warning totals in each stripe's job log; the total includes other warning
+rules too.
+
+PR CI separately blocks new violations and growth in files already over their
+cap. The existing
+`checks-fast-baseline-ratchets` job runs `pnpm check:line-cap-ratchet` against
+the prepared PR merge tree and its base. Renames compare against the old path;
+unchanged or shrinking over-cap files pass. Oxlint counts both versions with
+the caps, exclusions, and skip-blank/skip-comments options from `.oxlintrc.json`.
+Measurement copies ignore lint-disable directives so grandfathered suppressed
+files cannot hide growth; the source files and suppression inventory stay intact.
+
+`pnpm check:changed` also runs the growth ratchet. Run it directly with
+`pnpm check:line-cap-ratchet --base <commit>` to select a comparison base.
+The baseline is the source at that Git base, not a checked-in count file.
+Extracting code lowers the allowance once the cleanup becomes part of future
+bases; there is no count baseline to regenerate or prune. Main-push CI does
+not run this PR growth check.
+
+The separate `pnpm check:max-lines-ratchet` suppression inventory remains
+strict in CI and local gates. After removing a grandfathered suppression,
+remove its stale entry from `config/max-lines-baseline.txt` in the same change,
+or run `pnpm check:max-lines-ratchet --prune`. That inventory must exactly match
+remaining suppressions and may only shrink (verified renames are supported).
+Do not add an entry to grandfather new debt.
+
+When a file exceeds its cap, extract a coherent sibling module. Never trim
+test coverage, disable the rule, or raise a cap to make the check pass. The
+plugin-sdk declaration budget and lint-suppression inventory are candidates
+for the same PR-growth/main-warning policy in follow-up work; their current
+gates are unchanged. Automatically filing repair issues is also a follow-up.
+
 Two shrink-only budgets guard the configuration surface. Both fail CI on growth
 until the budget file is consciously updated in the same PR, and both demand a
 ratchet-down when cleanup lowers the real count.

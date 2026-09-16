@@ -408,7 +408,7 @@ export function registerHooksCli(program: Command): void {
       defaultRuntime.log(
         theme.warn("`openclaw hooks update` is deprecated; use `openclaw plugins update`."),
       );
-      await runPluginUpdateCommand({ id, opts });
+      await runPluginUpdateCommand({ ids: id ? [id] : [], opts });
     });
 
   hooks.action(async (opts: HooksListOptions, command: Command) =>

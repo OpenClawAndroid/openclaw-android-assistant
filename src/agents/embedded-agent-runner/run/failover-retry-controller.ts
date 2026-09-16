@@ -31,6 +31,7 @@ export type EmbeddedRunFailoverRetryController = ReturnType<
   typeof createEmbeddedRunFailoverRetryController
 >;
 type AuthRetryTrace = TraceAttempt & { reason: FailoverReason };
+type TransientRetryReason = FailoverReason | "output_limit";
 
 type RateLimitAuthProfileContext = {
   failoverProvider: string;
@@ -210,21 +211,22 @@ export function createEmbeddedRunFailoverRetryController(input: {
         : null;
     },
     maybeRetryTransient: async (retry: {
-      reason: FailoverReason;
+      reason: TransientRetryReason;
       message?: string;
       retryAfterMs?: number;
       onRetry?: (status: {
         attempt: number;
         maxRetries: number;
         delayMs: number;
-        reason: FailoverReason;
+        reason: TransientRetryReason;
       }) => void | Promise<void>;
     }): Promise<boolean> => {
       if (
         retry.reason !== "rate_limit" &&
         retry.reason !== "overloaded" &&
         retry.reason !== "server_error" &&
-        retry.reason !== "timeout"
+        retry.reason !== "timeout" &&
+        retry.reason !== "output_limit"
       ) {
         return false;
       }
@@ -242,11 +244,17 @@ export function createEmbeddedRunFailoverRetryController(input: {
         return false;
       }
       const nowMs = Date.now();
-      transientRetryWindowStartMs ??= nowMs;
+      const retryWindowStartMs = transientRetryWindowStartMs ?? nowMs;
+      if (retry.reason !== "output_limit") {
+        transientRetryWindowStartMs = retryWindowStartMs;
+      }
       const delayMs = resolveTransientRetryDelayMs({
         retryNumber: retryCount + 1,
         retryAfterMs: retry.retryAfterMs,
-        elapsedMs: rateLimit ? undefined : nowMs - transientRetryWindowStartMs,
+        // Reaching an output ceiling can take minutes of useful generation.
+        // Keep its count budget and run deadline without the outage time window.
+        elapsedMs:
+          rateLimit || retry.reason === "output_limit" ? undefined : nowMs - retryWindowStartMs,
       });
       if (delayMs === undefined) {
         // The window in resolveTransientRetryDelayMs outranks the attempt budget when

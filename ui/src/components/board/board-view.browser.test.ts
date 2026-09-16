@@ -341,6 +341,7 @@ describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
   });
 
   it("keeps widget chrome visible while its menu is open", async () => {
+    const { userEvent } = await import("vitest/browser");
     const view = await mount();
     const sink = focusSink();
     const widget = view.querySelector<HTMLElement>('[data-test-id="board-widget"]');
@@ -351,6 +352,7 @@ describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
     await vi.waitFor(() => expect(getComputedStyle(bar!).visibility).toBe("visible"));
 
     menu!.open = false;
+    await userEvent.unhover(widget!);
     sink.focus();
     expect(widget!.matches(":focus-within")).toBe(false);
     await vi.waitFor(() => expectChromeHidden(widget!, bar!));

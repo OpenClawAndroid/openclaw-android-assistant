@@ -564,6 +564,7 @@ export const updateHandlers: GatewayRequestHandlers = {
       if (error instanceof FreeBsdPkgOwnershipError) {
         outcomeMessage = error.message;
       }
+      context?.logGateway?.warn(`update.run failed error=${formatErrorMessage(error)}`);
       result = {
         status: "error",
         mode: "unknown",

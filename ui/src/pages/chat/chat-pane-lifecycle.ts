@@ -267,7 +267,12 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
 
     focusChatComposerFromPrintableKeydown(this, event);
 
-    if (event.defaultPrevented || event.key !== "Escape") {
+    if (
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      event.key !== "Escape"
+    ) {
       return;
     }
     const openDetails = this.querySelectorAll<HTMLDetailsElement>(CHAT_OPEN_DETAILS_SELECTOR);

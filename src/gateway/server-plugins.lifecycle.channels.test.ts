@@ -250,7 +250,7 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
       teardownFails: false,
     },
     {
-      name: "replaces live and pending webhook accounts with a warning when service stop rejects",
+      name: "refuses webhook account replacement when service cleanup rejects",
       teardownFails: true,
     },
   ])("$name", { timeout: 120_000 }, async ({ teardownFails }) => {
@@ -391,6 +391,29 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
     const reload = await rpcReq(socket, "plugins.reload", {
       plugins: [{ pluginId: "instance-binding-probe" }],
     });
+    if (teardownFails) {
+      expect(reload).toMatchObject({
+        ok: false,
+        error: { details: { runtime: { committed: false, phase: "drain" } } },
+      });
+      expect(reload.error?.message).toContain("instance-binding service cleanup rejected");
+      expect(coordinator.serviceStops).toBe(1);
+      expect(coordinator.serviceStarts).toBe(1);
+      expect(getActivePluginRegistry()).toBe(initialRegistry);
+      releasePending.resolve();
+      for (const accountId of ["active", "pending", "parked"]) {
+        expect((await probe(accountId)).status).toBe(accountId === "active" ? 503 : 404);
+        expect(starts.get(accountId)).toBe(1);
+      }
+      const retry = await rpcReq(socket, "plugins.reload", {
+        plugins: [{ pluginId: "instance-binding-probe" }],
+      });
+      expect(retry.ok).toBe(false);
+      expect(coordinator.serviceStarts).toBe(1);
+      expect((await rpcReq(socket, "config.get", {})).ok).toBe(true);
+      expect(hotReloadRecovery).not.toHaveBeenCalled();
+      return;
+    }
     expect(reload, reload.error?.message).toMatchObject({
       ok: true,
       payload: {
@@ -399,15 +422,6 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
         runtime: { pluginIds: ["instance-binding-probe"] },
       },
     });
-    if (teardownFails) {
-      expect(reload.payload).toMatchObject({
-        warnings: expect.arrayContaining([
-          expect.stringContaining("instance-binding service cleanup rejected"),
-        ]),
-      });
-      expect(coordinator.serviceStops).toBe(1);
-      expect(coordinator.serviceStarts).toBe(2);
-    }
     await expect
       .poll(() => getActivePluginRegistry() !== initialRegistry, { timeout: 180_000 })
       .toBe(true);

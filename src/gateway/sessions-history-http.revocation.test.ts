@@ -139,7 +139,6 @@ vi.mock("./session-utils.js", () => ({
 }));
 
 vi.mock("./session-history-state.js", () => ({
-  resolveCursorSeq: (_cursor: string | undefined) => undefined,
   readSessionHistorySnapshotAsync: async () => {
     if (transcriptReadError) {
       throw transcriptReadError;

@@ -1,5 +1,8 @@
 /** Synchronous binding reads with lazy mutation, lease, and auth machinery. */
-import type { PluginStateSyncKeyedStore } from "openclaw/plugin-sdk/plugin-state-runtime";
+import type {
+  PluginStateKeyedStore,
+  PluginStateSyncKeyedStore,
+} from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
   createCodexManagedThreadStore,
   type CodexManagedThreadStore,
@@ -22,7 +25,7 @@ export function createLazyCodexAppServerBindingStore(
     "deleteIf" | "entries" | "lookup" | "registerIfAbsent" | "update"
   >,
   managedThreadState?: Pick<
-    PluginStateSyncKeyedStore<StoredCodexManagedThread>,
+    PluginStateKeyedStore<StoredCodexManagedThread>,
     "entries" | "lookup" | "registerIfAbsent"
   >,
 ): CodexAppServerBindingStore {

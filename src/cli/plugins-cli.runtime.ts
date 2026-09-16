@@ -256,9 +256,10 @@ async function runPluginPolicyCommand(
 }
 
 export async function runPluginsReloadCommand(
-  pluginId: string,
+  ids: string[],
   opts: { json?: boolean; acceptCapabilities?: boolean } = {},
 ): Promise<void> {
+  const pluginIds = [...new Set(ids)];
   const { resolvePluginLifecycleGateway } = await import("./plugins-lifecycle-client.js");
   const gateway = await resolvePluginLifecycleGateway();
   if (!gateway) {
@@ -271,7 +272,7 @@ export async function runPluginsReloadCommand(
   });
   const result = await gateway<{ runtime: { generation: number }; warnings?: string[] }>(
     "plugins.reload",
-    { plugins: [{ pluginId }] },
+    { plugins: pluginIds.map((pluginId) => ({ pluginId })) },
     consent.onCapabilityConsent,
   );
   if (opts.json) {
@@ -280,7 +281,9 @@ export async function runPluginsReloadCommand(
   for (const warning of result.warnings ?? []) {
     defaultRuntime.log(theme.warn(warning));
   }
-  defaultRuntime.log(`Reloaded plugin "${pluginId}" (generation ${result.runtime.generation}).`);
+  defaultRuntime.log(
+    `Reloaded ${pluginIds.length === 1 ? "plugin" : "plugins"} ${pluginIds.map((id) => `"${id}"`).join(", ")} (generation ${result.runtime.generation}).`,
+  );
 }
 
 export async function runPluginsInstallAction(

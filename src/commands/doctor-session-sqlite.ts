@@ -32,6 +32,7 @@ import {
   deferredPluginSessionStoreIds,
   readDeferredPluginSessionImport,
   recordDeferredPluginSessionImport,
+  resolveVerifiedSessionSource,
   type DeferredPluginSessionImport,
 } from "../infra/deferred-plugin-session-sources.js";
 import { formatErrorMessage } from "../infra/errors.js";
@@ -440,7 +441,7 @@ export async function settleRetainedDoctorSessionSources(
     verifyImports();
     const transcriptIssue = owners
       .flatMap((owner) => owner.report.issues)
-      .find((candidate) => !isMissingTranscriptIssue(candidate));
+      .find((candidate) => !isRetainedSourceIssue(candidate));
     if (transcriptIssue) {
       throw new Error(transcriptIssue.message);
     }
@@ -454,7 +455,7 @@ export async function settleRetainedDoctorSessionSources(
     verifyImports();
     const issue = owners
       .flatMap((owner) => owner.report.issues)
-      .find((candidate) => !isMissingTranscriptIssue(candidate));
+      .find((candidate) => !isRetainedSourceIssue(candidate));
     if (issue || owners.some((owner) => fs.existsSync(owner.target.storePath))) {
       throw new Error(issue?.message ?? "Retained session sources could not be archived.");
     }
@@ -802,17 +803,35 @@ async function inspectOrMigrateTarget(params: {
     return report;
   }
   if (retainedImport) {
-    const verifiedPaths = new Set(retainedImport.sources.map((source) => source.path));
+    const verifiedSources = new Map(retainedImport.sources.map((source) => [source.path, source]));
     for (const record of records) {
-      if (record.transcriptPath && !verifiedPaths.has(path.resolve(record.transcriptPath))) {
+      const source =
+        record.transcriptPath && verifiedSources.get(path.resolve(record.transcriptPath));
+      if (record.transcriptPath && !source) {
         report.issues.push({
           code: "transcript_missing",
           message: `Transcript file is missing: ${record.transcriptPath}`,
           sessionKey: record.sessionKey,
         });
-      } else if (record.transcriptPath && fs.existsSync(record.transcriptPath)) {
-        record.sourceFingerprint = readTranscriptFingerprint(record.transcriptPath);
-        record.recovery = { complete: true, repaired: false, events: 0 };
+      } else if (record.transcriptPath && source) {
+        if (fs.existsSync(record.transcriptPath)) {
+          record.sourceFingerprint = readTranscriptFingerprint(record.transcriptPath);
+        }
+        const transcriptPath = resolveVerifiedSessionSource(
+          source,
+          createMigrationTargetInput(params.target),
+          params.env,
+        );
+        if (!transcriptPath) {
+          throw new Error(`Retained session migration source changed: ${record.transcriptPath}`);
+        }
+        // A receipt prevents replay; it does not certify the malformed suffix as imported.
+        countLegacyTranscript({ ...record, transcriptPath }, report);
+        record.recovery = {
+          complete: !hasSessionIssue(report, "transcript_malformed", record.sessionKey),
+          repaired: false,
+          events: 0,
+        };
       }
     }
   } else if (params.mode === "import") {
@@ -905,7 +924,7 @@ async function inspectOrMigrateTarget(params: {
       !retainedImport &&
       indexIdentity &&
       verifiedImport &&
-      report.issues.every(isMissingTranscriptIssue)
+      report.issues.every(isRetainedSourceIssue)
     ) {
       try {
         const sources = new Map<string, MigrationArtifactIdentity>([
@@ -942,7 +961,7 @@ async function inspectOrMigrateTarget(params: {
     if (
       deferredPluginIds.length > 0 &&
       verifiedImport &&
-      report.issues.every(isMissingTranscriptIssue)
+      report.issues.every(isRetainedSourceIssue)
     ) {
       if (!retainedImport) {
         if (!verifiedSources) {
@@ -1157,8 +1176,8 @@ function blockingIssueCount(report: DoctorSessionSqliteTargetReport): number {
   return report.issues.filter((issue) => !isSessionSqliteMigrationWarning(issue)).length;
 }
 
-function isMissingTranscriptIssue(issue: DoctorSessionSqliteIssue): boolean {
-  return issue.code === "transcript_missing";
+function isRetainedSourceIssue(issue: DoctorSessionSqliteIssue): boolean {
+  return ["entry_invalid", "transcript_malformed", "transcript_missing"].includes(issue.code);
 }
 
 async function importLegacySessionRecords(

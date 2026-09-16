@@ -193,10 +193,29 @@ turns in each session (default 1, maximum 100). The second example completes 512
 turns across 64 sessions. Each session starts its next turn as soon as its
 previous turn completes, retaining its conversation history and workspace;
 there is no barrier between rounds. The fresh-connection probe runs once after
-every session has started its first turn. `--tool-events` requests a tool call
-on every turn, including follow-ups. The per-run timeout still bounds the whole
-workload. Health/control sampling is capped at 2,048 samples, while heap
+every session has started its first turn. `--tool-events` requires a matching
+successful `exec` result and the expected visible final reply on every turn,
+including follow-ups. Missing or duplicate tool evidence fails the run. The load
+timeout bounds turns and probes; startup, setup, and probe warmup have separate
+budgets. Health/control sampling is capped at 2,048 samples, while heap
 sampling continues until the full workload finishes.
+
+The fixture gives the utility model its own structured mock response, preserving
+the agent model's automatic tool loop. `turnEvidence.observerModelDigestTurns`
+counts turns with a published model-derived observer digest. A short run can
+legitimately report zero; observer correctness proof requires a positive count.
+
+`mockRequests` retains five mock-server counter checkpoints and their parent
+monotonic request bounds. Ingress deltas cover `startupAndWarmup` (readiness,
+connect, visibility, and probe warmup), `setup`, `loadBracket`, and `postLoad`
+(through Gateway shutdown). They distinguish Responses, Chat Completions,
+embeddings, and other routes, including rejected request bodies; health and
+model-catalog reads are excluded. These HTTP brackets are not exact CPU capture
+windows or causal attribution. `selections` through the final checkpoint separately
+count model/global controlled responses and automatic tool/text branches, not completed
+responses. Auxiliary model requests remain included; neither total is a count
+of agent turns. Missing, regressing, or replaced-server checkpoints fail instead
+of becoming zero. Reports retain counters, not raw prompts or request bodies.
 
 `--agent-count N` distributes the same session inventory round-robin across
 1–128 configured agents. It defaults to one agent and cannot exceed the larger

@@ -6,6 +6,7 @@ import {
   hasActiveCronRun,
   hasScheduledNextRunAtMs,
   isJobEnabled,
+  isTimeScheduledJob,
   resolveJobErrorBackoffUntilMs,
   resolveJobLastRunStatus,
 } from "./jobs-scheduling.js";
@@ -72,7 +73,7 @@ export function isRunnableJob(params: {
   if (!job.state) {
     job.state = {};
   }
-  if (!isJobEnabled(job)) {
+  if (!isJobEnabled(job) || !isTimeScheduledJob(job)) {
     return false;
   }
   if (params.skipJobIds?.has(job.id)) {

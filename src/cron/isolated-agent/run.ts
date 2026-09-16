@@ -33,7 +33,7 @@ import {
   resolveCronAbortReasonText,
 } from "../service/execution-errors.js";
 import type { CronAgentExecutionPhaseUpdate } from "../types.js";
-import type { CronExecutionResult } from "./run-executor.js";
+import type { CronCompletedPromptRun } from "./run-executor.js";
 import { finalizeCronRun } from "./run-finalize.js";
 import type { RunCronAgentTurnParams } from "./run-prepare-runtime.js";
 import { prepareCronRunContext } from "./run-prepare.js";
@@ -45,17 +45,7 @@ import { cleanupCronRunSessionAfterRun } from "./session-cleanup.js";
 
 const cronExecutorRuntimeLoader = createLazyImportLoader(() => import("./run-executor.runtime.js"));
 
-/**
- * Release runtime references held by a completed isolated cron run.
- *
- * After the final durable write and delivery complete, the cron session store
- * and run context are no longer needed in memory.  This shallow disposal prevents
- * the heap-retention pattern described in #85019 where ~113k copies of the skill
- * prompt string accumulated through cron run contexts that were never released.
- *
- * O(1) — nulls known large fields without deep traversal.  MUST run after the
- * final `persistSessionEntry()` and delivery construction, never before.
- */
+// Release the full session snapshot after persistence and delivery to avoid retaining skill prompts.
 async function disposeCronRunContext(params: {
   sessionId: string;
   cronSession: MutableCronSession;
@@ -74,7 +64,7 @@ async function disposeCronRunContext(params: {
       },
     }).catch(() => {});
   }
-  (params.cronSession as { store?: unknown }).store = undefined;
+  params.cronSession.store = {};
 }
 
 /** Runs one isolated cron agent turn, including setup, execution, delivery, and persistence. */
@@ -188,13 +178,17 @@ export async function runCronIsolatedAgentTurn(
           let outcome: "completed" | "error" = "completed";
           let outcomeError: string | undefined;
           let cronRunSessionCleanupHandled = false;
-          let completedExecution: CronExecutionResult | undefined;
+          let completedPromptRuns: readonly CronCompletedPromptRun[] = [];
           let usage: RunCronAgentTurnResult["usage"];
           let usageSettlement: Promise<void> | undefined;
-          const settleUsage = async (execution: CronExecutionResult, contextTokens?: number) => {
+          const settleUsage = async (contextTokens?: number) => {
             usageSettlement ??= (async () => {
-              usage = applyCronRunUsage(prepared.context, execution);
-              await recordCronRunUsage({ prepared: prepared.context, execution, contextTokens });
+              usage = applyCronRunUsage(prepared.context, completedPromptRuns);
+              await recordCronRunUsage({
+                prepared: prepared.context,
+                runs: completedPromptRuns,
+                contextTokens,
+              });
               await prepared.context.persistSessionEntry();
               await prepared.context.runContinuationSession?.seal({ basePersisted: true });
             })();
@@ -273,8 +267,8 @@ export async function runCronIsolatedAgentTurn(
               onExecutionStarted: notifyExecutionStarted,
               onExecutionPhase: notifyExecutionPhase,
               onLaneWait: params.onLaneWait,
-              onPromptCompleted: (execution) => {
-                completedExecution = execution;
+              onPromptCompleted: (runs) => {
+                completedPromptRuns = runs;
               },
               abortReason,
               isAborted,
@@ -299,7 +293,7 @@ export async function runCronIsolatedAgentTurn(
               execution,
               abortReason,
               isAborted,
-              settleUsage: (contextTokens) => settleUsage(execution, contextTokens),
+              settleUsage,
               markCronRunSessionCleanupHandled: () => {
                 cronRunSessionCleanupHandled = true;
               },
@@ -334,9 +328,9 @@ export async function runCronIsolatedAgentTurn(
                 : err instanceof CronExecutionRootRuntimeError || !executionStarted
                   ? "rejected"
                   : undefined;
-            if (completedExecution) {
+            if (completedPromptRuns.length > 0) {
               try {
-                await settleUsage(completedExecution);
+                await settleUsage();
               } catch (usageError) {
                 if (usageError !== err) {
                   logWarn(

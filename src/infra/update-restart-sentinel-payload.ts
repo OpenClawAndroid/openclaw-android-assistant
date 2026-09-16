@@ -1,5 +1,6 @@
 // Builds restart sentinel payloads for update handoff reporting.
 import { formatDoctorNonInteractiveHint, type RestartSentinelPayload } from "./restart-sentinel.js";
+import { isUpdateGatewayReadinessPending } from "./update-run-step.js";
 import type { UpdateRunResult } from "./update-runner.js";
 
 // Update restart sentinel payloads carry update result details across a process
@@ -24,6 +25,13 @@ export type UpdateRestartSentinelMeta = {
 };
 
 export function normalizeControlPlaneUpdateResult(result: UpdateRunResult): UpdateRunResult {
+  if (
+    (result.status === "ok" ||
+      (result.status === "skipped" && result.reason === "already-current")) &&
+    isUpdateGatewayReadinessPending(result)
+  ) {
+    return { ...result, status: "skipped", reason: "gateway-readiness-unverified" };
+  }
   const beforeSha = result.before?.sha?.trim();
   const afterSha = result.after?.sha?.trim();
   return result.status === "ok" &&

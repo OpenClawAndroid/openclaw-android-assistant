@@ -4,6 +4,7 @@ import { expectDefined } from "@openclaw/normalization-core/expect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import type { AgentCommandOpts } from "../agents/command/types.js";
+import { resolveAgentRunErrorLifecycleFields } from "../agents/run-termination.js";
 import { runAnnounceAgentCall } from "../agents/subagents/announce/subagent-announce-completion-delivery.js";
 import { registerSubagentRun } from "../agents/subagents/registry/subagent-registry.js";
 import {
@@ -16,6 +17,7 @@ import {
   resolveSqliteScope,
   toDatabaseOptions,
 } from "../config/sessions/session-accessor.sqlite-scope.js";
+import { getActiveGatewayRootWorkHolders } from "../process/gateway-work-admission.js";
 import { runExclusiveSessionLifecycleMutation } from "../sessions/session-lifecycle-admission.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -29,6 +31,8 @@ import { setAbortedAgentDedupeEntries } from "./agent-turn/agent-dedupe.js";
 import { abortChatRunById } from "./chat-abort.js";
 import { dispatchGatewayMethodInProcess } from "./server-plugin-in-process-dispatch.js";
 import { startGatewayServerHarness, type GatewayServerHarness } from "./server.e2e-ws-harness.js";
+import { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
+import { loadSessionEntry } from "./session-utils.js";
 import {
   agentCommandMock,
   installGatewayTestHooks,
@@ -191,6 +195,96 @@ describe("private subagent completion processing receipts", () => {
       expect(transcript()).toEqual(committed);
       expect(pending()).toEqual([]);
       await expect(dispatch("changed child result")).rejects.toThrow("conflicts");
+    },
+  );
+
+  it.for(["source changed", "provider failed"] as const)(
+    "settles private execution without confusing cancellation and failure: %s",
+    async (cause, { signal }) => {
+      const entered = createDeferred();
+      const release = createDeferred();
+      let allowed = true;
+      let processingCount = 0;
+      signal.addEventListener("abort", () => release.resolve(), { once: true });
+      agentCommandMock.mockImplementationOnce(async (input) => {
+        const command = input as AgentCommandOpts;
+        entered.resolve();
+        await release.promise;
+        try {
+          command.onExecutionStarted?.();
+          processingCount += 1;
+          throw new Error("synthetic provider failure");
+        } catch (error) {
+          // Exercise the real persisted lifecycle projection using the command's
+          // error classification, not a mock that silently drops lifecycle errors.
+          await persistGatewaySessionLifecycleEvent({
+            sessionKey,
+            event: {
+              runId,
+              sessionId,
+              ts: Date.now(),
+              data: {
+                phase: "error",
+                error: error instanceof Error ? error.message : String(error),
+                ...resolveAgentRunErrorLifecycleFields(error, command.abortSignal),
+              },
+            },
+          });
+          throw error;
+        }
+      });
+      const observation = runAnnounceAgentCall({
+        agentParams: request(),
+        privateCompletion: true,
+        expectFinal: true,
+        isExecutionAllowed: () => allowed,
+        resolveGatewayContext: () => kernel.gatewayRequestContext,
+      });
+      const observed = expect(observation).rejects.toThrow(
+        cause === "source changed"
+          ? "subagent source lifecycle changed before completion delivery"
+          : "synthetic provider failure",
+      );
+      await entered.promise;
+      allowed = cause !== "source changed";
+      release.resolve();
+      await observed;
+      await expect
+        .poll(() => kernel.gatewayRequestContext.chatAbortControllers.has(runId))
+        .toBe(false);
+      const cancelled = cause === "source changed";
+      expect(processingCount).toBe(cancelled ? 0 : 1);
+      const failedNotice = transcript().some((event) =>
+        JSON.stringify(event).includes("run-failed-before-reply"),
+      );
+      expect.soft(failedNotice).toBe(!cancelled);
+      const session = loadSessionEntry(sessionKey).entry;
+      expect.soft(session?.status === "failed").toBe(!cancelled);
+      expect(kernel.gatewayRequestContext.dedupe.get(`agent:${runId}`)).toMatchObject({
+        ok: cancelled,
+        payload: cancelled ? { status: "timeout", stopReason: "rpc" } : { status: "error" },
+      });
+      if (cancelled) {
+        expect(completions()).toMatchObject([{ run_id: runId, succeeded: 0 }]);
+        expect(JSON.parse(String(completions()[0]?.outcome_json))).toMatchObject({
+          reason: "cancelled",
+          stopReason: "rpc",
+        });
+        expect(pending()).toEqual([]);
+        kernel.gatewayRequestContext.dedupe.delete(`agent:${runId}`);
+        expect(await dispatch()).toMatchObject({ status: "error", stopReason: "rpc" });
+        await restart();
+        expect(await dispatch()).toMatchObject({ status: "error", stopReason: "rpc" });
+        expect(agentCommandMock).toHaveBeenCalledOnce();
+        expect(
+          transcript().some((event) => JSON.stringify(event).includes("run-failed-before-reply")),
+        ).toBe(false);
+      } else {
+        expect(JSON.parse(String(completions()[0]?.outcome_json))).toMatchObject({
+          reason: "failed",
+          error: "synthetic provider failure",
+        });
+      }
     },
   );
 
@@ -411,27 +505,71 @@ describe("private subagent completion processing receipts", () => {
     await consumed.promise;
     const descendantRunId = `private-descendant-${sequence}`;
     const childSessionKey = `agent:main:subagent:${descendantRunId}`;
+    const childSessionId = `${descendantRunId}-session`;
+    const childStarted = createDeferred();
+    const releaseChild = createDeferred();
+    let childAbortSignal: AbortSignal | undefined;
+    signal.addEventListener("abort", () => releaseChild.resolve(), { once: true });
     await writeSubagentSessionEntry({
       stateDir: process.env.OPENCLAW_STATE_DIR!,
       agentId: "main",
       sessionKey: childSessionKey,
-      defaultSessionId: `${descendantRunId}-session`,
+      defaultSessionId: childSessionId,
     });
-    registerSubagentRun({
-      runId: descendantRunId,
-      childSessionKey,
-      requesterSessionKey: sessionKey,
-      requesterAgentId: "main",
-      requesterTurnRunId: runId,
-      requesterDisplayKey: sessionKey,
-      task: "synthetic continuation child",
-      cleanup: "keep",
-      expectsCompletionMessage: false,
-      taskRowOwnership: "required",
+    agentCommandMock.mockImplementationOnce(async (input) => {
+      const command = input as AgentCommandOpts;
+      expect(command.runId).toBe(descendantRunId);
+      expect(command.sessionId).toBe(childSessionId);
+      childAbortSignal = command.abortSignal;
+      command.onExecutionStarted?.();
+      await command.userTurnTranscriptRecorder?.persistApproved();
+      childStarted.resolve();
+      command.abortSignal!.addEventListener("abort", () => releaseChild.resolve(), { once: true });
+      await releaseChild.promise;
+      command.abortSignal!.throwIfAborted();
+      throw new Error("operator stop must interrupt the continuation child");
     });
+    const child = dispatchGatewayMethodInProcess<Record<string, unknown>>(
+      "agent",
+      {
+        sessionKey: childSessionKey,
+        expectedExistingSessionId: childSessionId,
+        idempotencyKey: descendantRunId,
+        message: "Synthetic continuation child",
+        deliver: false,
+      },
+      {
+        expectFinal: true,
+        forceSyntheticClient: true,
+        operatorRoleActor: { kind: "system" },
+        resolveGatewayContext: () => kernel.gatewayRequestContext,
+      },
+    );
+    const observedChild = child.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
     try {
-      // The parent and child are intentionally live. Wait only for this child's
-      // persisted launch, not for all Gateway roots to finish before Stop.
+      await Promise.race([
+        childStarted.promise,
+        observedChild.then(() => {
+          throw new Error("continuation child finished before execution started");
+        }),
+      ]);
+      registerSubagentRun({
+        runId: descendantRunId,
+        childSessionKey,
+        requesterSessionKey: sessionKey,
+        requesterAgentId: "main",
+        requesterTurnRunId: runId,
+        requesterDisplayKey: sessionKey,
+        task: "synthetic continuation child",
+        cleanup: "keep",
+        expectsCompletionMessage: false,
+        taskRowOwnership: "required",
+      });
+      // Keep both producers live until the child's registration and wait request
+      // are admitted; a slow socket handshake must not hide the outstanding wait.
       await expect
         .poll(() =>
           loadSubagentRunsForControllerFromSqlite(sessionKey).some(
@@ -439,12 +577,14 @@ describe("private subagent completion processing receipts", () => {
           ),
         )
         .toBe(true);
+      await expect.poll(() => getActiveGatewayRootWorkHolders()).toContain("ws:agent.wait");
       expect(
         await kernel.gatewayInstanceRuntime.recovery.dispatchSessionMethod("chat.abort", {
           sessionKey,
           runId,
         }),
       ).toMatchObject({ aborted: true });
+      expect(childAbortSignal?.aborted).toBe(true);
     } finally {
       if (kernel.gatewayRequestContext.chatAbortControllers.has(runId)) {
         await kernel.gatewayInstanceRuntime.recovery.dispatchSessionMethod("chat.abort", {
@@ -452,10 +592,18 @@ describe("private subagent completion processing receipts", () => {
           runId,
         });
       }
+      if (kernel.gatewayRequestContext.chatAbortControllers.has(descendantRunId)) {
+        await kernel.gatewayInstanceRuntime.recovery.dispatchSessionMethod("chat.abort", {
+          sessionKey: childSessionKey,
+          runId: descendantRunId,
+        });
+      }
       release.resolve();
-      await observed;
+      releaseChild.resolve();
+      await Promise.all([observed, observedChild]);
     }
     await settleSubagentRegistryPersistenceWork();
+    expect(await observedChild).toMatchObject({ value: { status: "timeout", stopReason: "rpc" } });
     expect(
       loadSubagentRunsForControllerFromSqlite(sessionKey).find(
         (run) => run.runId === descendantRunId,
@@ -474,7 +622,15 @@ describe("private subagent completion processing receipts", () => {
     expect(await dispatch()).toMatchObject({ status: "error", stopReason: "rpc" });
     await restart();
     expect(await dispatch()).toMatchObject({ status: "error", stopReason: "rpc" });
-    expect(agentCommandMock).toHaveBeenCalledOnce();
+    expect(
+      agentCommandMock.mock.calls.map(([input]) => {
+        const command = input as AgentCommandOpts;
+        return { runId: command.runId, sessionId: command.sessionId };
+      }),
+    ).toEqual([
+      { runId, sessionId },
+      { runId: descendantRunId, sessionId: childSessionId },
+    ]);
   });
   it.each(["resolved", "rejected", "abandoned"] as const)(
     "preserves executing private timeout facts (%s)",

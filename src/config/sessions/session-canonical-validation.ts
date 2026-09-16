@@ -4,6 +4,8 @@ import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
+  prepareSqliteQuerySync,
+  prepareSqliteQueryTakeFirstSync,
   sqliteStringSet,
 } from "../../infra/kysely-sync.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
@@ -220,55 +222,69 @@ export function compareAndCertifyCanonicalSessionValidationBatch(
   return Number(result.numAffectedRows ?? 0n);
 }
 
-/** Canonical writers certify their final rows within their existing transaction. */
-export function certifyCanonicalSessionValidationRows(
+function prepareCanonicalWriterQueries(database: ValidationDatabase) {
+  const db = getNodeSqliteKysely<PendingDatabase>(database.db);
+  return {
+    pending: prepareSqliteQueryTakeFirstSync<string, { session_key: string }>(
+      database.db,
+      (parameter) =>
+        db
+          .selectFrom("session_canonical_validation_pending")
+          .select("session_key")
+          .where(
+            "session_key",
+            "=",
+            parameter((key) => key),
+          ),
+    ),
+    row: prepareSqliteQueryTakeFirstSync<string, CanonicalSessionValidationRow>(
+      database.db,
+      (parameter) =>
+        canonicalSessionValidationQuery(database).where(
+          "session_nodes.session_key",
+          "=",
+          parameter((key) => key),
+        ),
+    ),
+    certify: prepareSqliteQuerySync<string>(database.db, (parameter) =>
+      db.deleteFrom("session_canonical_validation_pending").where(
+        "session_key",
+        "=",
+        parameter((key) => key),
+      ),
+    ),
+  };
+}
+
+// Retain compiled shapes only; fresh bindings and native statement lifecycle stay with the executor.
+const canonicalWriterQueries = new WeakMap<
+  DatabaseSync,
+  ReturnType<typeof prepareCanonicalWriterQueries>
+>();
+
+/** Canonical writers certify their final row within their existing transaction. */
+export function certifyCanonicalSessionValidationRow(
   database: ValidationDatabase,
-  sessionKeys: readonly string[],
+  sessionKey: string,
 ): void {
   // Low-level autocommit callers leave invalidation work for the readiness owner.
-  if (
-    !database.db.isTransaction ||
-    !hasCanonicalSessionValidationProjection(database) ||
-    sessionKeys.length === 0
-  ) {
+  if (!database.db.isTransaction || !hasCanonicalSessionValidationProjection(database)) {
     return;
   }
-  const keys = executeSqliteQuerySync(
-    database.db,
-    getNodeSqliteKysely<PendingDatabase>(database.db)
-      .selectFrom("session_canonical_validation_pending")
-      .select("session_key")
-      .where("session_key", "in", sqliteStringSet([...new Set(sessionKeys)])),
-  ).rows.map((row) => row.session_key);
-  if (keys.length === 0) {
+  let queries = canonicalWriterQueries.get(database.db);
+  if (!queries) {
+    queries = prepareCanonicalWriterQueries(database);
+    canonicalWriterQueries.set(database.db, queries);
+  }
+  const pending = queries.pending(sessionKey);
+  if (!pending) {
     return;
   }
-  const rows = executeSqliteQuerySync(
-    database.db,
-    // Validate stored metadata after native TEXT binding; saved prompts are not canonical inputs.
-    canonicalSessionValidationQuery(database).where(
-      "session_nodes.session_key",
-      "in",
-      sqliteStringSet(keys),
-    ),
-  ).rows;
-  const found = new Set(rows.map((row) => row.session_key));
-  const batch = validateCanonicalSessionValidationBatch({
-    mainKey: readCanonicalSessionMainKey(database),
-    rows,
-    absentKeys: keys.filter((key) => !found.has(key)),
-    hasMore: false,
-    oversizedRows: 0,
-  });
-  // These rows were just reread and validated without yielding under the same reservation.
-  executeSqliteQuerySync(
-    database.db,
-    getNodeSqliteKysely<PendingDatabase>(database.db)
-      .deleteFrom("session_canonical_validation_pending")
-      .where(
-        "session_key",
-        "in",
-        sqliteStringSet([...batch.rows.map((row) => row.session_key), ...batch.absentKeys]),
-      ),
-  );
+  // Validate stored metadata after native TEXT binding; saved prompts are not canonical inputs.
+  const row = queries.row(pending.session_key);
+  if (row) {
+    validateCanonicalSessionRow(row, readCanonicalSessionMainKey(database));
+  }
+  // The row was just reread and validated without yielding under the same reservation.
+  queries.certify(pending.session_key);
 }

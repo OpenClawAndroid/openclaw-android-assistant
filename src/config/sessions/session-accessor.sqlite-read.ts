@@ -1,4 +1,3 @@
-import { toUSVString } from "node:util";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
@@ -39,7 +38,7 @@ import {
   type SessionTranscriptContextVersion,
 } from "./session-accessor.sqlite-transcript-state.js";
 import {
-  readTranscriptStatsChunkFromDatabase,
+  readTranscriptStatsBatchFromDatabase,
   readTranscriptStatsFromDatabase,
 } from "./session-accessor.sqlite-transcript-stats.js";
 import {
@@ -414,9 +413,6 @@ export function readTranscriptStatsSync(scope: SessionTranscriptReadScope): Sess
   return readTranscriptStatsFromDatabase(database, resolved.sessionId);
 }
 
-const SQLITE_TRANSCRIPT_STATS_POINT_QUERY_LIMIT = 10;
-const SQLITE_TRANSCRIPT_STATS_QUERY_CHUNK_SIZE = 400;
-
 /** Read transcript stats in database groups without joining the writable lifecycle. */
 export function readTranscriptStatsBatchReadOnlySync(
   scopes: readonly SessionTranscriptReadScope[],
@@ -441,34 +437,12 @@ export function readTranscriptStatsBatchReadOnlySync(
   }
   for (const group of groups.values()) {
     const read = withOpenClawAgentDatabaseReadOnly((database) => {
-      // Prepared point queries avoid three-query compilation on small batches.
-      if (group.items.length <= SQLITE_TRANSCRIPT_STATS_POINT_QUERY_LIMIT) {
-        for (const item of group.items) {
-          results[item.index] = readTranscriptStatsFromDatabase(database, item.sessionId);
-        }
-        return;
-      }
-      // Match node:sqlite's string binding before looking up rows by their stored ID.
-      const sessionIds = [...new Set(group.items.map((item) => toUSVString(item.sessionId)))];
-      const stats = new Map<string, SessionTranscriptStats>();
-      for (
-        let offset = 0;
-        offset < sessionIds.length;
-        offset += SQLITE_TRANSCRIPT_STATS_QUERY_CHUNK_SIZE
-      ) {
-        const chunk = sessionIds.slice(offset, offset + SQLITE_TRANSCRIPT_STATS_QUERY_CHUNK_SIZE);
-        if (chunk.length <= SQLITE_TRANSCRIPT_STATS_POINT_QUERY_LIMIT) {
-          for (const sessionId of chunk) {
-            stats.set(sessionId, readTranscriptStatsFromDatabase(database, sessionId));
-          }
-        } else {
-          for (const [sessionId, value] of readTranscriptStatsChunkFromDatabase(database, chunk)) {
-            stats.set(sessionId, value);
-          }
-        }
-      }
-      for (const item of group.items) {
-        results[item.index] = { ...stats.get(toUSVString(item.sessionId))! };
+      const stats = readTranscriptStatsBatchFromDatabase(
+        database,
+        group.items.map((item) => item.sessionId),
+      );
+      for (const [index, item] of group.items.entries()) {
+        results[item.index] = stats[index]!;
       }
     }, group.options);
     if (!read.found) {

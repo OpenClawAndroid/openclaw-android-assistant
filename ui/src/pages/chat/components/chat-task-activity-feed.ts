@@ -25,13 +25,13 @@ import {
   resolveCollapsedToolArgumentPreview,
 } from "../../../lib/chat/tool-cards.ts";
 import { stripThinkingTags } from "../../../lib/strip-thinking-tags.ts";
-import { buildMessageItems, rawMessageTimestamp } from "../chat-thread-items.ts";
-import type { AssistantMessageExpansionState } from "../chat-thread.ts";
-import { coalesceToolActivityMessages } from "../chat-tool-activity-coalesce.ts";
 import {
-  FULL_MESSAGE_RETRY_REVISION_LIMIT,
   resolveCappedMessageId,
-} from "./chat-message-markdown.ts";
+  type AssistantMessageExpansionState,
+} from "../chat-message-recovery.ts";
+import { buildMessageItems, rawMessageTimestamp } from "../chat-thread-items.ts";
+import { coalesceToolActivityMessages } from "../chat-tool-activity-coalesce.ts";
+import { FULL_MESSAGE_RETRY_REVISION_LIMIT } from "./chat-message-markdown.ts";
 import { renderMessageMarkdown, type AssistantMessageDisclosure } from "./chat-message-text.ts";
 
 type TaskMessageRecovery = {

@@ -1,6 +1,18 @@
+import type { ServiceInspectionReason } from "../../daemon/service-inspection-error.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
-import type { ManagedGatewayUpdateVerdict } from "./update-command-service-plan.js";
 import type { WindowsTaskAutoStartRecovery } from "./update-command-windows-task.js";
+
+export type ManagedGatewayUpdateVerdict =
+  | { kind: "absent" | "foreign" }
+  | {
+      kind: "owned";
+      root: string;
+      fingerprint: string;
+      refreshDefinition: boolean;
+      requiresInstallRootRefresh?: boolean;
+    }
+  | { kind: "unresolved"; root: string; fingerprint: string }
+  | { kind: "unavailable"; message: string; inspectionReason?: ServiceInspectionReason };
 
 export type PreManagedServiceStop = {
   stoppedAtMs?: number;

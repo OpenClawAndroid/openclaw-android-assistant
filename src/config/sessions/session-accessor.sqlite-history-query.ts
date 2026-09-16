@@ -201,7 +201,7 @@ function resolveRecentHistoryStart(
   return selectedStart;
 }
 
-export type SessionTranscriptMessageById = SessionTranscriptMessageEvent & {
+type SessionTranscriptMessageById = SessionTranscriptMessageEvent & {
   serializedBytes?: number;
 };
 export type SessionTranscriptMessageByIdOptions =

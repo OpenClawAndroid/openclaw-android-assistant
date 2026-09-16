@@ -22,6 +22,13 @@ export type SandboxFsStat = {
 
 /** Filesystem operations exposed across the sandbox boundary. */
 export type SandboxFsBridge = {
+  /**
+   * Backend-owned runtime roots and their local policy projections, in mount
+   * precedence order for equal roots. These do not grant access: bridge methods
+   * still enforce visibility, read-only rules and physical path safety.
+   * Omit only for pre-descriptor SDK implementations; an empty list admits nothing.
+   */
+  readonly pathMappings?: readonly { readonly hostRoot: string; readonly containerRoot: string }[];
   resolvePath(params: { filePath: string; cwd?: string }): SandboxResolvedPath;
   /**
    * Resolves the canonical mutation destination before caller authorization.

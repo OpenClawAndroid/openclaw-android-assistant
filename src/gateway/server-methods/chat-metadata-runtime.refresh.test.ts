@@ -1,15 +1,38 @@
+import { createServer, get } from "node:http";
 import { setImmediate as nextEventLoopTurn } from "node:timers/promises";
-import { describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { AuthProfileStore } from "../../agents/auth-profiles.js";
+import { handleGatewayProbeRequest } from "../server-http-probes.js";
 import {
   createChatMetadataHarness,
   createChatMetadataOwner,
 } from "./chat-metadata-runtime.test-support.js";
 
 describe("gateway chat metadata runtime", () => {
+  const server = createServer((req, res) => {
+    void handleGatewayProbeRequest(
+      req,
+      res,
+      "/health",
+      { mode: "none", allowTailscale: false },
+      [],
+      false,
+    );
+  });
+  beforeAll(async () => {
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+  });
+  afterAll(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  });
+
   test.each(["commands", "projection"] as const)(
-    "serves an unchanged agent while another agent prepares %s",
+    "publishes without fleet preparation and serves health and another agent during slow %s",
     async (phase) => {
       const config = { agents: { list: [{ id: "main", default: true }, { id: "second" }] } };
       const harness = createChatMetadataHarness(config);
@@ -19,6 +42,8 @@ describe("gateway chat metadata runtime", () => {
         params?.agentId === "second" ? secondOwner : mainOwner,
       );
       await harness.runtime.refresh();
+      expect(harness.buildCommands).not.toHaveBeenCalled();
+      expect(harness.buildProjection).not.toHaveBeenCalled();
       const entered = createDeferred();
       const release = createDeferred();
       secondOwner = createChatMetadataOwner(config, "replacement-model");
@@ -55,6 +80,18 @@ describe("gateway chat metadata runtime", () => {
         await nextEventLoopTurn();
         expect(mainSettled).toBe(true);
         expect(secondSettled).toBe(false);
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          throw new Error("health server did not bind a TCP port");
+        }
+        const health = await new Promise<number | undefined>((resolve, reject) => {
+          get(`http://127.0.0.1:${address.port}/health`, (response) => {
+            response.resume();
+            response.on("end", () => resolve(response.statusCode));
+          }).on("error", reject);
+        });
+        expect(health).toBe(200);
+        expect(secondSettled).toBe(false);
         await expect(mainRead).resolves.toMatchObject({
           models: [expect.objectContaining({ id: "main-model" })],
         });
@@ -71,7 +108,7 @@ describe("gateway chat metadata runtime", () => {
   );
 
   test.each(["skills", "plugins"] as const)(
-    "rechecks %s facts before returning a staged agent projection",
+    "rechecks %s publication before returning a suspended agent projection",
     async (changed) => {
       const harness = createChatMetadataHarness({
         agents: { list: [{ id: "main", default: true }, { id: "second" }] },
@@ -89,6 +126,7 @@ describe("gateway chat metadata runtime", () => {
         return { models: facts.modelCatalog.entries, modelCatalog: facts.modelCatalog.entries };
       });
       const refresh = harness.runtime.refresh();
+      let replacement: Promise<void> | undefined;
       let settled = false;
       const reading = harness.runtime.read({ agentId: "main" }).then((result) => {
         settled = true;
@@ -101,18 +139,19 @@ describe("gateway chat metadata runtime", () => {
         } else {
           harness.setPluginRegistryVersion(2);
         }
+        replacement = harness.runtime.refresh();
         releaseMain.resolve();
         await nextEventLoopTurn();
         expect(settled).toBe(false);
         releaseSecond.resolve();
-        await refresh;
+        await Promise.all([refresh, replacement]);
         await expect(reading).resolves.toMatchObject({
           commands: [{ name: changed === "skills" ? "command-2-1" : "command-1-2" }],
         });
       } finally {
         releaseMain.resolve();
         releaseSecond.resolve();
-        await Promise.allSettled([refresh, reading, harness.runtime.stop()]);
+        await Promise.allSettled([refresh, replacement, reading, harness.runtime.stop()]);
       }
     },
   );
@@ -156,6 +195,7 @@ describe("gateway chat metadata runtime", () => {
     async ({ settlement, explicitInvalidation }) => {
       const harness = createChatMetadataHarness();
       await harness.runtime.refresh();
+      await harness.runtime.read({ agentId: "main" });
       const releaseProjection = createDeferred();
       harness.buildProjection.mockImplementationOnce(async ({ facts }) => {
         await releaseProjection.promise;

@@ -471,7 +471,7 @@ export const reefPlugin: ChannelPlugin<ReefAccount> = {
           }),
         createReefWebSocket,
         {
-          initialCursor: inboxCursor.load(),
+          initialCursor: await inboxCursor.load(),
           persistCursor: (cursor) => inboxCursor.advance(cursor),
           onState: (state) => {
             if (ctx.abortSignal.aborted || state !== "connected") {

@@ -97,6 +97,11 @@ function createRuntime(env: NodeJS.ProcessEnv) {
       ...options,
       env: options.env ?? env,
     });
+  runtime.state.openKeyedStore = <T>(options: OpenKeyedStoreOptions) =>
+    createPluginStateKeyedStoreForTests<T>("reef", {
+      ...options,
+      env: options.env ?? env,
+    });
   return runtime;
 }
 

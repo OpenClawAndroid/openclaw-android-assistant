@@ -1,4 +1,5 @@
 // Gateway concurrency benchmark tests cover CLI controls, probe budgets, and summaries.
+import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { readFile, writeFile } from "node:fs/promises";
@@ -44,7 +45,20 @@ function createBenchmarkRun(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun
     },
     messageSubscriptions: [],
     messageSubscriptionsDuringLoad: [],
-    modelRequestCount: 1,
+    mockRequests: testing.summarizeMockRequests(
+      [0, 0, 0, 1, 1].map((responses, index) =>
+        testing.parseMockRequests(
+          {
+            id: "fixture",
+            ingress: { responses, chatCompletions: 0, embeddings: 0, other: 0 },
+            selections: { model: 0, global: 0, automaticTool: 0, automaticText: responses },
+          },
+          index * 2,
+          index * 2 + 1,
+        ),
+      ),
+    ),
+    turnEvidence: { toolTurns: 0, observerModelDigestTurns: 0 },
     probeWarmup: { durationMs: 2, samples: [] },
     pluginMetadataScans: { count: 0, durationMs: null, totalDurationMs: 0 },
     readyz: [],
@@ -59,6 +73,228 @@ function createBenchmarkRun(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun
 }
 
 describe("gateway concurrency benchmark script", () => {
+  it("partitions acknowledged ingress without attributing later selection events to the same phase", () => {
+    const snapshots = [0, 2, 5, 13, 17].map((responses, index) =>
+      testing.parseMockRequests(
+        {
+          id: "mock-one",
+          ingress: { responses, chatCompletions: 0, embeddings: index * 2, other: index },
+          selections: { model: index, global: 0, automaticTool: 0, automaticText: index },
+        },
+        index * 10,
+        index * 10 + 2,
+      ),
+    );
+    const result = testing.summarizeMockRequests(snapshots);
+    expect(result.ingress).toEqual({
+      startupAndWarmup: { responses: 2, chatCompletions: 0, embeddings: 2, other: 1 },
+      setup: { responses: 3, chatCompletions: 0, embeddings: 2, other: 1 },
+      loadBracket: { responses: 8, chatCompletions: 0, embeddings: 2, other: 1 },
+      postLoad: { responses: 4, chatCompletions: 0, embeddings: 2, other: 1 },
+      total: { responses: 17, chatCompletions: 0, embeddings: 8, other: 4 },
+    });
+    expect(result.selections).toEqual({ model: 4, global: 0, automaticTool: 0, automaticText: 4 });
+    expect(() => testing.summarizeMockRequests(snapshots.slice(1))).toThrow("incomplete");
+    const finalSnapshot = snapshots[4];
+    assert(finalSnapshot);
+    for (const change of [
+      { id: "replacement" },
+      { beforeMs: 0 },
+      { ingress: { ...finalSnapshot.ingress, responses: 1 } },
+      { selections: { ...finalSnapshot.selections, model: 0 } },
+    ]) {
+      expect(() =>
+        testing.summarizeMockRequests([...snapshots.slice(0, 4), { ...finalSnapshot, ...change }]),
+      ).toThrow("regressed");
+    }
+  });
+
+  it.each([undefined, -1, 0.5, Number.MAX_SAFE_INTEGER + 1, "1"])(
+    "rejects missing or unsafe mock counters: %s",
+    (responses) => {
+      expect(() =>
+        testing.parseMockRequests(
+          {
+            id: "mock",
+            ingress: { responses, chatCompletions: 0, embeddings: 0, other: 0 },
+            selections: { model: 0, global: 0, automaticTool: 0, automaticText: 0 },
+          },
+          0,
+          1,
+        ),
+      ).toThrow("invalid");
+    },
+  );
+
+  it("copies producer snapshots instead of retaining mutable counter objects", () => {
+    const producer = {
+      id: "mock",
+      ingress: { responses: 0, chatCompletions: 0, embeddings: 0, other: 0 },
+      selections: { model: 0, global: 0, automaticTool: 0, automaticText: 0 },
+    };
+    const snapshot = testing.parseMockRequests(producer, 0, 1);
+    producer.ingress.responses = 1;
+    producer.selections.model = 1;
+    expect(snapshot.ingress.responses).toBe(0);
+    expect(snapshot.selections.model).toBe(0);
+    expect(() => testing.parseMockRequests(undefined, 0, 1)).toThrow("identity");
+  });
+
+  it.each([false, true])(
+    "records tool events before or after final observation (delayed: %s)",
+    async (delayed) => {
+      const evidence = testing.createTurnEvidence(true);
+      let runId = "";
+      let emitToolEvents = () => {};
+      const rpc = async <T>(method: string, params: unknown): Promise<T> => {
+        if (method === "agent") {
+          const turn = params as { idempotencyKey: string; sessionKey: string };
+          runId = turn.idempotencyKey;
+          emitToolEvents = () => {
+            for (const phase of ["start", "result"]) {
+              evidence.onEvent({
+                event: "session.tool",
+                payload: {
+                  runId,
+                  sessionKey: turn.sessionKey,
+                  data: {
+                    phase,
+                    name: "exec",
+                    toolCallId: "call",
+                    isError: false,
+                    result: {
+                      details: {
+                        status: "completed",
+                        exitCode: 0,
+                        aggregated: "openclaw-draft-proof\n",
+                      },
+                    },
+                  },
+                },
+              });
+            }
+          };
+          if (!delayed) {
+            emitToolEvents();
+          }
+          // The terminal fast path must still obtain canonical agent.wait evidence.
+          return { runId, status: "ok" } as T;
+        }
+        evidence.onEvent({
+          event: "session.observer",
+          payload: {
+            runId,
+            sessionKey: "agent:main:test",
+            assessment: "Synthetic benchmark observation is valid.",
+          },
+        });
+        return {
+          runId,
+          status: "ok",
+          terminalReply: { disposition: "visible", text: "OPENCLAW_E2E_DRAFTPROOF" },
+        } as T;
+      };
+      await testing.runTurn(rpc, 0, performance.now() + 10_000, true, {
+        sessionKey: "agent:main:test",
+        evidence,
+      });
+      if (delayed) {
+        emitToolEvents();
+      }
+      expect(evidence.finish()).toEqual({ toolTurns: 1, observerModelDigestTurns: 1 });
+      expect(() =>
+        evidence.onEvent({
+          event: "session.tool",
+          payload: {
+            runId,
+            sessionKey: "agent:main:test",
+            data: { phase: "result", name: "exec", toolCallId: "call" },
+          },
+        }),
+      ).not.toThrow();
+      expect(() => evidence.finish()).toThrow("duplicated");
+    },
+  );
+
+  it.each([undefined, "another-run"])(
+    "rejects a missing or mismatched agent.wait identity: %s",
+    async (waitRunId) => {
+      const rpc = async <T>(method: string): Promise<T> =>
+        (method === "agent"
+          ? { runId: "expected-run", status: "accepted" }
+          : { runId: waitRunId, status: "ok" }) as T;
+      await expect(testing.runTurn(rpc, 0, performance.now() + 10_000)).rejects.toThrow(
+        "agent.wait returned a different or missing benchmark run identity",
+      );
+    },
+  );
+
+  it.each([
+    { name: "missing", result: undefined },
+    {
+      name: "validation error",
+      result: {
+        isError: true,
+        result: {
+          details: { status: "completed", exitCode: 0, aggregated: "openclaw-draft-proof" },
+        },
+      },
+    },
+    {
+      name: "approval unavailable",
+      result: { isError: false, result: { details: { status: "approval-unavailable" } } },
+    },
+    {
+      name: "nonzero",
+      result: {
+        isError: false,
+        result: {
+          details: { status: "completed", exitCode: 1, aggregated: "openclaw-draft-proof" },
+        },
+      },
+    },
+    {
+      name: "wrong call",
+      result: {
+        toolCallId: "other",
+        isError: false,
+        result: {
+          details: { status: "completed", exitCode: 0, aggregated: "openclaw-draft-proof" },
+        },
+      },
+    },
+  ])("does not let a final marker conceal $name tool evidence", ({ result }) => {
+    const evidence = testing.createTurnEvidence(true);
+    evidence.register("run", "session");
+    const tool = {
+      event: "session.tool",
+      payload: {
+        runId: "run",
+        sessionKey: "session",
+        data: { name: "exec", toolCallId: "call", phase: "start" },
+      },
+    };
+    evidence.onEvent(tool);
+    if (result) {
+      evidence.onEvent({
+        ...tool,
+        payload: { ...tool.payload, data: { ...tool.payload.data, phase: "result", ...result } },
+      });
+    }
+    evidence.complete("run", { disposition: "visible", text: "OPENCLAW_E2E_DRAFTPROOF" });
+    expect(() => evidence.finish()).toThrow("unsuccessful");
+  });
+
+  it.each([undefined, { disposition: "silent" }, { disposition: "visible", text: "wrong" }])(
+    "rejects absent or incorrect final reply evidence",
+    (reply) => {
+      const evidence = testing.createTurnEvidence(true);
+      evidence.register("run", "session");
+      expect(() => evidence.complete("run", reply)).toThrow("visible final");
+      expect(evidence.finish).toThrow();
+    },
+  );
+
   it("reports process CPU per completed turn separately from main-thread CPU and probe samples", () => {
     const first = createBenchmarkRun();
     const second = createBenchmarkRun({
@@ -469,7 +705,8 @@ describe("gateway concurrency benchmark script", () => {
       gatewayHeapGrowthMb: { count: 2, max: 20, p50: 20, p95: 20, p99: 20 },
       gatewayPeakRssMb: { count: 2, max: 210, p50: 210, p95: 210, p99: 210 },
       gatewayRssGrowthMb: { count: 2, max: 20, p50: 20, p95: 20, p99: 20 },
-      modelRequestCount: 2,
+      mockRequestIngress: { responses: 2, chatCompletions: 0, embeddings: 0, other: 0 },
+      mockResponseSelections: { model: 0, global: 0, automaticTool: 0, automaticText: 2 },
       pluginMetadataScanCount: 3,
       pluginMetadataScanTotalDurationMs: 60,
     });
@@ -642,7 +879,11 @@ describe("gateway concurrency benchmark script", () => {
       }
       turn.issued.resolve();
       await turn.completed.promise;
-      return { status: "ok" } as T;
+      return {
+        runId,
+        status: "ok",
+        terminalReply: { disposition: "visible", text: "OPENCLAW_E2E_DRAFTPROOF" },
+      } as T;
     };
     const [fastSession, slowSession] = ["fast", "slow"].map((sessionKey, index) =>
       testing.runSessionTurns(rpc, index, performance.now() + 60_000, {

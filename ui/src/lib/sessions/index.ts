@@ -285,8 +285,7 @@ export function createSessionCapability(
     readState: () => state,
     publish,
     copyRow: roster.copyRow,
-    refreshReplacement: roster.refreshReplacement,
-    refreshReplacementResult: roster.refreshReplacementResult,
+    reconcileMutation: roster.reconcileMutation,
     publishedRow: (key) => roster.publishedRow((row) => row.key === key),
     archiveFields: roster,
     readRevision: () => roster.requestRevision,
@@ -307,15 +306,14 @@ export function createSessionCapability(
     publishedRow: (matches) => roster.publishedRow(matches),
     redecorateLists: () => roster.redecorateLists(),
     invalidateLists: () => roster.scheduleEvent(),
-    refreshReplacement: roster.refreshReplacement,
+    reconcileMutation: roster.reconcileMutation,
     reconcilePreviousConnection: mutations.reconcileConfirmedPreviousConnection,
     retire: mutations.retireDeletedSession,
   });
 
   const operations = createSessionScopedOperations({
     connection,
-    agentId: () => state.agentId,
-    refreshReplacement: roster.refreshReplacement,
+    reconcileMutation: roster.reconcileMutation,
     notifyCreated,
     reportError: (error) => publish({ ...state, error: formatUiError(error) }, "operation"),
   });
@@ -572,21 +570,24 @@ export function createSessionCapability(
     const runEnded =
       hasActiveRun === false || (status !== null && status !== undefined && status !== "running");
     const isTerminalMessage = event.event === "session.message" && runEnded;
-    // Only an existing Gateway roster member that remains active can be replaced directly.
+    // Snapshot-only lifecycle events preserve membership; mutations still refresh
+    // Gateway-owned filters, ownership ordering, and query facets.
     const primarySnapshotApplied =
-      isTerminalMessage &&
       reconciled.applied &&
       eventInfo !== null &&
+      eventInfo.reason === null &&
       eventInfo.archived !== true &&
       typeof payload?.session === "object" &&
       payload.session !== null &&
       roster.canApplyPrimarySnapshot() &&
-      state.result?.sessions.some((row) =>
-        uiSessionEventMatches(
-          { ...gateway.snapshot, sessionKey: row.key },
-          eventInfo.key,
-          eventInfo.agentId,
-        ),
+      state.result?.sessions.some(
+        (row) =>
+          row.archived !== true &&
+          uiSessionEventMatches(
+            { ...gateway.snapshot, sessionKey: row.key },
+            eventInfo.key,
+            eventInfo.agentId,
+          ),
       ) === true;
     let primaryPublished = false;
     if (

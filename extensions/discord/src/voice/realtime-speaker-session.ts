@@ -93,7 +93,6 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
   private inputOpen = true;
   private closeCompletion: Promise<void> | undefined;
   private activeOperations = 0;
-  private detached = false;
   private outputEnabled = true;
   private selection: RealtimeVoiceSelectionInfo | undefined;
   private readonly inputIdleListeners = new Set<() => void>();
@@ -197,7 +196,6 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
       runAgentTurn: (turn) => this.trackOperation(() => this.params.runAgentTurn(turn)),
       resolveSpeakerContext: this.params.resolveSpeakerContext,
       stopped: () => this.isStopped(),
-      detached: () => this.detached,
       turns: this.turns,
       usesRealtimeAgentHandoff: () =>
         this.params.mode === "bidi" || this.consultToolPolicy !== "none",
@@ -407,7 +405,6 @@ export class DiscordRealtimeSpeakerSession implements VoiceRealtimeSession {
       return this.closeCompletion;
     }
     // Closing admits only final transcripts; provider completion owns their recording frontier.
-    this.detached = disposition === "detach";
     this.lifecycle.status = "closing";
     this.drain();
     this.flushSuppressedRealtimeErrors();

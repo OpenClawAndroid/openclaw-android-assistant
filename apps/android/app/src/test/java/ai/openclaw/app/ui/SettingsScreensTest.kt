@@ -364,7 +364,7 @@ class SettingsScreensTest {
     val source = settingsScreensSource()
     val cardStart = source.indexOf("private fun ExecApprovalCard(")
     val reviewCall = source.indexOf("ExecApprovalCommandReview(", cardStart)
-    val actionsCall = source.indexOf("execApprovalActions(approval.allowedDecisions)", reviewCall)
+    val actionsCall = source.indexOf("execApprovalActions(", reviewCall)
     val reviewStart = source.indexOf("private fun ExecApprovalCommandReview(", actionsCall)
     val reviewEnd = source.indexOf("internal data class ExecApprovalAction", reviewStart)
     assertTrue(cardStart >= 0 && reviewCall > cardStart && actionsCall > reviewCall)

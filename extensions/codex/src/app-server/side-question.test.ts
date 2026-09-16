@@ -136,7 +136,7 @@ function runCodexAppServerSideQuestion(
   return runCodexAppServerSideQuestionImpl(params, { ...options, bindingStore });
 }
 
-function createFakeClient(options: { completeTurn?: boolean } = {}) {
+function createFakeClient(options: { completeTurn?: boolean; onTurnStart?: () => void } = {}) {
   const fixture = createFakeCodexAppServerClient();
   const client = Object.assign(fixture.client, {
     notifications: fixture.notifications,
@@ -166,6 +166,7 @@ function createFakeClient(options: { completeTurn?: boolean } = {}) {
       return {};
     }
     if (method === "turn/start") {
+      options.onTurnStart?.();
       if (options.completeTurn !== false) {
         queueMicrotask(() => {
           client.emit(agentDelta("side-thread", "turn-1", "Side answer."));
@@ -1294,6 +1295,7 @@ describe("runCodexAppServerSideQuestion", () => {
     {
       metadata: "Platform",
       thinking: "off",
+      rawModel: "configured-alias",
       supported: ["none", "low", "medium", "high", "xhigh", "max"],
       expected: "none",
     },
@@ -1319,14 +1321,16 @@ describe("runCodexAppServerSideQuestion", () => {
     { metadata: "unknown", thinking: "ultra", supported: undefined, expected: "ultra" },
   ] as const)(
     "sends $thinking with $metadata metadata to the side-question request boundary",
-    async ({ metadata, thinking, supported, expected }) => {
+    async (scenario) => {
+      const { metadata, thinking, supported, expected } = scenario;
+      const requestedModel = "rawModel" in scenario ? scenario.rawModel : "gpt-5.6-sol";
       const client = createFakeClient();
       getSharedCodexAppServerClientMock.mockResolvedValue(client);
       const compat: ModelCompatConfig | undefined = supported
         ? { supportedReasoningEfforts: [...supported] }
         : undefined;
       const params = sideParams({
-        model: "gpt-5.6-sol",
+        model: requestedModel,
         resolvedThinkLevel: thinking,
         runtimeModel: {
           ...createCodexTestModel(),
@@ -1352,15 +1356,18 @@ describe("runCodexAppServerSideQuestion", () => {
       });
 
       expect(createOpenClawCodingToolsMock).toHaveBeenCalledWith(
-        expect.objectContaining({ requesterThinkingLevel: thinking }),
+        expect.objectContaining({
+          requesterThinkingLevel: thinking,
+          requesterModel: { provider: "openai", model: "gpt-5.6-sol" },
+        }),
       );
       const turnStartCall = client.request.mock.calls.find(([method]) => method === "turn/start");
       expect(turnStartCall?.[1]).toMatchObject({
         threadId: "side-thread",
-        model: "gpt-5.6-sol",
+        model: requestedModel,
         effort: expected,
         collaborationMode: {
-          settings: { model: "gpt-5.6-sol", reasoning_effort: expected },
+          settings: { model: requestedModel, reasoning_effort: expected },
         },
       });
     },
@@ -2177,7 +2184,8 @@ describe("runCodexAppServerSideQuestion", () => {
   it.each(["answer", "caller cancellation"] as const)(
     "revokes native hook authority on close while projecting the final %s",
     async (outcome) => {
-      const client = createFakeClient({ completeTurn: false });
+      const turnStarted = createDeferred<void>();
+      const client = createFakeClient({ completeTurn: false, onTurnStart: turnStarted.resolve });
       getSharedCodexAppServerClientMock.mockResolvedValue(client);
       const projecting = createDeferred<void>();
       const finishProjection = createDeferred<void>();
@@ -2199,9 +2207,12 @@ describe("runCodexAppServerSideQuestion", () => {
         runError = error;
       });
       try {
-        await vi.waitFor(() =>
-          expect(client.request.mock.calls.some(([method]) => method === "turn/start")).toBe(true),
-        );
+        await Promise.race([
+          turnStarted.promise,
+          settled.then(() => {
+            throw new Error("Side-question fixture ended before turn/start", { cause: runError });
+          }),
+        ]);
         const fork = client.request.mock.calls.find(([method]) => method === "thread/fork")?.[1];
         const relayId = extractRelayIdFromThreadConfig(
           (fork as { config?: Record<string, unknown> }).config,
@@ -2237,6 +2248,7 @@ describe("runCodexAppServerSideQuestion", () => {
           await expect(run).resolves.toEqual({ text: "Side answer." });
         }
       } finally {
+        controller.abort("fixture cleanup");
         finishProjection.resolve();
         await settled;
       }

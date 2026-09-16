@@ -48,6 +48,12 @@ export interface PluginInstanceResource {
   dispose(beforeCleanup?: () => void | Promise<void>): Promise<PluginInstanceDisposalResult>;
 }
 
+/** Captured code custody survives retiring a runtime until recovery consumes or releases it. */
+export type PluginModuleLoaderRecovery = {
+  bind(instance: PluginModuleLoaderOwner): void;
+  dispose(): void;
+};
+
 /** Runtime and setup loaders use the same instance-owned captured source. */
 export interface PluginModuleLoaderOwner extends PluginInstanceResource, PluginInstanceAdmission {
   controlPlaneInitialized: boolean;
@@ -59,6 +65,8 @@ export interface PluginModuleLoaderOwner extends PluginInstanceResource, PluginI
   ): void;
   loadModule(source: string): unknown;
   hasModuleSource(source: string): boolean | undefined;
+  bindModuleLoaderRecovery(capture: () => PluginModuleLoaderRecovery): void;
+  captureModuleLoaderRecovery(): PluginModuleLoaderRecovery;
 }
 
 /** Current-call helpers retain the instance itself, not a registry or plugin-id lookup. */

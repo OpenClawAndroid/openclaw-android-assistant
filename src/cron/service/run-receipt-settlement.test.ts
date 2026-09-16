@@ -294,7 +294,12 @@ describe("cron run receipt settlement", () => {
   it("reserves an observed exit atomically after a competing manual run", async () => {
     vi.useRealTimers();
     const { storePath } = await makeStorePath();
-    const job = { ...makeTimedJob("on-exit-manual-race", Date.now()), schedule: onExitSchedule };
+    const job = {
+      ...makeTimedJob("on-exit-manual-race", Date.now()),
+      schedule: onExitSchedule,
+      // Event-driven jobs have no timer slot for a competing scheduled run.
+      state: {},
+    };
     await saveCronStore(storePath, { version: 1, jobs: [job] });
     const manualStarted = createDeferred();
     const releaseManual = createDeferred<{ status: "ok" }>();
@@ -338,7 +343,9 @@ describe("cron run receipt settlement", () => {
     });
     try {
       await manualStarted.promise;
-      expect((await service.readJob(job.id))?.enabled).toBe(true);
+      const current = await service.readJob(job.id);
+      expect(current?.enabled).toBe(true);
+      expect(current?.state.nextRunAtMs).toBeUndefined();
       expect(onReserved).not.toHaveBeenCalled();
       await service.update(job.id, { payload: { kind: "command", argv: ["updated"] } });
       releaseManual.resolve({ status: "ok" });
@@ -370,6 +377,7 @@ describe("cron run receipt settlement", () => {
       const job = {
         ...makeTimedJob(`on-exit-queued-${action}`, Date.now()),
         schedule: onExitSchedule,
+        state: {},
         deleteAfterRun: true,
         delivery: { mode: "none" as const },
         payload: { kind: "command" as const, argv: ["original"], timeoutSeconds: 30 },
@@ -392,6 +400,7 @@ describe("cron run receipt settlement", () => {
       let observedExit: ReturnType<CronService["runOnExit"]> | undefined;
       try {
         await vi.waitFor(() => expect(runCommandJob).toHaveBeenCalledTimes(blockers.length));
+        expect((await service.readJob(job.id))?.state.nextRunAtMs).toBeUndefined();
         const reserved = createDeferred();
         observedExit = service.runOnExit(job.id, {
           schedule: onExitSchedule,

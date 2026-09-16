@@ -208,7 +208,7 @@ class RosterActivityStore {
 
   private revokeRequest() {
     this.generation += 1;
-    this.activeRequest?.completion.resolve();
+    // Revocation retires publication; the raw read still owns completion.
     this.activeRequest = null;
   }
 

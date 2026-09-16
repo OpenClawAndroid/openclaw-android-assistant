@@ -7,7 +7,10 @@ import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { composeTranscriptDisplay } from "../chat/transcript-display-position.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
-import { estimateTranscriptPromptTokens } from "../config/sessions/session-accessor.sqlite-parent-fork.js";
+import {
+  estimateParentForkPromptTokens,
+  resolveParentForkSourceTranscript,
+} from "../config/sessions/session-accessor.sqlite-parent-fork.js";
 import { projectChatDisplayMessages } from "../gateway/chat-display-projection.js";
 import { readSessionMessagesAsync } from "../gateway/session-transcript-readers.js";
 import { wrapToolWithAbortSignal } from "./agent-tools.abort.js";
@@ -197,12 +200,14 @@ describe("Code Mode subscribed bridge lifecycle", () => {
       const bounded = SessionManager.openBounded(scope, { maxEvents: 4, maxBytes: 4096 });
       expect(bounded.buildSessionContext().messages).toEqual(replay.slice(-4));
       const events = reopened.getPersistedEntries();
-      expect(estimateTranscriptPromptTokens(events)).toEqual(
-        estimateTranscriptPromptTokens(
-          events.filter(
-            (event) =>
-              !(event as { message?: { excludeFromContext?: boolean } }).message
-                ?.excludeFromContext,
+      expect(estimateParentForkPromptTokens(resolveParentForkSourceTranscript(events))).toEqual(
+        estimateParentForkPromptTokens(
+          resolveParentForkSourceTranscript(
+            events.filter(
+              (event) =>
+                !(event as { message?: { excludeFromContext?: boolean } }).message
+                  ?.excludeFromContext,
+            ),
           ),
         ),
       );

@@ -544,7 +544,7 @@ export async function executeMessageSend(ctx: ResolvedActionContext): Promise<Me
     if (projectPluginMessageDeliveryFact(gatewayPluginAction.payload)?.status !== "suppressed") {
       await commitOutboundSessionRoute();
     }
-    return annotateSourceDelivery(
+    return await annotateSourceDelivery(
       withSendNormalization(gatewayPluginAction, sendPayload.normalization),
       ctx,
       reply?.source === "explicit",
@@ -635,7 +635,7 @@ export async function executeMessageSend(ctx: ResolvedActionContext): Promise<Me
     sendResult: send.sendResult,
     dryRun,
   };
-  return annotateSourceDelivery(
+  return await annotateSourceDelivery(
     withSendNormalization(result, sendPayload.normalization),
     ctx,
     reply?.source === "explicit",

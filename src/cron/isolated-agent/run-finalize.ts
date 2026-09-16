@@ -97,17 +97,11 @@ export async function finalizeCronRun(params: {
       });
     }
   }
-  const usage = resolveCronRunUsage(execution);
+  const usage = resolveCronRunUsage(execution.completedPromptRuns);
   const lastCallUsage = finalRunResult.meta?.agentMeta?.lastCallUsage;
   const promptTokens = finalRunResult.meta?.agentMeta?.promptTokens;
-  const modelUsed =
-    finalRunResult.meta?.agentMeta?.model ??
-    execution.fallbackModel ??
-    execution.liveSelection.model;
-  const providerUsed =
-    finalRunResult.meta?.agentMeta?.provider ??
-    execution.fallbackProvider ??
-    execution.liveSelection.provider;
+  const modelUsed = finalRunResult.meta?.agentMeta?.model ?? execution.fallbackModel;
+  const providerUsed = finalRunResult.meta?.agentMeta?.provider ?? execution.fallbackProvider;
   const runtimeContextTokens = resolvePositiveContextTokens(
     finalRunResult.meta?.agentMeta?.contextTokens,
   );

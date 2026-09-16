@@ -53,8 +53,8 @@ import type {
 } from "./session-catalog-types.js";
 
 const CODEX_SESSION_CATALOG_LIST_TTL_MS = 32_000;
-// Each source can need 20 exclusion pages; retain several homes and query shapes together.
-const CODEX_SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES = 128;
+// Each source can need 20 exclusion pages; retain several query shapes per source.
+const CODEX_SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES = 32;
 
 type CodexCatalogRequestOptions = {
   agentDir: string | undefined;
@@ -443,7 +443,7 @@ export function createCodexSessionCatalogControl(params: {
     OpenClawConfig,
     Map<string, CodexCatalogRequestOptions>
   >();
-  const catalogPagesByConfig = new WeakMap<OpenClawConfig, CodexCatalogPageCache>();
+  const catalogPagesByConfig = new WeakMap<OpenClawConfig, Map<string, CodexCatalogPageCache>>();
   const sourceBackoff = new CodexCatalogSourceBackoff(now);
   const resolveRequestOptions = (
     startOptions: CodexAppServerStartOptions,
@@ -605,10 +605,17 @@ export function createCodexSessionCatalogControl(params: {
         if (!runtimeConfig) {
           return await control.listPage(pageParams);
         }
-        let cache = catalogPagesByConfig.get(runtimeConfig);
+        let sources = catalogPagesByConfig.get(runtimeConfig);
+        if (!sources) {
+          sources = new Map();
+          catalogPagesByConfig.set(runtimeConfig, sources);
+        }
+        // A full walk of other homes must not evict this source before its next poll.
+        const sourceKey = JSON.stringify([agentId, source?.sourceHomeId ?? null]);
+        let cache = sources.get(sourceKey);
         if (!cache) {
           cache = { settled: new Map(), pending: new Map() };
-          catalogPagesByConfig.set(runtimeConfig, cache);
+          sources.set(sourceKey, cache);
         }
         const key = codexCatalogPageCacheKey(pageParams, agentId, source);
         const cached = cache.settled.get(key);

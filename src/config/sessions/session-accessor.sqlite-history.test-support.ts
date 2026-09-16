@@ -1,5 +1,16 @@
 import { runSqliteImmediateTransactionSync } from "../../infra/sqlite-transaction.js";
+import type { TranscriptAnchorPageOptions } from "../../sessions/transcript-anchor-page.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
+import type { SessionTranscriptMessageAnchorPage } from "./session-accessor.sqlite-active-events.js";
+import { withCurrentProjectionSnapshot } from "./session-accessor.sqlite-active-projection.js";
+import type { SessionTranscriptReadScope } from "./session-accessor.sqlite-contract.js";
+import {
+  readSessionTranscriptHistoryEventsFromProjection,
+  readSessionTranscriptHistoryEventByIdFromProjection,
+  readSessionTranscriptHistoryAnchorPageFromProjection,
+  type SessionTranscriptMessageByIdOptions,
+} from "./session-accessor.sqlite-history-query.js";
+import type { SessionTranscriptMessageEvent } from "./session-accessor.sqlite-projection-read.js";
 
 export function insertSyntheticHistory(
   database: OpenClawAgentDatabase,
@@ -65,4 +76,36 @@ export function insertSyntheticHistory(
         sessionId,
       );
   });
+}
+
+export function readSessionTranscriptHistoryEvents(
+  scope: SessionTranscriptReadScope,
+  options: { readOnly?: boolean } = {},
+): SessionTranscriptMessageEvent[] {
+  return withCurrentProjectionSnapshot(
+    scope,
+    (projection) => readSessionTranscriptHistoryEventsFromProjection(projection),
+    options,
+  );
+}
+
+export function readSessionTranscriptHistoryEventById(
+  scope: SessionTranscriptReadScope,
+  eventId: string,
+  options: SessionTranscriptMessageByIdOptions = {},
+) {
+  return withCurrentProjectionSnapshot(scope, (projection) =>
+    readSessionTranscriptHistoryEventByIdFromProjection(projection, eventId, options),
+  );
+}
+
+export function readSessionTranscriptHistoryAnchorPage(
+  scope: SessionTranscriptReadScope,
+  options: TranscriptAnchorPageOptions & { readOnly?: boolean },
+): SessionTranscriptMessageAnchorPage {
+  return withCurrentProjectionSnapshot(
+    scope,
+    (projection) => readSessionTranscriptHistoryAnchorPageFromProjection(projection, options),
+    options,
+  );
 }

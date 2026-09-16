@@ -57,8 +57,11 @@ const harness = await import("./bot.create-telegram-bot.test-harness.js");
 const { getLoadConfigMock, getOnHandler, replySpy, sendMessageSpy, telegramBotDepsForTest } =
   harness;
 const { createTelegramBotCore: createTelegramBotBase } = await import("./bot-core.js");
-const { runWithTelegramSpooledReplayUpdate, runWithTelegramUpdateProcessingFrame } =
-  await import("./bot-processing-outcome.js");
+const {
+  getTelegramSpooledReplayDeferredParticipant,
+  runWithTelegramSpooledReplayUpdate,
+  runWithTelegramUpdateProcessingFrame,
+} = await import("./bot-processing-outcome.js");
 const { MediaFetchError } = await import("./telegram-media.runtime.js");
 
 let createTelegramBot: (
@@ -606,10 +609,16 @@ describe("createTelegramBot channel_post media", () => {
       fileName: "document.pdf",
       update,
     });
-    const { result } = await runWithTelegramUpdateProcessingFrame(() =>
-      withTelegramSpooledReplayUpdate(update, () => handler(ctx)),
-    );
-    expect(result).toEqual(testCase.result);
+    // Durable ingress reads the participant's settlement when the handler
+    // created one; the frame result covers handlers that never reached it.
+    const { value: participantResult, result: frameResult } =
+      await runWithTelegramUpdateProcessingFrame(() =>
+        withTelegramSpooledReplayUpdate(update, async () => {
+          await handler(ctx);
+          return await getTelegramSpooledReplayDeferredParticipant()?.task;
+        }),
+      );
+    expect(participantResult ?? frameResult).toEqual(testCase.result);
     const expectedWarnings = testCase.warning ? 1 : 0;
     expect(sendMessageSpy).toHaveBeenCalledTimes(expectedWarnings);
     expect(replySpy).toHaveBeenCalledTimes(expectedWarnings);

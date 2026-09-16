@@ -451,26 +451,40 @@ describe("standalone upgrade survivor live OpenAI probe", () => {
 
 describe("legacy operator baseline plugin cohort", () => {
   it.each([
-    ["2026.7.1-1", "2026.7.1"],
-    ["2026.7.1-2", "2026.7.1"],
-    ["2026.8.1", "2026.8.1"],
-    ["2026.8.1-beta.3", "2026.8.1-beta.3"],
-  ])("installs the published plugin cohort for core %s", (baseline, pluginVersion) => {
-    const root = tempDirs.make("openclaw-survivor-plugin-cohort-");
-    const source = readFileSync("scripts/e2e/lib/upgrade-survivor/run.sh", "utf8");
-    const runner = join(root, "run.sh");
-    // Exercise registry preparation and installation together; only external
-    // npm/CLI operations are replaced so a corrected core never pins a nonexistent plugin.
-    writeFileSync(
-      runner,
-      `${source.slice(0, source.indexOf("phase storage-preflight"))}
+    ["2026.7.1-1", "2026.7.1", "latest", ""],
+    ["2026.7.1-2", "2026.7.1", "latest", ""],
+    ["2026.8.1", "2026.8.1", "latest", ""],
+    ["2026.7.2-beta.7", "2026.7.2-beta.7", "beta", ""],
+    ["2026.8.1-alpha.3", "2026.8.1-alpha.3", "alpha", ""],
+    ["2026.8.1-beta.1", "2026.8.1-beta.1", "beta", "E404"],
+    ["2026.8.1-beta.1", "2026.8.1-beta.1", "beta", "ECONNRESET"],
+  ])(
+    "checks the published plugin cohort for core %s (%s, %s, %s)",
+    (baseline, pluginVersion, tag, errorCode) => {
+      const root = tempDirs.make("openclaw-survivor-plugin-cohort-");
+      const source = readFileSync("scripts/e2e/lib/upgrade-survivor/run.sh", "utf8");
+      const runner = join(root, "run.sh");
+      // Exercise registry preparation and installation together; only external
+      // npm/CLI operations are replaced so a corrected core never pins a nonexistent plugin.
+      writeFileSync(
+        runner,
+        `${source.slice(0, source.indexOf("phase storage-preflight"))}
 trap - EXIT ERR HUP INT TERM
 baseline_version="$BASELINE_VERSION"
 candidate_version=2026.9.4
 npm() {
+  if [ -n "$NPM_LOOKUP_ERROR" ]; then
+    printf '%s\\n' "$NPM_LOOKUP_RESULT"
+    return 1
+  fi
+  if [ "$1" = view ]; then
+    printf '%s\\n' "$NPM_LOOKUP_RESULT"
+    return
+  fi
   printf '%s\\n' "$2" >"$CAPTURE_DIR/packed-spec"
   printf 'discord.tgz\\n'
 }
+openclaw_e2e_maybe_timeout() { shift; "$@"; }
 openclaw_prepublish_plugin_registry_start() {
   printf '%s\\n' "$@" >"$CAPTURE_DIR/registry-args"
   printf '%s\\n' "$OPENCLAW_NPM_REGISTRY_DIST_TAGS" >"$CAPTURE_DIR/dist-tags"
@@ -486,40 +500,83 @@ node() {
   fi
 }
 configure_plugin_registry baseline
+cp "$CAPTURE_DIR/dist-tags" "$CAPTURE_DIR/baseline-dist-tags"
+cp "$CAPTURE_DIR/registry-args" "$CAPTURE_DIR/baseline-registry-args"
 install_companion_plugins
+configure_plugin_registry
+if [ "$baseline_companion_availability" = unavailable ]; then
+  assert_prepublish_plugin_install
+fi
+write_summary passed ""
 printf '%s\\n' "$baseline_version" >"$CAPTURE_DIR/core-version"
 `,
-    );
-    const result = spawnSync("bash", [runner], {
-      encoding: "utf8",
-      timeout: 30_000,
-      env: {
-        ...process.env,
-        BASELINE_VERSION: baseline,
-        CAPTURE_DIR: root,
-        OPENCLAW_UPGRADE_SURVIVOR_BASELINE: `openclaw@${baseline}`,
-        OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: "legacy-operator-state",
-        OPENCLAW_UPGRADE_SURVIVOR_RUNTIME_ROOT: join(root, "runtime"),
-        OPENCLAW_UPGRADE_SURVIVOR_SUMMARY_JSON: join(root, "artifacts", "summary.json"),
-        OPENCLAW_UPGRADE_SURVIVOR_CANDIDATE_SPEC: join(root, "candidate.tgz"),
-      },
-    });
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(readFileSync(join(root, "packed-spec"), "utf8")).toBe(
-      `@openclaw/discord@${pluginVersion}\n`,
-    );
-    expect(readFileSync(join(root, "dist-tags"), "utf8")).toBe(
-      `latest=${pluginVersion},beta=${pluginVersion}\n`,
-    );
-    expect(readFileSync(join(root, "registry-args"), "utf8")).toContain(
-      `@openclaw/discord\n${pluginVersion}\n`,
-    );
-    expect(readFileSync(join(root, "assert-args"), "utf8")).toBe(
-      `scripts/e2e/lib/upgrade-survivor/assertions.mjs\nassert-baseline-plugin\n${pluginVersion}\ndiscord\n`,
-    );
-    expect(readFileSync(join(root, "install-args"), "utf8")).toBe(
-      "openclaw\n--\nplugins\ninstall\n@openclaw/discord@latest\n",
-    );
-    expect(readFileSync(join(root, "core-version"), "utf8")).toBe(`${baseline}\n`);
-  });
+      );
+      const result = spawnSync("bash", [runner], {
+        encoding: "utf8",
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          BASELINE_VERSION: baseline,
+          CAPTURE_DIR: root,
+          NPM_LOOKUP_ERROR: errorCode ?? "",
+          NPM_LOOKUP_RESULT: JSON.stringify(
+            errorCode ? { error: { code: errorCode } } : pluginVersion,
+          ),
+          OPENCLAW_UPGRADE_SURVIVOR_BASELINE: `openclaw@${baseline}`,
+          OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: "legacy-operator-state",
+          OPENCLAW_UPGRADE_SURVIVOR_RUNTIME_ROOT: join(root, "runtime"),
+          OPENCLAW_UPGRADE_SURVIVOR_SUMMARY_JSON: join(root, "artifacts", "summary.json"),
+          OPENCLAW_UPGRADE_SURVIVOR_CANDIDATE_SPEC: join(root, "candidate.tgz"),
+        },
+      });
+      if (errorCode === "ECONNRESET") {
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("Could not verify published companion");
+        expect(existsSync(join(root, "install-args"))).toBe(false);
+        return;
+      }
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      const unavailable = errorCode === "E404";
+      const summary = JSON.parse(readFileSync(join(root, "artifacts", "summary.json"), "utf8"));
+      expect(summary.baselineCompanion).toEqual({
+        package: "@openclaw/discord",
+        version: pluginVersion,
+        availability: unavailable ? "unavailable" : "available",
+        reason: unavailable ? "Exact companion version is not published on npm (E404)." : null,
+      });
+      if (unavailable) {
+        expect(result.stdout).toContain("Skipping baseline companion");
+        expect(existsSync(join(root, "packed-spec"))).toBe(false);
+        expect(existsSync(join(root, "install-args"))).toBe(false);
+        expect(existsSync(join(root, "assert-args"))).toBe(false);
+        expect(readFileSync(join(root, "registry-args"), "utf8")).toContain("openclaw\n2026.9.4\n");
+        return;
+      }
+      expect(readFileSync(join(root, "packed-spec"), "utf8")).toBe(
+        `@openclaw/discord@${pluginVersion}\n`,
+      );
+      for (const { file, expectedVersion } of [
+        { file: "baseline-dist-tags", expectedVersion: pluginVersion },
+        { file: "dist-tags", expectedVersion: "2026.9.4" },
+      ]) {
+        const tags = Object.fromEntries(
+          readFileSync(join(root, file), "utf8")
+            .trim()
+            .split(",")
+            .map((entry) => entry.split("=")),
+        );
+        expect(tags[tag]).toBe(expectedVersion);
+      }
+      expect(readFileSync(join(root, "baseline-registry-args"), "utf8")).toContain(
+        `@openclaw/discord\n${pluginVersion}\n`,
+      );
+      expect(readFileSync(join(root, "assert-args"), "utf8")).toBe(
+        `scripts/e2e/lib/upgrade-survivor/assertions.mjs\nassert-baseline-plugin\n${pluginVersion}\ndiscord\n${tag}\n`,
+      );
+      expect(readFileSync(join(root, "install-args"), "utf8")).toBe(
+        `openclaw\n--\nplugins\ninstall\n@openclaw/discord@${tag}\n`,
+      );
+      expect(readFileSync(join(root, "core-version"), "utf8")).toBe(`${baseline}\n`);
+    },
+  );
 });

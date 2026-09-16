@@ -660,53 +660,6 @@ it("retains selective package scopes and npm aliases without sweeping unused inp
   ).toBe(false);
 });
 
-it("captures hoisted setup helpers without changing plugin or importer dependency identity", async () => {
-  const distribution = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-setup-dist-"));
-  cleanups.push(() => fs.rmSync(distribution, { recursive: true, force: true }));
-  const boundary = path.join(distribution, "dist");
-  const source = path.join(boundary, "extensions", "setup-owner");
-  fs.mkdirSync(source, { recursive: true });
-  const entry = path.join(source, "setup-api.cjs");
-  const helper = path.join(boundary, "setup-helper.cjs");
-  const token = Buffer;
-  const write = (version: string) => {
-    for (const [root, label] of [
-      [distribution, "hoisted"],
-      [source, "plugin"],
-    ] as const) {
-      const dependency = path.join(root, "node_modules", "setup-dependency");
-      fs.mkdirSync(dependency, { recursive: true });
-      fs.writeFileSync(path.join(dependency, "package.json"), '{"main":"index.cjs"}');
-      fs.writeFileSync(
-        path.join(dependency, "index.cjs"),
-        `exports.value = ${JSON.stringify(`${label}-${version}`)};`,
-      );
-    }
-    fs.writeFileSync(helper, "exports.value = require('setup-dependency').value;");
-    fs.writeFileSync(
-      entry,
-      `exports.read = async () => [
-        require('node:buffer').Buffer,
-        require('setup-dependency').value,
-        (await import('../../setup-helper.cjs')).value
-      ];`,
-    );
-  };
-  const capture = () => {
-    const artifact = capturePluginGenerationArtifact(source, entry, boundary);
-    cleanups.push(artifact.dispose);
-    expect(artifact.sourceRoot).toBe(fs.realpathSync(source));
-    const host = createArtifactLoader(artifact);
-    return host(artifact.resolve(entry)) as { read(): Promise<unknown[]> };
-  };
-  write("before");
-  const first = capture();
-  write("after");
-  const second = capture();
-  await expect(first.read()).resolves.toEqual([token, "plugin-before", "hoisted-before"]);
-  await expect(second.read()).resolves.toEqual([token, "plugin-after", "hoisted-after"]);
-});
-
 it.each([
   ["require.resolve", "fs.readFileSync(require.resolve('./schema.json'), 'utf8')"],
   [

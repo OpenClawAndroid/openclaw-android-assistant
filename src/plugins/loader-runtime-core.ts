@@ -119,7 +119,8 @@ export function loadOpenClawPluginsCore(
   const logger = options.logger ?? createSubsystemLogger("plugins");
   const validateOnly = options.mode === "validate";
   const onlyPluginIdSet = createPluginIdScopeSet(context.onlyPluginIds);
-  const cacheEnabled = !options.previousRegistry && isPluginRegistryCacheEnabled(options);
+  const cacheEnabled =
+    !options.previousRegistry && !options.moduleRecoveries && isPluginRegistryCacheEnabled(options);
   if (cacheEnabled) {
     const cached = context.cacheState.get(context.cacheKey);
     if (cached) {
@@ -233,7 +234,10 @@ export function loadOpenClawPluginsCore(
       context.registrationConfigKey,
       loaderCacheIdentity,
     );
-    const replacedIds = new Set(options.replacePluginIds ?? []);
+    const replacedIds = new Set([
+      ...(options.replacePluginIds ?? []),
+      ...(options.moduleRecoveries?.keys() ?? []),
+    ]);
     const memorySlot = context.normalized.slots.memory;
     const dreamingSidecar = resolveAuthorizedDreamingSidecar({
       cfg: context.cfg,

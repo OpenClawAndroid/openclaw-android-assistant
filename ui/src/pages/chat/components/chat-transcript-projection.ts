@@ -17,8 +17,8 @@ import {
   resolveUiGlobalAliasAgentId,
 } from "../../../lib/sessions/session-key.ts";
 import { agentRunFrameActiveStatusParts } from "../chat-agent-run-grouping.ts";
+import { messageRecoveryKey } from "../chat-message-recovery.ts";
 import { resolveTurnRecap, type TurnRecap } from "../chat-progress.ts";
-import { readChatThreadMessageIdentity } from "../chat-thread-items.ts";
 import {
   assistantGroupCanOwnActiveRunStatus,
   agentRunFrameGroups,
@@ -27,11 +27,11 @@ import {
   coalesceActivityRuns,
   coalesceStreamRuns,
   collapseCompletedTurnWork,
-  deleteExpansionState,
   getExpansionStateVersion,
   getExpandedToolCards,
   getExpandedUserMessages,
   persistedMessageEntryId,
+  pruneAssistantMessageExpansions,
   setExpansionState,
   syncToolCardExpansionState,
 } from "../chat-thread.ts";
@@ -133,6 +133,16 @@ export function projectChatTranscript(
   };
   const locale = i18n.getLocale();
   const searchFiltering = state.searchOpen && Boolean(state.searchQuery.trim());
+  const expandedAssistantMessages = transcript.expandedAssistantMessages;
+  const recoveryKey = (messageId: string) =>
+    messageRecoveryKey(props.fullMessageAgentId, messageId);
+  if (expandedAssistantMessages.size > 0) {
+    pruneAssistantMessageExpansions(expandedAssistantMessages, props.fullMessageAgentId, [
+      ...props.messages,
+      ...props.toolMessages,
+      ...(props.pendingInputs ?? []).map((input) => input.message),
+    ]);
+  }
   const chatItems = buildCachedChatItems({
     paneId: props.paneId,
     sessionKey: props.sessionKey,
@@ -166,6 +176,14 @@ export function projectChatTranscript(
     loading: props.loading,
     searchOpen: state.searchOpen,
     searchQuery: state.searchQuery,
+    messageRecovery:
+      searchFiltering && props.loadFullAssistantMessage
+        ? {
+            messages: expandedAssistantMessages,
+            revision: getExpansionStateVersion(expandedAssistantMessages),
+            agentId: props.fullMessageAgentId,
+          }
+        : undefined,
   });
   const workingIndicator = chatItems.find((item) => item.kind === "reading-indicator");
   const runOutputTokens = workingIndicator?.runId
@@ -180,27 +198,6 @@ export function projectChatTranscript(
   );
   const expandedToolCards = getExpandedToolCards(props.sessionKey);
   const expandedUserMessages = getExpandedUserMessages(props.sessionKey);
-  const expandedAssistantMessages = transcript.expandedAssistantMessages;
-  const recoveryKey = (messageId: string) => JSON.stringify([props.fullMessageAgentId, messageId]);
-  if (expandedAssistantMessages.size > 0) {
-    // Search and virtualization only hide rows. Prune against source history so
-    // a removed message retires its body/load without refetching hidden rows.
-    const retainedKeys = new Set(
-      [
-        ...props.messages,
-        ...props.toolMessages,
-        ...(props.pendingInputs ?? []).map((input) => input.message),
-      ]
-        .map((message) => readChatThreadMessageIdentity(message)?.id)
-        .filter((id): id is string => typeof id === "string")
-        .map(recoveryKey),
-    );
-    for (const key of expandedAssistantMessages.keys()) {
-      if (!retainedKeys.has(key)) {
-        deleteExpansionState(expandedAssistantMessages, key);
-      }
-    }
-  }
   const questionPrompts = new Map(
     (props.questionPrompts ?? []).map((prompt) => [prompt.id, prompt]),
   );

@@ -203,6 +203,7 @@ export class SqliteWorkerBroker {
         },
         input.byteLength,
         {
+          createAdmission: options.createOpenAdmission,
           dispatchState: opening.openDispatch,
           assertCurrent: options.assertCurrent,
           maintenanceScope: options.maintenanceScope,
@@ -237,10 +238,13 @@ export class SqliteWorkerBroker {
           if (actor.initialized) {
             await this.closeActor(actor, options.maintenanceScope);
           } else {
-            if (!actor.openDispatch.dispatched && !actor.slot.failed) {
+            if (
+              (!actor.openDispatch.dispatched || actor.openDispatch.openNotEntered) &&
+              !actor.slot.failed
+            ) {
               actor.backendClosed = true;
             }
-            if (actor.openDispatch.dispatched) {
+            if (actor.openDispatch.dispatched && !actor.openDispatch.openNotEntered) {
               // A throwing factory cannot prove that all partially opened native handles closed.
               this.fail(actor.slot, error);
               await actor.slot.exit;
@@ -360,16 +364,17 @@ export class SqliteWorkerBroker {
 
   private async acquireSlot(): Promise<Slot> {
     const available = [...this.slots].filter((slot) => !slot.failed && !slot.retiring);
-    if (this.slots.size >= MAX_WORKERS) {
-      if (!available.length) {
-        await Promise.race([...this.slots].map((slot) => slot.exit));
-        return this.acquireSlot();
-      }
-      if (process.versions.bun) {
-        throw new SqliteWorkerError(
-          "Bun SQLite workers support at most four distinct open databases; close a store or use Node",
-          "overloaded",
-        );
+    // Return Bun to four shared workers after https://github.com/oven-sh/bun/pull/40005 ships.
+    if (this.slots.size >= (process.versions.bun ? MAX_STORES : MAX_WORKERS)) {
+      if (!available.length || process.versions.bun) {
+        const retiring = [...this.slots].filter((slot) => Boolean(slot.failed || slot.retiring));
+        if (retiring.length > 0) {
+          await Promise.race(retiring.map(({ exit }) => exit));
+          return this.acquireSlot();
+        }
+        if (process.versions.bun) {
+          throw new SqliteWorkerError("SQLite worker store capacity reached", "overloaded");
+        }
       }
       const selected = available.reduce((left, right) =>
         left.actors.size <= right.actors.size ? left : right,
@@ -406,7 +411,17 @@ export class SqliteWorkerBroker {
         return;
       }
       if (!reply.ok) {
+        if (reply.openNotEntered && job.request.type === "open" && job.dispatchState) {
+          job.dispatchState.openNotEntered = true;
+        }
         const error = decodeSqliteWorkerReplyError(job, reply.error);
+        if (job.request.type === "open" && reply.openNotEntered && !reply.retire) {
+          slot.current = undefined;
+          const refusal = job.operationAdmission?.admission.failure ?? error;
+          this.finish(job, refusal, undefined, { kind: "not-entered", error: refusal });
+          this.dispatch(slot);
+          return;
+        }
         if (job.request.type !== "execute" || reply.retire) {
           this.fail(slot, error, job.request.type !== "execute" ? error : undefined);
           return;

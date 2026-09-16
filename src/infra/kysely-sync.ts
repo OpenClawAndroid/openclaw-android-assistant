@@ -17,14 +17,13 @@ import {
   queryErrorHandlerByDatabase,
 } from "./kysely-sync-cache-state.js";
 
-// Node 26.6 fixed all() column counts after statement reprepare (nodejs/node#64219).
+// Node 24.20 and 26.6 fixed all() column counts after statement reprepare (nodejs/node#64219).
+const nodeVersion = parseNodeReleaseVersion(process.versions.node);
 const supportsRepreparedAll =
   !process.versions.bun &&
-  isNodeVersionAtLeast(parseNodeReleaseVersion(process.versions.node), {
-    major: 26,
-    minor: 6,
-    patch: 0,
-  });
+  ((nodeVersion?.major === 24 &&
+    isNodeVersionAtLeast(nodeVersion, { major: 24, minor: 20, patch: 0 })) ||
+    isNodeVersionAtLeast(nodeVersion, { major: 26, minor: 6, patch: 0 }));
 
 // Sync query helpers execute compiled Kysely SQL against node:sqlite without
 // going through Kysely's async driver path.

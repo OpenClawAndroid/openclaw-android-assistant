@@ -16,7 +16,8 @@ import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.
 import { resolveStateDir } from "../paths.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
 import {
-  readClaimsFromStore,
+  inspectSessionStorePath,
+  readClaimsFromStores,
   storeHasLegacyAgentSessionKey,
 } from "./legacy-main-session-key-scan.js";
 import {
@@ -84,23 +85,6 @@ function addPhysicalStore(stores: PhysicalStore[], candidate: PhysicalStore): vo
   if (!stores.some((store) => samePhysicalStore(store, candidate))) {
     stores.push(candidate);
   }
-}
-
-function inspectPath(pathname: string): "missing" | "present" {
-  let entry: fs.Stats;
-  try {
-    entry = fs.lstatSync(pathname);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return "missing";
-    }
-    throw error;
-  }
-  const target = entry.isSymbolicLink() ? fs.statSync(pathname) : entry;
-  if (!target.isFile()) {
-    throw new Error(`session store is not a regular file: ${pathname}`);
-  }
-  return "present";
 }
 
 function resolveMissingPhysicalPath(pathname: string): string {
@@ -177,7 +161,10 @@ function resolvePhysicalStores(params: {
   const unreadable: LegacyMainSessionMigrationOutcome[] = [];
   for (const target of logicalTargets) {
     try {
-      if (!target.storePath.endsWith(".sqlite") && inspectPath(target.storePath) === "present") {
+      if (
+        !target.storePath.endsWith(".sqlite") &&
+        inspectSessionStorePath(target.storePath) === "present"
+      ) {
         jsonPaths.add(path.resolve(target.storePath));
       }
       const resolved = resolveSqliteTargetFromSessionStorePath(target.storePath, {
@@ -385,7 +372,7 @@ async function migrateLegacyMainSessionKeysInternal(
           resolved.jsonPaths.length > 0 ||
           resolved.stores.some(
             (store) =>
-              inspectPath(store.path) === "present" &&
+              inspectSessionStorePath(store.path) === "present" &&
               storeHasLegacyAgentSessionKey({ env, legacyAgentId, store }),
           );
       } catch {
@@ -474,17 +461,12 @@ async function migrateLegacyMainSessionKeysInternal(
     }
   }
 
-  const allLegacy: SessionClaim[] = [];
-  const allCanonical: SessionClaim[] = [];
-  for (const store of resolved.stores) {
-    try {
-      if (inspectPath(store.path) === "missing") {
-        continue;
-      }
-      const claims = readClaimsFromStore({ env, legacyAgentId, ownerAgentId, store });
-      allLegacy.push(...claims.legacy);
-      allCanonical.push(...claims.canonical);
-    } catch (error) {
+  const { legacy: allLegacy, canonical: allCanonical } = readClaimsFromStores({
+    env,
+    legacyAgentId,
+    ownerAgentId,
+    stores: resolved.stores,
+    onUnreadable: (store, error) => {
       if (params.mode === "doctor-fix") {
         throw new Error(`cannot read legacy session store ${store.path}: ${String(error)}`, {
           cause: error,
@@ -492,8 +474,8 @@ async function migrateLegacyMainSessionKeysInternal(
       }
       outcomes.push({ kind: "store-unreadable", detail: String(error), paths: [store.path] });
       warnings.push(`session: could not inspect ${store.path}: ${String(error)}`);
-    }
-  }
+    },
+  });
   const inspectionBlocked = outcomes.some(
     (outcome) => outcome.kind === "legacy-json-store" || outcome.kind === "store-unreadable",
   );

@@ -11,11 +11,6 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { collectSourceCheckoutPluginBuildEntries } from "./lib/bundled-plugin-build-entries.mjs";
-import {
-  BUNDLED_PLUGIN_PATH_PREFIX,
-  BUNDLED_PLUGIN_ROOT_DIR,
-} from "./lib/bundled-plugin-paths.mjs";
 import { withDistArtifactOwnership } from "./lib/dist-artifact-ownership.mts";
 import {
   BUILD_STAMP_FILE,
@@ -23,14 +18,21 @@ import {
   resolveGitHead,
   writeRuntimePostBuildStamp as writeDistRuntimePostBuildStamp,
 } from "./lib/local-build-metadata.mts";
+import {
+  collectRunNodeBundledPluginBuildEntries,
+  hasDirtySourceTree,
+  hasDirtyRuntimePostBuildInputs,
+  isRuntimePostBuildRelevantPath,
+  listBundledPluginRuntimeEntryPaths,
+  runtimePostBuildWatchedPaths,
+  type BundledPluginBuildEntry,
+} from "./lib/run-node-input-state.mts";
 import { sleep } from "./lib/sleep.mjs";
 import {
   discoverStaticExtensionAssets,
-  listStaticExtensionAssetSources,
   shouldCopyStaticExtensionAssets,
 } from "./lib/static-extension-assets.mts";
 import {
-  extensionRestartMetadataFiles,
   isBuildRelevantRunNodePath,
   normalizeRunNodePath as normalizePath,
   runNodeConfigFiles,
@@ -110,11 +112,6 @@ type RunNodeLogDeps = Pick<RunNodeDeps, "env" | "stderr"> &
 type RunNodeLockDeps = Pick<RunNodeDeps, "cwd" | "env" | "fs" | "process" | "stderr"> & {
   args: readonly string[];
 };
-type BundledPluginBuildEntry = ReturnType<
-  typeof collectSourceCheckoutPluginBuildEntries
->[number] & {
-  hasManifest: boolean;
-};
 type BuildRequirement = { shouldBuild: boolean; reason: keyof typeof BUILD_REASON_LABELS };
 type RuntimePostBuildRequirement = {
   shouldSync: boolean;
@@ -138,32 +135,6 @@ export { runNodeWatchedPaths };
 
 const runtimeBuildArgs = ["--import", "tsx", "scripts/build-all.mts", "qaRuntime"];
 const RUN_NODE_SIGNAL_FORCE_KILL_AFTER_MS = 5_000;
-
-const runtimePostBuildWatchedPaths = [
-  "scripts/check-built-plugin-control-plane-modules.mts",
-  "scripts/copy-bundled-plugin-metadata.mjs",
-  "scripts/copy-bundled-plugin-metadata.mts",
-  "scripts/copy-hook-metadata.ts",
-  "scripts/lib",
-  "scripts/lib/local-build-metadata.mts",
-  "scripts/lib/local-build-metadata-paths.mts",
-  "scripts/npm-runner.mts",
-  "scripts/runtime-postbuild-stamp.mts",
-  "scripts/runtime-postbuild-shared.mjs",
-  "scripts/runtime-postbuild.mjs",
-  "scripts/runtime-postbuild.mts",
-  "scripts/stage-bundled-plugin-runtime.mjs",
-  "scripts/stage-bundled-plugin-runtime.mts",
-  "scripts/windows-cmd-helpers.mjs",
-  "scripts/write-build-info.ts",
-  "scripts/write-official-channel-catalog.mjs",
-  "scripts/write-official-channel-catalog.mts",
-  BUNDLED_PLUGIN_ROOT_DIR,
-];
-const runtimePostBuildScriptPaths = new Set(
-  runtimePostBuildWatchedPaths.filter((entry) => entry.startsWith("scripts/")),
-);
-const runtimePostBuildStaticAssetPaths = new Set(listStaticExtensionAssetSources());
 
 const statMtime = (filePath: string, fsImpl: typeof fs = fs) => {
   try {
@@ -228,98 +199,25 @@ const findLatestMtime = (
   return latest;
 };
 
-const readGitStatus = (deps: RunNodeRequirementDeps, paths: string[] = runNodeWatchedPaths) => {
-  try {
-    const result = deps.spawnSync(
-      "git",
-      // NUL framing preserves filenames; separate delete/add records keep both rename sides.
-      [
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--no-renames",
-        "--untracked-files=normal",
-        "--",
-        ...paths,
-      ],
-      {
-        cwd: deps.cwd,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      },
-    );
-    if (result.status !== 0) {
-      return null;
-    }
-    return result.stdout ?? "";
-  } catch {
-    return null;
-  }
-};
-
-const parseGitStatusPaths = (output: string) =>
-  output
-    .split("\0")
-    .map((entry) => entry.slice(3))
-    .filter(Boolean);
-
-const hasDirtySourceTree = (deps: RunNodeRequirementDeps) => {
-  const output = readGitStatus(deps);
-  if (output === null) {
-    return null;
-  }
-  return parseGitStatusPaths(output).some(
-    (repoPath) =>
-      isBuildRelevantRunNodePath(repoPath) ||
-      isDirtyBundledPluginPackageEntryChangeWithoutBuiltOutputs(repoPath, deps),
-  );
-};
-
-const isRuntimePostBuildRelevantPath = (repoPath: string) => {
-  const normalizedPath = normalizePath(repoPath);
-  if (runtimePostBuildStaticAssetPaths.has(normalizedPath)) {
-    return true;
-  }
-  if (
-    normalizedPath.startsWith("scripts/") &&
-    (runtimePostBuildScriptPaths.has(normalizedPath) || normalizedPath.startsWith("scripts/lib/"))
-  ) {
-    return true;
-  }
-  if (!normalizedPath.startsWith(BUNDLED_PLUGIN_PATH_PREFIX)) {
-    return false;
-  }
-  const pluginRelativePath = normalizedPath.slice(BUNDLED_PLUGIN_PATH_PREFIX.length);
-  const pluginLocalPath = pluginRelativePath.split("/").slice(1).join("/");
-  if (pluginLocalPath === "skills" || pluginLocalPath.startsWith("skills/")) {
-    return true;
-  }
-  return extensionRestartMetadataFiles.has(path.posix.basename(pluginRelativePath));
-};
-
-const hasDirtyRuntimePostBuildInputs = (deps: RunNodeRequirementDeps) => {
-  const output = readGitStatus(deps, runtimePostBuildWatchedPaths);
-  if (output === null) {
-    return null;
-  }
-  return parseGitStatusPaths(output).some((repoPath) => isRuntimePostBuildRelevantPath(repoPath));
-};
-
 const readJsonStamp = (filePath: string, deps: RunNodeRequirementDeps) => {
   const mtime = statMtime(filePath, deps.fs);
   if (mtime == null) {
-    return { mtime: null, head: null };
+    return { mtime: null, head: null, inputsClean: null };
   }
   try {
     const raw = deps.fs.readFileSync(filePath, "utf8").trim();
     if (!raw.startsWith("{")) {
-      return { mtime, head: null };
+      return { mtime, head: null, inputsClean: null };
     }
     const parsed = JSON.parse(raw);
     const head = typeof parsed?.head === "string" && parsed.head.trim() ? parsed.head.trim() : null;
-    return { mtime, head };
+    return {
+      mtime,
+      head,
+      inputsClean: typeof parsed?.inputsClean === "boolean" ? parsed.inputsClean : null,
+    };
   } catch {
-    return { mtime, head: null };
+    return { mtime, head: null, inputsClean: null };
   }
 };
 
@@ -400,65 +298,6 @@ const hasRuntimePostBuildInputMtimeChanged = (stampMtime: number, deps: RunNodeR
     }
   }
   return latestInputMtime != null && latestInputMtime > stampMtime;
-};
-
-const collectRunNodeBundledPluginBuildEntries = (deps: RunNodeRequirementDeps) => {
-  if (!deps.fs.existsSync(path.join(deps.cwd, BUNDLED_PLUGIN_ROOT_DIR))) {
-    return [];
-  }
-  return collectSourceCheckoutPluginBuildEntries({ cwd: deps.cwd, env: deps.env });
-};
-
-const resolveBuiltBundledPluginRuntimeEntryPath = (
-  distRoot: string,
-  pluginId: string,
-  sourceEntry: string,
-  runtimeExtension: string,
-) =>
-  path.join(
-    distRoot,
-    "extensions",
-    pluginId,
-    sourceEntry.replace(/^\.\//, "").replace(/\.[^.]+$/u, runtimeExtension),
-  );
-
-const listBundledPluginRuntimeEntryPaths = (
-  pluginEntry: BundledPluginBuildEntry,
-  deps: RunNodeRequirementDeps,
-) => {
-  const distRoot = deps.distRoot;
-  return pluginEntry.sourceEntries
-    .map((sourceEntry) =>
-      resolveBuiltBundledPluginRuntimeEntryPath(
-        distRoot,
-        pluginEntry.id,
-        sourceEntry,
-        pluginEntry.runtimeExtension,
-      ),
-    )
-    .toSorted((left, right) => left.localeCompare(right));
-};
-
-const isDirtyBundledPluginPackageEntryChangeWithoutBuiltOutputs = (
-  normalizedPath: string,
-  deps: RunNodeRequirementDeps,
-) => {
-  if (!normalizedPath.startsWith("extensions/") || !normalizedPath.endsWith("/package.json")) {
-    return false;
-  }
-  const [, pluginId] = normalizedPath.split("/");
-  if (!pluginId) {
-    return false;
-  }
-  const pluginEntry = collectRunNodeBundledPluginBuildEntries(deps).find(
-    (entry) => entry.id === pluginId,
-  );
-  if (!pluginEntry) {
-    return false;
-  }
-  return listBundledPluginRuntimeEntryPaths(pluginEntry, deps).some(
-    (filePath) => !deps.fs.existsSync(filePath),
-  );
 };
 
 const hasMissingBuiltBundledPluginRuntimeEntryOutput = (deps: RunNodeRequirementDeps) => {
@@ -666,6 +505,9 @@ export const resolveBuildRequirement = (deps: RunNodeRequirementDeps): BuildRequ
       if (hasMissingBuiltBundledPluginRuntimeEntryOutput(deps)) {
         return { shouldBuild: true, reason: "missing_bundled_plugin_dist_entry" };
       }
+      if (stamp.inputsClean !== true) {
+        return { shouldBuild: true, reason: "build_inputs_unverified" };
+      }
       return { shouldBuild: false, reason: "clean" };
     }
   }
@@ -690,6 +532,7 @@ export const resolveBuildRequirement = (deps: RunNodeRequirementDeps): BuildRequ
 /** Decides whether runtime postbuild artifacts need to be regenerated. */
 export const resolveRuntimePostBuildRequirement = (
   deps: RunNodeRuntimeRequirementDeps,
+  options: { requireCleanInputs?: boolean } = {},
 ): RuntimePostBuildRequirement => {
   if (deps.env.OPENCLAW_FORCE_RUNTIME_POSTBUILD === "1") {
     return { shouldSync: true, reason: "force_runtime_postbuild" };
@@ -724,6 +567,9 @@ export const resolveRuntimePostBuildRequirement = (
       if (hasMissingRequiredRuntimePostBuildOutput(deps)) {
         return { shouldSync: true, reason: "missing_runtime_postbuild_output" };
       }
+      if (options.requireCleanInputs !== false && stamp.inputsClean !== true) {
+        return { shouldSync: true, reason: "runtime_inputs_unverified" };
+      }
       return { shouldSync: false, reason: "clean" };
     }
   }
@@ -745,6 +591,7 @@ const BUILD_REASON_LABELS = {
   missing_dist_entry: "dist entry missing",
   config_newer: "config newer than build stamp",
   build_stamp_missing_head: "build stamp missing git head",
+  build_inputs_unverified: "build inputs were not verified clean",
   git_head_changed: "git head changed",
   dirty_watched_tree: "dirty watched source tree",
   missing_bundled_plugin_dist_entry: "bundled plugin dist entry missing",
@@ -760,6 +607,7 @@ const RUNTIME_POSTBUILD_REASON_LABELS = {
   missing_build_stamp: "build stamp missing",
   build_stamp_newer: "build stamp newer than runtime postbuild stamp",
   runtime_postbuild_stamp_missing_head: "runtime postbuild stamp missing git head",
+  runtime_inputs_unverified: "runtime postbuild inputs were not verified clean",
   git_head_changed: "git head changed",
   dirty_runtime_postbuild_inputs: "dirty runtime postbuild inputs",
   runtime_postbuild_input_mtime_newer: "runtime postbuild input mtime newer than stamp",
@@ -1456,6 +1304,7 @@ const writeRuntimePostBuildStamp = (deps: RunNodeDeps) => {
     writeDistRuntimePostBuildStamp({
       cwd: deps.cwd,
       fs: deps.fs,
+      env: deps.env,
       spawnSync: deps.spawnSync,
     });
   } catch (error) {
@@ -1519,7 +1368,9 @@ const canUseStampedGatewayClientDist = (deps: RunNodeDeps) => {
   ) {
     return false;
   }
-  return !resolveRuntimePostBuildRequirement(deps).shouldSync;
+  // Remote clients intentionally use existing dist. Retain metadata/output checks
+  // without treating producer source cleanliness as a client rebuild requirement.
+  return !resolveRuntimePostBuildRequirement(deps, { requireCleanInputs: false }).shouldSync;
 };
 
 type QaReportScript = "qa-parity-report.ts" | "qa-coverage-report.ts";

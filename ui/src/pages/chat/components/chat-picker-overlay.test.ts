@@ -79,6 +79,45 @@ describe("chat picker overlay", () => {
     }
   });
 
+  it.each([
+    { isComposing: true, keyCode: 0 },
+    { isComposing: false, keyCode: 229 },
+  ])("leaves empty-search Escape to composition ($isComposing, $keyCode)", (composition) => {
+    const composer = document.createElement("div");
+    composer.className = "agent-chat__input";
+    const picker = document.createElement("details");
+    const trigger = document.createElement("summary");
+    const search = document.createElement("input");
+    search.setAttribute("data-chat-model-search", "true");
+    picker.append(trigger, search);
+    composer.append(picker);
+    document.body.append(composer);
+    picker.open = true;
+    ensureChatComposerPickerDismissal();
+    search.focus();
+
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+      ...composition,
+    });
+    search.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(false);
+    expect(picker.open).toBe(true);
+    expect(document.activeElement).toBe(search);
+
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(picker.open).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("does not restore pointer focus after keyboard input takes over", () => {
     const dropdown = document.createElement("wa-dropdown");
     const trigger = document.createElement("button");

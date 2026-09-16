@@ -57,6 +57,20 @@ export type CreateManagedWorktreeParams = {
   commitGuard?: () => void;
 };
 
+export type CreateEmptyManagedWorktreeParams = Omit<
+  CreateManagedWorktreeParams,
+  "repoRoot" | "baseRef" | "checkoutCommit" | "profiles"
+> & {
+  ownerKind: "session";
+  ownerId: string;
+};
+
+export type ManagedWorktreeCreationOutcome = {
+  record: ManagedWorktreeRecord;
+  /** This allocation created or restored the checkout instead of reusing a live one. */
+  materialized: boolean;
+};
+
 export type RemoveManagedWorktreeResult = {
   removed: boolean;
   snapshotRef?: string;

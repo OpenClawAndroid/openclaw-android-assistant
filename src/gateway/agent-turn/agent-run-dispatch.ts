@@ -156,13 +156,18 @@ export function dispatchAgentRunFromGateway(params: {
   }) => Promise<boolean> | boolean;
 }) {
   let trackedTask: TaskRecord | undefined;
-  if (params.taskTrackingMode === "cli") {
+  if (params.taskTrackingMode !== "none") {
+    const followup =
+      typeof params.taskTrackingMode === "object" ? params.taskTrackingMode : undefined;
     try {
       trackedTask =
         createRunningTaskRun({
           runtime: "cli",
           sourceId: params.runId,
-          ownerKey: params.ingressOpts.sessionKey,
+          ownerKey: followup?.requesterSessionKey ?? params.ingressOpts.sessionKey,
+          requesterSessionKey: followup?.requesterSessionKey,
+          label: followup?.label,
+          ...(followup ? { notifyPolicy: "silent" as const } : {}),
           scopeKind: "session",
           requesterOrigin: normalizeDeliveryContext({
             channel: params.ingressOpts.channel,

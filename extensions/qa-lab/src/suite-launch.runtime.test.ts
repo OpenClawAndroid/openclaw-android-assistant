@@ -259,6 +259,19 @@ async function expectArtifactPublicationFailurePreservesPrior(params: {
 }
 
 describe("qa suite runtime launcher", () => {
+  it("rejects the removed channel-driver selection input", async () => {
+    await expect(
+      runQaSuite(
+        Object.assign(
+          { repoRoot: "." },
+          {
+            channelDriverSelection: { channel: "discord", driver: "crabline" },
+          },
+        ),
+      ),
+    ).rejects.toThrow("channelDriverSelection was removed");
+  });
+
   beforeEach(() => {
     replaceFileAtomicMock.mockClear();
     runQaFlowSuite.mockReset();
@@ -749,31 +762,6 @@ describe("qa suite runtime launcher", () => {
     );
     expect(path.relative(repoRoot, result.result.outputDir)).toMatch(/^\.artifacts[/\\]/u);
     expect(runQaTestFileScenarios).not.toHaveBeenCalled();
-  });
-
-  it("normalizes deprecated channel selection before planning flow partitions", async () => {
-    const repoRoot = await makeTempRepo("qa-suite-legacy-matrix-");
-
-    await runQaSuite({
-      repoRoot,
-      channelDriverSelection: {
-        capabilityMatrixPath: "crabline-channel-driver-capabilities.json",
-        channel: "matrix",
-        channelDriver: "crabline",
-        providerReadinessArtifactPath: "crabline-provider-readiness.json",
-      },
-      scenarioIds: ["dm-chat-baseline"],
-    });
-
-    expect(runQaFlowSuite).toHaveBeenCalledTimes(1);
-    expect(runQaFlowSuite).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channelDriver: "crabline",
-        channelId: "matrix",
-        scenarioIds: ["dm-chat-baseline"],
-      }),
-    );
-    expect(runQaFlowSuite.mock.calls[0]?.[0]).not.toHaveProperty("channelDriverSelection");
   });
 
   it("forces the declared runtime for a single runtime-specific flow scenario", async () => {

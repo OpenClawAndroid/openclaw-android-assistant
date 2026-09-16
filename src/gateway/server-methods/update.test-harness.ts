@@ -470,6 +470,7 @@ export async function invokeUpdateRun(
     update: {},
     commands: { ownerAllowFrom: ["slack:C0123ABC", "slack:C0456DEF"] },
   },
+  contextOverrides: Record<string, unknown> = {},
 ) {
   const { updateHandlers } = await import("./update.js");
   const onRespond = respond ?? (() => {});
@@ -479,7 +480,7 @@ export async function invokeUpdateRun(
   )({
     params,
     respond: onRespond as never,
-    context: { getRuntimeConfig: () => runtimeConfig },
+    context: { getRuntimeConfig: () => runtimeConfig, ...contextOverrides },
   } as never);
 }
 

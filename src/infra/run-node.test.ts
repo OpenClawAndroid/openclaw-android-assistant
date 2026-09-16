@@ -17,6 +17,10 @@ import {
   RUNTIME_POSTBUILD_STAMP_FILE,
 } from "../../scripts/lib/local-build-metadata-paths.mts";
 import {
+  writeBuildStamp,
+  writeRuntimePostBuildStamp,
+} from "../../scripts/lib/local-build-metadata.mts";
+import {
   UPDATE_COMPATIBILITY_INVENTORY_FILE,
   writeUpdateCompatibilityChunks,
 } from "../../scripts/lib/update-compat-chunks.mts";
@@ -111,7 +115,7 @@ const BASE_PROJECT_FILES = {
   [ROOT_TSCONFIG]: "{}\n",
   [ROOT_PACKAGE]: '{"name":"openclaw-test"}\n',
   [DIST_ENTRY]: "console.log('built');\n",
-  [BUILD_STAMP]: '{"head":"abc123"}\n',
+  [BUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
 } as const;
 
 function createExitedProcess(code: number | null, signal: string | null = null) {
@@ -409,11 +413,8 @@ async function trackProjectWithGit(tmp: string) {
     "-m",
     "test: track runner fixture",
   );
-  const stamp = `${JSON.stringify({ head: git("rev-parse", "HEAD") })}\n`;
-  await writeProjectFiles(tmp, {
-    [BUILD_STAMP]: stamp,
-    [RUNTIME_POSTBUILD_STAMP]: stamp,
-  });
+  writeBuildStamp({ cwd: tmp, spawnSync: realSpawnSync });
+  writeRuntimePostBuildStamp({ cwd: tmp, spawnSync: realSpawnSync });
   await touchProjectFiles(tmp, [BUILD_STAMP, RUNTIME_POSTBUILD_STAMP], BUILD_TIME);
   return {
     git,
@@ -1051,7 +1052,7 @@ describe("run-node script", () => {
     await setupStampedProject(tmp, {
       files: {
         [EXTENSION_PACKAGE]: '{"openclaw":{"extensions":["./index.ts"]}}\n',
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
       trackConfig: true,
     });
@@ -1126,7 +1127,7 @@ describe("run-node script", () => {
 
   it("skips runtime postbuild restaging when the runtime stamp is current", async ({ tmp }) => {
     await setupStampedProject(tmp, {
-      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n' },
+      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n' },
       oldPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE],
     });
 
@@ -1146,7 +1147,7 @@ describe("run-node script", () => {
 
   it("runs current immutable deployment artifacts without refreshing them", async ({ tmp }) => {
     await setupStampedProject(tmp, {
-      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n' },
+      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n' },
       oldPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE],
     });
     await writeImmutableDeploymentManifest(tmp);
@@ -1180,7 +1181,7 @@ describe("run-node script", () => {
   ]) {
     it(`refuses to regenerate missing ${label} in an immutable deployment`, async ({ tmp }) => {
       await setupStampedProject(tmp, {
-        files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n' },
+        files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n' },
         oldPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE],
       });
       await writeImmutableDeploymentManifest(tmp);
@@ -1218,7 +1219,7 @@ describe("run-node script", () => {
         [EXTENSION_INDEX]: "export default {};\n",
         [EXTENSION_MANIFEST]: '{"id":"demo","configSchema":{"type":"object"}}\n',
         [DIST_EXTENSION_INDEX]: "export default {};\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
       trackConfig: true,
     });
@@ -1247,7 +1248,7 @@ describe("run-node script", () => {
           missing === "overlay"
             ? {
                 [DIST_EXTENSION_INDEX]: "export default {};\n",
-                [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+                [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
               }
             : {},
         oldPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE],
@@ -1725,7 +1726,7 @@ describe("run-node script", () => {
   ])("does not rebuild for $label calls against an existing dirty dist", async ({ args }) => {
     await withTestDir({ prefix: "openclaw-run-node-" }, async (tmp) => {
       await setupStampedProject(tmp, {
-        files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n' },
+        files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n' },
         trackConfig: true,
       });
 
@@ -1749,7 +1750,7 @@ describe("run-node script", () => {
 
   it("rechecks a dirty dashboard client after waiting for an active build", async ({ tmp }) => {
     await setupStampedProject(tmp, {
-      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n' },
+      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n' },
       trackConfig: true,
     });
     await fs.rm(resolvePath(tmp, BUILD_STAMP));
@@ -1790,8 +1791,16 @@ describe("run-node script", () => {
     });
 
     await waitingForLock;
-    await fs.writeFile(resolvePath(tmp, BUILD_STAMP), '{"head":"abc123"}\n', "utf-8");
-    await fs.writeFile(resolvePath(tmp, RUNTIME_POSTBUILD_STAMP), '{"head":"abc123"}\n', "utf-8");
+    await fs.writeFile(
+      resolvePath(tmp, BUILD_STAMP),
+      '{"head":"abc123","inputsClean":true}\n',
+      "utf-8",
+    );
+    await fs.writeFile(
+      resolvePath(tmp, RUNTIME_POSTBUILD_STAMP),
+      '{"head":"abc123","inputsClean":true}\n',
+      "utf-8",
+    );
     releaseLock();
 
     await expect(clientRun).resolves.toBe(0);
@@ -1800,6 +1809,31 @@ describe("run-node script", () => {
     ]);
     expect(runRuntimePostBuild).not.toHaveBeenCalled();
   });
+
+  it.for([false, true])(
+    "keeps legacy client stamps subject to required output checks (missing: %s)",
+    async (missing, { tmp }) => {
+      await setupStampedProject(tmp, {
+        files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n' },
+        trackConfig: true,
+      });
+      if (missing) {
+        await fs.rm(resolvePath(tmp, DIST_CHANNEL_CATALOG));
+      }
+      const runRuntimePostBuild = vi.fn();
+      const { spawn, spawnSync } = createCurrentGitSpawnRecorder();
+      expect(
+        await runStatusCommand({
+          tmp,
+          args: ["dashboard", "--no-open"],
+          spawn,
+          spawnSync,
+          runRuntimePostBuild,
+        }),
+      ).toBe(0);
+      expect(runRuntimePostBuild).toHaveBeenCalledTimes(missing ? 1 : 0);
+    },
+  );
 
   it("reports a clean tree explicitly when dist is current", async ({ tmp }) => {
     await setupStampedProject(tmp, { oldPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE] });
@@ -1811,6 +1845,32 @@ describe("run-node script", () => {
       reason: "clean",
     });
   });
+
+  it.for(["build", "runtime"] as const)(
+    "refreshes dirty-built %s artifacts after restoring the same HEAD source",
+    async (scope, { tmp }) => {
+      await setupStampedProject(tmp, {
+        files: { "scripts/runtime-postbuild.mts": "export {};\n" },
+        trackConfig: true,
+      });
+      const { git, deps } = await trackProjectWithGit(tmp);
+      const needsRefresh = () =>
+        scope === "build"
+          ? resolveBuildRequirement(deps).shouldBuild
+          : resolveRuntimePostBuildRequirement(deps).shouldSync;
+      expect(needsRefresh()).toBe(false);
+      const input = scope === "build" ? ROOT_SRC : "scripts/runtime-postbuild.mts";
+      const original = await fs.readFile(resolvePath(tmp, input), "utf8");
+      await fs.writeFile(resolvePath(tmp, input), `${original}\n`);
+      expect(git("status", "--porcelain", "--", input)).not.toBe("");
+      const stamp = scope === "build" ? writeBuildStamp : writeRuntimePostBuildStamp;
+      stamp({ cwd: tmp, spawnSync: realSpawnSync });
+      await fs.writeFile(resolvePath(tmp, input), original);
+      expect(git("status", "--porcelain", "--", input)).toBe("");
+
+      expect(needsRefresh()).toBe(true);
+    },
+  );
 
   it("ignores newer tracked config mtimes when Git proves the checkout is clean", async ({
     tmp,
@@ -1925,7 +1985,7 @@ describe("run-node script", () => {
     tmp,
   }) => {
     await setupStampedProject(tmp, {
-      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n' },
+      files: { [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n' },
       oldPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE],
     });
 
@@ -1949,7 +2009,7 @@ describe("run-node script", () => {
         [DIST_EXTENSION_RUNTIME_SRC]: "export default {};\n",
         [DIST_RUNTIME_EXTENSION_MANIFEST]: '{"id":"demo","configSchema":{"type":"object"}}\n',
         [DIST_RUNTIME_EXTENSION_PACKAGE]: '{"openclaw":{"extensions":["./src/index.js"]}}\n',
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
     await fs.rm(resolvePath(tmp, DIST_EXTENSION_PACKAGE));
@@ -1973,7 +2033,7 @@ describe("run-node script", () => {
         [DIST_RUNTIME_EXTENSION_INDEX]: "export default {};\n",
         [DIST_RUNTIME_EXTENSION_MANIFEST]: '{"id":"demo","configSchema":{"type":"object"}}\n',
         [DIST_RUNTIME_EXTENSION_PACKAGE]: '{"openclaw":{"extensions":["./index.js"]}}\n',
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
     await fs.rm(resolvePath(tmp, "extensions"), { recursive: true, force: true });
@@ -2005,7 +2065,7 @@ describe("run-node script", () => {
         [DIST_CHANNEL_CATALOG]: '{"entries":[]}\n',
         [DIST_LEGACY_CLI_EXIT_COMPAT]: "export function hasMemoryRuntime() { return false; }\n",
         [DIST_LEGACY_CLI_EXIT_COMPAT_ALT]: "export function hasMemoryRuntime() { return false; }\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
     await fs.rm(path.join(tmp, "dist", "extensions"), { recursive: true, force: true });
@@ -2030,7 +2090,7 @@ describe("run-node script", () => {
         [DIST_OPENCLAW_ALIAS_PACKAGE]:
           '{"name":"openclaw","type":"module","exports":{"./plugin-sdk/core":"./plugin-sdk/core.js"}}\n',
         [DIST_OPENCLAW_ALIAS_PLUGIN_SDK_CORE]: "export * from '../../../../plugin-sdk/core.js';\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
       buildPaths: [
         ROOT_SRC,
@@ -2073,7 +2133,7 @@ describe("run-node script", () => {
           '{"name":"openclaw","type":"module","exports":{"./plugin-sdk/string-coerce-runtime":"./plugin-sdk/string-coerce-runtime.js"}}\n',
         [DIST_OPENCLAW_ALIAS_PLUGIN_SDK_STRING_COERCE]:
           "export * from '../../../../plugin-sdk/string-coerce-runtime.js';\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
 
@@ -2103,7 +2163,7 @@ describe("run-node script", () => {
           [DIFFS_VIEWER_RUNTIME_SOURCE]: "export {};\n",
           [DIST_DIFFS_VIEWER_RUNTIME]: "export {};\n",
           [DIST_RUNTIME_DIFFS_VIEWER_RUNTIME]: "export {};\n",
-          [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+          [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
         },
       });
       await fs.rm(resolvePath(tmp, missingPath));
@@ -2124,7 +2184,7 @@ describe("run-node script", () => {
           '{"openclaw":{"build":{"staticAssets":[{"source":"./assets/viewer-runtime.js","output":"assets/viewer-runtime.js"}]}}}\n',
         [DIFFS_VIEWER_RUNTIME_SOURCE]: "export {};\n",
         [DIST_RUNTIME_EXTENSION_PACKAGE]: '{"openclaw":{"extensions":["./index.js"]}}\n',
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
 
@@ -2145,7 +2205,7 @@ describe("run-node script", () => {
       files: {
         [DIFFS_PACKAGE]:
           '{"openclaw":{"build":{"staticAssets":[{"source":"./assets/viewer-runtime.js","output":"assets/viewer-runtime.js"}]}}}\n',
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
 
@@ -2166,7 +2226,7 @@ describe("run-node script", () => {
         [DIST_STABLE_ROOT_RUNTIME_ALIAS]: "export * from './model-catalog.runtime-AbCd1234.js';\n",
         [DIST_LEGACY_ROOT_RUNTIME_TARGET]: "export const aborted = true;\n",
         [DIST_LEGACY_ROOT_RUNTIME_COMPAT]: "export * from './abort.runtime.js';\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
 
@@ -2199,7 +2259,7 @@ describe("run-node script", () => {
       files: {
         [BUNDLED_HOOK_METADATA]: "# Demo hook\n",
         [DIST_BUNDLED_HOOK_METADATA]: "# Demo hook\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
 
@@ -2224,7 +2284,7 @@ describe("run-node script", () => {
       files: {
         [DIST_STABLE_ROOT_RUNTIME_SOURCE]: "export const value = 1;\n",
         [DIST_STABLE_ROOT_RUNTIME_SOURCE_ALT]: "export const value = 2;\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
 
@@ -2248,7 +2308,7 @@ describe("run-node script", () => {
         [DIST_RUNTIME_EXTENSION_INDEX]: "export default {};\n",
         [DIST_RUNTIME_EXTENSION_MANIFEST]: '{"id":"demo","skills":["./skills/SKILL.md"]}\n',
         [DIST_RUNTIME_EXTENSION_SKILL]: "# Demo\n",
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
       },
     });
     await fs.rm(resolvePath(tmp, DIST_RUNTIME_EXTENSION_SKILL));
@@ -2266,7 +2326,7 @@ describe("run-node script", () => {
       files: {
         [EXTENSION_INDEX]: "export default {};\n",
         [EXTENSION_MANIFEST]: '{"id":"demo","configSchema":{"type":"object"}}\n',
-        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+        [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
         [DIST_EXTENSION_INDEX]: "export default {};\n",
       },
       trackConfig: true,
@@ -2291,7 +2351,7 @@ describe("run-node script", () => {
         await setupStampedProject(tmp, {
           files: {
             [implementationPath]: "export {};\n",
-            [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123"}\n',
+            [RUNTIME_POSTBUILD_STAMP]: '{"head":"abc123","inputsClean":true}\n',
           },
           trackConfig: true,
         });

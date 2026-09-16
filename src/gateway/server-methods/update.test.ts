@@ -43,6 +43,7 @@ import {
   captureUpdateRunPayload,
   mockGlobalInstallSurface,
   mockGitInstallSurface,
+  type UpdateRunPayload,
 } from "./update.test-harness.js";
 
 function readCapturedPayload(): RestartSentinelPayload {
@@ -1038,5 +1039,26 @@ describe("update.run post-core plugin finalize", () => {
     await captureUpdateRunPayload();
     expect(runPostCoreFinalizeAfterGatewayUpdateMock).toHaveBeenCalledTimes(2);
     expect(scheduleGatewaySigusr1RestartMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("update.run unexpected-error logging", () => {
+  it("logs the caught error instead of swallowing it silently", async () => {
+    runGatewayUpdateMock.mockRejectedValueOnce(new Error("disk write refused: EACCES"));
+    const logGateway = { warn: vi.fn(), error: vi.fn(), info: vi.fn() };
+    let payload: UpdateRunPayload | undefined;
+    await invokeUpdateRun(
+      {},
+      (_ok, response) => {
+        payload = response as UpdateRunPayload;
+      },
+      undefined,
+      { logGateway },
+    );
+
+    expect(payload?.result).toMatchObject({ status: "error", reason: "unexpected-error" });
+    expect(logGateway.warn).toHaveBeenCalledWith(
+      expect.stringContaining("disk write refused: EACCES"),
+    );
   });
 });

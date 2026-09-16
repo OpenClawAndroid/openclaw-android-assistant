@@ -10,6 +10,7 @@ import { selectModelCatalogRuntimeEntry } from "../agents/model-catalog-view.js"
 import type { ModelCatalogEntry } from "../agents/model-catalog.types.js";
 import { resolveSessionModelIdentityRef } from "../agents/session-model-ref.js";
 import { buildSubagentSessionListReadIndex } from "../agents/subagents/registry/subagent-registry-read.js";
+import type { SubagentRunReadRecord } from "../agents/subagents/registry/subagent-registry-read.types.js";
 import { captureRuntimeStateEnvironment } from "../config/paths.js";
 import { resolveSessionStorePathCore, type SessionEntry } from "../config/sessions.js";
 import type { GatewayStoredSessionTargets } from "../config/sessions/combined-store-gateway.js";
@@ -34,6 +35,17 @@ export function buildSessionListRowMetadataContext(params: {
   subagentRuns?: SessionListRowContext["subagentRuns"];
   userProfileIdentityById?: Map<string, SessionActorProfileIdentity | undefined>;
 }): SessionListRowContext {
+  const subagentRuns =
+    params.subagentRuns ?? buildSubagentSessionListReadIndex(params.now, params.sessionKeys);
+  const { runs, inMemoryRuns } = subagentRuns.inputs;
+  const subagentRunsByChildSessionKey = new Map<string, SubagentRunReadRecord[]>();
+  for (const run of new Set([...runs.values(), ...inMemoryRuns])) {
+    const key = run.childSessionKey.trim();
+    const candidates = subagentRunsByChildSessionKey.get(key) ?? [];
+    candidates.push(run);
+    subagentRunsByChildSessionKey.set(key, candidates);
+  }
+  subagentRunsByChildSessionKey.delete("");
   const catalogEntries = new WeakMap<
     ModelCatalogEntry[],
     Map<string, ModelCatalogEntry | undefined>
@@ -43,8 +55,8 @@ export function buildSessionListRowMetadataContext(params: {
     Map<string, ReturnType<typeof selectModelCatalogRuntimeEntry>>
   >();
   return {
-    subagentRuns:
-      params.subagentRuns ?? buildSubagentSessionListReadIndex(params.now, params.sessionKeys),
+    subagentRuns,
+    subagentRunsByChildSessionKey,
     selectedModelByOverrideRef: new Map(),
     thinkingMetadataByModelRef: new Map(),
     findModelCatalogEntry: (catalog, query) => {
@@ -80,84 +92,84 @@ export function buildSessionListRowMetadataContext(params: {
   };
 }
 
-export function resolveTranscriptUsageFallback(params: {
+export function resolveTranscriptUsageFallbacks(params: {
   cfg: OpenClawConfig;
   key: string;
   entry?: SessionEntry;
   storePath: string;
   freshTotalTokens?: number;
-  fallbackModelRef?: string;
+  fallbackModelRefs: readonly (string | undefined)[];
   allowPluginNormalization?: boolean;
   maxTranscriptBytes?: number;
   rowContext?: SessionListRowContext;
   agentId: string;
-}): {
-  estimatedCostUsd?: number;
-  totalTokens?: number;
-  totalTokensFresh?: boolean;
-} | null {
+}): Map<
+  string | undefined,
+  { estimatedCostUsd?: number; totalTokens?: number; totalTokensFresh?: boolean } | null
+> {
   const { entry, agentId } = params;
-  if (!entry?.sessionId) {
-    return null;
-  }
-  const resolvedModel = resolveSessionModelIdentityRef(
-    params.cfg,
-    entry,
-    agentId,
-    params.fallbackModelRef,
-    { allowPluginNormalization: params.allowPluginNormalization },
-  );
-  if (
-    params.freshTotalTokens !== undefined &&
-    resolveEstimatedSessionCostUsd({
-      cfg: params.cfg,
-      provider: resolvedModel.provider,
-      model: resolvedModel.model,
+  const fallbacks: ReturnType<typeof resolveTranscriptUsageFallbacks> = new Map();
+  let snapshot: ReturnType<typeof readScopedRecentSessionUsageFromTranscript> | undefined;
+  for (const fallbackModelRef of new Set(params.fallbackModelRefs)) {
+    fallbacks.set(fallbackModelRef, null);
+    if (!entry?.sessionId) {
+      continue;
+    }
+    const resolvedModel = resolveSessionModelIdentityRef(
+      params.cfg,
       entry,
-      rowContext: params.rowContext,
-    }) !== undefined
-  ) {
-    return null;
-  }
-  const storePath =
-    resolveConcreteSessionStorePath(params.storePath) ??
-    resolveSessionStorePathCore(params.cfg.session?.store, { agentId });
-  let snapshot: ReturnType<typeof readScopedRecentSessionUsageFromTranscript>;
-  try {
-    snapshot = readScopedRecentSessionUsageFromTranscript(
-      {
-        agentId,
-        sessionEntry: entry,
-        sessionId: entry.sessionId,
-        sessionKey: params.key,
-        storePath,
-      },
-      typeof params.maxTranscriptBytes === "number" ? params.maxTranscriptBytes : 256 * 1024,
+      agentId,
+      fallbackModelRef,
+      { allowPluginNormalization: params.allowPluginNormalization },
     );
-  } catch {
-    return null;
+    if (
+      params.freshTotalTokens !== undefined &&
+      resolveEstimatedSessionCostUsd({
+        cfg: params.cfg,
+        provider: resolvedModel.provider,
+        model: resolvedModel.model,
+        entry,
+        rowContext: params.rowContext,
+      }) !== undefined
+    ) {
+      continue;
+    }
+    if (snapshot === undefined) {
+      const storePath =
+        resolveConcreteSessionStorePath(params.storePath) ??
+        resolveSessionStorePathCore(params.cfg.session?.store, { agentId });
+      try {
+        snapshot = readScopedRecentSessionUsageFromTranscript(
+          {
+            agentId,
+            sessionEntry: entry,
+            sessionId: entry.sessionId,
+            sessionKey: params.key,
+            storePath,
+          },
+          typeof params.maxTranscriptBytes === "number" ? params.maxTranscriptBytes : 256 * 1024,
+        );
+      } catch {
+        snapshot = null;
+      }
+    }
+    if (snapshot) {
+      const estimatedCostUsd = resolveEstimatedSessionCostUsd({
+        cfg: params.cfg,
+        provider: snapshot.modelProvider ?? resolvedModel.provider,
+        model: snapshot.model ?? resolvedModel.model,
+        explicitCostUsd: snapshot.costUsd,
+        entry: snapshot,
+        rowContext: params.rowContext,
+      });
+      fallbacks.set(fallbackModelRef, {
+        totalTokens: resolvePositiveNumber(snapshot.totalTokens),
+        totalTokensFresh: snapshot.totalTokensFresh === true,
+        estimatedCostUsd,
+      });
+    }
   }
-  if (!snapshot) {
-    return null;
-  }
-  const estimatedCostUsd = resolveEstimatedSessionCostUsd({
-    cfg: params.cfg,
-    provider: snapshot.modelProvider ?? resolvedModel.provider,
-    model: snapshot.model ?? resolvedModel.model,
-    explicitCostUsd: snapshot.costUsd,
-    entry: {
-      inputTokens: snapshot.inputTokens,
-      outputTokens: snapshot.outputTokens,
-      cacheRead: snapshot.cacheRead,
-      cacheWrite: snapshot.cacheWrite,
-    },
-    rowContext: params.rowContext,
-  });
-  return {
-    totalTokens: resolvePositiveNumber(snapshot.totalTokens),
-    totalTokensFresh: snapshot.totalTokensFresh === true,
-    estimatedCostUsd,
-  };
+  return fallbacks;
 }
 
 export function* populateSessionListAcpMetadataWork(params: {

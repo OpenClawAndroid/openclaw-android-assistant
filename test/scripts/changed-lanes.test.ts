@@ -666,6 +666,7 @@ describe("scripts/changed-lanes", () => {
         .map((line) => line.replace("[check:changed:dry-run] would run: ", ""));
       expect(commands).toEqual([
         "pnpm check:no-conflict-markers",
+        "pnpm check:line-cap-ratchet --base origin/main",
         "pnpm check:changelog-attributions",
         "pnpm check:doctor-deprecation-registry",
         "pnpm lint:extensions:no-guarded-wildcard-reexports",
@@ -2296,6 +2297,7 @@ describe("scripts/changed-lanes", () => {
     });
     expect(plan.commands.map((command) => command.name)).toEqual([
       "conflict markers",
+      "line-cap growth ratchet",
       "max-lines suppression ratchet",
       "assertion SAFETY comment ratchet",
       "changelog attributions",
@@ -3306,6 +3308,15 @@ describe("scripts/changed-lanes", () => {
       expected: {
         worktree: ["check:max-lines-ratchet", "--base", "main"],
         staged: ["check:max-lines-ratchet", "--staged", "--base", "HEAD"],
+      },
+    },
+    {
+      name: "blocks line-cap growth with worktree and staged bases",
+      commandName: "line-cap growth ratchet",
+      worktreeOptions: { base: "main" },
+      expected: {
+        worktree: ["check:line-cap-ratchet", "--base", "main"],
+        staged: ["check:line-cap-ratchet", "--staged", "--base", "HEAD"],
       },
     },
     {

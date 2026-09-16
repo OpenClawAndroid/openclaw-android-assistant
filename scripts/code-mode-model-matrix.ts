@@ -1429,6 +1429,7 @@ export async function runCodeModeModelMatrix(
     await (deps.buildCliArtifacts ?? buildMatrixCliArtifacts)(options.repoRoot);
   }
   if (!options.dryRun && options.runtimeDir) {
+    // Current source can be clean after reverting edits that produced the retained artifacts.
     for (const stamp of [".buildstamp", ".runtime-postbuildstamp"]) {
       const value: unknown = JSON.parse(
         await fs.readFile(path.join(runtimeRepoRoot, "dist", stamp), "utf8"),
@@ -1437,10 +1438,12 @@ export async function runCodeModeModelMatrix(
         !value ||
         typeof value !== "object" ||
         !("head" in value) ||
-        value.head !== sourceIdentity.gitSha
+        value.head !== sourceIdentity.gitSha ||
+        !("inputsClean" in value) ||
+        value.inputsClean !== true
       ) {
         throw new Error(
-          `Frozen runtime ${stamp} does not match its committed source; rebuild it first.`,
+          `Frozen runtime ${stamp} must match its clean committed source and record clean build inputs. Choose a revision with provenance-capable stamp writers and run pnpm build; rebuilding older source without those writers cannot satisfy this check.`,
         );
       }
     }

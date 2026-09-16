@@ -13572,6 +13572,12 @@ describe("update-cli", () => {
       new ExitError(1),
     );
 
+    expect(lastWriteJsonCall()).toMatchObject({
+      status: "error",
+      steps: expect.arrayContaining([
+        expect.objectContaining({ name: "gateway verification", exitCode: 1 }),
+      ]),
+    });
     const diagnostics = getErrorOutput();
     expect(defaultRuntime.exit).not.toHaveBeenCalled();
     expect(diagnostics).toContain("Gateway probe failed: timeout");

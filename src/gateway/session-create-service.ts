@@ -30,6 +30,7 @@ import type { ModelCatalogSnapshot } from "../agents/model-catalog.types.js";
 import { resolveModelContextWindowProfile } from "../agents/model-context-window.js";
 import { splitTrailingAuthProfile } from "../agents/model-ref-profile.js";
 import {
+  type ModelRef,
   resolveDefaultModelForAgent,
   resolveSubagentConfiguredModelSelection,
 } from "../agents/model-selection.js";
@@ -359,6 +360,8 @@ export async function createGatewaySession(params: {
   forkFrom?: "last-completed";
   /** Live requester capability for an agent's current-transcript fork; never a wire parameter. */
   activeParentFork?: { requesterSessionKey: string; assertCurrent: () => void };
+  /** Live spawn-owned selection; public model inputs remain raw. */
+  preparedModelSelection?: { ref: ModelRef; assertCurrent: () => void };
   /**
    * Controls whether a distinct child terminates its parent. Omission preserves
    * the legacy rollover; callers use `false` for a parallel child.
@@ -433,6 +436,7 @@ export async function createGatewaySession(params: {
     personalModelSelection ||
     personalAccountDefaults ||
     params.activeParentFork ||
+    params.preparedModelSelection ||
     params.agentRuntime !== undefined
       ? () => {
           params.commitGuard?.();
@@ -441,6 +445,7 @@ export async function createGatewaySession(params: {
             throw new Error(runtimeError.message);
           }
           params.activeParentFork?.assertCurrent();
+          params.preparedModelSelection?.assertCurrent();
           personalModelSelection?.assertCurrent();
           personalAccountDefaults?.assertCurrent();
           if (
@@ -1092,6 +1097,7 @@ export async function createGatewaySession(params: {
       params.catalogTarget ??
         (params.model ? { model: params.model, agentRuntime: params.agentRuntime } : undefined),
       currentParentSessionEntry,
+      params.preparedModelSelection?.ref,
     );
     commitGuard?.();
     const preparationResult = params.prepareLifecycle
@@ -1303,6 +1309,7 @@ export async function createGatewaySession(params: {
             : undefined,
           authorizedAgentHarnessId: params.authorizedAgentHarnessId,
           personalModelSelection: params.personalModelSelection,
+          preparedModelSelection: params.preparedModelSelection?.ref,
         });
         if (!patched.ok) {
           return patched;

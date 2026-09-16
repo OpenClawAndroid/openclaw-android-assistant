@@ -306,25 +306,30 @@ async function hasIMessageEchoMatch(params: {
   return false;
 }
 
-function isKnownFromMeIMessageReactionTarget(params: {
-  messageId: string;
+async function isKnownFromMeIMessageReactionTarget(params: {
+  messageIds: string[];
   accountId: string;
   chatId?: number;
   chatGuid?: string;
   chatIdentifier?: string;
-  isKnownFromMeMessageId?: typeof isKnownFromMeIMessageMessageId;
-}): boolean {
-  const { messageId, accountId, chatId, chatGuid, chatIdentifier } = params;
+  isKnownFromMeMessageId?: (
+    ...args: Parameters<typeof isKnownFromMeIMessageMessageId>
+  ) => boolean | Promise<boolean>;
+}): Promise<boolean> {
+  const { accountId, chatId, chatGuid, chatIdentifier } = params;
   const ctx = {
     accountId,
     chatId,
     chatGuid,
     chatIdentifier,
   };
-  if (params.isKnownFromMeMessageId) {
-    return params.isKnownFromMeMessageId(messageId, ctx);
+  const isKnownFromMe = params.isKnownFromMeMessageId ?? isKnownFromMeIMessageMessageId;
+  for (const messageId of params.messageIds) {
+    if (await isKnownFromMe(messageId, ctx)) {
+      return true;
+    }
   }
-  return isKnownFromMeIMessageMessageId(messageId, ctx);
+  return false;
 }
 
 /**
@@ -424,7 +429,9 @@ export async function resolveIMessageInboundDecision(params: {
   };
   selfChatCache?: SelfChatCache;
   reactionNotifications?: IMessageReactionNotificationMode;
-  isKnownFromMeMessageId?: typeof isKnownFromMeIMessageMessageId;
+  isKnownFromMeMessageId?: (
+    ...args: Parameters<typeof isKnownFromMeIMessageMessageId>
+  ) => boolean | Promise<boolean>;
   logVerbose?: (msg: string) => void;
 }): Promise<IMessageInboundDecision> {
   const senderRaw = params.message.sender ?? "";
@@ -654,16 +661,14 @@ export async function resolveIMessageInboundDecision(params: {
           }),
           messageIds: targetGuids,
         }))) ||
-        targetGuids.some((messageId) =>
-          isKnownFromMeIMessageReactionTarget({
-            messageId,
-            accountId: params.accountId,
-            chatId,
-            chatGuid,
-            chatIdentifier,
-            isKnownFromMeMessageId: params.isKnownFromMeMessageId,
-          }),
-        )),
+        (await isKnownFromMeIMessageReactionTarget({
+          messageIds: targetGuids,
+          accountId: params.accountId,
+          chatId,
+          chatGuid,
+          chatIdentifier,
+          isKnownFromMeMessageId: params.isKnownFromMeMessageId,
+        }))),
     );
     if (notificationMode === "own" && !targetIsOwn) {
       return { kind: "drop", reason: "reaction target not sent by agent" };
@@ -924,7 +929,7 @@ export async function buildIMessageInboundContext(params: {
     decision.isGroup && chatId != null ? formatIMessageChatTarget(chatId) : undefined;
   const messageGuid = normalizeReplyField(params.message.guid);
   const rememberedMessage = messageGuid
-    ? rememberIMessageReplyCache({
+    ? await rememberIMessageReplyCache({
         accountId: decision.route.accountId,
         messageId: messageGuid,
         chatGuid: decision.chatGuid,

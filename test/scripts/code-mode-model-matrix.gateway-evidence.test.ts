@@ -1,9 +1,13 @@
-import { execFileSync } from "node:child_process";
+import {
+  execFileSync,
+  spawnSync,
+  type SpawnSyncOptionsWithStringEncoding,
+} from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   getEffectiveQaEvidenceEntries,
   projectQaEvidenceScenarioOutcomes,
@@ -15,34 +19,105 @@ import {
   type CodeModeMatrixCellResult,
 } from "../../scripts/code-mode-model-matrix.js";
 import { createGatewayMatrixWorkload } from "../../scripts/lib/code-mode-matrix-gateway.js";
+import {
+  BUILD_STAMP_FILE,
+  RUNTIME_POSTBUILD_STAMP_FILE,
+  writeBuildStamp,
+  writeRuntimePostBuildStamp,
+} from "../../scripts/lib/local-build-metadata.mts";
 import { createNestedGitEnv } from "../helpers/temp-repo.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+function initializeGitFixture(root: string) {
+  const env = createNestedGitEnv();
+  const git = (args: string[]) =>
+    execFileSync("git", args, { cwd: root, env, encoding: "utf8" }).trim();
+  git(["init", "--quiet"]);
+  git(["add", "."]);
+  git([
+    "-c",
+    "user.name=QA Fixture",
+    "-c",
+    "user.email=qa@example.test",
+    "commit",
+    "--no-gpg-sign",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "fixture",
+  ]);
+  return { env, git, head: git(["rev-parse", "HEAD"]) };
+}
+
+it.each([
+  { stamp: BUILD_STAMP_FILE, input: "src/entry.ts", write: writeBuildStamp },
+  {
+    stamp: RUNTIME_POSTBUILD_STAMP_FILE,
+    input: "scripts/runtime-postbuild.mts",
+    write: writeRuntimePostBuildStamp,
+  },
+])("rejects a dirty-built frozen $stamp after its source returns clean", async (testCase) => {
+  const root = tempDirs.make("openclaw-matrix-producer-provenance-");
+  const input = path.join(root, testCase.input);
+  await fs.mkdir(path.dirname(input), { recursive: true });
+  await fs.writeFile(input, "export {};\n");
+  await fs.writeFile(path.join(root, ".gitignore"), "/dist/\n/artifacts/\n");
+  const { env, git, head } = initializeGitFixture(root);
+  const producer = {
+    cwd: root,
+    spawnSync: (command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) =>
+      spawnSync(command, args, { ...options, env }),
+  };
+  writeBuildStamp(producer);
+  writeRuntimePostBuildStamp(producer);
+  await fs.writeFile(input, "export const changed = true;\n");
+  testCase.write(producer);
+  const stampPath = path.join(root, "dist", testCase.stamp);
+  const stamp = JSON.parse(await fs.readFile(stampPath, "utf8"));
+  expect(stamp).toMatchObject({ head, inputsClean: false });
+  await fs.writeFile(input, "export {};\n");
+  expect(git(["status", "--porcelain"])).toBe("");
+
+  const buildCliArtifacts = vi.fn(async () => {});
+  const readBuildSha256 = vi.fn(async () => "fixture-build");
+  const runCell = vi.fn(async (): Promise<CodeModeMatrixCellResult> => {
+    throw new Error("unverified frozen runtime reached the cell boundary");
+  });
+  for (const inputsClean of [false, null, undefined]) {
+    await fs.writeFile(stampPath, JSON.stringify({ ...stamp, inputsClean }));
+    await expect(
+      runCodeModeModelMatrix(
+        {
+          allowFailures: false,
+          dryRun: false,
+          keepState: false,
+          models: ["fixture/model"],
+          modes: ["code"],
+          tasks: ["read"],
+          repetitions: 1,
+          repoRoot: root,
+          runtimeDir: root,
+          outputDir: "artifacts",
+          thinking: "off",
+          timeoutSeconds: 10,
+        },
+        { buildCliArtifacts, readBuildSha256, runCell },
+      ),
+    ).rejects.toThrow(`Frozen runtime ${testCase.stamp}`);
+    expect(buildCliArtifacts).not.toHaveBeenCalled();
+    expect(readBuildSha256).not.toHaveBeenCalled();
+    expect(runCell).not.toHaveBeenCalled();
+    await expect(fs.stat(path.join(root, "artifacts"))).rejects.toMatchObject({ code: "ENOENT" });
+  }
+});
 
 it.each([false, true])(
   "retains frozen-runtime Gateway workloads and independent evidence (interrupted=%s)",
   async (interrupted) => {
     const repoRoot = tempDirs.make("openclaw-matrix-gateway-evidence-");
     const runtimeDir = tempDirs.make("openclaw-matrix-frozen-runtime-");
-    const gitOptions = { cwd: repoRoot, env: createNestedGitEnv(), encoding: "utf8" as const };
-    execFileSync("git", ["init", "--quiet"], gitOptions);
-    execFileSync(
-      "git",
-      [
-        "-c",
-        "user.name=QA Fixture",
-        "-c",
-        "user.email=qa@example.test",
-        "commit",
-        "--no-gpg-sign",
-        "--allow-empty",
-        "--quiet",
-        "-m",
-        "fixture",
-      ],
-      gitOptions,
-    );
-    const harnessSha = execFileSync("git", ["rev-parse", "HEAD"], gitOptions).trim();
+    const { head: harnessSha } = initializeGitFixture(repoRoot);
     const runtimeSha = "a".repeat(40);
     for (const root of [repoRoot, runtimeDir]) {
       await fs.mkdir(path.join(root, "dist"));
@@ -54,7 +129,7 @@ it.each([false, true])(
     for (const stamp of [".buildstamp", ".runtime-postbuildstamp"]) {
       await fs.writeFile(
         path.join(runtimeDir, "dist", stamp),
-        JSON.stringify({ head: runtimeSha }),
+        JSON.stringify({ head: runtimeSha, inputsClean: true }),
       );
     }
     const buildSha256 = createHash("sha256").update("runtime").digest("hex");

@@ -13,7 +13,7 @@ import { installMatrixTestRuntime } from "../../test-runtime.js";
 import {
   MATRIX_LEGACY_CRYPTO_MIGRATION_FILENAME,
   openMatrixLegacyCryptoMigrationStoreOptions,
-  readMatrixRecoveryKeyStateForPath,
+  openMatrixRecoveryKeyStoreOptions,
 } from "../crypto-state-store.js";
 import { SqliteBackedMatrixSyncStore } from "./file-sync-store.js";
 import { openMatrixStorageMetaStoreOptions } from "./storage-metadata.js";
@@ -443,9 +443,12 @@ describe("matrix client storage paths", () => {
       resetPluginStateStoreForTests();
 
       const expectPreservedState = () => {
-        expect(readMatrixRecoveryKeyStateForPath(storagePaths.recoveryKeyPath)).toEqual(
-          recoveryKey,
-        );
+        expect(
+          createPluginStateSyncKeyedStoreForTests(
+            "matrix",
+            openMatrixRecoveryKeyStoreOptions(storagePaths.rootDir),
+          ).lookup("current"),
+        ).toEqual(recoveryKey);
         expect(
           JSON.parse(fs.readFileSync(`${storagePaths.recoveryKeyPath}.migrated`, "utf8")),
         ).toEqual(recoveryKey);

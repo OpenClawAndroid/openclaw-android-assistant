@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vitest";
 import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import { createChannelTestPluginBase } from "../test-utils/channel-plugins.js";
 import {
   verifyFailedRecoveryServiceOwnership,
-  verifyCandidateCleanupRecovery,
+  verifyCandidateCleanupRefusal,
 } from "./server-plugin-reload.managed-candidate.test-support.js";
-import type { RecoveryFixtureFactory } from "./server-plugin-reload.recovery.test-support.js";
+import {
+  createRecoveryChannelManager,
+  type RecoveryFixtureFactory,
+} from "./server-plugin-reload.recovery.test-support.js";
 import {
   verifyOneWayDrainRecovery,
   verifyReversibleFenceRecovery,
@@ -14,6 +18,76 @@ import {
 
 export function registerPluginServiceRecoveryTests(createRecoveryFixture: RecoveryFixtureFactory) {
   describe("Gateway plugin service recovery ownership", () => {
+    it("restores an unchanged channel after command-owner cleanup fails", async () => {
+      const starts = { first: vi.fn(), sibling: vi.fn() };
+      const fixture = await createRecoveryFixture({
+        initialStop: async () => {
+          throw new Error("command-owner cleanup refused");
+        },
+        register: (api, owner) => {
+          if (owner === "first") {
+            api.registerCommand({
+              name: "cleanup-probe",
+              description: "Probe command cleanup",
+              handler: () => ({ text: "ok" }),
+            });
+          }
+          api.registerChannel({
+            plugin: {
+              ...createChannelTestPluginBase({
+                id: owner,
+                config: { listAccountIds: () => ["default", "parked"] },
+              }),
+              gateway: {
+                startAccount: async ({ accountId, abortSignal }) => {
+                  starts[owner](accountId);
+                  await new Promise<void>((resolve) => {
+                    abortSignal.addEventListener("abort", () => resolve(), { once: true });
+                  });
+                },
+              },
+            },
+          });
+        },
+      });
+      const manager = createRecoveryChannelManager(fixture);
+      fixture.runtime.channelManager = manager;
+      const sibling = fixture.previousRegistry.plugins.find((record) => record.id === "sibling");
+      try {
+        for (const channel of ["first", "sibling"]) {
+          await manager.stopChannel(channel, "parked");
+          await manager.startChannel(channel, undefined, {
+            manual: false,
+            preserveManualStop: true,
+          });
+        }
+        await vi.waitFor(() => {
+          expect(starts.first).toHaveBeenCalledExactlyOnceWith("default");
+          expect(starts.sibling).toHaveBeenCalledExactlyOnceWith("default");
+        });
+        await expect(fixture.reload()).rejects.toMatchObject({
+          details: { committed: false, phase: "drain" },
+        });
+        // Command catalog refresh stops this channel, but its registration is healthy.
+        expect(manager.getRuntimeSnapshot().reloadingChannels?.has("sibling")).toBe(false);
+        expect(manager.hasCurrentAccountTask("sibling", "default")).toBe(true);
+        await vi.waitFor(() => expect(starts.sibling).toHaveBeenCalledTimes(2));
+        expect(starts.sibling.mock.calls).toEqual([["default"], ["default"]]);
+        expect(manager.isManuallyStopped("sibling", "parked")).toBe(true);
+        expect(
+          fixture.registryOwner.registry.plugins.find((record) => record.id === "sibling"),
+        ).toBe(sibling);
+        expect(fixture.siblingStart).toHaveBeenCalledOnce();
+        expect(fixture.siblingStop).not.toHaveBeenCalled();
+        await expect(manager.startChannel("first")).rejects.toThrow("plugins are reloading");
+        expect(starts.first).toHaveBeenCalledOnce();
+        expect(fixture.candidates).toHaveLength(0);
+      } finally {
+        await manager.stopChannel("first");
+        await manager.stopChannel("sibling");
+      }
+    });
+
     it("restores prepared config effects when channel admission cannot pause", async () => {
       const rollback = vi.fn(async () => {});
       const fixture = await createRecoveryFixture({ prepareConfigEffects: () => rollback });
@@ -35,7 +109,9 @@ export function registerPluginServiceRecoveryTests(createRecoveryFixture: Recove
         const recoveryStarted = createDeferredCore();
         const releaseRecovery = createDeferredCore();
         const rollback = vi.fn(async () => {
-          const record = fixture.previousRegistry.plugins.find((plugin) => plugin.id === "first");
+          const record = fixture.registryOwner.registry.plugins.find(
+            (plugin) => plugin.id === "first",
+          );
           expect(record && getPluginInstance(record)?.acceptingCalls).toBe(true);
         });
         const fixture = await createRecoveryFixture({
@@ -77,7 +153,7 @@ export function registerPluginServiceRecoveryTests(createRecoveryFixture: Recove
         const fixture = await createRecoveryFixture({
           abortOnCandidateStart: false,
           candidateStart,
-          ...(boundary === "prepare" ? { prepareAttached: pause } : {}),
+          ...(boundary === "prepare" ? { checkpoint: pause } : {}),
           ...(boundary === "drain" ? { initialStop: pause } : {}),
           ...(boundary === "publish" ? { beforePublish: pause } : {}),
           ...(boundary === "committed" ? { afterPublish: pause } : {}),
@@ -115,7 +191,9 @@ export function registerPluginServiceRecoveryTests(createRecoveryFixture: Recove
               details: { phase: boundary === "publish" ? "activate" : boundary, committed: false },
               cause: failure,
             });
-            expect(fixture.registryOwner.registry).toBe(fixture.previousRegistry);
+            expect(fixture.registryOwner.registry === fixture.previousRegistry).toBe(
+              boundary === "prepare",
+            );
             expect(fixture.firstStart).toHaveBeenCalledTimes(boundary === "prepare" ? 1 : 2);
             expect(fixture.candidateStop).toHaveBeenCalledTimes(boundary === "publish" ? 1 : 0);
           }
@@ -134,8 +212,8 @@ export function registerPluginServiceRecoveryTests(createRecoveryFixture: Recove
     it("keeps retained and failed-recovery services owned after recovery startup rejects", () =>
       verifyFailedRecoveryServiceOwnership(createRecoveryFixture));
 
-    it("restores the previous service after candidate cleanup fails and permits another attempt", () =>
-      verifyCandidateCleanupRecovery(createRecoveryFixture));
+    it("refuses recovery when candidate resource cleanup fails and retains its sibling", () =>
+      verifyCandidateCleanupRefusal(createRecoveryFixture));
 
     it.each(["suspension", "restart signal"] as const)(
       "restores the previous plugin runtime after failed replacement during reversible %s",

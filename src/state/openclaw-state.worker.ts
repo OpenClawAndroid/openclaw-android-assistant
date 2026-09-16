@@ -1,3 +1,8 @@
+import {
+  readNativeHookRelayBridgeSnapshotFromDatabase,
+  listNativeHookRelayBridgeSnapshotsInDatabase,
+} from "../agents/harness/native-hook-relay-store.kernel.js";
+import { executeNativeHookRelayMutation } from "../agents/harness/native-hook-relay-store.worker.js";
 import { loadSubagentSessionListRunsFromSqlite } from "../agents/subagents/registry/subagent-registry.store.sqlite.js";
 import { readClawInstallSchemaVersionRows } from "../claws/provenance-runtime-read.kernel.js";
 import {
@@ -62,6 +67,7 @@ import {
 import type { OpenClawStateDatabase } from "./openclaw-state-db-contract.js";
 import { assertOpenClawStateDatabaseOwner } from "./openclaw-state-db-maintenance.js";
 import {
+  withOpenClawStateDatabaseReadOnly,
   withArtifactPreservingStateReads,
   withExistingOpenClawStateDatabaseArtifactPreservingReadOnly,
   withExistingOpenClawStateDatabaseReadOnly,
@@ -142,6 +148,16 @@ function createSharedStateWorkerBackend(
       if (command.type === "subagents.sessionList") {
         return withExistingOpenClawStateDatabaseReadOnly(
           (database) => loadSubagentSessionListRunsFromSqlite(undefined, database),
+          { path: context.databasePath, env: getSqliteWorkerStateContext().environment },
+        );
+      }
+      if (command.type === "nativeHookRelay.read") {
+        return withOpenClawStateDatabaseReadOnly(
+          (database) =>
+            readNativeHookRelayBridgeSnapshotFromDatabase({
+              database,
+              relayId: command.input.relayId,
+            })?.record,
           { path: context.databasePath, env: getSqliteWorkerStateContext().environment },
         );
       }
@@ -319,6 +335,21 @@ function createSharedStateWorkerBackend(
         );
       }
       const database = open();
+      if (command.type === "nativeHookRelay.listSnapshots") {
+        return listNativeHookRelayBridgeSnapshotsInDatabase(database);
+      }
+      if (
+        command.type === "nativeHookRelay.write" ||
+        command.type === "nativeHookRelay.renew" ||
+        command.type === "nativeHookRelay.deleteOwned" ||
+        command.type === "nativeHookRelay.prune"
+      ) {
+        return executeNativeHookRelayMutation(command, {
+          database,
+          path: context.databasePath,
+          env: getSqliteWorkerStateContext().environment,
+        });
+      }
       if (command.type === "cron.loadMutable") {
         return loadMutableCronStoreInWorker(database, command.input.storeKey);
       }

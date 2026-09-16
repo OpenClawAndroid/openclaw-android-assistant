@@ -52,8 +52,7 @@ type SessionMutationsHost = PendingRowHost & {
   capturePatchFields: (
     target: Pick<PendingRowTarget, "key" | "agentId" | "sessionId">,
   ) => (fact: SessionPatchRowFact) => void;
-  refreshReplacement: SessionCapability["refreshReplacement"];
-  refreshReplacementResult: (
+  reconcileMutation: (
     agentId?: string | null,
     isErrorCurrent?: () => boolean,
   ) => Promise<SessionRefreshOutcome>;
@@ -199,8 +198,8 @@ export function createSessionMutations(host: SessionMutationsHost) {
     }
     let refreshError: string | undefined;
     try {
-      await host.refreshReplacement(agentId);
-      refreshError = host.readState().error ?? undefined;
+      const outcome = await host.reconcileMutation(agentId);
+      refreshError = outcome.status === "failed" ? outcome.error : undefined;
     } catch (error) {
       refreshError = formatUiError(error);
     }
@@ -249,7 +248,7 @@ export function createSessionMutations(host: SessionMutationsHost) {
       } else if (preparedWorkSessionKeys.has(result.key)) {
         host.publish({ ...host.readState() });
       }
-      const reconciliation = host.refreshReplacement(params.agentId);
+      const reconciliation = host.reconcileMutation(params.agentId);
       if (options.reconciliation === "background") {
         void reconciliation.catch((error: unknown) => {
           if (host.connection.isCurrent(scope)) {
@@ -532,12 +531,12 @@ export function createSessionMutations(host: SessionMutationsHost) {
       let refreshOutcome: SessionRefreshOutcome = { status: "refreshed" };
       if (!options.deferListRefresh) {
         if (Object.hasOwn(patchParams, "permissionMode")) {
-          refreshOutcome = await host.refreshReplacementResult(
+          refreshOutcome = await host.reconcileMutation(
             options.agentId,
             permissionProjection?.isCurrent,
           );
         } else {
-          await host.refreshReplacement(options.agentId);
+          await host.reconcileMutation(options.agentId);
         }
         if (!host.connection.isCurrent(scope)) {
           settleOptimisticPatch(false);

@@ -56,6 +56,7 @@ import {
   getSessionKysely,
   runExclusiveSqliteSessionWrite,
 } from "./session-accessor.sqlite-scope.js";
+import { readSessionTranscriptDigest } from "./session-accessor.sqlite-transcript-digest.js";
 import { withSqliteMutationWorkerLifetime } from "./session-accessor.sqlite-worker-request.js";
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
@@ -144,18 +145,11 @@ export function shouldDeleteSqliteSessionEntryLifecycle(
   if (!expectedTranscript) {
     return true;
   }
-  const rows = executeSqliteQuerySync(
-    database.db,
-    getSessionKysely(database.db)
-      .selectFrom("transcript_events")
-      .select("event_json")
-      .where("session_id", "=", expectedTranscript.sessionId)
-      .orderBy("seq", "asc"),
-  ).rows;
+  const digest = readSessionTranscriptDigest(database, expectedTranscript.sessionId);
   return (
     entry.sessionId === expectedTranscript.sessionId &&
-    rows.length === expectedTranscript.eventJson.length &&
-    rows.every((row, index) => row.event_json === expectedTranscript.eventJson[index])
+    digest.eventCount === expectedTranscript.digest.eventCount &&
+    digest.rollingHash === expectedTranscript.digest.rollingHash
   );
 }
 

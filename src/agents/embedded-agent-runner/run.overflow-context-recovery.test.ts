@@ -1,5 +1,5 @@
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OPENCLAW_EMBEDDED_CONTEXT_ENGINE_HOST } from "../../context-engine/host-compat.js";
 import { buildContextEngineRuntimeSettings } from "../../context-engine/runtime-settings.js";
 import type { AssistantMessage } from "../../llm/types.js";
@@ -12,7 +12,10 @@ import { readCompactionAccountingRecorder } from "./run/compaction-accounting-br
 import { createEmbeddedRunContextRecoveryState } from "./run/context-recovery-state.js";
 import { recoverEmbeddedRunOverflow } from "./run/overflow-context-recovery.js";
 import type { EmbeddedRunAttemptResult } from "./run/types.js";
-import type { ToolResultPromptProjectionState } from "./session-prompt-state.js";
+import {
+  clearEmbeddedSessionPromptStates,
+  getEmbeddedSessionPromptState,
+} from "./session-prompt-state.js";
 import { createUsageAccumulator } from "./usage-accumulator.js";
 
 const mocks = vi.hoisted(() => ({
@@ -190,13 +193,6 @@ function makeInput(overrides: RecoveryInputOverrides = {}): RecoveryInput {
               : null,
         }
       : undefined,
-    toolResultPromptProjectionState: {
-      replacements: new Map(),
-      frozen: new Set(),
-      ambiguousBaseKeys: new Set(),
-      restoredCacheTtl: new Map(),
-      sourceHashByKey: new Map(),
-    },
     attemptCompactionCount: 0,
     runtimeAuthPlan: {
       providerForAuth: "openai",
@@ -236,6 +232,7 @@ function makeInput(overrides: RecoveryInputOverrides = {}): RecoveryInput {
 }
 
 describe("recoverEmbeddedRunOverflow", () => {
+  afterEach(() => clearEmbeddedSessionPromptStates(["session-1", "rotated-session"]));
   beforeEach(() => {
     mocks.compact.mockReset().mockResolvedValue(successfulCompaction());
     mocks.debug.mockReset();
@@ -422,13 +419,8 @@ describe("recoverEmbeddedRunOverflow", () => {
   });
 
   it("falls back to append-only tool-result truncation after failed compaction", async () => {
-    const projectionState: ToolResultPromptProjectionState = {
-      replacements: new Map(),
-      frozen: new Set(["tool:call_1:1"]),
-      ambiguousBaseKeys: new Set(),
-      restoredCacheTtl: new Map(),
-      sourceHashByKey: new Map(),
-    };
+    const projectionState = getEmbeddedSessionPromptState("session-1").toolResults;
+    projectionState.frozen.add("tool:call_1:1");
     const messagesSnapshot = [
       {
         role: "toolResult",
@@ -455,7 +447,6 @@ describe("recoverEmbeddedRunOverflow", () => {
         sessionIdUsed: "session-1",
         messagesSnapshot,
       },
-      toolResultPromptProjectionState: projectionState,
     });
 
     const result = await recoverEmbeddedRunOverflow(input);
@@ -533,29 +524,43 @@ describe("recoverEmbeddedRunOverflow", () => {
     expect(input.prepareCompactedTranscriptRetry).not.toHaveBeenCalled();
   });
 
-  it("truncates the frozen projection after compaction for a mixed preflight route", async () => {
-    mocks.truncateOversizedToolResults.mockReturnValueOnce({
-      truncated: true,
-      truncatedCount: 2,
-    });
-    const input = makeInput({
-      attempt: {
-        terminal: { kind: "failed", source: "precheck", error: overflowError() },
-        sessionIdUsed: "session-1",
-        messagesSnapshot: [],
-        preflightRecovery: { route: "compact_then_truncate" },
-      },
-    });
+  it.each([false, true])(
+    "truncates the active projection after mixed preflight compaction (successor=%s)",
+    async (adoptsSuccessor) => {
+      let sessionId = "session-1";
+      getEmbeddedSessionPromptState(sessionId).toolResults.frozen.add("predecessor-only");
+      getEmbeddedSessionPromptState("rotated-session").toolResults.frozen.add("successor-only");
+      mocks.truncateOversizedToolResults.mockReturnValueOnce({
+        truncated: true,
+        truncatedCount: 2,
+      });
+      const input = makeInput({
+        getActiveSession: () => ({ id: sessionId, file: `/tmp/${sessionId}.jsonl` }),
+        adoptCompactionTranscript: vi.fn(async () => {
+          if (adoptsSuccessor) {
+            sessionId = "rotated-session";
+            return "session-1";
+          }
+          return undefined;
+        }),
+        attempt: {
+          terminal: { kind: "failed", source: "precheck", error: overflowError() },
+          sessionIdUsed: "session-1",
+          messagesSnapshot: [],
+          preflightRecovery: { route: "compact_then_truncate" },
+        },
+      });
 
-    expect(await recoverEmbeddedRunOverflow(input)).toEqual({ action: "retry" });
-    expect(mocks.truncateOversizedToolResults).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectionState: input.toolResultPromptProjectionState,
-        protectTrailingToolResults: true,
-      }),
-    );
-    expect(input.prepareCompactedTranscriptRetry).toHaveBeenCalledOnce();
-  });
+      expect(await recoverEmbeddedRunOverflow(input)).toEqual({ action: "retry" });
+      expect(mocks.truncateOversizedToolResults).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectionState: getEmbeddedSessionPromptState(sessionId).toolResults,
+          protectTrailingToolResults: true,
+        }),
+      );
+      expect(input.prepareCompactedTranscriptRetry).toHaveBeenCalledOnce();
+    },
+  );
 
   it("caps overflow compaction at three attempts across shared recovery state", async () => {
     const state = createEmbeddedRunContextRecoveryState();

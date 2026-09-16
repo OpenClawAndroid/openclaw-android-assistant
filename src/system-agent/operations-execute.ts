@@ -379,7 +379,7 @@ export async function executeSystemAgentOperation(
             ) => {
               const { runPluginUninstallCommand } =
                 await import("../cli/plugins-uninstall-command.js");
-              await runPluginUninstallCommand(pluginId, options, pluginRuntime);
+              await runPluginUninstallCommand([pluginId], options, pluginRuntime);
             });
           // A concurrent config write can retarget the default route between
           // the pre-approval check and this commit; re-verify before the

@@ -303,14 +303,15 @@ stay coordinated.
 
 The standalone `scripts/freebsd-service-inspect.mjs` diagnostic reports which
 `openclaw` rc.d definitions the native configuration selects. It requires a
-root-owned Node installation and script. It does not require the OpenClaw Ports
-service package.
+root-owned Node installation, script, and shared discovery helper. It does not
+require the OpenClaw Ports service package.
 
 From an existing root shell, install the script from a trusted OpenClaw package:
 
 ```sh
-install -d -o root -g wheel -m 0755 /usr/local/libexec
+install -d -o root -g wheel -m 0755 /usr/local/libexec/lib
 install -o root -g wheel -m 0644 /path/to/openclaw/scripts/freebsd-service-inspect.mjs /usr/local/libexec/openclaw-service-inspect.mjs
+install -o root -g wheel -m 0644 /path/to/openclaw/scripts/lib/freebsd-service-discovery.mjs /usr/local/libexec/lib/freebsd-service-discovery.mjs
 (cd / && /usr/bin/env -i HOME=/ PATH=/sbin:/bin:/usr/sbin:/usr/bin LC_ALL=C /usr/local/bin/node /usr/local/libexec/openclaw-service-inspect.mjs)
 ```
 

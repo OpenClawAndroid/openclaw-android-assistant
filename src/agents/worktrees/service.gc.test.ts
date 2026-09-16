@@ -1,10 +1,13 @@
 import { execFile } from "node:child_process";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { runNodeScript } from "../../../test/helpers/run-node-script.js";
+import * as backoff from "../../infra/backoff.js";
 import { createWarnLogCapture } from "../../logging/test-helpers/warn-log-capture.js";
 import * as pidAlive from "../../shared/pid-alive.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
@@ -542,6 +545,30 @@ describe("ManagedWorktreeService garbage collection", () => {
     removeSpy.mockRestore();
   });
 
+  it.each(["idle", "limit"])(
+    "preserves a worktree used after the %s cleanup inspection",
+    async (kind) => {
+      const created = await materializeRunOwnedFixture("resumed", "session", "agent:main:resumed");
+      now += kind === "idle" ? IDLE_GC_MS + 1 : 1;
+      const remove = service.remove.bind(service);
+      const resumed = vi.spyOn(service, "remove").mockImplementationOnce(async (params) => {
+        await service.acquire(created.id);
+        await service.release(created.id);
+        return await remove(params);
+      });
+      try {
+        const result = await service.gc({
+          limits: kind === "limit" ? { maxCount: 0 } : {},
+        });
+        expect(result.removed).toEqual([]);
+        expect(getRegistryWorktree(env, created.id)).toMatchObject({ lastActiveAt: now });
+        expect(await fs.readFile(path.join(created.path, "README.md"), "utf8")).toBe("base\n");
+      } finally {
+        resumed.mockRestore();
+      }
+    },
+  );
+
   it("leaves everything in place when limits are not exceeded", async () => {
     const created = await materializeRunOwnedFixture("under-limit", "session", "agent:main:under");
 
@@ -589,6 +616,30 @@ describe("ManagedWorktreeService garbage collection", () => {
     );
   });
 
+  it("checks owner retirement only for live worktrees while retaining fresh snapshots", async () => {
+    const removed = await materializeRunOwnedFixture(
+      "removed-owner",
+      "session",
+      "agent:main:removed",
+    );
+    const snapshot = await service.remove({ id: removed.id, reason: "test-retention" });
+    const snapshotCommit = await git(repo, "rev-parse", snapshot.snapshotRef!);
+    const live = await materializeRunOwnedFixture("live-owner", "session", "agent:main:live");
+    const shouldRemoveOwner = vi.fn(() => false);
+
+    const result = await service.gc({ shouldRemoveOwner });
+
+    expect(shouldRemoveOwner.mock.calls).toEqual([["session", live.ownerId]]);
+    expect(result.removed).toEqual([]);
+    expect(result.snapshotsPruned).toBe(0);
+    expect(getRegistryWorktree(env, removed.id)).toMatchObject({
+      removedAt: now,
+      snapshotRef: snapshot.snapshotRef,
+    });
+    expect(await git(repo, "rev-parse", snapshot.snapshotRef!)).toBe(snapshotCommit);
+    expect(getRegistryWorktree(env, live.id)?.removedAt).toBeUndefined();
+  });
+
   it("prunes expired snapshot refs and registry rows", async () => {
     const created = await materializeDownstreamFixture("expired");
     const removed = await service.remove({ id: created.id, reason: "retention" });
@@ -598,5 +649,73 @@ describe("ManagedWorktreeService garbage collection", () => {
     expect(result.snapshotsPruned).toBe(1);
     expect(getRegistryWorktree(env, created.id)).toBeUndefined();
     await expect(git(repo, "show-ref", "--verify", removed.snapshotRef!)).rejects.toThrow();
+  });
+
+  it("does not restore a snapshot while garbage collection is expiring it", async () => {
+    const disk = fsSync.statfsSync(root);
+    const diskSpace = vi.spyOn(fsSync, "statfsSync").mockReturnValue({
+      type: disk.type,
+      files: disk.files,
+      frsize: disk.frsize,
+      ffree: disk.ffree,
+      bsize: 4096,
+      blocks: 1024 ** 4 / 4096,
+      bavail: (100 * 1024 ** 3) / 4096,
+      bfree: (100 * 1024 ** 3) / 4096,
+    });
+    service = new ManagedWorktreeService({
+      env,
+      now: () => now,
+      getConfig: () => ({ worktreeAcceleration: false }),
+    });
+    const created = await materializeDownstreamFixture("restoring-expired");
+    await fs.writeFile(path.join(created.path, "README.md"), "saved edit\n");
+    const removed = await service.remove({ id: created.id, reason: "retention" });
+    now += SNAPSHOT_RETENTION_MS + 1;
+    const deleting = createDeferred();
+    const resume = createDeferred();
+    const realGit = worktreeGit.requireGit;
+    const blockedDeletion = vi
+      .spyOn(worktreeGit, "requireGit")
+      .mockImplementation(async (cwd, args, options) => {
+        if (args[0] === "update-ref" && args[1] === "-d" && args[2] === removed.snapshotRef) {
+          deleting.resolve();
+          await resume.promise;
+        }
+        return await realGit(cwd, args, options);
+      });
+    const collection = service.gc();
+    let restoration: ReturnType<typeof service.restore> | undefined;
+    const waits = vi.spyOn(backoff, "sleepWithAbort");
+    try {
+      await Promise.race([
+        deleting.promise,
+        collection.then((result) => {
+          throw new Error(`Collection did not reach snapshot expiry: ${JSON.stringify(result)}`);
+        }),
+      ]);
+      let settled = false;
+      restoration = service.restore({ id: created.id });
+      const outcome = restoration
+        .catch((error: unknown) => error)
+        .finally(() => {
+          settled = true;
+        });
+      await vi.waitFor(() => expect(waits.mock.calls.length > 0 || settled).toBe(true));
+      resume.resolve();
+      expect((await collection).snapshotsPruned).toBe(1);
+      await expect(outcome).resolves.toMatchObject({
+        message: expect.stringContaining("not restorable"),
+      });
+      expect(getRegistryWorktree(env, created.id)).toBeUndefined();
+      await expect(fs.stat(created.path)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(git(repo, "show-ref", "--verify", removed.snapshotRef!)).rejects.toThrow();
+    } finally {
+      resume.resolve();
+      await Promise.allSettled([restoration, collection]);
+      blockedDeletion.mockRestore();
+      waits.mockRestore();
+      diskSpace.mockRestore();
+    }
   });
 });

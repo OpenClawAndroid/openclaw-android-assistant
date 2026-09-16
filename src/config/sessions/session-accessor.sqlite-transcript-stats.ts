@@ -1,3 +1,4 @@
+import { toUSVString } from "node:util";
 import { sql } from "kysely";
 import { executeSqliteQuerySync, prepareSqliteQuerySync } from "../../infra/kysely-sync.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
@@ -104,7 +105,7 @@ export function readTranscriptStatsFromDatabase(
   );
 }
 
-export function readTranscriptStatsChunkFromDatabase(
+function readTranscriptStatsChunkFromDatabase(
   database: Pick<OpenClawAgentDatabase, "db">,
   sessionIds: readonly string[],
 ): Map<string, SessionTranscriptStats> {
@@ -167,4 +168,38 @@ export function readTranscriptStatsChunkFromDatabase(
     },
     { operationLabel: "session transcript stats" },
   );
+}
+
+const SQLITE_TRANSCRIPT_STATS_POINT_QUERY_LIMIT = 10;
+const SQLITE_TRANSCRIPT_STATS_QUERY_CHUNK_SIZE = 400;
+
+/** Read ordered stats on one supplied connection, preserving duplicate and missing session IDs. */
+export function readTranscriptStatsBatchFromDatabase(
+  database: Pick<OpenClawAgentDatabase, "db">,
+  sessionIds: readonly string[],
+): SessionTranscriptStats[] {
+  // Prepared point queries avoid three-query compilation on small batches.
+  if (sessionIds.length <= SQLITE_TRANSCRIPT_STATS_POINT_QUERY_LIMIT) {
+    return sessionIds.map((sessionId) => readTranscriptStatsFromDatabase(database, sessionId));
+  }
+  // Match node:sqlite's string binding before looking up rows by their stored ID.
+  const uniqueIds = [...new Set(sessionIds.map((sessionId) => toUSVString(sessionId)))];
+  const stats = new Map<string, SessionTranscriptStats>();
+  for (
+    let offset = 0;
+    offset < uniqueIds.length;
+    offset += SQLITE_TRANSCRIPT_STATS_QUERY_CHUNK_SIZE
+  ) {
+    const chunk = uniqueIds.slice(offset, offset + SQLITE_TRANSCRIPT_STATS_QUERY_CHUNK_SIZE);
+    if (chunk.length <= SQLITE_TRANSCRIPT_STATS_POINT_QUERY_LIMIT) {
+      for (const sessionId of chunk) {
+        stats.set(sessionId, readTranscriptStatsFromDatabase(database, sessionId));
+      }
+    } else {
+      for (const [sessionId, value] of readTranscriptStatsChunkFromDatabase(database, chunk)) {
+        stats.set(sessionId, value);
+      }
+    }
+  }
+  return sessionIds.map((sessionId) => ({ ...stats.get(toUSVString(sessionId))! }));
 }

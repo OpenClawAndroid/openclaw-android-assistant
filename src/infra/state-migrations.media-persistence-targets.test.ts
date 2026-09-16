@@ -299,7 +299,7 @@ describe("media persistence migration targets", () => {
           includeIncompatibleSchemaVersions: true,
         }),
       ).toEqual([]);
-      expect(fs.readFileSync(databasePath)).toEqual(beforeBytes);
+      expect(fs.readFileSync(databasePath).equals(beforeBytes)).toBe(true);
       expect(fs.statSync(databasePath).mtimeMs).toBe(beforeMtimeMs);
       const receipt = createLegacyStateMigrationStepReceipt(
         {

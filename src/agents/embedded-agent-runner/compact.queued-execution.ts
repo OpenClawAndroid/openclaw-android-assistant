@@ -47,7 +47,10 @@ import {
 import { runContextEngineMaintenance } from "./context-engine-maintenance.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
-import { attachCompactionAccountingRecorder } from "./run/compaction-accounting-bridge.js";
+import {
+  attachCompactionAccountingRecorder,
+  type CompactionAccountingReceipt,
+} from "./run/compaction-accounting-bridge.js";
 import {
   setTranscriptBytePreflightClaim,
   type TranscriptBytePreflightAuthority,
@@ -320,16 +323,20 @@ export async function executeQueuedContextEngineCompaction(input: {
       // Preserve the delegate's progress-aware watchdog and bound other engines.
       // Queued callers keep result-based failures; recovery rejects cancellation.
       let result: Awaited<ReturnType<typeof contextEngine.compact>>;
+      let committedCompaction: CompactionAccountingReceipt | undefined;
       try {
         const compactionSessionTarget = projectQueuedCompactionSessionTarget(params);
         const compact = bindContextEngineCompaction(contextEngine);
         const ownedCompactor: Pick<ContextEngine, "compact" | "info"> = {
           info: contextEngine.info,
           compact: inheritRuntimeCompactionDelegate(compact, (backendParams) => {
-            if ((host.requestBudget || host.pendingUserEntryId) && backendParams.runtimeContext) {
+            if (backendParams.runtimeContext) {
               attachCompactionAccountingRecorder(backendParams.runtimeContext, {
                 requestBudget: host.requestBudget,
                 pendingUserEntryId: host.pendingUserEntryId,
+                recordCompaction: (receipt) => {
+                  committedCompaction = receipt;
+                },
               });
             }
             // Retained backend work keeps the original owner and the timer's
@@ -383,13 +390,29 @@ export async function executeQueuedContextEngineCompaction(input: {
           params.abortSignal,
         );
       } catch (compactErr) {
-        log.warn("context-engine compaction failed", {
-          errorMessage: formatErrorMessage(compactErr),
-        });
+        log.warn(
+          committedCompaction
+            ? "post-compaction work failed after the transcript commit"
+            : "context-engine compaction failed",
+          { errorMessage: formatErrorMessage(compactErr) },
+        );
         result = {
           ok: false,
           compacted: false,
           reason: formatErrorMessage(compactErr),
+        };
+      }
+      if (committedCompaction && (!result.ok || !result.compacted)) {
+        // The stock writer committed before a hook or cancellation failed. Retain
+        // that fact without adopting successor fields from the failed result.
+        result = {
+          ok: true,
+          compacted: true,
+          reason: result.reason,
+          result: {
+            tokensBefore: committedCompaction.tokensBefore,
+            tokensAfter: committedCompaction.tokensAfter,
+          },
         };
       }
       let successor: Pick<
@@ -439,11 +462,12 @@ export async function executeQueuedContextEngineCompaction(input: {
         }
       }
       const compactionKind: "context-engine" | "server-endpoint" =
-        isRecord(result.result?.details) &&
+        committedCompaction?.compactionKind ??
+        (isRecord(result.result?.details) &&
         result.result.details.compactionKind === "server-endpoint" &&
         typeof tokensAfter === "number"
           ? "server-endpoint"
-          : "context-engine";
+          : "context-engine");
       const hostCommit = successor.entry
         ? { entry: successor.entry, tokensAfter, compactionKind }
         : undefined;

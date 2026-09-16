@@ -33,7 +33,7 @@ type TransactionDatabase = DatabaseSync & {
   [abortedTransactionSymbol]?: { error: unknown };
 };
 
-function assertTransactionUsable(db: TransactionDatabase): void {
+export function assertTransactionUsable(db: TransactionDatabase): void {
   const aborted = db[abortedTransactionSymbol];
   if (aborted) {
     throw aborted.error;

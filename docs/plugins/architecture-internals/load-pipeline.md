@@ -219,6 +219,14 @@ cache releases failed loads, but Node retains failed native ESM evaluations for
 the process lifetime; restarting an account cannot repair that module graph.
 A successful import is shared across consumers.
 
+Bundled provider policy lookups retain their resolved surface, including absence,
+in the metadata cache. Repeated model-reference canonicalization reuses that
+surface without resolving artifact candidates again. The memo follows the
+selected registry's publication version and bundled-directory selection;
+registration and unpublished registries remain uncached. A new generation or
+explicit metadata invalidation resolves the surface again, and managed surfaces
+retain their instance's admission checks.
+
 The CLI invocation owns one operation cache across config reads, output metadata,
 command ownership, nested registration, and actions. Standalone registration uses
 its caller's active generation. Config validation covers every

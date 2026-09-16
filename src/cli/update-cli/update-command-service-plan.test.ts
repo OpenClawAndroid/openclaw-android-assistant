@@ -4,7 +4,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveNodeRuntimeInfo } from "../../daemon/runtime-paths.js";
 import { prepareUpdateFailureReport } from "../../infra/update-failure-report-prepare.js";
 import { withTempDir } from "../../test-utils/temp-dir.js";
+import type { PreManagedServiceStop } from "./update-command-service-context-types.js";
 import { resolvePackageRuntimePreflight } from "./update-command-service-plan.js";
+
+const refreshableService: PreManagedServiceStop = {
+  stopped: false,
+  inspected: true,
+  runtimeInspected: true,
+  running: true,
+  serviceUpdateVerdict: {
+    kind: "owned",
+    root: "/fixture",
+    fingerprint: "fixture",
+    refreshDefinition: true,
+  },
+};
 
 const probeState = vi.hoisted(() => ({ text: true }));
 vi.mock("../../daemon/runtime-paths.js", () => ({ resolveNodeRuntimeInfo: vi.fn() }));
@@ -100,13 +114,15 @@ describe("package runtime compatibility guidance", () => {
       const result = await resolvePackageRuntimePreflight({
         target: { version: "2027.1.0", nodeEngine: ">=24.16.0 <25 || >=26.1.0" },
         nodeRunner: "/old/node",
-        fallbackNodeRunner: fallback ? "/new/node" : undefined,
+        shouldRestart: fallback,
+        alreadyCurrent: true,
+        service: refreshableService,
       });
       if (fallback) {
         expect(result).toEqual({
           ok: true,
           value: {
-            nodeRunner: "/new/node",
+            nodeRunner: process.execPath,
             replacedNodeRunner: "/old/node",
             targetVersion: "2027.1.0",
           },
@@ -326,13 +342,15 @@ describe("package runtime compatibility guidance", () => {
       const result = await resolvePackageRuntimePreflight({
         target: { version: "2026.9.3", nodeEngine: ">=24.16.0 <25 || >=26.1.0" },
         nodeRunner: "/fixture/old/node",
-        fallbackNodeRunner: "/fixture/fixed/node",
+        shouldRestart: true,
+        alreadyCurrent: true,
+        service: refreshableService,
       });
       if (admitted) {
         expect(result).toEqual({
           ok: true,
           value: {
-            nodeRunner: "/fixture/fixed/node",
+            nodeRunner: process.execPath,
             replacedNodeRunner: "/fixture/old/node",
             targetVersion: "2026.9.3",
           },

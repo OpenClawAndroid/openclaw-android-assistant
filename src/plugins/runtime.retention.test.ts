@@ -19,6 +19,10 @@ it.each([
     mode: "instance",
     name: "releases captured source lookups while a retired instance remains reachable",
   },
+  ...["source", "bundled-cjs", "bundled-mjs"].map((kind) => ({
+    mode: `recovery-${kind}`,
+    name: `releases the retired owner and registry while ${kind} recovery remains live`,
+  })),
 ])(
   "$name",
   async ({ mode }) => {

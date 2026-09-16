@@ -9,6 +9,7 @@ import { CryptoEvent } from "matrix-js-sdk/lib/crypto-api/CryptoEvent.js";
 import type { DecryptionFailureCode as DecryptionFailureCodeValue } from "matrix-js-sdk/lib/crypto-api/index.js";
 import { MatrixError } from "matrix-js-sdk/lib/http-api/errors.js";
 import {
+  type ICreateClientOpts,
   type MatrixClient as MatrixJsSdkClient,
   type MatrixEvent,
   MsgType,
@@ -16,17 +17,26 @@ import {
 import { EventStatus } from "matrix-js-sdk/lib/models/event-status.js";
 import { SyncApi, SyncState } from "matrix-js-sdk/lib/sync.js";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
-import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import type {
+  OpenKeyedStoreOptions,
+  PluginStateKeyedStore,
+} from "openclaw/plugin-sdk/plugin-state-runtime";
+import {
+  createPluginStateKeyedStoreForTests,
+  resetPluginStateStoreForTests,
+} from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 // Matrix tests cover sdk plugin behavior.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getMatrixRuntime } from "../runtime.js";
 import { installMatrixTestRuntime } from "../test-runtime.js";
 import type { CoreConfig } from "../types.js";
 import {
   readMatrixIdbSnapshotJson,
-  readMatrixRecoveryKeyStateForPath,
+  readMatrixRecoveryKeyStateForPathAsync,
+  type MatrixSnapshotStateRuntime,
 } from "./crypto-state-store.js";
 import { MatrixDecryptBridge } from "./sdk/decrypt-bridge.js";
 import { clearAllIndexedDbState } from "./sdk/idb-persistence.test-helpers.js";
@@ -114,8 +124,55 @@ function expectSomeMockCallOptions(
   expect(matched).toBe(true);
 }
 
-function readStoredRecoveryKey(recoveryKeyPath: string) {
-  return readMatrixRecoveryKeyStateForPath(recoveryKeyPath);
+async function readStoredRecoveryKey(recoveryKeyPath: string) {
+  return readMatrixRecoveryKeyStateForPathAsync(recoveryKeyPath, getMatrixRuntime().state);
+}
+
+function holdRecoveryKeyPersistence() {
+  const admitted = createDeferred<void>();
+  const release = createDeferred<void>();
+  const stateRuntime: MatrixSnapshotStateRuntime = {
+    openKeyedStore<T>(options: OpenKeyedStoreOptions): PluginStateKeyedStore<T> {
+      const store = createPluginStateKeyedStoreForTests<T>("matrix", options);
+      const compareAndApply = store.compareAndApply;
+      if (!compareAndApply) {
+        throw new Error("expected current SQLite comparison support");
+      }
+      return {
+        ...store,
+        compareAndApply: async (key, comparison, intent) => {
+          if (options.namespace === "recovery-key" && intent.action === "set") {
+            admitted.resolve();
+            await release.promise;
+          }
+          return await compareAndApply(key, comparison, intent);
+        },
+      };
+    },
+  };
+  return { admitted, release, stateRuntime };
+}
+
+function captureRecoveryCacheWrite() {
+  // The createClient mock captures the production SDK options without changing their shape.
+  const options = lastCreateClientOpts as unknown as ICreateClientOpts;
+  const callbacks = options?.cryptoCallbacks;
+  if (!callbacks?.cacheSecretStorageKey || !callbacks.getSecretStorageKey) {
+    throw new Error("expected Matrix recovery callbacks");
+  }
+  const getSecretStorageKey = vi.spyOn(callbacks, "getSecretStorageKey");
+  callbacks.cacheSecretStorageKey(
+    "SSSSKEY",
+    {
+      algorithm: "m.secret_storage.v1.aes-hmac-sha2",
+      name: "Synthetic recovery key",
+      passphrase: { algorithm: "m.pbkdf2", iterations: 1, salt: "synthetic" },
+      iv: "synthetic-iv",
+      mac: "synthetic-mac",
+    },
+    new Uint8Array([1, 2, 3, 4]),
+  );
+  return { options, getSecretStorageKey };
 }
 
 const TEST_UNDICI_RUNTIME_DEPS_KEY = "__OPENCLAW_TEST_UNDICI_RUNTIME_DEPS__";
@@ -1077,6 +1134,151 @@ describe("MatrixClient request hardening", () => {
     );
   });
 
+  it.each([
+    { operation: "delete", revokeAuthority: false },
+    { operation: "unsupported algorithm", revokeAuthority: false },
+    { operation: "delete", revokeAuthority: true },
+  ] as const)(
+    "settles recovery persistence before SDK secret $operation dispatch (revoke authority: $revokeAuthority)",
+    async ({ operation, revokeAuthority }) => {
+      clearMatrixSyncApiForNeverStartedClient();
+      const recoveryKeyPath = path.join(
+        tempDirs.make("matrix-recovery-dispatch-"),
+        "recovery-key.json",
+      );
+      const persistence = holdRecoveryKeyPersistence();
+      let authorized = true;
+      const authorityError = new Error("Matrix read authority expired");
+      captureReadAuthorityMock.mockReturnValue(() => {
+        if (!authorized) {
+          throw authorityError;
+        }
+      });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect((await readStoredRecoveryKey(recoveryKeyPath))?.keyId).toBe("SSSSKEY");
+        return Response.json(
+          init?.method === "GET" && requestUrl(input).includes("m.secret_storage.key.")
+            ? { algorithm: "unsupported.synthetic" }
+            : {},
+        );
+      });
+      stubRuntimeFetch(fetchMock as typeof fetch);
+      const client = new MatrixClient("http://127.0.0.1:8008", "token", {
+        userId: "@bot:example.org",
+        encryption: true,
+        recoveryKeyPath,
+        stateRuntime: persistence.stateRuntime,
+        ssrfPolicy: { allowPrivateNetwork: true },
+      });
+      const { options, getSecretStorageKey } = captureRecoveryCacheWrite();
+      const sdk = await vi.importActual<typeof import("matrix-js-sdk/lib/matrix.js")>(
+        "matrix-js-sdk/lib/matrix.js",
+      );
+      const sdkClient = sdk.createClient(options);
+      let operationSettled: Promise<PromiseSettledResult<void>[]> | undefined;
+      try {
+        await persistence.admitted.promise;
+        const pending = sdkClient.secretStorage.store(
+          "m.megolm_backup.v1",
+          operation === "delete" ? null : "synthetic-secret",
+          ["SSSSKEY"],
+        );
+        operationSettled = Promise.allSettled([pending]);
+        await setImmediate();
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(getSecretStorageKey).not.toHaveBeenCalled();
+
+        authorized = !revokeAuthority;
+        persistence.release.resolve();
+        if (revokeAuthority) {
+          await expect(pending).rejects.toThrow(authorityError.message);
+          expect(fetchMock).not.toHaveBeenCalled();
+        } else {
+          await pending;
+          const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+          expect(put).toBeDefined();
+          const body = put?.[1]?.body;
+          if (typeof body !== "string") {
+            throw new Error("expected SDK JSON account-data body");
+          }
+          expect(JSON.parse(body)).toEqual(operation === "delete" ? {} : { encrypted: {} });
+        }
+        expect(getSecretStorageKey).not.toHaveBeenCalled();
+        expect((await readStoredRecoveryKey(recoveryKeyPath))?.keyId).toBe("SSSSKEY");
+      } finally {
+        authorized = true;
+        persistence.release.resolve();
+        await operationSettled;
+        sdkClient.stopClient();
+        await client.stopWithoutPersist();
+        getSecretStorageKey.mockRestore();
+      }
+    },
+  );
+
+  it("settles recovery persistence before SDK backup setup even when no secret is stored", async () => {
+    clearMatrixSyncApiForNeverStartedClient();
+    const recoveryKeyPath = path.join(
+      tempDirs.make("matrix-recovery-backup-"),
+      "recovery-key.json",
+    );
+    const persistence = holdRecoveryKeyPersistence();
+    const fetchMock = vi.fn(async () => {
+      expect((await readStoredRecoveryKey(recoveryKeyPath))?.keyId).toBe("SSSSKEY");
+      return Response.json({ version: "synthetic-backup" });
+    });
+    stubRuntimeFetch(fetchMock as typeof fetch);
+    const client = new MatrixClient("http://127.0.0.1:8008", "token", {
+      encryption: true,
+      recoveryKeyPath,
+      stateRuntime: persistence.stateRuntime,
+      ssrfPolicy: { allowPrivateNetwork: true },
+    });
+    const { options, getSecretStorageKey } = captureRecoveryCacheWrite();
+    const { RustCrypto } = await import("matrix-js-sdk/lib/rust-crypto/rust-crypto.js");
+    const fetchFn = options.fetchFn;
+    if (!fetchFn) {
+      throw new Error("expected Matrix SDK guarded fetch");
+    }
+    const pushSecretToVerifiedDevices = vi.fn(async () => {});
+    const secretStorageHasAESKey = vi.fn(async () => false);
+    const receiver = {
+      backupManager: {
+        setupKeyBackup: async () => {
+          await fetchFn("http://127.0.0.1:8008/_matrix/client/v3/room_keys/version", {
+            method: "POST",
+            body: "{}",
+          });
+          return {};
+        },
+      },
+      pushSecretToVerifiedDevices,
+      secretStorageHasAESKey,
+    };
+    let resetSettled: Promise<PromiseSettledResult<void>[]> | undefined;
+    try {
+      await persistence.admitted.promise;
+      // This real SDK method needs only these collaborators on its no-AES-key branch.
+      const reset = RustCrypto.prototype.resetKeyBackup.call(
+        receiver as unknown as InstanceType<typeof RustCrypto>,
+      );
+      resetSettled = Promise.allSettled([reset]);
+      await setImmediate();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(pushSecretToVerifiedDevices).not.toHaveBeenCalled();
+      persistence.release.resolve();
+      await reset;
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(secretStorageHasAESKey).toHaveBeenCalledOnce();
+      expect(getSecretStorageKey).not.toHaveBeenCalled();
+    } finally {
+      persistence.release.resolve();
+      await resetSettled;
+      await client.stopWithoutPersist();
+      getSecretStorageKey.mockRestore();
+    }
+  });
+
   it("prefers authenticated client media downloads", async () => {
     const payload = Buffer.from([1, 2, 3, 4]);
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
@@ -1595,6 +1797,64 @@ describe("MatrixClient request hardening", () => {
       expect(matrixJsClient.stopClient).toHaveBeenCalledTimes(1);
     });
   });
+
+  it.each([
+    { mode: "persist", quiesceFails: false },
+    { mode: "discard", quiesceFails: false },
+    { mode: "persist", quiesceFails: true },
+    { mode: "discard", quiesceFails: true },
+  ] as const)(
+    "joins accepted recovery writes during $mode shutdown (quiesce failure: $quiesceFails)",
+    async ({ mode, quiesceFails }) => {
+      clearMatrixSyncApiForNeverStartedClient();
+      const recoveryKeyPath = path.join(
+        tempDirs.make("matrix-recovery-stop-"),
+        "recovery-key.json",
+      );
+      const persistence = holdRecoveryKeyPersistence();
+      const client = new MatrixClient("https://matrix.example.org", "token", {
+        encryption: true,
+        recoveryKeyPath,
+        stateRuntime: persistence.stateRuntime,
+      });
+      const { getSecretStorageKey } = captureRecoveryCacheWrite();
+      const quiesceError = new Error("synthetic sync quiescence failure");
+      const quiesce = vi.spyOn(client, "quiesceSync");
+      if (quiesceFails) {
+        quiesce.mockRejectedValue(quiesceError);
+      }
+      let shutdownSettled: Promise<PromiseSettledResult<void>[]> | undefined;
+      try {
+        await persistence.admitted.promise;
+        const shutdown = mode === "persist" ? client.stopAndPersist() : client.stopWithoutPersist();
+        let finished = false;
+        shutdownSettled = Promise.allSettled([shutdown]).then((outcomes) => {
+          finished = true;
+          return outcomes;
+        });
+        await setImmediate();
+        expect(quiesce).toHaveBeenCalled();
+        expect(finished).toBe(false);
+
+        persistence.release.resolve();
+        if (quiesceFails && mode === "persist") {
+          await expect(shutdown).rejects.toBe(quiesceError);
+        } else {
+          await expect(shutdown).resolves.toBeUndefined();
+        }
+        expect(await readStoredRecoveryKey(recoveryKeyPath)).toMatchObject({
+          keyId: "SSSSKEY",
+          privateKeyBase64: Buffer.from([1, 2, 3, 4]).toString("base64"),
+        });
+      } finally {
+        persistence.release.resolve();
+        await shutdownSettled;
+        quiesce.mockRestore();
+        await client.stopWithoutPersist();
+        getSecretStorageKey.mockRestore();
+      }
+    },
+  );
 
   it("single-flights concurrent shutdown after discard starts", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-matrix-sdk-discard-"));
@@ -3553,7 +3813,7 @@ describe("MatrixClient crypto bootstrapping", () => {
     expect(result.backupUsable).toBe(true);
     expect(result.deviceOwnerVerified).toBe(true);
     expect(result.recoveryKeyStored).toBe(true);
-    expect(readStoredRecoveryKey(recoveryKeyPath)?.encodedPrivateKey).toBe(encoded);
+    expect((await readStoredRecoveryKey(recoveryKeyPath))?.encodedPrivateKey).toBe(encoded);
   });
 
   it("fails recovery-key verification when the device lacks full cross-signing identity trust", async () => {
@@ -3642,7 +3902,7 @@ describe("MatrixClient crypto bootstrapping", () => {
     expect(result.deviceOwnerVerified).toBe(false);
     expect(result.verified).toBe(false);
     expect(result.recoveryKeyStored).toBe(true);
-    expect(readStoredRecoveryKey(recoveryKeyPath)?.encodedPrivateKey).toBe(encoded);
+    expect((await readStoredRecoveryKey(recoveryKeyPath))?.encodedPrivateKey).toBe(encoded);
   });
 
   it("does not persist a staged recovery key when backup usability came from existing material", async () => {
@@ -3702,7 +3962,7 @@ describe("MatrixClient crypto bootstrapping", () => {
     expect(result.success).toBe(false);
     expect(result.recoveryKeyAccepted).toBe(false);
     expect(result.backupUsable).toBe(true);
-    const persisted = readStoredRecoveryKey(recoveryKeyPath);
+    const persisted = await readStoredRecoveryKey(recoveryKeyPath);
     expect(persisted?.encodedPrivateKey).toBe(previousEncoded);
   });
 
@@ -3765,7 +4025,7 @@ describe("MatrixClient crypto bootstrapping", () => {
     expect(result.success).toBe(false);
     expect(result.recoveryKeyAccepted).toBe(false);
     expect(result.backupUsable).toBe(true);
-    const persisted = readStoredRecoveryKey(recoveryKeyPath);
+    const persisted = await readStoredRecoveryKey(recoveryKeyPath);
     expect(persisted?.encodedPrivateKey).toBe(previousEncoded);
   });
 
@@ -3928,7 +4188,7 @@ describe("MatrixClient crypto bootstrapping", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("full Matrix identity trust");
-    const persisted = readStoredRecoveryKey(recoveryKeyPath);
+    const persisted = await readStoredRecoveryKey(recoveryKeyPath);
     expect(persisted?.encodedPrivateKey).toBe(previousEncoded);
   });
 

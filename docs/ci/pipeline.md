@@ -49,14 +49,14 @@ the job's uploaded artifacts.
 | `security-fast`                  | Private key detection, changed-workflow audit via `zizmor`, and production lockfile audit                                                                                                                                                                                                                | Always on non-draft pushes and PRs                     |
 | `pnpm-store-warmup`              | Warm the lockfile-pinned Actions cache for fork PRs, manual runs, and same-repo docs-only PRs                                                                                                                                                                                                            | Node or docs-check lanes without an exact-cache writer |
 | `build-artifacts`                | Build `dist/`, Control UI, built-CLI smoke checks, startup memory, and embedded built-artifact checks                                                                                                                                                                                                    | Node-relevant changes                                  |
-| `control-ui-performance`         | Compare Control UI CSS with the exact base revision and enforce asset budgets independently of artifact generation                                                                                                                                                                                       | Runtime-build or Control UI test changes               |
+| `control-ui-performance`         | Compare Control UI CSS with the exact base revision and enforce asset budgets independently of artifact generation                                                                                                                                                                                       | UI/build/dependency/import owners and manual CI        |
 | `control-ui-i18n`                | Verify generated Control UI locale bundles, metadata, and translation memory; advisory on automatic runs, blocking on manual release CI                                                                                                                                                                  | Control UI i18n-relevant changes and manual CI         |
-| `checks-fast-core`               | Fast Linux correctness lanes: environment-variable, max-lines, and assertion-safety baseline ratchets, bundled + protocol, Bun launcher, and the CI-routing fast task                                                                                                                                    | Node-relevant changes                                  |
-| `qa-smoke-ci-profile`            | Self-contained balanced parts of the automatic QA Smoke coverage set; one private-overlay build per part (the smoke set has no docker-lane or Control UI scenarios; the run step fails closed if one returns)                                                                                            | Pushes and manual runs; PRs only on QA-owned surfaces  |
+| `checks-fast-core`               | Fast Linux correctness lanes: environment-variable, max-lines suppression and PR line-cap growth ratchets, assertion-safety baseline, bundled + protocol, Bun launcher, and the CI-routing fast task                                                                                                     | Node-relevant changes                                  |
+| `qa-smoke-ci-profile`            | Self-contained balanced parts of the automatic QA Smoke coverage set; one private-overlay build per part (the smoke set has no docker-lane or Control UI scenarios; the run step fails closed if one returns)                                                                                            | QA-owned PR/main changes and manual CI                 |
 | `checks-fast-contracts-plugins`  | One setup shared by two sequential weighted plugin contract processes; frozen targets keep separate rows                                                                                                                                                                                                 | Node-relevant changes                                  |
 | `checks-fast-contracts-channels` | One setup shared by two sequential weighted channel contract envelopes; frozen targets keep separate rows                                                                                                                                                                                                | Node-relevant changes                                  |
 | `checks-node-*`                  | Changed-target Node tests on pull requests; compact integration shards on `main`; metadata-complete compact fallback on broad PRs; full named shards on manual and release runs                                                                                                                          | Node-relevant changes                                  |
-| `docker-seed-e2e`                | One Docker scheduler job for the executable MCP, update-channel, Fleet cache, and published-upgrade owner lanes; the published upgrade seeds legacy operator state on `openclaw@latest`                                                                                                                  | Owner PR changes; published upgrade on main pushes     |
+| `docker-seed-e2e`                | One Docker scheduler job for the executable MCP, update-channel, Fleet cache, and published-upgrade owner lanes; the published upgrade seeds legacy operator state on an exact published predecessor                                                                                                     | Owner PR/main changes; survivor on manual CI           |
 | `check-*`                        | Sharded main local gate equivalent: guards, transient npm-lock validation, bundled-channel config metadata, prod types, lint, dependencies, test types                                                                                                                                                   | Node-relevant changes                                  |
 | `check-additional-*`             | Boundary check stripes (including prompt snapshot drift), session accessor/transcript reader/SQLite transaction boundaries, extension lint groups, package boundary compile/canary, and runtime topology architecture; the pure-reporting plugin SDK API diff runs on manual and release dispatches only | Node-relevant changes                                  |
 | `checks-node-compat-node24`      | Node 24 minimum compatibility build and smoke lane                                                                                                                                                                                                                                                       | Full Release Validation and manual dispatches only     |
@@ -94,7 +94,7 @@ Plugins whose Doctor contracts require source loading retain that behavior;
 the complete config/state matrix and its assertions remain intact.
 
 Ordinary pull requests that change only independent Control UI unit-test entries
-keep all three UI unit rows, performance checks, and existing type/lint gates,
+keep all three UI unit rows and existing type/lint gates,
 without repeating dedicated UI E2E jobs. Browser and Node test entries, shared
 fixtures/helpers, production or build inputs, and tests imported by another
 owner retain E2E coverage. Main pushes, manual validation, and frozen targets
@@ -102,12 +102,13 @@ keep their existing selection.
 
 The `docker-seed-e2e` job selects the executable owners of changed E2E helpers
 and the published-upgrade regression gate through one scheduler invocation.
-The published lane runs `legacy-operator-state` against only `openclaw@latest`
-on affected PRs and every canonical `main` push that runs CI. Docs-only pushes
-are excluded at the workflow trigger; mixed docs and code pushes select the lane.
+The published lane runs `legacy-operator-state` against an exact published
+predecessor on affected canonical PRs and `main` pushes. Canonical manual CI
+retains it when the target declares the Docker seed capability. Unknown changed
+paths retain survivor coverage; docs-only pushes remain excluded at the trigger.
 It uses `auto-auth`: every supported baseline must replace the running managed
 Gateway through its own updater. Schema refusal or rollback fails the gate.
-PR selection includes `src/cli/update-cli/**`, `src/infra/update-*`,
+PR/main selection includes `src/cli/update-cli/**`, `src/infra/update-*`,
 `src/infra/package-update-*`, `src/plugins/update.ts`, `src/plugins/update-*`,
 `src/commands/doctor*`, `src/commands/doctor/**`, all `src/state/**`, and
 `package.json` (including its packaged schema-version metadata). It also includes

@@ -1,10 +1,8 @@
 import { STREAM_ERROR_FALLBACK_TEXT } from "@openclaw/ai/internal/shared";
 import { describe, expect, it } from "vitest";
-import {
-  createChatHistoryRecoveryProjection,
-  createPreSessionStartAnnouncePairFilter,
-  projectChatDisplayMessages,
-} from "./chat-display-projection.js";
+import { createChatHistoryRecoveryProjection } from "./chat-display-projection.core.js";
+import { createPreSessionStartAnnouncePairFilter } from "./chat-display-projection.history.js";
+import { projectChatDisplayMessages } from "./chat-display-projection.js";
 import { SessionHistorySseState } from "./session-history-state.js";
 
 const user = { role: "user", content: "hello", __openclaw: { seq: 1 } };

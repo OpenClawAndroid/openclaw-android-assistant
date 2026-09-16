@@ -1,4 +1,3 @@
-// Kimi Coding plugin module implements stream behavior.
 import type { StreamFn } from "openclaw/plugin-sdk/agent-core";
 import {
   streamSimple,
@@ -10,7 +9,10 @@ import {
   createPayloadPatchStreamWrapper,
   normalizeOpenAICompatibleReasoningReplay,
 } from "openclaw/plugin-sdk/provider-stream-shared";
-import { normalizeOptionalLowercaseString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  isRecord,
+  normalizeOptionalLowercaseString,
+} from "openclaw/plugin-sdk/string-coerce-runtime";
 import { isKimiK3ModelId } from "./provider-policy-api.js";
 
 const TOOL_CALLS_SECTION_BEGIN = "<|tool_calls_section_begin|>";
@@ -35,15 +37,7 @@ type KimiThinkingConfig = {
   type: KimiThinkingType;
   budget_tokens?: number;
 };
-type KimiThinkingLevel =
-  | "off"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "adaptive"
-  | "max";
+type KimiThinkingLevel = NonNullable<ProviderWrapStreamFnContext["thinkingLevel"]>;
 
 const KIMI_ANTHROPIC_THINKING_BUDGETS: Record<Exclude<KimiThinkingLevel, "off">, number> = {
   minimal: 1024,
@@ -114,8 +108,8 @@ function normalizeKimiThinkingType(value: unknown): KimiThinkingType | undefined
     }
     return undefined;
   }
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return normalizeKimiThinkingType((value as Record<string, unknown>).type);
+  if (isRecord(value)) {
+    return normalizeKimiThinkingType(value.type);
   }
   return undefined;
 }
@@ -128,39 +122,29 @@ function normalizeKimiThinkingConfig(value: unknown): KimiThinkingConfig | undef
   if (type === "disabled") {
     return { type: "disabled" };
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return { type: "enabled" };
   }
-  const record = value as Record<string, unknown>;
-  const budgetTokens = normalizeKimiThinkingBudgetTokens(
-    record.budget_tokens ?? record.budgetTokens,
-  );
+  const budgetTokens = normalizeKimiThinkingBudgetTokens(value.budget_tokens ?? value.budgetTokens);
   return budgetTokens === undefined
     ? { type: "enabled" }
     : { type: "enabled", budget_tokens: budgetTokens };
 }
 
-function resolveKimiAnthropicThinkingBudgetTokens(
+function resolveKimiThinkingConfig(
+  configured: KimiThinkingConfig | undefined,
   thinkingLevel: KimiThinkingLevel | undefined,
-): number | undefined {
-  if (!thinkingLevel || thinkingLevel === "off") {
-    return undefined;
-  }
-  return KIMI_ANTHROPIC_THINKING_BUDGETS[thinkingLevel];
-}
-
-function resolveKimiThinkingConfig(params: {
-  configuredThinking: unknown;
-  thinkingLevel?: KimiThinkingLevel;
-}): KimiThinkingConfig {
-  const configured = normalizeKimiThinkingConfig(params.configuredThinking);
-  const levelBudgetTokens = resolveKimiAnthropicThinkingBudgetTokens(params.thinkingLevel);
+): KimiThinkingConfig {
+  const levelBudgetTokens =
+    thinkingLevel && thinkingLevel !== "off"
+      ? KIMI_ANTHROPIC_THINKING_BUDGETS[thinkingLevel]
+      : undefined;
   if (configured) {
     return configured.type === "enabled" && configured.budget_tokens === undefined
       ? { type: "enabled", budget_tokens: levelBudgetTokens ?? 1024 }
       : configured;
   }
-  if (!params.thinkingLevel || params.thinkingLevel === "off") {
+  if (!thinkingLevel || thinkingLevel === "off") {
     return { type: "disabled" };
   }
   return levelBudgetTokens === undefined
@@ -168,21 +152,15 @@ function resolveKimiThinkingConfig(params: {
     : { type: "enabled", budget_tokens: levelBudgetTokens };
 }
 
-function resolveKimiK3ThinkingConfig(params: {
-  configuredThinking: unknown;
-  thinkingLevel?: KimiThinkingLevel;
-}): { type: "disabled" } | { type: "adaptive"; effort: KimiK3ThinkingEffort } {
-  const configured = normalizeKimiThinkingConfig(params.configuredThinking);
-  if (configured?.type === "disabled") {
-    return { type: "disabled" };
-  }
-  if (!configured && params.thinkingLevel === "off") {
+function resolveKimiK3ThinkingConfig(
+  configured: KimiThinkingConfig | undefined,
+  thinkingLevel: KimiThinkingLevel | undefined,
+): { type: "disabled" } | { type: "adaptive"; effort: KimiK3ThinkingEffort } {
+  if (configured?.type === "disabled" || (!configured && thinkingLevel === "off")) {
     return { type: "disabled" };
   }
   const effort =
-    params.thinkingLevel && params.thinkingLevel !== "off"
-      ? KIMI_K3_THINKING_EFFORTS[params.thinkingLevel]
-      : "high";
+    thinkingLevel && thinkingLevel !== "off" ? KIMI_K3_THINKING_EFFORTS[thinkingLevel] : "high";
   return { type: "adaptive", effort };
 }
 
@@ -236,7 +214,7 @@ function parseKimiTaggedToolCalls(text: string): KimiToolCallBlock[] | null {
     } catch {
       return null;
     }
-    if (!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) {
+    if (!isRecord(parsedArgs)) {
       return null;
     }
 
@@ -249,7 +227,7 @@ function parseKimiTaggedToolCalls(text: string): KimiToolCallBlock[] | null {
       type: "toolCall",
       id: rawId,
       name,
-      arguments: parsedArgs as Record<string, unknown>,
+      arguments: parsedArgs,
     });
 
     cursor = callEndIndex + TOOL_CALL_END.length;
@@ -368,60 +346,49 @@ function createKimiToolCallMarkupWrapper(baseStreamFn: StreamFn | undefined): St
 
 function createKimiThinkingWrapper(
   baseStreamFn: StreamFn | undefined,
-  thinkingConfig: KimiThinkingConfig | KimiThinkingType,
+  thinkingConfig: KimiThinkingConfig,
   k3ThinkingConfig: { type: "disabled" } | { type: "adaptive"; effort: KimiK3ThinkingEffort },
 ): StreamFn {
   const underlying = baseStreamFn ?? streamSimple;
   const payloadWrapper = createPayloadPatchStreamWrapper(
     underlying,
     ({ payload: payloadObj, model }) => {
-      if (model.api === "anthropic-messages" && isKimiK3ModelId(model.id)) {
-        const outputConfig = payloadObj.output_config;
-        if (k3ThinkingConfig.type === "disabled") {
-          payloadObj.thinking = { type: "disabled" };
-          if (outputConfig && typeof outputConfig === "object" && !Array.isArray(outputConfig)) {
-            const nextOutputConfig = { ...outputConfig } as Record<string, unknown>;
-            delete nextOutputConfig.effort;
-            if (Object.keys(nextOutputConfig).length > 0) {
-              payloadObj.output_config = nextOutputConfig;
-            } else {
-              delete payloadObj.output_config;
-            }
-          } else {
-            delete payloadObj.output_config;
-          }
-        } else {
-          // K3 always uses adaptive thinking; the selected level controls its supported effort.
-          payloadObj.thinking = { type: "adaptive", display: "summarized" };
-          payloadObj.output_config =
-            outputConfig && typeof outputConfig === "object" && !Array.isArray(outputConfig)
-              ? { ...outputConfig, effort: k3ThinkingConfig.effort }
-              : { effort: k3ThinkingConfig.effort };
-        }
-        delete payloadObj.reasoning;
-        delete payloadObj.reasoning_effort;
-        delete payloadObj.reasoningEffort;
-        stripAnthropicCacheControlMarkers(payloadObj);
-        return;
-      }
-
-      const normalized =
-        typeof thinkingConfig === "string" ? { type: thinkingConfig } : thinkingConfig;
-      payloadObj.thinking =
-        model.api === "anthropic-messages" ? { ...normalized } : { type: normalized.type };
-      if (model.api === "anthropic-messages") {
-        ensureKimiAnthropicMaxTokens(payloadObj, normalized);
-      } else {
-        normalizeOpenAICompatibleReasoningReplay(payloadObj, {
-          thinkingEnabled: normalized.type === "enabled",
-          shouldBackfillAssistantMessage: (message) =>
-            Array.isArray(message.tool_calls) && message.tool_calls.length > 0,
-        });
-      }
       delete payloadObj.reasoning;
       delete payloadObj.reasoning_effort;
       delete payloadObj.reasoningEffort;
       stripAnthropicCacheControlMarkers(payloadObj);
+
+      if (model.api === "anthropic-messages" && isKimiK3ModelId(model.id)) {
+        const outputConfig = isRecord(payloadObj.output_config)
+          ? { ...payloadObj.output_config }
+          : {};
+        if (k3ThinkingConfig.type === "disabled") {
+          payloadObj.thinking = { type: "disabled" };
+          delete outputConfig.effort;
+        } else {
+          // K3 always uses adaptive thinking; the selected level controls its supported effort.
+          payloadObj.thinking = { type: "adaptive", display: "summarized" };
+          outputConfig.effort = k3ThinkingConfig.effort;
+        }
+        if (Object.keys(outputConfig).length > 0) {
+          payloadObj.output_config = outputConfig;
+        } else {
+          delete payloadObj.output_config;
+        }
+        return;
+      }
+
+      payloadObj.thinking =
+        model.api === "anthropic-messages" ? { ...thinkingConfig } : { type: thinkingConfig.type };
+      if (model.api === "anthropic-messages") {
+        ensureKimiAnthropicMaxTokens(payloadObj, thinkingConfig);
+      } else {
+        normalizeOpenAICompatibleReasoningReplay(payloadObj, {
+          thinkingEnabled: thinkingConfig.type === "enabled",
+          shouldBackfillAssistantMessage: (message) =>
+            Array.isArray(message.tool_calls) && message.tool_calls.length > 0,
+        });
+      }
     },
   );
   return (model, context, options) => {
@@ -478,14 +445,9 @@ function stripAnthropicCacheControlMarkers(payloadObj: Record<string, unknown>):
 }
 
 export function wrapKimiProviderStream(ctx: ProviderWrapStreamFnContext): StreamFn {
-  const thinkingConfig = resolveKimiThinkingConfig({
-    configuredThinking: ctx.extraParams?.thinking,
-    thinkingLevel: ctx.thinkingLevel,
-  });
-  const k3ThinkingConfig = resolveKimiK3ThinkingConfig({
-    configuredThinking: ctx.extraParams?.thinking,
-    thinkingLevel: ctx.thinkingLevel,
-  });
+  const configured = normalizeKimiThinkingConfig(ctx.extraParams?.thinking);
+  const thinkingConfig = resolveKimiThinkingConfig(configured, ctx.thinkingLevel);
+  const k3ThinkingConfig = resolveKimiK3ThinkingConfig(configured, ctx.thinkingLevel);
   return createKimiToolCallMarkupWrapper(
     createKimiThinkingWrapper(ctx.streamFn, thinkingConfig, k3ThinkingConfig),
   );

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
@@ -10,9 +11,11 @@ import {
   retirePluginCache,
   withPluginCache,
 } from "./plugin-cache.js";
+import { bindPluginInstanceModuleLoader } from "./plugin-instance-module-loader.js";
 import { PluginInstance } from "./plugin-instance.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import { disposePluginRegistryInstances, waitForPluginRegistryRetirement } from "./runtime.js";
+import { createPluginRecord } from "./status.test-helpers.js";
 
 const emptyResult = { cleanupCount: 0, failures: [] };
 
@@ -107,7 +110,70 @@ async function loadReplacement(root: string) {
   return { registry, cache, reference };
 }
 
+async function recoverOwner(root: string, kind: "source" | "bundled-cjs" | "bundled-mjs") {
+  const extension = kind === "bundled-mjs" ? "mjs" : "cjs";
+  const source = path.join(root, `index.${extension}`);
+  fs.writeFileSync(
+    source,
+    `${extension === "mjs" ? "export const read =" : "exports.read ="} () => 'recovered source';`,
+  );
+  if (kind === "bundled-mjs") {
+    // Native ESM's first module job retains its caller even without recovery.
+    // Warm outside admission to isolate recovery custody from that existing leak;
+    // cold module evaluation remains covered by the functional recovery tests.
+    createRequire(import.meta.url)(source);
+  }
+  const previous = createEmptyPluginRegistry();
+  const record = createPluginRecord({ id: "recovery-retention", rootDir: root, source });
+  previous.plugins.push(record);
+  const instance = new PluginInstance(record.id, { record, registry: previous });
+  const owner = new WeakRef(instance);
+  const registry = new WeakRef(previous);
+  bindPluginInstanceModuleLoader({
+    instance,
+    origin: kind === "source" ? "config" : "bundled",
+    source,
+    rootDir: root,
+  });
+  assert.equal((instance.loadModule(source) as { read(): string }).read(), "recovered source");
+  const recovery = instance.captureModuleLoaderRecovery();
+  await instance.dispose();
+  const current = new PluginInstance(record.id);
+  recovery.bind(current);
+  recovery.dispose();
+  return { current, source, owner, registry };
+}
+
 switch (process.argv[2]) {
+  case "recovery-source":
+  case "recovery-bundled-cjs":
+  case "recovery-bundled-mjs": {
+    const kind = process.argv[2].slice("recovery-".length);
+    assert.ok(kind === "source" || kind === "bundled-cjs" || kind === "bundled-mjs");
+    // openclaw-temp-dir: allow -- standalone GC child has no Vitest hooks and joins cleanup below.
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "recovery-retention-")));
+    const result = await recoverOwner(root, kind);
+    try {
+      await collect();
+      assert.equal(result.owner.deref(), undefined, "Live recovery retained its retired instance");
+      assert.equal(
+        result.registry.deref(),
+        undefined,
+        "Live recovery retained its retired registry",
+      );
+      assert.equal(
+        (result.current.loadModule(result.source) as { read(): string }).read(),
+        "recovered source",
+      );
+      // Keep the recovery factory live too: another failed update must still be recoverable.
+      const recovery = result.current.captureModuleLoaderRecovery();
+      recovery.dispose();
+    } finally {
+      await result.current.dispose();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    break;
+  }
   case "loader": {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "plugin-retention-")));
     try {

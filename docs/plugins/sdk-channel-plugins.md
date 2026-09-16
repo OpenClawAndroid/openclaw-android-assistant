@@ -533,6 +533,31 @@ Write colocated tests in `src/channel.test.ts`:
 
 ## Delegated context reads
 
+Bundled actions can prove equivalence between provider-native delivery aliases and
+the current conversation with
+`actions.messageActionTargetAliases[action].matchesCurrentConversationAsync`.
+The callback receives `{ args, accountId, toolContext }` and returns
+`Promise<boolean>`. The host awaits it only after checking the current provider,
+account, and any additional requested targets. External registrations cannot use
+this callback to bypass exact-current matching. A successful async match does not
+replace live caller or registration authority; the host rechecks those before
+dispatch.
+
+Async alias proof requires the selected bundled registration to be loaded.
+Liveness checks use its captured owner authority and the loaded registry; they
+never discover or load a bundled fallback after the registration is retired.
+Normal bundled runtime registration satisfies this requirement. The retained
+synchronous path keeps its existing compatibility behavior.
+
+The async callback takes precedence over `matchesCurrentConversation` when both
+are present. A false result or rejected promise never falls back to the legacy
+callback. The synchronous callback is deprecated for storage-backed matching but
+remains supported for older plugins and hosts, with no removal version scheduled.
+Keep its return type strictly `boolean`: older hosts treat a returned promise as
+truthy rather than awaiting it. Hosts predating the async companion ignore the new
+field and use only the synchronous callback. An async-only alias therefore cannot
+prove equivalence on those hosts; exact canonical target matching still works.
+
 Verified official installed plugins can delegate supported conversation, metadata, and attachment
 reads to provider-owned access checks. The request still needs server-owned current
 provider, account, and conversation context. Provider destination policies remain

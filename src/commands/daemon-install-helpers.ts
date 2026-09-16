@@ -25,7 +25,6 @@ import { applyManagedServiceEnvRenderPolicy } from "../daemon/service-env-render
 import { buildServiceEnvironment } from "../daemon/service-env.js";
 import {
   formatManagedServiceEnvKeys,
-  hasEnvironmentFileSource,
   readEnvironmentValueSource,
   readManagedServiceEnvKeysFromEnvironment,
 } from "../daemon/service-managed-env.js";
@@ -67,7 +66,7 @@ type GatewayInstallPlan = {
 };
 
 // Gateway ingress secrets must never be newly materialized into supervisor metadata.
-// Existing active file-backed values are retained separately during regeneration.
+// Existing active service values are retained separately during regeneration.
 const NON_PERSISTED_CONFIG_SECRET_ENV_TARGET_IDS = new Set([
   "gateway.auth.password",
   "gateway.auth.token",
@@ -593,12 +592,8 @@ function collectPreservedExistingServiceEnvVars(
   return preserved;
 }
 
-function collectExistingEnvironmentFileManagedServiceEnvVars(params: {
+function collectExistingConfigSecretRefServiceEnvVars(params: {
   existingEnvironment: Record<string, string | undefined> | undefined;
-  existingEnvironmentValueSources?: Record<
-    string,
-    GatewayServiceEnvironmentValueSource | undefined
-  >;
   configSecretRefKeys: ReadonlySet<string>;
 }): Record<string, string | undefined> {
   if (!params.existingEnvironment || params.configSecretRefKeys.size === 0) {
@@ -615,13 +610,6 @@ function collectExistingEnvironmentFileManagedServiceEnvVars(params: {
       continue;
     }
     if (isDangerousHostEnvVarName(key) || isDangerousHostEnvOverrideVarName(key)) {
-      continue;
-    }
-    const source = readEnvironmentValueSource(
-      params.existingEnvironmentValueSources,
-      normalizedKey,
-    );
-    if (!hasEnvironmentFileSource(source)) {
       continue;
     }
     const value = rawValue?.trim();
@@ -757,10 +745,9 @@ async function buildGatewayInstallEnvironment(params: {
     },
     { omitKeys: Object.keys(params.serviceEnvironment) },
   );
-  const existingEnvironmentFileRenderEnvironment = omitEnvironmentEntriesShadowedBy(
-    collectExistingEnvironmentFileManagedServiceEnvVars({
+  const existingSecretRefRenderEnvironment = omitEnvironmentEntriesShadowedBy(
+    collectExistingConfigSecretRefServiceEnvVars({
       existingEnvironment: params.existingEnvironment,
-      existingEnvironmentValueSources: params.existingEnvironmentValueSources,
       configSecretRefKeys: new Set(configSecretRefKeys),
     }),
     [
@@ -775,7 +762,7 @@ async function buildGatewayInstallEnvironment(params: {
     managedServiceEnvKeys,
     serviceEnvironment: params.serviceEnvironment,
     platform: params.platform,
-    existingEnvironmentFileEnvironment: existingEnvironmentFileRenderEnvironment,
+    existingSecretRefEnvironment: existingSecretRefRenderEnvironment,
     stateDirDotEnvEnvironment: stateDirDotEnvRenderEnvironment,
     configSecretRefEnvironment,
   });

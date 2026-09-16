@@ -73,9 +73,17 @@ export function prepareSubagentSessionListReadIndex(
   now: number,
   context: OpenClawStateWorkerContext,
   shouldYield: () => boolean,
+  yieldIfNeeded: () => Promise<void> | undefined,
 ): Promise<SynchronousWork<SubagentRunReadIndex<SubagentRunReadRecord>>> {
-  return withSubagentSessionListRunsSnapshotForRead(subagentRuns, context, (runs) =>
-    buildSubagentRunReadIndexWork({ runs, inMemoryRuns: subagentRuns.values(), now }, shouldYield),
+  return withSubagentSessionListRunsSnapshotForRead(
+    subagentRuns,
+    context,
+    (runs) =>
+      buildSubagentRunReadIndexWork(
+        { runs, inMemoryRuns: subagentRuns.values(), now },
+        shouldYield,
+      ),
+    yieldIfNeeded,
   );
 }
 

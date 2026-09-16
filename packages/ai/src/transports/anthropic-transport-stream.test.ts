@@ -569,10 +569,20 @@ describe("anthropic transport stream", () => {
             model: "claude-sonnet-4-6",
             usage: { input_tokens: 50_001, output_tokens: 0 },
           }),
-          anthropicContentBlockStart(0, { type: "compaction", content: null }),
+          anthropicContentBlockStart(0, {
+            type: "compaction",
+            content: null,
+            encrypted_content: "opaque-initial-compaction",
+          }),
           anthropicContentBlockDelta(0, {
             type: "compaction_delta",
-            content: "summary checkpoint",
+            content: "summary ",
+            encrypted_content: "opaque-partial-compaction",
+          }),
+          anthropicContentBlockDelta(0, {
+            type: "compaction_delta",
+            content: "checkpoint",
+            encrypted_content: "opaque-final-compaction",
           }),
           { type: "content_block_stop", index: 0 },
           anthropicContentBlockStart(1, { type: "text", text: "Done." }),
@@ -658,7 +668,11 @@ describe("anthropic transport stream", () => {
       "user",
     ]);
     expect(replayMessages[0]?.content).toEqual([
-      { type: "compaction", content: "summary checkpoint" },
+      {
+        type: "compaction",
+        content: "summary checkpoint",
+        encrypted_content: "opaque-final-compaction",
+      },
       { type: "text", text: "Done." },
     ]);
     const pressure = resolveCompactionReplayPressure(

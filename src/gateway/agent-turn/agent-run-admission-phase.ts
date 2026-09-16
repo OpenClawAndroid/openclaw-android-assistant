@@ -702,7 +702,7 @@ export async function prepareAgentRunDispatch(params: {
     restoredCronContinuationLifecycleRevision: params.restoredCronContinuation?.lifecycleRevision,
     lifecycleStorePath,
     resolvedThreadId,
-    dispatchTaskTrackingMode: taskTrackingMode === "cli" ? "cli" : "none",
+    dispatchTaskTrackingMode: taskTrackingMode === "plugin_subagent" ? "none" : taskTrackingMode,
     preparedModelRuntimeLease,
     replyDispatchRuntime,
     unpersistedOffloadedRefs: userTurn.recorder ? [] : params.offloadedRefs,

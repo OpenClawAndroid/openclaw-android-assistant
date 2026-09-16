@@ -73,11 +73,12 @@ async function createSettlementFixture(state: OpenClawTestState) {
       throw new Error("settlement fixture requires a claimed session writer");
     }
     runParams.sessionTarget = { ...target, ...writer };
-    const session = createEmbeddedRunSessionPromptState({
+    const session = await createEmbeddedRunSessionPromptState({
       runParams,
       sessionAgentId: target.agentId,
       resolvedSessionKey: target.sessionKey,
       lifecycleGeneration: authority.lifecycleGeneration,
+      onInterrupt: (reason) => controller.abort(reason),
     });
     const input: Parameters<typeof settleEmbeddedRun>[0] = {
       runInput: {

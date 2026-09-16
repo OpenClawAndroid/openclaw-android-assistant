@@ -227,6 +227,8 @@ selected branch and transcript only in fixture memory, never on a live Gateway.
 Start a fresh app process before choosing a scene; restarting only the Activity
 reuses the process runtime. Same-scene re-entry retains the selected branch.
 
+For sidebar attention proof, use `openclaw.screenshotScene=attention`. The native drawer contains inactive sessions with multiple questions and execution, plugin, and Gateway-settings approvals. Tap or keyboard-focus an attention icon to inspect the oldest request. The `attention-expiry` scene uses successive short deadlines to exercise live removal without another Gateway event. These fixtures use the normal request parsers and lifecycle owners with synthetic in-memory responses; start a fresh app process between scenes.
+
 For completed-work proof, use `openclaw.screenshotScene=completed-work`,
 `active-work`, or `work-boundaries`. These scenes use the same Chat screen with
 synthetic history in a node-owned app conversation. They cover disclosure

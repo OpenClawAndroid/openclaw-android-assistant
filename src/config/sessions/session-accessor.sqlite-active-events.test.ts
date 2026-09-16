@@ -25,7 +25,7 @@ import {
 import {
   readSessionTranscriptHistoryAnchorPage as readSessionTranscriptMessageAnchorPage,
   readSessionTranscriptHistoryEventById as readSessionTranscriptMessageEventById,
-} from "./session-accessor.sqlite-history-events.js";
+} from "./session-accessor.sqlite-history.test-support.js";
 import { runExclusiveSqliteSessionWrite } from "./session-accessor.sqlite-scope.js";
 import { appendTranscriptEventsInTransaction } from "./session-accessor.sqlite-transcript-store.js";
 import { runWithSessionTranscriptReadFence } from "./session-transcript-read-fence.js";

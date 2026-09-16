@@ -49,6 +49,19 @@ function makeQaSuiteTestLabHandle(): QaLabServerHandle {
 }
 
 describe("qa suite", () => {
+  it("rejects the removed channel-driver selection input", async () => {
+    await expect(
+      runQaFlowSuite(
+        Object.assign(
+          { repoRoot: "." },
+          {
+            channelDriverSelection: { channel: "discord", driver: "crabline" },
+          },
+        ),
+      ),
+    ).rejects.toThrow("channelDriverSelection was removed");
+  });
+
   it("runs the production cleanup plan in dependency order after a failure", async () => {
     const calls: string[] = [];
     const transportFailure = new Error("transport close failed");

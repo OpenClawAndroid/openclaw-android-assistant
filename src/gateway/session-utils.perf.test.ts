@@ -147,16 +147,14 @@ describe("session list resolver cache", () => {
         yieldCount: 0,
       };
       const clock = vi.spyOn(performance, "now").mockImplementation(() => workMs);
-      const buildRow = rowProjection.buildGatewaySessionRow;
+      const buildRow = rowProjection.readSessionRowInputs;
       let preparationReads: number | undefined;
       let preparationYields: number | undefined;
-      const rows = vi
-        .spyOn(rowProjection, "buildGatewaySessionRow")
-        .mockImplementation((params) => {
-          preparationReads ??= rosterReads;
-          preparationYields ??= projectionTiming.yieldCount;
-          return buildRow(params);
-        });
+      const rows = vi.spyOn(rowProjection, "readSessionRowInputs").mockImplementation((params) => {
+        preparationReads ??= rosterReads;
+        preparationYields ??= projectionTiming.yieldCount;
+        return buildRow(params);
+      });
       let identityDuringPause: string | undefined;
       let pauseProbeReads = 0;
       const control = new Promise<void>((resolve) => {
@@ -254,34 +252,32 @@ describe("session list resolver cache", () => {
       let control: Promise<void> | undefined;
       const rowChunks = new Set<number>();
       const clock = vi.spyOn(performance, "now").mockImplementation(() => workMs);
-      const buildRow = rowProjection.buildGatewaySessionRow;
-      const rows = vi
-        .spyOn(rowProjection, "buildGatewaySessionRow")
-        .mockImplementation((params) => {
-          rowChunks.add(projectionTiming.yieldCount);
-          insideRow = true;
-          try {
-            return buildRow(params);
-          } finally {
-            insideRow = false;
-            projectedRows++;
-            workMs++;
-            if (projectedRows === 1) {
-              control = new Promise<void>((resolve) => {
-                setImmediate(() => {
-                  rowsBeforePause = projectedRows;
-                  // Whole-entry replacement exposes facts incorrectly retained across await.
-                  entries[ownerId] = {
-                    identity: { name: "Refreshed owner" },
-                    fastModeDefault: true,
-                  };
-                  identityDuringPause = resolveAgentIdentity(cfg, ownerId)?.name;
-                  resolve();
-                });
+      const buildRow = rowProjection.readSessionRowInputs;
+      const rows = vi.spyOn(rowProjection, "readSessionRowInputs").mockImplementation((params) => {
+        rowChunks.add(projectionTiming.yieldCount);
+        insideRow = true;
+        try {
+          return buildRow(params);
+        } finally {
+          insideRow = false;
+          projectedRows++;
+          workMs++;
+          if (projectedRows === 1) {
+            control = new Promise<void>((resolve) => {
+              setImmediate(() => {
+                rowsBeforePause = projectedRows;
+                // Whole-entry replacement exposes facts incorrectly retained across await.
+                entries[ownerId] = {
+                  identity: { name: "Refreshed owner" },
+                  fastModeDefault: true,
+                };
+                identityDuringPause = resolveAgentIdentity(cfg, ownerId)?.name;
+                resolve();
               });
-            }
+            });
           }
-        });
+        }
+      });
       try {
         const result = await listSessionsFromStoreAsync({
           cfg,
@@ -624,10 +620,10 @@ describe("session list resolver cache", () => {
         let controlBeforePreparation: boolean | undefined;
         let preparationCalls = 0;
         let preparationCallsAtControl = 0;
-        const buildRow = rowProjection.buildGatewaySessionRow;
+        const buildRow = rowProjection.readSessionRowInputs;
         const clock = vi.spyOn(performance, "now").mockImplementation(() => workMs);
         const rows = vi
-          .spyOn(rowProjection, "buildGatewaySessionRow")
+          .spyOn(rowProjection, "readSessionRowInputs")
           .mockImplementation((params) => {
             orderingCallsBeforeRows ??= orderingCalls;
             const row = buildRow(params);
@@ -927,7 +923,7 @@ describe("session list resolver cache", () => {
         expect(acpSelects).toBe(1);
         for (const search of ["openclaw", "unmatched-runtime"]) {
           acpSelects = 0;
-          const rows = vi.spyOn(rowProjection, "buildGatewaySessionRow");
+          const rows = vi.spyOn(rowProjection, "readSessionRowInputs");
           try {
             const searched = await listSessionFixture({
               cfg,

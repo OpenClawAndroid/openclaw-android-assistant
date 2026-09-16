@@ -397,7 +397,7 @@ export async function verifyLifecycleHookSettlement(
     });
     expect(starts).toEqual([1]);
     if (phase === "stop") {
-      expect(fixture.firstStop).not.toHaveBeenCalled();
+      expect(fixture.firstStop).toHaveBeenCalledOnce();
     }
     release.resolve();
     const result = await reloading;
@@ -405,10 +405,14 @@ export async function verifyLifecycleHookSettlement(
       expect(result).toMatchObject({ details: { committed: true }, cause: { cause: failure } });
     } else {
       expect(result).toMatchObject({
-        runtime: { warnings: [expect.stringContaining(failure.message)] },
+        details: { committed: false, phase: "drain" },
+        message: expect.stringContaining(failure.message),
       });
+      expect(fixture.candidates).toHaveLength(0);
+      expect(fixture.firstStart).toHaveBeenCalledOnce();
+      expect(fixture.registryOwner.registry).toBe(fixture.previousRegistry);
     }
-    expect(starts).toEqual([1, 2]);
+    expect(starts).toEqual(phase === "start" ? [1, 2] : [1]);
   } finally {
     release.resolve();
     await reloading;
@@ -484,7 +488,14 @@ export async function verifyIndependentRollbackRestoration(
     await manager.startChannel("healthy-restore");
     const result = await fixture.reload().catch((error: unknown) => error);
     expect(result).toMatchObject({ details: { committed: false } });
-    expect(fixture.registryOwner.registry).toBe(fixture.previousRegistry);
+    expect(fixture.registryOwner.registry).not.toBe(fixture.previousRegistry);
+    const restoredRecord = fixture.registryOwner.registry.plugins.find(
+      (record) => record.id === "first",
+    );
+    expect(restoredRecord).not.toBe(fixture.previousRegistry.plugins[0]);
+    expect(fixture.registryOwner.registry.plugins.find((record) => record.id === "sibling")).toBe(
+      fixture.previousRegistry.plugins[1],
+    );
     expect(resumed).toEqual([0, 1]);
     if (boundary === "services") {
       expect(result).toMatchObject({

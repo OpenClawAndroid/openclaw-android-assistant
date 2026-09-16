@@ -227,10 +227,9 @@ export type ClientVoiceSessionOwner = {
 
 export type DetachedVoiceSession = {
   voiceSessionId: string;
-  serverOwned: boolean;
   generation?: number;
   transcriptQueue: BoundedSerialQueue;
-  owner?: ClientVoiceSessionOwner;
+  owner: ClientVoiceSessionOwner;
 };
 
 const MAX_CLIENT_VOICE_SESSION_OWNERS_PER_SESSION = 2;

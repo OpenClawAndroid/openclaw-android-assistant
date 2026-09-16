@@ -19,6 +19,7 @@ export const SKIPPED_UPDATE_OUTCOMES: Readonly<Record<string, "pending" | "noop"
   "managed-service-handoff-started": "pending",
   "restart-health-pending": "pending",
   "already-current": "noop",
+  "gateway-readiness-unverified": "noop",
   "managed-service-handoff-already-running": "noop",
   "managed-service-handoff-cancelled": "noop",
   "container-image-install": "noop",

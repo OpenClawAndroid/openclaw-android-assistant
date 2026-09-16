@@ -17,6 +17,7 @@ import {
 } from "../../embedded-agent-runner/delivery-evidence.js";
 import { hasVisibleCompletionResult } from "../../internal-event-contract.js";
 import type { AgentInternalEvent } from "../../internal-events.js";
+import { createAgentRunDirectAbortError } from "../../run-termination.js";
 import {
   SourceOwnerChangedError,
   sourceOwnerChangedResult,
@@ -42,12 +43,14 @@ export async function runAnnounceAgentCall(params: {
   resolveGatewayContext?: import("../../../gateway/server-methods/types.js").GatewayContextResolver;
 }): Promise<unknown> {
   const deadline = new AbortController();
-  const signal = params.signal
-    ? AbortSignal.any([params.signal, deadline.signal])
-    : deadline.signal;
+  const sourceLifecycle = new AbortController();
+  const lifecycleSignal = params.signal
+    ? AbortSignal.any([params.signal, sourceLifecycle.signal])
+    : sourceLifecycle.signal;
+  const signal = AbortSignal.any([lifecycleSignal, deadline.signal]);
   // A private input stays owned by Gateway admission when an observer times out.
-  // Only the caller's lifecycle cancellation may stop that underlying turn.
-  const executionSignal = params.privateCompletion ? params.signal : signal;
+  // Caller or source lifecycle cancellation still stops that underlying turn.
+  const executionSignal = params.privateCompletion ? lifecycleSignal : signal;
   const timer =
     params.timeoutMs === undefined
       ? undefined
@@ -72,9 +75,11 @@ export async function runAnnounceAgentCall(params: {
       // the requester runtime budget, not the announcement handoff deadline.
       onAccepted: () => clearTimeout(timer),
       onExecutionStarted: () => {
-        executionSignal?.throwIfAborted();
+        executionSignal.throwIfAborted();
         if (!params.isExecutionAllowed()) {
-          throw new SourceOwnerChangedError();
+          sourceLifecycle.abort(new SourceOwnerChangedError());
+          // Classify execution immediately, before Gateway observes cancellation.
+          throw createAgentRunDirectAbortError();
         }
         // Execution can be observed before acceptance on an already-running replay.
         clearTimeout(timer);
@@ -84,6 +89,9 @@ export async function runAnnounceAgentCall(params: {
     return params.privateCompletion
       ? await waitForGatewayDispatch("agent", dispatch, undefined, signal)
       : await dispatch;
+  } catch (error) {
+    sourceLifecycle.signal.throwIfAborted();
+    throw error;
   } finally {
     clearTimeout(timer);
   }

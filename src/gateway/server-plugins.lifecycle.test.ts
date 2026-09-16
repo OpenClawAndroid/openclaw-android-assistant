@@ -27,6 +27,7 @@ import {
   type InstanceBindingProbeResult,
 } from "./server-plugins.lifecycle.test-fixtures.js";
 import {
+  installChannelBindingRuntimeLoader,
   installInstanceBindingConfigIo,
   patchInstanceBindingTestConfig,
   requireBoundRuntime,
@@ -88,44 +89,9 @@ async function prepareInstanceBindingTest(options?: {
   );
   await fs.writeFile(configPath, `${JSON.stringify(config)}\n`);
   if (coordinator.channelProof) {
-    // Keep the real host factory in Vitest's module graph; fixture plugins still
-    // load normally, with their original registry and instance runtime options.
-    const [loaderModule, sdkAlias, fullRuntime] = await Promise.all([
-      import("../plugins/loader-module-runtime.js"),
-      import("../plugins/sdk-alias.js"),
-      import("../plugins/runtime/index.js"),
-    ]);
-    const observation = {
-      phase: "runtime-module-loader",
-      resolvedTargets: [] as string[],
-      factoryCalls: 0,
-    };
-    coordinator.channelProof.observations.push(observation);
-    const resolveRuntime = vi.spyOn(sdkAlias, "resolvePluginRuntimeModulePathWithDiagnostics");
-    const createLoader = loaderModule.createPluginModuleLoader;
-    const loaderSpy = vi
-      .spyOn(loaderModule, "createPluginModuleLoader")
-      .mockImplementation((loaderOptions) => {
-        const load = createLoader(loaderOptions);
-        return (modulePath) => {
-          if (modulePath === resolveRuntime.mock.results.at(-1)?.value?.resolvedPath) {
-            observation.resolvedTargets.push(modulePath);
-            return {
-              createPluginRuntime: (
-                ...args: Parameters<typeof fullRuntime.createPluginRuntime>
-              ) => {
-                observation.factoryCalls += 1;
-                return fullRuntime.createPluginRuntime(...args);
-              },
-            };
-          }
-          return load(modulePath);
-        };
-      });
-    restoreChannelRuntimeLoader = () => {
-      loaderSpy.mockRestore();
-      resolveRuntime.mockRestore();
-    };
+    restoreChannelRuntimeLoader = await installChannelBindingRuntimeLoader(
+      coordinator.channelProof,
+    );
   }
   return { coordinator, bundledRoot, configPath };
 }
@@ -967,7 +933,7 @@ describe("gateway plugin instance bindings", () => {
   );
 
   it.each(["rejection", "timeout"] as const)(
-    "reports %s cleanup as a warning and fences its old instance while keeping the Gateway available",
+    "refuses replacement during %s cleanup while keeping the Gateway available",
     { timeout: 600_000 },
     async (serviceStopFailure) => {
       const { coordinator } = await prepareInstanceBindingTest({ serviceStopFailure });
@@ -1009,44 +975,57 @@ describe("gateway plugin instance bindings", () => {
         rpcReq(socket, "plugins.reload", { plugins: [{ pluginId: "instance-binding-probe" }] }),
       );
       expect(reload, reload.error?.message).toMatchObject({
-        ok: true,
-        payload: {
-          ok: true,
-          restartRequired: false,
-          runtime: { pluginIds: ["instance-binding-probe"] },
-          warnings: expect.arrayContaining([
-            expect.stringContaining("Plugin service cleanup failed"),
-          ]),
-        },
+        ok: false,
+        error: { details: { runtime: { committed: false, phase: "drain" } } },
       });
+      expect(reload.error?.message).toContain(
+        serviceStopFailure === "rejection"
+          ? "instance-binding service cleanup rejected"
+          : "timed out",
+      );
       expect(hotReloadRecovery).not.toHaveBeenCalled();
       expect(coordinator.serviceStops).toBe(1);
-      expect(coordinator.serviceStarts).toBe(2);
-      expect(getGatewayPluginMetadataSnapshot()).not.toBe(initialMetadata);
-      expect(getActivePluginRegistry()).not.toBe(initialRegistry);
+      expect(coordinator.serviceStarts).toBe(1);
+      expect(coordinator.runtimes).toHaveLength(initialRegistrationCount);
+      expect(getGatewayPluginMetadataSnapshot()).toBe(initialMetadata);
+      expect(getActivePluginRegistry()).toBe(initialRegistry);
       await expect(requestInstanceBindingProbe(initialRuntime)).rejects.toThrow(
         'Plugin "instance-binding-probe" runtime is no longer active.',
       );
-      const successor = await requireBoundRuntime(
-        coordinator.runtimes.slice(initialRegistrationCount),
-        "replacement",
-      );
-      const successorProbe = await requestInstanceBindingProbe(successor.runtime);
-      expect(successorProbe.registryId).not.toBe(initialProbe.registryId);
-      expect(successorProbe).toMatchObject({
-        sessionsId: initialProbe.sessionsId,
-        placementId: initialProbe.placementId,
-      });
       const afterReload = await rpcReq(socket, "config.get", {});
       expect(afterReload.ok).toBe(true);
       expect(afterReload.payload?.hash).toBe(currentConfig.payload?.hash);
       expect(afterReload.payload?.raw).toBe(currentConfig.payload?.raw);
 
-      // Settle the old native stop before final close retires the live successor.
       coordinator.serviceStopCompletion.resolve();
-      await server.close({ reason: "close after plugin cleanup warning" });
+      const retry = await rpcReq(socket, "plugins.reload", {
+        plugins: [{ pluginId: "instance-binding-probe" }],
+      });
+      if (serviceStopFailure === "timeout") {
+        expect(retry, retry.error?.message).toMatchObject({
+          ok: true,
+          payload: { restartRequired: false },
+        });
+        expect(coordinator.serviceStarts).toBe(2);
+        const successor = await requireBoundRuntime(
+          coordinator.runtimes.slice(initialRegistrationCount),
+          "replacement after service stop settled",
+        );
+        const successorProbe = await requestInstanceBindingProbe(successor.runtime);
+        expect(successorProbe.registryId).not.toBe(initialProbe.registryId);
+        expect(successorProbe).toMatchObject({
+          sessionsId: initialProbe.sessionsId,
+          placementId: initialProbe.placementId,
+        });
+      } else {
+        expect(retry.ok).toBe(false);
+        expect(retry.error?.message).toContain("instance-binding service cleanup rejected");
+        expect(coordinator.runtimes).toHaveLength(initialRegistrationCount);
+        expect(coordinator.serviceStarts).toBe(1);
+      }
+      await server.close({ reason: "close after plugin cleanup refusal" });
       started.splice(started.indexOf(server), 1);
-      expect(coordinator.serviceStops).toBe(2);
+      expect(coordinator.serviceStops).toBe(serviceStopFailure === "timeout" ? 2 : 1);
     },
   );
 });

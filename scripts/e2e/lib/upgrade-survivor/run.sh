@@ -130,6 +130,7 @@ survival_assert_stage="survival"
 baseline_spec=""
 baseline_version=""
 baseline_plugin_version=""
+baseline_companion_availability=""
 baseline_version_expected="0"
 candidate_version=""
 candidate_contract=""
@@ -151,7 +152,6 @@ last_update_observation_root=""
 workshop_doctor_observation_root=""
 idempotence_seconds=""
 run_completed="0"
-update_outcome=""
 update_exit_code=""
 
 BASELINE_INSTALL_LOG="$ARTIFACT_ROOT/baseline-install.log"
@@ -206,7 +206,7 @@ MOBILE_PAIRING_CANDIDATE_RESTART_EVIDENCE="$ARTIFACT_ROOT/mobile-pairing-candida
 MOBILE_PAIRING_FINAL_EVIDENCE="$ARTIFACT_ROOT/mobile-pairing-final.json"
 HISTORICAL_PACKAGE_REPLACEMENT_EVIDENCE="$ARTIFACT_ROOT/historical-package-replacement.json"
 export OPENCLAW_UPGRADE_SURVIVOR_CONFIG_COVERAGE_JSON="$CONFIG_COVERAGE_JSON"
-rm -f "$SUMMARY_JSON" "$CONFIG_COVERAGE_JSON" "$ARTIFACT_ROOT/backup-rollback.json"
+rm -f "$SUMMARY_JSON" "$CONFIG_COVERAGE_JSON" "$ARTIFACT_ROOT/backup-rollback.json" "$ARTIFACT_ROOT/baseline-companion.json"
 : >"$PHASE_LOG"
 
 validate_baseline_package_spec() {
@@ -300,7 +300,7 @@ write_summary() {
     SUMMARY_CANDIDATE_INSTALL_MODE="$candidate_install_mode" \
     SUMMARY_SCENARIO="$SCENARIO" \
     SUMMARY_UPDATE_RESTART_MODE="$UPDATE_RESTART_MODE" \
-    SUMMARY_UPDATE_OUTCOME="${update_outcome:-success}" \
+    SUMMARY_UPDATE_OUTCOME="${update_outcome:-unknown}" \
     SUMMARY_UPDATE_REPAIR_REQUIRED="$update_repair_required" \
     SUMMARY_UPDATE_RESTART_SOURCE="$update_restart_source" \
     SUMMARY_INITIAL_UPDATE_OBSERVATION_ROOT="$initial_update_observation_root" \
@@ -364,7 +364,8 @@ const summary = {
   installedVersion: process.env.SUMMARY_INSTALLED_VERSION || null,
   candidateInstallMode: process.env.SUMMARY_CANDIDATE_INSTALL_MODE || "updater",
   updateRestartMode: process.env.SUMMARY_UPDATE_RESTART_MODE || "manual",
-  updateOutcome: process.env.SUMMARY_UPDATE_OUTCOME || "success",
+  updateOutcome: process.env.SUMMARY_UPDATE_OUTCOME || "unknown",
+  baselineCompanion: readJsonOrNull(path.join(path.dirname(process.env.SUMMARY_JSON), "baseline-companion.json")),
   updateRecovery: process.env.SUMMARY_UPDATE_REPAIR_REQUIRED === "1" ? "capability-consent" : null,
   updateRestartSource: process.env.SUMMARY_UPDATE_RESTART_SOURCE || null,
   firstHopPostCore,
@@ -709,6 +710,7 @@ assert_prepublish_plugin_install() {
   local allow_pending="${1:-0}" plugin_id="whatsapp" help consent
   local consent_supported=0 pending_args=()
   if [ "$SCENARIO" = "legacy-operator-state" ]; then
+    [ "$baseline_companion_availability" != "unavailable" ] || return 0
     plugin_id="discord"
   elif [ "$SCENARIO" = "msteams-polls" ]; then
     plugin_id="msteams"
@@ -753,13 +755,37 @@ if (!release) throw new Error("Invalid baseline release version");
 process.stdout.write(release.correctionNumber === undefined ? release.version : release.baseVersion);
 NODE
       )"
+      local lookup_status=0
+      openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" npm view "@openclaw/$baseline_plugin@$baseline_plugin_version" version \
+        --registry=https://registry.npmjs.org --json >"$fixture_root/baseline/availability.json" \
+        2>"$fixture_root/baseline/availability.err" || lookup_status=$?
+      baseline_companion_availability="$(node --input-type=module - \
+        "$fixture_root/baseline/availability.json" "$lookup_status" "$baseline_plugin" \
+        "$baseline_plugin_version" "$SCENARIO" "$ARTIFACT_ROOT/baseline-companion.json" <<'NODE'
+import fs from "node:fs";
+const [file, status, plugin, version, scenario, receipt] = process.argv.slice(2);
+const result = JSON.parse(fs.readFileSync(file, "utf8"));
+const unavailable = status !== "0" && result?.error?.code === "E404" && scenario === "legacy-operator-state";
+if (!unavailable && (status !== "0" || result !== version)) {
+  throw new Error(`Could not verify published companion @openclaw/${plugin}@${version} (npm exit ${status})`);
+}
+const availability = unavailable ? "unavailable" : "available";
+fs.writeFileSync(receipt, `${JSON.stringify({
+  package: `@openclaw/${plugin}`, version, availability,
+  reason: unavailable ? "Exact companion version is not published on npm (E404)." : null,
+}, null, 2)}\n`);
+process.stdout.write(availability);
+NODE
+      )" || return "$?"
       local baseline_tarball
-      baseline_tarball="$(npm pack "@openclaw/$baseline_plugin@$baseline_plugin_version" \
-        --registry=https://registry.npmjs.org --pack-destination "$fixture_root/baseline" --silent)"
-      registry_args+=("@openclaw/$baseline_plugin" "$baseline_plugin_version" "$fixture_root/baseline/$baseline_tarball")
-      registry_dist_tags="latest=$baseline_plugin_version,beta=$baseline_plugin_version"
+      if [ "$baseline_companion_availability" = "available" ]; then
+        baseline_tarball="$(npm pack "@openclaw/$baseline_plugin@$baseline_plugin_version" \
+          --registry=https://registry.npmjs.org --pack-destination "$fixture_root/baseline" --silent)"
+        registry_args+=("@openclaw/$baseline_plugin" "$baseline_plugin_version" "$fixture_root/baseline/$baseline_tarball")
+      fi
+      registry_dist_tags="latest=$baseline_plugin_version,beta=$baseline_plugin_version,alpha=$baseline_plugin_version"
     else
-      registry_dist_tags="latest=$candidate_version,beta=$candidate_version"
+      registry_dist_tags="latest=$candidate_version,beta=$candidate_version,alpha=$candidate_version"
     fi
     registry_args+=("openclaw" "$candidate_version" "$CANDIDATE_SPEC")
   fi
@@ -999,10 +1025,17 @@ apply_baseline_config_recipe() {
 }
 
 install_companion_plugins() {
-  local plugin="${1:-discord}"
+  local plugin="${1:-discord}" tag="latest"
+  if [ "$baseline_companion_availability" = "unavailable" ]; then
+    echo "Skipping baseline companion @openclaw/$plugin@$baseline_plugin_version: exact version is not published on npm (E404); see baseline-companion.json."
+    return 0
+  fi
+  if [[ "$baseline_plugin_version" =~ -(alpha|beta)\.[1-9][0-9]*$ ]]; then
+    tag="${BASH_REMATCH[1]}"
+  fi
   openclaw_e2e_fixture_plugin_command openclaw -- \
-    plugins install "@openclaw/$plugin@latest"
-  node scripts/e2e/lib/upgrade-survivor/assertions.mjs assert-baseline-plugin "$baseline_plugin_version" "$plugin"
+    plugins install "@openclaw/$plugin@$tag"
+  node scripts/e2e/lib/upgrade-survivor/assertions.mjs assert-baseline-plugin "$baseline_plugin_version" "$plugin" "$tag"
 }
 
 seed_legacy_operator_gateway() {
@@ -1448,6 +1481,7 @@ update_candidate() {
     "NODE_OPTIONS=$update_node_options"
   )
   local update_status=0
+  update_outcome="failed"
   if [ "$SCENARIO" = "recovery-cleanup" ]; then
     # Keep sampler output outside the old updater's JSON and join its process group.
     openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" node scripts/e2e/lib/plugin-lifecycle-matrix/measure.mjs \

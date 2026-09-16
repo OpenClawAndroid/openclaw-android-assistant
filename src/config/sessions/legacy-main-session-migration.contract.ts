@@ -1,3 +1,4 @@
+import type { TranscriptDigest } from "./session-accessor.sqlite-transcript-digest.types.js";
 import type { SessionEntry } from "./types.js";
 
 export type LegacyMainSessionMigrationMode = "automatic" | "detect" | "doctor-fix";
@@ -36,8 +37,6 @@ export type LegacyMainSessionMigrationResult = {
   warnings: string[];
 };
 
-export type TranscriptDigest = { eventCount: number; rollingHash: string };
-
 export type PhysicalStore = {
   databaseAgentId: string;
   ownerStorePath: string;
@@ -48,7 +47,6 @@ export type SessionClaim = {
   canonicalKey: string;
   digest: TranscriptDigest;
   entry: SessionEntry;
-  eventRows: Array<{ createdAt: number; eventJson: string }>;
   key: string;
   store: PhysicalStore;
 };

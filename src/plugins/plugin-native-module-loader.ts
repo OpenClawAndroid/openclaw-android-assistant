@@ -18,8 +18,7 @@ export function bindNativePluginInstanceModuleLoader(
     instance: PluginModuleLoaderOwner;
     rootDir: string;
     origin: PluginOrigin;
-    standalone?: boolean;
-    inputBoundaryRoot?: string;
+    bindModuleLoader?: PluginModuleLoaderOwner["bindModuleLoader"];
   },
   cache: ReturnType<typeof getPluginCache>,
   artifact: ReturnType<typeof capturePluginGenerationArtifact>,
@@ -119,12 +118,11 @@ export function bindNativePluginInstanceModuleLoader(
       },
     }),
   );
-  const boundaryRoot = (params.standalone && params.inputBoundaryRoot) || params.rootDir;
   const rejectHardlinks = shouldRejectHardlinkedPluginFiles({
     origin: params.origin,
-    rootDir: boundaryRoot,
+    rootDir: params.rootDir,
   });
-  params.instance.bindModuleLoader(
+  (params.bindModuleLoader ?? params.instance.bindModuleLoader.bind(params.instance))(
     (source) =>
       withPluginCache(cache, () => {
         const captured = artifact.resolve(source, rejectHardlinks);

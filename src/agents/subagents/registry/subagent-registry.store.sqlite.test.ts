@@ -154,7 +154,7 @@ describe("subagent registry sqlite store", () => {
   }
 
   it.each(["empty", "whole"] as const)(
-    "reuses a complete %s compact tree with isolated full records and owner freshness",
+    "reuses a complete %s compact tree with isolated full records and owner writes",
     async (kind) => {
       await withTempStateEnv(async () => {
         await withEnvAsync({ OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" }, async () => {
@@ -174,23 +174,21 @@ describe("subagent registry sqlite store", () => {
             expect(getSubagentSessionListRunsSnapshotForRead(new Map(), keys)).toEqual(first);
             expect(queries).not.toHaveBeenCalled();
 
-            // A direct store write models another process, outside local publication.
-            const replaced = { ...run, model: "external-model" };
-            saveSubagentRegistryChangesToSqlite(new Map([[run.runId, replaced]]), [run.runId]);
-            expect(getSubagentSessionListRunsSnapshotForRead(new Map(), keys)).toEqual(first);
+            const replaced = { ...run, model: "updated-model" };
+            persistSubagentRunsToDiskOrThrow(new Map([[run.runId, replaced]]), [run.runId]);
             expect(getSubagentRunsSnapshotForRead(new Map()).get(run.runId)).toMatchObject({
               model: replaced.model,
               task: run.task,
               completion: run.completion,
               delivery: run.delivery,
             });
-            clock.mockReturnValue(now + 499);
-            expect(getSubagentSessionListRunsSnapshotForSessions(new Map(), keys)).toEqual(first);
-            clock.mockReturnValue(now + 500);
+            queries.mockClear();
+            clock.mockReturnValue(now + 60_000);
             const refreshed = getSubagentSessionListRunsSnapshotForSessions(new Map(), keys);
             expect(refreshed.get(run.runId)?.model).toBe(replaced.model);
             expect(refreshed.get(run.runId)).not.toHaveProperty("task");
             expect(refreshed.get(run.runId)).not.toHaveProperty("completion");
+            expect(queries).not.toHaveBeenCalled();
 
             const moved = { ...replaced, controllerSessionKey: "agent:main:other" };
             const live = new Map([[run.runId, moved]]);

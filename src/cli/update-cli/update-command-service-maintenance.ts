@@ -27,7 +27,10 @@ import { defaultRuntime } from "../../runtime.js";
 import { UpdatePreMutationError, type UpdateCommandOptions } from "./shared.js";
 import { gatewayMaintenanceBlockMessage } from "./update-command-handoff.js";
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
-import type { PreManagedServiceStop } from "./update-command-service-context-types.js";
+import type {
+  ManagedGatewayUpdateVerdict,
+  PreManagedServiceStop,
+} from "./update-command-service-context-types.js";
 import {
   assertGatewayServiceAdmissionUnchanged,
   assertGatewayServiceManagementAllowedForUpdate,
@@ -36,7 +39,6 @@ import {
   resolveGatewayServiceManagementBlockMessageForUpdate,
   resolveManagedServiceNodeRunner,
   resolveUpdatedGatewayRestartPort,
-  type ManagedGatewayUpdateVerdict,
 } from "./update-command-service-plan.js";
 import {
   isManagedGatewayServiceOffline,

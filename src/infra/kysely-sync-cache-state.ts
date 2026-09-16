@@ -20,9 +20,9 @@ const statementInvalidationSymbol = Symbol.for("openclaw.kyselySyncStatementInva
 const statementCacheEnabledSymbol = Symbol.for("openclaw.kyselySyncStatementCacheEnabled");
 const authorizerActiveSymbol = Symbol.for("openclaw.kyselySyncAuthorizerActive");
 const disposeCallbacksSymbol = Symbol.for("openclaw.sqliteDisposeCallbacks");
-// Bound SQL plus variable-size bindings to about 2 MiB per enabled database.
-// Process-wide retention scales with open handles; repeated variable SQL can enter.
-const statementCacheCapacity = 32;
+// Admit up to 4 MiB of SQL plus variable-size bindings per enabled database.
+// Candidate SQL and native/JS overhead are additional; retention scales with open handles.
+const statementCacheCapacity = 64;
 const statementCacheEntryBytes = 64 * 1024;
 
 type SqliteAuthorizer = Parameters<DatabaseSync["setAuthorizer"]>[0];

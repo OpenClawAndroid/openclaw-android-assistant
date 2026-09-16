@@ -77,6 +77,14 @@ type StreamPerfProbe = {
   rafCount: number;
   hostUpdates: number;
   hostUpdatesInsideFrame: number;
+  offFrameUpdates: Array<{
+    host: "page" | "pane";
+    property: string;
+    rafCount: number;
+    phase: "burst" | "settling";
+    callers: string[];
+  }>;
+  droppedOffFrameUpdates: number;
 };
 
 type ToolProjectionProbe = {
@@ -130,6 +138,8 @@ async function installRenderProbe(page: ChatFlowPage) {
       rafCount: 0,
       hostUpdates: 0,
       hostUpdatesInsideFrame: 0,
+      offFrameUpdates: [],
+      droppedOffFrameUpdates: 0,
     };
     new MutationObserver((records) => {
       if (records.length > 0) {
@@ -162,6 +172,47 @@ async function installRenderProbe(page: ChatFlowPage) {
     }
     const ownerPrototype = owner as { requestUpdate: (...args: unknown[]) => unknown };
     const originalRequestUpdate = ownerPrototype.requestUpdate;
+    const propertyNames = (
+      "data navDrawerOpen presented layout narrow mergedChrome dropIndicator " +
+      "paneId presentationId chatMessagesBySession sessionSnapshotStore sessionKey " +
+      "routeLoadingSkeleton agentId inputRegion compact workContext draft focusComposer " +
+      "dashboardExpanded routeFace onFaceChange onFocusPane onSessionDeleted paneTitle " +
+      "onboarding onOpenSplitView onSplitDown onSplitRight onClosePane boardProvider"
+    ).split(" ");
+    const chunkNames = [
+      "control-ui-boot-chat",
+      "control-ui-boot-shared",
+      "control-ui-boot-new",
+      "control-ui-core",
+      "control-ui-foundation",
+      "lit-runtime",
+      "index",
+    ];
+    const sourceNames = new Set([
+      "chat-state-render",
+      "chat-state-controller",
+      "chat-state-events",
+      "chat-state-refresh",
+      "chat-pane-context",
+      "chat-pane-base",
+      "chat-page",
+      "chat-page-retained-sessions",
+      "subscriptions-controller",
+      "poll-controller",
+      "reactive-element",
+    ]);
+    const classifyCaller = (frame: string): string => {
+      const location = frame.match(/\/([^/\s?#]+)\.(js|ts)(?:\?[^\s]*)?:(\d{1,7}):(\d{1,7})\)?$/);
+      const name = location?.[1] ?? "";
+      const knownChunk = chunkNames.some(
+        (prefix) =>
+          name.startsWith(`${prefix}-`) &&
+          /^[A-Za-z0-9_-]{1,64}$/.test(name.slice(prefix.length + 1)),
+      );
+      return location && (knownChunk || sourceNames.has(name))
+        ? `${name}.${location[2]}:${location[3]}:${location[4]}`
+        : "unknown";
+    };
     ownerPrototype.requestUpdate = function patchedRequestUpdate(this: object, ...args: unknown[]) {
       const probe = scope.ocStreamPerf!;
       const tag = (this as HTMLElement).localName;
@@ -169,6 +220,22 @@ async function installRenderProbe(page: ChatFlowPage) {
         probe.hostUpdates += 1;
         if (insideFrame) {
           probe.hostUpdatesInsideFrame += 1;
+        } else if (probe.offFrameUpdates.length < 12) {
+          // Keep only known source/asset basenames and coordinates, never raw stacks or values.
+          // The asset suffix identifies the exact source map; RAF count counts callbacks.
+          const stack = new Error().stack ?? "";
+          probe.offFrameUpdates.push({
+            host: tag === "openclaw-chat-page" ? "page" : "pane",
+            property:
+              args[0] === undefined
+                ? "explicit"
+                : (propertyNames.find((name) => name === args[0]) ?? "other"),
+            rafCount: probe.rafCount,
+            phase: scope.ocBurstDone === true ? "settling" : "burst",
+            callers: stack.slice(0, 4096).split("\n").slice(2, 8).map(classifyCaller),
+          });
+        } else {
+          probe.droppedOffFrameUpdates += 1;
         }
       }
       return originalRequestUpdate.apply(this, args);
@@ -184,6 +251,8 @@ async function resetRenderProbe(page: ChatFlowPage) {
       rafCount: 0,
       hostUpdates: 0,
       hostUpdatesInsideFrame: 0,
+      offFrameUpdates: [],
+      droppedOffFrameUpdates: 0,
     };
   });
 }
@@ -514,9 +583,10 @@ suite.define(() => {
 
       expect(probe.hostUpdates).toBeGreaterThanOrEqual(MIN_BURST_HOST_UPDATES);
       expect(probe.hostUpdates).toBeLessThanOrEqual(MAX_BURST_HOST_UPDATES);
-      expect(probe.hostUpdatesInsideFrame / probe.hostUpdates).toBeGreaterThanOrEqual(
-        FRAME_SCHEDULED_MIN_RATIO,
-      );
+      expect(
+        probe.hostUpdatesInsideFrame / probe.hostUpdates,
+        `frame-scheduled update budget: ${JSON.stringify(probe)}`,
+      ).toBeGreaterThanOrEqual(FRAME_SCHEDULED_MIN_RATIO);
     });
   });
 

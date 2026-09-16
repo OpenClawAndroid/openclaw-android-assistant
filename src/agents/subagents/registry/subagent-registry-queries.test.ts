@@ -43,6 +43,34 @@ function toRunMap(runs: SubagentRunRecord[]): Map<string, SubagentRunRecord> {
 }
 
 describe("subagent registry query regressions", () => {
+  it("exposes complete snapshot inputs and exact memory winners captured before yielding", () => {
+    const ungrouped = makeRun({ runId: "ungrouped", requesterSessionKey: "", endedAt: 50 });
+    const older = makeRun({ runId: "older", createdAt: 10, endedAt: 15 });
+    const winner = makeRun({
+      runId: "winner",
+      childSessionKey: older.childSessionKey,
+      createdAt: 20,
+      endedAt: 30,
+    });
+    const runs = toRunMap([ungrouped, structuredClone(winner)]);
+    const memory = toRunMap([older, winner]);
+    const work = buildSubagentRunReadIndexWork(
+      { runs, inMemoryRuns: memory.values(), now: 100 },
+      () => true,
+    );
+    expect(work.next().done).toBe(false);
+    memory.clear();
+    const index = runSynchronousWork(work);
+    expect(index.inputs).toBeDefined();
+    expect(index.inputs.runs).toBe(runs);
+    expect(index.inputs.runs.get(ungrouped.runId)).toBe(ungrouped);
+    expect(index.inputs.inMemoryRuns).toHaveLength(1);
+    expect(index.inputs.inMemoryRuns[0]).toBe(winner);
+    const replay = buildSubagentRunReadIndexFromRuns({ ...index.inputs, now: 200 });
+    expect(replay.getDisplaySubagentRun(winner.childSessionKey)).toBe(winner);
+    expect(replay.getDisplaySubagentRun(ungrouped.childSessionKey)).toBe(ungrouped);
+  });
+
   it("preserves captured display classification while owner liveness changes across a yield", () => {
     const now = Date.now();
     const root = "agent:main:captured-index";
@@ -93,6 +121,8 @@ describe("subagent registry query regressions", () => {
       expect(cooperative.countActiveDescendantRuns(root)).toBe(
         synchronous.countActiveDescendantRuns(root),
       );
+      expect(cooperative.atTime(now).getDisplaySubagentRun(running.childSessionKey)).toBe(ended);
+      expect(cooperative.getDisplaySubagentRun(running.childSessionKey)).toBe(running);
     } finally {
       for (const [id, claim] of claims) {
         releaseAgentRunContext(id, claim);

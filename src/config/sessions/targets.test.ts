@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { withTempHome } from "openclaw/plugin-sdk/test-env";
 import { describe, expect, it } from "vitest";
+import { closeOpenClawAgentDatabaseByPathAsync } from "../../state/openclaw-agent-db-lifecycle.js";
 import {
   registerOpenClawAgentDatabase,
   unregisterOpenClawAgentDatabase,
@@ -201,6 +202,7 @@ describe("resolveSessionStoreTargets", () => {
         defaultAgentId: "main",
         env,
       }).path;
+      await closeOpenClawAgentDatabaseByPathAsync(beforePromotionPath);
 
       await replaceSessionEntry(
         {
@@ -221,6 +223,7 @@ describe("resolveSessionStoreTargets", () => {
       expect(afterPromotionPath).toBe(beforePromotionPath);
       expect(afterPromotionPath).toBe(path.join(home, "shared.worker.sqlite"));
       await expect(fs.stat(path.join(home, "shared.sqlite"))).rejects.toThrow();
+      await closeOpenClawAgentDatabaseByPathAsync(afterPromotionPath);
       expect(
         listSessionEntriesReadOnly({
           agentId: "worker",
@@ -259,6 +262,7 @@ describe("resolveSessionStoreTargets", () => {
         defaultAgentId: "main",
         env,
       }).path;
+      await closeOpenClawAgentDatabaseByPathAsync(occupiedPath);
       registerOpenClawAgentDatabase({ agentId: "ops", env, path: occupiedPath });
 
       expect(
@@ -366,6 +370,7 @@ describe("resolveSessionStoreTargets", () => {
         defaultAgentId: "ops",
         env,
       }).path;
+      await closeOpenClawAgentDatabaseByPathAsync(unsuffixedPath);
       unregisterOpenClawAgentDatabase({ agentId: "ops", env, path: unsuffixedPath });
 
       expect(

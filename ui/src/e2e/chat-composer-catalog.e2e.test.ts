@@ -190,7 +190,7 @@ suite.define(() => {
               }),
             });
             await expect.poll(() => trigger.textContent()).toContain(model.name);
-            expect(await trigger.getAttribute("aria-busy")).toBe("false");
+            await expect.poll(() => trigger.getAttribute("aria-busy")).toBe("false");
             expect(await trigger.locator(".btn__spinner").count()).toBe(0);
             expect(
               await composer

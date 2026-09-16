@@ -874,17 +874,12 @@ it("does not publish renewal expiry before the durable renewal succeeds", async 
   await withOpenClawTestState({ label: "relay-renewal-expiry" }, async () => {
     const entered = createDeferredCore();
     const resume = createDeferredCore();
-    const renewed = createDeferredCore();
     const renew = store.renewOrRestoreNativeHookRelayBridgeRecord;
     vi.spyOn(store, "renewOrRestoreNativeHookRelayBridgeRecord").mockImplementation(
       async (params) => {
         entered.resolve();
         await resume.promise;
-        try {
-          return await renew(params);
-        } finally {
-          renewed.resolve();
-        }
+        return await renew(params);
       },
     );
     const relay = registerNativeHookRelay({
@@ -904,7 +899,6 @@ it("does not publish renewal expiry before the durable renewal succeeds", async 
       expect(relay.expiresAtMs).toBe(expiresAtMs);
     } finally {
       resume.resolve();
-      await renewed.promise;
       relay.unregister();
       await testing.clearNativeHookRelaysForTests();
     }

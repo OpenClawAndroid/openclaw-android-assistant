@@ -491,10 +491,10 @@ describe("gateway chat metadata lifecycle composition", () => {
             context: nativeContext,
           });
           expect(respond).toHaveBeenCalledWith(true, expect.objectContaining(expected), undefined);
+          await expect(lifecycle.read({ agentId: "main" })).resolves.toMatchObject(expected);
           const catalogs = await lifecycle.readStartup({ agentId: "main", readPolicy: "ready" });
           expect(catalogs?.sessionModelCatalog).toBe(catalogs?.defaultModelCatalog);
           expect(catalogs).not.toHaveProperty("metadata");
-          await expect(lifecycle.read({ agentId: "main" })).resolves.toMatchObject(expected);
           await expect(lifecycle.readStartup({ agentId: "main" })).resolves.toMatchObject({
             metadata: expected,
           });

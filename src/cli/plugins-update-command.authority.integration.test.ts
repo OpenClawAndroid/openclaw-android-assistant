@@ -163,7 +163,7 @@ describe("plugin update metadata refusal and retained package settlement", () =>
             },
           ),
         );
-        const command = runPluginUpdateCommand({ id: pluginId, opts: {} });
+        const command = runPluginUpdateCommand({ ids: [pluginId], opts: {} });
         if (refuse) {
           await expect(command).rejects.toThrow();
           expect(failedReads).toBe(1);

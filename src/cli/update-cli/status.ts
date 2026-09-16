@@ -3,6 +3,7 @@
 import { sanitizeTerminalText } from "../../../packages/terminal-core/src/safe-text.js";
 import { getTerminalTableWidth, renderTable } from "../../../packages/terminal-core/src/table.js";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
+import { readSessionSqliteMigrationWarnings } from "../../commands/doctor-session-sqlite-warnings.js";
 import { collectNodeRuntimeFindings } from "../../commands/node-runtime-diagnostics.js";
 import {
   formatUpdateAvailableHint,
@@ -71,16 +72,19 @@ export async function updateStatusCommand(opts: UpdateStatusOptions): Promise<vo
   const runStatus = readUpdateRunStatus();
   const safeMessage = (message: string) =>
     sanitizeTerminalText(redactSensitiveText(message, { mode: "tools" }));
-  let migrationWarnings: string[] | undefined;
-  let migrationWarningsError: string | undefined;
-  try {
-    const pending = readDeferredPluginMigrations();
-    if (pending.length > 0) {
-      migrationWarnings = pending.map((entry) => safeMessage(formatDeferredPluginMigration(entry)));
+  const migrationWarnings: string[] = [];
+  const migrationWarningErrors: string[] = [];
+  for (const readWarnings of [
+    () => readDeferredPluginMigrations().map(formatDeferredPluginMigration),
+    () => readSessionSqliteMigrationWarnings(),
+  ]) {
+    try {
+      migrationWarnings.push(...readWarnings().map(safeMessage));
+    } catch (error) {
+      migrationWarningErrors.push(safeMessage(formatErrorMessage(error)));
     }
-  } catch (error) {
-    migrationWarningsError = safeMessage(formatErrorMessage(error));
   }
+  const migrationWarningsError = migrationWarningErrors.join("\n");
 
   if (opts.json) {
     defaultRuntime.writeJson({
@@ -93,7 +97,7 @@ export async function updateStatusCommand(opts: UpdateStatusOptions): Promise<vo
       },
       availability: updateAvailability,
       ...(runtimeFindings.length > 0 ? { runtimeFindings } : {}),
-      ...(migrationWarnings ? { migrationWarnings } : {}),
+      ...(migrationWarnings.length > 0 ? { migrationWarnings } : {}),
       ...(migrationWarningsError ? { migrationWarningsError } : {}),
       ...runStatus,
     });
@@ -147,15 +151,15 @@ export async function updateStatusCommand(opts: UpdateStatusOptions): Promise<vo
   );
   defaultRuntime.log("");
 
-  for (const warning of migrationWarnings ?? []) {
+  for (const warning of migrationWarnings) {
     defaultRuntime.log(theme.warn(`Warning: ${warning}`));
   }
   if (migrationWarningsError) {
     defaultRuntime.log(
-      theme.warn(`Pending plugin migration status unavailable: ${migrationWarningsError}`),
+      theme.warn(`Pending migration status unavailable: ${migrationWarningsError}`),
     );
   }
-  if (migrationWarnings || migrationWarningsError) {
+  if (migrationWarnings.length > 0 || migrationWarningsError) {
     defaultRuntime.log("");
   }
 

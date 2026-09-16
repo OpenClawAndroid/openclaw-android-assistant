@@ -583,6 +583,9 @@ const enSettings = {
       permissionsIntro: "macOS access for notifications, capture, voice, and device context.",
       permissionsIntroIos: "Device access for notifications, capture, voice, and personal data.",
       app: "App",
+      nativeExperience: "Native experience (Experimental)",
+      nativeExperienceHint:
+        "Use native Mac views for chat and navigation. When off, use the Web experience. Settings always open here.",
       appearance: "Appearance",
       appearanceModes: { system: "System", light: "Light", dark: "Dark" },
       notificationsEnabled: "Notifications",

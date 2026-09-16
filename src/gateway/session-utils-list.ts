@@ -1,5 +1,4 @@
 import { performance } from "node:perf_hooks";
-import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { expectDefined } from "@openclaw/normalization-core";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { SessionsListParams } from "../../packages/gateway-protocol/src/index.js";
@@ -28,6 +27,7 @@ import {
   type SessionListFilterParams,
 } from "./session-list-filters.js";
 import { sortAndLimitSessionEntries } from "./session-list-order.js";
+import { withSessionProjectionWorkBudget } from "./session-projection-work.js";
 import { readSessionTitleFieldsFromTranscriptBatch as readScopedSessionTitleFieldsFromTranscriptBatch } from "./session-transcript-title-reader.js";
 import type {
   SessionActorProfileIdentity,
@@ -35,31 +35,22 @@ import type {
   SessionListRowContext,
   SessionListRowContextProvider,
 } from "./session-utils-contracts.js";
-import { deriveSessionTitle, buildStoreChildSessionIndexWork } from "./session-utils-core.js";
+import { deriveSessionTitle, buildStoreChildSessionLinksWork } from "./session-utils-core.js";
 import { getSessionDefaults } from "./session-utils-model.js";
 import {
   buildSessionListRowMetadataContext,
   populateSessionListAcpMetadataWork,
 } from "./session-utils-projection.js";
-import { buildGatewaySessionRow } from "./session-utils-row.js";
+import {
+  readSessionRowInputs,
+  materializeSessionRow,
+  presentSessionRow,
+} from "./session-utils-row.js";
 import type {
   GatewaySessionRow,
   SessionListModelCatalog,
   SessionsListResult,
 } from "./session-utils.types.js";
-
-// Bound synchronous projection work without repeatedly requeueing cheap prepared rows.
-const SESSIONS_LIST_YIELD_INTERVAL_MS = 12;
-let activeSessionListProjections = 0;
-let sharedSessionListWorkStartedAt = 0;
-let sessionListYield: Promise<void> | undefined;
-
-function yieldSessionListWork(): Promise<void> {
-  return (sessionListYield ??= yieldToEventLoop().then(() => {
-    sharedSessionListWorkStartedAt = performance.now();
-    sessionListYield = undefined;
-  }));
-}
 
 const SESSIONS_LIST_DEFAULT_LIMIT = 100;
 const SESSIONS_LIST_TRANSCRIPT_FIELD_ROWS = 100;
@@ -173,6 +164,7 @@ function* prepareSessionList(
   params: ListSessionsFromStoreParams,
   shouldYield: () => boolean,
   stateContext: OpenClawStateWorkerContext,
+  yieldIfNeeded: () => Promise<void> | undefined,
 ) {
   const { cfg, store, opts } = params;
   const now = Date.now();
@@ -181,9 +173,11 @@ function* prepareSessionList(
   let rowContext: SessionListRowContext | undefined;
   const prepareRowContext = function* () {
     let work: Awaited<ReturnType<typeof prepareSubagentSessionListReadIndex>> | undefined;
-    yield prepareSubagentSessionListReadIndex(now, stateContext, shouldYield).then((prepared) => {
-      work = prepared;
-    });
+    yield prepareSubagentSessionListReadIndex(now, stateContext, shouldYield, yieldIfNeeded).then(
+      (prepared) => {
+        work = prepared;
+      },
+    );
     const subagentRuns = yield* expectDefined(work, "prepared subagent index work");
     stateContext.maintenanceScope?.assertAdmission();
     stateContext.admission.assertCurrent();
@@ -230,7 +224,7 @@ function* prepareSessionList(
   }
   const sharedRowContext = selection.entries.length > 0 ? getRowContext() : undefined;
   const storePath = hasIncognito ? params.storePath : (params.durableStorePath ?? params.storePath);
-  const storeChildSessionsByKey = yield* buildStoreChildSessionIndexWork(
+  const storeChildSessionLinksByKey = yield* buildStoreChildSessionLinksWork(
     {
       store,
       keys: [
@@ -238,9 +232,7 @@ function* prepareSessionList(
           selection.entries.map(([key]) => params.targetsBySessionKey.get(key)?.storeKey ?? key),
         ),
       ],
-      now,
-      subagentRuns: sharedRowContext?.subagentRuns,
-      excludedChildKeys: filteredSessionKeys,
+      subagentRunsByChildSessionKey: sharedRowContext?.subagentRunsByChildSessionKey ?? new Map(),
     },
     shouldYield,
   );
@@ -259,7 +251,8 @@ function* prepareSessionList(
     now,
     configuredAgentIds,
     rowContext: sharedRowContext,
-    storeChildSessionsByKey,
+    storeChildSessionLinksByKey,
+    excludedChildKeys: filteredSessionKeys,
     storePath,
   };
 }
@@ -351,160 +344,150 @@ export async function listSessionsFromStoreAsync(
   // concurrent agent turns / crons mutate the process-global workspace dir
   // between rows, the memo never hits, and each row triggers a full
   // loadPluginMetadataSnapshot scan (~100 ms).
-  return withPinnedActivePluginRegistryWorkspaceDir(async () => {
-    let workStartedAt = params.workStartedAt ?? performance.now();
-    if (activeSessionListProjections++ === 0) {
-      sharedSessionListWorkStartedAt = workStartedAt;
-    }
-    const timing = params.projectionTiming;
-    let syncStartedAt = timing ? performance.now() : 0;
-    let syncPhase: "prepareSyncMs" | "rowSyncMs" | undefined = "prepareSyncMs";
-    const yieldIfNeeded = (): Promise<void> | undefined => {
-      const checkpoint = performance.now();
-      if (
-        checkpoint - workStartedAt < SESSIONS_LIST_YIELD_INTERVAL_MS &&
-        checkpoint - sharedSessionListWorkStartedAt < SESSIONS_LIST_YIELD_INTERVAL_MS
-      ) {
-        return undefined;
-      }
-      const phase = syncPhase;
-      if (timing && phase) {
-        timing[phase] += checkpoint - syncStartedAt;
-      }
-      syncPhase = undefined;
-      return yieldSessionListWork().then(() => {
-        workStartedAt = performance.now();
-        if (timing) {
-          timing.yieldWaitMs += workStartedAt - checkpoint;
-          timing.yieldCount++;
-          syncStartedAt = workStartedAt;
-        }
-        syncPhase = phase;
-      });
-    };
-    try {
-      const { cfg, store, targetsBySessionKey } = params;
-      let checkedItems = 0;
-      // Sample the clock in small batches, and leave nested generators only when work is due.
-      const shouldYieldPreparation = () => {
-        if (++checkedItems % 16 !== 0) {
-          return false;
-        }
-        const now = performance.now();
-        return (
-          now - workStartedAt >= SESSIONS_LIST_YIELD_INTERVAL_MS ||
-          now - sharedSessionListWorkStartedAt >= SESSIONS_LIST_YIELD_INTERVAL_MS
-        );
-      };
-      const preparation = prepareSessionList(params, shouldYieldPreparation, stateContext);
-      // Each chunk shares roster facts, then releases them before another request can run.
-      let step = withAgentRosterFactsBatch(cfg, () => preparation.next());
-      while (!step.done) {
-        if (step.value) {
-          const checkpoint = performance.now();
-          if (timing) {
-            timing.prepareSyncMs += checkpoint - syncStartedAt;
-          }
-          syncPhase = undefined;
-          await step.value;
-          workStartedAt = performance.now();
-          syncStartedAt = workStartedAt;
-          syncPhase = "prepareSyncMs";
-        }
-        const pause = yieldIfNeeded();
-        if (pause) {
-          await pause;
-        }
-        step = withAgentRosterFactsBatch(cfg, () => preparation.next());
-      }
-      const list = step.value;
-      const sessions: GatewaySessionRow[] = [];
-      const includeTranscriptFields = list.includeDerivedTitles || list.includeLastMessage;
-      const transcriptFields = includeTranscriptFields
-        ? readScopedSessionTitleFieldsFromTranscriptBatch(
-            list.entries.slice(0, list.transcriptFieldRows).flatMap(([key, entry]) => {
-              if (!entry.sessionId) {
-                return [];
-              }
-              const target = expectDefined(targetsBySessionKey.get(key), "transcript row target");
-              return [
-                {
-                  ...target.storeTarget,
-                  sessionEntry: entry,
-                  sessionId: entry.sessionId,
-                  sessionKey: target.storeKey ?? key,
-                },
-              ];
-            }),
-          )
-        : [];
-      // Optional transcript reads can spend the remaining budget even for an empty page.
-      const checkpoint = performance.now();
-      if (timing) {
-        timing.prepareSyncMs += checkpoint - syncStartedAt;
-        syncStartedAt = checkpoint;
-        syncPhase = "rowSyncMs";
-      }
-      const preparationPause = yieldIfNeeded();
-      if (preparationPause) {
-        await preparationPause;
-      }
-      let transcriptFieldIndex = 0;
-      for (let nextRowIndex = 0; nextRowIndex < list.entries.length;) {
-        // Release roster facts before a pause so resumed rows observe current entries.
-        const pause = withAgentRosterFactsBatch(cfg, () => {
-          while (nextRowIndex < list.entries.length) {
-            const i = nextRowIndex++;
-            const [key, entry] = expectDefined(list.entries[i], "entries entry at i");
-            const target = expectDefined(targetsBySessionKey.get(key), "session row owner");
-            const row = buildGatewaySessionRow({
-              cfg,
-              storePath: target.storeTarget.storePath, // Aggregate paths are display-only.
-              store,
-              modelSource: target.modelSource,
-              key: target.storeKey ?? key,
-              entry,
-              agentId: target.agentId,
-              modelCatalog: params.modelCatalog,
-              now: list.now,
-              storeChildSessionsByKey: list.storeChildSessionsByKey,
-              rowContext: list.rowContext,
-              configuredAgentIds: list.configuredAgentIds,
-              skipTranscriptUsageFallback: true,
-              lightweightListRow: true,
-            });
-            row.key = key;
-            if (entry?.sessionId && i < list.transcriptFieldRows && includeTranscriptFields) {
-              const { firstUserMessage, lastMessagePreview } = expectDefined(
-                transcriptFields[transcriptFieldIndex++],
-                "batched transcript fields at transcriptFieldIndex",
-              );
-              if (list.includeDerivedTitles) {
-                row.derivedTitle = deriveSessionTitle(entry, firstUserMessage, row.displayName);
-              }
-              if (list.includeLastMessage && lastMessagePreview) {
-                row.lastMessagePreview = lastMessagePreview;
-              }
-            }
-            sessions.push(row);
-            const rowPause = nextRowIndex < list.entries.length ? yieldIfNeeded() : undefined;
-            if (rowPause) {
-              return rowPause;
-            }
-          }
+  return withPinnedActivePluginRegistryWorkspaceDir(() =>
+    withSessionProjectionWorkBudget(async (budget) => {
+      const timing = params.projectionTiming;
+      let syncStartedAt = timing ? performance.now() : 0;
+      let syncPhase: "prepareSyncMs" | "rowSyncMs" | undefined = "prepareSyncMs";
+      const yieldIfNeeded = (): Promise<void> | undefined => {
+        const checkpoint = performance.now();
+        const pause = budget.yieldIfNeeded();
+        if (!pause) {
           return undefined;
+        }
+        const phase = syncPhase;
+        if (timing && phase) {
+          timing[phase] += checkpoint - syncStartedAt;
+        }
+        syncPhase = undefined;
+        return pause.then(() => {
+          const resumedAt = performance.now();
+          if (timing) {
+            timing.yieldWaitMs += resumedAt - checkpoint;
+            timing.yieldCount++;
+            syncStartedAt = resumedAt;
+          }
+          syncPhase = phase;
         });
-        if (pause) {
-          await pause;
+      };
+      try {
+        const { cfg, store, targetsBySessionKey } = params;
+        const preparation = prepareSessionList(
+          params,
+          budget.shouldYield,
+          stateContext,
+          budget.yieldIfNeeded,
+        );
+        // Each chunk shares roster facts, then releases them before another request can run.
+        let step = withAgentRosterFactsBatch(cfg, () => preparation.next());
+        while (!step.done) {
+          if (step.value) {
+            const checkpoint = performance.now();
+            if (timing) {
+              timing.prepareSyncMs += checkpoint - syncStartedAt;
+            }
+            syncPhase = undefined;
+            await step.value;
+            budget.resumeAfterAwait();
+            syncStartedAt = performance.now();
+            syncPhase = "prepareSyncMs";
+          }
+          const pause = yieldIfNeeded();
+          if (pause) {
+            await pause;
+          }
+          step = withAgentRosterFactsBatch(cfg, () => preparation.next());
+        }
+        const list = step.value;
+        const sessions: GatewaySessionRow[] = [];
+        const includeTranscriptFields = list.includeDerivedTitles || list.includeLastMessage;
+        const transcriptFields = includeTranscriptFields
+          ? readScopedSessionTitleFieldsFromTranscriptBatch(
+              list.entries.slice(0, list.transcriptFieldRows).flatMap(([key, entry]) => {
+                if (!entry.sessionId) {
+                  return [];
+                }
+                const target = expectDefined(targetsBySessionKey.get(key), "transcript row target");
+                return [
+                  {
+                    ...target.storeTarget,
+                    sessionEntry: entry,
+                    sessionId: entry.sessionId,
+                    sessionKey: target.storeKey ?? key,
+                  },
+                ];
+              }),
+            )
+          : [];
+        // Optional transcript reads can spend the remaining budget even for an empty page.
+        const checkpoint = performance.now();
+        if (timing) {
+          timing.prepareSyncMs += checkpoint - syncStartedAt;
+          syncStartedAt = checkpoint;
+          syncPhase = "rowSyncMs";
+        }
+        const preparationPause = yieldIfNeeded();
+        if (preparationPause) {
+          await preparationPause;
+        }
+        let transcriptFieldIndex = 0;
+        for (let nextRowIndex = 0; nextRowIndex < list.entries.length;) {
+          // Release roster facts before a pause so resumed rows observe current entries.
+          const pause = withAgentRosterFactsBatch(cfg, () => {
+            while (nextRowIndex < list.entries.length) {
+              const i = nextRowIndex++;
+              const [key, entry] = expectDefined(list.entries[i], "entries entry at i");
+              const target = expectDefined(targetsBySessionKey.get(key), "session row owner");
+              const { inputs, presentation } = readSessionRowInputs({
+                cfg,
+                storePath: target.storeTarget.storePath, // Aggregate paths are display-only.
+                store,
+                modelSource: target.modelSource,
+                key: target.storeKey ?? key,
+                entry,
+                agentId: target.agentId,
+                modelCatalog: params.modelCatalog,
+                now: list.now,
+                storeChildSessionLinksByKey: list.storeChildSessionLinksByKey,
+                excludedChildKeys: list.excludedChildKeys,
+                rowContext: list.rowContext,
+                configuredAgentIds: list.configuredAgentIds,
+                skipTranscriptUsageFallback: true,
+                lightweightListRow: true,
+              });
+              const row = presentSessionRow(materializeSessionRow(inputs), presentation);
+              row.key = key;
+              if (entry?.sessionId && i < list.transcriptFieldRows && includeTranscriptFields) {
+                const { firstUserMessage, lastMessagePreview } = expectDefined(
+                  transcriptFields[transcriptFieldIndex++],
+                  "batched transcript fields at transcriptFieldIndex",
+                );
+                if (list.includeDerivedTitles) {
+                  row.derivedTitle = deriveSessionTitle(entry, firstUserMessage, row.displayName);
+                }
+                if (list.includeLastMessage && lastMessagePreview) {
+                  row.lastMessagePreview = lastMessagePreview;
+                }
+              }
+              sessions.push(row);
+              const rowPause = nextRowIndex < list.entries.length ? yieldIfNeeded() : undefined;
+              if (rowPause) {
+                return rowPause;
+              }
+            }
+            return undefined;
+          });
+          if (pause) {
+            await pause;
+          }
+        }
+
+        return buildSessionsListResult(params, list, sessions);
+      } finally {
+        if (timing && syncPhase) {
+          timing[syncPhase] += performance.now() - syncStartedAt;
         }
       }
-
-      return buildSessionsListResult(params, list, sessions);
-    } finally {
-      activeSessionListProjections--;
-      if (timing && syncPhase) {
-        timing[syncPhase] += performance.now() - syncStartedAt;
-      }
-    }
-  });
+    }, params.workStartedAt),
+  );
 }

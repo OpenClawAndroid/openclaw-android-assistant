@@ -456,6 +456,44 @@ describe("openclaw test state", () => {
     await expectPathMissing(state.root);
   });
 
+  it("restores late env additions before the next fixture", async () => {
+    const previous = {
+      OPENCLAW_TEST_LATE_ABSENT: undefined,
+      OPENCLAW_TEST_LATE_EMPTY: "",
+      OPENCLAW_TEST_LATE_PRESENT: "original",
+    };
+    await withEnvAsync(previous, async () => {
+      const state = await createOpenClawTestState({ label: "late-env" });
+      try {
+        Object.assign(state.envVars, {
+          OPENCLAW_TEST_LATE_ABSENT: "first",
+          OPENCLAW_TEST_LATE_EMPTY: "first",
+          OPENCLAW_TEST_LATE_PRESENT: undefined,
+        });
+        state.applyEnv();
+        expect(process.env.OPENCLAW_TEST_LATE_ABSENT).toBe("first");
+        expect(process.env.OPENCLAW_TEST_LATE_EMPTY).toBe("first");
+        expect(process.env.OPENCLAW_TEST_LATE_PRESENT).toBeUndefined();
+        for (const key of Object.keys(previous)) {
+          state.envVars[key] = "second";
+        }
+        state.applyEnv();
+        for (const key of Object.keys(previous)) {
+          expect(process.env[key]).toBe("second");
+        }
+      } finally {
+        await state.cleanup();
+      }
+      await state.cleanup();
+      await withOpenClawTestState({ label: "after-late-env" }, async (next) => {
+        for (const [key, value] of Object.entries(previous)) {
+          expect(process.env[key]).toBe(value);
+          expect(next.env[key]).toBe(value);
+        }
+      });
+    });
+  });
+
   it("supports state-only layout without overriding HOME", async () => {
     const previousHome = process.env.HOME;
 

@@ -5,7 +5,9 @@ import {
   buildControlPlaneUpdateRestartHealthPendingResult,
   resolveManagedServiceUpdateFailureExitCode,
 } from "../../infra/update-control-plane-sentinel.js";
+import { normalizeControlPlaneUpdateResult } from "../../infra/update-restart-sentinel-payload.js";
 import { recordUpdateRunStep } from "../../infra/update-run-ledger.js";
+import { isUpdateGatewayReadinessPending } from "../../infra/update-run-step.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
@@ -45,7 +47,7 @@ import {
 } from "./update-command-service.js";
 import {
   deferUpdateCommandTerminalResult,
-  recordVerifiedUpdatePackageCleanup,
+  recordUpdatePackageCompletion,
   publishUpdateCommandTerminalResult,
   resolveSettledUpdateCommandResult,
 } from "./update-command-terminal.js";
@@ -118,15 +120,16 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
     }
   };
   // Finalization owns the complete outcome, including recovery, restart, and completion work.
-  const completedResult = (result: UpdateRunResult): UpdateRunResult => ({
-    ...result,
-    ...(result.status === "error" &&
-    result.reason !== UPDATE_ACTIVATION_TIMEOUT_REASON &&
-    params.rollbackBlockedReason
-      ? { reason: params.rollbackBlockedReason }
-      : {}),
-    durationMs: Math.max(0, Date.now() - params.startedAt),
-  });
+  const completedResult = (result: UpdateRunResult): UpdateRunResult =>
+    normalizeControlPlaneUpdateResult({
+      ...result,
+      ...(result.status === "error" &&
+      result.reason !== UPDATE_ACTIVATION_TIMEOUT_REASON &&
+      params.rollbackBlockedReason
+        ? { reason: params.rollbackBlockedReason }
+        : {}),
+      durationMs: Math.max(0, Date.now() - params.startedAt),
+    });
   const recordNextAction = (result: UpdateRunResult) => {
     assertCurrent();
     return recordUpdateResultNextAction(params, result);
@@ -162,7 +165,8 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
     if (
       result.status === "error" &&
       (params.packageTransaction || params.rollbackBlockedReason) &&
-      !rollbackAttempted
+      !rollbackAttempted &&
+      !isUpdateGatewayReadinessPending(result)
     ) {
       rollbackAttempted = true;
       const rollback = await withOwnedManagedUpdateEnv(params.ownedManagedUpdateEnv, () =>
@@ -218,13 +222,17 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
         { env: params.opts.run.env },
       );
     }
+    if (isUpdateGatewayReadinessPending(result)) {
+      triageAllowed = false;
+      return { result, recoverService: false };
+    }
     if (result.status === "error" && !rolledBack && repair) {
       postVerificationRepairAttempted = true;
       const previousRestored = result.recovery?.packageRollbackVerified === true;
       result = await repair(result);
       if (previousRestored && result.status === "ok") {
-        // Repair verified the restored release; the requested update still failed.
-        rolledBack = true;
+        // Restored bytes still failed the requested update; pending readiness is not verified rollback.
+        rolledBack = !isUpdateGatewayReadinessPending(result);
         result = { ...result, status: "error", reason: initialResult.reason };
       }
       recoverService = false;
@@ -263,6 +271,7 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
         if (
           !rolledBack &&
           finalResult.status !== "ok" &&
+          !isUpdateGatewayReadinessPending(finalResult) &&
           finalResult.recovery?.serviceRestartSafe !== true
         ) {
           await currentServiceStop()?.windowsTaskAutoStartRecovery?.complete(false);
@@ -305,29 +314,6 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
       ];
     }
     assertCurrent();
-    const retireBackup =
-      finalResult.status === "ok" || finalResult.recovery?.packageRollbackVerified === true;
-    if (params.packageTransaction && !retireBackup) {
-      const retained = await params.packageTransaction.complete(
-        { activationVerified: false },
-        assertCurrent,
-      );
-      if (retained) {
-        const backupPath = params.packageTransaction.backupRoot;
-        finalResult.steps = [
-          ...finalResult.steps,
-          {
-            ...retained,
-            stderrTail:
-              retained.exitCode === 0 || retained.stderrTail?.includes(backupPath)
-                ? retained.stderrTail
-                : [retained.stderrTail, `Recovery transaction backup path: ${backupPath}`]
-                    .filter(Boolean)
-                    .join("\n"),
-          },
-        ];
-      }
-    }
     if (finalResult.status === "error" && !rolledBack && currentServiceStop()?.stopped) {
       await recordFailedUpdateGatewayState(
         params.opts.run,
@@ -371,14 +357,13 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
     }
     await currentServiceStop()?.windowsTaskAutoStartRecovery?.complete(
       rolledBack ||
+        isUpdateGatewayReadinessPending(finalResult) ||
         finalResult.status === "ok" ||
         (finalResult.recovery?.serviceRestartSafe === true &&
           finalResult.recovery.service === "healthy"),
     );
     assertCurrent();
-    const cleanupFailure = retireBackup
-      ? await recordVerifiedUpdatePackageCleanup(params, finalResult, assertCurrent)
-      : undefined;
+    const cleanupFailure = await recordUpdatePackageCompletion(params, finalResult, assertCurrent);
     assertCurrent();
     pendingResult = completedResult(cleanupFailure?.result ?? finalResult);
     const reportedResult = deferredTerminal ? pendingResult : await publishFinalResult();
@@ -542,7 +527,7 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
           onVerified: recordVerifiedDowntime,
         }),
       );
-      if (restarted === "ok") {
+      if (restarted === "ok" || restarted === "readiness-pending") {
         return;
       }
       triageAllowed = restartContext.serviceMutationAllowed;

@@ -14,8 +14,15 @@ const outputLimit = 16 * 1024;
 const privateLimit = 8 * 1024 * 1024;
 const publicLimit = 512 * 1024;
 const entryLimit = 128;
+const migrationFileLimit = 2 * 1024 * 1024;
+const migrationDirectory = "session-sqlite-migration-runs";
+const migrationLabels = {
+  manifest: "session migration manifest",
+  failureReport: "session migration failure report",
+};
 const logNames = [
   "baseline-install.log",
+  "baseline-companion.json",
   "install.log",
   "update.json",
   "update.err",
@@ -707,6 +714,147 @@ function captureMigrationEvidence(stateRoot, artifactRoot, observationRoot) {
   );
 }
 
+function sessionMigrationProjection(raw, kind, runId, sanitize = (text) => text) {
+  if (typeof raw !== "string" || Buffer.byteLength(raw) > migrationFileLimit) {
+    throw new Error();
+  }
+  const value = JSON.parse(raw);
+  const manifest = kind === "manifest";
+  const version = manifest ? value.openClawVersion : value.version;
+  if (
+    value.runId !== runId ||
+    typeof version !== "string" ||
+    version.length === 0 ||
+    version.length > 80 ||
+    (manifest && ![1, 2, 3, 4].includes(value.manifestVersion))
+  ) {
+    throw new Error();
+  }
+  const targets = boundedList(value.targets).map((target) => {
+    if (
+      typeof target.agentId !== "string" ||
+      target.agentId.length === 0 ||
+      target.agentId.length > 128 ||
+      !["not_run", "passed", "failed"].includes(target.validationBeforeArchive) ||
+      !Array.isArray(target.issues)
+    ) {
+      throw new Error();
+    }
+    const histogram = new Map();
+    for (const issue of target.issues) {
+      if (typeof issue?.code !== "string" || !/^[a-z][a-z0-9_]{0,79}$/.test(issue.code)) {
+        throw new Error();
+      }
+      histogram.set(issue.code, (histogram.get(issue.code) ?? 0) + 1);
+    }
+    const moves = {};
+    for (const field of ["completedMoves", "plannedMoves"]) {
+      if (manifest && !Array.isArray(target[field])) {
+        throw new Error();
+      }
+      const count = manifest ? target[field].length : target[field];
+      if (!Number.isSafeInteger(count) || count < 0) {
+        throw new Error();
+      }
+      moves[field] = count;
+    }
+    return Object.assign(
+      {
+        agentId: sanitize(target.agentId, migrationLabels[kind]),
+        validationBeforeArchive: target.validationBeforeArchive,
+        issueCount: target.issues.length,
+        issueHistogram: boundedList([...histogram])
+          .toSorted(([left], [right]) => left.localeCompare(right))
+          .map(([code, count]) => ({ code: sanitize(code, migrationLabels[kind]), count })),
+      },
+      moves,
+    );
+  });
+  return { version: sanitize(version, migrationLabels[kind]), targets };
+}
+
+function readSessionMigration(stateRoot) {
+  const snapshot = { runId: null, manifest: null, failureReport: null };
+  let names;
+  try {
+    names = fs.readdirSync(ownedPath(stateRoot, migrationDirectory));
+  } catch {
+    omissions["session migration"] = reasons[0];
+    return snapshot;
+  }
+  if (names.length > entryLimit) {
+    omissions["session migration"] = reasons[1];
+    return snapshot;
+  }
+  // Pick the latest owned run, never follow paths supplied by its manifest.
+  const runs = names
+    .filter((name) => /^session-sqlite-\d{1,16}-[0-9a-f]{8}\.json$/.test(name))
+    .toSorted(
+      (left, right) =>
+        Number(right.split("-")[2]) - Number(left.split("-")[2]) || left.localeCompare(right),
+    );
+  if (!runs.length) {
+    omissions["session migration"] = reasons[0];
+    return snapshot;
+  }
+  snapshot.runId = runs[0].slice(0, -5);
+  for (const [kind, suffix] of [
+    ["manifest", ".json"],
+    ["failureReport", ".failure.json"],
+  ]) {
+    const raw = readOwned(
+      stateRoot,
+      path.join(migrationDirectory, `${snapshot.runId}${suffix}`),
+      migrationLabels[kind],
+      migrationFileLimit,
+    );
+    if (raw === null) {
+      continue;
+    }
+    try {
+      sessionMigrationProjection(raw, kind, snapshot.runId);
+      snapshot[kind] = raw;
+    } catch {
+      omissions[migrationLabels[kind]] = reasons[3];
+    }
+  }
+  return snapshot;
+}
+
+function publishedSessionMigration(snapshot, sanitize) {
+  const report = { availability: "unavailable", manifest: null, failureReport: null };
+  if (!snapshot || snapshot.runId === null) {
+    return report;
+  }
+  if (
+    typeof snapshot.runId !== "string" ||
+    !/^session-sqlite-\d{1,16}-[0-9a-f]{8}$/.test(snapshot.runId)
+  ) {
+    omissions["session migration"] = reasons[3];
+    return report;
+  }
+  for (const kind of Object.keys(migrationLabels)) {
+    if (snapshot[kind] === null) {
+      continue;
+    }
+    try {
+      const projected = sessionMigrationProjection(snapshot[kind], kind, snapshot.runId, sanitize);
+      if (Buffer.byteLength(JSON.stringify(projected)) > outputLimit) {
+        omissions[migrationLabels[kind]] = reasons[1];
+        continue;
+      }
+      report[kind] = projected;
+      report.availability = "captured";
+    } catch {
+      omissions[migrationLabels[kind]] = reasons[3];
+    }
+  }
+  if (report.availability === "captured") {
+    report.runId = sanitize(snapshot.runId, "session migration");
+  }
+  return report;
+}
+
 function armUpgradeProcessCapture() {
   const command = process.argv[2];
   const artifactRoot = process.env.OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT;
@@ -1169,6 +1317,11 @@ async function capture(artifactRoot, phase, exitStatus, signal = "", observation
       omissions["child exit"] = reasons[3];
     }
   }
+  report.sessionMigration = readSessionMigration(stateRoot);
+  if (Buffer.byteLength(`${JSON.stringify(report, null, 2)}\n`) > privateLimit) {
+    report.sessionMigration = { runId: null, manifest: null, failureReport: null };
+    omissions["session migration"] = reasons[1];
+  }
   writeReport(
     artifactRoot,
     path.join(artifactRoot, "diagnostics"),
@@ -1393,10 +1546,34 @@ function publishedSuccessSummary(artifactRoot, sanitize) {
     }
     timings[key] = value;
   }
+  let baselineCompanion = null;
+  const companion = snapshot.baselineCompanion;
+  if (companion !== null && companion !== undefined) {
+    if (
+      !["@openclaw/discord", "@openclaw/msteams"].includes(companion.package) ||
+      typeof companion.version !== "string" ||
+      !/^\d{4}\.\d{1,2}\.\d{1,3}(?:-(?:\d+|(?:alpha|beta)\.\d+))?$/.test(companion.version) ||
+      !["available", "unavailable"].includes(companion.availability) ||
+      (companion.availability === "available"
+        ? companion.reason !== null
+        : typeof companion.reason !== "string" ||
+          !companion.reason ||
+          companion.reason.length > 200)
+    ) {
+      throw new Error();
+    }
+    baselineCompanion = {
+      package: sanitize(companion.package, "baseline companion"),
+      version: sanitize(companion.version, "baseline companion"),
+      availability: companion.availability,
+      reason: sanitize(companion.reason, "baseline companion"),
+    };
+  }
   return {
     status: "passed",
     baseline: textFields(snapshot.baseline, ["spec", "version"], sanitize),
     candidate: textFields(snapshot.candidate, ["kind", "version"], sanitize),
+    baselineCompanion,
     ...textFields(
       snapshot,
       [
@@ -1445,6 +1622,9 @@ export function publishDiagnostics(
   redactSensitiveText,
   outcome = "failed",
 ) {
+  for (const label of Object.keys(omissions)) {
+    delete omissions[label];
+  }
   if (outcome === "passed") {
     writeReport(
       artifactRoot,
@@ -1472,6 +1652,7 @@ export function publishDiagnostics(
       entriesPerCollection: entryLimit,
       indexJsonBytes: indexLimit,
       indexSourceBytesPerFile: 64 * 1024 * 1024,
+      migrationBytesPerFile: migrationFileLimit,
     },
     logs: {},
     service: {},
@@ -1492,6 +1673,8 @@ export function publishDiagnostics(
     "post-core",
     "plugin identity",
     ...["doctor", "sessions", "archives", "sibling"].map((section) => `migration-${section}`),
+    "session migration",
+    ...Object.values(migrationLabels),
   ]) {
     if (reasons.includes(snapshot.omissions?.[label])) {
       omissions[label] = snapshot.omissions[label];
@@ -1551,6 +1734,7 @@ export function publishDiagnostics(
     report.config.sha256 = snapshot.config.sha256;
   }
   report.postCore = publishedPostCore(snapshot.postCore, sanitize);
+  report.sessionMigration = publishedSessionMigration(snapshot.sessionMigration, sanitize);
   report.doctorResults = { availability: "unknown", observations: [] };
   try {
     const observations = boundedList(snapshot.doctorResults).map((pair) =>

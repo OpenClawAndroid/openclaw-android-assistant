@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { ensureSqliteLibrarySelected } from "../../infra/bun-sqlite-library.js";
 import { runtimeProcessEntrypoints } from "../../infra/runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
 import { WorkerTaskError, WorkerTaskPool } from "../../infra/worker-task-pool.js";
@@ -6,12 +7,20 @@ import type { SensitiveTextRedactionSnapshot } from "../../logging/redact.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db-contract.js";
 import { registerOpenClawAgentDatabaseAsyncResource } from "../../state/openclaw-agent-db-resources.js";
+import { isIncognitoOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.js";
 import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
+import { resolveStateDir } from "../state-dir.js";
 import type { SessionBranchSummaryReadRequest } from "./session-accessor.sqlite-branches.js";
+import { loadSessionEntryReadOnlyInScope } from "./session-accessor.sqlite-entry.js";
 import type { readSessionTranscriptModelContext } from "./session-accessor.sqlite-model-context.js";
-import type { SessionTranscriptRuntimeTarget } from "./session-accessor.types.js";
+import { resolveSqliteScope, toDatabaseOptions } from "./session-accessor.sqlite-scope.js";
+import type {
+  SessionAccessScope,
+  SessionTranscriptRuntimeTarget,
+} from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type { SessionHistoryWorkerResult } from "./session-history-types.js";
+import { resolveSessionStorePathForScope } from "./session-store-path.js";
 import { SessionTranscriptProjectionUnavailableError } from "./session-transcript-projection-error.js";
 import {
   resolveSessionTranscriptReadFence,
@@ -21,6 +30,7 @@ import type {
   SessionEntryWorkerInput,
   SessionBranchSummaryWorkerInput,
   SessionTranscriptHistoryWorkerInput,
+  SessionRowPresenceWorkerInput,
   SessionModelContextWorkerInput,
   SessionTranscriptWorkerReply,
 } from "./session-transcript.worker.js";
@@ -42,9 +52,17 @@ const sessionEntries = new WorkerTaskPool<
 >({ workerUrl, maxWorkers: 1, sharedCompute: true });
 
 const historyPages = new WorkerTaskPool<
-  SessionTranscriptHistoryWorkerInput,
-  SessionTranscriptWorkerReply<"history-page">
->({ workerUrl, maxWorkers: 1, idleTimeoutMs: 0 });
+  SessionTranscriptHistoryWorkerInput | SessionRowPresenceWorkerInput,
+  SessionTranscriptWorkerReply<"history-page" | "session-row-presence">
+>({
+  workerUrl,
+  maxWorkers: 1,
+  idleTimeoutMs: 0,
+  prepareWorker: () => {
+    ensureSqliteLibrarySelected();
+    return { options: {} };
+  },
+});
 
 // Branch scans share background compute admission without delaying foreground history or context.
 const branchSummaries = new WorkerTaskPool<
@@ -53,7 +71,12 @@ const branchSummaries = new WorkerTaskPool<
 >({ workerUrl, maxWorkers: 1, sharedCompute: true });
 
 function unwrapReply<
-  Kind extends "model-context" | "session-entry" | "history-page" | "branch-summaries",
+  Kind extends
+    | "model-context"
+    | "session-entry"
+    | "history-page"
+    | "branch-summaries"
+    | "session-row-presence",
 >(reply: SessionTranscriptWorkerReply<Kind>) {
   if (reply.ok) {
     return reply.value;
@@ -129,7 +152,41 @@ export type SessionHistoryWorkerDatabase = {
     prepare: () => Omit<SessionTranscriptHistoryWorkerInput, "database">,
     inputBytes: number,
   ) => Promise<SessionHistoryWorkerResult>;
+  readEntryPresence: (scope: SessionRowPresenceWorkerInput["scope"]) => Promise<boolean>;
 };
+
+/** Capture the exact metadata owner before initial-writer admission can wait. */
+export function prepareSessionEntryPresenceRead(input: SessionAccessScope): Readonly<{
+  sessionKey: string;
+  storePath: string;
+  read: () => Promise<boolean>;
+}> {
+  const env = { ...(input.env ?? process.env) };
+  env.OPENCLAW_STATE_DIR = resolveStateDir(env);
+  const storePath = resolveSessionStorePathForScope({ ...input, env });
+  const resolved = resolveSqliteScope({ ...input, storePath, env });
+  const options = toDatabaseOptions(resolved);
+  const databasePath = resolveOpenClawAgentSqlitePath(options);
+  const scope: SessionRowPresenceWorkerInput["scope"] = {
+    agentId: resolved.agentId,
+    sessionKey: resolved.sessionKey,
+    storePath: databasePath,
+    databaseAgentId: options.agentId,
+    env,
+  };
+  const incognito = isIncognitoOpenClawAgentSqlitePath(databasePath, options);
+  return {
+    sessionKey: resolved.sessionKey,
+    storePath,
+    read: incognito
+      ? async () => loadSessionEntryReadOnlyInScope(scope) !== undefined
+      : async () =>
+          await withSessionHistoryWorkerDatabase(
+            options,
+            async (owner) => await owner.readEntryPresence(scope),
+          ),
+  };
+}
 
 const historyDatabases = new Map<string, HistoryDatabaseResource>();
 const runInHistoryOwnerContext = AsyncLocalStorage.snapshot();
@@ -230,44 +287,70 @@ export async function withSessionHistoryWorkerDatabase<T>(
   owned.pending++;
   try {
     assertCurrent();
+    const runRequest = async <TResult>(
+      prepare: () =>
+        | Omit<SessionTranscriptHistoryWorkerInput, "database">
+        | Omit<SessionRowPresenceWorkerInput, "database">,
+      inputBytes: number,
+      receive: (value: SessionHistoryWorkerResult | boolean) => TResult,
+    ): Promise<TResult> => {
+      assertCurrent();
+      let sequence = 0;
+      try {
+        const reply = await historyPages.run(
+          () => {
+            assertCurrent();
+            const input = prepare();
+            assertCurrent();
+            sequence = ++historyNativeSequence;
+            owned.nativeSequence = sequence;
+            return { ...input, database };
+          },
+          { inputBytes, timeoutMs: 60_000 },
+        );
+        const value = receive(unwrapReply<"history-page" | "session-row-presence">(reply));
+        // The worker closes the previous database before entering this request's scope.
+        for (const other of historyDatabases.values()) {
+          if (
+            other !== owned &&
+            other.nativeSequence !== undefined &&
+            other.nativeSequence < sequence
+          ) {
+            other.nativeSequence = undefined;
+          }
+        }
+        assertCurrent();
+        return value;
+      } catch (error) {
+        if (sequence > 0) {
+          await rotateHistoryWorkers();
+        }
+        throw error;
+      }
+    };
     const result = await operation({
       generation: owned.generation,
       assertCurrent,
-      run: async (prepare, inputBytes) => {
-        assertCurrent();
-        let sequence = 0;
-        try {
-          const reply = await historyPages.run(
-            () => {
-              assertCurrent();
-              const input = prepare();
-              assertCurrent();
-              sequence = ++historyNativeSequence;
-              owned.nativeSequence = sequence;
-              return { ...input, database };
-            },
-            { inputBytes, timeoutMs: 60_000 },
-          );
-          const value = unwrapReply<"history-page">(reply);
-          // The worker closes the previous database before entering this request's scope.
-          for (const other of historyDatabases.values()) {
-            if (
-              other !== owned &&
-              other.nativeSequence !== undefined &&
-              other.nativeSequence < sequence
-            ) {
-              other.nativeSequence = undefined;
-            }
+      run: async (prepare, inputBytes) =>
+        await runRequest(prepare, inputBytes, (value) => {
+          if (typeof value === "boolean") {
+            throw new Error("Session history worker returned metadata presence instead of history");
           }
-          assertCurrent();
           return value;
-        } catch (error) {
-          if (sequence > 0) {
-            await rotateHistoryWorkers();
-          }
-          throw error;
-        }
-      },
+        }),
+      readEntryPresence: async (scope) =>
+        await runRequest(
+          () => ({ kind: "session-row-presence", scope }),
+          JSON.stringify(scope).length * 2,
+          (value) => {
+            if (typeof value !== "boolean") {
+              throw new Error(
+                "Session history worker returned history instead of metadata presence",
+              );
+            }
+            return value;
+          },
+        ),
     });
     assertCurrent();
     return result;

@@ -224,6 +224,11 @@ export function moveQueuedChatMessage(
     setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
     return "rejected";
   }
+  for (const key of ["lastError", "chatError"] as const) {
+    if (host[key] === QUEUED_MESSAGE_REORDER_CONFLICT_ERROR) {
+      host[key] = null;
+    }
+  }
   return "moved";
 }
 

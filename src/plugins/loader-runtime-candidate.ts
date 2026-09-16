@@ -43,6 +43,7 @@ import type { PluginManifestRecord } from "./manifest-registry.js";
 import { resolvePluginModuleExport } from "./module-export.js";
 import { resolveExternalPluginRuntimeDependencyRepairHint } from "./official-external-plugin-repair-hints.js";
 import { getPluginInstance } from "./plugin-instance-scope.js";
+import { PluginInstance } from "./plugin-instance.js";
 import { withProfile } from "./plugin-load-profile.js";
 import { preparePluginModule } from "./plugin-module-loader-cache.js";
 import { normalizePluginPolicyId } from "./plugin-policy-id.js";
@@ -131,7 +132,8 @@ export function loadRuntimePluginCandidate(params: {
     return;
   }
   const { pluginId, isDreamingSidecar, activationState, enableState, entry, record } = prepared;
-  const pluginRoot = resolveRealpathOrAbsolute(candidate.rootDir);
+  const recovery = params.options.moduleRecoveries?.get(pluginId);
+  const pluginRoot = recovery ? candidate.rootDir : resolveRealpathOrAbsolute(candidate.rootDir);
   const degradedPluginForId = findActiveDegradedPlugin(pluginId);
   const degradedPlugin =
     degradedPluginForId && degradedPluginMatchesRoot(degradedPluginForId, pluginRoot)
@@ -211,15 +213,18 @@ export function loadRuntimePluginCandidate(params: {
     packageManifest: candidate.packageManifest,
     registry,
   };
-  const runtimeCandidateEntry = cliMetadata
-    ? { source: candidate.source, rootDir: pluginRoot }
-    : resolvePluginRuntimeArtifact({
-        ...artifactParams,
-        entryKind: "runtime",
-        source: candidate.source,
-      });
-  const runtimeSetupEntry =
-    !cliMetadata && manifestRecord.setupSource
+  const runtimeCandidateEntry =
+    recovery?.runtimeEntry ??
+    (cliMetadata
+      ? { source: candidate.source, rootDir: pluginRoot }
+      : resolvePluginRuntimeArtifact({
+          ...artifactParams,
+          entryKind: "runtime",
+          source: candidate.source,
+        }));
+  const runtimeSetupEntry = recovery
+    ? recovery.setupEntry
+    : !cliMetadata && manifestRecord.setupSource
       ? resolvePluginRuntimeArtifact({
           ...artifactParams,
           entryKind: "setup",
@@ -409,11 +414,13 @@ export function loadRuntimePluginCandidate(params: {
     }
     selectedEntry = { source: source ?? candidate.source, rootDir: pluginRoot };
   }
-  const loadEntry = resolvePluginRuntimeExecutionArtifact(selectedEntry);
+  const loadEntry = recovery ? selectedEntry : resolvePluginRuntimeExecutionArtifact(selectedEntry);
   // Preserve the artifact that actually ran; metadata does not complete runtime registration.
   const artifactSelection = bindPluginRuntimeArtifactSelection(record, {
     ...artifactParams,
-    runtimeEntry: resolvePluginRuntimeExecutionArtifact(runtimeCandidateEntry),
+    runtimeEntry: recovery
+      ? runtimeCandidateEntry
+      : resolvePluginRuntimeExecutionArtifact(runtimeCandidateEntry),
     setupEntry: registrationPlan.loadSetupEntry ? loadEntry : undefined,
   });
   const moduleLoadSource = loadEntry.source;
@@ -423,26 +430,29 @@ export function loadRuntimePluginCandidate(params: {
     rootDir: candidate.rootDir,
     env: context.env,
   });
-  const opened = openRootFileSync({
-    absolutePath: moduleLoadSource,
-    rootPath: moduleRoot,
-    boundaryLabel: "plugin root",
-    rejectHardlinks,
-    skipLexicalRootCheck: true,
-  });
-  if (!opened.ok) {
-    pushPluginLoadError(
-      describeRootFileOpenFailure({
-        failure: opened,
-        subject: "plugin entry path",
-        boundaryLabel: "plugin root",
-        filePath: moduleLoadSource,
-      }),
-    );
-    return;
+  let safeSource = moduleLoadSource;
+  if (!recovery) {
+    const opened = openRootFileSync({
+      absolutePath: moduleLoadSource,
+      rootPath: moduleRoot,
+      boundaryLabel: "plugin root",
+      rejectHardlinks,
+      skipLexicalRootCheck: true,
+    });
+    if (!opened.ok) {
+      pushPluginLoadError(
+        describeRootFileOpenFailure({
+          failure: opened,
+          subject: "plugin entry path",
+          boundaryLabel: "plugin root",
+          filePath: moduleLoadSource,
+        }),
+      );
+      return;
+    }
+    safeSource = opened.path;
+    fs.closeSync(opened.fd);
   }
-  const safeSource = opened.path;
-  fs.closeSync(opened.fd);
 
   let moduleLoadMs = 0;
   let beforeRegister: number | undefined;
@@ -457,13 +467,22 @@ export function loadRuntimePluginCandidate(params: {
     }
     state.pluginLoadAttemptCount++;
     params.logger.debug?.(`[plugins] loading ${record.id} from ${safeSource}`);
-    const loadPluginModule = (source: string) =>
-      params.loadPluginModule(source, {
+    const loadPluginModule = (source: string) => {
+      if (recovery) {
+        let instance = getPluginInstance(record);
+        if (!instance) {
+          instance = new PluginInstance(record.id, { record, registry });
+          recovery.module.bind(instance);
+        }
+        return instance.loadModule(source);
+      }
+      return params.loadPluginModule(source, {
         record,
         rootDir: moduleRoot,
         registry,
         standalone: manifestRecord.manifestPath === candidate.source,
       });
+    };
     const mod = withProfile(
       { pluginId: record.id, source: safeSource },
       registrationPlan.mode,
@@ -604,6 +623,16 @@ export function loadRuntimePluginCandidate(params: {
       clearActiveDegradedPlugin(pluginId);
     }
   } catch (error) {
+    let failure = error;
+    try {
+      params.options.prepareRegistrationFailureCleanup?.(registry, record);
+    } catch (cleanupError) {
+      failure = new AggregateError(
+        [error, cleanupError],
+        `${formatErrorMessage(error)}; registration cleanup preparation failed: ${formatErrorMessage(cleanupError)}`,
+        { cause: error },
+      );
+    }
     params.registryBuilder.rollbackPluginGlobalSideEffects(record.id, record);
     recordPluginError({
       logger: params.logger,
@@ -611,7 +640,7 @@ export function loadRuntimePluginCandidate(params: {
       record,
       seenIds: state.seenIds,
       phase: failurePhase,
-      error,
+      error: failure,
       logPrefix: `[plugins] ${record.id} failed during ${failurePhase} from ${record.source}: `,
       diagnosticMessagePrefix: `plugin failed during ${failurePhase}: `,
       missingDependencyHint,

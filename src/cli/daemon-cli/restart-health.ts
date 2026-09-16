@@ -375,9 +375,23 @@ export async function waitForGatewayHealthyRestart(params: {
   let healthyStreak: { snapshot: GatewayRestartSnapshot; probes: number } | undefined;
   let updateStartupDeadlineMs: number | undefined;
   let observedOwner: string | undefined;
+  let observedPid: number | undefined;
+  let observedBootId: string | undefined;
+  let generationChanged = false;
 
   for (let attempt = 0; ; attempt += 1) {
     params.signal?.throwIfAborted();
+    // Preserve observed restarts across unavailable probes; first identity is startup progress.
+    generationChanged ||=
+      (observedPid !== undefined &&
+        snapshot.runtime.pid !== undefined &&
+        observedPid !== snapshot.runtime.pid) ||
+      (observedBootId !== undefined &&
+        snapshot.gatewayBootId !== undefined &&
+        observedBootId !== snapshot.gatewayBootId);
+    observedPid = snapshot.runtime.pid ?? observedPid;
+    observedBootId = snapshot.gatewayBootId ?? observedBootId;
+    const expiredOutcome = generationChanged ? "generation-changed" : "timeout";
     // Health probes and state-DB reads are part of the operator-visible wait. A monotonic clock
     // keeps both the normal deadline and migration watchdog bounded when those operations stall.
     const elapsedMs = Math.max(0, performance.now() - startedAtMs);
@@ -402,7 +416,7 @@ export async function waitForGatewayHealthyRestart(params: {
           ? "waiting for Gateway listener"
           : "waiting for Gateway health and identity";
     if (boundedDeadlineMs !== undefined && elapsedMs > boundedDeadlineMs + settleDurationMs) {
-      return withWaitContext({ ...snapshot, healthy: false }, "timeout", elapsedMs);
+      return withWaitContext({ ...snapshot, healthy: false }, expiredOutcome, elapsedMs);
     }
     if (healthy) {
       if (healthyStreak && isSameGatewayRestartGeneration(healthyStreak.snapshot, snapshot)) {
@@ -496,7 +510,7 @@ export async function waitForGatewayHealthyRestart(params: {
             ? migrationDeadlineMs
             : (postMigrationDeadlineMs ?? standardDeadlineMs) + settleDurationMs;
       if (deadlineMs === undefined || elapsedMs >= deadlineMs) {
-        return withWaitContext(snapshot, "timeout", elapsedMs);
+        return withWaitContext(snapshot, expiredOutcome, elapsedMs);
       }
     }
     await sleep(delayMs, params.signal);

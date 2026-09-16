@@ -174,6 +174,14 @@ export function buildCliMcpGrantContext(params: {
       : {}),
     modelProvider: params.modelProvider,
     modelId: params.modelId,
+    ...(params.run.requesterModel
+      ? {
+          requesterModel: {
+            provider: params.run.requesterModel.provider,
+            model: params.run.requesterModel.model,
+          },
+        }
+      : {}),
     modelHasVision: params.run.modelHasVision,
     messageProvider,
     clientCaps: clientCaps.length > 0 ? clientCaps : undefined,

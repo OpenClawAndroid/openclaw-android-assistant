@@ -141,7 +141,7 @@ export function hasBuildArtifactAffectingChange(changedPaths: string[]) {
   );
 }
 
-// QA-owned surfaces that keep the smoke lane on pull requests: the qa-lab
+// QA-owned surfaces that keep the smoke lane on PRs and main: the qa-lab
 // harness and scenario data, the two channels the smoke profile drives
 // (matrix, telegram), the packaged-CLI docker packaging scripts, and the QA
 // lane's own orchestration (this planner, the CI workflow, composite
@@ -150,15 +150,36 @@ const QA_SMOKE_SURFACE_RE =
   /^(?:extensions\/(?:matrix|qa-lab|telegram)|qa)\/|^scripts\/(?:build-all\.mts|package-openclaw-for-docker\.mts)$|^scripts\/lib\/ci-changed-node-test-plan\.mts$|^\.github\/(?:workflows\/ci\.yml$|actions\/)/u;
 
 /**
- * True when a pull request diff touches a QA-owned smoke surface. Broad
- * runtime changes (src/ui/packages/dependency manifests) deliberately no
- * longer select the smoke lane on pull requests: every canonical `main` push
- * and release validation still runs the full profile set, so runtime
- * regressions surface one push later instead of taxing every PR with the
- * six-part smoke matrix (~5 hosted-runner minutes each).
+ * Broad runtime changes deliberately wait for manual/release validation;
+ * automatic PR and main runs select the same QA-owned surfaces.
  */
 export function hasQaSmokeAffectingChange(changedPaths: string[]) {
   return changedPaths.some((changedPath) => QA_SMOKE_SURFACE_RE.test(changedPath));
+}
+
+// Workspace package specifiers and generated plugin browser entries are not
+// relative graph edges, so retain those inputs explicitly.
+const CONTROL_UI_PERFORMANCE_SURFACE_RE =
+  /^(?:ui|packages|patches)\/|^extensions\/[^/]+\/browser(?:\/|$)|^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc|node-version\.mjs|tsconfig[^/]*\.json)$|^scripts\/(?:check-control-ui-(?:performance(?:-base)?|precompressed-assets)\.mts|ui\.(?:mts|js)|tsx\.mjs|lib\/ci-changed-node-test-plan\.mts)$|^config\/control-ui-startup-budget-baseline\.json$|^\.github\/(?:workflows\/ci\.yml$|actions\/(?:setup-node-env|setup-pnpm-store-cache)\/)/u;
+
+export function hasControlUiPerformanceAffectingChange(
+  changedPaths: string[],
+  options: CwdOptions = {},
+) {
+  const sources = changedPaths.filter((file) => !isTestOnlyPath(file));
+  if (sources.some((file) => CONTROL_UI_PERFORMANCE_SURFACE_RE.test(file))) {
+    return true;
+  }
+  return hasImportGraphImpactOnTargets(
+    sources,
+    (file) =>
+      (file.startsWith("ui/") && !isTestOnlyPath(file)) ||
+      /^scripts\/(?:check-control-ui-(?:performance(?:-base)?|precompressed-assets)\.mts|tsx\.mjs)$/u.test(
+        file,
+      ),
+    options.cwd ?? process.cwd(),
+    { tooling: true },
+  );
 }
 
 // Surfaces the prompt-snapshot check exercises outside its generator's

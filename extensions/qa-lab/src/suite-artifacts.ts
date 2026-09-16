@@ -22,7 +22,10 @@ import type { QaScorecardEvidenceMode } from "./scorecard-taxonomy.js";
 import { splitModelRef } from "./suite-planning.js";
 import { countQaSuiteFailedScenarios, type QaSuiteSummaryJson } from "./suite-summary.js";
 import { createQaSuiteReportNotes } from "./suite-support.js";
-import type { QaSuiteScenarioResult } from "./suite-types.js";
+import {
+  rejectRemovedQaChannelDriverSelection,
+  type QaSuiteScenarioResult,
+} from "./suite-types.js";
 
 /** Atomically replaces each file in order; summary-last is a completion signal, not a set transaction. */
 export async function publishQaSuiteArtifactFiles(params: {
@@ -66,11 +69,6 @@ export type QaSuiteSummaryJsonParams = {
   concurrency: number;
   channel?: string | null;
   channelDriver?: QaTransportDriver | null;
-  /**
-   * @deprecated Use channel, channelDriver, and the explicit artifact path fields.
-   * Scheduled for removal after 2026-10-15.
-   */
-  channelDriverSelection?: QaSuiteChannelDriverSelection | null;
   channelCapabilityMatrixPath?: string | null;
   channelDriverSmokePath?: string | null;
   scenarioIds?: readonly string[];
@@ -106,19 +104,9 @@ export type QaSuiteGatewayHeapSnapshot = NonNullable<
  * empty selection.
  */
 export function buildQaSuiteSummaryJson(params: QaSuiteSummaryJsonParams): QaSuiteSummaryJson {
+  rejectRemovedQaChannelDriverSelection(params);
   const primarySplit = splitModelRef(params.primaryModel);
   const alternateSplit = splitModelRef(params.alternateModel);
-  const selection = params.channelDriverSelection;
-  if (params.channelDriver && selection && params.channelDriver !== selection.channelDriver) {
-    throw new Error(
-      `channelDriver=${params.channelDriver} conflicts with adapter setup driver=${selection.channelDriver}`,
-    );
-  }
-  if (params.channel && selection && params.channel !== selection.channel) {
-    throw new Error(
-      `channel=${params.channel} conflicts with adapter setup channel=${selection.channel}`,
-    );
-  }
   return {
     scenarios: params.scenarios,
     counts: {
@@ -142,13 +130,11 @@ export function buildQaSuiteSummaryJson(params: QaSuiteSummaryJsonParams): QaSui
       alternateModelName: alternateSplit?.model ?? null,
       fastMode: params.fastMode,
       concurrency: params.concurrency,
-      channelDriver: params.channelDriver ?? selection?.channelDriver ?? null,
-      channel: params.channel ?? selection?.channel ?? null,
-      channelCapabilityMatrixPath:
-        params.channelCapabilityMatrixPath ?? selection?.capabilityMatrixPath ?? null,
+      channelDriver: params.channelDriver ?? null,
+      channel: params.channel ?? null,
+      channelCapabilityMatrixPath: params.channelCapabilityMatrixPath ?? null,
       // This persisted summary is unversioned; keep its existing key until a versioned migration.
-      channelDriverSmokePath:
-        params.channelDriverSmokePath ?? selection?.providerReadinessArtifactPath ?? null,
+      channelDriverSmokePath: params.channelDriverSmokePath ?? null,
       scenarioIds:
         params.scenarioIds && params.scenarioIds.length > 0 ? [...params.scenarioIds] : null,
       runtimePair: params.runtimePair ?? null,

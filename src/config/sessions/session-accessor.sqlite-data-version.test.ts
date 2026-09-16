@@ -23,10 +23,8 @@ import {
   recordSessionParticipant,
   upsertSessionEntryCore,
 } from "./session-accessor.js";
-import {
-  captureSessionEntryCacheRead,
-  readSessionEntryCache,
-} from "./session-accessor.sqlite-entry-cache.js";
+import { readSessionEntryCache } from "./session-accessor.sqlite-entry-cache.js";
+import { captureSessionEntryRead } from "./session-accessor.sqlite-entry-read-lifetime.js";
 import {
   readSessionEntryCount,
   iterateSessionEntryKeys,
@@ -136,7 +134,7 @@ describe("exact session entry read lifetimes", () => {
     await upsertSessionEntryCore(sibling, { sessionId: "other", label: "B", updatedAt: 1 });
     const database = openOpenClawAgentDatabase(scope);
     parseSessionEntryCalls.mockClear();
-    const read = captureSessionEntryCacheRead(database, scope.sessionKey);
+    const read = captureSessionEntryRead(database, scope.sessionKey);
     try {
       expect(read.entry).toMatchObject({ sessionId: "selected", label: "A" });
       expect(parseSessionEntryCalls).not.toHaveBeenCalled();
@@ -155,19 +153,20 @@ describe("exact session entry read lifetimes", () => {
   });
 
   it.each(["same connection", "other connection"])(
-    "rejects delete/recreate with identical rows on %s",
+    "keeps identical canonical facts current after delete/recreate on %s",
     async (writer) => {
       const scope = createSessionScope("selected-read-aba");
       await upsertSessionEntryCore(scope, { sessionId: "same-id", label: "A", updatedAt: 1 });
       const database = openOpenClawAgentDatabase(scope);
-      const read = captureSessionEntryCacheRead(database, scope.sessionKey);
+      const read = captureSessionEntryRead(database, scope.sessionKey);
       const connection =
         writer === "same connection" ? database.db : new DatabaseSync(database.path);
       try {
         connection.exec("CREATE TEMP TABLE saved_node AS SELECT * FROM session_nodes;");
         connection.prepare("DELETE FROM session_nodes WHERE session_key = ?").run(scope.sessionKey);
         connection.exec("INSERT INTO session_nodes SELECT * FROM saved_node;");
-        expect(read.isCurrent()).toBe(false);
+        // Metadata depends on current canonical facts, not whether identical rows were rewritten.
+        expect(read.isCurrent()).toBe(true);
         expect(loadSessionEntry(scope)).toMatchObject(read.entry!);
       } finally {
         read.release();
@@ -181,8 +180,8 @@ describe("exact session entry read lifetimes", () => {
   it("keeps concurrent missing-row reads until creation and releases independently", async () => {
     const scope = createSessionScope("selected-missing");
     const database = openOpenClawAgentDatabase(scope);
-    const first = captureSessionEntryCacheRead(database, scope.sessionKey);
-    const second = captureSessionEntryCacheRead(database, scope.sessionKey);
+    const first = captureSessionEntryRead(database, scope.sessionKey);
+    const second = captureSessionEntryRead(database, scope.sessionKey);
     try {
       expect(first.entry).toBeUndefined();
       first.release();

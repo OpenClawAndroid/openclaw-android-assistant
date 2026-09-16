@@ -3,6 +3,7 @@ import type {
   SessionFileEntry,
   readSessionEntryResetRecallCutoff,
 } from "../../../packages/memory-host-sdk/src/host/session-files.js";
+import type { PreparedSessionHistoryReadTarget } from "../../gateway/session-history-readonly-reader.js";
 import { serveWorkerTasks } from "../../infra/worker-task-pool.js";
 import type { SensitiveTextRedactionSnapshot } from "../../logging/redact.js";
 import type { UserTurnTranscriptAdmissionReceipt } from "../../sessions/user-turn-transcript.types.js";
@@ -14,7 +15,10 @@ import type {
   readSessionTranscriptModelContext,
   SessionModelContextLimits,
 } from "./session-accessor.sqlite-model-context.js";
-import type { SessionTranscriptRuntimeTarget } from "./session-accessor.types.js";
+import type {
+  SessionAccessScope,
+  SessionTranscriptRuntimeTarget,
+} from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type {
   SessionHistoryWorkerRequest,
@@ -51,7 +55,14 @@ export type SessionTranscriptHistoryWorkerInput = {
   kind: "history-page";
   database: { agentId: string; path: string };
   request: SessionHistoryWorkerRequest;
+  target: Omit<PreparedSessionHistoryReadTarget, "database">;
   admission?: UserTurnTranscriptAdmissionReceipt;
+};
+
+export type SessionRowPresenceWorkerInput = {
+  kind: "session-row-presence";
+  database: { agentId: string; path: string };
+  scope: SessionAccessScope & { databaseAgentId: string };
 };
 
 export type SessionBranchSummaryWorkerInput = {
@@ -62,6 +73,7 @@ export type SessionBranchSummaryWorkerInput = {
 type SessionTranscriptWorkerValues = {
   "branch-summaries": SessionBranchSummaryReadResult;
   "history-page": SessionHistoryWorkerResult;
+  "session-row-presence": boolean;
   "model-context": ReturnType<typeof readSessionTranscriptModelContext>;
   "session-entry": {
     entry: SessionFileEntry | null;
@@ -80,7 +92,7 @@ export type SessionTranscriptWorkerReply<Kind extends keyof SessionTranscriptWor
     };
 
 let historyDatabaseScope:
-  | import("../../state/openclaw-agent-db-readonly.js").OpenClawAgentDatabaseReadOnlyScope
+  | import("../../state/openclaw-agent-db-readonly-scope.js").OpenClawAgentDatabaseReadOnlyScope
   | undefined;
 
 serveWorkerTasks(
@@ -90,12 +102,26 @@ serveWorkerTasks(
       | SessionModelContextWorkerInput
       | SessionEntryWorkerInput
       | SessionTranscriptHistoryWorkerInput
+      | SessionRowPresenceWorkerInput
       | SessionBranchSummaryWorkerInput;
     try {
       if (request.kind === "branch-summaries") {
         const { readSessionBranchSummariesInWorker } =
           await import("./session-accessor.sqlite-branches.js");
         return { ok: true, value: readSessionBranchSummariesInWorker(request.request) };
+      }
+      if (request.kind === "session-row-presence") {
+        if (!historyDatabaseScope) {
+          const { OpenClawAgentDatabaseReadOnlyScope } =
+            await import("../../state/openclaw-agent-db-readonly-scope.js");
+          historyDatabaseScope = new OpenClawAgentDatabaseReadOnlyScope();
+        }
+        const { loadSessionEntryReadOnlyInScope } =
+          await import("./session-accessor.sqlite-entry.js");
+        return historyDatabaseScope.run(request.database, () => ({
+          ok: true,
+          value: loadSessionEntryReadOnlyInScope(request.scope) !== undefined,
+        }));
       }
       return await runWithSessionTranscriptReadFence(
         request.admission,
@@ -115,29 +141,38 @@ serveWorkerTasks(
           if (request.kind === "history-page") {
             if (!historyDatabaseScope) {
               const { OpenClawAgentDatabaseReadOnlyScope } =
-                await import("../../state/openclaw-agent-db-readonly.js");
+                await import("../../state/openclaw-agent-db-readonly-scope.js");
               historyDatabaseScope = new OpenClawAgentDatabaseReadOnlyScope();
             }
             return historyDatabaseScope.run(request.database, async () => {
-              const options = { readOnly: true, deferProfileDisplay: true };
+              const { createReadonlySessionHistoryReader } =
+                await import("../../gateway/session-history-readonly-reader.js");
+              const options = {
+                readers: createReadonlySessionHistoryReader({
+                  ...request.target,
+                  database: request.database,
+                }),
+                readOnly: true,
+                deferProfileDisplay: true,
+              };
               if (request.request.kind === "rpc") {
-                const { readChatHistoryPageLocal } =
-                  await import("../../gateway/server-methods/chat-history-pages.js");
+                const { readChatHistoryPageKernel } =
+                  await import("../../gateway/server-methods/chat-history-page-kernel.js");
                 return {
                   ok: true,
                   value: {
                     kind: "rpc",
-                    page: await readChatHistoryPageLocal(request.request.params, options),
+                    page: await readChatHistoryPageKernel(request.request.params, options),
                   },
                 };
               }
-              const { readSessionHistorySnapshotLocal } =
-                await import("../../gateway/session-history-state.js");
+              const { readSessionHistorySnapshotKernel } =
+                await import("../../gateway/session-history-snapshot.js");
               return {
                 ok: true,
                 value: {
                   kind: "http",
-                  snapshot: await readSessionHistorySnapshotLocal(request.request.params, options),
+                  snapshot: await readSessionHistorySnapshotKernel(request.request.params, options),
                 },
               };
             });

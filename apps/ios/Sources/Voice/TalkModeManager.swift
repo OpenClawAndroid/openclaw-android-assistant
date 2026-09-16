@@ -248,7 +248,11 @@ final class TalkModeManager: NSObject {
     private var recognitionGeneration: UInt64 = 0
     private var silenceTask: Task<Void, Never>?
     private var realtimeSession: TalkRealtimeWebRTCSession?
-    private var activeRealtimeVoiceSessionId: String?
+    private var activeRealtimeVoiceSession: TalkRealtimeVoiceSessionOwner?
+    private var activeRealtimeVoiceSessionId: String? {
+        self.activeRealtimeVoiceSession?.voiceSessionId
+    }
+
     private var realtimeVoiceSessionGeneration: UInt64 = 0
     private let realtimeTranscriptStore = TalkRealtimeTranscriptStore()
     private var realtimeSessionReadyAt: Date?
@@ -2164,9 +2168,6 @@ final class TalkModeManager: NSObject {
         }
         guard self.isCurrentStartAttempt(attemptID) else { return .ignored }
         let prefetchedSession = voiceChange == nil ? self.consumePrefetchedRealtimeSession() : nil
-        if let prefetchedSession {
-            self.activeRealtimeVoiceSessionId = prefetchedSession.voiceSessionId
-        }
         let sessionKey = self.mainSessionKey
         let voiceSessionGeneration = self.realtimeVoiceSessionGeneration
         GatewayDiagnostics.log("talk.timeline realtime start attempt sessionKey=\(sessionKey)")
@@ -2196,6 +2197,7 @@ final class TalkModeManager: NSObject {
                 self.finishStaleRealtimeStart(
                     session,
                     gateway: gateway,
+                    route: gatewayRoute,
                     sessionKey: sessionKey,
                     voiceSessionGeneration: voiceSessionGeneration)
                 return .ignored
@@ -2204,6 +2206,7 @@ final class TalkModeManager: NSObject {
                   self.adoptRealtimeVoiceSessionId(
                       voiceSessionId,
                       gateway: gateway,
+                      route: gatewayRoute,
                       sessionKey: sessionKey)
             else {
                 self.stopRealtimeSession()
@@ -2224,6 +2227,7 @@ final class TalkModeManager: NSObject {
                 self.finishStaleRealtimeStart(
                     session,
                     gateway: gateway,
+                    route: gatewayRoute,
                     sessionKey: sessionKey,
                     voiceSessionGeneration: voiceSessionGeneration)
                 return .ignored
@@ -2232,6 +2236,7 @@ final class TalkModeManager: NSObject {
                 _ = self.adoptRealtimeVoiceSessionId(
                     voiceSessionId,
                     gateway: gateway,
+                    route: gatewayRoute,
                     sessionKey: sessionKey)
             }
             self.stopRealtimeSession(preserveRuns: voiceChange != nil)
@@ -2248,6 +2253,7 @@ final class TalkModeManager: NSObject {
     private func finishStaleRealtimeStart(
         _ session: TalkRealtimeWebRTCSession,
         gateway: GatewayNodeSession,
+        route: GatewayNodeSessionRoute,
         sessionKey: String,
         voiceSessionGeneration: UInt64)
     {
@@ -2259,10 +2265,12 @@ final class TalkModeManager: NSObject {
                self.realtimeVoiceSessionGeneration == voiceSessionGeneration
             {
                 // A transport restart keeps the logical voice session alive.
-                self.activeRealtimeVoiceSessionId = voiceSessionId
-            } else if self.activeRealtimeVoiceSessionId != voiceSessionId {
+                self.activeRealtimeVoiceSession = TalkRealtimeVoiceSessionOwner(
+                    gateway: gateway, route: route, sessionKey: sessionKey, voiceSessionId: voiceSessionId)
+            } else if self.activeRealtimeVoiceSession != session.voiceSessionOwner {
                 self.closeOrphanedRealtimeVoiceSession(
                     gateway: gateway,
+                    route: route,
                     sessionKey: sessionKey,
                     voiceSessionId: voiceSessionId)
             }
@@ -2274,6 +2282,7 @@ final class TalkModeManager: NSObject {
     private func adoptRealtimeVoiceSessionId(
         _ voiceSessionId: String,
         gateway: GatewayNodeSession,
+        route: GatewayNodeSessionRoute,
         sessionKey: String) -> Bool
     {
         if let activeRealtimeVoiceSessionId, activeRealtimeVoiceSessionId != voiceSessionId {
@@ -2282,11 +2291,15 @@ final class TalkModeManager: NSObject {
                     + "returned=\(voiceSessionId)")
             self.closeOrphanedRealtimeVoiceSession(
                 gateway: gateway,
+                route: route,
                 sessionKey: sessionKey,
                 voiceSessionId: voiceSessionId)
             return false
         }
-        self.activeRealtimeVoiceSessionId = voiceSessionId
+        // Logical ownership survives transport restarts and delayed transcript drains.
+        // Keep the accepting route so cleanup cannot resolve a replacement account.
+        self.activeRealtimeVoiceSession = TalkRealtimeVoiceSessionOwner(
+            gateway: gateway, route: route, sessionKey: sessionKey, voiceSessionId: voiceSessionId)
         return true
     }
 
@@ -2605,7 +2618,7 @@ final class TalkModeManager: NSObject {
         self.realtimeRelayGeneration &+= 1
         self.realtimeRelayStartGeneration = nil
         self.realtimeRelaySession = nil
-        self.activeRealtimeVoiceSessionId = nil
+        self.activeRealtimeVoiceSession = nil
         self.prefetchedRealtimeSession = nil
         self.realtimeVoiceSessionGeneration &+= 1
         direct?.stop(preserveRuns: true)
@@ -2676,9 +2689,12 @@ final class TalkModeManager: NSObject {
                     ])
                 }
                 guard !Task.isCancelled, shouldApply(), self.mainSessionKey == sessionKey else {
-                    if self.activeRealtimeVoiceSessionId != voiceSessionId {
+                    let owner = TalkRealtimeVoiceSessionOwner(
+                        gateway: gateway, route: route, sessionKey: sessionKey, voiceSessionId: voiceSessionId)
+                    if self.activeRealtimeVoiceSession != owner {
                         self.closeOrphanedRealtimeVoiceSession(
                             gateway: gateway,
+                            route: route,
                             sessionKey: sessionKey,
                             voiceSessionId: voiceSessionId)
                     }
@@ -2687,6 +2703,7 @@ final class TalkModeManager: NSObject {
                 guard self.adoptRealtimeVoiceSessionId(
                     voiceSessionId,
                     gateway: gateway,
+                    route: route,
                     sessionKey: sessionKey)
                 else { return }
                 self.prefetchedRealtimeSession = session
@@ -2752,11 +2769,9 @@ final class TalkModeManager: NSObject {
 
     private func stopRealtimeSession(preserveRuns: Bool = false) {
         let realtimeSession = self.realtimeSession
-        if self.activeRealtimeVoiceSessionId == nil,
-           let voiceSessionId = realtimeSession?.voiceSessionId
-        {
-            // Capture ownership before stopping the transport so close can drain its queue.
-            self.activeRealtimeVoiceSessionId = voiceSessionId
+        if self.activeRealtimeVoiceSession == nil {
+            // A stopped create may have returned its ID before the manager adopted it.
+            self.activeRealtimeVoiceSession = realtimeSession?.voiceSessionOwner
         }
         let hadRealtimeOwner = realtimeSession != nil ||
             self.realtimeRelaySession != nil ||
@@ -2793,36 +2808,30 @@ final class TalkModeManager: NSObject {
     private func closeLogicalRealtimeVoiceSessions() -> Task<Void, Never>? {
         // A close boundary invalidates every in-flight transport that captured the old owner.
         self.realtimeVoiceSessionGeneration &+= 1
-        let voiceSessionIds = Set([
-            self.activeRealtimeVoiceSessionId,
-            self.prefetchedRealtimeSession?.voiceSessionId,
-            self.realtimeSession?.voiceSessionId,
-        ].compactMap(\.self))
-        self.activeRealtimeVoiceSessionId = nil
+        var owners = [self.activeRealtimeVoiceSession].compactMap(\.self)
+        if let transportOwner = self.realtimeSession?.voiceSessionOwner, !owners.contains(transportOwner) {
+            owners.append(transportOwner)
+        }
+        self.activeRealtimeVoiceSession = nil
         self.prefetchedRealtimeSession = nil
-        guard !voiceSessionIds.isEmpty else { return nil }
-        let gateway = self.gateway
-        let sessionKey = self.mainSessionKey
+        guard !owners.isEmpty else { return nil }
+        owners.sort { $0.voiceSessionId < $1.voiceSessionId }
         let transcriptStore = self.realtimeTranscriptStore
         return Task { @MainActor in
-            defer { transcriptStore.remove(voiceSessionIds) }
-            for voiceSessionId in voiceSessionIds.sorted() {
-                await transcriptStore.flush(voiceSessionId: voiceSessionId)
+            defer { transcriptStore.remove(Set(owners.map(\.voiceSessionId))) }
+            for owner in owners {
+                await transcriptStore.flush(voiceSessionId: owner.voiceSessionId)
             }
-            for voiceSessionId in voiceSessionIds.sorted() {
-                guard let gateway else {
-                    GatewayDiagnostics.log(
-                        "talk voice session close FAILED voiceSessionId=\(voiceSessionId) error=gateway unavailable")
-                    continue
-                }
+            for owner in owners {
                 do {
                     try await self.closeRealtimeVoiceSession(
-                        gateway: gateway,
-                        sessionKey: sessionKey,
-                        voiceSessionId: voiceSessionId)
+                        gateway: owner.gateway,
+                        route: owner.route,
+                        sessionKey: owner.sessionKey,
+                        voiceSessionId: owner.voiceSessionId)
                 } catch {
                     GatewayDiagnostics.log(
-                        "talk voice session close FAILED voiceSessionId=\(voiceSessionId) "
+                        "talk voice session close FAILED voiceSessionId=\(owner.voiceSessionId) "
                             + "error=\(error.localizedDescription)")
                 }
             }
@@ -2855,7 +2864,7 @@ final class TalkModeManager: NSObject {
 
     private func closeRealtimeVoiceSession(
         gateway: GatewayNodeSession,
-        route: GatewayNodeSessionRoute? = nil,
+        route: GatewayNodeSessionRoute,
         sessionKey: String,
         voiceSessionId: String) async throws
     {
@@ -2872,7 +2881,7 @@ final class TalkModeManager: NSObject {
 
     private func requestRealtimeVoiceSessionClose(
         gateway: GatewayNodeSession,
-        route: GatewayNodeSessionRoute? = nil,
+        route: GatewayNodeSessionRoute,
         sessionKey: String,
         voiceSessionId: String) async throws
     {
@@ -2898,18 +2907,21 @@ final class TalkModeManager: NSObject {
             ifCurrentRoute: route)
     }
 
+    @discardableResult
     private func closeOrphanedRealtimeVoiceSession(
         gateway: GatewayNodeSession,
+        route: GatewayNodeSessionRoute,
         sessionKey: String,
-        voiceSessionId: String)
+        voiceSessionId: String) -> Task<Void, Never>
     {
         let transcriptStore = self.realtimeTranscriptStore
-        Task { @MainActor in
+        return Task { @MainActor in
             defer { transcriptStore.remove([voiceSessionId]) }
             await transcriptStore.flush(voiceSessionId: voiceSessionId)
             do {
                 try await self.closeRealtimeVoiceSession(
                     gateway: gateway,
+                    route: route,
                     sessionKey: sessionKey,
                     voiceSessionId: voiceSessionId)
             } catch {
@@ -4962,8 +4974,14 @@ extension TalkModeManager: TalkRealtimeWebRTCSessionDelegate {
 
 #if DEBUG
 extension TalkModeManager {
-    func _test_preparePrefetchedRealtimeVoiceSession(_ voiceSessionId: String) {
-        self.activeRealtimeVoiceSessionId = voiceSessionId
+    func _test_preparePrefetchedRealtimeVoiceSession(
+        _ voiceSessionId: String,
+        gateway: GatewayNodeSession,
+        route: GatewayNodeSessionRoute)
+    {
+        guard self.adoptRealtimeVoiceSessionId(
+            voiceSessionId, gateway: gateway, route: route, sessionKey: self.mainSessionKey)
+        else { return }
         self.prefetchedRealtimeSession = TalkRealtimeClientSession(
             provider: "openai",
             transport: "webrtc",
@@ -4979,10 +4997,16 @@ extension TalkModeManager {
 
     func _test_prepareLiveRealtimeVoiceSession(
         gateway: GatewayNodeSession,
+        route: GatewayNodeSessionRoute,
         voiceSessionId: String,
-        prefetchedVoiceSessionId: String)
+        prefetchedVoiceSessionId: String,
+        adoptInManager: Bool = true)
     {
-        self.activeRealtimeVoiceSessionId = voiceSessionId
+        if adoptInManager {
+            guard self.adoptRealtimeVoiceSessionId(
+                voiceSessionId, gateway: gateway, route: route, sessionKey: self.mainSessionKey)
+            else { return }
+        }
         self.prefetchedRealtimeSession = TalkRealtimeClientSession(
             provider: "openai",
             transport: "webrtc",
@@ -4996,10 +5020,38 @@ extension TalkModeManager {
             clientControl: nil)
         self.realtimeSession = TalkRealtimeWebRTCSession(
             gateway: gateway,
+            gatewayRoute: route,
             sessionKey: self.mainSessionKey,
             voiceSessionId: voiceSessionId,
             transcriptStore: self.realtimeTranscriptStore,
             delegate: self)
+    }
+
+    func _test_enqueueRealtimeTranscript(
+        voiceSessionId: String,
+        persist: @escaping TalkRealtimeTranscriptWriteQueue.Persist)
+    {
+        self.realtimeTranscriptStore.enqueue(
+            sessionKey: self.mainSessionKey,
+            voiceSessionId: voiceSessionId,
+            role: .user,
+            text: "Synthetic transcript",
+            timestamp: 1,
+            persist: persist,
+            failureLog: { _, _ in })
+    }
+
+    func _test_closeLogicalRealtimeVoiceSessions() -> Task<Void, Never>? {
+        self.closeLogicalRealtimeVoiceSessions()
+    }
+
+    func _test_closeOrphanedRealtimeVoiceSession(
+        gateway: GatewayNodeSession,
+        route: GatewayNodeSessionRoute,
+        voiceSessionId: String) -> Task<Void, Never>
+    {
+        self.closeOrphanedRealtimeVoiceSession(
+            gateway: gateway, route: route, sessionKey: self.mainSessionKey, voiceSessionId: voiceSessionId)
     }
 
     func _test_invalidatePrefetchedRealtimeSession() async {

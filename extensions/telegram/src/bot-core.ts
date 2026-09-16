@@ -245,9 +245,9 @@ export function createTelegramBotCore(
     }
   });
 
-  // Durable transports start the answer after spool commit; classic polling and
-  // restart replay start it here. Both paths precede same-lane sequentialization
-  // so callback acknowledgements cannot wait for earlier handlers.
+  // Both transports start callback answers after spool commit. Reuse that
+  // answer or start a missing one before same-lane sequentialization so
+  // callback acknowledgements cannot wait for earlier handlers.
   bot.use(async (ctx, next) => {
     const callback = ctx.callbackQuery;
     if (callback) {

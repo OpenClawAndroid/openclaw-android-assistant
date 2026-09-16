@@ -536,6 +536,12 @@ suite.define(() => {
         await pollLocatorText(startupStatus).toContain(label);
       };
 
+      const parentDescriptions = async () =>
+        (await gateway.getRequests("sessions.describe")).filter(
+          (request) => asNullableRecord(request.params)?.key === sessionKey,
+        );
+      let expectedParentReads = 1;
+      expect(await parentDescriptions()).toHaveLength(expectedParentReads);
       for (const [state, generation, label] of [
         ["requested", 1, "Provisioning environment…"],
         ["provisioning", 2, "Provisioning environment…"],
@@ -544,22 +550,16 @@ suite.define(() => {
       ] as const) {
         await publishPlacement(state, generation, label, state === "starting");
         await page.clock.runFor(250);
+        expectedParentReads += 1;
+        expect(await parentDescriptions()).toHaveLength(expectedParentReads);
         expect(await gateway.getRequests("sessions.send")).toHaveLength(0);
       }
-      // Healthy parent and child reads are independent; placement updates must
-      // not add extra parent lookups regardless of which request starts first.
-      const parentReads = (await gateway.getRequests()).filter((request) => {
-        const params = asNullableRecord(request.params);
-        return (
-          (request.method === "sessions.describe" && params?.key === sessionKey) ||
-          (request.method === "sessions.list" && params?.spawnedBy === sessionKey)
-        );
-      });
-      const childReads = parentReads.filter((request) => request.method === "sessions.list");
-      expect(childReads.length).toBeGreaterThan(0);
-      expect(parentReads.filter((request) => request.method === "sessions.describe")).toHaveLength(
-        childReads.length,
+      // Parent lookups follow placement transitions; child reads coalesce independently.
+      const childReads = (await gateway.getRequests("sessions.list")).filter(
+        (request) => asNullableRecord(request.params)?.spawnedBy === sessionKey,
       );
+      expect(childReads.length).toBeGreaterThan(0);
+      expect(childReads.length).toBeLessThanOrEqual(expectedParentReads);
       const neutralRow = page.locator('[data-session-key="agent:cloud:neutral-e2e"] a');
       await neutralRow.waitFor();
       await neutralRow.click();

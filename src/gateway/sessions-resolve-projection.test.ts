@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SessionsResolveParams } from "../../packages/gateway-protocol/src/index.js";
 import { clearSubagentRunsReadCacheForTest } from "../agents/subagents/registry/subagent-registry-state.js";
 import { saveSubagentRegistryToSqlite } from "../agents/subagents/registry/subagent-registry.store.sqlite.js";
+import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import { replaceSessionEntrySync } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -12,9 +13,15 @@ import {
 } from "../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createDirectChatContext } from "./server-chat.agent-events.test-helpers.js";
+import { artifactsHandlers } from "./server-methods/artifacts.js";
 import { sessionReadHandlers } from "./server-methods/sessions-read.js";
+import {
+  resetResolvedSessionKeyForRunCacheForTest,
+  resolveSessionKeyForRun,
+} from "./server-session-key.js";
 import { roleClient, rolePolicyConfig } from "./session-sharing.test-utils.js";
 import { resolveSessionKeyFromResolveParams } from "./sessions-resolve.js";
+import { resolveWorkerSessionTarget } from "./worker-environments/session-target.js";
 
 const scope = { agentId: "main", sessionKey: "agent:main:target" };
 const entry = { sessionId: "target-id", updatedAt: 1, label: "original" };
@@ -218,4 +225,156 @@ describe("session resolution metadata", () => {
       });
     },
   );
+});
+
+// Marker lives only in sibling rows the lookups must never decode. A decode of
+// this text means a store-wide read carried saved prompts into JavaScript.
+const SIBLING_MARKER = "unrelated-lookup-prompt";
+const SIBLING_PROMPT = SIBLING_MARKER.repeat(1600);
+const TARGET_PROMPT = "target-lookup-prompt".repeat(1600);
+const SIBLING_ROWS = 24;
+
+function systemPromptReport(chars: number) {
+  return {
+    source: "run" as const,
+    generatedAt: 1,
+    systemPrompt: { chars, projectContextChars: 0, nonProjectContextChars: chars },
+    injectedWorkspaceFiles: [],
+    skills: { promptChars: chars, entries: [{ name: "seeded-skill", blockChars: chars }] },
+    tools: { listChars: 0, schemaChars: 0, entries: [] },
+  };
+}
+
+function seedStore() {
+  replaceSessionEntrySync(scope, {
+    sessionId: "target-id",
+    updatedAt: 2,
+    skillsSnapshot: { prompt: TARGET_PROMPT, skills: [{ name: "target-skill" }] },
+    systemPromptReport: systemPromptReport(TARGET_PROMPT.length),
+  });
+  for (let index = 0; index < SIBLING_ROWS; index++) {
+    replaceSessionEntrySync(
+      { ...scope, sessionKey: `agent:main:sibling-${index}` },
+      {
+        sessionId: `sibling-${index}`,
+        updatedAt: 1,
+        skillsSnapshot: { prompt: SIBLING_PROMPT, skills: [{ name: "sibling-skill" }] },
+        systemPromptReport: systemPromptReport(SIBLING_PROMPT.length),
+      },
+    );
+  }
+}
+
+/** Counts JSON.parse calls that decoded the sibling marker. */
+function measureSiblingDecodes<T>(run: () => T): { result: T; decodes: number } {
+  const parse = vi.spyOn(JSON, "parse");
+  try {
+    const result = run();
+    const matched = parse.mock.calls.flatMap(([json]) =>
+      typeof json === "string" && json.includes(SIBLING_MARKER) ? [json] : [],
+    );
+    return {
+      result,
+      decodes: matched.length,
+    };
+  } finally {
+    parse.mockRestore();
+  }
+}
+
+describe("gateway session lookups", () => {
+  it("artifacts.list resolves known and missing runs without decoding unrelated saved prompts", async () => {
+    await withOpenClawTestState({ label: "lookup-runid-projection" }, async () => {
+      setRuntimeConfigSnapshot(cfg);
+      seedStore();
+      resetResolvedSessionKeyForRunCacheForTest();
+
+      const parse = vi.spyOn(JSON, "parse");
+      try {
+        for (const runId of ["target-id", "absent-run-id"]) {
+          const respond = vi.fn();
+          await expectDefined(
+            artifactsHandlers["artifacts.list"],
+            "artifact list handler",
+          )({
+            params: { runId, agentId: "main" },
+            context: createDirectChatContext({ getRuntimeConfig: () => cfg }),
+            req: { type: "req", id: runId, method: "artifacts.list" },
+            client: null,
+            isWebchatConnect: () => false,
+            respond,
+          });
+          if (runId === "target-id") {
+            expect(respond).toHaveBeenCalledWith(true, { artifacts: [] });
+          } else {
+            expect(respond).toHaveBeenCalledWith(
+              false,
+              undefined,
+              expect.objectContaining({
+                details: { type: "artifact_scope_not_found" },
+              }),
+            );
+          }
+        }
+        expect(parse.mock.calls.some(([json]) => json.includes(SIBLING_MARKER))).toBe(false);
+      } finally {
+        parse.mockRestore();
+        resetResolvedSessionKeyForRunCacheForTest();
+      }
+    });
+  });
+
+  it("preserves the worker target payload while narrowing its identity scan", async () => {
+    await withOpenClawTestState({ label: "lookup-worker-projection" }, async () => {
+      setRuntimeConfigSnapshot(cfg);
+      seedStore();
+
+      const observed = measureSiblingDecodes(() => resolveWorkerSessionTarget(cfg, "target-id"));
+
+      // This lookup returns the raw canonical key, unlike the run-id lookup.
+      expect(observed.result?.sessionKey).toBe(scope.sessionKey);
+      expect(observed.result?.agentId).toBe("main");
+      expect(observed.result?.sessionId).toBe("target-id");
+
+      // The selected entry is re-read through its own still-full loader, so the
+      // narrowed store default must not strip the payload this caller returns.
+      expect(observed.result?.sessionEntry.skillsSnapshot?.prompt).toBe(TARGET_PROMPT);
+
+      // The separate selected-store loader still reads full entries.
+      expect(observed.decodes).toBe(SIBLING_ROWS);
+
+      expect(resolveWorkerSessionTarget(cfg, "absent-session-id")).toBeUndefined();
+    });
+  });
+
+  it("keeps the freshest same-session-id row when prompts are not decoded", async () => {
+    await withOpenClawTestState({ label: "lookup-projection-freshness" }, async () => {
+      setRuntimeConfigSnapshot(cfg);
+      // Same sessionId on two keys: selection depends on updatedAt surviving the
+      // metadata projection, which is the field a bad projection would drop.
+      replaceSessionEntrySync(
+        { ...scope, sessionKey: "agent:main:stale" },
+        {
+          sessionId: "shared-id",
+          updatedAt: 1,
+          skillsSnapshot: { prompt: SIBLING_PROMPT, skills: [] },
+        },
+      );
+      replaceSessionEntrySync(
+        { ...scope, sessionKey: "agent:main:fresh" },
+        {
+          sessionId: "shared-id",
+          updatedAt: 99,
+          skillsSnapshot: { prompt: SIBLING_PROMPT, skills: [] },
+        },
+      );
+      resetResolvedSessionKeyForRunCacheForTest();
+
+      const observed = measureSiblingDecodes(() =>
+        resolveSessionKeyForRun("shared-id", { agentId: "main" }),
+      );
+      expect(observed.result).toBe("fresh");
+      expect(observed.decodes).toBe(0);
+    });
+  });
 });

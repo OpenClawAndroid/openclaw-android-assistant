@@ -46,6 +46,7 @@ import {
   markRequesterSettleWakePending,
 } from "../registry/subagent-registry-lifecycle-delivery.js";
 import { subagentRuns } from "../registry/subagent-registry-memory.js";
+import { publishSubagentRunsAfterAtomicStore } from "../registry/subagent-registry-state.js";
 import {
   bindSubagentRunRecord,
   loadSubagentRunsForChildSessionFromSqlite,
@@ -74,7 +75,10 @@ function invokeSynchronousHook(hook: (() => unknown) | undefined): void {
   }
 }
 
-function publishCommittedSubagent(subagent: SubagentRunRecord): void {
+function publishCommittedSubagent(
+  subagent: SubagentRunRecord,
+  deferredObserverEvents: Array<() => void> = [],
+): Array<() => void> {
   const live = subagentRuns.get(subagent.runId);
   if (live) {
     for (const key of Object.keys(live)) {
@@ -84,11 +88,13 @@ function publishCommittedSubagent(subagent: SubagentRunRecord): void {
   } else {
     subagentRuns.set(subagent.runId, subagent);
   }
+  publishSubagentRunsAfterAtomicStore(subagentRuns, [subagent.runId], deferredObserverEvents);
+  return deferredObserverEvents;
 }
 
 export function publishCommittedRecords(subagent: SubagentRunRecord, task: TaskRecord): void {
-  publishCommittedSubagent(subagent);
   const deferredObserverEvents: Array<() => void> = [];
+  publishCommittedSubagent(subagent, deferredObserverEvents);
   const published = publishTaskRecordAfterAtomicStore(task, { deferredObserverEvents });
   syncFlowFromTaskAfterTaskMutation(published, "atomic completion admission");
   for (const emitObserverEvent of deferredObserverEvents) {
@@ -276,7 +282,9 @@ export function reconcileRetiredSubagentCancellation(
     }
     subagent.killReconciliation = undefined;
     upsertSubagentRunRowInDatabase(database, bindSubagentRunRecord(subagent));
-    deferSqlitePostCommitPublication(database.db, () => publishCommittedSubagent(subagent));
+    deferSqlitePostCommitPublication(database.db, () => {
+      publishCommittedSubagent(subagent).forEach((emit) => emit());
+    });
     return true;
   });
 }
@@ -318,7 +326,9 @@ export function blockSubagentCompletionDelivery(params: {
       });
       subagent.suppressCompletionDelivery = true;
       upsertSubagentRunRowInDatabase(database, bindSubagentRunRecord(subagent));
-      deferSqlitePostCommitPublication(database.db, () => publishCommittedSubagent(subagent));
+      deferSqlitePostCommitPublication(database.db, () => {
+        publishCommittedSubagent(subagent).forEach((emit) => emit());
+      });
       return true;
     }
     if (

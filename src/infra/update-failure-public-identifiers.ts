@@ -5,6 +5,7 @@ import { isServiceInspectionReason } from "../daemon/service-inspection-error.js
 import { normalizeSupportDiagnosticErrorCode } from "../logging/diagnostic-support-redaction.js";
 import { CLAWHUB_INSTALL_ERROR_CODE } from "../plugins/clawhub-error-codes.js";
 import { PLUGIN_INSTALL_ERROR_CODE } from "../plugins/install-types.js";
+import { SKIPPED_UPDATE_OUTCOMES } from "../shared/update-outcome.js";
 import type { UpdateFailureFact } from "./update-failure-facts.js";
 import { updateRecoverySchema } from "./update-recovery.js";
 
@@ -49,6 +50,7 @@ const NATIVE_CHECKS = new Set<string>([
 ]);
 
 const PUBLIC_CODES = new Set<string>([
+  ...Object.keys(SKIPPED_UPDATE_OUTCOMES),
   ...Object.values(PLUGIN_INSTALL_ERROR_CODE),
   ...Object.values(CLAWHUB_INSTALL_ERROR_CODE),
   PLUGIN_CAPABILITY_CONSENT_REQUIRED,

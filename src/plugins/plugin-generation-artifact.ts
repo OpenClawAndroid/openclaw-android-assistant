@@ -7,6 +7,7 @@ import { moduleResolve } from "import-meta-resolve";
 import type { JitiOptions } from "jiti";
 import { isPathInside } from "../infra/path-guards.js";
 import { createJiti } from "./jiti-factory.js";
+import { createPluginGenerationSourceLookup } from "./plugin-generation-source-lookup.js";
 import {
   capturePluginPackageMetadata,
   capturePluginDependencies,
@@ -38,7 +39,6 @@ import {
 export function capturePluginGenerationArtifact(
   rootDir: string,
   entryFile?: string,
-  inputBoundaryRoot = rootDir,
   execute?: <T>(run: () => T) => T,
   moduleSource?: (filename: string) => string,
 ) {
@@ -70,7 +70,7 @@ export function capturePluginGenerationArtifact(
     metadataOnly = false,
     executableEntry = false,
   ): string => {
-    const boundary = entry && !executableEntry ? fs.realpathSync(inputBoundaryRoot) : root;
+    const boundary = root;
     const existing = packages.get(root);
     if (existing) {
       if (!metadataOnly) {
@@ -85,14 +85,9 @@ export function capturePluginGenerationArtifact(
       moduleRoot,
       parentName.startsWith("@") ? parentName : "",
       path.basename(boundary),
-      path.relative(boundary, root),
     );
-    const capturedBoundary = path.resolve(destination, path.relative(root, boundary));
-    sourceAliases[boundary] = capturedBoundary;
+    const capturedBoundary = destination;
     sourceAliases[root] = destination;
-    if (entry && !executableEntry) {
-      sourceAliases[path.resolve(inputBoundaryRoot)] = capturedBoundary;
-    }
     digest.update(packageId).update("\0");
     const owner: PluginPackageCapture = {
       destination,
@@ -396,7 +391,7 @@ export function capturePluginGenerationArtifact(
           return input;
         }
         const requested = path.resolve(path.dirname(source), value);
-        const lexicalBoundary = entry && !executableEntry ? path.resolve(inputBoundaryRoot) : root;
+        const lexicalBoundary = entry && !executableEntry ? path.resolve(rootDir) : root;
         const local =
           module && path.isAbsolute(value) && isPathInside(lexicalBoundary, requested)
             ? path.join(boundary, path.relative(lexicalBoundary, requested))
@@ -618,14 +613,6 @@ export function capturePluginGenerationArtifact(
     assertSourceCurrent();
     pendingInputs.clear();
     additions.clear();
-    const resolveCaptured = (source: string) => {
-      const lexical = path.resolve(source);
-      const canonical = isPathInside(path.resolve(rootDir), lexical)
-        ? path.join(sourceRoot, path.relative(path.resolve(rootDir), lexical))
-        : lexical;
-      const captured = capturedPaths.get(canonical);
-      return captured && isPathInside(root, captured) ? captured : undefined;
-    };
     const captures = [moduleCaptures, hardlinkedSources, metadataCapture, packages];
     const clearCaptures = () => captures.forEach((capture) => capture.clear());
     return {
@@ -637,8 +624,16 @@ export function capturePluginGenerationArtifact(
       boundaryRoot: directory,
       // The receipt attests the initial snapshot; first-demand inputs extend only its identity ledger.
       sourceDigest: digest.copy().digest("hex"),
+      ...createPluginGenerationSourceLookup({
+        rootDir,
+        sourceRoot,
+        capturedRoot: root,
+        boundaryRoot: directory,
+        capturedPaths,
+        hardlinkedSources,
+        assertModuleAvailable,
+      }),
       assertSourceCurrent,
-      hasSource: (source: string) => resolveCaptured(source) !== undefined,
       moduleRoot: (filename: string) =>
         originalSources.has(filename) ? packageForFile(filename)?.capturedRoot : undefined,
       assertModuleAvailable,
@@ -698,19 +693,6 @@ export function capturePluginGenerationArtifact(
           }
           return target;
         }).value;
-      },
-      resolve: (source: string, rejectHardlinks = false) => {
-        // Public exports may be loaded for the first time after the original package
-        // has been edited or removed. Resolve only through facts captured with it.
-        const captured = resolveCaptured(source);
-        if (!captured) {
-          throw new Error("Plugin entry is outside its captured source package");
-        }
-        if (rejectHardlinks && hardlinkedSources.has(captured)) {
-          throw new Error("Plugin source is hardlinked; use a separate file and reload.");
-        }
-        assertModuleAvailable(captured);
-        return captured;
       },
       dispose: () => {
         sourceCapture.dispose();

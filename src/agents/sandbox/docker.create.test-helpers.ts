@@ -25,6 +25,7 @@ const spawnState = vi.hoisted(() => ({
   inspectError: "",
   labelHash: "",
   mounts: "[]",
+  tmpfs: null as Record<string, string> | null,
   podmanInfo: "true\tfalse\t\t5.0.0\n",
   podmanConnections: "[]\n",
   podmanMachines: "[]\n",
@@ -143,7 +144,7 @@ async function spawnDockerProcess(commandAndArgs: string[]) {
     args[0] === "inspect" &&
     args[2] === '{"Mounts":{{json .Mounts}},"Tmpfs":{{json .HostConfig.Tmpfs}}}'
   ) {
-    stdout = JSON.stringify({ Mounts: JSON.parse(spawnState.mounts), Tmpfs: null });
+    stdout = JSON.stringify({ Mounts: JSON.parse(spawnState.mounts), Tmpfs: spawnState.tmpfs });
   } else if (command === "podman" && args[0] === "info") {
     stdout = spawnState.podmanInfo;
   } else if (command === "podman" && args[0] === "system") {
@@ -309,6 +310,7 @@ export function createSandboxContainerTestHarness() {
     spawnState.inspectError = "";
     spawnState.labelHash = "";
     spawnState.mounts = "[]";
+    spawnState.tmpfs = null;
     namespaceMocks.resolveDockerSourceNamespace.mockResolvedValue(undefined);
     spawnState.podmanInfo = "true\tfalse\t\t5.0.0\n";
     spawnState.podmanConnections = "[]\n";

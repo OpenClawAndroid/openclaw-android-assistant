@@ -9,6 +9,7 @@ import type {
   MigrationCheckpointIdentity,
   StartupMigrationLease,
 } from "../infra/startup-migration-checkpoint.js";
+import { throwIfDoctorStateMigrationRefused } from "../infra/state-migrations.messages.js";
 import type {
   LegacyStateMigrationStepReceipt,
   MigrationMessages,
@@ -378,6 +379,29 @@ async function runDoctorConfigPreflightOperation(
       throwStartupMigrationGuardRejected();
     }
     if (
+      options.doctorOnlyStateMigrations === true &&
+      stateDirMigrations &&
+      stateMigrationsAllowed &&
+      freshConfigGuardAllowed &&
+      !skipPristineCoreStateMigrations
+    ) {
+      // Plugin obligations must survive later repair failures, but their writer needs current SQL.
+      const { prepareLegacyStateDatabaseSchema } =
+        await import("../infra/state-migrations.doctor.js");
+      const receipt = await measurePreflightStep("state-schema", () =>
+        prepareLegacyStateDatabaseSchema(startupMigrationEnv),
+      );
+      if (receipt.outcome !== "skipped") {
+        stateMigrationStepReceipts.push(receipt);
+        noteStartupStateMigrationResult({
+          changes: receipt.changes,
+          warnings: receipt.warnings,
+          notices: receipt.notices,
+        });
+        throwIfDoctorStateMigrationRefused(stateMigrationStepReceipts);
+      }
+    }
+    if (
       automaticConfigRepair &&
       hasPendingPluginInstallConfig(snapshot) &&
       stateMigrationsAllowed &&
@@ -677,36 +701,16 @@ async function runDoctorConfigPreflightOperation(
       freshConfigGuardAllowed &&
       snapshot.valid
     ) {
-      const persistedSnapshotRead = await persistRefreshedPluginIndex({
+      const persisted = await persistRefreshedPluginIndex({
         env: startupMigrationEnv,
         lease: startupMigrationLease,
         measure: measurePreflightStep,
         readPersistedSnapshot: () => readConfigSnapshotForPreflight(false),
         snapshotRead: configSnapshotRead,
+        expectedIdentity: migrationCheckpointIdentity,
       });
-      const persistedBaseConfig =
-        persistedSnapshotRead.snapshot.sourceConfig ?? persistedSnapshotRead.snapshot.config ?? {};
-      const persistedIdentity = resolveMigrationCheckpointIdentity({
-        snapshot: persistedSnapshotRead.snapshot,
-        baseConfig: persistedBaseConfig,
-        pluginMigrationFingerprint: persistedSnapshotRead.pluginMigrationFingerprint,
-      });
-      if (
-        !migrationCheckpointIdentity ||
-        !persistedIdentity ||
-        migrationCheckpointIdentity.effectiveConfigFingerprint !==
-          persistedIdentity.effectiveConfigFingerprint ||
-        migrationCheckpointIdentity.pluginDoctorConfigFingerprint !==
-          persistedIdentity.pluginDoctorConfigFingerprint
-      ) {
-        throw new Error(
-          'OpenClaw config identity changed while persisting the refreshed plugin registry; refusing to write the migration checkpoint. Run "openclaw doctor --fix" and retry.',
-        );
-      }
-      // The durable reread supplies the accepted inventory. Replace both the
-      // authoritative snapshot and its checkpoint identity at that boundary.
-      configSnapshotRead = persistedSnapshotRead;
-      migrationCheckpointIdentity = persistedIdentity;
+      configSnapshotRead = persisted.snapshotRead;
+      migrationCheckpointIdentity = persisted.checkpointIdentity;
     }
     configSnapshotRead = await completeStartupMigrationPreflight({
       freshConfigGuardAllowed,

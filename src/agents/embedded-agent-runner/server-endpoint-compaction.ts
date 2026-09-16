@@ -35,7 +35,7 @@ export async function attemptServerEndpointCompaction(params: {
   customInstructions?: string;
   config?: OpenClawConfig;
   onUsage?: (usage: ServerEndpointCompactionResult["usage"]) => void;
-  onCompactionCommitted?: () => void;
+  onCompactionCommitted?: (tokensBefore: number) => void;
   assertActive?: () => void;
 }): Promise<ServerEndpointCompactionResult | undefined> {
   if (
@@ -114,7 +114,7 @@ export async function attemptServerEndpointCompaction(params: {
         );
       }
       compactionCommitted = true;
-      params.onCompactionCommitted?.();
+      params.onCompactionCommitted?.(compacted.usage.input_tokens);
     });
   } catch (err) {
     // Observer or handle-release failures after commit must not trigger a

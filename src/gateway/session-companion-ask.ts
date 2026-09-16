@@ -3,9 +3,11 @@ import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { SessionCompanionExchange } from "../../packages/gateway-protocol/src/schema/sessions.js";
 import { prepareSystemAgentRunAdmission } from "../agents/admitted-run-context.js";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import { withSessionManagerWrite } from "../agents/sessions/session-manager-write-admission.js";
 import { resolveSimpleCompletionSelectionForAgent } from "../agents/simple-completion-runtime.js";
 import { resolveUtilityModelRefForAgent } from "../agents/utility-model.js";
 import { resolveSessionStorePathCore } from "../config/sessions.js";
+import { loadExactSessionEntry } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { Message, Usage } from "../llm/types.js";
 import { redactToolPayloadText } from "../logging/redact.js";
@@ -172,6 +174,11 @@ async function defaultRun(params: SessionCompanionRunParams): Promise<string> {
     runId,
     storePath,
   });
+  const expectedSeedOwner = {
+    lifecycleRevision: target.sessionEntry.lifecycleRevision,
+    activeWriterRunId: target.sessionEntry.activeWriterRunId,
+  };
+  let executionStarted = false;
   const preparedRunAdmission = prepareSystemAgentRunAdmission(
     params.cfg,
     runId,
@@ -184,9 +191,23 @@ async function defaultRun(params: SessionCompanionRunParams): Promise<string> {
       import("../agents/embedded-agent.js"),
     ]);
     const sessionManager = SessionManager.open(target);
-    for (const message of params.messages.slice(0, -1)) {
-      sessionManager.appendMessage(toRunnerHistoryMessage(message, selection));
-    }
+    await withSessionManagerWrite(sessionManager, () => {
+      params.signal.throwIfAborted();
+      const currentEntry = loadExactSessionEntry(target)?.entry;
+      if (
+        !currentEntry ||
+        currentEntry.sessionId !== target.sessionId ||
+        currentEntry.lifecycleRevision !== expectedSeedOwner.lifecycleRevision ||
+        currentEntry.activeWriterRunId !== expectedSeedOwner.activeWriterRunId
+      ) {
+        throw new Error("Session companion identity changed before history persistence");
+      }
+      for (const message of params.messages.slice(0, -1)) {
+        sessionManager.appendMessage(toRunnerHistoryMessage(message, selection));
+      }
+    });
+    params.signal.throwIfAborted();
+    executionStarted = true;
     const result = await runEmbeddedAgent({
       preparedRunAdmission,
       sessionId: target.sessionId,
@@ -232,7 +253,10 @@ async function defaultRun(params: SessionCompanionRunParams): Promise<string> {
     );
   } finally {
     preparedRunAdmission.close();
-    await removeInternalSessionEffectsSession(target);
+    await removeInternalSessionEffectsSession(
+      target,
+      executionStarted ? undefined : expectedSeedOwner,
+    );
   }
 }
 

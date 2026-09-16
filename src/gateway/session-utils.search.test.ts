@@ -12,6 +12,9 @@ vi.mock("./session-transcript-title-reader.js", () => ({
   readSessionTitleFieldsFromTranscriptBatch: () => [],
 }));
 vi.mock("./session-utils-row.js", () => ({
+  readSessionRowInputs: () => {
+    throw new Error("search selection must not prepare session rows");
+  },
   buildGatewaySessionRow: () => {
     throw new Error("search selection must not render session rows");
   },

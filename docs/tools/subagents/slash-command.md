@@ -29,7 +29,11 @@ sidebar row. Subagents appear only under an expanded parent, including when a
 custom group is assigned. The nested rows show child status and runtime, and
 selecting one opens that child's chat while preserving the parent hierarchy. Chat
 activity rows identify each subagent by its task name beside its status and latest
-activity. Failed or timed-out
+activity.
+Parent-sent follow-up turns also appear in these activity rows while they run,
+including after the original child task completed. They preserve the original
+result and any pending child wait; replies still follow `sessions_send` delivery.
+Failed or timed-out
 children retain a bounded failure reason, including failures during worktree
 preparation before any model reply. The child's transcript includes a durable
 failure notice when no assistant reply was recorded for that run. A later

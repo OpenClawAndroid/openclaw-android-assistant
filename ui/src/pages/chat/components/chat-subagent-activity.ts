@@ -39,8 +39,12 @@ export function deriveSubagentActivity(params: {
   const matching = sortTasks(
     params.tasks.filter((task) => {
       const taskRequesterSessionKey = params.canonicalizeSessionKey(task.sessionKey);
+      const childSessionKey = params.canonicalizeSessionKey(task.childSessionKey);
       return (
-        task.runtime === "subagent" &&
+        (task.runtime === "subagent" ||
+          (task.runtime === "cli" &&
+            Boolean(childSessionKey) &&
+            childSessionKey !== taskRequesterSessionKey)) &&
         Boolean(requesterSessionKey) &&
         taskRequesterSessionKey === requesterSessionKey
       );

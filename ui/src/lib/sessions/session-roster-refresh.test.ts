@@ -195,8 +195,13 @@ describe("session roster refresh", () => {
         }
         await explicitRefresh;
         await delayedExplicit;
-        expect(reads).toBe(3);
-        expect(current).toMatchObject({ ts: 3, sessions: [{ key, label: "Revision 3" }] });
+        // An explicit read subsumes an event still waiting for background admission.
+        const revision = explicit === "readmission" ? 2 : 3;
+        expect(reads).toBe(revision);
+        expect(current).toMatchObject({
+          ts: revision,
+          sessions: [{ key, label: `Revision ${revision}` }],
+        });
       } finally {
         slow.resolve(result(2));
         stop();

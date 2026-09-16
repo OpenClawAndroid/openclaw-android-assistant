@@ -34,6 +34,7 @@ import {
   resolveConfiguredSubagentRunTimeoutSeconds,
   resolveSubagentModelAndThinkingPlan,
 } from "../subagents/spawn/subagent-spawn-plan.js";
+import { readRequesterModel } from "../subagents/spawn/subagent-spawn-requester-prefs.js";
 import { buildSubagentTaskMessage } from "../subagents/spawn/subagent-system-prompt.js";
 import { resolveSubagentTargetPolicy } from "../subagents/spawn/subagent-target-policy.js";
 import { resolveAgentTimeoutMs } from "../timeout.js";
@@ -258,11 +259,20 @@ export async function maybeSpawnVisibleSession(params: {
     cfg,
     targetAgentId,
     modelOverride,
+    inheritedModel:
+      targetAgentId === requesterAgentId
+        ? (params.options?.requesterModel ??
+          readRequesterModel({
+            cfg,
+            requesterInternalKey: requesterKey,
+            requesterAgentId,
+          }))
+        : undefined,
   });
   if (modelPlan.status === "error") {
     return { status: "error", error: modelPlan.error };
   }
-  const { resolvedModel, initialSessionPatch } = modelPlan;
+  const { resolvedModel, inheritedModel, initialSessionPatch } = modelPlan;
   const { authProfileOverride } = initialSessionPatch;
   // Creation validates the complete profile-qualified selection.
   const resolvedModelRef = authProfileOverride
@@ -356,6 +366,7 @@ export async function maybeSpawnVisibleSession(params: {
             allow: [...(params.options?.inheritedToolAllowlist ?? [])],
             deny: [...(params.options?.inheritedToolDenylist ?? [])],
           },
+          ...(inheritedModel ? { resolvedModel: inheritedModel } : {}),
         }));
     let response: {
       key?: string;

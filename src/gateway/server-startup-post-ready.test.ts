@@ -83,17 +83,23 @@ describe("Gateway post-ready startup work", () => {
         expect(resumed).not.toHaveBeenCalled();
 
         if (outcome === "closes") {
+          closeOutcome = server.close();
+          await postReadyWork;
+          expect(resumed).toHaveBeenCalledExactlyOnceWith(true);
+          // Real process cleanup needs native timers; observe only startup's timer publication.
           vi.useFakeTimers({
             toFake: ["setTimeout", "clearTimeout"],
             shouldClearNativeTimers: true,
           });
-          closeOutcome = server.close();
-          await postReadyWork;
-          expect(resumed).toHaveBeenCalledExactlyOnceWith(true);
-          startup.resolve();
+          try {
+            startup.resolve();
+            await server.startupSettled;
+            expect(vi.getTimerCount()).toBe(0);
+          } finally {
+            vi.useRealTimers();
+          }
           await closeOutcome;
           expect(startMaintenance).not.toHaveBeenCalled();
-          expect(vi.getTimerCount()).toBe(0);
         } else {
           startup.resolve();
           await server.startupSettled;

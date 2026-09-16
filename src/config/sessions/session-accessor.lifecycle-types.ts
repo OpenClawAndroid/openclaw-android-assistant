@@ -1,6 +1,7 @@
 import type { OpenClawConfig } from "../types.openclaw.js";
 import type { ConversationRouteContext } from "./conversation-route-context.js";
 import type { SessionStateDeleteSnapshot } from "./session-accessor.sqlite-delete-snapshot.types.js";
+import type { TranscriptDigest } from "./session-accessor.sqlite-transcript-digest.types.js";
 import type { SessionResetBoundaryRequest } from "./session-reset-boundary-event.js";
 import type { InternalSessionEntry as SessionEntry } from "./types.js";
 
@@ -97,7 +98,7 @@ export type DeleteSessionEntryLifecycleParams = {
   /** Optional exact row guard checked under the storage writer lock. */
   expectedEntry?: SessionEntry;
   /** Optional exact ordered transcript guard checked in the deleting SQLite transaction. */
-  expectedTranscript?: { sessionId: string; eventJson: readonly string[] };
+  expectedTranscript?: { sessionId: string; digest: TranscriptDigest };
   /** Optional provider-run identity guard checked under the storage writer lock. */
   expectedSessionId?: string | null;
   /** Optional owner revision guard checked under the storage writer lock. */

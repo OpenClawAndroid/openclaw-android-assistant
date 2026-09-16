@@ -108,23 +108,26 @@ export async function verifyActiveCallDrainLease(
     expect(reloadSettled).toBe(false);
     expect(callSettled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    // Disposal has its existing separate deadline; the held native continuation
-    // may remain, while its retired registration must stop accepting new calls.
-    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fixture.candidates).toHaveLength(0);
+    expect(disposed).toEqual([]);
+    expect(response).not.toHaveBeenCalled();
+    expect(await fs.readFile(effectsPath, "utf8")).toBe("");
+    // The failed handoff still owns this admitted write. Recovery can recreate
+    // the old registration only after the write releases its resource hold.
+    release.resolve();
+    expect(await originalCall).toBeUndefined();
+    expect(response).toHaveBeenCalledExactlyOnceWith(true, { generation: 1 }, undefined, undefined);
+    expect(await fs.readFile(effectsPath, "utf8")).toBe("completed\n");
+    await vi.advanceTimersByTimeAsync(0);
     expect(await reloading).toMatchObject({
-      runtime: {
-        operationId: "service-recovery",
-        pluginIds: ["first"],
-        warnings: expect.arrayContaining([expect.stringContaining("active calls")]),
-      },
+      details: { phase: "drain", committed: false, pluginIds: ["first"] },
     });
     expect(fixture.registryOwner.registry).not.toBe(fixture.previousRegistry);
     expect(instance.disposing).toBe(true);
     expect(instance.lifecycle.signal.aborted).toBe(true);
     expect(disposed).toEqual([1]);
-    expect(callSettled).toBe(false);
-    expect(response).not.toHaveBeenCalled();
-    expect(await fs.readFile(effectsPath, "utf8")).toBe("");
+    expect(callSettled).toBe(true);
+    expect(fixture.candidates).toHaveLength(0);
     await expect(invoke(false, vi.fn())).rejects.toThrow("reloaded or disabled");
     const completedLease = reloadLease;
     assert(completedLease);
@@ -138,16 +141,12 @@ export async function verifyActiveCallDrainLease(
       }),
     ).resolves.toBe("reacquired");
 
-    expect(fixture.firstStart).toHaveBeenCalledOnce();
+    expect(fixture.firstStart).toHaveBeenCalledTimes(2);
     expect(fixture.siblingStart).toHaveBeenCalledOnce();
     expect(fixture.siblingStop).not.toHaveBeenCalled();
     await expect(reload()).resolves.toMatchObject({ runtime: { pluginIds: ["first"] } });
     expect(disposed).toEqual([1, 2]);
     await expect(invoke(false, vi.fn())).rejects.toThrow("reloaded or disabled");
-    expect(await fs.readFile(effectsPath, "utf8")).toBe("");
-    release.resolve();
-    expect(await originalCall).toBeUndefined();
-    expect(response).toHaveBeenCalledExactlyOnceWith(true, { generation: 1 }, undefined, undefined);
     expect(await fs.readFile(effectsPath, "utf8")).toBe("completed\n");
     expect(instance.lifecycle.signal.aborted).toBe(true);
     expect(disposed).toEqual([1, 2]);

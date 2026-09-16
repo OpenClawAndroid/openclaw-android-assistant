@@ -29,6 +29,10 @@ export type MemorySourceIndexReplacement = {
   vectorReady: boolean;
 } & ({ source: "memory" } | { source: "sessions"; agentId: string; sessionId: string });
 
+export type MemorySourceIndexHeader = Omit<MemorySourceIndexReplacement, "chunks" | "embeddings"> &
+  ({ source: "memory" } | { source: "sessions"; agentId: string; sessionId: string });
+export type MemorySourceIndexRow = { chunk: IndexedMemoryChunk; embedding: number[] };
+
 type SourceIndexDatabase = {
   memory_index_sources: {
     path: string;
@@ -69,13 +73,25 @@ export class MemorySourceIndexKernel {
   ) {}
 
   replace(params: MemorySourceIndexReplacement): void {
-    const { entry, source, chunks, embeddings, model, now, vectorReady } = params;
+    this.replaceRows(
+      params,
+      (function* () {
+        for (const [index, chunk] of params.chunks.entries()) {
+          yield { chunk, embedding: params.embeddings[index] ?? [] };
+        }
+      })(),
+    );
+  }
+
+  replaceRows(params: MemorySourceIndexHeader, rows: Iterable<MemorySourceIndexRow>): void {
+    const { entry, source, model, now, vectorReady } = params;
     this.clear(entry.path, source);
     let writeChunk: ReturnType<typeof createMemoryChunkWriter> | undefined;
     let writeVector: ReturnType<typeof createMemoryVectorWriter> | undefined;
     let ftsStatement: StatementSync | undefined;
-    for (const [index, chunk] of chunks.entries()) {
-      const embedding = embeddings[index] ?? [];
+    let hasEmbeddings = false;
+    for (const { chunk, embedding } of rows) {
+      hasEmbeddings ||= embedding.length > 0;
       const id = hashText(
         `${source}:${entry.path}:${chunk.startLine}:${chunk.endLine}:${chunk.hash}:${model}`,
       );
@@ -118,7 +134,7 @@ export class MemorySourceIndexKernel {
           })),
         ),
     );
-    if (!vectorReady && embeddings.some((embedding) => embedding.length > 0)) {
+    if (!vectorReady && hasEmbeddings) {
       markMemoryVectorRebuildRequired(this.database);
     }
   }

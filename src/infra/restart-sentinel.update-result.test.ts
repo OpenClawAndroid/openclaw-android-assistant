@@ -26,6 +26,46 @@ async function withRestartSentinelStateDir(run: () => Promise<void>): Promise<vo
 }
 
 describe("control-plane update restart sentinel", () => {
+  it.each([
+    { status: "ok", reason: undefined, eligible: true },
+    { status: "error", reason: "doctor-failed", eligible: false },
+    { status: "skipped", reason: "already-current", eligible: true },
+    { status: "skipped", reason: "cancelled", eligible: false },
+  ] as const)(
+    "publishes exhausted readiness without a success continuation (status=$status, reason=$reason)",
+    ({ status, reason, eligible }) => {
+      const payload = buildUpdateRestartSentinelPayload({
+        result: {
+          status,
+          reason,
+          mode: "npm",
+          durationMs: 90_000,
+          steps: [
+            {
+              name: "gateway verification",
+              command: "gateway verification",
+              cwd: "/candidate",
+              durationMs: 90_000,
+              exitCode: 0,
+              termination: "timeout",
+              advisory: {
+                kind: "recoverable-maintenance",
+                message: "Readiness observation ended after 90s; PID 7376 still running.",
+              },
+            },
+          ],
+        },
+        meta: { continuationMessage: "Continue after success" },
+      });
+      expect(payload).toMatchObject({
+        status: eligible ? "skipped" : status,
+        stats: { reason: eligible ? "gateway-readiness-unverified" : reason },
+      });
+      expect(payload.continuation).toBeUndefined();
+      expect(isPendingControlPlaneUpdateRestartSentinel(payload)).toBe(false);
+    },
+  );
+
   it.each(["handoff", "restart", "rollback", "unsafe", "success"] as const)(
     "does not publish a targetless CLI %s notice for a restored runtime",
     async (phase) => {

@@ -350,6 +350,8 @@ async function runEmbeddedAgentInternal(
         const work = new AsyncWorkScope();
         let context = work.run(() => AsyncLocalStorage.snapshot());
         let preparedRuntimeResource: AsyncDisposable | undefined;
+        let initialWriterResource: AsyncDisposable | undefined;
+        let initialWriterCleanup = Promise.resolve();
         const runPreparedCandidate = async () => {
           // Configless direct hosts reuse one idle generation. The prepared-runtime lifecycle keeps
           // gateway run generations in its own bounded cache so one-off paths cannot accumulate.
@@ -541,6 +543,9 @@ async function runEmbeddedAgentInternal(
                     });
               const runTerminal = terminal;
               return await runPreparedEmbeddedLoop(refresh, {
+                onInitialWriterPrepared: (resource) => {
+                  initialWriterResource = resource;
+                },
                 runParams: {
                   ...params,
                   assistantErrorTranscript,
@@ -595,6 +600,13 @@ async function runEmbeddedAgentInternal(
                 )
               : await runWithPreparedRuntime();
           } finally {
+            const initialWriter = initialWriterResource;
+            if (initialWriter) {
+              initialWriterCleanup = context(() =>
+                work.track(async () => await initialWriter[Symbol.asyncDispose]()),
+              );
+              void initialWriterCleanup.catch(() => {});
+            }
             preparedLeaseActive = false;
           }
         };
@@ -617,7 +629,11 @@ async function runEmbeddedAgentInternal(
               );
             } finally {
               try {
-                await preparedRuntimeResource?.[Symbol.asyncDispose]();
+                try {
+                  await initialWriterCleanup;
+                } finally {
+                  await preparedRuntimeResource?.[Symbol.asyncDispose]();
+                }
               } finally {
                 parentSignal?.removeEventListener("abort", closeWork);
               }

@@ -250,16 +250,18 @@ export function resolveGatewaySessionThinkingProjectionInternal(
     : undefined;
   const thinkingRuntime = acpMeta
     ? concretizeAgentRuntime(acpMeta.backend ?? agentRuntime.id)
-    : resolveEffectiveAgentRuntime({
-        cfg: params.cfg,
-        provider: params.provider,
-        modelId: params.model,
-        modelApi: logicalEntry?.api,
-        modelBaseUrl: logicalEntry?.baseUrl,
-        agentScope: { kind: "prepared", agentId: params.agentId },
-        sessionKey: params.sessionKey,
-        sessionEntry: params.entry,
-      });
+    : agentRuntime.source === "session"
+      ? agentRuntime.id
+      : resolveEffectiveAgentRuntime({
+          cfg: params.cfg,
+          provider: params.provider,
+          modelId: params.model,
+          modelApi: logicalEntry?.api,
+          modelBaseUrl: logicalEntry?.baseUrl,
+          agentScope: { kind: "prepared", agentId: params.agentId },
+          sessionKey: params.sessionKey,
+          sessionEntry: params.entry,
+        });
   const catalogEntry =
     logicalEntry && params.modelCatalogRouteVariants
       ? (params.rowContext?.selectModelCatalogRuntimeEntry ?? selectModelCatalogRuntimeEntry)({

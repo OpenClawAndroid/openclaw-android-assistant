@@ -4,10 +4,8 @@ import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
 import { closeOpenClawAgentDatabaseByPathAsync } from "./openclaw-agent-db-lifecycle.js";
-import {
-  OpenClawAgentDatabaseReadOnlyScope,
-  withOpenClawAgentDatabaseReadOnly,
-} from "./openclaw-agent-db-readonly.js";
+import { OpenClawAgentDatabaseReadOnlyScope } from "./openclaw-agent-db-readonly-scope.js";
+import { withOpenClawAgentDatabaseReadOnly } from "./openclaw-agent-db-readonly.js";
 import { openOpenClawAgentDatabase } from "./openclaw-agent-db.js";
 
 it("keeps one connection while nested reads retain independent committed snapshots", async () => {

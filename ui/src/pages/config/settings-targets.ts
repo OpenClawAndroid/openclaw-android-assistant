@@ -67,6 +67,8 @@ export const SETTINGS_SEARCH_TARGETS = {
     searchKeys: [],
     nativeSearchKeys: {
       "configPage.deviceSettings.app": (snapshot) => snapshot.app !== undefined,
+      "configPage.deviceSettings.nativeExperience": (snapshot) =>
+        snapshot.app?.nativeExperienceEnabled !== undefined,
       "configPage.deviceSettings.appearance": (snapshot) => snapshot.app?.appearance !== undefined,
       "configPage.deviceSettings.notificationsEnabled": (snapshot) =>
         snapshot.app?.notificationsEnabled !== undefined,

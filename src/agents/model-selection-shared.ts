@@ -20,6 +20,7 @@ import { getActivePluginRegistryWorkspaceDirFromState } from "../plugins/runtime
 import { dedupeByKey, indexFirstByKey } from "../shared/dedupe-by-key.js";
 import { resolveAgentConfig } from "./agent-scope-config.js";
 import { resolveConfiguredProviderFallback } from "./configured-provider-fallback.js";
+import { hasExactConfiguredProviderModel } from "./configured-provider-model.js";
 import { DEFAULT_PROVIDER } from "./defaults.js";
 import { findModelCatalogEntry } from "./model-catalog-lookup.js";
 import { overlayCatalogMetadata } from "./model-catalog-metadata.js";
@@ -229,11 +230,16 @@ function buildEffectiveModelAliases(
 function findModelAliasCandidate(
   candidates: readonly EffectiveModelAlias[],
   raw: string,
+  provider?: string,
 ): EffectiveModelAlias | undefined {
   const aliasKey = normalizeLowercaseStringOrEmpty(raw);
+  const scopedProvider = provider ? normalizeProviderId(provider) : undefined;
   let match: EffectiveModelAlias | undefined;
   for (const candidate of candidates) {
-    if (normalizeLowercaseStringOrEmpty(candidate.alias) === aliasKey) {
+    if (
+      normalizeLowercaseStringOrEmpty(candidate.alias) === aliasKey &&
+      (!scopedProvider || normalizeProviderId(candidate.ref.provider) === scopedProvider)
+    ) {
       match = candidate;
     }
   }
@@ -763,10 +769,18 @@ export function resolveConfiguredModelRef(
     const { model: modelWithoutProfile } = splitTrailingAuthProfile(trimmed);
     const manifestPluginContext = createModelManifestPluginContext(params);
     const profileStripped = Boolean(modelWithoutProfile && modelWithoutProfile !== trimmed);
+    const providerSeparator = modelWithoutProfile.indexOf("/");
+    const qualifiedProvider =
+      providerSeparator > 0 ? modelWithoutProfile.slice(0, providerSeparator) : undefined;
+    const qualifiedModel = qualifiedProvider
+      ? modelWithoutProfile.slice(providerSeparator + 1)
+      : undefined;
     const aliasKeys = new Set(
-      [trimmed, ...(profileStripped ? [modelWithoutProfile] : [])].map(
-        normalizeLowercaseStringOrEmpty,
-      ),
+      [
+        trimmed,
+        ...(profileStripped ? [modelWithoutProfile] : []),
+        ...(qualifiedModel ? [qualifiedModel] : []),
+      ].map(normalizeLowercaseStringOrEmpty),
     );
     const hasPossibleAlias = listModelAliasCandidates(params.cfg, params.agentId).some(
       (candidate) => aliasKeys.has(normalizeLowercaseStringOrEmpty(candidate.alias)),
@@ -794,6 +808,23 @@ export function resolveConfiguredModelRef(
       // Auth-profile suffixes are not part of alias matching; resolve the alias
       // target while preserving the provider/model semantics of the key.
       return profileAliasCandidate.ref;
+    }
+    if (!exactAliasCandidate && qualifiedProvider && qualifiedModel) {
+      const qualifiedAliasCandidate = findModelAliasCandidate(
+        aliasCandidates,
+        qualifiedModel,
+        qualifiedProvider,
+      );
+      if (
+        qualifiedAliasCandidate &&
+        !hasExactConfiguredProviderModel({
+          cfg: params.cfg,
+          provider: qualifiedProvider,
+          model: qualifiedModel,
+        })
+      ) {
+        return qualifiedAliasCandidate.ref;
+      }
     }
     const primaryWithoutProfile = modelWithoutProfile || trimmed;
     const exactConfiguredPrimary = findExactConfiguredProviderRefParts({

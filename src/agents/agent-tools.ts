@@ -105,6 +105,7 @@ import {
   resolveSessionPermissionExecPolicy,
 } from "./session-permission-exec-mode.js";
 import { resolveSessionPlacementComputer } from "./session-placement-computer.js";
+import type { SpawnedToolContext } from "./spawned-context.js";
 import type { TrustedSubagentCompletionHandoff } from "./subagents/announce/subagent-announce-handoff.js";
 import { resolveToolFsConfig } from "./tool-fs-policy.js";
 import type { PreparedSessionPermissionPolicy } from "./tool-fs-policy.js";
@@ -237,6 +238,7 @@ type OpenClawCodingToolsOptions = {
   /** Stable run identifier for this agent invocation. */
   runId?: string;
   requesterThinkingLevel?: ThinkLevel;
+  requesterModel?: SpawnedToolContext["requesterModel"];
   /** Exact admitted run instance for lifecycle-bound subprocess capabilities. */
   operationalRunInstance?: OperationalRunInstanceRef;
   /** Session-owned desktop resolved before optional paired-node discovery. */
@@ -874,6 +876,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             runId: options?.runId,
             ...(options?.questionPrompt ? { questionPrompt: options.questionPrompt } : {}),
             requesterThinkingLevel: options?.requesterThinkingLevel,
+            requesterModel: options?.requesterModel,
             sessionPermissionPolicy,
             execSession: sessionPermissionPolicy
               ? { permissionMode: sessionPermissionPolicy.mode }

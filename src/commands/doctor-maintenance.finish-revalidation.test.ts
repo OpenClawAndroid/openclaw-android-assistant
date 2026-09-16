@@ -3,9 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import type { SystemdServiceReadBinding } from "../daemon/service-types.js";
 import type { GatewayService } from "../daemon/service.js";
 import { createMockGatewayService, mockSystemAccountHome } from "../daemon/service.test-helpers.js";
+import { readLoadedSystemdServiceRuntime } from "../daemon/systemd-loaded-runtime.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
+import * as sqliteSnapshotSource from "../infra/sqlite-snapshot-source.js";
 import * as updateRunDriver from "../infra/update-run-driver.js";
 import { readUpdateRunDriver } from "../infra/update-run-driver.js";
 import {
@@ -95,7 +98,9 @@ type StoppedUnitState =
   | "unloaded"
   | "changed-manager"
   | "changed-command"
-  | "restart-failed";
+  | "restart-failed"
+  | "slow-admission"
+  | "competing-during-inspection";
 type Continuation =
   | "own"
   | "manual"
@@ -118,6 +123,58 @@ type LegacyCatalog =
   | "conflict-on-recheck"
   | "different-state";
 
+function stoppedSystemdBinding(onPassiveRead: () => void): SystemdServiceReadBinding {
+  const unit = "openclaw-gateway.service";
+  const unitPath = "/org/freedesktop/systemd1/unit/openclaw_2dgateway_2eservice";
+  const properties: Record<string, unknown> = {
+    Id: unit,
+    LoadState: "loaded",
+    ActiveState: "inactive",
+    SubState: "dead",
+    StartLimitBurst: 5,
+    ActiveEnterTimestampMonotonic: 100,
+    InactiveEnterTimestampMonotonic: 200,
+    Result: "success",
+    NRestarts: 0,
+    MainPID: 0,
+    ExecMainStatus: 0,
+    ExecMainCode: 1,
+    KillMode: "control-group",
+    TasksCurrent: Number("18446744073709551615"),
+    MemoryCurrent: 0,
+  };
+  return {
+    unit,
+    managerUid: 2001,
+    destination: ":1.42",
+    verify() {},
+    async close() {},
+    async query(args, _signatures, _deadline, inspection) {
+      if (args[0] === "call") {
+        if (args[4] === "LoadUnit" || args[4] === "GetUnit") {
+          return [[unitPath]];
+        }
+        if (args[4] === "GetProcesses") {
+          return [[[]]];
+        }
+      } else if (args[0] === "get-property") {
+        const assertRead = inspection?.assertReadCurrent ?? inspection?.assertCurrent;
+        // The native peer checks custody around each individual property read.
+        return args.slice(4).map((name) => {
+          assertRead?.();
+          onPassiveRead();
+          if (!Object.hasOwn(properties, name)) {
+            throw new Error(`Unexpected systemd property: ${name}`);
+          }
+          assertRead?.();
+          return properties[name];
+        });
+      }
+      throw new Error(`Unexpected systemd query: ${args.join(" ")}`);
+    },
+  };
+}
+
 async function runDoctorFinishForStoppedUnit(
   scenario: StoppedUnitState,
   continuation?: Continuation,
@@ -128,6 +185,7 @@ async function runDoctorFinishForStoppedUnit(
   logs: string[];
   takeoverSteps: number;
   runStatus: string | undefined;
+  inspectionElapsedMs: number | undefined;
 }> {
   const home = tempDirs.make("openclaw-doctor-finish-");
   mocks.coordinatorRuntimeDir = home;
@@ -150,6 +208,12 @@ async function runDoctorFinishForStoppedUnit(
       OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION: undefined,
     },
     async () => {
+      const boundedInspection =
+        scenario === "slow-admission" || scenario === "competing-during-inspection";
+      if (boundedInspection) {
+        openOpenClawStateDatabase();
+        closeOpenClawStateDatabaseForTest();
+      }
       let runId: string | undefined;
       if (continuation) {
         const driver = readUpdateRunDriver();
@@ -272,6 +336,10 @@ async function runDoctorFinishForStoppedUnit(
         continuation !== "unrecorded-parked";
       let stopObserved = false;
       let commandReads = 0;
+      let inspectingRuntime = false;
+      let inspectionElapsedMs: number | undefined;
+      let inspectionClock = 0;
+      let competingUpdateStarted = false;
       const command = {
         programArguments: [
           process.execPath,
@@ -295,7 +363,7 @@ async function runDoctorFinishForStoppedUnit(
         createMockGatewayService({
           isAbsent: async () => false,
           hasInstalledDefinition: async () => true,
-          isLoaded: async () => scenario === "retained",
+          isLoaded: async () => scenario === "retained" || boundedInspection,
           readCommand: async (_env, opts) => {
             if (++commandReads === 2) {
               activateCompetingUpdate?.();
@@ -320,9 +388,32 @@ async function runDoctorFinishForStoppedUnit(
               environment: { ...command.environment },
             };
           },
-          readRuntime: async (_env, opts) => {
+          readRuntime: async (env, opts) => {
             if (running) {
               return { status: "running", systemd: { managerUid: 2001 } };
+            }
+            if (boundedInspection) {
+              const started = inspectionClock;
+              inspectingRuntime = true;
+              try {
+                return await readLoadedSystemdServiceRuntime(
+                  env,
+                  opts?.timeoutMs,
+                  opts?.loadForInspection,
+                  stoppedSystemdBinding(() => {
+                    if (scenario === "competing-during-inspection" && !competingUpdateStarted) {
+                      competingUpdateStarted = true;
+                      createUpdateRun({
+                        trigger: "cli",
+                        origin: { driver: readUpdateRunDriver() },
+                      });
+                    }
+                  }),
+                );
+              } finally {
+                inspectingRuntime = false;
+                inspectionElapsedMs = inspectionClock - started;
+              }
             }
             opts?.loadForInspection?.assertCurrent();
             // Plain status omits UID; collected units also need authorized inspection.
@@ -381,6 +472,19 @@ async function runDoctorFinishForStoppedUnit(
           driver.pid === process.pid ? "dead" : inspect(driver),
         );
       }
+      if (boundedInspection) {
+        vi.spyOn(performance, "now").mockImplementation(() => inspectionClock);
+        const prepareSnapshot = sqliteSnapshotSource.prepareSqliteReadOnlyLocationSync;
+        vi.spyOn(sqliteSnapshotSource, "prepareSqliteReadOnlyLocationSync").mockImplementation(
+          (pathname) => {
+            const prepared = prepareSnapshot(pathname);
+            if (inspectingRuntime) {
+              inspectionClock += 100;
+            }
+            return prepared;
+          },
+        );
+      }
       let finishError: unknown;
       try {
         await maintenance?.finish({});
@@ -396,6 +500,7 @@ async function runDoctorFinishForStoppedUnit(
         takeoverSteps:
           savedRun?.steps.filter((step) => step.step === "finalize:repair-takeover").length ?? 0,
         runStatus: savedRun?.status,
+        inspectionElapsedMs,
       };
     },
   );
@@ -510,6 +615,23 @@ it.each(["retained", "unloaded"] as const)(
     expect(logs.join("\n")).toContain("Gateway restarted and verified after Doctor repair.");
   },
 );
+
+it("restores the Gateway within the native inspection budget with slow admission snapshots", async () => {
+  const { finishError, restartCalls, inspectionElapsedMs } =
+    await runDoctorFinishForStoppedUnit("slow-admission");
+  expect(finishError).toBeUndefined();
+  expect(restartCalls).toBe(1);
+  expect(inspectionElapsedMs).toBeGreaterThan(0);
+  expect(inspectionElapsedMs).toBeLessThan(5000);
+});
+
+it("rechecks update admission after passive native inspection before restoring the Gateway", async () => {
+  const { finishError, restartCalls } = await runDoctorFinishForStoppedUnit(
+    "competing-during-inspection",
+  );
+  expect(finishError).toMatchObject({ message: expect.stringContaining("is still in progress") });
+  expect(restartCalls).toBe(0);
+});
 
 it.each(["changed-manager", "changed-command"] as const)(
   "refuses activation after %s during repair",

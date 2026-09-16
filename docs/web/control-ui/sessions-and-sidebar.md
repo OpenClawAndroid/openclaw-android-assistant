@@ -120,7 +120,9 @@ Each group contains the agent's pinned and recent sessions, with the usual sessi
 
 Groups share a window of at most 300 sessions across agents with [Agents home](/web/control-ui#agents-home), loading pinned sessions first and then the most recent sessions. Pinned sessions count toward that limit, so more than 300 pinned sessions cannot all appear in this view. The open conversation can remain visible outside this window. **Involving me** loads the same bounded window filtered by the Gateway; the other filters apply to the loaded sessions across groups.
 
-Activity refreshes pause while the browser tab is hidden and catch up when you return. Changes that arrive during a roster read share one follow-up refresh; switching filters never combines pages from different filters.
+The active session list applies Gateway lifecycle row snapshots to existing members without reloading the whole list. Membership changes, mutation events, missing row snapshots, and Gateway-owned filters still require an authoritative list read. Automatic roster refreshes debounce the first event after idle by 200 ms and coalesce continuous events within one second. After an automatic refresh completes, the next waits three times its duration, bounded between one and 15 seconds. Explicit refreshes, filter or agent changes, reconnects, and foreground replacements bypass that delay.
+
+Activity refreshes pause while the browser tab is hidden and catch up once when you return, respecting the automatic refresh delay. Changes that arrive during a roster read share one follow-up refresh; switching filters never combines pages from different filters.
 
 The **Online** list opens a person's activity card with their reported device,
 platform, and connection type: **Web**, **App**, **Terminal** for the TUI, or

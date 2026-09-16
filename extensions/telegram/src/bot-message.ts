@@ -29,7 +29,6 @@ import {
   getTelegramSpooledReplayDeferredParticipant,
   getTelegramSpooledReplayLifecycle,
   isTelegramSpooledReplayUpdate,
-  recordTelegramMessageProcessingResult,
   type TelegramMessageProcessingResult,
 } from "./bot-processing-outcome.js";
 import type { TelegramBotOptions } from "./bot.types.js";
@@ -196,12 +195,6 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
     const ingressDebugEnabled =
       shouldLogVerbose() || process.env.OPENCLAW_DEBUG_TELEGRAM_INGRESS === "1";
     const ingressContextStartMs = ingressReceivedAtMs ? Date.now() : undefined;
-    const recordCurrentUpdateProcessingResult = (result: TelegramMessageProcessingResult) => {
-      if (options?.spooledReplay === true) {
-        return;
-      }
-      recordTelegramMessageProcessingResult(result);
-    };
     const context = await buildTelegramMessageContext({
       primaryCtx,
       allMedia,
@@ -238,7 +231,6 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
         );
       }
       const result: TelegramMessageProcessingResult = { kind: "skipped" };
-      recordCurrentUpdateProcessingResult(result);
       return result;
     }
     if (ingressDebugEnabled && ingressReceivedAtMs && ingressContextStartMs) {
@@ -296,7 +288,6 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
             kind: "failed-retryable",
             error: dispatchResult.error,
           };
-          recordCurrentUpdateProcessingResult(result);
           return result;
         }
         if (ingressDebugEnabled && ingressReceivedAtMs) {
@@ -306,7 +297,6 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
           );
         }
         const result: TelegramMessageProcessingResult = { kind: "completed" };
-        recordCurrentUpdateProcessingResult(result);
         return result;
       } catch (err) {
         runtime.error?.(danger(`telegram message processing failed: ${String(err)}`));
@@ -323,7 +313,6 @@ export const createTelegramMessageProcessor = (deps: TelegramMessageProcessorDep
           kind: "failed-retryable",
           error: err,
         };
-        recordCurrentUpdateProcessingResult(result);
         return result;
       }
     };

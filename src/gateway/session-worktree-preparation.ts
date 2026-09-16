@@ -14,6 +14,7 @@ import { managedWorktrees, WorktreeRepositoryError } from "../agents/worktrees/s
 import type { CreateManagedWorktreeParams } from "../agents/worktrees/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { isPathInside } from "../infra/path-guards.js";
 import { resolveProjectRegistry } from "../projects/project-registry.js";
 import { prepareSessionCreateFilesystemRoot } from "./server-methods/session-create-root.js";
 import type { PrepareGatewaySessionLifecycle } from "./session-lifecycle-preparation.js";
@@ -229,24 +230,24 @@ export async function prepareSessionWorktree(params: {
       commitGuard,
       onProgress: params.onProgress,
     };
-    const worktree = workspace
-      ? await managedWorktrees.create({
+    const { record: worktree, materialized } = workspace
+      ? await managedWorktrees.createWithOutcome({
           ...createParams,
           repoRoot: workspace,
           baseRef: params.baseRef,
           checkoutCommit: params.checkoutCommit,
           runSetupScript: params.runSetupScript,
         })
-      : await managedWorktrees.createEmpty(createParams);
-    const rollback = existingDirectory
-      ? undefined
-      : async () => {
+      : await managedWorktrees.createEmptyWithOutcome(createParams);
+    const rollback = materialized
+      ? async () => {
           await managedWorktrees.remove({
             id: worktree.id,
             reason: "session-create-failed",
             allowSnapshotLoss: true,
           });
-        };
+        }
+      : undefined;
     try {
       commitGuard?.();
       // A nested source workspace keeps its relative cwd inside the new checkout.
@@ -255,8 +256,9 @@ export async function prepareSessionWorktree(params: {
         repository && workspace
           ? path.relative(repository.sourceRoot, fs.realpathSync(workspace))
           : "";
-      if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
-        spawnedCwd = path.join(worktree.path, relative);
+      const nestedCwd = path.resolve(worktree.path, relative);
+      if (relative && isPathInside(worktree.path, nestedCwd)) {
+        spawnedCwd = nestedCwd;
         fs.mkdirSync(spawnedCwd, { recursive: true });
       }
       return ok({

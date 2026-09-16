@@ -19,6 +19,12 @@ import { hasPendingCronTriggerInterval } from "./trigger-interval.js";
 
 const STAGGER_OFFSET_CACHE_MAX = 4096;
 const staggerOffsetCache = new Map<string, number>();
+const TIME_SCHEDULE_STATE_FIELDS = [
+  "startupCatchupAtMs",
+  "pacedNextRunAtMs",
+  "forcePreservedNextRunAtMs",
+  "nextRunAtMs",
+] as const;
 
 // A matching process reservation keeps its durable queued/running marker live;
 // disabled jobs additionally require force-run ownership.
@@ -298,6 +304,10 @@ export function isJobEnabled(job: Pick<CronJob, "enabled">): boolean {
   return job.enabled ?? true;
 }
 
+export function isTimeScheduledJob(job: Pick<CronJob, "schedule">): boolean {
+  return job.schedule.kind !== "on-exit" && job.schedule.kind !== "stream";
+}
+
 /** Computes the next run timestamp for enabled jobs across every/at/cron schedules. */
 export function computeJobNextRunAtMs(job: CronJob, nowMs: number): number | undefined {
   if (!isJobEnabled(job)) {
@@ -440,18 +450,16 @@ function normalizeJobTickState(params: { state: CronServiceState; job: CronJob; 
     }
   }
 
-  if (!isJobEnabled(job)) {
-    for (const key of [
-      "startupCatchupAtMs",
-      "pacedNextRunAtMs",
-      "forcePreservedNextRunAtMs",
-      "nextRunAtMs",
-    ] as const) {
+  // Event schedules cannot retain a timed slot, including one preserved by a force run.
+  if (!isJobEnabled(job) || !isTimeScheduledJob(job)) {
+    for (const key of TIME_SCHEDULE_STATE_FIELDS) {
       if (job.state[key] !== undefined) {
         job.state[key] = undefined;
         changed = true;
       }
     }
+  }
+  if (!isJobEnabled(job)) {
     if (
       job.state.queuedAtMs !== undefined &&
       !ownsCronRunMarker(state, job.id, job.state.queuedAtMs, true)
@@ -642,14 +650,13 @@ function isExpiredCronScheduleRepairCandidate(job: CronJob, nowMs: number): bool
 }
 
 export function needsCronTimerMaintenance(job: CronJob, nowMs: number): boolean {
+  if (!isTimeScheduledJob(job)) {
+    return TIME_SCHEDULE_STATE_FIELDS.some((key) => job.state[key] !== undefined);
+  }
   return (
     isExpiredCronScheduleRepairCandidate(job, nowMs) ||
     isStaleFutureCronSlot(job, nowMs) ||
-    (job.schedule.kind !== "stream" &&
-      job.schedule.kind !== "on-exit" &&
-      isJobEnabled(job) &&
-      !hasScheduledNextRunAtMs(job.state.nextRunAtMs) &&
-      !hasActiveCronRun(job))
+    (isJobEnabled(job) && !hasScheduledNextRunAtMs(job.state.nextRunAtMs) && !hasActiveCronRun(job))
   );
 }
 
@@ -745,7 +752,7 @@ export function summarizeCronJobSchedule(state: CronServiceState) {
     if (rawEnabled) {
       enabledCount += 1;
     }
-    if ((rawEnabled ?? true) && hasNextRun) {
+    if ((rawEnabled ?? true) && isTimeScheduledJob(job) && hasNextRun) {
       nextWake = nextWake === undefined ? nextRun : Math.min(nextWake, nextRun);
     }
   }
@@ -783,6 +790,7 @@ export function isJobDue(job: CronJob, nowMs: number, opts: { forced: boolean })
   }
   return (
     isJobEnabled(job) &&
+    isTimeScheduledJob(job) &&
     hasScheduledNextRunAtMs(job.state.nextRunAtMs) &&
     nowMs >= job.state.nextRunAtMs
   );

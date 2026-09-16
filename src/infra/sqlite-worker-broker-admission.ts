@@ -12,6 +12,7 @@ import type {
 } from "./sqlite-worker-broker.types.js";
 import type { SqliteWorkerRequest } from "./sqlite-worker-contract.js";
 import { readDatabasePathIdentity, type DatabasePathIdentity } from "./sqlite-worker-identity.js";
+import { createSqliteWorkerOperationAdmission } from "./sqlite-worker-operation-admission.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
 import {
   tryCreateGatewaySchemaFenceDelegate,
@@ -38,10 +39,46 @@ export function captureSqliteWorkerOpen(
   stateContext?: SqliteWorkerStateContext,
   assertCurrent?: () => void,
 ): PreparedSqliteWorkerOpen {
+  const ownedAdmission = options.admission;
+  const assertOpening = ownedAdmission
+    ? () => {
+        assertCurrent?.();
+        ownedAdmission.assertCurrent();
+      }
+    : assertCurrent;
+  const databasePath = path.resolve(options.databasePath);
+  if (
+    options.admission &&
+    (!options.existingOnly || !options.admission.identity.startsWith("file:"))
+  ) {
+    throw new Error("Owned SQLite Worker admission requires an existing physical identity");
+  }
+  assertOpening?.();
   return {
-    assertCurrent,
+    assertCurrent: assertOpening,
+    ...(options.admission
+      ? {
+          expectedIdentity: options.admission.identity,
+          createOpenAdmission: () => {
+            let granted = false;
+            return {
+              nativeLocations: [databasePath],
+              admission: createSqliteWorkerOperationAdmission((request, grant) => {
+                if (granted || request.stage !== "open") {
+                  throw new Error("SQLite Worker open admission requested out of order");
+                }
+                assertOpening!();
+                if (!grant()) {
+                  throw new Error("SQLite Worker open admission expired");
+                }
+                granted = true;
+              }),
+            };
+          },
+        }
+      : {}),
     moduleUrl: new URL(options.moduleUrl),
-    databasePath: path.resolve(options.databasePath),
+    databasePath,
     input: serialize(options.input),
     existingOnly: options.existingOnly === true,
     ...(stateContext
@@ -66,6 +103,10 @@ export async function prepareSqliteWorkerDatabaseAdmission(options: PreparedSqli
   const databasePath = path.resolve(options.databasePath);
   const inputHash = createHash("sha256").update(options.input).digest("hex");
   const identity = await readDatabasePathIdentity(databasePath);
+  options.assertCurrent?.();
+  if (options.expectedIdentity && identity.key !== options.expectedIdentity) {
+    throw new Error("SQLite Worker path no longer matches its borrowed native owner");
+  }
   return { databasePath, inputHash, identity };
 }
 

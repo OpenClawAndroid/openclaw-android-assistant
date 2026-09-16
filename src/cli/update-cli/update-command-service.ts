@@ -36,6 +36,7 @@ import {
   isPackageManagerUpdateMode,
   runUpdatedInstallGatewayCommand,
 } from "./update-command-service-command.js";
+import type { ManagedGatewayUpdateVerdict } from "./update-command-service-context-types.js";
 import { resolveServiceRefreshEnv } from "./update-command-service-env.js";
 import {
   UpdateServiceLoadBoundaryError,
@@ -47,7 +48,6 @@ import {
   gatewayServiceCommandUsesRoot,
   resolveGatewayServiceManagementBlockMessageForUpdate,
   resolveUpdatedGatewayRestartPort,
-  type ManagedGatewayUpdateVerdict,
 } from "./update-command-service-plan.js";
 import {
   hasLoadedLaunchdKeepAliveSupervisor,
@@ -235,7 +235,7 @@ export async function maybeRestartService(params: {
   onVerificationFailure?: (reason: string) => void;
   onPluginWarnings?: (warnings: readonly PluginUpdateWarning[]) => void;
   onVerified?: (verifiedAtMs: number) => void;
-}): Promise<"ok" | "failed" | "restart-health-failed"> {
+}): Promise<"ok" | "readiness-pending" | "failed" | "restart-health-failed"> {
   const run = params.opts.run;
   const executor = run?.executorFence;
   const assertCurrent = () => {
@@ -372,12 +372,15 @@ export async function maybeRestartService(params: {
       },
     });
     assertCurrent();
+    if (verification.stopReason === "gateway-readiness-pending") {
+      return "readiness-pending" as const;
+    }
     if (!verification.ok) {
       params.onVerificationFailure?.(verification.summary);
     } else if (verification.pluginWarnings?.length) {
       params.onPluginWarnings?.(verification.pluginWarnings);
     }
-    return verification.ok;
+    return verification.ok ? ("ok" as const) : undefined;
   };
 
   if (activation.shouldRestart) {
@@ -438,7 +441,8 @@ export async function maybeRestartService(params: {
               supervisorKeepsAlive,
             });
             assertCurrent();
-            refreshedGatewayHealth = health.healthy ? health : undefined;
+            refreshedGatewayHealth =
+              health.healthy || health.waitOutcome === "timeout" ? health : undefined;
             recordUpdateGatewayHealth(params.opts.run, health, activation.gatewayPort);
           }
         } catch (err) {
@@ -513,8 +517,7 @@ export async function maybeRestartService(params: {
           return await failed();
         }
       }
-      // Refresh already started and settled this process. Keep its health snapshot
-      // while completing HTTP readiness without another restart.
+      // Keep the install's observation, including a pending startup, without restarting it again.
       if (refreshedGatewayHealth) {
         const healthy = await verifyRestartedGateway(
           expectedGatewayVersion,
@@ -524,7 +527,7 @@ export async function maybeRestartService(params: {
             health: refreshedGatewayHealth,
           },
         );
-        return healthy ? "ok" : await failed("restart-health-failed");
+        return healthy ?? (await failed("restart-health-failed"));
       }
       if (restartScriptPath) {
         if (!preserveDefinition) {
@@ -599,6 +602,9 @@ export async function maybeRestartService(params: {
           }
           return await failed(activationAccepted ? "restart-health-failed" : "failed");
         }
+        if (restartHealthy === "readiness-pending") {
+          return restartHealthy;
+        }
         if (!activation.opts.json && restartInitiated) {
           defaultRuntime.log(theme.success("Daemon restart completed."));
           defaultRuntime.log("");
@@ -622,7 +628,7 @@ export async function maybeRestartService(params: {
           normalizeOptionalString(activation.result.after?.buildId),
           { requireRunningService: true, recoverHealth: false },
         );
-        return healthy ? "ok" : await failed("restart-health-failed");
+        return healthy ?? (await failed("restart-health-failed"));
       }
       defaultRuntime.error(
         `Gateway: restart failed: ${String(err)}. Code update remains installed; a service stopped for update may still be stopped. ` +

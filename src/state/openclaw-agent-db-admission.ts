@@ -1,10 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isMainThread } from "node:worker_threads";
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import { assertSqliteIntegrityInWorker } from "../infra/sqlite-integrity-worker.js";
 import {
   runSqliteIntegrityCheckSync,
   type SqliteIntegrityCheck,
   type SqliteIntegrityOperation,
 } from "../infra/sqlite-integrity.js";
+import { registerDeferredSqliteWalWriteAdmission } from "../infra/sqlite-wal-write-admission.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import {
@@ -65,6 +68,22 @@ function assertAgentDatabaseOpenAuthority(
   }
 }
 
+function assertAgentDatabaseOperationCurrent(
+  database: OpenClawAgentDatabase,
+  options: OpenClawAgentDatabaseOptions,
+  pending: PendingAgentDatabaseOpen,
+  assertCurrent?: () => void,
+): void {
+  pending.controller.signal.throwIfAborted();
+  if (cache.databases.get(pending.path) !== database || !database.db.isOpen) {
+    throw new Error(`Agent database closed before its admitted operation: ${pending.path}`);
+  }
+  // Coalesced callers keep their own scope; admission cannot lend its cleanup authority.
+  assertAgentDeletionDatabaseCleanupAccess(database, options);
+  assertCurrent?.();
+  assertAgentDatabaseMaintenanceAccess(database.db);
+}
+
 /** Bind both admission drivers to the canonical private database-open generator. */
 export function createOpenClawAgentDatabaseAdmissionOwner(
   openSteps: (
@@ -96,7 +115,10 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
       return Promise.reject(error);
     }
     // Admission retains its original path, registration, and permission inputs across awaits.
-    const options = { ...inputOptions, env: { ...(inputOptions.env ?? process.env) } };
+    const options = {
+      ...inputOptions,
+      env: cloneEnvWithPlatformSemantics(inputOptions.env ?? process.env),
+    };
     const agentId = normalizeAgentId(options.agentId);
     const pathname = resolveOpenClawAgentSqlitePath({ ...options, agentId });
     const existing = cache.pending.get(pathname);
@@ -116,14 +138,7 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
     pending.operations += 1;
     const work = pending.promise
       .then((database) => {
-        pending.controller.signal.throwIfAborted();
-        if (cache.databases.get(pathname) !== database || !database.db.isOpen) {
-          throw new Error(`Agent database closed before its admitted operation: ${pathname}`);
-        }
-        // Coalesced callers keep their own scope; admission cannot lend its cleanup authority.
-        assertAgentDeletionDatabaseCleanupAccess(database, options);
-        assertCurrent?.();
-        assertAgentDatabaseMaintenanceAccess(database.db);
+        assertAgentDatabaseOperationCurrent(database, options, pending, assertCurrent);
         observeOpenClawDatabaseMaintenanceResource(database.db);
         return operation(database);
       })
@@ -154,7 +169,10 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
     withAdmission: OpenClawAgentDatabaseWriteAdmission,
     operation: (database: OpenClawAgentDatabase) => T | Promise<T>,
   ): Promise<T> {
-    const options = { ...inputOptions, env: { ...(inputOptions.env ?? process.env) } };
+    const options = {
+      ...inputOptions,
+      env: cloneEnvWithPlatformSemantics(inputOptions.env ?? process.env),
+    };
     const agentId = normalizeAgentId(options.agentId);
     const pathname = resolveOpenClawAgentSqlitePath({ ...options, agentId });
     const existing = cache.pending.get(pathname);
@@ -203,9 +221,16 @@ export function createOpenClawAgentDatabaseAdmissionOwner(
           }
           pending.releaseBorrow = retainAgentDatabase(step.value.db);
           admission.complete(step.value);
-          assertAgentDeletionDatabaseCleanupAccess(step.value, options);
-          assertAgentDatabaseMaintenanceAccess(step.value.db);
-          return { done: true as const, result: await operation(step.value) };
+          const assertOperationCurrent = () =>
+            assertAgentDatabaseOperationCurrent(step.value, options, pending, assertCurrent);
+          assertOperationCurrent();
+          const flushMaintenance = isMainThread
+            ? undefined
+            : registerDeferredSqliteWalWriteAdmission(step.value.db);
+          flushMaintenance?.(assertOperationCurrent);
+          const result = await operation(step.value);
+          flushMaintenance?.(assertOperationCurrent);
+          return { done: true as const, result };
         });
         if (outcome.done) {
           return outcome.result;

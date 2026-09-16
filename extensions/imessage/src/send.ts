@@ -692,7 +692,7 @@ async function trySendAttachmentForTarget(params: {
     });
   }
   if (resolvedId && isConcreteIMessageMessageId(resolvedId)) {
-    rememberIMessageReplyCache({
+    await rememberIMessageReplyCache({
       accountId: params.accountId,
       messageId: resolvedId,
       chatGuid:
@@ -754,7 +754,7 @@ export async function sendMessageIMessage(
     resolveTargetService(target) ??
     (account.config.service as IMessageService | undefined);
   const sendTransport = (account.config.sendTransport ?? "auto") as IMessageSendTransport;
-  const resolvedReplyToId = resolveAuthorizedIMessageReplyReference({
+  const resolvedReplyToId = await resolveAuthorizedIMessageReplyReference({
     account,
     target,
     cliPath,
@@ -1088,7 +1088,7 @@ export async function sendMessageIMessage(
     );
     if (resolvedId && isConcreteIMessageMessageId(resolvedId)) {
       const chatContext = chatContextFromIMessageTarget(target, confirmedService ?? service);
-      rememberIMessageReplyCache({
+      await rememberIMessageReplyCache({
         accountId: account.accountId,
         messageId: resolvedId,
         ...chatContext,

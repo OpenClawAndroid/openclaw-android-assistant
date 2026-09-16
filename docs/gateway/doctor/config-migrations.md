@@ -16,6 +16,10 @@ Doctor, updates, or Gateway startup. OpenClaw records a warning that names the
 plugin, its pending migration, and the command to finish installation or repair.
 The Gateway continues serving the available plugins.
 
+`doctor --fix` repairs an older shared database schema before recording pending
+plugin migrations. Missing plugins therefore do not prevent the database repair;
+their inputs stay available for a later retry.
+
 Deferred migrations keep their state and legacy config inputs in place. Config
 repairs can still update unrelated settings, while the pending plugin's retired
 fields remain inactive. After installing or repairing the plugin, run

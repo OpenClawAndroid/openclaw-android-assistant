@@ -10,6 +10,7 @@ import type {
 import type { ManifestModelSuppressionResolver } from "./manifest-model-suppression.types.js";
 import type { PluginManifestRecord } from "./manifest-registry.types.js";
 import type { PluginMetadataSnapshot } from "./plugin-metadata-snapshot.types.js";
+import type { BundledProviderPolicySurface } from "./provider-policy-surface.types.js";
 
 export type ProviderPolicyOwnerIndex = {
   bundled: Map<string, PluginManifestRecord>;
@@ -40,6 +41,15 @@ export type PluginCacheMetadata = {
       cwd: string | undefined;
       value: string | undefined;
     };
+    bundledProviderPolicySurfaces: Map<
+      string,
+      {
+        registry: object | null;
+        version: number | undefined;
+        selection: PluginCacheMetadata["metadata"]["bundledPluginsDir"];
+        read: () => BundledProviderPolicySurface | null;
+      }
+    >;
     bundledDiscoveryMode?: { value: "compat" | "allowlist" | undefined };
     current: CurrentPluginMetadataCacheState;
     snapshots: Map<string, PluginMetadataSnapshot>;

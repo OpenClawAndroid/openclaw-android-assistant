@@ -61,8 +61,7 @@ type AgentProjectionEntry =
 type PreparedMetadataGeneration = {
   epoch: number;
   facts: PreparedGenerationFacts;
-  agentsById: Map<string, PreparedAgentMetadata>;
-  preparingAgents: Map<string, Promise<PreparedAgentMetadata>>;
+  agentsById: Map<string, Promise<PreparedAgentMetadata>>;
   neutralProjectionByAgentId: Map<string, AgentProjectionEntry>;
   sessionProjectionByKey: Map<string, AgentProjectionEntry>;
 };
@@ -184,7 +183,6 @@ export function createGatewayChatMetadataRuntime(params: {
     | {
         facts?: PreparedGenerationFacts;
         promise: Promise<void>;
-        generation?: PreparedMetadataGeneration;
         generationReady: Deferred;
       }
     | undefined;
@@ -288,66 +286,45 @@ export function createGatewayChatMetadataRuntime(params: {
     void trackWork(projection);
     const entry: AgentProjectionEntry = { state: "pending", promise: projection };
     projections.set(key, entry);
-    if (!neutral) {
-      // Neutral projections belong to the published generation. Only request-derived session
-      // variants are bounded; evicting neutral entries puts catalog work back on startup reads.
-      pruneMapToMaxSize(projections, CHAT_METADATA_CACHE_MAX_ENTRIES);
-    }
+    // Cold history reads omit evicted projections; canonical reads prepare them on demand.
+    pruneMapToMaxSize(projections, CHAT_METADATA_CACHE_MAX_ENTRIES);
     return projection;
   };
 
-  const buildGeneration = async (
-    facts: PreparedGenerationFacts,
-    epoch: number,
-    stage: (generation: PreparedMetadataGeneration) => void,
-  ): Promise<PreparedMetadataGeneration | undefined> => {
-    const generation: PreparedMetadataGeneration = {
-      epoch,
-      facts,
-      agentsById: new Map(),
-      preparingAgents: new Map(),
-      neutralProjectionByAgentId: new Map(),
-      sessionProjectionByKey: new Map(),
-    };
-    for (const agent of facts.agents) {
-      const preparing = trackWork(
-        (async (): Promise<PreparedAgentMetadata> => {
-          let commands: unknown[] | undefined;
-          try {
-            commands = (
-              await trackWork(deps.buildCommands({ cfg: facts.config, agentId: agent.agentId }))
-            ).commands;
-          } catch (error) {
-            params.log.warn(
-              `chat metadata continuing without text commands for ${agent.agentId}: ${formatErrorMessage(error)}`,
-            );
-          }
-          const prepared = {
-            ...agent,
-            ...(commands !== undefined ? { commands } : {}),
-            swarmEnabled: resolveSwarmConfig(facts.config, agent.agentId).enabled,
-          };
-          await projectAgent(generation, prepared);
-          if (
-            generation.epoch === invalidationEpoch &&
-            (current === generation || pending?.generation === generation)
-          ) {
-            generation.agentsById.set(agent.agentId, prepared);
-          }
-          return prepared;
-        })(),
-      );
-      generation.preparingAgents.set(agent.agentId, preparing);
+  const prepareAgent = (generation: PreparedMetadataGeneration, agentId: string) => {
+    const existing = generation.agentsById.get(agentId);
+    if (existing) {
+      return existing;
     }
-    // The full authoritative roster is captured before readers join individual
-    // presentation work. Final refresh settlement still belongs to the aggregate.
-    stage(generation);
-    await Promise.all(generation.preparingAgents.values());
-    generation.preparingAgents.clear();
-    if (epoch !== invalidationEpoch) {
+    const agent = generation.facts.agents.find((candidate) => candidate.agentId === agentId);
+    if (!agent) {
       return undefined;
     }
-    return generation;
+    const preparing: Promise<PreparedAgentMetadata> = trackWork(
+      (async (): Promise<PreparedAgentMetadata> => {
+        let commands: unknown[] | undefined;
+        try {
+          commands = (await deps.buildCommands({ cfg: generation.facts.config, agentId })).commands;
+        } catch (error) {
+          params.log.warn(
+            `chat metadata continuing without text commands for ${agentId}: ${formatErrorMessage(error)}`,
+          );
+        }
+        return {
+          ...agent,
+          ...(commands !== undefined ? { commands } : {}),
+          swarmEnabled: resolveSwarmConfig(generation.facts.config, agentId).enabled,
+        };
+      })().catch((error: unknown) => {
+        if (generation.agentsById.get(agentId) === preparing) {
+          generation.agentsById.delete(agentId);
+        }
+        throw error;
+      }),
+    );
+    generation.agentsById.set(agentId, preparing);
+    pruneMapToMaxSize(generation.agentsById, CHAT_METADATA_CACHE_MAX_ENTRIES);
+    return preparing;
   };
 
   const runRefresh = async (version: number) => {
@@ -360,30 +337,18 @@ export function createGatewayChatMetadataRuntime(params: {
       if (version !== refreshVersion) {
         return;
       }
-      for (;;) {
-        const epoch = invalidationEpoch;
-        const facts = captureGenerationFacts(deps);
-        if (current && generationFactsMatch(current.facts, facts)) {
-          return;
-        }
-        const generation = await buildGeneration(facts, epoch, (staged) => {
-          if (pending && version === refreshVersion) {
-            pending.generation = staged;
-            pending.generationReady.resolve();
-          }
-        });
-        if (version !== refreshVersion) {
-          return;
-        }
-        if (
-          generation &&
-          epoch === invalidationEpoch &&
-          generationFactsMatch(facts, captureGenerationFacts(deps))
-        ) {
-          current = generation;
-          return;
-        }
+      const facts = captureGenerationFacts(deps);
+      if (current && generationFactsMatch(current.facts, facts)) {
+        return;
       }
+      // Publication carries owner facts only. Commands and model projections belong to reads.
+      current = {
+        epoch: invalidationEpoch,
+        facts,
+        agentsById: new Map(),
+        neutralProjectionByAgentId: new Map(),
+        sessionProjectionByKey: new Map(),
+      };
     } catch (error) {
       // Invalidation and stop revoke old preparation, including its failures.
       // Only the current refresh may settle the replacement's readers.
@@ -467,7 +432,7 @@ export function createGatewayChatMetadataRuntime(params: {
         `${deps.getAuthStoreRevision(owner.agentDir)}:${deps.getAuthStoreRevision(owner.inheritedAuthDir)}`,
     );
   const isCurrentGeneration = (generation: PreparedMetadataGeneration) =>
-    (current === generation || pending?.generation === generation) &&
+    current === generation &&
     generation.epoch === invalidationEpoch &&
     authStoresCurrent(generation);
 
@@ -477,11 +442,11 @@ export function createGatewayChatMetadataRuntime(params: {
     for (;;) {
       assertOpen();
       const preparation = pending;
-      if (preparation && !preparation.generation) {
+      if (preparation) {
         await preparation.generationReady.promise;
         continue;
       }
-      let generation = preparation?.generation ?? current;
+      let generation = current;
       const replacementPromise = replacement?.promise;
       if (!generation && replacementPromise) {
         await replacementPromise;
@@ -529,32 +494,7 @@ export function createGatewayChatMetadataRuntime(params: {
         }
       }
       try {
-        const staged = pending?.generation === generation ? pending : undefined;
-        const replacing = replacement;
-        const projection = project(generation);
-        // Failed generations wake readers, while shutdown retains their entire
-        // projection pipeline, including a later session-specific projection.
-        const readProjection = staged
-          ? await Promise.race([
-              trackWork(projection),
-              staged.promise.then(() => projection),
-              ...(replacing ? [replacing.promise.then(() => projection)] : []),
-            ])
-          : await projection;
-        if (pending?.generation === generation) {
-          // Staged reads precede the aggregate publication check. Subordinate
-          // facts can change before lifecycle listeners finish initial catch-up.
-          let factsCurrent = false;
-          try {
-            factsCurrent = generationFactsMatch(generation.facts, captureGenerationFacts(deps));
-          } catch {
-            // Refresh owns unavailable snapshots and terminal failure publication.
-          }
-          if (!factsCurrent) {
-            await refresh();
-            continue;
-          }
-        }
+        const readProjection = await project(generation);
         // Lazy projections may outlive their generation. Never return an obsolete success after
         // invalidation; retry through the replacement gate so the caller sees one coherent epoch.
         if (isCurrentGeneration(generation) && readProjection.isCurrent()) {
@@ -576,8 +516,7 @@ export function createGatewayChatMetadataRuntime(params: {
       : readParams.sessionEntry;
     return await readCurrent(async (generation) => {
       const agentId = normalizeAgentId(readParams.agentId);
-      const agent =
-        generation.agentsById.get(agentId) ?? (await generation.preparingAgents.get(agentId));
+      const agent = await prepareAgent(generation, agentId);
       if (!agent) {
         throw new ChatMetadataSnapshotUnavailableError(
           `prepared chat metadata is unavailable for agent "${agentId}"`,
@@ -624,8 +563,7 @@ export function createGatewayChatMetadataRuntime(params: {
       generation: PreparedMetadataGeneration,
     ): Promise<PreparedProjection<ChatStartupProjectionResult>> => {
       const agentId = normalizeAgentId(readParams.agentId);
-      const agent =
-        generation.agentsById.get(agentId) ?? (await generation.preparingAgents.get(agentId));
+      const agent = await prepareAgent(generation, agentId);
       if (!agent) {
         throw new ChatMetadataSnapshotUnavailableError(
           `prepared chat startup projection is unavailable for agent "${agentId}"`,

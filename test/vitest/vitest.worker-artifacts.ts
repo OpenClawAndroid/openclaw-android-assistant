@@ -98,9 +98,10 @@ export function compiledSubprocessesPlugin(): Plugin {
       if (!resolved || !isVitestWorkerDeclaration(resolved.id)) {
         return null;
       }
-      // Cached imports are replayed without their original importer. Give the
-      // compiler's source declarations a distinct URL so replay cannot redirect them.
+      // Cached imports are replayed without their original importer. Give build
+      // configurations' source declarations a distinct URL so replay cannot redirect them.
       if (
+        importer.endsWith("/scripts/lib/managed-handoff-build-config.mts") ||
         importer.endsWith("/scripts/lib/runtime-process-build-entries.mts") ||
         importer.endsWith("/scripts/lib/runtime-process-core-build-entries.mts") ||
         importer.endsWith("/scripts/lib/vitest-worker-build-entries.mts")

@@ -19,6 +19,7 @@ import {
   runSqliteSessionDeletionTransaction as runOpenClawAgentWriteTransaction,
   withSqliteSessionDeletions,
 } from "./session-accessor.sqlite-deletion.js";
+import { readSessionEntryCacheValidityToken } from "./session-accessor.sqlite-entry-cache.js";
 import {
   readSessionEntryCount,
   readSessionEntryStore,
@@ -39,6 +40,11 @@ import type {
   SessionEntryMaintenanceResult,
 } from "./session-accessor.sqlite-lifecycle-types.js";
 import {
+  readSessionEntryMaintenanceAgeFact,
+  readSessionEntryMaintenanceNextAgeAt,
+  recordSessionEntryMaintenanceAgeFact,
+} from "./session-accessor.sqlite-maintenance-age.js";
+import {
   collectSqliteSessionMaintenanceBaseKeys,
   readSessionMaintenanceAgeCandidates,
   readSessionMaintenanceCapCandidates,
@@ -57,6 +63,7 @@ import { collectSessionMaintenancePreserveKeysForStore } from "./store-maintenan
 import { resolveMaintenanceConfig } from "./store-maintenance-runtime.js";
 import {
   normalizeResolvedMaintenanceConfigInput,
+  shouldRunSessionEntryMaintenance,
   type ResolvedSessionMaintenanceConfigInput,
 } from "./store-maintenance.js";
 
@@ -363,6 +370,38 @@ export function applySessionEntryMaintenance(
   // Key projections and indexed age candidates keep unrelated entry payloads out
   // of automatic maintenance. Exact full entries load only for rows selected to change.
   const entryCount = readSessionEntryCount(database, { includeArchived: false });
+  if (
+    !shouldRunSessionEntryMaintenance({
+      entryCount,
+      maxEntries: maintenance.maxEntries,
+      force: params.forceMaintenance,
+    })
+  ) {
+    const ageFact = readSessionEntryMaintenanceAgeFact(
+      database.db,
+      readSessionEntryCacheValidityToken(database.db),
+    );
+    const pruneAt =
+      maintenance.pruneAfterMs > 0
+        ? (ageFact?.oldestUpdatedAt ?? -Infinity) + maintenance.pruneAfterMs
+        : Infinity;
+    const dashboardAge = maintenance.archiveDashboardAfterMs ?? 0;
+    const dashboardAt =
+      dashboardAge > 0
+        ? (ageFact?.oldestDashboardActivityAt ?? -Infinity) + dashboardAge
+        : Infinity;
+    if (Date.now() <= Math.min(pruneAt, dashboardAt)) {
+      return {
+        entryRemovals: [],
+        stateDeletePlans: [],
+        archived: 0,
+        capArchived: 0,
+        modelRunPruned: 0,
+        pruned: 0,
+        capped: 0,
+      };
+    }
+  }
   const activeSessionKeys = uniqueStrings([
     params.activeSessionKey ?? "",
     ...(params.activeSessionKeys ?? []),
@@ -431,6 +470,11 @@ export function applySessionEntryMaintenance(
     const expectedEntry = selectedEntries[sessionKey];
     return expectedEntry ? [{ expectedEntry, maintenanceReason, sessionKey }] : [];
   });
+  recordSessionEntryMaintenanceAgeFact(
+    database,
+    readSessionEntryCacheValidityToken(database.db),
+    maintenance,
+  );
   if (removals.length === 0) {
     return {
       ...(archivedWorktrees.length ? { archivedWorktrees } : {}),
@@ -483,6 +527,19 @@ export function applySessionEntryMaintenance(
     pruned,
     capped,
   };
+}
+
+export function readNextSessionEntryMaintenanceAt(
+  database: OpenClawAgentDatabase,
+  maintenanceConfig?: ResolvedSessionMaintenanceConfigInput,
+): number | undefined {
+  return readSessionEntryMaintenanceNextAgeAt(
+    database,
+    readSessionEntryCacheValidityToken(database.db),
+    maintenanceConfig
+      ? normalizeResolvedMaintenanceConfigInput(maintenanceConfig)
+      : resolveMaintenanceConfig(),
+  );
 }
 
 /** Finalizes maintenance after its caller releases the per-store writer lane. */

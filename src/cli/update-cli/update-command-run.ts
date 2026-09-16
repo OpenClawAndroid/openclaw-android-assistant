@@ -408,10 +408,11 @@ export function createUpdateRunProgress(
 }
 
 export function completeUpdateCommandRun(
-  result: UpdateRunResult,
+  input: UpdateRunResult,
   run: UpdateCommandOptions["run"],
   completion: { rolledBack?: boolean; downtimeMs?: number } = {},
 ): UpdateRunResult {
+  const result = normalizeControlPlaneUpdateResult(input);
   if (!run) {
     return result;
   }

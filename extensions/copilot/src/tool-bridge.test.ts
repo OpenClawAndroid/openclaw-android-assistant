@@ -1142,7 +1142,10 @@ describe("createCopilotToolBridge", () => {
         await createCopilotToolBridge({
           attemptParams: {
             contextTokenBudget,
+            modelId: "configured-alias",
             model: {
+              provider: "openai",
+              id: "gpt-5.6-sol",
               api: "openai-responses",
               contextWindow: 200_000,
               input: ["text", "image"],
@@ -1157,6 +1160,7 @@ describe("createCopilotToolBridge", () => {
         expect(opts.modelContextWindowTokens).toBe(contextTokenBudget ?? 200_000);
         expect(opts.modelHasVision).toBe(true);
         expect(opts.modelCompat).toEqual({ some: "shape" });
+        expect(opts.requesterModel).toEqual({ provider: "openai", model: "gpt-5.6-sol" });
       },
     );
 

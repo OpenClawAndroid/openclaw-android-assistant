@@ -2,7 +2,7 @@
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WebSocket, WebSocketServer } from "ws";
+import * as Ws from "../../../packages/gateway-client/src/websocket.test-support.js";
 import { PROTOCOL_VERSION } from "../../../packages/gateway-protocol/src/version.js";
 import type { ResolvedGatewayAuth } from "../auth.js";
 import type { PluginNodeCapabilitySurface } from "../plugin-node-capability.js";
@@ -586,8 +586,8 @@ describe("attachGatewayWsConnectionHandler", () => {
   });
 
   it.each([
-    { state: "closing", readyState: WebSocket.CLOSING },
-    { state: "closed", readyState: WebSocket.CLOSED },
+    { state: "closing", readyState: Ws.WebSocket.CLOSING },
+    { state: "closed", readyState: Ws.WebSocket.CLOSED },
   ])(
     "rejects direct responses on a $state socket before its close event",
     async ({ readyState }) => {
@@ -621,12 +621,12 @@ describe("attachGatewayWsConnectionHandler", () => {
   it.each(["closing", "failed-send"] as const)(
     "retires a real %s WebSocket without silently losing its peer",
     async (failure) => {
-      const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+      const server = new Ws.WebSocketServer({ host: "127.0.0.1", port: 0 });
       await once(server, "listening");
       const accepted = once(server, "connection");
-      const peer = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}`);
+      const peer = new Ws.WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}`);
       await once(peer, "open");
-      const [socket] = (await accepted) as [WebSocket];
+      const [socket] = (await accepted) as [Ws.WebSocket];
 
       try {
         const { clients, passed } = await connectTestWs({
@@ -645,7 +645,7 @@ describe("attachGatewayWsConnectionHandler", () => {
 
         if (failure === "closing") {
           socket.close(1000, "real close race");
-          expect(socket.readyState).toBe(WebSocket.CLOSING);
+          expect(socket.readyState).toBe(Ws.WebSocket.CLOSING);
         } else {
           vi.spyOn(socket, "send").mockImplementationOnce(() => {
             throw new Error("response transport unavailable");
@@ -661,7 +661,7 @@ describe("attachGatewayWsConnectionHandler", () => {
         });
         expect(socket.bufferedAmount).toBe(bufferedAtClose);
         expect(clients.size).toBe(0);
-        await vi.waitFor(() => expect(peer.readyState).toBe(WebSocket.CLOSED));
+        await vi.waitFor(() => expect(peer.readyState).toBe(Ws.WebSocket.CLOSED));
       } finally {
         peer.terminate();
         for (const activeSocket of server.clients) {
@@ -734,7 +734,7 @@ describe("attachGatewayWsConnectionHandler", () => {
     const { promise: pending, resolve: releaseDispatch } = createDeferred();
     const dispatch = handler.nodeLifecycleDispatch.dispatch("node.invoke.result", () => pending);
     socket.send.mockClear();
-    socket.readyState = WebSocket.CLOSING;
+    socket.readyState = Ws.WebSocket.CLOSING;
 
     expect(handler.send({ type: "res", id: "pending-node-result", ok: true })).toEqual({
       kind: "unavailable",

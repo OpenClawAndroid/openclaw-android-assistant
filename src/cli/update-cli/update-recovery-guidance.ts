@@ -1,6 +1,7 @@
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { resolveStateDir } from "../../config/paths.js";
 import { isContainerEnvironment } from "../../infra/container-environment.js";
+import { isUpdateGatewayReadinessPending } from "../../infra/update-run-step.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import {
   formatUpdateActivationTimeoutGuidance,
@@ -35,6 +36,9 @@ export function resolveUpdateResultNextAction(params: {
   env: NodeJS.ProcessEnv;
 }): string | undefined {
   const { result, env } = params;
+  if (isUpdateGatewayReadinessPending(result)) {
+    return `The readiness observation ended without confirmation. Leave the Gateway starting and keep recovery backups; check current progress with \`${formatCliCommand("openclaw gateway status --deep", env)}\`.`;
+  }
   if (result.reason === "dirty") {
     return `Local changes prevented this update before installation. Your checkout was preserved. Commit your changes and retry, or run \`${formatCliCommand("openclaw triage", env)}\` for help.`;
   }
@@ -50,7 +54,7 @@ export function resolveUpdateResultNextAction(params: {
       return formatUpdateActivationTimeoutGuidance((command) => formatCliCommand(command, env));
     }
     if (result.reason === "rollback-project-changed") {
-      return `Other global packages changed after staging; automatic rollback was refused to preserve them. Keep the candidate installed if its gateway is reachable; otherwise keep the gateway stopped. ${resolveUnsafeUpdateRecoveryGuidance(undefined, env)}`;
+      return `Other global packages changed after staging; automatic rollback was refused to preserve them. The candidate installation was left unchanged. Check \`${formatCliCommand("openclaw gateway status --deep", env)}\` before restarting it. ${resolveUnsafeUpdateRecoveryGuidance(undefined, env)}`;
     }
     const reason =
       result.recovery?.serviceRestartSafe === false ? result.recovery.reason : undefined;

@@ -1,5 +1,6 @@
 /** Prepares Gateway task tracking without competing with the registry's task owner. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { InputProvenance } from "../../sessions/input-provenance.js";
 import { readInProcessSubagentResume } from "../in-process-subagent-resume.js";
@@ -20,6 +21,8 @@ export async function prepareAgentRunTaskTracking(params: {
   client: AgentTurnPrincipal | null;
   resolvedSessionKey?: string;
   inputProvenance?: InputProvenance;
+  canUseInternalRuntimeHandoff: boolean;
+  sessionEntry?: SessionEntry;
   request: Pick<AgentRunRequest, "message" | "acpTurnSource">;
   isOneShotModelRun: boolean;
   runId: string;
@@ -47,6 +50,8 @@ export async function prepareAgentRunTaskTracking(params: {
     client: params.client,
     sessionKey: params.resolvedSessionKey,
     inputProvenance: params.inputProvenance,
+    canUseInternalRuntimeHandoff: params.canUseInternalRuntimeHandoff,
+    sessionEntry: params.sessionEntry,
     confirmedAcpManualSpawn: isConfirmedAcpManualSpawnTaskOwner({
       acpTurnSource: params.request.acpTurnSource,
       sessionKey: params.resolvedSessionKey,

@@ -73,6 +73,8 @@ function dismissChatComposerPickersOutside(event: PointerEvent): void {
 
 function dismissChatComposerPickersOnEscape(event: KeyboardEvent): void {
   if (
+    event.isComposing ||
+    event.keyCode === 229 ||
     event.defaultPrevented ||
     consumeTooltipEscape(event, document) ||
     event.key !== "Escape" ||

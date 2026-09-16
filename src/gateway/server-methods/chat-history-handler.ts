@@ -61,9 +61,9 @@ import { readChatHistoryDelta } from "./chat-history-delta.js";
 import {
   capChatHistoryAroundMessage,
   enrichChatHistoryCompactionMarkers,
-  readChatHistoryPage,
   resolveChatHistoryNextOffset,
-} from "./chat-history-pages.js";
+} from "./chat-history-page-kernel.js";
+import { readChatHistoryPage } from "./chat-history-pages.js";
 import { resolveEmbeddedAgentRunRecoverySnapshot } from "./chat-history-recovery.js";
 import { handleChatMetadataRequest } from "./chat-metadata-handler.js";
 import { validateChatSelectedAgent } from "./chat-origin-routing.js";

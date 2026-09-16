@@ -26,7 +26,7 @@ import type { MessageActionResult } from "../../infra/outbound/message-action-co
 import { projectGatewayQueuedDeliveryResult } from "../../infra/outbound/message-action-execution.js";
 import { getToolResult, runMessageAction } from "../../infra/outbound/message-action-runner.js";
 import { resolveActionDeliveryTargetAlias } from "../../infra/outbound/message-action-spec.js";
-import { isDeliveredCurrentSourceReply } from "../../infra/outbound/source-reply-mirror.js";
+import { isDeliveredCurrentSourceReplyAsync } from "../../infra/outbound/source-reply-mirror.js";
 import { stringifyRouteThreadId } from "../../plugin-sdk/channel-route.js";
 import { getPreparedMessageToolCatalog } from "../../plugins/prepared-message-tool-catalog.js";
 import { normalizeAccountId } from "../../routing/session-key.js";
@@ -42,7 +42,10 @@ import type { SandboxFsBridge } from "../sandbox/fs-bridge.js";
 import { type AnyAgentTool, jsonResult, readToolStringParam } from "./common.js";
 import { captureGatewayToolCallerAssertion } from "./gateway-caller-context.js";
 import { readGatewayCallOptions } from "./gateway.js";
-import { createMessageToolDecisionRecorder } from "./message-tool-decision.js";
+import {
+  createMessageToolDecisionRecorder,
+  resolveTrustedDecisionChannel,
+} from "./message-tool-decision.js";
 import {
   buildMessageToolDescription,
   buildMessageToolSchema,
@@ -73,17 +76,6 @@ import {
   type VisibleTextSuppressionReason,
 } from "./message-tool-visible-content.js";
 import { isPollVoteEchoText } from "./poll-vote-echo.js";
-
-function resolveTrustedDecisionChannel(
-  raw: string | null | undefined,
-  catalog: PreparedMessageToolCatalog | undefined,
-): string | undefined {
-  const channel = normalizeMessageChannel(raw);
-  if (!channel) {
-    return undefined;
-  }
-  return channel === INTERNAL_MESSAGE_CHANNEL || catalog?.getChannel(channel) ? channel : undefined;
-}
 
 const POLL_VOTE_ECHO_TTL_MS = 30_000;
 
@@ -696,7 +688,9 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
             replyToIsExplicit: Boolean(readToolStringParam(actionParams, "replyTo")),
           };
           const currentSourceReply =
-            result.handledBy !== "internal-source" && isDeliveredCurrentSourceReply(sourceReply);
+            result.handledBy !== "internal-source" &&
+            (await isDeliveredCurrentSourceReplyAsync(sourceReply));
+          assertActionCurrent();
           const messageDelivery = projectEmbeddedMessageDeliveryFact(result, currentSourceReply);
           groupThread.record(result, sourceReply, currentSourceReply, requestedSourceReplyFinal);
           if (

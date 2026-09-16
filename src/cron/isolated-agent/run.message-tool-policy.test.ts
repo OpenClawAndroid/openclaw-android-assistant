@@ -1091,7 +1091,7 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
     await runCronIsolatedAgentTurn(makeParams());
 
     expect(getAgentRunContext("test-session-id")).toBeUndefined();
-    expect(cronSession.store).toBeUndefined();
+    expect(cronSession.store).toEqual({});
   });
 
   it("does not let old cron cleanup clear a newer same-id run context", async () => {
@@ -1182,7 +1182,7 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
     expect(getAgentRunContext("test-session-id")).toMatchObject({
       sessionKey: "agent:default:cron:message-tool-policy",
     });
-    expect(cronSession.store).toBeUndefined();
+    expect(cronSession.store).toEqual({});
     clearAgentRunContext("test-session-id");
   });
 

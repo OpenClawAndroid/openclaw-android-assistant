@@ -1,3 +1,4 @@
+import type { ProviderModelRef } from "@openclaw/model-catalog-core/model-catalog-refs";
 import type {
   AgentMessage,
   ToolResultContentSource,
@@ -159,6 +160,8 @@ export type RunCliAgentParams = {
   inputProvenance?: InputProvenance;
   /** Selected model provider used for tool policy; distinct from a CLI runtime id. */
   modelProvider?: string;
+  /** Resolved logical model selected by this run's owner, before CLI transport mapping. */
+  requesterModel?: ProviderModelRef;
   /** Vision capability resolved by the run owner from its prepared model catalog. */
   modelHasVision?: boolean;
   /** Native context window resolved by the run owner from its prepared model catalog. */

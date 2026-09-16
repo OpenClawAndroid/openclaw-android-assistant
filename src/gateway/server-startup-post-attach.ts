@@ -86,7 +86,7 @@ export type GatewayPostReadySidecarHandle = {
     nextRegistry: PluginRegistry;
     changedPluginIds: ReadonlySet<string>;
     nextConfig: OpenClawConfig;
-  }) => { drain: () => Promise<void>; resume: (config: OpenClawConfig) => void };
+  }) => { drain: () => Promise<void>; resume: (config: OpenClawConfig) => Awaitable<void> };
 };
 
 function shouldCheckRestartSentinel(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -288,7 +288,26 @@ function scheduleTranscriptsAutoStartSidecar(params: {
         drain: async () => {
           await withPluginRuntimeRegistryScope(previousRegistry, () => service?.stop(affected));
         },
-        resume(resumedConfig) {
+        async resume(resumedConfig) {
+          const registry = params.getPluginRegistry();
+          const newlyAvailable = new Set<string>();
+          // Metadata preflight has no runtime provider aliases for newly enabled
+          // plugins. Retire their unavailable-provider retries once the real
+          // registration is published so capture resumes immediately.
+          for (const { providerId } of resolveTranscriptsConfig(config.transcripts).autoStart) {
+            const normalized = providerId.trim().toLowerCase();
+            const provider = findCapabilityProviderEntry(
+              registry.transcriptSourceProviders,
+              providerId,
+            );
+            if (provider && changedPluginIds.has(provider.pluginId) && !affected.has(normalized)) {
+              affected.add(normalized);
+              newlyAvailable.add(normalized);
+            }
+          }
+          if (newlyAvailable.size) {
+            await withPluginRuntimeRegistryScope(registry, () => service?.stop(newlyAvailable));
+          }
           config = resumedConfig;
           pausedProviders = undefined;
           start();

@@ -9,9 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./chat-pane.ts", () => ({}));
 
 import { createDeferred } from "../../../../test/helpers/promise.js";
-import type { GatewayBrowserClient, GatewayHelloOk } from "../../api/gateway.ts";
-import type { ApplicationContext } from "../../app/context.ts";
-import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import { loadSettings } from "../../app/settings.ts";
 import { UI_COMMAND_EVENT } from "../../components/panel-toggle-contract.ts";
 import {
@@ -22,7 +19,11 @@ import {
 import { SESSION_DRAG_MIME } from "../../lib/sessions/drag.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
-import { createChatPageSessions } from "./chat-page.test-support.ts";
+import {
+  createChatPageSessions,
+  setNavigationContext,
+  setViewerPresenceContext,
+} from "./chat-page.test-support.ts";
 import { ChatPage } from "./chat-page.ts";
 import { loadChatRoute } from "./route-loader.ts";
 
@@ -39,7 +40,7 @@ const sessionPath = (sessionKey: string) =>
 import type { ChatMessageCache } from "./session-message-cache.ts";
 import type { SplitDropZone } from "./split-drop-zone.ts";
 import type { ChatSplitLayout } from "./split-layout-types.ts";
-import { insertPane } from "./split-layout.ts";
+import { insertPane, setPaneSession } from "./split-layout.ts";
 
 type RenderedPane = HTMLElement & {
   paneId: string;
@@ -132,83 +133,6 @@ function getDropIndicator(page: ChatPage) {
       dropIndicator: { paneId: string; zone: SplitDropZone } | null;
     }
   ).dropIndicator;
-}
-
-function setNavigationContext(page: ChatPage) {
-  const navigate = vi.fn();
-  const replace = vi.fn();
-  const patch = vi.fn(async () => null);
-  const agentSelectionState = { selectedId: "main" };
-  const setAgent = vi.fn((agentId: string) => {
-    agentSelectionState.selectedId = agentId;
-  });
-  const chatAttachmentHandoff = {
-    prepare: vi.fn(),
-    consume: vi.fn(() => null),
-    clearPane: vi.fn(),
-    dispose: vi.fn(),
-  };
-  const context = {
-    basePath: "",
-    sessions: { ...createChatPageSessions(), patch },
-    agents: { state: { agentsList: { defaultId: "main", mainKey: "main" } } },
-    gateway: {
-      snapshot: { hello: null },
-      setSessionKey: vi.fn(),
-      subscribe: () => () => undefined,
-    },
-    navigate,
-    replace,
-    agentSelection: { state: agentSelectionState, set: setAgent },
-    chatAttachmentHandoff,
-  } as unknown as ApplicationContext;
-  (page as unknown as { context: ApplicationContext }).context = context;
-  return { chatAttachmentHandoff, context, navigate, replace, setAgent, patch };
-}
-
-function setViewerPresenceContext(page: ChatPage) {
-  const navigation = setNavigationContext(page);
-  const request = vi.fn<GatewayBrowserClient["request"]>().mockResolvedValue({ sessionKeys: [] });
-  const client = { request } as unknown as GatewayBrowserClient;
-  const hello = {
-    type: "hello-ok",
-    protocol: 1,
-    auth: { role: "operator", scopes: [] },
-    features: { methods: [SESSION_VIEWERS_SET_METHOD] },
-    snapshot: { sessionDefaults: { mainSessionKey: "agent:main:main" } },
-  } as GatewayHelloOk;
-  const snapshotListeners = new Set<(snapshot: ApplicationGatewaySnapshot) => void>();
-  (navigation.context as unknown as { gateway: ApplicationContext["gateway"] }).gateway = {
-    snapshot: {
-      client,
-      phase: "connected",
-      offlineStable: false,
-      hello,
-      canvasPluginSurfaceUrl: null,
-      assistantAgentId: "main",
-      sessionKey: "agent:main:main",
-      lastError: null,
-      lastErrorCode: null,
-    },
-    connection: { gatewayUrl: "ws://example.test", token: "", bootstrapToken: "", password: "" },
-    connectionRevision: 0,
-    eventLog: [],
-    eventLogRevision: 0,
-    connect: vi.fn(),
-    setSessionKey: vi.fn(),
-    start: vi.fn(),
-    stop: vi.fn(),
-    subscribe: (listener) => {
-      snapshotListeners.add(listener);
-      return () => snapshotListeners.delete(listener);
-    },
-    subscribeEventLog: () => () => {},
-    subscribeEvents: () => () => {},
-  };
-  Object.assign(navigation.context, {
-    sessions: createChatPageSessions(navigation.context.gateway),
-  });
-  return { ...navigation, request };
 }
 
 function stubMatchMedia(matches: boolean) {
@@ -320,6 +244,80 @@ describe("chat page split layout host", () => {
     expect(survivingPane).toBe(classicPane);
     expect(survivingPane.classList.contains("chat-split-view__pane")).toBe(false);
   });
+
+  it.each([
+    "close",
+    "alias",
+    "background",
+    "focus-moved",
+    "navigation",
+    "suspended",
+    "teardown",
+  ] as const)(
+    "restores close focus only while its presentation still owns the intent (%s)",
+    async (scenario) => {
+      const page = new ChatPage();
+      setNavigationContext(page);
+      page.data = { sessionKey: "main" };
+      document.body.append(page);
+      await page.updateComplete;
+      const original = itemAt(page.querySelectorAll<RenderedPane>("openclaw-chat-pane"), 0, "pane");
+      original.onOpenSplitView?.();
+      await page.updateComplete;
+      const added = itemAt(page.querySelectorAll<RenderedPane>("openclaw-chat-pane"), 1, "pane");
+      if (scenario === "alias") {
+        const layout = expectDefined(getLayout(page), "split layout");
+        setLayout(page, setPaneSession(layout, original.paneId, "agent:main:main"));
+        await page.updateComplete;
+        expect(original.sessionKey).toBe("main");
+      }
+      const header = original.appendChild(document.createElement("div"));
+      header.className = "chat-pane__header";
+      header.tabIndex = -1;
+      const button = added.appendChild(document.createElement("button"));
+      const outside = document.body.appendChild(document.createElement("button"));
+      const teardown = createDeferred();
+      if (scenario === "teardown") {
+        added.append(
+          Object.assign(document.createElement("mcp-app-view"), {
+            teardown: () => teardown.promise,
+            restartAfterTeardown: () => undefined,
+          }),
+        );
+      }
+      (scenario === "background" ? outside : button).focus();
+      const href = window.location.href;
+      try {
+        added.onClosePane?.(added.paneId);
+        if (scenario === "focus-moved") {
+          outside.focus();
+          outside.blur();
+        } else if (scenario === "navigation") {
+          window.history.replaceState(null, "", "/settings");
+        } else if (scenario === "suspended") {
+          page.presented = false;
+        }
+        await page.updateComplete;
+        if (scenario === "teardown") {
+          expect(document.activeElement).toBe(button);
+          teardown.resolve();
+          await vi.waitFor(() => expect(document.activeElement).toBe(header));
+        } else if (scenario === "close" || scenario === "alias") {
+          expect(document.activeElement).toBe(header);
+        } else {
+          expect(document.activeElement).not.toBe(header);
+          if (scenario === "background") {
+            expect(document.activeElement).toBe(outside);
+          }
+        }
+      } finally {
+        teardown.resolve();
+        page.remove();
+        window.history.replaceState(null, "", href);
+        outside.remove();
+      }
+    },
+  );
 
   it("ignores ordinary pane focus while Chat is retained behind another page", async () => {
     const page = new ChatPage();

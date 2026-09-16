@@ -157,9 +157,21 @@ describe("Sessions page typing ownership", () => {
         active.resolve(result("agent:main:retired"));
         await loading;
         if (hidden) {
+          await vi.advanceTimersByTimeAsync(1_000);
           expect(filteredCalls).toBe(1);
           visibility.mockReturnValue("visible");
           document.dispatchEvent(new Event("visibilitychange"));
+          await vi.advanceTimersByTimeAsync(0);
+        } else if (!resubscribe || timing === "queued") {
+          await vi.advanceTimersByTimeAsync(999);
+          expect(filteredCalls).toBe(1);
+          if (resubscribe) {
+            expect(sessions.listSnapshot(query).result?.sessions[0]?.key).toBe(
+              "agent:main:retired",
+            );
+          }
+          await vi.advanceTimersByTimeAsync(1);
+        } else {
           await vi.advanceTimersByTimeAsync(0);
         }
         expect(filteredCalls).toBe(resubscribe ? 2 : 1);

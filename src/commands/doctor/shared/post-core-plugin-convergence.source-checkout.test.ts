@@ -289,7 +289,7 @@ describe("post-core convergence on source checkouts", () => {
           expect(startup.failures).toEqual([]);
           if (flow === "cli named" || flow === "cli all") {
             await runPluginUpdateCommand({
-              ...(flow === "cli named" ? { id: "codex" } : {}),
+              ids: flow === "cli named" ? ["codex"] : [],
               opts: { all: flow === "cli all", dryRun: true },
             });
             expect(mocks.error).not.toHaveBeenCalled();

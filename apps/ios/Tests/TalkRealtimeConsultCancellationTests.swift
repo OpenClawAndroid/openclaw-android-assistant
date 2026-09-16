@@ -213,8 +213,10 @@ final class TalkRealtimeConsultCancellationTests: XCTestCase {
                     try await Task.sleep(for: .milliseconds(10))
                 }
                 XCTAssertTrue(manager._test_hasPrefetchedRealtimeSession())
-                manager._test_prepareLiveRealtimeVoiceSession(
-                    gateway: gateway, voiceSessionId: "voice-1", prefetchedVoiceSessionId: "voice-1")
+                let currentRoute = await gateway.currentRoute()
+                try manager._test_prepareLiveRealtimeVoiceSession(
+                    gateway: gateway, route: XCTUnwrap(currentRoute),
+                    voiceSessionId: "voice-1", prefetchedVoiceSessionId: "voice-1")
                 manager._test_prepareEnabledRealtimeSessionForClose()
                 try socket.emitReceiveSuccess(.data(JSONSerialization.data(withJSONObject: [
                     "type": "event", "event": "talk.voice.change", "payload": [
