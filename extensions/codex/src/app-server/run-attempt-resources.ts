@@ -22,13 +22,17 @@ import {
 } from "./native-hook-relay.js";
 import { createCodexNativeSubagentHistoryOwner } from "./native-subagent-history-owner.js";
 import { codexNativeSubagentMonitorRuntime } from "./native-subagent-monitor.js";
+import type { CodexNativeSubagentSubmissionStore } from "./native-subagent-submission.js";
 import type { CodexSandboxPolicy, CodexTurnEnvironmentParams } from "./protocol.js";
 import type { CodexAttemptPrompt } from "./run-attempt-prompt.js";
 import {
   releaseCodexSandboxExecServerEnvironment,
   type CodexSandboxExecEnvironment,
 } from "./sandbox-exec-server.js";
-import type { CodexAppServerThreadBinding } from "./session-binding.js";
+import {
+  matchesCodexNativeSubagentSubmissionBinding,
+  type CodexAppServerThreadBinding,
+} from "./session-binding-record.js";
 import {
   clearSharedCodexAppServerClientIfCurrentAndUnclaimed,
   createIsolatedCodexAppServerClient,
@@ -206,12 +210,18 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
         await operation();
       },
     });
-  const unregisterNativeSubagentMonitor = () => {
-    state.nativeSubagentMonitor?.unregister();
+  let nativeSubagentMonitorSettlement: Promise<void> | undefined;
+  const unregisterNativeSubagentMonitor = async () => {
+    const registration = state.nativeSubagentMonitor;
     state.nativeSubagentMonitor = undefined;
+    if (registration) {
+      nativeSubagentMonitorSettlement = registration.unregister();
+    }
+    await nativeSubagentMonitorSettlement;
   };
-  const registerNativeSubagentMonitor = (parentThreadId: string) => {
-    unregisterNativeSubagentMonitor();
+  const registerNativeSubagentMonitor = async (parentThreadId: string) => {
+    await unregisterNativeSubagentMonitor();
+    connection.assertCurrent();
     const sessionKey = params.sessionKey;
     const storePath = params.sessionTarget?.storePath;
     const parentSession =
@@ -224,19 +234,57 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
             hydrateSkillPromptRefs: false,
           })
         : undefined;
+    const historyOwner = createCodexNativeSubagentHistoryOwner({
+      parentThreadId,
+      sessionId: params.sessionId,
+      ...(parentSession?.sessionId === params.sessionId
+        ? { lifecycleRevision: parentSession.lifecycleRevision }
+        : {}),
+      binding: state.thread,
+    });
+    const { bindingStore, bindingIdentity } = connection;
+    const submissionStore: CodexNativeSubagentSubmissionStore | undefined = historyOwner
+      ? {
+          assertCurrent: () => {
+            const current = bindingStore.read(bindingIdentity);
+            if (!current || !matchesCodexNativeSubagentSubmissionBinding(current, historyOwner)) {
+              throw new Error("Native submission binding is no longer current.");
+            }
+            if (historyOwner.lifecycleRevision && sessionKey && storePath) {
+              const currentSession = getSessionEntry({
+                agentId: sessionAgentId,
+                sessionKey,
+                storePath,
+                readConsistency: "latest",
+                hydrateSkillPromptRefs: false,
+              });
+              if (currentSession?.lifecycleRevision !== historyOwner.lifecycleRevision) {
+                throw new Error("Native submission session lifecycle is no longer current.");
+              }
+            }
+          },
+          read: () => bindingStore.readNativeSubagentSubmissions(bindingIdentity, historyOwner),
+          record: (receipt, assertCurrent) =>
+            bindingStore.mutate(
+              bindingIdentity,
+              { kind: "record-native-subagent-submission", owner: historyOwner, receipt },
+              assertCurrent,
+            ),
+          consume: (receipt, assertCurrent) =>
+            bindingStore.mutate(
+              bindingIdentity,
+              { kind: "consume-native-subagent-submission", owner: historyOwner, receipt },
+              assertCurrent,
+            ),
+        }
+      : undefined;
     state.nativeSubagentMonitor = codexNativeSubagentMonitorRuntime.register({
       client: state.client,
       parentThreadId,
       requesterSessionKey: params.sessionKey,
       taskRuntimeScope: params.agentHarnessTaskRuntimeScope,
-      historyOwner: createCodexNativeSubagentHistoryOwner({
-        parentThreadId,
-        sessionId: params.sessionId,
-        ...(parentSession?.sessionId === params.sessionId
-          ? { lifecycleRevision: parentSession.lifecycleRevision }
-          : {}),
-        binding: state.thread,
-      }),
+      historyOwner,
+      submissionStore,
       agentId: sessionAgentId,
       retainClient: () => retainSharedCodexAppServerClientIfCurrent(state.client),
       retainParentThread: (protectedThreadId) =>
@@ -253,7 +301,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
         : {}),
     });
   };
-  const releaseCurrentRoute = () => {
+  const releaseCurrentRoute = async () => {
     state.releaseInferenceContext?.();
     state.releaseInferenceContext = undefined;
     state.detachRouteAbort();
@@ -261,7 +309,7 @@ export function prepareCodexAttemptResources(prompt: CodexAttemptPrompt) {
     state.turnRoute?.release();
     state.turnRoute = undefined;
     state.routeActivated = false;
-    unregisterNativeSubagentMonitor();
+    await unregisterNativeSubagentMonitor();
   };
   const startupTimeoutMs = resolveCodexStartupTimeoutMs({
     timeoutMs: params.timeoutMs,

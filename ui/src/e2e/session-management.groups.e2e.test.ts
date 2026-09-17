@@ -51,6 +51,9 @@ suite.define(() => {
       const header = group.locator(":scope > .sidebar-recent-sessions__head");
       const label = header.locator(".sidebar-recent-sessions__label-text");
       await group.waitFor({ state: "visible", timeout: 10_000 });
+      await expect
+        .poll(() => label.evaluate((element) => getComputedStyle(element).maskImage))
+        .toContain("linear-gradient");
       await captureUiProof(suite, page, "sidebar-group-title-resting.png");
 
       const resting = await label.evaluate((element) => {
@@ -60,26 +63,28 @@ suite.define(() => {
           height: element.getBoundingClientRect().height,
           lineHeight: Number.parseFloat(style.lineHeight),
           scrollWidth: element.scrollWidth,
-          textOverflow: style.textOverflow,
+          maskImage: style.maskImage,
           whiteSpace: style.whiteSpace,
         };
       });
       expect(resting.whiteSpace).toBe("nowrap");
-      expect(resting.textOverflow).toBe("ellipsis");
+      expect(resting.maskImage).toContain("linear-gradient");
       expect(resting.height).toBeLessThanOrEqual(resting.lineHeight + 1);
       expect(resting.scrollWidth).toBeGreaterThan(resting.clientWidth);
 
-      await label.hover();
-      await expect
-        .poll(() => label.getAttribute("class"), { timeout: 3_000 })
-        .toContain("hover-marquee--scrolling");
-      await expect
-        .poll(() =>
-          label.evaluate((element) =>
-            Number.parseFloat(getComputedStyle(element).getPropertyValue("text-indent")),
-          ),
-        )
-        .toBeLessThan(-1);
+      const text = label.locator(".hover-marquee__text");
+      const offset = () =>
+        text.evaluate((element) => {
+          const transform = getComputedStyle(element).transform;
+          return transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
+        });
+      await header.hover();
+      await expect.poll(offset).toBeLessThan(-2);
+      const firstOffset = await offset();
+      await expect.poll(offset).toBeLessThan(firstOffset - 5);
+      expect(await label.evaluate((element) => getComputedStyle(element).maskImage)).toContain(
+        "linear-gradient",
+      );
       await captureUiProof(suite, page, "sidebar-group-title-hovered.png");
     } finally {
       await context.close();

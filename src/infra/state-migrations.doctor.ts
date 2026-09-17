@@ -55,6 +55,8 @@ import {
 } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { resolveIdentityPathViaExistingAncestorSync } from "./boundary-path.js";
+import { detectLegacyDeliveryQueueFiles } from "./delivery-queue-legacy-files.js";
+import { listLegacyPairingStoreFiles } from "./pairing-files.js";
 import { isPathInside } from "./path-guards.js";
 import {
   detectLegacyAcpReplayLedger,
@@ -122,6 +124,8 @@ import {
 } from "./state-migrations.node-host.js";
 import {
   captureLegacyStateSnapshotIdentity,
+  closeMigrationPlanTail,
+  migrationStepPlan,
   createLegacyStateMigrationCallerEnv,
   createLegacyStateMigrationPlanEnv,
   createLegacyStateMigrationPlan,
@@ -180,11 +184,7 @@ import {
   PLUGIN_STATE_SQLITE_SIDECAR_SUFFIXES,
   TASK_STATE_SQLITE_SIDECAR_SUFFIXES,
   hasPendingSqliteSidecarArchive,
-  listLegacyDeliveryQueueDeliveredMarkers,
-  listLegacyDeliveryQueueFiles,
-  migrateLegacyDeliveryQueues,
   migrateLegacyTaskStateSidecars,
-  resolveLegacyDeliveryQueuePath,
   resolveLegacyFlowRunsSidecarPath,
   resolveLegacyPluginStateSidecarPath,
   resolveLegacyTaskRunsSidecarPath,
@@ -548,15 +548,9 @@ export async function detectLegacyStateMigrations(params: {
     migrationFileExists(flowRunsSidecarPath) ||
     hasPendingTaskRunsSidecarArchive ||
     hasPendingFlowRunsSidecarArchive;
-  const deliveryQueuePaths = {
-    outboundPath: resolveLegacyDeliveryQueuePath(stateDir, "delivery-queue"),
-    sessionPath: resolveLegacyDeliveryQueuePath(stateDir, "session-delivery-queue"),
-  };
-  const hasDeliveryQueues =
-    listLegacyDeliveryQueueFiles(deliveryQueuePaths.outboundPath).length > 0 ||
-    listLegacyDeliveryQueueDeliveredMarkers(deliveryQueuePaths.outboundPath).length > 0 ||
-    listLegacyDeliveryQueueFiles(deliveryQueuePaths.sessionPath).length > 0 ||
-    listLegacyDeliveryQueueDeliveredMarkers(deliveryQueuePaths.sessionPath).length > 0;
+  const deliveryQueues = detectLegacyDeliveryQueueFiles(stateDir);
+  const pairingStoreFiles =
+    params.mode === "automatic" ? [] : await listLegacyPairingStoreFiles(stateDir);
   const voiceWake = {
     triggersPath: resolveLegacyVoiceWakeTriggersPath(stateDir),
     routingPath: resolveLegacyVoiceWakeRoutingPath(stateDir),
@@ -814,7 +808,7 @@ export async function detectLegacyStateMigrations(params: {
       sharedAuthStore.hasLegacy,
       "- Shared auth store: legacy main-agent rows → shared SQLite state",
     ],
-    [hasDeliveryQueues, "- Delivery queues: legacy JSON queue files → shared SQLite state"],
+    [deliveryQueues.hasLegacy, "- Delivery queues: legacy JSON queue files → shared SQLite state"],
     [hasVoiceWake, "- Voice Wake settings: legacy JSON files → shared SQLite state"],
     [hasUpdateCheck, "- Update-check state: legacy JSON file → shared SQLite state"],
     [hasConfigHealth, "- Config health state: legacy JSON file → shared SQLite state"],
@@ -872,6 +866,10 @@ export async function detectLegacyStateMigrations(params: {
       "- System-agent rescue approvals: discard retired pending JSON capabilities",
     ],
     [channelPairing.hasLegacy, "- Channel pairing state: legacy JSON files → shared SQLite state"],
+    [
+      pairingStoreFiles.length > 0,
+      "- Device and node pairing: legacy JSON files → shared SQLite state",
+    ],
   ];
   for (const [hasLegacy, message] of stateMigrationPreviews) {
     if (hasLegacy) {
@@ -930,10 +928,8 @@ export async function detectLegacyStateMigrations(params: {
       flowRunsPath: flowRunsSidecarPath,
       hasLegacy: hasTaskStateSidecars,
     },
-    deliveryQueues: {
-      ...deliveryQueuePaths,
-      hasLegacy: hasDeliveryQueues,
-    },
+    deliveryQueues,
+    pairingStores: { sourcePaths: pairingStoreFiles, hasLegacy: pairingStoreFiles.length > 0 },
     voiceWake: {
       ...voiceWake,
       hasLegacy: hasVoiceWake,
@@ -1004,12 +1000,13 @@ const unresolvedMigrationStepLayout = [
   ["plugin-state-sidecar", "shared", "all"],
   ["debug-proxy-capture", "shared", "all"],
   ["task-state-sidecars", "shared", "all"],
-  ["delivery-queues", "shared", "all"],
   ["voice-wake", "shared", "all"],
   ["update-check", "shared", "all"],
   ["config-health", "shared", "all"],
   ["plugin-binding-approvals", "shared", "all"],
   ["current-conversation-bindings", "shared", "all"],
+  ["delivery-queues", "shared", "doctor"],
+  ["pairing-stores", "shared", "doctor"],
   ["tui-last-session", "final", "doctor"],
   ["commitments", "final", "doctor"],
   ["audit-logs", "final", "doctor"],
@@ -1025,7 +1022,7 @@ const unresolvedMigrationStepLayout = [
   ["subagent-registry", "final", "doctor"],
   ["rescue-pending", "final", "doctor"],
   ["skill-workshop", "final", "all"],
-  ["channel-pairing", "final", "all"],
+  ["channel-pairing", "final", "doctor"],
   ["plugin-doctor-state", "final", "all"],
   ["sessions", "final", "doctor-agent"],
   ["legacy-main-session-keys", "final", "automatic"],
@@ -1757,8 +1754,15 @@ function buildLegacyStateMigrationSteps(
       detected.taskStateSidecars.hasLegacy,
     ],
     "delivery-queues": [
-      pathEndpoints(detected.deliveryQueues.outboundPath, detected.deliveryQueues.sessionPath),
-      detected.deliveryQueues.hasLegacy,
+      [
+        ...pathEndpoints(detected.deliveryQueues.outboundPath, detected.deliveryQueues.sessionPath),
+        stateDatabase,
+      ],
+      detected.deliveryQueues.hasLegacy ? true : "conditional",
+    ],
+    "pairing-stores": [
+      pathEndpoints(...detected.pairingStores.sourcePaths),
+      detected.pairingStores.hasLegacy,
     ],
     "voice-wake": [
       pathEndpoints(detected.voiceWake.triggersPath, detected.voiceWake.routingPath),
@@ -1978,7 +1982,6 @@ function buildLegacyStateMigrationSteps(
       false,
     ),
     sharedStep("task-state-sidecars", () => migrateLegacyTaskStateSidecars({ stateDir })),
-    sharedStep("delivery-queues", () => migrateLegacyDeliveryQueues({ stateDir })),
     ownerStep("voice-wake", detected.voiceWake, migrateLegacyVoiceWakeSettings, "shared"),
     ownerStep("update-check", detected.updateCheck, migrateLegacyUpdateCheckState, "shared"),
     ownerStep("config-health", detected.configHealth, migrateLegacyConfigHealth, "shared", false),
@@ -2025,6 +2028,18 @@ function buildLegacyStateMigrationSteps(
 
   const doctorStateSteps: LegacyStateMigrationStep[] = isDoctor
     ? [
+        {
+          ...sharedStep("delivery-queues", async () => {
+            const { migrateDoctorDeliveryQueues } =
+              await import("../commands/doctor-outbound-delivery.js");
+            return migrateDoctorDeliveryQueues({ cfg: params.config, stateDir, env });
+          }),
+          runWithoutFileDetection: true,
+        },
+        sharedStep("pairing-stores", async () => {
+          const { migrateDoctorPairingStores } = await import("./state-migrations.pairing.js");
+          return migrateDoctorPairingStores({ stateDir, env });
+        }),
         ownerStep("tui-last-session", detected.tuiLastSessions, migrateLegacyTuiLastSessions),
         ...(detected.commitments
           ? [ownerStep("commitments", detected.commitments, migrateLegacyCommitments)]
@@ -2092,18 +2107,22 @@ function buildLegacyStateMigrationSteps(
       ),
       runWithoutFileDetection: true,
     },
-    finalStep(
-      "channel-pairing",
-      channelPairingRefusal
-        ? () => ({ changes: [], warnings: [channelPairingRefusal.message] })
-        : () =>
-            migrateLegacyChannelPairingState({
-              detected: detected.channelPairing,
-              env: { ...env, OPENCLAW_STATE_DIR: stateDir },
-            }),
-      false,
-      channelPairingRefusal,
-    ),
+    ...(isDoctor
+      ? [
+          finalStep(
+            "channel-pairing",
+            channelPairingRefusal
+              ? () => ({ changes: [], warnings: [channelPairingRefusal.message] })
+              : () =>
+                  migrateLegacyChannelPairingState({
+                    detected: detected.channelPairing,
+                    env: { ...env, OPENCLAW_STATE_DIR: stateDir },
+                  }),
+            false,
+            channelPairingRefusal,
+          ),
+        ]
+      : []),
     finalStep(
       "plugin-doctor-state",
       () =>
@@ -2222,35 +2241,6 @@ function buildLegacyStateMigrationSteps(
     ...doctorStateSteps,
     ...finalSteps,
   ];
-}
-
-function migrationStepPlan(step: LegacyStateMigrationStep): PreparedLegacyStateMigrationStep {
-  return {
-    id: step.id,
-    phase: step.phase,
-    source: step.source,
-    target: step.target,
-    requiredness: step.requiredness,
-    reversibility: step.reversibility,
-    ...(step.refusal ? { refusal: step.refusal } : {}),
-  };
-}
-
-function closeMigrationPlanTail(
-  steps: readonly LegacyStateMigrationStep[],
-  blocker: LegacyStateMigrationStep,
-): PreparedLegacyStateMigrationStep[] {
-  const blockerIndex = steps.indexOf(blocker);
-  return steps.map((step, index) => {
-    const plannedStep = migrationStepPlan(step);
-    if (index > blockerIndex) {
-      plannedStep.refusal = {
-        code: "blocked-by-prior-refusal",
-        message: `Migration step "${step.id}" is blocked by prior refusal at "${blocker.id}".`,
-      };
-    }
-    return plannedStep;
-  });
 }
 
 function remapMigrationEndpointRoot(

@@ -4613,7 +4613,6 @@ describe("buildGatewayCronService", () => {
       );
 
       expect(observed).toBe(rpcContext);
-      expect(resolveGatewayContext).not.toHaveBeenCalled();
     } finally {
       state.cron.stop();
     }

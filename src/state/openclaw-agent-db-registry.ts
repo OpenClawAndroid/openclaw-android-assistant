@@ -5,6 +5,7 @@ import { resolveStateDir } from "../config/paths.js";
 import { resolvePathPrefixSync } from "../infra/fs-safe-advanced.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import { isPathInside } from "../infra/path-guards.js";
+import { sessionChanges } from "../sessions/session-row-changes.js";
 import {
   assertAgentDeletionPathFence,
   prepareAgentDeletionPathFence,
@@ -587,11 +588,12 @@ export function registerOpenClawAgentDatabase(params: {
             }),
           ),
       );
+      invalidateRegisteredAgentDatabasesMemo({ env: params.env });
+      sessionChanges.emit({ all: true, scope: "stores" }, database.db);
     },
     { env: params.env },
   );
   invalidateOpenClawAgentDatabaseValidation(params.path);
-  invalidateRegisteredAgentDatabasesMemo({ env: params.env });
 }
 
 function canonicalPathForRegistryBoundary(pathname: string): string {
@@ -644,11 +646,12 @@ export function unregisterOpenClawAgentDatabase(params: {
           .where("agent_id", "=", params.agentId)
           .where("path", "in", matchingPaths),
       );
+      invalidateRegisteredAgentDatabasesMemo({ env: params.env });
+      sessionChanges.emit({ all: true, scope: "stores" }, database.db);
     },
     { env: params.env },
   );
   invalidateOpenClawAgentDatabaseValidation(params.path);
-  invalidateRegisteredAgentDatabasesMemo({ env: params.env });
 }
 
 /** Remove every durable database registration owned by a deleted agent. */
@@ -667,7 +670,8 @@ export function unregisterOpenClawAgentDatabases(params: {
       database.db,
       db.deleteFrom("agent_databases").where("agent_id", "=", params.agentId),
     );
+    invalidateRegisteredAgentDatabasesMemo(options);
+    sessionChanges.emit({ all: true, scope: "stores" }, database.db);
   }, options);
   invalidateOpenClawAgentDatabaseValidationsForAgent(params.agentId);
-  invalidateRegisteredAgentDatabasesMemo(options);
 }

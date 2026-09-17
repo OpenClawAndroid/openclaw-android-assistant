@@ -15,7 +15,7 @@ const {
   buildProviderSummaryMetadataIndexMock,
   listProvidersForAgentMock,
   listAgentProvenanceMock,
-  readAgentProvenanceMock,
+  readAgentProvenanceForDisplayMock,
   providerSummaryMetadataMock,
   requireValidConfigMock,
   summarizeBindingsMock,
@@ -24,7 +24,7 @@ const {
   buildProviderSummaryMetadataIndexMock: vi.fn(),
   listProvidersForAgentMock: vi.fn(),
   listAgentProvenanceMock: vi.fn(),
-  readAgentProvenanceMock: vi.fn(),
+  readAgentProvenanceForDisplayMock: vi.fn(),
   providerSummaryMetadataMock: new Map([
     [
       "telegram",
@@ -52,7 +52,7 @@ vi.mock("./agents.providers.js", () => ({
 
 vi.mock("../state/agent-provenance.js", () => ({
   listAgentProvenance: listAgentProvenanceMock,
-  readAgentProvenance: readAgentProvenanceMock,
+  readAgentProvenanceForDisplay: readAgentProvenanceForDisplayMock,
 }));
 
 const { agentsListCommand } = await import("./agents.commands.list.js");
@@ -81,8 +81,8 @@ describe("agentsListCommand", () => {
     buildProviderStatusIndexMock.mockResolvedValue(new Map());
     buildProviderSummaryMetadataIndexMock.mockReturnValue(providerSummaryMetadataMock);
     listProvidersForAgentMock.mockReturnValue(["Telegram default: configured"]);
-    listAgentProvenanceMock.mockReturnValue([]);
-    readAgentProvenanceMock.mockReturnValue(undefined);
+    listAgentProvenanceMock.mockResolvedValue([]);
+    readAgentProvenanceForDisplayMock.mockResolvedValue(undefined);
     summarizeBindingsMock.mockReturnValue(["Telegram default"]);
   });
 
@@ -138,7 +138,8 @@ describe("agentsListCommand", () => {
 
   it("adds durable provenance to JSON without loading provider details", async () => {
     const runtime = createRuntime();
-    readAgentProvenanceMock.mockReturnValue({
+    listAgentProvenanceMock.mockRejectedValue(new Error("unrelated stored provenance is invalid"));
+    readAgentProvenanceForDisplayMock.mockResolvedValue({
       agentId: "main",
       createdVia: "operator",
       creatorAgentId: null,
@@ -171,7 +172,7 @@ describe("agentsListCommand", () => {
         },
       },
     } satisfies OpenClawConfig);
-    listAgentProvenanceMock.mockReturnValue([
+    listAgentProvenanceMock.mockResolvedValue([
       { agentId: "main", createdVia: "operator", creatorAgentId: null, createdAtMs: 1 },
       { agentId: "child", createdVia: "agent", creatorAgentId: "main", createdAtMs: 2 },
       { agentId: "orphan", createdVia: "agent", creatorAgentId: "deleted", createdAtMs: 3 },

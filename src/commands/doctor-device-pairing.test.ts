@@ -195,13 +195,13 @@ describe("noteDevicePairingHealth", () => {
   });
 
   it.each([
-    {
-      file: "devices/paired.json",
-      mode: "local",
+    ...(["devices/paired.json", "nodes/paired.json"] as const).map((file) => ({
+      file,
+      mode: "local" as const,
       findingPath: "devices.legacy-store",
       requirement: "pairing-store-legacy-file",
-      fixHint: "Restart the gateway",
-    },
+      fixHint: "openclaw doctor --fix",
+    })),
     ...(["local", "remote"] as const).map((mode) => ({
       file: "identity/device-auth.json",
       mode,
@@ -216,7 +216,9 @@ describe("noteDevicePairingHealth", () => {
         { prefix: "openclaw-doctor-device-pairing-", env: { OPENCLAW_TEST_FAST: "1" } },
         async (state) => {
           const content =
-            testCase.file === "devices/paired.json" ? "{not-json}" : legacyDeviceAuthContents;
+            testCase.requirement === "pairing-store-legacy-file"
+              ? "{not-json}"
+              : legacyDeviceAuthContents;
           const sourcePath = await state.writeText(testCase.file, content);
           const params = { cfg: { gateway: { mode: testCase.mode } }, healthOk: false };
 
@@ -228,7 +230,7 @@ describe("noteDevicePairingHealth", () => {
               path: testCase.findingPath,
               requirement: testCase.requirement,
               message: expect.stringContaining(
-                testCase.file === "devices/paired.json"
+                testCase.requirement === "pairing-store-legacy-file"
                   ? "has not been imported"
                   : "is still present",
               ),

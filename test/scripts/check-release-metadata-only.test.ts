@@ -76,7 +76,6 @@ describe("check-release-metadata-only", () => {
   it("preserves option-shaped paths after the separator", () => {
     expect(parseArgs(["--staged", "--", "--head"])).toEqual({
       staged: true,
-      base: "origin/main",
       head: "HEAD",
       paths: ["--head"],
     });
@@ -162,6 +161,33 @@ describe("check-release-metadata-only", () => {
     expect(rejected.stderr).toContain(
       "apps/mobile/version.json: changed outside recognized version/build literals",
     );
+
+    // Incoming metadata may legitimately differ from the feature branch's HEAD.
+    execFileSync("git", ["add", "apps/mobile/version.json"], { cwd: root });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=OpenClaw Test",
+        "-c",
+        "user.email=test@openclaw.invalid",
+        "commit",
+        "-qm",
+        "incoming metadata",
+      ],
+      { cwd: root },
+    );
+    const incoming = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    execFileSync("git", ["switch", "--detach", head], { cwd: root });
+    writeFileSync(manifestPath, '{\n  "version": "2026.8.3",\n  "channel": "stable"\n}\n');
+    execFileSync("git", ["add", "apps/mobile/version.json"], { cwd: root });
+    const based = runMetadata(["--staged", "--base", incoming]);
+    expect(based.status, based.stderr).toBe(0);
+    expect(based.stderr).toContain("[release-metadata] ok (1 files)");
+    expect(runMetadata(["--staged"]).status).toBe(1);
   });
 
   itUnix("fails with an actionable timeout when git diff hangs", () => {

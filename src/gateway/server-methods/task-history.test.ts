@@ -25,8 +25,8 @@ import {
   resetTaskRegistryForTests,
 } from "../../tasks/task-registry.test-support.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
-import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
 import { loadGatewaySessionEntryReadOnly } from "../session-utils.js";
+import { createHistoryReadContext } from "./chat-history.test-helpers.js";
 import { identifiedClient, runTaskHandler } from "./tasks.test-helpers.js";
 
 type ReadTaskHistory = NonNullable<AgentHarness["taskHistory"]>["read"];
@@ -154,7 +154,7 @@ describe("tasks.history", () => {
         runId: "openclaw-child",
         task: "Inspect synthetic files",
       });
-      const context = createDirectChatContext();
+      const context = await createHistoryReadContext();
       const first = await runTaskHandler(
         "tasks.history",
         { taskId: task.taskId, limit: 2 },
@@ -221,7 +221,7 @@ describe("tasks.history", () => {
         task: "History job",
         detail: { kind: "cron-run", sessionId: oldScope.sessionId },
       });
-      const context = createDirectChatContext();
+      const context = await createHistoryReadContext();
       const first = await runTaskHandler(
         "tasks.history",
         { taskId: task.taskId, limit: 2 },
@@ -244,7 +244,7 @@ describe("tasks.history", () => {
       );
       expect(second.payload?.messages).toMatchObject([{ content: "Old first" }]);
       expect(second.payload?.nextCursor).toBeUndefined();
-      const rotationContext = createDirectChatContext({
+      const rotationContext = await createHistoryReadContext({
         readChatStartupProjection: async () => {
           await upsertSessionEntryCore(oldScope, { sessionId: "concurrent-new-run", updatedAt: 3 });
           return undefined;
@@ -269,7 +269,7 @@ describe("tasks.history", () => {
         visibility: "shared",
         createdActor: { type: "human", source: "profile", id: "another-owner" },
       });
-      const revokedContext = createDirectChatContext({
+      const revokedContext = await createHistoryReadContext({
         readChatStartupProjection: async () => {
           await upsertSessionEntryCore(baseScope, {
             sessionId: "private-new-run",
@@ -292,7 +292,7 @@ describe("tasks.history", () => {
       });
       expect(revoked.calls[0]).toMatchObject([false, undefined, { code: "INVALID_REQUEST" }]);
       expect(revoked.payload?.messages).toBeUndefined();
-      const changedContext = createDirectChatContext({
+      const changedContext = await createHistoryReadContext({
         readChatStartupProjection: async () => {
           markTaskTerminalById({
             taskId: task.taskId,
@@ -358,7 +358,7 @@ describe("tasks.history", () => {
           { taskId: task.taskId },
           {},
           null,
-          createDirectChatContext(),
+          await createHistoryReadContext(),
         );
         expect(result.calls[0]).toMatchObject([false, undefined, { code: "UNAVAILABLE" }]);
         expect(result.payload?.messages).toBeUndefined();
@@ -409,7 +409,7 @@ describe("tasks.history", () => {
         if (change === "requester access") {
           config.gateway!.roles!.definitions.reader!.sessions = { others: "view" };
         }
-        const context = createDirectChatContext({ getRuntimeConfig: () => config });
+        const context = await createHistoryReadContext({ getRuntimeConfig: () => config });
         const task = createNativeTask();
         const entered = createDeferred();
         const history = createDeferred<TasksHistoryResult>();

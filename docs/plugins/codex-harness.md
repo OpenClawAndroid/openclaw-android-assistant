@@ -164,6 +164,34 @@ dependencies. Idle, interrupted, or unloaded native threads do not prove that
 the delegated task succeeded. A resumed native turn clears the previous turn's
 current tool activity while retaining the task identity.
 
+Follow-up work after a native child has finished creates a separate task run on
+the same Codex thread. Earlier results and their delivery status remain intact.
+Each task's transcript links to the full native child conversation, including later follow-ups.
+Interrupted work keeps its task identity when the native turn resumes.
+If a recovered turn's end is still unknown, OpenClaw waits for native history or
+an end event before deciding whether later work resumes that task or starts a new one.
+Older tasks without enough native turn information remain unresolved instead of
+borrowing another turn's result.
+
+For Codex V1 follow-ups, OpenClaw retains a successful submission receipt with
+the parent binding until it records the matching native turn as a task. This
+allows recovery when the parent yields or the Gateway restarts before observing
+the child turn. A receipt alone does not keep an idle native connection alive.
+Observation follows the existing warm-thread lifetime; an unmatched receipt
+remains available for later recovery. Resetting the parent or replacing its native connection
+invalidates these receipts. Before downgrading OpenClaw, let pending native work
+settle: older versions can read the binding but may discard its recovery receipts
+when updating it.
+
+Closing a native child applies to the assignment selected when the close starts.
+OpenClaw waits for Codex to confirm that the child's runtime is absent before
+marking unfinished work canceled; a delayed close cannot cancel a later assignment.
+If confirmation is unavailable, the task asks you to retry the close request.
+Native result receipts do not identify the child's turn. If an earlier result
+is still being recovered or repeated identical results make a receipt ambiguous,
+OpenClaw preserves the later pending delivery instead of risking a lost result;
+this can cause an additional continuation.
+
 Codex owns native subagent execution and controls. Follow up through the parent
 session, which can use Codex's native collaboration tools. OpenClaw's task view
 observes those children and delivers results after a parent yields. The native

@@ -71,6 +71,7 @@ export function createCodexHarnessEventCapture(params: {
         return;
       }
       events.push({
+        runId: event.runId,
         stream: event.stream,
         sessionKey: event.sessionKey,
         data: event.data,
@@ -81,6 +82,7 @@ export function createCodexHarnessEventCapture(params: {
 }
 
 export type CapturedAgentEvent = {
+  runId?: string;
   stream: string;
   data?: Record<string, unknown>;
   sessionKey?: string;

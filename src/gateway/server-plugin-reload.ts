@@ -6,7 +6,6 @@ import { getRuntimeConfig } from "../config/io.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
-import { listAmbientOnlyConfiguredChannelIds } from "../plugins/channel-presence-policy.js";
 import { prepareGatewayPluginMetadataSnapshotPublication } from "../plugins/current-plugin-metadata-snapshot.js";
 import type { PluginHookGatewayCronService } from "../plugins/hook-types.js";
 import {
@@ -122,6 +121,7 @@ export async function reloadGatewayPlugins(
   let previousHooksStopped = false;
   let previousCleanupFailed = false;
   let committed = false;
+  let restored = false;
   let candidateServices: PluginServicesHandle | undefined;
   let loaded: ReturnType<typeof prepareGatewayPluginLoad> | undefined;
   let memoryReplacement: ReturnType<typeof prepareMemoryRuntimeReload> | undefined;
@@ -140,12 +140,15 @@ export async function reloadGatewayPlugins(
     previousRegistry,
     skipChannels,
     previousStopStarted: () => previousStopStarted,
+    reloadParams: params,
+    ambientEnvTriggers,
   });
   const { channelTargets, startReplacedChannels, releaseChannelHandoffs } = channels;
   const {
     attempt,
     assertResourceHandoff,
     drainInstances,
+    drainForRecovery,
     disposeInstances,
     runLifecycleHooks,
     prepareRegistrationFailureCleanup,
@@ -162,6 +165,7 @@ export async function reloadGatewayPlugins(
     retainRetirement: (retire) => kernel.pluginMetadata.retire(cache, retire),
   });
   const replacement = kernel.pluginRuntimeGeneration.reserve();
+  replacement.setReloadStatus({ phase: "reloading", pluginIds: [...changedPluginIds] });
   const assertCurrent = () => {
     params.assertInvokerOwned?.();
     if (params.isAborted?.()) {
@@ -267,6 +271,7 @@ export async function reloadGatewayPlugins(
       channels: channelTargets,
     });
     phase = "drain";
+    replacement.setReloadStatus({ phase: "reloading", pluginIds: [...changedPluginIds] });
     channels.pause();
     for (const sidecar of runtimeState.gatewayLifetimeSidecars.snapshot()) {
       const prepared = sidecar.preparePluginReload?.({
@@ -454,26 +459,13 @@ export async function reloadGatewayPlugins(
       );
     }
     await attempt(activationErrors, () => runLifecycleHooks(nextRegistry, true, params.nextConfig));
-    await attempt(activationErrors, async () => {
-      try {
-        channelManager.setAmbientAutostartSuppressedChannelIds(
-          ambientEnvTriggers === "suppress"
-            ? new Set(
-                listAmbientOnlyConfiguredChannelIds({
-                  config: params.nextConfig,
-                  activationSourceConfig: params.sourceConfig,
-                  env: params.env,
-                  includePersistedAuthState: false,
-                  manifestRecords: nextMetadata.manifestRegistry.plugins,
-                }),
-              )
-            : new Set(),
-        );
-        await startReplacedChannels(nextRegistry, activationErrors);
-      } finally {
-        await releaseChannelHandoffs(activationErrors);
-      }
-    });
+    await attempt(activationErrors, () =>
+      channels.startPublishedChannels(
+        nextRegistry,
+        activationErrors,
+        nextMetadata.manifestRegistry.plugins,
+      ),
+    );
     if (activationErrors.length > 0) {
       throw activationErrors.length === 1
         ? activationErrors[0]
@@ -561,7 +553,7 @@ export async function reloadGatewayPlugins(
           if (previousStopStarted) {
             // Stop is not reversible for all plugins (for example, aborted controllers).
             // Re-register captured old code instead of reopening a stopped registration.
-            await drainInstances(previousRegistry, changedPluginIds);
+            await drainForRecovery(restartDrainSignal, replacement.setReloadStatus);
             if (!previousHooksStopped) {
               previousHooksStopped = true;
               await runLifecycleHooks(
@@ -675,6 +667,7 @@ export async function reloadGatewayPlugins(
         if (recoveryErrors.length === 0) {
           await attempt(recoveryErrors, () => rollbackConfigEffects?.());
         }
+        restored = recoveryErrors.length === 0;
         if (recoveryErrors.length > 0) {
           const recoveryError =
             recoveryErrors.length === 1
@@ -716,6 +709,16 @@ export async function reloadGatewayPlugins(
       { cause: failure },
     );
   } finally {
+    // A completed operation never retains an in-progress channel pause. Failed
+    // instances keep their own resource/admission fence until a later safe reload.
+    channels.release("failed");
+    const activated = phase === "dispose";
+    replacement.finishReload(
+      activated ? "applied" : restored ? "restored" : phase === "prepare" ? "unchanged" : "failed",
+      changedPluginIds,
+      pluginRuntime.registry,
+      restartDrainSignal.aborted ? undefined : log.error,
+    );
     recovery.dispose();
   }
 }

@@ -1,8 +1,11 @@
+import { retainGatewayDeviceRevocation } from "../../gateway/device-revocation.js";
 import { createAbortError, isAbortError } from "../../infra/abort-signal.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
 import { runWithGatewayIndependentRootWorkContinuation } from "../../process/gateway-work-admission.js";
 import { CommandLane } from "../../process/lanes.js";
+import { createDeferredCore } from "../../shared/deferred.js";
 import { isCronActiveJobMarkerCurrent } from "../active-jobs.js";
+import { captureCronMutationCommit } from "../mutation-completion.js";
 import {
   CronRunReceiptRevisionError,
   finishCronRunReceipt,
@@ -473,7 +476,7 @@ async function executePreparedManualRun(
   return admission.value;
 }
 
-/** Queues a manual cron run behind the cron command lane and returns an immediate run id. */
+/** Returns a run id once the cron command lane accepts the manual run. */
 export async function enqueueRun(
   state: CronServiceState,
   id: string,
@@ -488,11 +491,23 @@ export async function enqueueRun(
   const scheduleOwnershipAtMs = state.deps.nowMs();
   const runId = `manual:${id}:${scheduleOwnershipAtMs}:${nextManualRunId++}`;
   const terminalTracker: ManualRunTerminalTracker = { emitted: false };
-  void runWithGatewayIndependentRootWorkContinuation(
-    () =>
-      enqueueCommandInLane(
+  const releaseCallerAuthority = retainGatewayDeviceRevocation(opts?.commitGuard);
+  const recordQueueAcceptance = captureCronMutationCommit("cron.run");
+  const acceptance = createDeferredCore();
+  let accepted = false;
+  const acceptQueue = () => {
+    recordQueueAcceptance?.();
+    accepted = true;
+    acceptance.resolve();
+  };
+  let queuedRun: Promise<unknown>;
+  try {
+    queuedRun = runWithGatewayIndependentRootWorkContinuation(() => {
+      opts?.commitGuard?.();
+      return enqueueCommandInLane(
         CommandLane.Cron,
         async (owningCronLaneTaskMarker) => {
+          acceptQueue();
           const result = await run(state, id, mode, {
             runId,
             scheduleOwnershipAtMs,
@@ -528,6 +543,7 @@ export async function enqueueRun(
           return result;
         },
         {
+          onQueued: acceptQueue,
           warnAfterMs: 5_000,
           onWait: (waitMs, queuedAhead) => {
             state.deps.log.warn(
@@ -536,38 +552,49 @@ export async function enqueueRun(
             );
           },
         },
-      ),
-    "cron:manual-run",
-  ).catch((err: unknown) => {
-    if (terminalTracker.emitted) {
+      );
+    }, "cron:manual-run");
+  } catch (error) {
+    releaseCallerAuthority?.();
+    throw error;
+  }
+  void queuedRun
+    .catch((err: unknown) => {
+      if (!accepted) {
+        acceptance.reject(err);
+        return;
+      }
+      if (terminalTracker.emitted) {
+        state.deps.log.error(
+          { jobId: id, runId, err: String(err) },
+          "cron: queued manual run failed after emitting its terminal event",
+        );
+        return;
+      }
+      const finishedAt = state.deps.nowMs();
+      const job = state.store?.jobs.find((entry) => entry.id === id);
+      emitCronRunFinished(
+        state,
+        {
+          jobId: id,
+          action: "finished",
+          job,
+          status: "error",
+          error: normalizeCronRunErrorText(err),
+          runId,
+          runAtMs: finishedAt,
+          durationMs: 0,
+          nextRunAtMs: job?.state.nextRunAtMs,
+        },
+        terminalTracker,
+      );
       state.deps.log.error(
         { jobId: id, runId, err: String(err) },
-        "cron: queued manual run failed after emitting its terminal event",
+        "cron: queued manual run background execution failed",
       );
-      return;
-    }
-    const finishedAt = state.deps.nowMs();
-    const job = state.store?.jobs.find((entry) => entry.id === id);
-    emitCronRunFinished(
-      state,
-      {
-        jobId: id,
-        action: "finished",
-        job,
-        status: "error",
-        error: normalizeCronRunErrorText(err),
-        runId,
-        runAtMs: finishedAt,
-        durationMs: 0,
-        nextRunAtMs: job?.state.nextRunAtMs,
-      },
-      terminalTracker,
-    );
-    state.deps.log.error(
-      { jobId: id, runId, err: String(err) },
-      "cron: queued manual run background execution failed",
-    );
-  });
+    })
+    .finally(() => releaseCallerAuthority?.());
+  await acceptance.promise;
   return { ok: true, enqueued: true, runId } as const;
 }
 

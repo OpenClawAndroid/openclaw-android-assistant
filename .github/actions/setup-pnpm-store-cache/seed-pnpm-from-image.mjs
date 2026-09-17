@@ -28,6 +28,9 @@ const version = current ? currentVersion : imageVersion;
 const wrapperHash = current ? currentWrapperHash : imageWrapperHash;
 const nativeHash = (current ? currentNativeHashes : imageNativeHashes)[process.arch];
 const archiveRoot = "/opt/crabbox/toolchain-archives";
+const cachedArchives = process.env.PNPM_CONFIG_STORE_DIR
+  ? join(process.env.PNPM_CONFIG_STORE_DIR, "toolchain")
+  : undefined;
 const registry = "https://registry.npmjs.org";
 const registryConfigured = (process.env.COREPACK_NPM_REGISTRY || registry).replace(/\/$/u, "");
 // These approved native archives are glibc builds. Other platforms/registries
@@ -62,22 +65,28 @@ if (
     let valid = true;
     for (const [name, hash] of archives) {
       const destination = join(staging, name);
-      let copied = true;
-      try {
-        // Hash the private bytes we will extract, not a mutable image marker.
-        await copyFile(join(archiveRoot, name), destination);
-      } catch (error) {
-        if (["ENOENT", "EACCES", "EISDIR"].includes(error.code)) {
-          copied = false;
-        } else {
-          throw error;
-        }
-      }
       const authentic = () =>
         readFile(destination).then(
           (bytes) => createHash("sha512").update(bytes).digest("hex") === hash,
         );
-      if (!copied || !(await authentic())) {
+      let restored = false;
+      for (const root of [cachedArchives, archiveRoot].filter(Boolean)) {
+        try {
+          // Authenticate the private bytes we will extract, never a cache marker.
+          await copyFile(join(root, name), destination);
+        } catch (error) {
+          if (["ENOENT", "EACCES", "EISDIR", "ENOTDIR"].includes(error.code)) {
+            continue;
+          }
+          throw error;
+        }
+        if (await authentic()) {
+          console.error(`Restored pinned pnpm archive ${name} from ${root}`);
+          restored = true;
+          break;
+        }
+      }
+      if (!restored) {
         if (!canDownload) {
           valid = false;
           break;
@@ -85,6 +94,7 @@ if (
         const url = name.startsWith("pnpm-")
           ? `${registry}/pnpm/-/${name}`
           : `${registry}/@pnpm/exe.linux-${process.arch}/-/${name}`;
+        console.error(`Downloading pinned pnpm archive ${name}`);
         const fetched = spawnSync(
           "curl",
           [
@@ -141,6 +151,16 @@ if (
           hash: `sha512.${wrapperHash}`,
         }),
       );
+      if (cachedArchives) {
+        try {
+          await mkdir(cachedArchives, { recursive: true });
+          for (const [name] of archives) {
+            await copyFile(join(staging, name), join(cachedArchives, name));
+          }
+        } catch (error) {
+          console.error(`::warning::Cannot cache authenticated pnpm archives: ${error.code}`);
+        }
+      }
       process.stdout.write(`${corepackHome}\n`);
       corepackHome = undefined;
     }

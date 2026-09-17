@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
-import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { createTempDirTracker } from "../../test/helpers/temp-dir.js";
 import * as embeddedAgent from "../agents/embedded-agent.js";
 import { getReplyFromConfig } from "../auto-reply/reply/get-reply.js";
 import { clearConfigCache, getRuntimeConfig } from "../config/config.js";
@@ -18,6 +18,7 @@ import {
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { waitForGatewayActiveWork } from "../infra/gateway-active-work.js";
 import { initializeGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import {
   getSessionWorkAdmissionRelease,
@@ -35,6 +36,11 @@ import type {
   RespondFn,
 } from "./server-methods/types.js";
 import {
+  bindSessionRowProjection,
+  getSessionRowProjection,
+} from "./session-row-projection-access.js";
+import { createSessionRowProjection } from "./session-row-projection.js";
+import {
   createGatewaySuiteHarness,
   dispatchInboundMessageMock,
   gatewayReplyMock,
@@ -44,11 +50,12 @@ import {
   writeSessionStore,
 } from "./test-helpers.js";
 import { getTestPluginRegistry } from "./test-helpers.plugin-registry.js";
+import { releaseGatewaySessionStoreFixture } from "./test/server-sessions-resources.test-helpers.js";
 
 const runEmbeddedAgent = vi.spyOn(embeddedAgent, "runEmbeddedAgent");
 
 installGatewayTestHooks({ scope: "suite" });
-const temporaryDirs = useAutoCleanupTempDirTracker(afterEach);
+const temporaryDirs = createTempDirTracker();
 const sessionKey = "agent:main:main";
 const sessionId = "goal-chat-session";
 const client: GatewayClient = {
@@ -83,6 +90,12 @@ beforeEach(async () => {
   });
   await prepareGatewayReplyRuntimeForTest({ force: true });
   context = createDirectChatContext({ getRuntimeConfig });
+  const projection = await createSessionRowProjection({
+    cfg: getRuntimeConfig(),
+    getConfig: getRuntimeConfig,
+    context,
+  });
+  bindSessionRowProjection(context, () => projection);
   // Keep reply admission and its cleanup real; only the embedded model execution is mocked.
   gatewayReplyMock.mockImplementation(getReplyFromConfig);
   dispatchInboundMessageMock.mockReset();
@@ -107,12 +120,18 @@ beforeEach(async () => {
   });
 });
 
-afterEach(() => {
-  testState.sessionStorePath = undefined;
+afterEach(async () => {
+  const released = await waitForGatewayActiveWork(30_000);
+  expect(released.drained, JSON.stringify(released.snapshot.blockers)).toBe(true);
+  getSessionRowProjection(context)?.dispose();
+  for (const dir of temporaryDirs.dirs) {
+    await releaseGatewaySessionStoreFixture(dir);
+  }
+  temporaryDirs.cleanup();
   gatewayReplyMock.mockReset();
   runEmbeddedAgent.mockReset();
   clearConfigCache();
-});
+}, 31_000);
 
 function scope() {
   return { agentId: "main", sessionKey, sessionId, storePath };
@@ -150,6 +169,7 @@ function freshGoalStart(message: string, idempotencyKey?: string) {
 }
 
 async function useFreshSessionStore() {
+  await releaseGatewaySessionStoreFixture(path.dirname(storePath));
   storePath = path.join(temporaryDirs.make("openclaw-fresh-goal-chat-"), "sessions.json");
   testState.sessionStorePath = storePath;
   await writeSessionStore({ entries: {} });

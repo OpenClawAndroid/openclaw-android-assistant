@@ -1,6 +1,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it } from "vitest";
 import {
+  bindGatewayDeviceRevocation,
   captureGatewayDeviceRevocation,
   closeGatewayDeviceRevocation,
   invalidateGatewayDeviceRevocation,
@@ -112,6 +113,27 @@ describe("Gateway device revocation", () => {
     clientInvalidated = false;
     connection.abort();
     expect(request.isCurrent()).toBe(false);
+  });
+
+  it("transfers the same caller through a queued commit guard", () => {
+    const context = {};
+    const request = captureGatewayDeviceRevocation(
+      context,
+      { deviceId: "device", role: "operator" },
+      () => true,
+    );
+    const guard = bindGatewayDeviceRevocation(() => {
+      if (!request.isCurrent()) {
+        throw new Error("revoked");
+      }
+    }, request.isCurrent);
+    const releaseQueue = expectDefined(retainGatewayDeviceRevocation(guard), "queue hold");
+    request.release();
+    expect(guard).not.toThrow();
+    invalidateGatewayDeviceRevocation(context, "device", "operator");
+    expect(guard).toThrow("revoked");
+    releaseQueue();
+    expect(() => retainGatewayDeviceRevocation(guard)).toThrow("no longer active");
   });
 
   it("preserves existing caller checks for requests without a device", () => {

@@ -155,6 +155,11 @@ session-utils, and listing roots in this same generation. Each fresh
 heap-measurement child runs their JavaScript without spending its execution
 deadline on TypeScript imports.
 
+Native Bash output-lifecycle fixtures also prepare the real tool and executor
+roots in this generation. Each scenario still uses a fresh process and real
+shell, pipe, and spill file; its unchanged child deadline covers prepared
+JavaScript startup and output handling instead of repeated TypeScript compilation.
+
 Automatic-triage process fixtures share this generation for admission, failure handling, execution, process identity, and respawn checks. Compilation finishes before readiness deadlines begin, so children load prepared JavaScript. The detached helper uses the same sealed lease runtime as the installed package.
 
 Preparation is lazy across both projects and shards. Config imports, listing

@@ -427,6 +427,7 @@ else if (endpoint === "graphql" && args.includes("query=query { viewer { login }
     case "$1" in --git-dir=*) shift;; esac
     case "$1" in
       fetch|cat-file|merge-base) exit 0;;
+      config) [ "$*" = 'config --bool remote.origin.promisor' ] && exit 1; exit 19;;
       remote) [ "$2 $3" = 'get-url origin' ] || exit 19; echo 'https://github.com/openclaw/openclaw.git';;
       merge-tree) echo candidate-tree;;
       rev-parse) case "$2" in

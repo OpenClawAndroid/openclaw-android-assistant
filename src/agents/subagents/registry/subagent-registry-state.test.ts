@@ -4,6 +4,7 @@ import {
   onSessionLifecycleEvent,
   type SessionLifecycleEvent,
 } from "../../../sessions/session-lifecycle-events.js";
+import { sessionChanges } from "../../../sessions/session-row-changes.js";
 import { buildSubagentRunReadIndexFromRuns } from "./subagent-registry-queries.js";
 import type { SubagentRunReadRecord } from "./subagent-registry-read.types.js";
 import {
@@ -97,6 +98,64 @@ describe("subagent registry state read cache", () => {
       process.env.OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE = previousReadSqliteFlag;
     }
     vi.useRealTimers();
+  });
+
+  it("publishes old and new retained-run keys only after their owner accepts the write", () => {
+    const previous = {
+      ...createRun("retained"),
+      requesterSessionKey: "agent:main:old-parent",
+    };
+    mocks.loadSubagentSessionListRunsFromSqlite.mockReturnValue(
+      new Map([[previous.runId, previous]]),
+    );
+    getSubagentSessionListRunsSnapshotForRead(new Map());
+    const changed = vi.fn();
+    const stop = sessionChanges.subscribe(changed);
+    try {
+      const current = {
+        ...previous,
+        childSessionKey: "agent:main:subagent:moved",
+        requesterSessionKey: "agent:main:new-parent",
+        controllerSessionKey: "agent:main:controller",
+        swarmRequesterSessionKey: "agent:main:swarm",
+        collect: true,
+      };
+      const currentRuns = new Map([[current.runId, current]]);
+      persistSubagentRunsToDiskOrThrow(currentRuns, [current.runId]);
+      expect(changed.mock.calls.map(([event]) => event)).toEqual([
+        { sessionKey: previous.childSessionKey },
+        { sessionKey: previous.requesterSessionKey },
+        { sessionKey: current.childSessionKey },
+        { sessionKey: current.requesterSessionKey },
+        { sessionKey: current.controllerSessionKey },
+        { sessionKey: current.swarmRequesterSessionKey },
+      ]);
+      changed.mockClear();
+
+      mocks.saveSubagentRegistryChangesToSqlite.mockImplementationOnce(() => {
+        throw new Error("write rolled back");
+      });
+      expect(() => persistSubagentRunsToDiskOrThrow(new Map(), [current.runId])).toThrow(
+        "write rolled back",
+      );
+      expect(changed).not.toHaveBeenCalled();
+
+      const deferred: Array<() => void> = [];
+      publishSubagentRunsAfterAtomicStore(new Map(), [current.runId], deferred);
+      expect(changed).not.toHaveBeenCalled();
+      deferred.forEach((publish) => publish());
+      expect(changed.mock.calls.map(([event]) => event)).toEqual([
+        { sessionKey: current.childSessionKey },
+        { sessionKey: current.requesterSessionKey },
+        { sessionKey: current.controllerSessionKey },
+        { sessionKey: current.swarmRequesterSessionKey },
+      ]);
+      changed.mockClear();
+      persistSubagentRunsToDiskOrThrow(new Map());
+      expect(changed.mock.calls).toEqual([[{ all: true, scope: "subagent-runs" }]]);
+    } finally {
+      stop();
+    }
   });
 
   it.each([

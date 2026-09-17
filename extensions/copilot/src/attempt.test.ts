@@ -34,6 +34,7 @@ import { createMockPluginRegistry } from "openclaw/plugin-sdk/plugin-test-runtim
 import { createOpenClawTestState } from "openclaw/plugin-sdk/test-state";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCopilotAttempt } from "./attempt.js";
+import { projectAgentRunAttemptTerminal } from "./attempt.test-support.js";
 import { createCopilotTestHostCapabilities } from "./host-capability.test-support.js";
 import type { CopilotClientPool } from "./runtime.js";
 import type { createCopilotToolBridge } from "./tool-bridge.js";
@@ -42,20 +43,6 @@ type AgentHarnessAttemptResult = Extract<AgentHarnessAttemptResultContract, { te
 type SettledTurnFinalizationAttemptParams = Parameters<
   NonNullable<AgentHarnessV2["finalizeSettledTurn"]>
 >[0]["attempt"];
-
-function projectAgentRunAttemptTerminal(terminal: AgentHarnessAttemptResult["terminal"]) {
-  return {
-    aborted: terminal.kind === "aborted" && terminal.source !== "yield_cleanup",
-    promptError:
-      terminal.kind === "failed"
-        ? terminal.error
-        : terminal.kind === "ok"
-          ? null
-          : (terminal.failure?.error ?? null),
-    timedOut: terminal.kind === "timeout" && terminal.source !== "observation",
-    timedOutDuringCompaction: terminal.kind === "timeout" && terminal.phase === "compaction",
-  };
-}
 
 const gatewayQuestionMock = vi.hoisted(() => ({
   waiters: new Map<string, (value: unknown) => void>(),
@@ -626,6 +613,7 @@ describe("runCopilotAttempt", () => {
   });
 
   it("reports code-mode engagement through the real tool bridge", async () => {
+    const { createOpenClawCodingTools } = await import("openclaw/plugin-sdk/agent-harness");
     const sdk = makeFakeSdk((session) => {
       session.sendAndWait.mockResolvedValueOnce(makeAssistantMessageEvent("done"));
     });
@@ -637,6 +625,7 @@ describe("runCopilotAttempt", () => {
       makeParams({
         disableTools: false,
         config: { tools: { codeMode: true } },
+        hostCapabilities: createCopilotTestHostCapabilities(createOpenClawCodingTools),
       } as never),
       { pool: makeFakePool(sdk) },
     );

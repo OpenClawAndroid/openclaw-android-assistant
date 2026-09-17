@@ -91,6 +91,42 @@ async function runNoteWorkspaceStatusForTest(
 }
 
 describe("noteWorkspaceStatus", () => {
+  it("reports identical registrar failures once across agent workspace loads", () => {
+    const diagnostic = {
+      level: "error" as const,
+      pluginId: "broken-fixture",
+      source: "/plugins/broken-fixture/index.js",
+      message: "board widget registration has invalid kind",
+    };
+    mocks.resolveDefaultAgentId.mockReturnValue("alpha");
+    mocks.listAgentIds.mockReturnValue(["alpha", "beta"]);
+    mocks.resolveAgentWorkspaceDir.mockImplementation((_cfg, agentId) => `/workspace/${agentId}`);
+    mocks.buildPluginRegistrySnapshotReport.mockImplementation(({ workspaceDir }) => ({
+      workspaceDir,
+      ...createPluginLoadResult({ plugins: [], diagnostics: [diagnostic] }),
+    }));
+    mocks.buildPluginCompatibilityWarnings.mockReturnValue([]);
+    mocks.listTaskFlowRecords.mockReturnValue([]);
+
+    const noteSpy = vi.spyOn(noteModule, "note").mockImplementation(() => {});
+    try {
+      noteWorkspaceStatus({});
+      const diagnosticCalls = noteSpy.mock.calls.filter(
+        ([, title]) => title === "Plugin diagnostics",
+      );
+      expect(diagnosticCalls).toHaveLength(1);
+      expect(diagnosticCalls[0]?.[0]).toContain("broken-fixture");
+
+      expect(
+        collectWorkspaceStatusHealthFindings({}).filter(
+          (finding) => finding.target === "broken-fixture",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      noteSpy.mockRestore();
+    }
+  });
+
   it("warns when plugins use legacy compatibility paths", async () => {
     const noteSpy = await runNoteWorkspaceStatusForTest(
       createPluginLoadResult({

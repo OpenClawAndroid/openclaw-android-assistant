@@ -303,20 +303,6 @@ export function assertCanonicalSqliteSessionKeysCurrent(
   return validateCanonicalSqliteSessionKeys(database, mainKey, collectMetadata).metadata;
 }
 
-/** Adopt a worker's complete validation only inside its caller's unchanged read admission. */
-export function adoptCanonicalSessionReadAdmission(
-  database: { agentId: string; db: DatabaseSync; path: string },
-  mainKey: string,
-): boolean {
-  if (readCanonicalSessionMainKey(database) !== mainKey) {
-    return false;
-  }
-  const physicalValidation = getOpenClawAgentDatabaseValidation(database);
-  markOpenClawAgentCanonicalValidation(database);
-  rememberReaderAdmission(database.db, { mainKey, physicalValidation });
-  return true;
-}
-
 /** Validate the root's database and key together within its synchronous writer transaction. */
 export function assertCanonicalSqliteSessionRootWrite(
   database: { agentId: string; db: DatabaseSync },

@@ -39,7 +39,8 @@ import {
 } from "../session-sharing.js";
 import { createControlUiHandlers } from "./control-ui.js";
 import { flushPendingSessionsChangedEvents } from "./session-change-event.js";
-import { sessionReadHandlers } from "./sessions-read.js";
+import { initializeSessionReadContext } from "./sessions-read-cache.test-support.js";
+import { sessionReadHandlers as registeredSessionReadHandlers } from "./sessions-read.js";
 import { sessionSharingHandlers } from "./sessions-sharing.js";
 import {
   identifiedClient,
@@ -47,6 +48,15 @@ import {
   soloClient,
 } from "./sessions-sharing.test-support.js";
 import type { GatewayClient, GatewayRequestContext, RespondFn } from "./types.js";
+
+const sessionReadHandlers = {
+  "sessions.list": async (
+    options: Parameters<NonNullable<(typeof registeredSessionReadHandlers)["sessions.list"]>>[0],
+  ) => {
+    await initializeSessionReadContext(options.context);
+    return registeredSessionReadHandlers["sessions.list"]?.(options);
+  },
+};
 
 type ResolveSessionSharingTarget =
   (typeof import("../session-sharing.js"))["resolveSessionSharingTarget"];
@@ -168,6 +178,7 @@ describe("session sharing handlers", () => {
         );
         const broadcast = vi.fn();
         const requestContext = context(broadcast);
+        await initializeSessionReadContext(requestContext);
         requestContext.getSessionEventSubscriberConnIds = () => new Set(["legacy-client"]);
         expect(
           await call(
@@ -217,7 +228,7 @@ describe("session sharing handlers", () => {
             item.client,
           ),
         ).toEqual([[true, { ok: true, sessionKey, identityId: member.id }, undefined]]);
-        flushPendingSessionsChangedEvents(requestContext);
+        await flushPendingSessionsChangedEvents(requestContext);
         expect(requestContext.broadcastToConnIds).toHaveBeenCalledWith(
           "sessions.changed",
           expect.objectContaining({ reason: "sharing", sessionKey }),
@@ -391,8 +402,8 @@ describe("session sharing handlers", () => {
         expect(creator?.path).toBe(before?.path);
         expect(creator?.sessions?.some((session) => session.key === incognitoKey)).toBe(false);
         const visible = await listFor(admin);
-        expect(visible?.sessions?.some((session) => session.key === incognitoKey)).toBe(true);
-        expect(visible?.path).not.toBe(before?.path);
+        expect(visible?.sessions?.some((session) => session.key === incognitoKey)).toBe(false);
+        expect(visible?.path).toBe(before?.path);
       });
     },
   );

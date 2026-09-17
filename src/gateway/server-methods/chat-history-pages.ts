@@ -11,7 +11,10 @@ import {
   projectChatDisplayMessages,
   createCurrentUserProfileMessageProjector,
 } from "../chat-display-projection.core.js";
-import { dropPreSessionStartAnnouncePairs } from "../chat-display-projection.history.js";
+import {
+  dropPreSessionStartAnnouncePairs,
+  projectForwardedMessages,
+} from "../chat-display-projection.history.js";
 import { resolveCurrentUserProfileDisplay } from "../current-user-profile-display.js";
 import { createSessionHistorySubagentProjection } from "../session-history-subagent-projection.js";
 import { readChatHistoryMessageId } from "../session-history-tail.js";
@@ -76,7 +79,8 @@ export async function readChatHistoryPage(
     isIncognitoSessionKey(params.canonicalKey) ||
     getCliSessionBinding(params.entry, "claude-cli")?.sessionId
   ) {
-    return readChatHistoryPageLocal(params);
+    const page = await readChatHistoryPageLocal(params);
+    return { ...page, messages: refreshForwardedLabels(page.messages) };
   }
   const { readSessionHistoryPageInWorker } =
     await import("../../config/sessions/session-history-worker-runtime.js");
@@ -101,11 +105,19 @@ export async function readChatHistoryPage(
   const project = createCurrentUserProfileMessageProjector(resolveCurrentUserProfileDisplay);
   return {
     ...page,
-    messages: page.messages.map((message) => {
+    messages: refreshForwardedLabels(page.messages).map((message) => {
       const record = asOptionalRecord(message);
       return record ? project(record) : message;
     }),
   };
+}
+
+function refreshForwardedLabels(messages: unknown[]): unknown[] {
+  return projectForwardedMessages(
+    messages.filter(
+      (message): message is Record<string, unknown> => asOptionalRecord(message) !== undefined,
+    ),
+  );
 }
 
 async function readChatHistoryPageLocal(params: ChatHistoryPageParams): Promise<ChatHistoryPage> {

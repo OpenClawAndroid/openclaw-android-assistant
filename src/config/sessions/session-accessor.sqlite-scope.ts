@@ -15,7 +15,6 @@ import {
   toAgentStoreSessionKey,
 } from "../../routing/session-key.js";
 import type { StoreWriterTiming } from "../../shared/store-writer-queue.js";
-import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
 import {
   getOpenClawAgentDatabaseIfOpen,
@@ -109,7 +108,6 @@ export type SessionSqliteTargetResolutionCache = Map<
 
 const SQLITE_SESSION_SLOW_WRITE_MS = 1_000;
 const SQLITE_SESSION_WRITE_ERROR_MAX_CHARS = 2_048;
-const SQLITE_TRANSCRIPT_READ_QUERY_CHUNK_SIZE = 400;
 const sessionWriteDiagnostics = channel("openclaw.session.write");
 
 /** Checks the freshly read identity and lifecycle before a synchronous transcript mutation. */
@@ -517,54 +515,6 @@ export function resolveSqliteTranscriptReadScope(
     ...resolveSqliteReadScope(scope, targetCache),
     sessionId: scope.sessionId,
   };
-}
-
-/** Borrow one store at a time so bounded registry eviction cannot invalidate a batched read. */
-export function readSqliteTranscriptStoreBatches<T>(
-  scopes: readonly SessionTranscriptReadScope[],
-  readChunk: (
-    database: Pick<OpenClawAgentDatabase, "db" | "path">,
-    sessionIds: readonly string[],
-  ) => Map<string, T>,
-): Array<T | undefined> {
-  const results: Array<T | undefined> = Array.from({ length: scopes.length });
-  const groups = new Map<
-    string,
-    { indexes: Map<string, number[]>; options: OpenClawAgentDatabaseOptions }
-  >();
-  const targetCache: SessionSqliteTargetResolutionCache = new Map();
-  for (const [index, scope] of scopes.entries()) {
-    const resolved = resolveSqliteTranscriptReadScope(scope, targetCache);
-    const options = toDatabaseOptions(resolved);
-    const databasePath = resolveOpenClawAgentSqlitePath(options);
-    const group = groups.get(databasePath) ?? { indexes: new Map(), options };
-    const indexes = group.indexes.get(resolved.sessionId) ?? [];
-    indexes.push(index);
-    group.indexes.set(resolved.sessionId, indexes);
-    groups.set(databasePath, group);
-  }
-  for (const group of groups.values()) {
-    withOpenClawAgentDatabaseReadOnly(
-      (database) => {
-        const sessionIds = [...group.indexes.keys()];
-        for (
-          let offset = 0;
-          offset < sessionIds.length;
-          offset += SQLITE_TRANSCRIPT_READ_QUERY_CHUNK_SIZE
-        ) {
-          const chunk = sessionIds.slice(offset, offset + SQLITE_TRANSCRIPT_READ_QUERY_CHUNK_SIZE);
-          for (const [sessionId, value] of readChunk(database, chunk)) {
-            for (const index of group.indexes.get(sessionId) ?? []) {
-              results[index] = value;
-            }
-          }
-        }
-      },
-      group.options,
-      { throwOnMissingTable: true },
-    );
-  }
-  return results;
 }
 
 export function toDatabaseOptions(

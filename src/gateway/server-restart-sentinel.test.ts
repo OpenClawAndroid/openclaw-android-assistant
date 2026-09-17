@@ -34,8 +34,10 @@ import {
 } from "../test-utils/openclaw-test-state.js";
 import { normalizeSessionDeliveryState } from "../utils/delivery-context.shared.js";
 import { resolveRuntimeServiceVersion } from "../version.js";
+import { lastMockCallArg, mockCallArg } from "./server-restart-sentinel.test-support.js";
 import * as restartUpdateRun from "./server-restart-update-run.js";
 import { createTranscriptUpdateBroadcastHandler } from "./server-session-events.js";
+import { createSessionRowProjection } from "./session-row-projection.js";
 
 type RestartSentinel = NonNullable<
   Awaited<ReturnType<typeof import("../infra/restart-sentinel.js").readRestartSentinel>>
@@ -559,23 +561,6 @@ function expectRecordFields(
     expect(actual[key]).toEqual(value);
   }
   return actual;
-}
-
-function mockCallArg(mock: { mock: { calls: Array<Array<unknown>> } }, callIndex = 0): unknown {
-  const call = mock.mock.calls[callIndex];
-  if (!call) {
-    throw new Error(`Expected mock call ${callIndex}`);
-  }
-  return call[0];
-}
-
-function lastMockCallArg(mock: { mock: { calls: Array<Array<unknown>> } }): unknown {
-  const calls = mock.mock.calls;
-  const call = calls[calls.length - 1];
-  if (!call) {
-    throw new Error("Expected last mock call");
-  }
-  return call[0];
 }
 
 function expectMockCallFields(
@@ -1209,7 +1194,15 @@ describe("scheduleRestartSentinelWake", () => {
       );
       const broadcastToConnIds = vi.fn();
       const subscribers = new Set(["control-ui-connection"]);
+      const rowProjection = await createSessionRowProjection({
+        cfg: { agents: { entries: { main: {} } }, session: { store: storePath } },
+      });
+      expect(rowProjection.capture({ agentId: "main", key: sessionKey })?.entry).toMatchObject({
+        sessionId,
+        lifecycleRevision: entry.lifecycleRevision,
+      });
       const publish = createTranscriptUpdateBroadcastHandler({
+        getSessionRowProjection: () => rowProjection,
         broadcastToConnIds,
         sessionEventSubscribers: { getAll: () => subscribers },
         sessionMessageSubscribers: { get: () => subscribers },
@@ -1315,6 +1308,7 @@ describe("scheduleRestartSentinelWake", () => {
         mocks.mergeDeliveryContext.mockImplementation(originalMerge);
         unsubscribe();
         await Promise.allSettled(publications);
+        rowProjection.dispose();
       }
     },
   );

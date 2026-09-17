@@ -608,6 +608,7 @@ export async function startAgentRunExecution(params: {
     });
   } finally {
     // Shutdown joins the execution through asynchronous runtime disposal, not just bookkeeping.
+    prepared.releaseCallerAuthority?.();
     releaseGatewayRootContinuation?.();
   }
 }

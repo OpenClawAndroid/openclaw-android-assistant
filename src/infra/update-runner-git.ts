@@ -415,6 +415,7 @@ export async function updateGitCheckout(params: {
           candidateSha,
           beforeSha,
           installedRoot: gitRoot,
+          installedRunCommand: runCommand,
           upstreamRef,
           step: inspectionStep("git pack update", [], inspectionRoot),
         });

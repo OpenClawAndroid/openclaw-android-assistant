@@ -176,10 +176,15 @@ CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
   "@openclaw/codex:dangerous-exec:src/doctor.test.ts",
   1,
 );
-
 // Freeze the shipped 9.4 inventory before reviewing fixtures added for 9.5.
 const RELEASE_2026_9_4_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS = new Map(
   CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS,
+);
+// The Signal socket-path fixture launches two bounded child probes to leave
+// stale Unix sockets behind for cleanup coverage. It was added after 2026.9.4.
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/signal:dangerous-exec:src/socket-path.test.ts",
+  2,
 );
 // The composition fixture runs the real shell bridge under its owned temporary
 // workspace to prove denied canonical destinations cannot receive mutations.

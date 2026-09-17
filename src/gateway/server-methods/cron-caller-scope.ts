@@ -23,8 +23,13 @@ import {
   resolveCronCreatorAuthorityGrantProvenance,
 } from "../cron-creator-authority-grant.js";
 import type { CronCreatorAuthorityGrant } from "../cron-creator-authority-grant.types.js";
+import { bindGatewayDeviceRevocation } from "../device-revocation.js";
 import { assertActiveAgentRuntimeAuthority } from "./agent-runtime-authority.js";
-import type { GatewayClient, GatewayRequestContext } from "./types.js";
+import type {
+  GatewayClient,
+  GatewayRequestContext,
+  GatewayRequestHandlerOptions,
+} from "./types.js";
 
 export function resolveCronCreatorAuthorityCapture(
   callerScope: CronCallerScope | undefined,
@@ -54,6 +59,10 @@ export function resolveCronMutationCommitGuard(
     allowCurrentJob?: boolean;
     expectedConfigRevision?: string;
   },
+  callerAuthority?: Pick<
+    GatewayRequestHandlerOptions,
+    "sessionMutationCommitGuard" | "hasCurrentClientAuthority"
+  >,
 ): (() => void) | undefined {
   const validatesAuthority =
     client?.internal?.agentRuntimeIdentity && context.validateAgentRuntimeApprovalAuthority;
@@ -67,10 +76,21 @@ export function resolveCronMutationCommitGuard(
       ?.capturesRuntimeAuthority === false
       ? creatorGrant
       : undefined;
-  if (!validatesAuthority && !jobScope?.callerScope && !manageAll && !requesterGrant) {
+  if (
+    !validatesAuthority &&
+    !jobScope?.callerScope &&
+    !manageAll &&
+    !requesterGrant &&
+    !callerAuthority?.sessionMutationCommitGuard &&
+    !callerAuthority?.hasCurrentClientAuthority
+  ) {
     return undefined;
   }
-  return () => {
+  return bindGatewayDeviceRevocation(() => {
+    callerAuthority?.sessionMutationCommitGuard?.();
+    if (callerAuthority?.hasCurrentClientAuthority?.() === false) {
+      throw new TypeError("Gateway caller authority is no longer active.");
+    }
     manageAll?.();
     if (validatesAuthority) {
       assertActiveAgentRuntimeAuthority(client, context);
@@ -98,7 +118,7 @@ export function resolveCronMutationCommitGuard(
     if (requesterGrant) {
       consumeCronCreatorAuthorityGrant(requesterGrant);
     }
-  };
+  }, callerAuthority?.hasCurrentClientAuthority);
 }
 
 export type CronCallerScope = {

@@ -9,7 +9,7 @@ import type { SynchronousWork } from "../shared/synchronous-work.js";
 
 export type SessionEntryPair = [string, SessionEntry];
 
-function compareSessionEntryPairs(
+export function compareSessionEntryPairs(
   a: SessionEntryPair,
   b: SessionEntryPair,
   sortBy: SessionsListParams["sortBy"] = "updatedAt",

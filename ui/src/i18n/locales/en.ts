@@ -3904,6 +3904,7 @@ export const en: TranslationMap & {
       checksRunning: "Running",
       checksSkipped: "Skipped",
       showMore: "Show {count} more",
+      showLess: "Show less",
       rateLimited:
         "GitHub API rate limit reached. Pull request status may be out of date until the limit resets.",
       unavailable:

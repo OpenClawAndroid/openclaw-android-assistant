@@ -11,7 +11,6 @@ import {
 } from "../../src/agents/worktrees/capacity.js";
 import { addManagedWorktree } from "../../src/agents/worktrees/checkout.js";
 import { WORKTREE_CHECKOUT_TIMEOUT_MS } from "../../src/agents/worktrees/git.js";
-import { getRuntimeConfig } from "../../src/config/config.js";
 import { resolveStateDir } from "../../src/config/paths.js";
 import {
   executeGitCommand,
@@ -264,6 +263,10 @@ async function provisionPrWorktree(params: ProvisionParams): Promise<void> {
         );
         requireGitCommandOutput("git worktree add", added);
       } else {
+        // Native Git does not consume acceleration policy; keep config startup
+        // out of that entry path, including hook and sparse-checkout fallbacks.
+        const { getRuntimeConfig } = await import("../../src/config/config.js");
+        assertCurrent();
         const added = await addManagedWorktree({
           ...guard,
           env,

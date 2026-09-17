@@ -6,8 +6,8 @@ import {
   upsertSessionEntryCore,
 } from "../../config/sessions/session-accessor.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
-import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
 import { chatHistoryHandlers } from "./chat-history-handler.js";
+import { createHistoryReadContext } from "./chat-history.test-helpers.js";
 
 describe("chat history request byte budgets", () => {
   it.each(["chat.history", "chat.startup"] as const)(
@@ -37,7 +37,7 @@ describe("chat history request byte budgets", () => {
         for (const message of messages) {
           await appendTranscriptMessage(scope, { message });
         }
-        const context = createDirectChatContext();
+        const context = await createHistoryReadContext();
         const request = async (params: Record<string, unknown>) => {
           let result: unknown;
           await expectDefined(

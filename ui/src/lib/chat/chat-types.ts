@@ -268,7 +268,7 @@ export type MessageGroup = {
   key: string;
   role: string;
   senderLabel?: string | null;
-  senderSession?: { sessionKey?: string; agentId?: string } | null;
+  senderSession?: { sessionKey?: string; agentId?: string; label?: string } | null;
   sender?: SenderIdentity;
   sourceClients?: MessageClientSource[];
   replyToSender?: SenderIdentity;
@@ -364,7 +364,7 @@ export type NormalizedMessage = {
   timestamp: number;
   id?: string;
   senderLabel?: string | null;
-  senderSession?: { sessionKey?: string; agentId?: string } | null;
+  senderSession?: { sessionKey?: string; agentId?: string; label?: string } | null;
   sender?: SenderIdentity;
   sourceClients?: MessageClientSource[];
   audioAsVoice?: boolean;

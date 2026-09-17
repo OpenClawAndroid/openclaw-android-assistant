@@ -14,7 +14,6 @@ import {
   rehomeSqliteSessionDeliveryReferencesForCanonicalRepairBatch as rehomeSessionDeliveryReferencesForCanonicalRepairBatch,
 } from "./session-accessor.sqlite-canonical-repair.js";
 import {
-  countSessionEntryRowsReadOnly,
   ensureSessionEntrySync,
   hasSessionEntriesByStatusReadOnly,
   listSessionChildEntriesReadOnly,
@@ -66,7 +65,6 @@ export { clearPluginOwnedSessionState };
 
 // SQLite is the only runtime session store. Re-export its canonical entry operations directly.
 export {
-  countSessionEntryRowsReadOnly,
   copySessionOwnedStateForCanonicalRepair,
   ensureTranscriptGenerationsForCanonicalRepair,
   ensureSessionEntrySync,

@@ -189,6 +189,7 @@ function applyReservedIncognitoKeyRenameColumns(
   database.db.exec("PRAGMA defer_foreign_keys = ON;"); // sqlite-allow-raw -- transaction-local FK deferral.
   for (const rename of renames) {
     updateSessionKeyColumns(database.db, rename);
+    publishSessionEntryCacheInvalidation(database, { sessionKey: rename.to });
   }
   // Key and lineage columns reshape the cached map even when no entry JSON needs rewriting.
   publishSessionEntryCacheInvalidation(database);

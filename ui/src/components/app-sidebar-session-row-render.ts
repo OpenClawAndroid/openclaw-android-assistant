@@ -12,11 +12,7 @@ import type { ApplicationContext, ApplicationNavigationOptions } from "../app/co
 import { resolveControlUiAuthCandidates } from "../app/control-ui-auth.ts";
 import { t } from "../i18n/index.ts";
 import { formatDurationCompact } from "../lib/format-duration.ts";
-import {
-  restartHoverMarqueeIfHovered,
-  startHoverMarqueeFromEvent,
-  stopHoverMarqueeFromEvent,
-} from "../lib/hover-marquee.ts";
+import { renderHoverMarquee } from "../lib/hover-marquee.ts";
 import { handleContextMenuEvent } from "../lib/keyboard-shortcuts.ts";
 import { presenceMatchesProfile, projectPresencePayload } from "../lib/presence-users.ts";
 import type { CatalogSessionKey } from "../lib/sessions/catalog-key.ts";
@@ -407,11 +403,10 @@ export function renderRecentSession(params: {
     requiredScope: "operator.write",
   });
   const rowDraggable = !session.isChild && groupWriteAccess.allowed;
-  const marqueeLabelTemplate = html`<span
-    ${display ? ref(restartHoverMarqueeIfHovered) : nothing}
-    class="sidebar-recent-session__name hover-marquee"
-    >${team ? nothing : indicators.originIndicators}${label}</span
-  >`;
+  const marqueeLabelTemplate = renderHoverMarquee(
+    html`${team ? nothing : indicators.originIndicators}${label}`,
+    "sidebar-recent-session__name",
+  );
   const marqueeLabel = display
     ? keyed(
         JSON.stringify([
@@ -452,8 +447,6 @@ export function renderRecentSession(params: {
       }
       @contextmenu=${openMenuFromEvent}
       @keydown=${openMenuFromEvent}
-      @mouseenter=${startHoverMarqueeFromEvent}
-      @mouseleave=${stopHoverMarqueeFromEvent}
     >
       <a
         href=${withSidebarNavCollapseIntent(host.sidebarSessionHref(session))}

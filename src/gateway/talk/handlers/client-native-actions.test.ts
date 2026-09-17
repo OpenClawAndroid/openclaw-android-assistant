@@ -38,6 +38,7 @@ import {
 } from "../../../talk/client-voice-session.js";
 import { projectChatDisplayMessages } from "../../chat-display-projection.js";
 import { createTranscriptUpdateBroadcastHandler } from "../../server-session-events.js";
+import { createSessionRowProjection } from "../../session-row-projection.js";
 import { readSessionPreviewItemsFromTranscript } from "../../session-transcript-preview.js";
 import { readSessionMessagesAsync } from "../../session-transcript-readers.js";
 import { closeTalkClientGatewayControlSession } from "../client-gateway-control.js";
@@ -182,9 +183,13 @@ describe("native Talk action ownership through public plugin registration", () =
         sessionKey: SESSION_KEY,
         storePath: resolveOpenClawAgentSqlitePath({ agentId: AGENT_ID }),
       };
+      const rowProjection = await createSessionRowProjection({
+        cfg: { agents: { entries: { [AGENT_ID]: {} } } },
+      });
       const publications: Promise<void>[] = [];
       const published = vi.fn();
       const publish = createTranscriptUpdateBroadcastHandler({
+        getSessionRowProjection: () => rowProjection,
         broadcastToConnIds: published,
         sessionEventSubscribers: { getAll: () => new Set([CONNECTION_ID]) },
         sessionMessageSubscribers: { get: () => new Set([CONNECTION_ID]) },
@@ -329,6 +334,7 @@ describe("native Talk action ownership through public plugin registration", () =
         await modelRun;
         await Promise.all(publications);
         unsubscribe();
+        rowProjection.dispose();
       }
     });
   });

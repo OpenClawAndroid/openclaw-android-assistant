@@ -89,10 +89,16 @@ describe("plugin package facts", () => {
         }),
       );
       fs.writeFileSync(providerDiscoverySource, "export default {};\n", "utf8");
+      const nativeRealpath = fs.realpathSync.native;
       const nativeRealpathSpy = vi.spyOn(fs.realpathSync, "native");
       if (resolver === "javascript") {
-        nativeRealpathSpy.mockImplementation(() => {
-          throw new Error("native realpath unavailable");
+        nativeRealpathSpy.mockImplementation((filePath, options) => {
+          // Exercise metadata fallback without disabling fs-safe's native
+          // canonicalization when it admits the manifest descriptor.
+          if (filePath === providerDiscoverySource) {
+            throw new Error("native realpath unavailable");
+          }
+          return nativeRealpath(filePath, options);
         });
       }
       const realpathSpy = vi.spyOn(fs, "realpathSync");

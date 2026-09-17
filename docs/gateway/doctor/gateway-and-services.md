@@ -33,6 +33,7 @@ warnings, workspace status, gateway auth and health, and supervisors.
     - paired tokens whose scopes drift outside the approved pairing baseline
     - local cached device-token entries for the current machine that predate a gateway-side token rotation or carry stale scope metadata
     - a retired `identity/device-auth.json` file that is still present and blocks inspection of locally cached tokens, including in remote Gateway mode; stop the Gateway and run `openclaw doctor --fix` to finish migration or cleanup
+    - retired `devices/*.json` and `nodes/*.json` stores on a local Gateway; stop the Gateway and run `openclaw doctor --fix` to import device approvals before node capabilities and archive the originals. Existing SQLite records take precedence; unreadable sources remain in place for repair.
 
     Doctor does not auto-approve pair requests or auto-rotate device tokens. It prints the exact next steps:
 

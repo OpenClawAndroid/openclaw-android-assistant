@@ -3,37 +3,33 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const source = readFileSync(
   ".github/actions/setup-pnpm-store-cache/seed-pnpm-from-image.mjs",
   "utf8",
 );
-const roots: string[] = [];
-afterEach(() => {
-  for (const root of roots.splice(0)) {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "pnpm-image-"));
-  roots.push(root);
+  const root = tempDirs.make("pnpm-image-");
   const image = join(root, "image");
   const runnerTemp = join(root, "runner");
   const stage = join(root, "stage");
-  for (const directory of [image, runnerTemp, stage]) {
+  const storeDir = join(root, "store");
+  for (const directory of [image, runnerTemp, stage, storeDir]) {
     mkdirSync(directory);
   }
+  const store = realpathSync.native(storeDir);
   function archive(name: string) {
     writeFileSync(join(stage, "pnpm"), name);
     execFileSync("tar", ["-czf", join(image, name), "-C", root, "stage"]);
@@ -67,7 +63,12 @@ function fixture() {
     run(packageManager = spec) {
       return spawnSync(process.execPath, [scriptPath, packageManager], {
         encoding: "utf8",
-        env: { ...process.env, RUNNER_TEMP: runnerTemp, COREPACK_HOME: join(root, "old-corepack") },
+        env: {
+          ...process.env,
+          RUNNER_TEMP: runnerTemp,
+          COREPACK_HOME: join(root, "old-corepack"),
+          PNPM_CONFIG_STORE_DIR: store,
+        },
       });
     },
   };
@@ -98,7 +99,7 @@ describe("pnpm image archive consumer", () => {
   });
 
   it.each(["pnpm-12.3.4.tgz", "exe.linux-x64-12.3.4.tgz"])(
-    "refuses substituted %s without accepting adjacent hash or completion files",
+    "delegates substituted %s to Corepack with an empty store, ignoring adjacent trust markers",
     (name) => {
       const f = fixture();
       writeFileSync(join(f.image, name), "bad archive");
@@ -115,7 +116,7 @@ describe("pnpm image archive consumer", () => {
   );
 
   it.each(["missing", "different-version", "different-hash"])(
-    "leaves ordinary Corepack preparation in control on %s",
+    "leaves ordinary Corepack registry preparation in control with an empty store on %s",
     (kind) => {
       const f = fixture();
       if (kind === "missing") {
@@ -131,6 +132,33 @@ describe("pnpm image archive consumer", () => {
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toBe("");
       expect(readdirSync(f.runnerTemp)).toEqual([]);
+    },
+  );
+
+  it.each(["missing", "corrupt"])(
+    "uses authenticated store archives when the image is %s",
+    (kind) => {
+      const f = fixture();
+      const seeded = f.run();
+      expect(seeded.status, seeded.stderr).toBe(0);
+      rmSync(seeded.stdout.trim(), { recursive: true });
+      for (const name of ["pnpm-12.3.4.tgz", "exe.linux-x64-12.3.4.tgz"]) {
+        if (kind === "missing") {
+          rmSync(join(f.image, name));
+        } else {
+          writeFileSync(join(f.image, name), "substituted image archive");
+        }
+      }
+      const result = f.run();
+      expect(result.status, result.stderr).toBe(0);
+      const pnpmRoot = join(result.stdout.trim(), "v1", "pnpm", "12.3.4");
+      expect(readFileSync(join(pnpmRoot, "pnpm"), "utf8")).toBe("pnpm-12.3.4.tgz");
+      expect(readFileSync(join(pnpmRoot, "node_modules/@pnpm/exe.linux-x64/pnpm"), "utf8")).toBe(
+        "exe.linux-x64-12.3.4.tgz",
+      );
+      expect(JSON.parse(readFileSync(join(pnpmRoot, ".corepack"), "utf8")).hash).toBe(
+        f.spec.slice(f.spec.indexOf("+") + 1),
+      );
     },
   );
 
@@ -165,8 +193,7 @@ describe("pnpm image archive consumer", () => {
     const ready = workflow.jobs[job].steps.find(
       (step: { name?: string }) => step.name === "Mark Crabbox ready",
     );
-    const home = mkdtempSync(join(tmpdir(), "crabbox-session-"));
-    roots.push(home);
+    const home = tempDirs.make("crabbox-session-");
     const corepackHome = join(
       home,
       "corepack cache ' \" $HOME $(touch injected) `touch injected` ;",

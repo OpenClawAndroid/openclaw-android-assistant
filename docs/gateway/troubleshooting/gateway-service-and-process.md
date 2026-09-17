@@ -196,7 +196,7 @@ Related:
 
 ## Gateway exits during high memory use
 
-Use when the Gateway disappears under load, the supervisor reports an OOM-style restart, or logs mention `critical memory pressure bundle written`.
+Use when the Gateway disappears under load, the supervisor reports an OOM-style restart, or logs show `memory pressure: level=critical`.
 
 ```bash
 openclaw gateway status --deep
@@ -207,22 +207,20 @@ openclaw gateway diagnostics export
 
 Look for:
 
-- `Reason: diagnostic.memory.pressure.critical` in the latest stability bundle.
-- `Memory pressure:` with `critical/rss_threshold`, `critical/heap_threshold`, or `critical/rss_growth`.
-- `V8 heap:` values near the heap limit.
-- `Largest session files:` entries such as `agents/<agent>/sessions/<session>.jsonl` or `sessions/<session>.jsonl`.
-- Linux cgroup memory counters when the gateway runs inside a container or memory-limited service.
+- `memory pressure: level=critical` with `reason=rss_threshold`, `heap_threshold`, or `rss_growth`.
+- RSS, heap, threshold, and growth values in that log line.
+- Existing stability bundles from fatal exits, shutdown timeouts, or restart startup failures, when available.
 
 Common signatures:
 
-- `critical memory pressure bundle written` appears shortly before restart → OpenClaw captured a pre-OOM stability bundle. Inspect it with `openclaw gateway stability --bundle latest`.
 - `memory pressure: level=critical` appears in gateway logs → OpenClaw detected critical memory pressure and recorded the available in-process memory facts.
-- `Largest session files:` points at a very large redacted transcript path → reduce retained session history, inspect session growth, or move old transcripts out of the active store before restarting.
-- `V8 heap:` used bytes are close to the heap limit → lower prompt/session pressure or reduce concurrent work first. For a managed service, compare the configured controls and install-time recommendation in `Gateway heap:` from `openclaw gateway status` with the runtime measurement. Reinstalling preserves existing stored heap settings; it does not automatically replace an older value with the current recommendation.
-- `Memory pressure: critical/rss_growth` → memory grew quickly inside one sampling window. Check the latest logs for a large import, runaway tool output, repeated retries, or a batch of queued agent work.
-- Critical memory pressure appears in logs but no bundle exists → capture `openclaw gateway diagnostics export` after the event for the available operational evidence.
+- `reason=heap_threshold` → lower prompt/session pressure or reduce concurrent work first. For a managed service, compare the configured controls and install-time recommendation in `Gateway heap:` from `openclaw gateway status` with the runtime measurement. Reinstalling preserves existing stored heap settings; it does not automatically replace an older value with the current recommendation.
+- `reason=rss_growth` → memory grew quickly inside one sampling window. Check the latest logs for a large import, runaway tool output, repeated retries, or a batch of queued agent work.
+- Critical memory pressure appears in logs but no bundle exists → capture `openclaw gateway diagnostics export` after the event for the available operational evidence. Pressure events do not automatically write bundles.
 
-The stability bundle is payload-free. It includes operational memory evidence and redacted relative file paths, not message text, webhook bodies, credentials, tokens, cookies, or raw session ids. Attach the diagnostics export to bug reports instead of copying raw logs.
+On Node, an administrator can also [sample allocations](/gateway/diagnostics#sampling-heap-profile) with `openclaw gateway call diagnostics.heapProfile --timeout 30000`. This captures current allocation activity, not a past spike or all native memory. Older bundles remain readable with `openclaw gateway stability --bundle latest`.
+
+Review the sanitized diagnostics export before attaching it to a bug report; avoid copying raw logs.
 
 Node's automatic heap ceiling can be roughly 4 GiB on a large host. That is a default sizing decision, not a general 64-bit address-space ceiling. `--max-old-space-size` controls V8 old space; the measured total V8 heap ceiling also includes other heap spaces. RSS additionally includes native allocations, buffers, and other process memory. A higher heap ceiling does not preallocate the ceiling, but it still needs enough real capacity and headroom under sustained load.
 

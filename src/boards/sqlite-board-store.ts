@@ -25,7 +25,6 @@ import { rowToBoardWidgetDocument } from "./sqlite-board-codec.js";
 import {
   ensureBoardSchema,
   hasBoardSession,
-  readBoardSessionKeys,
   readBoardSnapshotWithHtmlViewMetadata,
   readBoardWidgetRow,
   applyBoardOpsToDatabase,
@@ -41,15 +40,6 @@ type SqliteBoardStoreOptions = {
   };
   env?: NodeJS.ProcessEnv;
 };
-
-export async function listBoardSessionKeysReadOnly(params: {
-  agentId: string;
-  path: string;
-  env?: NodeJS.ProcessEnv;
-}): Promise<ReadonlySet<string>> {
-  const result = withOpenClawAgentDatabaseReadOnly(readBoardSessionKeys, params);
-  return new Set(result.found ? result.value : []);
-}
 
 function emptyBoardSnapshot(sessionKey: string): BoardSnapshot {
   return { sessionKey, revision: 0, tabs: [], widgets: [] };

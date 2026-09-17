@@ -177,7 +177,12 @@ function setSparseCheckout(repoDir: string) {
 function enterPrWorktree(repoDir: string, pr: number) {
   const result = runLockShell(repoDir, [
     "ensure_gh_api_auth() { return 0; }",
-    // Cold provisioning validates the live lock, even when entered without the CLI.
+    // The provisioner suite owns allocation/config/template proof. Keep these
+    // shell registration, branch-reset, and sparse checks on a real Git checkout.
+    "provision_pr_worktree() {",
+    '  command git -C "$1" worktree add -- "$1/.worktrees/pr-$2" "temp/pr-$2"',
+    "}",
+    // Entry and cleanup still run under the real per-PR lock.
     `acquire_pr_operation_lock ${pr}`,
     "trap release_pr_operation_lock EXIT",
     `enter_worktree ${pr}`,
@@ -193,6 +198,13 @@ function expectWorktreeBranch(worktreeDir: string, branch: string) {
       encoding: "utf8",
     }).trim(),
   ).toBe(branch);
+  const tips = execFileSync("git", ["rev-parse", "HEAD", "main"], {
+    cwd: worktreeDir,
+    encoding: "utf8",
+  })
+    .trim()
+    .split("\n");
+  expect(tips[0]).toBe(tips[1]);
 }
 
 function expectMaterializedWorktree(worktreeDir: string) {
@@ -3377,6 +3389,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
       cwd: repoDir,
     });
     rmSync(worktreeDir, { recursive: true });
+    addTrackedUiConfig(repoDir);
     const { result } = enterPrWorktree(repoDir, 42);
     expect(result.stdout).toContain("Removing exact stale PR worktree .worktrees/pr-42");
     expect(existsSync(worktreeDir)).toBe(true);
@@ -3386,6 +3399,7 @@ describePosix("scripts/pr per-PR operation lock", () => {
     const repoDir = createRepo();
     execFileSync("git", ["remote", "add", "origin", repoDir], { cwd: repoDir });
     execFileSync("git", ["branch", "temp/pr-43"], { cwd: repoDir });
+    addTrackedUiConfig(repoDir);
     const { worktreeDir } = enterPrWorktree(repoDir, 43);
     expect(existsSync(worktreeDir)).toBe(true);
     expectWorktreeBranch(worktreeDir, "temp/pr-43");

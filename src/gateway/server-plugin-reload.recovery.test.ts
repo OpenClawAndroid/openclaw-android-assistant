@@ -268,11 +268,15 @@ it.each(["lookup", "replacement"] as const)(
     ),
 );
 
-it("reports call drain timeout, releases the lease, and rejects new calls to the retired instance", () =>
-  verifyActiveCallDrainLease(
-    createRecoveryFixture,
-    makeTrackedTempDir("gateway-active-call-drain", tempDirs),
-  ));
+it.each([5_000, 15_000, 70_000])(
+  "recovers channels after an admitted write outlives the drain deadline (%i ms)",
+  (holdMs) =>
+    verifyActiveCallDrainLease(
+      createRecoveryFixture,
+      makeTrackedTempDir("gateway-active-call-drain", tempDirs),
+      holdMs,
+    ),
+);
 
 it("keeps old cleanup owned when the Gateway closes before replacement publication", () =>
   verifyPreCommitRetirementOwnership(createRecoveryFixture));

@@ -45,6 +45,7 @@ import {
   isProviderCompletedErrorFinishReasonMessage,
   isRateLimitErrorMessage,
   isServerErrorMessage,
+  isSessionTranscriptValidationErrorMessage,
   isTimeoutErrorMessage,
   matchesFormatErrorPattern,
 } from "./message-patterns.js";
@@ -98,6 +99,9 @@ function classifyFailoverClassificationFromMessage(
   }
   if (isClaudeCliAuthError(raw, provider)) {
     return toReasonClassification("auth");
+  }
+  if (isSessionTranscriptValidationErrorMessage(raw)) {
+    return toReasonClassification("format");
   }
   if (isCliSessionExpiredErrorMessage(raw)) {
     return toReasonClassification("session_expired");

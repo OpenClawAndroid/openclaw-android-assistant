@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { expectDefined } from "@openclaw/normalization-core";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
 import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import { closeGatewayTestWebSocket } from "../../test/helpers/gateway-websocket.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
@@ -43,7 +43,6 @@ import {
 import { addSessionMember, removeSessionMember } from "../config/sessions/session-sharing-store.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import type { GatewayOperatorRoleDefinition } from "../config/types.gateway.js";
-import { withTimeout } from "../infra/fs-safe.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import {
@@ -56,7 +55,6 @@ import {
   isSessionLifecycleMutationActive,
   isSessionWorkAdmissionActive,
   runExclusiveSessionLifecycleMutation,
-  SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
 } from "../sessions/session-lifecycle-admission.js";
 import { listSessionStateEventsSince } from "../sessions/session-state-events.js";
 import { createDeferredCore } from "../shared/deferred.js";
@@ -81,7 +79,6 @@ import {
   withOpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
-import { waitForChatAbortControllerRemoval } from "./chat-abort-lifecycle-internal.js";
 import type { ChatAbortControllerEntry } from "./chat-abort.js";
 import {
   attachGatewayLocalUserIngress,
@@ -91,6 +88,7 @@ import { createMentionInbox } from "./mention-inbox.js";
 import { sessionLog } from "./server-methods/sessions-shared.js";
 import { identifiedClient, soloClient } from "./server-methods/sessions-sharing.test-support.js";
 import type { GatewayClient } from "./server-methods/types.js";
+import { waitForCreatedSessionRun } from "./server.sessions.create.projects.test-support.js";
 import { listSessionGroups } from "./session-groups.js";
 import {
   resolveSessionMutationAuthorization,
@@ -180,10 +178,14 @@ vi.mock("./server-methods/chat-send-background.js", async (importOriginal) => {
 });
 
 let gitWorkspaceTemplate: string;
-const { createSessionStoreDir, createSelectedGlobalSessionStore, openClient } =
-  setupGatewaySessionsTestHarness(async (makeTempDir) => {
-    gitWorkspaceTemplate = await createGitWorkspace(makeTempDir("openclaw-session-git-template-"));
-  });
+const {
+  createSessionStoreDir,
+  createSelectedGlobalSessionStore,
+  openClient,
+  resetConfiguredGlobalAgentSessionStore,
+} = setupGatewaySessionsTestHarness(async (makeTempDir) => {
+  gitWorkspaceTemplate = await createGitWorkspace(makeTempDir("openclaw-session-git-template-"));
+});
 const execFileAsync = promisify(execFile);
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
@@ -241,30 +243,6 @@ async function withFixedOwnerSessionStore(
       config.clearRuntimeConfigSnapshot();
     }
   }
-}
-
-async function waitForCreatedSessionRun(
-  context: { chatAbortControllers: Map<string, ChatAbortControllerEntry> },
-  storePath: string,
-  sessionKey: string | undefined,
-) {
-  const released = getSessionWorkAdmissionRelease({
-    scope: storePath,
-    identities: [sessionKey],
-  });
-  const removed = await waitForChatAbortControllerRemoval({
-    entries: context.chatAbortControllers,
-    targets: [...context.chatAbortControllers].map(([runId, entry]) => ({ runId, entry })),
-    timeoutMs: SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
-  });
-  if (released) {
-    await withTimeout(
-      released,
-      SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
-      "worktree title run cleanup",
-    );
-  }
-  return removed;
 }
 
 // Read the real implementations back here rather than capturing them inside the
@@ -848,6 +826,10 @@ test.each(["foreign admin", "unidentified admin", "synthetic owner"] as const)(
         storePath,
         messages: [{ role: "user", content: "Review the deployment plan" }],
       });
+      await expect(
+        directSessionReq("sessions.describe", { key }, { client, context }),
+      ).resolves.toMatchObject({ ok: true });
+      context.loadGatewayModelCatalogSnapshot.mockClear();
       const before = loadSessionEntry({ sessionKey: key, storePath });
       if (kind === "foreign admin") {
         const other = ensureProfileForEmail("session-other-person@example.test");
@@ -1398,7 +1380,7 @@ test("sessions.create keeps incognito rows process-local through list, spawn, re
       "sessions.list",
       {},
     );
-    expect(listed.payload?.sessions).toContainEqual(
+    expect(listed.payload?.sessions).not.toContainEqual(
       expect.objectContaining({ key, incognito: true }),
     );
 
@@ -1925,7 +1907,8 @@ test("incognito operator RPCs treat identityless connections as owner-equivalent
       "sessions.list",
       {},
     );
-    expect(adminList.payload?.sessions?.some((session) => session.key === sessionKey)).toBe(true);
+    expect(adminList.ok).toBe(true);
+    expect(adminList.payload?.sessions?.some((session) => session.key === sessionKey)).toBe(false);
 
     for (const ws of [admin.ws, reader.ws, writer.ws]) {
       await expect(rpcReq(ws, "sessions.subscribe", {})).resolves.toMatchObject({ ok: true });
@@ -1937,7 +1920,7 @@ test("incognito operator RPCs treat identityless connections as owner-equivalent
         {},
       );
       expect(listed.ok).toBe(true);
-      expect(listed.payload?.sessions?.some((session) => session.key === sessionKey)).toBe(true);
+      expect(listed.payload?.sessions?.some((session) => session.key === sessionKey)).toBe(false);
     }
 
     const deniedCreate = await rpcReq(writer.ws, "sessions.create", {
@@ -2263,7 +2246,9 @@ test("sessions.create preserves keyed draft adoption idempotency", async () => {
 });
 
 test("sessions.create rejects draft visibility when policy disables drafts", async () => {
+  await createSessionStoreDir();
   testState.sessionConfig = { sharing: { drafts: false } };
+  (await getGatewayConfigModule()).setRuntimeConfigSnapshot(loadGatewayTestConfig());
   const created = await directSessionReq("sessions.create", {
     agentId: "main",
     visibility: "draft",
@@ -6650,6 +6635,12 @@ test("sessions.create checks selected global initialization in the requested age
 
 test("sessions.create sends selected global initial tasks to the requested agent", async () => {
   const { mainStorePath, workStorePath } = await createSelectedGlobalSessionStore();
+  onTestFinished(async () =>
+    resetConfiguredGlobalAgentSessionStore({
+      ...(await getGatewayConfigModule()),
+      configPath: requireNonEmptyString(process.env.OPENCLAW_CONFIG_PATH, "config path"),
+    }),
+  );
   const { ws } = await openClient();
 
   const created = await rpcReq<{

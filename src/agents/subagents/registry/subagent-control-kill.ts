@@ -71,10 +71,16 @@ type KillScope = {
   retarget: (tree: KillTree, successor: SubagentRunRecord) => boolean;
 };
 
+type KillPublicationPreparation = {
+  prepare: () => Promise<void>;
+  needsPreparation: () => boolean;
+};
+
 async function withSubagentKillScope<T>(
   params: KillSelection,
   run: (scope: KillScope, trees: KillTree[]) => Promise<T>,
   publish?: (result: T, trees: KillTree[]) => T,
+  preparePublication?: KillPublicationPreparation,
 ): Promise<T> {
   const lifecycleGeneration = getAgentEventLifecycleGeneration();
   const cancellationControl = captureTaskCancellationControl();
@@ -258,6 +264,11 @@ async function withSubagentKillScope<T>(
     };
     scope.refresh();
     const result = await run(scope, trees);
+    if (preparePublication) {
+      do {
+        await preparePublication.prepare();
+      } while (preparePublication.needsPreparation());
+    }
     outcome = { ok: true, value: publish ? publish(result, trees) : result };
   } catch (error) {
     outcome = { ok: false, error };
@@ -537,7 +548,11 @@ async function killSelectedSubagentRuns(
 /** Admin kill path for a subagent session key, bypassing caller ownership checks. */
 export async function killSubagentRunAdmin(
   params: Parameters<TaskRegistryControlRuntime["killSubagentRunAdmin"]>[0],
-  control?: { assertCurrent: () => void; beforeSessionKill?: () => boolean },
+  control?: {
+    assertCurrent: () => void;
+    beforeSessionKill?: () => boolean;
+    preparePublication?: KillPublicationPreparation;
+  },
 ): Promise<SubagentAdminKillResult> {
   const publish = (result: SubagentAdminKillResult): SubagentAdminKillResult => {
     if (params.onResult?.(result) !== undefined) {
@@ -642,5 +657,6 @@ export async function killSubagentRunAdmin(
         ...(errors.length > 0 ? { error: errors.join("; ") } : {}),
       });
     },
+    control?.preparePublication,
   );
 }

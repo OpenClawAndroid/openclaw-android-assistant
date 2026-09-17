@@ -8,7 +8,10 @@ import {
   readStringField as readString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { CodexNativeSubagentHistoryOwner } from "./native-subagent-history-owner.js";
-import { CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX } from "./native-subagent-task-ids.js";
+import {
+  codexNativeSubagentRunId,
+  readNativeSubagentThreadIds,
+} from "./native-subagent-task-ids.js";
 import type {
   CodexServerNotification,
   CodexSessionSource,
@@ -48,6 +51,7 @@ export class CodexNativeSubagentTaskMirror {
   private readonly terminalRunIds = new Set<string>();
   private readonly authoritativeRunIds = new Set<string>();
   private readonly expectedAuthoritativeRunIds = new Set<string>();
+  private readonly runIdsByThreadId = new Map<string, string>();
   private readonly now: () => number;
 
   constructor(
@@ -57,10 +61,8 @@ export class CodexNativeSubagentTaskMirror {
     this.now = params.now ?? Date.now;
   }
 
-  markAuthoritativeCompletion(childThreadId: string): void {
-    const runId = codexNativeSubagentRunId(childThreadId);
-    // Run identity is per child thread, not per resumed turn. Once the monitor
-    // finalizes and delivers this task, later mirror events must not rewrite it.
+  markAuthoritativeCompletion(childThreadId: string, runId = this.runId(childThreadId)): void {
+    // A later assignment has its own run. Delayed events cannot rewrite this result.
     this.authoritativeRunIds.add(runId);
     this.terminalRunIds.add(runId);
   }
@@ -68,7 +70,57 @@ export class CodexNativeSubagentTaskMirror {
   markAuthoritativeCompletionExpected(childThreadId: string): void {
     // App-server history or streamed terminal events supply the real result.
     // Callers without either path keep mirror terminal states as their fallback.
-    this.expectedAuthoritativeRunIds.add(codexNativeSubagentRunId(childThreadId));
+    this.expectedAuthoritativeRunIds.add(this.runId(childThreadId));
+  }
+
+  restoreCurrentTaskRun(threadId: string, runId: string): void {
+    this.runIdsByThreadId.set(threadId, runId);
+    this.mirrorStateByThreadId.set(threadId, "mirrored");
+    this.expectedAuthoritativeRunIds.add(runId);
+  }
+
+  startFollowupTurn(
+    threadId: string,
+    turnId: string,
+    nativeParentThreadId = this.params.parentThreadId,
+  ): string {
+    const previousRunId = this.runId(threadId);
+    const previous = this.runtime.listTaskRecords().find((task) => task.runId === previousRunId);
+    const runId = codexNativeSubagentRunId(threadId, turnId);
+    this.runIdsByThreadId.set(threadId, runId);
+    this.mirrorStateByThreadId.delete(threadId);
+    this.expectedAuthoritativeRunIds.add(runId);
+    this.createRunningTask({
+      threadId,
+      turnId,
+      nativeParentThreadId,
+      label: previous?.label ?? "Subagent",
+      task: previous?.task ?? "Subagent follow-up",
+      startedAt: this.now(),
+      progressSummary: "Subagent started follow-up work.",
+    });
+    return runId;
+  }
+
+  recordNativeTurn(runId: string, turnId: string): void {
+    const task = this.runtime.listTaskRecords().find((record) => record.runId === runId);
+    const detail = isJsonObject(task?.detail) ? task.detail : {};
+    if (!task || detail.nativeTurnId === turnId) {
+      return;
+    }
+    this.runtime.tryCreateRunningTaskRun({
+      runId,
+      sourceId: task.sourceId,
+      label: task.label,
+      task: task.task,
+      notifyPolicy: task.notifyPolicy,
+      deliveryStatus: task.deliveryStatus,
+      detail: { ...detail, nativeTurnId: turnId },
+    });
+  }
+
+  private runId(threadId: string): string {
+    return this.runIdsByThreadId.get(threadId) ?? codexNativeSubagentRunId(threadId);
   }
 
   handleNotification(notification: CodexServerNotification): void {
@@ -149,7 +201,7 @@ export class CodexNativeSubagentTaskMirror {
     if (!statusType) {
       return;
     }
-    const runId = codexNativeSubagentRunId(threadId);
+    const runId = this.runId(threadId);
     if (this.authoritativeRunIds.has(runId)) {
       return;
     }
@@ -214,7 +266,7 @@ export class CodexNativeSubagentTaskMirror {
       return;
     }
     const isSpawnAgentTool = normalizeToolName(readString(item, "tool")) === "spawnagent";
-    const receiverThreadIds = readStringArray(item.receiverThreadIds);
+    const receiverThreadIds = readNativeSubagentThreadIds(item.receiverThreadIds);
     const agentsStates = readAgentsStates(item.agentsStates);
     const spawnChildThreadIds = new Set([...receiverThreadIds, ...agentsStates.keys()]);
     if (isSpawnAgentTool) {
@@ -315,6 +367,8 @@ export class CodexNativeSubagentTaskMirror {
 
   private createRunningTask(params: {
     threadId: string;
+    turnId?: string;
+    nativeParentThreadId?: string;
     label: string;
     task: string;
     startedAt: number;
@@ -325,12 +379,20 @@ export class CodexNativeSubagentTaskMirror {
       return false;
     }
     this.mirrorStateByThreadId.set(threadId, "mirrored");
-    const runId = codexNativeSubagentRunId(threadId);
+    const runId = this.runId(threadId);
     // Creation also refreshes existing metadata. Recovery must preserve the original locator,
     // including its absence on rows created before native history ownership was recorded.
-    const historyOwner = this.params.historyOwner;
-    const stampHistoryOwner =
-      historyOwner && !this.runtime.listTaskRecords().some((task) => task.runId === runId);
+    const historyOwner =
+      this.params.historyOwner && params.nativeParentThreadId
+        ? { ...this.params.historyOwner, parentThreadId: params.nativeParentThreadId }
+        : this.params.historyOwner;
+    const existing = this.runtime.listTaskRecords().find((task) => task.runId === runId);
+    const stampHistoryOwner = historyOwner && !existing;
+    const detail = {
+      ...(isJsonObject(existing?.detail) ? existing.detail : {}),
+      ...(stampHistoryOwner ? { nativeHistory: { ...historyOwner } } : {}),
+      ...(params.turnId ? { nativeTurnId: params.turnId } : {}),
+    };
     const taskRecord = this.runtime.tryCreateRunningTaskRun({
       sourceId: runId,
       agentId: this.params.agentId,
@@ -343,7 +405,7 @@ export class CodexNativeSubagentTaskMirror {
       startedAt: params.startedAt,
       lastEventAt: this.now(),
       progressSummary: params.progressSummary,
-      ...(stampHistoryOwner ? { detail: { nativeHistory: { ...historyOwner } } } : {}),
+      ...(stampHistoryOwner || params.turnId ? { detail } : {}),
     });
     if (!taskRecord) {
       this.mirrorStateByThreadId.set(threadId, "failed");
@@ -366,7 +428,7 @@ export class CodexNativeSubagentTaskMirror {
     if (!normalizedStatus) {
       return;
     }
-    const runId = codexNativeSubagentRunId(threadId);
+    const runId = this.runId(threadId);
     if (this.authoritativeRunIds.has(runId)) {
       return;
     }
@@ -439,11 +501,6 @@ export class CodexNativeSubagentTaskMirror {
   }
 }
 
-/** Converts a Codex child thread id into the OpenClaw task-runtime run id. */
-export function codexNativeSubagentRunId(threadId: string): string {
-  return `${CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX}${threadId.trim()}`;
-}
-
 /** Reads a subagent thread-spawn source only when it belongs to the expected parent thread. */
 function readSubagentThreadSpawnSource(
   source: CodexSessionSource | null | undefined,
@@ -509,13 +566,6 @@ function readAgentsStates(
     states.set(threadId, { status, message });
   }
   return states;
-}
-
-function readStringArray(value: JsonValue | undefined): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
 }
 
 function readNullableString(value: JsonObject, key: string): string | null | undefined {

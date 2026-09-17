@@ -32,6 +32,7 @@ import {
 import { extractFirstTextBlock } from "../shared/chat-message-content.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import * as sessionLifecycleState from "./session-lifecycle-state.js";
+import { removeChatTestDirectory as removeTempDir } from "./session-test-directories.test-support.js";
 import {
   agentDiscoveryMock,
   connectOk,
@@ -109,10 +110,6 @@ describe("gateway server chat", () => {
   beforeEach(() => {
     dispatchInboundMessageMock.mockReset();
   });
-
-  const removeTempDir = async (dir: string): Promise<void> => {
-    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-  };
 
   const buildNoReplyHistoryFixture = (includeMixedAssistant = false) => [
     createGatewayHistoryText("user", "hello", 1),

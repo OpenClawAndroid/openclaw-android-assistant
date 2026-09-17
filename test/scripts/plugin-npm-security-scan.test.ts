@@ -504,6 +504,32 @@ describe("scripts/lib/plugin-npm-security-scan.mts", () => {
     },
   );
 
+  it("reviews the two Signal socket cleanup probes after 9.4", async () => {
+    const packageName = "@openclaw/signal";
+    const fixturePath = "src/socket-path.test.ts";
+    const fixtureKey = `${packageName}:dangerous-exec:${fixturePath}`;
+    const probe =
+      'import { spawnSync } from "node:child_process";\n' +
+      "spawnSync(process.execPath, []);\n".repeat(2);
+    const { artifact } = writePluginArtifact({
+      extensionId: "signal",
+      packageName,
+      files: { [fixturePath]: probe },
+    });
+
+    for (const context of ["release/2026.9.3", "release/2026.9.4", "release/2026.9.5", ""]) {
+      const admitted = context === "" || context === "release/2026.9.5";
+      const scanned = await scanPublishablePluginPackages([artifact], context);
+      expect(scanned.scanErrors, context).toEqual([]);
+      expect(scanned.packageResults[0]?.expectedReviewedCriticalFindings, context).toEqual(
+        admitted ? [fixtureKey, fixtureKey] : [],
+      );
+      expect(scanned.packageResults[0]?.unexpectedCriticalFindings, context).toHaveLength(
+        admitted ? 0 : 2,
+      );
+    }
+  });
+
   it.each([
     ["src/app-server/transport-process-snapshot.test.ts", 3, 1],
     ["src/app-server/transport-procfs.test-support.ts", 3, 0],

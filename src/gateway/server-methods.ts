@@ -55,7 +55,10 @@ import { coreGatewayHandlers } from "./server-methods/core-handlers.js";
 import { authenticatedProfileUnavailableError } from "./server-methods/gateway-client-identity.js";
 import { prepareGatewayRequestHandler } from "./server-methods/lazy-core-handlers.js";
 import { isTargetedNonSafeGatewayRestartRequest } from "./server-methods/restart-request.js";
-import { withSessionMutationCommitGuard } from "./server-methods/session-mutation-guards.js";
+import {
+  bindGatewayRequestHandlerMutationAuthority,
+  withSessionMutationCommitGuard,
+} from "./server-methods/session-mutation-guards.js";
 import type {
   GatewayRequestContext,
   GatewayRequestHandler,
@@ -66,6 +69,7 @@ import type {
 import type { GatewayRequestEntry } from "./server-request-entry.js";
 import type { GatewayRpcDiagnostics } from "./server/ws-connection/request-diagnostics.js";
 import { sessionMutationTargetFields } from "./session-method-policy.js";
+import { getSessionRowProjection } from "./session-row-projection-access.js";
 import { resolveDirectIncognitoTargets } from "./session-sharing-target-input.js";
 import {
   resolveSessionMutationAuthorization,
@@ -273,6 +277,9 @@ export async function authorizeGatewayRequestPreDispatch(params: {
   error: ErrorShape | null;
   sessionMutationAuthorization?: SessionMutationAuthorization;
 }> {
+  if (params.context.ensureSessionRowProjection) {
+    await params.context.ensureSessionRowProjection();
+  }
   while (true) {
     // Dynamic scope lookup must use the same registry as the eventual handler.
     const authError = withPluginRuntimeRegistryScope(
@@ -317,6 +324,12 @@ export async function authorizeGatewayRequestPreDispatch(params: {
           },
         ),
       };
+    }
+    const projection =
+      params.method === "sessions.describe" ? getSessionRowProjection(params.context) : undefined;
+    if (projection?.needsMaterialization) {
+      await projection.ensureMaterialized();
+      continue;
     }
     const preparedSessionMutation = withCanonicalSessionValidationDeferral(() =>
       resolveSessionMutationAuthorization({
@@ -577,18 +590,22 @@ export async function handleGatewayRequest(
     );
     const invokeHandler = async () => {
       const preparedHandler = await prepareGatewayRequestHandler(handler, entry);
-      const handlerOptions = {
-        req,
-        params: (req.params ?? {}) as Record<string, unknown>,
-        client,
-        isWebchatConnect,
-        respond,
-        context,
-        signal,
-        ...(hasCurrentClientAuthority ? { hasCurrentClientAuthority } : {}),
-        sessionMutationCommitGuard,
-        sessionMutationAuthorization,
-      };
+      const handlerOptions = bindGatewayRequestHandlerMutationAuthority(
+        opts,
+        {
+          req,
+          params: (req.params ?? {}) as Record<string, unknown>,
+          client,
+          isWebchatConnect,
+          respond,
+          context,
+          signal,
+          ...(hasCurrentClientAuthority ? { hasCurrentClientAuthority } : {}),
+          sessionMutationCommitGuard,
+          sessionMutationAuthorization,
+        },
+        profileBinding,
+      );
       sessionMutationCommitGuard?.();
       entry?.assertOpen();
       if (signal?.aborted) {

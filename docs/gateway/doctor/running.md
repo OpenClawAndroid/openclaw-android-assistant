@@ -128,6 +128,7 @@ openclaw doctor --lint --only core/doctor/gateway-config --json
 
 JSON output fields:
 
+- `schemaVersion`: version of the machine-readable lint envelope; branch on this before parsing other fields
 - `ok`: whether any finding met the selected severity threshold
 - `checksRun` / `checksSkipped`: counts (skipped by profile, `--only`, or `--skip`)
 - `findings`: structured diagnostics with `checkId`, `severity`, `message`, and optional `path`, `line`, `column`, `ocPath`, `source`, `target`, `requirement`, `fixHint`

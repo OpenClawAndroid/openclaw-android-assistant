@@ -11,15 +11,19 @@ import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
 } from "../state/openclaw-agent-db.js";
-import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { withOpenClawTestState as withRawTestState } from "../test-utils/openclaw-test-state.js";
 import { createDirectChatContext } from "./server-chat.agent-events.test-helpers.js";
 import { artifactsHandlers } from "./server-methods/artifacts.js";
+import { identifiedClient } from "./server-methods/sessions-read-cache.test-support.js";
 import { sessionReadHandlers } from "./server-methods/sessions-read.js";
 import {
   resetResolvedSessionKeyForRunCacheForTest,
   resolveSessionKeyForRun,
 } from "./server-session-key.js";
+import { bindSessionRowProjection } from "./session-row-projection-access.js";
+import { createSessionRowProjection, type SessionRowProjection } from "./session-row-projection.js";
 import { roleClient, rolePolicyConfig } from "./session-sharing.test-utils.js";
+import { resolveGatewaySessionStoreTargetWithStore } from "./session-utils-store-lookup.js";
 import { resolveSessionKeyFromResolveParams } from "./sessions-resolve.js";
 import { resolveWorkerSessionTarget } from "./worker-environments/session-target.js";
 
@@ -35,8 +39,37 @@ const selectors: SessionsResolveParams[] = [
   { label: entry.label, agentId: "main" },
 ];
 
-function resolve(p: SessionsResolveParams) {
-  return resolveSessionKeyFromResolveParams({ cfg, client: null, p });
+const projections = new Map<OpenClawConfig, Promise<SessionRowProjection>>();
+function projectionFor(config = cfg) {
+  let projection = projections.get(config);
+  if (!projection) {
+    projection = createSessionRowProjection({ cfg: config });
+    projections.set(config, projection);
+  }
+  return projection;
+}
+async function withOpenClawTestState(
+  options: Parameters<typeof withRawTestState>[0],
+  fn: Parameters<typeof withRawTestState>[1],
+) {
+  return withRawTestState(options, async (state) => {
+    try {
+      return await fn(state);
+    } finally {
+      for (const pending of projections.values()) {
+        (await pending).dispose();
+      }
+      projections.clear();
+    }
+  });
+}
+async function resolve(p: SessionsResolveParams) {
+  return resolveSessionKeyFromResolveParams({
+    cfg,
+    client: null,
+    p,
+    projection: await projectionFor(),
+  });
 }
 
 const resolved = { ok: true, key: scope.sessionKey, agentId: "main" };
@@ -77,6 +110,7 @@ describe("session resolution metadata", () => {
                   : selector === "reference"
                     ? { key }
                     : key;
+          const projection = await projectionFor();
           const respond = vi.fn();
           const parse = vi.spyOn(JSON, "parse");
           try {
@@ -85,7 +119,10 @@ describe("session resolution metadata", () => {
               "resolve handler",
             )({
               params: { [selector]: value, spawnedBy: parent, agentId: "main" },
-              context: createDirectChatContext({ getRuntimeConfig: () => cfg }),
+              context: createDirectChatContext({
+                getRuntimeConfig: () => cfg,
+                ...bindSessionRowProjection({}, () => projection),
+              }),
               req: { type: "req", id: "registry-resolve", method: "sessions.resolve" },
               client: null,
               isWebchatConnect: () => false,
@@ -121,6 +158,7 @@ describe("session resolution metadata", () => {
           },
         );
       }
+      await projectionFor();
       const parse = vi.spyOn(JSON, "parse");
       try {
         expect(await resolve(p)).toEqual(resolved);
@@ -133,14 +171,21 @@ describe("session resolution metadata", () => {
     });
   });
 
-  it("observes same-timestamp external and tracked label/visibility changes", async () => {
+  it("hydrates external changes at startup and observes tracked changes while resident", async () => {
     await withOpenClawTestState({ label: "resolve-freshness" }, async () => {
-      const client = roleClient("view", "resolve-viewer");
+      const client = identifiedClient(
+        roleClient("view", "resolve-viewer").authenticatedUserProfile!.profileId,
+      );
       const roleCfg = { ...cfg, ...rolePolicyConfig() };
       const visible = { ...entry, visibility: "shared" as const };
       replaceSessionEntrySync(scope, visible);
-      const lookup = (p: SessionsResolveParams) =>
-        resolveSessionKeyFromResolveParams({ cfg: roleCfg, client, p });
+      const lookup = async (p: SessionsResolveParams) =>
+        resolveSessionKeyFromResolveParams({
+          cfg: roleCfg,
+          client,
+          p,
+          projection: await projectionFor(roleCfg),
+        });
       for (let repeat = 0; repeat < 2; repeat++) {
         expect(await lookup({ key: scope.sessionKey })).toEqual(resolved);
         expect(await lookup({ label: entry.label })).toEqual(resolved);
@@ -151,6 +196,8 @@ describe("session resolution metadata", () => {
         external
           .prepare("UPDATE session_nodes SET entry_json = ?, label = ? WHERE session_key = ?")
           .run(JSON.stringify(hidden), hidden.label, scope.sessionKey);
+        (await projectionFor(roleCfg)).dispose();
+        projections.delete(roleCfg);
         expect(await lookup({ key: scope.sessionKey, allowMissing: true })).toEqual({
           ok: true,
           missing: true,
@@ -178,7 +225,7 @@ describe("session resolution metadata", () => {
   });
 
   it.each(["malformed", "nul", "mismatched-time", "mismatched-window"])(
-    "preserves warm and cold lookup outcomes for %s rows",
+    "preserves warm and cold storage-reader outcomes for %s rows",
     async (kind) => {
       await withOpenClawTestState({ label: "resolve-corruption" }, async () => {
         const siblingKey = "agent:main:sibling";
@@ -187,7 +234,17 @@ describe("session resolution metadata", () => {
           { ...scope, sessionKey: siblingKey },
           { sessionId: "sibling", updatedAt: 1 },
         );
-        expect(await resolve({ key: scope.sessionKey })).toEqual(resolved);
+        const read = (key: string) => {
+          const target = resolveGatewaySessionStoreTargetWithStore({
+            cfg,
+            key,
+            agentId: "main",
+            projection: "list",
+            clone: false,
+          });
+          return target.store[target.canonicalKey];
+        };
+        expect(read(scope.sessionKey)?.sessionId).toBe(entry.sessionId);
         const database = openOpenClawAgentDatabase(scope).db;
         if (kind === "malformed" || kind === "nul") {
           database
@@ -205,23 +262,13 @@ describe("session resolution metadata", () => {
             .prepare("UPDATE session_nodes SET current_session_id = ? WHERE session_key = ?")
             .run("different", scope.sessionKey);
         }
-        expect(await resolve({ key: scope.sessionKey, allowMissing: true })).toEqual(
-          kind === "mismatched-window" ? resolved : { ok: true, missing: true },
+        expect(read(scope.sessionKey)?.sessionId).toBe(
+          kind === "mismatched-window" ? entry.sessionId : undefined,
         );
-        expect(await resolve({ key: siblingKey })).toEqual({
-          ok: true,
-          key: siblingKey,
-          agentId: "main",
-        });
+        expect(read(siblingKey)?.sessionId).toBe("sibling");
         closeOpenClawAgentDatabasesForTest();
-        expect(await resolve({ key: scope.sessionKey, allowMissing: true })).toEqual({
-          ok: true,
-          missing: true,
-        });
-        expect(await resolve({ key: siblingKey, allowMissing: true })).toEqual({
-          ok: true,
-          missing: true,
-        });
+        expect(read(scope.sessionKey)).toBeUndefined();
+        expect(read(siblingKey)).toBeUndefined();
       });
     },
   );

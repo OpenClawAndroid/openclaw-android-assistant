@@ -2,6 +2,7 @@ import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
 } from "../../infra/kysely-sync.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import {
   runOpenClawAgentWriteTransaction,
@@ -97,27 +98,28 @@ export function addSessionMember(
     throw new Error("session member identity and actor are required");
   }
   const options = resolveDatabaseOptions(scope);
+  const { agentId, sessionKey } = resolveSqliteScope(scope);
   const addedAt = params.addedAt ?? Date.now();
   const inserted = runOpenClawAgentWriteTransaction((database) => {
-    assertAuthorizedSessionInstance(
-      database,
-      resolveSqliteScope(scope).sessionKey,
-      params.expectedSessionId,
-    );
+    assertAuthorizedSessionInstance(database, sessionKey, params.expectedSessionId);
     const db = getSessionMemberKysely(database);
     const result = executeSqliteQuerySync(
       database.db,
       db
         .insertInto("session_members")
         .values({
-          session_key: resolveSqliteScope(scope).sessionKey,
+          session_key: sessionKey,
           identity_id: identityId,
           added_by: addedBy,
           added_at: addedAt,
         })
         .onConflict((conflict) => conflict.columns(["session_key", "identity_id"]).doNothing()),
     );
-    return (result.numAffectedRows ?? 0n) > 0n;
+    const changed = (result.numAffectedRows ?? 0n) > 0n;
+    if (changed) {
+      sessionChanges.emit({ agentId, storePath: database.path, sessionKey }, database.db);
+    }
+    return changed;
   }, options);
   return { member: { identityId, addedBy, addedAt }, inserted };
 }
@@ -133,19 +135,16 @@ export function removeSessionMember(
     return null;
   }
   const options = resolveDatabaseOptions(scope);
+  const { agentId, sessionKey } = resolveSqliteScope(scope);
   return runOpenClawAgentWriteTransaction((database) => {
-    assertAuthorizedSessionInstance(
-      database,
-      resolveSqliteScope(scope).sessionKey,
-      expectedSessionId,
-    );
+    assertAuthorizedSessionInstance(database, sessionKey, expectedSessionId);
     const db = getSessionMemberKysely(database);
     const row = executeSqliteQueryTakeFirstSync(
       database.db,
       db
         .selectFrom("session_members")
         .select(["identity_id", "added_by", "added_at"])
-        .where("session_key", "=", resolveSqliteScope(scope).sessionKey)
+        .where("session_key", "=", sessionKey)
         .where("identity_id", "=", normalizedIdentityId),
     );
     if (
@@ -158,9 +157,10 @@ export function removeSessionMember(
       database.db,
       db
         .deleteFrom("session_members")
-        .where("session_key", "=", resolveSqliteScope(scope).sessionKey)
+        .where("session_key", "=", sessionKey)
         .where("identity_id", "=", normalizedIdentityId),
     );
+    sessionChanges.emit({ agentId, storePath: database.path, sessionKey }, database.db);
     return { identityId: row.identity_id, addedBy: row.added_by, addedAt: row.added_at };
   }, options);
 }

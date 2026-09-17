@@ -17,6 +17,7 @@ import {
   pinSnapshotMock,
   registerDoctorRuntimePinTests,
 } from "./doctor-gateway-runtime.test-utils.js";
+import { registerDoctorServiceDefaultsTests } from "./doctor-gateway-service-defaults.test-support.js";
 import { createDoctorPrompter } from "./doctor-prompter.js";
 import {
   readEmbeddedGatewayTokenForTest,
@@ -817,47 +818,12 @@ describe("maybeRepairGatewayServiceConfig", () => {
     expect(mocks.install).toHaveBeenCalledTimes(1);
   });
 
-  it("repairs managed port drift even when an operator overrides the working directory", async () => {
-    mockProcessPlatform("linux");
-    mocks.resolveGatewayPort.mockReturnValue(18888);
-    const managedDefinition = {
-      programArguments: gatewayProgramArguments,
-      workingDirectory: "/opt/managed-openclaw",
-      environment: {},
-    };
-    mocks.readCommand.mockResolvedValue({
-      ...managedDefinition,
-      workingDirectory: "/opt/operator-openclaw",
-      managedDefinition,
-      managedOverrides: { launcher: "working-directory" },
-    });
-    mocks.buildGatewayInstallPlan.mockResolvedValue({
-      programArguments: ["/usr/bin/node", "/usr/local/bin/openclaw", "gateway", "--port", "18888"],
-      workingDirectory: "/tmp",
-      environment: {},
-    });
-    mocks.auditGatewayServiceConfig.mockResolvedValue({
-      ok: false,
-      issues: [
-        {
-          code: "gateway-port-mismatch",
-          message: "Gateway service port does not match current gateway config.",
-          detail: "18789 -> 18888",
-          level: "recommended",
-        },
-      ],
-    });
-    mocks.install.mockResolvedValue(undefined);
-
-    await runRepair({ gateway: { port: 18888 } });
-
-    expectCallField(mocks.auditGatewayServiceConfig, "expectedPort", 18888);
-    const installOptions = requireRecord(
-      callArg(mocks.install, 0, "install call"),
-      "install options",
-    );
-    expect(installOptions.programArguments).toContain("18888");
-    expectNoNoteContaining("operator-owned systemd drop-in", "Gateway service config");
+  registerDoctorServiceDefaultsTests({
+    mocks,
+    gatewayProgramArguments,
+    runRepair,
+    mockProcessPlatform,
+    expectNoNoteContaining,
   });
 
   it("repairs gateway services with embedded proxy environment values", async () => {

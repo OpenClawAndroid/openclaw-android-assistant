@@ -21,6 +21,7 @@ type DirectOperatorAuthorityParams = {
   resolvedSessionKey?: string;
   spawnedBy?: string;
   client?: GatewayClient | null;
+  isCurrent?: () => boolean;
   inputProvenance?: InputProvenance;
   disallowed: boolean;
 };
@@ -72,6 +73,7 @@ function resolveDirectOperatorAuthority(
         ...(internal?.controlUiAdmin === true
           ? { managementEntitlement: { source: "control-ui-admin" as const } }
           : {}),
+        ...(params.isCurrent ? { isCurrent: params.isCurrent } : {}),
       })
     : undefined;
 }
@@ -83,6 +85,7 @@ export function resolveGatewayCronCreatorAuthorityAdmission(params: {
   sessionId?: string;
   spawnedBy?: string;
   client?: GatewayClient | null;
+  isCurrent?: () => boolean;
   request: AgentRunRequest;
   inputProvenance?: InputProvenance;
   hasRestoredCronContinuation: boolean;
@@ -111,6 +114,7 @@ export function resolveGatewayCronCreatorAuthorityAdmission(params: {
     resolvedSessionKey: params.resolvedSessionKey,
     spawnedBy: params.spawnedBy,
     client: params.client,
+    isCurrent: params.isCurrent,
     inputProvenance: params.inputProvenance,
     disallowed:
       params.hasRestoredCronContinuation ||
@@ -135,6 +139,7 @@ type GatewayChatUserTurn = {
   resolvedSessionKey?: string;
   spawnedBy?: string;
   client?: GatewayClient | null;
+  isCurrent?: () => boolean;
   inputProvenance?: InputProvenance;
   hasExplicitOrigin: boolean;
   hasRestoredCronContinuation: boolean;

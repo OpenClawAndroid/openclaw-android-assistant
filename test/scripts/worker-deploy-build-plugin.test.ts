@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { build } from "tsdown";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import { rawDataToString } from "../../packages/gateway-client/src/websocket-data.js";
 import {
@@ -12,6 +13,17 @@ import {
   WORKER_DEPLOY_OPTIONAL_NATIVE_MODULE_ID,
 } from "../../scripts/lib/worker-deploy-build-plugin.mts";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+
+vi.mock("tsdown", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("tsdown")>();
+  return { ...actual, build: vi.fn(actual.build) };
+});
+
+// Runtime cases consume the prepared graph without spending their deadline compiling it.
+beforeEach(() => {
+  vi.mocked(build).mockClear();
+});
+afterEach(() => expect(build).not.toHaveBeenCalled());
 
 const fail = (message: string): never => {
   throw new Error(message);
@@ -36,60 +48,79 @@ describe("worker deploy build plugin", () => {
     },
   );
 
-  it("keeps worker bootstrap portable with lazy highlighting and complete shell analysis", async () => {
-    const { build } = await import("tsdown");
-    const { default: configs } = await import("../../tsdown.config.ts");
-    const config = configs.find(
-      (candidate) =>
-        typeof candidate.entry === "object" &&
-        !Array.isArray(candidate.entry) &&
-        candidate.entry?.["worker/worker"] === "src/worker/worker-deploy-entry.ts",
-    );
-    if (!config) {
-      throw new Error("Worker deploy build config is missing");
-    }
-    const root = tempDirs.make("openclaw-worker-complete-graph-");
-    const entrySource = path.resolve("src/worker/worker-deploy-entry.ts");
-    const highlightSource = fs.realpathSync(path.resolve("node_modules/highlight.js/lib/index.js"));
-    const { bundles } = await build({
-      ...config,
-      config: false,
-      outDir: path.join(root, "dist"),
-      dts: false,
-      logLevel: "silent",
-      plugins: [
-        config.plugins,
-        {
-          name: "test:worker-highlight-initialization",
-          transform(code, id) {
-            if (id === entrySource) {
-              return `${code}
+  describe("portable output", () => {
+    const fixtureDirs = useAutoCleanupTempDirTracker(afterAll);
+    let preparedDist: string;
+
+    beforeAll(async () => {
+      const { default: configs } = await import("../../tsdown.config.ts");
+      const config = configs.find(
+        (candidate) =>
+          typeof candidate.entry === "object" &&
+          !Array.isArray(candidate.entry) &&
+          candidate.entry?.["worker/worker"] === "src/worker/worker-deploy-entry.ts",
+      );
+      if (!config) {
+        throw new Error("Worker deploy build config is missing");
+      }
+      const root = fixtureDirs.make("openclaw-worker-complete-graph-");
+      preparedDist = path.join(root, "dist");
+      const entrySource = path.resolve("src/worker/worker-deploy-entry.ts");
+      const highlightSource = fs.realpathSync(
+        path.resolve("node_modules/highlight.js/lib/index.js"),
+      );
+      const { bundles } = await build({
+        ...config,
+        config: false,
+        outDir: path.join(root, "dist"),
+        dts: false,
+        logLevel: "silent",
+        plugins: [
+          config.plugins,
+          {
+            name: "test:worker-highlight-initialization",
+            transform(code, id) {
+              if (id === entrySource) {
+                return `${code}
 export { highlight, supportsLanguage } from "../agents/utils/syntax-highlight.js";
 export { explainShellCommand } from "../infra/command-explainer/extract.js";
 export { planShellAuthorization } from "../infra/exec-authorization-plan.js";
-export { rejectUnsafeExecControlShellCommand } from "../infra/exec-control-command-guard.js";`;
-            }
-            if (id === highlightSource) {
-              return `globalThis[Symbol.for("worker-highlight-initializations")] = (globalThis[Symbol.for("worker-highlight-initializations")] ?? 0) + 1;\n${code}`;
-            }
-            return null;
+export { rejectUnsafeExecControlShellCommand } from "../infra/exec-control-command-guard.js";
+export { WebSocket } from "../../packages/gateway-client/src/websocket.js";
+export { createRealtimeTranscriptionWebSocketSession } from "../realtime-transcription/websocket-session.js";
+export { runDesktopWebSocketRuntimeProbe } from "../gateway/desktop/websocket-runtime.test-support.js";`;
+              }
+              if (id === highlightSource) {
+                return `globalThis[Symbol.for("worker-highlight-initializations")] = (globalThis[Symbol.for("worker-highlight-initializations")] ?? 0) + 1;\n${code}`;
+              }
+              return null;
+            },
           },
-        },
-      ],
+        ],
+      });
+      try {
+        // A dynamic import cycle can leave an unstaged root facade even with code splitting off.
+        expect(bundles.flatMap((bundle) => bundle.chunks.map((chunk) => chunk.fileName))).toEqual([
+          "worker/worker.mjs",
+        ]);
+        const { collectWorkerDeployArtifactErrors } =
+          await import("../../scripts/check-cli-bootstrap-imports.mts");
+        expect(
+          collectWorkerDeployArtifactErrors({
+            rootDir: root,
+            workerDeployEntrypoints: ["dist/worker/worker.mjs"],
+          }),
+        ).toEqual([]);
+      } finally {
+        for (const bundle of bundles) {
+          await bundle[Symbol.asyncDispose]();
+        }
+      }
     });
-    try {
-      // A dynamic import cycle can leave an unstaged root facade even with code splitting off.
-      expect(bundles.flatMap((bundle) => bundle.chunks.map((chunk) => chunk.fileName))).toEqual([
-        "worker/worker.mjs",
-      ]);
-      const { collectWorkerDeployArtifactErrors } =
-        await import("../../scripts/check-cli-bootstrap-imports.mts");
-      expect(
-        collectWorkerDeployArtifactErrors({
-          rootDir: root,
-          workerDeployEntrypoints: ["dist/worker/worker.mjs"],
-        }),
-      ).toEqual([]);
+
+    it("keeps worker bootstrap portable with lazy highlighting and complete shell analysis", async () => {
+      const root = tempDirs.make("openclaw-worker-portable-");
+      fs.cpSync(preparedDist, path.join(root, "dist"), { recursive: true });
       const result = await promisify(execFile)(
         process.execPath,
         [
@@ -145,74 +176,44 @@ console.log("portable worker highlighting and shell analysis passed");
       );
       expect(result.stdout.trim()).toBe("portable worker highlighting and shell analysis passed");
       expect(result.stderr).toBe("");
-    } finally {
-      for (const bundle of bundles) {
-        await bundle[Symbol.asyncDispose]();
-      }
-    }
-  });
+    });
 
-  it("preserves WebSocket, desktop, and lazy transcription in relocated worker output", async () => {
-    const { build } = await import("tsdown");
-    const { default: buildConfigs } = await import("../../tsdown.config.ts");
-    const configs = Array.isArray(buildConfigs) ? buildConfigs : [buildConfigs];
-    const workerConfig = configs.find(
-      (config) =>
-        typeof config.entry === "object" &&
-        config.entry !== null &&
-        !Array.isArray(config.entry) &&
-        config.entry["worker/worker"] === "src/worker/worker-deploy-entry.ts",
-    );
-    expect(workerConfig).toBeDefined();
-    const root = tempDirs.make("openclaw-worker-websocket-");
-    const source = path.join(root, "transport.ts");
-    const output = path.join(root, "output");
-    const relocated = path.join(root, "relocated");
-    fs.writeFileSync(
-      source,
-      [
-        `export { WebSocket } from ${JSON.stringify(path.resolve("packages/gateway-client/src/websocket.ts"))};`,
-        `export { createRealtimeTranscriptionWebSocketSession } from ${JSON.stringify(path.resolve("src/realtime-transcription/websocket-session.ts"))};`,
-        `export { runDesktopWebSocketRuntimeProbe } from ${JSON.stringify(path.resolve("src/gateway/desktop/websocket-runtime.test-support.ts"))};`,
-      ].join("\n"),
-    );
-    const { bundles } = await build({
-      ...workerConfig,
-      config: false,
-      entry: { "worker/worker": source },
-      outDir: output,
-      dts: false,
-      logLevel: "silent",
-    });
-    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
-    const requests: Array<{ path: string | undefined; header: string | string[] | undefined }> = [];
-    const closes: Promise<unknown>[] = [];
-    server.on("connection", (socket, request) => {
-      requests.push({ path: request.url, header: request.headers["x-worker-proof"] });
-      closes.push(once(socket, "close"));
-      socket.on("message", (data) => {
-        const text = rawDataToString(data);
-        if (request.url === "/transcription") {
-          socket.send(JSON.stringify({ transcript: text }));
-        } else {
-          socket.send(text);
-        }
+    it("preserves WebSocket, desktop, and lazy transcription in relocated worker output", async () => {
+      const root = tempDirs.make("openclaw-worker-websocket-");
+      const output = path.join(root, "output");
+      const relocated = path.join(root, "relocated");
+      fs.cpSync(preparedDist, output, { recursive: true });
+      const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+      const requests: Array<{ path: string | undefined; header: string | string[] | undefined }> =
+        [];
+      const closes: Promise<unknown>[] = [];
+      server.on("connection", (socket, request) => {
+        requests.push({ path: request.url, header: request.headers["x-worker-proof"] });
+        closes.push(once(socket, "close"));
+        socket.on("message", (data) => {
+          const text = rawDataToString(data);
+          if (request.url === "/transcription") {
+            socket.send(JSON.stringify({ transcript: text }));
+          } else {
+            socket.send(text);
+          }
+        });
       });
-    });
-    try {
-      await once(server, "listening");
-      const address = server.address();
-      expect(address && typeof address === "object").toBeTruthy();
-      if (!address || typeof address === "string") {
-        throw new Error("WebSocket proof server has no bound port");
-      }
-      fs.renameSync(output, relocated);
-      const probe = `
+      try {
+        await once(server, "listening");
+        const address = server.address();
+        expect(address && typeof address === "object").toBeTruthy();
+        if (!address || typeof address === "string") {
+          throw new Error("WebSocket proof server has no bound port");
+        }
+        fs.renameSync(output, relocated);
+        const probe = `
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 const [entry, url] = process.argv.slice(1);
+process.argv = [process.execPath, entry, "--internal-worker-prewarm"];
 assert.throws(() => createRequire(pathToFileURL(entry)).resolve("ws/package.json"), { code: "MODULE_NOT_FOUND" });
 const { WebSocket, createRealtimeTranscriptionWebSocketSession, runDesktopWebSocketRuntimeProbe } = await import(pathToFileURL(entry).href);
 for (const mode of ["observer-close", "observer-backpressure", "observer-payload", "desktop", "portal"]) {
@@ -244,48 +245,46 @@ try {
 } finally { session.close(); }
 console.log("relocated worker WebSocket and transcription passed");
 `;
-      const result = await promisify(execFile)(
-        process.execPath,
-        [
-          ...(process.versions.bun ? ["--no-install"] : []),
-          "--input-type=module",
-          "--eval",
-          probe,
-          path.join(relocated, "worker/worker.mjs"),
-          `ws://127.0.0.1:${address.port}`,
-        ],
-        {
-          cwd: relocated,
-          timeout: 30_000,
-          env: {
-            PATH: process.env.PATH,
-            SystemRoot: process.env.SystemRoot,
-            WINDIR: process.env.WINDIR,
-            HOME: root,
-            USERPROFILE: root,
-            TMPDIR: root,
-            TMP: root,
-            TEMP: root,
+        const result = await promisify(execFile)(
+          process.execPath,
+          [
+            ...(process.versions.bun ? ["--no-install"] : []),
+            "--input-type=module",
+            "--eval",
+            probe,
+            path.join(relocated, "worker/worker.mjs"),
+            `ws://127.0.0.1:${address.port}`,
+          ],
+          {
+            cwd: relocated,
+            timeout: 30_000,
+            env: {
+              PATH: process.env.PATH,
+              SystemRoot: process.env.SystemRoot,
+              WINDIR: process.env.WINDIR,
+              HOME: root,
+              USERPROFILE: root,
+              TMPDIR: root,
+              TMP: root,
+              TEMP: root,
+            },
           },
-        },
-      );
-      expect(result.stdout.trim()).toBe("relocated worker WebSocket and transcription passed");
-      expect(requests).toEqual([
-        { path: "/client", header: "client-header" },
-        { path: "/transcription", header: "transcription-header" },
-      ]);
-      await Promise.all(closes);
-    } finally {
-      for (const client of server.clients) {
-        client.terminate();
+        );
+        expect(result.stdout.trim()).toBe("relocated worker WebSocket and transcription passed");
+        expect(requests).toEqual([
+          { path: "/client", header: "client-header" },
+          { path: "/transcription", header: "transcription-header" },
+        ]);
+        await Promise.all(closes);
+      } finally {
+        for (const client of server.clients) {
+          client.terminate();
+        }
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
       }
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
-      for (const bundle of bundles) {
-        await bundle[Symbol.asyncDispose]();
-      }
-    }
+    });
   });
 
   it("replaces optional host-native modules with a failing virtual module", () => {

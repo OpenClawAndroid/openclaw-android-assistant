@@ -104,7 +104,7 @@ function disposeFailedChild(child: ChildProcess | undefined): void {
   if (child.connected) {
     child.disconnect();
   }
-  for (const stream of child.stdio) {
+  for (const stream of child.stdio ?? []) {
     stream?.destroy();
   }
 }
@@ -151,6 +151,17 @@ async function launch(
         throw new Error("Spawn broker command did not start");
       }
       if (!execa) {
+        // EMFILE/ENFILE can return before stdio exists; Node still owns error and close.
+        if (child.stdio === undefined) {
+          const closed = new Promise<void>((resolve) => {
+            child.once("close", () => resolve());
+          });
+          const error = await new Promise<Error>((resolve) => {
+            child.once("error", resolve);
+          });
+          await closed;
+          throw error;
+        }
         for (const [fd, stream] of child.stdio.entries()) {
           if (fd > 0 && stream instanceof Socket) {
             holdPipeForTransfer(stream);

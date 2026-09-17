@@ -24,7 +24,7 @@ import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { getFreePort } from "../test-utils/ports.js";
 import { GatewayClient, GatewayClientRequestError } from "./client.js";
 import { invalidateConfigGetResponseCache } from "./config-get-response.js";
-import { startGatewayServerCore } from "./server-start.js";
+import { startGatewayServer } from "./server.js";
 
 const reloadBarrier = vi.hoisted(() => ({ wait: undefined as Promise<void> | undefined }));
 
@@ -49,7 +49,7 @@ const CONFIG_SECRETREF_RPC_TIMEOUT_MS = 20_000;
 const GATEWAY_TOKEN = "config-rpc-synthetic-token";
 
 let state: Awaited<ReturnType<typeof createOpenClawTestState>>;
-let server: Awaited<ReturnType<typeof startGatewayServerCore>> | undefined;
+let server: Awaited<ReturnType<typeof startGatewayServer>> | undefined;
 let client: GatewayClient | undefined;
 let rateLimitEpochMs = Date.now();
 const hotReloadRecovery = vi.fn(() => ({ status: "emitted" as const }));
@@ -141,7 +141,7 @@ async function startConfigRpcGateway({
   }
   hotReloadRecovery.mockClear();
   const port = await getFreePort();
-  server = await startGatewayServerCore(port, {
+  server = await startGatewayServer(port, {
     auth: { mode: "token", token: GATEWAY_TOKEN },
     // These config RPCs do not exercise browser asset serving or preparation.
     controlUiEnabled: false,
@@ -172,7 +172,7 @@ async function startConfigRpcGateway({
 }
 
 async function stopConfigRpcGateway() {
-  // This core fixture has no run loop. Retire direct RPC restart timers before
+  // This fixture has no run loop. Retire direct RPC restart timers before
   // teardown and after its owners drain so they cannot reach the next case.
   await runQaGatewayFixture(
     async () => resetGatewayRestartStateForInProcessRestart(),

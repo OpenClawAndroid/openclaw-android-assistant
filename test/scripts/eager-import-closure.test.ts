@@ -13,8 +13,8 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { collectRuntimeImportClosure } from "../../scripts/lib/runtime-import-closure.mts";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
-import { collectEagerRuntimeImportClosure } from "./eager-import-closure.test-support.js";
 import { copyPrWrapperSources, linkPrWrapperDependencies } from "./pr-wrapper.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -37,7 +37,7 @@ it("resolves wrapper package exports and workspace aliases from the extracted de
     cwd: root,
     exclude: ["node_modules/**"],
   });
-  const closure = collectEagerRuntimeImportClosure(files, { root, validatePackages: true });
+  const closure = collectRuntimeImportClosure(root, files, { validatePackages: true });
   expect(closure.filter((file) => file.startsWith("..") || !existsSync(join(root, file)))).toEqual(
     [],
   );
@@ -61,10 +61,12 @@ it.each([
   const input = relative(process.cwd(), entry).replaceAll("\\", "/");
   if (loadsModule) {
     expect(result.stderr).toContain("Cannot find module");
-    expect(() => collectEagerRuntimeImportClosure([input])).toThrow("unresolved ./missing.mts");
+    expect(() => collectRuntimeImportClosure(process.cwd(), [input])).toThrow(
+      "unresolved ./missing.mts",
+    );
   } else {
     expect(result.stdout.trim()).toBe("entry executed");
-    expect(collectEagerRuntimeImportClosure([input])).toEqual([input]);
+    expect(collectRuntimeImportClosure(process.cwd(), [input])).toEqual([input]);
   }
 });
 
@@ -241,4 +243,26 @@ itPosix.each([false, true])("launches a pre-helper anchor (manifest=%s)", (manif
   expect(result.stderr).toContain("running wrapper code materialized from");
   expect(result.stdout).toBe("legacy anchor loaded\n");
   expect(git(canonical, "for-each-ref", "refs/openclaw")).toBe("");
+});
+
+it("captures lazy platform modules and their runtime dependencies without loading them", () => {
+  const directory = tempDirs.make("openclaw-runtime-import-closure-");
+  writeFileSync(
+    join(directory, "entry.mts"),
+    'export const load = () => import("./platform.mts");',
+  );
+  writeFileSync(
+    join(directory, "platform.mts"),
+    'import "./native.js"; throw new Error("must not load");',
+  );
+  writeFileSync(join(directory, "native.ts"), 'import type { Missing } from "./erased.ts";');
+  const entry = relative(process.cwd(), join(directory, "entry.mts")).replaceAll("\\", "/");
+  expect(collectRuntimeImportClosure(process.cwd(), [entry])).toEqual([entry]);
+  expect(
+    collectRuntimeImportClosure(process.cwd(), [entry], { includeDynamicImports: true }),
+  ).toEqual(
+    ["entry.mts", "platform.mts", "native.ts"]
+      .map((file) => relative(process.cwd(), join(directory, file)).replaceAll("\\", "/"))
+      .toSorted(),
+  );
 });

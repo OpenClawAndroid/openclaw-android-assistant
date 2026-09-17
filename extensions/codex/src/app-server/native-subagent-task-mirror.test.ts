@@ -1,9 +1,7 @@
 // Codex tests cover native subagent task mirror plugin behavior.
 import { describe, expect, it, vi } from "vitest";
-import {
-  codexNativeSubagentRunId,
-  CodexNativeSubagentTaskMirror,
-} from "./native-subagent-task-mirror.js";
+import { codexNativeSubagentRunId } from "./native-subagent-task-ids.js";
+import { CodexNativeSubagentTaskMirror } from "./native-subagent-task-mirror.js";
 
 type TaskLifecycleRuntime = ConstructorParameters<typeof CodexNativeSubagentTaskMirror>[1];
 

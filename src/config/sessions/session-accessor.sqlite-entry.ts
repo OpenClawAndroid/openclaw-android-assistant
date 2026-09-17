@@ -181,15 +181,15 @@ export function listSessionChildEntriesReadOnly(
             "updated_at",
           ])
         : db.selectFrom("session_nodes").selectAll();
+    // Separate indexed lookups avoid a whole-store scan chosen for OR with ordering.
+    const sessionKeys = db.selectFrom("session_nodes").select("session_key");
+    const childKeys = sessionKeys
+      .where("parent_session_key", "=", resolved.sessionKey)
+      .union(sessionKeys.where("spawned_by", "=", resolved.sessionKey));
     const childRows = executeSqliteQuerySync(
       database.db,
       query
-        .where((expression) =>
-          expression.or([
-            expression("parent_session_key", "=", resolved.sessionKey),
-            expression("spawned_by", "=", resolved.sessionKey),
-          ]),
-        )
+        .where("session_key", "in", childKeys)
         .where("session_key", "!=", resolved.sessionKey)
         .orderBy("session_key", "asc"),
     ).rows;
@@ -260,24 +260,6 @@ export function withSessionEntryReadOnlyScope<T>(
   } finally {
     reader.close();
   }
-}
-
-/** Counts durable session rows without materializing entry JSON or warming the entry cache. */
-export function countSessionEntryRowsReadOnly(
-  scope: Omit<SessionEntryListScope, "sessionKeys"> = {},
-): number {
-  const resolved = resolveSqliteScope({ ...scope, sessionKey: "" });
-  const result = withOpenClawAgentDatabaseReadOnly((database) => {
-    const db = getSessionKysely(database.db);
-    const row = executeSqliteQueryTakeFirstSync(
-      database.db,
-      db
-        .selectFrom("session_nodes")
-        .select((expression) => expression.fn.countAll<number | bigint>().as("count")),
-    );
-    return row ? sqliteNumber(row.count) : 0;
-  }, toDatabaseOptions(resolved));
-  return result.found ? result.value : 0;
 }
 
 /**

@@ -38,6 +38,7 @@ vi.mock("../../commands/configure.shared.js", async (importOriginal) => ({
 let home: TempHomeEnv | undefined;
 afterEach(async () => {
   metadata.unavailable = false;
+  process.exitCode = undefined;
   closeOpenClawStateDatabaseForTest();
   await home?.restore();
   vi.restoreAllMocks();

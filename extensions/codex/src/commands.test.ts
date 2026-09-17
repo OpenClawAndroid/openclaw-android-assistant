@@ -1152,7 +1152,7 @@ describe("codex command", () => {
           ).resolves.toBe(true);
         }
       } finally {
-        parent.unregister();
+        await parent.unregister();
         harness.client.close();
       }
     },

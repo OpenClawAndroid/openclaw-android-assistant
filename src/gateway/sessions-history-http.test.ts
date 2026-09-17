@@ -1025,23 +1025,24 @@ describe("session history HTTP endpoints", () => {
         },
       ],
     );
-    seedRawSessionRows({
-      storePath,
-      rows: [
-        {
-          sessionId: "sess-stale-main",
-          sessionKey: "agent:main:work",
-          updatedAt: 1,
-        },
-        {
-          sessionId: "sess-fresh-main",
-          sessionKey: "agent:main:main",
-          updatedAt: 2,
-        },
-      ],
-    });
 
     await withGatewayHarness(async (harness) => {
+      // Exercise the HTTP reader against a malformed hot write after admission.
+      seedRawSessionRows({
+        storePath,
+        rows: [
+          {
+            sessionId: "sess-stale-main",
+            sessionKey: "agent:main:work",
+            updatedAt: 1,
+          },
+          {
+            sessionId: "sess-fresh-main",
+            sessionKey: "agent:main:main",
+            updatedAt: 2,
+          },
+        ],
+      });
       const res = await fetchSessionHistory(harness.port, "agent:main:work");
       expect(res.status).toBe(409);
       expectErrorResponse(await res.json(), {

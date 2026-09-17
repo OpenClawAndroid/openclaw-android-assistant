@@ -207,6 +207,8 @@ async function createGatewayKernelWithSdkHost(
         bootstrap,
         bootId,
         pluginRegistryOwner: preparedPluginRegistryOwner,
+        getPluginReloadStatus: () =>
+          lifecycleRuntime?.kernel.pluginRuntimeGeneration.getReloadStatus(),
         port,
         opts,
         log,

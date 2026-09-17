@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../../state/openclaw-state-db-contract.js";
 import {
   closeOpenClawStateDatabaseForTest,
@@ -451,6 +452,14 @@ describe("worker session placement moves", () => {
       target: { kind: "gateway" },
     });
 
+    const observed: Array<string | null | undefined> = [];
+    onTestFinished(
+      sessionChanges.subscribe((change) => {
+        if ("all" in change && change.scope === "worker-placements") {
+          observed.push(store.getPlacementMove(SESSION.sessionId)?.lastError);
+        }
+      }),
+    );
     expect(
       store.recordPlacementMoveError({
         operationId: "move:v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -458,6 +467,7 @@ describe("worker session placement moves", () => {
         error: "stale move failed",
       }),
     ).toBe(false);
+    expect(observed).toEqual([]);
     expect(
       store.recordPlacementMoveError({
         operationId: begun.intent.operationId,
@@ -468,6 +478,7 @@ describe("worker session placement moves", () => {
     expect(store.getPlacementMove(SESSION.sessionId)?.lastError).toBe(
       "workspace reconciliation is waiting",
     );
+    expect(observed).toEqual(["workspace reconciliation is waiting"]);
 
     const reconciling = store.startReconcile({
       sessionId: SESSION.sessionId,
@@ -491,6 +502,7 @@ describe("worker session placement moves", () => {
       }),
     ).toMatchObject({ state: "local", generation: reconciling.generation + 1 });
     expect(store.getPlacementMove(SESSION.sessionId)).toBeUndefined();
+    expect(observed).toEqual(["workspace reconciliation is waiting", undefined]);
   });
 
   it("completes a worker move only against the exact attached destination", () => {

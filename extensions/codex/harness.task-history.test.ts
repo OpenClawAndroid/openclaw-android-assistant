@@ -285,10 +285,17 @@ describe("native subagent history through the harness", () => {
     );
   });
 
-  it.each([false, true])(
-    "reconnects the binding-owned store (supervision=%s)",
-    async (supervised) => {
+  it.each(
+    [false, true].flatMap((supervised) =>
+      [false, true].map((followup) => ({ supervised, followup })),
+    ),
+  )(
+    "reconnects the binding-owned store (supervision=$supervised, followup=$followup)",
+    async ({ supervised, followup }) => {
       const f = await fixture(supervised);
+      if (followup) {
+        f.params.task = { ...f.params.task, runId: `${f.params.task.runId}:turn:followup-turn` };
+      }
       f.items.push(item("answer", { text: "Stored child history" }));
       expect((await f.read()).messages).toMatchObject([
         { content: [{ text: "Stored child history" }] },

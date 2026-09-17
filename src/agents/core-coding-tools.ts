@@ -32,9 +32,9 @@ import { createLsTool, type LsOperations } from "./sessions/tools/ls.js";
 import { createReadTool } from "./sessions/tools/read.js";
 import { resolveToolResultBudget } from "./tool-result-limits.js";
 
-function resolveSkillReadRoots(skillsSnapshot?: SkillSnapshot): string[] | undefined {
+function resolveSkillReadRoots(skills?: SkillSnapshot["resolvedSkills"]): string[] | undefined {
   const roots = new Set<string>();
-  for (const skill of skillsSnapshot?.resolvedSkills ?? []) {
+  for (const skill of skills ?? []) {
     const baseDir = typeof skill.baseDir === "string" ? skill.baseDir.trim() : "";
     const filePath = typeof skill.filePath === "string" ? skill.filePath.trim() : "";
     const root = baseDir || (filePath ? path.dirname(filePath) : "");
@@ -67,6 +67,7 @@ type CoreCodingToolsOptions = {
   readOnly: boolean;
   sandbox?: SandboxContext;
   skillsSnapshot?: SkillSnapshot;
+  skillReadResources?: SkillSnapshot["resolvedSkills"];
   skillInstructionPaths?: readonly string[];
   skillInstructionDeliveryCache?: SkillInstructionDeliveryCache;
   modelContextWindowTokens?: number;
@@ -94,7 +95,8 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
     throw new Error("Sandbox filesystem bridge is unavailable.");
   }
 
-  const skillReadRoots = sandboxRoot ? undefined : resolveSkillReadRoots(options.skillsSnapshot);
+  const skillReadResources = options.skillReadResources ?? options.skillsSnapshot?.resolvedSkills;
+  const skillReadRoots = sandboxRoot ? undefined : resolveSkillReadRoots(skillReadResources);
   const attachmentReadRoot = !sandboxRoot ? options.attachmentReadRoot : undefined;
   const hostReadRoots = [
     ...(skillReadRoots ?? []),
@@ -225,7 +227,7 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
           cwd: options.codingRoot,
         });
     base.push(
-      wrapReadToolWithSkillContent(wrapped, options.skillsSnapshot?.resolvedSkills, {
+      wrapReadToolWithSkillContent(wrapped, skillReadResources, {
         modelContextWindowTokens: options.modelContextWindowTokens,
         imageSanitization: options.imageSanitization,
         cwd: options.codingRoot,

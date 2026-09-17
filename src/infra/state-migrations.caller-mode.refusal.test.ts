@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sharedAuthBootstrap from "../agents/auth-profiles/shared-store-bootstrap.js";
 import * as sessionTargets from "../config/sessions/targets.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { readChannelPairingState } from "../pairing/pairing-store-sqlite.js";
 import { EMPTY_LEGACY_SESSION_SURFACES } from "../plugins/legacy-session-surfaces.types.js";
 import { readConfigMachineState } from "../state/config-machine-state.js";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
@@ -377,9 +378,11 @@ describe("legacy state migration read-only refusals", () => {
     const fixture = await makeFixture();
     const pairingPath = path.join(fixture.stateDir, "credentials", "telegram-allowFrom.json");
     fs.mkdirSync(path.dirname(pairingPath), { recursive: true });
-    fs.writeFileSync(pairingPath, '["legacy-user"]\n');
+    const pairingBytes = '["legacy-user"]\n';
+    fs.writeFileSync(pairingPath, pairingBytes);
     const cfg: OpenClawConfig = { channels: { telegram: { enabled: true } } };
     fs.writeFileSync(fixture.configPath, `${JSON.stringify(cfg)}\n`);
+    const pairingBefore = readChannelPairingState("telegram", fixture.env);
 
     const plan = await planLegacyStateMigrationsReadOnly({
       mode: "automatic",
@@ -393,35 +396,40 @@ describe("legacy state migration read-only refusals", () => {
       outcome: "deferred",
       refusal: { code: "skill-workshop-planning-deferred" },
     });
-    const plannedPairingIndex = plan.steps.findIndex((step) => step.id === "channel-pairing");
-    expect(plannedPairingIndex).toBeGreaterThan(plannedWorkshopIndex);
-    expect(plan.steps.slice(plannedWorkshopIndex + 1)).toEqual(
-      plan.steps.slice(plannedWorkshopIndex + 1).map((step) =>
-        expect.objectContaining({
-          id: step.id,
-          outcome: "deferred",
-          refusal: expect.objectContaining({ code: "blocked-by-prior-refusal" }),
-        }),
-      ),
-    );
-    expect(fs.existsSync(pairingPath)).toBe(true);
+    const plannedPluginIndex = plan.steps.findIndex((step) => step.id === "plugin-doctor-state");
+    expect(plannedPluginIndex).toBeGreaterThan(plannedWorkshopIndex);
+    for (const step of plan.steps.slice(plannedWorkshopIndex + 1)) {
+      expect(step).toMatchObject({
+        outcome: "deferred",
+        refusal: { code: "blocked-by-prior-refusal" },
+      });
+    }
+    expect(fs.readFileSync(pairingPath, "utf8")).toBe(pairingBytes);
 
-    const result = await autoMigrateLegacyState({
+    const params = {
       cfg,
       env: fixture.env,
       homedir: () => fixture.homeDir,
       legacySessionSurfaces: EMPTY_LEGACY_SESSION_SURFACES,
+    };
+    const automatic = await autoMigrateLegacyState(params);
+    expect(automatic.stepReceipts.find((step) => step.id === "skill-workshop")).toMatchObject({
+      outcome: "skipped",
     });
+    expect(readChannelPairingState("telegram", fixture.env)).toEqual(pairingBefore);
+    expect(fs.readFileSync(pairingPath, "utf8")).toBe(pairingBytes);
 
-    const pairingIndex = result.stepReceipts.findIndex(
-      (receipt) => receipt.id === "channel-pairing",
-    );
-    expect(result.stepReceipts[pairingIndex]).toMatchObject({
+    const result = await autoMigrateLegacyState({ ...params, doctorOnlyStateMigrations: true });
+    const pairing = result.stepReceipts.find((receipt) => receipt.id === "channel-pairing");
+    expect(pairing).toMatchObject({
       source: [{ kind: "path", path: pairingPath }],
       outcome: "completed",
       changes: ["Migrated 1 telegram/default allowFrom entry → shared SQLite state"],
     });
-    expect(result.stepReceipts[pairingIndex]?.refusal).toBeUndefined();
+    expect(pairing?.refusal).toBeUndefined();
+    expect(readChannelPairingState("telegram", fixture.env).allowFrom).toEqual({
+      default: ["legacy-user"],
+    });
     expect(fs.existsSync(pairingPath)).toBe(false);
   });
 

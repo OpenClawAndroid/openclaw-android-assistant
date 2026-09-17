@@ -1,6 +1,6 @@
 /**
  * Extracts native Codex subagent completion notifications from trusted
- * inter-agent commentary messages emitted by the app-server.
+ * contextual and inter-agent messages emitted by the app-server.
  */
 import { readStringField as readString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { CodexServerNotification, JsonObject, JsonValue } from "./protocol.js";
@@ -40,6 +40,9 @@ function extractCodexNativeSubagentCompletions(
   if (!item) {
     return [];
   }
+  if (notification.method === "rawResponseItem/completed" && item.role === "user") {
+    return readTrustedContextualCompletions(item);
+  }
   const communication = readTrustedInterAgentCommunication(item);
   const text = communication?.content;
   if (typeof text !== "string" || !text) {
@@ -48,6 +51,44 @@ function extractCodexNativeSubagentCompletions(
   return extractCodexNativeSubagentCompletionsFromText(text).filter(
     (completion) => completion.agentPath === communication?.author,
   );
+}
+
+function readTrustedContextualCompletions(
+  item: JsonObject,
+): CodexNativeSubagentNotificationCompletion[] {
+  const content = item.content;
+  const metadata = item.internal_chat_message_metadata_passthrough;
+  const kinds = isJsonObject(metadata) ? metadata.content_item_kinds : undefined;
+  if (
+    item.type !== "message" ||
+    !Array.isArray(content) ||
+    !Array.isArray(kinds) ||
+    content.length !== kinds.length
+  ) {
+    return [];
+  }
+  // Codex classifies each contextual fragment separately. Adjacent user text
+  // cannot borrow the native fragment's classification or forge its receipt.
+  return content.flatMap((entry, index) => {
+    if (
+      kinds[index] !== "multi_agent.subagent_notification" ||
+      !isJsonObject(entry) ||
+      entry.type !== "input_text"
+    ) {
+      return [];
+    }
+    const text = readString(entry, "text")?.trim();
+    if (
+      !text?.startsWith(CODEX_SUBAGENT_NOTIFICATION_START) ||
+      !text.endsWith(CODEX_SUBAGENT_NOTIFICATION_END)
+    ) {
+      return [];
+    }
+    const completion = parseCodexNativeSubagentNotificationBody(
+      text.slice(CODEX_SUBAGENT_NOTIFICATION_START.length, -CODEX_SUBAGENT_NOTIFICATION_END.length),
+    );
+    return completion ? [completion] : [];
+  });
 }
 
 /** Parses one or more tagged subagent completion payloads from commentary text. */

@@ -7,8 +7,8 @@ import { isOpenClawDeliveryMirrorAssistantMessage } from "../shared/transcript-o
 import {
   extractAssistantTextForSilentCheck,
   hasAssistantDisplayableNonTextContent,
-  isProjectedSessionsSendForwardedMessage,
-  isSessionsSendInterSessionUserMessage,
+  isProjectedForwardedMessage,
+  isForwardedUserMessage,
 } from "./chat-display-projection.helpers.js";
 import { displayTextForDuplicateCheck } from "./chat-display-projection.history.js";
 import { isSuppressedControlReplyText } from "./control-reply-text.js";
@@ -393,10 +393,7 @@ export function createMessageToolVisibleReplyProjection() {
           continue;
         }
 
-        if (
-          (record.role === "user" && isSessionsSendInterSessionUserMessage(record)) ||
-          isProjectedSessionsSendForwardedMessage(record)
-        ) {
+        if (isForwardedUserMessage(record) || isProjectedForwardedMessage(record)) {
           next.push(message);
           continue;
         }

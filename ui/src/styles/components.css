@@ -1811,14 +1811,21 @@ openclaw-session-progress-hovercard-provider {
 }
 
 .person-activity-card__session-name.hover-marquee {
+  --hover-marquee-fade-width: 18px;
+
   white-space: nowrap;
   color: var(--text);
   text-overflow: clip;
-  -webkit-mask-image: linear-gradient(to right, black calc(100% - 18px), transparent 100%);
-  mask-image: linear-gradient(to right, black calc(100% - 18px), transparent 100%);
 }
 
 @media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .person-activity-card__session-name > .hover-marquee__text {
+    display: inline;
+    white-space: normal;
+    transform: none;
+    transition: none;
+  }
+
   .person-activity-card__session-name.hover-marquee {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -5834,33 +5841,57 @@ td.data-table-key-col {
    Hover Marquee
    =========================================== */
 
-/* Truncated single-line labels that slide on hover to reveal the clipped
-   tail. lib/hover-marquee.ts measures the overflow and sets the custom
-   properties; without it the label stays a plain ellipsized span. Animates
-   text-indent so the resting ellipsis keeps rendering (text-overflow shows
-   no "…" for atomic inline children, ruling out a transformed wrapper). */
+/* Only the title viewport is masked; badges and row controls stay outside it.
+   Extra travel equal to the fade width leaves the complete tail opaque. */
 .hover-marquee {
+  --hover-marquee-fade-width: 12px;
+  --hover-marquee-fade-direction: to right;
+
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: start;
+  text-overflow: clip;
   white-space: nowrap;
-  transition: text-indent 180ms ease-out;
+}
+
+.hover-marquee:dir(rtl) {
+  --hover-marquee-fade-direction: to left;
+}
+
+.hover-marquee__text {
+  display: inline-block;
+  width: max-content;
+  transform: translateX(0);
+  transition: transform 180ms ease-out;
+}
+
+.hover-marquee--overflowing {
+  mask-image: linear-gradient(
+    var(--hover-marquee-fade-direction),
+    black calc(100% - var(--hover-marquee-fade-width)),
+    transparent
+  );
 }
 
 .hover-marquee--scrolling {
-  text-overflow: clip;
-  text-indent: var(--hover-marquee-shift, 0);
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--hover-marquee-fade-width),
+    black calc(100% - var(--hover-marquee-fade-width)),
+    transparent
+  );
+}
+
+.hover-marquee--scrolling > .hover-marquee__text {
+  transform: translateX(var(--hover-marquee-shift, 0));
   transition-duration: var(--hover-marquee-duration, 600ms);
   transition-timing-function: linear;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hover-marquee {
+  .hover-marquee > .hover-marquee__text {
+    transform: none;
     transition: none;
-  }
-
-  .hover-marquee--scrolling {
-    text-overflow: ellipsis;
-    text-indent: 0;
   }
 }
 

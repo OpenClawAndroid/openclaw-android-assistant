@@ -22,10 +22,7 @@ import { resolveSessionPermissionExecMode } from "../../session-permission-exec-
 import { resolveSessionPlacementSandbox } from "../../session-placement-admission.js";
 import { resolveSessionSkillResourceSnapshot } from "../../session-placement-skill-resources.js";
 import { createToolTerminalObserver } from "../../tool-terminal-outcome.js";
-import {
-  createAdmittedGatewayToolCallerIdentity,
-  withGatewayToolCallerIdentity,
-} from "../../tools/gateway-caller-context.js";
+import { withGatewayToolCallerIdentity } from "../../tools/gateway-caller-context.js";
 import { resolveAttemptWorkspaceSandbox } from "../../workspace-sandbox.js";
 import type { EmbeddedRunReplayState } from "../replay-state.js";
 import { remapSkillReferencePaths } from "../sandbox-skills.js";
@@ -34,6 +31,7 @@ import { mapThinkingLevelForProvider } from "../utils.js";
 import { prepareExecApprovalContinuationForAttempt } from "./attempt-exec-approval-continuation.js";
 import { applyResolvedToolPromptFinalizer } from "./attempt-prompt-support.js";
 import { EMBEDDED_RUN_ATTEMPT_DISPATCH_STAGE } from "./attempt-stage-timing.js";
+import { createEmbeddedGatewayToolCallerIdentity } from "./attempt-tool-run-context.js";
 import { resolveAttemptDispatchApiKey } from "./auth-store.js";
 import { runEmbeddedAttemptWithBackend } from "./backend.js";
 import type { PreparedEmbeddedRunInput } from "./execution-context.js";
@@ -675,20 +673,11 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     },
     prepareAssistantTranscriptMessage: params.prepareAssistantTranscriptMessage,
   };
-  const callerIdentity = createAdmittedGatewayToolCallerIdentity({
+  const callerIdentity = createEmbeddedGatewayToolCallerIdentity({
+    run: params,
     admittedRunContext: attemptParams.admittedRunContext,
     agentId: workspaceResolution.agentId,
     sessionKey: resolvedSessionKey,
-    turnSourceChannel: params.messageChannel ?? params.messageProvider,
-    turnSourceLocal:
-      !params.messageChannel &&
-      !params.messageProvider &&
-      params.cronCreatorAuthorityCapability?.callerOrigin.kind === "local"
-        ? true
-        : undefined,
-    turnSourceTo: params.currentMessagingTarget ?? params.currentChannelId,
-    turnSourceAccountId: params.agentAccountId,
-    turnSourceThreadId: params.currentThreadTs,
   });
   const rawAttempt = await withGatewayToolCallerIdentity(callerIdentity, () =>
     runEmbeddedAttemptWithBackend(attemptParams, nativeSessionRuntime),

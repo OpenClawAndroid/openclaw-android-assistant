@@ -439,14 +439,14 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     const entry = read()!;
     const ordinary = await listSessionFixture({
       cfg,
-      storePath: "",
+      storePath: resolveSessionStorePathCore(cfg.session?.store, { agentId: scope.agentId }),
       store: { [target.key]: entry },
       opts: {},
     });
     expect(ordinary.sessions[0]?.activitySummary).toBeUndefined();
     const activity = await listSessionFixture({
       cfg,
-      storePath: "",
+      storePath: resolveSessionStorePathCore(cfg.session?.store, { agentId: scope.agentId }),
       store: { [target.key]: entry },
       opts: { includeActivitySummary: true },
     });
@@ -683,7 +683,7 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     expect(entry).not.toHaveProperty("sessionId");
     const listed = await listSessionFixture({
       cfg,
-      storePath: "",
+      storePath: resolveSessionStorePathCore(cfg.session?.store, { agentId: scope.agentId }),
       store: { [key]: entry! },
       opts: { includeActivitySummary: true },
     });

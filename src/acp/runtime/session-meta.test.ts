@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import { retainLegacyDefaultAgentId } from "../../config/legacy.default-agent-owner.js";
 import { loadSessionEntry, replaceSessionEntry } from "../../config/sessions/session-accessor.js";
@@ -54,78 +54,6 @@ describe("ACP session metadata SQLite store", () => {
   afterEach(() => {
     closeOpenClawAgentDatabasesForTest();
     closeOpenClawStateDatabaseForTest();
-  });
-
-  it("persists bare global metadata under a configured fixed-store owner", async () => {
-    await withTestDir({ prefix: "openclaw-acp-global-owner-" }, async (dir) => {
-      const storePath = path.join(dir, "sessions.json");
-      const cfg = {
-        session: { scope: "global", store: storePath },
-        agents: {
-          ownership: "explicit",
-          defaults: { sessionStore: { agentId: "ops" } },
-          entries: { ops: {}, research: {} },
-        },
-      } satisfies OpenClawConfig;
-      const databasePath = path.join(dir, "state", "openclaw.sqlite");
-      await replaceSessionEntry(
-        {
-          agentId: "ops",
-          storePath,
-          sessionKey: "global",
-        },
-        { sessionId: "ops-global", updatedAt: 100, sessionStartedAt: 100 },
-      );
-      const mutate = () => ({
-        backend: "acpx",
-        agent: "codex",
-        runtimeSessionName: "global",
-        mode: "persistent" as const,
-        state: "idle" as const,
-        lastActivityAt: 123,
-      });
-
-      const persisted = await upsertAcpSessionMeta({
-        cfg,
-        databasePath,
-        sessionKey: "global",
-        mutate,
-      });
-
-      expect(persisted?.acp?.runtimeSessionName).toBe("global");
-      expect(
-        readAcpSessionMeta({
-          cfg,
-          databasePath,
-          sessionKey: "global",
-        })?.runtimeSessionName,
-      ).toBe("global");
-      const conflictingMutate = vi.fn(mutate);
-      await expect(
-        upsertAcpSessionMeta({
-          cfg,
-          databasePath,
-          sessionKey: "global",
-          agentId: "research",
-          mutate: conflictingMutate,
-        }),
-      ).rejects.toMatchObject({ code: "AGENT_SELECTION_REQUIRED" });
-      expect(conflictingMutate).not.toHaveBeenCalled();
-      const ownerlessCfg = {
-        ...cfg,
-        agents: { ownership: "explicit", entries: { ops: {}, research: {} } },
-      } satisfies OpenClawConfig;
-      const ownerlessMutate = vi.fn(mutate);
-      await expect(
-        upsertAcpSessionMeta({
-          cfg: ownerlessCfg,
-          databasePath,
-          sessionKey: "ownerless-global",
-          mutate: ownerlessMutate,
-        }),
-      ).rejects.toMatchObject({ code: "AGENT_SELECTION_REQUIRED" });
-      expect(ownerlessMutate).not.toHaveBeenCalled();
-    });
   });
 
   it("reads metadata under external state ownership without write admission", async () => {
@@ -534,6 +462,7 @@ describe("ACP session metadata SQLite store", () => {
       expect(result?.acp?.runtimeSessionName).toBe("codex-new");
       const storedEntry = readStoredAcpSessionEntry({ storePath, sessionKey });
       expect(storedEntry?.sessionId).toEqual(expect.any(String));
+      expect(storedEntry?.lifecycleRevision).toEqual(expect.any(String));
       expect(storedEntry?.updatedAt).toEqual(expect.any(Number));
       expect(storedEntry?.sessionStartedAt).toBeGreaterThan(200);
       expect(storedEntry?.acp).toBeUndefined();

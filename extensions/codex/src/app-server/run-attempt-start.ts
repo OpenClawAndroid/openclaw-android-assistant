@@ -233,6 +233,8 @@ export async function startCodexAttemptRuntime(resources: CodexAttemptResources)
       toolCount: flattenCodexDynamicToolFunctions(toolBridge.specs).length,
     });
     connection.mutable.pluginAppServer = pluginAppServer;
+    // Monitor setup still belongs to startup's resource cleanup boundary.
+    await resources.registerNativeSubagentMonitor(state.thread.threadId);
   } catch (error) {
     await runCleanupStep(
       "codex-start-failure-hook-fallback",

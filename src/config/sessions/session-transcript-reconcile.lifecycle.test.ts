@@ -4,6 +4,7 @@ import type { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { assertNoOpenClawAgentDatabaseLeases } from "../../state/openclaw-agent-db-lease.js";
 import {
   closeOpenClawAgentDatabaseByPath,
@@ -333,6 +334,8 @@ describe("session transcript reconcile worker lifecycle", () => {
       markDirty.run(secondScope.sessionId);
 
       const probe = createPlanFinishFence(scope.sessionId);
+      const changes = vi.fn(() => database.db.isTransaction);
+      const unsubscribe = sessionChanges.subscribe(changes);
       startSessionTranscriptIndexReconcile({
         ...databaseOptions,
         preferredSessionId: scope.sessionId,
@@ -365,6 +368,11 @@ describe("session transcript reconcile worker lifecycle", () => {
             )
             .get(scope.sessionId),
         ).toEqual({ needs_rebuild: 0 });
+        expect(changes).toHaveBeenCalledExactlyOnceWith({
+          storePath: database.path,
+          sessionKey: scope.sessionKey,
+        });
+        expect(changes.mock.results[0]?.value).toBe(false);
         await vi.waitFor(() => expect(targetOutcome).toEqual({ ready: true }));
         expect(allReconciled).toBe(false);
         expect(
@@ -376,8 +384,16 @@ describe("session transcript reconcile worker lifecycle", () => {
         ).toEqual({ needs_rebuild: 1 });
       } finally {
         probe.release();
-        await Promise.all([targetReconciliation, allReconciliation]);
+        try {
+          await Promise.all([targetReconciliation, allReconciliation]);
+        } finally {
+          unsubscribe();
+        }
       }
+      expect(changes.mock.calls).toEqual([
+        [{ storePath: database.path, sessionKey: scope.sessionKey }],
+        [{ storePath: database.path, sessionKey: secondScope.sessionKey }],
+      ]);
     } finally {
       closeOpenClawAgentDatabasesForTest();
       closeOpenClawStateDatabaseForTest();

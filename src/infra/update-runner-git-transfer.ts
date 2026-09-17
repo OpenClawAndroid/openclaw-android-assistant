@@ -4,6 +4,7 @@ import path from "node:path";
 import { hasErrnoCode } from "./errno.js";
 import { readLocalFileSafely } from "./fs-safe.js";
 import { runStep } from "./update-runner-command.js";
+import { classifyPartialCloneGitFailure } from "./update-runner-git-target.js";
 import type { RunStepOptions, UpdateStepResult } from "./update-runner-types.js";
 
 // Bound the retained import buffer independently of Git's pack-file size. An
@@ -35,10 +36,11 @@ export async function prepareGitCandidateTransfer(params: {
   candidateSha: string;
   beforeSha: string | null;
   installedRoot: string;
+  installedRunCommand: RunStepOptions["runCommand"];
   upstreamRef?: string;
   step: RunStepOptions;
 }) {
-  const { candidateSha, beforeSha, installedRoot, upstreamRef, step } = params;
+  const { candidateSha, beforeSha, installedRoot, installedRunCommand, upstreamRef, step } = params;
   const runGit = async (name: string, args: string[], input?: string, root = step.cwd) => {
     let stdout = "";
     const result = await runStep({
@@ -48,10 +50,16 @@ export async function prepareGitCandidateTransfer(params: {
       argv: ["git", "-C", root, ...args],
       runCommand: async (argv, options) => {
         // Transfer inputs must never be silently truncated by diagnostic capture.
-        const commandResult = await step.runCommand(argv, {
+        const rawCommandResult = await step.runCommand(argv, {
           ...options,
           input,
           terminateOnOutputLimit: true,
+        });
+        const commandResult = await classifyPartialCloneGitFailure({
+          result: rawCommandResult,
+          root: installedRoot,
+          runCommand: installedRunCommand,
+          timeoutMs: step.timeoutMs,
         });
         stdout = commandResult.stdout;
         // Object inventories are transfer input, not operator diagnostics.
@@ -79,6 +87,7 @@ export async function prepareGitCandidateTransfer(params: {
     "rev-list",
     "--objects",
     "--no-object-names",
+    "--missing=allow-any",
     candidateSha,
     ...(upstreamSha ? [upstreamSha] : []),
     ...(beforeSha ? [`^${beforeSha}`] : []),

@@ -28,7 +28,7 @@ import type { GatewayKernelRuntime } from "./server-kernel-request-runtime.js";
 import { GATEWAY_EVENTS } from "./server-methods-list.js";
 import { refreshConnectedNodeSurfaceCaches } from "./server-methods/nodes.read.js";
 import { assertGatewayRuntimeSecurityConfig } from "./server-runtime-config.js";
-import { getRequiredSharedGatewaySessionGeneration } from "./server-shared-auth-generation.js";
+import { createRequiredSharedGatewaySessionGenerationReader } from "./server-shared-auth-generation.js";
 import { startGatewayTlsRenewal } from "./server-tls-renewal.js";
 import type { GatewayHttpTransport } from "./server-transport-bridge.js";
 import { collectGatewayWorkerPoolMetrics } from "./server/process-vitals.js";
@@ -168,8 +168,9 @@ export async function finishGatewayStartup(params: {
       pluginSurfaceScheme: gatewayTls.enabled ? "https" : "http",
       getPluginNodeCapabilities,
       getResolvedAuth,
-      getRequiredSharedGatewaySessionGeneration: () =>
-        getRequiredSharedGatewaySessionGeneration(sharedGatewaySessionGenerationState),
+      getRequiredSharedGatewaySessionGeneration: createRequiredSharedGatewaySessionGenerationReader(
+        sharedGatewaySessionGenerationState,
+      ),
       rateLimiter: authRateLimiter,
       browserRateLimiter: browserAuthRateLimiter,
       nodeReapprovalCoordinator,

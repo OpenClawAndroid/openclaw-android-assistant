@@ -133,6 +133,47 @@ service definitions unchanged. Doctor reports incompatible effective settings.
 Operator-owned drop-ins must be inspected and updated separately because reinstalling
 the base unit preserves them. See [Linux services](/platforms/linux).
 
+### Systemd stop deadlines
+
+At startup, the Gateway reads its running systemd unit's effective
+`TimeoutStopUSec`, including drop-ins. It logs the source and reconciled stop
+budget at startup and again when shutdown begins. Active-work drain uses at most
+315 seconds, with 10 seconds reserved for final chat writes and server cleanup
+and another 5 seconds before systemd's deadline. A unit with the default
+90-second stop timeout therefore gets a 75-second drain and an 85-second Gateway
+shutdown deadline. A shorter supervisor timeout also caps requested restart waits.
+The drained work, ordering, and interruption behavior stay the same.
+
+If the manager cannot be queried, the Gateway logs that it is using systemd's
+90-second default as a conservative fallback. An explicitly unlimited timeout
+keeps the normal Gateway budget. The startup reading is retained for that
+process; restart the Gateway after changing its unit settings.
+
+An already-installed old unit benefits from the clamp as soon as the new Gateway
+starts, without a service rewrite. This leaves time for orderly shutdown instead
+of spending the entire stop window in drain. Work that cannot settle still uses
+the existing interruption and recovery path; the shorter budget cannot guarantee
+that arbitrary cleanup completes. CLI installs and guided Doctor service repairs
+render `TimeoutStopSec=330` from the same policy as the Gateway. Doctor reports
+an effective stop timeout below that requirement. Operator-owned drop-ins remain
+the operator's responsibility.
+
+For hand-written system units, allow at least **drain + 15 seconds**. With the
+current maximum drain, create
+`/etc/systemd/system/openclaw-gateway.service.d/stop-timeout.conf`:
+
+```ini
+[Service]
+TimeoutStopSec=330
+```
+
+Run `sudo systemctl daemon-reload` and verify with
+`systemctl show openclaw-gateway.service -p TimeoutStopUSec`. Restart through your
+service's deployment owner to refresh the Gateway's startup reading. For a user
+unit, use `systemctl --user edit openclaw-gateway.service` and the corresponding
+`--user` reload/show commands. Retain `KillMode=mixed` as described above; a longer
+timeout does not protect children from `KillMode=control-group`'s initial signal.
+
 Replies to pending node commands remain accepted during the drain, including
 worker cleanup started by shutdown. Each reply must still match its live
 invocation, node connection, pairing generation, and owning lifecycle. This

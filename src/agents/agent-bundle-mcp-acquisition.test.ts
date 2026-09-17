@@ -93,12 +93,18 @@ it("releases capacity when every configured server is excluded before connection
   await expect(
     (async () => {
       for (let index = 0; index <= SESSION_MCP_MAX_LIVE_RUNTIMES; index += 1) {
+        const sessionKey = `agent:main:excluded-${index}`;
         const acquired = await acquireSessionMcpRuntime({
           ...params,
           sessionId: `excluded-${index}`,
+          sessionKey,
           cfg,
         });
         await releaseSessionMcpRuntime(acquired, new Set());
+        expect(getSessionMcpRuntimeManagerForTesting().listRuntimeKeys()).toEqual([]);
+        expect(
+          getSessionMcpRuntimeManagerForTesting().resolveSessionId(sessionKey),
+        ).toBeUndefined();
       }
     })(),
   ).resolves.toBeUndefined();

@@ -34,6 +34,7 @@ import {
 } from "../session-sharing.js";
 import { flushPendingSessionsChangedEvents } from "./session-change-event.js";
 import { sessionMutationHandlers } from "./sessions-mutations.js";
+import { initializeSessionReadContext } from "./sessions-read-cache.test-support.js";
 import type {
   GatewayClient,
   GatewayRequestContext,
@@ -41,8 +42,8 @@ import type {
   RespondFn,
 } from "./types.js";
 
-afterEach(() => {
-  flushPendingSessionsChangedEvents();
+afterEach(async () => {
+  await flushPendingSessionsChangedEvents();
   closeOpenClawAgentDatabasesForTest();
   vi.restoreAllMocks();
 });
@@ -121,6 +122,7 @@ describe("sessions.patch", () => {
         boardFace: "chat",
       });
       const requestContext = context({});
+      await initializeSessionReadContext(requestContext);
       requestContext.getClientConnIds = () => new Set();
       requestContext.resolveGatewayContext = () => requestContext;
       const tool = createDashboardTool({ agentSessionKey: sessionKey, agentId: "main" });

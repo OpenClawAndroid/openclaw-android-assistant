@@ -3,14 +3,17 @@ import {
   createCodexManagedThreadStore,
   type StoredCodexManagedThread,
 } from "./app-server/managed-thread-store.js";
+import type { CodexSessionCatalogControl } from "./session-catalog-types.js";
 import {
   commandRpcMocks,
   config,
+  createCodexSessionCatalogControl,
   createCodexSessionCatalogControlFactory,
   createCodexTestBindingStore,
   createGatewayApi,
   createRuntime,
   idleThread,
+  pinnedConnectionMocks,
   registerCodexSessionCatalog,
   type CodexThread,
 } from "./session-catalog.test-helpers.js";
@@ -81,6 +84,54 @@ async function fixture(
 }
 
 describe("Codex catalog combined search and exclusion budget", () => {
+  it.each(["cached", "uncached", "pinned"] as const)(
+    "keeps the starting scan budget when caller options change during %s setup",
+    async (mode) => {
+      const response = (request: { cursor?: string }) => ({
+        data: [idleThread({ id: `other-${request.cursor}`, name: "Other", source: "cli" })],
+        nextCursor: String(Number(request.cursor) + 1),
+      });
+      commandRpcMocks.codexControlRequest.mockImplementation(async (_plugin, _method, request) =>
+        response(request),
+      );
+      pinnedConnectionMocks.request.mockImplementation(async ({ requestParams }) =>
+        response(requestParams),
+      );
+      const control = createCodexSessionCatalogControl({
+        getPluginConfig: () => ({ supervision: { enabled: true } }),
+        getRuntimeConfig: () => (mode === "uncached" ? undefined : config),
+      });
+      const verify = async (active: CodexSessionCatalogControl) => {
+        const query = { cursor: "0", limit: 1, searchTerm: "Wanted" };
+        const options = { maxScanPages: 1 };
+        const reading = active.listPage(query, undefined, options);
+        options.maxScanPages = 3;
+
+        await expect(reading).resolves.toEqual({ sessions: [], nextCursor: "1" });
+        const nativeRequest =
+          mode === "pinned" ? pinnedConnectionMocks.request : commandRpcMocks.codexControlRequest;
+        expect(nativeRequest).toHaveBeenCalledOnce();
+        if (mode === "cached") {
+          await expect(active.listPage(query, undefined, { maxScanPages: 1 })).resolves.toEqual({
+            sessions: [],
+            nextCursor: "1",
+          });
+          expect(nativeRequest).toHaveBeenCalledOnce();
+        }
+        await expect(active.listPage(query, undefined, options)).resolves.toEqual({
+          sessions: [],
+          scannedPages: 3,
+          nextCursor: "3",
+        });
+      };
+      if (mode === "pinned") {
+        await control.withPinnedConnection(verify);
+      } else {
+        await verify(control);
+      }
+    },
+  );
+
   it.each([true, false])(
     "bounds an entirely managed title search and preserves continuation (runtime config %s)",
     async (hasRuntimeConfig) => {

@@ -7,6 +7,7 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  symlinkSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
@@ -521,6 +522,128 @@ ${readFileSync(gitShim, "utf8")}
         { kind: "fetched", sha: f.main, shared: f.movedMain },
       ]);
       expect(f.git(f.canonical, "rev-parse", "refs/remotes/origin/main")).toBe(f.movedMain);
+    },
+  );
+
+  it.each([
+    { filter: "blob:none", smallIncluded: false, largeIncluded: false },
+    { filter: "blob:limit=64", smallIncluded: true, largeIncluded: false },
+    { filter: undefined, smallIncluded: true, largeIncluded: true },
+  ])(
+    "retains canonical fetch filtering ($filter) without changing Git config or shared checkpoints",
+    ({ filter, smallIncluded, largeIncluded }) => {
+      const f = createMainRefreshFixture(tempDirs.make("openclaw-pr-main-filter-"), {
+        partialCloneFilter: filter,
+      });
+      symlinkSync(f.origin, join(f.root, "origin=filter.git"));
+      f.git(f.canonical, "remote", "set-url", "origin", "../origin=filter.git");
+      if (!filter) {
+        f.git(f.canonical, "config", "remote.origin.promisor", "false");
+        f.git(f.canonical, "config", "remote.origin.partialclonefilter", "blob:none");
+      }
+      f.git(f.worktree, "config", "--worktree", "remote.origin.url", join(f.root, "wrong-origin"));
+      f.git(
+        f.worktree,
+        "config",
+        "--worktree",
+        "remote.origin.promisor",
+        filter ? "false" : "true",
+      );
+      f.git(
+        f.worktree,
+        "config",
+        "--worktree",
+        "remote.origin.partialclonefilter",
+        "blob:limit=1m",
+      );
+      f.git(
+        f.worktree,
+        "config",
+        "--worktree",
+        "remote.origin.fetch",
+        "+refs/heads/topic:refs/remotes/origin/main",
+      );
+      const commonConfig = join(f.canonical, ".git", "config");
+      const worktreeConfig = join(
+        f.git(f.worktree, "rev-parse", "--absolute-git-dir"),
+        "config.worktree",
+      );
+      const beforeConfig = [commonConfig, worktreeConfig].map((path) => readFileSync(path, "utf8"));
+      const sharedFetchHead = join(f.canonical, ".git", "FETCH_HEAD");
+      writeFileSync(sharedFetchHead, "unrelated shared checkpoint\n");
+      const author = join(f.root, "author");
+      f.git(f.origin, "worktree", "add", "--detach", author, f.main);
+      f.git(author, "config", "user.name", "OpenClaw Test");
+      f.git(author, "config", "user.email", "test@example.invalid");
+      const localObjects = () =>
+        f
+          .git(f.canonical, "cat-file", "--batch-all-objects", "--batch-check=%(objectname)")
+          .split("\n");
+      let privateMain = "";
+      let largeBlob = "";
+      for (const phase of ["bootstrap", "main", "pr"]) {
+        f.git(author, "checkout", "--detach", phase === "pr" ? f.head : f.main);
+        writeFileSync(join(author, "small.txt"), `${phase}\n`);
+        writeFileSync(join(author, "large.txt"), `${phase}\n`.repeat(1024));
+        f.git(author, "add", "small.txt", "large.txt");
+        f.git(author, "commit", "-qm", `test: remote ${phase} objects`);
+        const head = f.git(author, "rev-parse", "HEAD");
+        const smallBlob = f.git(author, "rev-parse", "HEAD:small.txt");
+        largeBlob = f.git(author, "rev-parse", "HEAD:large.txt");
+        f.git(
+          f.origin,
+          "update-ref",
+          phase === "pr" ? "refs/heads/topic" : "refs/heads/main",
+          head,
+        );
+        if (phase === "pr") {
+          f.configure({ metadata: { ...f.metadata, headRefOid: head } });
+        }
+        const beforeObjects = localObjects();
+        expect(beforeObjects).not.toContain(smallBlob);
+        expect(beforeObjects).not.toContain(largeBlob);
+        const command =
+          phase === "bootstrap"
+            ? "fetch_canonical_main refs/heads/temp/pr-42"
+            : phase === "main"
+              ? "cd .worktrees/pr-42\nrefresh_main_snapshot"
+              : `cd .worktrees/pr-42\nfetch_pr_head 42 ${head} refs/heads/pr-42`;
+        const result = f.shell(command);
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        const afterObjects = localObjects();
+        expect(afterObjects.includes(smallBlob), `${phase} small blob`).toBe(smallIncluded);
+        expect(afterObjects.includes(largeBlob), `${phase} large blob`).toBe(largeIncluded);
+        if (phase === "main") {
+          privateMain = head;
+        } else {
+          expect(
+            f.git(
+              f.canonical,
+              "rev-parse",
+              phase === "bootstrap" ? "refs/heads/temp/pr-42" : "refs/heads/pr-42",
+            ),
+          ).toBe(head);
+        }
+        if (privateMain) {
+          expect(f.git(f.worktree, "rev-parse", "FETCH_HEAD")).toBe(privateMain);
+        }
+        expect(f.git(f.canonical, "rev-parse", "refs/remotes/origin/main")).toBe(f.main);
+        expect(readFileSync(sharedFetchHead, "utf8")).toBe("unrelated shared checkpoint\n");
+        expect([commonConfig, worktreeConfig].map((path) => readFileSync(path, "utf8"))).toEqual(
+          beforeConfig,
+        );
+      }
+      // Explicit object hydration must still retrieve bytes omitted by ref filtering.
+      f.git(
+        f.canonical,
+        "fetch",
+        "--no-auto-maintenance",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "../origin=filter.git",
+        largeBlob,
+      );
+      expect(localObjects()).toContain(largeBlob);
     },
   );
 

@@ -20,6 +20,7 @@ export function createTaskRegistryMaintenanceHarness(params: {
   activeCronJobIds?: string[];
   activeRunIds?: string[];
   activeAcpSessionKeys?: string[];
+  hasActiveAcpTurn?: TaskRegistryMaintenanceRuntime["hasActiveAcpTurn"];
   durableCronTaskRows?: Record<string, TaskRecord[]>;
   runtimeAuthoritative?: boolean;
   hasSubagentTaskOwner?: TaskRegistryMaintenanceRuntime["hasSubagentTaskOwner"];
@@ -66,7 +67,8 @@ export function createTaskRegistryMaintenanceHarness(params: {
     isCronJobActive: (jobId: string) => activeCronJobIds.has(jobId),
     getAgentRunContext: (runId: string) =>
       activeRunIds.has(runId) ? { sessionKey: "main" } : undefined,
-    hasActiveAcpTurn: (sessionKey: string) => activeAcpSessionKeys.has(sessionKey),
+    hasActiveAcpTurn:
+      params.hasActiveAcpTurn ?? ((sessionKey: string) => activeAcpSessionKeys.has(sessionKey)),
     hasSubagentTaskOwner: params.hasSubagentTaskOwner,
     parseAgentSessionKey: (sessionKey: string | null | undefined): ParsedAgentSessionKey | null => {
       if (!sessionKey) {

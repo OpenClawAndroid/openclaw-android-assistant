@@ -1,5 +1,3 @@
-import type { SynchronousWork } from "../../../shared/synchronous-work.js";
-import type { OpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.types.js";
 /**
  * Read-only subagent registry accessors.
  *
@@ -11,7 +9,6 @@ import { getSubagentRunsForChildSession, subagentRuns } from "./subagent-registr
 import {
   buildLatestSubagentRunReadIndexFromRuns,
   buildSubagentRunReadIndexFromRuns,
-  buildSubagentRunReadIndexWork,
   countActiveDescendantRunsFromRuns,
   countPendingDescendantRunsFromRuns,
   getLatestSubagentRunByChildSessionKeyFromRuns,
@@ -28,7 +25,6 @@ import {
 import type { SubagentRunReadRecord } from "./subagent-registry-read.types.js";
 import {
   getSubagentSessionListRunsSnapshotForRead,
-  withSubagentSessionListRunsSnapshotForRead,
   getSubagentSessionListRunsSnapshotForSessions,
   getSubagentRunsSnapshotForChildSession,
   getSubagentRunsSnapshotForController,
@@ -67,24 +63,6 @@ export function buildSubagentSessionListReadIndex(
       : subagentRuns.values(),
     now,
   });
-}
-
-export function prepareSubagentSessionListReadIndex(
-  now: number,
-  context: OpenClawStateWorkerContext,
-  shouldYield: () => boolean,
-  yieldIfNeeded: () => Promise<void> | undefined,
-): Promise<SynchronousWork<SubagentRunReadIndex<SubagentRunReadRecord>>> {
-  return withSubagentSessionListRunsSnapshotForRead(
-    subagentRuns,
-    context,
-    (runs) =>
-      buildSubagentRunReadIndexWork(
-        { runs, inMemoryRuns: subagentRuns.values(), now },
-        shouldYield,
-      ),
-    yieldIfNeeded,
-  );
 }
 
 /** Direct-child discovery needs only its controllers, without building global topology. */

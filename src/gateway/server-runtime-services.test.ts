@@ -613,63 +613,47 @@ describe("server-runtime-services", () => {
     );
   });
 
-  it("runs legacy migration once while clean periodic ticks keep draining canonical work", async () => {
-    vi.useFakeTimers();
-    const { services } = activateScheduledServicesForTest();
-
-    await vi.dynamicImportSettled();
-    expect(hoisted.migrateLegacyPendingOutboundDeliveries).toHaveBeenCalledOnce();
-    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledOnce();
-
-    await vi.advanceTimersByTimeAsync(15_000);
-
-    expect(hoisted.migrateLegacyPendingOutboundDeliveries).toHaveBeenCalledOnce();
-    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledOnce();
-    expect(hoisted.drainPendingDeliveries).toHaveBeenCalledTimes(3);
-    services.heartbeatRunner.stop();
-  });
-
-  it.each([
-    {
-      name: "the pass skipped work",
-      firstPass: { moved: 0, skipped: 1, remaining: 0 },
+  it.each(["clean", "legacy rows", "legacy files"])(
+    "keeps current delivery recovery running with %s while diagnosing legacy state once",
+    async (condition) => {
+      vi.useFakeTimers();
+      const log = createLog();
+      const recoveryLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      log.child.mockReturnValue(recoveryLog);
+      hoisted.countPendingDeliveryQueueEntries.mockReturnValue(condition === "legacy rows" ? 2 : 0);
+      hoisted.listLegacyDeliveryQueueArtifacts.mockReturnValue(
+        condition === "legacy files" ? ["legacy.json"] : [],
+      );
+      const { services } = activateScheduledServicesForTest({ log });
+      await vi.dynamicImportSettled();
+      expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledOnce();
+      if (condition === "clean") {
+        expect(recoveryLog.warn).not.toHaveBeenCalled();
+      } else {
+        expect(recoveryLog.warn).toHaveBeenCalledWith(
+          expect.stringContaining("openclaw doctor --fix"),
+        );
+      }
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(hoisted.countPendingDeliveryQueueEntries).toHaveBeenCalledOnce();
+      expect(hoisted.listLegacyDeliveryQueueArtifacts).toHaveBeenCalledOnce();
+      expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledOnce();
+      expect(hoisted.drainPendingDeliveries).toHaveBeenCalledTimes(3);
+      await services.stopDeliveryRecovery();
+      services.heartbeatRunner.stop();
     },
-    {
-      name: "retired work remains",
-      firstPass: { moved: 0, skipped: 0, remaining: 1 },
-    },
-  ])("retries legacy migration when $name until a clean pass completes", async ({ firstPass }) => {
-    vi.useFakeTimers();
-    hoisted.migrateLegacyPendingOutboundDeliveries
-      .mockResolvedValueOnce(firstPass)
-      .mockResolvedValueOnce({ moved: 1, skipped: 0, remaining: 0 });
-    const { services } = activateScheduledServicesForTest();
+  );
 
-    await vi.dynamicImportSettled();
-    expect(hoisted.migrateLegacyPendingOutboundDeliveries).toHaveBeenCalledOnce();
-    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledOnce();
-
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(hoisted.migrateLegacyPendingOutboundDeliveries).toHaveBeenCalledTimes(2);
-    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledTimes(2);
-    expect(hoisted.drainPendingDeliveries).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(hoisted.migrateLegacyPendingOutboundDeliveries).toHaveBeenCalledTimes(2);
-    expect(hoisted.drainPendingDeliveries).toHaveBeenCalledOnce();
-    services.heartbeatRunner.stop();
-  });
-
-  it("resets legacy migration completion with the scheduled-service lifecycle", async () => {
+  it("runs initial recovery again for the next scheduled-service lifecycle", async () => {
     vi.useFakeTimers();
     const first = activateScheduledServicesForTest();
     await vi.dynamicImportSettled();
-    expect(hoisted.migrateLegacyPendingOutboundDeliveries).toHaveBeenCalledOnce();
+    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledOnce();
     await first.services.stopDeliveryRecovery();
-
     const second = activateScheduledServicesForTest();
     await vi.dynamicImportSettled();
-    expect(hoisted.migrateLegacyPendingOutboundDeliveries).toHaveBeenCalledTimes(2);
+    expect(hoisted.recoverPendingDeliveries).toHaveBeenCalledTimes(2);
+    await second.services.stopDeliveryRecovery();
     second.services.heartbeatRunner.stop();
   });
 

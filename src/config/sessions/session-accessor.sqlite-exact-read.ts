@@ -130,7 +130,7 @@ export type ExactSessionEntryBatchScope = Omit<SessionEntryReadScope, "sessionKe
   onReadSource?: (source: SessionEntryReadSource) => void;
 };
 
-export function groupExactSessionEntryReadRequests(scopes: readonly ExactSessionEntryBatchScope[]) {
+function groupExactSessionEntryReadRequests(scopes: readonly ExactSessionEntryBatchScope[]) {
   const results: Array<Result<ExactSessionEntry[], unknown>> = scopes.map(() => ok([]));
   const targetCache: SessionSqliteTargetResolutionCache = new Map();
   const groups = new Map<

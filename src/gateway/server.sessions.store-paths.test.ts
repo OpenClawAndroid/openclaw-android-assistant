@@ -7,12 +7,14 @@ import * as sessionDirs from "../agents/session-dirs.js";
 import * as runtimePaths from "../config/paths.js";
 import type { InternalSessionEntry } from "../config/sessions.js";
 import {
+  deleteSessionEntryLifecycle,
   appendTranscriptEvent,
   appendTranscriptMessage,
   loadSessionEntry,
 } from "../config/sessions/session-accessor.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import * as agentDatabaseRegistry from "../state/openclaw-agent-db-registry.js";
+import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { rpcReq, testState, writeSessionStore } from "./test-helpers.js";
 import {
@@ -43,10 +45,8 @@ test("session RPC paths name the physical SQLite store", async () => {
 });
 
 test("sessions.list reads completed models from each physical agent store", async () => {
-  const stateDir = process.env.OPENCLAW_STATE_DIR;
-  if (!stateDir) {
-    throw new Error("OPENCLAW_STATE_DIR is required for gateway session tests");
-  }
+  const { dir: stateDir } = await createSessionStoreDir();
+  testState.sessionStorePath = undefined;
   const storeTemplate = path.join(stateDir, "agents", "{agentId}", "sessions", "sessions.json");
   testState.sessionConfig = { store: storeTemplate };
   testState.agentsConfig = { list: [{ id: "main", default: true }, { id: "ops" }] };
@@ -115,10 +115,8 @@ test("sessions.list reads completed models from each physical agent store", asyn
 test.runIf(process.platform !== "win32")(
   "requested-agent path projection collapses physical store aliases",
   async () => {
-    const stateDir = process.env.OPENCLAW_STATE_DIR;
-    if (!stateDir) {
-      throw new Error("OPENCLAW_STATE_DIR is required for gateway session tests");
-    }
+    const { dir: stateDir } = await createSessionStoreDir();
+    testState.sessionStorePath = undefined;
     const aliasStateDir = `${stateDir}-alias`;
     fsSync.symlinkSync(stateDir, aliasStateDir, "dir");
     try {
@@ -130,6 +128,10 @@ test.runIf(process.platform !== "win32")(
         "sessions",
         "sessions.json",
       );
+      testState.sessionConfig = {
+        store: path.join(stateDir, "agents", "{agentId}", "sessions", "sessions.json"),
+      };
+      testState.agentsConfig = { list: [{ id: "main", default: true }] };
       await writeSessionStore({
         agentId: "main",
         entries: {
@@ -138,8 +140,9 @@ test.runIf(process.platform !== "win32")(
         storePath: realStore,
       });
       testState.sessionConfig = { store: aliasTemplate };
-      testState.agentsConfig = { list: [{ id: "main", default: true }] };
-
+      const { clearRuntimeConfigSnapshot, getRuntimeConfig } = await getGatewayConfigModule();
+      clearRuntimeConfigSnapshot();
+      getRuntimeConfig();
       const listed = await directSessionReq<{
         path: string;
         sessions: Array<{ key: string }>;
@@ -161,11 +164,8 @@ test.runIf(process.platform !== "win32")(
 );
 
 test("configured-only multi-store target preparation is reused across distinct lists", async () => {
-  const rootStateDir = process.env.OPENCLAW_STATE_DIR;
-  if (!rootStateDir) {
-    throw new Error("OPENCLAW_STATE_DIR is required for gateway session tests");
-  }
-  const stateDir = path.join(rootStateDir, "configured-path-scaling");
+  const { dir: stateDir } = await createSessionStoreDir();
+  testState.sessionStorePath = undefined;
   await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
     const agentIds = Array.from({ length: 29 }, (_, index) => `agent-${index}`);
     const storeTemplate = path.join(stateDir, "agents", "{agentId}", "sessions", "sessions.json");
@@ -182,26 +182,12 @@ test("configured-only multi-store target preparation is reused across distinct l
       });
     }
 
-    const createMatcher = agentDatabaseRegistry.createOpenClawAgentDatabasePathMatcher;
-    let preparationStatCalls = 0;
+    expect((await directSessionReq("sessions.list", { configuredAgentsOnly: true })).ok).toBe(true);
+    const matcher = vi.spyOn(agentDatabaseRegistry, "createOpenClawAgentDatabasePathMatcher");
     const lstat = vi.spyOn(fsSync, "lstatSync");
     const readlink = vi.spyOn(fsSync, "readlinkSync");
     const realpath = vi.spyOn(fsSync.realpathSync, "native");
     const stat = vi.spyOn(fsSync, "statSync");
-    const matcher = vi
-      .spyOn(agentDatabaseRegistry, "createOpenClawAgentDatabasePathMatcher")
-      .mockImplementation(() => {
-        const matches = createMatcher();
-        return (left, right) => {
-          const before = stat.mock.calls.length;
-          try {
-            return matches(left, right);
-          } finally {
-            // Reader admission separately checks physical stores after awaited work.
-            preparationStatCalls += stat.mock.calls.length - before;
-          }
-        };
-      });
     syncBuiltinESMExports();
     try {
       const first = await directSessionReq<{ path: string }>("sessions.list", {
@@ -209,16 +195,15 @@ test("configured-only multi-store target preparation is reused across distinct l
         includeGlobal: false,
       });
       expect(first).toMatchObject({ ok: true, payload: { path: "(multiple)" } });
-      expect(matcher).toHaveBeenCalledTimes(1);
+      expect(matcher).not.toHaveBeenCalled();
       expect({
         realpath: realpath.mock.calls.length,
-        stat: preparationStatCalls,
-      }).toEqual({ realpath: agentIds.length, stat: agentIds.length });
+        stat: stat.mock.calls.length,
+      }).toEqual({ realpath: 0, stat: 0 });
 
       for (const spy of [matcher, lstat, readlink, realpath, stat]) {
         spy.mockClear();
       }
-      preparationStatCalls = 0;
       const second = await directSessionReq<{ path: string }>("sessions.list", {
         configuredAgentsOnly: true,
         includeUnknown: false,
@@ -230,7 +215,7 @@ test("configured-only multi-store target preparation is reused across distinct l
         matcher: matcher.mock.calls.length,
         readlink: readlink.mock.calls.length,
         realpath: realpath.mock.calls.length,
-        stat: preparationStatCalls,
+        stat: stat.mock.calls.length,
       }).toEqual({ lstat: 0, matcher: 0, readlink: 0, realpath: 0, stat: 0 });
     } finally {
       matcher.mockRestore();
@@ -244,11 +229,8 @@ test("configured-only multi-store target preparation is reused across distinct l
 });
 
 test("automatic list and search projection reuse conventional state-directory preparation", async () => {
-  const rootStateDir = process.env.OPENCLAW_STATE_DIR;
-  if (!rootStateDir) {
-    throw new Error("OPENCLAW_STATE_DIR is required for gateway session tests");
-  }
-  const home = path.join(rootStateDir, "conventional-path-scaling");
+  const { dir: home } = await createSessionStoreDir();
+  testState.sessionStorePath = undefined;
   const stateDir = path.join(home, ".openclaw");
   const legacyStateDir = path.join(home, ".clawdbot");
   await fs.mkdir(stateDir, { recursive: true });
@@ -316,9 +298,7 @@ test("automatic list and search projection reuse conventional state-directory pr
                   expect(listed.payload?.sessions).toHaveLength(
                     search === "unmatched-runtime-search" ? 0 : agentIds.length,
                   );
-                  expect
-                    .soft(environments.mock.calls.length, search ?? "list")
-                    .toBe(agentRuntimeOverride ? 0 : 1);
+                  expect.soft(environments.mock.calls.length, search ?? "list").toBe(0);
                   counts.push({
                     exists: exists.mock.calls.length,
                     stateDirectoryExists: exists.mock.calls.filter(
@@ -356,11 +336,8 @@ test("automatic list and search projection reuse conventional state-directory pr
 });
 
 test("configured-only parent-owned stores keep lineage children without directory discovery", async () => {
-  const rootStateDir = process.env.OPENCLAW_STATE_DIR;
-  if (!rootStateDir) {
-    throw new Error("OPENCLAW_STATE_DIR is required for gateway session tests");
-  }
-  const stateDir = path.join(rootStateDir, "fixed-configured-list-regression");
+  const { dir: stateDir } = await createSessionStoreDir();
+  testState.sessionStorePath = undefined;
   await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
     const storeTemplate = path.join(stateDir, "agents", "{agentId}", "sessions", "sessions.json");
     const storePath = storeTemplate.replace("{agentId}", "ops");
@@ -379,6 +356,7 @@ test("configured-only parent-owned stores keep lineage children without director
       },
     });
 
+    expect((await directSessionReq("sessions.list", { configuredAgentsOnly: true })).ok).toBe(true);
     const enumerateAgentDirs = vi.spyOn(sessionDirs, "resolveAgentSessionDirsFromAgentsDirSync");
     try {
       const listed = await directSessionReq<{ sessions: Array<{ key: string }> }>("sessions.list", {
@@ -464,6 +442,13 @@ test("filters sessions by agentId", async () => {
 });
 
 test("resolves and patches main alias to default agent main key", async () => {
+  // Remove the shared server's bootstrap main before changing its canonical main key.
+  await deleteSessionEntryLifecycle({
+    agentId: "main",
+    storePath: resolveOpenClawAgentSqlitePath({ agentId: "main" }),
+    archiveTranscript: false,
+    target: { canonicalKey: "agent:main:main", storeKeys: ["agent:main:main"] },
+  });
   const { storePath } = await createSessionStoreDir();
   testState.agentsConfig = { list: [{ id: "ops", default: true }] };
   testState.sessionConfig = { mainKey: "work" };
@@ -485,7 +470,7 @@ test("resolves and patches main alias to default agent main key", async () => {
     const resolved = await rpcReq<{ ok: true; key: string }>(ws, "sessions.resolve", {
       key: "main",
     });
-    expect(resolved.ok).toBe(true);
+    expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
     expect(resolved.payload?.key).toBe("agent:ops:work");
 
     const patched = await rpcReq<{ ok: true; key: string }>(ws, "sessions.patch", {

@@ -166,6 +166,7 @@ function renderChecks(
 }
 
 const MAX_COLLAPSED_PULL_REQUESTS = 2;
+const MIN_HIDDEN_PULL_REQUESTS = 2;
 
 // Matches GitHub's own diff-stat rendering ("+2,819") in the viewer's locale.
 function formatDiffCount(value: number): string {
@@ -177,16 +178,16 @@ function formatDiffCount(value: number): string {
 function visibleChatPullRequests(
   pullRequests: ControlUiSessionPullRequest[],
   expanded: boolean,
-): { visible: ControlUiSessionPullRequest[]; hiddenCount: number } {
+): { visible: ControlUiSessionPullRequest[]; collapsedCount: number } {
   const active = pullRequests.filter((item) => item.state === "open" || item.state === "draft");
   const settled = pullRequests.filter((item) => item.state !== "open" && item.state !== "draft");
   const ordered = [...active, ...settled];
-  if (expanded || ordered.length <= MAX_COLLAPSED_PULL_REQUESTS) {
-    return { visible: ordered, hiddenCount: 0 };
+  if (ordered.length < MAX_COLLAPSED_PULL_REQUESTS + MIN_HIDDEN_PULL_REQUESTS) {
+    return { visible: ordered, collapsedCount: 0 };
   }
   return {
-    visible: ordered.slice(0, MAX_COLLAPSED_PULL_REQUESTS),
-    hiddenCount: ordered.length - MAX_COLLAPSED_PULL_REQUESTS,
+    visible: expanded ? ordered : ordered.slice(0, MAX_COLLAPSED_PULL_REQUESTS),
+    collapsedCount: ordered.length - MAX_COLLAPSED_PULL_REQUESTS,
   };
 }
 
@@ -301,7 +302,7 @@ export function renderChatPullRequests(props: {
   branch?: ControlUiSessionBranch;
   status: ControlUiSessionPullRequestSnapshot["status"];
   expanded: boolean;
-  onExpand: () => void;
+  onToggle: () => void;
   onDismiss: (pullRequest: ControlUiSessionPullRequest) => void;
   onOpenSessionDiff?: () => void;
   publication?: GitHubPublicationView;
@@ -321,7 +322,7 @@ export function renderChatPullRequests(props: {
   }
   const recovery =
     retainedPublication && (!published || publication?.error) ? publication : undefined;
-  const { visible, hiddenCount } = visibleChatPullRequests(props.pullRequests, props.expanded);
+  const { visible, collapsedCount } = visibleChatPullRequests(props.pullRequests, props.expanded);
   return html`
     <div class="chat-prs" aria-live="polite">
       ${repeat(visible, chatPullRequestId, (pullRequest) => {
@@ -379,10 +380,22 @@ export function renderChatPullRequests(props: {
         `;
       })}
       ${
-        hiddenCount > 0
+        collapsedCount > 0
           ? html`
-              <button class="chat-prs__more" type="button" @click=${props.onExpand}>
-                ${t("chat.pullRequests.showMore", { count: String(hiddenCount) })}
+              <button
+                class="chat-prs__more"
+                type="button"
+                aria-expanded=${props.expanded}
+                @click=${props.onToggle}
+              >
+                ${
+                  props.expanded
+                    ? t("chat.pullRequests.showLess")
+                    : t("chat.pullRequests.showMore", { count: String(collapsedCount) })
+                }
+                <span aria-hidden="true"
+                  >${props.expanded ? icons.chevronUp : icons.chevronDown}</span
+                >
               </button>
             `
           : nothing

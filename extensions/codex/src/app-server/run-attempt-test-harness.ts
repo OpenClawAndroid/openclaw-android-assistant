@@ -614,6 +614,22 @@ export function createAppServerHarness(
   };
 }
 
+function defaultAttemptHarnessResponse(method: string) {
+  if (method === "configRequirements/read") {
+    return { requirements: null };
+  }
+  if (method === "config/read") {
+    return { config: {}, origins: {} };
+  }
+  if (method === "turn/start") {
+    return turnStartResult();
+  }
+  if (method === "thread/backgroundTerminals/list") {
+    return { data: [], nextCursor: null };
+  }
+  return {};
+}
+
 export function createStartedThreadHarness(
   requestImpl: Parameters<typeof createAppServerHarness>[0] = async () => undefined,
   options: Parameters<typeof createAppServerHarness>[1] = {},
@@ -623,34 +639,16 @@ export function createStartedThreadHarness(
     if (override !== undefined) {
       return override;
     }
-    if (method === "configRequirements/read") {
-      return { requirements: null };
-    }
-    if (method === "config/read") {
-      return { config: {}, origins: {} };
-    }
     if (method === "thread/start") {
       return threadStartResult();
     }
-    if (method === "turn/start") {
-      return turnStartResult();
-    }
-    if (method === "thread/backgroundTerminals/list") {
-      return { data: [], nextCursor: null };
-    }
-    return {};
+    return defaultAttemptHarnessResponse(method);
   }, options);
 }
 
 export function createResumeHarness(threadId = "thread-existing") {
   return createAppServerHarness(
     async (method, params) => {
-      if (method === "configRequirements/read") {
-        return { requirements: null };
-      }
-      if (method === "config/read") {
-        return { config: {}, origins: {} };
-      }
       if (method === "thread/resume") {
         // Resume must echo the requested thread; a different id is rejected as
         // an unsafe subscription.
@@ -660,10 +658,7 @@ export function createResumeHarness(threadId = "thread-existing") {
           ...(resumeParams.modelProvider ? { modelProvider: resumeParams.modelProvider } : {}),
         };
       }
-      if (method === "turn/start") {
-        return turnStartResult();
-      }
-      return {};
+      return defaultAttemptHarnessResponse(method);
     },
     { persistedThreads: [threadId] },
   );

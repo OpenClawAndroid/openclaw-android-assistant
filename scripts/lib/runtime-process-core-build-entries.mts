@@ -1,23 +1,34 @@
 import { fileURLToPath } from "node:url";
 import { runtimeProcessEntrypoints } from "../../src/infra/runtime-process-entrypoints.ts";
+import { managedWindowsJobEntrypoint } from "./managed-windows-job-entrypoint.mts";
 
 export function createRuntimeProcessBuildEntries(
   entries: readonly {
     currentModuleUrl: string;
     sourceWorkerName: string;
     distWorkerPath: string;
+    sourceExtension?: ".ts" | ".mts";
   }[],
 ) {
   return Object.fromEntries(
     entries.map((entry) => [
       entry.distWorkerPath.replace(/\.js$/u, ""),
-      fileURLToPath(new URL(`./${entry.sourceWorkerName}.ts`, entry.currentModuleUrl)),
+      fileURLToPath(
+        new URL(
+          `./${entry.sourceWorkerName}${entry.sourceExtension ?? ".ts"}`,
+          entry.currentModuleUrl,
+        ),
+      ),
     ]),
   );
 }
 
+export const runtimeProcessCoreEntrypoints = [
+  ...Object.values(runtimeProcessEntrypoints),
+  managedWindowsJobEntrypoint,
+];
 export const runtimeProcessCoreBuildEntries = createRuntimeProcessBuildEntries(
-  Object.values(runtimeProcessEntrypoints),
+  runtimeProcessCoreEntrypoints,
 );
 
 // Keep small helper processes out of the shared runtime bundle.

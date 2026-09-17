@@ -29,7 +29,7 @@ export function createCodexAttemptNotificationController(
   turnRuntime: CodexAttemptTurnState,
   lifecycle: CodexAttemptLifecycleController,
 ) {
-  const { prompt, state: resourceState, projectorRef, registerNativeSubagentMonitor } = resources;
+  const { prompt, state: resourceState, projectorRef } = resources;
   const { context, turnState } = prompt;
   const { attemptTools, runtime } = context;
   const { appServer, runAbortController } = runtime.connection;
@@ -273,7 +273,6 @@ export function createCodexAttemptNotificationController(
   const drainNotificationQueue = async () => {
     await resourceState.turnRoute?.drain();
   };
-  registerNativeSubagentMonitor(resourceState.thread.threadId);
   return {
     waitForActiveNativeTurnCompletion,
     waitForNativeTerminalItems,

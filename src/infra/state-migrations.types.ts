@@ -88,6 +88,7 @@ export type LegacyStateDetection = {
     sessionPath: string;
     hasLegacy: boolean;
   };
+  pairingStores: { sourcePaths: string[]; hasLegacy: boolean };
   voiceWake: {
     triggersPath: string;
     routingPath: string;

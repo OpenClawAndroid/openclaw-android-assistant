@@ -422,6 +422,9 @@ async function stopManagedServiceBeforeMutableUpdate(
     inspected: true,
     runtimeInspected: ["running", "stopped"].includes(serviceState.runtime?.status ?? ""),
     running: serviceState.running,
+    ...(typeof serviceState.runtime?.pid === "number"
+      ? { servicePid: serviceState.runtime.pid }
+      : {}),
     offline: await isManagedGatewayServiceOffline(service, serviceState, params.timeoutMs),
     serviceEnv: serviceState.env,
     serviceDefinitionEnv:

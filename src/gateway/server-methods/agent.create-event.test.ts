@@ -149,7 +149,6 @@ describe("agent handler session create events", () => {
         expect(call?.[3]).toEqual({
           agentId: "main",
           dropIfSlow: true,
-          sessionKeys: ["agent:main:subagent:create-test"],
         });
       },
       { timeout: 2_000, interval: 5 },

@@ -238,6 +238,7 @@ export async function startGatewayCoreRuntime(input: {
   } = await startupTrace.measure("runtime.subscriptions", () =>
     startGatewayEventSubscriptions({
       signal: runtime.connectionWork.signal,
+      getSessionRowProjection: runtime.getSessionRowProjection,
       log,
       broadcast,
       broadcastToConnIds,

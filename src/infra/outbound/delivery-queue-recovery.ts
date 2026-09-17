@@ -1400,7 +1400,7 @@ export async function drainPendingDeliveriesCore(
 
 /**
  * Scan the canonical delivery queue and retry any pending entries.
- * The gateway startup owner runs legacy migration before invoking this recovery pass.
+ * Doctor imports and prepares legacy entries before this runtime recovery pass.
  * Uses exponential backoff and moves entries that exhaust their retry budget to failed/.
  */
 export async function recoverPendingDeliveries(

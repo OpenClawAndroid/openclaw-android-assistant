@@ -2,7 +2,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { beforeEach, afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { beforeEach, afterAll, afterEach, beforeAll, assert, describe, expect, it } from "vitest";
 import { CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT } from "../../../src/gateway/control-ui-contract.js";
 import { SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD } from "../lib/session-pull-requests.ts";
 import { finishElementAnimations } from "../test-helpers/animations.ts";
@@ -10,6 +10,7 @@ import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-ar
 import { takeControlUiViewportScreenshot } from "../test-helpers/control-ui-e2e-screenshot.ts";
 import {
   canRunPlaywrightChromium,
+  controlUiBundledSettingsStorageKey,
   controlUiSessionUrl,
   installMockGateway,
   navigateToControlUiSession,
@@ -190,11 +191,11 @@ describeControlUiE2e("session pull request chips", () => {
       },
     });
 
-    // Three detected PRs collapse to two chips; merged history hides first.
+    // A single settled PR is not hidden behind a disclosure.
     const chips = page.locator(".chat-pr");
-    await expect.poll(() => chips.count()).toBe(2);
+    await expect.poll(() => chips.count()).toBe(3);
     const showMore = page.locator(".chat-prs__more");
-    await expect.poll(() => showMore.textContent()).toContain("Show 1 more");
+    await expect.poll(() => showMore.count()).toBe(0);
 
     const openChip = chips.first();
     await expect.poll(() => openChip.getAttribute("data-state")).toBe("open");
@@ -249,11 +250,6 @@ describeControlUiE2e("session pull request chips", () => {
     await page.keyboard.press("Space");
     await expect.poll(() => menu.isVisible()).toBe(false);
 
-    // Show more reveals the collapsed merged chip.
-    await showMore.click();
-    await expect.poll(() => chips.count()).toBe(3);
-    await expect.poll(() => showMore.count()).toBe(0);
-
     const mergedChip = chips.nth(1);
     await expect.poll(() => mergedChip.getAttribute("data-state")).toBe("merged");
     await expect
@@ -282,6 +278,108 @@ describeControlUiE2e("session pull request chips", () => {
     await expect
       .poll(() => chips.first().locator(".chat-pr__number").textContent())
       .toBe("#103469");
+  });
+
+  it.each([
+    { width: 1440, theme: "light" },
+    { width: 1440, theme: "dark" },
+    { width: 390, theme: "light" },
+    { width: 390, theme: "dark" },
+  ] as const)("fits and toggles the PR stack at $width in $theme", async ({ width, theme }) => {
+    const context = await newBrowserContext();
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 1000 });
+    await page.addInitScript(
+      ({ key, mode }) => {
+        localStorage.setItem(key, JSON.stringify({ themeMode: mode }));
+      },
+      { key: controlUiBundledSettingsStorageKey(server.baseUrl), mode: theme },
+    );
+    const gateway = await installMockGateway(page, {
+      featureMethods: ["chat.metadata", "chat.startup", SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD],
+      historyMessages: [{ role: "assistant", content: "The changes are ready to inspect." }],
+      methodResponses: { [SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD]: { subscribed: true } },
+    });
+    await page.goto(`${server.baseUrl}chat`);
+    const watchedKey = await waitForWatchedSessionKey(gateway);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.themeMode))
+      .toBe(theme);
+    const stack = page.locator(".chat-prs");
+    const chips = stack.locator(".chat-pr");
+    const toggle = stack.locator(".chat-prs__more");
+    const measure = async () => {
+      await page.locator(".chat").evaluate(finishElementAnimations);
+      return stack.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const children = [...element.children].map((row) => row.getBoundingClientRect());
+        const composer = document.querySelector(".agent-chat__composer-shell")!;
+        const composerBounds = composer.getBoundingClientRect();
+        const gap = Number.parseFloat(getComputedStyle(element).rowGap);
+        return {
+          height: bounds.height,
+          contentHeight:
+            children.reduce((height, row) => height + row.height, 0) + gap * (children.length - 1),
+          gapAfter: composerBounds.top - bounds.bottom,
+          standardGap: Number.parseFloat(getComputedStyle(composer).marginTop),
+          rows: children.map((row) => ({ width: row.width, height: row.height })),
+        };
+      });
+    };
+    for (const count of [1, 2, 3, 10]) {
+      await gateway.emitGatewayEvent(CONTROL_UI_SESSION_PULL_REQUESTS_CHANGED_EVENT, {
+        sessions: {
+          [watchedKey]: {
+            pullRequests: Array.from({ length: count }, (_, index) => ({
+              number: index + 1,
+              owner: "openclaw",
+              repo: "openclaw",
+              branch: "fix/example",
+              title: `Example ${index + 1}`,
+              url: `https://github.com/openclaw/openclaw/pull/${index + 1}`,
+              state: "merged",
+            })),
+            rateLimited: false,
+            status: "ready",
+          },
+        },
+      });
+      await expect.poll(() => chips.count()).toBe(count === 10 ? 2 : count);
+      await expect.poll(() => toggle.count()).toBe(count === 10 ? 1 : 0);
+      const collapsed = await measure();
+      expect(collapsed.height).toBeCloseTo(collapsed.contentHeight, 1);
+      expect(collapsed.gapAfter).toBeCloseTo(collapsed.standardGap, 1);
+      if (count !== 10) {
+        continue;
+      }
+      const row = collapsed.rows[0];
+      assert.isDefined(row);
+      expect(collapsed.rows.at(-1)!.width).toBe(row.width);
+      expect(Math.abs(collapsed.rows.at(-1)!.height - row.height)).toBeLessThanOrEqual(1);
+      await chips.last().locator(".chat-pr__dismiss").focus();
+      await page.keyboard.press("Tab");
+      expect(
+        await toggle.evaluate(
+          (element) => element === document.activeElement && element.matches(":focus-visible"),
+        ),
+      ).toBe(true);
+      expect(await toggle.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe(
+        "none",
+      );
+      await page.keyboard.press("Enter");
+      await expect.poll(() => chips.count()).toBe(10);
+      await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(await toggle.textContent()).toContain("Show less");
+      expect(await toggle.evaluate((element) => element === document.activeElement)).toBe(true);
+      const expanded = await measure();
+      expect(expanded.height).toBeCloseTo(expanded.contentHeight, 1);
+      expect(expanded.gapAfter).toBeCloseTo(collapsed.gapAfter, 1);
+      expect(expanded.rows.at(-1)!.height).toBeCloseTo(row.height, 1);
+      await page.keyboard.press("Space");
+      await expect.poll(() => chips.count()).toBe(2);
+      await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(await toggle.evaluate((element) => element === document.activeElement)).toBe(true);
+    }
   });
 
   it.each([

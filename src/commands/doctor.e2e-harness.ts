@@ -175,6 +175,7 @@ function createLegacyStateMigrationDetectionResult(params?: {
     stateDir: "/tmp/state",
     oauthDir: "/tmp/oauth",
     pluginSessionStoreAgentIds: [],
+    pairingStores: { sourcePaths: [], hasLegacy: false },
     deviceAuth: {
       sourcePath: "/tmp/state/identity/device-auth.json",
       sourcePresent: false,
@@ -493,6 +494,7 @@ vi.mock("./doctor-memory-search.js", () => ({
 }));
 
 vi.mock("../plugins/doctor-contract-registry.js", () => ({
+  withDeferredPluginDoctorMigrations: (_pluginIds: readonly string[], run: () => unknown) => run(),
   applyPluginDoctorCompatibilityMigrations: (config: unknown) => ({
     config,
     changes: [],
@@ -589,6 +591,11 @@ vi.mock("./onboard-helpers.js", () => ({
 vi.mock("../infra/state-migrations.doctor.js", () => ({
   autoMigrateLegacyState,
   detectLegacyStateMigrations,
+  prepareLegacyStateDatabaseSchema: vi.fn(async () => ({
+    outcome: "skipped",
+    changes: [],
+    warnings: [],
+  })),
   runLegacyStateMigrations,
 }));
 

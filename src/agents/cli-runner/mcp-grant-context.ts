@@ -3,7 +3,10 @@ import { canonicalizeMainSessionAlias } from "../../config/sessions/main-session
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { McpLoopbackRequestContext } from "../../gateway/mcp-grant-store.js";
 import { resolveGatewayMessageChannel } from "../../utils/message-channel.js";
-import { captureCronRequesterGrantIssuer } from "../cron-creator-authority-context.js";
+import {
+  bindActiveCronAuthorityCurrentness,
+  captureCronRequesterGrantIssuer,
+} from "../cron-creator-authority-context.js";
 import type { DelegationCapability } from "../delegation-capability.js";
 import { SESSION_PERMISSION_BY_EXEC_MODE } from "../session-permission-exec-mode.js";
 import type { RunCliAgentParams } from "./types.js";
@@ -15,11 +18,13 @@ export function finalizeCliMcpGrant(
   context: McpLoopbackRequestContext | undefined,
   toolsAllow: string[] | undefined,
   nativeAuthorityPending: boolean,
+  assertCurrent?: () => void,
 ) {
   if (!context) {
     return undefined;
   }
   const cronRequesterGrantIssuer = captureCronRequesterGrantIssuer(context.runId);
+  const cronAuthorityCheck = bindActiveCronAuthorityCurrentness(context.runId);
   return {
     context: {
       ...context,
@@ -28,6 +33,8 @@ export function finalizeCliMcpGrant(
       ...(nativeAuthorityPending ? { nativeCronCreatorToolAllowlist: null } : {}),
     },
     ...(cronRequesterGrantIssuer ? { cronRequesterGrantIssuer } : {}),
+    ...(cronAuthorityCheck ? { cronAuthorityCheck } : {}),
+    assertCurrent,
   };
 }
 

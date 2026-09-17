@@ -405,13 +405,14 @@ export function releasePreparedAgentRunUserTurn(
   }
 }
 
-/** Cancels rejected input while preserving both admission and settlement failures. */
+/** Settles failed input while preserving both admission and settlement failures. */
 export function releasePreparedAgentRunUserTurnAfterFailure(
   prepared: PreparedAgentRunUserTurn,
   error: unknown,
+  disposition: "cancelled" | "interrupted" = "cancelled",
 ): unknown {
   try {
-    releasePreparedAgentRunUserTurn(prepared, "cancelled");
+    releasePreparedAgentRunUserTurn(prepared, disposition);
     return error;
   } catch (cleanupError) {
     return new AggregateError(

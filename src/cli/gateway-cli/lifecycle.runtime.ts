@@ -5,7 +5,6 @@
 export { abortEmbeddedAgentRun } from "../../agents/embedded-agent-runner/runs.js";
 export { listActiveEmbeddedRunSessionIds } from "../../agents/embedded-agent-runner/active-run-projections.js";
 export { getDiagnosticSessionActivitySnapshot } from "../../logging/diagnostic-run-activity.js";
-export { LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS } from "../../daemon/launchd-plist.js";
 export {
   respawnGatewayProcessForUpdate,
   restartGatewayProcessWithFreshPid,

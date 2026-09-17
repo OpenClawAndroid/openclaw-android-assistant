@@ -1622,39 +1622,55 @@ function assertRecoverableUpdateJson([file, expectedVersion, observationRoot, ba
   return denied;
 }
 
-function assertExpectedMissingCodexOutcome(result, expectedVersion) {
+function assertExpectedMissingCodexOutcomes(result, expectedVersion) {
   const plugins = result.postUpdate?.plugins;
   assert(result.before?.version === "2026.9.2", "missing Codex fixture used the wrong baseline");
   assert(result.run?.status === "succeeded", "missing Codex update run did not finish");
   assert(plugins?.status === "warning", "missing Codex update omitted its final plugin warning");
   const failures = plugins.npm?.outcomes?.filter((outcome) => outcome?.status === "error") ?? [];
   assert(
-    failures.length === 1,
-    "missing Codex update must retain exactly its named failed attempt",
+    failures.length === 1 || failures.length === 2,
+    "missing Codex update must retain only its named failed source history",
   );
-  const failure = failures[0];
-  const missingPackage =
+  const failure = failures.at(-1);
+  const missingNpmPackage =
     `Failed to install missing configured plugin "codex" from @openclaw/codex: ` +
     `Package not found on npm: @openclaw/codex@${expectedVersion}.`;
+  const missingClawHubPackage =
+    'Failed to install missing configured plugin "codex" from clawhub:@openclaw/codex: Package not found on ClawHub.';
   assert(
     failure.pluginId === "codex" &&
       failure.code === undefined &&
       typeof failure.message === "string" &&
-      failure.message.startsWith(missingPackage),
+      (failure.message.startsWith(missingNpmPackage) || failure.message === missingClawHubPackage),
     "missing Codex update retained an unexpected plugin failure",
   );
+  if (failures.length === 2) {
+    // The updater retains the failed source transition before the final attempt.
+    const transition = failures[0];
+    assert(
+      failure.message === missingClawHubPackage &&
+        transition.pluginId === "codex" &&
+        transition.code === undefined &&
+        transition.message ===
+          "@openclaw/codex unavailable; using clawhub:@openclaw/codex instead.",
+      "missing Codex update retained an unexpected source transition",
+    );
+  }
   const repairCommand = "openclaw plugins update codex";
-  assert(
-    plugins.warnings?.some(
-      (warning) =>
-        warning.pluginId === "codex" &&
-        warning.reason === failure.message &&
-        warning.guidance?.includes(repairCommand) &&
-        warning.message?.includes(`Run \`${repairCommand}\``),
-    ),
-    "missing Codex update omitted matching actionable recovery guidance",
-  );
-  return failure;
+  for (const outcome of failures) {
+    assert(
+      plugins.warnings?.some(
+        (warning) =>
+          warning.pluginId === "codex" &&
+          warning.reason === outcome.message &&
+          warning.guidance?.includes(repairCommand) &&
+          warning.message?.includes(`Run \`${repairCommand}\``),
+      ),
+      "missing Codex update omitted matching actionable recovery guidance",
+    );
+  }
+  return failures;
 }
 
 function assertSuccessfulUpdateJson([file, expectedVersion, observationRoot]) {
@@ -1673,15 +1689,16 @@ function assertSuccessfulUpdateJson([file, expectedVersion, observationRoot]) {
       "Worker cell used the wrong published driver",
     );
   }
-  const expectedMissingPluginFailure =
+  const expectedMissingPluginFailures =
     getScenario() === "missing-configured-plugin-migration"
-      ? assertExpectedMissingCodexOutcome(result, expectedVersion)
-      : undefined;
+      ? assertExpectedMissingCodexOutcomes(result, expectedVersion)
+      : [];
   assert(
     plugins?.status !== "error" &&
       !plugins?.sync?.errors?.length &&
       !plugins?.npm?.outcomes?.some(
-        (outcome) => outcome?.status === "error" && outcome !== expectedMissingPluginFailure,
+        (outcome) =>
+          outcome?.status === "error" && !expectedMissingPluginFailures.includes(outcome),
       ) &&
       !plugins?.integrityDrifts?.length,
     "successful update failed plugin convergence",

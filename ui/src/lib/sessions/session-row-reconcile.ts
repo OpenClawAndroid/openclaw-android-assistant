@@ -209,7 +209,8 @@ export function parseSessionChangedEvent(payload: unknown): ParsedSessionChanged
   if (!event) {
     return null;
   }
-  const source = recordOrNull(event.session) ?? event;
+  const session = recordOrNull(event.session);
+  const source = session ? { ...event, ...session } : event;
   const key =
     stringValue(recordValue(source, "key")) ?? stringValue(recordValue(event, "sessionKey"));
   if (!key) {

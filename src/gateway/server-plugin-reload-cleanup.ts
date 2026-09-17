@@ -1,10 +1,14 @@
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { sleepWithAbort } from "../infra/backoff.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { PluginHookGatewayCronService } from "../plugins/hook-types.js";
 import { createHookRunner } from "../plugins/hooks.js";
-import { withPluginHostCleanupTimeout } from "../plugins/host-hook-cleanup-timeout.js";
+import {
+  PluginHostCleanupTimeoutError,
+  withPluginHostCleanupTimeout,
+} from "../plugins/host-hook-cleanup-timeout.js";
 import type { PluginHostCleanupResult } from "../plugins/host-hook-cleanup.types.js";
 import { withPluginHttpRouteRegistry } from "../plugins/http-registry.js";
 import { PluginInstanceDrainTimeoutError } from "../plugins/plugin-instance-error.js";
@@ -15,6 +19,9 @@ import {
   PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
   type PluginServicesHandle,
 } from "../plugins/services.js";
+import type { GatewayPluginReloadStatus } from "./server-plugin-runtime-generation.js";
+
+const PLUGIN_RELOAD_RECOVERY_DRAIN_TIMEOUT_MS = 60_000;
 
 /** Owns resource handoff and rejected-registration cleanup for one reload transaction. */
 export function createPluginReloadCleanup({
@@ -193,6 +200,44 @@ export function createPluginReloadCleanup({
       }
     },
     drainInstances,
+    drainForRecovery: async (
+      signal: AbortSignal,
+      reportStatus: (status: GatewayPluginReloadStatus) => void,
+    ) => {
+      const deadlineAtMs = Date.now() + PLUGIN_RELOAD_RECOVERY_DRAIN_TIMEOUT_MS;
+      reportStatus({
+        phase: "recovering",
+        pluginIds: [...changedPluginIds],
+        deadlineAtMs,
+        reason: "Waiting for admitted work before restoring the previous plugin runtime.",
+      });
+      let backoffMs = 1_000;
+      for (;;) {
+        signal.throwIfAborted();
+        try {
+          await withPluginHostCleanupTimeout(
+            "previous plugin recovery drain",
+            () => drainInstances(previousRegistry, changedPluginIds),
+            Math.max(0, Math.min(5_000, deadlineAtMs - Date.now())),
+          );
+          return;
+        } catch (error) {
+          if (!(error instanceof PluginHostCleanupTimeoutError)) {
+            throw error;
+          }
+          const remainingMs = deadlineAtMs - Date.now();
+          if (remainingMs <= 0) {
+            throw new Error("Previous plugin work did not settle before the recovery deadline", {
+              cause: error,
+            });
+          }
+          // Retry only observation of admitted work; never repeat resource cleanup
+          // or acquire a replacement while the previous writer still owns it.
+          await sleepWithAbort(Math.min(backoffMs, remainingMs), signal);
+          backoffMs = Math.min(backoffMs * 2, 4_000);
+        }
+      }
+    },
     disposeInstances,
     runLifecycleHooks,
     prepareRegistrationFailureCleanup,

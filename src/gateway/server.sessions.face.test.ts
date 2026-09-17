@@ -234,7 +234,7 @@ test("sessions.list filters dashboard sessions by board existence instead of sav
   ]);
 });
 
-test("sessions.list includes boards stored with incognito sessions", async () => {
+test("sessions.list excludes boards stored with incognito sessions", async () => {
   await createSessionStoreDir();
   const sessionKey = "agent:main:dashboard:incognito-board";
   const incognitoPath = resolveIncognitoOpenClawAgentSqlitePath({ agentId: "main" });
@@ -263,7 +263,8 @@ test("sessions.list includes boards stored with incognito sessions", async () =>
     {},
     { client },
   );
-  expect(unfiltered.payload?.sessions).toEqual([expect.objectContaining({ key: sessionKey })]);
+  expect(unfiltered.ok).toBe(true);
+  expect(unfiltered.payload?.sessions).toEqual([]);
 
   const listed = await directSessionReq<{ sessions: Array<{ key: string }> }>(
     "sessions.list",
@@ -271,7 +272,7 @@ test("sessions.list includes boards stored with incognito sessions", async () =>
     { client },
   );
   expect(listed.ok).toBe(true);
-  expect(listed.payload?.sessions).toEqual([expect.objectContaining({ key: sessionKey })]);
+  expect(listed.payload?.sessions).toEqual([]);
 });
 
 test.each(["first", "later"] as const)(

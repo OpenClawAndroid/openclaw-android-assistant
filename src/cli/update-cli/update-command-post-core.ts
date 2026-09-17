@@ -90,7 +90,7 @@ export async function writePostCoreUpdateFailureFile(
     await writeJson(
       filePath,
       { status: "failed", error: failure.error },
-      { trailingNewline: true },
+      { trailingNewline: true, dirMode: 0o700 },
     );
   }
 }
@@ -102,7 +102,7 @@ export async function writePostCorePluginUpdateResultFile(
   if (!filePath) {
     return;
   }
-  await writeJson(filePath, result, { trailingNewline: true });
+  await writeJson(filePath, result, { trailingNewline: true, dirMode: 0o700 });
 }
 
 /** @internal exported for focused handoff contract tests. */
@@ -371,7 +371,11 @@ export async function continuePostCoreUpdateInFreshProcess(params: {
     }
     await writePostCorePluginInstallRecordsFile(installRecordsPath, pluginInstallRecords);
     await writePostCoreSourceConfigFile(sourceConfigPath, params.preUpdateConfig);
-    await writeJson(path.join(resultDir, "handoff.json"), { completionOwner: "parent" });
+    await writeJson(
+      path.join(resultDir, "handoff.json"),
+      { completionOwner: "parent" },
+      { dirMode: 0o700 },
+    );
     const jsonMode = params.opts.json === true;
     const childStdio = resolvePostCoreUpdateChildStdio(process.platform, jsonMode);
     const handoffEnv = buildPostCoreHandoffEnv({

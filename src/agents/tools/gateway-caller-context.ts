@@ -60,6 +60,8 @@ type GatewayToolCallerIdentity = {
   /** Host-only native issuer retained by the current MCP grant; never serialized. */
   mintCronRequesterGrant?: (signal?: AbortSignal) => CronCreatorAuthorityGrant;
   cronManagementGrant?: CronCreatorAuthorityGrant;
+  /** Cron permission can end while the admitted run retains its other tools. */
+  cronAuthorityCheck?: () => boolean;
   // Trusted run context, carried separately from model-authored tool arguments.
   turnSourceChannel?: string;
   turnSourceLocal?: true;
@@ -111,6 +113,7 @@ function bindGatewayToolContextResolver(
 type AdmittedGatewayToolCallerParams = {
   admittedRunContext: AdmittedRunContext;
   receiptAuthority?: () => boolean | void;
+  cronAuthorityCheck?: () => boolean;
   mintCronRequesterGrant?: GatewayToolCallerIdentity["mintCronRequesterGrant"];
   approvalSignals?: readonly AbortSignal[];
   agentId?: string;
@@ -160,6 +163,7 @@ export function createAdmittedGatewayToolCallerIdentity(
     operationalRunInstance: params.admittedRunContext.operationalRunInstance,
     ...(delegatedAuthority ? { approvalAuthority: delegatedAuthority } : {}),
     ...(params.receiptAuthority ? { approvalAuthorityCheck: params.receiptAuthority } : {}),
+    ...(params.cronAuthorityCheck ? { cronAuthorityCheck: params.cronAuthorityCheck } : {}),
     executionIdentityToken: params.admittedRunContext.executionIdentityToken,
     gatewayContextResolver: bindGatewayToolContextResolver(
       getGatewayContextResolver(params.admittedRunContext),
@@ -187,16 +191,19 @@ export function getGatewayToolCallerIdentity(): GatewayToolCallerIdentity | unde
 }
 
 /** Capture the admitted run and worker owner, independently of optional audit collection. */
-export function captureGatewayToolCallerAssertion(): (() => void) | undefined {
+export function captureGatewayToolCallerAssertion(): ((method?: string) => void) | undefined {
   const caller = getGatewayToolCallerIdentity();
   if (!caller?.operationalRunInstance) {
     return undefined;
   }
   const isCurrent = caller.receiptAuthority;
   const signals = caller.approvalSignals ?? [];
-  return () => {
+  return (method) => {
     if (!isCurrent || signals.some((signal) => signal.aborted) || isCurrent() === false) {
       throw new Error("agent tool caller authority is no longer active");
+    }
+    if (method?.startsWith("cron.") && caller.cronAuthorityCheck?.() === false) {
+      throw new Error("Automation caller authority is no longer active.");
     }
   };
 }
@@ -260,6 +267,10 @@ export async function withGatewayToolCallerIdentity<T>(
   const mintCronRequesterGrant =
     inheritedOwner?.mintCronRequesterGrant ?? identity.mintCronRequesterGrant;
   const cronManagementGrant = identity.cronManagementGrant ?? inheritedOwner?.cronManagementGrant;
+  const cronAuthorityCheck = composeReceiptAuthority(
+    inheritedOwner?.cronAuthorityCheck,
+    identity.cronAuthorityCheck,
+  );
   const turnSourceChannel = inheritedOwner?.turnSourceChannel ?? identity.turnSourceChannel?.trim();
   const turnSourceLocal = inheritedOwner?.turnSourceLocal ?? identity.turnSourceLocal;
   const turnSourceTo = inheritedOwner?.turnSourceTo ?? identity.turnSourceTo?.trim();
@@ -289,6 +300,7 @@ export async function withGatewayToolCallerIdentity<T>(
       ...(cronCreatorAuthorityGrant ? { cronCreatorAuthorityGrant } : {}),
       ...(mintCronRequesterGrant ? { mintCronRequesterGrant } : {}),
       ...(cronManagementGrant ? { cronManagementGrant } : {}),
+      ...(cronAuthorityCheck ? { cronAuthorityCheck } : {}),
       ...(executionIdentityToken ? { executionIdentityToken } : {}),
       ...(receiptAuthority ? { receiptAuthority } : {}),
       ...(approvalSignals.length ? { approvalSignals } : {}),

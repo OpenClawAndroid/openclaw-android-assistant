@@ -73,6 +73,7 @@ import { STALE_WORKER_BUILD_REASON } from "../worker-environments/admission.js";
 import { agentWaitHandler } from "./agent-wait.js";
 import { handleChatSend, handleTrustedInternalChatSend } from "./chat-send-handler.js";
 import { readChatSendDedupeResponse } from "./chat-send-pre-admission.js";
+import { initializeSessionReadContext } from "./sessions-read-cache.test-support.js";
 import type { GatewayRequestContext, RespondFn } from "./types.js";
 
 type ProjectedDispatchParams = Parameters<
@@ -686,10 +687,6 @@ async function createSqliteTranscriptFixture(prefix: string) {
   return dir;
 }
 
-async function createGatewayUserTurnSqliteFixture(prefix: string) {
-  return await createSqliteTranscriptFixture(prefix);
-}
-
 async function withTranscriptFixtureState(
   prefix: string,
   run: (fixtureDir: string) => Promise<void>,
@@ -1077,7 +1074,7 @@ async function sendNewChatRequest(
 }
 
 async function createSqliteChatRequest(prefix: string) {
-  await createGatewayUserTurnSqliteFixture(prefix);
+  await createSqliteTranscriptFixture(prefix);
   return createChatRequestFixture();
 }
 
@@ -3388,29 +3385,35 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("returns the rendered history branch leaf in session info", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-history-active-leaf-");
-    await appendTranscriptMessage(transcriptScope(), {
-      eventId: "history-active-leaf",
-      message: { role: "user", content: "render this branch" },
-      now: 1,
-      parentId: null,
-    });
-    const respond = vi.fn();
+    await withSqliteTranscriptFixtureState("openclaw-chat-history-active-leaf-", async () => {
+      mockState.config = { session: { store: mockState.storePath } };
+      await appendTranscriptMessage(transcriptScope(), {
+        eventId: "history-active-leaf",
+        message: { role: "user", content: "render this branch" },
+        now: 1,
+        parentId: null,
+      });
+      const respond = vi.fn();
+      const context = createChatContext();
+      await initializeSessionReadContext(context);
 
-    await expectDefined(
-      chatHandlers["chat.history"],
-      'chatHandlers["chat.history"] test invariant',
-    )({
-      params: { sessionKey: "main" },
-      respond: respond as never,
-      req: {} as never,
-      client: null,
-      isWebchatConnect: () => false,
-      context: createChatContext(),
-    });
+      await expectDefined(
+        chatHandlers["chat.history"],
+        'chatHandlers["chat.history"] test invariant',
+      )({
+        params: { sessionKey: "main" },
+        respond: respond as never,
+        req: {} as never,
+        client: null,
+        isWebchatConnect: () => false,
+        context,
+      });
 
-    expect(lastRespondCall(respond)?.[1]).toMatchObject({
-      sessionInfo: { activeLeafEntryId: "history-active-leaf" },
+      const result = lastRespondCall(respond);
+      expect(result?.[0], JSON.stringify(result?.[2])).toBe(true);
+      expect(result?.[1]).toMatchObject({
+        sessionInfo: { activeLeafEntryId: "history-active-leaf" },
+      });
     });
   });
 
@@ -4652,9 +4655,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   ] as const)(
     "projects agent-run terminal: $0",
     async (name, agentStarted, presentation, outcome) => {
-      const fixtureDir = await createGatewayUserTurnSqliteFixture(
-        "openclaw-chat-send-agent-terminal-",
-      );
+      const fixtureDir = await createSqliteTranscriptFixture("openclaw-chat-send-agent-terminal-");
       const runId = `idem-agent-terminal-${name.replaceAll(" ", "-")}`;
       const failed = outcome === "failed" || presentation === "error";
       const sourceReply = presentation === "source" || presentation === "source-warning";
@@ -6218,7 +6219,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update when hooks pass and the started agent throws before runtime persistence", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-user-transcript-gate-pass-error-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-user-transcript-gate-pass-error-");
     mockState.triggerAgentRunStart = true;
     mockState.hasBeforeAgentRunHooks = true;
     mockState.dispatchErrorAfterAgentRunStart = new Error("model unavailable");
@@ -6455,7 +6456,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("persists attachment input before ACK and the user transcript before final broadcast", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-no-agent-images-order-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-no-agent-images-order-");
     mockState.finalText = "ok";
     setSavedMediaResults(["/tmp/chat-send-image-a.png", "image/png"]);
     let releaseSave = () => {};
@@ -7401,7 +7402,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update when chat.send completes without an agent run", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-user-transcript-no-run-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-user-transcript-no-run-");
     mockState.finalText = "ok";
     await createChatRequestFixture().send({
       idempotencyKey: "idem-user-transcript-no-run",
@@ -7474,7 +7475,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update when chat.send fails before an agent run starts", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-user-transcript-error-no-run-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-user-transcript-error-no-run-");
     mockState.dispatchError = new Error("upstream unavailable");
     const { context, send } = createChatRequestFixture();
 
@@ -7499,9 +7500,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update when a slash-prefixed turn fails before command delivery", async () => {
-    await createGatewayUserTurnSqliteFixture(
-      "openclaw-chat-send-user-transcript-slash-error-no-run-",
-    );
+    await createSqliteTranscriptFixture("openclaw-chat-send-user-transcript-slash-error-no-run-");
     mockState.dispatchError = new Error("slash command continued into unavailable runtime");
     const { context, send } = createChatRequestFixture();
 
@@ -7524,7 +7523,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("does not duplicate fallback user transcript rows when chat.send is replayed", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-user-transcript-error-replay-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-user-transcript-error-replay-");
     mockState.dispatchError = new Error("upstream unavailable");
 
     await runNonStreamingChatSend({
@@ -7558,9 +7557,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update on pre-start failures even when before_agent_run hooks exist", async () => {
-    await createGatewayUserTurnSqliteFixture(
-      "openclaw-chat-send-user-transcript-error-hook-pre-start-",
-    );
+    await createSqliteTranscriptFixture("openclaw-chat-send-user-transcript-error-hook-pre-start-");
     mockState.hasBeforeAgentRunHooks = true;
     mockState.dispatchError = new Error("resolver unavailable");
     const { context, send } = createChatRequestFixture();
@@ -7582,7 +7579,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update when chat.send fails after agent start but before runtime persistence", async () => {
-    await createGatewayUserTurnSqliteFixture(
+    await createSqliteTranscriptFixture(
       "openclaw-chat-send-user-transcript-error-before-runtime-persist-",
     );
     mockState.triggerAgentRunStart = true;
@@ -7610,7 +7607,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("applies before_message_write redaction to gateway fallback user transcript persistence", async () => {
-    await createGatewayUserTurnSqliteFixture(
+    await createSqliteTranscriptFixture(
       "openclaw-chat-send-user-transcript-error-before-write-redact-",
     );
     mockState.triggerAgentRunStart = true;
@@ -7635,7 +7632,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("does not persist gateway fallback user transcripts blocked by before_message_write", async () => {
-    await createGatewayUserTurnSqliteFixture(
+    await createSqliteTranscriptFixture(
       "openclaw-chat-send-user-transcript-error-before-write-block-",
     );
     mockState.triggerAgentRunStart = true;
@@ -7668,7 +7665,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update when a started agent returns an error before runtime persistence", async () => {
-    await createGatewayUserTurnSqliteFixture(
+    await createSqliteTranscriptFixture(
       "openclaw-chat-send-user-transcript-agent-error-no-runtime-persist-",
     );
     mockState.triggerAgentRunStart = true;
@@ -7694,7 +7691,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("falls back to gateway user persistence when successful runtime persistence fails", async () => {
-    await createGatewayUserTurnSqliteFixture(
+    await createSqliteTranscriptFixture(
       "openclaw-chat-send-user-transcript-success-runtime-persist-failed-",
     );
     mockState.triggerAgentRunStart = true;
@@ -7726,7 +7723,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
   });
 
   it("emits a user transcript update when hooks pass and a started agent returns an error", async () => {
-    await createGatewayUserTurnSqliteFixture(
+    await createSqliteTranscriptFixture(
       "openclaw-chat-send-user-transcript-agent-error-hook-pass-",
     );
     mockState.triggerAgentRunStart = true;
@@ -7759,7 +7756,7 @@ describe("chat.send local operator client sender context", () => {
   ] as const)(
     "binds lazy configured-MCP cron authority to an admitted local %s turn",
     async (clientId, mode, platform) => {
-      await createGatewayUserTurnSqliteFixture(`openclaw-chat-send-cron-authority-${clientId}-`);
+      await createSqliteTranscriptFixture(`openclaw-chat-send-cron-authority-${clientId}-`);
       const { send } = createChatRequestFixture();
       let retainedResolver: ReturnType<typeof bindActiveCronCreatorAuthorityResolver>;
       let resolvedGrant: { runId: string; token: string } | undefined;
@@ -7819,7 +7816,7 @@ describe("chat.send local operator client sender context", () => {
   );
 
   it("denies otherwise-eligible internal chat.send re-entry, including Talk consults", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-cron-authority-internal-reentry-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-cron-authority-internal-reentry-");
     let boundResolver: ReturnType<typeof bindActiveCronCreatorAuthorityResolver>;
     mockState.cronAuthorityProbe = async (runId, capability) => {
       runWithCronCreatorAuthorityCapabilityResolver({
@@ -7914,7 +7911,7 @@ describe("chat.send local operator client sender context", () => {
       },
     },
   ])("does not mint configured-MCP cron authority for $name", async (testCase) => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-cron-authority-negative-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-cron-authority-negative-");
     mockState.sessionEntry = testCase.sessionEntry ?? {};
     let boundResolver: ReturnType<typeof bindActiveCronCreatorAuthorityResolver>;
     mockState.cronAuthorityProbe = async (runId, capability) => {
@@ -7952,7 +7949,7 @@ describe("chat.send local operator client sender context", () => {
   });
 
   it("does not inject sender identity fields for Control UI clients", async () => {
-    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-control-ui-sender-");
+    await createSqliteTranscriptFixture("openclaw-chat-send-control-ui-sender-");
     await createChatRequestFixture().send({
       idempotencyKey: "idem-control-ui-sender",
       message: "hello from control ui",

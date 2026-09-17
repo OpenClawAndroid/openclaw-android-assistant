@@ -8,6 +8,7 @@ import { augmentChatHistoryWithCanvasBlocks } from "../chat-display-projection.c
 import {
   projectChatDisplayMessagesWithState,
   createChatHistoryRecoveryProjection,
+  type ChatDisplayProjectionOptions,
 } from "../chat-display-projection.core.js";
 import {
   dropPreSessionStartAnnouncePairs,
@@ -40,6 +41,7 @@ export type ChatHistoryPageKernelOptions = {
   readOnly?: boolean;
   deferProfileDisplay?: boolean;
   resolveCurrentUserProfileDisplay?: CurrentUserProfileDisplayResolver;
+  resolveCronJobName?: ChatDisplayProjectionOptions["resolveCronJobName"];
   cliSessionId?: string;
   readCliTailPage?: (tail: ChatHistoryCliTail) => Promise<ChatHistoryPage>;
 };
@@ -311,6 +313,7 @@ export async function readChatHistoryPageKernel(
         subagentCoordination: options.readers.subagentCoordination,
         includeCommentaryFallbacks: true,
         maxChars: effectiveMaxChars,
+        resolveCronJobName: options.resolveCronJobName,
         ...(options.deferProfileDisplay
           ? {}
           : { resolveCurrentUserProfileDisplay: options.resolveCurrentUserProfileDisplay }),

@@ -1,4 +1,4 @@
-// Diagnostic memory tests cover memory snapshot capture and diagnostic log output.
+// Diagnostic memory tests cover pressure events and diagnostic log output.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   onInternalDiagnosticEvent,
@@ -556,24 +556,19 @@ describe("diagnostic memory", () => {
       stop();
     }
 
-    expect(records).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          level: "WARN",
-          message: expect.stringContaining("memory pressure: level=critical reason=rss_threshold"),
-          attributes: expect.objectContaining({
-            subsystem: "gateway/diagnostics/memory",
-          }),
+    expect(records).toEqual([
+      expect.objectContaining({
+        level: "WARN",
+        message: expect.stringContaining("memory pressure: level=critical reason=rss_threshold"),
+        attributes: expect.objectContaining({
+          subsystem: "gateway/diagnostics/memory",
         }),
-        expect.objectContaining({
-          level: "WARN",
-          message:
-            "critical memory pressure snapshot disabled; run openclaw gateway call diagnostics.heapProfile --timeout 30000",
-          attributes: expect.objectContaining({
-            subsystem: "gateway/diagnostics/memory",
-          }),
-        }),
-      ]),
+      }),
+    ]);
+    expect(records[0]?.message).not.toMatch(/snapshot/i);
+    expect(records[0]?.message).toContain("rssBytes=4000 heapUsedBytes=3000 thresholdBytes=3000");
+    expect(records[0]?.message).toContain(
+      "nextStep=run openclaw gateway diagnostics export, inspect an existing bundle with openclaw gateway stability --bundle latest, or on Node sample allocations with openclaw gateway call diagnostics.heapProfile --timeout 30000.",
     );
   });
 

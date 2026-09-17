@@ -74,6 +74,24 @@ The Gateway exposes three unauthenticated `GET`/`HEAD` probe pairs:
 
 Remote unauthenticated startup responses contain only `ok` and `status`. Local-direct and authenticated callers also receive `version`, `uptimeMs`, and `pendingReason` while startup is pending. Readiness details follow the same local-or-authenticated gate because they can name failing subsystems.
 
+### Plugin replacement recovery
+
+During plugin replacement or recovery, `/readyz` returns `503`. Detailed responses
+include `failing: ["plugin-reload"]` and a `pluginReload` object with the affected
+`pluginIds`, the current `phase` (`reloading`, `recovering`, or `failed`), and any
+recovery `deadlineAtMs` and actionable `reason`. These owner-reported facts bypass
+the channel readiness cache, so a failed replacement cannot appear as only a
+generic channel outage or stale healthy result.
+
+The health monitor does not spend channel restart attempts while replacement
+holds channel admission paused. After successful rollback, the previous plugin
+configuration restarts its channels and ordinary readiness checks resume. If
+automatic recovery reaches its deadline, `phase: "failed"` retains the failure
+reason and next action. Admission pauses are released, allowing the monitor to
+restart callable channels; a plugin whose admitted work or cleanup still owns
+resources requires the reported repair or retry before it can restart. See
+[Config hot reload](/gateway/configuration/hot-reload) for the recovery contract.
+
 ### CPU pressure and event-loop delay
 
 Detailed readiness can include the latest completed `eventLoop` diagnostic

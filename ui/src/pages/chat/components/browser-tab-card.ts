@@ -1,5 +1,5 @@
 import { consume } from "@lit/context";
-import { css, html, nothing } from "lit";
+import { css, html, nothing, unsafeCSS } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { RouteId } from "../../../app-route-paths.ts";
 import { applicationContext, type ApplicationContext } from "../../../app/context.ts";
@@ -16,6 +16,7 @@ import { copyToClipboard } from "../../../lib/clipboard.ts";
 import { openExternalUrlSafe } from "../../../lib/open-external-url.ts";
 import { OpenClawLitElement } from "../../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../../lit/subscriptions-controller.ts";
+import sessionMenuStyles from "../../../styles/session-menu.css?inline";
 
 class OpenClawBrowserTabCard extends OpenClawLitElement {
   @consume({ context: applicationContext, subscribe: true })
@@ -37,115 +38,114 @@ class OpenClawBrowserTabCard extends OpenClawLitElement {
     );
   }
 
-  static override styles = css`
-    :host {
-      display: block;
-      max-width: 320px;
-      margin-block: 6px;
-    }
-    /* Document menu styles cannot reach dropdown items inside this shadow root. */
-    wa-dropdown {
-      --wa-color-neutral-fill-normal: var(--bg-hover);
-    }
-    .card {
-      overflow: hidden;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-    }
-    .shot {
-      display: block;
-      width: 100%;
-      padding: 0;
-      background: none;
-      border: 0;
-      cursor: default;
-    }
-    .shot img {
-      display: block;
-      width: 100%;
-      height: auto;
-      max-height: 240px;
-      object-fit: cover;
-      object-position: top;
-    }
-    .bar {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-      padding: 7px 8px 7px 10px;
-    }
-    .shot + .bar {
-      border-top: 1px solid var(--border);
-    }
-    .icon {
-      display: flex;
-      flex: 0 0 16px;
-      color: var(--muted);
-    }
-    .icon svg {
-      width: 16px;
-      height: 16px;
-    }
-    .identity {
-      display: grid;
-      flex: 1;
-      min-width: 0;
-      gap: 1px;
-    }
-    .title,
-    .url {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .title {
-      font-size: 0.8rem;
-      font-weight: 500;
-    }
-    .url {
-      color: var(--muted);
-      font-size: 0.72rem;
-    }
-    .actions {
-      display: flex;
-      flex: none;
-      gap: 2px;
-      align-items: center;
-      opacity: 0;
-      transition: opacity 120ms ease;
-    }
-    .card:hover .actions,
-    .card:focus-within .actions,
-    .actions:has(wa-dropdown[open]) {
-      opacity: 1;
-    }
-    .actions button {
-      display: flex;
-      align-items: center;
-      padding: 4px 8px;
-      color: var(--text);
-      font: inherit;
-      font-size: 0.75rem;
-      background: none;
-      border: 0;
-      border-radius: var(--radius-sm);
-      cursor: default;
-    }
-    .actions button:hover {
-      background: var(--panel-hover);
-    }
-    .actions button:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: -2px;
-    }
-    .actions .more svg {
-      width: 16px;
-      height: 16px;
-    }
-  `;
+  static override styles = [
+    unsafeCSS(sessionMenuStyles),
+    css`
+      :host {
+        display: block;
+        max-width: 320px;
+        margin-block: 6px;
+      }
+      .card {
+        overflow: hidden;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+      }
+      .shot {
+        display: block;
+        width: 100%;
+        padding: 0;
+        background: none;
+        border: 0;
+        cursor: default;
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: 240px;
+        object-fit: cover;
+        object-position: top;
+      }
+      .bar {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 7px 8px 7px 10px;
+      }
+      .shot + .bar {
+        border-top: 1px solid var(--border);
+      }
+      .icon {
+        display: flex;
+        flex: 0 0 16px;
+        color: var(--muted);
+      }
+      .icon svg {
+        width: 16px;
+        height: 16px;
+      }
+      .identity {
+        display: grid;
+        flex: 1;
+        min-width: 0;
+        gap: 1px;
+      }
+      .title,
+      .url {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .title {
+        font-size: 0.8rem;
+        font-weight: 500;
+      }
+      .url {
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+      .actions {
+        display: flex;
+        flex: none;
+        gap: 2px;
+        align-items: center;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+      .card:hover .actions,
+      .card:focus-within .actions,
+      .actions:has(wa-dropdown[open]) {
+        opacity: 1;
+      }
+      .actions button {
+        display: flex;
+        align-items: center;
+        padding: 4px 8px;
+        color: var(--text);
+        font: inherit;
+        font-size: 0.75rem;
+        background: none;
+        border: 0;
+        border-radius: var(--radius-sm);
+        cursor: default;
+      }
+      .actions button:hover {
+        background: var(--panel-hover);
+      }
+      .actions button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+      }
+      .actions .more svg {
+        width: 16px;
+        height: 16px;
+      }
+    `,
+  ];
 
   override updated() {
     const preview = this.preview;
@@ -265,18 +265,29 @@ class OpenClawBrowserTabCard extends OpenClawLitElement {
             <button type="button" title=${t("browser.openPanel")} @click=${this.openPanel}>
               ${t("browser.open")}
             </button>
-            <wa-dropdown placement="bottom-end" @wa-select=${this.onMenuSelect}>
+            <wa-dropdown
+              class="session-menu"
+              placement="bottom-end"
+              @wa-select=${this.onMenuSelect}
+            >
               <button
                 slot="trigger"
                 type="button"
                 class="more"
+                aria-label=${t("browser.moreActions")}
                 aria-haspopup="menu"
                 title=${t("browser.moreActions")}
               >
                 ${icons.moreHorizontal}
               </button>
-              <wa-dropdown-item value="copy-url">${t("browser.copyUrl")}</wa-dropdown-item>
-              <wa-dropdown-item value="open-new-tab" data-new-tab-action>
+              <wa-dropdown-item class="session-menu__item" value="copy-url">
+                <span slot="icon" class="session-menu__icon" aria-hidden="true">${icons.copy}</span>
+                ${t("browser.copyUrl")}
+              </wa-dropdown-item>
+              <wa-dropdown-item class="session-menu__item" value="open-new-tab" data-new-tab-action>
+                <span slot="icon" class="session-menu__icon" aria-hidden="true"
+                  >${icons.externalLink}</span
+                >
                 ${t("browser.openNewTab")}
               </wa-dropdown-item>
             </wa-dropdown>

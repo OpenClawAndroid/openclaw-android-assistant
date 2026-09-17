@@ -847,7 +847,7 @@ function formatSpawnDetail(result: {
   );
 }
 
-function normalizeSystemdUnit(raw?: string, profile?: string): string {
+export function normalizeSystemdUnit(raw?: string, profile?: string): string {
   const unit = raw?.trim();
   if (!unit) {
     return `${resolveGatewaySystemdServiceName(profile)}.service`;

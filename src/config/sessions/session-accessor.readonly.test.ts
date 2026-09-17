@@ -30,9 +30,7 @@ import {
   loadExactSessionEntryCandidatesReadOnlyBatch,
   loadExactSessionEntryReadOnly,
   openSessionEntryReadView,
-  readSessionTranscriptTitleProbeBatch,
   readSessionTranscriptWatermark,
-  readSessionTranscriptWatermarkBatch,
   readSessionIdentityEvidenceBatch,
   readSessionStoreSummaryReadOnly,
   recordSessionParticipant,
@@ -515,7 +513,7 @@ describe("session accessor readonly listing", () => {
     expect(() => readSessionStoreSummaryReadOnly(scope, options)).toThrow(SyntaxError);
   });
 
-  it("surfaces missing canonical transcript tables through single and batched reads", async () => {
+  it("surfaces missing canonical transcript tables through watermark reads", async () => {
     const stateDir = makeTempDir(tempDirs, "openclaw-session-readonly-missing-transcript-table-");
     const env = { OPENCLAW_STATE_DIR: stateDir };
     const scope = {
@@ -529,13 +527,7 @@ describe("session accessor readonly listing", () => {
       "DROP TABLE transcript_events;",
     );
 
-    for (const read of [
-      () => readSessionTranscriptWatermark(scope),
-      () => readSessionTranscriptWatermarkBatch([scope]),
-      () => readSessionTranscriptTitleProbeBatch([scope]),
-    ]) {
-      expect(read).toThrow(/no such table: transcript_events/);
-    }
+    expect(() => readSessionTranscriptWatermark(scope)).toThrow(/no such table: transcript_events/);
   });
 
   it("probes lifecycle status without creating or registering a missing database", () => {

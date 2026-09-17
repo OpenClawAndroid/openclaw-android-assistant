@@ -6,12 +6,10 @@ import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { ApplicationContext, ApplicationGateway } from "../app/context.ts";
 import { i18n } from "../i18n/index.ts";
-import type {
-  ConfigPatchBuilder,
-  ConfigPatchOptions,
-} from "../lib/config/config-gateway-operations.ts";
+import type { ConfigPatchOptions } from "../lib/config/config-gateway-operations.ts";
 import { createConfigCapabilityHarness } from "../lib/config/config-test-harness.ts";
 import { buildRemoveMcpServerPatch, patchMcpServers } from "../lib/config/mcp-servers.ts";
+import type { RuntimeConfigCapability } from "../lib/config/runtime-config-capability.ts";
 import {
   createApplicationContextProvider,
   type ApplicationContextProvider,
@@ -20,6 +18,7 @@ import { waitForFast } from "../test-helpers/wait-for.ts";
 import "./mcp-servers-card.ts";
 
 type McpServersCard = HTMLElementTagNameMap["openclaw-mcp-servers-card"];
+type ConfigPatchBuilder = Parameters<RuntimeConfigCapability["patchFromSnapshot"]>[0];
 
 type RuntimeConfigHarness = {
   runtimeConfig: ApplicationContext["runtimeConfig"];

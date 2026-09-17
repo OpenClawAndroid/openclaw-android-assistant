@@ -80,6 +80,7 @@ function sameMessageGroup(previous: MessageGroup, next: MessageGroup): boolean {
     previous.senderLabel === next.senderLabel &&
     previous.senderSession?.sessionKey === next.senderSession?.sessionKey &&
     previous.senderSession?.agentId === next.senderSession?.agentId &&
+    previous.senderSession?.label === next.senderSession?.label &&
     messageClientSourcesKey(previous.sourceClients ?? []) ===
       messageClientSourcesKey(next.sourceClients ?? []) &&
     JSON.stringify(previous.sender) === JSON.stringify(next.sender) &&
@@ -214,6 +215,7 @@ function stabilizeChatItems(
         prior.senderLabel !== item.senderLabel ||
         prior.senderSession?.sessionKey !== item.senderSession?.sessionKey ||
         prior.senderSession?.agentId !== item.senderSession?.agentId ||
+        prior.senderSession?.label !== item.senderSession?.label ||
         messageClientSourcesKey(prior.sourceClients ?? []) !==
           messageClientSourcesKey(item.sourceClients ?? []) ||
         senderIdentityKey(prior.sender) !== senderIdentityKey(item.sender)

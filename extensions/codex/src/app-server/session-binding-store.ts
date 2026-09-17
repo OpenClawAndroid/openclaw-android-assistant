@@ -12,7 +12,10 @@ import {
   CODEX_APP_SERVER_BINDING_MAX_ENTRIES,
   CODEX_APP_SERVER_BINDING_NAMESPACE,
 } from "./session-binding-meta.js";
-import { readCurrentCodexAppServerBinding } from "./session-binding-record.js";
+import {
+  readCurrentCodexAppServerBinding,
+  readCurrentCodexNativeSubagentSubmissions,
+} from "./session-binding-record.js";
 import type { CodexAppServerBindingStore, StoredCodexAppServerBinding } from "./session-binding.js";
 
 export { CODEX_APP_SERVER_BINDING_MAX_ENTRIES, CODEX_APP_SERVER_BINDING_NAMESPACE };
@@ -40,6 +43,8 @@ export function createLazyCodexAppServerBindingStore(
   return {
     ...(managedThreads ? { managedThreads } : {}),
     read: (identity) => readCurrentCodexAppServerBinding(state, identity),
+    readNativeSubagentSubmissions: (identity, owner) =>
+      readCurrentCodexNativeSubagentSubmissions(state, identity, owner),
     hasOtherThreadOwner: async (threadId, currentIdentity) =>
       (await store()).hasOtherThreadOwner(threadId, currentIdentity),
     mutate: async (identity, mutation, assertCurrent) =>

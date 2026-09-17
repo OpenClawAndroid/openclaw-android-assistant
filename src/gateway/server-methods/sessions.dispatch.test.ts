@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import { registerAgentHarness } from "../../agents/harness/registry.js";
 import type { AgentHarness } from "../../agents/harness/types.js";
@@ -8,10 +8,10 @@ import {
   resetPluginRuntimeStateForTest,
   setActivePluginRegistry,
 } from "../../plugins/runtime.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { FORCED_WORKER_ABANDONMENT_ERROR } from "../worker-environments/placement-record.js";
 import type { WorkerSessionPlacementRecord } from "../worker-environments/placement-store.js";
 import type { WorkerPlacementDispatchRequest } from "../worker-environments/service-contract.js";
-import { readSessionsMutationVersion } from "./session-change-event.js";
 import {
   dispatchTestSessionId as sessionId,
   dispatchTestSessionKey as sessionKey,
@@ -1030,7 +1030,8 @@ describe("sessions.dispatch", () => {
       workerPlacementDispatchService: { dispatch },
       workerSessionPlacementService: { getMany: () => new Map() },
     });
-    const priorMutationVersion = readSessionsMutationVersion(context);
+    const changes = vi.fn();
+    onTestFinished(sessionChanges.subscribe(changes));
     const respond = await invoke(context);
 
     expect(dispatch).toHaveBeenCalledWith(
@@ -1045,7 +1046,7 @@ describe("sessions.dispatch", () => {
       expect.any(Function),
       undefined,
     );
-    expect(readSessionsMutationVersion(context)).toBe(priorMutationVersion + 5);
+    expect(changes.mock.calls).toEqual(Array.from({ length: 5 }, () => [{ sessionKey }]));
     expect(respond).toHaveBeenCalledWith(
       true,
       expect.objectContaining({

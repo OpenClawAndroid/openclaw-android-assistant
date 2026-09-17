@@ -8,12 +8,18 @@ import {
   type PluginLifecycleLeaseContext,
 } from "../plugins/plugin-lifecycle-lease.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import { createChannelTestPluginBase } from "../test-utils/channel-plugins.js";
 import type { GatewayRequestHandlerOptions } from "./server-methods/types.js";
-import type { RecoveryFixtureFactory } from "./server-plugin-reload.recovery.test-support.js";
+import {
+  createRecoveryChannelManager,
+  type RecoveryFixtureFactory,
+} from "./server-plugin-reload.recovery.test-support.js";
+import { createReadinessChecker } from "./server/readiness.js";
 
 export async function verifyActiveCallDrainLease(
   createRecoveryFixture: RecoveryFixtureFactory,
   stateDir: string,
+  holdMs = 5_000,
 ) {
   const entered = createDeferredCore();
   const release = createDeferredCore();
@@ -24,6 +30,7 @@ export async function verifyActiveCallDrainLease(
   let reloadLease: PluginLifecycleLeaseContext | undefined;
   let registrations = 0;
   const disposed: number[] = [];
+  const signals: AbortSignal[] = [];
   const fixture = await createRecoveryFixture({
     env,
     abortOnCandidateStart: false,
@@ -38,6 +45,19 @@ export async function verifyActiveCallDrainLease(
       if (owner !== "first") {
         return;
       }
+      api.registerChannel({
+        plugin: {
+          ...createChannelTestPluginBase({ id: "drain-channel" }),
+          gateway: {
+            startAccount: async ({ abortSignal }) => {
+              signals.push(abortSignal);
+              await new Promise<void>((resolve) => {
+                abortSignal.addEventListener("abort", () => resolve(), { once: true });
+              });
+            },
+          },
+        },
+      });
       const generation = ++registrations;
       assert(api.lifecycle.onDispose);
       api.lifecycle.onDispose(() => {
@@ -52,6 +72,15 @@ export async function verifyActiveCallDrainLease(
         respond(true, { generation });
       });
     },
+  });
+  const manager = createRecoveryChannelManager(fixture);
+  fixture.runtime.channelManager = manager;
+  await manager.startChannel("drain-channel");
+  await vi.waitFor(() => expect(signals).toHaveLength(1));
+  const readiness = createReadinessChecker({
+    channelManager: manager,
+    startedAt: Date.now(),
+    getPluginReloadStatus: fixture.owner.getReloadStatus,
   });
   const record = fixture.previousRegistry.plugins.find((entry) => entry.id === "first");
   assert(record);
@@ -85,10 +114,10 @@ export async function verifyActiveCallDrainLease(
     },
   );
   let reloading: Promise<unknown> | undefined;
+  let reloadSettled = false;
   try {
     await entered.promise;
     vi.useFakeTimers();
-    let reloadSettled = false;
     reloading = reload().then(
       (result) => {
         reloadSettled = true;
@@ -108,6 +137,13 @@ export async function verifyActiveCallDrainLease(
     expect(reloadSettled).toBe(false);
     expect(callSettled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(fixture.owner.getReloadStatus()?.phase).toBe("recovering"));
+    await vi.advanceTimersByTimeAsync(holdMs - 5_000);
+    expect(readiness()).toMatchObject({
+      ready: false,
+      failing: ["plugin-reload"],
+      pluginReload: { phase: holdMs > 65_000 ? "failed" : "recovering" },
+    });
     expect(fixture.candidates).toHaveLength(0);
     expect(disposed).toEqual([]);
     expect(response).not.toHaveBeenCalled();
@@ -118,11 +154,29 @@ export async function verifyActiveCallDrainLease(
     expect(await originalCall).toBeUndefined();
     expect(response).toHaveBeenCalledExactlyOnceWith(true, { generation: 1 }, undefined, undefined);
     expect(await fs.readFile(effectsPath, "utf8")).toBe("completed\n");
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(await reloading).toMatchObject({
       details: { phase: "drain", committed: false, pluginIds: ["first"] },
     });
+    if (holdMs > 65_000) {
+      expect(manager.getRuntimeSnapshot().reloadingChannels?.size).toBe(0);
+      expect(signals).toHaveLength(1);
+      expect(fixture.owner.getReloadStatus()).toMatchObject({
+        phase: "failed",
+        reason: expect.stringContaining("restart the Gateway"),
+      });
+      await expect(manager.startChannel("drain-channel")).rejects.toThrow("reloaded or disabled");
+      await expect(reload()).resolves.toMatchObject({ runtime: { pluginIds: ["first"] } });
+      expect(signals).toHaveLength(2);
+      expect(readiness()).toMatchObject({ ready: true, failing: [] });
+      return;
+    }
     expect(fixture.registryOwner.registry).not.toBe(fixture.previousRegistry);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(manager.getRuntimeSnapshot().reloadingChannels?.size).toBe(0);
+    expect(readiness()).toMatchObject({ ready: true, failing: [] });
     expect(instance.disposing).toBe(true);
     expect(instance.lifecycle.signal.aborted).toBe(true);
     expect(disposed).toEqual([1]);
@@ -155,7 +209,16 @@ export async function verifyActiveCallDrainLease(
     expect(fixture.siblingStop).not.toHaveBeenCalled();
   } finally {
     release.resolve();
-    await Promise.allSettled([originalCall, reloading]);
-    vi.useRealTimers();
+    try {
+      await originalCall;
+      await vi.advanceTimersByTimeAsync(10_000);
+      if (reloading && !reloadSettled) {
+        await vi.waitFor(() => expect(reloadSettled).toBe(true));
+      }
+      await reloading;
+    } finally {
+      vi.useRealTimers();
+      await manager.stopChannel("drain-channel");
+    }
   }
 }

@@ -15,7 +15,6 @@ import {
   markReplyOperationExecutionStarted,
 } from "../../auto-reply/reply/reply-run-registry.js";
 import { SqliteBoardStore } from "../../boards/sqlite-board-store.js";
-import * as combinedStores from "../../config/sessions/combined-store-gateway.js";
 import {
   loadSessionEntry,
   persistSessionTranscriptTurn,
@@ -36,14 +35,29 @@ import {
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { registerChatAbortController } from "../chat-abort.js";
-import * as sessionUtils from "../session-utils.js";
+import { getSessionRowProjection } from "../session-row-projection-access.js";
+import * as rowInputs from "../session-utils-row.js";
 import {
   identifiedClient,
+  initializeSessionReadContext,
   listSessions,
   requestContext,
   seedSessions,
   seedSessionsWithActivityTimes,
 } from "./sessions-read-cache.test-support.js";
+
+async function changeDuringReadiness(
+  context: ReturnType<typeof requestContext>,
+  change: () => void | Promise<void>,
+) {
+  await initializeSessionReadContext(context);
+  const projection = getSessionRowProjection(context)!;
+  const ensure = projection.ensureMaterialized;
+  vi.spyOn(projection, "ensureMaterialized").mockImplementationOnce(async () => {
+    await change();
+    await ensure();
+  });
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -418,17 +432,12 @@ it.each(["global", "unknown"] as const)(
         );
       }
 
-      const project = sessionUtils.listSessionsFromStoreAsync;
-      vi.spyOn(sessionUtils, "listSessionsFromStoreAsync").mockImplementationOnce(
-        async (params) => {
-          const result = await project(params);
-          await upsertSessionEntryCore(
-            { agentId: "ops", storePath: storePathFor("ops"), sessionKey: sentinel },
-            { visibility: "draft" },
-          );
-          return result;
-        },
-      );
+      await changeDuringReadiness(context, async () => {
+        await upsertSessionEntryCore(
+          { agentId: "ops", storePath: storePathFor("ops"), sessionKey: sentinel },
+          { visibility: "draft" },
+        );
+      });
       const restricted = await listSessions({ client, context, request });
       expect(restricted.sessions.map((row) => [row.key, row.agentId])).toEqual([
         [sentinel, "research"],
@@ -441,12 +450,11 @@ it.each(["global", "unknown"] as const)(
 );
 
 it.each([{ activeMinutes: 1 }, { activeOnly: true }])(
-  "collapses concurrent filtered requests into one projection: %j",
+  "reuses resident rows across concurrent filtered requests: %j",
   async (filter: SessionsListParams) => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const { clock, config } = await seedSessionsWithActivityTimes();
       const context = requestContext(config);
-      const loads = vi.spyOn(combinedStores, "loadCombinedSessionStoreForGatewayAsync");
       context.chatAbortControllers.set("active-run", {
         agentId: "main",
         sessionKey: "agent:main:active",
@@ -456,13 +464,17 @@ it.each([{ activeMinutes: 1 }, { activeOnly: true }])(
       clock.mockReturnValue(60_400);
       const request = { ...filter, agentId: "main", limit: 100 };
 
+      await initializeSessionReadContext(context);
+      const reads = vi.spyOn(rowInputs, "readSessionRowInputs");
       const results = await Promise.all(
         Array.from({ length: 8 }, () => listSessions({ client, context, request })),
       );
 
       expect(results[0]?.sessions.map((session) => session.key)).toEqual(["agent:main:active"]);
-      expect(results.every((result) => result === results[0])).toBe(true);
-      expect(loads).toHaveBeenCalledTimes(1);
+      for (const result of results) {
+        expect(result).toEqual(results[0]);
+      }
+      expect(reads).not.toHaveBeenCalled();
     });
   },
 );
@@ -487,35 +499,33 @@ it.each(["settled", "replaced"] as const)(
           sessionId: `${agentId}-active`,
         } as never);
       }
-      const loads = vi.spyOn(combinedStores, "loadCombinedSessionStoreForGatewayAsync");
-      const project = sessionUtils.listSessionsFromStoreAsync;
-      const projections = vi
-        .spyOn(sessionUtils, "listSessionsFromStoreAsync")
-        .mockImplementationOnce(async (params) => {
-          const result = await project(params);
-          context.chatAbortControllers.delete("run-main");
-          if (transition === "replaced") {
-            await upsertSessionEntryCore(
-              { agentId: "main", sessionKey: "agent:main:active" },
-              { sessionId: "replacement-session" },
-            );
-            context.chatAbortControllers.set("run-replacement", {
-              agentId: "main",
-              sessionKey: "agent:main:active",
-              sessionId: "replacement-session",
-            } as never);
-          }
-          return result;
-        });
+      await changeDuringReadiness(context, async () => {
+        context.chatAbortControllers.delete("run-main");
+        if (transition === "replaced") {
+          await upsertSessionEntryCore(
+            { agentId: "main", sessionKey: "agent:main:active" },
+            { sessionId: "replacement-session" },
+          );
+          context.chatAbortControllers.set("run-replacement", {
+            agentId: "main",
+            sessionKey: "agent:main:active",
+            sessionId: "replacement-session",
+          } as never);
+        }
+      });
       const request = { activeOnly: true, limit: 1 };
       const pending = listSessions({ client, context, request });
       const result = await pending;
       expect(result.sessions).toMatchObject([
-        { key: "agent:work:active", sessionId: "work-active", hasActiveRun: true },
+        transition === "replaced"
+          ? { key: "agent:main:active", sessionId: "replacement-session", hasActiveRun: true }
+          : { key: "agent:work:active", sessionId: "work-active", hasActiveRun: true },
       ]);
-      expect(result).toMatchObject({ count: 1, totalCount: 1, nextOffset: null });
-      expect(loads).toHaveBeenCalledOnce();
-      expect(projections).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        count: 1,
+        totalCount: transition === "replaced" ? 2 : 1,
+        nextOffset: transition === "replaced" ? 1 : null,
+      });
     });
   },
 );
@@ -529,43 +539,32 @@ it.each([false, true])(
       const sessionKey = "agent:main:active";
       const sessionId = "main-active";
       const runId = "new-model-run";
-      const project = sessionUtils.listSessionsFromStoreAsync;
-      vi.spyOn(sessionUtils, "listSessionsFromStoreAsync").mockImplementationOnce(
-        async (params) => {
-          const result = await project(params);
-          const row = expectDefined(
-            result.sessions.find((session) => session.key === sessionKey),
-            "projected session",
-          );
-          row.activeModelProvider = "old-provider";
-          row.activeModel = "old-fallback";
-          registerChatAbortController({
-            chatAbortControllers: context.chatAbortControllers,
-            runId,
+      await changeDuringReadiness(context, () => {
+        registerChatAbortController({
+          chatAbortControllers: context.chatAbortControllers,
+          runId,
+          agentId: "main",
+          sessionKey,
+          sessionId,
+          timeoutMs: 60_000,
+        });
+        if (known) {
+          registerAgentRunContext(runId, {
             agentId: "main",
-            sessionKey,
+            sessionKey: "agent:main:requested",
             sessionId,
-            timeoutMs: 60_000,
+            projectSessionActive: true,
           });
-          if (known) {
-            registerAgentRunContext(runId, {
-              agentId: "main",
-              sessionKey: "agent:main:requested",
-              sessionId,
-              projectSessionActive: true,
-            });
-            emitAgentEventForRunContext(
-              {
-                runId,
-                stream: "lifecycle",
-                data: { phase: "model", provider: "current-provider", model: "current-model" },
-              },
-              getAgentRunContext(runId)!,
-            );
-          }
-          return result;
-        },
-      );
+          emitAgentEventForRunContext(
+            {
+              runId,
+              stream: "lifecycle",
+              data: { phase: "model", provider: "current-provider", model: "current-model" },
+            },
+            getAgentRunContext(runId)!,
+          );
+        }
+      });
       const result = await listSessions({
         client: identifiedClient("viewer@example.com"),
         context,
@@ -579,9 +578,13 @@ it.each([false, true])(
   },
 );
 
-it.each(["configured", "inherited"] as const)(
-  "reconciles a completed fallback when the active run settles during projection (%s selection)",
-  async (selection) => {
+it.each(
+  (["configured", "inherited"] as const).flatMap((selection) =>
+    (["done", "running"] as const).map((storedStatus) => ({ selection, storedStatus })),
+  ),
+)(
+  "reconciles a completed fallback during projection ($selection selection, $storedStatus status)",
+  async ({ selection, storedStatus }) => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const config = await seedSessions();
       config.agents = {
@@ -638,29 +641,24 @@ it.each(["configured", "inherited"] as const)(
         getAgentRunContext(runId)!,
       );
 
-      const project = sessionUtils.listSessionsFromStoreAsync;
-      vi.spyOn(sessionUtils, "listSessionsFromStoreAsync").mockImplementationOnce(
-        async (params) => {
-          const result = await project(params);
-          context.chatAbortControllers.delete(runId);
-          clearAgentRunContext(runId);
-          const scope = { agentId: "main", sessionKey };
-          const entry = expectDefined(loadSessionEntry(scope), "settling session");
-          await replaceSessionEntry(scope, {
-            ...entry,
-            status: "done",
-            lastRunId: runId,
-            modelProvider: "fallback-provider",
-            model: "fallback-model",
-            fallbackNotice: {
-              kind: "active",
-              selectedModel: "selected-provider/selected-model",
-              activeModel: "fallback-provider/fallback-model",
-            },
-          });
-          return result;
-        },
-      );
+      await changeDuringReadiness(context, async () => {
+        context.chatAbortControllers.delete(runId);
+        clearAgentRunContext(runId);
+        const scope = { agentId: "main", sessionKey };
+        const entry = expectDefined(loadSessionEntry(scope), "settling session");
+        await replaceSessionEntry(scope, {
+          ...entry,
+          status: storedStatus,
+          lastRunId: runId,
+          modelProvider: "fallback-provider",
+          model: "fallback-model",
+          fallbackNotice: {
+            kind: "active",
+            selectedModel: "selected-provider/selected-model",
+            activeModel: "fallback-provider/fallback-model",
+          },
+        });
+      });
 
       const result = await listSessions({
         client: identifiedClient("viewer@example.com"),

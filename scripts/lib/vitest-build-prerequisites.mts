@@ -236,6 +236,7 @@ const runtimeConsumers = [
     "src/gateway/server.chat-cli-auth.test.ts",
     "src/gateway/server.cli-watchdog.test.ts",
     "src/gateway/server.codex-failure-recovery.test.ts",
+    "src/gateway/server.xai-fallback.test.ts",
   ].map((file) => ({
     file,
     configs: [

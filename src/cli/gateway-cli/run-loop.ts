@@ -26,10 +26,10 @@ import {
   type GatewayBootLifecycleCompletion,
 } from "../../infra/gateway-boot-lifecycle.js";
 import { acquireGatewayLock } from "../../infra/gateway-lock.js";
+import { GATEWAY_SHUTDOWN_TIMEOUT_MS as SHUTDOWN_TIMEOUT_MS } from "../../infra/gateway-shutdown-budget.js";
 import { consumeGatewaySuspendHandoff } from "../../infra/gateway-suspend-coordinator.js";
 import type { GatewayRestartIntent } from "../../infra/restart-intent.js";
 import type { GatewayRestartEmitter } from "../../infra/restart.js";
-import { SqliteIntegrityWorkerInterruptedError } from "../../infra/sqlite-integrity-worker-error.js";
 import { findStartupMaintenanceRequiredError } from "../../infra/startup-maintenance-required.js";
 import { flushLogger } from "../../logging/logger.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -39,10 +39,11 @@ import {
   runOutsideGatewayRootWorkAdmission,
 } from "../../process/gateway-work-admission.js";
 import type { RuntimeEnv } from "../../runtime.js";
-import { AsyncWorkScope } from "../../shared/async-work-scope.js";
 import { drainGlobalSingletonLifecycleState } from "../../shared/global-singleton.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { createGatewayHostLifecycle } from "./host-lifecycle.js";
+import { resolveGatewayShutdownBudget } from "./run-loop-shutdown-budget.js";
+import { createGatewayStartupOperations } from "./run-loop-startup.js";
 import {
   armShutdownHardExitWatchdog,
   type ShutdownHardExitWatchdog,
@@ -51,7 +52,6 @@ const gatewayLog = createSubsystemLogger("gateway");
 const LAUNCHD_SUPERVISED_RESTART_EXIT_DELAY_MS = 1500;
 const DEFAULT_RESTART_DRAIN_TIMEOUT_MS = 300_000;
 const RESTART_DRAIN_STILL_PENDING_WARN_MS = 30_000;
-const RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS = 10_000;
 const UPDATE_RESPAWN_HEALTH_TIMEOUT_MS = 10_000;
 const UPDATE_RESPAWN_HEALTH_POLL_MS = 200;
 const LOG_FLUSH_EXIT_TIMEOUT_MS = 4_000;
@@ -125,53 +125,6 @@ async function waitForHealthyGatewayChild(
     });
   }
   return false;
-}
-
-function createGatewayStartupOperations(): {
-  run: GatewayStartupOperation;
-  close(): void;
-  cancelledWith(error: unknown): boolean;
-  failedWith(error: unknown): boolean;
-  stopCompletion?: Promise<void>;
-  drain(): Promise<void>;
-} {
-  const scope = new AsyncWorkScope();
-  let failure: { error: unknown } | undefined;
-  // A process-group stop can kill a child before its separate admission owner is cancelled.
-  const cancelledWith = (error: unknown) =>
-    scope.signal.aborted &&
-    (error === scope.signal.reason ||
-      (error instanceof SqliteIntegrityWorkerInterruptedError &&
-        (error.signal === "SIGTERM" || error.signal === "SIGINT")));
-  const run: GatewayStartupOperation = async (operation) => {
-    if (scope.isClosing) {
-      throw scope.signal.reason;
-    }
-    return await scope.track(async () => {
-      try {
-        return await operation(scope.signal);
-      } catch (error) {
-        if (!cancelledWith(error)) {
-          failure ??= { error };
-        }
-        throw error;
-      }
-    });
-  };
-  return {
-    run,
-    close: () => scope.beginClose(),
-    cancelledWith,
-    failedWith: (error: unknown) => failure !== undefined && failure.error === error,
-    async drain() {
-      await scope.drain();
-      // AsyncWorkScope joins descendants with allSettled; failed cleanup must
-      // still make the accepted stop fail rather than certify a clean exit.
-      if (failure) {
-        throw failure.error;
-      }
-    },
-  };
 }
 
 export async function runGatewayLoop(params: {
@@ -636,17 +589,13 @@ export async function runGatewayLoop(params: {
     }
     return reacquireAndResumeInProcessRestart();
   };
-  // The managed unit grants this same budget to a graceful SIGTERM.  A plain
-  // supervisor restart does not carry a gateway restart intent, but it can
-  // still interrupt an embedded model/tool turn; leave enough time for that
-  // turn to settle before systemd resorts to SIGKILL.
-  const SUPERVISOR_STOP_TIMEOUT_MS = 330_000;
-  const SHUTDOWN_TIMEOUT_MS = SUPERVISOR_STOP_TIMEOUT_MS - 5_000;
   const nativeStopBudget = supervisorMode === "systemd" || supervisorMode === "launchd";
-  const acceptedShutdownTimeoutMs =
-    supervisorMode === "launchd"
-      ? eagerLifecycleRuntime.LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS * 1_000 - 5_000
-      : SHUTDOWN_TIMEOUT_MS;
+  const {
+    timeoutMs: acceptedShutdownTimeoutMs,
+    reserveMs: RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS,
+    log: logShutdownBudget,
+  } = await resolveGatewayShutdownBudget(supervisorMode, (message) => gatewayLog.info(message));
+  logShutdownBudget("startup");
   const clearPendingStartupForceExitTimer = () => {
     clearTimeout(pendingStartupForceExitTimer ?? undefined);
     pendingStartupForceExitTimer = null;
@@ -661,7 +610,7 @@ export async function runGatewayLoop(params: {
         "startup restart request timed out before gateway returned a close handle; exiting for supervisor recovery",
       );
       void forceExitAfterStabilityBundle("gateway.restart_startup_request_timeout");
-    }, SHUTDOWN_TIMEOUT_MS);
+    }, acceptedShutdownTimeoutMs);
     pendingStartupForceExitTimer.unref?.();
   };
   const resolveRestartDrainTimeoutMs = (
@@ -747,6 +696,7 @@ export async function runGatewayLoop(params: {
 
   const runAcceptedRequest = (acceptedRequest: GatewayRunSignalRequest) => {
     const { action, restartIntent } = acceptedRequest;
+    logShutdownBudget("shutdown");
     const isRestart = action !== "stop";
     const acceptedStartupOperations = startupOperations;
     if (acceptedRequest.action === "stop") {
@@ -817,7 +767,7 @@ export async function runGatewayLoop(params: {
       const restartDrainTimeoutMs = nativeStopBudget
         ? Math.min(
             requestedRestartDrainTimeoutMs ?? Infinity,
-            acceptedShutdownTimeoutMs - RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS,
+            Math.max(0, acceptedShutdownTimeoutMs - RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS),
           )
         : requestedRestartDrainTimeoutMs;
       const restartDrainDeadlineAt =

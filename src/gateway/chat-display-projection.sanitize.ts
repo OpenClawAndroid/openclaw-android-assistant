@@ -19,7 +19,7 @@ import {
   hasAssistantDisplayableNonTextContent,
   hasTranscriptMediaFacts,
   isAssistantTextContentType,
-  isProjectedSessionsSendForwardedMessage,
+  isProjectedForwardedMessage,
   shouldPreserveAssistantControlReplyText,
   stripAssistantMediaDirectivesForDisplay,
   stripPrivateToolCallContextForDisplay,
@@ -653,7 +653,7 @@ export function shouldDropAssistantHistoryMessage(message: unknown): boolean {
   if (entry.role !== "assistant") {
     return false;
   }
-  if (isProjectedSessionsSendForwardedMessage(entry)) {
+  if (isProjectedForwardedMessage(entry)) {
     return false;
   }
   if (resolveAssistantMessagePhase(message) === "commentary") {

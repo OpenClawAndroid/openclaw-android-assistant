@@ -6,8 +6,22 @@ import type { WebSocket } from "ws";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { listAgentIds } from "../agents/agent-scope.js";
 import { type AgentsConfig, getRuntimeConfig as getMockedRuntimeConfig } from "../config/config.js";
-import { loadSessionEntry, updateSessionEntry } from "../config/sessions/session-accessor.js";
-import { disposeOpenClawAgentDatabaseByPath } from "../state/openclaw-agent-db.js";
+import {
+  loadSessionEntry,
+  persistSessionTranscriptTurn,
+  updateSessionEntry,
+} from "../config/sessions/session-accessor.js";
+import { listSessionsNeedingTranscriptIndexReconcile } from "../config/sessions/session-transcript-index.js";
+import {
+  startSessionTranscriptIndexReconcile,
+  waitForSessionTranscriptIndexReconcile,
+} from "../config/sessions/session-transcript-reconcile.js";
+import { beginSessionWorkAdmission } from "../sessions/session-lifecycle-admission.js";
+import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
+import {
+  closeOpenClawAgentDatabaseByPath,
+  openOpenClawAgentDatabase,
+} from "../state/openclaw-agent-db.js";
 import { listOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.test-support.js";
 import { SQLITE_SESSION_WRITER_QUEUES } from "../state/openclaw-agent-write-admission.js";
 import { createGatewayConfigOverrides } from "./test-helpers.config-runtime.js";
@@ -20,6 +34,7 @@ import {
   writeSessionStore,
 } from "./test-helpers.js";
 import { installConnectedControlUiServerSuite } from "./test-with-server.js";
+import { releaseGatewaySessionStoreFixture } from "./test/server-sessions-resources.test-helpers.js";
 
 installGatewayTestHooks({ scope: "suite" });
 let ws: WebSocket;
@@ -28,60 +43,134 @@ installConnectedControlUiServerSuite((started) => {
 });
 
 describe("Gateway RPC fixture session writes", () => {
-  test.each(["raw WebSocket", "rpcReq"])("%s preserves queued session writes", async (request) => {
+  test("fixture release joins admitted continuations before deselecting their store", async () => {
+    // openclaw-temp-dir: allow verifies explicit store teardown while a writer owns the directory
     const dir = await fs.realpath(
-      await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-rpc-writes-")),
+      await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-admitted-writes-")),
     );
     const storePath = path.join(dir, "openclaw-agent.sqlite");
     testState.sessionStorePath = storePath;
     const scope = { agentId: "main", sessionKey: "agent:main:main", storePath };
-    const planning = createDeferred();
-    const release = createDeferred();
-    const writes: Promise<unknown>[] = [];
-    let drains: Promise<void>[] = [];
+    await writeSessionStore({ entries: { main: { sessionId: "admitted-write", updatedAt: 1 } } });
+    const admission = await beginSessionWorkAdmission({
+      scope: storePath,
+      identities: [scope.sessionKey, "admitted-write"],
+      assertAllowed: () => {},
+    });
+    const releasing = releaseGatewaySessionStoreFixture(dir);
     try {
-      await writeSessionStore({ entries: { main: { sessionId: "rpc-writes", updatedAt: 1 } } });
-      expect((await rpcReq(ws, "sessions.subscribe", {})).ok).toBe(true);
-      const first = updateSessionEntry(scope, async () => {
-        planning.resolve();
-        await release.promise;
-        return { label: "first" };
-      });
-      writes.push(first);
-      await planning.promise;
-      const second = updateSessionEntry(scope, () => ({ label: "second" }));
-      writes.push(second);
-      // Observe rejection immediately; retain drains even if the faulty helper drops their map.
-      const outcomes = Promise.allSettled(writes);
-      drains = [...SQLITE_SESSION_WRITER_QUEUES.values()].flatMap((queue) =>
-        queue.drainPromise ? [queue.drainPromise] : [],
-      );
-      if (request === "rpcReq") {
-        expect((await rpcReq(ws, "sessions.subscribe", {})).ok).toBe(true);
-      } else {
-        const id = "queued-writes-control";
-        const response = onceMessage(ws, (event) => event.type === "res" && event.id === id);
-        ws.send(JSON.stringify({ type: "req", id, method: "sessions.subscribe", params: {} }));
-        expect((await response).ok).toBe(true);
-      }
-      release.resolve();
-      expect(await outcomes).toEqual([
-        { status: "fulfilled", value: expect.objectContaining({ label: "first" }) },
-        { status: "fulfilled", value: expect.objectContaining({ label: "second" }) },
-      ]);
-      expect(loadSessionEntry(scope)?.label).toBe("second");
+      expect(testState.sessionStorePath).toBe(storePath);
+      await admission.run(() => updateSessionEntry(scope, () => ({ label: "late continuation" })));
+      expect(loadSessionEntry(scope)?.label).toBe("late continuation");
     } finally {
-      release.resolve();
-      await Promise.allSettled([...writes, ...drains]);
-      // This custom store lives outside the Gateway HOME and owns its own disposal.
-      disposeOpenClawAgentDatabaseByPath(storePath);
-      testState.sessionStorePath = undefined;
+      admission.release();
+      await releasing;
       await fs.rm(dir, { recursive: true, force: true });
     }
     expect(
       listOpenClawAgentDatabasesForTest().some((database) => database.path === storePath),
     ).toBe(false);
   });
+
+  test.each(["raw WebSocket", "rpcReq", "fixture release"])(
+    "%s preserves queued session writes",
+    async (request) => {
+      const dir = await fs.realpath(
+        await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-rpc-writes-")),
+      );
+      const storePath = path.join(dir, "openclaw-agent.sqlite");
+      testState.sessionStorePath = storePath;
+      const scope = { agentId: "main", sessionKey: "agent:main:main", storePath };
+      const planning = createDeferred();
+      const release = createDeferred();
+      const writes: Promise<unknown>[] = [];
+      let drains: Promise<void>[] = [];
+      try {
+        await writeSessionStore({ entries: { main: { sessionId: "rpc-writes", updatedAt: 1 } } });
+        expect((await rpcReq(ws, "sessions.subscribe", {})).ok).toBe(true);
+        const first = updateSessionEntry(scope, async () => {
+          planning.resolve();
+          await release.promise;
+          return { label: "first" };
+        });
+        writes.push(first);
+        await planning.promise;
+        const second = updateSessionEntry(scope, () => ({ label: "second" }));
+        writes.push(second);
+        // Observe rejection immediately; retain drains even if the faulty helper drops their map.
+        const outcomes = Promise.allSettled(writes);
+        drains = [...SQLITE_SESSION_WRITER_QUEUES.values()].flatMap((queue) =>
+          queue.drainPromise ? [queue.drainPromise] : [],
+        );
+        if (request === "rpcReq") {
+          expect((await rpcReq(ws, "sessions.subscribe", {})).ok).toBe(true);
+        } else if (request === "raw WebSocket") {
+          const id = "queued-writes-control";
+          const response = onceMessage(ws, (event) => event.type === "res" && event.id === id);
+          ws.send(JSON.stringify({ type: "req", id, method: "sessions.subscribe", params: {} }));
+          expect((await response).ok).toBe(true);
+        } else {
+          const releasedDir = path.join(dir, "released");
+          const options = {
+            agentId: "main",
+            path: path.join(releasedDir, "case-0", "openclaw-agent.sqlite"),
+          };
+          await persistSessionTranscriptTurn(
+            {
+              agentId: options.agentId,
+              sessionId: "fixture-reconcile",
+              sessionKey: "agent:main:fixture-reconcile",
+              storePath: options.path,
+            },
+            {
+              messages: [
+                { eventId: "seed", message: { role: "user", content: "fixture projection" } },
+              ],
+              touchSessionEntry: false,
+            },
+          );
+          await waitForSessionTranscriptIndexReconcile(options);
+          const database = openOpenClawAgentDatabase(options);
+          database.db.prepare("UPDATE session_transcript_index_state SET needs_rebuild = 1").run();
+          expect(closeOpenClawAgentDatabaseByPath(database.path)).toBe(true);
+
+          // Schedule after closing the handle: disposal must join work that has not reopened it yet.
+          startSessionTranscriptIndexReconcile(options);
+          try {
+            await releaseGatewaySessionStoreFixture(releasedDir);
+            expect(
+              withOpenClawAgentDatabaseReadOnly(
+                ({ db }) => listSessionsNeedingTranscriptIndexReconcile(db),
+                options,
+              ),
+            ).toEqual({ found: true, value: [] });
+            expect(
+              listOpenClawAgentDatabasesForTest().some((entry) => entry.path === options.path),
+            ).toBe(false);
+            expect(testState.sessionStorePath).toBe(storePath);
+          } finally {
+            // Keep a failed release assertion from racing the outer directory removal.
+            await waitForSessionTranscriptIndexReconcile(options);
+          }
+        }
+        release.resolve();
+        expect(await outcomes).toEqual([
+          { status: "fulfilled", value: expect.objectContaining({ label: "first" }) },
+          { status: "fulfilled", value: expect.objectContaining({ label: "second" }) },
+        ]);
+        expect(loadSessionEntry(scope)?.label).toBe("second");
+      } finally {
+        release.resolve();
+        await Promise.allSettled([...writes, ...drains]);
+        // This custom store lives outside the Gateway HOME and owns its own disposal.
+        await releaseGatewaySessionStoreFixture(dir);
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+      expect(
+        listOpenClawAgentDatabasesForTest().some((database) => database.path === storePath),
+      ).toBe(false);
+    },
+  );
 });
 
 describe("Gateway fixture config publication", () => {

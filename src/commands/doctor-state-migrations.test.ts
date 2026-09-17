@@ -55,6 +55,7 @@ import {
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { loadTaskFlowRegistryStateFromSqlite } from "../tasks/task-flow-registry.store.sqlite.js";
 import { loadTaskRegistryStateFromSqlite } from "../tasks/task-registry.store.sqlite.js";
+import { createLegacyAgentDatabaseRegistry } from "./doctor-state-migrations.agent-registry.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(async () => {
@@ -295,40 +296,6 @@ function readPrimaryKeyColumns(db: DatabaseSync, tableName: string): string[] {
     .filter((row) => Number(row.pk ?? 0) > 0 && typeof row.name === "string")
     .toSorted((left, right) => Number(left.pk ?? 0) - Number(right.pk ?? 0))
     .map((row) => row.name as string);
-}
-
-function createLegacyAgentDatabaseRegistry(stateDir: string): string {
-  const stateDatabasePath = path.join(stateDir, "state", "openclaw.sqlite");
-  fs.mkdirSync(path.dirname(stateDatabasePath), { recursive: true });
-  const { DatabaseSync } = requireNodeSqlite();
-  const db = new DatabaseSync(stateDatabasePath);
-  try {
-    db.exec(`
-      CREATE TABLE agent_databases (
-        agent_id TEXT NOT NULL PRIMARY KEY,
-        path TEXT NOT NULL,
-        schema_version INTEGER NOT NULL,
-        last_seen_at INTEGER NOT NULL,
-        size_bytes INTEGER
-      );
-      INSERT INTO agent_databases (
-        agent_id,
-        path,
-        schema_version,
-        last_seen_at,
-        size_bytes
-      ) VALUES (
-        'worker-1',
-        '/legacy/worker-1/openclaw-agent.sqlite',
-        1,
-        10,
-        20
-      );
-    `);
-  } finally {
-    db.close();
-  }
-  return stateDatabasePath;
 }
 
 function writeLegacySessionsFixture(params: {
@@ -1110,7 +1077,7 @@ describe("doctor legacy state migrations", () => {
   it("migrates the legacy shared state agent registry primary key", async () => {
     const root = makeDoctorStateDir();
     const stateDir = path.join(root, ".openclaw");
-    const stateDatabasePath = createLegacyAgentDatabaseRegistry(stateDir);
+    const stateDatabasePath = await createLegacyAgentDatabaseRegistry(stateDir);
     const detected = await detectLegacyStateMigrations({
       cfg: {},
       env: {} as NodeJS.ProcessEnv,
@@ -1125,6 +1092,7 @@ describe("doctor legacy state migrations", () => {
     expect(result.warnings).toStrictEqual([]);
     expect(result.changes).toStrictEqual([
       "Migrated shared state agent database registry primary key → agent_id,path",
+      "Migrated shared state tables to SQLite STRICT typing (1)",
     ]);
 
     const { DatabaseSync } = requireNodeSqlite();
@@ -1151,6 +1119,28 @@ describe("doctor legacy state migrations", () => {
             size_bytes = excluded.size_bytes;
         `),
       ).not.toThrow();
+      expect(
+        db
+          .prepare(
+            "SELECT agent_id, path, schema_version, last_seen_at, size_bytes FROM agent_databases ORDER BY path",
+          )
+          .all(),
+      ).toEqual([
+        {
+          agent_id: "worker-1",
+          path: "/legacy/worker-1/openclaw-agent.sqlite",
+          schema_version: 1,
+          last_seen_at: 10,
+          size_bytes: 20,
+        },
+        {
+          agent_id: "worker-1",
+          path: "/relocated/worker-1/openclaw-agent.sqlite",
+          schema_version: 1,
+          last_seen_at: 20,
+          size_bytes: 30,
+        },
+      ]);
     } finally {
       db.close();
     }
@@ -1159,7 +1149,7 @@ describe("doctor legacy state migrations", () => {
   it("does not repair newer shared state schemas", async () => {
     const root = makeDoctorStateDir();
     const stateDir = path.join(root, ".openclaw");
-    const stateDatabasePath = createLegacyAgentDatabaseRegistry(stateDir);
+    const stateDatabasePath = await createLegacyAgentDatabaseRegistry(stateDir);
     const { DatabaseSync } = requireNodeSqlite();
     const seededDb = new DatabaseSync(stateDatabasePath);
     seededDb.exec(`PRAGMA user_version = ${OPENCLAW_STATE_SCHEMA_VERSION + 1};`);

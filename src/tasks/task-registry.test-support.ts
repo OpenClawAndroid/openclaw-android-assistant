@@ -9,6 +9,13 @@ import type { TaskRegistryDeliveryRuntime } from "./task-registry-runtime-loader
 import { createTaskRecord as createTaskRecordOrNull } from "./task-registry.js";
 import type { TaskEventRecord, TaskRecord } from "./task-registry.types.js";
 
+export {
+  markTaskLostById,
+  markTaskTerminalById as finishTaskFixture,
+  recordTaskProgressByRunId,
+  reloadTaskRegistryFromStore,
+} from "./task-registry.js";
+
 type CreateTaskRecordParams = Parameters<typeof createTaskRecordOrNull>[0];
 type TaskFixtureDefaults = "runtime" | "ownerKey" | "scopeKind" | "status" | "deliveryStatus";
 type TaskFixtureParams = Omit<CreateTaskRecordParams, TaskFixtureDefaults> &

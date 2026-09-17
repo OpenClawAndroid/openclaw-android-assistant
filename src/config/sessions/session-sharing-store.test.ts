@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import { sessionChanges, type SessionRowChange } from "../../sessions/session-row-changes.js";
 import {
   closeOpenClawAgentDatabasesForTest,
   isOpenClawAgentDatabaseOpen,
   openOpenClawAgentDatabase,
   resolveOpenClawAgentSqlitePath,
+  runOpenClawAgentWriteTransaction,
 } from "../../state/openclaw-agent-db.js";
 import { withTestDir } from "../../test-helpers/temp-dir.js";
 import {
@@ -22,6 +24,54 @@ import {
 afterEach(() => closeOpenClawAgentDatabasesForTest());
 
 describe("session sharing store", () => {
+  it("publishes membership changes only after their containing transaction commits", async () => {
+    await withTestDir({ prefix: "openclaw-session-sharing-publication-" }, async (dir) => {
+      const env = { ...process.env, OPENCLAW_STATE_DIR: dir };
+      const scope = { agentId: "main", env, sessionKey: "agent:main:main" };
+      await upsertSessionEntryCore(scope, { sessionId: "session-main", updatedAt: 1 });
+      const changes: SessionRowChange[] = [];
+      const members: string[][] = [];
+      const stop = sessionChanges.subscribe((change) => {
+        changes.push(change);
+        members.push(listSessionMembers(scope).map((member) => member.identityId));
+      });
+      try {
+        runOpenClawAgentWriteTransaction(
+          () => {
+            addSessionMember(scope, { identityId: "guest", addedBy: "owner" });
+            expect(changes).toEqual([]);
+          },
+          { agentId: scope.agentId, env },
+        );
+        expect(changes).toEqual([
+          expect.objectContaining({
+            agentId: scope.agentId,
+            sessionKey: scope.sessionKey,
+            storePath: resolveOpenClawAgentSqlitePath({ agentId: scope.agentId, env }),
+          }),
+        ]);
+        expect(members).toEqual([["guest"]]);
+        changes.length = 0;
+        members.length = 0;
+        expect(() =>
+          runOpenClawAgentWriteTransaction(
+            () => {
+              removeSessionMember(scope, "guest");
+              expect(changes).toEqual([]);
+              throw new Error("rollback");
+            },
+            { agentId: scope.agentId, env },
+          ),
+        ).toThrow("rollback");
+        expect(changes).toEqual([]);
+        removeSessionMember(scope, "guest");
+        expect(members).toEqual([[]]);
+      } finally {
+        stop();
+      }
+    });
+  });
+
   it("reads existing and missing memberships without opening or creating writable databases", async () => {
     await withTestDir({ prefix: "openclaw-session-sharing-readonly-" }, async (dir) => {
       const env = { ...process.env, OPENCLAW_STATE_DIR: dir };

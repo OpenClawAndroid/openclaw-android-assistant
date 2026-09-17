@@ -291,6 +291,7 @@ export function resolveGatewaySessionThinkingProjectionInternal(
       })
     : undefined;
   return {
+    acpMeta,
     catalogEntry,
     agentRuntime,
     runtimeSelectionLocked,

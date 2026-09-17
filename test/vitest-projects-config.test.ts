@@ -57,6 +57,7 @@ import {
   createGatewayVitestConfig,
 } from "./vitest/vitest.gateway.config.ts";
 import { createInfraVitestConfig } from "./vitest/vitest.infra.config.ts";
+import liveConfig from "./vitest/vitest.live.config.ts";
 import { createPluginSdkLightVitestConfig } from "./vitest/vitest.plugin-sdk-light.config.ts";
 import { createProjectShardVitestConfig } from "./vitest/vitest.project-shard-config.ts";
 import {
@@ -695,6 +696,12 @@ describe("projects vitest config", () => {
     expect(testConfig.pool).toBe("forks");
     expect(rootVitestProjects).toContain(project);
     expect(fullSuiteVitestShards.flatMap((shard) => shard.projects ?? [])).toContain(project);
+  });
+
+  it("runs live Gateway hosts in process forks for shared-state admission", () => {
+    const testConfig = requireTestConfig(liveConfig);
+    expect(testConfig.pool).toBe("forks");
+    expect(testConfig.maxWorkers).toBe(1);
   });
 
   it("keeps Slack's real cooldown store in its forked project", () => {

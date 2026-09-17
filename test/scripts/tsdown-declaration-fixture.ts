@@ -112,6 +112,7 @@ export function createFixture(
   for (const name of [
     ".bin",
     "@openclaw/fs-safe",
+    "koffi",
     "playwright-core",
     "web-tree-sitter",
     "tree-sitter-bash",
@@ -166,6 +167,8 @@ export function createFixture(
   // Keep the generator's source owners and import.meta.url lookups inside the fixture.
   const runtimeEntryOwners = new Set([
     ...Object.values(runtimeProcessDeclarationEntries),
+    "scripts/lib/managed-windows-job-launcher.mts",
+    "src/process/supervisor/service-child-windows-job-native.ts",
     "src/infra/update-managed-service-handoff-runtime-assets.ts",
     "src/infra/update-managed-service-handoff-native-loader.ts",
     "src/shared/freebsd-process-identity.ts",

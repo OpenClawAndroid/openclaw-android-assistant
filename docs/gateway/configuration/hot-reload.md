@@ -248,6 +248,18 @@ runtime. They continue with the replacement when it is ready, or with the
 previous runtime after a successful rollback. You do not need to resend these
 requests. Failed restoration or Gateway shutdown still reports a failure.
 
+If plugin replacement times out after stopping channels, the plugin lifecycle
+owner retries the admitted-work drain for up to 60 seconds before restoring the
+previous code and configuration with fresh registrations. It restarts channels
+after successful restoration and preserves manual stops. Unfinished writes keep
+their resource ownership; they are never discarded to force a replacement.
+If recovery reaches its deadline or cleanup fails, the operation ends as failed
+and releases channel reload pauses. Detailed [`/ready`](/gateway/health#http-probes)
+reports `plugin-reload` with the affected plugins and recovery instructions.
+Retry `openclaw plugins reload <id>` once the outstanding work settles, or restart
+the Gateway. See [Plugin lifecycle](/plugins/architecture#plugin-metadata-snapshot-and-lookup-table)
+for cleanup and ownership details.
+
 During channel or plugin hot reload, Gateway-hosted channel webhook routes return
 `503` with `Retry-After: 1` until replacement ingress registers. Senders must honor
 retry responses; this does not acknowledge delivery. Disabled or removed accounts,

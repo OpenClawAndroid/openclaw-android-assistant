@@ -45,7 +45,7 @@ import { ensureSelectedAgentHarnessPlugin } from "../harness/runtime-plugin.js";
 import { resolveAvailableAgentHarnessPolicy } from "../harness/selection.js";
 import { resolveModelProviderAuthConfig } from "../model-auth-provider-route.js";
 import { findModelInCatalog } from "../model-catalog-lookup.js";
-import { loadManifestModelCatalog } from "../model-catalog.js";
+import type { ModelCatalogEntry } from "../model-catalog.types.js";
 import { splitTrailingAuthProfile } from "../model-ref-profile.js";
 import type { ModelManifestNormalizationContext } from "../model-ref-shared.js";
 import { resolveCliBoundModelRef } from "../model-runtime-aliases.js";
@@ -66,6 +66,7 @@ import {
 } from "../thinking-runtime.js";
 import { persistAgentSession } from "./attempt-execution.shared.js";
 import { normalizeAgentCommandModelRef, parseAgentCommandModelRef } from "./model-ref.js";
+import { prepareCommandModelCatalog } from "./model-selection-catalog.js";
 import { normalizeExplicitOverrideInput } from "./prepare.js";
 import type { resolveAgentRunContext } from "./run-context.js";
 import { loadTranscriptResolveRuntime } from "./runtime-loaders.js";
@@ -86,7 +87,7 @@ export async function resolveEmbeddedModelSelection(params: {
   pluginsEnabled: boolean;
   manifestMetadataSnapshot?: PluginMetadataSnapshot;
   modelManifestContext: ModelManifestNormalizationContext;
-  configuredThinkingCatalog: ReturnType<typeof loadManifestModelCatalog>;
+  configuredThinkingCatalog: ModelCatalogEntry[];
   requestedThinkLevel?: ThinkLevel;
   thinkOverride?: ThinkLevel;
   thinkOnce?: ThinkLevel;
@@ -136,26 +137,19 @@ export async function resolveEmbeddedModelSelection(params: {
     throw new Error("Model override is not authorized for this caller.");
   }
 
-  // Unconfigured selections still need their declared capabilities before validation.
-  // Reuse the prepared manifest snapshot; this never starts live provider discovery.
-  const modelCatalog = params.pluginsEnabled
-    ? loadManifestModelCatalog({
-        config: params.cfg,
-        workspaceDir: params.workspaceDir,
-        metadataSnapshot: params.manifestMetadataSnapshot,
-        fallbackToMetadataScan: false,
-      })
-    : [];
-  const visibilityPolicy = createModelVisibilityPolicy({
-    cfg: params.cfg,
-    catalog: modelCatalog,
-    defaultProvider,
-    defaultModel: configuredDefaultRef,
-    agentId: params.sessionAgentId,
-    allowManifestNormalization: true,
-    allowPluginNormalization: params.pluginsEnabled,
-    ...params.modelManifestContext,
-  });
+  const { visibilityPolicy, modelCatalog, loadDeferredThinkingCatalog } =
+    prepareCommandModelCatalog({
+      cfg: params.cfg,
+      agentId: params.sessionAgentId,
+      sessionEntry,
+      hasExplicitRunOverride,
+      metadataSnapshot: params.manifestMetadataSnapshot,
+      pluginsEnabled: params.pluginsEnabled,
+      workspaceDir: params.workspaceDir,
+      defaultProvider,
+      defaultModel,
+      modelManifestContext: params.modelManifestContext,
+    });
 
   if (
     !isModelSelectionLocked(sessionEntry) &&
@@ -657,6 +651,7 @@ export async function resolveEmbeddedModelSelection(params: {
     autoFallbackPrimaryProbe,
     sessionEntryForAttempt,
     thinkingCatalog,
+    ...(loadDeferredThinkingCatalog ? { loadDeferredThinkingCatalog } : {}),
     immutableThinkLevel,
     effectiveTurnThinkLevel: primaryThinking.requestedLevel,
     sessionFile,

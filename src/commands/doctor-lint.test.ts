@@ -117,7 +117,9 @@ describe("runDoctorLintCli", () => {
 
       expect(exitCode).toBe(0);
       expect(mocks.readConfigFileSnapshot).toHaveBeenCalledWith({ observe: false });
-      expect(String(stdout.mock.calls.at(-1)?.[0])).toContain('"findings":[]');
+      const payload = JSON.parse(String(stdout.mock.calls.at(-1)?.[0]));
+      expect(payload.schemaVersion).toBe(1);
+      expect(payload.findings).toEqual([]);
     } finally {
       stdout.mockRestore();
     }

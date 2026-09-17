@@ -2023,11 +2023,9 @@ describe("update-cli", () => {
   };
 
   beforeEach(async () => {
-    fixtureStateDatabases.clear();
-    // Clear the helper's state selector below so HOME and profile overrides keep their semantics.
+    process.exitCode = (fixtureStateDatabases.clear(), undefined);
     const { createTempHomeEnv } = await import("../test-utils/temp-home.js");
     tempHome = await createTempHomeEnv("openclaw-update-cli-home-");
-    // Fresh homes must not repeatedly discover the host's global npm policy.
     process.env.NPM_CONFIG_GLOBALCONFIG = globalNpmConfig;
     process.env.npm_config_globalconfig = globalNpmConfig;
     const executorTmp = tempDirs.make("update-cli-owner-");
@@ -2317,7 +2315,7 @@ describe("update-cli", () => {
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
+    process.exitCode = (vi.restoreAllMocks(), undefined);
     closeOpenClawStateDatabaseForTest();
     await tempHome?.restore();
     tempHome = undefined;

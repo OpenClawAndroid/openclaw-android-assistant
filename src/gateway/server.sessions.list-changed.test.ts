@@ -8,6 +8,7 @@ import { createDeferred } from "../../test/helpers/promise.js";
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.js";
 import { loadSessionEntry } from "../config/sessions/session-accessor.js";
+import { clearAgentRunContext, registerAgentRunContext } from "../infra/agent-run-registry.js";
 import { subscribePluginSessionsChanged } from "../plugins/gateway-events.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
@@ -16,7 +17,19 @@ import {
   projectSessionDeliveryFields,
 } from "../utils/delivery-context.shared.js";
 import { createGatewayBroadcaster } from "./server-broadcast.js";
+import { flushPendingSessionsChangedEvents } from "./server-methods/session-change-event.js";
+import { initializeSessionReadContext } from "./server-methods/sessions-read-cache.test-support.js";
+import type { GatewayRequestContext } from "./server-methods/types.js";
 import type { GatewayModelCatalogSnapshot } from "./server-model-catalog.types.js";
+import {
+  requireRecord,
+  requireArray,
+  expectFields,
+  transcriptMessageContents,
+  expectRespondPayload,
+  findSession,
+  expectChangedBroadcast,
+} from "./server.sessions.list-changed.test-helpers.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 import { embeddedRunMock, rpcReq, testState, writeSessionStore } from "./test-helpers.js";
 import {
@@ -39,86 +52,8 @@ afterEach(() => {
   setActivePluginRegistry(createEmptyPluginRegistry());
 });
 
-type MockCalls = {
-  mock: { calls: unknown[][] };
-};
 type SessionStoreEntryOptions = Parameters<typeof sessionStoreEntry>[1];
 type MutationMethod = "sessions.patch" | "sessions.compact";
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  expect(isObjectRecord(value), `${label} should be an object`).toBe(true);
-  if (!isObjectRecord(value)) {
-    throw new Error(`${label} should be an object`);
-  }
-  return value;
-}
-
-function requireArray(value: unknown, label: string): unknown[] {
-  expect(Array.isArray(value), `${label} should be an array`).toBe(true);
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} should be an array`);
-  }
-  return value;
-}
-
-function expectFields(record: Record<string, unknown>, expected: Record<string, unknown>) {
-  for (const [key, value] of Object.entries(expected)) {
-    expect(record[key], key).toEqual(value);
-  }
-}
-
-function transcriptMessageContents(events: readonly unknown[]): unknown[] {
-  return events
-    .map((event) =>
-      isObjectRecord(event) && isObjectRecord(event.message) ? event.message.content : undefined,
-    )
-    .filter((content) => content !== undefined);
-}
-
-function expectRespondPayload(respond: MockCalls): Record<string, unknown> {
-  expect(respond.mock.calls).toHaveLength(1);
-  const [ok, payload, error] = respond.mock.calls[0] ?? [];
-  expect(ok).toBe(true);
-  expect(error).toBeUndefined();
-  return requireRecord(payload, "response payload");
-}
-
-function findSession(
-  payload: Record<string, unknown>,
-  sessionKey: string,
-): Record<string, unknown> {
-  const sessions = requireArray(payload.sessions, "response sessions");
-  const session = sessions.find(
-    (candidate): candidate is Record<string, unknown> =>
-      isObjectRecord(candidate) && candidate.key === sessionKey,
-  );
-  if (!session) {
-    throw new Error(`Missing session ${sessionKey}`);
-  }
-  return session;
-}
-
-function expectChangedBroadcast(
-  broadcastToConnIds: MockCalls,
-  expected: Record<string, unknown>,
-): Record<string, unknown> {
-  expect(broadcastToConnIds.mock.calls).toHaveLength(1);
-  const [event, payload, connIds, options] = broadcastToConnIds.mock.calls[0] ?? [];
-  expect(event).toBe("sessions.changed");
-  expect(connIds).toEqual(new Set(["conn-1"]));
-  expect(options).toEqual({
-    agentId: typeof expected.agentId === "string" ? expected.agentId : "main",
-    dropIfSlow: true,
-    ...(typeof expected.sessionKey === "string" ? { sessionKeys: [expected.sessionKey] } : {}),
-  });
-  const payloadRecord = requireRecord(payload, "broadcast payload");
-  expectFields(payloadRecord, expected);
-  return payloadRecord;
-}
 
 async function invokeSessionsList({
   requestId,
@@ -134,26 +69,29 @@ async function invokeSessionsList({
   const respond = vi.fn();
   const sessionsHandlers = await getSessionsHandlers();
   const { getRuntimeConfig } = await getGatewayConfigModule();
-  const request = expectDefined(
-    sessionsHandlers["sessions.list"],
-    'sessionsHandlers["sessions.list"] test invariant',
-  )({
-    req: {
-      type: "req",
-      id: requestId,
-      method: "sessions.list",
+  const requestContext = {
+    getRuntimeConfig,
+    readPreparedGatewayModelCatalog: async () => ({ entries: [] }),
+    ...context,
+  } as unknown as GatewayRequestContext;
+  const request = initializeSessionReadContext(requestContext).then(() =>
+    expectDefined(
+      sessionsHandlers["sessions.list"],
+      'sessionsHandlers["sessions.list"] test invariant',
+    )({
+      req: {
+        type: "req",
+        id: requestId,
+        method: "sessions.list",
+        params,
+      },
       params,
-    },
-    params,
-    respond,
-    client: null,
-    isWebchatConnect: () => false,
-    context: {
-      getRuntimeConfig,
-      readPreparedGatewayModelCatalog: async () => ({ entries: [] }),
-      ...context,
-    } as never,
-  });
+      respond,
+      client: null,
+      isWebchatConnect: () => false,
+      context: requestContext,
+    }),
+  );
   if (!defer) {
     await request;
   }
@@ -191,6 +129,18 @@ async function invokeSessionMutation({
   const respond = vi.fn();
   const sessionsHandlers = await getSessionsHandlers();
   const { getRuntimeConfig } = await getGatewayConfigModule();
+  const requestContext = {
+    broadcastToConnIds,
+    chatAbortControllers: new Map(),
+    chatQueuedTurns: new Map(),
+    dedupe: new Map(),
+    getSessionEventSubscriberConnIds: () => subscribedConnIds,
+    loadGatewayModelCatalog: async () => ({ providers: [] }),
+    loadGatewayModelCatalogSnapshot: () => mutationCatalogSnapshot([]),
+    getRuntimeConfig,
+    ...context,
+  } as unknown as GatewayRequestContext;
+  await initializeSessionReadContext(requestContext);
   await expectDefined(
     sessionsHandlers[method],
     "sessionsHandlers[method] test invariant",
@@ -198,20 +148,11 @@ async function invokeSessionMutation({
     req: {} as never,
     params,
     respond,
-    context: {
-      broadcastToConnIds,
-      chatAbortControllers: new Map(),
-      chatQueuedTurns: new Map(),
-      dedupe: new Map(),
-      getSessionEventSubscriberConnIds: () => subscribedConnIds,
-      loadGatewayModelCatalog: async () => ({ providers: [] }),
-      loadGatewayModelCatalogSnapshot: () => mutationCatalogSnapshot([]),
-      getRuntimeConfig,
-      ...context,
-    } as never,
+    context: requestContext,
     client: null,
     isWebchatConnect: () => false,
   });
+  await flushPendingSessionsChangedEvents(requestContext);
   return {
     broadcastToConnIds,
     responsePayload: expectRespondPayload(respond),
@@ -285,7 +226,7 @@ async function expectListedSessionActiveRun(
   expect(session.status).toBe(expectedStatus);
 }
 
-test("sessions.list keeps bulk rows lightweight and uses selected model fields", async () => {
+test("sessions.list uses prepared transcript usage and selected model fields", async () => {
   const { storePath } = await createSessionStoreDir();
   testState.agentConfig = {
     models: {
@@ -360,10 +301,10 @@ test("sessions.list keeps bulk rows lightweight and uses selected model fields",
   );
   expect(parent?.childSessions).toEqual(["agent:main:dashboard:child"]);
   expect(child?.parentSessionKey).toBe("agent:main:main");
-  expect(child?.totalTokens).toBeUndefined();
-  expect(child?.totalTokensFresh).toBe(false);
+  expect(child?.totalTokens).toBe(3_000);
+  expect(child?.totalTokensFresh).toBe(true);
   expect(child?.contextTokens).toBeUndefined();
-  expect(child?.estimatedCostUsd).toBeUndefined();
+  expect(child?.estimatedCostUsd).toBe(0.0042);
   expect(child?.modelProvider).toBe("anthropic");
   expect(child?.model).toBe("test-model-without-catalog-context");
   expect(child?.modelSelectionLocked).toBe(true);
@@ -777,16 +718,26 @@ test("sessions.list distinguishes proven idle from unavailable run identities", 
   const idleSession = findSession(expectRespondPayload(idle.respond), "agent:main:main");
   expect(idleSession).toMatchObject({ hasActiveRun: false, activeRunIds: [] });
 
-  embeddedRunMock.activeIds.add("sess-main");
-  const unavailable = await invokeSessionsList({
-    requestId: "req-sessions-list-unavailable-runs",
+  const runId = "list-unavailable-exact-identities";
+  registerAgentRunContext(runId, {
+    agentId: "main",
+    sessionId: "sess-main",
+    sessionKey: "agent:main:main",
+    projectSessionActive: true,
   });
-  const unavailableSession = findSession(
-    expectRespondPayload(unavailable.respond),
-    "agent:main:main",
-  );
-  expect(unavailableSession).toMatchObject({ hasActiveRun: true });
-  expect(unavailableSession).not.toHaveProperty("activeRunIds");
+  try {
+    const unavailable = await invokeSessionsList({
+      requestId: "req-sessions-list-unavailable-runs",
+    });
+    const unavailableSession = findSession(
+      expectRespondPayload(unavailable.respond),
+      "agent:main:main",
+    );
+    expect(unavailableSession).toMatchObject({ hasActiveRun: true });
+    expect(unavailableSession).not.toHaveProperty("activeRunIds");
+  } finally {
+    clearAgentRunContext(runId);
+  }
 });
 
 test("sessions.changed publishes visible active run ids", async () => {

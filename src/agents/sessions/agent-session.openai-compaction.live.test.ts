@@ -213,7 +213,9 @@ describeLive("OpenAI AgentSession repeated compaction live", () => {
         maxTokens: 1_024,
       };
       const config: OpenClawConfig = {
-        plugins: { slots: { memory: "none" } },
+        // This proof owns compaction and SQLite replay only. Avoid spending its bounded model
+        // publication window on unrelated workspace-plugin discovery under release-runner load.
+        plugins: { enabled: false, slots: { memory: "none" } },
         models: {
           providers: {
             openai: {

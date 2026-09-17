@@ -18,6 +18,7 @@ import { t } from "../i18n/index.ts";
 import { normalizeAgentLabel, resolveAgentTextAvatar } from "../lib/agents/display.ts";
 import { resolveAgentAvatarUrl } from "../lib/avatar.ts";
 import { redactLoginFailureError } from "../lib/connection-hints.ts";
+import { renderHoverMarquee } from "../lib/hover-marquee.ts";
 import {
   formatKeyboardShortcutCombo,
   KEYBOARD_SHORTCUT_COMBOS,
@@ -389,7 +390,7 @@ export function renderAppSidebarOnline(host: AppSidebarRenderHost) {
                 >${collapsed ? icons.chevronRight : icons.chevronDown}</span
               >
             </span>
-            <span class="sidebar-recent-sessions__label-text hover-marquee">${label}</span>
+            ${renderHoverMarquee(label, "sidebar-recent-sessions__label-text")}
             ${
               collapsed
                 ? html`<span class="sidebar-online__facepile">

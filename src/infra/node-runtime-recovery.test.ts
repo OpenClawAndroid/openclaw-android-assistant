@@ -940,4 +940,18 @@ describe("candidate admission probe", () => {
       expect(isUsableNode(candidate)).toBe(false);
     });
   });
+
+  it("rejects candidates when the permission model denies child processes", async () => {
+    await withRecoveryHome(async (home) => {
+      const candidate = await writeFixture(path.join(home, "bin/node"));
+      mocks.admissible.add(candidate);
+      mocks.probe.mockImplementation(() => {
+        throw Object.assign(new Error("Access to this API has been restricted"), {
+          code: "ERR_ACCESS_DENIED",
+        });
+      });
+
+      expect(isUsableNode(candidate)).toBe(false);
+    });
+  });
 });

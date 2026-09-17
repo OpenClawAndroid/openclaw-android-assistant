@@ -55,6 +55,10 @@ These remain ordinary text and do not attach media:
 Here is your image: MEDIA:/workspace/image.png
 ```
 
+Double-quote a legacy reference when punctuation belongs to its path or URL,
+such as `MEDIA:"https://example.com/video.mp4?token=ends,"`. The punctuation
+stays part of the reference; attachment validation still applies.
+
 Prefer structured `mediaUrl` / `mediaUrls` fields for tools, plugins, browser
 output, streaming blocks, and message actions.
 

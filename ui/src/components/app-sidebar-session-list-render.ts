@@ -5,6 +5,7 @@ import type { GatewaySessionRow } from "../api/types.ts";
 import type { CatalogOpenTarget } from "../app/settings.ts";
 import { readPresenceEntries, resolveCurrentSelfUser } from "../app/user-profile.ts";
 import { t } from "../i18n/index.ts";
+import { renderHoverMarquee } from "../lib/hover-marquee.ts";
 import {
   isPresenceViewerIdle,
   presenceViewerLabel,
@@ -193,9 +194,7 @@ export function renderSessionSection(params: {
         }
       </span>`
     : nothing;
-  const labelText = html`<span class="sidebar-recent-sessions__label-text hover-marquee"
-    >${label}</span
-  >`;
+  const labelText = renderHoverMarquee(label, "sidebar-recent-sessions__label-text");
   const headerStatus = html`${
     collapsed && totalRowCount > 0
       ? html`<span class="sidebar-session-group-count">${totalRowCount}</span>`

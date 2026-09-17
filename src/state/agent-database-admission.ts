@@ -7,6 +7,7 @@ import {
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatAgentDatabaseOwnershipRepairHint } from "../infra/state-migrations.agent-owner-guidance.js";
 import { normalizeAgentId } from "../routing/session-key.js";
+import { sessionChanges } from "../sessions/session-row-changes.js";
 import { isReservedSystemAgentId } from "../system-agent/agent-id.js";
 import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
 
@@ -173,6 +174,7 @@ export async function preparePendingAgentDatabase(
   } finally {
     scope.active = false;
   }
+  sessionChanges.emit({ all: true, scope: "stores" });
 }
 
 /** Runtime preparation adds its config-generation guard to the same admission borrow. */

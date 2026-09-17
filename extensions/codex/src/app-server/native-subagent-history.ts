@@ -8,8 +8,8 @@ import {
   readCodexNativeSubagentHistoryOwner,
 } from "./native-subagent-history-owner.js";
 import {
-  CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX,
   CODEX_NATIVE_SUBAGENT_TASK_KIND,
+  readCodexNativeSubagentRunId,
 } from "./native-subagent-task-ids.js";
 import {
   buildCodexAppServerConnectionFingerprint,
@@ -52,9 +52,7 @@ export async function readCodexNativeSubagentHistory(
   const { task, cfg } = params;
   const sessionKey = task.requesterSessionKey;
   const agentId = task.agentId;
-  const threadId = task.runId?.startsWith(CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX)
-    ? task.runId.slice(CODEX_NATIVE_SUBAGENT_RUN_ID_PREFIX.length)
-    : undefined;
+  const threadId = readCodexNativeSubagentRunId(task.runId)?.threadId;
   if (task.taskKind !== CODEX_NATIVE_SUBAGENT_TASK_KIND || !sessionKey || !agentId || !threadId) {
     throw new Error("Subagent transcript owner is unavailable.");
   }

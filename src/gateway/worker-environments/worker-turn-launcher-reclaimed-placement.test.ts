@@ -14,7 +14,6 @@ import { isAgentRunStaleLifecycleError } from "../../infra/agent-lifecycle-error
 import {
   clearAgentRunContext,
   getAgentRunContext,
-  readAgentRunIndexVersion,
   registerAgentRunContext,
   retainQueuedAgentRunContext,
   sweepStaleRunContexts,
@@ -283,10 +282,12 @@ describe("worker turn launcher reclaimed placement", () => {
     const admissionAt = registeredAt + 30 * 60 * 1000 + 1;
     const clock = vi.spyOn(Date, "now").mockReturnValue(registeredAt);
     let lifecycleGeneration = getAgentEventLifecycleGeneration();
+    const onLaneWait = vi.fn<NonNullable<RunEmbeddedAgentParams["onLaneWait"]>>();
     let params: RunEmbeddedAgentParams & { sessionFile: string } = {
       ...turn(runId),
       lifecycleGeneration,
       trigger: "user",
+      onLaneWait,
     };
     registerAgentRunContext(runId, { lifecycleGeneration, registeredAt, sessionKey: SESSION_KEY });
 
@@ -337,7 +338,6 @@ describe("worker turn launcher reclaimed placement", () => {
       const replacementGeneration = rotateAgentEventLifecycleGeneration();
       expect(sweepStaleRunContexts()).toBe(1);
       expect(getAgentRunContext(runId)).toBeUndefined();
-      const versionBeforeAdmission = readAgentRunIndexVersion();
 
       setCommandLaneConcurrency(globalLane, 1);
       await remoteStarted.promise;
@@ -347,7 +347,9 @@ describe("worker turn launcher reclaimed placement", () => {
         sessionId: SESSION_ID,
         sessionKey: SESSION_KEY,
       });
-      expect(readAgentRunIndexVersion()).toBe(versionBeforeAdmission + 1);
+      expect(onLaneWait.mock.calls.filter(([wait]) => !wait.waiting)).toEqual([
+        [{ waitMs: 0, queuedAhead: 0, waiting: false }],
+      ]);
       expect(placements.get(SESSION_ID)?.turnClaim).toMatchObject({ owner: "worker", runId });
       expect(runLocal).not.toHaveBeenCalled();
 
@@ -370,10 +372,12 @@ describe("worker turn launcher reclaimed placement", () => {
     const registeredAt = Date.now();
     const clock = vi.spyOn(Date, "now").mockReturnValue(registeredAt);
     let lifecycleGeneration = getAgentEventLifecycleGeneration();
+    const onLaneWait = vi.fn<NonNullable<RunEmbeddedAgentParams["onLaneWait"]>>();
     let params: RunEmbeddedAgentParams & { sessionFile: string } = {
       ...turn(runId),
       lifecycleGeneration,
       trigger: "user",
+      onLaneWait,
     };
     registerAgentRunContext(runId, { lifecycleGeneration, registeredAt, sessionKey: SESSION_KEY });
 
@@ -417,7 +421,7 @@ describe("worker turn launcher reclaimed placement", () => {
         sessionId: "replacement-session",
         sessionKey: "agent:main:replacement",
       });
-      const versionBeforeRejectedAdmission = readAgentRunIndexVersion();
+      const replacementContext = getAgentRunContext(runId);
 
       resumeWorkspaceResolution.resolve();
       // The admission guard rejects before the lane can hand off the stale run.
@@ -430,7 +434,8 @@ describe("worker turn launcher reclaimed placement", () => {
         sessionId: "replacement-session",
         sessionKey: "agent:main:replacement",
       });
-      expect(readAgentRunIndexVersion()).toBe(versionBeforeRejectedAdmission);
+      expect(getAgentRunContext(runId)).toBe(replacementContext);
+      expect(onLaneWait).not.toHaveBeenCalledWith(expect.objectContaining({ waiting: false }));
       expect(placements.get(SESSION_ID)).toMatchObject({ state: "active", turnClaim: null });
       expect(environments.get).not.toHaveBeenCalled();
       expect(environments.startTunnel).not.toHaveBeenCalled();

@@ -118,17 +118,17 @@ describe("gateway agent handler chat.abort integration", () => {
       },
       canonicalKey: "global",
     });
-    mocks.loadGatewaySessionRow.mockReturnValue({
+    const sessionRow = {
       key: "global",
       sessionId: "global-session-id",
       kind: "global",
       updatedAt: Date.now(),
       goal,
-    });
+    } satisfies GatewaySessionRow;
     mocks.updateSessionStore.mockResolvedValue(undefined);
     mocks.agentCommand.mockReturnValue(new Promise(() => {}));
 
-    const context = makeContext();
+    const context = makeContext({ agentId: "work", row: sessionRow });
     context.getSessionEventSubscriberConnIds = () => new Set(["conn-1"]);
     const runId = "idem-agent-global-goal-event";
     await invokeAgent(
@@ -141,7 +141,6 @@ describe("gateway agent handler chat.abort integration", () => {
     );
 
     await waitForAssertion(() => {
-      expect(mocks.loadGatewaySessionRow).toHaveBeenCalledWith("global", { agentId: "work" });
       expect(context.addChatRun).toHaveBeenCalledWith(
         runId,
         expect.objectContaining({ sessionKey: "global", agentId: "work" }),
@@ -153,6 +152,7 @@ describe("gateway agent handler chat.abort integration", () => {
           sessionKey: "global",
           agentId: "work",
           goal: expect.objectContaining({ id: "goal-work-global" }),
+          session: expect.objectContaining({ key: "global", sessionId: "global-session-id", goal }),
         }),
         new Set(["conn-1"]),
         { agentId: "work", dropIfSlow: true, sessionKeys: ["global"] },

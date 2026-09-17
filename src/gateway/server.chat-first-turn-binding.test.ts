@@ -194,14 +194,16 @@ it("binds a first native chat.send before streaming and persists its stopped par
         status: "killed",
         abortedLastRun: true,
       });
-    expect(lifecycle).toContainEqual(
-      expect.objectContaining({
-        phase: "end",
-        status: "cancelled",
-        aborted: true,
-        stopReason: "stop",
-        sessionId: committed.entry.sessionId,
-      }),
+    await vi.waitFor(() =>
+      expect(lifecycle).toContainEqual(
+        expect.objectContaining({
+          phase: "end",
+          status: "cancelled",
+          aborted: true,
+          stopReason: "stop",
+          sessionId: committed.entry.sessionId,
+        }),
+      ),
     );
     const events = await loadTranscriptEvents({
       sessionKey,

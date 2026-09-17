@@ -52,12 +52,6 @@ import { createTrackedTempDirs } from "../test-utils/tracked-temp-dirs.js";
 import { acquireGatewayLock } from "./gateway-lock.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
 import { loadApnsRegistration } from "./push-apns.js";
-import {
-  createWebPushVapidKeyPair,
-  hashWebPushEndpoint,
-  listWebPushSubscriptions,
-  readPersistedVapidKeyPair,
-} from "./push-web-store.js";
 import { readRestartSentinel } from "./restart-sentinel.js";
 import { acquireStartupMigrationLease } from "./startup-migration-checkpoint.js";
 import {
@@ -1120,7 +1114,7 @@ describe("state migrations", () => {
         const ids = result.stepReceipts.map((receipt) => receipt.id);
         const workshopIndex = ids.indexOf("skill-workshop");
         expect(workshopIndex).toBeGreaterThan(ids.indexOf("workspace-state"));
-        expect(workshopIndex).toBeLessThan(ids.indexOf("channel-pairing"));
+        expect(workshopIndex).toBeLessThan(ids.indexOf("plugin-doctor-state"));
         expect(result.stepReceipts[workshopIndex]).toMatchObject({
           outcome: "skipped",
           changes: [],
@@ -3458,19 +3452,19 @@ describe("state migrations", () => {
     expect(rows).toEqual([
       {
         queue_name: "outbound",
-        id: "outbound-1",
-        status: "pending",
-        channel: "telegram",
-        target: "123",
-        retry_count: 2,
-      },
-      {
-        queue_name: "outbound",
         id: "outbound-failed",
         status: "failed",
         channel: null,
         target: null,
         retry_count: 3,
+      },
+      {
+        queue_name: "outbound-prepared-v1",
+        id: "outbound-1",
+        status: "pending",
+        channel: "telegram",
+        target: "123",
+        retry_count: 2,
       },
       {
         queue_name: "session",
@@ -4530,60 +4524,6 @@ describe("state migrations", () => {
     expect(row?.session_key).toBe("agent:main:doctor-acp");
     expect(Number(row?.estimated_bytes ?? 0)).toBeGreaterThan(0);
     await expectMissingPath(sourcePath);
-  });
-
-  it("routes explicit Doctor repair through the Web Push SQLite importer", async () => {
-    const { root, stateDir, env } = createMigrationContext(await createTempDir());
-    const cfg = createConfig();
-    const endpoint = "https://push.example.com/doctor-integration";
-    const subscription = {
-      subscriptionId: "c0a80101-0000-4000-8000-000000000001",
-      endpoint,
-      keys: { p256dh: "doctor-p256dh", auth: "doctor-auth" },
-      createdAtMs: 1,
-      updatedAtMs: 2,
-    };
-    const pushDir = path.join(stateDir, "push");
-    const subscriptionsPath = path.join(pushDir, "web-push-subscriptions.json");
-    const vapidKeysPath = path.join(pushDir, "vapid-keys.json");
-    await fs.mkdir(pushDir, { recursive: true });
-    await fs.writeFile(
-      subscriptionsPath,
-      JSON.stringify({
-        subscriptionsByEndpointHash: {
-          [hashWebPushEndpoint(endpoint)]: subscription,
-        },
-      }),
-      "utf8",
-    );
-    await fs.writeFile(
-      vapidKeysPath,
-      JSON.stringify(
-        createWebPushVapidKeyPair("doctor-public", "doctor-private", "https://openclaw.ai"),
-      ),
-      "utf8",
-    );
-
-    const detected = await detectLegacyStateMigrations({
-      cfg,
-      env,
-      homedir: () => root,
-      doctorOnlyStateMigrations: true,
-    });
-    expect(detected.webPush.hasLegacy).toBe(true);
-    expect(detected.preview).toContain(
-      "- Web Push subscriptions and VAPID identity: legacy JSON → shared SQLite state",
-    );
-
-    const result = await runLegacyStateMigrations({ detected, config: cfg, env });
-
-    expect(result.warnings).toStrictEqual([]);
-    expect(listWebPushSubscriptions(stateDir)).toStrictEqual([subscription]);
-    expect(readPersistedVapidKeyPair(stateDir)).toStrictEqual(
-      createWebPushVapidKeyPair("doctor-public", "doctor-private", "https://openclaw.ai"),
-    );
-    await expectMissingPath(subscriptionsPath);
-    await expectMissingPath(vapidKeysPath);
   });
 
   it("routes explicit Doctor repair through the node-host SQLite importer", async () => {

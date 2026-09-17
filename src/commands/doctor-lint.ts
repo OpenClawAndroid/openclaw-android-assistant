@@ -77,6 +77,7 @@ const RUNTIME_TOOL_SCHEMA_CHECK_ID = "core/doctor/runtime-tool-schemas";
 const PROJECT_CLONE_SHAPE_CHECK_ID = "core/doctor/project-clone-shape";
 const SKILLS_READINESS_CHECK_ID = "core/doctor/skills-readiness";
 const AUTH_PROFILE_CHECK_ID = "core/doctor/auth-profiles";
+const DOCTOR_LINT_JSON_SCHEMA_VERSION = 1;
 
 class DoctorLintStateSnapshotError extends Error {
   constructor(cause: unknown) {
@@ -502,6 +503,7 @@ function writeJsonResult(result: {
 }): void {
   process.stdout.write(
     JSON.stringify({
+      schemaVersion: DOCTOR_LINT_JSON_SCHEMA_VERSION,
       ok: result.ok,
       checksRun: result.checksRun,
       checksSkipped: result.checksSkipped,

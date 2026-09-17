@@ -234,36 +234,35 @@ With `diagnostics.enabled: true` and warning logging enabled, `sessions.list`
 handlers and `sessions.subscribe` snapshot handlers taking at least one second
 also emit `slow session list`. The `operation` field identifies which request
 produced the record. The record
-includes process/thread identity, the request trace, and `cacheRole`: a completed
-cache hit, an in-flight follower, a projection owner, or `unreached` if the handler
-failed before selecting a cache path. Followers can include `workTraceId` and
-`workSpanId` to identify the request producing their shared result. Successful
-list results report `selectedRowCount` for every cache role.
+includes process/thread identity, the request trace, and row counts:
+`selectedRowCount`, `dirtyRowCount`, `materializedRowCount`, and `reusedRowCount`.
+The latter two distinguish selected rows refreshed during this request from
+selected rows already resident when it began. Dirty counts describe pending
+owner work at the start of the request.
 
-Projection owners report phase totals, visibility-repair counts, synchronous
-preparation/row time, and `yieldWaitMs`/`yieldCount` for time spent awaiting the
-event loop. Hits and followers omit those projection counters. `rows` includes
-its synchronous and yielded intervals; do not add those details to the phase
-total again. `handlerElapsedMs` starts before parameter validation and excludes
+Records report phase totals, synchronous selection/row time, and
+`yieldWaitMs`/`yieldCount` for awaiting shared projection readiness. These waits
+can include coalesced work shared with other callers. Phase totals include their
+wait intervals; do not add the detailed counters to those totals again.
+`handlerElapsedMs` starts before parameter validation and excludes
 admission before the handler. The `response` phase includes the synchronous response callback. These are elapsed
 durations, not CPU time or proof of client receipt. No query text or session
 contents are included.
 
 The same record includes fractional-millisecond current-thread CPU measurements
-for synchronous work: `storeLoadThreadCpuMs`, `prepareThreadCpuMs`,
-`rowThreadCpuMs`, `cacheSelectionThreadCpuMs`, `cachePublicationThreadCpuMs`, and
-`responseThreadCpuMs`. Preparation and row totals accumulate synchronous
-chunks, excluding yields and intervening microtasks. Row CPU also includes final
-list construction. Cache selection and publication finish before the response
-callback is measured; response CPU excludes network waits. Measurements finish
-before this diagnostic record is published or logged.
-Registry readiness waits and worker CPU are not included in these measurements.
+for synchronous work: `prepareThreadCpuMs`, `rowThreadCpuMs`, and
+`responseThreadCpuMs`. Preparation covers resident selection, filtering, and
+sorting after projection readiness. Row CPU includes presentation and final list
+construction. Both intervals finish before the response callback is measured;
+response CPU excludes network waits. Measurements finish before this diagnostic
+record is published or logged. Projection readiness waits, background
+materialization, intervening microtasks, and worker CPU are not included.
 These are selected inclusive CPU intervals, including same-thread native work and
 garbage collection, not SQL-only CPU or a complete request CPU total.
 
-Unvisited measurements are omitted. Hits and followers retain their own selection
-and response CPU without inheriting the producer's store, projection, or publication
-work. If a CPU counter read fails, all CPU fields are omitted for that request;
+Unvisited measurements are omitted. Each request retains its own selection,
+presentation, and response CPU without inheriting shared background work.
+If a CPU counter read fails, all CPU fields are omitted for that request;
 its result and elapsed diagnostics are preserved. Existing activation and the
 one-second warning threshold are unchanged, so missing slow records do not account
 for CPU consumed by faster requests.

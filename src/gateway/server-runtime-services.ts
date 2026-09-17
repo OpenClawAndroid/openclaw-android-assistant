@@ -1,6 +1,7 @@
 // Gateway post-ready runtime services.
 // Starts delayed maintenance, cron, heartbeat, recovery, and pricing refresh work.
 import { getRuntimeConfig } from "../config/config.js";
+import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   resolveDeliveryQueueStateEnv,
@@ -168,7 +169,6 @@ function startPendingOutboundDeliveryRecovery(params: {
   log: GatewayRuntimeServiceLogger;
 }): () => Promise<void> {
   let stopped = false;
-  let migrationPending = true;
   let initialPass = true;
   let inFlight: Promise<void> | null = null;
   let stopPromise: Promise<void> | null = null;
@@ -229,18 +229,29 @@ function startPendingOutboundDeliveryRecovery(params: {
         );
       };
       logRecovery ??= params.log.child("delivery-recovery");
-      if (migrationPending) {
-        const cfg = initialPass ? params.cfg : getRuntimeConfig();
+      if (initialPass) {
+        const cfg = params.cfg;
         initialPass = false;
-        const { migrateLegacyPendingOutboundDeliveries } =
-          await import("../infra/outbound/delivery-queue-migration.js");
-        const migration = await migrateLegacyPendingOutboundDeliveries({
-          cfg,
-          log: logRecovery,
-        });
-        // A new scheduled-service lifecycle starts unchecked. Latch only after
-        // one pass neither skipped ownership nor left retired rows behind.
-        migrationPending = migration.skipped > 0 || migration.remaining > 0;
+        const { countPendingDeliveryQueueEntries } =
+          await import("../infra/delivery-queue-sqlite.js");
+        const {
+          LEGACY_OUTBOUND_DELIVERY_QUEUE_NAME,
+          OUTBOUND_LEGACY_PREPARATION_QUEUE_NAME,
+          OUTBOUND_DELIVERY_MIGRATION_QUEUE_NAME,
+        } = await import("../infra/outbound/delivery-queue-namespaces.js");
+        const remaining = countPendingDeliveryQueueEntries([
+          LEGACY_OUTBOUND_DELIVERY_QUEUE_NAME,
+          OUTBOUND_LEGACY_PREPARATION_QUEUE_NAME,
+          OUTBOUND_DELIVERY_MIGRATION_QUEUE_NAME,
+        ]);
+        const { listLegacyDeliveryQueueArtifacts } =
+          await import("../infra/delivery-queue-legacy-files.js");
+        const legacyFiles = listLegacyDeliveryQueueArtifacts(resolveStateDir());
+        if (remaining > 0 || legacyFiles.length > 0) {
+          logRecovery.warn(
+            `${remaining} legacy outbound deliveries and ${legacyFiles.length} legacy queue files need repair. Stop the Gateway and run openclaw doctor --fix.`,
+          );
+        }
         await recoverPendingDeliveries(
           {
             deliver: deliverWithCurrentConversationAuthority,

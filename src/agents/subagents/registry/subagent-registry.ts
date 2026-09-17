@@ -45,10 +45,7 @@ import {
   createSubagentRunManager,
   type RegisterSubagentRunParams,
 } from "./subagent-registry-run-manager.js";
-import {
-  clearSubagentRunsReadCacheForTest,
-  invalidateSubagentSessionListReadCache,
-} from "./subagent-registry-state.js";
+import { clearSubagentRunsReadCacheForTest } from "./subagent-registry-state.js";
 import { SUBAGENT_SUSPENDED_DELIVERY_HARD_CAP } from "./subagent-registry-suspended-delivery.js";
 import { resolveSubagentTaskForRun } from "./subagent-registry-sweep-kill.js";
 import {
@@ -386,7 +383,6 @@ const subagentRestorer = createSubagentRegistryRestorer({
     if (!lifecycleGatewayContextResolver?.()) {
       return false;
     }
-    let rebound = false;
     for (let entry of subagentRuns.values()) {
       const resolver = getGatewayContextResolver(entry);
       if (resolver) {
@@ -397,10 +393,6 @@ const subagentRestorer = createSubagentRegistryRestorer({
         // Claim a fresh owner; never revive a retained row or an active child turn.
         entry = structuredClone(entry);
         subagentRuns.set(entry.runId, entry);
-      }
-      if (!rebound) {
-        invalidateSubagentSessionListReadCache();
-        rebound = true;
       }
       bindGatewayContextResolver(entry, lifecycleGatewayContextResolver);
       subagentRuns.commitOwnership(entry);

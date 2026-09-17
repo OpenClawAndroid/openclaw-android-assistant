@@ -288,7 +288,7 @@ function createPluginModuleLoader(
     return found;
   };
   const requiresSourceSdkTransform = (target: string) =>
-    !process.versions.bun && hasSourceSdkAliases() && referencesSourceSdk(target);
+    !process.versions.bun && referencesSourceSdk(target) && hasSourceSdkAliases();
   let loadWithSourceTransform: PluginModuleLoader | undefined;
   const getLoadWithSourceTransform = () => {
     if (loadWithSourceTransform) {

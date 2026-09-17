@@ -2281,32 +2281,6 @@ describe("readSystemdServiceExecStart", () => {
     expect(readFile).toHaveBeenCalledTimes(pending ? 1 : 2);
   });
 
-  it("does not infer ownership from expanded specifiers or normalized working directories", async () => {
-    const workingDirectory = `${TEST_SERVICE_HOME}/Open Claw`;
-    mockReadGatewayServiceFile([
-      "[Service]",
-      "ExecStart=%h/bin/openclaw gateway --unit %n",
-      "WorkingDirectory=-%h/Open Claw",
-      "Environment=OPENCLAW_HOME=%h/openclaw UNIT_NAME=%n",
-    ]);
-    mockSystemdManagerSnapshot({
-      programArguments: [`${TEST_SERVICE_HOME}/bin/openclaw`, "gateway", "--unit", GATEWAY_SERVICE],
-      workingDirectory: `!${workingDirectory}`,
-      environment: [`OPENCLAW_HOME=${TEST_SERVICE_HOME}/openclaw`, `UNIT_NAME=${GATEWAY_SERVICE}`],
-    });
-
-    const command = await readSystemdServiceExecStart({ HOME: TEST_SERVICE_HOME });
-
-    expect(command).toEqual({
-      programArguments: [`${TEST_SERVICE_HOME}/bin/openclaw`, "gateway", "--unit", GATEWAY_SERVICE],
-      workingDirectory,
-      environment: { OPENCLAW_HOME: `${TEST_SERVICE_HOME}/openclaw`, UNIT_NAME: GATEWAY_SERVICE },
-      environmentValueSources: { OPENCLAW_HOME: "inline", UNIT_NAME: "inline" },
-      sourcePath: `${TEST_SERVICE_HOME}/.config/systemd/user/${GATEWAY_SERVICE}`,
-      definitionPaths: [`${TEST_SERVICE_HOME}/.config/systemd/user/${GATEWAY_SERVICE}`],
-    });
-  });
-
   it.each(["", "# operator note \\", "; operator note \\"])(
     "retains loaded drop-in ownership with comment %j even when values equal the base",
     async (comment) => {

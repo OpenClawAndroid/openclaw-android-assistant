@@ -89,7 +89,7 @@ describe("renderChatPullRequests", () => {
         branch: sessionBranch(),
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
         publication: publication({ activity: "read", selection: null }),
       }),
@@ -107,7 +107,7 @@ describe("renderChatPullRequests", () => {
           pullRequests: [pullRequest({ state })],
           status: "unavailable",
           expanded: false,
-          onExpand: () => {},
+          onToggle: () => {},
           onDismiss: () => {},
         }),
         container,
@@ -125,7 +125,7 @@ describe("renderChatPullRequests", () => {
         pullRequests: [],
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
       }),
       container,
@@ -139,7 +139,7 @@ describe("renderChatPullRequests", () => {
         pullRequests: [pullRequest()],
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
       }),
       container,
@@ -172,7 +172,7 @@ describe("renderChatPullRequests", () => {
         ],
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
       }),
       container,
@@ -194,46 +194,37 @@ describe("renderChatPullRequests", () => {
     );
   });
 
-  it("collapses to two chips preferring live PRs and expands via show more", () => {
-    const onExpand = vi.fn();
-    const pullRequests = [
-      pullRequest({ number: 1, state: "merged", checks: undefined }),
-      pullRequest({ number: 2, state: "merged", checks: undefined }),
-      pullRequest({ number: 3, state: "open" }),
-    ];
-    render(
-      renderChatPullRequests({
-        pullRequests,
-        status: "ready",
-        expanded: false,
-        onExpand,
-        onDismiss: () => {},
-      }),
-      container,
-    );
-    const numbers = [...container.querySelectorAll(".chat-pr__number")].map(
-      (node) => node.textContent,
-    );
-    // The open PR leads even though merged history came first from the server.
-    expect(numbers).toEqual(["#3", "#1"]);
-    const more = container.querySelector<HTMLButtonElement>(".chat-prs__more");
-    expect(more?.textContent?.trim()).toBe("Show 1 more");
-    more?.click();
-    expect(onExpand).toHaveBeenCalledTimes(1);
-
-    render(
-      renderChatPullRequests({
-        pullRequests,
-        status: "ready",
-        expanded: true,
-        onExpand,
-        onDismiss: () => {},
-      }),
-      container,
-    );
-    expect(container.querySelectorAll(".chat-pr")).toHaveLength(3);
-    expect(container.querySelector(".chat-prs__more")).toBeNull();
-  });
+  it.each([
+    { count: 3, expanded: false, visible: ["#3", "#1", "#2"], label: undefined },
+    { count: 4, expanded: false, visible: ["#3", "#1"], label: "Show 2 more" },
+    { count: 4, expanded: true, visible: ["#3", "#1", "#2", "#4"], label: "Show less" },
+  ])(
+    "keeps live PRs first with $count requests and expanded=$expanded",
+    ({ count, expanded, visible, label }) => {
+      const pullRequests = [
+        pullRequest({ number: 1, state: "merged", checks: undefined }),
+        pullRequest({ number: 2, state: "merged", checks: undefined }),
+        pullRequest({ number: 3, state: "open" }),
+        pullRequest({ number: 4, state: "closed", checks: undefined }),
+      ];
+      render(
+        renderChatPullRequests({
+          pullRequests: pullRequests.slice(0, count),
+          status: "ready",
+          expanded,
+          onToggle: () => {},
+          onDismiss: () => {},
+        }),
+        container,
+      );
+      expect(
+        [...container.querySelectorAll(".chat-pr__number")].map((node) => node.textContent),
+      ).toEqual(visible);
+      const toggle = container.querySelector<HTMLButtonElement>(".chat-prs__more");
+      expect(toggle?.textContent?.trim()).toBe(label);
+      expect(toggle?.getAttribute("aria-expanded")).toBe(label ? String(expanded) : undefined);
+    },
+  );
 
   it.each([null, "read"] as const)(
     "renders merged PRs without a redundant card while publication activity is %s",
@@ -253,7 +244,7 @@ describe("renderChatPullRequests", () => {
           ],
           status: "rate-limited",
           expanded: false,
-          onExpand: () => {},
+          onToggle: () => {},
           onDismiss,
           publication: publication({
             activity,
@@ -298,7 +289,7 @@ describe("renderChatPullRequests", () => {
           branch: sessionBranch({ branch }),
           status: "ready",
           expanded: false,
-          onExpand: () => {},
+          onToggle: () => {},
           onDismiss: () => {},
           publication: publication(),
         }),
@@ -319,7 +310,7 @@ describe("renderChatPullRequests", () => {
         pullRequests: [pullRequest()],
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss,
         publication: publication({
           result: {
@@ -353,7 +344,7 @@ describe("renderChatPullRequests", () => {
           pullRequests: [pullRequest()],
           status: "ready",
           expanded: false,
-          onExpand: () => {},
+          onToggle: () => {},
           onDismiss: () => {},
           publication: publication({
             locked: !completed,
@@ -394,7 +385,7 @@ describe("renderChatPullRequests", () => {
         pullRequests: [pullRequest()],
         status: "rate-limited",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
       }),
       container,
@@ -409,7 +400,7 @@ describe("renderChatPullRequests", () => {
         branch: sessionBranch(),
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
         publication: publication(),
       }),
@@ -443,7 +434,7 @@ describe("renderChatPullRequests", () => {
         branch: sessionBranch(),
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
         onOpenSessionDiff,
       }),
@@ -465,7 +456,7 @@ describe("renderChatPullRequests", () => {
         branch: sessionBranch({ createUrl: undefined, additions: 12, deletions: 3 }),
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
       }),
       container,
@@ -485,7 +476,7 @@ describe("renderChatPullRequests", () => {
       branch: sessionBranch(),
       status: "ready",
       expanded: false,
-      onExpand: () => {},
+      onToggle: () => {},
       onDismiss: () => {},
       publication: publication({ onPublish }),
     };
@@ -574,7 +565,7 @@ describe("renderChatPullRequests", () => {
           branch: sessionBranch(),
           status: "ready",
           expanded: false,
-          onExpand: () => {},
+          onToggle: () => {},
           onDismiss: () => {},
           publication: publication({
             options: { shared, personal: null, pendingPersonal: null, latestShared: null },
@@ -600,7 +591,7 @@ describe("renderChatPullRequests", () => {
         branch: sessionBranch(),
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
         publication: publication({ personalReady: false }),
       }),
@@ -621,7 +612,7 @@ describe("renderChatPullRequests", () => {
         branch: sessionBranch(),
         status: "rate-limited",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss: () => {},
         publication: publication(),
       }),
@@ -640,7 +631,7 @@ describe("renderChatPullRequests", () => {
         pullRequests: [pullRequest()],
         status: "ready",
         expanded: false,
-        onExpand: () => {},
+        onToggle: () => {},
         onDismiss,
       }),
       container,
@@ -788,7 +779,7 @@ describe("CI job details", () => {
       sessionKey: "agent:main:main",
       status: "ready" as const,
       expanded: false,
-      onExpand() {},
+      onToggle() {},
       onDismiss() {},
     };
     render(renderChatPullRequests(props), container);

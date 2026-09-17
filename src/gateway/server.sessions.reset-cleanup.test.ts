@@ -593,7 +593,7 @@ test("sessions.reset rejects a concurrent archive during lifecycle rotation", as
   await writeSingleLineSession(dir, "sess-archive-race", "hello");
   await writeSessionStore({
     entries: {
-      [sessionKey]: sessionStoreEntry("sess-archive-race"),
+      [sessionKey]: sessionStoreEntry("sess-archive-race", { lifecycleRevision: "before-reset" }),
     },
   });
   const { promise: hookReleased, resolve: releaseHook } = createDeferred();
@@ -615,6 +615,7 @@ test("sessions.reset rejects a concurrent archive during lifecycle rotation", as
     key: sessionKey,
     archived: true,
     expectedSessionId: "sess-archive-race",
+    expectedLifecycleRevision: "before-reset",
   });
   releaseHook();
 

@@ -65,6 +65,15 @@ function formatConnectionLine(
   return `${pid}${ppid}${direction}${command}${address}${commandLine}`;
 }
 
+function formatProbeEventLoop(
+  eventLoop: NonNullable<NonNullable<DaemonStatus["rpc"]>["eventLoop"]>,
+) {
+  const state = eventLoop.degraded ? "degraded" : "ok";
+  return `${state} max=${Math.round(eventLoop.delayMaxMs)}ms p99=${Math.round(
+    eventLoop.delayP99Ms,
+  )}ms util=${eventLoop.utilization} cpu=${eventLoop.cpuCoreRatio}`;
+}
+
 export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; deep?: boolean }) {
   if (opts.json) {
     defaultRuntime.writeJson({
@@ -309,7 +318,13 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; d
     // port-conflict diagnostics below, so it keeps the warm-up hint (as does unknown health
     // from shallow status). A wedged gateway that owns the port is reported as healthy ===
     // true with no stale gateway PIDs, so it is steered by the first branch.
-    if (status.health?.healthy === true && status.health.staleGatewayPids.length === 0) {
+    if (rpc.timedOut && rpc.gatewayReached) {
+      defaultRuntime.log(
+        warnText(
+          "Gateway accepted the connection, but the read probe timed out. Inspect event-loop load and retry before treating the service as unreachable.",
+        ),
+      );
+    } else if (status.health?.healthy === true && status.health.staleGatewayPids.length === 0) {
       defaultRuntime.log(
         warnText(
           "Gateway process is running and owns the gateway port, so this is not a warm-up delay. Check the probe credentials/config, or restart the gateway and inspect its logs if it stays unresponsive.",
@@ -326,7 +341,19 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; d
     if (rpc.ok) {
       defaultRuntime.log(`${label(probeLabel)} ${okText("ok")}`);
     } else {
-      defaultRuntime.error(`${label(probeLabel)} ${errorText("failed")}`);
+      const timeoutStatus = rpc.gatewayReached
+        ? rpc.eventLoop?.degraded
+          ? "timed out under event-loop load"
+          : "timed out after reaching Gateway"
+        : "timed out before reaching Gateway";
+      defaultRuntime.error(
+        `${label(probeLabel)} ${rpc.timedOut ? warnText(timeoutStatus) : errorText("failed")}`,
+      );
+      if (rpc.timedOut && rpc.eventLoop) {
+        defaultRuntime.error(
+          `${label("Gateway event loop:")} ${warnText(formatProbeEventLoop(rpc.eventLoop))}`,
+        );
+      }
       if (rpc.authWarning) {
         defaultRuntime.error(`${label("Probe auth:")} ${warnText(rpc.authWarning)}`);
       }

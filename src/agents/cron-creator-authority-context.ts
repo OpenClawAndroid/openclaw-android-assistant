@@ -59,6 +59,14 @@ const activeCronCreatorAuthority = new AsyncLocalStorage<CronCreatorAuthorityRun
 const activeCronCreatorAuthorityResolver =
   new AsyncLocalStorage<CronCreatorAuthorityResolverScope>();
 
+/** Retain the Cron-only fence when tools materialize outside their creator scope. */
+export function bindActiveCronAuthorityCurrentness(
+  runId: string | undefined,
+): (() => boolean) | undefined {
+  const scope = activeCronCreatorAuthority.getStore();
+  return scope?.active && scope.runId === runId?.trim() ? scope.isCurrent : undefined;
+}
+
 /** Retain the exact scope for callbacks invoked outside their creation context. */
 export function bindRequesterYieldCronAuthority(
   runId: string | undefined,
@@ -288,6 +296,9 @@ function bindCronCreatorAuthorityResolver(params: {
     const operationSignal = options?.signal;
     authority.signal.throwIfAborted();
     operationSignal?.throwIfAborted();
+    if (authority.isCurrent?.() === false) {
+      throw new Error("Automation caller authority is no longer active.");
+    }
     const signal = operationSignal
       ? AbortSignal.any([authority.signal, operationSignal])
       : authority.signal;

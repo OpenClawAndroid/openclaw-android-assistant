@@ -620,6 +620,10 @@ describe("built-in Gateway foreground authority", () => {
       name: "generic",
       call: () => callInProcessGatewayTool("sessions.patch", { key: "target", pinned: true }),
     },
+    {
+      name: "Cron mutation",
+      call: () => callAgentToolGatewayRequest({ method: "cron.add", params: {} }),
+    },
   ];
 
   it.each(callers)(

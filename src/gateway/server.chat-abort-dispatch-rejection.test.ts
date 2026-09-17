@@ -15,7 +15,7 @@ import type { GetReplyOptions } from "../auto-reply/get-reply-options.types.js";
 import * as staging from "../auto-reply/reply/stage-sandbox-media.js";
 import { clearConfigCache } from "../config/config.js";
 import { loadTranscriptEventsSync } from "../config/sessions/session-accessor.js";
-import { emitAgentEvent } from "../infra/agent-events.js";
+import { emitAgentEventIfCurrent } from "../infra/agent-events.js";
 import {
   getSessionWorkAdmissionRelease,
   interruptSessionWorkAdmissions,
@@ -33,6 +33,7 @@ import {
   testState,
   writeSessionStore,
 } from "./test-helpers.js";
+import { releaseGatewaySessionStoreFixture } from "./test/server-sessions-resources.test-helpers.js";
 
 installGatewayTestHooks({ scope: "suite" });
 
@@ -101,7 +102,10 @@ afterAll(async () => {
   restoreConnectionObserver?.();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const dir of temporaryDirectories.dirs) {
+    await releaseGatewaySessionStoreFixture(dir);
+  }
   dispatchInboundMessageMock.mockReset();
   testState.sessionStorePath = undefined;
   clearConfigCache();
@@ -569,20 +573,22 @@ describe("gateway WebSocket chat abort ownership", () => {
           frame.payload?.state === "aborted",
         2_000,
       );
-      emitAgentEvent({
-        runId,
-        stream: "lifecycle",
-        sessionKey: "agent:main:main",
-        sessionId: "sess-main",
-        agentId: "main",
-        data: {
-          phase: "end",
-          startedAt: 900,
-          endedAt: Date.now(),
-          aborted: true,
-          stopReason: "restart",
-        },
-      });
+      expect(
+        emitAgentEventIfCurrent({
+          runId,
+          stream: "lifecycle",
+          sessionKey: "agent:main:main",
+          sessionId: "sess-main",
+          agentId: "main",
+          data: {
+            phase: "end",
+            startedAt: 900,
+            endedAt: Date.now(),
+            aborted: true,
+            stopReason: "restart",
+          },
+        }),
+      ).toBe(true);
       await expect(abortedFrame).resolves.toMatchObject({
         payload: { runId, state: "aborted" },
       });

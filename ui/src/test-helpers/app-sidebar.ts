@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, vi } from "vitest";
+import { vi } from "vitest";
 import type {
   SessionCatalogPullRequestSummary,
   SessionsCatalogListResult,
@@ -30,17 +30,12 @@ import {
 import { reconcileSessionHistory } from "../lib/sessions/reconcile.ts";
 import { createSessionArchiveState } from "../lib/sessions/session-archive-state.ts";
 import { createSessionRowProvenance } from "../lib/sessions/session-row-provenance.ts";
-import {
-  createSidebarContextLifecycle,
-  disposeSidebarContextLifecycles,
-} from "./app-sidebar-context-lifecycle.ts";
+import { createSidebarContextLifecycle } from "./app-sidebar-context-lifecycle.ts";
 import {
   createApplicationContextProvider,
   hiddenScopeUpgradeCapability,
 } from "./application-context.ts";
 import { gatewayHelloForMethods, SESSION_MUTATION_TEST_METHODS } from "./gateway-methods.ts";
-import { settleLitElements } from "./lit-settle.ts";
-import { createStorageMock } from "./storage.ts";
 
 // The attention widget owns independent health RPC tests. Keep those requests
 // out of sidebar client call-order assertions.
@@ -689,39 +684,3 @@ export const catalogErrorPage = (
     },
   ],
 });
-
-export function setupSidebarTest() {
-  let originalLocalStorage: PropertyDescriptor | undefined;
-
-  beforeEach(() => {
-    originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-    Object.defineProperty(globalThis, "localStorage", {
-      configurable: true,
-      value: createStorageMock(),
-    });
-    // Coding defaults to compact; most cases assert expanded contents, so start
-    // expanded. Collapse tests override this value.
-    localStorage.setItem("openclaw:sidebar:sessions:collapsed-sections", JSON.stringify([]));
-  });
-
-  afterEach(async () => {
-    vi.useRealTimers();
-    await vi.dynamicImportSettled();
-    // Removing a prompt's DOM does not settle its promise or release its reentrancy guard.
-    for (const modal of document.body.querySelectorAll("openclaw-modal-dialog")) {
-      modal.dispatchEvent(new CustomEvent("modal-cancel", { cancelable: true }));
-    }
-    await vi.dynamicImportSettled();
-    const sidebars =
-      document.body.querySelectorAll<AppSidebarSessionNavigationElement>("openclaw-app-sidebar");
-    document.body.replaceChildren();
-    disposeSidebarContextLifecycles();
-    // Disconnection queues Lit updates; finish them before retiring the DOM globals.
-    await settleLitElements(sidebars);
-    if (originalLocalStorage) {
-      Object.defineProperty(globalThis, "localStorage", originalLocalStorage);
-    } else {
-      Reflect.deleteProperty(globalThis, "localStorage");
-    }
-  });
-}

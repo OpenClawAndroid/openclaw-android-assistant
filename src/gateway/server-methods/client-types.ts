@@ -7,7 +7,10 @@ import type { AgentRuntimeIdentity } from "../agent-runtime-identity-token.js";
 import type { AuthenticatedGitHubIdentitySync } from "../github-user-identity.js";
 import type { GatewayOperatorRoleActor } from "../operator-role-actor.js";
 import type { PluginNodeCapabilitySurface } from "../plugin-node-capability.js";
-import type { GatewayWsBrowserOrigin } from "../server/ws-types.js";
+import type {
+  GatewayWsBrowserOrigin,
+  PreparedSessionProfile,
+} from "../server/client-identity-types.js";
 import type { TrustedSessionCreation } from "./session-creation-provenance.js";
 
 /** Trusted in-process spawn control plane that already owns this run's task row.
@@ -49,6 +52,8 @@ export type GatewayClient = {
   /** Verified Tailscale provider identity; generic proxy identities must not infer this. */
   authenticatedUserIsTailscaleProvider?: boolean;
   authenticatedGitHubIdentitySync?: AuthenticatedGitHubIdentitySync;
+  /** Prepared at identity admission and profile publication, before session reads or events. */
+  preparedSessionProfile?: PreparedSessionProfile;
   authenticatedUserProfile?: {
     profileId: string;
     displayName: string | null;

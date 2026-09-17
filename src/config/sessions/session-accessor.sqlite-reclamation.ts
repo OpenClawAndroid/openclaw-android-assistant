@@ -26,6 +26,7 @@ import type {
   SqliteSessionReclamationDiagnostics,
 } from "./session-accessor.sqlite-contract.js";
 import { runSqliteSessionDeletionTransaction } from "./session-accessor.sqlite-deletion.js";
+import { publishSessionEntryCacheInvalidation } from "./session-accessor.sqlite-entry-cache.js";
 import {
   sqliteLifecycleTargetSnapshotsEqual,
   sqliteSessionEntriesEqual,
@@ -526,6 +527,7 @@ export async function runSqliteSessionReclamation(params: {
                         const completed = await run(refusal);
                         if (completed) {
                           // Publish captured identities after transaction settlement, before releasing the writer.
+                          publishSessionEntryCacheInvalidation(database);
                           publishCommitted?.();
                         }
                       },

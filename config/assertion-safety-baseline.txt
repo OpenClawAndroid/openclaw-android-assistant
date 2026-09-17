@@ -5,7 +5,7 @@ extensions/acpx/src/codex-auth-bridge.ts	7
 extensions/acpx/src/codex-trust-config.ts	1
 extensions/acpx/src/pi-session-catalog-runtime.ts	1
 extensions/acpx/src/process-lease.ts	3
-extensions/acpx/src/runtime.ts	10
+extensions/acpx/src/runtime.ts	4
 extensions/acpx/src/service.ts	2
 extensions/acpx/src/state.ts	1
 extensions/active-memory/config.ts	2
@@ -179,7 +179,6 @@ extensions/codex/src/app-server/image-payload-sanitizer.ts	3
 extensions/codex/src/app-server/native-config-fence.ts	1
 extensions/codex/src/app-server/native-mcp-app.ts	9
 extensions/codex/src/app-server/native-skill-isolation.ts	1
-extensions/codex/src/app-server/native-subagent-monitor.ts	1
 extensions/codex/src/app-server/native-subagent-task-mirror.ts	2
 extensions/codex/src/app-server/plan-compaction-state.ts	1
 extensions/codex/src/app-server/plugin-activation.ts	6
@@ -204,7 +203,6 @@ extensions/codex/src/app-server/sandbox-exec-server/json-rpc.ts	3
 extensions/codex/src/app-server/sandbox-exec-server/processes.ts	1
 extensions/codex/src/app-server/sandbox-guard.ts	2
 extensions/codex/src/app-server/scheduled-app-authority.ts	5
-extensions/codex/src/app-server/session-binding.ts	2
 extensions/codex/src/app-server/shared-client.ts	2
 extensions/codex/src/app-server/side-question.ts	7
 extensions/codex/src/app-server/startup-binding.ts	2
@@ -1659,7 +1657,7 @@ src/agents/embedded-agent-messaging.ts	1
 src/agents/embedded-agent-runner/cache-ttl.ts	2
 src/agents/embedded-agent-runner/cli-backend-dispatch-transcript.ts	7
 src/agents/embedded-agent-runner/cli-backend-dispatch.ts	1
-src/agents/embedded-agent-runner/compact.hooks.harness.ts	8
+src/agents/embedded-agent-runner/compact.hooks.harness.ts	7
 src/agents/embedded-agent-runner/compact.queued.ts	2
 src/agents/embedded-agent-runner/compaction-diagnostics.ts	5
 src/agents/embedded-agent-runner/compaction-hooks.ts	1
@@ -1856,7 +1854,7 @@ src/agents/session-placement-admission.ts	1
 src/agents/session-raw-append-message.ts	2
 src/agents/session-suspension.ts	1
 src/agents/session-tool-result-guard.ts	23
-src/agents/session-transcript-repair.ts	7
+src/agents/session-transcript-repair.ts	6
 src/agents/sessions/agent-session-base.ts	3
 src/agents/sessions/agent-session-extensions.ts	1
 src/agents/sessions/agent-session-models.ts	2
@@ -1890,7 +1888,7 @@ src/agents/subagents/announce/subagent-announce-delivery-retry.ts	2
 src/agents/subagents/announce/subagent-announce-delivery.runtime.ts	1
 src/agents/subagents/announce/subagent-announce-delivery.ts	1
 src/agents/subagents/announce/subagent-announce-origin.ts	2
-src/agents/subagents/announce/subagent-announce-output.ts	8
+src/agents/subagents/announce/subagent-announce-output.ts	7
 src/agents/subagents/completion/subagent-completion-admission.store.ts	2
 src/agents/subagents/registry/subagent-recovery-state.ts	1
 src/agents/subagents/registry/subagent-registry-lifecycle-delivery.ts	2
@@ -2071,7 +2069,7 @@ src/auto-reply/reply/reply-threading.ts	2
 src/auto-reply/reply/reply-timing-tracker.ts	2
 src/auto-reply/reply/restart-recovery-claim.ts	3
 src/auto-reply/reply/session-delivery.ts	1
-src/auto-reply/reply/session.ts	3
+src/auto-reply/reply/session.ts	2
 src/auto-reply/reply/source-reply-delivery-runtime.ts	2
 src/auto-reply/reply/source-turn-id.ts	4
 src/auto-reply/reply/strip-inbound-meta.ts	4
@@ -2413,7 +2411,6 @@ src/commands/setup.ts	1
 src/commands/status-all/channels.ts	2
 src/commands/status-all/gateway.ts	1
 src/commands/status.scan.bootstrap-shared.ts	1
-src/commands/status.scan.shared.ts	1
 src/commands/system-agent-with-inference.ts	2
 src/commands/tasks-json.ts	2
 src/commands/tasks.ts	2
@@ -2498,7 +2495,6 @@ src/config/sessions/session-accessor.sqlite-parent-fork.ts	1
 src/config/sessions/session-accessor.sqlite-read.ts	12
 src/config/sessions/session-accessor.sqlite-recovery.ts	1
 src/config/sessions/session-accessor.sqlite-reset-window.ts	2
-src/config/sessions/session-accessor.sqlite-title-probes.ts	1
 src/config/sessions/session-accessor.sqlite-transcript-message-append.ts	1
 src/config/sessions/session-accessor.sqlite-transcript-mirror.ts	1
 src/config/sessions/session-accessor.sqlite-transcript-store.ts	2
@@ -2566,7 +2562,6 @@ src/cron/service/store.ts	1
 src/cron/service/timer.ts	1
 src/cron/session-reaper.ts	1
 src/cron/stagger.ts	1
-src/cron/store.ts	1
 src/cron/store/delivery-codec.ts	2
 src/cron/store/quarantine.ts	1
 src/cron/store/row-codec.ts	4
@@ -2789,7 +2784,6 @@ src/gateway/session-transcript-derived-readers.ts	2
 src/gateway/session-transcript-files.fs.ts	2
 src/gateway/session-transcript-title-reader.ts	1
 src/gateway/session-utils-core.ts	1
-src/gateway/session-utils-search.ts	1
 src/gateway/session-utils.fs.ts	2
 src/gateway/sessions-history-http.ts	1
 src/gateway/stale-install.ts	1
@@ -3286,7 +3280,7 @@ src/plugins/registry-runtime.ts	5
 src/plugins/registry.ts	1
 src/plugins/runtime-channel-state.ts	1
 src/plugins/runtime-state.ts	1
-src/plugins/runtime-workspace-state.ts	2
+src/plugins/runtime-workspace-state.ts	1
 src/plugins/runtime.ts	1
 src/plugins/runtime/channel-runtime-contexts.ts	1
 src/plugins/runtime/runtime-agent.ts	1
@@ -3490,7 +3484,6 @@ src/transcripts/store-export-ownership.ts	2
 src/transcripts/store-sqlite.ts	2
 src/tts/openai-compatible-speech-provider.ts	1
 src/tts/status-config.ts	1
-src/tts/tts-auto-mode.ts	2
 src/tts/tts-config.ts	5
 src/tts/tts-core.ts	1
 src/tts/tts-payload.ts	2

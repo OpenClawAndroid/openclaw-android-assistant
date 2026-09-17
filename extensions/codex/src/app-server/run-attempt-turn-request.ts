@@ -268,7 +268,7 @@ export async function prepareCodexAttemptTurnRequest(
             await retireUnsafeCodexTurnClientBestEffort(resourceState.client, "startup interrupt");
           }
         } finally {
-          releaseCurrentRoute();
+          await releaseCurrentRoute();
         }
       } else {
         await activeTurnRoute.cancelTurn();

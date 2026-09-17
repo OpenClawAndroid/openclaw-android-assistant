@@ -244,7 +244,8 @@ describe("setup activation reload ownership", () => {
           );
           return;
         }
-        await expect((await applied.promise).result).resolves.toBe("applied");
+        const activationResult = await (await applied.promise).result;
+        expect(activationResult, JSON.stringify(reloadError.mock.calls)).toBe("applied");
         const newerApplication = createRuntimeConfigWriteApplication();
         await transformConfigFileWithRetry({
           base: "source",

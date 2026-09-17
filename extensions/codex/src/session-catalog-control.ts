@@ -269,6 +269,7 @@ function createCodexSessionCatalogControlFromRequests(params: {
       let outcome: "resolved" | "rejected" = "rejected";
       let sourceAttempt: ReturnType<CodexCatalogSourceBackoff["begin"]> | undefined;
       try {
+        const maxScanPages = options?.maxScanPages ?? MAX_TITLE_SEARCH_CATALOG_PAGES;
         readControlCursor(pageParams.cursor, "request");
         const queryParams = readPageParams(pageParams);
         const requests = params.createRequestSnapshot(queryParams);
@@ -318,7 +319,7 @@ function createCodexSessionCatalogControlFromRequests(params: {
         let cursor = queryParams.cursor;
         let backwardsCursor: string | undefined;
         const seen = new Set(cursor ? [cursor] : []);
-        const maxPages = search ? (options?.maxScanPages ?? MAX_TITLE_SEARCH_CATALOG_PAGES) : 1;
+        const maxPages = search ? maxScanPages : 1;
         let scannedPages = 0;
         let stopReason: "limit" | "exhausted" | "page-bound" = "page-bound";
         for (let i = 0; i < maxPages; i++) {

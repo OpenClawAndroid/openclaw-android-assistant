@@ -355,7 +355,10 @@ When an agent runs `openclaw update` inside a systemd user service or macOS
 LaunchAgent Gateway, the CLI hands the update to the same managed-service helper
 before stopping the Gateway. It prints the helper log path and follow-up commands
 for update status and Gateway health, then exits; this acknowledges the handoff,
-not a completed update. The helper launches staging and validation outside the
+not a completed update. The acknowledging CLI exits with code `75` (`EX_TEMPFAIL`)
+so scripts cannot mistake accepted background work for a completed update. The
+detached helper remains the settlement authority; use the printed status and
+health commands to retrieve its terminal result. The helper launches staging and validation outside the
 Gateway process tree while the old Gateway keeps serving, including during
 bounded update repair. It parks the Gateway
 only when the orchestrator reaches `activating`, then completes the existing

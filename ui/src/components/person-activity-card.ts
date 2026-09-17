@@ -1,15 +1,10 @@
 import { html, nothing } from "lit";
 import { keyed } from "lit/directives/keyed.js";
-import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
 import type { GatewaySessionRow } from "../api/types.ts";
 import { i18n, t } from "../i18n/index.ts";
 import { gatewayClientKind } from "../lib/gateway-client-kind.ts";
-import {
-  restartHoverMarqueeIfActive,
-  startHoverMarqueeFromEvent,
-  stopHoverMarqueeFromEvent,
-} from "../lib/hover-marquee.ts";
+import { renderHoverMarquee } from "../lib/hover-marquee.ts";
 import { shouldHandleNavigationClick } from "../lib/navigation-click.ts";
 import { describePlatform } from "../lib/platform-label.ts";
 import {
@@ -168,15 +163,15 @@ function renderSessions(
               ({ row, agentId }) => sessionIdentity(row.key, agentId, input),
               ({ row, agentId }) => {
                 const displayName = resolveSessionDisplayName(row.key, row);
-                const name = html`<span
-                  ${recent ? ref(restartHoverMarqueeIfActive) : nothing}
-                  class="person-activity-card__session-name ${
-                    recent ? "hover-marquee" : "person-activity-card__session-name--multiline"
-                  }"
-                  data-hover-marquee-delay=${recent ? "250" : nothing}
-                  data-hover-marquee-extra-shift=${recent ? "18" : nothing}
-                  >${displayName}</span
-                >`;
+                const name = recent
+                  ? renderHoverMarquee(displayName, "person-activity-card__session-name", {
+                      delay: 250,
+                      speed: 80,
+                    })
+                  : html`<span
+                      class="person-activity-card__session-name person-activity-card__session-name--multiline"
+                      >${displayName}</span
+                    >`;
                 const target = sessionNavigationTarget({
                   face: resolveSessionPreferredFace(row),
                   sessionKey: row.key,
@@ -188,10 +183,6 @@ function renderSessions(
                 return html`<a
                   class="person-activity-card__session session-row-host"
                   href=${target.href}
-                  @mouseenter=${startHoverMarqueeFromEvent}
-                  @mouseleave=${stopHoverMarqueeFromEvent}
-                  @focusin=${startHoverMarqueeFromEvent}
-                  @focusout=${stopHoverMarqueeFromEvent}
                   @click=${(event: MouseEvent) => {
                     if (!shouldHandleNavigationClick(event)) {
                       return;

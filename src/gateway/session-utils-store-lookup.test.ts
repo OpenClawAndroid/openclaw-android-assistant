@@ -33,6 +33,7 @@ import type {
   GatewayRequestHandler,
   RespondFn,
 } from "./server-methods/types.js";
+import { getSessionRowProjection } from "./session-row-projection-access.js";
 import {
   createGatewaySessionEntryReader,
   prepareGatewaySessionStoreTargetsReadOnly,
@@ -42,11 +43,7 @@ import {
   type GatewaySessionStoreCache,
 } from "./session-utils-store-lookup.js";
 import { loadGatewaySessionEntryReadOnly } from "./session-utils-store.js";
-import {
-  loadCombinedSessionStoreForGatewayCore,
-  loadGatewaySessionLifecycleSnapshot,
-  loadGatewaySessionRow,
-} from "./session-utils.js";
+import { loadCombinedSessionStoreForGatewayCore } from "./session-utils.js";
 
 vi.mock("./github-publication-availability.js", () => ({
   prepareCurrentGitHubPublicationOptionsIdentity: vi.fn(async (agentId: string) => ({
@@ -482,8 +479,9 @@ describe("exact session model projections", () => {
           request: { agentId: "main", limit: 10 },
         });
         expect(listed.sessions.find((row) => row.key === childKey)).toMatchObject(expected);
-        expect.soft(loadGatewaySessionRow(childKey)).toMatchObject(expected);
-        expect.soft(loadGatewaySessionLifecycleSnapshot(childKey).row).toMatchObject(expected);
+        expect
+          .soft(getSessionRowProjection(context)?.snapshot({ key: childKey, agentId: "main" }).row)
+          .toMatchObject(expected);
 
         const described = vi.fn();
         await sessionByKeyReadHandlers["sessions.describe"]!({
@@ -502,7 +500,9 @@ describe("exact session model projections", () => {
           params: { sessionKey: childKey },
           req: { type: "req", id: "model-history", method: "chat.history" },
           client: null,
-          context: createDirectChatContext(),
+          context: createDirectChatContext({
+            sessionRowProjectionOwner: context.sessionRowProjectionOwner,
+          }),
           isWebchatConnect: () => false,
           respond: history,
         });
@@ -521,10 +521,11 @@ describe("exact session model projections", () => {
             agentId: "main",
             reason: "patch",
           });
+          await flushPendingSessionsChangedEvents(eventContext);
           expect(broadcast.mock.calls[0]?.[0]).toBe("sessions.changed");
-          expect.soft(broadcast.mock.calls[0]?.[1]).toMatchObject(expected);
+          expect.soft(broadcast.mock.calls[0]?.[1]).toMatchObject({ session: expected });
         } finally {
-          flushPendingSessionsChangedEvents(eventContext);
+          await flushPendingSessionsChangedEvents(eventContext);
         }
       });
     },
@@ -679,9 +680,9 @@ it.each([
         });
         expect.soft(searched.sessions.some((row) => row.key === created.key)).toBe(true);
       }
-      await expect
-        .soft(Promise.resolve().then(() => loadGatewaySessionRow(created.key)))
-        .resolves.toMatchObject(expected);
+      expect
+        .soft(getSessionRowProjection(context)?.snapshot({ key: created.key, agentId: "work" }).row)
+        .toMatchObject(expected);
       await expect
         .soft(
           request(sessionByKeyReadHandlers["sessions.describe"]!, "sessions.describe", {

@@ -1,13 +1,16 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { testing } from "../agents/cli-backends.test-support.js";
 import { cliBackendLog } from "../agents/cli-runner/log.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type {
   CliBackendExecuteContext,
   CliBackendPrepareExecutionContext,
 } from "../plugins/cli-backend.types.js";
+import { resolveRuntimeCliBackends } from "../plugins/cli-backends.runtime.js";
 import { setTestEnvValue } from "../test-utils/env.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import * as gatewayFixture from "./test-helpers.e2e.js";
@@ -167,9 +170,6 @@ async function runWatchdogCase(testCase: WatchdogCase, signal: AbortSignal) {
       observedCredit = true;
     }
   });
-  const { spawn } = await import("node:child_process");
-  const { resolveRuntimeCliBackends } = await import("../plugins/cli-backends.runtime.js");
-  const { testing } = await import("../agents/cli-backends.test-support.js");
 
   const state = await createOpenClawTestState({
     label: "cli-freeze",
@@ -184,7 +184,7 @@ async function runWatchdogCase(testCase: WatchdogCase, signal: AbortSignal) {
       CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: undefined,
       OPENCLAW_TEST_MINIMAL_GATEWAY: undefined,
       OPENCLAW_DISABLE_BUNDLED_PLUGINS: undefined,
-      OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(process.cwd(), "extensions"),
+      OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(process.cwd(), "dist/extensions"),
       OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: "1",
       OPENCLAW_SKIP_CHANNELS: "1",
       OPENCLAW_SKIP_GMAIL_WATCHER: "1",

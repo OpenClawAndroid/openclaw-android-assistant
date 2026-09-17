@@ -91,3 +91,23 @@ describe("OAuth session expiry", () => {
     expect(classifyFailoverReason(expiredMessage)).toBe("session_expired");
   });
 });
+
+describe("Gateway transcript validation vs provider session expiry", () => {
+  it("keeps Gateway transcript validation local instead of session_expired", () => {
+    expect(classifyFailoverReason("Invalid session transcript entry: model_change")).toBe("format");
+    expect(
+      classifyFailoverReason("Invalid session transcript entry: model_change", {
+        provider: "openrouter",
+      }),
+    ).toBe("format");
+  });
+
+  it.each([
+    "invalid session",
+    "HTTP 404: session not found",
+    "no such session",
+    "conversation expired",
+  ])("still treats provider session-expiry copy as session_expired: %s", (message) => {
+    expect(classifyFailoverReason(message)).toBe("session_expired");
+  });
+});

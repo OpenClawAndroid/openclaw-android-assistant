@@ -1,4 +1,4 @@
-// Attribution row for cross-session (sessions_send) forwarded messages.
+// Attribution row for forwarded agent and automation messages.
 import { html, nothing } from "lit";
 import type { AgentsListResult } from "../../../api/types.ts";
 import { icons } from "../../../components/icons.ts";
@@ -24,6 +24,7 @@ type ForwardedAttributionOptions = {
 export function renderForwardedAttribution(group: MessageGroup, opts: ForwardedAttributionOptions) {
   const sourceSessionKey = group.senderSession?.sessionKey;
   const sourceParsed = sourceSessionKey ? parseAgentSessionKey(sourceSessionKey) : null;
+  const sourceIsCronRun = /^cron:[^:]+:run:[^:]+$/u.test(sourceParsed?.rest ?? "");
   // Only agent-prefixed keys are navigable: the titler, hovercard, and click
   // handlers all reject other shapes, so a legacy key must stay plain text
   // instead of becoming a focusable link that goes nowhere.
@@ -35,7 +36,13 @@ export function renderForwardedAttribution(group: MessageGroup, opts: ForwardedA
   const sourceIsMainSession = Boolean(
     sourceParsed && opts.mainKey && sourceParsed.rest === opts.mainKey,
   );
-  const sourceMainLabel = sourceIsMainSession ? sourceAgentDisplayName : undefined;
+  const sourceLabel =
+    group.senderSession?.label ??
+    (sourceIsCronRun
+      ? t("tasksPage.runtime.cron")
+      : sourceIsMainSession
+        ? sourceAgentDisplayName
+        : undefined);
   const sourceAgentPrefix =
     !sourceIsMainSession && sourceParsed && sourceParsed.agentId !== opts.agentId
       ? sourceAgentDisplayName
@@ -48,26 +55,35 @@ export function renderForwardedAttribution(group: MessageGroup, opts: ForwardedA
           ? // The titler may replace the initial label. Its .textContent binding
             // keeps Lit text parts out of it. A group's source never changes: messages are
             // immutable and grouping splits on senderSession, so no keyed
-            // remount is needed. Main-session sources pre-title as the agent's
-            // display name (an agent's main session IS the agent); the titler
-            // still stamps the href but leaves pre-titled text alone.
+            // remount is needed. Gateway labels, cron fallbacks, and main-session
+            // agent names pre-title the source; the titler still stamps the href.
+            // Keep the icon branch outside the anchor whose children the titler replaces.
             html`<span>${t("chat.messages.forwardedFrom")}</span>
-              ${sourceAgentPrefix ? html`<span>${sourceAgentPrefix} —</span>` : nothing}
-              <a
-                class="markdown-session-link${
-                  sourceMainLabel ? " markdown-session-link--titled" : ""
-                }"
-                role="link"
-                tabindex="0"
-                data-session-key=${linkableSourceKey}
-                ><span
-                  class="session-label"
-                  .textContent=${sourceMainLabel ?? linkableSourceKey}
-                ></span
-              ></a>`
+              ${sourceAgentPrefix ? html`<span>${sourceAgentPrefix} ${sourceIsCronRun ? "·" : "—"}</span>` : nothing}
+              ${
+                sourceIsCronRun
+                  ? html`<a
+                      class="markdown-session-link markdown-session-link--titled markdown-session-link--automation"
+                      role="link"
+                      tabindex="0"
+                      data-session-key=${linkableSourceKey}
+                      ><span class="session-link-icon" aria-hidden="true">${icons.clock}</span
+                      ><span class="session-label" .textContent=${sourceLabel}></span
+                    ></a>`
+                  : html`<a
+                      class="markdown-session-link${sourceLabel ? " markdown-session-link--titled" : ""}"
+                      role="link"
+                      tabindex="0"
+                      data-session-key=${linkableSourceKey}
+                      ><span
+                        class="session-label"
+                        .textContent=${sourceLabel ?? linkableSourceKey}
+                      ></span
+                    ></a>`
+              }`
           : sourceSessionKey
             ? html`<span>${t("chat.messages.forwardedFrom")}</span>
-                <span>${sourceSessionKey}</span>`
+                <span>${sourceLabel ?? sourceSessionKey}</span>`
             : html`<span
                 >${
                   group.senderSession?.agentId

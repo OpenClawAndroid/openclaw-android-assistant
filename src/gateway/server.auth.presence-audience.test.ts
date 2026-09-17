@@ -280,7 +280,7 @@ describe("gateway presence audience", () => {
                 .filter((key) => watchedKeys.includes(key))
                 .toSorted(),
               `${scenario.name} canonical sessions.list visibility`,
-            ).toEqual(scenario.allowed.toSorted());
+            ).toEqual(scenario.allowed.filter((key) => key !== incognitoKey).toSorted());
             const canReadDraft = scenario.allowed.includes(draftKey);
             const described = await rpcReq<{ session: { sessionId?: string } | null }>(
               recipient.ws,

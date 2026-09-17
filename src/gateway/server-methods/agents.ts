@@ -863,7 +863,7 @@ export const agentsHandlers: GatewayRequestHandlers = {
     );
     respond(
       true,
-      listAgentsForGateway(cfg, undefined, {
+      await listAgentsForGateway(cfg, undefined, {
         modelCatalogByAgentId,
         includeSystem: hasGatewayClientCap(client?.connect.caps, GATEWAY_CLIENT_CAPS.AGENT_KIND),
         httpAvatarBasePath:

@@ -5,6 +5,7 @@ import { asOptionalRecord as readRecord } from "@openclaw/normalization-core/rec
 import { OPENCLAW_RUNTIME_CONTEXT_CUSTOM_TYPE } from "../agents/internal-runtime-context.js";
 import { isHeartbeatOkResponse, isHeartbeatUserMessage } from "../auto-reply/heartbeat-filter.js";
 import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
+import { createCronJobNameResolver } from "../cron/store/job-name.js";
 import {
   isCompletionReportInputProvenance,
   isSubagentCoordinationInputProvenance,
@@ -26,8 +27,9 @@ import {
   hasAssistantDisplayableNonTextContent,
   hasTranscriptMediaFacts,
   isEmptyTextOnlyContent,
-  isProjectedSessionsSendForwardedMessage,
-  isSessionsSendInterSessionUserMessage,
+  isProjectedForwardedMessage,
+  isForwardedUserMessage,
+  isCronRunMessage,
   type RoleContentMessage,
 } from "./chat-display-projection.helpers.js";
 
@@ -174,7 +176,7 @@ export function isAssistantTtsSupplementMessage(message: unknown): boolean {
 
 function readTtsSupplementTargetText(message: Record<string, unknown>): string {
   return asRoleContentMessage(message)?.role === "assistant" &&
-    !isProjectedSessionsSendForwardedMessage(message) &&
+    !isProjectedForwardedMessage(message) &&
     !readTtsSupplementMarker(message)
     ? extractProjectedText(message.content ?? message.text).trim()
     : "";
@@ -351,7 +353,7 @@ function shouldHideProjectedHistoryMessage(
   if (isDisplayHiddenProjectedMessage(message)) {
     return true;
   }
-  if (isProjectedSessionsSendForwardedMessage(message)) {
+  if (isProjectedForwardedMessage(message)) {
     return false;
   }
   if (!roleContent) {
@@ -379,7 +381,7 @@ function shouldHideProjectedHistoryMessage(
 /** Identifies the hidden native input that starts a heartbeat-driven turn. */
 export function isHeartbeatHistoryTurnBoundaryMessage(message: unknown): boolean {
   const record = readRecord(message);
-  if (!record || isSessionsSendInterSessionUserMessage(record)) {
+  if (!record || isForwardedUserMessage(record)) {
     return false;
   }
   const roleContent = asRoleContentMessage(record);
@@ -455,7 +457,7 @@ function isDuplicateChannelFinalDeliveryMirror(
   if (isOpenClawDeliveryMirrorAssistantMessage(previousVisible)) {
     return false;
   }
-  if (isProjectedSessionsSendForwardedMessage(previousVisible)) {
+  if (isProjectedForwardedMessage(previousVisible)) {
     return false;
   }
   const previousMeta = readRecord(previousVisible["__openclaw"]);
@@ -520,7 +522,7 @@ export function filterVisibleProjectedHistoryMessages(
       next &&
       nextRoleContent &&
       isHeartbeatOkResponse(nextRoleContent) &&
-      !isProjectedSessionsSendForwardedMessage(next)
+      !isProjectedForwardedMessage(next)
     ) {
       changed = true;
       pendingTurnBoundary = true;
@@ -529,7 +531,7 @@ export function filterVisibleProjectedHistoryMessages(
     }
     if (shouldHideProjectedHistoryMessage(current, currentRoleContent, heartbeatUser)) {
       changed = true;
-      pendingTurnBoundary ||= heartbeatUser && !isSessionsSendInterSessionUserMessage(current);
+      pendingTurnBoundary ||= heartbeatUser && !isForwardedUserMessage(current);
       continue;
     }
     if (
@@ -553,9 +555,9 @@ export function filterVisibleProjectedHistoryMessages(
   };
 }
 
-function stripInterSessionPromptPrefixFromContent(content: unknown): unknown {
+function stripPromptPrefixFromContent(content: unknown, strip: (text: string) => string): unknown {
   if (typeof content === "string") {
-    return stripInterSessionPromptPrefixForDisplay(content);
+    return strip(content);
   }
   if (!Array.isArray(content)) {
     return content;
@@ -568,46 +570,82 @@ function stripInterSessionPromptPrefixFromContent(content: unknown): unknown {
     if (typeof record.text !== "string") {
       return block;
     }
-    const stripped = stripInterSessionPromptPrefixForDisplay(record.text);
+    const stripped = strip(record.text);
     return stripped === record.text ? block : { ...record, text: stripped };
   });
 }
 
-function resolveSessionsSendForwardedSenderSession(
+function resolveForwardedSenderSession(
   message: Record<string, unknown>,
-): { sessionKey?: string; agentId?: string } | undefined {
+  resolveCronJobName: (jobId: string) => string | undefined,
+): { sessionKey?: string; agentId?: string; label?: string } | undefined {
   // Only structured provenance identifies the sender; prompt headers are display text.
   const provenance = normalizeInputProvenance(message.provenance);
   const sourceSessionKey = provenance?.sourceSessionKey;
-  const agentId = parseAgentSessionKey(sourceSessionKey)?.agentId;
+  const parsed = parseAgentSessionKey(sourceSessionKey);
+  const agentId = parsed?.agentId;
+  const jobId = isCronRunMessage(message)
+    ? provenance?.jobId
+    : parsed?.rest.match(/^cron:([^:]+):run:[^:]+$/u)?.[1];
+  const label = jobId ? (resolveCronJobName(jobId) ?? "Automation") : undefined;
   return sourceSessionKey
-    ? { sessionKey: sourceSessionKey, ...(agentId ? { agentId } : {}) }
+    ? { sessionKey: sourceSessionKey, ...(agentId ? { agentId } : {}), ...(label ? { label } : {}) }
     : undefined;
 }
 
-export function projectSessionsSendInterSessionMessages(
+export function projectForwardedMessages(
   messages: Array<Record<string, unknown>>,
+  resolveCronJobName: (jobId: string) => string | undefined = createCronJobNameResolver(),
 ): Array<Record<string, unknown>> {
+  const names = new Map<string, string | undefined>();
+  const resolveName = (jobId: string) => {
+    if (!names.has(jobId)) {
+      names.set(jobId, resolveCronJobName(jobId));
+    }
+    return names.get(jobId);
+  };
   let changed = false;
   const projected = messages.map((message) => {
-    if (!isSessionsSendInterSessionUserMessage(message)) {
+    if (!isForwardedUserMessage(message) && !isProjectedForwardedMessage(message)) {
       return message;
     }
+    const senderSession = resolveForwardedSenderSession(message, resolveName);
+    if (message.role === "assistant") {
+      const previous = readRecord(message.senderSession);
+      if (previous?.label === senderSession?.label) {
+        return message;
+      }
+      changed = true;
+      return {
+        ...message,
+        senderSession,
+        senderLabel: `Forwarded from ${senderSession?.label ?? senderSession?.agentId}`,
+      };
+    }
     changed = true;
-    const senderSession = resolveSessionsSendForwardedSenderSession(message);
+    const cronRun = isCronRunMessage(message);
+    const prefix = normalizeInputProvenance(message.provenance)?.sourcePromptPrefix;
+    const strip = cronRun
+      ? (text: string) =>
+          prefix && text.startsWith(prefix) ? text.slice(prefix.length).replace(/^ /u, "") : text
+      : stripInterSessionPromptPrefixForDisplay;
     const next: Record<string, unknown> = {
       ...message,
       role: "assistant",
-      senderLabel: senderSession?.agentId
-        ? `Forwarded from ${senderSession.agentId}`
-        : "Forwarded agent message",
+      ...(cronRun
+        ? { __openclaw: { ...readRecord(message["__openclaw"]), turnBoundary: true } }
+        : {}),
+      senderLabel:
+        senderSession?.label || senderSession?.agentId
+          ? `Forwarded from ${senderSession.label ?? senderSession.agentId}`
+          : "Forwarded agent message",
       ...(senderSession ? { senderSession } : {}),
     };
     if ("content" in next) {
-      next.content = stripInterSessionPromptPrefixFromContent(next.content);
+      next.content = stripPromptPrefixFromContent(next.content, strip);
     }
     if (typeof next.text === "string") {
-      next.text = stripInterSessionPromptPrefixForDisplay(next.text);
+      next.text = strip(next.text);
     }
     return next;
   });

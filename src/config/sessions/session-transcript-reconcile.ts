@@ -8,8 +8,10 @@ import { toStringifiedError } from "@openclaw/normalization-core/error-coercion"
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import { computeBackoffSchedule } from "../../../packages/retry/src/index.js";
 import { isGatewayExternallySupervised } from "../../infra/gateway-supervision.js";
+import { executeSqliteQueryTakeFirstSync } from "../../infra/kysely-sync.js";
 import { isPathInside } from "../../infra/path-guards.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import {
   borrowOpenClawAgentDatabase,
@@ -25,6 +27,7 @@ import {
 import { resolveStateDir } from "../paths.js";
 import type { SessionTranscriptReadScope } from "./session-accessor.sqlite-contract.js";
 import {
+  getSessionKysely,
   resolveSqliteTranscriptReadScope,
   runExclusiveSqliteSessionWrite,
   toDatabaseOptions,
@@ -243,13 +246,31 @@ async function finalizePreparedProjection(
   return await runProjectionWrite(
     databaseOptions,
     "sessions.transcript-index.finalize",
-    (database) =>
-      (!memorySource || memorySource.isCurrentPlan(active.plan)) &&
-      finalizePreparedSessionTranscriptProjectionInTransaction(
-        database.db,
-        active.plan,
-        active.claimId,
-      ),
+    (database) => {
+      const finalized =
+        (!memorySource || memorySource.isCurrentPlan(active.plan)) &&
+        finalizePreparedSessionTranscriptProjectionInTransaction(
+          database.db,
+          active.plan,
+          active.claimId,
+        );
+      const session =
+        finalized &&
+        executeSqliteQueryTakeFirstSync(
+          database.db,
+          getSessionKysely(database.db)
+            .selectFrom("session_windows")
+            .select("session_key")
+            .where("session_id", "=", active.plan.sessionId),
+        );
+      if (session) {
+        sessionChanges.emit(
+          { storePath: database.path, sessionKey: session.session_key },
+          database.db,
+        );
+      }
+      return finalized;
+    },
     memorySource,
   );
 }

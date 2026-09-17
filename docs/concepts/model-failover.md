@@ -331,6 +331,8 @@ While waiting, the Control UI shows one transient **Retrying… n/10** indicator
 
 Visible failure messages preserve the provider's HTTP status independently of retry classification. A provider HTTP 500 remains a server error in the final reply, even when recovery groups it with timeout-shaped failures. Raw provider response details stay out of that reply.
 
+Gateway transcript-validation failures are local format errors. They do not rotate or cool down healthy credentials, and both assistant errors and thrown run failures identify the rejected session transcript entry with recovery guidance. Genuine provider-session expiry keeps its existing credential-health behavior.
+
 Provider overloads and HTTP 5xx failures use transient recovery guidance. A message saying only that a model is "not available" does not establish that it was retired or that your configuration needs to change. Configuration guidance requires a missing-model response or an explicit account/model restriction. Codex turn errors retain their overload and HTTP-status information even after Codex stops retrying the turn.
 
 When a run starts from the configured default primary, a cron job primary, an agent primary with explicit fallbacks, or an auto-selected fallback override, OpenClaw can walk the matching configured fallback chain. Agent primaries without explicit fallbacks are strict. Explicit user selections are also strict: `/model ollama/qwen3.5:27b`, the model picker, `sessions.patch`, and one-off CLI provider/model overrides. If that provider or model is unreachable, or fails before producing a reply, OpenClaw reports the failure instead of answering from an unrelated fallback.

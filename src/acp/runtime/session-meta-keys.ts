@@ -1,10 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Selectable } from "kysely";
+import type { Insertable, Selectable } from "kysely";
 import { tryResolveLegacyDataOwnerAgentId } from "../../agents/agent-scope-config.js";
 import { resolvePersistedSessionStoreOwnerForKey } from "../../config/sessions/session-store-owner.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
+import {
+  executeSqliteQuerySync,
+  executeSqliteQueryTakeFirstSync,
+  getNodeSqliteKysely,
+} from "../../infra/kysely-sync.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../../state/openclaw-state-db.generated.js";
 
@@ -161,4 +165,29 @@ export function resolveReadableAcpSessionRow(params: {
 }): AcpSessionRow | undefined {
   const { row, entry } = params;
   return row && acpSessionRowMatchesEntry(row, entry) ? row : undefined;
+}
+
+export function upsertAcpSessionMetaRow(db: DatabaseSync, row: Insertable<AcpSessionsTable>): void {
+  executeSqliteQuerySync(
+    db,
+    getAcpSessionKysely(db)
+      .insertInto("acp_sessions")
+      .values(row)
+      .onConflict((conflict) =>
+        conflict.column("session_key").doUpdateSet({
+          session_id: (eb) => eb.ref("excluded.session_id"),
+          backend: (eb) => eb.ref("excluded.backend"),
+          agent: (eb) => eb.ref("excluded.agent"),
+          runtime_session_name: (eb) => eb.ref("excluded.runtime_session_name"),
+          identity_json: (eb) => eb.ref("excluded.identity_json"),
+          mode: (eb) => eb.ref("excluded.mode"),
+          runtime_options_json: (eb) => eb.ref("excluded.runtime_options_json"),
+          cwd: (eb) => eb.ref("excluded.cwd"),
+          state: (eb) => eb.ref("excluded.state"),
+          last_activity_at: (eb) => eb.ref("excluded.last_activity_at"),
+          last_error: (eb) => eb.ref("excluded.last_error"),
+          updated_at: (eb) => eb.ref("excluded.updated_at"),
+        }),
+      ),
+  );
 }

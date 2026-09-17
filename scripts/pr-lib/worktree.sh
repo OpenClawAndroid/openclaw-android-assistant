@@ -216,7 +216,7 @@ checkout_pr_worktree_target() {
 }
 
 fetch_canonical_ref() {
-  local refspec="$1" root source git_dir
+  local refspec="$1" root source git_dir promisor filter=""
   shift
   root=$(repo_root) || return 1
   source=$(git -C "$root" remote get-url origin) || return 1
@@ -224,7 +224,19 @@ fetch_canonical_ref() {
   # Resolve relative URLs at the canonical root; ignore worktree origin/refmaps.
   # Other PRs and ordinary fetches own shared refs and the root FETCH_HEAD.
   # Automatic maintenance can prune unrelated worktree metadata, even on fetch.
-  git -C "$root" --git-dir="$git_dir" fetch --no-auto-maintenance --no-tags --refmap= "$@" "$source" "$refspec"
+  set -- fetch --no-auto-maintenance --no-tags --refmap= "$@" "$source" "$refspec"
+  promisor=$(git -C "$root" config --bool remote.origin.promisor) || [ "$?" -eq 1 ] || return 1
+  if [ "$promisor" = true ]; then
+    filter=$(git -C "$root" config --get remote.origin.partialclonefilter) || [ "$?" -eq 1 ] || return 1
+    if [ -n "$filter" ]; then
+      # Literal URLs lose origin's filter; --filter would persist a new remote.
+      # Project the canonical promisor settings only for this fetch.
+      set -- "--config-env=remote.$source.promisor=PR_CANONICAL_FETCH_PROMISOR" \
+        "--config-env=remote.$source.partialclonefilter=PR_CANONICAL_FETCH_FILTER" "$@"
+    fi
+  fi
+  PR_CANONICAL_FETCH_PROMISOR="$promisor" PR_CANONICAL_FETCH_FILTER="$filter" \
+    git -C "$root" --git-dir="$git_dir" "$@"
 }
 
 fetch_canonical_main() {

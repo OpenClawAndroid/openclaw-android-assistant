@@ -2,7 +2,9 @@ import { once } from "node:events";
 import { createServer, type ServerResponse } from "node:http";
 import { expect, it } from "vitest";
 import type { ModelsListResult } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
-import { withTestTimeout } from "../../../test/helpers/promise.js";
+import { createDeferred, withTestTimeout } from "../../../test/helpers/promise.js";
+import { getPublishedPreparedModelCatalogOwnerSnapshot } from "../../agents/prepared-model-catalog.js";
+import { registerPreparedModelRuntimePublicationListener } from "../../agents/prepared-model-runtime.publication-events.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { disconnectGatewayClient, startGatewayWithClient } from "../test-helpers.e2e.js";
 
@@ -162,14 +164,34 @@ it.each([
           ["original"],
         ]);
         expect(requests).toBe(initialRequests + 1);
+        const owner = getPublishedPreparedModelCatalogOwnerSnapshot({ agentId: "main" });
+        const acceptedCatalog = owner?.readFullModelCatalog?.();
+        expect(acceptedCatalog).toBeDefined();
+        const renewalPublished = createDeferred();
+        const unregisterPublication = registerPreparedModelRuntimePublicationListener((event) => {
+          // Worker completion precedes acceptance; acquisition-start events keep the old snapshot.
+          if (
+            event.phase === "catalog-published" &&
+            owner?.readFullModelCatalog?.() !== acceptedCatalog
+          ) {
+            renewalPublished.resolve();
+          }
+        });
         failSibling = withSibling;
         hold = false;
-        for (const response of held.splice(0)) {
-          reply(response);
+        try {
+          for (const response of held.splice(0)) {
+            reply(response);
+          }
+          await withTestTimeout(
+            renewalPublished.promise,
+            3_000,
+            "catalog renewal was not published",
+          );
+        } finally {
+          unregisterPublication();
         }
-        await expect
-          .poll(async () => (await list()).models.map((row) => row.id))
-          .toEqual(["newly-published", "original"]);
+        expect((await list()).models.map((row) => row.id)).toEqual(["newly-published", "original"]);
 
         if (withSibling) {
           await expect.poll(async () => (await list()).refreshFailed).toBe(true);

@@ -1,6 +1,7 @@
 /** Renders and parses systemd unit snippets for managed gateway services. */
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { escape as escapeGlob } from "minimatch";
+import { GATEWAY_SERVICE_STOP_TIMEOUT_MS } from "../infra/gateway-shutdown-budget.js";
 import { splitArgsPreservingQuotes } from "./arg-split.js";
 import type { GatewayServiceRenderArgs } from "./service-types.js";
 
@@ -104,8 +105,8 @@ export function buildSystemdUnit({
     "Restart=always",
     "RestartSec=5",
     "RestartPreventExitStatus=78",
-    // Cover the gateway's five-minute SIGTERM drain plus its teardown reserve.
-    "TimeoutStopSec=330",
+    // Share the drain, teardown reserve, and supervisor exit margin with the Gateway.
+    `TimeoutStopSec=${GATEWAY_SERVICE_STOP_TIMEOUT_MS / 1_000}`,
     "TimeoutStartSec=30",
     "SuccessExitStatus=0 143",
     // Transient child processes may be selected by the OOM killer before the

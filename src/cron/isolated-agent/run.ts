@@ -258,6 +258,7 @@ export async function runCronIsolatedAgentTurn(
               liveSelection: prepared.context.liveSelection,
               cronSession: prepared.context.cronSession,
               commandBody: prepared.context.commandBody,
+              inputProvenance: prepared.context.inputProvenance,
               persistSessionEntry: prepared.context.persistSessionEntry,
               persistRunContinuationSession: prepared.context.runContinuationSession?.sync,
               setRunContinuationCliExecutionProvider:

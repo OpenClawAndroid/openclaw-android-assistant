@@ -7,6 +7,7 @@ import {
 import { createTestAdmittedRunContext } from "./admitted-run-context.test-support.js";
 import {
   bindActiveOperatorTurnAuthority,
+  bindActiveCronAuthorityCurrentness,
   bindActiveCronCreatorAuthorityResolver,
   bindCronManagementGrant,
   createCronCreatorAuthorityCapability,
@@ -18,6 +19,50 @@ import {
   withGatewayToolCallerIdentity,
   withoutGatewayToolCallerIdentity,
 } from "./tools/gateway-caller-context.js";
+
+describe("creator caller currentness", () => {
+  it("retains the original caller predicate for native tool captures", async () => {
+    let current = true;
+    const isCurrent = () => current;
+    const capability = createCronCreatorAuthorityCapability(
+      "native-creator",
+      { kind: "local" },
+      undefined,
+      isCurrent,
+    )!;
+    await runWithCronCreatorAuthorityCapability(capability, async () => {
+      expect(bindActiveCronAuthorityCurrentness("other-run")).toBeUndefined();
+      const captured = bindActiveCronAuthorityCurrentness("native-creator");
+      current = false;
+      expect(captured?.()).toBe(false);
+    });
+  });
+
+  it("refuses new tool-surface resolution after the original caller is revoked", async () => {
+    let current = true;
+    const capability = createCronCreatorAuthorityCapability(
+      "revoked-creator",
+      { kind: "local" },
+      undefined,
+      () => current,
+    )!;
+    const resolve = vi.fn(async () => ({
+      tools: ["message"],
+      provenance: { version: 1 as const, source: "final-executable-surface" as const },
+    }));
+    await runWithCronCreatorAuthorityCapability(capability, async () => {
+      const resolver = runWithCronCreatorAuthorityCapabilityResolver({
+        capability,
+        runId: capability.runId,
+        resolve,
+        run: () => bindActiveCronCreatorAuthorityResolver(capability.runId),
+      });
+      current = false;
+      await expect(resolver!()).rejects.toThrow("Automation caller authority is no longer active");
+      expect(resolve).not.toHaveBeenCalled();
+    });
+  });
+});
 
 describe("bindActiveOperatorTurnAuthority", () => {
   it("binds an explicit exact-run origin and expires retained authority", async () => {

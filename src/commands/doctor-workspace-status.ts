@@ -30,6 +30,27 @@ type NoteWorkspaceStatusOptions = {
 
 const WORKSPACE_STATUS_CHECK_ID = "core/doctor/workspace-status";
 
+type WorkspacePluginDiagnostic = ReturnType<
+  typeof buildPluginRegistrySnapshotReport
+>["diagnostics"][number];
+
+function claimPluginDiagnostic(seen: Set<string>, diagnostic: WorkspacePluginDiagnostic): boolean {
+  const key = [
+    diagnostic.level,
+    diagnostic.pluginId ?? "",
+    diagnostic.code ?? "",
+    diagnostic.source ?? "",
+    diagnostic.message,
+  ]
+    .map((value) => `${value.length}:${value}`)
+    .join("");
+  if (seen.has(key)) {
+    return false;
+  }
+  seen.add(key);
+  return true;
+}
+
 type TaskFlowRecoveryFinding = {
   flowId: string;
   message: string;
@@ -225,6 +246,7 @@ export function collectWorkspaceStatusHealthFindings(
     workspaceDir: resolveAgentWorkspaceDir(cfg, agentId),
   }));
   const workspaceFindings: HealthFinding[] = [];
+  const reportedPluginDiagnostics = new Set<string>();
   for (const { agentId, workspaceDir } of scopes) {
     const collectForWorkspace = () => {
       const findings: HealthFinding[] = [];
@@ -239,6 +261,9 @@ export function collectWorkspaceStatusHealthFindings(
         findings.push(pluginCompatibilityWarningToHealthFinding(`${prefix}${message}`));
       }
       for (const diagnostic of pluginRegistry.diagnostics) {
+        if (!claimPluginDiagnostic(reportedPluginDiagnostics, diagnostic)) {
+          continue;
+        }
         findings.push(
           pluginDiagnosticToHealthFinding(diagnostic, `${prefix}${diagnostic.message}`),
         );
@@ -343,6 +368,7 @@ export function noteWorkspaceStatus(cfg: OpenClawConfig, options: NoteWorkspaceS
     agentId,
     workspaceDir: resolveAgentWorkspaceDir(cfg, agentId),
   }));
+  const reportedPluginDiagnostics = new Set<string>();
   for (const { agentId, workspaceDir } of scopes) {
     const noteForWorkspace = () => {
       const prefix = agentIds.length > 1 ? `Agent "${agentId}":\n` : "";
@@ -371,8 +397,11 @@ export function noteWorkspaceStatus(cfg: OpenClawConfig, options: NoteWorkspaceS
           "Plugin compatibility",
         );
       }
-      if (pluginRegistry.diagnostics.length > 0) {
-        const lines = pluginRegistry.diagnostics.map((diag) => {
+      const diagnostics = pluginRegistry.diagnostics.filter((diagnostic) =>
+        claimPluginDiagnostic(reportedPluginDiagnostics, diagnostic),
+      );
+      if (diagnostics.length > 0) {
+        const lines = diagnostics.map((diag) => {
           const level = diag.level.toUpperCase();
           const plugin = diag.pluginId ? ` ${diag.pluginId}` : "";
           const source = diag.source ? ` (${diag.source})` : "";

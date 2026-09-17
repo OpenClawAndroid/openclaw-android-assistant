@@ -110,9 +110,23 @@ forwarding bridges.
 Plugin SDK declaration preparation and `scripts/run-tsgo.mjs` require child work
 to finish before reporting success. On POSIX, each verifies its own managed
 process group: leftover children are terminated and the command fails instead of
-allowing artifact stamps or downstream checks to proceed. Windows retains normal
-joined-launcher completion because strict group verification is unsupported there.
-This does not detect descendants that deliberately leave the managed groups.
+allowing artifact stamps or downstream checks to proceed. POSIX process groups do
+not detect descendants that deliberately leave the group.
+
+On Windows, managed commands and the Gateway test instance use a retained kernel
+Job. Platform code loads only when a Windows command is requested; planner imports
+stay independent of installed application packages. Loading finishes before spawn,
+so listener registration remains synchronous with child creation. Tooling resolves
+its worker URL with Node built-ins and reuses the native Job bindings from core.
+The launcher joins that Job before it can start the command. Cleanup waits
+for an empty Job, leader exit, and output closure; leader exit alone never proves
+descendant completion. Failed termination reports the observed surviving PIDs and
+retains resource claims while the Job remains unresolved. Normal leader exit also
+terminates remaining Job members. Finalization records its outcome before closing
+the Job handle, including on failure; closing the handle alone does not verify
+termination or release resource claims. Existing callers with
+their own IPC channel keep the direct-launch contract; failed taskkill without an
+owned Job stays indeterminate even if the leader and its pipes have closed.
 
 `run-vitest` (including project shards), plugin batches, `test-live`
 (including live shards), `run-vitest-profile`, and the TUI PTY watcher give each
@@ -150,8 +164,8 @@ path for manual recovery. Nested namespaces, fixture lifetimes, and managed comm
 register ephemeral filesystem ownership before admitting work. Release requires
 positive completion evidence; caught cleanup failures, module resets, worker exit,
 or an intermediate runner crash cannot release a pending claim or its ancestors.
-Managed commands keep their existing close-based completion contract unless strict
-tree verification is requested; failed finalization never releases ownership.
+Managed commands keep their existing output-drain contract; Windows Job commands
+also join kernel Job completion. Failed finalization never releases ownership.
 Stop all remaining writers before manually removing the reported exact directory.
 Windows and non-detached launches allocate the same isolated native home, but retain
 their namespace and enclosing claims with a diagnostic after child exit and pipe

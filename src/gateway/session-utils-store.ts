@@ -67,7 +67,7 @@ export function resolveDeletedAgentIdFromSessionKey(
   cfg: OpenClawConfig,
   sessionKey: string,
   entry?: SessionEntry | null,
-  options?: { acpMetadataSessionKey?: string | null },
+  options?: { acpMetadataSessionKey?: string | null; acpMeta?: SessionEntry["acp"] | null },
 ): string | null {
   const parsed = parseAgentSessionKey(sessionKey);
   if (!parsed) {
@@ -81,12 +81,15 @@ export function resolveDeletedAgentIdFromSessionKey(
     // Free ACP runtime keys use agent:<harnessId>:acp:<uuid>, but key shape is
     // not proof: ACP bridge sessions can use ACP-shaped keys without SessionAcpMeta.
     // Configured acp:binding keys stay owner-scoped even when ACP metadata exists.
-    const acpMeta = readAcpMetaForDeletedAgentCheck({
-      cfg,
-      sessionKey,
-      entry,
-      acpMetadataSessionKey: options?.acpMetadataSessionKey,
-    });
+    const acpMeta =
+      options?.acpMeta !== undefined
+        ? options.acpMeta
+        : readAcpMetaForDeletedAgentCheck({
+            cfg,
+            sessionKey,
+            entry,
+            acpMetadataSessionKey: options?.acpMetadataSessionKey,
+          });
     if (acpMeta) {
       return null;
     }
@@ -346,7 +349,7 @@ function resolvedPermissionLabel(
     : undefined;
 }
 
-export function listAgentsForGateway(
+export async function listAgentsForGateway(
   cfg: OpenClawConfig,
   modelCatalog?: ModelCatalogEntry[],
   options?: {
@@ -354,15 +357,16 @@ export function listAgentsForGateway(
     includeSystem?: boolean;
     httpAvatarBasePath?: string;
   },
-): {
+): Promise<{
   defaultId: string;
   ownership: GatewayAgentOwnership;
   selectionRequired: boolean;
   mainKey: string;
   scope: SessionScope;
   agents: GatewayAgentRow[];
-} {
+}> {
   const basic = listGatewayAgentsBasic(cfg);
+  const provenanceRecords = await listAgentProvenance();
   const execApprovals = loadExecApprovals();
   const identityById = new Map<string, GatewayAgentRow["identity"]>();
   for (const entry of listAgentEntries(cfg)) {
@@ -395,7 +399,7 @@ export function listAgentsForGateway(
     ? basic.agents
     : basic.agents.filter((entry) => entry.kind !== "system");
   const provenanceById = new Map(
-    listAgentProvenance().map((record) => [record.agentId, record] as const),
+    provenanceRecords.map((record) => [record.agentId, record] as const),
   );
   const agents = roster.map((entry) => {
     const { id } = entry;

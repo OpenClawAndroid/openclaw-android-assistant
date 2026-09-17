@@ -1,5 +1,5 @@
 // OpenClaw test instance helper spawns isolated OpenClaw processes.
-import { type ChildProcess, type ChildProcessByStdio, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, type ChildProcessByStdio, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import net from "node:net";
@@ -13,8 +13,10 @@ import {
 } from "../../scripts/lib/local-build-metadata-paths.mts";
 import {
   hasUnjoinedWork,
+  finalizeManagedChild,
   inspectManagedProcessGroup,
   runManagedCommand,
+  loadManagedChildSpawner,
   terminateManagedChild,
 } from "../../scripts/lib/managed-child-process.mts";
 import { hasErrnoCode } from "../../src/infra/errno.js";
@@ -517,7 +519,10 @@ async function stopGatewayProcess(
           },
     );
 
-  if (hasGatewayProcessClosed(child, platform)) {
+  const signals = ["SIGTERM", "SIGKILL"] as const;
+  // Preserve an exited leader's inherited output before terminating its writers.
+  // Windows still finalizes the retained Job after drainage, including handle closure.
+  if (hasChildExited(child) && (await waitForClose(signals.length + 1)) && platform !== "win32") {
     return true;
   }
   if (platform === "win32") {
@@ -575,35 +580,24 @@ async function stopGatewayProcess(
       );
       return false;
     };
-    if (hasChildExited(child) && (await waitForClose(2))) {
-      return true;
-    }
     if (Date.now() >= deadline) {
       return failed("close-incomplete");
     }
     // Taskkill owns its bounded synchronous TERM/force sequence. Node cannot observe
     // exit or pipe closure until it returns, so charge the existing close allowance afterward.
     try {
-      const termination = terminateManagedChild(
-        child,
-        options.forceWindowsTree ? "SIGKILL" : "SIGTERM",
-        { platform, runTaskkill },
-      );
-      if (termination?.processTreeState !== "terminated") {
-        return failed("termination-indeterminate");
-      }
-      return (
-        (await waitForGatewayClose(child, stopTimeoutMs, platform)) || failed("close-incomplete")
-      );
+      await finalizeManagedChild(child, options.forceWindowsTree ? "SIGKILL" : "SIGTERM", {
+        platform,
+        runTaskkill,
+        forceKillDelayMs: 0,
+        drainTimeoutMs: stopTimeoutMs,
+        retainOutputOnFailure: true,
+      });
+      return true;
     } catch (error) {
-      return failed("exception", error);
+      failed("exception", error);
+      throw error;
     }
-  }
-  const signals = ["SIGTERM", "SIGKILL"] as const;
-  // An exited leader can leave inherited stdio open in descendants. Let it
-  // settle briefly, then terminate the owned tree before releasing the slot.
-  if (hasChildExited(child) && (await waitForClose(signals.length + 1))) {
-    return true;
   }
   for (const [index, signal] of signals.entries()) {
     if (hasGatewayProcessClosed(child, platform)) {
@@ -802,10 +796,14 @@ export async function createOpenClawTestInstance(
     return next.promise;
   };
   const stopTimeoutMs = options.stopTimeoutMs ?? GATEWAY_STOP_TIMEOUT_MS;
-  const spawnGatewayProcess = (args: string[], attemptStderr: string[]): OpenClawTestProcess => {
+  const spawnGatewayProcess = (
+    spawnManagedChild: Awaited<ReturnType<typeof loadManagedChildSpawner>>,
+    args: string[],
+    attemptStderr: string[],
+  ): OpenClawTestProcess => {
     const [command = "node", ...prefixArgs] = options.gatewayCommandPrefix ?? [];
     signal?.throwIfAborted();
-    const next = spawn(command, [...prefixArgs, ...args], {
+    const next = spawnManagedChild(command, [...prefixArgs, ...args], {
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -813,6 +811,9 @@ export async function createOpenClawTestInstance(
     });
     next.stdout.setEncoding("utf8");
     next.stderr.setEncoding("utf8");
+    next.once("error", (error) =>
+      appendLogChunk(stderr, `gateway child startup error: ${error.message}\n`),
+    );
     next.stdout.on("data", (chunk) => appendLogChunk(stdout, chunk));
     next.stderr.on("data", (chunk) => {
       appendLogChunk(stderr, chunk);
@@ -912,6 +913,7 @@ export async function createOpenClawTestInstance(
         }
         readiness.length = 0;
         const commandEntrypoint = await entrypoint();
+        const spawnManagedChild = await loadManagedChildSpawner();
         signal?.throwIfAborted();
         const gatewayArgs = [
           ...commandEntrypoint,
@@ -941,7 +943,7 @@ export async function createOpenClawTestInstance(
           signal?.throwIfAborted();
           let attempt: OpenClawTestProcess;
           try {
-            attempt = spawnGatewayProcess(gatewayArgs, attemptStderr);
+            attempt = spawnGatewayProcess(spawnManagedChild, gatewayArgs, attemptStderr);
           } catch (error) {
             await runQaGatewayFixture(async (): Promise<never> => {
               throw error;

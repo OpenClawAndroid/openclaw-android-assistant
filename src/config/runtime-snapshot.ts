@@ -2,6 +2,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { sha256Base64Url } from "../infra/crypto-digest.js";
 import { clearExecutablePathCache } from "../infra/executable-path.js";
+import { sessionChanges } from "../sessions/session-row-changes.js";
 import { isDeeplyFrozenPlainData } from "../shared/immutable-data.js";
 import {
   resetPublishedConfigRuntimeEnv,
@@ -226,6 +227,7 @@ function publishRuntimeConfigSnapshot(config: OpenClawConfig, sourceConfig?: Ope
   runtimeConfigSnapshot = config;
   runtimeConfigSourceSnapshot = sourceConfig ?? null;
   runtimeConfigSnapshotMetadata = createRuntimeConfigSnapshotMetadata(config, sourceConfig);
+  sessionChanges.emit({ all: true, scope: "config" });
 }
 
 export function registerRuntimeConfigSnapshotPreparer(

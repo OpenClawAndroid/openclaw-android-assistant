@@ -207,7 +207,7 @@ async function prepareCliAuthFixture(
       CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: undefined,
       OPENCLAW_TEST_MINIMAL_GATEWAY: undefined,
       OPENCLAW_DISABLE_BUNDLED_PLUGINS: undefined,
-      OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(process.cwd(), "extensions"),
+      OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(process.cwd(), "dist/extensions"),
       OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: "1",
       OPENCLAW_SKIP_CHANNELS: "1",
       OPENCLAW_SKIP_GMAIL_WATCHER: "1",

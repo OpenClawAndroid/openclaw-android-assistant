@@ -1,16 +1,12 @@
 // Session-list title reads: bounded transcript probes plus a watermark-validated
 // cache so list rendering never rescans transcripts that have not changed.
-import { expectDefined } from "@openclaw/normalization-core";
 import {
   isSessionTranscriptProjectionUnavailableError,
   readSessionTranscriptMessageEventPage,
-  readSessionTranscriptTitleProbeBatch,
   readSessionTranscriptWatermark,
-  readSessionTranscriptWatermarkBatch,
   type SessionTranscriptMessageEvent,
   type SessionTranscriptReadScope,
   type SessionTranscriptReadTarget,
-  type SessionTranscriptTitleProbe,
 } from "../config/sessions/session-accessor.js";
 import { resolveSessionTranscriptReadTarget } from "../config/sessions/session-accessor.transcript-target.js";
 import { SessionTranscriptColdError } from "../config/sessions/session-cold-storage-state.js";
@@ -29,14 +25,6 @@ const EMPTY_SESSION_TITLE_FIELDS: SessionTitleFields = {
   firstUserMessage: null,
   lastMessagePreview: null,
 };
-// Degraded nulls advance the sessions.list cache fence so the completed result cannot
-// outlive the projection rebuild or cold restoration that makes title fields available again.
-let sessionTitleProjectionUnavailableVersion = 0;
-
-export function readSessionTitleProjectionUnavailableVersion(): number {
-  return sessionTitleProjectionUnavailableVersion;
-}
-
 // Session-list title probes must not scale with transcript size. Read at most
 // this many active-path messages from either end, widening only once.
 const SQLITE_TITLE_PROBE_INITIAL_MESSAGES = 20;
@@ -49,7 +37,7 @@ type SqliteTitleFieldCacheEntry = ReturnType<typeof readSessionTranscriptWaterma
 
 // Appends advance maxSeq while rewind, fork, and compaction rotate generation. Both tokens must
 // match or stale titles can survive transcript replacement. Actively streaming sessions therefore
-// miss by design; the store-batched probe bounds that load while this LRU still serves idle rows.
+// miss by design; bounded probes limit that load while this LRU still serves idle rows.
 const sqliteTitleFieldCache = new Map<string, SqliteTitleFieldCacheEntry>();
 
 function sqliteTitleFieldCacheKey(target: SessionTranscriptReadTarget): string {
@@ -118,12 +106,14 @@ function copySessionTitleText(text: string | null): string | null {
 function hydrateSqliteTitleFields(
   target: SessionTranscriptReadTarget,
   opts?: { includeInterSession?: boolean },
-  probe?: SessionTranscriptTitleProbe,
 ): SessionTitleFields {
   try {
     const scope = toTranscriptReadScope(target);
     const cacheKey = sqliteTitleFieldCacheKey(target);
-    const watermark = probe ?? readSessionTranscriptWatermark(scope);
+    const watermark = readSessionTranscriptWatermark(scope);
+    if (watermark.maxSeq === null) {
+      return { ...EMPTY_SESSION_TITLE_FIELDS };
+    }
     const variant = opts?.includeInterSession === true ? "includeInterSession" : "default";
     const cached = sqliteTitleFieldCache.get(cacheKey);
     const current =
@@ -133,14 +123,10 @@ function hydrateSqliteTitleFields(
       setSqliteTitleFieldCache(cacheKey, cached);
       return { ...cachedFields };
     }
-    // Reset windows and rebuilding projections cannot use the batched probe. The canonical
-    // page reader preserves reset visibility and schedules reconciliation when needed.
-    const tail = probe
-      ? { events: probe.tail, totalMessages: probe.totalMessages }
-      : readSessionTranscriptMessageEventPage(scope, {
-          maxMessages: SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
-          offset: 0,
-        });
+    const tail = readSessionTranscriptMessageEventPage(scope, {
+      maxMessages: SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
+      offset: 0,
+    });
     let lastText = findLastMessageText(tail.events);
     if (!lastText && tail.totalMessages > SQLITE_TITLE_PROBE_INITIAL_MESSAGES) {
       lastText = findLastMessageText(
@@ -153,15 +139,14 @@ function hydrateSqliteTitleFields(
       );
     }
     const head =
-      probe?.head ??
-      (tail.totalMessages <= SQLITE_TITLE_PROBE_INITIAL_MESSAGES
+      tail.totalMessages <= SQLITE_TITLE_PROBE_INITIAL_MESSAGES
         ? tail.events
         : readSqliteTitleProbeRange(
             scope,
             tail.totalMessages,
             0,
             SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
-          ));
+          );
     let firstText = findFirstTitleUserText(head, opts?.includeInterSession === true);
     if (!firstText && tail.totalMessages > SQLITE_TITLE_PROBE_INITIAL_MESSAGES) {
       firstText = findFirstTitleUserText(
@@ -196,68 +181,10 @@ function hydrateSqliteTitleFields(
     }
     // Optional titles must not restore cold payloads. Do not cache nulls under the preserved
     // watermark: restoration and projection reconciliation can make these fields available again.
-    sessionTitleProjectionUnavailableVersion += 1;
     return { ...EMPTY_SESSION_TITLE_FIELDS };
   }
 }
 
-/** Batch-hydrates titles while isolating a rebuilding projection to its session. */
-export function readSessionTitleFieldsFromTranscriptBatch(
-  scopes: readonly SessionTranscriptReadScope[],
-  opts?: { includeInterSession?: boolean },
-): SessionTitleFields[] {
-  try {
-    const variant = opts?.includeInterSession === true ? "includeInterSession" : "default";
-    const reads = scopes.map((scope) => {
-      const target = resolveSessionTranscriptReadTarget(scope);
-      const cacheKey = sqliteTitleFieldCacheKey(target);
-      const cached = sqliteTitleFieldCache.get(cacheKey);
-      return { target, cacheKey, cached, fields: cached?.fields[variant] };
-    });
-    const cachedReads = reads.filter((read) => read.fields);
-    const watermarks = readSessionTranscriptWatermarkBatch(
-      cachedReads.map((read) => toTranscriptReadScope(read.target)),
-    );
-    for (const [index, read] of cachedReads.entries()) {
-      const watermark = watermarks[index];
-      if (
-        watermark &&
-        read.cached &&
-        read.fields &&
-        read.cached.generation === watermark.generation &&
-        read.cached.maxSeq === watermark.maxSeq
-      ) {
-        setSqliteTitleFieldCache(read.cacheKey, read.cached);
-        read.fields = { ...read.fields };
-      } else {
-        read.fields = undefined;
-      }
-    }
-    const misses = reads.filter((read) => !read.fields);
-    const probes =
-      misses.length > 0
-        ? readSessionTranscriptTitleProbeBatch(
-            misses.map((read) => toTranscriptReadScope(read.target)),
-          )
-        : [];
-    for (const [index, read] of misses.entries()) {
-      read.fields = hydrateSqliteTitleFields(read.target, opts, probes[index]);
-    }
-    return reads.map((read) =>
-      expectDefined(read.fields, `title fields for session ${read.target.sessionId}`),
-    );
-  } catch (error) {
-    if (!isSessionTranscriptProjectionUnavailableError(error)) {
-      throw error;
-    }
-    return scopes.map((scope) =>
-      hydrateSqliteTitleFields(resolveSessionTranscriptReadTarget(scope), opts),
-    );
-  }
-}
-
-// Scalar callers retain page admission: older same-version writers can leave unclassified
-// projections that the batch accessor does not reject. Both entries share hydration and caching.
 /** Reads title and preview text from one transcript. */
 export function readSessionTitleFieldsFromTranscript(
   scope: SessionTranscriptReadScope,

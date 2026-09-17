@@ -1,5 +1,6 @@
 import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionChanges } from "../sessions/session-row-changes.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import {
   createConfigResolutionFacts,
@@ -40,6 +41,8 @@ describe("prepared runtime snapshots", () => {
   });
 
   it("publishes a cold config only after its contributions and legacy callbacks are ready", async () => {
+    const changes = vi.fn(() => getRuntimeConfigSnapshot());
+    unregister.push(sessionChanges.subscribe(changes));
     const candidate: OpenClawConfig = { gateway: { port: 19001 } };
     const facts = createConfigResolutionFacts([]);
     setConfigResolutionFacts(candidate, facts);
@@ -74,6 +77,8 @@ describe("prepared runtime snapshots", () => {
     expect(syncPrepare).not.toHaveBeenCalled();
     expect(legacyPrepare).toHaveBeenCalledExactlyOnceWith(candidate);
     expect(contribute).toHaveBeenCalledOnce();
+    expect(changes).toHaveBeenCalledExactlyOnceWith({ all: true, scope: "config" });
+    expect(changes).toHaveReturnedWith(candidate);
   });
 
   it.each([

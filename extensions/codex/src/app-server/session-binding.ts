@@ -16,15 +16,23 @@ import {
   normalizeCodexAppServerBindingModelProvider,
   type CodexAppServerAuthProfileLookup,
 } from "./auth-profile.js";
-import { CODEX_PLUGIN_MARKETPLACE_NAME_PATTERN } from "./config-contracts.js";
 import type { CodexManagedThreadStore } from "./managed-thread-store.js";
-import type { PluginAppPolicyContext } from "./plugin-thread-config.js";
+import type { CodexNativeSubagentHistoryOwner } from "./native-subagent-history-owner.js";
+import {
+  adoptCodexNativeSubagentSubmissions,
+  mutateCodexNativeSubagentSubmissions,
+  type CodexNativeSubagentSubmission,
+} from "./native-subagent-submission.js";
 import {
   bindingStoreKey,
+  matchesCodexNativeSubagentSubmissionBinding,
   ownsStoredSessionGeneration,
+  preserveCodexNativeSubagentSubmissions,
   readCodexAppServerThreadBinding,
   readCodexBindingTimestamp,
   readCurrentCodexAppServerBinding,
+  readCurrentCodexNativeSubagentSubmissions,
+  readPluginAppPolicyContext,
   readStoredCodexAppServerBinding,
   stripUndefinedBinding,
   validateBindingForWrite,
@@ -162,6 +170,16 @@ export function createCodexSessionGenerationSupersededError(
 }
 
 type CodexAppServerBindingMutation =
+  | {
+      kind: "record-native-subagent-submission";
+      owner: CodexNativeSubagentHistoryOwner;
+      receipt: CodexNativeSubagentSubmission;
+    }
+  | {
+      kind: "consume-native-subagent-submission";
+      owner: CodexNativeSubagentHistoryOwner;
+      receipt: CodexNativeSubagentSubmission;
+    }
   | {
       kind: "set";
       binding: CodexAppServerThreadBinding;
@@ -324,6 +342,10 @@ export type CodexAppServerBindingStore = {
   /** Durable ownership rows kept separate from replaceable session bindings. */
   managedThreads?: CodexManagedThreadStore;
   read(identity: CodexAppServerBindingIdentity): CodexAppServerThreadBinding | undefined;
+  readNativeSubagentSubmissions(
+    identity: CodexAppServerBindingIdentity,
+    owner: CodexNativeSubagentHistoryOwner,
+  ): readonly CodexNativeSubagentSubmission[];
   hasOtherThreadOwner(
     threadId: string,
     currentIdentity?: CodexAppServerBindingIdentity,
@@ -375,16 +397,39 @@ export function scopeCodexRunBindingStore(params: {
       : identity;
   const mapIdentity = (identity: CodexAppServerBindingIdentity) =>
     identity.kind === "session" ? mapSessionIdentity(identity) : identity;
+  const mapHistoryOwner = (
+    identity: CodexAppServerBindingIdentity,
+    owner: CodexNativeSubagentHistoryOwner,
+  ): CodexNativeSubagentHistoryOwner => {
+    const mapped = mapIdentity(identity);
+    return identity.kind === "session" &&
+      mapped.kind === "session" &&
+      owner.sessionId === identity.sessionId
+      ? { ...owner, sessionId: mapped.sessionId }
+      : owner;
+  };
   return {
     ...params.bindingStore,
     read: (identity) => params.bindingStore.read(mapIdentity(identity)),
+    readNativeSubagentSubmissions: (identity, owner) =>
+      params.bindingStore.readNativeSubagentSubmissions(
+        mapIdentity(identity),
+        mapHistoryOwner(identity, owner),
+      ),
     hasOtherThreadOwner: (threadId, identity) =>
       params.bindingStore.hasOtherThreadOwner(
         threadId,
         identity ? mapIdentity(identity) : undefined,
       ),
     mutate: (identity, mutation, assertCurrent) =>
-      params.bindingStore.mutate(mapIdentity(identity), mutation, assertCurrent),
+      params.bindingStore.mutate(
+        mapIdentity(identity),
+        mutation.kind === "record-native-subagent-submission" ||
+          mutation.kind === "consume-native-subagent-submission"
+          ? { ...mutation, owner: mapHistoryOwner(identity, mutation.owner) }
+          : mutation,
+        assertCurrent,
+      ),
     prepareSessionGenerationReclaim: (identity) =>
       params.bindingStore.prepareSessionGenerationReclaim(mapSessionIdentity(identity)),
     adoptSessionGeneration: (identity, expectedPreviousSessionId, assertCurrent) =>
@@ -826,6 +871,8 @@ export function createCodexAppServerBindingStore(
 
   return {
     read: (identity) => readCurrentCodexAppServerBinding(state, identity),
+    readNativeSubagentSubmissions: (identity, owner) =>
+      readCurrentCodexNativeSubagentSubmissions(state, identity, owner),
 
     async hasOtherThreadOwner(threadId, currentIdentity) {
       const currentKey = currentIdentity ? bindingStoreKey(currentIdentity) : undefined;
@@ -881,6 +928,42 @@ export function createCodexAppServerBindingStore(
         return await transactKey(
           key,
           (current, leaseToken) => {
+            if (
+              mutation.kind === "record-native-subagent-submission" ||
+              mutation.kind === "consume-native-subagent-submission"
+            ) {
+              if (!assertCurrent) {
+                throw new Error(
+                  "Codex native subagent submission mutation requires current authority.",
+                );
+              }
+              assertCurrent();
+              if (
+                current?.state !== "active" ||
+                !ownsStoredSessionGeneration(identity, current) ||
+                (identity.kind === "session" && mutation.owner.sessionId !== identity.sessionId) ||
+                !matchesCodexNativeSubagentSubmissionBinding(current.binding, mutation.owner)
+              ) {
+                return { result: false };
+              }
+              const changed = mutateCodexNativeSubagentSubmissions({
+                current: current.nativeSubagentSubmissions,
+                owner: mutation.owner,
+                receipt: mutation.receipt,
+                consume: mutation.kind === "consume-native-subagent-submission",
+              });
+              if (!changed.applied) {
+                return { result: false };
+              }
+              const { nativeSubagentSubmissions: _previous, ...bindingOwner } = current;
+              return {
+                result: true,
+                next: {
+                  ...bindingOwner,
+                  ...(changed.next ? { nativeSubagentSubmissions: changed.next } : {}),
+                },
+              };
+            }
             const ownsGeneration = ownsStoredSessionGeneration(identity, current);
             const ownedLease =
               current?.lease && current.lease.token === leaseToken ? { lease: current.lease } : {};
@@ -1003,12 +1086,20 @@ export function createCodexAppServerBindingStore(
                 threadId: mutation.threadId,
               });
             }
+            const nativeSubagentSubmissions = active
+              ? preserveCodexNativeSubagentSubmissions(
+                  active.binding,
+                  binding,
+                  active.nativeSubagentSubmissions,
+                )
+              : undefined;
             return {
               result: true,
               next: {
                 version: 1,
                 state: "active",
                 binding,
+                ...(nativeSubagentSubmissions !== undefined ? { nativeSubagentSubmissions } : {}),
                 ...storedSessionGeneration(identity, current),
                 ...ownedLease,
               },
@@ -1048,9 +1139,18 @@ export function createCodexAppServerBindingStore(
             if (current.sessionId !== expectedSessionId) {
               return { result: "conflict" as const };
             }
+            const { nativeSubagentSubmissions, ...bindingOwner } = current;
+            const adoptedSubmissions =
+              adoptCodexNativeSubagentSubmissions(nativeSubagentSubmissions);
             return {
               result: "adopted" as const,
-              next: { ...current, sessionId: targetSessionId },
+              next: {
+                ...bindingOwner,
+                sessionId: targetSessionId,
+                ...(adoptedSubmissions !== undefined
+                  ? { nativeSubagentSubmissions: adoptedSubmissions }
+                  : {}),
+              },
             };
           },
           undefined,
@@ -1229,126 +1329,6 @@ function preservedSessionGeneration(
     return { sessionId: current.sessionId };
   }
   return storedSessionGeneration(identity, current);
-}
-
-function readPluginAppPolicyContext(
-  value: unknown,
-  bindingSchemaVersion: 1 | 2,
-): PluginAppPolicyContext | undefined {
-  const record = asOptionalRecord(value);
-  if (!record || typeof record.fingerprint !== "string") {
-    return undefined;
-  }
-  const apps = asOptionalRecord(record.apps);
-  if (!apps) {
-    return undefined;
-  }
-  const parsedApps: PluginAppPolicyContext["apps"] = {};
-  for (const [appId, rawEntry] of Object.entries(apps)) {
-    const entry = asOptionalRecord(rawEntry);
-    if (!entry) {
-      return undefined;
-    }
-    const destructiveApprovalMode = readDestructiveApprovalMode(
-      entry.destructiveApprovalMode,
-      bindingSchemaVersion,
-    );
-    const mcpServerNamesValid =
-      Array.isArray(entry.mcpServerNames) &&
-      entry.mcpServerNames.every((serverName) => typeof serverName === "string");
-    if (entry.source === "account") {
-      if (
-        "appId" in entry ||
-        typeof entry.appName !== "string" ||
-        typeof entry.allowDestructiveActions !== "boolean" ||
-        (entry.allowOpenWorld !== undefined && typeof entry.allowOpenWorld !== "boolean") ||
-        destructiveApprovalMode === "invalid" ||
-        !mcpServerNamesValid
-      ) {
-        return undefined;
-      }
-      parsedApps[appId] = {
-        source: "account",
-        appName: entry.appName,
-        allowDestructiveActions: entry.allowDestructiveActions,
-        ...(typeof entry.allowOpenWorld === "boolean"
-          ? { allowOpenWorld: entry.allowOpenWorld }
-          : {}),
-        ...(destructiveApprovalMode ? { destructiveApprovalMode } : {}),
-        mcpServerNames: entry.mcpServerNames as string[],
-      };
-      continue;
-    }
-    if (
-      "appId" in entry ||
-      (entry.source !== undefined && entry.source !== "plugin") ||
-      typeof entry.configKey !== "string" ||
-      typeof entry.marketplaceName !== "string" ||
-      !CODEX_PLUGIN_MARKETPLACE_NAME_PATTERN.test(entry.marketplaceName) ||
-      typeof entry.pluginName !== "string" ||
-      typeof entry.allowDestructiveActions !== "boolean" ||
-      (entry.allowOpenWorld !== undefined && typeof entry.allowOpenWorld !== "boolean") ||
-      destructiveApprovalMode === "invalid" ||
-      !mcpServerNamesValid
-    ) {
-      return undefined;
-    }
-    parsedApps[appId] = {
-      configKey: entry.configKey,
-      marketplaceName: entry.marketplaceName,
-      pluginName: entry.pluginName,
-      allowDestructiveActions: entry.allowDestructiveActions,
-      ...(typeof entry.allowOpenWorld === "boolean"
-        ? { allowOpenWorld: entry.allowOpenWorld }
-        : {}),
-      ...(destructiveApprovalMode ? { destructiveApprovalMode } : {}),
-      mcpServerNames: entry.mcpServerNames as string[],
-    };
-  }
-  const parsedPluginAppIds: PluginAppPolicyContext["pluginAppIds"] = {};
-  if (
-    record.pluginAppIds !== undefined &&
-    (!record.pluginAppIds ||
-      typeof record.pluginAppIds !== "object" ||
-      Array.isArray(record.pluginAppIds))
-  ) {
-    return undefined;
-  }
-  if (record.pluginAppIds && typeof record.pluginAppIds === "object") {
-    for (const [configKey, appIds] of Object.entries(record.pluginAppIds)) {
-      if (!Array.isArray(appIds) || appIds.some((appId) => typeof appId !== "string")) {
-        return undefined;
-      }
-      parsedPluginAppIds[configKey] = appIds;
-    }
-  }
-  return {
-    fingerprint: record.fingerprint,
-    apps: parsedApps,
-    pluginAppIds: parsedPluginAppIds,
-  };
-}
-
-function readDestructiveApprovalMode(
-  value: unknown,
-  bindingSchemaVersion: 1 | 2,
-): PluginAppPolicyContext["apps"][string]["destructiveApprovalMode"] | undefined | "invalid" {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (value === "allow" || value === "deny") {
-    return value;
-  }
-  if (value === "auto") {
-    return bindingSchemaVersion === 1 ? "allow" : "auto";
-  }
-  if (value === "ask" && bindingSchemaVersion === 2) {
-    return "ask";
-  }
-  if (value === "on-request" && bindingSchemaVersion === 1) {
-    return "auto";
-  }
-  return "invalid";
 }
 
 function sleep(ms: number): Promise<void> {

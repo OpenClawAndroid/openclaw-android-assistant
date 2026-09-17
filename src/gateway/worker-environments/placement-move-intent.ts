@@ -9,6 +9,7 @@ import {
   getNodeSqliteKysely,
 } from "../../infra/kysely-sync.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { ensureColumn, tableExists } from "../../state/openclaw-state-db-schema-helpers.js";
 import type {
   DB as StateDatabase,
@@ -330,6 +331,7 @@ function deleteExactMove(db: DatabaseSync, intent: WorkerPlacementMoveIntent): v
   if (result.numAffectedRows !== 1n) {
     throw new Error(`Session ${intent.sessionId} placement move changed before completion`);
   }
+  sessionChanges.emit({ all: true, scope: "worker-placements" }, db);
 }
 
 function requireExactAttachedEnvironment(
@@ -511,6 +513,7 @@ export function createPlacementMoveOps(runtime: PlacementStoreRuntime) {
           .updateTable("worker_session_placement_moves")
           .set({ last_error: boundedWorkerError(input.error), updated_at_ms: now() })
           .where((eb) => eb.and(exactMoveValues(intent)));
+        sessionChanges.emit({ all: true, scope: "worker-placements" }, db);
         return executeSqliteQuerySync(db, statement).numAffectedRows === 1n;
       });
     },

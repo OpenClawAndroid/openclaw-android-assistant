@@ -16,10 +16,11 @@ type CapturedRevocation = {
   owner: RevocationOwner;
   state: RevocationState;
   isCurrent: CurrentCaller;
+  isRevocationCurrent: CurrentCaller;
 };
 
 const owners = new WeakMap<object, RevocationOwner>();
-const captures = new WeakMap<CurrentCaller, CapturedRevocation>();
+const captures = new WeakMap<() => unknown, CapturedRevocation>();
 
 function getOwner(context: object): RevocationOwner {
   let owner = owners.get(context);
@@ -73,21 +74,40 @@ export function captureGatewayDeviceRevocation(
   }
   // A live connection remains in the Gateway's ordinary invalidation index.
   // After disconnect, only an owned request or continuation may use this capture.
-  const isCurrent = () =>
+  const isRevocationCurrent = () =>
     !owner.closed &&
     !state.revoked &&
-    (state.references > 0 || connectionSignal?.aborted === false) &&
-    hasCurrentClientAuthority();
-  const capture = { owner, state, isCurrent };
+    (state.references > 0 || connectionSignal?.aborted === false);
+  const isCurrent = () => isRevocationCurrent() && hasCurrentClientAuthority();
+  const capture = { owner, state, isCurrent, isRevocationCurrent };
   captures.set(isCurrent, capture);
   return { isCurrent, release: releaseHold(capture) };
 }
 
+/** Carry the original capture through a composed commit guard without changing its contract. */
+export function bindGatewayDeviceRevocation<T extends () => unknown>(
+  guard: T,
+  isCurrent: CurrentCaller | undefined,
+): T {
+  const capture = isCurrent ? captures.get(isCurrent) : undefined;
+  if (capture) {
+    captures.set(guard, capture);
+  }
+  return guard;
+}
+
+/** Read only owner-held revocation/lifetime facts, without invoking the caller authority callback. */
+export function readGatewayDeviceRevocationGuard(
+  guard: (() => unknown) | undefined,
+): CurrentCaller | undefined {
+  return guard ? captures.get(guard)?.isRevocationCurrent : undefined;
+}
+
 /** Transfer a hold on the original captured state, never recapture a later device/session. */
 export function retainGatewayDeviceRevocation(
-  isCurrent: CurrentCaller | undefined,
+  guard: (() => unknown) | undefined,
 ): (() => void) | undefined {
-  const capture = isCurrent ? captures.get(isCurrent) : undefined;
+  const capture = guard ? captures.get(guard) : undefined;
   if (!capture) {
     return undefined;
   }

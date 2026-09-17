@@ -79,7 +79,8 @@ export function registerPluginServiceRecoveryTests(createRecoveryFixture: Recove
         ).toBe(sibling);
         expect(fixture.siblingStart).toHaveBeenCalledOnce();
         expect(fixture.siblingStop).not.toHaveBeenCalled();
-        await expect(manager.startChannel("first")).rejects.toThrow("plugins are reloading");
+        expect(manager.getRuntimeSnapshot().reloadingChannels?.size).toBe(0);
+        await expect(manager.startChannel("first")).rejects.toThrow("reloaded or disabled");
         expect(starts.first).toHaveBeenCalledOnce();
         expect(fixture.candidates).toHaveLength(0);
       } finally {

@@ -2,10 +2,14 @@
 import path from "node:path";
 import { vi } from "vitest";
 import type { UpdateCommandOptions } from "../cli/update-cli/shared.js";
+import { updateExecutorNativeEntrypoints } from "../cli/update-cli/update-command-executor-native-runtime.test-support.js";
 import {
   captureUpdateCommandExecutorAuthority,
   withUpdateCommandExecutorChild,
 } from "../cli/update-cli/update-command-executor.js";
+import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
+
+const executorUrl = resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.executor);
 
 export async function runDoctorUpdateChild(
   run: NonNullable<UpdateCommandOptions["run"]>,
@@ -22,7 +26,7 @@ export async function runDoctorUpdateChild(
   const script = `
     import fs from "node:fs";
     import {setTimeout} from "node:timers/promises";
-    import {withDelegatedUpdateCommandExecutor} from ${JSON.stringify(new URL("../cli/update-cli/update-command-executor.ts", import.meta.url).href)};
+    import {withDelegatedUpdateCommandExecutor} from ${JSON.stringify(executorUrl.href)};
     const {grant,payload}=JSON.parse(fs.readFileSync(0,"utf8"));
     await withDelegatedUpdateCommandExecutor(grant,grant.runId,grant.root,async fence=>{${body}});
   `;
@@ -33,8 +37,9 @@ export async function runDoctorUpdateChild(
       const result = await runUtf8CommandWithTimeout(
         [
           process.execPath,
-          "--import",
-          path.resolve("scripts/tsx.mjs"),
+          ...(executorUrl.pathname.endsWith(".ts")
+            ? ["--import", path.resolve("scripts/tsx.mjs")]
+            : []),
           "--input-type=module",
           "-e",
           script,

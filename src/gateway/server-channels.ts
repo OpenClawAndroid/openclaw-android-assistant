@@ -80,6 +80,7 @@ import type {
   ChannelRuntimeSnapshotOptions,
   StartChannelOptions,
 } from "./server-channel-runtime.types.js";
+import { pauseChannelStarts, type ChannelStartFence } from "./server-channel-start-fence.js";
 
 const RESTART_POLICY: BackoffPolicy = {
   initialMs: 5_000,
@@ -112,17 +113,7 @@ type ChannelAccountLifetime = {
 };
 
 type ChannelRuntimeStore = {
-  startFence?: {
-    paused: boolean;
-    snapshot?: {
-      listedAccountIds: ReadonlySet<string>;
-      read: () => {
-        accounts: Record<string, ChannelAccountSnapshot>;
-        defaultAccountId: string;
-        defaultAccount: ChannelAccountSnapshot;
-      };
-    };
-  };
+  startFence?: ChannelStartFence;
   lifetimes: Map<string, ChannelAccountLifetime>;
   routeHandoffs: Map<
     string,
@@ -268,7 +259,7 @@ export type ChannelManager = {
   getRuntimeSnapshot: (options?: ChannelRuntimeSnapshotOptions) => ChannelRuntimeSnapshot;
   pauseChannelStarts: (
     channelIds: Iterable<ChannelId>,
-  ) => (outcome: "published" | "rollback", channelIds?: ReadonlySet<ChannelId>) => void;
+  ) => (outcome: "published" | "rollback" | "failed", channelIds?: ReadonlySet<ChannelId>) => void;
   startChannels: () => Promise<void>;
   startChannel: (
     channel: ChannelId,
@@ -569,7 +560,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     // Unchanged instances keep pending starts across registry publication.
     const assertStartCurrent = () => {
       if (
-        startFence?.paused ||
+        startFence?.state === "paused" ||
         store.startFence !== startFence ||
         getLoadedChannelPluginEntryById(channelId, getPluginRegistry())?.plugin !==
           registration?.plugin
@@ -1667,9 +1658,11 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
       }
       const fence = getStore(plugin.id).startFence;
       const snapshot = (
-        fence?.paused ? fence.snapshot : captureChannelSnapshot(plugin, inspectAccounts)
+        fence && fence.state !== "published"
+          ? fence.snapshot
+          : captureChannelSnapshot(plugin, inspectAccounts)
       )?.read();
-      if (fence?.paused) {
+      if (fence?.state === "paused") {
         reloadingChannels.set(plugin.id, snapshot?.defaultAccountId);
       }
       if (snapshot) {
@@ -1694,42 +1687,11 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
 
   return {
     getRuntimeSnapshot,
-    pauseChannelStarts: (channelIds) => {
-      const reservations = [...new Set(channelIds)].map((channelId) => {
-        const store = getStore(channelId);
-        const previous = store.startFence;
+    pauseChannelStarts: (channelIds) =>
+      pauseChannelStarts(channelIds, getStore, (channelId) => {
         const plugin = getChannelPlugin(channelId);
-        const fence = {
-          paused: true,
-          snapshot: previous?.paused
-            ? previous.snapshot
-            : plugin
-              ? captureChannelSnapshot(plugin)
-              : undefined,
-        };
-        return { channelId, store, previous, fence };
-      });
-      // Capture every target before pausing any of them; a failed capture must not strand a sibling.
-      for (const { store, fence } of reservations) {
-        store.startFence = fence;
-      }
-      return (outcome, selected) => {
-        for (const { channelId, store, previous, fence } of reservations) {
-          if (selected && !selected.has(channelId)) {
-            continue;
-          }
-          if (store.startFence === fence && fence.paused) {
-            // Publication keeps the token so delayed predecessor preparation stays stale.
-            // A cancelled retry restores an earlier failed replacement's pause.
-            if (outcome === "published") {
-              fence.paused = false;
-            } else {
-              store.startFence = previous;
-            }
-          }
-        }
-      };
-    },
+        return plugin ? captureChannelSnapshot(plugin) : undefined;
+      }),
     startChannels,
     startChannel: startChannelInternal,
     stopChannel,
@@ -1763,8 +1725,8 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
     },
     isAccountListed: (channelId, accountId) => {
       const fence = channelStores.get(channelId)?.startFence;
-      // Health and thaw read captured configuration while plugin callbacks are paused.
-      return fence?.paused
+      // Failed reloads retain diagnostic facts without calling unavailable plugin code.
+      return fence && fence.state !== "published"
         ? (fence.snapshot?.listedAccountIds.has(accountId) ?? false)
         : withRegistry(
             (registry) =>

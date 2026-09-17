@@ -263,7 +263,7 @@ export async function startCodexAttemptTurn(
           });
         }
       }
-      releaseCurrentRoute();
+      await releaseCurrentRoute();
       activateNativePreToolUseFailureFallback();
       const relay = resourceState.nativeHookRelay;
       relay?.unregister();

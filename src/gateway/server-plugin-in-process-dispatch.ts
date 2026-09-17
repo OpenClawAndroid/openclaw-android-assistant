@@ -106,6 +106,7 @@ type DispatchGatewayMethodInProcessOptions = {
   nodeInvokeStream?: GatewayNodeInvokeStream;
   nodeInvokeApprovalSessionKey?: string;
   onAccepted?: (payload: unknown) => void;
+  onExecution?: (execution: Promise<void>) => void;
   onExecutionStarted?: () => void;
   onSignalAbort?: () => Promise<void> | void;
   operatorRoleActor?: GatewayOperatorRoleActor;
@@ -415,6 +416,7 @@ export async function dispatchGatewayMethodInProcessRaw(
       isWebchatConnect: resolved.isWebchatConnect,
       methodRegistry: resolved.context.getGatewayMethodRegistry?.(),
       onAccepted: options?.onAccepted,
+      onExecution: options?.onExecution,
       onSignalAbort: options?.onSignalAbort,
       requestIdPrefix: "plugin-subagent",
       sessionMutationCommitGuard: () => {
