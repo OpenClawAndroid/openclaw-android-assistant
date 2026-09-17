@@ -153,6 +153,8 @@ export function executeTaskRegistryCommand(
         return readTaskRegistryMutationSnapshotInDatabase(db, command.input);
       case "tasks.get":
         return readTaskViewRecordInDatabase(db, command.input.taskId);
+      case "tasks.findByRunId":
+        return findTaskRecordByRunIdForViewInDatabase(db, command.input.runId);
       case "tasks.list":
         return listTaskRecordsForOwnerReadInDatabase(db, command.input.ownerKey);
       case "tasks.resolve": {

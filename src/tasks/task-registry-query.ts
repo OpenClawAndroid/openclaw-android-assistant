@@ -2,11 +2,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import {
-  readTaskBackingInstance,
-  sameTaskBackingInstance,
-  selectLatestCanonicalTaskBacking,
-} from "./task-backing-records.js";
+import { filterCurrentTaskRunBackings } from "./task-backing-records.js";
 import { getTaskMirroredFlowIds } from "./task-flow-runtime-internal.js";
 import { clearTaskActivity } from "./task-registry-activity.js";
 import { isActiveTaskStatus } from "./task-registry-common.js";
@@ -335,55 +331,17 @@ export function getTaskById(taskId: string): TaskRecord | undefined {
 export function findTaskByRunId(runId: string): TaskRecord | undefined {
   ensureTaskRegistryReady();
   const matches = getTasksByRunId(runId);
-  const acpScopes = new Map<
-    string,
-    { childSessionKey: string; scopeKind: TaskRecord["scopeKind"]; candidates: TaskRecord[] }
-  >();
-  for (const task of matches) {
-    const childSessionKey = normalizeOptionalString(task.childSessionKey);
-    if (task.runtime !== "acp" || !childSessionKey) {
-      continue;
-    }
-    const scope = JSON.stringify([
-      task.scopeKind,
-      resolveTaskSessionAgentId(task.childSessionKey, task.agentId),
-      childSessionKey,
-    ]);
-    const group = acpScopes.get(scope);
-    if (group) {
-      group.candidates.push(task);
-    } else {
-      acpScopes.set(scope, { childSessionKey, scopeKind: task.scopeKind, candidates: [task] });
-    }
-  }
-  const superseded = new Set<string>();
   let mirroredFlowIds: ReadonlySet<string> | undefined;
-  for (const { childSessionKey, scopeKind, candidates } of acpScopes.values()) {
-    const current = selectLatestCanonicalTaskBacking({
-      runtime: "acp",
-      scopeKind,
-      childSessionKey,
-      candidates,
-      isTaskMirroredFlow: (flowId) => {
-        // Admit flows only when a candidate needs them, once for this synchronous lookup.
-        mirroredFlowIds ??= getTaskMirroredFlowIds(
-          matches.flatMap((task) => (task.parentFlowId ? [task.parentFlowId.trim()] : [])),
-        );
-        return mirroredFlowIds.has(flowId);
-      },
-    });
-    if (!current) {
-      continue;
-    }
-    for (const candidate of candidates) {
-      const backing = readTaskBackingInstance(candidate.detail);
-      if (!backing || !sameTaskBackingInstance(backing, current.instance)) {
-        superseded.add(candidate.taskId);
-      }
-    }
-  }
   const task = pickPreferredRunIdTask(
-    matches.filter((candidate) => !superseded.has(candidate.taskId)),
+    filterCurrentTaskRunBackings(matches, (flowId) => {
+      // Admit flows only when a candidate needs them, once for this synchronous lookup.
+      mirroredFlowIds ??= getTaskMirroredFlowIds(
+        matches.flatMap((candidate) =>
+          candidate.parentFlowId ? [candidate.parentFlowId.trim()] : [],
+        ),
+      );
+      return mirroredFlowIds.has(flowId);
+    }),
   );
   return task ? cloneTaskRecord(task) : undefined;
 }

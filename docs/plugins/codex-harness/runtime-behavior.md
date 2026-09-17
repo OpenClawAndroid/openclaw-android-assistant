@@ -95,6 +95,12 @@ OpenClaw still bounds its own requests, dynamic tools, cancellation, and local
 settlement. See [Timeouts](/plugins/codex-harness-reference#timeouts) for those
 budgets, Stop and replay behavior, and Doctor migration of retired idle settings.
 
+OpenClaw preserves assistant text supplied with the initial native item and
+reasoning supplied with a completed item, even when Codex sends no text deltas.
+Completed items reconcile the transcript with Codex's final content. Messages
+marked for asynchronous delivery remain separate from the final reply when
+Codex repeats them in the turn-completion summary.
+
 ## Cyber safety notices
 
 The Control UI shows a notice above the composer when Codex reports cyber

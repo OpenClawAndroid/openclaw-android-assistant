@@ -356,6 +356,14 @@ export class SpawnBrokerHost {
     });
   }
 
+  /** Join cleanup already retained by this host, including recorded failures. */
+  async waitForCleanup(): Promise<void> {
+    await Promise.allSettled([...this.cleanups].map((cleanup) => cleanup.settled));
+    if (this.cleanupErrors.length) {
+      throw new AggregateError(this.cleanupErrors, "Spawn broker cleanup did not complete");
+    }
+  }
+
   close(): Promise<void> {
     return (this.closePromise ??= this.closeInternal());
   }
@@ -380,10 +388,7 @@ export class SpawnBrokerHost {
           clearTimeout(timer);
         }
       }
-      await Promise.allSettled([...this.cleanups].map((cleanup) => cleanup.settled));
-      if (this.cleanupErrors.length) {
-        throw new AggregateError(this.cleanupErrors, "Spawn broker cleanup did not complete");
-      }
+      await this.waitForCleanup();
     } finally {
       process.removeListener("exit", this.onParentExit);
     }

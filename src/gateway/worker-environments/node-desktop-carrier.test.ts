@@ -1,4 +1,5 @@
 import { PassThrough } from "node:stream";
+import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_CLIENT_IDS } from "../../../packages/gateway-protocol/src/client-info.js";
 import { NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE } from "../../infra/node-runner-inventory.js";
@@ -194,6 +195,58 @@ describe("worker node desktop carrier", () => {
       keeper?.release();
       await carrier.stopAll();
       await registry.stopAll();
+    }
+  });
+
+  it("joins invocation settlement when owner stop overlaps observation release", async () => {
+    const record = support.seedReadyNodeDesktop("worker-desktop-release-stop");
+    const proof = nodeProof(record.nodeDeviceId!);
+    const transport = pendingTransport({ proof, isProofCurrent: () => true });
+    const invocation = deferred<Awaited<ReturnType<NodeWorkerSupervisorTransport["invoke"]>>>();
+    const completionOrder: string[] = [];
+    transport.invoke.mockImplementation(async () => {
+      const result = await invocation.promise;
+      completionOrder.push("invocation");
+      return result;
+    });
+    const streamed = fakeBroker();
+    const carrier = createWorkerNodeDesktopCarrier({
+      store: { get: () => record },
+      desktopRegistry: createDesktopSessionRegistry(),
+    });
+    const controller = new AbortController();
+    const requester = {
+      connId: "desktop-panel-client",
+      signal: controller.signal,
+      isCurrent: () => !controller.signal.aborted,
+    };
+    const canceledResult = { ok: false, error: { code: "ABORTED", message: "invoke aborted" } };
+    carrier.bindRuntime({ transport: transport.transport, streamBroker: streamed.broker });
+    try {
+      const observing = carrier.observe({ record, control: false, requester });
+      await support.waitForFast(() => expect(transport.invoke).toHaveBeenCalledOnce());
+      const stream = streamed.attachNext();
+      const observed = await observing;
+      const releasing = observeBridge
+        .releaseDesktopObserverToken(observed.wsPath, requester)
+        .then((released) => {
+          completionOrder.push("release");
+          return released;
+        });
+      expect(transport.invoke.mock.calls[0]?.[0].signal?.aborted).toBe(true);
+      expect(stream.destroyed).toBe(true);
+      const stopping = carrier.stop(record.environmentId, record.ownerEpoch).then(() => {
+        completionOrder.push("stop");
+      });
+      await setImmediate();
+      invocation.resolve(canceledResult);
+      expect(await releasing).toBe(true);
+      await stopping;
+      expect(completionOrder[0]).toBe("invocation");
+    } finally {
+      invocation.resolve(canceledResult);
+      controller.abort();
+      await carrier.stopAll();
     }
   });
 

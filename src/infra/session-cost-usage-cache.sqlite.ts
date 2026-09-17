@@ -1,11 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { isPidAlive } from "../shared/pid-alive.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
+import { withOpenClawAgentDatabaseWrite } from "../state/openclaw-agent-db-write.js";
 import {
   runOpenClawAgentWriteTransaction,
   resolveOpenClawAgentSqlitePath,
-  withOpenClawAgentDatabaseAsync,
 } from "../state/openclaw-agent-db.js";
 import {
   acquireSessionCostUsageRefreshLockInDatabase,
@@ -28,7 +29,10 @@ type SessionCostUsageRefreshLock = {
 function captureCacheDatabaseOptions(
   inputOptions: Parameters<typeof runOpenClawAgentWriteTransaction>[1],
 ) {
-  const options = { ...inputOptions, env: { ...(inputOptions.env ?? process.env) } };
+  const options = {
+    ...inputOptions,
+    env: cloneEnvWithPlatformSemantics(inputOptions.env ?? process.env),
+  };
   return { ...options, path: resolveOpenClawAgentSqlitePath(options) };
 }
 
@@ -38,7 +42,7 @@ function runCacheWriteTransaction<T>(
   transactionOptions: Parameters<typeof runOpenClawAgentWriteTransaction>[2],
 ): Promise<T> {
   const options = captureCacheDatabaseOptions(inputOptions);
-  return withOpenClawAgentDatabaseAsync(options, (database) =>
+  return withOpenClawAgentDatabaseWrite(options, (database) =>
     runOpenClawAgentWriteTransaction(
       operation,
       { ...options, path: database.path },
@@ -173,22 +177,9 @@ export async function isSessionCostUsageRefreshRunning(
     agentId: normalizeAgentId(agentId),
     path: databasePath,
   });
-  const raw = readRefreshLock(options.agentId, options.path);
-  const lock = parseRefreshLock(raw);
-  if (lock && isPidAlive(lock.pid)) {
-    return true;
-  }
-  if (raw !== null) {
-    await deleteRefreshLockIfUnchanged({
-      agentId: options.agentId,
-      databasePath: options.path,
-      env: options.env,
-      valueJson: raw,
-    });
-    const currentLock = parseRefreshLock(readRefreshLock(options.agentId, options.path));
-    return currentLock !== null && isPidAlive(currentLock.pid);
-  }
-  return false;
+  const lock = parseRefreshLock(readRefreshLock(options.agentId, options.path));
+  // Status never waits for a writer; acquisition replaces stale locks with its existing CAS.
+  return lock !== null && isPidAlive(lock.pid);
 }
 
 export async function acquireSessionCostUsageRefreshLock(

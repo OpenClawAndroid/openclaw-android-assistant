@@ -1,4 +1,5 @@
 // Internal task registry facade used by runtime modules without exposing public SDK surface.
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import {
   ensureTaskFlowRegistryReady,
   reloadTaskFlowRegistryFromStore,
@@ -7,6 +8,30 @@ import {
   ensureTaskRegistryReady as ensureTaskRegistryReadyInternal,
   reloadTaskRegistryFromStore as reloadTaskRegistryFromStoreInternal,
 } from "./task-registry.js";
+import type { TaskRecord } from "./task-registry.types.js";
+
+/** Read a task view without creating state or refreshing the synchronous projections. */
+export async function findTaskViewByRunIdAsync(
+  runId: string,
+  assertCurrent: () => void,
+): Promise<TaskRecord | undefined> {
+  assertCurrent();
+  const lookup = runId.trim();
+  if (!lookup) {
+    return undefined;
+  }
+  const context = captureOpenClawStateWorkerContext();
+  const { runOpenClawStateWorkerOperation } =
+    await import("../state/openclaw-state-worker-store.js");
+  const task = await runOpenClawStateWorkerOperation(
+    context,
+    (scope) => scope.execute({ type: "tasks.findByRunId", input: { runId: lookup } }),
+    { existingOnly: true, assertCurrent },
+  );
+  context.admission.assertCurrent();
+  assertCurrent();
+  return task;
+}
 
 export function ensureTaskRuntimeStateReady(): void {
   ensureTaskFlowRegistryReady();

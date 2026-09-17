@@ -9,7 +9,10 @@ import {
   createPluginStateKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
-import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
+import {
+  closeOpenClawStateDatabaseAsync,
+  closeOpenClawStateDatabaseByPathAsync,
+} from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { onTestFinished } from "vitest";
 import { VoiceCallConfigSchema } from "./config.js";
 import { CallManager } from "./manager.js";
@@ -85,7 +88,14 @@ export class FakeProvider implements VoiceCallProvider {
 }
 
 export function createTestStorePath(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-call-test-"));
+  const storePath = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-voice-call-test-"));
+  // Registered before managers: LIFO cleanup joins their work before retiring
+  // this store's workers, without closing another live fixture's database.
+  onTestFinished(async () => {
+    await closeOpenClawStateDatabaseByPathAsync(path.join(storePath, "state", "openclaw.sqlite"));
+    fs.rmSync(storePath, { recursive: true, force: true });
+  });
+  return storePath;
 }
 
 export function createVoiceCallStateRuntimeForTests(): VoiceCallStateRuntime["state"] {
@@ -132,7 +142,13 @@ export async function finalizeTestManagerCalls(manager: CallManager): Promise<vo
 export function registerTestManagerCleanup(manager: CallManager): CallManager {
   // Register before initialize can fail. Store/runtime owners must outlive this
   // LIFO finish hook; this fixture does not reset shared stores or runtimes.
-  onTestFinished(() => finalizeTestManagerCalls(manager));
+  onTestFinished(async () => {
+    try {
+      await finalizeTestManagerCalls(manager);
+    } finally {
+      await manager.stop();
+    }
+  });
   return manager;
 }
 

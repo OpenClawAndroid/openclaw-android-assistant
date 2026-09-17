@@ -10,6 +10,7 @@ import { saveUserPreferences } from "./user-prefs-cache.ts";
 type ProfileAppearancePrefs = { profileId: string; scope: string; prefs: ServerUiPrefs };
 
 let profileAppearancePrefs: ProfileAppearancePrefs | null = null;
+let profileAppearanceIdentity: { profileId: string; scope: string } | null = null;
 let profilePreferencesRequestId = 0;
 
 export function resolveProfilePreferenceScope(scope: string, profileId?: string | null): string {
@@ -28,11 +29,16 @@ export function resolveProfileAppearancePrefs(
 }
 
 export function resolveProfileAppearanceProfileId(scope: string): string | null {
-  return profileAppearancePrefs?.scope === scope ? profileAppearancePrefs.profileId : null;
+  return profileAppearanceIdentity?.scope === scope ? profileAppearanceIdentity.profileId : null;
+}
+
+export function rememberProfileAppearanceIdentity(scope: string, profileId: string): void {
+  profileAppearanceIdentity = { scope, profileId };
 }
 
 export function resetProfileAppearancePrefs(): void {
   profileAppearancePrefs = null;
+  profileAppearanceIdentity = null;
   profilePreferencesRequestId += 1;
 }
 
@@ -41,6 +47,7 @@ export async function loadProfileAppearancePrefs(
   profileId: string,
   scope: string,
 ): Promise<boolean> {
+  rememberProfileAppearanceIdentity(scope, profileId);
   const requestId = ++profilePreferencesRequestId;
   const { loadUserPreferences } = await import("./user-prefs-request.ts");
   if (requestId !== profilePreferencesRequestId) {

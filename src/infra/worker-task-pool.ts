@@ -591,7 +591,15 @@ export class WorkerTaskPool<Input, Output> {
         // Keep the slot reserved and the caller pending until its execution actually stops.
         (slot.completions ??= []).push(complete);
         void this.retire(slot).catch((failure: unknown) => {
-          task.reject(failure);
+          task.reject(
+            error
+              ? new AggregateError(
+                  [error, failure],
+                  `Worker retirement failed: ${toErrorObject(failure, "worker retirement failed").message}; task failed: ${error.message}`,
+                  { cause: failure },
+                )
+              : failure,
+          );
         });
         return;
       }

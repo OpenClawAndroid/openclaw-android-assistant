@@ -162,12 +162,12 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
       active.reservation?.release();
     }
     active.stream?.destroy();
-    activeStreams.delete(active);
   };
 
   const stopStream = async (active: ActiveNodeDesktopStream): Promise<void> => {
     retireStream(active);
     await active.invocation?.catch(() => undefined);
+    activeStreams.delete(active);
   };
 
   const stopLaunch = async (active: ActiveNodeDesktopLaunch): Promise<void> => {
@@ -345,7 +345,12 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
         Math.max(0, minted.expiresAtMs - Date.now()),
       );
       active.unclaimedTimer.unref?.();
-      void active.invocation.finally(() => retireStream(active)).catch(() => undefined);
+      void active.invocation
+        .finally(() => {
+          retireStream(active);
+          activeStreams.delete(active);
+        })
+        .catch(() => undefined);
       return {
         transport: "rfb",
         wsPath: `${DESKTOP_OBSERVE_PATH}?token=${minted.token}`,

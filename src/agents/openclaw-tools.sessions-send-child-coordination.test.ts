@@ -451,6 +451,11 @@ describe("sessions_send child coordination", () => {
         entry: { spawnedBy: "agent:main:main", spawnDepth: 1 },
       },
       {
+        name: "restored child with cyclic lineage",
+        requesterKey: "agent:main:dashboard:cycle",
+        entry: { spawnedBy: "agent:main:dashboard:cycle" },
+      },
+      {
         name: "legacy ACP child",
         requesterKey: "agent:main:acp:child",
         entry: { parentSessionKey: "agent:main:main" },
@@ -508,15 +513,31 @@ describe("sessions_send child coordination", () => {
   it.each([
     { name: "dashboard threading", staleAcp: false },
     { name: "stale ACP shadow", staleAcp: true },
+    {
+      name: "explicit zero depth under a child-looking key",
+      staleAcp: false,
+      nativeKey: true,
+      entry: { spawnDepth: 0 },
+    },
+    {
+      name: "explicit zero depth with stale lineage",
+      staleAcp: false,
+      entry: { spawnDepth: 0, spawnedBy: "agent:main:dashboard:parent-uuid" },
+    },
   ])(
     "sessions_send keeps peer A2A for $name without canonical child ownership",
-    async ({ staleAcp }) => {
+    async ({ staleAcp, nativeKey = false, entry = {} }) => {
       const requesterKey = "agent:main:dashboard:parent-uuid";
-      const targetKey = staleAcp ? "agent:main:acp:stale" : "agent:main:dashboard:thread-uuid";
+      const targetKey = nativeKey
+        ? "agent:main:subagent:root"
+        : staleAcp
+          ? "agent:main:acp:stale"
+          : "agent:main:dashboard:thread-uuid";
       await writeEntry(targetKey, {
         sessionId: "thread-session",
         updatedAt: 1,
         parentSessionKey: requesterKey,
+        ...entry,
         ...(staleAcp
           ? {
               acp: {

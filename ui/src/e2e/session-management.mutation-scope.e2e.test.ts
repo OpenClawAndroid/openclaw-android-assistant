@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, it } from "vitest";
+import { SIDEBAR_SESSION_ROSTER_LIMIT } from "../../../src/shared/session-list-limits.ts";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { createControlUiSessionRow as sessionRow } from "../test-helpers/control-ui-session-fixtures.ts";
 import { createControlUiE2eContextOptions } from "./control-ui-e2e-suite.test-support.ts";
@@ -34,25 +35,46 @@ suite.define(() => {
         sessionRow("agent:research:first", "Research first", 3),
         sessionRow("agent:research:second", "Research second", 2),
       ];
-      const responseFor = (rows: typeof researchRows) => ({
-        cases: [
-          {
-            match: { agentId: "research", offset: 2 },
-            response: sessionsListResponse(rows.slice(2), { offset: 2, totalCount: rows.length }),
-          },
-          {
-            match: { agentId: "research" },
-            response: sessionsListResponse(rows.slice(0, 2), {
-              hasMore: true,
-              nextOffset: 2,
-              totalCount: rows.length,
+      const pageSize = SIDEBAR_SESSION_ROSTER_LIMIT;
+      const pageFillers = Array.from({ length: pageSize - 2 }, (_, index) =>
+        sessionRow(`agent:research:page-filler-${index}`, `Page filler ${index}`, 2.5, {
+          category: "Pagination fixtures",
+        }),
+      );
+      const responseFor = (rows: typeof researchRows) => {
+        // Fill the requested window so a trailing refresh retains the appended page.
+        const pagedRows = [...rows.slice(0, -1), ...pageFillers, rows.at(-1)!];
+        const pageResponse = (offset = 0, limit = pageSize) => {
+          const pageRows = pagedRows.slice(offset, offset + limit);
+          const nextOffset = offset + pageRows.length;
+          const hasMore = nextOffset < pagedRows.length;
+          return {
+            ...sessionsListResponse(pageRows, {
+              offset,
+              hasMore,
+              nextOffset: hasMore ? nextOffset : null,
+              totalCount: pagedRows.length,
             }),
-          },
-          { response: sessionsListResponse(mainRows) },
-        ],
-      });
+            limitApplied: limit,
+          };
+        };
+        return {
+          cases: [
+            {
+              match: { agentId: "research", offset: pageSize },
+              response: pageResponse(pageSize),
+            },
+            {
+              match: { agentId: "research", limit: pagedRows.length },
+              response: pageResponse(0, pagedRows.length),
+            },
+            { match: { agentId: "research" }, response: pageResponse() },
+            { response: sessionsListResponse(mainRows) },
+          ],
+        };
+      };
       const gateway = await installMockGateway(page, {
-        sessions: [...mainRows, ...researchRows],
+        sessions: [...mainRows, ...researchRows, ...pageFillers],
         sessionKey: original.key,
         sessionArchiveFiltering: true,
         methodResponses: {
@@ -189,7 +211,7 @@ suite.define(() => {
         await capture("after-selected-agent-update");
         await sidebar.getByRole("button", { name: "Load more sessions", exact: true }).click();
         await gateway.waitForRequest("sessions.list", {
-          match: { agentId: "research", offset: 2 },
+          match: { agentId: "research", offset: pageSize },
         });
         await rowFor(researchRows[2]!.key).waitFor({ state: "visible" });
         await capture("after-pagination");
@@ -205,13 +227,32 @@ suite.define(() => {
         } else {
           await rowFor(original.key).waitFor({ state: "visible" });
         }
+        const readsBeforeReturn = (await gateway.getRequests("sessions.list", researchMatch))
+          .length;
         await sidebar.getByRole("button", { name: /Switch agent/ }).click();
         await sidebar
           .locator("wa-dropdown.sidebar-agent-menu")
           .getByRole("menuitemradio", { name: "Research", exact: true })
           .click();
+        const returnedList = await gateway.waitForRequest("sessions.list", {
+          match: researchMatch,
+          after: readsBeforeReturn,
+        });
+        expect(returnedList.params).toMatchObject({
+          limit: filter === "All" ? pageSize : pageFillers.length + researchRows.length + 1,
+        });
         await rowFor(newRow.key).waitFor({ state: "visible" });
-        await sidebar.getByRole("button", { name: "Load more sessions", exact: true }).click();
+        // Active retains its expanded window; the filtered All subscription starts a new page.
+        if (filter === "All") {
+          const pagesBeforeReturn = (
+            await gateway.getRequests("sessions.list", { ...researchMatch, offset: pageSize })
+          ).length;
+          await sidebar.getByRole("button", { name: "Load more sessions", exact: true }).click();
+          await gateway.waitForRequest("sessions.list", {
+            match: { ...researchMatch, offset: pageSize },
+            after: pagesBeforeReturn,
+          });
+        }
         await rowFor(researchRows[2]!.key).waitFor({ state: "visible" });
       } finally {
         await capture("final-state");

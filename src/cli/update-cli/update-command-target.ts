@@ -420,6 +420,7 @@ export async function resolveUpdateCommandTarget(
     configSnapshot,
     legacyConfigPlan,
     storedChannel,
+    requestedChannel,
     channel,
     explicitTag,
     switchToGit,

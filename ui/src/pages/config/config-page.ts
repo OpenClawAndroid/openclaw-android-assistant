@@ -798,17 +798,16 @@ export class ConfigPage extends OpenClawLightDomElement {
   }
 
   private currentSyncedPref<K extends ResettableServerUiPrefKey>(key: K) {
+    const appearance = isAppearancePref(key);
     return resolveServerUiPrefState(
       this.context.runtimeConfig.state.configSnapshot?.config,
       key,
       this.context.gateway.connection.gatewayUrl,
       this.settings,
-      isAppearancePref(key)
-        ? {
-            canSync: this.serverUiPrefsCanSync(key),
-            profileId: this.context.gateway.snapshot?.selfUser?.id,
-          }
-        : { canSync: this.serverUiPrefsCanSync() },
+      {
+        canSync: this.serverUiPrefsCanSync(appearance ? key : undefined),
+        profileId: appearance ? this.context.gateway.snapshot?.selfUser?.id : undefined,
+      },
     );
   }
 
@@ -855,6 +854,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       key,
       this.currentSyncedPref(key),
       this.context.gateway.connection.gatewayUrl,
+      this.context.gateway.snapshot?.selfUser?.id,
     );
     this.context.theme.refresh();
   }

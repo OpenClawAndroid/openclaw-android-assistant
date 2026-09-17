@@ -98,6 +98,7 @@ export async function preflightUpdateCommandSchemas(params: {
   legacyConfigPlan?: LegacyConfigUpdatePlan;
   managedServiceRootRedirect: ManagedServiceRootRedirect | null;
   channel: UpdateChannel;
+  requestedChannel?: UpdateChannel | null;
   devTarget?: DevUpdateTarget;
   packageTargetSchemaVersions?: OpenClawSchemaVersions;
   packageTargetVersion?: string;

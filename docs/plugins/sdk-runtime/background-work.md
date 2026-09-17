@@ -183,7 +183,9 @@ Start agent work in the background: hook-dispatched turns for external content, 
     Lists sort newest first. Equal task timestamps sort by task ID descending;
     equal flow timestamps sort by flow ID ascending. Run-ID lookup retains its
     runtime preference and oldest-first selection, then uses task ID ascending
-    for ties. Legacy synchronous methods
+    for ties. When an ACP run ID is reused, lookup excludes superseded backing
+    generations before applying that ordering. Backing details stay internal and
+    are not included in task views. Legacy synchronous methods
     keep their existing insertion-order tie behavior.
 
     The synchronous read methods and corresponding managed-flow state mutations

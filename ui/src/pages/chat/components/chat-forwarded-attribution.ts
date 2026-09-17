@@ -47,6 +47,9 @@ export function renderForwardedAttribution(group: MessageGroup, opts: ForwardedA
         : undefined);
   const sourceAgentPrefix =
     !sourceIsMainSession && sourceIsOtherAgent ? sourceAgentDisplayName : undefined;
+  const sourceAvatar = sourceIsOtherAgent
+    ? renderForwardedAvatar(sourceParsed.agentId, opts)
+    : nothing;
   const sourceLink = sourceIsCronRun
     ? html`<a
         class="markdown-session-link markdown-session-link--titled markdown-session-link--automation"
@@ -79,9 +82,15 @@ export function renderForwardedAttribution(group: MessageGroup, opts: ForwardedA
               ${
                 sourceIsOtherAgent
                   ? html`<span class="chat-reply-attribution__agent">
-                        <span class="chat-reply-attribution__agent-avatar" aria-hidden="true"
-                          >${renderForwardedAvatar(sourceParsed.agentId, opts)}</span
-                        >
+                        ${
+                          sourceAvatar === nothing
+                            ? nothing
+                            : html`<span
+                                class="chat-reply-attribution__agent-avatar"
+                                aria-hidden="true"
+                                >${sourceAvatar}</span
+                              >`
+                        }
                         ${sourceAgentPrefix ? html`<span>${sourceAgentPrefix}</span>` : sourceLink}
                       </span>
                       ${

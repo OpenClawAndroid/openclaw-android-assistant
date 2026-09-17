@@ -70,6 +70,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/plugins/plugin-metadata-state-worker.test.ts",
   "src/plugins/official-external-plugin-catalog-snapshot-store.worker.test.ts",
   "src/plugins/official-external-plugin-catalog.test.ts",
+  "src/infra/device-pairing.test.ts",
   "src/infra/session-cost-usage-metadata.test.ts",
   "src/plugins/installed-plugin-index-records.test.ts",
   "src/acp/runtime/session-meta-doctor.test.ts",
@@ -128,6 +129,7 @@ const databaseWorkerCoreTestFileSet = new Set(databaseWorkerCoreTestFiles);
 
 // Preserve watch admission for consumers previously inferred into fast lanes.
 export const databaseWorkerCoreFormerFastKinds = new Map([
+  ["src/infra/device-pairing.test.ts", "unitFast"],
   ["src/logging/diagnostic-stuck-session-recovery.runtime.test.ts", "unitFast"],
   ["src/flows/search-setup.test.ts", "unitFastIsolated"],
   ["src/security/audit-config-symlink.test.ts", "unitFastIsolated"],

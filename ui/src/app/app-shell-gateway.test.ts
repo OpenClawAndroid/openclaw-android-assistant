@@ -147,10 +147,10 @@ describe("ShellGatewayOwner profile appearance integration", () => {
     owner.synchronizeGateway(snapshot);
 
     owner.reconcileServerUiPrefs(context.runtimeConfig);
-    expect(refreshTheme).toHaveBeenCalledOnce();
-    expect(loadSettings().accent).toBe("#ff0000");
+    expect(refreshTheme).not.toHaveBeenCalled();
+    expect(loadSettings().accent).toBeUndefined();
     await completeProfileAppearance();
-    expect(refreshTheme).toHaveBeenCalledTimes(2);
+    expect(refreshTheme).toHaveBeenCalledOnce();
     expect(loadSettings().accent).toBe("#336699");
     expect(request).toHaveBeenCalledOnce();
     // Derived from the wire contract so new appearance keys extend the

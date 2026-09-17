@@ -144,6 +144,10 @@ export function createSessionRowProjectionFixture(params: {
           (!query.storePath || row.storeTarget.storePath === query.storePath),
       ),
     describe,
+    withPreparedExactRows: async (_queries, consume) => ({
+      kind: "complete",
+      value: consume(projection),
+    }),
     present: (record, options) => {
       const now = options?.now ?? Date.now();
       const row = presentSessionRow(record.materialized, {

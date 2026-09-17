@@ -43,9 +43,6 @@ type NodeDesktopSession = {
 };
 
 async function stopActiveStream(active: ActiveNodeDesktopStream): Promise<void> {
-  if (active.stopped) {
-    return;
-  }
   retireActiveStream(active);
   await active.invocation?.catch(() => undefined);
 }
@@ -284,7 +281,7 @@ export function createNodeDesktopService(params: {
         active.unclaimedTimer = setTimeout(
           () => {
             if (params.desktopRegistry.hasPendingStream(sourceKey, attachment)) {
-              void stopActiveStream(active).then(() => session.active.delete(active));
+              void stopActiveStream(active);
             }
           },
           Math.max(0, minted.expiresAtMs - Date.now()),

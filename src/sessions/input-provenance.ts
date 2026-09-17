@@ -98,11 +98,12 @@ export function isInterSessionInputProvenance(value: unknown): boolean {
 }
 
 /** Child coordination stays available to the model without becoming a chat reply. */
-export function isSubagentCoordinationInputProvenance(value: unknown): boolean {
-  const provenance = normalizeInputProvenance(value);
+export function isSubagentCoordinationInputProvenance(
+  provenance: InputProvenance | undefined,
+): boolean {
   return (
     provenance?.kind === "inter_session" &&
-    provenance.sourceTool === "sessions_send" &&
+    normalizeOptionalString(provenance.sourceTool) === "sessions_send" &&
     provenance.sourceRole === "subagent"
   );
 }

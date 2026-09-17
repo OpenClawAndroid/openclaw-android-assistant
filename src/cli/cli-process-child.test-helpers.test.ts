@@ -1,5 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
+import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   formatCliProcessFailure,
@@ -84,6 +85,7 @@ describe("runCliProcessChild", () => {
         [
           "process.stdout.write('partial');",
           "globalThis.pending = new Promise(() => {});",
+          "require('node:net').createServer().listen(0, '127.0.0.1');",
           "process.on('SIGUSR2', () => process.stderr.write('x'.repeat(8_100) + '\\nlast-stderr-line\\n'));",
           "setInterval(() => {}, 1_000);",
         ].join("\n"),
@@ -99,8 +101,39 @@ describe("runCliProcessChild", () => {
       expect(String(failure)).toContain('"activeHandles"');
       expect(String(failure)).toMatch(/"pendingPromises":\{"tracked":[1-9]/u);
       expect(String(failure)).toContain("last-stderr-line");
+      const report = String(failure)
+        .split("--- Node diagnostic report ---\n")[1]
+        ?.split("\n--- child diagnostics ---")[0];
+      expect(report).toBeDefined();
+      expect(JSON.parse(report!)).toMatchObject({
+        javascriptStack: expect.any(Object),
+        nativeStack: expect.any(Array),
+        libuv: expect.arrayContaining([
+          expect.objectContaining({ type: "timer", is_active: true, is_referenced: true }),
+          expect.objectContaining({ type: "tcp", is_active: true, is_referenced: true }),
+        ]),
+      });
+      expect(report).not.toMatch(/"(?:local|remote)Endpoint"\s*:/u);
     }
   });
+
+  it.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
+    "arms reports without producing one for a normally exiting child",
+    async () => {
+      const result = await runCliProcessChild({
+        nodeArgs: [
+          "-e",
+          "console.log(JSON.stringify({ armed: process.report.reportOnSignal, directory: process.report.directory }));",
+        ],
+        env: process.env,
+      });
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+      const report = JSON.parse(result.stdout);
+      expect(report.armed).toBe(true);
+      expect(fs.readdirSync(report.directory)).toEqual([]);
+    },
+  );
 
   it.skipIf(process.platform === "win32" || Boolean(process.versions.bun))(
     "keeps a timeout failure when the child exits during diagnostic grace",

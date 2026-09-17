@@ -18,6 +18,7 @@ import { isSingleUseReplyToMode } from "openclaw/plugin-sdk/reply-reference";
 import { resolveOpenProviderRuntimeGroupPolicy } from "openclaw/plugin-sdk/runtime-group-policy";
 import { normalizeOptionalLowercaseString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { ResolvedSlackAccount } from "./accounts.js";
+import type { SlackActionContext } from "./action-context.js";
 import {
   resolveSlackAutoThreadId,
   SLACK_PRIVATE_ACTION_DELIVERY_RESULT,
@@ -31,7 +32,6 @@ import { SLACK_TEXT_LIMIT } from "./limits.js";
 import { resolveSlackChannelConfig } from "./monitor/channel-config.js";
 import { isSlackChannelAllowedByPolicy } from "./monitor/policy.js";
 import { hasSlackNativeDataBlock } from "./native-data-blocks.js";
-import type { SlackReplyDeliveryMessage } from "./reply-blocks.js";
 import { mergeSlackSendResults } from "./send-results.js";
 import type { SlackSendResult } from "./send.js";
 import { formatSlackTarget } from "./target-parsing.js";
@@ -95,6 +95,7 @@ export const slackActionRuntime = {
     teamId?: string;
     operation?: "read" | "write";
     requireFreshName?: boolean;
+    assertDirectAdapterHandoff?: () => void;
   }) => (await loadSlackChannelTypeRuntime()).resolveSlackConversationInfo(params),
   resolveSlackChannelType: async (params: {
     cfg: OpenClawConfig;
@@ -105,30 +106,7 @@ export const slackActionRuntime = {
   unpinSlackMessage: createLazySlackAction("unpinSlackMessage"),
 };
 
-export type SlackActionContext = {
-  conversationReadOrigin?: ConversationReadInvocationOrigin;
-  requesterAccountId?: string;
-  requesterSenderId?: string;
-  currentChannelProvider?: string;
-  /** Current channel ID for auto-threading. */
-  currentChannelId?: string;
-  /** Routable target for the current conversation when it differs from the channel ID. */
-  currentMessagingTarget?: string;
-  /** Current thread timestamp for auto-threading. */
-  currentThreadTs?: string;
-  /** Reply-to mode for auto-threading. */
-  replyToMode?: "off" | "first" | "all" | "batched";
-  /** Mutable ref to track if a reply was sent for single-use reply modes. */
-  hasRepliedRef?: { value: boolean };
-  /** True when same-channel root posting would leak a thread-originated reply. */
-  sameChannelThreadRequired?: boolean;
-  mediaAccess?: ChannelMessageActionContext["mediaAccess"];
-  /** Allowed local media directories for file uploads. */
-  mediaLocalRoots?: readonly string[];
-  mediaReadFile?: (filePath: string) => Promise<Buffer>;
-  /** Slack-private ordered delivery plan prepared after presentation normalization. */
-  preparedMessages?: readonly SlackReplyDeliveryMessage[];
-};
+export type { SlackActionContext } from "./action-context.js";
 
 function resolveThreadTsFromContext(
   explicitThreadTs: string | undefined,
@@ -365,6 +343,7 @@ async function assertSlackReadTargetAllowed(params: {
       channelId: params.channelId,
       teamId: params.teamId,
       operation: "read",
+      assertDirectAdapterHandoff: params.context?.assertDirectAdapterHandoff,
     });
     if (
       info.type !== "dm" ||
@@ -401,6 +380,7 @@ async function assertSlackReadTargetAllowed(params: {
     teamId: params.teamId,
     operation: "read",
     ...(preliminary.shouldResolveName ? { requireFreshName: true } : {}),
+    assertDirectAdapterHandoff: params.context?.assertDirectAdapterHandoff,
   });
   if (
     preliminary.shouldResolveName &&
@@ -572,6 +552,7 @@ export async function handleSlackAction(
       ...(accountId ? { accountId } : {}),
       ...(tokenOverride ? { token: tokenOverride } : {}),
       teamId,
+      assertDirectAdapterHandoff: context?.assertDirectAdapterHandoff,
     };
   };
 

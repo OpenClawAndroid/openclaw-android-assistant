@@ -94,7 +94,7 @@ import {
   assertGatewayServiceManagementAllowedForUpdate,
   gatewayServiceCommandUsesRoot,
   isGatewayServiceManagementAllowedForUpdate,
-  readManagedGatewayServiceCommandForUpdate,
+  readManagedGatewayServiceForUpdate,
   resolveManagedServicePackageUpdatePlan,
 } from "./update-command-service-plan.js";
 
@@ -122,7 +122,7 @@ export async function resolveUpdateCommandAdmissionEnv(params: {
     !env[UPDATE_RUN_ID_ENV] &&
     isGatewayServiceManagementAllowedForUpdate(env)
   ) {
-    const command = await readManagedGatewayServiceCommandForUpdate(env);
+    const command = (await readManagedGatewayServiceForUpdate(env))?.command ?? null;
     if (command) {
       const usesRoot = await gatewayServiceCommandUsesRoot({ root: params.root, command });
       if (usesRoot) {

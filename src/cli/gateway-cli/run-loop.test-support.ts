@@ -62,3 +62,45 @@ export function createSignaledStart(
   );
   return { start, started };
 }
+
+export const shutdownBudgetCases: {
+  signal: "SIGTERM" | "SIGUSR1";
+  honorsAbort: boolean;
+  supervisor: "systemd" | "external-systemd" | "launchd" | "foreground";
+  waitMs?: number;
+  installedStopMs?: number;
+}[] = [
+  { signal: "SIGTERM", honorsAbort: false, supervisor: "systemd", installedStopMs: 90_000 },
+  {
+    signal: "SIGTERM",
+    honorsAbort: false,
+    supervisor: "external-systemd",
+    installedStopMs: 90_000,
+  },
+  {
+    signal: "SIGUSR1",
+    honorsAbort: false,
+    supervisor: "external-systemd",
+    installedStopMs: 90_000,
+  },
+  { signal: "SIGTERM", honorsAbort: false, supervisor: "systemd" },
+  { signal: "SIGTERM", honorsAbort: false, supervisor: "foreground" },
+  { signal: "SIGTERM", honorsAbort: true, supervisor: "systemd" },
+  { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd" },
+  { signal: "SIGTERM", honorsAbort: false, supervisor: "launchd" },
+  { signal: "SIGUSR1", honorsAbort: false, supervisor: "launchd" },
+  { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd", waitMs: 0 },
+  { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd", waitMs: 600_000 },
+];
+
+export const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+
+export function setPlatform(platform: string) {
+  if (!originalPlatformDescriptor) {
+    return;
+  }
+  Object.defineProperty(process, "platform", {
+    ...originalPlatformDescriptor,
+    value: platform,
+  });
+}

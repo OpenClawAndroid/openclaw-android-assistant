@@ -52,6 +52,11 @@ operator action is required. Ping and pong frames are transport-level health
 checks: they do not start a Codex turn or invoke a model. Local stdio and Unix
 transports do not perform these remote connection checks.
 
+WebSocket and Unix socket shutdown settles when the connection closes, including
+when the server disconnected first. If the peer cannot complete the closing
+handshake, OpenClaw terminates its socket at the shutdown deadline. A closed
+connection does not prove that work on the remote app-server has stopped.
+
 Local stdio app-server sessions default to the trusted local operator
 posture: `approvalPolicy: "never"`, `approvalsReviewer: "user"`, and
 `sandbox: "danger-full-access"`. If local Codex requirements disallow that

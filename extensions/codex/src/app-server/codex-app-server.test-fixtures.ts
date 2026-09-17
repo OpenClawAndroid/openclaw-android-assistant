@@ -29,7 +29,12 @@ export function codexTestTurnIds(threadId = "thread-1", turnId = "turn-1") {
 
 export function mockClientRuntimeMethods() {
   const getServerVersion = () => CODEX_APP_SERVER_VERSION;
+  const closeAndWait: CodexAppServerClient["closeAndWait"] = async () => ({
+    exited: true,
+    cleanup: "closed",
+  });
   return {
+    closeAndWait,
     getInstanceId: () => "test-client-1",
     getTransportPid: (): number | undefined => undefined,
     getRuntimeIdentity: () => ({ serverVersion: getServerVersion() }),

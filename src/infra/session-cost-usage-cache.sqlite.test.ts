@@ -14,6 +14,7 @@ import {
 } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
+  acquireSessionCostUsageRefreshLock,
   deleteSessionCostUsageRollupsExcept,
   isSessionCostUsageRefreshRunning,
   readSessionCostUsageRollupRows,
@@ -60,7 +61,7 @@ describe("session cost usage SQLite cache", () => {
     });
   });
 
-  it("removes a persisted refresh lock owned by a Linux zombie", async () => {
+  it("reclaims a zombie refresh lock on acquisition without writing during status reads", async () => {
     const stateDir = makeTempDir(tempDirs, "openclaw-usage-cache-zombie-lock-");
 
     await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
@@ -84,12 +85,24 @@ describe("session cost usage SQLite cache", () => {
         return `Name:\tworker\nState:\tZ (zombie)\nPid:\t${zombiePid}\nThreads:\t1\n`;
       });
 
-      expect(await isSessionCostUsageRefreshRunning(agentId, database.path)).toBe(false);
-      expect(
+      const readLock = () =>
         database.db
           .prepare("SELECT value_json FROM cache_entries WHERE scope = ? AND key = ?")
-          .get("session-cost-usage", "refresh-lock"),
-      ).toBeUndefined();
+          .get("session-cost-usage", "refresh-lock");
+      expect(await isSessionCostUsageRefreshRunning(agentId, database.path)).toBe(false);
+      expect(readLock()).toEqual({
+        value_json: JSON.stringify({ pid: zombiePid, startedAt: 1, ownerNonce: "zombie-owner" }),
+      });
+      const owner = await acquireSessionCostUsageRefreshLock(agentId, database.path);
+      try {
+        expect(owner.acquired).toBe(true);
+        expect(readLock()).not.toEqual({
+          value_json: JSON.stringify({ pid: zombiePid, startedAt: 1, ownerNonce: "zombie-owner" }),
+        });
+      } finally {
+        await owner.release();
+      }
+      expect(readLock()).toBeUndefined();
     });
   });
 

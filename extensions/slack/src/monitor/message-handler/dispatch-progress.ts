@@ -377,6 +377,11 @@ export function createSlackProgressRuntime(runtimeParams: {
       }
       const snapshot = options.snapshot;
       const latestLine = snapshot.lines.at(-1);
+      if (preambleOnlyProgress && typeof latestLine === "object" && latestLine.complete === false) {
+        // Keep the last complete preamble visible. A human reply can rotate this
+        // draft between deltas, leaving a word fragment visible until cleanup.
+        return false;
+      }
       progressCard.setFallbackText(previewText);
       draftStream.update(
         preambleOnlyProgress

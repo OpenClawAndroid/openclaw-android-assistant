@@ -24,9 +24,20 @@ import {
   createActiveWorkSnapshot,
   createSignaledStart,
   expectRestartCloseCall,
+  originalPlatformDescriptor,
+  setPlatform,
+  shutdownBudgetCases,
 } from "./run-loop.test-support.js";
 
 const closeLogTempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+vi.mock("node:fs/promises", async (original) => {
+  const actual = await original<typeof import("node:fs/promises")>();
+  // Foreground fixtures must not inherit the CI runner's systemd service or filesystem timing.
+  const readFile = (...args: Parameters<typeof actual.readFile>) =>
+    args[0] === "/proc/self/cgroup" ? Promise.resolve("0::/\n") : actual.readFile(...args);
+  return { ...actual, readFile, default: { ...actual, readFile } };
+});
 
 const systemctl = vi.fn(async () => ({
   code: 0,
@@ -313,17 +324,6 @@ vi.mock("./shutdown-hard-exit.js", () => ({
 
 const LOOP_SIGNALS = ["SIGTERM", "SIGINT", "SIGUSR1"] as const;
 type LoopSignal = (typeof LOOP_SIGNALS)[number];
-const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
-
-function setPlatform(platform: string) {
-  if (!originalPlatformDescriptor) {
-    return;
-  }
-  Object.defineProperty(process, "platform", {
-    ...originalPlatformDescriptor,
-    value: platform,
-  });
-}
 
 function removeNewSignalListeners(signal: LoopSignal, existing: Set<(...args: unknown[]) => void>) {
   for (const listener of process.listeners(signal)) {
@@ -489,6 +489,7 @@ let supervisorEnvSnapshot: ReturnType<typeof captureEnv> | undefined;
 
 beforeEach(async () => {
   vi.useRealTimers();
+  setPlatform("linux");
   systemctl.mockReset().mockResolvedValue({
     code: 0,
     stdout: "LoadState=loaded\nTimeoutStopUSec=5min 30s",
@@ -1674,23 +1675,7 @@ describe("runGatewayLoop", () => {
     });
   });
 
-  it.each<{
-    signal: "SIGTERM" | "SIGUSR1";
-    honorsAbort: boolean;
-    supervisor: "systemd" | "launchd" | "foreground";
-    waitMs?: number;
-    installedStopMs?: number;
-  }>([
-    { signal: "SIGTERM", honorsAbort: false, supervisor: "systemd", installedStopMs: 90_000 },
-    { signal: "SIGTERM", honorsAbort: false, supervisor: "systemd" },
-    { signal: "SIGTERM", honorsAbort: false, supervisor: "foreground" },
-    { signal: "SIGTERM", honorsAbort: true, supervisor: "systemd" },
-    { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd" },
-    { signal: "SIGTERM", honorsAbort: false, supervisor: "launchd" },
-    { signal: "SIGUSR1", honorsAbort: false, supervisor: "launchd" },
-    { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd", waitMs: 0 },
-    { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd", waitMs: 600_000 },
-  ])(
+  it.each(shutdownBudgetCases)(
     "bounds $supervisor $signal cleanup when a long provider call honors abort=$honorsAbort (wait=$waitMs, installedStop=$installedStopMs)",
     async ({ signal, honorsAbort, supervisor, waitMs, installedStopMs }) => {
       vi.clearAllMocks();
@@ -1703,8 +1688,11 @@ describe("runGatewayLoop", () => {
         .match(/^SuccessExitStatus=(.+)$/m)?.[1]
         ?.split(" ")
         .map(Number);
-      if (supervisor === "systemd") {
+      if (supervisor === "systemd" || supervisor === "external-systemd") {
         process.env.OPENCLAW_SYSTEMD_UNIT = "openclaw-gateway.service";
+        if (supervisor === "external-systemd") {
+          process.env.OPENCLAW_SUPERVISOR_MODE = "external";
+        }
         setPlatform("linux");
       } else if (supervisor === "launchd") {
         process.env.OPENCLAW_LAUNCHD_LABEL = "ai.openclaw.gateway";

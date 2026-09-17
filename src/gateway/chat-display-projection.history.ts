@@ -48,10 +48,10 @@ export function isSubagentCoordinationHistoryInput(
   if (message.role !== "user") {
     return false;
   }
-  if (isSubagentCoordinationInputProvenance(message.provenance)) {
+  const provenance = normalizeInputProvenance(message.provenance);
+  if (isSubagentCoordinationInputProvenance(provenance)) {
     return true;
   }
-  const provenance = normalizeInputProvenance(message.provenance);
   return Boolean(
     provenance?.kind === "inter_session" &&
     provenance.sourceTool === "sessions_send" &&

@@ -29,6 +29,7 @@ export {
 } from "../state/openclaw-agent-db.js";
 export {
   closeOpenClawStateDatabaseAsync,
+  closeOpenClawStateDatabaseByPathAsync,
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";

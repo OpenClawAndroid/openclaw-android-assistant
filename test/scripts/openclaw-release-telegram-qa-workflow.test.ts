@@ -226,6 +226,7 @@ function runCandidateProvenance(
   provenanceBlock: ProvenanceBlock,
   params: {
     branchHeads?: string[];
+    releaseCompareStatus?: "ahead" | "behind" | "diverged" | "identical";
     candidateVersion?: string;
     messageHeadline?: string;
     directPullRequest?: {
@@ -326,6 +327,11 @@ exit 64
     join(fakeBin, "git"),
     `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "$*" == *"init --bare"* || "$*" == *"fetch --quiet"* ]]; then [[ -n "$FAKE_REMOTE_SHA" ]]; exit; fi
+if [[ "$*" == *"FETCH_HEAD^{commit}"* ]]; then printf '%s\\n' "$FAKE_REMOTE_SHA"; exit 0; fi
+if [[ "$*" == *"merge-base --is-ancestor"* ]]; then
+  [[ "$TARGET_SHA" == "$FAKE_REMOTE_SHA" || "$FAKE_RELEASE_COMPARE_STATUS" == ahead ]]; exit
+fi
 if [[ "$*" == *"rev-parse HEAD"* ]]; then printf '%s\\n' "$TARGET_SHA"; exit 0; fi
 if [[ "$*" == *"ls-remote"* ]]; then
   if [[ "$*" == *"refs/tags/"* && "$FAKE_REMOTE_REF" != refs/tags/* ]]; then exit 0; fi
@@ -363,6 +369,7 @@ exit 64
         permission: params.permission === "admin" ? "admin" : "write",
         role_name: params.permission ?? "maintain",
       }),
+      FAKE_RELEASE_COMPARE_STATUS: params.releaseCompareStatus ?? "diverged",
       FAKE_REMOTE_REF: remoteRef,
       FAKE_REMOTE_SHA: params.remoteSha ?? candidateSha,
       CANDIDATE_GIT_DIR:
@@ -575,6 +582,56 @@ describe("release Telegram QA workflow", () => {
     }
   });
 
+  it("keeps exact release candidates trusted when the canonical branch advances", () => {
+    for (const provenanceBlock of PROVENANCE_BLOCKS) {
+      for (const targetContextRef of ["release/2026.7.35", "extended-stable/2026.7.33"]) {
+        for (const signature of ["maintainer", "web-flow", "missing"] as const) {
+          const result = runCandidateProvenance(provenanceBlock, {
+            candidateVersion: "2026.7.35",
+            remoteSha: "b".repeat(40),
+            releaseCompareStatus: "ahead",
+            targetContextRef,
+            signature,
+            mergedPullRequests: [{ baseRefName: targetContextRef }],
+          });
+          expect(result.status, `${provenanceBlock.stepName}/${signature}: ${result.stderr}`).toBe(
+            0,
+          );
+          expect(result.stdout).toContain("Telegram candidate trust reason: release-branch");
+        }
+      }
+    }
+  });
+
+  it("rejects untrusted or uncontained candidates after the release branch advances", () => {
+    const cases = [
+      { releaseCompareStatus: "behind" as const },
+      { releaseCompareStatus: "diverged" as const },
+      { targetRef: "extended-stable/2026.7.33" },
+      { remoteSha: "" },
+      { openPr: true },
+      { signature: "invalid" as const },
+      { permission: "write" as const },
+      { mergedPullRequests: [] },
+      { mergedPullRequests: [{ mergeCommitOid: "c".repeat(40) }] },
+      { mergedPullRequests: [{ baseRepository: "fork/openclaw" }] },
+    ];
+    for (const provenanceBlock of PROVENANCE_BLOCKS) {
+      for (const params of cases) {
+        const result = runCandidateProvenance(provenanceBlock, {
+          candidateVersion: "2026.7.35",
+          remoteSha: "b".repeat(40),
+          releaseCompareStatus: "ahead",
+          targetContextRef: "extended-stable/2026.7.33",
+          signature: "web-flow",
+          mergedPullRequests: [{ baseRefName: "extended-stable/2026.7.33" }],
+          ...params,
+        });
+        expect(result.status, `${provenanceBlock.stepName}: ${JSON.stringify(params)}`).not.toBe(0);
+      }
+    }
+  });
+
   it("accepts only strict signed frozen beta branch heads in both provenance blocks", () => {
     for (const provenanceBlock of PROVENANCE_BLOCKS) {
       const frozen = runCandidateProvenance(provenanceBlock, {
@@ -669,51 +726,21 @@ describe("release Telegram QA workflow", () => {
   });
 
   it("attributes web-flow release heads through a unique integration-base merge", () => {
-    const results = PROVENANCE_BLOCKS.flatMap((provenanceBlock) =>
-      ["2026.7.1", "2026.7.1-beta.3"].map((candidateVersion) => ({
-        candidateVersion,
-        provenanceBlock,
-        result: runCandidateProvenance(provenanceBlock, {
+    for (const provenanceBlock of PROVENANCE_BLOCKS) {
+      for (const candidateVersion of ["2026.7.1", "2026.7.1-beta.3"]) {
+        const result = runCandidateProvenance(provenanceBlock, {
           candidateVersion,
           mergedPullRequests: [{ baseRefName: "release-integration/2026.7.1-repair-2" }],
           signature: "web-flow",
           targetContextRef: "release/2026.7.1",
-        }),
-      })),
-    );
-    expect(
-      results.map(({ candidateVersion, provenanceBlock, result }) => ({
-        block: provenanceBlock.stepName,
-        candidateVersion,
-        status: result.status,
-        stderr: result.stderr,
-      })),
-    ).toEqual([
-      {
-        block: "Validate candidate release provenance",
-        candidateVersion: "2026.7.1",
-        status: 0,
-        stderr: "",
-      },
-      {
-        block: "Validate candidate release provenance",
-        candidateVersion: "2026.7.1-beta.3",
-        status: 0,
-        stderr: "",
-      },
-      {
-        block: "Revalidate candidate release provenance",
-        candidateVersion: "2026.7.1",
-        status: 0,
-        stderr: "",
-      },
-      {
-        block: "Revalidate candidate release provenance",
-        candidateVersion: "2026.7.1-beta.3",
-        status: 0,
-        stderr: "",
-      },
-    ]);
+        });
+        expect(
+          result.status,
+          `${provenanceBlock.stepName}/${candidateVersion}: ${result.stderr}`,
+        ).toBe(0);
+        expect(result.stderr).toBe("");
+      }
+    }
   });
 
   it("verifies an exact merged PR directly when commit associations are missing", () => {
@@ -727,7 +754,7 @@ describe("release Telegram QA workflow", () => {
           directPullRequest: {},
         });
         expect(result.status, result.stderr).toBe(0);
-        expect(result.stdout).toContain("Telegram candidate trust reason: release-branch-head");
+        expect(result.stdout).toContain("Telegram candidate trust reason: release-branch");
       }
     }
   });

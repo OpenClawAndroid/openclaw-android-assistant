@@ -152,6 +152,7 @@ export async function runUpdateFinalizationDoctorInFreshProcess(params: {
         ...buildUpdateDoctorEnv({
           allowGatewayServiceRepair: false,
           allowGatewayActivation: false,
+          serviceRepairPolicy: "external",
           deferConfiguredPluginInstallRepair: true,
         }),
         ...(params.phase === "post-plugin" ? { [UPDATE_POST_CORE_CONVERGENCE_ENV]: "1" } : {}),

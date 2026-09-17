@@ -14,7 +14,7 @@ import { quoteCliArg, quotePowerShellArg } from "../quote-cli-arg.js";
 import {
   gatewayServiceCommandUsesRoot,
   isGatewayServiceManagementAllowedForUpdate,
-  readManagedGatewayServiceCommandForUpdate,
+  readManagedGatewayServiceForUpdate,
 } from "./update-command-service-plan.js";
 
 /** Re-invocation after a Node switch admits only a positively inspected empty or owned destination. */
@@ -64,9 +64,10 @@ export async function inspectNpmGlobalDestination(root: string, timeoutMs: numbe
       return unknown(prefix, "unreadable-layout");
     }
     const manageable = isGatewayServiceManagementAllowedForUpdate(process.env);
-    const command = manageable
-      ? await readManagedGatewayServiceCommandForUpdate(process.env)
+    const serviceInspection = manageable
+      ? await readManagedGatewayServiceForUpdate(process.env)
       : null;
+    const command = serviceInspection?.command ?? null;
     const ownsPackage =
       packageRootReal !== null &&
       ((await resolveCanonicalPath(root)) === packageRootReal ||
@@ -86,7 +87,7 @@ export async function inspectNpmGlobalDestination(root: string, timeoutMs: numbe
       resolveManagedGatewayServiceCommand(command)?.environment,
     ].some((env) => env?.OPENCLAW_WRAPPER?.trim());
     const select =
-      command && !wrapper && ownsLauncher && launcherTarget
+      serviceInspection?.verdict.refreshDefinition && !wrapper && ownsLauncher && launcherTarget
         ? formatCliCommand(
             `openclaw gateway install --force --runtime-path ${quote(process.execPath)}`,
           ).replace(/^openclaw\b/, () => `node ${quote(launcherTarget)}`)

@@ -26,6 +26,7 @@ import {
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { hasReplyPayloadContent } from "../../../interactive/payload.js";
 import type { AssistantMessage } from "../../../llm/types.js";
+import { resolveRawAssistantAnswerText } from "../../../shared/assistant-answer-text.js";
 import { classifyOAuthRefreshFailure } from "../../auth-profiles/oauth-refresh-failure.js";
 import {
   formatAssistantErrorText,
@@ -47,7 +48,6 @@ import {
 import { isTimeoutErrorMessage } from "../../failover/classify.js";
 import type { PreparedProviderFailoverOwner } from "../../failover/provider-patterns.js";
 import type { ToolErrorSummary } from "../../tool-error-summary.js";
-import { resolveRawAssistantAnswerText } from "./assistant-answer.js";
 import { buildSourceReplyPayloadState } from "./source-reply-payloads.js";
 import { buildFailureWarning } from "./tool-error-warning.js";
 

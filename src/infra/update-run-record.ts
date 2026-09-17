@@ -124,6 +124,34 @@ export function finishUpdateRunRecord(
   record.downtimeMs = result.downtimeMs ?? record.downtimeMs;
 }
 
+/** Only the package-owner refusal before update work can bypass repair finalization. */
+export function isUnacknowledgedPackageOwnerRefusal(record: UpdateRunRecord): boolean {
+  const requested = record.steps.find((step) => step.step === "requested");
+  return (
+    record.trigger === "cli" &&
+    record.phase === "finished" &&
+    record.target.kind !== "git" &&
+    !Object.keys(record.after).length &&
+    !Object.keys(record.verification).length &&
+    !record.repair.length &&
+    record.steps.every(
+      (step) =>
+        step.step === "requested" ||
+        (step.step === "driver:adopted" && step.status === "completed"),
+    ) &&
+    ((record.status === "skipped" &&
+      record.reason === "unmanaged-package-install" &&
+      requested?.status === "skipped") ||
+      // 2026.9.4 threw this exact error before it could record a structured refusal.
+      (record.status === "failed" &&
+        record.reason === "update-failed" &&
+        requested?.status === "failed" &&
+        requested.detail?.startsWith(
+          "Update refused: package manager owner is unknown; no changes were made.",
+        ) === true))
+  );
+}
+
 export type UpdateFetchFailure = {
   reason: "fetch-failed";
   failedAtMs: number;

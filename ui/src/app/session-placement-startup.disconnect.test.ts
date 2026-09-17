@@ -6,6 +6,7 @@ import { writeSessionPlacementRecovery } from "../lib/sessions/session-placement
 import type { ApplicationGateway } from "./gateway.ts";
 import createRuntime from "./session-placement-startup.runtime.ts";
 import {
+  blockStorageWrites,
   createPlacementStartupHarness,
   createStartupPlacement,
   flushStartupMicrotasks,
@@ -35,18 +36,7 @@ describe("initial turn ownership through disconnect", () => {
     async ({ persistent, storageFails, replacementClient }) => {
       const request = vi.fn(() => {
         if (storageFails) {
-          const storage = sessionStorage;
-          vi.stubGlobal("sessionStorage", {
-            get length() {
-              return storage.length;
-            },
-            key: storage.key.bind(storage),
-            getItem: storage.getItem.bind(storage),
-            removeItem: storage.removeItem.bind(storage),
-            setItem: () => {
-              throw new Error("quota");
-            },
-          });
+          blockStorageWrites();
         }
         return Promise.reject(
           new GatewayRequestError({ code: "INVALID_REQUEST", message: "target unavailable" }),

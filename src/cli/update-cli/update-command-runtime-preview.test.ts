@@ -133,6 +133,15 @@ it.each(cases.flatMap((entry) => [true, false].map((json) => Object.assign({}, e
           instruction:
             "Install and select Node 26.1.0 using your system package manager or https://nodejs.org/en/download.",
         },
+        ...(current && (!running || !refresh)
+          ? [
+              {
+                kind: "select-runtime",
+                instruction:
+                  "The Gateway service still selects /service/node. Before continuing, have its deployment owner select Node 26.1.0 in the service definition while retaining its installation, service account, and state/config selectors. Switching the shell runtime alone does not update that service definition.",
+              },
+            ]
+          : []),
         {
           kind: "continue-update",
           command: `node ${process.platform === "win32" ? quotePowerShellArg(path.join(fixture.root, "openclaw.mjs")) : quoteCliArg(path.join(fixture.root, "openclaw.mjs"))} update --tag 2026.9.2`,

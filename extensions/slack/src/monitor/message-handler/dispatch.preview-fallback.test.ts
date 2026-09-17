@@ -4562,7 +4562,7 @@ describe("dispatchPreparedSlackMessage preview fallback", () => {
   });
 
   it.each([undefined, "compact"] as const)(
-    "buffers the first notifying preamble but streams later edits (style=%s)",
+    "keeps complete preambles visible between streamed updates (style=%s)",
     async (style) => {
       const checkpoint = vi.fn();
       let postedMessageId: string | undefined;
@@ -4632,9 +4632,11 @@ describe("dispatchPreparedSlackMessage preview fallback", () => {
           kind: "checkpoint",
           run: async () => {
             checkpoint();
-            expectLastDraftUpdateText(draftStream, "_The result_");
+            // A human reply can rotate the preview at this point. Keeping the
+            // last complete preamble prevents an abandoned word fragment.
+            expectLastDraftUpdateText(draftStream, "_I will check the result._");
             expect(draftStream.update.mock.calls.at(-1)?.[0]).toMatchObject({
-              allowNewMessage: false,
+              allowNewMessage: true,
             });
           },
         },

@@ -575,12 +575,12 @@ export async function runGatewayLoop(params: {
     }
     return reacquireAndResumeInProcessRestart();
   };
-  const nativeStopBudget = supervisorMode === "systemd" || supervisorMode === "launchd";
   const {
+    nativeStopBudget,
     timeoutMs: acceptedShutdownTimeoutMs,
     reserveMs: RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS,
     log: logShutdownBudget,
-  } = await resolveGatewayShutdownBudget(supervisorMode, (message) => gatewayLog.info(message));
+  } = await resolveGatewayShutdownBudget(supervisorMode, gatewayLog);
   logShutdownBudget("startup");
   const clearPendingStartupForceExitTimer = () => {
     clearTimeout(pendingStartupForceExitTimer ?? undefined);

@@ -28,12 +28,18 @@ export function expectedPlainRecovery(
     ? "unset OPENCLAW_HOME OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH OPENCLAW_PROFILE OPENCLAW_GATEWAY_PORT OPENCLAW_LAUNCHD_LABEL OPENCLAW_SYSTEMD_UNIT OPENCLAW_WINDOWS_TASK_NAME OPENCLAW_WORKSPACE_DIR"
     : undefined,
   root?: string,
+  pinnedServiceNode?: string,
 ): string {
   return [
     "Recovery:",
     "1. Use the same service account and keep the existing OPENCLAW_STATE_DIR and OPENCLAW_CONFIG_PATH overrides throughout recovery.",
     ...(context ? [`2. Run \`${context}\`.`] : []),
     `2. Install and select Node ${node} using your system package manager or https://nodejs.org/en/download.`,
+    ...(pinnedServiceNode
+      ? [
+          `3. The Gateway service still selects ${pinnedServiceNode}. Before continuing, have its deployment owner select Node ${node} in the service definition while retaining its installation, service account, and state/config selectors. Switching the shell runtime alone does not update that service definition.`,
+        ]
+      : []),
     root
       ? `3. Run \`node ${process.platform === "win32" ? quotePowerShellArg(path.join(root, "openclaw.mjs")) : quoteCliArg(path.join(root, "openclaw.mjs"))} update --tag ${version}\`.`
       : "3. Run this installation's absolute openclaw.mjs launcher with the selected Node and the update command to recheck package and service ownership before installation.",

@@ -32,6 +32,7 @@ import {
 } from "./session-method-policy.js";
 import { SessionMutationAuthorizationChangedError } from "./session-mutation-authorization-error.js";
 import { resolveRequestedSessionAgentId } from "./session-request-agent.js";
+import type { SessionRowReadView } from "./session-row-prepared-read.js";
 import { getSessionRowProjection } from "./session-row-projection-access.js";
 import {
   authorizeIncognitoSessionTarget,
@@ -146,6 +147,7 @@ export function resolveSessionMutationAuthorization(params: {
   context: GatewayRequestContext;
   /** Trusted prepared identity; never adopt a later target while capturing authority. */
   expectedTarget?: ExpectedSessionMutationTarget;
+  sessionRowRead?: SessionRowReadView;
 }): { authorization?: SessionMutationAuthorization; error: ErrorShape | null } {
   const authorizesAgentRun =
     AGENT_RUN_START_METHODS.has(params.method) ||
@@ -168,9 +170,9 @@ export function resolveSessionMutationAuthorization(params: {
   ) {
     return { error: authenticatedProfileUnavailableError() };
   }
-  // The router waits for describe readiness; its role cap precedes handler visibility filtering.
+  // The role cap precedes handler visibility filtering on the current exact row.
   if (params.method === "sessions.describe") {
-    const projection = getSessionRowProjection(params.context);
+    const projection = params.sessionRowRead ?? getSessionRowProjection(params.context);
     if (projection) {
       const { cfg } = projection.state;
       for (const target of resolveDirectSessionTargets(params.method, params.requestParams)) {

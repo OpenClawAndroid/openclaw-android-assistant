@@ -14,6 +14,10 @@ import { executeCronStoreSaveCommand } from "../cron/store/save.worker.js";
 import { readDeferredPluginMigrations } from "../infra/deferred-plugin-migrations.js";
 import { countFailedDeliveryQueueEntriesInDatabase } from "../infra/delivery-queue-sqlite.kernel.js";
 import { executePromotionCommand } from "../infra/promotions-feed.worker.js";
+import {
+  readApnsRegistrationFromDatabase,
+  readApnsRegistrationsFromDatabase,
+} from "../infra/push-apns-store.js";
 import { readPersistedVapidKeyPairInDatabase } from "../infra/push-web-store.kernel.js";
 import { executeWebPushCommand } from "../infra/push-web-store.worker.js";
 import { executeSessionDeliveryCommand } from "../infra/session-delivery-queue.worker.js";
@@ -267,6 +271,12 @@ function createSharedStateWorkerBackend(
         );
       }
       const database = open();
+      if (command.type === "apns.registration.read") {
+        return readApnsRegistrationFromDatabase(database.db, command.input);
+      }
+      if (command.type === "apns.registrations.read") {
+        return readApnsRegistrationsFromDatabase(database.db, command.input);
+      }
       if (command.type === "plugins.catalogSnapshot.read") {
         return readHostedCatalogSnapshotInDatabase(database.db, command.input.url);
       }

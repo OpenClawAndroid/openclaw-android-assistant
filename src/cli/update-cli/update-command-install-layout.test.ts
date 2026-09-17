@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import * as container from "../../infra/container-environment.js";
+import * as updateCheck from "../../infra/update-check.js";
 import { prepareUpdateFailureReport } from "../../infra/update-failure-report-prepare.js";
 import { listUpdateRuns } from "../../infra/update-run-ledger.js";
 import {
@@ -19,7 +20,9 @@ import {
 } from "../../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import * as shared from "./shared.js";
+import * as finalization from "./update-command-finalize.js";
 import { updateCommand } from "./update-command.js";
+import { updateRepairCommand } from "./update-repair-command.js";
 
 const triage = vi.hoisted(() => vi.fn());
 vi.mock("../../infra/update-triage.js", () => ({
@@ -113,6 +116,18 @@ it.each([
     await expect(fs.stat(process.env.OPENCLAW_CONFIG_PATH!)).rejects.toMatchObject({
       code: "ENOENT",
     });
+    if (!containerized) {
+      vi.spyOn(updateCheck, "resolveNpmChannelTag").mockResolvedValue({
+        tag: "latest",
+        version: "2026.9.4",
+      });
+      const finalize = vi.spyOn(finalization, "updateFinalizeCommand").mockResolvedValue();
+      await updateRepairCommand({ json: true, yes: true });
+      expect(finalize).not.toHaveBeenCalled();
+      expect(listUpdateRuns({ limit: 1 })[0]?.steps).toContainEqual(
+        expect.objectContaining({ step: "reconcile:acknowledged", status: "completed" }),
+      );
+    }
   },
 );
 

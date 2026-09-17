@@ -365,6 +365,7 @@ describe("update-cli child-owned deferred completion", () => {
   });
 
   it("uses the Windows parent process start time for old post-core parents", async () => {
+    const parentStartedAtMs = Date.now() - 1_000;
     const preUpdateConfig = stableWhatsAppConfig();
     const postDoctorConfig = stableConfig();
     await setupPostCoreConfigFixture({ preUpdateConfig, postDoctorConfig });
@@ -373,7 +374,7 @@ describe("update-cli child-owned deferred completion", () => {
       expect(file).toBe("powershell.exe");
       expect(commandArgs).toContain("-NonInteractive");
       return {
-        stdout: new Date(Date.now() - 1_000).toISOString(),
+        stdout: new Date(parentStartedAtMs).toISOString(),
         stderr: "",
       };
     });

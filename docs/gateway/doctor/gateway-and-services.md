@@ -139,6 +139,27 @@ warnings, workspace status, gateway auth and health, and supervisors.
     and must not be copied into shared reports. The redacted name identifies the
     entry but is not its literal Git config key.
 
+    Git can retain `objects/pack/*.promisor` sidecars after the remote keys are
+    unset and the repository is repacked. The sidecars are harmless: OpenClaw
+    determines partial-clone repair availability from Git configuration, not from
+    those files. To remove the stale on-disk label, first confirm that the missing
+    object command below prints nothing and that `git fsck` succeeds:
+
+    ```bash
+    git rev-list --objects --missing=print --all | sed -n 's/^?//p'
+    git fsck --full
+    ```
+
+    Then move only the sidecars out of the pack directory, keeping them as a
+    recoverable backup until the next successful Doctor and managed-worktree run:
+
+    ```bash
+    promisor_marker_backup="$(git rev-parse --git-dir)/retired-promisor-markers"
+    mkdir -p "$promisor_marker_backup"
+    find "$(git rev-parse --git-dir)/objects/pack" -maxdepth 1 -type f -name '*.promisor' -exec mv -n {} "$promisor_marker_backup"/ \;
+    git fsck --full
+    ```
+
     Rerun Doctor afterward. If history or objects remain missing, recover them
     from the original repository. Origin may not contain local-only snapshots;
     see [snapshot restore](/concepts/managed-worktrees#snapshots-cleanup-and-restore).

@@ -11951,7 +11951,7 @@ describe("update-cli", () => {
           reason: "node-runtime-preflight",
         });
         expect(getErrorOutput()).toBe(
-          `openclaw@${VERSION} requires Node >=24.16.0 <25 || >=26.1.0; selected runtime is Node 22.23.1 at ${serviceNode}.\nbroken TEXT decoder\n${runtimeRecovery.expectedPlainRecovery(VERSION, "24.16.0", writable ? "refresh" : "owner", "unset OPENCLAW_HOME OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH OPENCLAW_PROFILE OPENCLAW_GATEWAY_PORT OPENCLAW_LAUNCHD_LABEL OPENCLAW_SYSTEMD_UNIT OPENCLAW_WINDOWS_TASK_NAME OPENCLAW_WORKSPACE_DIR", root)}`,
+          `openclaw@${VERSION} requires Node >=24.16.0 <25 || >=26.1.0; selected runtime is Node 22.23.1 at ${serviceNode}.\nbroken TEXT decoder\n${runtimeRecovery.expectedPlainRecovery(VERSION, "24.16.0", writable ? "refresh" : "owner", "unset OPENCLAW_HOME OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH OPENCLAW_PROFILE OPENCLAW_GATEWAY_PORT OPENCLAW_LAUNCHD_LABEL OPENCLAW_SYSTEMD_UNIT OPENCLAW_WINDOWS_TASK_NAME OPENCLAW_WORKSPACE_DIR", root, writable ? undefined : serviceNode)}`,
         );
         expectNoSideEffects(
           updateNpmInstalledPlugins,

@@ -4,7 +4,10 @@ import { hasOperatorBoundary } from "../operator-role-policy.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
 import { prepareProjectedSessionPresentation } from "../session-row-presentation.js";
 import { getSessionRowProjection } from "../session-row-projection-access.js";
-import { createSessionListEntryFilter } from "../session-sharing.js";
+import {
+  authorizeIncognitoSessionTarget,
+  createSessionListEntryFilter,
+} from "../session-sharing.js";
 import { readRecentSessionMessagesWithStatsAsync } from "../session-transcript-readers.js";
 import { loadSessionEntriesForTarget, requireSessionKey } from "./sessions-shared.js";
 import type { GatewayRequestHandlers } from "./types.js";
@@ -23,29 +26,53 @@ export const sessionByKeyReadHandlers: GatewayRequestHandlers = {
     if (!projection) {
       throw new Error("Session projection is unavailable before Gateway startup completes");
     }
-    const cfg = projection.state.cfg;
-    const requestedAgent = resolveRequestedSessionAgentId(cfg, key, params.agentId);
-    if (!requestedAgent.ok) {
-      respond(false, undefined, requestedAgent.error);
-      return;
+    while (true) {
+      const prepared = await projection.withPreparedExactRows(
+        (cfg) => {
+          const agent = resolveRequestedSessionAgentId(cfg, key, params.agentId);
+          const denied = authorizeIncognitoSessionTarget({
+            client: client ?? null,
+            sessionKey: key,
+            target: null,
+          });
+          return agent.ok && !denied ? [{ key, agentId: agent.agentId }] : [];
+        },
+        (read) => {
+          const requestedAgent = resolveRequestedSessionAgentId(
+            read.state.cfg,
+            key,
+            params.agentId,
+          );
+          if (!requestedAgent.ok) {
+            respond(false, undefined, requestedAgent.error);
+            return;
+          }
+          const query = { key, agentId: requestedAgent.agentId };
+          const presentation = prepareProjectedSessionPresentation(read, client);
+          const denied = presentation.authorizeDescription(query);
+          if (denied) {
+            respond(false, undefined, denied);
+            return;
+          }
+          const record = read.describe(query);
+          if (
+            !record ||
+            (presentation.sharing.sessionCap !== undefined &&
+              presentation.sharing.entryFilter?.(record.key, record.entry) === false)
+          ) {
+            respond(true, { session: null });
+            return;
+          }
+          respond(true, { session: presentation.present(record, params) });
+        },
+      );
+      if (prepared.kind === "complete") {
+        return;
+      }
+      const { certifySessionCanonicalValidationPending } =
+        await import("../../config/sessions/session-canonical-validation-readiness.js");
+      await certifySessionCanonicalValidationPending(prepared.database);
     }
-    const query = { key, agentId: requestedAgent.agentId };
-    const presentation = prepareProjectedSessionPresentation(projection, client);
-    const denied = presentation.authorizeDescription(query);
-    if (denied) {
-      respond(false, undefined, denied);
-      return;
-    }
-    const record = projection.describe(query);
-    if (
-      !record ||
-      (presentation.sharing.sessionCap !== undefined &&
-        presentation.sharing.entryFilter?.(record.key, record.entry) === false)
-    ) {
-      respond(true, { session: null });
-      return;
-    }
-    respond(true, { session: presentation.present(record, params) });
   },
   "sessions.get": async ({ params, respond, context, client }) => {
     // SAFETY: Gateway dispatch supplies object params; each optional field is narrowed before use.

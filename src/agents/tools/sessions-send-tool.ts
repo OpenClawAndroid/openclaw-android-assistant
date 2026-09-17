@@ -89,7 +89,7 @@ import {
   resolveSessionToolContext,
   resolveVisibleSessionReference,
 } from "./sessions-helpers.js";
-import { buildAgentToAgentMessageContext, resolvePingPongTurns } from "./sessions-send-helpers.js";
+import { buildAgentToAgentMessageContext } from "./sessions-send-helpers.js";
 import { resumeSessionsSendTask } from "./sessions-send-resume.js";
 import { runSessionsSendA2AFlow } from "./sessions-send-tool.a2a.js";
 import { startSessionsSendAgentRun } from "./sessions-send-tool.delivery.js";
@@ -980,8 +980,6 @@ export function createSessionsSendTool(opts?: {
               callGateway: gatewayCall,
             });
           }
-          const maxPingPongTurns = resolvePingPongTurns();
-
           // ACP background tasks already report to their parent through task completion.
           const targetSessionEntryWithAcp = targetSessionEntry
             ? { ...targetSessionEntry, acp: targetAcpMeta }
@@ -990,65 +988,13 @@ export function createSessionsSendTool(opts?: {
             targetSessionEntryWithAcp,
             effectiveRequesterKey,
           );
-          // A scoped grant belongs to one exact session incarnation. Do not create
-          // post-return work or durable watches that could follow a reused key.
-          // Child reports are one-way; even a late parent answer must not wake the child again.
-          const skipDelayedReplyFlow =
-            requesterIsSubagent || skipTaskReplyFlow || Boolean(expectedSessionId);
-          // Ordinary child follow-ups have no registered task completion. Preserve one
-          // late reply for their requester, but never duplicate a reply returned inline.
-          const skipInlineReplyFlow = skipDelayedReplyFlow || targetIsSubagent;
-          const startReplyFlow = (
-            reply?: Awaited<ReturnType<typeof waitForAgentRunReply>>,
-            waitRunId?: string,
-            flowTargetSessionKey = resolvedKey,
-            flowDisplayKey = displayKey,
-            notifyRequesterOnWaitFailure = false,
-          ) => {
-            if (reply === undefined ? skipDelayedReplyFlow : skipInlineReplyFlow) {
-              return;
-            }
-            // This detached flow can outlive the tool request that launched it.
-            // Later turns need their own resource scope without retaining the
-            // completed caller or its prepared-runtime generation.
-            runWithGatewayToolCleanupContext(() => {
-              void runWithGatewayDetachedWorkContinuation(
-                () =>
-                  runOutsidePreparedModelRuntimePluginGenerationScope(() =>
-                    runWithoutOwnedSessionTranscriptWrites(() =>
-                      runSessionsSendA2AFlow({
-                        callGateway: gatewayCall,
-                        targetSessionKey: flowTargetSessionKey,
-                        targetAgentId,
-                        displayKey: flowDisplayKey,
-                        message,
-                        announceTimeoutMs,
-                        // Cron runs are isolated jobs; target replies must not become new
-                        // requester turns, but the target-side announce still runs.
-                        maxPingPongTurns: isIsolatedCronRequester ? 0 : maxPingPongTurns,
-                        ...(targetIsSubagent && !isIsolatedCronRequester
-                          ? { replyMode: "one-way" as const }
-                          : {}),
-                        requesterSessionKey: replyRequesterSessionKey,
-                        requesterAgentId,
-                        requesterChannel,
-                        roundOneReply: reply?.replyText,
-                        sourceReplyDelivered: reply?.sourceReplyDelivered,
-                        waitRunId,
-                        notifyRequesterOnWaitFailure:
-                          notifyRequesterOnWaitFailure && !isIsolatedCronRequester,
-                      }),
-                    ),
-                  ),
-                "session:a2a-send",
-              ).catch((err: unknown) => {
-                log.warn("sessions_send announce flow admission failed", {
-                  runId: waitRunId ?? "unknown",
-                  error: formatErrorMessage(err),
-                });
-              });
-            });
-          };
+          // Child reports, registered tasks, and exact-incarnation grants own their completion.
+          const replyMode =
+            requesterIsSubagent || skipTaskReplyFlow || expectedSessionId
+              ? undefined
+              : targetIsSubagent && !isIsolatedCronRequester
+                ? "one-way"
+                : "peer";
 
           const start = await startSessionsSendAgentRun({
             cfg,
@@ -1074,18 +1020,18 @@ export function createSessionsSendTool(opts?: {
             return start.result;
           }
           const acceptedTargetSessionKey = start.a2aSessionKey ?? resolvedKey;
-          // Active-run steering is consumed by the current turn and does not
-          // launch the detached A2A flow. Report that boundary directly so the
-          // caller never mistakes target admission for announcement delivery.
+          // Steering keeps its active owner; an inline child reply is already delivered.
+          const delayedDelivery = {
+            status:
+              replyMode !== undefined && start.targetDisposition === "queued"
+                ? "pending"
+                : "skipped",
+            mode: "announce",
+          } as const;
           const delivery =
-            (timeoutSeconds === 0 ? skipDelayedReplyFlow : skipInlineReplyFlow) ||
-            start.targetDisposition === "steered"
+            timeoutSeconds > 0 && targetIsSubagent
               ? ({ status: "skipped", mode: "announce" } as const)
-              : ({ status: "pending", mode: "announce" } as const);
-          const delayedDelivery =
-            skipDelayedReplyFlow || start.targetDisposition === "steered"
-              ? ({ status: "skipped", mode: "announce" } as const)
-              : ({ status: "pending", mode: "announce" } as const);
+              : delayedDelivery;
           recordSessionToolActionFact({
             operation: "send",
             fact: "committed",
@@ -1120,10 +1066,54 @@ export function createSessionsSendTool(opts?: {
           }
           runId = start.runId;
           const watchField = registerWatchIfRequested(acceptedTargetSessionKey);
-          if (timeoutSeconds === 0) {
-            if (start.targetDisposition !== "steered") {
-              startReplyFlow(undefined, runId, start.a2aSessionKey, start.a2aDisplayKey, true);
+          const startReplyFlow = ({
+            reply,
+            notifyRequesterOnWaitFailure = false,
+          }: {
+            reply?: Awaited<ReturnType<typeof waitForAgentRunReply>>;
+            notifyRequesterOnWaitFailure?: boolean;
+          }) => {
+            if ((reply ? delivery : delayedDelivery).status === "skipped") {
+              return;
             }
+            // Detached turns must not retain the caller's resource or runtime generation scope.
+            runWithGatewayToolCleanupContext(() => {
+              void runWithGatewayDetachedWorkContinuation(
+                () =>
+                  runOutsidePreparedModelRuntimePluginGenerationScope(() =>
+                    runWithoutOwnedSessionTranscriptWrites(() =>
+                      runSessionsSendA2AFlow({
+                        callGateway: gatewayCall,
+                        targetSessionKey: acceptedTargetSessionKey,
+                        targetAgentId,
+                        displayKey: start.a2aSessionKey ?? displayKey,
+                        message,
+                        announceTimeoutMs,
+                        // Isolated Cron jobs retain target announcements without requester turns.
+                        maxPingPongTurns: isIsolatedCronRequester ? 0 : 5,
+                        replyMode,
+                        requesterSessionKey: replyRequesterSessionKey,
+                        requesterAgentId,
+                        requesterChannel,
+                        roundOneReply: reply?.replyText,
+                        sourceReplyDelivered: reply?.sourceReplyDelivered,
+                        waitRunId: reply ? undefined : runId,
+                        notifyRequesterOnWaitFailure:
+                          notifyRequesterOnWaitFailure && !isIsolatedCronRequester,
+                      }),
+                    ),
+                  ),
+                "session:a2a-send",
+              ).catch((err: unknown) => {
+                log.warn("sessions_send announce flow admission failed", {
+                  runId,
+                  error: formatErrorMessage(err),
+                });
+              });
+            });
+          };
+          if (timeoutSeconds === 0) {
+            startReplyFlow({ notifyRequesterOnWaitFailure: true });
             return jsonResult({
               runId,
               status: "accepted",
@@ -1142,7 +1132,7 @@ export function createSessionsSendTool(opts?: {
 
           if (result.status === "timeout") {
             if (isPendingErrorAgentWaitTimeout(result)) {
-              startReplyFlow(undefined, runId, resolvedKey, displayKey, targetIsSubagent);
+              startReplyFlow({ notifyRequesterOnWaitFailure: targetIsSubagent });
               return jsonResult({
                 runId,
                 status: "timeout",
@@ -1154,7 +1144,7 @@ export function createSessionsSendTool(opts?: {
               });
             }
             if (!isTerminalAgentWaitTimeout(result)) {
-              startReplyFlow(undefined, runId, resolvedKey, displayKey, true);
+              startReplyFlow({ notifyRequesterOnWaitFailure: true });
               return jsonResult({
                 runId,
                 status: "accepted",
@@ -1193,7 +1183,7 @@ export function createSessionsSendTool(opts?: {
                   : NO_REPLY_MESSAGE,
               };
           if (reply) {
-            startReplyFlow(result);
+            startReplyFlow({ reply: result });
           }
           return jsonResult({ runId, sessionKey: displayKey, ...response, ...watchField });
         },

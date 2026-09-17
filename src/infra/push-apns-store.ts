@@ -7,10 +7,12 @@ import type { Insertable, Selectable } from "kysely";
 import { z } from "zod";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
-  openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
+  type OpenClawStateDatabase,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
+import { executeOpenClawStateWorker } from "../state/openclaw-state-worker-store.js";
 import { loadPairedDevicePairingStoreRecordFromDatabase } from "./device-pairing-store.js";
 import { resolveNodePairingGeneration } from "./device-pairing.js";
 import {
@@ -22,38 +24,18 @@ import {
   clearApnsRegistrationFromDatabase,
   nextApnsRegistrationVersion,
 } from "./push-apns-store-transaction.js";
+import type { ApnsEnvironment, ApnsRegistration } from "./push-apns-store.types.js";
 import {
   normalizeApnsRelayBaseUrl,
   normalizePersistedApnsRelayBaseUrl,
 } from "./push-apns.relay.js";
 
-export type ApnsEnvironment = "sandbox" | "production";
-
-export type DirectApnsRegistration = {
-  nodeId: string;
-  transport: "direct";
-  token: string;
-  topic: string;
-  environment: ApnsEnvironment;
-  updatedAtMs: number;
-};
-
-export type RelayApnsRegistration = {
-  nodeId: string;
-  transport: "relay";
-  relayHandle: string;
-  sendGrant: string;
-  installationId: string;
-  topic: string;
-  environment: ApnsEnvironment;
-  distribution: "official";
-  updatedAtMs: number;
-  relayOrigin?: string;
-  tokenDebugSuffix?: string;
-};
-
-/** Stored APNs registration for either direct device tokens or official relay handles. */
-export type ApnsRegistration = DirectApnsRegistration | RelayApnsRegistration;
+export type {
+  ApnsEnvironment,
+  ApnsRegistration,
+  DirectApnsRegistration,
+  RelayApnsRegistration,
+} from "./push-apns-store.types.js";
 
 export class ApnsRegistrationPairingChangedError extends Error {
   constructor() {
@@ -539,10 +521,21 @@ export async function loadApnsRegistration(
   if (!normalizedNodeId) {
     return null;
   }
-  const database = openOpenClawStateDatabase(apnsStateDatabaseOptions(baseDir));
+  const context = captureOpenClawStateWorkerContext(apnsStateDatabaseOptions(baseDir));
+  return executeOpenClawStateWorker(context, {
+    type: "apns.registration.read",
+    input: normalizedNodeId,
+  });
+}
+
+/** Read and decode one registration through the caller's canonical connection. */
+export function readApnsRegistrationFromDatabase(
+  db: OpenClawStateDatabase["db"],
+  normalizedNodeId: string,
+): ApnsRegistration | null {
   const row = executeSqliteQueryTakeFirstSync(
-    database.db,
-    getNodeSqliteKysely<ApnsRegistrationDatabase>(database.db)
+    db,
+    getNodeSqliteKysely<ApnsRegistrationDatabase>(db)
       .selectFrom("apns_registrations")
       .selectAll()
       .where("node_id", "=", normalizedNodeId),
@@ -569,16 +562,31 @@ export async function loadApnsRegistrations(
   if (uniqueNodeIds.length === 0) {
     return [];
   }
-  const database = openOpenClawStateDatabase(apnsStateDatabaseOptions(baseDir));
+  const context = captureOpenClawStateWorkerContext(apnsStateDatabaseOptions(baseDir));
+  const registrations = await executeOpenClawStateWorker(context, {
+    type: "apns.registrations.read",
+    input: uniqueNodeIds,
+  });
+  return normalizedByInput.flatMap(({ nodeId, normalizedNodeId }) => {
+    const registration = registrations.get(normalizedNodeId);
+    return registration ? [{ nodeId, registration }] : [];
+  });
+}
+
+/** Decode each bounded query before advancing to the next requested chunk. */
+export function readApnsRegistrationsFromDatabase(
+  db: OpenClawStateDatabase["db"],
+  uniqueNodeIds: readonly string[],
+): Map<string, ApnsRegistration> {
   const registrations = new Map<string, ApnsRegistration>();
-  const stateDb = getNodeSqliteKysely<ApnsRegistrationDatabase>(database.db);
+  const stateDb = getNodeSqliteKysely<ApnsRegistrationDatabase>(db);
   for (
     let offset = 0;
     offset < uniqueNodeIds.length;
     offset += APNS_REGISTRATION_LOOKUP_CHUNK_SIZE
   ) {
     const rows = executeSqliteQuerySync(
-      database.db,
+      db,
       stateDb
         .selectFrom("apns_registrations")
         .selectAll()
@@ -592,10 +600,7 @@ export async function loadApnsRegistrations(
       registrations.set(row.node_id, apnsRegistrationFromRow(row));
     }
   }
-  return normalizedByInput.flatMap(({ nodeId, normalizedNodeId }) => {
-    const registration = registrations.get(normalizedNodeId);
-    return registration ? [{ nodeId, registration }] : [];
-  });
+  return registrations;
 }
 
 /** Clears a registration only if storage still contains the caller's observed value. */

@@ -3119,6 +3119,11 @@ function runReleaseChecksShellStep(
   workdir = tempDirs.make("release-checks-shell-step-"),
 ) {
   const step = workflowStep(workflowJob(RELEASE_CHECKS_WORKFLOW, "resolve_target"), stepName);
+  mkdirSync(join(workdir, "workflow", "scripts"), { recursive: true });
+  copyFileSync(
+    "scripts/release-context-contains.sh",
+    join(workdir, "workflow", "scripts", "release-context-contains.sh"),
+  );
   const outputPath = resolve(workdir, "github-output");
   writeFileSync(outputPath, "", "utf8");
   const result = spawnSync("bash", ["-c", step.run ?? ""], {
@@ -3126,6 +3131,7 @@ function runReleaseChecksShellStep(
     encoding: "utf8",
     env: {
       ...env,
+      GITHUB_WORKSPACE: workdir,
       GITHUB_OUTPUT: outputPath,
       PATH: process.env.PATH,
     },
@@ -12024,12 +12030,9 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     expect(eligibility.env?.TRUSTED_REPOSITORY_URL).toBe(
       "https://github.com/${{ github.repository }}.git",
     );
-    expect(eligibility.run).toContain('context_repo="$(mktemp -d)"');
-    expect(eligibility.run).toContain("git init --bare --quiet");
-    expect(eligibility.run).toContain("--filter=blob:none");
-    expect(eligibility.run).toContain("FETCH_HEAD^{commit}");
-    expect(eligibility.run).not.toContain("git checkout");
-    expect(eligibility.run).not.toContain("git worktree");
+    expect(resolveStepNames.indexOf("Checkout trusted workflow helper")).toBeLessThan(
+      resolveStepNames.indexOf("Validate trusted QA tooling eligibility"),
+    );
 
     for (const contextRef of [
       "release/2026.8.1",
@@ -12045,8 +12048,9 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
         TARGET_REF: targetSha,
       });
       expect(result.status, `${contextRef}: ${result.stderr}`).toBe(0);
-      expect(output, contextRef).toContain(
-        `normalized_ref=${contextRef.replace(/^refs\/(heads|tags)\//u, "")}\n`,
+      const normalizedRef = contextRef.replace(/^refs\/(heads|tags)\//u, "");
+      expect(output, contextRef).toBe(
+        `fetch_ref=refs/${normalizedRef.startsWith("v") ? "tags" : "heads"}/${normalizedRef}\n`,
       );
     }
 
@@ -12103,9 +12107,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       const { output, result } = runReleaseChecksShellStep(
         "Validate trusted QA tooling eligibility",
         {
-          CONTEXT_KIND: contextKind,
           CONTEXT_FETCH_REF: fetchRef,
-          CONTEXT_REF: fetchRef.replace(/^refs\/(heads|tags)\//u, ""),
           TARGET_REF: targetRef,
           TRUSTED_REPOSITORY_URL: fixture.repoUrl,
         },

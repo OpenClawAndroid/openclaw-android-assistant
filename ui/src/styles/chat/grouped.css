@@ -630,8 +630,7 @@ img.chat-avatar.user {
   color: var(--muted);
 }
 
-.chat-avatar.other,
-.chat-avatar--forwarded {
+.chat-avatar.other {
   background: var(--secondary);
   color: var(--muted);
 }

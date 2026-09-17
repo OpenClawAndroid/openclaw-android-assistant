@@ -1,4 +1,5 @@
 import { PassThrough } from "node:stream";
+import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_CLIENT_IDS } from "../../../packages/gateway-protocol/src/client-info.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
@@ -112,6 +113,7 @@ function createFixture(boundary: "activation" | "pairing" | "attachment") {
   });
   return {
     service,
+    nodeRegistry,
     reached: reached.promise,
     release: release.resolve,
     attached,
@@ -123,6 +125,56 @@ function createFixture(boundary: "activation" | "pairing" | "attachment") {
 }
 
 describe("node desktop runtime policy", () => {
+  it("joins invocation settlement when owner stop overlaps observation release", async () => {
+    const fixture = createFixture("attachment");
+    const canceled = createDeferred();
+    const finishInvocation = createDeferred();
+    const completionOrder: string[] = [];
+    const invoke = fixture.nodeRegistry.invoke.bind(fixture.nodeRegistry);
+    vi.spyOn(fixture.nodeRegistry, "invoke").mockImplementation(async (request) => {
+      const result = await invoke(request);
+      canceled.resolve();
+      await finishInvocation.promise;
+      completionOrder.push("invocation");
+      return result;
+    });
+    const controller = new AbortController();
+    const requester = {
+      connId: "desktop-panel-client",
+      signal: controller.signal,
+      isCurrent: () => !controller.signal.aborted,
+    };
+    try {
+      const observing = fixture.service.observe({
+        nodeId: "node",
+        control: false,
+        credentials: { password: "synthetic-password" },
+        requester,
+      });
+      await fixture.reached;
+      fixture.attached.resolve({ stream: new PassThrough(), auth: "vnc-password" });
+      const observed = await observing;
+      const releasing = observeBridge
+        .releaseDesktopObserverToken(observed.wsPath, requester)
+        .then((released) => {
+          completionOrder.push("release");
+          return released;
+        });
+      await canceled.promise;
+      const stopping = fixture.service.stopNode("node").then(() => {
+        completionOrder.push("stop");
+      });
+      await setImmediate();
+      finishInvocation.resolve();
+      expect(await releasing).toBe(true);
+      await stopping;
+      expect(completionOrder[0]).toBe("invocation");
+    } finally {
+      finishInvocation.resolve();
+      controller.abort();
+    }
+  });
+
   it.each(["activation", "pairing"] as const)(
     "does not dispatch after the requesting connection closes during %s",
     async (boundary) => {

@@ -4,6 +4,7 @@ import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/st
 import { getReplyPayloadMetadata } from "../../../auto-reply/reply-payload.js";
 import { parseReplyDirectives } from "../../../auto-reply/reply/reply-directives.js";
 import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
+import { resolveRawAssistantAnswerText } from "../../../shared/assistant-answer-text.js";
 import { extractEmbeddedAssistantText } from "../../embedded-agent-utils.js";
 import {
   isStrictAgenticSupportedProviderModel,
@@ -12,7 +13,6 @@ import {
 import type { AgentMessage } from "../../runtime/index.js";
 import { assessLastAssistantMessage } from "../thinking.js";
 import type { EmbeddedAgentRunResult } from "../types.js";
-import { resolveRawAssistantAnswerText } from "./assistant-answer.js";
 import { resolveCurrentAttemptAssistant } from "./attempt-terminal-evidence.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
 

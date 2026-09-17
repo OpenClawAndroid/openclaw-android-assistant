@@ -105,7 +105,11 @@ export function createVitestWorkerRun(
   }
   return {
     descriptor: { directory } satisfies VitestWorkerDescriptor,
-    borrow<T>(child: ChildProcess, completion: Promise<T>): Promise<T> {
+    borrow<T>(
+      child: ChildProcess,
+      completion: Promise<T>,
+      onPreparationProgress?: () => void,
+    ): Promise<T> {
       let request: Promise<void> | undefined;
       const onMessage = (message: unknown) => {
         if (message !== VITEST_WORKER_PREPARE_REQUEST || request) {
@@ -119,6 +123,7 @@ export function createVitestWorkerRun(
             if (disposal) {
               throw new Error("Compiled subprocess owner is closing");
             }
+            onPreparationProgress?.();
           } catch (error) {
             reply = { type: VITEST_WORKER_PREPARE_REPLY, error: String(error) };
           }
@@ -128,6 +133,11 @@ export function createVitestWorkerRun(
             });
           }
         })();
+        // Only accepted admission and verified readiness count as progress.
+        // Duplicate IPC and the compiler's intermediate output cannot renew it.
+        if (!disposal) {
+          onPreparationProgress?.();
+        }
       };
       child.on("message", onMessage);
       // Existing Windows completion observes exit; artifact ownership additionally

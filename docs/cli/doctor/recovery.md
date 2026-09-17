@@ -57,6 +57,11 @@ coordinators and agent-database lease checks. Shutdown and restart remain with
 the deployment owner. A failed native probe is never treated as proof that the
 Gateway is stopped.
 
+For a system template such as `openclaw@.service` with `User=%i`, inspection
+follows the current account's instance (`openclaw@<user>.service`) while
+preserving the shared template. Run Doctor as that account after the system
+service owner stops its instance.
+
 ## Remote Gateway recovery
 
 With `gateway.mode: "remote"`, a failed Gateway health check does not trigger

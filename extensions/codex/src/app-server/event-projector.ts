@@ -357,7 +357,7 @@ export class CodexAppServerEventProjector extends CodexTurnProjection {
       this.eventProjection.markSafetyBufferingAssistantStarted();
     }
     const itemId = item?.id ?? readString(params, "itemId");
-    this.assistantProjection.recordItemStarted(item, itemId);
+    await this.assistantProjection.recordItemStarted(item, itemId);
     if (itemId) {
       this.activeItemIds.add(itemId);
     }
@@ -436,7 +436,7 @@ export class CodexAppServerEventProjector extends CodexTurnProjection {
     if (this.projectionClosed) {
       return;
     }
-    this.reasoningProjection.recordItem(item);
+    await this.reasoningProjection.recordItem(item);
     await this.settlement.project("media_projection", () =>
       this.generatedMediaProjection.recordNative(item),
     );
@@ -568,7 +568,7 @@ export class CodexAppServerEventProjector extends CodexTurnProjection {
       if (this.projectionClosed) {
         return;
       }
-      this.reasoningProjection.recordItem(item);
+      await this.reasoningProjection.recordItem(item);
       await this.settlement.project("media_projection", () =>
         this.generatedMediaProjection.recordNative(item),
       );

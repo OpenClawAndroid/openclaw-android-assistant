@@ -23,7 +23,6 @@ import { attachErrorDiagnostic } from "../../infra/error-diagnostics.js";
 import { getDetachedTaskLifecycleRuntime } from "../../tasks/detached-task-runtime.js";
 import { findTaskByRunId, listTaskRecords } from "../../tasks/task-registry.js";
 import { resetTaskRegistryForTests } from "../../tasks/task-registry.test-support.js";
-import { setDetachedTaskLifecycleRuntime } from "../../tasks/task-runtime.test-helpers.js";
 import { withTestDir } from "../../test-helpers/temp-dir.js";
 import { waitForAgentJob } from "../agent-turn/agent-job.js";
 import { dispatchAgentRunFromGateway } from "../agent-turn/agent-run-dispatch.js";
@@ -31,6 +30,7 @@ import { createAgentTurnIo } from "../agent-turn/io.js";
 import { bindInProcessSubagentResume } from "../in-process-subagent-resume.js";
 import { bindParentSubagentResume } from "../session-subagent-resume.js";
 import { registerPluginSubagentRunFromGateway } from "./agent-task-tracking.js";
+import { spyDetachedCreateRunningTaskRun } from "./agent-task-tracking.test-helpers.js";
 import { registerAgentTaskCancellationTests } from "./agent.task-cancellation.test-utils.js";
 import {
   applyGatewaySubagentRegistryTestDeps,
@@ -74,19 +74,6 @@ function mockSpawnedChildSessionEntry(childSessionKey: string, storePath = "/tmp
     payloads: [{ text: "ok" }],
     meta: { durationMs: 100 },
   });
-}
-
-function spyDetachedCreateRunningTaskRun() {
-  const defaultRuntime = getDetachedTaskLifecycleRuntime();
-  const createRunningTaskRunSpy = vi.fn(
-    (...args: Parameters<typeof defaultRuntime.createRunningTaskRun>) =>
-      defaultRuntime.createRunningTaskRun(...args),
-  );
-  setDetachedTaskLifecycleRuntime({
-    ...defaultRuntime,
-    createRunningTaskRun: createRunningTaskRunSpy,
-  });
-  return createRunningTaskRunSpy;
 }
 
 describe("gateway agent handler", () => {
@@ -632,7 +619,14 @@ describe("gateway agent handler", () => {
                 sourceTool: "subagent_settle",
               },
             },
-            { context, reqId: nextRunId, client: backendGatewayClient(), respond: wakeRespond },
+            {
+              context,
+              reqId: nextRunId,
+              client: backendGatewayClient(),
+              respond: wakeRespond,
+              // This wake awaits SQLite; keep the outer lifecycle wait on real timers.
+              flushDispatch: false,
+            },
           );
           return true;
         },
@@ -3147,67 +3141,6 @@ describe("gateway agent handler", () => {
     expect(mocks.agentCommand).not.toHaveBeenCalled();
   });
 
-  it("dispatches async gateway agent task creation through the detached task runtime seam", async () => {
-    await withTestDir({ prefix: "openclaw-gateway-agent-seam-" }, async (root) => {
-      useTestStateDir(root);
-      resetAgentTaskRegistryForTests();
-      primeMainAgentRun();
-
-      const defaultRuntime = getDetachedTaskLifecycleRuntime();
-      const createRunningTaskRunSpy = vi.fn(
-        (...args: Parameters<typeof defaultRuntime.createRunningTaskRun>) =>
-          defaultRuntime.createRunningTaskRun(...args),
-      );
-      const finalizeTaskRunByRunIdSpy = vi.fn(
-        (...args: Parameters<NonNullable<typeof defaultRuntime.finalizeTaskRunByRunId>>) =>
-          defaultRuntime.finalizeTaskRunByRunId!(...args),
-      );
-
-      setDetachedTaskLifecycleRuntime({
-        ...defaultRuntime,
-        createRunningTaskRun: createRunningTaskRunSpy,
-        finalizeTaskRunByRunId: finalizeTaskRunByRunIdSpy,
-      });
-
-      await invokeAgent(
-        {
-          message: "background cli seam task",
-          sessionKey: "agent:main:main",
-          idempotencyKey: "task-registry-agent-seam",
-        },
-        { reqId: "task-registry-agent-seam" },
-      );
-
-      expect(createRunningTaskRunSpy).toHaveBeenCalledTimes(1);
-      expectRecordFields(mockCallArg(createRunningTaskRunSpy), {
-        runtime: "cli",
-        runId: "task-registry-agent-seam",
-        childSessionKey: "agent:main:main",
-        sourceId: "task-registry-agent-seam",
-      });
-      expectStringFieldContains(
-        mockCallArg(createRunningTaskRunSpy) as Record<string, unknown>,
-        "task",
-        "background cli seam task",
-      );
-      await waitForAssertion(() => {
-        expect(finalizeTaskRunByRunIdSpy).toHaveBeenCalledTimes(1);
-        expectRecordFields(mockCallArg(finalizeTaskRunByRunIdSpy), {
-          runtime: "cli",
-          runId: "task-registry-agent-seam",
-          status: "succeeded",
-          terminalSummary: "completed",
-        });
-        expectRecordFields(findTaskByRunId("task-registry-agent-seam"), {
-          runtime: "cli",
-          childSessionKey: "agent:main:main",
-          status: "succeeded",
-          terminalSummary: "completed",
-        });
-      });
-    });
-  });
-
   describe("ACP manual-spawn child turn task tracking", () => {
     const confirmedAcpMeta: NonNullable<ReturnType<typeof readAcpSessionMeta>> = {
       backend: "acpx",
@@ -3246,7 +3179,8 @@ describe("gateway agent handler", () => {
     it("keeps a host-owned subagent run to its pre-registered task row", async () => {
       await withTestDir({ prefix: "openclaw-gateway-subagent-owner-" }, async (root) => {
         useTestStateDir(root);
-        resetAgentTaskRegistryForTests();
+        // The Gateway worker must read the same durable task that the host registered.
+        resetTaskRegistryForTests({ persist: false });
         const childSessionKey = "agent:main:subagent:owned";
         const runId = "host-owned-subagent-run";
         mockSpawnedChildSessionEntry(childSessionKey);
@@ -3541,63 +3475,6 @@ describe("gateway agent handler", () => {
           runId,
           childSessionKey,
         });
-      });
-    });
-  });
-
-  it("logs a swallowed finalize error without blocking the background run", async () => {
-    await withTestDir({ prefix: "openclaw-gateway-agent-finalize-throw-" }, async (root) => {
-      useTestStateDir(root);
-      resetAgentTaskRegistryForTests();
-      primeMainAgentRun();
-
-      const defaultRuntime = getDetachedTaskLifecycleRuntime();
-      const finalizeError = new Error("finalize boom");
-      // The background run completes off-turn; signal finalize instead of
-      // polling for it so contended runners cannot outlast a fixed poll budget.
-      const { promise: finalizeCalled, resolve: signalFinalizeCalled } = createDeferred();
-      const finalizeTaskRunByRunIdSpy = vi.fn(() => {
-        signalFinalizeCalled();
-        throw finalizeError;
-      });
-      setDetachedTaskLifecycleRuntime({
-        ...defaultRuntime,
-        finalizeTaskRunByRunId: finalizeTaskRunByRunIdSpy,
-      });
-
-      const context = makeContext();
-      const respond = vi.fn();
-
-      await invokeAgent(
-        {
-          message: "finalize throw seam task",
-          sessionKey: "agent:main:main",
-          idempotencyKey: "task-registry-finalize-throw",
-        },
-        { context, respond, reqId: "task-registry-finalize-throw" },
-      );
-
-      // Event-driven wait bounded by the test timeout; the follow-up
-      // observations land in the same completion path right after finalize.
-      await finalizeCalled;
-      expect(finalizeTaskRunByRunIdSpy).toHaveBeenCalledTimes(1);
-      await waitForAssertion(() => {
-        // Finalize threw, but the run must still complete (second res frame with ok status).
-        const completed = respond.mock.calls.some(([ok, payload]) => {
-          return ok === true && (payload as { status?: string } | undefined)?.status === "ok";
-        });
-        expect(completed).toBe(true);
-
-        // The swallowed finalize error stays observable via a warn log.
-        const warnMock = context.logGateway.warn as ReturnType<typeof vi.fn>;
-        const loggedFinalizeError = warnMock.mock.calls.some(([message]) => {
-          return (
-            typeof message === "string" &&
-            message.includes("failed to finalize tracked agent task") &&
-            message.includes("finalize boom")
-          );
-        });
-        expect(loggedFinalizeError).toBe(true);
       });
     });
   });

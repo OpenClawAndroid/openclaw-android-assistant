@@ -144,9 +144,14 @@ and another 5 seconds before systemd's deadline. A unit with the default
 shutdown deadline. A shorter supervisor timeout also caps requested restart waits.
 The drained work, ordering, and interruption behavior stay the same.
 
-If the manager cannot be queried, the Gateway logs that it is using systemd's
-90-second default as a conservative fallback. An explicitly unlimited timeout
-keeps the normal Gateway budget. The startup reading is retained for that
+The process's cgroup selects the system or user manager, independently of the
+account running the Gateway or its restart owner. This also covers hand-written
+system units with `User=openclaw` and externally managed deployments. Reading
+the system unit's timeout does not require sudo or notification support.
+
+If the unit cannot be inspected, the Gateway warns with the manager, unit, and
+failure reason and uses systemd's 90-second default as a conservative fallback.
+An explicitly unlimited timeout keeps the normal Gateway budget. The startup reading is retained for that
 process; restart the Gateway after changing its unit settings.
 
 An already-installed old unit benefits from the clamp as soon as the new Gateway

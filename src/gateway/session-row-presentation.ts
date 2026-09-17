@@ -2,8 +2,8 @@ import { isIncognitoSessionKey } from "../routing/session-key.js";
 import { createVisibleActiveSessionRunProjector } from "./server-methods/session-active-runs.js";
 import type { GatewayClient, GatewayRequestContext } from "./server-methods/types.js";
 import { tryResolveSessionCompatibilityOwnerAgentId } from "./session-request-agent.js";
+import type { SessionRowReadView } from "./session-row-prepared-read.js";
 import type * as records from "./session-row-projection-record.js";
-import type { SessionRowProjection } from "./session-row-projection.js";
 import {
   authorizeIncognitoSessionTarget,
   resolveSessionVisibility,
@@ -28,7 +28,7 @@ function toProjectedSessionSharingTarget(record: records.MaterializedRow): Sessi
 
 /** Recreate after yields: the caller identity and clock belong to one synchronous presentation. */
 export function prepareProjectedSessionPresentation(
-  projection: SessionRowProjection,
+  projection: SessionRowReadView,
   client?: GatewayClient | null,
   now = Date.now(),
   context?: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,

@@ -11,6 +11,7 @@ import type { CronStoreSaveWorkerOperations } from "../cron/store/save-worker.ty
 import type { DeferredPluginMigration } from "../infra/deferred-plugin-migrations.js";
 import type { DeliveryQueueWorkerOperations } from "../infra/delivery-queue.worker-contract.js";
 import type { PreparedPromotionClaim } from "../infra/promotions-feed.kernel.js";
+import type { ApnsRegistration } from "../infra/push-apns-store.types.js";
 import type { WebPushWorkerOperations } from "../infra/push-web-store.worker-contract.js";
 import type { SessionDeliveryWorkerOperations } from "../infra/session-delivery-queue.worker-contract.js";
 import type { PreparedSqliteAuditRecord } from "../infra/sqlite-audit-record.kernel.js";
@@ -46,6 +47,8 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   SessionDeliveryWorkerOperations &
   DeliveryQueueWorkerOperations &
   TaskRegistryWorkerOperations & {
+    "apns.registration.read": { input: string; output: ApnsRegistration | null };
+    "apns.registrations.read": { input: readonly string[]; output: Map<string, ApnsRegistration> };
     "agentProvenance.read": {
       input: { agentId: string };
       output: AgentProvenance | undefined;

@@ -37,6 +37,7 @@ import { retainUserProfileCatalog } from "../state/user-profile-list.js";
 import { readSessionRowFacts } from "./server-methods/session-placement-read-projection.js";
 import { compareSessionEntryPairs } from "./session-list-order.js";
 import { yieldSessionListWork } from "./session-projection-work.js";
+import { withPreparedSessionRows, type SessionRowReadView } from "./session-row-prepared-read.js";
 import { createSessionRowProjectionBackfill } from "./session-row-projection-backfill.js";
 import {
   readResidentSessionRow,
@@ -635,7 +636,7 @@ export async function createSessionRowProjection(params: {
   });
   void ensureMaterialized().catch(() => {});
   backfill.start();
-  return {
+  const projection = {
     capture(query: records.Lookup) {
       if (!disposed && topologyDirty) {
         inOwnerContext(topology);
@@ -659,6 +660,12 @@ export async function createSessionRowProjection(params: {
     },
     describe,
     present,
+    withPreparedExactRows<T>(
+      queries: (config: OpenClawConfig) => readonly records.Lookup[],
+      consume: (read: SessionRowReadView) => T,
+    ): ReturnType<typeof withPreparedSessionRows<T>> {
+      return withPreparedSessionRows(projection, () => !disposed, queries, consume);
+    },
     ensureMaterialized,
     get materializedCount() {
       return materializedCount;
@@ -689,6 +696,7 @@ export async function createSessionRowProjection(params: {
     },
     dispose,
   };
+  return projection;
 }
 
 export type SessionRowProjection = Awaited<ReturnType<typeof createSessionRowProjection>>;

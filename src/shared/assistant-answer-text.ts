@@ -1,19 +1,20 @@
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import type { AssistantMessage } from "../../../llm/types.js";
 import {
   extractAssistantTextForPhase,
   parseAssistantTextSignature,
-} from "../../../shared/chat-message-content.js";
+} from "./chat-message-content.js";
 import {
   sanitizeAssistantFinalAnswerText,
   sanitizeAssistantVisibleText,
-} from "../../../shared/text/assistant-visible-text.js";
+} from "./text/assistant-visible-text.js";
 
 function isAssistantTextContentBlockType(value: unknown): boolean {
   return value === "text" || value === "input_text" || value === "output_text";
 }
-/** Selects the canonical answer before reply directives remove authored silence or media. */
-export function resolveRawAssistantAnswerText(lastAssistant: AssistantMessage | undefined): string {
+/** Selects canonical final-answer bytes before channel reply directives are parsed. */
+export function resolveRawAssistantAnswerText(message: unknown): string {
+  const lastAssistant = asOptionalRecord(message);
   if (!lastAssistant) {
     return "";
   }
@@ -26,12 +27,9 @@ export function resolveRawAssistantAnswerText(lastAssistant: AssistantMessage | 
   }
   if (Array.isArray(lastAssistant.content)) {
     const hasExplicitPhasedTextBlock = lastAssistant.content.some((block) => {
-      if (!block || typeof block !== "object") {
-        return false;
-      }
-      // SAFETY: The object guard permits optional unknown fields; the selector and parser validate them.
-      const record = block as { type?: unknown; textSignature?: unknown };
+      const record = asOptionalRecord(block);
       return (
+        record !== undefined &&
         isAssistantTextContentBlockType(record.type) &&
         Boolean(parseAssistantTextSignature(record)?.phase)
       );
@@ -39,11 +37,10 @@ export function resolveRawAssistantAnswerText(lastAssistant: AssistantMessage | 
     if (!hasExplicitPhasedTextBlock) {
       const signedUnphasedParts = lastAssistant.content
         .map((block) => {
-          if (!block || typeof block !== "object") {
+          const record = asOptionalRecord(block);
+          if (!record) {
             return null;
           }
-          // SAFETY: The object guard permits optional unknown fields, validated before use below.
-          const record = block as { type?: unknown; text?: unknown; textSignature?: unknown };
           const signature = parseAssistantTextSignature(record);
           if (
             !isAssistantTextContentBlockType(record.type) ||

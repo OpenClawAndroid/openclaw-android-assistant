@@ -51,6 +51,7 @@ export function createWebSocketTransport(
   const stdinDecoder = new StringDecoder("utf8");
   let pendingLine = "";
   let killed = false;
+  let exitCode: number | null = null;
   let pingTimeout: NodeJS.Timeout | undefined;
   let pongTimeout: NodeJS.Timeout | undefined;
   let expectedPong: Buffer | undefined;
@@ -152,6 +153,7 @@ export function createWebSocketTransport(
   socket.once("close", (code, reason) => {
     clearConnectionHealthTimers();
     killed = true;
+    exitCode = code;
     events.emit("exit", code, reason.toString("utf8"));
   });
   socket.on("message", (data) => {
@@ -199,12 +201,20 @@ export function createWebSocketTransport(
     get killed() {
       return killed;
     },
-    kill: () => {
+    get exitCode() {
+      return exitCode;
+    },
+    kill: (signal) => {
       killed = true;
       clearConnectionHealthTimers();
-      socket.close();
+      if (signal === "SIGKILL") {
+        socket.terminate();
+      } else {
+        socket.close();
+      }
     },
     once: (event, listener) => events.once(event, listener),
+    off: (event, listener) => events.off(event, listener),
   };
 }
 

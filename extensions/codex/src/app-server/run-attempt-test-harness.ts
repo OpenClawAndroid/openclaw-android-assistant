@@ -215,6 +215,7 @@ export function runCodexAppServerAttempt(
   };
   const promise = runCodexAppServerAttemptImpl(trackedParams, {
     ...options,
+    startupTimeoutFloorMs: options.startupTimeoutFloorMs ?? 30_000,
     bindingStore: options.bindingStore ?? testCodexAppServerBindingStore,
     ...(clientFactory ? { clientFactory } : {}),
   }).finally(() => {

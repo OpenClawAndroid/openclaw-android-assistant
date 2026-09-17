@@ -436,7 +436,8 @@ export type SessionTranscriptTurnPersistOptions = {
   /** Exact run provenance persisted on output rows and emitted on terminal assistant updates. */
   runId?: string;
   /**
-   * Complete appended or matched committed messages before owner drain or publication.
+   * Complete appended or matched messages synchronously after guarded SQLite commit,
+   * before the write yields to cancellation, owner drain, or transcript publication.
    * The canonical result preserves replay bytes. Throws cannot roll back committed rows.
    */
   onMessageCommitted?: (result: TranscriptMessageAppendResult<unknown>) => void;

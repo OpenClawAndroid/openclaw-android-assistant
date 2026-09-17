@@ -24,6 +24,7 @@ import type {
   SessionHistoryWorkerRequest,
   SessionHistoryWorkerResult,
 } from "./session-history-types.js";
+import { sessionHistoryCleanupError } from "./session-history-worker-errors.js";
 import type { SessionMember } from "./session-sharing-store.kernel.js";
 import { SessionTranscriptProjectionUnavailableError } from "./session-transcript-projection-error.js";
 import {
@@ -143,7 +144,11 @@ async function withHistoryDatabase<T>(
     return { value };
   } catch (error) {
     // The parent joins worker retirement on failure, including a failed native close.
-    scope.close();
+    try {
+      scope.close();
+    } catch (cleanupError) {
+      throw sessionHistoryCleanupError(error, cleanupError, "database close");
+    }
     throw error;
   }
 }

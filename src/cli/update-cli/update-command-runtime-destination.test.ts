@@ -28,6 +28,8 @@ const { fixture } = installFreshUpdateFixture();
 
 it.each([
   "foreign",
+  "foreign-managed",
+  "foreign-sealed",
   "unverified",
   "claimed",
   "foreign-launcher",
@@ -47,6 +49,7 @@ it.each([
     vi.stubEnv("OPENCLAW_PROFILE", undefined);
     const base = path.dirname(fixture.root);
     const oldRoot = fixture.root;
+    const managedForeign = destination === "foreign-managed" || destination === "foreign-sealed";
     const selected = path.join(base, "selected");
     const newRoot = path.join(
       selected,
@@ -57,7 +60,12 @@ it.each([
     await fs.mkdir(path.dirname(newRoot), { recursive: true });
     await fs.mkdir(bin, { recursive: true });
     await fs.writeFile(path.join(oldRoot, "openclaw.mjs"), "// original deployment\n");
-    if (destination === "foreign" || destination === "unverified" || destination === "claimed") {
+    if (
+      destination === "foreign" ||
+      destination === "unverified" ||
+      destination === "claimed" ||
+      managedForeign
+    ) {
       await fs.mkdir(newRoot);
       await fs.writeFile(
         path.join(newRoot, "package.json"),
@@ -95,7 +103,7 @@ it.each([
         );
       }
     }
-    if (destination === "claimed" || destination === "unverified") {
+    if (destination === "claimed" || destination === "unverified" || managedForeign) {
       mockSystemAccountHome();
       vi.stubEnv("OPENCLAW_HOME", undefined);
       vi.stubEnv("OPENCLAW_PROFILE", undefined);
@@ -109,14 +117,23 @@ it.each([
             status: destination === "unverified" ? "unknown" : "stopped",
             systemd: { managerUid: 2001 },
           }),
+          readDefinitionMutationCapability: async () =>
+            destination === "foreign-sealed"
+              ? { kind: "sealed", reason: "sealed-mount" }
+              : { kind: "writable" },
           readCommand: async () => ({
-            programArguments: [process.execPath, path.join(newRoot, "openclaw.mjs"), "gateway"],
+            programArguments: [
+              process.execPath,
+              path.join(managedForeign ? oldRoot : newRoot, "openclaw.mjs"),
+              "gateway",
+            ],
             sourcePath: path.join(base, "selected-gateway.service"),
           }),
         }),
       );
     }
     const foreign =
+      managedForeign ||
       destination === "foreign" ||
       destination === "unverified" ||
       destination === "foreign-launcher";
@@ -209,6 +226,19 @@ it.each([
         },
       });
     }
+    if (managedForeign) {
+      const launcher = path.join(bin, process.platform === "win32" ? "openclaw.cmd" : "openclaw");
+      const entry = await fs.realpath(path.join(newRoot, "openclaw.mjs"));
+      const alternative =
+        destination === "foreign-sealed"
+          ? "Alternatively, ask the destination's deployment owner to resolve its package/launcher and select it for the intended service using their deployment procedure. Do not overwrite it."
+          : `Alternatively, if the destination's owner agrees to use it for this service, explicitly select it with \`node ${quote(entry)} gateway install --force --runtime-path ${quote(process.execPath)}\` and rerun the update. This changes the service binding; it does not grant ownership of another deployment's package.`;
+      expect(result).toMatchObject({
+        failedStep: {
+          stderrTail: `Selected npm destination ${selected} is occupied by another OpenClaw installation: package ${newRoot}; launcher ${launcher} -> ${entry}. The selected service (${path.join(base, "selected-gateway.service")}) uses ${path.join(oldRoot, "openclaw.mjs")}; it does not own this destination. No installation was attempted. Switch the runtime back and run \`node ${quote(path.join(oldRoot, "openclaw.mjs"))} update\`. ${alternative}`,
+        },
+      });
+    }
     if (unknown) {
       const prefix = probeFailure ? "(unresolved; npm prefix -g)" : selected;
       expect(result).toMatchObject({
@@ -230,7 +260,7 @@ it.each([
     expect(await fs.readFile(path.join(oldRoot, "openclaw.mjs"), "utf8")).toBe(
       "// original deployment\n",
     );
-    if (destination === "foreign" || destination === "unverified") {
+    if (destination === "foreign" || destination === "unverified" || managedForeign) {
       expect(await fs.readFile(path.join(newRoot, "openclaw.mjs"), "utf8")).toBe(
         "// foreign deployment\n",
       );

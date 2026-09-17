@@ -81,14 +81,16 @@ describe("running systemd unit stop timeout", () => {
 
   it.each(["infinity", "0"])("accepts disabled stop timeouts (%s)", async (value) => {
     execUser.mockResolvedValue(loaded(value));
-    expect((await readSystemdStopTimeout({ OPENCLAW_PROFILE: "work" })).timeoutMs).toBe(Infinity);
+    expect(
+      (await readSystemdStopTimeout({ OPENCLAW_PROFILE: "work", INVOCATION_ID: "own" }))?.timeoutMs,
+    ).toBe(Infinity);
     expect(execUser.mock.calls.flat(2)).toContain("openclaw-gateway-work.service");
   });
 
   it("keeps startup available when the manager transport throws", async () => {
     execUser.mockRejectedValue(new Error("transport lookup failed"));
     execSystem.mockRejectedValue(new Error("systemctl unavailable"));
-    expect((await readSystemdStopTimeout({})).timeoutMs).toBe(90_000);
+    expect((await readSystemdStopTimeout({ INVOCATION_ID: "own" }))?.timeoutMs).toBe(90_000);
   });
 
   it.each([
@@ -100,6 +102,7 @@ describe("running systemd unit stop timeout", () => {
     expect(await readSystemdStopTimeout({ OPENCLAW_SYSTEMD_UNIT: "custom" })).toEqual({
       timeoutMs: 90_000,
       source: "systemd custom.service timeout unavailable; default TimeoutStopUSec",
+      warning: expect.stringContaining("system manager custom.service:"),
     });
   });
 });

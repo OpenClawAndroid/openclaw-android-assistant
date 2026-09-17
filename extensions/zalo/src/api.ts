@@ -137,7 +137,12 @@ export async function callZaloApi<T = unknown>(
   method: string,
   token: string,
   body?: Record<string, unknown>,
-  options?: { apiUrl?: string; timeoutMs?: number; fetch?: ZaloFetch },
+  options?: {
+    apiUrl?: string;
+    timeoutMs?: number;
+    fetch?: ZaloFetch;
+    assertDirectAdapterHandoff?: () => void;
+  },
 ): Promise<ZaloApiResponse<T>> {
   const url = `${resolveZaloApiUrl(options?.apiUrl)}/bot${token}/${method}`;
   const controller = new AbortController();
@@ -149,14 +154,16 @@ export async function callZaloApi<T = unknown>(
   const fetcher = options?.fetch ?? fetch;
 
   try {
-    const response = await fetcher(url, {
+    const request: RequestInit = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
-    });
+    };
+    options?.assertDirectAdapterHandoff?.();
+    const response = await fetcher(url, request);
 
     await assertOkOrThrowProviderError(response, `zalo.${method}`);
     const data = await readProviderJsonResponse<ZaloApiResponse<T>>(response, `zalo.${method}`);
@@ -193,8 +200,12 @@ export async function sendMessage(
   token: string,
   params: ZaloSendMessageParams,
   fetcher?: ZaloFetch,
+  assertDirectAdapterHandoff?: () => void,
 ): Promise<ZaloApiResponse<ZaloMessage>> {
-  return callZaloApi<ZaloMessage>("sendMessage", token, params, { fetch: fetcher });
+  return callZaloApi<ZaloMessage>("sendMessage", token, params, {
+    fetch: fetcher,
+    assertDirectAdapterHandoff,
+  });
 }
 
 /**
@@ -204,6 +215,7 @@ export async function sendPhoto(
   token: string,
   params: ZaloSendPhotoParams,
   fetcher?: ZaloFetch,
+  assertDirectAdapterHandoff?: () => void,
 ): Promise<ZaloApiResponse<ZaloMessage>> {
   const photoUrl = params.photo.trim();
   let parsedPhotoUrl: URL;
@@ -230,6 +242,7 @@ export async function sendPhoto(
       // Wait through the hosted-media lifetime plus normal response-processing grace.
       timeoutMs: ZALO_SEND_PHOTO_REQUEST_TIMEOUT_MS,
       fetch: fetcher,
+      assertDirectAdapterHandoff,
     },
   );
 }

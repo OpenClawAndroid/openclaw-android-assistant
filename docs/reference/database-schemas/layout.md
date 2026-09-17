@@ -279,6 +279,12 @@ metadata alone exceeds a hard limit, the write fails without changing the row.
 The CLI and Gateway share WAL-backed transactions, including while the Gateway
 is stopped. The first terminal outcome wins; subsequent verification can enrich
 its observed facts without rewriting success, failure, skip, or rollback status.
+Explicit `update repair` can correct the older package-owner refusal
+misclassification to `skipped` once the installed version satisfies its resolved
+target. This exception requires the latest run to contain only the untouched
+request and optional driver-adoption metadata, with no recovery or active update.
+It preserves the refusal detail and finish time and records the existing
+acknowledgement marker; subsequent repairs use normal finalization.
 The restart sentinel carries `stats.runId` and remains the continuation owner;
 consuming it does not delete the run row. Chat, CLI, and status reports read that
 row. See [Run history and reports](/cli/update#run-history-and-reports).

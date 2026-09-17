@@ -151,6 +151,11 @@
   margin-inline: 4px 16px;
 }
 
+/* Both sides share the content edge inside the trailing avatar gutter. */
+.chat-group:where(:not(.user), .chat-group--peer) {
+  padding-inline-end: var(--chat-avatar-gutter);
+}
+
 /* User messages on right */
 .chat-group.user {
   --chat-user-content-align: end;

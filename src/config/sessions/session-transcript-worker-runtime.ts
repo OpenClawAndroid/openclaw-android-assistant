@@ -20,6 +20,7 @@ import type {
 } from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type { SessionHistoryWorkerResult } from "./session-history-types.js";
+import { sessionHistoryCleanupError } from "./session-history-worker-errors.js";
 import { listSessionMembers } from "./session-sharing-store.js";
 import type { SessionMember } from "./session-sharing-store.kernel.js";
 import { resolveSessionStorePathForScope } from "./session-store-path.js";
@@ -351,7 +352,11 @@ export async function withSessionHistoryWorkerDatabase<T>(
         return value;
       } catch (error) {
         if (sequence > 0) {
-          await rotateHistoryWorkers();
+          try {
+            await rotateHistoryWorkers();
+          } catch (cleanupError) {
+            throw sessionHistoryCleanupError(error, cleanupError, "worker retirement");
+          }
         }
         throw error;
       }

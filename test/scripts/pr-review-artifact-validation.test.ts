@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 import {
   REVIEWED_PR,
@@ -18,6 +19,7 @@ const reviewScript = join(process.cwd(), "scripts/pr-lib/review.sh");
 const reviewArtifactsScript = join(process.cwd(), "scripts/pr-lib/review-artifacts.mjs");
 const mergeScript = join(process.cwd(), "scripts/pr-lib/merge.sh");
 const describePosix = process.platform === "win32" ? describe.skip : describe;
+const testNodeExecPath = resolveTestNodeExecPath();
 
 const REVIEWED_IDENTITY_LINE = `Review artifact for PR #${REVIEWED_PR} at ${REVIEWED_HEAD}`;
 const REVIEW_SHELL_COMMAND_SURFACE = [
@@ -33,7 +35,7 @@ const REVIEW_SHELL_COMMAND_SURFACE = [
 
 it("runs dependency-free CLI and native lock regressions", () => {
   const result = spawnSync(
-    process.execPath,
+    testNodeExecPath,
     ["--test", join(process.cwd(), "test/scripts/pr-review-artifacts.node.mjs")],
     { encoding: "utf8", timeout: 30000 },
   );

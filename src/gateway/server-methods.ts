@@ -70,8 +70,15 @@ import type { GatewayRequestEntry } from "./server-request-entry.js";
 import type { GatewayRpcDiagnostics } from "./server/ws-connection/request-diagnostics.js";
 import { sessionMutationTargetFields } from "./session-method-policy.js";
 import { retainSessionListForegroundWork } from "./session-projection-work.js";
-import { resolveDirectIncognitoTargets } from "./session-sharing-target-input.js";
+import { resolveRequestedSessionAgentId } from "./session-request-agent.js";
+import type { SessionRowReadView } from "./session-row-prepared-read.js";
+import { getSessionRowProjection } from "./session-row-projection-access.js";
 import {
+  resolveDirectIncognitoTargets,
+  resolveDirectSessionTargets,
+} from "./session-sharing-target-input.js";
+import {
+  isGatewayAdmin,
   resolveSessionMutationAuthorization,
   SessionMutationAuthorizationChangedError,
 } from "./session-sharing.js";
@@ -325,14 +332,28 @@ export async function authorizeGatewayRequestPreDispatch(params: {
         ),
       };
     }
-    const preparedSessionMutation = withCanonicalSessionValidationDeferral(() =>
+    const projection =
+      params.method === "sessions.describe" && !isGatewayAdmin(params.client)
+        ? getSessionRowProjection(params.context)
+        : undefined;
+    const authorizeSession = (sessionRowRead?: SessionRowReadView) =>
       resolveSessionMutationAuthorization({
         client: params.client ?? null,
         method: params.method,
         requestParams: params.requestParams,
         context: params.context,
-      }),
-    );
+        sessionRowRead,
+      });
+    const preparedSessionMutation = projection
+      ? await projection.withPreparedExactRows(
+          (cfg) =>
+            resolveDirectSessionTargets(params.method, params.requestParams).flatMap((target) => {
+              const agent = resolveRequestedSessionAgentId(cfg, target.sessionKey, target.agentId);
+              return agent.ok ? [{ key: target.sessionKey, agentId: agent.agentId }] : [];
+            }),
+          authorizeSession,
+        )
+      : withCanonicalSessionValidationDeferral(() => authorizeSession());
     if (preparedSessionMutation.kind === "pending") {
       const { certifySessionCanonicalValidationPending } =
         await import("../config/sessions/session-canonical-validation-readiness.js");

@@ -30,6 +30,7 @@ import { tryReadJson } from "../../infra/json-files.js";
 import { probePortUsage } from "../../infra/ports-probe.js";
 import { nodeVersionSatisfiesEngine } from "../../infra/runtime-guard.js";
 import { parseTcpPortFromArgs } from "../../infra/tcp-port.js";
+import type { UpdateChannel } from "../../infra/update-channels.js";
 import {
   createUpdateFailureFact,
   type UpdateFailureFact,
@@ -252,9 +253,7 @@ export async function inspectManagedGatewayServiceBeforeUpdate(params: {
 }
 
 /** Recorded launchers cannot select an update's package, Node, or state without live inspection. */
-export async function readManagedGatewayServiceCommandForUpdate(
-  env: NodeJS.ProcessEnv,
-): Promise<GatewayServiceCommandConfig | null> {
+export async function readManagedGatewayServiceForUpdate(env: NodeJS.ProcessEnv) {
   let service: ReturnType<typeof resolveGatewayService> | undefined;
   try {
     service = resolveGatewayService();
@@ -268,7 +267,7 @@ export async function readManagedGatewayServiceCommandForUpdate(
       return null;
     }
     const inspection = await inspectManagedGatewayServiceBeforeUpdate({ state });
-    return inspection.kind === "owned" ? state.command : null;
+    return inspection.kind === "owned" ? { command: state.command, verdict: inspection } : null;
   } catch (error) {
     if (error instanceof GatewayServiceUpdateOwnershipError && service) {
       // Probe only the invoker's manager; rejected record selectors must not route it.
@@ -291,6 +290,8 @@ type PackageRuntimePreflight = {
 };
 
 export async function resolvePackageRuntimePreflight(params: {
+  channel?: UpdateChannel;
+  requestedChannel?: UpdateChannel | null;
   target?: { version: string; nodeEngine: string | null };
   installedRoot?: string;
   timeoutMs?: number;
@@ -347,13 +348,15 @@ export async function resolvePackageRuntimePreflight(params: {
   if (satisfies === true) {
     return ok(unchangedRuntime);
   }
+  const canRefreshCurrentService =
+    params.service?.running &&
+    params.service.serviceUpdateVerdict?.kind === "owned" &&
+    params.service.serviceUpdateVerdict.refreshDefinition;
   const fallbackNodeRunner =
     params.shouldRestart &&
     nodeRunner &&
     (params.alreadyCurrent
-      ? params.service?.running &&
-        params.service.serviceUpdateVerdict?.kind === "owned" &&
-        params.service.serviceUpdateVerdict.refreshDefinition
+      ? canRefreshCurrentService
       : await gatewayServiceCommandUsesRoot({ root: params.root }))
       ? resolveNodeRunner()
       : undefined;
@@ -394,13 +397,19 @@ export async function resolvePackageRuntimePreflight(params: {
       : undefined;
   const env = context?.env ?? params.service?.serviceEnv ?? process.env;
   const recoveryVersion = valid(targetVersion);
+  const recoveryChannel =
+    params.requestedChannel ?? (params.channel === "extended-stable" ? params.channel : undefined);
+  const recoveryTarget = [
+    "openclaw update",
+    recoveryChannel ? `--channel ${recoveryChannel}` : "",
+    params.sourceRoot || params.channel === "extended-stable" ? "" : `--tag ${recoveryVersion}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const retainedRoot = params.sourceRoot ?? params.root ?? params.installedRoot;
   const retainedEntry = retainedRoot ? path.resolve(retainedRoot, "openclaw.mjs") : undefined;
   const continuation = retainedEntry
-    ? formatCliCommand(
-        params.sourceRoot ? "openclaw update" : `openclaw update --tag ${recoveryVersion}`,
-        env,
-      ).replace(
+    ? formatCliCommand(recoveryTarget, env).replace(
         /^openclaw\b/,
         () =>
           `node ${process.platform === "win32" ? quotePowerShellArg(retainedEntry) : quoteCliArg(retainedEntry)}`,
@@ -420,6 +429,18 @@ export async function resolvePackageRuntimePreflight(params: {
           continuation,
         })
       : undefined;
+  if (
+    recoverySteps?.at(-1)?.kind === "continue-update" &&
+    params.alreadyCurrent &&
+    nodeRunner &&
+    params.service?.serviceNodeRunner &&
+    !canRefreshCurrentService
+  ) {
+    recoverySteps.splice(-1, 0, {
+      kind: "select-runtime",
+      instruction: `The Gateway service still selects ${nodeRunner}. Before continuing, have its deployment owner select Node ${recommendation} in the service definition while retaining its installation, service account, and state/config selectors. Switching the shell runtime alone does not update that service definition.`,
+    });
+  }
   const upgrade = recoverySteps
     ? `Recovery:\n${formatUpdateRecoverySteps(recoverySteps)}`
     : recommendation
@@ -514,7 +535,7 @@ export async function resolveManagedServicePackageUpdatePlan(params: {
   }
   // Root and runtime planning share one effective command; mutation and restart
   // revalidate independently so this snapshot cannot grant later service authority.
-  const command = await readManagedGatewayServiceCommandForUpdate(process.env);
+  const command = (await readManagedGatewayServiceForUpdate(process.env))?.command ?? null;
   const layout = await summarizeGatewayServiceLayout(command);
   if (!layout?.packageRootReal) {
     return { rootRedirect: null };
@@ -558,7 +579,7 @@ export async function gatewayServiceCommandUsesRoot(params: {
   const command =
     params.command === undefined
       ? isGatewayServiceManagementAllowedForUpdate(params.env ?? process.env)
-        ? await readManagedGatewayServiceCommandForUpdate(params.env ?? process.env)
+        ? ((await readManagedGatewayServiceForUpdate(params.env ?? process.env))?.command ?? null)
         : null
       : params.command;
   const layout = await summarizeGatewayServiceLayout(command);

@@ -318,6 +318,12 @@ async function gatherDaemonStatusImpl(
     isDefaultInstallIdentity(process.env) &&
     !isGatewayExternallySupervised(process.env);
   const targetServiceCommand = useNativeServiceTargetContext ? command : null;
+  // The RPC handshake can fail while the service still runs another install, so
+  // resolve the locally readable service install facts here and hand them to the
+  // renderer instead of leaving it dependent on Gateway metadata.
+  const serviceLayout = command
+    ? await summarizeGatewayServiceLayout(command).catch(() => undefined)
+    : undefined;
   if (opts.deep && !trimToUndefined(opts.rpc.url)) {
     const { preflightOpenClawDatabaseSchemas, OpenClawDatabaseSchemaPreflightError } =
       await import("../../state/openclaw-database-preflight.js");
@@ -615,6 +621,7 @@ async function gatherDaemonStatusImpl(
       notLoadedText: service.notLoadedText,
       targetRole: serviceTargetsProbe ? "target" : "diagnostic-only",
       command,
+      ...(serviceLayout ? { layout: serviceLayout } : {}),
       runtime: runtime?.inspectionFailure
         ? {
             ...runtime,

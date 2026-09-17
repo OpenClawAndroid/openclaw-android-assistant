@@ -132,6 +132,20 @@ abandonment recovery.
 JSON output identifies reconciled run IDs in
 `reconciledRuns`, with `status: "ok"`, `mode: "repair"`, and `restart: false`.
 
+Repair also acknowledges an untouched package installation whose update was
+refused because its package-manager owner was unknown, once the installed
+version meets or exceeds the resolved target. This includes older updaters that
+incorrectly recorded that refusal as a failed update. The original refusal
+detail stays in history; repair clears the failure prompt without Doctor
+maintenance or a service restart. Runs that reached installation or finalization
+still require normal repair.
+
+Fresh Doctor children run with the existing external service-repair policy
+because the updater owns service changes. They preserve an operator's
+`OPENCLAW_SERVICE_REPAIR_POLICY=external` selection and retain Gateway/state
+coordinators and agent-database lease checks. An external deployment owner still
+owns stopping and restarting its Gateway.
+
 Repair invoked within the owning update can continue when its inherited run ID
 and live process identity match that owner. Standalone repair records the same
 continuation for its new run and passes that run ID to its Doctor children.

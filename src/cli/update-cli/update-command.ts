@@ -285,7 +285,7 @@ async function initializeAndRunUpdate(
               });
               initialization.downgradeConfirmed = true;
               const runtime = await resolvePackageRuntimePreflight({
-                root: target.root,
+                ...target,
                 shouldRestart: prepared.shouldRestart,
                 target: target.packageRuntimeTarget,
                 timeoutMs,
@@ -549,7 +549,7 @@ async function updateCommandInternal(
 
   if (updateInstallKind === "package") {
     const runtimePreflight = await resolvePackageRuntimePreflight({
-      root,
+      ...target,
       shouldRestart,
       target: packageRuntimeTarget,
       timeoutMs: updateStepTimeoutMs,

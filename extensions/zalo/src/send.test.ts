@@ -61,6 +61,7 @@ describe("zalo send", () => {
         text: "hello there",
       },
       undefined,
+      undefined,
     );
     expect(sendPhotoMock).not.toHaveBeenCalled();
     const successful = requireSuccessfulSend(result, "z-msg-1");
@@ -96,6 +97,7 @@ describe("zalo send", () => {
         caption: "caption text",
       },
       undefined,
+      undefined,
     );
     expect(sendMessageMock).not.toHaveBeenCalled();
     const successful = requireSuccessfulSend(result, "z-photo-1");
@@ -123,6 +125,7 @@ describe("zalo send", () => {
         chat_id: "dm-chat-blank-media",
         text: "hello there",
       },
+      undefined,
       undefined,
     );
     expect(sendPhotoMock).not.toHaveBeenCalled();
@@ -156,6 +159,7 @@ describe("zalo send", () => {
         text: "hello",
       },
       undefined,
+      undefined,
     );
     expect(sendPhotoMock).toHaveBeenCalledWith(
       "zalo-token",
@@ -164,6 +168,7 @@ describe("zalo send", () => {
         photo: "https://example.com/photo.jpg",
         caption: undefined,
       },
+      undefined,
       undefined,
     );
   });
@@ -231,9 +236,39 @@ describe("zalo send", () => {
         caption: undefined,
       },
       undefined,
+      undefined,
     );
     expect(resolveZaloProxyFetchMock).toHaveBeenCalledOnce();
     const successful = requireSuccessfulSend(result, "z-photo-2");
     expect(successful.receipt.platformMessageIds).toEqual(["z-photo-2"]);
+  });
+
+  it("preserves handoff rejection identity without changing provider failures", async () => {
+    const providerError = new Error("provider unavailable");
+    sendMessageMock.mockRejectedValueOnce(providerError);
+
+    expectFailedSend(
+      await sendMessageZalo("dm-chat-provider-error", "hello", { token: "zalo-token" }),
+      providerError.message,
+    );
+
+    const authorityError = new Error("source authority revoked");
+    const assertDirectAdapterHandoff = vi.fn(() => {
+      throw authorityError;
+    });
+    sendMessageMock.mockImplementationOnce(
+      async (_token, _params, _fetcher, assertCurrent: (() => void) | undefined) => {
+        assertCurrent?.();
+        return { ok: true, result: { message_id: "unexpected" } };
+      },
+    );
+
+    await expect(
+      sendMessageZalo("dm-chat-revoked", "hello", {
+        token: "zalo-token",
+        assertDirectAdapterHandoff,
+      }),
+    ).rejects.toBe(authorityError);
+    expect(assertDirectAdapterHandoff).toHaveBeenCalledOnce();
   });
 });

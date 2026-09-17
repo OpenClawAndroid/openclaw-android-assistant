@@ -93,7 +93,14 @@ that intersection. Follow the recovery steps for the detected runtime manager
 (nvm, fnm, Volta, or system Node). The next step runs `update` through the
 original installation's absolute `openclaw.mjs` launcher using the selected Node.
 It does not rely on `openclaw` remaining on PATH after a version-manager switch,
-or recommend a global install into an uninspected prefix.
+or recommend a global install into an uninspected prefix. Extended-stable recovery
+uses `--channel extended-stable` so the resolver selects the supported monthly
+release; other package channels retain the inspected version with `--tag`.
+An explicit channel switch is included in recovery because the runtime refusal
+happens before that preference is saved. If an already-current service is stopped
+or its definition cannot be refreshed, have its deployment owner select the
+supported Node in that definition before retrying. Switching the shell runtime
+does not change a service's pinned Node path.
 
 Keep the same service account, profile, and state/config overrides. Recovery
 restores the recorded service selectors, including overrides absent from your
@@ -115,7 +122,8 @@ retry through the retained absolute launcher. Alternatively, with the destinatio
 owner's agreement, explicitly select that installation for the intended service
 using a printed `gateway install --force` command when available, then update. This changes
 the service binding; it is not permission to overwrite another deployment's
-package. Dry-run returns the same refusal. Recorded attempts remain in update
+package. A protected service definition uses deployment-owner instructions instead;
+`--force` cannot replace a sealed mount. Dry-run returns the same refusal. Recorded attempts remain in update
 history and are shown by Doctor.
 
 If the ranges do not overlap, install a supported Node and select a compatible
