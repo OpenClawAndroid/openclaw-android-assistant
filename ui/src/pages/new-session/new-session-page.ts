@@ -25,7 +25,7 @@ import { renderWelcomeState } from "../chat/components/chat-welcome.ts";
 import * as catalog from "./catalog-target.ts";
 import { NewSessionDictationControl } from "./composer-dictation-control.ts";
 import { ConnectMachineSetupState, renderConnectMachineDialog } from "./connect-machine-dialog.ts";
-import { renderNewSessionBody } from "./draft-composer.ts";
+import { renderNewSessionBody } from "./draft-body.ts";
 import { DraftGatewayState } from "./draft-gateway-state.ts";
 import * as drafts from "./draft-navigation-handoff.ts";
 import { DraftPlaceBrowser } from "./draft-place-browser.ts";
@@ -34,6 +34,7 @@ import { DraftSubmissionFlow } from "./draft-submission-flow.ts";
 import { NewSessionTitleController } from "./draft-title.ts";
 import { renderNewSessionDraftView } from "./draft-view.ts";
 import { renderNewSessionIncognitoControl } from "./incognito-control.ts";
+import { forgetInstantThreadPage } from "./instant-thread-restore.ts";
 import type { NewSessionRouteData } from "./location.ts";
 import {
   closeAgentPicker,
@@ -55,6 +56,7 @@ export class NewSessionPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
   private context?: ApplicationContext;
 
+  private retainedForHandoff: object | null = null;
   private openedFor: string | null = null;
   private readonly critterImport = createIdleImport(
     () => import("../../components/lobster-pet.runtime.ts"),
@@ -168,6 +170,31 @@ export class NewSessionPage extends OpenClawLightDomElement {
         requestUpdate: () => this.requestUpdate(),
         closeTransientUi: () => closeSessionMenus(this),
         takePreparedTitle: () => this.titlePreparation.takePreparedTitle(),
+        retainForHandoff: () => {
+          if (!this.data || !this.isConnected) {
+            return undefined;
+          }
+          const retention = {};
+          this.retainedForHandoff = retention;
+          return {
+            page: this,
+            data: this.data,
+            synchronizeGateway: () => {
+              if (this.context) {
+                this.gateway.synchronize(this.context.gateway);
+              }
+            },
+            release: () => {
+              if (this.retainedForHandoff !== retention) {
+                return;
+              }
+              this.retainedForHandoff = null;
+              if (!this.isConnected) {
+                this.disposeDraft();
+              }
+            },
+          };
+        },
       },
     );
     this.connectMachine = new ConnectMachineSetupState(
@@ -263,8 +290,18 @@ export class NewSessionPage extends OpenClawLightDomElement {
     this.critterImport.dispose();
     document.removeEventListener("keydown", this, true);
     window.removeEventListener("beforeunload", this.flushDraft);
-    retainDraft(this.context, this.submission, this.openedFor, this.messageOwnerKey);
     this.subscriptions.clear();
+    this.dictation.dispose();
+    this.connectMachine.close();
+    if (!this.retainedForHandoff) {
+      this.disposeDraft();
+    }
+    super.disconnectedCallback();
+  }
+
+  private disposeDraft() {
+    forgetInstantThreadPage(this.data, this);
+    retainDraft(this.context, this.submission, this.openedFor, this.messageOwnerKey);
     this.gateway.invalidateDiscovery(
       true,
       this.submission.pendingPlacement.sessionKey ? "placement-interrupted" : "gateway-changed",
@@ -272,9 +309,6 @@ export class NewSessionPage extends OpenClawLightDomElement {
     this.gateway.disconnect();
     this.browser.disconnect();
     this.submission.disconnect();
-    this.dictation.dispose();
-    this.connectMachine.close();
-    super.disconnectedCallback();
   }
 
   override updated() {

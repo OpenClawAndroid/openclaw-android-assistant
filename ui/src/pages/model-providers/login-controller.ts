@@ -5,6 +5,7 @@ import { renderWizardSingleChoice } from "../../components/wizard-step-controls.
 import { t } from "../../i18n/index.ts";
 import { registerSettingsEnglish } from "../../i18n/locales/en-settings.ts";
 import { formatUiError } from "../../lib/format-error.ts";
+import { invalidateModelAuthStatusRequests } from "../../lib/model-auth-request-state.ts";
 import { loadModelAuthStatus } from "../../lib/model-auth.ts";
 import "../../styles/model-setup.css";
 import { initialWizardValue, type ModelSetupWizardState } from "../model-setup/state.ts";
@@ -326,7 +327,11 @@ export class ModelProviderLoginController implements ReactiveController {
           if (mutationClient !== client) {
             throw new Error(t("modelProviders.requestFailed"));
           }
-          return task();
+          const completion = await task();
+          if (completion) {
+            invalidateModelAuthStatusRequests(mutationClient);
+          }
+          return completion;
         },
         {
           canDispatch: () =>

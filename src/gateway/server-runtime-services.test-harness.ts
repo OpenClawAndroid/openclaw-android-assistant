@@ -120,10 +120,8 @@ export function createLog() {
   };
 }
 
-export const createTestCron = () => ({ start: vi.fn<() => Promise<void>>(async () => {}) });
-
 export function createTestCronState(
-  cron: { start: () => Promise<void> } = createTestCron(),
+  cron: { start: () => Promise<void> } = { start: vi.fn(async () => {}) },
   cronEnabled = true,
 ) {
   return {

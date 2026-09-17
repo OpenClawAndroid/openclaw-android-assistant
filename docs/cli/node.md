@@ -174,7 +174,14 @@ Options:
 - `--share-installed-apps`: On macOS, advertise installed applications through `device.apps`
 - `--no-share-installed-apps`: Disable installed application sharing
 - `--runtime <node|bun>`: Service runtime (default: `node`). Bun 1.4+ with WAL-reset-safe `node:sqlite` is an explicit opt-in; Node remains recommended.
+- `--runtime-path <path>`: Pin an absolute Node/Bun executable that passes runtime capability checks.
 - `--force`: Reinstall/overwrite if already installed
+
+The explicit pin is saved in machine-state metadata and retained
+across restarts and forced reinstalls. Replace it with another `--runtime-path`,
+or use `openclaw node install --runtime node --force` without `--runtime-path`
+to return to automatic selection. An unavailable or unsupported pin fails
+instead of silently selecting another runtime. Quote paths containing spaces.
 
 Set `OPENCLAW_WRAPPER` to an executable wrapper file to use it instead of the
 selected runtime and CLI entrypoint. The wrapper receives `node run` and the

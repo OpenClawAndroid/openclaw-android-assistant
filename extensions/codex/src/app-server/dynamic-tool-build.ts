@@ -255,6 +255,7 @@ export async function buildDynamicTools(
     nativeToolSurfaceEnabled: input.nativeToolSurfaceEnabled,
     nativeProviderWebSearchSupport: input.nativeProviderWebSearchSupport,
   });
+  const messageToolProvider = resolveCodexMessageToolProvider(params);
   const webFetchHostnameAllowlistRef: { value?: string[] } = {};
   const toolConstructionPlan = resolveCodexNodePlacementToolConstructionPlan(
     input.sandbox,
@@ -276,16 +277,13 @@ export async function buildDynamicTools(
       : undefined,
     sandbox: input.sandbox,
     ...(toolConstructionPlan ? { toolConstructionPlan } : {}),
-    messageProvider: resolveCodexMessageToolProvider(params),
+    messageProvider: messageToolProvider,
     toolPolicyMessageProvider: params.messageProvider ?? params.messageChannel,
     // Codex dispatches dynamic tools itself, so no tool-start handler reserves a
     // blocking question's prompt. Hand the tools this run's own way to show one.
     ...(params.onToolResult
       ? {
-          questionPrompt: {
-            send: params.onToolResult,
-            ...(params.messageChannel ? { messageChannel: params.messageChannel } : {}),
-          },
+          questionPrompt: { send: params.onToolResult, messageChannel: messageToolProvider },
         }
       : {}),
     inputProvenance: params.inputProvenance,
@@ -455,7 +453,7 @@ export async function buildDynamicTools(
       agentId: input.policyAgentId,
       sessionKey: input.sandboxSessionKey,
       sandboxToolPolicy: input.sandbox?.tools,
-      messageProvider: resolveCodexMessageToolProvider(params),
+      messageProvider: messageToolProvider,
       agentAccountId: params.agentAccountId,
       groupId: params.groupId,
       groupChannel: params.groupChannel,

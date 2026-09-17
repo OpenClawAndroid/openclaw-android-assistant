@@ -22,7 +22,7 @@ export function resolveUnsafeUpdateRecoveryGuidance(
   const triageCommand = formatCliCommand("openclaw triage", env);
   const guidance = `Run \`${triageCommand}\` on this machine to open a coding agent that can diagnose and repair the installation.`;
   if (reason === "state-migration-started") {
-    return `${guidance} Candidate Doctor may have migrated state; keep the candidate installed and do not roll back code alone.`;
+    return `${guidance} Update Doctor may have migrated state; keep the update installed and do not roll back code alone.`;
   }
   return guidance;
 }
@@ -54,7 +54,7 @@ export function resolveUpdateResultNextAction(params: {
       return formatUpdateActivationTimeoutGuidance((command) => formatCliCommand(command, env));
     }
     if (result.reason === "rollback-project-changed") {
-      return `Other global packages changed after staging; automatic rollback was refused to preserve them. The candidate installation was left unchanged. Check \`${formatCliCommand("openclaw gateway status --deep", env)}\` before restarting it. ${resolveUnsafeUpdateRecoveryGuidance(undefined, env)}`;
+      return `Other global packages changed after staging; automatic rollback was refused to preserve them. The new installation was left unchanged. Check \`${formatCliCommand("openclaw gateway status --deep", env)}\` before restarting it. ${resolveUnsafeUpdateRecoveryGuidance(undefined, env)}`;
     }
     const reason =
       result.recovery?.serviceRestartSafe === false ? result.recovery.reason : undefined;

@@ -29,6 +29,7 @@ import {
   type RuntimeAuthProfileLegacyCandidates,
   type OwnedRuntimeAuthProfileStoreSnapshotEntry,
 } from "./runtime-snapshot-owner.js";
+import { registerFreshSharedAuthStoreHandoff } from "./shared-store-bootstrap.js";
 import {
   closeAuthProfileReadPool,
   type AuthProfileStoreOwner,
@@ -57,6 +58,30 @@ let runtimeAuthStoreSnapshotsRevision = 0;
 // Per-store generations isolate rollback ownership; the global counter remains
 // the deletion generation for keys no longer present in this map.
 const runtimeAuthStoreSnapshotRevisions = new Map<string, number>();
+
+registerFreshSharedAuthStoreHandoff(({ previousSharedDatabasePath, sharedDatabasePath, env }) => {
+  let rebound = false;
+  const entries = listOwnedRuntimeAuthProfileStoreSnapshots();
+  for (const entry of entries) {
+    if (
+      (entry.owner.kind === "resolved" && entry.owner.location !== "legacy-main") ||
+      !runtimeAuthProfileSnapshotSharesOwner(entry.owner, {
+        sharedDatabasePath: previousSharedDatabasePath,
+        location: "legacy-main",
+      })
+    ) {
+      continue;
+    }
+    rebound = true;
+    entry.owner = { kind: "resolved", sharedDatabasePath, location: "state-db" };
+    entry.legacyCandidates = captureRuntimeAuthProfileLegacyCandidates(entry.agentDir, env);
+  }
+  if (rebound) {
+    // Keep each published view and its overlays; the following credential commit rebuilds
+    // these now-derived views from the same owner that secrets activation will observe.
+    replaceOwnedRuntimeAuthProfileStoreSnapshots(entries);
+  }
+});
 
 type RuntimeAuthProfileStoreSnapshotEntry = {
   databasePath?: string;

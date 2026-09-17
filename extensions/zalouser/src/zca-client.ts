@@ -105,9 +105,11 @@ export type LoginQRCallbackEvent =
     };
 
 type Listener = {
+  on(event: "connected", callback: () => void): void;
   on(event: "message", callback: (message: Message) => void): void;
   on(event: "error", callback: (error: unknown) => void): void;
   on(event: "closed", callback: (code: number, reason: string) => void): void;
+  off(event: "connected", callback: () => void): void;
   off(event: "message", callback: (message: Message) => void): void;
   off(event: "error", callback: (error: unknown) => void): void;
   off(event: "closed", callback: (code: number, reason: string) => void): void;

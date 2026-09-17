@@ -156,7 +156,9 @@ it.each([
       const copy = path.join(scratch, "database.sqlite");
       await fs.writeFile(copy, "copy");
       if (${discoveredBytes ?? 0}) await fs.truncate(copy, ${discoveredBytes ?? 0});
-      await fs.writeFile(${JSON.stringify(ready)}, scratch);
+      // Existence signals readiness, so publish the complete scratch path together.
+      await fs.writeFile(${JSON.stringify(`${ready}.tmp`)}, scratch);
+      await fs.rename(${JSON.stringify(`${ready}.tmp`)}, ${JSON.stringify(ready)});
       let last = "";
       while (!(await fs.stat(${JSON.stringify(release)}).catch(() => undefined))) {
         const next = await fs.readFile(${JSON.stringify(progress)}, "utf8").catch(() => "");

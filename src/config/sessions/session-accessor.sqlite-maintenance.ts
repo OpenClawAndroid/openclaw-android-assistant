@@ -19,7 +19,6 @@ import {
   runSqliteSessionDeletionTransaction as runOpenClawAgentWriteTransaction,
   withSqliteSessionDeletions,
 } from "./session-accessor.sqlite-deletion.js";
-import { readSessionEntryCacheValidityToken } from "./session-accessor.sqlite-entry-cache.js";
 import {
   readSessionEntryCount,
   readSessionEntryStore,
@@ -40,6 +39,7 @@ import type {
   SessionEntryMaintenanceResult,
 } from "./session-accessor.sqlite-lifecycle-types.js";
 import {
+  invalidateSessionEntryMaintenanceAgeFact,
   readSessionEntryMaintenanceAgeFact,
   readSessionEntryMaintenanceNextAgeAt,
   recordSessionEntryMaintenanceAgeFact,
@@ -377,20 +377,8 @@ export function applySessionEntryMaintenance(
       force: params.forceMaintenance,
     })
   ) {
-    const ageFact = readSessionEntryMaintenanceAgeFact(
-      database.db,
-      readSessionEntryCacheValidityToken(database.db),
-    );
-    const pruneAt =
-      maintenance.pruneAfterMs > 0
-        ? (ageFact?.oldestUpdatedAt ?? -Infinity) + maintenance.pruneAfterMs
-        : Infinity;
-    const dashboardAge = maintenance.archiveDashboardAfterMs ?? 0;
-    const dashboardAt =
-      dashboardAge > 0
-        ? (ageFact?.oldestDashboardActivityAt ?? -Infinity) + dashboardAge
-        : Infinity;
-    if (Date.now() <= Math.min(pruneAt, dashboardAt)) {
+    const ageFact = readSessionEntryMaintenanceAgeFact(database.db, maintenance);
+    if (ageFact && Date.now() < ageFact.next.at) {
       return {
         entryRemovals: [],
         stateDeletePlans: [],
@@ -402,6 +390,8 @@ export function applySessionEntryMaintenance(
       };
     }
   }
+  invalidateSessionEntryMaintenanceAgeFact(database.db);
+  const plannedAt = Date.now();
   const activeSessionKeys = uniqueStrings([
     params.activeSessionKey ?? "",
     ...(params.activeSessionKeys ?? []),
@@ -470,11 +460,7 @@ export function applySessionEntryMaintenance(
     const expectedEntry = selectedEntries[sessionKey];
     return expectedEntry ? [{ expectedEntry, maintenanceReason, sessionKey }] : [];
   });
-  recordSessionEntryMaintenanceAgeFact(
-    database,
-    readSessionEntryCacheValidityToken(database.db),
-    maintenance,
-  );
+  recordSessionEntryMaintenanceAgeFact(database, maintenance, plannedAt);
   if (removals.length === 0) {
     return {
       ...(archivedWorktrees.length ? { archivedWorktrees } : {}),
@@ -535,7 +521,6 @@ export function readNextSessionEntryMaintenanceAt(
 ): number | undefined {
   return readSessionEntryMaintenanceNextAgeAt(
     database,
-    readSessionEntryCacheValidityToken(database.db),
     maintenanceConfig
       ? normalizeResolvedMaintenanceConfigInput(maintenanceConfig)
       : resolveMaintenanceConfig(),

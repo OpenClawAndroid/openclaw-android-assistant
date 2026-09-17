@@ -12,7 +12,11 @@ import {
 } from "../agents/subagents/announce/subagent-announce-origin.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import { createAgentHarnessTaskRuntimeScope } from "../tasks/agent-harness-task-runtime-scope.js";
-import { createRunningTaskRun, finalizeTaskRunByRunId } from "../tasks/detached-task-runtime.js";
+import {
+  createRunningTaskRun,
+  finalizeTaskRunByRunId,
+  recordTaskRunProgressByRunId,
+} from "../tasks/detached-task-runtime.js";
 import { listTaskRecords } from "../tasks/runtime-internal.js";
 import { captureTaskExecutionOwner } from "../tasks/task-execution-owner.js";
 import {
@@ -99,44 +103,61 @@ describe("agent-harness-task-runtime", () => {
     expect(captureTaskExecutionOwner).not.toHaveBeenCalled();
   });
 
-  it("scopes task lifecycle mutations to the owning requester session", () => {
-    const runtime = createAgentHarnessTaskRuntime({
-      runtime: "subagent",
-      taskKind: "example-harness",
-      scope: createScope(),
-      runIdPrefix: "example:",
-    });
-
-    runtime.createRunningTaskRun({
-      runId: "example:child-1",
-      sourceId: "example:child-1",
-      task: "do work",
-      label: "worker",
-    });
-    runtime.finalizeTaskRunByRunId({
-      runId: "example:child-1",
-      status: "succeeded",
-      endedAt: 1,
-    });
-
-    expect(createRunningTaskRun).toHaveBeenCalledWith(
-      expect.objectContaining({
+  it.each([undefined, "task-child-1"])(
+    "scopes lifecycle mutations and forwards task selector %s",
+    (taskId) => {
+      const runtime = createAgentHarnessTaskRuntime({
         runtime: "subagent",
         taskKind: "example-harness",
-        requesterSessionKey: "agent:main:channel:C123",
-        ownerKey: "agent:main:channel:C123",
-        scopeKind: "session",
+        scope: createScope(),
+        runIdPrefix: "example:",
+      });
+
+      runtime.createRunningTaskRun({
         runId: "example:child-1",
-      }),
-    );
-    expect(finalizeTaskRunByRunId).toHaveBeenCalledWith(
-      expect.objectContaining({
+        sourceId: "example:child-1",
+        task: "do work",
+        label: "worker",
+      });
+      runtime.finalizeTaskRunByRunId({
+        ...(taskId !== undefined ? { taskId } : {}),
+        runId: "example:child-1",
+        status: "succeeded",
+        endedAt: 1,
+      });
+      runtime.recordTaskRunProgressByRunId({
+        ...(taskId !== undefined ? { taskId } : {}),
+        runId: "example:child-1",
+        progressSummary: "working",
+      });
+
+      expect(createRunningTaskRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runtime: "subagent",
+          taskKind: "example-harness",
+          requesterSessionKey: "agent:main:channel:C123",
+          ownerKey: "agent:main:channel:C123",
+          scopeKind: "session",
+          runId: "example:child-1",
+        }),
+      );
+      expect(finalizeTaskRunByRunId).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...(taskId !== undefined ? { taskId } : {}),
+          runtime: "subagent",
+          sessionKey: "agent:main:channel:C123",
+          runId: "example:child-1",
+        }),
+      );
+      expect(recordTaskRunProgressByRunId).toHaveBeenCalledWith({
+        ...(taskId !== undefined ? { taskId } : {}),
         runtime: "subagent",
         sessionKey: "agent:main:channel:C123",
         runId: "example:child-1",
-      }),
-    );
-  });
+        progressSummary: "working",
+      });
+    },
+  );
 
   it("rejects task run ids outside the configured harness scope", () => {
     const runtime = createAgentHarnessTaskRuntime({

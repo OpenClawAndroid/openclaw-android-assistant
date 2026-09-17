@@ -109,7 +109,7 @@ function refreshSessionStatusModel(host: ToolStreamHost, data: Record<string, un
     return;
   }
   // Results can be replayed from history; read current truth without replacing pending UI intent.
-  void host.sessions.refreshReplacement(agentId);
+  void host.sessions.reconcileMutation(agentId);
 }
 
 function buildToolStreamMessage(entry: ToolStreamEntry): Record<string, unknown> {

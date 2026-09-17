@@ -156,6 +156,18 @@ async function createRelay(platform: "linux" | "darwin" | "win32", retainLineage
     start,
     cancellations,
     acknowledgements,
+    acknowledgeRetirement: () => {
+      const request = stub.sendMock.mock.calls.at(-1)?.[0];
+      if (!isRecord(request) || request.type !== "cancel") {
+        throw new Error("Expected the relay retirement request");
+      }
+      stub.child.emit("message", {
+        type: "retirement",
+        generation,
+        sequence: request.sequence,
+        anchorExited: true,
+      });
+    },
     emit,
     completeRoot,
     endOutput,
@@ -695,9 +707,15 @@ it.each(["EPERM", "EIO", "still present"])(
     await expect(adapter.waitForExtinction()).rejects.toThrow(
       cause ? "owned process group" : "hard deadline",
     );
-    await expect(adapter.waitForExtinction()).rejects.toSatisfy(
-      (error: unknown) => error instanceof Error && error.cause === cause,
-    );
+    if (cause) {
+      await expect(adapter.waitForExtinction()).rejects.toSatisfy(
+        (error: unknown) => error instanceof Error && error.cause === cause,
+      );
+    } else {
+      await expect(adapter.waitForExtinction()).rejects.toMatchObject({
+        cause: { durationMs: GRACEFUL_CANCEL_TIMEOUT_MS, escalationAfterMs: undefined },
+      });
+    }
     await expect(adapter.wait()).resolves.toEqual({ code: 0, signal: null });
     expect(groupProbe).toHaveBeenCalledWith(-1235, 0);
     expect(groupProbe.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
@@ -724,47 +742,72 @@ it("retains extinction ownership until the kernel group disappears", async () =>
   ]);
 });
 
-it("joins stdio cleanup when the retired relay completes after 500 ms", async () => {
-  const {
-    adapter,
-    completeRoot,
-    emit,
-    closeControl,
-    exitRelay,
-    groupProbe,
-    lineage,
-    acknowledgements,
-    cancellations,
-  } = await createRelay("linux");
-  completeRoot();
-  await adapter.wait();
-  lineage.end();
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  try {
-    emit({ type: "closing", reason: "lineage-closed" });
-    await nextTurn();
-    expect(acknowledgements).toContainEqual(expect.objectContaining({ type: "closing-ack" }));
-    const extinct = vi.fn();
-    void adapter.waitForExtinction().then(extinct, extinct);
-    closeControl();
-    await nextTurn();
-    const finished = vi.fn();
-    const closing = closeOwnedStdioProcess(adapter, { force: true });
-    void closing.then(finished, finished);
-    await vi.advanceTimersByTimeAsync(500);
-    expect(finished).not.toHaveBeenCalled();
-    expect(extinct).not.toHaveBeenCalled();
-    expect(groupProbe).not.toHaveBeenCalled();
-    expect(cancellations).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(100);
-    exitRelay();
-    await expect(closing).resolves.toBeUndefined();
-    expect(groupProbe).toHaveBeenCalledExactlyOnceWith(-1235, 0);
-    expect(cancellations).toHaveLength(0);
-  } finally {
-    vi.useRealTimers();
-  }
-});
+it.each(["before", "after"])(
+  "joins forced stdio cleanup when control closes %s the force request",
+  async (controlCloses) => {
+    const {
+      adapter,
+      completeRoot,
+      emit,
+      closeControl,
+      exitRelay,
+      groupProbe,
+      lineage,
+      acknowledgements,
+      cancellations,
+      killSpy,
+      acknowledgeRetirement,
+    } = await createRelay("linux");
+    completeRoot();
+    await adapter.wait();
+    lineage.end();
+    groupProbe.mockReturnValue(true);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      emit({ type: "closing", reason: "lineage-closed" });
+      await nextTurn();
+      expect(acknowledgements).toContainEqual(expect.objectContaining({ type: "closing-ack" }));
+      const extinct = vi.fn();
+      void adapter.waitForExtinction().then(extinct, extinct);
+      if (controlCloses === "before") {
+        closeControl();
+        await nextTurn();
+      }
+      const finished = vi.fn();
+      const closing = closeOwnedStdioProcess(adapter, { force: true });
+      void closing.then(finished, finished);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(finished).not.toHaveBeenCalled();
+      expect(extinct).not.toHaveBeenCalled();
+      expect(killSpy).not.toHaveBeenCalled();
+      if (controlCloses === "after") {
+        closeControl();
+        await nextTurn();
+      }
+      acknowledgeRetirement();
+      expect(killSpy).toHaveBeenCalledExactlyOnceWith("SIGKILL");
+      expect(cancellations).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(finished).not.toHaveBeenCalled();
+      expect(extinct).not.toHaveBeenCalled();
+      const probesBeforeExit = groupProbe.mock.calls.length;
+      groupProbe.mockImplementation(() => {
+        throw Object.assign(new Error("synthetic absent group"), { code: "ESRCH" });
+      });
+      exitRelay();
+      await expect(closing).resolves.toMatchObject({
+        reason: "forced-relay-exit",
+        signalRequested: "SIGKILL",
+        exit: { code: 0, signal: null },
+      });
+      expect(groupProbe.mock.calls).toHaveLength(probesBeforeExit + 1);
+      expect(groupProbe.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
+      expect(cancellations).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 
 it.each([
   {

@@ -1,5 +1,8 @@
 import { sanitizeTerminalText } from "openclaw/plugin-sdk/text-chunking";
-import { truncateCodexCatalogPreview } from "../session-catalog-parsing.js";
+import {
+  selectCodexCatalogPreviewInput,
+  truncateCodexCatalogPreview,
+} from "../session-catalog-parsing.js";
 import { isJsonObject, type RpcResponse } from "./protocol.js";
 import type { CodexRequestAttempt } from "./request-attempt.js";
 import { CODEX_APP_SERVER_OVERLOADED_ERROR_CODE, CodexAppServerRpcError } from "./rpc-error.js";
@@ -32,7 +35,10 @@ export function dispatchCodexAppServerResponse(
   ) {
     for (const thread of response.result.data) {
       if (isJsonObject(thread) && typeof thread.preview === "string") {
-        thread.preview = truncateCodexCatalogPreview(thread.preview, sanitizeTerminalText);
+        thread.preview = truncateCodexCatalogPreview(
+          selectCodexCatalogPreviewInput(thread.preview),
+          sanitizeTerminalText,
+        );
       }
     }
   }

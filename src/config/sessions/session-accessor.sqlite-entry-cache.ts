@@ -12,10 +12,6 @@ import { tableExists } from "../../state/openclaw-state-db-schema-helpers.js";
 import { validateDeliveryCanonicalSessionEntry } from "./session-accessor.sqlite-entry-read.js";
 import type { SqliteSessionEntryRevision } from "./session-accessor.sqlite-entry-revision.js";
 import {
-  advanceSessionEntryMaintenanceAgeFact,
-  hasSessionEntryMaintenanceAgeFact,
-} from "./session-accessor.sqlite-maintenance-age.js";
-import {
   hasSqliteSessionOwnerColumns,
   readSqliteSessionOwner,
 } from "./session-accessor.sqlite-owner-projection.js";
@@ -124,9 +120,7 @@ function readSessionNodesGeneration(database: DatabaseSync): number {
   return row.generation;
 }
 
-export function readSessionEntryCacheValidityToken(
-  database: DatabaseSync,
-): SqliteSessionEntryRevision {
+function readSessionEntryCacheValidityToken(database: DatabaseSync): SqliteSessionEntryRevision {
   return {
     dataVersion: readSqliteDataVersion(database),
     sessionNodesGeneration: readSessionNodesGeneration(database),
@@ -205,18 +199,15 @@ export function readCachedExactSessionEntries(
 export function trackSessionEntryCacheWrite(
   database: OpenClawAgentDatabase,
   write: () => void,
-  entryUpdate?: { sessionKey: string; entry: SessionEntry; previousEntry?: SessionEntry },
 ): SqliteSessionEntryCacheWriteGeneration | undefined {
-  const before =
-    sessionEntryCaches.has(database.db) || hasSessionEntryMaintenanceAgeFact(database.db)
-      ? readSessionNodesGeneration(database.db)
-      : undefined;
+  const before = sessionEntryCaches.has(database.db)
+    ? readSessionNodesGeneration(database.db)
+    : undefined;
   write();
   if (before === undefined) {
     return undefined;
   }
   const generation = { before, after: readSessionNodesGeneration(database.db) };
-  advanceSessionEntryMaintenanceAgeFact(database.db, generation, entryUpdate);
   return generation;
 }
 

@@ -236,11 +236,12 @@ for (const signal of FORWARDED_SIGNALS) {
   process.on(signal, handler);
 }
 
-// Git maintenance must join before leader completion, not daemonize with fd 3.
-// Append to Git's inherited -c transport so nested tools share this lifetime
-// without changing repository config or discarding the caller's other settings.
+// Suppress automatic maintenance; explicit maintenance must still join before completion.
+// Preserve inherited Git settings for nested tools without changing repository config.
 const gitConfigParameters = [
   process.env.GIT_CONFIG_PARAMETERS,
+  "'maintenance.auto=false'",
+  "'gc.auto=0'",
   "'maintenance.autoDetach=false'",
   "'gc.autoDetach=false'",
 ]

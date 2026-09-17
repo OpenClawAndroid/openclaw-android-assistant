@@ -92,7 +92,7 @@ async function resolveSpawnModelError(params: {
     cfg,
     catalog,
     defaultProvider: defaults.provider,
-    defaultModel: defaults.model,
+    defaultModel: defaults,
     agentId: targetAgentId,
   };
   const resolved = resolveAllowedModelRef({

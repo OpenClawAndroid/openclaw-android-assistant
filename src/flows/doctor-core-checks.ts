@@ -551,7 +551,7 @@ const hooksModelCheck: HealthCheck = {
       catalog,
       ref: hooksModelRef,
       defaultProvider,
-      defaultModel,
+      defaultModel: { provider: defaultProvider, model: defaultModel },
     });
     const findings: HealthFinding[] = [];
     if (!status.allowed) {

@@ -87,6 +87,7 @@ import {
 } from "../swarm/swarm-scheduler.js";
 import { cleanupProvisionalSession } from "./subagent-spawn-cleanup.js";
 import { callSubagentGateway } from "./subagent-spawn-gateway.js";
+import { registerNativeCancellationCases } from "./subagent-spawn.cancellation.test-support.js";
 
 const runEmbeddedAgent = vi.hoisted(() => vi.fn());
 
@@ -521,6 +522,16 @@ function throwBoundFailures(failures: unknown[]) {
 }
 
 describe("recursive spawn production boundary", () => {
+  registerNativeCancellationCases({
+    createBoundParent,
+    createBoundGateway,
+    closeBoundGateway,
+    throwBoundFailures,
+    parentSessionKey,
+    parentRunId,
+    assertNoModelExecution: () => expect(runEmbeddedAgent).not.toHaveBeenCalled(),
+  });
+
   it.each([
     {
       name: "configured child model",

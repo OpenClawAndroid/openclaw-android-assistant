@@ -8,6 +8,10 @@ import {
 } from "../../../infra/agent-events.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import { SUBAGENT_KILL_TASK_ERROR } from "../../../tasks/detached-task-runtime-contract.js";
+import {
+  captureTaskCancellationControl,
+  type TaskCancellationControl,
+} from "../../../tasks/task-cancellation-context.js";
 import type {
   SubagentAdminKillResult,
   TaskRegistryControlRuntime,
@@ -62,6 +66,7 @@ type KillSelection = {
 };
 
 type KillScope = {
+  cancellationControl: TaskCancellationControl | undefined;
   refresh: () => number;
   retarget: (tree: KillTree, successor: SubagentRunRecord) => boolean;
 };
@@ -72,6 +77,7 @@ async function withSubagentKillScope<T>(
   publish?: (result: T, trees: KillTree[]) => T,
 ): Promise<T> {
   const lifecycleGeneration = getAgentEventLifecycleGeneration();
+  const cancellationControl = captureTaskCancellationControl();
   const selected = new Set<string>();
   const releaseRetirements: Array<() => void> = [];
   const holds: Array<NonNullable<ReturnType<typeof holdQueuedSwarmRun>>> = [];
@@ -232,6 +238,7 @@ async function withSubagentKillScope<T>(
     const trees: KillTree[] = [];
     select(params.runs, trees, params.controller, undefined, params.ownsRoot);
     const scope: KillScope = {
+      cancellationControl,
       refresh: () => {
         trees.forEach(refreshTree);
         return selected.size;
@@ -300,6 +307,7 @@ async function killLatestSubagentRun(params: {
           ...params,
           entry,
           session,
+          cancellationControl: scope.cancellationControl,
           isCurrent: (candidate) => tree.isCurrent(candidate) && matchesExpected(candidate),
           withdrawQueuedReservation: () => tree.dispatchHold?.withdraw(),
           refreshDescendants: scope.refresh,

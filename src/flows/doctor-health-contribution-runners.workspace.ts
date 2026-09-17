@@ -64,7 +64,7 @@ export async function runHooksModelHealth(ctx: DoctorHealthFlowContext): Promise
     catalog,
     ref: hooksModelRef,
     defaultProvider,
-    defaultModel,
+    defaultModel: { provider: defaultProvider, model: defaultModel },
   });
   const warnings: string[] = [];
   if (!status.allowed) {

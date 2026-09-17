@@ -809,6 +809,13 @@ export type ChannelMessageActionAdapter = {
    * Does not extend conversation-read mutation authority or bypass provider policy.
    */
   readAuthorityActions?: readonly ChannelMessageActionName[];
+  /**
+   * Declare write actions that preserve the host's live request authority.
+   * Invoke assertDirectAdapterHandoff after asynchronous preparation and
+   * immediately before every provider request, including queued retries.
+   * Does not grant authority or bypass current requester/provider permissions.
+   */
+  writeAuthorityActions?: readonly ChannelMessageActionName[];
   supportsAction?: (params: { action: ChannelMessageActionName }) => boolean;
   resolveExecutionMode?: (params: { action: ChannelMessageActionName }) => "local" | "gateway";
   resolveCliActionRequest?: (params: {

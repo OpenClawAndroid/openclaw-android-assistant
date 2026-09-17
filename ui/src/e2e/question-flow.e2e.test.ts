@@ -147,11 +147,6 @@ async function openQuestionPage(viewport = { height: 900, width: 1440 }, hasTouc
     sessionKey: mainSessionKey,
   });
   await page.goto(controlUiSessionUrl(suite.server.baseUrl, questionSessionKey));
-  // Chat and sidebar each own a projection; both must bind to the advertised
-  // real client before a lost-broadcast test can prove cross-surface delivery.
-  await expect
-    .poll(async () => (await gateway.getRequests("question.list")).length)
-    .toBeGreaterThanOrEqual(2);
   const startup = await gateway.waitForRequest("chat.startup");
   expect(startup.params).toEqual(expect.objectContaining({ sessionKey: questionSessionKey }));
   const compactMobileViewport =
@@ -161,6 +156,8 @@ async function openQuestionPage(viewport = { height: 900, width: 1440 }, hasTouc
     .locator(`[data-session-key="${questionSessionKey}"]`)
     .first()
     .waitFor({ state: compactMobileViewport ? "attached" : "visible" });
+  // The mounted chat and sidebar share one authoritative question hydration.
+  await expect.poll(async () => (await gateway.getRequests("question.list")).length).toBe(1);
   return { gateway, page };
 }
 
@@ -827,8 +824,9 @@ suite.define(() => {
       const panes = page.locator("openclaw-chat-pane.chat-split-view__pane");
       await expect.poll(() => panes.count()).toBe(2);
       await expect
-        .poll(async () => (await gateway.getRequests("question.list")).length)
-        .toBeGreaterThanOrEqual(3);
+        .poll(() => panes.locator(".agent-chat__composer-combobox textarea").count())
+        .toBe(2);
+      expect(await gateway.getRequests("question.list")).toHaveLength(1);
 
       const request = questionRecord(`question-split-${status}-${closeSubmittingPane}`, [
         {

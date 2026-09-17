@@ -16,6 +16,7 @@ import {
   resolveSafeExternalUrl,
 } from "../../lib/open-external-url.ts";
 import { generateUUID } from "../../lib/uuid.ts";
+import type { FirstRunSetup } from "./first-run-setup.ts";
 import {
   MODEL_SETUP_AUTH_START_TIMEOUT_MS,
   MODEL_SETUP_WIZARD_NEXT_TIMEOUT_MS,
@@ -47,7 +48,7 @@ type WizardRunnerOptions = {
   onBackgroundCompletion?: (completion: ModelSetupWizardCompletion) => Promise<void>;
   onStart?: (
     method: ModelSetupWizardStartMethod,
-    activation?: SystemAgentSetupActivateParams,
+    activation?: Parameters<FirstRunSetup["beginActivation"]>[0],
   ) => WizardTerminalObserver | undefined;
   requestFailedMessage: () => string;
   cancelledMessage: () => string;
@@ -158,8 +159,13 @@ export class ModelSetupWizardRunner {
       "openclaw.setup.activate.start"
     > = "openclaw.setup.auth.start",
     preferences: Pick<SystemAgentSetupActivateParams, "nativeSessionCatalogsEnabled"> = {},
+    modelTarget?: "utility",
   ): Promise<ModelSetupWizardCompletion | null> {
-    return this.startSession(authChoice, startMethod, { authChoice, ...preferences });
+    return this.startSession(authChoice, startMethod, {
+      authChoice,
+      ...preferences,
+      ...(modelTarget ? { modelTarget } : {}),
+    });
   }
 
   activate(
@@ -177,7 +183,7 @@ export class ModelSetupWizardRunner {
   private async startSession(
     authChoice: string,
     startMethod: ModelSetupWizardStartMethod,
-    params: { authChoice: string } | SystemAgentSetupActivateParams,
+    params: { authChoice: string; modelTarget?: "utility" } | SystemAgentSetupActivateParams,
     activationTargetId?: string,
   ): Promise<ModelSetupWizardCompletion | null> {
     const client = this.options.getClient();
@@ -195,7 +201,14 @@ export class ModelSetupWizardRunner {
       abortController: new AbortController(),
       startMethod,
       activationTargetId,
-      onTerminalResult: this.options.onStart?.(startMethod, "kind" in params ? params : undefined),
+      onTerminalResult: this.options.onStart?.(
+        startMethod,
+        "kind" in params
+          ? params
+          : startMethod === "openclaw.setup.auth.start"
+            ? { ...params, kind: "provider-auth" }
+            : undefined,
+      ),
     };
     this.pendingSignIn = undefined;
     this.session = session;

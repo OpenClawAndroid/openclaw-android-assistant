@@ -54,6 +54,7 @@ export function createNextAcpTaskBackingDetail(params: {
   // ACP serializes turns per child session. Persisting the next generation here
   // keeps same-run-id replacements distinguishable after restart.
   let generation = 0;
+  let existingGeneration: number | undefined;
   for (const taskId of taskIdsByRelatedSessionKey.get(params.childSessionKey) ?? []) {
     const task = tasks.get(taskId);
     const instance = task ? readTaskBackingInstance(task.detail) : undefined;
@@ -66,9 +67,12 @@ export function createNextAcpTaskBackingDetail(params: {
       isCanonicalBackingTask(task)
     ) {
       generation = Math.max(generation, instance.generation);
+      if (instance.instanceId === params.instanceId) {
+        existingGeneration = Math.max(existingGeneration ?? 0, instance.generation);
+      }
     }
   }
-  return createAcpTaskBackingDetail(params.instanceId, generation + 1);
+  return createAcpTaskBackingDetail(params.instanceId, existingGeneration ?? generation + 1);
 }
 
 export function resolveManagedTaskBackingDetail(params: {

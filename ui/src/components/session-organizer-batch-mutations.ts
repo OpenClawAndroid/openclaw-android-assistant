@@ -77,15 +77,15 @@ async function refreshSessionsAfterBatch(
       return "stale";
     }
     try {
-      const result = await scope.sessions.refreshReplacement(agentId);
+      const outcome = await scope.sessions.reconcileMutation(agentId);
       if (!host.sessionData.isSessionMutationScopeCurrent(scope)) {
         return "stale";
       }
-      if (!result) {
-        if (scope.sessions.state.error) {
-          host.sessionData.publishSessionMutationError(scope, scope.sessions.state.error);
+      if (outcome.status !== "refreshed") {
+        if (outcome.status === "failed") {
+          host.sessionData.publishSessionMutationError(scope, outcome.error);
         }
-        return "failed";
+        return outcome.status;
       }
       if (refreshSidebar) {
         await host.sessionData.refreshSidebarSessions(agentId);

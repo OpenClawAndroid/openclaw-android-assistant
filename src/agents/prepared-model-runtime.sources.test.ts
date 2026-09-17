@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createConfigIO } from "../config/io.js";
@@ -7,6 +8,7 @@ import type { ModelDefinitionConfig, ModelProviderConfig } from "../config/types
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
 import type { PreparedProviderStaticCatalog } from "../plugins/provider-discovery.js";
+import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { PLUGIN_MODEL_CATALOG_GENERATED_BY } from "./plugin-model-catalog.js";
 import type { PreparedModelRuntimeAgentFacts } from "./prepared-model-runtime.catalog-contract.js";
 import { prepareConfiguredRuntimeFactsBatch } from "./prepared-model-runtime.facts.js";
@@ -129,7 +131,7 @@ describe("prepared catalog source composition", () => {
 
   it.each(["merge", "replace"] as const)(
     "materializes duplicate current declarations once in %s mode",
-    (mode) => {
+    async (mode) => {
       const { facts, generation, configured } = fixture(mode);
       configured.models = [
         {
@@ -139,10 +141,12 @@ describe("prepared catalog source composition", () => {
         },
         { ...model("shared"), name: "Later duplicate", input: ["text", "image"] },
       ];
-      const result = prepareConfiguredRuntimeFactsBatch({
-        agentFacts: [facts],
-        pluginGeneration: generation,
-      }).catalogs.get(facts.input)!;
+      const result = (
+        await prepareConfiguredRuntimeFactsBatch({
+          agentFacts: [facts],
+          pluginGeneration: generation,
+        })
+      ).catalogs.get(facts.input)!;
       const rows = result.templateModelRegistry.getAll().filter((entry) => entry.id === "shared");
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
@@ -168,10 +172,12 @@ describe("prepared catalog source composition", () => {
         },
       },
     ];
-    const startup = prepareConfiguredRuntimeFactsBatch({
-      agentFacts: [facts],
-      pluginGeneration: generation,
-    }).catalogs.get(facts.input)!;
+    const startup = (
+      await prepareConfiguredRuntimeFactsBatch({
+        agentFacts: [facts],
+        pluginGeneration: generation,
+      })
+    ).catalogs.get(facts.input)!;
     const full = await prepareFullCatalogFacts(facts, generation, "static", {
       modelsJsonContents,
       pluginCatalogs: [],
@@ -200,9 +206,9 @@ describe("prepared catalog source composition", () => {
   it.each([
     { mode: "merge", ids: ["authored-only", "configured-only", "curated-only", "shared"] },
     { mode: "replace", ids: ["configured-only", "shared"] },
-  ] as const)("composes the actual startup registry in $mode mode", ({ mode, ids }) => {
+  ] as const)("composes the actual startup registry in $mode mode", async ({ mode, ids }) => {
     const { facts, generation } = fixture(mode);
-    const result = prepareConfiguredRuntimeFactsBatch({
+    const result = await prepareConfiguredRuntimeFactsBatch({
       agentFacts: [facts],
       pluginGeneration: generation,
     });
@@ -222,7 +228,7 @@ describe("prepared catalog source composition", () => {
     });
   });
 
-  it("does not share composed registries across different current declarations", () => {
+  it("does not share composed registries across different current declarations", async () => {
     const { facts, generation, configured } = fixture();
     const sibling = {
       ...facts,
@@ -235,7 +241,7 @@ describe("prepared catalog source composition", () => {
         },
       },
     };
-    const result = prepareConfiguredRuntimeFactsBatch({
+    const result = await prepareConfiguredRuntimeFactsBatch({
       agentFacts: [facts, sibling],
       pluginGeneration: generation,
     });
@@ -253,20 +259,67 @@ describe("prepared catalog source composition", () => {
     ).toBeUndefined();
   });
 
-  it("keeps an authored route when the prepared static catalog is empty", () => {
+  it("keeps an authored route when the prepared static catalog is empty", async () => {
     const { facts, generation, configured } = fixture();
     const authoredEndpoint = "https://authored.example.invalid/v1";
     fs.writeFileSync(
       path.join(facts.input.agentDir, "models.json"),
       JSON.stringify({ providers: { [providerId]: { ...configured, baseUrl: authoredEndpoint } } }),
     );
-    const result = prepareConfiguredRuntimeFactsBatch({
+    const result = await prepareConfiguredRuntimeFactsBatch({
       agentFacts: [facts],
       pluginGeneration: { ...generation, preparedStaticProviderCatalog: { entries: [] } },
     });
     expect(
       result.catalogs.get(facts.input)!.templateModelRegistry.find(providerId, "shared"),
     ).toMatchObject({ baseUrl: authoredEndpoint });
+  });
+
+  it("services event-loop work between dynamic model completions in one registry group", async () => {
+    const { facts, generation } = fixture();
+    const registry = createEmptyPluginRegistry();
+    const events: string[] = [];
+    let queued: Promise<void> | undefined;
+    registry.providers.push({
+      pluginId,
+      source: "fixture",
+      provider: {
+        id: providerId,
+        label: "Prepared source",
+        auth: [],
+        resolveDynamicModel: ({ modelId }) => {
+          events.push(modelId);
+          if (modelId === "first") {
+            queued = nextTurn().then(() => {
+              events.push("event-loop");
+            });
+          }
+          return {
+            ...model(modelId),
+            provider: providerId,
+            api: "openai-completions",
+            baseUrl: endpoint,
+            input: ["text"],
+            contextWindow: 32000,
+          };
+        },
+      },
+    });
+    const agents = ["first", "middle", "last"].map((modelId) =>
+      Object.assign({}, facts, {
+        input: Object.assign({}, facts.input, { agentId: modelId }),
+        configuredModelRefs: [{ provider: providerId, modelId }],
+      }),
+    );
+    const result = await prepareConfiguredRuntimeFactsBatch({
+      agentFacts: agents,
+      pluginGeneration: { ...generation, pluginRegistry: registry },
+    });
+    await queued;
+    expect(result.registryCount).toBe(1);
+    expect(result.catalogs.size).toBe(3);
+    expect(events.indexOf("first")).toBeLessThan(events.indexOf("event-loop"));
+    expect(events.indexOf("event-loop")).toBeLessThan(events.indexOf("last"));
   });
 
   it.each(["merge", "replace"] as const)(

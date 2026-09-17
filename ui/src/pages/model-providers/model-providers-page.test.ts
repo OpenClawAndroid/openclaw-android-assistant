@@ -868,15 +868,11 @@ describe("ModelProvidersPage agent scope", () => {
   });
 
   it("reloads credential status when the agent selector changes", async () => {
-    const { settingsAgentSelection, context, notifySelection, request } = createHarness("main");
+    const { settingsAgentSelection, context, request, notifySelection } = createHarness("main");
     const page = appendPage(context);
 
     await vi.waitFor(() =>
-      expect(request).toHaveBeenCalledWith(
-        "models.authStatus",
-        { agentId: "main" },
-        { signal: expect.any(AbortSignal) },
-      ),
+      expect(request).toHaveBeenCalledWith("models.authStatus", { agentId: "main" }),
     );
 
     request.mockClear();
@@ -904,11 +900,7 @@ describe("ModelProvidersPage agent scope", () => {
     notifySelection();
 
     await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith(
-        "models.authStatus",
-        { agentId: "writer" },
-        { signal: expect.any(AbortSignal) },
-      ),
+      expect(request).toHaveBeenCalledWith("models.authStatus", { agentId: "writer" }),
     );
     expect(request.mock.calls.filter(([method]) => method === "models.authStatus")).toHaveLength(1);
     expect(page.busy).toEqual({});
@@ -927,11 +919,7 @@ describe("ModelProvidersPage agent scope", () => {
     const page = appendPage(context);
 
     await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith(
-        "models.authStatus",
-        { agentId: "writer" },
-        { signal: expect.any(AbortSignal) },
-      ),
+      expect(request).toHaveBeenCalledWith("models.authStatus", { agentId: "writer" }),
     );
     expect(page.selectedAgentId).toBe("writer");
   });
@@ -970,17 +958,13 @@ describe("ModelProvidersPage agent scope", () => {
   });
 
   it("recovers when the agent changes while a refresh is in flight", async () => {
-    const { settingsAgentSelection, context, notifySelection, request, deferNextAuthStatus } =
+    const { settingsAgentSelection, context, request, notifySelection, deferNextAuthStatus } =
       createHarness("main");
     const release = deferNextAuthStatus();
     const page = appendPage(context);
 
     await vi.waitFor(() =>
-      expect(request).toHaveBeenCalledWith(
-        "models.authStatus",
-        { agentId: "main" },
-        { signal: expect.any(AbortSignal) },
-      ),
+      expect(request).toHaveBeenCalledWith("models.authStatus", { agentId: "main" }),
     );
     // Invalidate the in-flight refresh mid-await; the stale completion must
     // clear `refreshing` so the new agent's load can proceed.
@@ -990,17 +974,13 @@ describe("ModelProvidersPage agent scope", () => {
     release();
 
     await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith(
-        "models.authStatus",
-        { agentId: "writer" },
-        { signal: expect.any(AbortSignal) },
-      ),
+      expect(request).toHaveBeenCalledWith("models.authStatus", { agentId: "writer" }),
     );
     await waitForFast(() => expect(page.data?.updatedAt).toEqual(expect.any(Number)));
   });
 
   it("discards stale route data when selection changes during preload", async () => {
-    const { context, request, snapshot } = createHarness("writer");
+    const { context, snapshot, request } = createHarness("writer");
     const staleData = { ...EMPTY_MODEL_PROVIDERS_DATA, updatedAt: 1 };
     const page = document.createElement(
       "openclaw-model-providers-page",
@@ -1017,11 +997,7 @@ describe("ModelProvidersPage agent scope", () => {
     document.body.append(page);
 
     await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith(
-        "models.authStatus",
-        { agentId: "writer" },
-        { signal: expect.any(AbortSignal) },
-      ),
+      expect(request).toHaveBeenCalledWith("models.authStatus", { agentId: "writer" }),
     );
     expect(page.selectedAgentId).toBe("writer");
     expect(page.data).not.toBe(staleData);

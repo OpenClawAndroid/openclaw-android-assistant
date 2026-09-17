@@ -38,14 +38,14 @@ suite.define(() => {
       // Keep an unrelated route loader present so palette assertions cannot depend on it.
       const chatModule = await holdModuleResponse(
         page,
-        /\/assets\/chat-page-[^/?]+\.js(?:\?.*)?$/u,
+        /\/assets\/route-entry-[^/?]+\.js(?:\?.*)?$/u,
       );
       await page.goto(`${suite.server.baseUrl}chat?session=main`);
 
       try {
         // Navigation can finish before the shell installs its shortcut handler.
         await page.locator(".shell").waitFor({ state: "visible" });
-        await page.keyboard.press("Control+K");
+        await page.keyboard.press("ControlOrMeta+K");
 
         const shell = page.locator(".cmd-palette");
         await shell.waitFor({ state: "visible" });

@@ -143,6 +143,22 @@ describe("Gateway status owner routing", () => {
               externalBytes: 2048,
               arrayBuffersBytes: 1024,
             },
+            workerPools: {
+              transcriptReconciliation: {
+                maxWorkers: 1,
+                workers: 0,
+                workersCreated: 0,
+                activeTasks: 0,
+                pendingTasks: 0,
+              },
+              modelCatalog: {
+                maxWorkers: 1,
+                workers: 0,
+                workersCreated: 0,
+                activeTasks: 0,
+                pendingTasks: 0,
+              },
+            },
           }),
         );
         expect(respond.mock.calls[0]?.[2]).toBeUndefined();

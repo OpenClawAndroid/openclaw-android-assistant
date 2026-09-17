@@ -5,10 +5,16 @@ import { icons } from "../../components/icons.ts";
 import { renderLearnMoreLink } from "../../components/settings-ui.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
 import { t } from "../../i18n/index.ts";
+import { registerModelSetupEnglish } from "../../i18n/locales/en-model-setup.ts";
 import { formatUiExternalText } from "../../lib/format-error.ts";
 import "../../styles/model-setup.css";
 import type { ModelProviderLoginController } from "../model-providers/login-controller.ts";
-import { renderModelSetupFailure, renderConfiguredModel } from "./configured-model.ts";
+import { renderCandidateRows } from "./candidate-models.ts";
+import {
+  renderModelSetupFailure,
+  renderConfiguredModel,
+  renderConfiguredUtilityModel,
+} from "./configured-model.ts";
 import { renderProviderIcon } from "./model-setup-icon-loader.ts";
 import { listModelSetupPrepareOptions, type ModelSetupPrepareOption } from "./prepare-options.ts";
 import { manualProviderName, renderManualProviderPicker } from "./provider-picker.ts";
@@ -18,9 +24,10 @@ import type {
   ModelSetupVerifyState,
   ModelSetupWizardState,
 } from "./state.ts";
-import { activationTargetId } from "./state.ts";
 import { renderModelSetupSuccessDialog } from "./success-dialog.ts";
 import { renderModelSetupWizard } from "./wizard-view.ts";
+
+registerModelSetupEnglish();
 
 const MODEL_SETUP_DOCS_URL = "https://docs.openclaw.ai/concepts/model-providers";
 
@@ -64,93 +71,13 @@ type ModelSetupViewProps = {
   onMoreSignInToggle: (open: boolean) => void;
   onIconError: (iconUrl: string) => void;
   onOpenChat: () => void;
+  onOpenSetupAssistant?: () => void;
   onSuccessClose: () => void;
   onWizardValueChange: (value: unknown) => void;
   onWizardAnswer: (value: unknown, includeValue?: boolean) => void;
   onWizardCancel: () => void;
   onWizardClose: () => void;
 };
-
-function candidateStatus(candidate: Candidate): string {
-  const status = candidate.kind.startsWith("saved-auth:")
-    ? "detected"
-    : candidate.recommended
-      ? "recommended"
-      : candidate.credentials === undefined
-        ? "detected"
-        : candidate.credentials
-          ? "credentialsReady"
-          : "signInNeeded";
-  return t(`modelSetup.candidates.${status}`);
-}
-
-function renderCandidateRows(props: ModelSetupViewProps, result: SystemAgentSetupDetectResult) {
-  // Saved credentials can replace the current connection for the same model.
-  const candidates = result.configuredModel
-    ? result.candidates.filter(
-        (candidate) =>
-          candidate.kind !== "existing-model" &&
-          (candidate.kind.startsWith("saved-auth:") ||
-            candidate.modelRef !== result.configuredModel),
-      )
-    : result.candidates;
-  if (candidates.length === 0) {
-    return nothing;
-  }
-  return html`
-    <section class="settings-section">
-      <div class="settings-section__header">
-        <h2>${t("modelSetup.candidates.title")}</h2>
-      </div>
-      <div class="model-setup__rows">
-        ${candidates
-          .toSorted((a, b) => a.label.localeCompare(b.label))
-          .map((candidate) => {
-            const testing =
-              props.activation.phase === "testing" &&
-              props.activation.targetId === activationTargetId(candidate.kind, candidate.modelRef);
-            const failure =
-              props.activation.phase === "failure" &&
-              props.activation.targetId === activationTargetId(candidate.kind, candidate.modelRef)
-                ? props.activation
-                : null;
-            return html`
-              <div class="model-setup__row" data-candidate-kind=${candidate.kind}>
-                <div class="model-setup__row-main">
-                  <div class="model-setup__row-title">
-                    ${renderProviderIcon(props, candidate)}
-                    <strong>${candidate.label}</strong>
-                    <span class="model-setup__chip">${candidateStatus(candidate)}</span>
-                  </div>
-                  <div class="muted">
-                    ${candidate.modelRef} · ${formatUiExternalText(candidate.detail)}
-                  </div>
-                </div>
-                <div class="model-setup__row-actions">
-                  <button
-                    type="button"
-                    class=${`btn ${failure ? "" : "primary"}`}
-                    ?disabled=${props.actionsDisabled}
-                    @click=${() => props.onActivateCandidate(candidate)}
-                  >
-                    <span>
-                      ${
-                        testing
-                          ? t("modelSetup.candidates.testingButton")
-                          : failure
-                            ? t("modelSetup.candidates.retry")
-                            : t("modelSetup.candidates.testAndUse")
-                      }
-                    </span>
-                  </button>
-                </div>
-              </div>
-            `;
-          })}
-      </div>
-    </section>
-  `;
-}
 
 function renderEmptyState(props: ModelSetupViewProps, result: SystemAgentSetupDetectResult) {
   const installs = result.recommendedInstalls ?? [];
@@ -481,16 +408,27 @@ function renderReady(props: ModelSetupViewProps, result: SystemAgentSetupDetectR
     props.firstRun && result.setupComplete && props.activation.phase !== "success"
       ? props.onOpenChat
       : undefined;
-  const current = result.configuredModel
+  const primary = result.configuredModel
     ? renderConfiguredModel({
         result,
-        verify: props.verify,
+        verify:
+          props.verify.phase === "ok" && props.verify.modelTarget === "utility"
+            ? { phase: "idle" }
+            : props.verify,
         canVerify: props.canVerify,
         actionsDisabled: props.actionsDisabled,
         onVerify: props.onVerify,
         onContinue,
       })
     : nothing;
+  const current = html`${primary}${renderConfiguredUtilityModel({
+    result,
+    activation: props.activation,
+    canRepair: props.canAdmin && !props.gatewayTooOld,
+    actionsDisabled: props.actionsDisabled || props.activationUnresolved === true,
+    onOpenAssistant: props.onOpenSetupAssistant ?? props.onOpenChat,
+    onActivateCandidate: props.onActivateCandidate,
+  })}`;
   if (!props.canAdmin) {
     return html`${current}
       <div class="callout warning" role="note">${t("modelSetup.access.adminRequired")}</div>`;
@@ -652,7 +590,10 @@ export function renderModelSetup(props: ModelSetupViewProps): TemplateResult {
           ? html`<div class="model-setup__recovery">
               <p>${t("modelSetup.recovery.unknown")}</p>
               ${
-                props.page.phase === "ready" && props.page.result.configuredModel && props.canVerify
+                props.page.phase === "ready" &&
+                (props.page.result.configuredModel || props.page.result.setupModel) &&
+                props.canVerify &&
+                props.onUseCurrentModel
                   ? html`<button
                       type="button"
                       class="btn primary"

@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 362012,
-  "reason": "Maintainer-approved 354 KiB cap after integrated scoped catalog invalidation (#147845), remote workspaces (#147773), and update-status feedback (#147883). Controlled build measured 362012 B; deferring the new workspace labels saved only 64 B and still failed the previous limit. Existing 512 B growth and 64 B build variance allowances remain unchanged.",
-  "updatedAt": "2026-09-14"
+  "startupJsGzipBytes": 362706,
+  "reason": "Maintainer-approved correction in #149291 for the existing startup bundle: exact base 7b6094ec7b7d and CI merge b524940307fc emitted byte-identical Control UI output at 362706 B with Vite 8.2.2/Pako 3.0.1 on Node 24.21.0. CI run 35173887678 also measured 362706 B. The 512 B growth and 64 B build variance allowances remain unchanged.",
+  "updatedAt": "2026-09-17"
 }

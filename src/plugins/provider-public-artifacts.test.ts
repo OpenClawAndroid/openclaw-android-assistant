@@ -248,10 +248,10 @@ describe("provider public artifacts", () => {
         [null, undefined, undefined],
         [[], undefined, undefined],
         [["none", "off"], ["off"], "off"],
-        [["max", "high", "low", "high", "none"], ["off", "max", "high", "low"], "high"],
+        [["max", "high", "low", "high", "none"], ["off", "low", "high", "max"], "high"],
         [
           ["high", "medium", "low", "minimal", "xhigh"],
-          ["off", "high", "medium", "low", "minimal", "xhigh"],
+          ["off", "minimal", "low", "medium", "high", "xhigh"],
           "medium",
         ],
         [["low"], ["off", "low"], "low"],
@@ -288,8 +288,8 @@ describe("provider public artifacts", () => {
     const surface = resolveBundledProviderPolicySurface("opencode-go");
 
     for (const [modelId, levelIds, defaultLevel] of [
-      ["deepseek-v4-pro", ["off", "high", "max"], "high"],
-      ["kimi-k3", ["off", "max"], "off"],
+      ["deepseek-v4-pro", ["off", "low"], "low"],
+      ["kimi-k3", ["off", "low"], "low"],
       ["kimi-k2.6", ["off"], "off"],
     ] as const) {
       expect(

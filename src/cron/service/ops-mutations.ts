@@ -36,6 +36,7 @@ import {
 } from "./jobs-scheduling.js";
 import {
   consumeRuntimeAuthorityMutationOptions,
+  cronJobMessageActionAuthorityInputsEqual,
   reconcileRuntimeAuthority,
 } from "./jobs-tool-policy.js";
 import {
@@ -261,6 +262,9 @@ async function persistUpdatedJob(params: {
     ((previousJob.payload.kind === "script" || nextJob.payload.kind === "script") &&
       !isDeepStrictEqual(previousJob.payload, nextJob.payload));
   const scheduleChanged = !cronSchedulingInputsEqual(previousJob, nextJob);
+  const messageActionAuthorityChanged =
+    (isJobEnabled(previousJob) && !isJobEnabled(nextJob)) ||
+    !cronJobMessageActionAuthorityInputsEqual(previousJob, nextJob);
   await persistStore(state, snapshot, {
     suppressScheduledJobId: nextJob.id,
     transactionHooks: cronRunReceiptMutationHooks({
@@ -268,6 +272,7 @@ async function persistUpdatedJob(params: {
       jobId: nextJob.id,
       ownerChanged,
       triggerStateChanged,
+      messageActionAuthorityChanged,
       ...(scheduleChanged ? { scheduleChangedJob: nextJob } : {}),
     }),
   });

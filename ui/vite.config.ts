@@ -87,7 +87,8 @@ export function createControlUiPrecompressedAssetVariants(
     {
       fileName: `${fileName}.gz`,
       // Host zlib is byte-unstable across supported runtimes; pako's classic hash is canonical.
-      source: Buffer.from(gzip(body, { level: 9, legacyHash: true })),
+      // Smaller deflate blocks reduce startup JavaScript size and encoder memory.
+      source: Buffer.from(gzip(body, { level: 9, legacyHash: true, memLevel: 7 })),
     },
   ];
 }

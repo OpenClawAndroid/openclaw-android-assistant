@@ -18,7 +18,8 @@ import {
   renderComposer,
   resetComposerTestFixtures,
 } from "./composer.test-support.ts";
-import { renderNewSessionBody, renderNewSessionDraftComposer } from "./draft-composer.ts";
+import { renderNewSessionBody } from "./draft-body.ts";
+import { renderNewSessionDraftComposer } from "./draft-composer.ts";
 import { NewSessionModelControl } from "./model-control.ts";
 
 function createDragEvent(type: string, files: File[] = [], types = ["Files"]): Event {

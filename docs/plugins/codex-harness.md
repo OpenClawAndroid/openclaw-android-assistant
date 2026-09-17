@@ -28,6 +28,10 @@ Every tenth refresh rechecks the bounded head page for title, status, or archive
 changes that do not advance the newest timestamp. Refreshes update only the walked
 prefix, and native cursors keep older sessions available after cache eviction.
 Nothing is persisted, and restarting the Gateway starts with an empty cache.
+Within each source's 32 cached pages, up to 20 recent-page entries are favored over
+older discovery pages across all queries. Scanning older sessions therefore does
+not discard the entire recent listing before the next poll. Expiry and native
+pagination remain unchanged.
 
 Pasted text saved as a `.txt` attachment is extracted by OpenClaw and included in
 the current turn as untrusted external content, subject to the existing file

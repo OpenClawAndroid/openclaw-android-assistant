@@ -3952,7 +3952,7 @@ describe("release CI summary child correlation", () => {
     ).toThrow("selected child is missing from manifest: NPM Telegram Beta E2E");
   });
 
-  it.each(["2026.8.1", "2026.9.1"])(
+  it.each(["2026.8.1", "2026.9.1", "2026.9.5"])(
     "validates the Telegram waiver for %s before changing package child coverage",
     (version) => {
       const raw = rawManifest({});

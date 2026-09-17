@@ -83,10 +83,8 @@ import {
   resolveEffectiveAgentRuntime,
   resolveCronStyleNow,
   resolveHookExternalContentSource,
-  isThinkingLevelSupported,
-  resolveSupportedThinkingLevel,
   resolveSessionRuntimeOverrideForProvider,
-  resolveThinkingDefault,
+  resolveThinkingSelection,
 } from "./run.runtime.js";
 import type { RunCronAgentTurnResult } from "./run.types.js";
 import { resolveCronAgentSessionKey } from "./session-key.js";
@@ -428,38 +426,23 @@ export async function prepareCronRunContext(params: {
       hookThinking: isGmailHook ? runtimeCfg.hooks?.gmail?.thinking : undefined,
       sessionThinking: cronSession.sessionEntry.thinkingLevel,
     });
-    let requestedThinkLevel = thinkingSelection.requestedThinkLevel;
-    if (!requestedThinkLevel) {
-      requestedThinkLevel = resolveThinkingDefault({
-        cfg: cfgWithAgentDefaults,
-        agentId: modelOwner.agentId,
-        provider,
-        model,
-        catalog: thinkingSelection.catalog,
-        agentRuntime: effectiveAgentRuntime,
-      });
-    }
-    if (
-      !isThinkingLevelSupported({
-        provider,
-        model,
-        level: requestedThinkLevel,
-        catalog: thinkingSelection.catalog,
-        agentRuntime: effectiveAgentRuntime,
-      })
-    ) {
-      const fallbackThinkLevel = resolveSupportedThinkingLevel({
-        provider,
-        model,
-        level: requestedThinkLevel,
-        catalog: thinkingSelection.catalog,
-        agentRuntime: effectiveAgentRuntime,
-      });
-      if (fallbackThinkLevel !== requestedThinkLevel) {
-        logWarn(
-          `[cron:${input.job.id}] Thinking level "${requestedThinkLevel}" is not supported for ${provider}/${model}; using "${fallbackThinkLevel}" for this candidate.`,
-        );
-      }
+    const {
+      requestedLevel: requestedThinkLevel,
+      level: fallbackThinkLevel,
+      supported: thinkingLevelSupported,
+    } = resolveThinkingSelection({
+      cfg: cfgWithAgentDefaults,
+      agentId: modelOwner.agentId,
+      provider,
+      model,
+      level: thinkingSelection.requestedThinkLevel,
+      catalog: thinkingSelection.catalog,
+      agentRuntime: effectiveAgentRuntime,
+    });
+    if (!thinkingLevelSupported && fallbackThinkLevel !== requestedThinkLevel) {
+      logWarn(
+        `[cron:${input.job.id}] Thinking level "${requestedThinkLevel}" is not supported for ${provider}/${model}; using "${fallbackThinkLevel}" for this candidate.`,
+      );
     }
 
     preparedModelRuntimeLease = await acquireAgentRunPreparedModelRuntime(

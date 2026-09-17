@@ -1,5 +1,6 @@
 import { onTestFinished, vi } from "vitest";
 import type { GatewayBrowserClient, GatewayHelloOk } from "../../api/gateway.ts";
+import { createChatSubmissions } from "../../app/chat-submissions.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import { createTestSessionCapability } from "../../lib/sessions/session-capability.test-support.ts";
@@ -34,6 +35,7 @@ export function setNavigationContext(page: ChatPage) {
   const context = {
     basePath: "",
     sessions: { ...createChatPageSessions(), patch },
+    chatSubmissions: createChatSubmissions(),
     agents: { state: { agentsList: { defaultId: "main", mainKey: "main" } } },
     gateway: {
       snapshot: { hello: null },

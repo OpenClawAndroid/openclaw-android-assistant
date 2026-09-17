@@ -9,6 +9,7 @@ import type { SlackChannelResolution } from "../resolve-channels.js";
 import type { SlackUserResolution } from "../resolve-users.js";
 import type { SlackIdentityHealth } from "./enterprise-install.js";
 import { formatUnknownError, waitForSlackSocketDisconnect } from "./reconnect-policy.js";
+import { installSlackSocketModeEnvelopeGuard } from "./socket-mode-envelope.js";
 
 type SlackAppConstructor = typeof import("@slack/bolt").App;
 type SlackHttpReceiverConstructor = typeof import("@slack/bolt").HTTPReceiver;
@@ -361,8 +362,10 @@ export function createSlackBoltApp(params: {
     | SlackReceiver
     | undefined;
   if (params.slackMode === "socket") {
-    receiver = new params.interop.SocketModeReceiver(socketModeReceiverOptions);
-    installSlackNativeReconnectFailureObserver(receiver);
+    const socketReceiver = new params.interop.SocketModeReceiver(socketModeReceiverOptions);
+    installSlackSocketModeEnvelopeGuard(socketReceiver, socketModeLogger);
+    installSlackNativeReconnectFailureObserver(socketReceiver);
+    receiver = socketReceiver;
   } else if (params.slackMode === "http") {
     receiver = new params.interop.HTTPReceiver({
       signingSecret: params.signingSecret ?? "",

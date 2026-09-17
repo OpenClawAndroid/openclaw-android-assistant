@@ -51,9 +51,18 @@ function expectReadLeaseHeld(databasePath: string) {
   }
 }
 
-it.each(["success", "failure", "cancel"] as const)(
-  "joins all direct-read children and releases their leases before %s settlement",
-  async (outcome) => {
+it.each([
+  ...(["success", "failure", "cancel"] as const).map((outcome) => ({
+    source: "direct",
+    outcome,
+  })),
+  ...(["close-failure", "cancel"] as const).map((outcome) => ({
+    source: "snapshot",
+    outcome,
+  })),
+])(
+  "joins all $source children and releases their leases before $outcome settlement",
+  async ({ source, outcome }) => {
     const root = tempDirs.make("openclaw-preflight-reader-lifecycle-");
     const initializedEnv = { OPENCLAW_STATE_DIR: path.join(root, "initialized") };
     const paths = [
@@ -67,7 +76,7 @@ it.each(["success", "failure", "cancel"] as const)(
     for (const [index, pathname] of paths.entries()) {
       const database = new DatabaseSync(pathname);
       try {
-        database.exec("PRAGMA journal_mode=DELETE;");
+        database.exec(`PRAGMA journal_mode=${source === "snapshot" ? "WAL" : "DELETE"};`);
         if (outcome === "failure" && index === 0) {
           database.exec(
             "PRAGMA foreign_keys=OFF; CREATE TABLE lifecycle_parent(id INTEGER PRIMARY KEY); CREATE TABLE lifecycle_child(parent_id REFERENCES lifecycle_parent(id)); INSERT INTO lifecycle_child VALUES (42);",
@@ -83,15 +92,27 @@ it.each(["success", "failure", "cancel"] as const)(
     const sources = paths.map((pathname) =>
       path.toNamespacedPath(fs.realpathSync.native(pathname)),
     );
+    const originalBytes = paths.map((pathname) => fs.readFileSync(pathname));
+    const locations: string[] = [];
+    const cleanedSnapshots = new Set<number>();
+    const firstSnapshotCleaned = createDeferred();
+    const readPaths = marker("read-paths.json");
+    const publishReadPaths = (values: string[]) => {
+      fs.writeFileSync(`${readPaths}.tmp`, JSON.stringify(values));
+      fs.renameSync(`${readPaths}.tmp`, readPaths);
+    };
+    publishReadPaths(source === "direct" ? sources : locations);
     fs.writeFileSync(
       preload,
       `
       const fs = require('node:fs'), path = require('node:path');
       const { DatabaseSync } = require('node:sqlite');
-      const root = ${JSON.stringify(root)}, sources = ${JSON.stringify(sources)};
+      const root = ${JSON.stringify(root)}, readPaths = ${JSON.stringify(readPaths)};
+      const outcome = ${JSON.stringify(outcome)};
       const close = DatabaseSync.prototype.close;
       DatabaseSync.prototype.close = function() {
         const location = this.location();
+        const sources = JSON.parse(fs.readFileSync(readPaths, 'utf8'));
         const index = location ? sources.indexOf(path.toNamespacedPath(path.resolve(location))) : -1;
         if (index >= 0) {
           fs.writeFileSync(path.join(root, 'close-' + index), 'ready');
@@ -103,6 +124,13 @@ it.each(["success", "failure", "cancel"] as const)(
               Atomics.wait(pause, 0, 0, 10);
             }
           }
+          if (outcome === 'close-failure' && index === 0) {
+            process.once('disconnect', () => fs.writeFileSync(path.join(root, 'retired-0'), 'ready'));
+            const keepAlive = setInterval(() => {
+              if (fs.existsSync(path.join(root, 'exit-release'))) clearInterval(keepAlive);
+            }, 10);
+            throw new Error('native snapshot close failure');
+          }
         }
         return close.call(this);
       };
@@ -111,10 +139,31 @@ it.each(["success", "failure", "cancel"] as const)(
     for (const [key, value] of Object.entries(sqliteWorkerPreloadEnv(preload))) {
       vi.stubEnv(key, value);
     }
-    const prepare = vi.spyOn(snapshots, "prepareSqliteReadOnlyLocation");
+    const prepareLocation = snapshots.prepareSqliteReadOnlyLocation;
+    const prepare = vi
+      .spyOn(snapshots, "prepareSqliteReadOnlyLocation")
+      .mockImplementation(async (pathname, options) => {
+        const prepared = await prepareLocation(pathname, options);
+        const index = sources.indexOf(path.toNamespacedPath(pathname));
+        expect(index).toBeGreaterThanOrEqual(0);
+        locations[index] = path.toNamespacedPath(fs.realpathSync.native(prepared.location));
+        publishReadPaths(locations);
+        return {
+          ...prepared,
+          cleanupAsync: async () => {
+            const removed = await prepared.cleanupAsync();
+            cleanedSnapshots.add(index);
+            if (index === 0) {
+              firstSnapshotCleaned.resolve();
+            }
+            return removed;
+          },
+        };
+      });
     vi.mocked(fork).mockClear();
     const controller = new AbortController();
     const cancellation = new Error("intentional reader cancellation");
+    const onAgentInspection = vi.fn();
     let settled = false;
     const run = preflightOpenClawDatabaseSchemas({
       env: { OPENCLAW_STATE_DIR: path.join(root, "absent-state") },
@@ -123,6 +172,7 @@ it.each(["success", "failure", "cancel"] as const)(
       verifyCurrentSchemaShape: true,
       requireStartupMigrationReadiness: true,
       signal: controller.signal,
+      onAgentInspection,
     });
     void run.then(
       () => {
@@ -142,10 +192,18 @@ it.each(["success", "failure", "cancel"] as const)(
         { timeout: 10_000 },
       );
       expect(settled).toBe(false);
-      expect(prepare).not.toHaveBeenCalled();
+      expect(prepare).toHaveBeenCalledTimes(source === "snapshot" ? 2 : 0);
+      expect(cleanedSnapshots.size).toBe(0);
+      // Snapshot-copy workers use spawn; this counts the two schema-reader children.
       expect(fork).toHaveBeenCalledTimes(2);
       expect(fs.existsSync(marker("close-2"))).toBe(false);
-      for (const pathname of paths.slice(0, 2)) {
+      const readLocations = source === "snapshot" ? locations : sources;
+      const [firstReadLocation, secondReadLocation] = readLocations;
+      if (firstReadLocation === undefined || secondReadLocation === undefined) {
+        throw new Error("Both paused readers must have a prepared database path");
+      }
+      for (const pathname of readLocations.slice(0, 2)) {
+        expect(fs.existsSync(pathname)).toBe(true);
         expectReadLeaseHeld(pathname);
       }
 
@@ -168,30 +226,69 @@ it.each(["success", "failure", "cancel"] as const)(
         await expect(run).rejects.toBe(cancellation);
       } else {
         fs.writeFileSync(marker("release-0"), "resume");
-        if (outcome === "failure") {
+        if (outcome === "close-failure") {
+          await vi.waitFor(() => expect(fs.existsSync(marker("retired-0"))).toBe(true), {
+            timeout: 10_000,
+          });
+          expect(settled).toBe(false);
+          expect(closedChildren).toBe(0);
+          expect(cleanedSnapshots.size).toBe(0);
+          expect(fs.existsSync(firstReadLocation)).toBe(true);
+          expectReadLeaseHeld(firstReadLocation);
+          fs.writeFileSync(marker("exit-release"), "resume");
+        }
+        if (outcome === "failure" || outcome === "close-failure") {
           await childClosures[0];
+          if (source === "snapshot") {
+            await withTestTimeout(
+              firstSnapshotCleaned.promise,
+              10_000,
+              "failed-close child snapshot did not clean up after exit",
+            );
+          }
           // Drain the first child's result before checking the still-owned peer.
           await setImmediate();
           expect(settled).toBe(false);
-          expectReadLeaseHeld(paths[1]);
+          expectReadLeaseHeld(secondReadLocation);
+          if (source === "snapshot") {
+            expect(cleanedSnapshots).toEqual(new Set([0]));
+            expect(fs.existsSync(secondReadLocation)).toBe(true);
+          }
           expect(fork).toHaveBeenCalledTimes(2);
         }
         fs.writeFileSync(marker("release-1"), "resume");
         if (outcome === "failure") {
           await expect(run).rejects.toMatchObject({ name: "SqliteIntegrityError" });
+        } else if (outcome === "close-failure") {
+          await expect(run).rejects.toThrow("native snapshot close failure");
         } else {
           await expect(run).resolves.toEqual({ incompatible: [], indeterminate: [] });
         }
       }
       expect(closedChildren).toBe(2);
-      expect(fork).toHaveBeenCalledTimes(outcome === "success" ? 3 : 2);
+      expect(fork).toHaveBeenCalledTimes(2);
       expect(fs.existsSync(marker("close-2"))).toBe(outcome === "success");
-      for (const databasePath of paths) {
+      if (outcome === "success") {
+        expect(onAgentInspection).toHaveBeenCalledExactlyOnceWith({
+          schemaProcessCount: 2,
+          schemaInspectionCount: 3,
+          schemaSnapshotCount: 0,
+        });
+      }
+      for (const location of locations) {
+        expect(fs.existsSync(path.dirname(location))).toBe(false);
+      }
+      for (const [index, databasePath] of paths.entries()) {
+        expect(fs.readFileSync(databasePath)).toEqual(originalBytes[index]);
+        for (const suffix of ["-wal", "-shm", "-journal"]) {
+          expect(fs.existsSync(databasePath + suffix)).toBe(false);
+        }
         acquireStateDatabaseHandleExclusion({ databasePath, busyTimeoutMs: 0 }).release();
       }
     } finally {
       fs.writeFileSync(marker("release-0"), "resume");
       fs.writeFileSync(marker("release-1"), "resume");
+      fs.writeFileSync(marker("exit-release"), "resume");
       controller.abort(cancellation);
       await Promise.allSettled([run, ...childClosures]);
     }
@@ -217,6 +314,71 @@ function createSnapshotCandidates() {
 
   return { env, paths };
 }
+
+it("reuses two schema readers for closed WAL snapshots without changing source artifacts", async () => {
+  const root = tempDirs.make("openclaw-preflight-closed-wal-");
+  const initializedEnv = { OPENCLAW_STATE_DIR: path.join(root, "initialized") };
+  const paths = ["first", "second", "queued"].map(
+    (agentId) => openOpenClawAgentDatabase({ agentId, env: initializedEnv }).path,
+  );
+  closeOpenClawAgentDatabasesForTest();
+  closeOpenClawStateDatabaseForTest();
+  const originalBytes = paths.map((pathname) => fs.readFileSync(pathname));
+  for (const pathname of paths) {
+    expect(fs.existsSync(`${pathname}-wal`)).toBe(false);
+    expect(fs.existsSync(`${pathname}-shm`)).toBe(false);
+    expect(fs.existsSync(`${pathname}-journal`)).toBe(false);
+  }
+  const locations: string[] = [];
+  const prepare = snapshots.prepareSqliteReadOnlyLocation;
+  vi.spyOn(snapshots, "prepareSqliteReadOnlyLocation").mockImplementation(
+    async (pathname, options) => {
+      const prepared = await prepare(pathname, options);
+      locations.push(prepared.location);
+      return prepared;
+    },
+  );
+  vi.mocked(fork).mockClear();
+  const onAgentInspection = vi.fn();
+
+  await expect(
+    preflightOpenClawDatabaseSchemas({
+      env: { OPENCLAW_STATE_DIR: path.join(root, "absent-state") },
+      supportedVersions,
+      configuredAgentDatabaseCandidatePaths: paths,
+      verifyCurrentSchemaShape: true,
+      requireStartupMigrationReadiness: true,
+      onAgentInspection,
+    }),
+  ).resolves.toEqual({ incompatible: [], indeterminate: [] });
+
+  expect(fork).toHaveBeenCalledTimes(2);
+  expect(onAgentInspection).toHaveBeenCalledExactlyOnceWith({
+    schemaProcessCount: 2,
+    schemaInspectionCount: 3,
+    schemaSnapshotCount: 3,
+  });
+  const children = vi
+    .mocked(fork)
+    .mock.results.filter((result) => result.type === "return")
+    .map(({ value }) => value);
+  expect(children).toHaveLength(2);
+  for (const child of children) {
+    expect(child.exitCode).toBe(0);
+    expect(child.connected).toBe(false);
+  }
+  expect(locations).toHaveLength(3);
+  for (const location of locations) {
+    expect(fs.existsSync(path.dirname(location))).toBe(false);
+  }
+  for (const [index, pathname] of paths.entries()) {
+    expect(fs.readFileSync(pathname)).toEqual(originalBytes[index]);
+    for (const suffix of ["-wal", "-shm", "-journal"]) {
+      expect(fs.existsSync(pathname + suffix)).toBe(false);
+    }
+    acquireStateDatabaseHandleExclusion({ databasePath: pathname, busyTimeoutMs: 0 }).release();
+  }
+});
 
 it("drains started agent snapshots before rejecting cancellation", async () => {
   const fixture = createSnapshotCandidates();

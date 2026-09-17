@@ -10,12 +10,11 @@ import type {
   ModelAuthAvailabilityRef,
 } from "./model-auth-availability.js";
 import { compareModelCatalogEntries } from "./model-catalog-order.js";
-import {
-  type ModelCatalogRoutePolicy,
-  type ModelCatalogRouteProjection,
-  projectModelCatalogEntryForRoute,
-  createConfiguredModelCatalogOverridesResolver,
+import type {
+  ModelCatalogRoutePolicy,
+  ModelCatalogRouteProjection,
 } from "./model-catalog-route.js";
+import { createModelCatalogView } from "./model-catalog-view.js";
 import type { ModelCatalogEntry } from "./model-catalog.js";
 import type { ModelRef } from "./model-ref-shared.js";
 import { dedupeModelCatalogEntries } from "./model-selection-shared.js";
@@ -71,7 +70,7 @@ type LogicalModelCatalogParams = {
   cfg: OpenClawConfig;
   catalog: ModelCatalogEntry[];
   defaultProvider: string;
-  defaultModel?: string;
+  defaultModel?: string | ModelRef;
   agentId?: string;
   workspaceDir?: string;
   view?: ModelCatalogVisibilityView;
@@ -120,14 +119,13 @@ export async function prepareLogicalVisibleModelCatalog(
       ...RUNTIME_MODEL_VISIBILITY_NORMALIZATION,
     });
   const keyOf = createModelCatalogIdentityKeyResolver();
-  const projectionCatalog = params.routeVariants?.length ? params.routeVariants : params.catalog;
-  const routeVariantsByKey = new Map<string, ModelCatalogEntry[]>();
-  for (const entry of projectionCatalog) {
-    const key = keyOf(entry);
-    const variants = routeVariantsByKey.get(key) ?? [];
-    variants.push(entry);
-    routeVariantsByKey.set(key, variants);
-  }
+  const catalogView = createModelCatalogView({
+    cfg: params.cfg,
+    catalog: params.catalog,
+    routeVariants: params.routeVariants?.length ? params.routeVariants : params.catalog,
+    routePolicy: params.routePolicy,
+    keyOf,
+  });
   const { configuredKeys, retainedKeys } = policy;
   const retainedKey = params.retainedModel
     ? keyOf({ provider: params.retainedModel.provider, id: params.retainedModel.model })
@@ -151,26 +149,11 @@ export async function prepareLogicalVisibleModelCatalog(
     // Preparation can mutate later rows or replace the policy owner across each await.
     const key = resolveModelCatalogIdentityKey(entry);
     if (!readers.has(key)) {
-      const variants = routeVariantsByKey.get(key) ?? [entry];
+      const variants = catalogView.variantsOf(entry, key) ?? [entry];
       readers.set(key, await params.prepareEntry(variants[0] ?? entry, variants));
     }
   }
   const catalogKeys = new Set(params.catalog.map(createModelCatalogIdentityKeyResolver()));
-  const resolveOverrides = createConfiguredModelCatalogOverridesResolver({
-    cfg: params.cfg,
-    policy: params.routePolicy,
-  });
-  const projections = new Map<
-    ModelCatalogEntry,
-    {
-      overrides: ReturnType<typeof resolveOverrides>;
-      rows: Map<
-        | ModelCatalogRouteProjection["kind"]
-        | Extract<ModelCatalogRouteProjection, { kind: "selected" }>["route"],
-        ModelCatalogEntry
-      >;
-    }
-  >();
   return () => {
     // Membership and row availability consume this one observation after every await.
     const states = new Map([...readers].map(([key, read]) => [key, read()]));
@@ -183,29 +166,14 @@ export async function prepareLogicalVisibleModelCatalog(
       return state;
     };
     const projectEntries = (entries: readonly ModelCatalogEntry[]) => {
-      const projected = entries.map((entry) => {
-        const projection = getEntryState(entry).routeProjection;
-        let cached = projections.get(entry);
-        if (!cached) {
-          cached = {
-            overrides: resolveOverrides(entry),
-            rows: new Map(),
-          };
-          projections.set(entry, cached);
-        }
-        const route = projection.kind === "selected" ? projection.route : projection.kind;
-        let row = cached.rows.get(route);
-        if (!row) {
-          row = projectModelCatalogEntryForRoute({
+      const projected = entries.map(
+        (entry) =>
+          catalogView.readProjection(
             entry,
-            projection,
-            catalog: routeVariantsByKey.get(publicationKeyOf(entry)) ?? [entry],
-            ...(cached.overrides ? { overrides: cached.overrides } : {}),
-          }).entry;
-          cached.rows.set(route, row);
-        }
-        return row;
-      });
+            getEntryState(entry).routeProjection,
+            publicationKeyOf(entry),
+          ).entry,
+      );
       return sortModelCatalogEntries(dedupeByKey(projected, publicationKeyOf));
     };
     if (params.view === "all") {

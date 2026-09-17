@@ -168,6 +168,11 @@ Console logs are **TTY-aware** and formatted for readability:
 
 Console formatting is controlled by `logging.consoleStyle`.
 
+SQLite worker diagnostics use stderr. After the final backend closes normally,
+the worker gives pending console output up to five seconds to drain before
+acknowledging close. This is best effort; forced worker termination can still
+discard pending diagnostics.
+
 ### Gateway WebSocket logs
 
 `openclaw gateway` also has WebSocket protocol logging for RPC traffic:
@@ -516,6 +521,20 @@ who owns that queue at the sampled instant, not every predecessor responsible
 for the entire wait or which work consumed CPU. These are ordinary performance
 logs. They do not use or change [audit identity](/gateway/audit), decisions,
 retention, principal attribution or admission authority.
+
+### Worker pool capacity
+
+Gateway `status` responses include `workerPools.transcriptReconciliation` and
+`workerPools.modelCatalog`. Each reports `maxWorkers`, `workers`, `workersCreated`,
+`activeTasks`, and `pendingTasks` from the pool owner. Both Gateway pools admit one
+worker at a time. Pending tasks include queued and executing work; creation counts
+belong to the current pool lifetime. The startup trace's `memory.ready` record also
+includes these pool counts.
+
+These figures describe worker and task counts. Process RSS includes every isolate
+and native allocation; Node's process heap flags can override a worker's requested
+heap limits. Use constructor or per-isolate measurements when attributing memory
+growth to a particular worker.
 
 ### Slow worktree cleanup
 

@@ -196,6 +196,7 @@ export function bootstrapApplication(): ApplicationRuntime {
   );
   const liveActivity = createLiveActivity(gateway);
   const connectionBootstrap = createConnectionBootstrapCoordinator();
+  const chatSubmissions = createChatSubmissions();
   const router = createApplicationRouter();
   const bootRecord = readBootRecord(gatewayCredentialScope(settings.gatewayUrl), (method) => {
     if (startup.pendingBootstrapToken || startup.password) {
@@ -291,6 +292,7 @@ export function bootstrapApplication(): ApplicationRuntime {
   const channels = createChannelCapability(gateway);
   const stopForegroundBootstrap = subscribeForegroundChatBootstrap({
     router,
+    chatSubmissions,
     gateway,
     agents,
     agentSelection,
@@ -359,7 +361,6 @@ export function bootstrapApplication(): ApplicationRuntime {
   let nativeDeviceSettings: ApplicationContext["nativeDeviceSettings"] = null;
   let nativeNotifications: ApplicationContext["nativeNotifications"] = null;
   const webPush = createWebPushCapability(gateway, { connectionBootstrap });
-  const chatSubmissions = createChatSubmissions();
   const placementStartup = createApplicationPlacementStartup({
     gateway,
     sessions,

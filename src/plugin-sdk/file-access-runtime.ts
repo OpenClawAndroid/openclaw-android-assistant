@@ -21,7 +21,12 @@ export {
   statRegularFileSync,
   writeFileWithinRoot,
 } from "../infra/fs-safe.js";
-export { assertNoSymlinkParents, assertNoSymlinkParentsSync } from "../infra/fs-safe-advanced.js";
+export {
+  assertNoSymlinkParents,
+  assertNoSymlinkParentsSync,
+  readFileHandleBounded,
+} from "../infra/fs-safe-advanced.js";
+export { readFileWindowFully } from "../infra/file-read.js";
 export {
   ensureDurableDirectory,
   syncDirectory,

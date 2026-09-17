@@ -1,6 +1,7 @@
 // Gateway RPC runtime tests cover CLI gateway RPC calls and runtime error handling.
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { withEnvAsync } from "../test-utils/env.js";
 import { addGatewayClientOptions } from "./gateway-rpc.js";
 import type { GatewayRpcOpts } from "./gateway-rpc.types.js";
 
@@ -59,6 +60,36 @@ describe("addGatewayClientOptions", () => {
 describe("callGatewayFromCliRuntime", () => {
   beforeEach(() => {
     callGatewayMock.mockClear().mockResolvedValue({ ok: true });
+  });
+
+  it.each(["sessions.send", "sessions.steer", "chat.send"])(
+    "keeps subagent shell %s calls out of ordinary user input",
+    async (method) => {
+      await withEnvAsync({ OPENCLAW_SUBAGENT_EXEC: "1" }, async () => {
+        await expect(
+          callGatewayFromCliRuntime(method, {}, { key: "agent:main:main", message: "Done" }),
+        ).rejects.toThrow("task completion path");
+      });
+      expect(callGatewayMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves operator messaging and subagent read-only CLI calls", async () => {
+    await withEnvAsync({ OPENCLAW_SUBAGENT_EXEC: undefined }, async () => {
+      await callGatewayFromCliRuntime("sessions.send", {}, { key: "agent:main:main" });
+    });
+    await withEnvAsync({ OPENCLAW_SUBAGENT_EXEC: "1" }, async () => {
+      await callGatewayFromCliRuntime("sessions.history", {}, { key: "agent:main:main" });
+    });
+    expect(callGatewayMock).toHaveBeenCalledTimes(2);
+    expect(callGatewayMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ method: "sessions.send" }),
+    );
+    expect(callGatewayMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ method: "sessions.history" }),
+    );
   });
 
   it("uses the 30s Gateway RPC default timeout when --timeout is omitted", async () => {

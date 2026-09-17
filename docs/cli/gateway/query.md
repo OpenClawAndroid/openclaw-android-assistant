@@ -334,9 +334,12 @@ coordination; `--timeout` independently limits how long this CLI waits:
 openclaw gateway call sessions.send --params '{"key":"<session-key>","message":"Status update"}' --timeout 10000
 ```
 
-A `started` response confirms acceptance, not a completed reply. Agents should
-normally use [`sessions_send` with `timeoutSeconds: 0`](/concepts/session-tool#sending-cross-session-messages)
-for nonblocking coordination.
+A `started` response confirms acceptance, not a completed reply. These CLI methods
+are for operators and external automation. Agents use their exposed
+[`sessions_send` tool](/concepts/session-tool#sending-cross-session-messages),
+never a shell or direct RPC substitute. An unavailable messaging tool is not
+permission to use the CLI. Subagents return results through their accepted task
+completion path; the parent relays any necessary coordination with other sessions.
 
 <ParamField path="--params <json>" type="string" default="{}">
   JSON object string for params.

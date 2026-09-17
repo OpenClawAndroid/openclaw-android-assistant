@@ -131,18 +131,21 @@ async function runBoundInProcessGatewayCall<T>(
   boundGateway: ReturnType<typeof bindInProcessGatewayContext> | undefined,
   run: (resolveGatewayContext?: GatewayContextResolver) => Promise<T>,
   assertCallerCurrent?: () => void,
+  revalidateOnCompletion = true,
 ): Promise<T> {
-  const assertCurrent = () => {
+  const assertCurrent = (afterDispatch = false) => {
     boundGateway?.assertCurrent();
-    assertCallerCurrent?.();
+    if (!afterDispatch || revalidateOnCompletion) {
+      assertCallerCurrent?.();
+    }
   };
   try {
     assertCurrent();
     const result = await run(boundGateway?.resolve);
-    assertCurrent();
+    assertCurrent(true);
     return result;
   } catch (error) {
-    assertCurrent();
+    assertCurrent(true);
     throw error;
   }
 }
@@ -180,13 +183,17 @@ async function callAgentToolGatewayRequestBound<T>(
   runtimeIdentity: AgentRuntimeIdentity | undefined,
   assertCallerCurrent: (() => void) | undefined,
   forceTransport = false,
+  revalidateOnCompletion = true,
 ): Promise<T> {
   const assertDispatchCurrent = request.assertDispatchCurrent;
   const assertCurrent =
-    assertCallerCurrent || assertDispatchCurrent
+    assertCallerCurrent || assertDispatchCurrent || (!revalidateOnCompletion && request.signal)
       ? () => {
           assertCallerCurrent?.();
           assertDispatchCurrent?.();
+          if (!revalidateOnCompletion) {
+            request.signal?.throwIfAborted();
+          }
         }
       : undefined;
   assertCurrent?.();
@@ -213,6 +220,7 @@ async function callAgentToolGatewayRequestBound<T>(
       boundGateway,
       () => callGateway<T>(wireRequest),
       assertCurrent,
+      revalidateOnCompletion,
     );
   }
   const scopes =
@@ -246,7 +254,8 @@ async function callAgentToolGatewayRequestBound<T>(
             ),
         }
       : {}),
-    ...(request.signal ? { signal: request.signal } : {}),
+    // Submitted writes settle; their original signal still fences every handoff above.
+    ...(request.signal && revalidateOnCompletion ? { signal: request.signal } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(boundGateway ? { resolveGatewayContext: boundGateway.resolve } : {}),
     ...(assertCurrent ? { sessionMutationCommitGuard: assertCurrent } : {}),
@@ -263,6 +272,7 @@ async function callAgentToolGatewayRequestBound<T>(
         ),
       ),
     assertCurrent,
+    revalidateOnCompletion,
   );
 }
 
@@ -270,6 +280,8 @@ async function callAgentToolGatewayRequestBound<T>(
 export function bindAgentToolGatewayRequest(options?: {
   resolveGatewayContext?: GatewayContextResolver;
   hostedOnly?: boolean;
+  /** Submitted writes retain their outcome; every dispatch still checks the caller. */
+  revalidateOnCompletion?: boolean;
 }): AgentToolGatewayRequestCaller {
   const scope = getPluginRuntimeGatewayRequestScope();
   const resolver =
@@ -291,6 +303,7 @@ export function bindAgentToolGatewayRequest(options?: {
         assertCallerCurrent,
         (!resolver && !admitted) ||
           (options?.hostedOnly === true && admitted?.localEmbedded === true),
+        options?.revalidateOnCompletion,
       ),
     );
 }

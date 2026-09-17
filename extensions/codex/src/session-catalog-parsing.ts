@@ -32,6 +32,7 @@ const MAX_CWD_LENGTH = 4096;
 export const MAX_SESSION_ID_LENGTH = 256;
 const MAX_SESSION_NAME_LENGTH = 500;
 const MAX_SESSION_PREVIEW_LENGTH = 500;
+const SESSION_PREVIEW_PREFIX_LENGTH = 2_048;
 const MAX_SESSION_KEY_LENGTH = 1024;
 const MAX_METADATA_LENGTH = 500;
 const MAX_ACTIVE_FLAGS = 16;
@@ -77,6 +78,17 @@ function catalogPreview(value: unknown, sanitize: typeof sanitizeTerminalText): 
   }
   const singleLine = sanitize(value.replace(/\s+/g, " "));
   return boundedCatalogString(singleLine, MAX_SESSION_PREVIEW_LENGTH, "truncate");
+}
+
+/** Select a bounded input only for the canonical terminal sanitizer. */
+export function selectCodexCatalogPreviewInput(value: string): string {
+  if (value.length <= SESSION_PREVIEW_PREFIX_LENGTH) {
+    return value;
+  }
+  const prefix = value.slice(0, SESSION_PREVIEW_PREFIX_LENGTH).replace(/\s+/g, " ").trim();
+  // Without controls the sanitizer is identity; the extra unit preserves trim
+  // and surrogate lookahead at the output boundary, regardless of the raw tail.
+  return prefix.length > MAX_SESSION_PREVIEW_LENGTH && !/\p{Cc}/u.test(prefix) ? prefix : value;
 }
 
 /** Detach the small preview from V8's potentially large sliced-string backing store. */

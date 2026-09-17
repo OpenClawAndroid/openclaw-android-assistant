@@ -1,6 +1,7 @@
 // Top-level legacy config migration runner used before full config validation.
 import { inheritLegacyDefaultAgentId } from "../../../config/legacy.default-agent-owner.js";
 import type { LegacyConfigMigrationContext } from "../../../config/legacy.shared.js";
+import { cloneConfigWithResolutionFacts } from "../../../config/resolution-facts.js";
 import { applyChannelDoctorCompatibilityMigrations } from "./channel-legacy-config-migrate.js";
 import { LEGACY_CONFIG_MIGRATIONS } from "./legacy-config-migrations.js";
 
@@ -22,7 +23,7 @@ export function applyLegacyDoctorMigrations(
     return { next: null, changes: [] };
   }
   const original = raw as Record<string, unknown>;
-  const next = structuredClone(original);
+  const next = cloneConfigWithResolutionFacts(original);
   const changes: string[] = [];
   for (const migration of LEGACY_CONFIG_MIGRATIONS) {
     migration.apply(next, changes, context);

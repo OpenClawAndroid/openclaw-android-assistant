@@ -81,6 +81,8 @@ export type CodexSessionCatalogControl = {
   listPage(
     params: CodexSessionCatalogPageParams,
     diagnostics?: CodexCatalogPageDiagnostics | null,
+    /** The caller is filling a page begun at the head, rather than an older discovery cursor. */
+    headWalk?: boolean,
   ): Promise<CodexSessionCatalogPage>;
   requireEligibleThread(threadId: string): Promise<CodexThread>;
   listDescendantPage(params: CodexThreadListParams): Promise<CodexThreadListResponse>;

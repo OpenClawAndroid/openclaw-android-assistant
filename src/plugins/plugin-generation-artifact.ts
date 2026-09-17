@@ -584,10 +584,7 @@ export function capturePluginGenerationArtifact(
       capturePluginModuleSource(filename, (root, source) => copyPackage(root, source, false, true)),
     );
   const packageForFile = (filename: string) =>
-    // Every captured package root and dependency link belongs to this artifact.
-    isPathInside(directory, filename)
-      ? findPluginCapturedPackage(packages.values(), filename)?.owner
-      : undefined;
+    findPluginCapturedPackage(packages, filename, directory)?.owner;
 
   try {
     const sourceRoot = fs.realpathSync(rootDir);
@@ -681,7 +678,7 @@ export function capturePluginGenerationArtifact(
           return known;
         }
         return captureAdmitted(() => {
-          const captured = findPluginCapturedPackage(packages.values(), filename);
+          const captured = findPluginCapturedPackage(packages, filename, directory);
           // import.meta.url can name a deferred peer through a private dependency link.
           const original = captured
             ? path.join(captured.owner.sourceRoot, path.relative(captured.root, filename))

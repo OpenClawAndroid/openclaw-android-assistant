@@ -221,7 +221,7 @@ describe("automatic startup config repair", () => {
     const repaired = {
       meta: {
         lastTouchedVersion: VERSION,
-        migrations: { modelPolicyAllowlist: true },
+        migrations: { modelPolicyAllowlist: true, utilityModelSeparation: true },
       },
       agents: { defaults: { workspace: "/tmp/workspace" }, entries: { main: {} } },
       gateway: { mode: "local" },

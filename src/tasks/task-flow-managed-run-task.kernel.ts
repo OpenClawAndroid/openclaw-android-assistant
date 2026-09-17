@@ -131,6 +131,7 @@ export function runManagedTaskInFlowInDatabase(
     ownerKey: identity.ownerKey,
     scopeKind: identity.scopeKind,
     parentFlowId: flow.flowId,
+    detail: createParams.detail,
     candidates,
     isTaskMirroredFlow,
   });

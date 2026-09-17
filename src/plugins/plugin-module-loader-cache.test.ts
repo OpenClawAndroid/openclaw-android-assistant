@@ -1,5 +1,6 @@
 /** Tests plugin module loader cache keys and lifecycle reset behavior. */
 import fs from "node:fs";
+import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -159,6 +160,31 @@ describe("getCachedPluginModuleLoader", () => {
           };
           assert.equal(loadSdkFixture("enum", "enum State { Ready }\\nexport const ready = State.Ready;")().ready, 0);
           assert.equal(loadSdkFixture("source-host/node_modules/sdk/index", "export const ready: number = 1;")().ready, 1);
+          const peerRoot = path.join(root, "peers");
+          fs.mkdirSync(peerRoot);
+          fs.writeFileSync(path.join(peerRoot, "sdk.mts"), 'export { value } from "./peer.mjs";');
+          fs.writeFileSync(path.join(peerRoot, "peer.mjs"), 'export const value = "javascript";');
+          fs.writeFileSync(path.join(peerRoot, "peer.mts"), 'export const value = "typescript";');
+          fs.writeFileSync(path.join(peerRoot, "entry.ts"), 'export * from "openclaw/plugin-sdk/fixture";');
+          const peerLoader = getCachedPluginModuleLoader({
+            modulePath: path.join(peerRoot, "entry.ts"), importerUrl: import.meta.url, tryNative: false,
+            aliasMap: { "openclaw/plugin-sdk/fixture": path.join(peerRoot, "sdk.mts") },
+          });
+          assert.equal(peerLoader(path.join(peerRoot, "entry.ts")).value, "javascript");
+          const sourcePeerRoot = path.join(root, "source-peers");
+          fs.mkdirSync(sourcePeerRoot);
+          fs.writeFileSync(path.join(sourcePeerRoot, "sdk.mts"), 'export { value } from "./peer.mjs";');
+          fs.writeFileSync(path.join(sourcePeerRoot, "peer.mts"), 'export const value = "typescript";');
+          fs.writeFileSync(path.join(sourcePeerRoot, "entry.ts"), 'export * from "openclaw/plugin-sdk/fixture";');
+          const sourcePeerLoader = getCachedPluginModuleLoader({
+            modulePath: path.join(sourcePeerRoot, "entry.ts"), importerUrl: import.meta.url, tryNative: false,
+            aliasMap: { "openclaw/plugin-sdk/fixture": path.join(sourcePeerRoot, "sdk.mts") },
+          });
+          assert.equal(sourcePeerLoader(path.join(sourcePeerRoot, "entry.ts")).value, "typescript");
+          const unrelated = path.join(root, "unrelated.ts");
+          fs.writeFileSync(unrelated, 'export { value } from "./unrelated-peer.mjs";');
+          fs.writeFileSync(path.join(root, "unrelated-peer.mts"), 'export const value = "unrelated";');
+          await assert.rejects(import(pathToFileURL(unrelated).href), /ERR_MODULE_NOT_FOUND|Cannot find module/);
           const broken = loadSdkFixture("broken", 'globalThis.sdkEvaluations = (globalThis.sdkEvaluations ?? 0) + 1; throw new Error("SDK evaluation failed");');
           assert.throws(broken, /SDK evaluation failed/);
           assert.equal(globalThis.sdkEvaluations, 1, "terminal native failures must not evaluate SDK source twice");
@@ -788,7 +814,9 @@ describe("getCachedPluginModuleLoader", () => {
         tryNative: false,
       },
     );
-    expect(options.nativeModules).toEqual([]);
+    expect(options.nativeModules).toEqual(
+      typeof Module.registerHooks === "function" ? [] : ["openclaw"],
+    );
     expect(fromSourceTransformer).toHaveBeenCalledWith("/repo/dist/extensions/demo/api.js");
     const stats = expectStats(getPluginModuleLoaderStats(), {
       calls: 1,
@@ -863,7 +891,9 @@ describe("getCachedPluginModuleLoader", () => {
       "file:///C:/Users/alice/openclaw/dist/extensions/feishu/api.js",
       { tryNative: false },
     );
-    expect(options.nativeModules).toEqual([]);
+    expect(options.nativeModules).toEqual(
+      typeof Module.registerHooks === "function" ? [] : ["openclaw"],
+    );
     expect(fromSourceTransformer).toHaveBeenCalledWith(
       "file:///C:/Users/alice/openclaw/dist/extensions/feishu/api.js",
     );

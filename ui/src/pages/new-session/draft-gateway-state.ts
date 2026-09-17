@@ -1,11 +1,9 @@
 import { initialState, Task, TaskStatus } from "@lit/task";
 import type { ReactiveControllerHost } from "lit";
-import type {
-  UsersPrefsGetResult,
-  UsersPrefsSetResult,
-} from "../../../../packages/gateway-protocol/src/index.js";
+import type { UsersPrefsSetResult } from "../../../../packages/gateway-protocol/src/index.js";
 import type { ApplicationContext } from "../../app/context.ts";
 import { hasOperatorWriteAccess } from "../../app/operator-access.ts";
+import { saveUserPreferences } from "../../app/user-prefs-cache.ts";
 import { t } from "../../i18n/index.ts";
 import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
@@ -474,7 +472,7 @@ export class DraftGatewayState {
       }
       const next = { ...this.identityPreferences[agentId], ...nextPatch };
       try {
-        const result = await client.request<UsersPrefsSetResult>("users.prefs.set", {
+        const result = await saveUserPreferences(client, {
           entries: encodeIdentityPreferences({ [agentId]: next }),
         });
         if (result.status !== "ok" || this.preferenceScope !== scope) {
@@ -491,6 +489,7 @@ export class DraftGatewayState {
   }
 
   disconnect() {
+    this.preferenceScope = "";
     this.cloudProfileRefresh = null;
     this.gatewaySource = null;
     this.gatewayClientValue = null;
@@ -580,6 +579,7 @@ export class DraftGatewayState {
       client,
       gatewayUrl: this.gatewayUrlValue,
       scope,
+      profileId,
     });
   }
 
@@ -587,9 +587,14 @@ export class DraftGatewayState {
     client: NonNullable<ApplicationContext["gateway"]["snapshot"]["client"]>;
     gatewayUrl: string;
     scope: string;
+    profileId: string;
   }): Promise<void> {
     try {
-      const result = await params.client.request<UsersPrefsGetResult>("users.prefs.get", {});
+      const { loadUserPreferences } = await import("../../app/user-prefs-request.ts");
+      if (this.preferenceScope !== params.scope) {
+        return;
+      }
+      const result = await loadUserPreferences(params.client, params.profileId);
       if (this.preferenceScope !== params.scope) {
         return;
       }
@@ -614,7 +619,7 @@ export class DraftGatewayState {
           const batch = Object.fromEntries(migrationEntries.slice(offset, offset + 32));
           let response: UsersPrefsSetResult;
           try {
-            response = await params.client.request<UsersPrefsSetResult>("users.prefs.set", {
+            response = await saveUserPreferences(params.client, {
               entries: batch,
             });
           } catch {

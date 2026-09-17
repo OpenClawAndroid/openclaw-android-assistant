@@ -81,7 +81,7 @@ export async function changeChatPanePlacement(params: {
   currentRow: () => GatewaySessionRow | undefined;
   onPendingChange: (key: string | null) => void;
   publishError: (error: unknown) => void;
-  refreshReplacement: SessionCapability["refreshReplacement"];
+  reconcileMutation: SessionCapability["reconcileMutation"];
   requestUpdate: () => void;
 }): Promise<void> {
   const client = params.client;
@@ -197,12 +197,17 @@ export async function changeChatPanePlacement(params: {
       });
     }
     if (params.isCurrent(client, params.connectionGeneration)) {
-      await params.refreshReplacement(agentId);
+      const outcome = await params.reconcileMutation(agentId);
+      if (outcome.status === "failed" && params.isCurrent(client, params.connectionGeneration)) {
+        params.publishError(outcome.error);
+      }
     }
   } catch (error) {
     if (params.isCurrent(client, params.connectionGeneration)) {
-      await params.refreshReplacement(agentId).catch(() => undefined);
-      params.publishError(error);
+      await params.reconcileMutation(agentId).catch(() => undefined);
+      if (params.isCurrent(client, params.connectionGeneration)) {
+        params.publishError(error);
+      }
     }
   } finally {
     params.onPendingChange(null);
@@ -220,7 +225,7 @@ export async function reclaimChatPanePlacement(params: {
   isCurrent: (client: GatewayBrowserClient, generation: number) => boolean;
   onReclaimingChange: (reclaimingKey: string | null) => void;
   publishError: (error: unknown) => void;
-  refreshReplacement: SessionCapability["refreshReplacement"];
+  reconcileMutation: SessionCapability["reconcileMutation"];
   requestUpdate: () => void;
 }): Promise<void> {
   const client = params.client;
@@ -274,7 +279,10 @@ export async function reclaimChatPanePlacement(params: {
       params.placementStartup,
     );
     if (params.isCurrent(client, connectionGeneration)) {
-      await params.refreshReplacement(agentId);
+      const outcome = await params.reconcileMutation(agentId);
+      if (outcome.status === "failed" && params.isCurrent(client, params.connectionGeneration)) {
+        params.publishError(outcome.error);
+      }
     }
   } catch (error) {
     if (params.isCurrent(client, connectionGeneration)) {

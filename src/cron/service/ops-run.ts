@@ -7,6 +7,7 @@ import {
   CronRunReceiptRevisionError,
   finishCronRunReceipt,
   releaseLocalCronRunReceiptOwnership,
+  type CronRunReceiptSettlementDisposition,
 } from "../store/run-receipt-store.js";
 import { isCronRunTriggerStateRetiredInDatabase } from "../store/run-receipt-trigger-state.js";
 import type { CronJob } from "../types.js";
@@ -33,11 +34,7 @@ import {
   runWithCronAdmission,
   supersedeActivatedCronRun,
 } from "./run-admission.js";
-import {
-  cronRunReceiptPersistHooks,
-  resolveCronRunReceiptTerminalStatus,
-  type CronRunReceiptSettlementDisposition,
-} from "./run-receipts.js";
+import { cronRunReceiptPersistHooks, resolveCronRunReceiptTerminalStatus } from "./run-receipts.js";
 import { recomputeUnownedCronSchedules } from "./run-recovery.js";
 import { applyCronRuntimeRowsToState, commitCronRuntimeRows } from "./runtime-store.js";
 import type {
@@ -76,21 +73,27 @@ async function finishPreparedManualRun(
   try {
     let coreResult: Awaited<ReturnType<typeof executeJobCoreWithTimeout>>;
     try {
-      coreResult = await executeJobCoreWithTimeout(state, executionJob, {
-        runId: taskRunId,
-        activeJobMarker: prepared.activeJobMarker,
-        owningCronLaneTaskMarker: prepared.owningCronLaneTaskMarker,
-        streamBatch: prepared.streamBatch,
-        streamScheduleKey: prepared.streamScheduleKey,
-        streamSourceIdentity: prepared.streamSourceIdentity,
-        runReceipt: prepared.runReceipt,
-        executionIdentity: createCronOwnerExecutionIdentityAdmission({
-          state,
+      const execute = () =>
+        executeJobCoreWithTimeout(state, executionJob, {
+          runId: taskRunId,
+          activeJobMarker: prepared.activeJobMarker,
+          owningCronLaneTaskMarker: prepared.owningCronLaneTaskMarker,
+          streamBatch: prepared.streamBatch,
+          streamScheduleKey: prepared.streamScheduleKey,
+          streamSourceIdentity: prepared.streamSourceIdentity,
           runReceipt: prepared.runReceipt,
-          taskId: prepared.taskId,
-          flowId: prepared.flowId,
-        }),
-      });
+          executionIdentity: createCronOwnerExecutionIdentityAdmission({
+            state,
+            runReceipt: prepared.runReceipt,
+            taskId: prepared.taskId,
+            flowId: prepared.flowId,
+          }),
+        });
+      coreResult =
+        (prepared.onExit !== undefined || prepared.streamBatch !== undefined) &&
+        state.deps.runSchedulerOwned
+          ? await state.deps.runSchedulerOwned(execute)
+          : await execute();
     } catch (err) {
       if (err instanceof CronRunReceiptRevisionError && err.reason === "owner-unavailable") {
         receiptSettlementDisposition = "owner-unavailable";

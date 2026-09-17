@@ -324,7 +324,11 @@ export function createSessionCapability(
     retire: mutations.retireDeletedSession,
   });
 
-  const operations = createSessionScopedOperations({
+  const {
+    dispose: disposeOperations,
+    retireConnection: retireOperationConnection,
+    ...operations
+  } = createSessionScopedOperations({
     connection,
     reconcileMutation: roster.reconcileMutation,
     notifyCreated,
@@ -477,7 +481,7 @@ export function createSessionCapability(
       roster.reset();
       sessionEventSubscription.reset();
       sessionEventSubscriptionError = null;
-      operations.retireConnection(previousClient);
+      retireOperationConnection(previousClient);
       groups.invalidate();
       swarmActivity.clear();
       mutations.retireConnection();
@@ -672,9 +676,11 @@ export function createSessionCapability(
     refresh: roster.refresh,
     invalidate: roster.scheduleEvent,
     refreshReplacement: roster.refreshReplacement,
+    reconcileMutation: roster.reconcileMutation,
+    capturePermissionObservation: permissions.capture,
     createResult: mutations.createResult,
     create: mutations.create,
-    recover: operations.recover,
+    ...operations,
     patch: mutations.patch,
     patchMany: mutations.patchMany,
     archiveVisibility: mutations.archiveVisibility,
@@ -691,19 +697,6 @@ export function createSessionCapability(
     deleteMany: deletions.deleteMany,
     deletionState: deletions.deletionState,
     reset: mutations.reset,
-    compact: operations.compact,
-    listFiles: operations.listFiles,
-    getFile: operations.getFile,
-    setFile: operations.setFile,
-    subscribeMessages: operations.subscribeMessages,
-    unsubscribeMessages: operations.unsubscribeMessages,
-    listCheckpoints: operations.listCheckpoints,
-    branchCheckpoint: operations.branchCheckpoint,
-    restoreCheckpoint: operations.restoreCheckpoint,
-    rewind: operations.rewind,
-    forkAtMessage: operations.forkAtMessage,
-    listBranches: operations.listBranches,
-    switchBranch: operations.switchBranch,
     groupsLoad: groups.load,
     groupsGeneration: groups.generation,
     groupsStatus: groups.status,
@@ -725,7 +718,7 @@ export function createSessionCapability(
       cacheLifecycle.dispose();
       githubPublication.clear();
       roster.dispose();
-      operations.dispose();
+      disposeOperations();
       connection.dispose();
       groups.dispose();
       hydratedClient = null;

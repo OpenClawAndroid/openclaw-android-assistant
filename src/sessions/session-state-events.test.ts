@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { trackSqliteStatementExecutions } from "../../test/helpers/sqlite-statement-execution-counter.js";
 import { cleanupTempDirs, makeTempDir } from "../../test/helpers/temp-dir.js";
 import { drainFormattedSystemEvents } from "../auto-reply/reply/session-system-events.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
@@ -344,6 +345,84 @@ describe("session state events", () => {
     const next = recordSessionStateEvent(eventInput(), { ...database, now: now + 1 })!;
     expect(next.sequence).toBeGreaterThan(before.sequence);
     expect(getSessionStateVersion(child, "main", database)).toBe(next.sequence);
+  });
+
+  it("prunes many composite session heads without recreating or regressing them", () => {
+    const database = createDatabaseOptions();
+    const { db } = openOpenClawStateDatabase(database);
+    const now = SESSION_STATE_RETENTION_MS + 100;
+    const insertEvent = db.prepare(`
+      INSERT INTO session_state_events
+        (session_key, agent_id, kind, actor_type, occurred_at, summary)
+      VALUES (?, ?, 'compacted', 'system', 1, 'old')
+    `);
+    const insertHead = db.prepare(`
+      INSERT INTO session_state_heads
+        (session_key, agent_id, last_sequence, pruned_max_sequence, updated_at)
+      VALUES (?, ?, 1000000, ?, 7)
+    `);
+    const expected: Array<{
+      session_key: string;
+      agent_id: string;
+      last_sequence: number;
+      pruned_max_sequence: number;
+      updated_at: number;
+    }> = [];
+    for (let index = 0; index < 257; index += 1) {
+      const sessionKey = `shared-${Math.floor(index / 2)}`;
+      const agentId = index % 2 === 0 ? "main" : "ops";
+      insertEvent.run(sessionKey, agentId);
+      const sequence = Number(insertEvent.run(sessionKey, agentId).lastInsertRowid);
+      if (index % 17 === 0) {
+        continue;
+      }
+      const previous = index % 4 === 0 ? 900000 : index % 4 === 1 ? sequence : 0;
+      insertHead.run(sessionKey, agentId, previous);
+      expected.push({
+        session_key: sessionKey,
+        agent_id: agentId,
+        last_sequence: 1000000,
+        pruned_max_sequence: Math.max(previous, sequence),
+        updated_at: previous < sequence ? now : 7,
+      });
+    }
+
+    db.exec(`
+      INSERT INTO session_state_events
+        (session_key, agent_id, kind, actor_type, occurred_at, summary)
+      VALUES (CAST(X'81' AS TEXT), 'main', 'compacted', 'system', 1, 'first'),
+             (CAST(X'80' AS TEXT), 'main', 'compacted', 'system', 1, 'second');
+    `);
+    insertHead.run("\ufffd", "main", 0);
+    expected.push({
+      session_key: "\ufffd",
+      agent_id: "main",
+      last_sequence: 1000000,
+      pruned_max_sequence: 516,
+      updated_at: now,
+    });
+
+    const updates = trackSqliteStatementExecutions(db, ["watermarks"], (sql) =>
+      /\bupdate\s+"?session_state_heads"?\b/i.test(sql) ? "watermarks" : null,
+    );
+    try {
+      sweepSessionStateWatchNotices({ ...database, now });
+    } finally {
+      updates.restore();
+    }
+
+    const heads = db.prepare("SELECT * FROM session_state_heads").all();
+    expect(heads).toHaveLength(expected.length);
+    expect(heads).toEqual(expect.arrayContaining(expected));
+    expect(db.prepare("SELECT count(*) AS count FROM session_state_events").get()).toEqual({
+      count: 0,
+    });
+    closeOpenClawStateDatabaseForTest();
+    expect(
+      openOpenClawStateDatabase(database).db.prepare("SELECT * FROM session_state_heads").all(),
+    ).toEqual(heads);
+    expect(updates.counts.watermarks).toBeGreaterThan(0);
+    expect(updates.counts.watermarks).toBeLessThanOrEqual(4);
   });
 
   it("lists typed ascending deltas with truncation and history-gap signaling", () => {

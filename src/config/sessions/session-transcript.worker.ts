@@ -82,7 +82,11 @@ type SessionTranscriptWorkerValues = {
 };
 
 export type SessionTranscriptWorkerReply<Kind extends keyof SessionTranscriptWorkerValues> =
-  | { ok: true; value: SessionTranscriptWorkerValues[Kind] }
+  | {
+      ok: true;
+      value: SessionTranscriptWorkerValues[Kind];
+      closedHistoryDatabase?: SessionTranscriptHistoryWorkerInput["database"];
+    }
   | {
       ok: false;
       error:
@@ -91,9 +95,49 @@ export type SessionTranscriptWorkerReply<Kind extends keyof SessionTranscriptWor
         | { kind: "fence"; message: string };
     };
 
-let historyDatabaseScope:
-  | import("../../state/openclaw-agent-db-readonly-scope.js").OpenClawAgentDatabaseReadOnlyScope
-  | undefined;
+// Keep target switching within the existing serialized worker; no read snapshot survives a task.
+const MAX_RETAINED_HISTORY_DATABASES = 64;
+const historyDatabaseScopes = new Map<
+  string,
+  {
+    database: SessionTranscriptHistoryWorkerInput["database"];
+    scope: import("../../state/openclaw-agent-db-readonly-scope.js").OpenClawAgentDatabaseReadOnlyScope;
+  }
+>();
+
+async function withHistoryDatabase<T>(
+  database: SessionTranscriptHistoryWorkerInput["database"],
+  operation: () => T | Promise<T>,
+): Promise<{ value: T; closedHistoryDatabase?: SessionTranscriptHistoryWorkerInput["database"] }> {
+  const key = JSON.stringify(database);
+  let retained = historyDatabaseScopes.get(key);
+  if (!retained) {
+    const { OpenClawAgentDatabaseReadOnlyScope } =
+      await import("../../state/openclaw-agent-db-readonly-scope.js");
+    retained = { database, scope: new OpenClawAgentDatabaseReadOnlyScope() };
+  }
+  const { scope } = retained;
+  try {
+    const value = await scope.run(database, operation);
+    historyDatabaseScopes.delete(key);
+    // Missing stores must not evict useful connections or retain empty scopes.
+    if (!scope.hasRetainedConnection) {
+      return { value, closedHistoryDatabase: database };
+    }
+    historyDatabaseScopes.set(key, retained);
+    if (historyDatabaseScopes.size > MAX_RETAINED_HISTORY_DATABASES) {
+      const oldest = historyDatabaseScopes.entries().next().value!;
+      oldest[1].scope.close();
+      historyDatabaseScopes.delete(oldest[0]);
+      return { value, closedHistoryDatabase: oldest[1].database };
+    }
+    return { value };
+  } catch (error) {
+    // The parent joins worker retirement on failure, including a failed native close.
+    scope.close();
+    throw error;
+  }
+}
 
 serveWorkerTasks(
   async (input): Promise<SessionTranscriptWorkerReply<keyof SessionTranscriptWorkerValues>> => {
@@ -111,17 +155,15 @@ serveWorkerTasks(
         return { ok: true, value: readSessionBranchSummariesInWorker(request.request) };
       }
       if (request.kind === "session-row-presence") {
-        if (!historyDatabaseScope) {
-          const { OpenClawAgentDatabaseReadOnlyScope } =
-            await import("../../state/openclaw-agent-db-readonly-scope.js");
-          historyDatabaseScope = new OpenClawAgentDatabaseReadOnlyScope();
-        }
         const { loadSessionEntryReadOnlyInScope } =
           await import("./session-accessor.sqlite-entry.js");
-        return historyDatabaseScope.run(request.database, () => ({
+        return {
           ok: true,
-          value: loadSessionEntryReadOnlyInScope(request.scope) !== undefined,
-        }));
+          ...(await withHistoryDatabase(
+            request.database,
+            () => loadSessionEntryReadOnlyInScope(request.scope) !== undefined,
+          )),
+        };
       }
       return await runWithSessionTranscriptReadFence(
         request.admission,
@@ -139,43 +181,41 @@ serveWorkerTasks(
             };
           }
           if (request.kind === "history-page") {
-            if (!historyDatabaseScope) {
-              const { OpenClawAgentDatabaseReadOnlyScope } =
-                await import("../../state/openclaw-agent-db-readonly-scope.js");
-              historyDatabaseScope = new OpenClawAgentDatabaseReadOnlyScope();
-            }
-            return historyDatabaseScope.run(request.database, async () => {
-              const { createReadonlySessionHistoryReader } =
-                await import("../../gateway/session-history-readonly-reader.js");
-              const options = {
-                readers: createReadonlySessionHistoryReader({
-                  ...request.target,
-                  database: request.database,
-                }),
-                readOnly: true,
-                deferProfileDisplay: true,
-              };
-              if (request.request.kind === "rpc") {
-                const { readChatHistoryPageKernel } =
-                  await import("../../gateway/server-methods/chat-history-page-kernel.js");
-                return {
-                  ok: true,
-                  value: {
-                    kind: "rpc",
-                    page: await readChatHistoryPageKernel(request.request.params, options),
-                  },
-                };
-              }
-              const { readSessionHistorySnapshotKernel } =
-                await import("../../gateway/session-history-snapshot.js");
-              return {
-                ok: true,
-                value: {
-                  kind: "http",
-                  snapshot: await readSessionHistorySnapshotKernel(request.request.params, options),
+            return {
+              ok: true,
+              ...(await withHistoryDatabase<SessionHistoryWorkerResult>(
+                request.database,
+                async () => {
+                  const { createReadonlySessionHistoryReader } =
+                    await import("../../gateway/session-history-readonly-reader.js");
+                  const options = {
+                    readers: createReadonlySessionHistoryReader({
+                      ...request.target,
+                      database: request.database,
+                    }),
+                    readOnly: true,
+                    deferProfileDisplay: true,
+                  };
+                  if (request.request.kind === "rpc") {
+                    const { readChatHistoryPageKernel } =
+                      await import("../../gateway/server-methods/chat-history-page-kernel.js");
+                    return {
+                      kind: "rpc",
+                      page: await readChatHistoryPageKernel(request.request.params, options),
+                    };
+                  }
+                  const { readSessionHistorySnapshotKernel } =
+                    await import("../../gateway/session-history-snapshot.js");
+                  return {
+                    kind: "http",
+                    snapshot: await readSessionHistorySnapshotKernel(
+                      request.request.params,
+                      options,
+                    ),
+                  };
                 },
-              };
-            });
+              )),
+            };
           }
           const { buildSessionEntryInProcess, readSessionEntryResetRecallCutoff } =
             await import("../../../packages/memory-host-sdk/src/host/session-files.js");

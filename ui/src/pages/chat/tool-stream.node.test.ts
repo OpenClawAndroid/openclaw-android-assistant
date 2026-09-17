@@ -710,7 +710,7 @@ describe("app-tool-stream result blocks", () => {
         }),
       );
 
-      expect(host.sessions.refreshReplacement).toHaveBeenCalledOnce();
+      expect(host.sessions.reconcileMutation).toHaveBeenCalledOnce();
       expect(host.sessions.state.modelOverrides).toEqual({});
     },
   );

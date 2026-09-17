@@ -3,6 +3,7 @@ import { deserialize, serialize } from "node:v8";
 import { parentPort, type MessagePort } from "node:worker_threads";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { routeLogsToStderr } from "../logging/console.js";
+import { drainProcessOutput } from "../process/output-drain.js";
 import { encodeOpenClawStateWorkerError } from "../state/openclaw-state-worker-error.js";
 import {
   SQLITE_WORKER_MAX_RESULT_BYTES,
@@ -393,6 +394,12 @@ async function receive(request: SqliteWorkerRequest): Promise<void> {
     lifecycle = undefined;
     operationAdmission?.port.close();
     operationAdmission = undefined;
+  }
+  if (request.type === "close" && reply.ok && actors.size === 0) {
+    // The broker can terminate this worker as soon as the final close is acknowledged.
+    await new Promise<void>((resolve) => {
+      drainProcessOutput(resolve);
+    });
   }
   port!.postMessage(reply, []);
 }

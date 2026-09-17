@@ -222,7 +222,8 @@ describe("bundled channel ingress runtime ownership", () => {
 
   it("defers and preserves the exact active runtime across an inactive prepared load", async () => {
     let channelReads = 0;
-    const channel = { inbound: { buildContext: buildChannelInboundEventContext } };
+    const inbound = { buildContext: buildChannelInboundEventContext, dispatch: vi.fn() };
+    const channel = { inbound, turn: inbound };
     const runtime = Object.defineProperty({} as PluginRuntime, "channel", {
       configurable: true,
       get: () => {
@@ -275,13 +276,15 @@ describe("bundled channel ingress runtime ownership", () => {
     const registeredRuntime = registryBuilder.registry.channels[0]?.resolveChannelRuntime?.();
     expect(registeredRuntime).toBeDefined();
     expect(channelReads).toBe(1);
+    expect(registeredRuntime!.turn).toBe(registeredRuntime!.inbound);
+    expect(registeredRuntime!.turn.dispatch).toBe(inbound.dispatch);
 
     const cleanup = configureChannelAdmissionEvidenceCollection(true);
     try {
       const ingress = await resolveIngress("person-a", { channelId: "deferred-channel" });
       expect(
         inspect(
-          registeredRuntime!.inbound.buildContext(
+          registeredRuntime!.turn.buildContext(
             contextParams({ ingress, channelId: "deferred-channel" }),
           ),
         ),

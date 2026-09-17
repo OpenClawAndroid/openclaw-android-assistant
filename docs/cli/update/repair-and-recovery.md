@@ -282,9 +282,19 @@ it does not approve future capability additions.
 
 ### Skipped legacy audit recovery
 
-Doctor can leave a legacy audit source in place when its raw archive has no
-checkpoint and begins with ambiguous whitespace, changed other than by append,
-or cannot obtain another durable raw-archive checkpoint. These conditions produce
+When a legacy audit raw archive changed other than by append, Doctor preserves it
+beside itself with a `.quarantined-<date>-<id>` suffix. The warning names the
+quarantined path and explains the expected append-only growth and observed change.
+An empty raw archive without a checkpoint is also quarantined when its sanitized
+companion still contains history. Doctor keeps the sanitized records and existing
+SQLite rows, continues later repairs, and does not repeat the warning on subsequent
+runs. Quarantine does not import the changed bytes or delete the archive or backups.
+Quarantined raw archives remain local and are excluded from portable backups;
+sanitized companions and retained SQLite audit history are backed up normally.
+
+Doctor can leave other legacy audit sources in place when a raw archive has no
+checkpoint and begins with ambiguous whitespace, or cannot obtain another durable
+raw-archive checkpoint. These conditions produce
 a `skipped` migration receipt with a warning. Other repairs continue, and update
 finalization can complete with warnings. An unsafe recovery failure, such as an
 interrupted archive that cannot be restored, still stops Doctor.
@@ -296,8 +306,8 @@ before attempting recovery, and include the warning and archive filenames when
 requesting help. Do not delete or rewrite archives or checkpoints to suppress
 the warning.
 
-The warning repeats on later Doctor or `openclaw update repair` runs until the
-archive is resolved. Successful finalization does not mean this historical audit
+Warnings for sources left in place repeat on later Doctor or `openclaw update repair`
+runs until the archive is resolved. Successful finalization does not mean this historical audit
 data was imported. There is currently no supported sanitized-only import when
 the raw archive is unusable: accepting the companion as a recovery source needs
 an explicit reconciliation procedure that preserves duplicate events, retained

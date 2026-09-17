@@ -1,13 +1,7 @@
 import type { ProjectsAddResult } from "../../../../packages/gateway-protocol/src/index.js";
-import {
-  autoPromptNotificationsOnSend,
-  hasActiveNotificationPromptGesture,
-  shouldAutoPromptNotificationsOnSend,
-} from "../../app/notifications-auto-prompt.ts";
 import { t } from "../../i18n/index.ts";
 import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
 import type { ChatAttachment, HumanMention } from "../../lib/chat/chat-types.ts";
-import { parseSlashCommand } from "../../lib/chat/commands.ts";
 import { resolveCurrentUserIdentity } from "../../lib/chat/current-user-identity.ts";
 import { trimHumanMentions, updateHumanMentions } from "../../lib/chat/human-mentions.ts";
 import {
@@ -20,9 +14,12 @@ import type { SessionPlacementRecovery } from "../../lib/sessions/session-placem
 import { deleteSessionPlacementDraft } from "../../lib/sessions/session-placement-startup.ts";
 import { buildChatApiAttachments } from "../chat/attachment-api.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "../chat/composer-persistence.ts";
-import { buildInitialChatSubmission, buildLocalUserMessage } from "../chat/user-message-content.ts";
+import { buildLocalUserMessage } from "../chat/user-message-content.ts";
 import { NewSessionAttachmentDraft } from "./attachment-draft.ts";
-import { prepareBackgroundSessionCompletion } from "./background-session-notice.ts";
+import {
+  prepareBackgroundSessionCompletion,
+  promptNewSessionNotifications,
+} from "./background-session-notice.ts";
 import { NewSessionCapabilityController } from "./capability-controller.ts";
 import * as catalog from "./catalog-target.ts";
 import { NewSessionComposerTextareaController } from "./composer-controller.ts";
@@ -40,8 +37,12 @@ import type {
   DraftSubmissionCallbacks,
   DraftSubmissionSnapshot,
 } from "./draft-submission-contract.ts";
+import { completeInitialSessionTurn } from "./initial-session-turn-handoff.ts";
+import {
+  type InstantThreadHandoff,
+  prepareInstantThreadHandoff,
+} from "./instant-thread-handoff.ts";
 import { NewSessionPermissionSelection } from "./permission-selection.ts";
-import { retainRejectedInitialTurn } from "./rejected-initial-turn.ts";
 import {
   PendingSessionPlacementRecoveryState,
   type SubmissionOutcomeReason,
@@ -423,6 +424,7 @@ export class DraftSubmissionFlow {
     this.place.browser.close();
     this.callbacks.closeTransientUi();
     this.callbacks.requestUpdate();
+    let instant: InstantThreadHandoff | undefined;
     try {
       const started = this.startedSession.current;
       if (started && this.startedSession.isCurrent(context, this.place.agentId)) {
@@ -431,18 +433,12 @@ export class DraftSubmissionFlow {
       }
       this.startedSession.current = null;
       const placementTarget = startup ? null : this.placement().target;
-      // Creation and placement can await; permission must keep the original input event.
-      if (
-        shouldAutoPromptNotificationsOnSend({
-          connected: context.gateway.snapshot.phase === "connected",
-          directComposerSend: !startup && !pendingPlacement && hasActiveNotificationPromptGesture(),
-          message,
-          hasAttachments: Boolean(apiAttachments?.length),
-          isCommand: parseSlashCommand(message) !== null,
-        })
-      ) {
-        autoPromptNotificationsOnSend(context);
-      }
+      promptNewSessionNotifications(
+        context,
+        message,
+        Boolean(apiAttachments?.length),
+        !startup && !pendingPlacement,
+      );
       const remoteProject =
         !startup && !pendingPlacement && !placementTarget && !message && !apiAttachments?.length
           ? this.place.browser.remoteProject
@@ -471,6 +467,15 @@ export class DraftSubmissionFlow {
               : this.visibilityValue,
           attachments: draftAttachments,
         });
+      const beginInstant = prepareInstantThreadHandoff({
+        context,
+        params: createParams,
+        resumed: Boolean(startup),
+        enabled: !background && !placementTarget,
+        agentId: submissionAgentId,
+        retainDraft: this.callbacks.retainForHandoff,
+        message: this.pendingMessage,
+      });
       const placementCreateParams = placementTarget
         ? pendingPlacement
           ? this.pendingPlacement.createParams
@@ -513,13 +518,18 @@ export class DraftSubmissionFlow {
         this.gateway.client === submissionClient &&
         this.gateway.gatewayUrl === submissionGatewayUrl &&
         this.gateway.recoveryScope === submissionRecoveryScope;
-      const result =
+      const createRequest =
         pendingPlacement && this.pendingPlacement.phase !== "creating"
-          ? { key: this.pendingPlacement.sessionKey, initialRun: { status: "idle" as const } }
-          : await context.sessions.createResult(
+          ? Promise.resolve({
+              key: this.pendingPlacement.sessionKey,
+              initialRun: { status: "idle" as const },
+            })
+          : context.sessions.createResult(
               placementCreateParams ?? startup?.params ?? this.sessionStartup.start(createParams),
               { reconciliation: "background" },
             );
+      instant = beginInstant?.();
+      const result = await createRequest;
       if (requestId !== this.submitRequestToken && !placementTarget) {
         // Leaving the view cancels navigation, not a confirmed send. Retire only
         // the captured source draft; the current route may already hold new input.
@@ -534,6 +544,9 @@ export class DraftSubmissionFlow {
         }
         this.sessionStartup.clear();
         this.error = context.sessions.state.error ?? t("newSession.createFailed");
+        if (instant) {
+          await instant.rollback();
+        }
         return;
       }
       if (placementTarget && submissionPlacementRecovery) {
@@ -601,46 +614,32 @@ export class DraftSubmissionFlow {
         });
         return;
       }
-      const { key: sessionKey, initialRun } = result;
-      const handedOffAttachments =
-        initialRun.status === "rejected" &&
-        retainRejectedInitialTurn({
-          agentId: this.place.agentId,
-          attachments,
-          context,
-          error: initialRun.error,
-          message,
-          mentions,
-          sessionKey,
-        });
-      if (initialRun.status === "started") {
-        context.chatSubmissions.retain(
-          buildInitialChatSubmission(sessionKey, initialTurn, submissionClient, initialRun.runId),
-        );
-      }
-      await this.clearSubmittedDraft(!handedOffAttachments, submittedDraft);
-      if (requestId !== this.submitRequestToken) {
-        return;
-      }
-      if (
-        completeInBackground(
-          sessionKey,
-          initialRun.status === "started" ? initialRun.runId : undefined,
-        )
-      ) {
-        return;
-      }
-      await this.startedSession.navigate(context, {
+      await completeInitialSessionTurn({
+        context,
         client: submissionClient,
-        key: sessionKey,
         agentId: submissionAgentId,
+        result,
+        turn: initialTurn,
+        instant,
+        navigation: this.startedSession,
+        isCurrent: () => requestId === this.submitRequestToken,
+        clearDraft: (release, keepPending) =>
+          this.clearSubmittedDraft(release, submittedDraft, keepPending),
+        completeInBackground,
+        finishNavigation: () => this.sessionStartup.clear(),
       });
     } catch (error) {
       if (requestId === this.submitRequestToken && this.gateway.client === submissionClient) {
         this.sessionStartup.clear();
         this.error = error instanceof Error ? error.message : String(error);
+        if (instant) {
+          await instant.rollback();
+        }
       }
     } finally {
+      if (instant) {
+        await instant.finish();
+      }
       if (requestId === this.submitRequestToken) {
         this.activeSubmission = null;
         this.callbacks.requestUpdate();

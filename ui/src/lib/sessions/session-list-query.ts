@@ -7,6 +7,7 @@ import type {
   SessionListScope,
   SessionListSnapshot,
   SessionRefreshOptions,
+  SessionRefreshOutcome,
 } from "./session-capability.ts";
 import {
   normalizeAgentId,
@@ -76,10 +77,6 @@ export function sessionListEventMatcher(payload: unknown) {
     );
   };
 }
-
-export type SessionRefreshOutcome =
-  | { status: "refreshed" | "stale" }
-  | { status: "failed"; error: string };
 
 export type SessionRefreshAttempt = {
   options: SessionRefreshOptions;

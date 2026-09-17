@@ -13,7 +13,6 @@ import {
 } from "../infra/kysely-sync.js";
 import { openNodeSqliteDatabase, resolveImmutableSqliteFileUri } from "../infra/node-sqlite.js";
 import { hasNodeErrorCode } from "../infra/path-guards.js";
-import { assertSqliteIntegrityInWorker } from "../infra/sqlite-integrity-worker.js";
 import { assertSqliteIntegrity } from "../infra/sqlite-integrity.js";
 import {
   collectSqliteSchemaIssues,
@@ -41,13 +40,12 @@ import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
 import { assertOpenClawAgentDatabaseForMaintenance } from "./openclaw-agent-db-maintenance.js";
 import type { ExistingAgentSchemaMeta } from "./openclaw-agent-db-metadata.js";
 import { isPersistentOpenClawAgentDatabasePath } from "./openclaw-agent-db-registry.js";
-import {
-  assertCanonicalAgentPersistenceVersion,
-  readExistingAgentSchemaMeta,
-} from "./openclaw-agent-db-schema-helpers.js";
-import { inspectAgentDatabaseSchemaInWorker } from "./openclaw-agent-schema-inspection-worker.js";
+import { readExistingAgentSchemaMeta } from "./openclaw-agent-db-schema-helpers.js";
 import type { AgentSchemaInspection } from "./openclaw-agent-schema-inspection.js";
-import { preflightAgentDatabasesBounded } from "./openclaw-database-preflight-agent-scheduler.js";
+import {
+  preflightAgentDatabasesBounded,
+  type AgentDatabasePreflightStats,
+} from "./openclaw-database-preflight-agent-scheduler.js";
 import {
   describeDeferredStateSchemaPublication,
   formatIndeterminateDatabaseReadiness,
@@ -110,6 +108,7 @@ type AgentRegistryDatabase = Pick<OpenClawStateKyselyDatabase, "agent_databases"
 export async function assertOpenClawDatabasesReady(
   options: {
     env: NodeJS.ProcessEnv;
+    onAgentInspection?: (stats: AgentDatabasePreflightStats) => void;
   } & (
     | {
         operation: "doctor";
@@ -123,6 +122,7 @@ export async function assertOpenClawDatabasesReady(
 ): Promise<void> {
   const schemas = await preflightOpenClawDatabaseSchemas({
     env: options.env,
+    onAgentInspection: options.onAgentInspection,
     verifyCurrentSchemaShape: true,
     ...(options.config
       ? {
@@ -343,6 +343,7 @@ export async function preflightOpenClawStateDatabasePath(
 /** Read schema headers and optionally verify current schema shape without repairing it. */
 export async function preflightOpenClawDatabaseSchemas(options: {
   env: NodeJS.ProcessEnv;
+  onAgentInspection?: (stats: AgentDatabasePreflightStats) => void;
   scope?: "state";
   signal?: AbortSignal;
   /** Omit for current-runtime checks; updates pass their complete target pair. */
@@ -557,9 +558,12 @@ export async function preflightOpenClawDatabaseSchemas(options: {
       path: candidatePath,
     })),
   ];
-  await preflightAgentDatabasesBounded(
+  const admittedAgentIds = options.agentAdmissionConfig
+    ? new Set(listAgentIds(options.agentAdmissionConfig))
+    : undefined;
+  const stats = await preflightAgentDatabasesBounded(
     inspectionTargets,
-    async (row, inspection, claimAgentTarget) => {
+    async (row, inspection, claimAgentTarget, inspectSchema) => {
       const agentPath = row.path;
       const presence = inspectCandidatePresence(agentPath);
       if (presence.status === "absent") {
@@ -582,9 +586,7 @@ export async function preflightOpenClawDatabaseSchemas(options: {
         let writerAppVersion: string | undefined;
         let agentSchemaMeta: ExistingAgentSchemaMeta | null | undefined;
         const inspectOwnership =
-          options.agentAdmissionConfig !== undefined &&
-          row.agentId !== undefined &&
-          listAgentIds(options.agentAdmissionConfig).includes(row.agentId);
+          row.agentId !== undefined && admittedAgentIds?.has(row.agentId) === true;
         if (!options.requireStartupMigrationReadiness && !options.verifyCurrentSchemaShape) {
           const header = await inspectSqliteSchemaHeader(realAgentPath, {
             signal: options.signal,
@@ -597,33 +599,41 @@ export async function preflightOpenClawDatabaseSchemas(options: {
           writerAppVersion = header.writerAppVersion;
           agentSchemaMeta = header.agentSchemaMeta;
         } else {
+          const schemaInput = {
+            pathname: realAgentPath,
+            agentId: row.agentId,
+            supportedVersion: supportedVersions.agent,
+            inspectOwnership,
+            verifyCurrentSchemaShape: options.verifyCurrentSchemaShape,
+            requireStartupMigrationReadiness: options.requireStartupMigrationReadiness,
+          };
           // Ownership, integrity, and shape share one fresh child read transaction.
           if (
             !hasStateDatabaseSourceExclusion(realAgentPath) &&
             !prepareStateDatabaseCanonicalMutation(realAgentPath)
           ) {
-            schemaInspection = await inspectAgentDatabaseSchemaInWorker(
-              {
-                pathname: realAgentPath,
-                agentId: row.agentId,
-                supportedVersion: supportedVersions.agent,
-                inspectOwnership,
-                verifyCurrentSchemaShape: options.verifyCurrentSchemaShape,
-                requireStartupMigrationReadiness: options.requireStartupMigrationReadiness,
-              },
-              options.signal,
-            );
+            schemaInspection = await inspectSchema(schemaInput, options.signal);
+          }
+          if (!schemaInspection) {
+            // Recovery and excluded sources retain the existing private snapshot owner.
+            agentSnapshot = await prepareSqliteReadOnlyLocation(realAgentPath, {
+              preserveSourceArtifacts: options.requireStartupMigrationReadiness,
+              signal: options.signal,
+            });
+            options.signal?.throwIfAborted();
+            if (options.requireStartupMigrationReadiness) {
+              schemaInspection = await inspectSchema(
+                schemaInput,
+                options.signal,
+                agentSnapshot.location,
+              );
+            }
           }
           if (schemaInspection) {
             agentVersion = schemaInspection.version;
             writerAppVersion = schemaInspection.writerAppVersion;
             agentSchemaMeta = schemaInspection.agentSchemaMeta;
-          } else {
-            // Recovery and excluded sources retain the existing private snapshot owner.
-            agentSnapshot = await prepareSqliteReadOnlyLocation(realAgentPath, {
-              signal: options.signal,
-            });
-            options.signal?.throwIfAborted();
+          } else if (agentSnapshot) {
             agentDatabase = openNodeSqliteDatabase(agentSnapshot.location, { readOnly: true });
             agentDatabase.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
             agentVersion = readSqliteUserVersion(agentDatabase);
@@ -631,6 +641,8 @@ export async function preflightOpenClawDatabaseSchemas(options: {
             if (inspectOwnership && agentVersion <= supportedVersions.agent) {
               agentSchemaMeta = readExistingAgentSchemaMeta(agentDatabase);
             }
+          } else {
+            throw new Error(`Agent database inspection returned no result: ${agentPath}`);
           }
         }
         if (agentVersion <= supportedVersions.agent && inspectOwnership && row.agentId) {
@@ -669,27 +681,8 @@ export async function preflightOpenClawDatabaseSchemas(options: {
             ...(writerAppVersion ? { writerAppVersion } : {}),
           });
         } else if (agentDatabase && agentSnapshot) {
-          if (options.requireStartupMigrationReadiness) {
-            // Keep the private snapshot alive until the full integrity child has closed.
-            await assertSqliteIntegrityInWorker(
-              agentSnapshot.location,
-              OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
-              options.signal ?? new AbortController().signal,
-              agentPath,
-            );
-            options.signal?.throwIfAborted();
-            assertCanonicalAgentPersistenceVersion(agentDatabase, agentPath, agentVersion);
-          }
-          const agentId =
-            row.agentId ??
-            (options.requireStartupMigrationReadiness
-              ? readExistingAgentSchemaMeta(agentDatabase)?.agentId
-              : undefined);
-          if (
-            options.verifyCurrentSchemaShape === true &&
-            agentId != null &&
-            (!options.requireStartupMigrationReadiness || agentVersion > 0)
-          ) {
+          const agentId = row.agentId;
+          if (options.verifyCurrentSchemaShape === true && agentId != null) {
             assertOpenClawAgentDatabaseForMaintenance(agentDatabase, {
               agentId,
               pathname: agentPath,
@@ -716,5 +709,6 @@ export async function preflightOpenClawDatabaseSchemas(options: {
     result,
     options.signal,
   );
+  options.onAgentInspection?.(stats);
   return result;
 }

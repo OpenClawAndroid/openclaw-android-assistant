@@ -176,6 +176,34 @@ describe("profile-bound appearance preferences", () => {
     ).toBe("synced");
   });
 
+  it("reuses profile preferences across repeated reads until a save invalidates them", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === "users.prefs.get"
+        ? { status: "ok" as const, entries: { "ui.theme": "knot" } }
+        : { status: "ok" as const },
+    );
+    const writer = createServerPrefsWriter(request, scope, true, { ok: true }, false);
+    const options = {
+      client: writer.state.client!,
+      profileId,
+      scope,
+      configObject: configWithPrefs({}),
+      onApplied: vi.fn(),
+    };
+    await refreshProfileAppearancePrefs(options);
+    await refreshProfileAppearancePrefs(options);
+    expect(request.mock.calls.filter(([method]) => method === "users.prefs.get")).toHaveLength(1);
+    const committed = vi.fn();
+    pushServerUiPrefs(
+      writer,
+      { theme: "dash" },
+      { profileId, canWrite: true, afterCommit: committed },
+    );
+    await waitForFast(() => expect(committed).toHaveBeenCalledOnce());
+    await refreshProfileAppearancePrefs(options);
+    expect(request.mock.calls.filter(([method]) => method === "users.prefs.get")).toHaveLength(2);
+  });
+
   it("writes profile-bound appearance without requiring config-admin access", async () => {
     const request = vi.fn(async () => ({ status: "ok" as const }));
     const writer = createServerPrefsWriter(request, scope, true, { ok: true }, false);

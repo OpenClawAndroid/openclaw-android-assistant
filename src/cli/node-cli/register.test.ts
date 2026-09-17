@@ -80,6 +80,18 @@ describe("registerNodeCli", () => {
     expect(action.mock.calls[0]?.[0]?.json).toBe(true);
   });
 
+  it.each(["/opt/Runtime Tools/node", "C:\\\\Runtime Tools\\\\node.exe"])(
+    "forwards an exact node runtime pin: %s",
+    async (pin) => {
+      await createProgram().parseAsync(["node", "install", "--runtime-path", pin, "--force"], {
+        from: "user",
+      });
+      expect(daemonMocks.runNodeDaemonInstall).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimePath: pin, force: true }),
+      );
+    },
+  );
+
   it("forwards node install options to the daemon adapter", async () => {
     const program = createProgram();
 

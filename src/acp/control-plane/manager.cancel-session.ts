@@ -1,10 +1,12 @@
 /** Cancellation path for active ACP turns and idle runtime handles. */
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { captureTaskCancellationControl } from "../../tasks/task-cancellation-context.js";
 import {
   AcpRuntimeError,
   toAcpRuntimeError,
   withAcpRuntimeErrorBoundary,
 } from "../runtime/errors.js";
+import { resolveAcpSessionControlOwner } from "../runtime/session-control-owner.js";
 import type { AcceptedTurnState, AcceptedTurns } from "./manager.accepted-turns.js";
 import type {
   ActiveTurnState,
@@ -31,6 +33,7 @@ export async function runManagerCancelSession(params: {
   ensureRuntimeHandle: EnsureManagerRuntimeHandle;
   setSessionState: SetManagerSessionState;
 }): Promise<void> {
+  const cancellationControl = captureTaskCancellationControl();
   const actorKey = acpSessionActorKey(params);
   const expectedRunId = params.expectedRunId?.trim();
   const expectedInstanceId = params.expectedInstanceId?.trim();
@@ -49,7 +52,7 @@ export async function runManagerCancelSession(params: {
     }
     const resolution = params.resolveSession(params);
     const entry = resolution.kind === "ready" ? resolution.entry : undefined;
-    const ownerKey = entry?.spawnedBy?.trim() || entry?.parentSessionKey?.trim();
+    const ownerKey = resolveAcpSessionControlOwner(entry);
     if (ownerKey !== expectedOwnerKey) {
       throw new AcpRuntimeError("ACP_TURN_FAILED", "ACP task owner could not be verified.");
     }
@@ -68,6 +71,7 @@ export async function runManagerCancelSession(params: {
           acceptedTurn,
           reason: params.reason,
           revalidate: requireExpectedOwner,
+          assertCancellationAllowed: cancellationControl?.assertCurrent,
         }),
       ),
     );
@@ -149,8 +153,11 @@ export async function cancelManagerAcceptedTurn(params: {
   acceptedTurn: AcceptedTurnState;
   reason?: string;
   revalidate?: () => void;
+  assertCancellationAllowed?: () => void;
 }): Promise<void> {
   params.revalidate?.();
+  // Caller authority admits the abort once; target checks retain cleanup custody.
+  params.assertCancellationAllowed?.();
   const turn = params.acceptedTurn;
   turn.cancelReason ??= params.reason;
   turn.revalidateCancel ??= params.revalidate;

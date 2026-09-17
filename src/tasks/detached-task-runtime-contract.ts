@@ -47,6 +47,7 @@ export type DetachedRunningTaskCreateParams = DetachedTaskCreateParams & {
 
 type DetachedTaskStartParams = {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   startedAt?: number;
@@ -57,6 +58,7 @@ type DetachedTaskStartParams = {
 
 type DetachedTaskProgressParams = {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   lastEventAt?: number;
@@ -66,6 +68,7 @@ type DetachedTaskProgressParams = {
 
 type DetachedTaskFinalizeCommonParams = {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   childSessionKey?: string | null;
@@ -96,7 +99,7 @@ export type DetachedTaskFinalizeParams = DetachedTaskFinalizeCommonParams & {
 
 export type DetachedTaskTerminalState = Omit<
   DetachedTaskFinalizeParams,
-  "runId" | "runtime" | "sessionKey"
+  "runId" | "taskId" | "runtime" | "sessionKey"
 >;
 
 type DetachedTaskDeliveryStatusParams = {
@@ -147,6 +150,11 @@ export type DetachedTaskFindResult =
 export type DetachedTaskLifecycleRuntime = {
   createQueuedTaskRun: (params: DetachedTaskCreateParams) => TaskRecord | null;
   createRunningTaskRun: (params: DetachedRunningTaskCreateParams) => TaskRecord | null;
+  /**
+   * When supplied, taskId narrows the run/runtime/session scope to that task
+   * and its authoritative managed projections. Omission keeps run-scoped updates.
+   * Start, progress, and terminal adapters must preserve this selector.
+   */
   startTaskRunByRunId: (params: DetachedTaskStartParams) => TaskRecord[];
   recordTaskRunProgressByRunId: (params: DetachedTaskProgressParams) => TaskRecord[];
   finalizeTaskRunByRunId?: (params: DetachedTaskFinalizeParams) => TaskRecord[];

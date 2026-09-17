@@ -102,71 +102,75 @@ describe("Codex supervision catalog", () => {
     expect(cloneSpy).toHaveBeenCalledTimes(4);
   });
 
-  it("serves an expired page while one background refresh updates the next poll", async () => {
-    let now = 1_000;
-    let runtimeConfig = {} as OpenClawConfig;
-    commandRpcMocks.codexControlRequest.mockResolvedValue({
-      data: [idleThread({ id: "thread-stale", source: "cli" })],
-    });
-    const control = createCodexSessionCatalogControl({
-      getPluginConfig: () => ({ supervision: { enabled: true } }),
-      getRuntimeConfig: () => runtimeConfig,
-      now: () => now,
-    });
-
-    await control.listPage({ limit: 25 });
-    await control.listPage({ limit: 25 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledOnce();
-
-    now += 31_999;
-    await control.listPage({ limit: 25 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledOnce();
-
-    now += 2;
-    let resolveRefresh!: (value: unknown) => void;
-    let refreshSettled = false;
-    const refresh = new Promise<unknown>((resolve) => {
-      resolveRefresh = resolve;
-    }).then((value) => {
-      refreshSettled = true;
-      return value;
-    });
-    let markRefreshStarted!: () => void;
-    const refreshStarted = new Promise<void>((resolve) => {
-      markRefreshStarted = resolve;
-    });
-    commandRpcMocks.codexControlRequest.mockImplementationOnce(() => {
-      markRefreshStarted();
-      return refresh;
-    });
-    const firstExpiredPoll = control.listPage({ limit: 25 });
-    const overlappingExpiredPoll = control.listPage({ limit: 25 });
-
-    await expect(Promise.all([firstExpiredPoll, overlappingExpiredPoll])).resolves.toEqual([
-      expect.objectContaining({
-        sessions: [expect.objectContaining({ threadId: "thread-stale" })],
-      }),
-      expect.objectContaining({
-        sessions: [expect.objectContaining({ threadId: "thread-stale" })],
-      }),
-    ]);
-    expect(refreshSettled).toBe(false);
-    // Stale delivery does not wait for the deferred RPC module to start its request.
-    await refreshStarted;
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(2);
-
-    resolveRefresh({ data: [idleThread({ id: "thread-refreshed", source: "cli" })] });
-    await vi.waitFor(async () => {
-      await expect(control.listPage({ limit: 25 })).resolves.toMatchObject({
-        sessions: [expect.objectContaining({ threadId: "thread-refreshed" })],
+  it.each([false, true])(
+    "refreshes expired pages without blocking delivery (head: %s)",
+    async (headWalk) => {
+      let now = 1_000;
+      let runtimeConfig = {} as OpenClawConfig;
+      commandRpcMocks.codexControlRequest.mockResolvedValue({
+        data: [idleThread({ id: "thread-stale", source: "cli" })],
       });
-    });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(2);
+      const control = createCodexSessionCatalogControl({
+        getPluginConfig: () => ({ supervision: { enabled: true } }),
+        getRuntimeConfig: () => runtimeConfig,
+        now: () => now,
+      });
 
-    runtimeConfig = { agents: {} } as OpenClawConfig;
-    await control.listPage({ limit: 25 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(3);
-  });
+      const list = () => control.listPage({ limit: 25 }, undefined, headWalk);
+      await list();
+      await list();
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledOnce();
+
+      now += 31_999;
+      await list();
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledOnce();
+
+      now += 2;
+      let resolveRefresh!: (value: unknown) => void;
+      let refreshSettled = false;
+      const refresh = new Promise<unknown>((resolve) => {
+        resolveRefresh = resolve;
+      }).then((value) => {
+        refreshSettled = true;
+        return value;
+      });
+      let markRefreshStarted!: () => void;
+      const refreshStarted = new Promise<void>((resolve) => {
+        markRefreshStarted = resolve;
+      });
+      commandRpcMocks.codexControlRequest.mockImplementationOnce(() => {
+        markRefreshStarted();
+        return refresh;
+      });
+      const firstExpiredPoll = list();
+      const overlappingExpiredPoll = list();
+
+      await expect(Promise.all([firstExpiredPoll, overlappingExpiredPoll])).resolves.toEqual([
+        expect.objectContaining({
+          sessions: [expect.objectContaining({ threadId: "thread-stale" })],
+        }),
+        expect.objectContaining({
+          sessions: [expect.objectContaining({ threadId: "thread-stale" })],
+        }),
+      ]);
+      expect(refreshSettled).toBe(false);
+      // Stale delivery does not wait for the deferred RPC module to start its request.
+      await refreshStarted;
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(2);
+
+      resolveRefresh({ data: [idleThread({ id: "thread-refreshed", source: "cli" })] });
+      await vi.waitFor(async () => {
+        await expect(list()).resolves.toMatchObject({
+          sessions: [expect.objectContaining({ threadId: "thread-refreshed" })],
+        });
+      });
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(2);
+
+      runtimeConfig = { agents: {} } as OpenClawConfig;
+      await list();
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it("serves the last real page after a refresh failure and retries the next poll", async () => {
     let now = 1_000;
@@ -348,22 +352,35 @@ describe("Codex supervision catalog", () => {
     },
   );
 
-  it("keeps only 32 settled pages per source and refreshes their recency on hits", async () => {
-    commandRpcMocks.codexControlRequest.mockResolvedValue({ data: [] });
-    const control = createCodexSessionCatalogControl({
-      getPluginConfig: () => ({ supervision: { enabled: true } }),
-      getRuntimeConfig: () => config,
-      now: () => 1_000,
-    });
-    await fillPageCache(control);
-    await control.listPage({ cursor: "pressure-0", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(32);
-    await control.listPage({ cursor: "newest", limit: 1 });
-    await control.listPage({ cursor: "pressure-0", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(33);
-    await control.listPage({ cursor: "pressure-1", limit: 1 });
-    expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(34);
-  });
+  it.each([false, true])(
+    "bounds settled pages and refreshes recency across queries (head: %s)",
+    async (headWalk) => {
+      commandRpcMocks.codexControlRequest.mockResolvedValue({ data: [] });
+      const control = createCodexSessionCatalogControl({
+        getPluginConfig: () => ({ supervision: { enabled: true } }),
+        getRuntimeConfig: () => config,
+        now: () => 1_000,
+      });
+      const queries = Array.from({ length: 32 }, (_, index) => ({
+        cursor: `pressure-${index}`,
+        limit: index + 1,
+        searchTerm: `title-${index}`,
+        cwd: `/workspace/project-${index}`,
+      }));
+      const list = (query: (typeof queries)[number]) =>
+        control.listPage(query, undefined, headWalk);
+      for (const query of queries) {
+        await list(query);
+      }
+      await list(queries[0]!);
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(32);
+      await list({ ...queries[0]!, cursor: "newest" });
+      await list(queries[0]!);
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(33);
+      await list(queries[1]!);
+      expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(34);
+    },
+  );
 
   it("keeps pending page settlement within its captured config", async () => {
     let runtimeConfig = {} as OpenClawConfig;

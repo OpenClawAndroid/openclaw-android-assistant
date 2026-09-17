@@ -66,7 +66,9 @@ export function canRebasePreparedAssistantInTransaction(
     return false;
   }
   const admitted = admittedUserId
-    ? readTranscriptIdentityInTransaction(database, sessionId, admittedUserId)
+    ? admittedUserId === preparedParentId
+      ? preparedParent
+      : readTranscriptIdentityInTransaction(database, sessionId, admittedUserId)
     : undefined;
   if (admittedUserId && !admitted) {
     return false;

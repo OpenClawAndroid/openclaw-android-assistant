@@ -57,7 +57,7 @@ describe("chat metadata store", () => {
   it.each([
     { sessionKey: "agent:main:locked" },
     { authProfileId: "personal:person-a:anthropic:one" },
-  ])("isolates selected metadata %j and releases its last subscriber", async (selection) => {
+  ])("isolates selected metadata %j and retires unmounted writers", async (selection) => {
     const client = clientWith(vi.fn().mockResolvedValue(metadata("neutral")));
     const scope = { agentId: "main", ...selection };
     const first = subscribeChatMetadata(client, scope, () => {});
@@ -71,7 +71,7 @@ describe("chat metadata store", () => {
     const lateStartup = beginChatMetadataPublication(client, scope);
     second();
     lateStartup.publish(metadata("late"));
-    expect(peekChatMetadata(client, scope)).toBeUndefined();
+    expect(peekChatMetadata(client, scope)).toEqual(metadata("locked"));
     expect(peekChatMetadata(client, { agentId: "main" })).toEqual(metadata("neutral"));
   });
 
@@ -322,6 +322,26 @@ describe("chat metadata store", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("bounds inactive session metadata without evicting a mounted conversation", async () => {
+    const request = vi.fn().mockResolvedValue(metadata("cached"));
+    const client = clientWith(request);
+    const mounted = { agentId: "main", sessionKey: "agent:main:mounted" };
+    const release = subscribeChatMetadata(client, mounted, () => {});
+    await loadChatMetadata(client, mounted);
+    for (let index = 0; index < 70; index++) {
+      await loadChatMetadata(client, { agentId: "main", sessionKey: `agent:main:${index}` });
+    }
+
+    expect(peekChatMetadata(client, mounted)).toEqual(metadata("cached"));
+    expect(
+      peekChatMetadata(client, { agentId: "main", sessionKey: "agent:main:0" }),
+    ).toBeUndefined();
+    const recent = { agentId: "main", sessionKey: "agent:main:69" };
+    await loadChatMetadata(client, recent);
+    expect(request).toHaveBeenCalledTimes(71);
+    release();
+  });
+
   it("drops every agent snapshot when the client store is invalidated", async () => {
     const main = metadata("main-model");
     const worker = metadata("worker-model");
@@ -429,7 +449,7 @@ describe("chat metadata store", () => {
       [{ type: "result", result: fresh }],
     ]);
     releaseRemount();
-    expect(peekChatMetadata(client, scope)).toBeUndefined();
+    expect(peekChatMetadata(client, scope)).toEqual(fresh);
   });
 
   it("keeps newer startup publication authoritative while active and queued reads settle", async () => {

@@ -59,7 +59,7 @@ const log = createSubsystemLogger("infra/sqlite-wal");
 
 // Gateway bootstrap loads the database owner before admitting turns. Long-lived
 // maintenance timers must not retain the context of a turn that opens a database.
-const runInSqliteMaintenanceContext = AsyncLocalStorage.snapshot();
+export const runInSqliteMaintenanceContext = AsyncLocalStorage.snapshot();
 
 type IntervalHandle = ReturnType<typeof setInterval> & {
   unref?: () => void;

@@ -6,7 +6,10 @@ import { normalizeAgentId, resolveAgentIdFromSessionKey } from "../../routing/se
 import { deliveryContextFromSession } from "../../utils/delivery-context.shared.js";
 import type { DeliveryContext } from "../../utils/delivery-context.types.js";
 import type { CronActiveJobMarker } from "../active-jobs.js";
-import type { CronRunReceiptHandle } from "../store/run-receipt-store.js";
+import type {
+  CronRunReceiptHandle,
+  CronRunReceiptSettlementDisposition,
+} from "../store/run-receipt-store.js";
 import type {
   CronAgentExecutionPhaseUpdate,
   CronAgentExecutionStarted,
@@ -19,7 +22,6 @@ import type {
   CronRunStatus,
   CronRunTelemetry,
 } from "../types.js";
-import type { CronRunReceiptSettlementDisposition } from "./run-receipts.js";
 import type { CronServiceState } from "./state.js";
 
 export const MAX_CRON_TIMER_DELAY_MS = 60_000;

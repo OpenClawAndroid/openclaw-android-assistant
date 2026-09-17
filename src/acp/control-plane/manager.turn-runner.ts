@@ -140,15 +140,16 @@ export async function runManagerTurn(params: {
     });
     if (taskContext) {
       const failureStatus = resolveBackgroundTaskFailureStatus(errorToRecord);
-      markBackgroundTaskTerminal(taskContext.runId, {
-        sessionKey,
-        status: failureStatus,
-        endedAt: Date.now(),
-        lastEventAt: Date.now(),
-        error: formatAcpErrorChain(errorToRecord),
-        progressSummary: taskProgressSummary || null,
-        terminalSummary: failureStatus === "timed_out" ? taskProgressSummary || null : null,
-      });
+      if (taskRecord) {
+        markBackgroundTaskTerminal(taskRecord, {
+          status: failureStatus,
+          endedAt: Date.now(),
+          lastEventAt: Date.now(),
+          error: formatAcpErrorChain(errorToRecord),
+          progressSummary: taskProgressSummary || null,
+          terminalSummary: failureStatus === "timed_out" ? taskProgressSummary || null : null,
+        });
+      }
       if (spawnedByWatcher) {
         recordSubagentTerminalState({
           childSessionKey: sessionKey,
@@ -325,9 +326,8 @@ export async function runManagerTurn(params: {
                   }
                 }
               }
-              if (taskContext) {
-                markBackgroundTaskRunning(taskContext.runId, {
-                  sessionKey,
+              if (taskRecord) {
+                markBackgroundTaskRunning(taskRecord, {
                   lastEventAt: Date.now(),
                   progressSummary: taskProgressSummary || null,
                 });
@@ -385,16 +385,17 @@ export async function runManagerTurn(params: {
                         "Required completion output exceeded the 100 KB verification limit; inspect the child session for the final deliverable.",
                     }
                   : resolveBackgroundTaskTerminalResult(completionEvidenceText);
-            markBackgroundTaskTerminal(taskContext.runId, {
-              sessionKey,
-              status: turnOutcome.terminalStatus === "cancelled" ? "cancelled" : "succeeded",
-              endedAt: Date.now(),
-              lastEventAt: Date.now(),
-              error: undefined,
-              progressSummary: taskProgressSummary || null,
-              terminalSummary: terminalResult.terminalSummary ?? null,
-              terminalOutcome: terminalResult.terminalOutcome,
-            });
+            if (taskRecord) {
+              markBackgroundTaskTerminal(taskRecord, {
+                status: turnOutcome.terminalStatus === "cancelled" ? "cancelled" : "succeeded",
+                endedAt: Date.now(),
+                lastEventAt: Date.now(),
+                error: undefined,
+                progressSummary: taskProgressSummary || null,
+                terminalSummary: terminalResult.terminalSummary ?? null,
+                terminalOutcome: terminalResult.terminalOutcome,
+              });
+            }
             if (spawnedByWatcher) {
               recordSubagentTerminalState({
                 childSessionKey: sessionKey,

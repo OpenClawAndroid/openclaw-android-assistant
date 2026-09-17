@@ -219,7 +219,7 @@ describe("verified package rollback", () => {
         env,
       });
       expect(renderUpdateRunReport(row, { nextAction }).markdown).toContain(
-        "The candidate installation was left unchanged.",
+        "The new installation was left unchanged.",
       );
     },
   );

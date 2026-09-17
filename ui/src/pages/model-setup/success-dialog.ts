@@ -7,7 +7,10 @@ import {
   renderProviderBrandIcon,
 } from "../../components/provider-icon.ts";
 import { t } from "../../i18n/index.ts";
+import { registerModelSetupEnglish } from "../../i18n/locales/en-model-setup.ts";
 import type { ModelSetupActivationState } from "./state.ts";
+
+registerModelSetupEnglish();
 
 export function renderModelSetupSuccessDialog(
   activation: Extract<ModelSetupActivationState, { phase: "success" }>,
@@ -17,19 +20,22 @@ export function renderModelSetupSuccessDialog(
 ) {
   const providerId = providerIdFromModelRef(activation.modelRef);
   const providerIconId = providerId && hasProviderBrandIcon(providerId) ? providerId : null;
+  const utility = activation.modelTarget === "utility";
+  const title = t(utility ? "modelSetup.utility.ready" : "modelSetup.success.title");
   const description =
-    activation.warning ?? t("modelSetup.success.body", { modelRef: activation.modelRef });
-  const actionLabel = firstRun
-    ? t("modelSetup.success.continueSetup")
-    : activation.warning
-      ? t("tabs.chat")
-      : t("modelSetup.success.openChat");
+    activation.warning ??
+    t(utility ? "modelSetup.utility.verified" : "modelSetup.success.body", {
+      modelRef: activation.modelRef,
+    });
+  const actionLabel = utility
+    ? t("modelSetup.utility.openAssistant")
+    : firstRun
+      ? t("modelSetup.success.continueSetup")
+      : activation.warning
+        ? t("tabs.chat")
+        : t("modelSetup.success.openChat");
   return html`
-    <openclaw-modal-dialog
-      label=${t("modelSetup.success.title")}
-      description=${description}
-      @modal-cancel=${onClose}
-    >
+    <openclaw-modal-dialog label=${title} description=${description} @modal-cancel=${onClose}>
       <section class="model-setup-success" role="status">
         <div
           class=${`model-setup-success__icon${providerIconId ? " model-setup-success__icon--provider" : ""}`}
@@ -47,7 +53,7 @@ export function renderModelSetupSuccessDialog(
           }
         </div>
         <div class="model-setup-success__copy">
-          <h2>${t("modelSetup.success.title")}</h2>
+          <h2>${title}</h2>
           ${activation.warning ? nothing : html`<p>${description}</p>`}
         </div>
         ${
@@ -56,7 +62,7 @@ export function renderModelSetupSuccessDialog(
             : nothing
         }
         <div class="model-setup-success__summary">
-          <span>${t("modelSetup.success.activeModel")}</span>
+          <span>${t(utility ? "modelSetup.utility.model" : "modelSetup.success.activeModel")}</span>
           <strong>${activation.modelRef}</strong>
           ${
             activation.latencyMs === undefined

@@ -311,6 +311,7 @@ export function hasSanitizedSendPayloadContent(params: Record<string, unknown>):
     mediaUrls,
     presentation: params.presentation,
     interactive: params.interactive,
+    location: params.location,
   });
 }
 

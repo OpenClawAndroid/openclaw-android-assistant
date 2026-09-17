@@ -1,5 +1,4 @@
 /* @vitest-environment jsdom */
-
 import type { RouteLocation, RouterState } from "@openclaw/uirouter";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
@@ -20,6 +19,7 @@ import { createStorageMock } from "../test-helpers/storage.ts";
 import { selectShellRouteState } from "./app-host-route-state.ts";
 import { resetAppHostTestGlobals } from "./app-host.test-support.ts";
 import { createChatAttachmentHandoff } from "./chat-attachment-handoff.ts";
+import { createChatSubmissions } from "./chat-submissions.ts";
 import type { ApplicationContext } from "./context.ts";
 import "./app-host.ts";
 
@@ -51,6 +51,7 @@ function createSessionRecoveryShell(params: {
     context: {
       basePath: "",
       chatAttachmentHandoff: createChatAttachmentHandoff(),
+      chatSubmissions: createChatSubmissions(),
       agents: {
         state: {
           agentsList: {
@@ -362,6 +363,7 @@ describe("OpenClaw shell deleted-session recovery", () => {
       context: {
         agents: { state: { agentsList: null } },
         chatAttachmentHandoff: createChatAttachmentHandoff(),
+        chatSubmissions: createChatSubmissions(),
         gateway: {
           snapshot: {
             assistantAgentId: "main",

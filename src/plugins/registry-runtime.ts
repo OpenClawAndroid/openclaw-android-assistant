@@ -134,9 +134,11 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
       // but only the exact live bundled owner may attach participant evidence.
       return buildHostContext(params as never);
     }) as unknown as PluginRuntime["channel"]["inbound"]["buildContext"];
+    const inbound = { ...channel.inbound, buildContext };
     const scoped = {
       ...channel,
-      inbound: { ...channel.inbound, buildContext },
+      inbound,
+      turn: inbound,
     } satisfies PluginRuntime["channel"];
     cache.set(record, scoped);
     return scoped;

@@ -1,5 +1,10 @@
 import crypto from "node:crypto";
-import { hasAuthoritativeTaskBacking } from "./task-backing-authority.js";
+import {
+  getManagedTaskBackingInstance,
+  hasAuthoritativeTaskBacking,
+  readTaskBackingInstance,
+} from "./task-backing-authority.js";
+import { readManagedTaskBacking, sameTaskBackingInstance } from "./task-backing-records.js";
 import {
   appendTaskEvent,
   assertTaskOwner,
@@ -174,6 +179,7 @@ export function createTaskRecord(params: CreateTaskRecordParams): TaskRecord | n
         runId: params.runId,
         label: params.label,
         task: params.task,
+        detail: params.detail,
       });
       if (existing) {
         return mergeExistingTaskForCreate(existing, { ...params, agentId });
@@ -209,6 +215,7 @@ export function createTaskRecord(params: CreateTaskRecordParams): TaskRecord | n
 
 export function updateTaskStateByRunId(params: {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   childSessionKey?: string | null;
@@ -233,8 +240,27 @@ export function updateTaskStateByRunId(params: {
       if (matches.length === 0) {
         return [];
       }
+      const selected =
+        params.taskId !== undefined
+          ? matches.find((task) => task.taskId === params.taskId?.trim())
+          : undefined;
+      if (params.taskId !== undefined && !selected) {
+        return [];
+      }
+      const selectedBacking = selected ? readTaskBackingInstance(selected.detail) : undefined;
       const updated: TaskRecord[] = [];
       for (const current of matches) {
+        if (selected && current.taskId !== selected.taskId) {
+          const managedBacking = getManagedTaskBackingInstance(current);
+          if (
+            !selectedBacking ||
+            !managedBacking ||
+            readManagedTaskBacking(current.detail)?.taskId !== selected.taskId ||
+            !sameTaskBackingInstance(managedBacking, selectedBacking)
+          ) {
+            continue;
+          }
+        }
         if (!hasAuthoritativeTaskBacking(current)) {
           continue;
         }
@@ -363,6 +389,7 @@ function updateTaskDeliveryByRunId(params: {
 
 export function markTaskRunningByRunId(params: {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   startedAt?: number;
@@ -372,6 +399,7 @@ export function markTaskRunningByRunId(params: {
 }) {
   return updateTaskStateByRunId({
     runId: params.runId,
+    taskId: params.taskId,
     runtime: params.runtime,
     sessionKey: params.sessionKey,
     status: "running",
@@ -384,6 +412,7 @@ export function markTaskRunningByRunId(params: {
 
 export function recordTaskProgressByRunId(params: {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   childSessionKey?: string | null;
@@ -393,6 +422,7 @@ export function recordTaskProgressByRunId(params: {
 }) {
   return updateTaskStateByRunId({
     runId: params.runId,
+    taskId: params.taskId,
     runtime: params.runtime,
     sessionKey: params.sessionKey,
     childSessionKey: params.childSessionKey,
@@ -404,6 +434,7 @@ export function recordTaskProgressByRunId(params: {
 
 export function finalizeTaskRecordByRunId(params: {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   childSessionKey?: string | null;
@@ -422,6 +453,7 @@ export function finalizeTaskRecordByRunId(params: {
 }) {
   return updateTaskStateByRunId({
     runId: params.runId,
+    taskId: params.taskId,
     runtime: params.runtime,
     sessionKey: params.sessionKey,
     childSessionKey: params.childSessionKey,

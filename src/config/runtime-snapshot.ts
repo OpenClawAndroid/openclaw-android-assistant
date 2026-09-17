@@ -2,6 +2,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { sha256Base64Url } from "../infra/crypto-digest.js";
 import { clearExecutablePathCache } from "../infra/executable-path.js";
+import { isDeeplyFrozenPlainData } from "../shared/immutable-data.js";
 import {
   resetPublishedConfigRuntimeEnv,
   type PreparedConfigRuntimeEnv,
@@ -11,6 +12,7 @@ import {
   getConfigResolutionFacts,
   serializeConfigResolutionFacts,
 } from "./resolution-facts.js";
+import { getRuntimeConfigCapture } from "./runtime-config-capture-state.js";
 import type { OpenClawConfig } from "./types.js";
 
 export type RuntimeConfigSnapshotRefreshOptions = {
@@ -176,8 +178,21 @@ function configSnapshotsMatch(left: OpenClawConfig, right: OpenClawConfig): bool
   }
 }
 
+// Diagnostic callers stop at their raw revision; this owner accepts config objects.
+// Only immutable identities share hashes across reads.
+const immutableConfigHashes = new WeakMap<OpenClawConfig, string>();
+
 export function hashRuntimeConfigValue(value: OpenClawConfig): string {
-  return sha256Base64Url(stableConfigStringify(value));
+  const immutable = isDeeplyFrozenPlainData(value);
+  const cached = immutable ? immutableConfigHashes.get(value) : undefined;
+  if (cached !== undefined) {
+    return cached;
+  }
+  const fingerprint = sha256Base64Url(stableConfigStringify(value));
+  if (immutable) {
+    immutableConfigHashes.set(value, fingerprint);
+  }
+  return fingerprint;
 }
 
 function createRuntimeConfigSnapshotMetadata(
@@ -424,8 +439,9 @@ export function selectApplicableRuntimeConfig(params: {
 
 /** Bind a retained consumer to its current runtime owner while preserving scoped configs. */
 export function createRuntimeConfigReader(inputConfig: OpenClawConfig): () => OpenClawConfig {
+  const origin = getRuntimeConfigCapture(inputConfig)?.origin ?? inputConfig;
   const followsRuntimeConfig =
-    runtimeConfigSnapshot === inputConfig ||
+    runtimeConfigSnapshot === origin ||
     (runtimeConfigSourceSnapshot !== null &&
       configSnapshotsMatch(inputConfig, runtimeConfigSourceSnapshot));
   return () => (followsRuntimeConfig ? runtimeConfigSnapshot : null) ?? inputConfig;

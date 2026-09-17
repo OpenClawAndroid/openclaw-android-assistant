@@ -5,6 +5,7 @@ import type { ModelsListResult } from "../../../packages/gateway-protocol/src/sc
 import type { AuthProfileStore } from "../../agents/auth-profiles/types.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { disconnectGatewayClient, startGatewayWithClient } from "../test-helpers.e2e.js";
+import { observeCatalogWorkerTasks } from "./models-auth-catalog.test-support.js";
 
 describe("models.authRefresh learned catalog", () => {
   it("models.authRefresh retains same-account rows while renewing and discovers a replacement account", async () => {
@@ -20,6 +21,7 @@ describe("models.authRefresh learned catalog", () => {
       },
     });
     const provider = "renewal-fixture";
+    const catalogWork = observeCatalogWorkerTasks();
     const requests: string[] = [];
     let holdDiscovery = false;
     const heldResponses: Array<() => void> = [];
@@ -147,7 +149,9 @@ describe("models.authRefresh learned catalog", () => {
         expect(
           requests.every((authorization) => authorization === "Bearer account-one-original"),
         ).toBe(true);
+        await expect.poll(() => catalogWork.read().pendingTasks).toBe(0);
         const initialRequests = requests.length;
+        const initialTasks = catalogWork.read().completedTasks;
         const renewalRequest = once(discovery, "request");
         const renewalStarted = Date.now();
         await saveAccount("account-one", "account-one-renewed");
@@ -162,7 +166,13 @@ describe("models.authRefresh learned catalog", () => {
         await renewalRequest;
         console.log("RENEWAL_REQUEST_MS", Date.now() - renewalStarted);
         expect(requests.slice(initialRequests)).toEqual(["Bearer account-one-renewed"]);
+        await expect.poll(() => catalogWork.read().pendingTasks).toBe(0);
+        expect(catalogWork.read()).toMatchObject({
+          workersCreated: 1,
+          completedTasks: initialTasks + 1,
+        });
         const renewedRequests = requests.length;
+        const renewedTasks = catalogWork.read().completedTasks;
         const replacementRequest = once(discovery, "request");
         await saveAccount("account-two", "account-two-original");
         await client.request("models.authRefresh", { agentId: "main", operation: "login" });
@@ -172,6 +182,12 @@ describe("models.authRefresh learned catalog", () => {
           .poll(async () => (await list()).map((model) => model.id))
           .toEqual(["account-two-learned"]);
         expect(requests.slice(renewedRequests)).toEqual(["Bearer account-two-original"]);
+        expect(catalogWork.read()).toMatchObject({
+          maxWorkers: 1,
+          workersCreated: 1,
+          pendingTasks: 0,
+          completedTasks: renewedTasks + 1,
+        });
 
         holdDiscovery = true;
         const heldRequest = once(discovery, "request");
@@ -196,6 +212,7 @@ describe("models.authRefresh learned catalog", () => {
         await server.close();
       }
     } finally {
+      catalogWork.close();
       try {
         await new Promise<void>((resolve, reject) => {
           discovery.close((error) => (error ? reject(error) : resolve()));

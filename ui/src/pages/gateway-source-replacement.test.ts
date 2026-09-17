@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred as deferred } from "../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../app/context.ts";
+import { createGatewayMetadataObserver } from "../app/gateway-observers.ts";
 import { clawhubVerdictKey } from "../lib/skills/index.ts";
 import { settleLitElement } from "../test-helpers/lit-settle.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
@@ -185,6 +186,12 @@ async function replaceContext(
   replacementClient: GatewayBrowserClient,
   options: { connected?: boolean; agentsList?: unknown; selectedAgentId?: string | null } = {},
 ): Promise<void> {
+  const previous = page.context.gateway.snapshot;
+  // End the old connection through its real metadata owner before replacing the test source.
+  createGatewayMetadataObserver(() => true).synchronize(previous, {
+    ...previous,
+    phase: "stopped",
+  });
   page.remove();
   page.context = contextWithClient(replacementClient, options);
   document.body.append(page);

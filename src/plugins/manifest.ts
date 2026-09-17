@@ -221,7 +221,7 @@ export function loadPluginManifest(
   }
 
   const requiresPlugins = normalizeTrimmedStringList(raw.requiresPlugins);
-  const enabledByDefaultOnPlatforms = setupNormalizers.normalizeManifestDefaultPlatforms(
+  const enabledByDefaultOnPlatforms = setupNormalizers.normalizeManifestPlatforms(
     raw.enabledByDefaultOnPlatforms,
   );
   const legacyPluginIds = normalizeTrimmedStringList(raw.legacyPluginIds);

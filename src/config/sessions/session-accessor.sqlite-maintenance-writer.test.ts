@@ -177,10 +177,11 @@ it.each(["session-key", "session-id"] as const)(
     const transcript = [{ type: "session", id: target.sessionId, content: "retained history" }];
     replaceTranscriptEventsSync(target, transcript);
     const before = readSessionStateDeleteSnapshot(database.db, target.sessionId);
-    const maintain = () =>
+    const maintain = (forceMaintenance = false) =>
       runOpenClawAgentWriteTransaction(
         (owner) =>
           applySessionEntryMaintenance(owner, {
+            forceMaintenance,
             archiveDirectory: path.join(path.dirname(database.path), "archives"),
             maintenanceConfig: resolveMaintenanceConfigFromInput(),
             storePath,
@@ -210,7 +211,7 @@ it.each(["session-key", "session-id"] as const)(
     });
 
     expect(isSessionLifecycleMutationActive(storePath, [identity])).toBe(false);
-    expect(maintain().archived).toBe(1);
+    expect(maintain(true).archived).toBe(1);
     expect(loadSessionEntry(target)).toMatchObject({
       archivedAt: expect.any(Number),
       archiveReason: "age-retention",

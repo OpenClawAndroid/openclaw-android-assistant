@@ -203,6 +203,7 @@ Notes:
 - Thread-scoped sessions use the triggering post id as the thread root.
 - `first` and `all` are equivalent because once Mattermost has a thread root, follow-up chunks and media continue in that same thread.
 - Per-chat-type overrides take precedence over `replyToMode`. Without a `direct` override, existing deployments keep flat, non-threaded DMs.
+- After a restart or session reset, thread-scoped conversations recover recent messages from Mattermost when their pending history is cold. This includes DMs with threading enabled; flat DMs are unchanged. Recovery respects sender access and context visibility, excludes the triggering message, and is bounded by `historyLimit`, a 200-post server window, and a five-second deadline. A temporary server failure does not block the new message indefinitely.
 
 ## Access control (DMs)
 

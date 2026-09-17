@@ -890,7 +890,7 @@ export async function startGatewaySidecars(params: {
               catalog,
               ref: hooksModelRef,
               defaultProvider: resolvedDefaultProvider,
-              defaultModel,
+              defaultModel: { provider: resolvedDefaultProvider, model: defaultModel },
             });
             if (!status.allowed) {
               params.logHooks.warn(

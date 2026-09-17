@@ -27,6 +27,7 @@ import {
   readExactSessionEntryRow,
   readSessionEntryRowScan,
 } from "./session-accessor.sqlite-entry-read.js";
+import { advanceSessionEntryMaintenanceAgeFact } from "./session-accessor.sqlite-maintenance-age.js";
 import {
   clearSessionCollaborationForKey,
   copySessionNodeArtifactsForRepair,
@@ -564,53 +565,51 @@ export function writeSessionEntry(
     previousEntry,
   });
   const sessionNode = bindSessionNode({ entry: normalizedEntry, sessionKey, updatedAt });
-  const writeGeneration = trackSessionEntryCacheWrite(
-    database,
-    () => {
-      executeSqliteQuerySync(
-        database.db,
-        db
-          .insertInto("session_nodes")
-          .values(sessionNode)
-          .onConflict((conflict) =>
-            conflict.column("session_key").doUpdateSet((eb) => ({
-              current_session_id: eb.ref("excluded.current_session_id"),
-              entry_json: eb.ref("excluded.entry_json"),
-              entry_valid: eb.ref("excluded.entry_valid"),
-              updated_at: eb.ref("excluded.updated_at"),
-              status: eb.ref("excluded.status"),
-              created_at: eb.ref("excluded.created_at"),
-              created_via: eb.ref("excluded.created_via"),
-              created_actor_type: eb.ref("excluded.created_actor_type"),
-              created_actor_id: eb.ref("excluded.created_actor_id"),
-              project_id: eb.ref("excluded.project_id"),
-              parent_session_key: eb.ref("excluded.parent_session_key"),
-              spawned_by: eb.ref("excluded.spawned_by"),
-              fork_source_session_key: eb.ref("excluded.fork_source_session_key"),
-              fork_source_session_id: eb.ref("excluded.fork_source_session_id"),
-              fork_source_entry_id: eb.ref("excluded.fork_source_entry_id"),
-              label: eb.ref("excluded.label"),
-              display_name: eb.ref("excluded.display_name"),
-              category: eb.ref("excluded.category"),
-              icon: eb.ref("excluded.icon"),
-              pinned_at: eb.ref("excluded.pinned_at"),
-              archived_at: eb.ref("excluded.archived_at"),
-              last_read_at: eb.ref("excluded.last_read_at"),
-              last_interaction_at: eb.ref("excluded.last_interaction_at"),
-              last_activity_at: eb.ref("excluded.last_activity_at"),
-            })),
-          ),
-      );
-      executeSqliteQuerySync(
-        database.db,
-        db
-          .updateTable("session_nodes")
-          .set({ entry_valid: 1 })
-          .where("session_key", "=", sessionKey),
-      );
-    },
-    { sessionKey, entry: normalizedEntry, previousEntry: canonicalPreviousEntry },
-  );
+  const writeGeneration = trackSessionEntryCacheWrite(database, () => {
+    executeSqliteQuerySync(
+      database.db,
+      db
+        .insertInto("session_nodes")
+        .values(sessionNode)
+        .onConflict((conflict) =>
+          conflict.column("session_key").doUpdateSet((eb) => ({
+            current_session_id: eb.ref("excluded.current_session_id"),
+            entry_json: eb.ref("excluded.entry_json"),
+            entry_valid: eb.ref("excluded.entry_valid"),
+            updated_at: eb.ref("excluded.updated_at"),
+            status: eb.ref("excluded.status"),
+            created_at: eb.ref("excluded.created_at"),
+            created_via: eb.ref("excluded.created_via"),
+            created_actor_type: eb.ref("excluded.created_actor_type"),
+            created_actor_id: eb.ref("excluded.created_actor_id"),
+            project_id: eb.ref("excluded.project_id"),
+            parent_session_key: eb.ref("excluded.parent_session_key"),
+            spawned_by: eb.ref("excluded.spawned_by"),
+            fork_source_session_key: eb.ref("excluded.fork_source_session_key"),
+            fork_source_session_id: eb.ref("excluded.fork_source_session_id"),
+            fork_source_entry_id: eb.ref("excluded.fork_source_entry_id"),
+            label: eb.ref("excluded.label"),
+            display_name: eb.ref("excluded.display_name"),
+            category: eb.ref("excluded.category"),
+            icon: eb.ref("excluded.icon"),
+            pinned_at: eb.ref("excluded.pinned_at"),
+            archived_at: eb.ref("excluded.archived_at"),
+            last_read_at: eb.ref("excluded.last_read_at"),
+            last_interaction_at: eb.ref("excluded.last_interaction_at"),
+            last_activity_at: eb.ref("excluded.last_activity_at"),
+          })),
+        ),
+    );
+    executeSqliteQuerySync(
+      database.db,
+      db.updateTable("session_nodes").set({ entry_valid: 1 }).where("session_key", "=", sessionKey),
+    );
+  });
+  advanceSessionEntryMaintenanceAgeFact(database.db, {
+    sessionKey,
+    entry: normalizedEntry,
+    previousEntry: canonicalPreviousEntry,
+  });
   if (
     canonicalPreviousEntry &&
     (canonicalPreviousEntry.sessionId !== normalizedEntry.sessionId ||

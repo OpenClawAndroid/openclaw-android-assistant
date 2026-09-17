@@ -6,6 +6,7 @@ import {
   runOpenClawAgentWriteTransaction,
   type OpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
+import { SESSION_ENTRY_MAINTENANCE_INTERVAL_MS } from "./session-accessor.sqlite-maintenance-age.js";
 import {
   applySessionEntryMaintenance,
   finalizeSessionEntryMaintenancePlansAfterWriterReleaseBestEffort,
@@ -36,8 +37,6 @@ type SessionEntryMaintenanceOwner = SessionEntryMaintenanceRequest & {
   unregisterClose?: () => void;
 };
 
-// Dynamic work protection can end without a session write or an age crossing.
-const SESSION_ENTRY_MAINTENANCE_INTERVAL_MS = 30 * 60 * 1_000;
 const maintenanceByStore = new Map<string, SessionEntryMaintenanceOwner>();
 
 /** Coalesce automatic logical maintenance outside ordinary entry-write latency. */
@@ -169,6 +168,7 @@ async function runPendingMaintenance(
           owner.running = true;
           void runPendingMaintenance(databasePath, owner);
         },
+        // Bound relative delays too: Node clamps overflowed timeouts to 1 ms.
         Math.max(
           1,
           Math.min(SESSION_ENTRY_MAINTENANCE_INTERVAL_MS, nextMaintenanceAt - Date.now()),

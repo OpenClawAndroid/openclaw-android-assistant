@@ -31,8 +31,10 @@ import { runAgentHarnessBeforeMessageWriteHook } from "../harness/hook-helpers.j
 import { prepareInternalSessionEffectsSession } from "../internal-session-effects.js";
 import { LiveSessionModelSwitchError } from "../live-model-switch.js";
 import { findModelInCatalog, prepareModelRunCapabilities } from "../model-catalog-lookup.js";
-import { resolveThinkingDefault } from "../model-selection.js";
-import { resolveConfiguredThinkingDefault } from "../model-thinking-default.js";
+import {
+  resolveConfiguredThinkingDefault,
+  resolveThinkingSelection,
+} from "../model-thinking-default.js";
 import { createModelVisibilityPolicy } from "../model-visibility-policy.js";
 import {
   isAgentRunRestartAbortReason,
@@ -42,7 +44,6 @@ import { resolveSessionRuntimeOverrideForProvider } from "../session-runtime-com
 import { measureAgentStartup } from "../startup-timing.js";
 import {
   normalizeThinkingCatalogProviders,
-  resolveCandidateThinkingLevel,
   resolveEffectiveAgentRuntime,
   needsThinkHydration,
 } from "../thinking-runtime.js";
@@ -426,7 +427,7 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
                 cfg,
                 catalog: runtimeCatalog,
                 defaultProvider,
-                defaultModel,
+                defaultModel: { provider: defaultProvider, model: defaultModel },
                 agentId: sessionAgentId,
                 allowManifestNormalization: true,
                 allowPluginNormalization: true,
@@ -434,28 +435,15 @@ export async function runEmbeddedAgentAttempt(params: RunEmbeddedAgentAttemptPar
               }).catalog;
             }
           }
-          const candidateRequestedThinkLevel =
-            candidateConfiguredThinkLevel ??
-            resolveThinkingDefault({
-              cfg,
-              agentId: sessionAgentId,
-              provider: providerOverride,
-              model: modelOverride,
-              catalog: candidateThinkingCatalog,
-              agentRuntime: candidateRuntime,
-            });
-          const candidateThinkLevel =
-            resolveCandidateThinkingLevel({
-              cfg,
-              provider: providerOverride,
-              modelId: modelOverride,
-              level: candidateRequestedThinkLevel,
-              catalog: candidateThinkingCatalog,
-              agentId: sessionAgentId,
-              sessionKey,
-              sessionEntry: attemptSessionEntry,
-              agentRuntime: candidateRuntime,
-            }) ?? candidateRequestedThinkLevel;
+          const { level: candidateThinkLevel } = resolveThinkingSelection({
+            cfg,
+            agentId: sessionAgentId,
+            provider: providerOverride,
+            model: modelOverride,
+            level: candidateConfiguredThinkLevel,
+            catalog: candidateThinkingCatalog,
+            agentRuntime: candidateRuntime,
+          });
           effectiveTurnThinkLevel = candidateThinkLevel;
           try {
             return await attemptExecutionRuntime.runAgentAttempt({

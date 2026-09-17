@@ -382,7 +382,7 @@ async function resolveApprovedModel(params: {
       cfg: lifecycleConfig,
       catalog,
       defaultProvider: defaultModel.provider,
-      defaultModel: `${defaultModel.provider}/${defaultModel.model}`,
+      defaultModel,
       agentId: target.agentId,
       manifestPlugins: manifestSnapshot,
       ...RUNTIME_MODEL_VISIBILITY_NORMALIZATION,

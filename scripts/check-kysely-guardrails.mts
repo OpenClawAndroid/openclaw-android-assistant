@@ -87,7 +87,6 @@ const rawSqliteAllowPathGroups = {
     "src/snapshot/git-backup-codec.ts",
     "src/snapshot/local-repository.ts",
   ],
-  "agent auth profile read-only bootstrap": ["src/agents/auth-profiles/sqlite.ts"],
   "read-only shared state database access": [
     "src/claws/package-resume.ts",
     "src/state/openclaw-agent-db-readonly.ts",

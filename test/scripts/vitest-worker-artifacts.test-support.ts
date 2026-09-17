@@ -265,16 +265,9 @@ export function workerBorrowingProbe(directory: string) {
 export function workerProbe(
   directory: string,
   holdSecond = false,
-  mode: "compiled" | "source" | "auto" = "compiled",
-  cacheProof: false | "single" | "projects" = false,
+  mode: "compiled" | "source" = "compiled",
 ) {
   const value = writeFixture(directory, "value.ts", 'export const value: string = "first";');
-  const configuredValue = writeFixture(
-    directory,
-    "configured-value.ts",
-    'export const value: string = "configured";',
-  );
-  const parent = path.join(root, "src/infra/sqlite-snapshot-source.ts");
   const test = writeFixture(
     directory,
     "child.test.ts",
@@ -340,7 +333,7 @@ export function workerProbe(
           const args = cp.execFile.mock.calls[0][1];
           // The executable identifies the generation; its descriptor may live in a shared chunk.
           const generation = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sqliteReadOnly).href;
-          const sourceMode = ${mode === "auto" ? "generation.endsWith('.ts')" : mode === "source"};
+          const sourceMode = ${mode === "source"};
           await expect(runSqliteTranscriptArchivePublishWorker([])).resolves.toEqual([]);
           const [archiveUrl] = Worker.mock.calls.at(-1);
           expect(archiveUrl.href.endsWith(sourceMode ? '.ts' : '.js')).toBe(true);
@@ -368,24 +361,15 @@ export function workerProbe(
     });
   `,
   );
-  const transformFiles = [value, configuredValue, parent].map((file) => file.replaceAll("\\", "/"));
   const shared = pathToFileURL(path.join(root, "test/vitest/vitest.shared.config.ts")).href;
-  const cacheDirectory = path.join(directory, "cache");
-  // Vitest keeps invocation metadata at the root cache even for inline projects.
-  // Share the fixture's transform directory so cleanup owns both.
-  const cacheConfig = cacheProof ? { fsModuleCache: true, fsModuleCachePath: cacheDirectory } : {};
   const config = writeFixture(
     directory,
     "vitest.config.mts",
     `
-    import fs from 'node:fs';
     import {sharedVitestConfig as shared} from ${JSON.stringify(shared)};
-    const probe = {name:'fixture:transform-counter', transform(code,id) {
-      if (${Boolean(cacheProof)} && ${JSON.stringify(transformFiles)}.includes(id)) fs.appendFileSync(${JSON.stringify(path.join(directory, "transforms.jsonl"))},JSON.stringify(id)+'\\n');
-    }};
-    const project = name => ({extends:false,plugins:[...shared.plugins,probe],resolve:{...shared.resolve,alias:[{find:'#fixture-value',replacement:${JSON.stringify(value)}},...shared.resolve.alias]},test:{name,include:[${JSON.stringify(convertPathToPattern(test))}],pool:'forks',maxWorkers:1,testTimeout:shared.test.testTimeout,...${JSON.stringify(cacheConfig)},provide:{launcherArgv:process.argv,configValue:'first',releaseFile:${holdSecond} && name==='second' ? ${JSON.stringify(path.join(directory, "release"))} : null}}});
-    export default async () => ({root:${JSON.stringify(root)},${cacheProof === "single" ? "...project('first')" : `plugins:shared.plugins,test:{${cacheProof ? `...${JSON.stringify(cacheConfig)},` : ""}projects:[project('first'),project('second')]}`}});
+    const project = name => ({extends:false,plugins:shared.plugins,resolve:{...shared.resolve,alias:[{find:'#fixture-value',replacement:${JSON.stringify(value)}},...shared.resolve.alias]},test:{name,include:[${JSON.stringify(convertPathToPattern(test))}],pool:'forks',maxWorkers:1,testTimeout:shared.test.testTimeout,provide:{launcherArgv:process.argv,configValue:'first',releaseFile:${holdSecond} && name==='second' ? ${JSON.stringify(path.join(directory, "release"))} : null}}});
+    export default async () => ({root:${JSON.stringify(root)},plugins:shared.plugins,test:{projects:[project('first'),project('second')]}});
   `,
   );
-  return { config, value, configuredValue, parent, cacheDirectory };
+  return { config };
 }

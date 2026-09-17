@@ -20,6 +20,10 @@ import { isRateLimitErrorMessage } from "./failover/classify.js";
 import { collectProviderApiKeys } from "./live-auth-keys.js";
 import { isModelNotFoundErrorMessage } from "./live-model-errors.js";
 import {
+  resolveLiveCompletionSessionId,
+  resolveLiveSystemPrompt,
+} from "./live-model-session-id.js";
+import {
   isLiveProfileKeyModeEnabled,
   isLiveTestEnabled,
   readLiveTestConfig,
@@ -1274,30 +1278,7 @@ function resolveTestReasoning(
   return "low";
 }
 
-function resolveLiveSystemPrompt(model: Model): string | undefined {
-  if (model.provider === "openai") {
-    return "You are a concise assistant. Follow the user's instruction exactly.";
-  }
-  return undefined;
-}
-
 describe("resolveLiveSystemPrompt", () => {
-  it("adds instructions for openai probes", () => {
-    expect(
-      resolveLiveSystemPrompt({
-        provider: "openai",
-      } as Model),
-    ).toContain("Follow the user's instruction exactly.");
-  });
-
-  it("keeps other providers unchanged", () => {
-    expect(
-      resolveLiveSystemPrompt({
-        provider: "ollama",
-      } as Model),
-    ).toBeUndefined();
-  });
-
   it("matches OpenAI Codex HTML interruption pages", () => {
     expect(
       isOpenAiCodexHtmlInterruption(
@@ -1338,6 +1319,7 @@ async function completeSimpleWithTimeout<TApi extends Api>(
       Promise.race([
         completeSimple(completionModel, context, {
           ...options,
+          sessionId: options?.sessionId ?? resolveLiveCompletionSessionId(model),
           signal: controller.signal,
         }),
         timeout,

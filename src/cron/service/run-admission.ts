@@ -1,4 +1,3 @@
-import { markCronJobActive } from "../active-jobs.js";
 import { resolveCronJobConfigRevision } from "../config-revision.js";
 import { createCronRunDiagnosticsFromError } from "../run-diagnostics.js";
 import {
@@ -23,6 +22,7 @@ import {
   claimServiceCronRunReceiptInDatabase,
   cronRunReceiptPersistHooks,
   cronRunReceiptSupersedeHooks,
+  markServiceCronJobActive,
   prepareServiceCronRunReceiptClaim,
 } from "./run-receipts.js";
 import { applyCronRuntimeRowsToState, commitCronRuntimeRows } from "./runtime-store.js";
@@ -32,10 +32,7 @@ import {
   createCronOwnerExecutionIdentityAdmission,
   tryCreateCronTaskRunHandle,
 } from "./task-runs.js";
-import {
-  runsDetachedFromMainSession,
-  type TimedCronRunOutcome,
-} from "./timer-execution-timeout.js";
+import type { TimedCronRunOutcome } from "./timer-execution-timeout.js";
 import { authorCronRunCompletion, executeJobCoreWithTimeout } from "./timer-job-runner.js";
 import { isRunnableJob } from "./timer-runnable.js";
 
@@ -630,30 +627,29 @@ export async function executeQueuedCronRun(params: {
         return undefined;
       }
       params.onActivated?.();
-      return {
-        job: activation.job,
+      const executionJob = structuredClone(activation.job);
+      executionJob.state.runningAtMs = activation.startedAt;
+      executionJob.state.lastError = undefined;
+      const taskRun = tryCreateCronTaskRunHandle({
+        state,
+        job: executionJob,
         startedAt: activation.startedAt,
         runReceipt: activation.runReceipt,
+      });
+      return {
+        executionJob,
+        taskRun,
+        startedAt: activation.startedAt,
+        runReceipt: activation.runReceipt,
+        // Publish the occurrence before releasing the mutation lock, including during setup.
+        activeJobMarker: markServiceCronJobActive(state, activation.job, activation.runReceipt),
       };
     });
     if (!started) {
       return undefined;
     }
-    const executionJob = structuredClone(started.job);
-    executionJob.state.runningAtMs = started.startedAt;
-    executionJob.state.lastError = undefined;
-    const taskRun = tryCreateCronTaskRunHandle({
-      state,
-      job: executionJob,
-      startedAt: started.startedAt,
-      runReceipt: started.runReceipt,
-    });
+    const { executionJob, taskRun, activeJobMarker } = started;
     const taskRunId = taskRun?.runId;
-    const activeJobMarker = markCronJobActive(executionJob.id, {
-      agentId: started.runReceipt.agentId,
-      declarationKey: executionJob.declarationKey,
-      preserveAcrossGenerationAdvance: !runsDetachedFromMainSession(executionJob),
-    });
     emit(state, {
       jobId: executionJob.id,
       action: "started",

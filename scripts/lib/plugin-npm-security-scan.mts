@@ -188,6 +188,13 @@ CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
   1,
 );
 
+// The native catalog fixture launches the pinned app-server with a temporary home,
+// child-only environment, and denied outbound proxies; it always joins the child.
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/session-catalog-native.test.ts",
+  1,
+);
+
 // Process-inspection fixtures added after 9.4 deliberately run bounded child commands.
 // Keep their exact reviewed counts out of the already-shipped inventories above.
 CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
@@ -206,6 +213,17 @@ CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
   "@openclaw/codex:dangerous-exec:src/app-server/test-support/transport-process-starvation.test-support.mjs",
   1,
 );
+// These packed test fixtures deliberately launch bounded child processes to
+// exercise the native session catalog, logbook CLI, and 1Password process
+// cleanup paths. Keep their exact counts reviewed without broadening runtime
+// source admission or any already-shipped release inventory.
+for (const [key, count] of [
+  ["@openclaw/codex:dangerous-exec:src/session-catalog-native.test.ts", 1],
+  ["@openclaw/logbook:dangerous-exec:src/analyze.test.ts", 1],
+  ["@openclaw/onepassword:dangerous-exec:src/secret-ref-resolver.test.ts", 4],
+] as const) {
+  CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(key, count);
+}
 
 const CURRENT_SECURITY_INVENTORY_POLICY: PluginSecurityInventoryPolicy = {
   layout: CURRENT_REVIEWED_RELEASE_LAYOUT,

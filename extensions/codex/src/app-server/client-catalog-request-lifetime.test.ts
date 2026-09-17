@@ -1,5 +1,6 @@
 import { getEventListeners } from "node:events";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
+import * as terminalText from "openclaw/plugin-sdk/text-chunking";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodexAppServerClient, isCodexAppServerIndeterminateTransportError } from "./client.js";
 import { createClientHarness } from "./test-support.js";
@@ -58,6 +59,7 @@ afterEach(() => {
 
 describe("Codex catalog request lifetime", () => {
   it("bounds catalog previews before delivery while preserving ordinary thread/list results", async () => {
+    const sanitize = vi.spyOn(terminalText, "sanitizeTerminalText");
     const harness = createHarness();
     const preview = "x".repeat(1024 * 1024);
     type PreviewPage = { data: Array<{ id: string; preview: string }> };
@@ -70,7 +72,10 @@ describe("Codex catalog request lifetime", () => {
       },
     );
     harness.send({ id: requestId(harness), result: { data: [{ id: "large-preview", preview }] } });
-    expect((await catalog).data[0]?.preview).toHaveLength(500);
+    expect((await catalog).data[0]?.preview).toBe("x".repeat(500));
+    expect(Math.max(0, ...sanitize.mock.calls.map(([text]) => text.length))).toBeLessThanOrEqual(
+      2_048,
+    );
 
     const ordinary = harness.client.request<PreviewPage>(
       "thread/list",
@@ -82,6 +87,119 @@ describe("Codex catalog request lifetime", () => {
       result: { data: [{ id: "large-preview", preview }] },
     });
     expect((await ordinary).data[0]?.preview).toBe(preview);
+  });
+
+  it.each([
+    {
+      name: "leading whitespace beyond the input prefix",
+      preview: " \t\n".repeat(4096) + "visible",
+      expected: "visible",
+    },
+    {
+      name: "whitespace before ANSI removal",
+      preview: "a \u001b[0m b",
+      expected: "a  b",
+    },
+    {
+      name: "space at the output boundary",
+      preview: "x".repeat(499) + " " + "y".repeat(4096),
+      expected: "x".repeat(499) + " ",
+    },
+    {
+      name: "trailing whitespace beyond the input prefix",
+      preview: "x".repeat(499) + " \n\t".repeat(4096),
+      expected: "x".repeat(499),
+    },
+    {
+      name: "surrogate pair across the output boundary",
+      preview: "x".repeat(499) + "😀" + "y".repeat(4096),
+      expected: "x".repeat(499),
+    },
+    {
+      name: "surrogate pair fitting the output boundary",
+      preview: "x".repeat(498) + "😀" + "y".repeat(4096),
+      expected: "x".repeat(498) + "😀",
+    },
+    {
+      name: "surrogate pair across the input prefix",
+      preview: "x".repeat(2047) + "😀tail",
+      expected: "x".repeat(500),
+    },
+    {
+      name: "surrogate lookahead after whitespace normalization",
+      preview: " ".repeat(1548) + "x".repeat(499) + "😀tail",
+      expected: "x".repeat(499),
+    },
+    {
+      name: "lone surrogate in a short preview",
+      preview: "\ud800 visible",
+      expected: "\ufffd visible",
+    },
+    {
+      name: "lone surrogate at the output boundary",
+      preview: "x".repeat(499) + "\ud800" + "y".repeat(4096),
+      expected: "x".repeat(499) + "\ufffd",
+    },
+    {
+      name: "C0 removal after whitespace normalization",
+      preview: "a\u0000b \u007f c".repeat(400),
+      expected: "ab  c".repeat(100),
+    },
+    {
+      name: "OSC terminator beyond the input prefix",
+      preview: "\u001b]0;" + "p".repeat(3000) + "\u0007visible",
+      expected: "visible",
+    },
+    {
+      name: "unterminated OSC payload",
+      preview: "\u001b]0;" + "p".repeat(3000),
+      expected: "]0;" + "p".repeat(497),
+    },
+    {
+      name: "C1 CSI crossing the input prefix",
+      preview: "\u009b" + "1;".repeat(1500) + "31mvisible",
+      expected: "visible",
+    },
+    {
+      name: "C1 OSC crossing the input prefix",
+      preview: "\u009d" + "p".repeat(3000) + "\u009cvisible",
+      expected: "visible",
+    },
+    {
+      name: "escape introducer at the input boundary",
+      preview: "x".repeat(2047) + "\u001b[31mTAIL",
+      expected: "x".repeat(500),
+    },
+    {
+      name: "controls only after the certified prefix",
+      preview: "x".repeat(2048) + "\u001b]0;" + "p".repeat(4096),
+      expected: "x".repeat(500),
+    },
+    {
+      name: "C1 next-line is not JavaScript whitespace",
+      preview: "a\u0085b" + "x".repeat(4096),
+      expected: "ab" + "x".repeat(498),
+    },
+    {
+      name: "Unicode whitespace",
+      preview: "\u00a0\ufeff\u2028Unicode\u00a0\u2029text" + "x".repeat(4096),
+      expected: "Unicode text" + "x".repeat(488),
+    },
+    {
+      name: "formatting characters are preserved",
+      preview: "\u200b\u202e" + "x".repeat(4096),
+      expected: "\u200b\u202e" + "x".repeat(498),
+    },
+  ])("preserves $name in catalog previews", async ({ preview, expected }) => {
+    const harness = createHarness();
+    const request = harness.client.request<{ data: Array<{ id: string; preview: string }> }>(
+      "thread/list",
+      { limit: 1 },
+      { timeoutMs: 1_000, catalogListKey: { scope: {}, key: "preview-formatting" } },
+    );
+    harness.send({ id: requestId(harness), result: { data: [{ id: "preview", preview }] } });
+    await expect(request).resolves.toEqual({ data: [{ id: "preview", preview: expected }] });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("keeps a retained read valid across a wall-clock jump", async () => {

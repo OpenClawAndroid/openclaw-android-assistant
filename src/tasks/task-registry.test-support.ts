@@ -1,5 +1,10 @@
+import { expectDefined } from "@openclaw/normalization-core";
 import { clearTaskRegistrySqliteForTests } from "../test-utils/task-registry-sqlite.js";
-import type { TaskRegistryControlRuntime } from "./task-registry-control.types.js";
+import type { DetachedTaskTerminalState } from "./detached-task-runtime-contract.js";
+import type {
+  SubagentAdminKillResult,
+  TaskRegistryControlRuntime,
+} from "./task-registry-control.types.js";
 import type { TaskRegistryDeliveryRuntime } from "./task-registry-runtime-loaders.js";
 import { createTaskRecord as createTaskRecordOrNull } from "./task-registry.js";
 import type { TaskEventRecord, TaskRecord } from "./task-registry.types.js";
@@ -36,6 +41,20 @@ export function createAcpTaskRecord(
     deliveryStatus: "pending",
     ...params,
   });
+}
+
+export function createTerminalSubagentKillResult(
+  task: TaskRecord,
+  terminalState: DetachedTaskTerminalState,
+): SubagentAdminKillResult {
+  return {
+    found: true,
+    killed: false,
+    runId: expectDefined(task.runId, "expected subagent run id"),
+    sessionKey: expectDefined(task.childSessionKey, "expected child session key"),
+    cascadeKilled: 0,
+    targetState: { state: "terminal", task: terminalState },
+  };
 }
 
 type TaskRegistryTestApi = {

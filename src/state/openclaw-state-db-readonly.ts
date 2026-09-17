@@ -42,6 +42,16 @@ const stateSnapshotReads = resolveGlobalSingleton(
     }>(),
 );
 
+/** Opaque identity for derived facts scoped to these owned private database bytes. */
+export function getActiveOpenClawStateDatabaseReadSnapshot(
+  options: OpenClawStateDatabaseOptions = {},
+): object | undefined {
+  const current = stateSnapshotReads.getStore();
+  return current?.active === true && current.path === resolveReadOnlyPath(options)
+    ? current
+    : undefined;
+}
+
 /** Resolve a composite read from one online snapshot without redirecting live writers. */
 export async function withOpenClawStateDatabaseReadSnapshot<T>(
   operation: () => Promise<T>,

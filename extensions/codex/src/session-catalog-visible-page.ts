@@ -46,12 +46,16 @@ export class CodexCatalogVisiblePage {
     }
     let rawPage: CodexSessionCatalogPage;
     try {
-      rawPage = await params.control.listPage({
-        limit: params.limit - this.sessions.length,
-        ...(this.cursor ? { cursor: this.cursor } : {}),
-        ...(params.searchTerm ? { searchTerm: params.searchTerm } : {}),
-        ...(params.cwd ? { cwd: params.cwd } : {}),
-      });
+      rawPage = await params.control.listPage(
+        {
+          limit: params.limit - this.sessions.length,
+          ...(this.cursor ? { cursor: this.cursor } : {}),
+          ...(params.searchTerm ? { searchTerm: params.searchTerm } : {}),
+          ...(params.cwd ? { cwd: params.cwd } : {}),
+        },
+        undefined,
+        !params.cursor,
+      );
     } finally {
       if (diagnostics && !diagnostics.closed) {
         diagnostics.fields.controlWaitSumMs =

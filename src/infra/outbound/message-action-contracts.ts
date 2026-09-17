@@ -12,8 +12,8 @@ import type {
   ChannelPlugin,
   ChannelThreadingToolContext,
 } from "../../channels/plugins/types.public.js";
-import type { InternalChannelThreadingToolContext } from "../../channels/threading-tool-context-internal.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import type { MessageActionAuthorization } from "../../gateway/message-action-turn-capability.js";
 import type { OutboundMediaAccess } from "../../media/load-options.js";
 import type { GatewayClientMode, GatewayClientName } from "../../utils/message-channel.js";
 import type { OutboundDeliveryResult } from "./deliver-types.js";
@@ -64,11 +64,7 @@ export type MessageActionInput = {
    * Authorization facts resolved from the host-issued current-turn capability.
    * Presence means ambient routing fields must not be used as identity.
    */
-  messageActionAuthorization?: {
-    requesterAccountId?: string;
-    requesterSenderId?: string;
-    toolContext?: InternalChannelThreadingToolContext;
-  };
+  messageActionAuthorization?: MessageActionAuthorization;
   sessionId?: string;
   /** @internal Admitted run correlation carried into owner-native delivery audit. */
   runId?: string;

@@ -7,6 +7,7 @@ import type {
   ModelsProbeResult,
 } from "../../api/types.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/context.ts";
+import { createGatewayMetadataObserver } from "../../app/gateway-observers.ts";
 import type { SelectPicker } from "../../components/select-picker.ts";
 import { invalidateChatMetadataStore } from "../../lib/chat/chat-metadata-cache.ts";
 import type {
@@ -230,6 +231,15 @@ export function createHarness(initialScopeId: string) {
     lastErrorCode: null,
   };
   const gatewaySource = createApplicationGateway(snapshot);
+  const metadata = createGatewayMetadataObserver(
+    (current) => current === gatewaySource.gateway.snapshot,
+  );
+  let previousSnapshot = { ...snapshot };
+  gatewaySource.gateway.subscribe((next) => {
+    const previous = previousSnapshot;
+    previousSnapshot = { ...next };
+    metadata.synchronize(previous, next);
+  });
   let selectionListener: (() => void) | undefined;
   const settingsAgentSelection = {
     intentRevision: 0,

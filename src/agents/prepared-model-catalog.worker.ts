@@ -39,10 +39,15 @@ import {
   fingerprintPreparedModelWorkerRequest,
   type PreparedModelCatalogWorkerInput,
   type PreparedModelCatalogWorkerData,
+  type PreparedModelCatalogWorkerTask,
   type PreparedModelWorkerRequest,
   type PreparedModelWorkerResult,
 } from "./prepared-model-catalog-worker.js";
 import { prepareOwnedPluginLoadContext } from "./prepared-model-runtime.plugin-context.js";
+import {
+  discardPreparedPluginGeneration,
+  retainPreparedPluginGeneration,
+} from "./prepared-model-runtime.plugin-lifetime.js";
 import { scopeSyntheticAuthProviderRefs } from "./prepared-model-runtime.synthetic-auth.js";
 import { loadAgentRuntimePluginRegistryHandle } from "./runtime-plugins.js";
 import { AuthStorage } from "./sessions/auth-storage.js";
@@ -411,18 +416,43 @@ function isWorkerRequest(value: unknown): value is PreparedModelWorkerRequest {
 }
 
 if (parentPort) {
-  const value = workerData as PreparedModelCatalogWorkerData;
+  const data = workerData as PreparedModelCatalogWorkerData;
   let preparedGeneration: ReturnType<typeof prepareWorkerGeneration> | undefined;
-  serveWorkerTasks((request) => {
-    if (!isWorkerRequest(request)) {
+  // Registrations and captured modules are inventory-owned. Agent/auth facts only live for
+  // their task; retaining one generation per registry prevents disposal between borrowers.
+  const retainedRegistries = new Set<
+    Awaited<ReturnType<typeof prepareWorkerGeneration>>["pluginGeneration"]["pluginRegistry"]
+  >();
+  serveWorkerTasks(async (input) => {
+    // SAFETY: The Gateway pool is the sole producer of this private task envelope.
+    const task = data.kind === "gateway" ? (input as PreparedModelCatalogWorkerTask) : undefined;
+    const value = task?.value ?? data;
+    const request = task?.request ?? input;
+    if (value.kind !== "catalog" || !isWorkerRequest(request)) {
       throw new Error("invalid prepared model catalog worker request");
     }
-    return withPluginSourceCaptureDirectory(value.sourceCaptureDirectory, () =>
-      runPreparedModelCatalogWorkerRequest(
-        value,
-        request,
-        () => (preparedGeneration ??= prepareWorkerGeneration(value)),
-      ),
-    );
+    return withPluginSourceCaptureDirectory(data.sourceCaptureDirectory, async () => {
+      let taskGeneration: Awaited<ReturnType<typeof prepareWorkerGeneration>> | undefined;
+      try {
+        return await runPreparedModelCatalogWorkerRequest(value, request, () => {
+          if (!task) {
+            return (preparedGeneration ??= prepareWorkerGeneration(value));
+          }
+          return prepareWorkerGeneration(value).then((prepared) => {
+            taskGeneration = prepared;
+            const registry = prepared.pluginGeneration.pluginRegistry;
+            if (!retainedRegistries.has(registry)) {
+              retainedRegistries.add(registry);
+              retainPreparedPluginGeneration(prepared.pluginGeneration);
+            }
+            return prepared;
+          });
+        });
+      } finally {
+        if (taskGeneration) {
+          await discardPreparedPluginGeneration(taskGeneration.pluginGeneration);
+        }
+      }
+    });
   });
 }

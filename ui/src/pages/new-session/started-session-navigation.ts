@@ -32,6 +32,7 @@ export class StartedSessionNavigation {
   async navigate(
     context: ApplicationContext,
     started: Omit<StartedSession, "hello">,
+    commitRoute?: () => boolean,
   ): Promise<void> {
     const current = { ...started, hello: context.gateway.snapshot.hello };
     this.current = current;
@@ -58,6 +59,11 @@ export class StartedSessionNavigation {
       navigate: () => {
         if (this.current !== current || !this.isCurrent(context, started.agentId)) {
           throw new DOMException("Session navigation interrupted", "AbortError");
+        }
+        // Release a transient start only at the synchronous committed-navigation
+        // boundary, after the create owner validates pending-route readiness.
+        if (commitRoute && !commitRoute()) {
+          throw new DOMException("Session navigation superseded", "AbortError");
         }
         // Carry the confirmed key through the same connection's short route;
         // neither the background roster nor another lookup needs to finish.

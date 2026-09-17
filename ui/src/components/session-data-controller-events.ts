@@ -15,18 +15,16 @@ import type {
   SidebarSessionStatusFilter,
 } from "./app-sidebar-session-types.ts";
 
-// Chat panes announce catalog adoptions before the next poll so rows bind immediately.
+// Chat panes announce catalog adoptions so rows bind immediately.
 export function subscribeSessionCatalogBrowserEvents(
   onContinued: EventListener,
   onPageActivation: EventListener,
 ): () => void {
   document.addEventListener(CATALOG_SESSION_CONTINUED_EVENT, onContinued);
   document.addEventListener("visibilitychange", onPageActivation);
-  globalThis.addEventListener("focus", onPageActivation);
   return () => {
     document.removeEventListener(CATALOG_SESSION_CONTINUED_EVENT, onContinued);
     document.removeEventListener("visibilitychange", onPageActivation);
-    globalThis.removeEventListener("focus", onPageActivation);
   };
 }
 
@@ -215,7 +213,7 @@ export function refreshSidebarSessionList(
 type SessionGatewayEventOwner = {
   presencePayload: PresencePayload | undefined;
   handleSessionCatalogHostEvent(payload: unknown): void;
-  handleSessionCatalogPresence(payload: unknown): void;
+  handleSessionCatalogChanged(payload: unknown): void;
   requestSessionDataUpdate(): void;
 };
 
@@ -228,11 +226,14 @@ export function subscribeSessionDataGatewayEvents(
       owner.handleSessionCatalogHostEvent(event.payload);
       return;
     }
+    if (event.event === "sessions.catalog.changed") {
+      owner.handleSessionCatalogChanged(event.payload);
+      return;
+    }
     if (event.event === "presence") {
       const presence = readPresenceEntries(event.payload);
       owner.presencePayload = presence ? { presence } : undefined;
       owner.requestSessionDataUpdate();
-      owner.handleSessionCatalogPresence(event.payload);
     }
   });
 }

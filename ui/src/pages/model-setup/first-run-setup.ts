@@ -71,6 +71,7 @@ type FirstRunOwner = {
 type FirstRunActivation = {
   owner: FirstRunOwner;
   modelRef: string | null;
+  modelTarget?: "utility";
   kind: string;
   deadlineMs: number;
   receipt: FirstRunActivationReceipt | null;
@@ -81,10 +82,11 @@ type FirstRunSetupHost = {
   context: () => ApplicationContext;
   routeData: () => ModelSetupRouteData | undefined;
   pageState: () => ModelSetupPageState;
+  activationState: () => ModelSetupActivationState;
   actionsDisabled: () => boolean;
   canUseSetup: (client: GatewayBrowserClient | null) => boolean;
   canVerify: (client: GatewayBrowserClient | null) => boolean;
-  verify: () => Promise<SetupOutcome<SystemAgentSetupVerifyResult>>;
+  verify: (modelTarget?: "utility") => Promise<SetupOutcome<SystemAgentSetupVerifyResult>>;
   setVerifyState: (state: ModelSetupVerifyState) => void;
   setActivationState: (state: ModelSetupActivationState) => void;
   setRefreshWarning: (warning: string | null) => void;
@@ -177,7 +179,7 @@ export class FirstRunSetup {
     if (this.host.routeData()?.firstRun) {
       const page = this.host.pageState();
       const retryingConfigured =
-        this.pending && page.phase === "ready" && page.result.configuredModel;
+        this.pending && page.phase === "ready" && this.configuredActivationModel(page.result);
       this.pending = null;
       clearFirstRunActivationReceipt();
       this.host.setRefreshWarning(null);
@@ -236,6 +238,7 @@ export class FirstRunSetup {
       this.pending = {
         owner: this.owner(routeData.firstRun),
         modelRef: restored.modelRef,
+        ...(restored.modelTarget ? { modelTarget: restored.modelTarget } : {}),
         kind: restored.kind,
         deadlineMs: restored.deadlineMs,
         receipt,
@@ -249,7 +252,7 @@ export class FirstRunSetup {
       this.started = true;
       return;
     }
-    const configured = pageState.result.setupComplete && pageState.result.configuredModel;
+    const configured = this.configuredActivationModel(pageState.result);
     if (this.pending && (!configured || !this.pending.modelRef)) {
       this.started = true;
       this.showUnresolved();
@@ -268,7 +271,11 @@ export class FirstRunSetup {
     void this.run(this.owner(routeData.firstRun), pageState.result);
   }
 
-  beginActivation(intent: { kind: string; modelRef?: string }): FirstRunActivation | null {
+  beginActivation(intent: {
+    kind: string;
+    modelRef?: string;
+    modelTarget?: "utility";
+  }): FirstRunActivation | null {
     const routeData = this.host.routeData();
     if (!routeData?.firstRun) {
       return null;
@@ -279,6 +286,7 @@ export class FirstRunSetup {
       owner,
       kind: intent.kind,
       modelRef: intent.modelRef ?? null,
+      ...(intent.modelTarget ? { modelTarget: intent.modelTarget } : {}),
       receipt,
       outcome: "pending",
       deadlineMs: receipt?.deadlineMs ?? firstRunActivationDeadline(intent.kind),
@@ -316,6 +324,8 @@ export class FirstRunSetup {
     // Capture the verified target before config refresh can replace the hello
     // and retire the Lit task that otherwise owns this response.
     activation.modelRef = modelRef;
+    activation.modelTarget =
+      result.status === "done" ? result.modelActivation?.modelTarget : undefined;
     activation.outcome = "verified";
     activation.receipt = persistFirstRunActivationReceipt(this.host.context(), activation);
   }
@@ -340,26 +350,39 @@ export class FirstRunSetup {
     return this.pending !== null;
   }
 
+  get canUseCurrentModel(): boolean {
+    const page = this.host.pageState();
+    return (
+      this.pending !== null &&
+      page.phase === "ready" &&
+      Boolean(this.configuredActivationModel(page.result))
+    );
+  }
+
   async useCurrentModel(): Promise<void> {
     const page = this.host.pageState();
     const pending = this.pending;
     if (
       !pending ||
       page.phase !== "ready" ||
-      !page.result.configuredModel ||
+      !this.configuredActivationModel(page.result) ||
       this.host.actionsDisabled()
     ) {
       return;
     }
     // The operator explicitly selects this exact model; do not turn a failed
     // or late verification into permission to adopt whichever model appears next.
-    const modelRef = page.result.configuredModel;
+    const modelRef = this.configuredActivationModel(page.result);
     const owner = this.owner(pending.owner.firstRun);
     const outcome = await this.verify();
     if (!this.owns(owner) || this.pending !== pending || !outcome || "error" in outcome) {
       return;
     }
-    if (outcome.value.ok && outcome.value.modelRef === modelRef) {
+    if (
+      outcome.value.ok &&
+      outcome.value.modelRef === modelRef &&
+      outcome.value.modelTarget === pending.modelTarget
+    ) {
       this.completeNavigation();
     } else if (outcome.value.ok) {
       this.showUnresolved();
@@ -411,7 +434,7 @@ export class FirstRunSetup {
     }
     const owner = this.owner(routeData.firstRun);
     const pending = this.pending;
-    const outcome = await this.host.verify();
+    const outcome = await this.host.verify(pending?.modelTarget);
     if (!this.owns(owner) || !outcome) {
       return undefined;
     }
@@ -427,9 +450,26 @@ export class FirstRunSetup {
     return outcome;
   }
 
-  continueSetup(): void {
+  continueSetup(modelTarget?: "utility"): void {
     if (!this.pending) {
-      this.host.context().navigate("chat");
+      const page = this.host.pageState();
+      const activation = this.host.activationState();
+      if (
+        modelTarget === "utility" ||
+        (activation.phase === "success" && activation.modelTarget === "utility") ||
+        (page.phase === "ready" && page.result.setupModel)
+      ) {
+        this.host
+          .context()
+          .navigate(
+            "custodian",
+            page.phase === "ready" && !page.result.configuredModel
+              ? { search: "?onboarding=1" }
+              : {},
+          );
+      } else {
+        this.host.context().navigate("chat");
+      }
     } else if (this.pending.outcome === "verified" && this.ownsActivation()) {
       this.completeNavigation();
     }
@@ -472,8 +512,9 @@ export class FirstRunSetup {
   }
 
   private async run(owner: FirstRunOwner, detection: SystemAgentSetupDetectResult): Promise<void> {
-    if (detection.setupComplete && detection.configuredModel) {
-      if (this.pending && detection.configuredModel !== this.pending.modelRef) {
+    const configured = this.configuredActivationModel(detection);
+    if (configured) {
+      if (this.pending && configured !== this.pending.modelRef) {
         this.showUnresolved();
         return;
       }
@@ -482,15 +523,22 @@ export class FirstRunSetup {
         return;
       }
       if (outcome.value.ok) {
-        this.finishVerified(outcome.value.modelRef);
+        this.finishVerified(outcome.value.modelRef, outcome.value.modelTarget);
       }
     }
   }
 
-  private finishVerified(modelRef: string): void {
+  private configuredActivationModel(detection: SystemAgentSetupDetectResult): string | undefined {
+    if (this.pending?.modelTarget !== "utility") {
+      return detection.setupComplete ? detection.configuredModel : undefined;
+    }
+    return detection.utilityModel ?? detection.setupModel;
+  }
+
+  private finishVerified(modelRef: string, modelTarget?: "utility"): void {
     if (!this.pending) {
       this.host.context().navigate("chat");
-    } else if (this.pending.modelRef === modelRef) {
+    } else if (this.pending.modelRef === modelRef && this.pending.modelTarget === modelTarget) {
       this.completeNavigation();
     } else {
       this.showUnresolved();

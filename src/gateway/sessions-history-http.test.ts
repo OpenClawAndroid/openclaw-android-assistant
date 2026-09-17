@@ -10,7 +10,11 @@ import { createDeferred } from "../../test/helpers/promise.js";
 import { makeAgentAssistantMessage } from "../agents/test-helpers/agent-message-fixtures.js";
 import { createZeroUsageFixture } from "../agents/test-helpers/usage-fixtures.js";
 import { HEARTBEAT_PROMPT } from "../auto-reply/heartbeat.js";
-import { replaceTranscriptEvents } from "../config/sessions/session-accessor.js";
+import {
+  replaceSessionEntry,
+  replaceTranscriptEvents,
+} from "../config/sessions/session-accessor.js";
+import * as sessionEntryRows from "../config/sessions/session-accessor.sqlite-status.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import {
   appendAssistantMessageToSessionTranscript,
@@ -25,8 +29,6 @@ import type { DB as OpenClawAgentKyselyDatabase } from "../state/openclaw-agent-
 import { runOpenClawAgentWriteTransaction } from "../state/openclaw-agent-db.js";
 import { ensureProfileForEmail, setAvatar, setDisplayName } from "../state/user-profiles.js";
 import { resolveCurrentUserProfileDisplay } from "./current-user-profile-display.js";
-import { SSE_CONTENT_TYPE } from "./http-common.js";
-import { hasExplicitAcceptableMediaRange } from "./http-media-range.js";
 import * as sessionHistoryState from "./session-history-state.js";
 import { SessionHistorySseState } from "./session-history-state.js";
 import { testState } from "./test-helpers.runtime-state.js";
@@ -473,130 +475,6 @@ async function openBoundedHistoryStreamWithSecondMessage(
   return stream;
 }
 
-describe("session history Accept parsing", () => {
-  test.each([
-    { accept: undefined, expected: false, name: "missing field" },
-    { accept: "", expected: false, name: "empty field" },
-    { accept: "application/json", expected: false, name: "JSON only" },
-    { accept: "text/event-stream", expected: true, name: "exact media type" },
-    { accept: "TEXT/EVENT-STREAM", expected: true, name: "case-insensitive media type" },
-    { accept: "  text/event-stream  ", expected: true, name: "optional whitespace" },
-    { accept: "text/event-stream;", expected: true, name: "omitted trailing parameter" },
-    {
-      accept: "text/event-stream; ; q=0.5;",
-      expected: true,
-      name: "omitted parameter slots",
-    },
-    {
-      accept: "text/event-stream; charset=utf-8",
-      expected: true,
-      name: "media parameter",
-    },
-    {
-      accept: 'text/event-stream; note="quoted,comma;semicolon\\\"quote"; q=0.5',
-      expected: false,
-      name: "quoted and escaped unmatched parameter delimiters",
-    },
-    {
-      accept: 'text/event-stream; profile="quoted,comma;semicolon\\\"quote"; q=0.5',
-      expected: true,
-      name: "quoted and escaped matching parameter delimiters",
-      representation: 'text/event-stream; profile="quoted,comma;semicolon\\\"quote"',
-    },
-    {
-      accept: 'text/event-stream; profile="https://example.test/profile"',
-      expected: false,
-      name: "case-sensitive parameter mismatch",
-      representation: 'text/event-stream; profile="https://example.test/Profile"',
-    },
-    {
-      accept: "text/event-stream; charset=UTF-8",
-      expected: true,
-      name: "case-insensitive charset parameter",
-    },
-    { accept: "text/event-stream;q=0.001", expected: true, name: "minimum positive qvalue" },
-    { accept: "text/event-stream;Q=1.000", expected: true, name: "maximum qvalue" },
-    {
-      accept: "application/json, text/event-stream;q=0.5",
-      expected: true,
-      name: "explicit media range in a list",
-    },
-    {
-      accept: "text/event-stream;q=0, text/event-stream;q=0.5",
-      expected: true,
-      name: "duplicate exact ranges with a positive quality",
-    },
-    {
-      accept: "text/event-stream;q=1, text/event-stream;charset=utf-8;q=0",
-      expected: false,
-      name: "more-specific matching parameter rejection",
-    },
-    {
-      accept: "text/event-stream;q=0, text/event-stream;charset=utf-8;q=0.5",
-      expected: true,
-      name: "more-specific matching parameter acceptance",
-    },
-    {
-      accept: "text/event-stream;q=0.5;charset=utf-8",
-      expected: true,
-      name: "matching media parameter after q",
-    },
-    {
-      accept: "text/event-stream;q=1;charset=utf-16",
-      expected: false,
-      name: "mismatched media parameter after q",
-    },
-    {
-      accept: "text/event-stream; charset=utf-16",
-      expected: false,
-      name: "mismatched representation parameter",
-    },
-    { accept: "text/event-streaming", expected: false, name: "lookalike subtype" },
-    { accept: "text/event-streamx", expected: false, name: "suffixed subtype" },
-    {
-      accept: 'application/json; note="text/event-stream"',
-      expected: false,
-      name: "quoted parameter decoy",
-    },
-    { accept: "text/*", expected: false, name: "type wildcard" },
-    { accept: "*/*", expected: false, name: "all wildcard" },
-    { accept: "text/event-stream;q=0", expected: false, name: "zero qvalue" },
-    { accept: "text/event-stream;q=0.000", expected: false, name: "zero decimal qvalue" },
-    {
-      accept: "text/event-stream;q=0, */*;q=1",
-      expected: false,
-      name: "explicit rejection overriding wildcard",
-    },
-    { accept: "text/event-stream;q=.5", expected: false, name: "missing leading zero" },
-    { accept: "text/event-stream;q =0.5", expected: false, name: "whitespace before equals" },
-    { accept: "text/event-stream;q= 0.5", expected: false, name: "whitespace after equals" },
-    {
-      accept: "text/event-stream;\u00a0q=0.5",
-      expected: false,
-      name: "non-HTTP parameter whitespace",
-    },
-    { accept: "text/event-stream;q=0.1234", expected: false, name: "too many q digits" },
-    { accept: "text/event-stream;q=1.001", expected: false, name: "qvalue above one" },
-    { accept: "text/event-stream;q=1e0", expected: false, name: "exponent qvalue" },
-    { accept: 'text/event-stream;q="0.5"', expected: false, name: "quoted qvalue" },
-    { accept: "text/event-stream;q=0.5;q=1", expected: false, name: "duplicate q parameter" },
-    {
-      accept: 'text/event-stream;q=0.5;legacy;note="quoted,comma;semicolon"',
-      expected: false,
-      name: "obsolete bare Accept extension after q",
-    },
-    {
-      accept: 'text/event-stream; note="unterminated',
-      expected: false,
-      name: "unterminated quoted parameter",
-    },
-  ])("returns $expected for $name", ({ accept, expected, representation }) => {
-    expect(hasExplicitAcceptableMediaRange(accept, representation ?? SSE_CONTENT_TYPE)).toBe(
-      expected,
-    );
-  });
-});
-
 describe("session history HTTP endpoints", () => {
   installGatewayTestHooks();
 
@@ -680,18 +558,37 @@ describe("session history HTTP endpoints", () => {
     });
   });
 
-  test("returns history for default and blank cursor queries", async () => {
-    await seedSession({ text: "hello from history" });
+  test("reads only the selected history entry for default and blank cursor queries", async () => {
+    const { storePath } = await seedSession({ text: "hello from history" });
+    const unrelatedPrompt = "Unrelated saved session prompt";
+    await replaceSessionEntry(
+      { agentId: AGENT_ID, sessionKey: "agent:main:unrelated", storePath },
+      {
+        sessionId: "sess-unrelated",
+        updatedAt: 1,
+        skillsSnapshot: { prompt: unrelatedPrompt, skills: [] },
+      },
+    );
     await withGatewayHarness(async (harness) => {
-      for (const query of ["", "?cursor=", "?cursor=%20"]) {
-        const context = `query ${JSON.stringify(query)}`;
-        const res = await fetchSessionHistory(harness.port, "agent:main:main", { query });
-        expect(res.status, context).toBe(200);
-        const body = (await res.json()) as SessionHistoryBody;
-        expect(body.sessionKey, context).toBe("agent:main:main");
-        expect(body.messages, context).toHaveLength(1);
-        expect(body.messages?.[0]?.content?.[0]?.text, context).toBe("hello from history");
-        expect(body.messages?.[0]?.["__openclaw"]?.seq, context).toBe(1);
+      const decode = vi.spyOn(sessionEntryRows, "parseSessionEntryJson");
+      try {
+        for (const query of ["", "?cursor=", "?cursor=%20"]) {
+          decode.mockClear();
+          const context = `query ${JSON.stringify(query)}`;
+          const res = await fetchSessionHistory(harness.port, "agent:main:main", { query });
+          expect(res.status, context).toBe(200);
+          const body = (await res.json()) as SessionHistoryBody;
+          expect(body.sessionKey, context).toBe("agent:main:main");
+          expect(body.messages, context).toHaveLength(1);
+          expect(body.messages?.[0]?.content?.[0]?.text, context).toBe("hello from history");
+          expect(body.messages?.[0]?.["__openclaw"]?.seq, context).toBe(1);
+          expect(
+            decode.mock.calls.some(([row]) => row.entry_json.includes(unrelatedPrompt)),
+            context,
+          ).toBe(false);
+        }
+      } finally {
+        decode.mockRestore();
       }
     });
   });
@@ -1056,17 +953,46 @@ describe("session history HTTP endpoints", () => {
     });
   });
 
-  test("returns 404 for unknown sessions", async () => {
-    await createSessionStoreFile();
-    await withGatewayHarness(async (harness) => {
-      const res = await fetchSessionHistory(harness.port, "agent:main:missing");
-      expect(res.status).toBe(404);
-      expectErrorResponse(await res.json(), {
-        type: "not_found",
-        message: "Session not found: agent:main:missing",
+  test.each([false, true])(
+    "returns 404 for unknown sessions (missing store: %s)",
+    async (missing) => {
+      const storePath = await createSessionStoreFile();
+      let sessionKey = "agent:main:missing";
+      let missingDatabasePath: string | undefined;
+      if (missing) {
+        const agentId = "new-history";
+        const storeTemplate = path.join(
+          path.dirname(storePath),
+          "agents",
+          "{agentId}",
+          "sessions",
+          "sessions.json",
+        );
+        testState.sessionConfig = { store: storeTemplate };
+        testState.agentsConfig = { list: [{ id: AGENT_ID, default: true }, { id: agentId }] };
+        await writeSessionStore({ entries: {}, storePath });
+        sessionKey = `agent:${agentId}:missing`;
+        missingDatabasePath = resolveSqliteTargetFromSessionStorePath(
+          storeTemplate.replace("{agentId}", agentId),
+          { agentId },
+        ).path;
+      }
+      await withGatewayHarness(async (harness) => {
+        if (missingDatabasePath) {
+          await expect(fs.stat(missingDatabasePath)).rejects.toMatchObject({ code: "ENOENT" });
+        }
+        const res = await fetchSessionHistory(harness.port, sessionKey);
+        expect(res.status).toBe(404);
+        expectErrorResponse(await res.json(), {
+          type: "not_found",
+          message: `Session not found: ${sessionKey}`,
+        });
+        if (missingDatabasePath) {
+          expect((await fs.stat(missingDatabasePath)).isFile()).toBe(true);
+        }
       });
-    });
-  });
+    },
+  );
 
   test("rejects duplicate canonical rows with an actionable migration error", async () => {
     testState.sessionConfig = { mainKey: "work" };

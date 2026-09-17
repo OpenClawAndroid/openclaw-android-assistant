@@ -311,9 +311,13 @@ export abstract class ChatPaneSharingActions extends ChatPaneBase {
       ) {
         return;
       }
-      await scope.sessions.refreshReplacement(agentId);
+      const outcome = await scope.sessions.reconcileMutation(agentId);
       const refreshedRow = this.currentSessionSharingRow(scope, currentRow);
       if (!this.ownsHeaderOutcomeScope(scope) || !refreshedRow) {
+        return;
+      }
+      if (outcome.status === "failed") {
+        this.failSharing(scope, cacheKey, currentRow.key, outcome.error);
         return;
       }
       await this.loadSessionSharing(refreshedRow, true);
@@ -369,7 +373,14 @@ export abstract class ChatPaneSharingActions extends ChatPaneBase {
       ) {
         return;
       }
-      await scope.sessions.refreshReplacement(agentId);
+      const outcome = await scope.sessions.reconcileMutation(agentId);
+      if (
+        outcome.status === "failed" &&
+        this.ownsHeaderOutcomeScope(scope) &&
+        this.currentSessionSharingRow(scope, currentRow)
+      ) {
+        this.failSharing(scope, cacheKey, currentRow.key, outcome.error);
+      }
     } catch (error) {
       if (
         !this.ownsHeaderOutcomeScope(scope) ||

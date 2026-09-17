@@ -1,6 +1,6 @@
+import { drainProcessOutput } from "../process/output-drain.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { defaultRuntime, ExitError } from "../runtime.js";
-import { drainOneShotOutput } from "./one-shot-output.js";
 import { waitForPendingCliDisposers } from "./runtime-cleanup.js";
 
 type VitestWorkerMarkers = {
@@ -167,5 +167,5 @@ function flushExitAfterOneShotOutput(
 
   const exit = () =>
     runtime.exit(requestedCode === "process" ? resolveProcessExitCode() : requestedCode);
-  drainOneShotOutput(exit);
+  drainProcessOutput(exit);
 }

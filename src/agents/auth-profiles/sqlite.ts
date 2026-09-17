@@ -3,7 +3,6 @@
  * The public helpers expose raw JSON payloads so normalization stays in the
  * store/state layers that own compatibility rules.
  */
-import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { safeParseJson } from "@openclaw/normalization-core";
@@ -12,17 +11,11 @@ import { resolveStateDir } from "../../config/paths.js";
 import { sha256HexPrefixCore } from "../../infra/crypto-digest.js";
 import { executeWithCachedStatement } from "../../infra/kysely-sync-cache-state.js";
 import {
-  clearNodeSqliteKyselyCacheForDatabase,
-  enableNodeSqliteKyselyStatementCache,
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../../infra/kysely-sync.js";
-import { openNodeSqliteDatabase } from "../../infra/node-sqlite.js";
-import { isPathInside } from "../../infra/path-guards.js";
 import { resolveSqliteDatabaseFilePaths } from "../../infra/sqlite-files.js";
-import { readSqliteUserVersion } from "../../infra/sqlite-user-version.js";
-import { registerSqliteCacheExitClose } from "../../infra/sqlite-wal.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import {
   assertExistingAgentSchemaOwner,
@@ -30,7 +23,6 @@ import {
 } from "../../state/openclaw-agent-db-schema-helpers.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
 import {
-  OPENCLAW_AGENT_SCHEMA_VERSION,
   runOpenClawAgentWriteTransaction,
   withOpenClawAgentDatabaseAsync,
   type OpenClawAgentDatabase,
@@ -40,7 +32,6 @@ import { withExistingOpenClawStateDatabaseReadOnly } from "../../state/openclaw-
 import type { DB as OpenClawStateKyselyDatabase } from "../../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
-  OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabase,
 } from "../../state/openclaw-state-db.js";
@@ -52,6 +43,13 @@ import {
   type SharedAuthStoreOwnership,
 } from "./path-resolve.js";
 import { prepareFreshSharedAuthStoreWrite } from "./shared-store-bootstrap.js";
+import {
+  acquireAuthProfileReadDatabase,
+  closeAuthProfileReadDatabase,
+  isMissingDatabasePath,
+} from "./sqlite-read-pool.js";
+
+export { closeAuthProfileReadPool } from "./sqlite-read-pool.js";
 
 type AgentAuthProfileDatabase = Pick<
   OpenClawAgentKyselyDatabase,
@@ -144,17 +142,10 @@ function deleteSharedAuthKvCell(db: DatabaseSync, stateKey: string): void {
       .where("state_key", "=", stateKey),
   );
 }
-const AUTH_PROFILE_READ_HANDLE_CAP = 8;
-const authProfileReadDatabases = new Map<string, DatabaseSync>();
 const authProfileTransactions = new WeakMap<
   AuthProfileDatabase,
   { owner: PreparedAuthProfileStoreOwner }
 >();
-let unregisterReadHandleExitClose: (() => void) | null = null;
-
-type AuthProfileReadPoolCloseScope =
-  | { kind: "database"; databasePath: string }
-  | { kind: "root"; rootPath: string };
 
 function inferAgentIdFromDir(agentDir: string): string {
   const normalized = path.normalize(agentDir);
@@ -318,100 +309,6 @@ function inspectAuthProfileJsonCell(
   } catch {
     return { status: "unreadable" };
   }
-}
-
-function closeAuthProfileReadDatabase(databasePath: string): void {
-  const pathname = path.resolve(databasePath);
-  const db = authProfileReadDatabases.get(pathname);
-  if (!db) {
-    return;
-  }
-  clearNodeSqliteKyselyCacheForDatabase(db);
-  if (db.isOpen) {
-    db.close();
-  }
-  // Failed closes remain owned so scoped disposal can retain the root and retry.
-  authProfileReadDatabases.delete(pathname);
-  if (authProfileReadDatabases.size === 0) {
-    unregisterReadHandleExitClose?.();
-    unregisterReadHandleExitClose = null;
-  }
-}
-
-/** Internal lifecycle close for scoped or all process-local pooled auth-profile readers. */
-export function closeAuthProfileReadPool(scope?: AuthProfileReadPoolCloseScope): void {
-  if (scope?.kind === "database") {
-    closeAuthProfileReadDatabase(scope.databasePath);
-    return;
-  }
-  if (scope?.kind === "root") {
-    for (const pathname of authProfileReadDatabases.keys()) {
-      if (isPathInside(scope.rootPath, pathname)) {
-        closeAuthProfileReadDatabase(pathname);
-      }
-    }
-    return;
-  }
-  unregisterReadHandleExitClose?.();
-  unregisterReadHandleExitClose = null;
-  for (const pathname of authProfileReadDatabases.keys()) {
-    closeAuthProfileReadDatabase(pathname);
-  }
-}
-
-function isMissingDatabasePath(pathname: string): boolean {
-  try {
-    fs.statSync(pathname);
-    return false;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ENOENT";
-  }
-}
-
-function acquireAuthProfileReadDatabase(
-  pathname: string,
-): { status: "missing" } | { status: "unreadable" } | { status: "readable"; db: DatabaseSync } {
-  const resolvedPath = path.resolve(pathname);
-  const cached = authProfileReadDatabases.get(resolvedPath);
-  if (cached?.isOpen) {
-    authProfileReadDatabases.delete(resolvedPath);
-    authProfileReadDatabases.set(resolvedPath, cached);
-    return { status: "readable", db: cached };
-  }
-  if (cached) {
-    closeAuthProfileReadDatabase(resolvedPath);
-  }
-  while (authProfileReadDatabases.size >= AUTH_PROFILE_READ_HANDLE_CAP) {
-    const oldestPath = authProfileReadDatabases.keys().next().value;
-    if (oldestPath === undefined) {
-      break;
-    }
-    closeAuthProfileReadDatabase(oldestPath);
-  }
-  let db: DatabaseSync;
-  try {
-    db = openNodeSqliteDatabase(resolvedPath, { readOnly: true });
-  } catch {
-    return isMissingDatabasePath(resolvedPath) ? { status: "missing" } : { status: "unreadable" };
-  }
-  try {
-    enableNodeSqliteKyselyStatementCache(db);
-    // The pooled reader bypasses canonical agent DB bootstrap, but it shares
-    // the same busy policy and validates the process-stable schema on open.
-    db.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
-    if (readSqliteUserVersion(db) > OPENCLAW_AGENT_SCHEMA_VERSION) {
-      clearNodeSqliteKyselyCacheForDatabase(db);
-      db.close();
-      return { status: "unreadable" };
-    }
-  } catch {
-    clearNodeSqliteKyselyCacheForDatabase(db);
-    db.close();
-    return { status: "unreadable" };
-  }
-  authProfileReadDatabases.set(resolvedPath, db);
-  unregisterReadHandleExitClose ??= registerSqliteCacheExitClose(closeAuthProfileReadPool);
-  return { status: "readable", db };
 }
 
 /** Validate selected-agent ownership without requiring a current session schema. */

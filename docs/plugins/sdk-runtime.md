@@ -217,7 +217,7 @@ Beyond `api.runtime`, the API object also provides:
   Plugin display name.
 </ParamField>
 <ParamField path="api.config" type="OpenClawConfig">
-  Config snapshot supplied when this instance registers. With the default hybrid
+  Read-only config snapshot supplied when this instance registers. With the default hybrid
   reload mode, changes to this plugin's `plugins.entries.<id>` replace its instance
   by default and rerun registration. A retained instance keeps its snapshot across unrelated
   config changes. In long-lived callbacks, prefer the supplied `cfg`, or use

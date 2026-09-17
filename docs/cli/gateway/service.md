@@ -96,6 +96,27 @@ After an unexpected disconnect, check `openclaw gateway status` and the native
 service logs from an external shell before retrying. Standalone CLI lifecycle
 commands retain their service-management behavior.
 
+### Pin the service runtime
+
+Use `--runtime-path` to keep the service on an operator-selected Node or Bun
+executable instead of automatic runtime selection:
+
+```bash
+openclaw gateway install --runtime-path "/absolute/path/to/node" --force
+```
+
+The path must be absolute, executable, and match `--runtime` when that option is
+also supplied. The runtime must pass the current Node/Bun and SQLite capability
+checks. Paths containing spaces are supported; quote them in your shell.
+
+The pin is saved in machine-state metadata for this managed service.
+Forced reinstall, update, and definition repair preserve it. A missing or
+unsupported pin fails with a diagnostic rather than silently switching runtimes.
+To replace it, supply another `--runtime-path`; to return to automatic selection,
+run `openclaw gateway install --runtime node --force` without `--runtime-path`.
+An explicit wrapper still controls the executable and takes precedence over a pin.
+Installation starts the service and may restart an existing Gateway.
+
 ### Install with a wrapper
 
 Use `--wrapper` when the managed service must start through another executable, for example a secrets manager shim or a run-as helper. The wrapper receives the normal Gateway args and is responsible for eventually exec'ing `openclaw` or Node with those args.
@@ -129,7 +150,7 @@ openclaw gateway restart
 <AccordionGroup>
   <Accordion title="Command options">
     - `gateway status`: `--url`, `--port`, `--token`, `--password`, `--timeout`, `--no-probe`, `--require-rpc`, `--deep`, `--json`
-    - `gateway install`: `--port`, `--runtime <node|bun>` (default: `node`), `--token`, `--wrapper <path>`, `--force`, `--json`
+    - `gateway install`: `--port`, `--runtime <node|bun>` (default: `node`), `--runtime-path <path>`, `--token`, `--wrapper <path>`, `--force`, `--json`
     - `gateway restart`: `--safe`, `--skip-deferral`, `--force`, `--wait <duration>`, `--preserve-definition`, `--json`
     - `gateway uninstall|start`: `--json`
     - `gateway stop`: `--disable`, `--force`, `--json`
@@ -137,7 +158,7 @@ openclaw gateway restart
   </Accordion>
   <Accordion title="Service runtime">
     - Node is the primary, default, and recommended managed Gateway runtime.
-    - `gateway install` checks the Node executable recorded in the managed service. If it is missing, non-executable, or unsupported, installation refreshes the service without requiring `--force` and reports the replacement path. This also applies when an installer or update refreshes the service. Repair prefers the current CLI's supported Node, retaining stable Homebrew paths, then checks supported system installations. Custom wrappers keep control of their runtime; protected service definitions still require their deployment owner to repair them.
+    - For unpinned services, `gateway install` checks the Node executable recorded in the managed service. If it is missing, non-executable, or unsupported, installation refreshes the service without requiring `--force` and reports the replacement path. This also applies when an installer or update refreshes the service. Repair prefers the current CLI's supported Node, retaining stable Homebrew paths, then checks supported system installations. Custom wrappers keep control of their runtime; protected service definitions still require their deployment owner to repair them.
     - Bun 1.4+ with WAL-reset-safe `node:sqlite` is available as an explicit opt-in with `gateway install --runtime bun`.
 
   </Accordion>

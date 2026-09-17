@@ -1,5 +1,6 @@
 // Filters volatile files from backup manifests.
 import path from "node:path";
+import { isLegacyAuditMigrationBackupPath } from "./backup-audit-paths.js";
 
 /**
  * Paths that are known to change during a live backup and commonly trigger
@@ -111,6 +112,12 @@ export function isVolatileBackupPath(absolutePath: string, plan: VolatileFilterP
     const stateDirPosix = normalizePosix(stateDir);
 
     for (const filePosix of candidates) {
+      if (
+        isUnder(filePosix, stateDirPosix) &&
+        isLegacyAuditMigrationBackupPath(filePosix, stateDirPosix)
+      ) {
+        return true;
+      }
       if (isManagedBrowserSingletonPath(filePosix, stateDirPosix)) {
         return true;
       }

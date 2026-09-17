@@ -3,7 +3,8 @@
    ============================================= */
 
 /* Main chat card - flex column layout, transparent background */
-openclaw-chat-page {
+openclaw-chat-page,
+openclaw-pending-session-create {
   display: flex;
   flex: 1 1 0;
   min-width: 0;

@@ -351,6 +351,7 @@ export async function executeGatewayAction(
   let hadUnknownDeliveryOutcome = false;
   let payload: unknown;
   try {
+    ctx.input.assertDirectAdapterHandoff?.();
     payload = await callGatewayMessageAction<unknown>({
       gateway: ctx.gateway,
       abortSignal: ctx.input.abortSignal,
@@ -622,6 +623,7 @@ export async function executeMessagePlugin(
     agentId,
     gateway,
     toolContext: authorization !== undefined ? authorization.toolContext : input.toolContext,
+    messageActionAuthorization: authorization,
     assertDirectAdapterHandoff: input.assertDirectAdapterHandoff,
     dryRun,
   });

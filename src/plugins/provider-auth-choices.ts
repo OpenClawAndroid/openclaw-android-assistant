@@ -1,4 +1,6 @@
 // Builds provider auth choice lists from plugin setup metadata.
+import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
+import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
 import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizePluginsConfig, resolveEffectiveEnableState } from "./config-state.js";
@@ -12,6 +14,8 @@ import {
 } from "./official-external-plugin-catalog.js";
 import type { PluginMetadataSnapshot } from "./plugin-metadata-snapshot.types.js";
 import type { PluginOrigin } from "./plugin-origin.types.js";
+import { isProviderAuthChoicePlatformSupported } from "./provider-auth-choice-platform.js";
+import { parseProviderPluginMethodChoice } from "./provider-plugin-choice.js";
 
 export type ProviderAuthChoiceMetadata = Omit<
   PluginManifestProviderAuthChoice,
@@ -35,12 +39,16 @@ type ProviderAuthChoiceCandidate = ProviderAuthChoiceMetadata & {
   origin: PluginOrigin;
 };
 type ManifestProviderAuthChoiceParams = {
+  /** Bind post-dispatch metadata to the selected runtime plugin owner. */
+  pluginId?: string;
   config?: OpenClawConfig;
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
   metadataSnapshot?: PluginMetadataSnapshot;
   includeUntrustedWorkspacePlugins?: boolean;
   includeWorkspacePlugins?: boolean;
+  /** Policy readers retain platform restrictions without offering unsupported setup choices. */
+  includeUnsupportedPlatforms?: boolean;
 };
 
 const PROVIDER_AUTH_CHOICE_ORIGIN_PRIORITY: Readonly<Record<PluginOrigin, number>> = {
@@ -170,6 +178,9 @@ function resolveManifestProviderAuthChoiceCandidates(
   const registry = metadataSnapshot.manifestRegistry;
   const normalizedConfig = normalizePluginsConfig(params?.config?.plugins);
   return registry.plugins.flatMap((plugin) => {
+    if (params?.pluginId && plugin.id !== params.pluginId) {
+      return [];
+    }
     if (declaredOnly && !passesManifestOwnerBasePolicy({ plugin, normalizedConfig })) {
       return [];
     }
@@ -190,6 +201,12 @@ function resolveManifestProviderAuthChoiceCandidates(
     }
     const choices: ProviderAuthChoiceCandidate[] = [];
     for (const choice of plugin.providerAuthChoices ?? []) {
+      if (
+        !params?.includeUnsupportedPlatforms &&
+        !isProviderAuthChoicePlatformSupported(choice.platforms)
+      ) {
+        continue;
+      }
       choices.push(
         toProviderAuthChoiceCandidate({
           pluginId: plugin.id,
@@ -288,9 +305,16 @@ export function resolveManifestProviderAuthChoice(
   if (!normalized) {
     return undefined;
   }
+  const explicit = parseProviderPluginMethodChoice(normalized);
   return resolvePreferredManifestAuthChoiceMetadata({
     config: params,
-    matches: (choice) => choice.choiceId === normalized,
+    matches: (choice) =>
+      explicit
+        ? Boolean(explicit.providerId && explicit.methodId) &&
+          normalizeProviderId(choice.providerId) === normalizeProviderId(explicit.providerId) &&
+          normalizeOptionalLowercaseString(choice.methodId) ===
+            normalizeOptionalLowercaseString(explicit.methodId)
+        : choice.choiceId === normalized,
   });
 }
 
@@ -348,6 +372,9 @@ function resolveOfficialExternalProviderOnboardAuthFlags(): ProviderOnboardAuthF
     const manifest = getOfficialExternalPluginCatalogManifest(entry);
     for (const provider of manifest?.providers ?? []) {
       for (const choice of provider.authChoices ?? []) {
+        if (!isProviderAuthChoicePlatformSupported(choice.platforms)) {
+          continue;
+        }
         const optionKey = choice.optionKey?.trim();
         const authChoice = choice.choiceId?.trim();
         const cliFlag = choice.cliFlag?.trim();

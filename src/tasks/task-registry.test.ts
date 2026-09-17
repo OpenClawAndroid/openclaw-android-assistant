@@ -40,7 +40,6 @@ import {
   tryBeginGatewayRootWorkAdmission,
   tryBeginGatewaySuspendAdmission,
 } from "../process/gateway-work-admission.js";
-import type { ParsedAgentSessionKey } from "../routing/session-key.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { withTestDir } from "../test-helpers/temp-dir.js";
@@ -49,10 +48,10 @@ import {
   createInMemoryTaskRegistryStore,
   createInMemoryTaskFlowRegistryStore,
 } from "../test-utils/task-registry-store.js";
-import { collectCronHistoryOverflowTaskIds } from "./cron-history-retention.js";
 import { CRON_TASK_KIND } from "./cron-task-contract.js";
 import { SUBAGENT_KILL_TASK_ERROR } from "./detached-task-runtime-contract.js";
 import { ensureTaskRuntimeStateReady } from "./runtime-internal.js";
+import { createAcpTaskBackingDetailForTest } from "./task-backing-authority.test-support.js";
 import {
   createTaskFlowForTask as createTaskFlowForTaskOrNull,
   createManagedTaskFlow as createManagedTaskFlowOrNull,
@@ -100,9 +99,14 @@ import {
   stopTaskRegistryMaintenance,
   sweepTaskRegistry,
 } from "./task-registry.maintenance.js";
+import { configureTaskRegistryMaintenanceRuntimeForTest } from "./task-registry.maintenance.test-support.js";
 import { configureTaskRegistryRuntime, getTaskRegistryStore } from "./task-registry.store.js";
 import { summarizeTaskRecords } from "./task-registry.summary.js";
-import { createAcpTaskRecord, createTaskFixture } from "./task-registry.test-support.js";
+import {
+  createAcpTaskRecord,
+  createTaskFixture,
+  createTerminalSubagentKillResult,
+} from "./task-registry.test-support.js";
 import type { TaskDeliveryState, TaskRecord } from "./task-registry.types.js";
 import { bindTaskRunOwner, getTaskRunOwner } from "./task-run-owner.js";
 import {
@@ -192,112 +196,6 @@ vi.mock("../channels/thread-addressing.js", () => ({
     channel === "discord" || channel === "slack",
   resolveChannelThreadAddressing: () => "address" as const,
 }));
-
-function configureTaskRegistryMaintenanceRuntimeForTest(params: {
-  currentTasks: Map<string, ReturnType<typeof createTaskFixture>>;
-  snapshotTasks: ReturnType<typeof createTaskFixture>[];
-  listTaskRecords?: () => ReturnType<typeof createTaskFixture>[];
-  acpEntry?: AcpSessionStoreEntry;
-  acpEntries?: AcpSessionStoreEntry[];
-  listAcpSessionEntries?: () => Promise<AcpSessionStoreEntry[]>;
-  hasActiveAcpTurn?: (sessionKey: string) => boolean;
-  isBackgroundExecSessionActive?: (sessionId: string) => boolean;
-  runtimeAuthoritative?: boolean;
-  sessionBindings?: SessionBindingRecord[];
-  closeAcpSession?: (params: {
-    cfg: AcpSessionStoreEntry["cfg"];
-    sessionKey: string;
-    reason: string;
-  }) => Promise<void>;
-  unbindSessionBindings?: (params: {
-    targetSessionKey?: string;
-    bindingId?: string;
-    reason: string;
-  }) => Promise<SessionBindingRecord[]>;
-}): void {
-  const listSnapshotTasks = params.listTaskRecords ?? (() => params.snapshotTasks);
-  const emptyAcpEntry = {
-    cfg: {} as never,
-    storePath: "",
-    sessionKey: "",
-    storeSessionKey: "",
-    entry: undefined,
-    storeReadFailed: false,
-  } satisfies AcpSessionStoreEntry;
-  setTaskRegistryMaintenanceRuntimeForTests({
-    listAcpSessionEntries: params.listAcpSessionEntries ?? (async () => params.acpEntries ?? []),
-    readAcpSessionEntry: () => params.acpEntry ?? emptyAcpEntry,
-    listSessionBindingsBySession: () => params.sessionBindings ?? [],
-    closeAcpSession: params.closeAcpSession,
-    unbindSessionBindings: params.unbindSessionBindings,
-    listSessionEntries: () => [],
-    resolveStorePath: () => "",
-    parseAgentSessionKey: () => null as ParsedAgentSessionKey | null,
-    isCronJobActive: () => false,
-    getAgentRunContext: () => undefined,
-    isBackgroundExecSessionActive: params.isBackgroundExecSessionActive,
-    hasActiveAcpTurn: params.hasActiveAcpTurn ?? (() => false),
-    hasActiveTaskForChildSessionKey: ({ sessionKey, excludeTaskId }) => {
-      const normalized = sessionKey.trim().toLowerCase();
-      return Array.from(params.currentTasks.values()).some(
-        (task) =>
-          task.taskId !== excludeTaskId &&
-          (task.status === "queued" || task.status === "running") &&
-          task.childSessionKey?.trim().toLowerCase() === normalized,
-      );
-    },
-    deleteTaskRecordById: (taskId: string) => params.currentTasks.delete(taskId),
-    ensureTaskRegistryReady: () => {},
-    getTaskById: (taskId: string) => params.currentTasks.get(taskId),
-    listTaskRecords: listSnapshotTasks,
-    getTaskRegistryMaintenanceSnapshot: () => {
-      const snapshotTasks = listSnapshotTasks();
-      return {
-        taskIds: snapshotTasks.map((task) => task.taskId),
-        cronHistoryOverflowTaskIds: collectCronHistoryOverflowTaskIds(snapshotTasks),
-      };
-    },
-    markTaskLostById: (patch: {
-      taskId: string;
-      endedAt: number;
-      lastEventAt?: number;
-      error?: string;
-      cleanupAfter?: number;
-    }) => {
-      const current = params.currentTasks.get(patch.taskId);
-      if (!current) {
-        return null;
-      }
-      const next = {
-        ...current,
-        status: "lost" as const,
-        endedAt: patch.endedAt,
-        lastEventAt: patch.lastEventAt ?? patch.endedAt,
-        ...(patch.error !== undefined ? { error: patch.error } : {}),
-        ...(patch.cleanupAfter !== undefined ? { cleanupAfter: patch.cleanupAfter } : {}),
-      };
-      params.currentTasks.set(patch.taskId, next);
-      return next;
-    },
-    markTaskTerminalById: () => null,
-    maybeDeliverTaskTerminalUpdate: async () => null,
-    resolveTaskForLookupToken: () => undefined,
-    setTaskCleanupAfterById: (patch: { taskId: string; cleanupAfter: number }) => {
-      const current = params.currentTasks.get(patch.taskId);
-      if (!current) {
-        return null;
-      }
-      const next = {
-        ...current,
-        cleanupAfter: patch.cleanupAfter,
-      };
-      params.currentTasks.set(patch.taskId, next);
-      return next;
-    },
-    isRuntimeAuthoritative: () => params.runtimeAuthoritative ?? true,
-    listTaskRegistryRecordsByRuntimeSourceIdFromSqlite: () => [],
-  });
-}
 
 function createSessionBindingRecord(
   overrides: Partial<SessionBindingRecord> & Pick<SessionBindingRecord, "targetSessionKey">,
@@ -3721,54 +3619,62 @@ describe("task-registry", () => {
     });
   });
 
-  it("keeps terminal ACP cleanup from closing a child session with fresh active work", async () => {
-    await withTaskRegistryTempDir(async () => {
-      const now = Date.now();
-      const parentSessionKey = "agent:main:telegram:direct:owner";
-      const childSessionKey = "agent:claude:acp:shared-child";
-      const terminal = createTaskFixture("acp", {
-        ownerKey: parentSessionKey,
-        requesterSessionKey: parentSessionKey,
-        childSessionKey,
-        runId: "run-terminal-acp-shared",
-        task: "Old ACP task",
-        status: "succeeded",
-        deliveryStatus: "delivered",
-      });
-      const terminalCurrent = {
-        ...terminal,
-        endedAt: now - 60_000,
-        lastEventAt: now - 60_000,
-      };
-      const active = createTaskFixture("acp", {
-        ownerKey: parentSessionKey,
-        requesterSessionKey: parentSessionKey,
-        childSessionKey,
-        runId: "run-active-acp-shared",
-        task: "Current ACP task",
-        deliveryStatus: "pending",
-      });
-      const closeAcpSession = vi.fn().mockResolvedValue(undefined);
+  it.each([false, true])(
+    "keeps active ACP work when it starts during cleanup preparation: %s",
+    async (startsDuringPreparation) => {
+      await withTaskRegistryTempDir(async () => {
+        const now = Date.now();
+        const parentSessionKey = "agent:main:telegram:direct:owner";
+        const childSessionKey = "agent:claude:acp:shared-child";
+        const terminal = createTaskFixture("acp", {
+          ownerKey: parentSessionKey,
+          requesterSessionKey: parentSessionKey,
+          childSessionKey,
+          runId: "run-terminal-acp-shared",
+          task: "Old ACP task",
+          status: "succeeded",
+          deliveryStatus: "delivered",
+        });
+        const terminalCurrent = {
+          ...terminal,
+          endedAt: now - 60_000,
+          lastEventAt: now - 60_000,
+        };
+        const active = createTaskFixture("acp", {
+          ownerKey: parentSessionKey,
+          requesterSessionKey: parentSessionKey,
+          childSessionKey,
+          runId: "run-active-acp-shared",
+          task: "Current ACP task",
+          deliveryStatus: "pending",
+        });
+        const closeAcpSession = vi.fn().mockResolvedValue(undefined);
+        const currentTasks = new Map<string, TaskRecord>([[terminal.taskId, terminalCurrent]]);
+        if (!startsDuringPreparation) {
+          currentTasks.set(active.taskId, active);
+        }
 
-      configureTaskRegistryMaintenanceRuntimeForTest({
-        currentTasks: new Map([
-          [terminal.taskId, terminalCurrent],
-          [active.taskId, active],
-        ]),
-        snapshotTasks: [terminalCurrent],
-        acpEntry: createAcpSessionStoreEntry({
-          sessionKey: childSessionKey,
-          parentSessionKey,
-          mode: "oneshot",
-        }),
-        closeAcpSession,
+        configureTaskRegistryMaintenanceRuntimeForTest({
+          currentTasks,
+          snapshotTasks: [terminalCurrent],
+          acpEntry: createAcpSessionStoreEntry({
+            sessionKey: childSessionKey,
+            parentSessionKey,
+            mode: "oneshot",
+          }),
+          loadCloseAcpSession: async () => {
+            currentTasks.set(active.taskId, active);
+            return closeAcpSession;
+          },
+        });
+
+        await runTaskRegistryMaintenance();
+
+        expect(currentTasks.get(active.taskId)).toBe(active);
+        expect(closeAcpSession).not.toHaveBeenCalled();
       });
-
-      await runTaskRegistryMaintenance();
-
-      expect(closeAcpSession).not.toHaveBeenCalled();
-    });
-  });
+    },
+  );
 
   it.each([
     {
@@ -4824,12 +4730,14 @@ describe("task-registry", () => {
     await withTaskRegistryTempDir(async () => {
       hoisted.cancelSessionMock.mockResolvedValue(undefined);
 
+      const instanceId = "instance-cancel-acp";
       const task = createTaskFixture("acp", {
         requesterOrigin: NOTIFYCHAT_ORIGIN,
         childSessionKey: "agent:codex:acp:child",
         runId: "run-cancel-acp",
         task: "Investigate issue",
         deliveryStatus: "pending",
+        detail: createAcpTaskBackingDetailForTest(instanceId),
       });
 
       const result = await cancelTask(task.taskId);
@@ -4839,6 +4747,8 @@ describe("task-registry", () => {
         cfg: {},
         sessionKey: "agent:codex:acp:child",
         reason: "task-cancel",
+        expectedRunId: "run-cancel-acp",
+        expectedInstanceId: instanceId,
       });
       expectRecordFields(result, {
         found: true,
@@ -4864,11 +4774,13 @@ describe("task-registry", () => {
     async (status) => {
       await withTaskRegistryTempDir(async () => {
         const runId = "run-acp-cancel-race";
+        const instanceId = "instance-acp-cancel-race";
         const task = createTaskFixture("acp", {
           childSessionKey: "agent:codex:acp:cancel-race",
           runId,
           task: "Finish during cancellation",
           notifyPolicy: "silent",
+          detail: createAcpTaskBackingDetailForTest(instanceId),
         });
         hoisted.cancelSessionMock.mockImplementationOnce(async () => {
           updateTaskStateByRunId({
@@ -4882,6 +4794,10 @@ describe("task-registry", () => {
 
         const result = await cancelTask(task.taskId);
 
+        expectRecordFields(firstMockArg(hoisted.cancelSessionMock, "cancelSession"), {
+          expectedRunId: runId,
+          expectedInstanceId: instanceId,
+        });
         expectRecordFields(result, {
           found: true,
           cancelled: status === "cancelled",
@@ -5014,21 +4930,13 @@ describe("task-registry", () => {
         endedAt: 200,
         error: SUBAGENT_KILL_TASK_ERROR,
       });
-      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce({
-        found: true,
-        killed: false,
-        runId: task.runId!,
-        sessionKey: task.childSessionKey!,
-        cascadeKilled: 0,
-        targetState: {
-          state: "terminal",
-          task: {
-            status: "succeeded",
-            endedAt: 201,
-            terminalSummary: "completed",
-          },
-        },
-      });
+      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce(
+        createTerminalSubagentKillResult(task, {
+          status: "succeeded",
+          endedAt: 201,
+          terminalSummary: "completed",
+        }),
+      );
 
       const result = await cancelTask(task.taskId);
 
@@ -5100,23 +5008,15 @@ describe("task-registry", () => {
         runId: "run-subagent-lagging-projection",
         task: "Finish before task projection",
       });
-      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce({
-        found: true,
-        killed: false,
-        runId: task.runId!,
-        sessionKey: task.childSessionKey!,
-        cascadeKilled: 0,
-        targetState: {
-          state: "terminal",
-          task: {
-            status: "succeeded",
-            endedAt: 200,
-            progressSummary: "final answer",
-            terminalSummary: "final answer",
-            terminalOutcome: "blocked",
-          },
-        },
-      });
+      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce(
+        createTerminalSubagentKillResult(task, {
+          status: "succeeded",
+          endedAt: 200,
+          progressSummary: "final answer",
+          terminalSummary: "final answer",
+          terminalOutcome: "blocked",
+        }),
+      );
 
       const result = await cancelTask(task.taskId);
 
@@ -5182,22 +5082,12 @@ describe("task-registry", () => {
           endedAt: 201,
           terminalSummary: "completed",
         });
-        return {
-          found: true,
-          killed: false,
-          runId: task.runId!,
-          sessionKey: task.childSessionKey!,
-          cascadeKilled: 0,
-          targetState: {
-            state: "terminal" as const,
-            task: {
-              status: "cancelled" as const,
-              endedAt: 200,
-              error: SUBAGENT_KILL_TASK_ERROR,
-              terminalSummary: null,
-            },
-          },
-        };
+        return createTerminalSubagentKillResult(task, {
+          status: "cancelled",
+          endedAt: 200,
+          error: SUBAGENT_KILL_TASK_ERROR,
+          terminalSummary: null,
+        });
       });
 
       const result = await cancelTask(task.taskId);
@@ -5223,22 +5113,14 @@ describe("task-registry", () => {
         runId: "run-subagent-killed-projection",
         task: "Repair and cancel killed projection",
       });
-      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce({
-        found: true,
-        killed: false,
-        runId: task.runId!,
-        sessionKey: task.childSessionKey!,
-        cascadeKilled: 0,
-        targetState: {
-          state: "terminal",
-          task: {
-            status: "cancelled",
-            endedAt: 200,
-            error: SUBAGENT_KILL_TASK_ERROR,
-            terminalSummary: null,
-          },
-        },
-      });
+      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce(
+        createTerminalSubagentKillResult(task, {
+          status: "cancelled",
+          endedAt: 200,
+          error: SUBAGENT_KILL_TASK_ERROR,
+          terminalSummary: null,
+        }),
+      );
 
       const result = await cancelTask(task.taskId);
       finalizeSubagentTask(task, {
@@ -5274,17 +5156,13 @@ describe("task-registry", () => {
           },
         },
       });
-      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce({
-        found: true,
-        killed: false,
-        runId: task.runId!,
-        sessionKey: task.childSessionKey!,
-        cascadeKilled: 0,
-        targetState: {
-          state: "terminal",
-          task: { status: "succeeded", endedAt: 200, terminalSummary: "done" },
-        },
-      });
+      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce(
+        createTerminalSubagentKillResult(task, {
+          status: "succeeded",
+          endedAt: 200,
+          terminalSummary: "done",
+        }),
+      );
 
       const result = await cancelTask(task.taskId);
 
@@ -5305,23 +5183,13 @@ describe("task-registry", () => {
         task: "Fail during cancellation",
       });
       hoisted.killSubagentRunAdminMock.mockImplementationOnce(async () => {
-        return {
-          found: true,
-          killed: false,
-          runId: task.runId!,
-          sessionKey: task.childSessionKey!,
-          cascadeKilled: 0,
-          targetState: {
-            state: "terminal",
-            task: {
-              status: "failed",
-              endedAt: 200,
-              error: "provider failed",
-              progressSummary: "partial work",
-              terminalSummary: null,
-            },
-          },
-        };
+        return createTerminalSubagentKillResult(task, {
+          status: "failed",
+          endedAt: 200,
+          error: "provider failed",
+          progressSummary: "partial work",
+          terminalSummary: null,
+        });
       });
 
       const result = await cancelTask(task.taskId);
@@ -5475,21 +5343,13 @@ describe("task-registry", () => {
         error: SUBAGENT_KILL_TASK_ERROR,
       });
       hoisted.killSubagentRunAdminMock.mockClear();
-      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce({
-        found: true,
-        killed: false,
-        runId: task.runId!,
-        sessionKey: task.childSessionKey!,
-        cascadeKilled: 0,
-        targetState: {
-          state: "terminal",
-          task: {
-            status: "cancelled",
-            endedAt: 200,
-            error: SUBAGENT_KILL_TASK_ERROR,
-          },
-        },
-      });
+      hoisted.killSubagentRunAdminMock.mockResolvedValueOnce(
+        createTerminalSubagentKillResult(task, {
+          status: "cancelled",
+          endedAt: 200,
+          error: SUBAGENT_KILL_TASK_ERROR,
+        }),
+      );
 
       const result = await cancelTask(task.taskId);
       finalizeSubagentTask(task, {

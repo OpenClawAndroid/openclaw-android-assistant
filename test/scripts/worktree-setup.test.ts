@@ -8,31 +8,22 @@ import { readBundledPluginAssetHooks } from "../../scripts/bundled-plugin-assets
 import { collectSourceCheckoutPluginBuildEntries } from "../../scripts/lib/bundled-plugin-build-entries.mjs";
 import { createWorktreeSetupPlan, parseWorktreeSetupArgs } from "../../scripts/worktree-setup.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+import { collectEagerRuntimeImportClosure } from "./eager-import-closure.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const scriptPath = path.join(repoRoot, "scripts/worktree-setup.mjs");
 
-// Copy real script owners, not replacement inventories or dependency symlinks.
-// This bounded list deliberately fails if the plain-Node import closure grows.
-const COLD_SCRIPT_INPUTS = [
+// Seed the entrypoint and its lazy runtime helpers; copy their eager source closure.
+// Cold subprocesses still run original bytes without a loader or node_modules.
+const COLD_SCRIPT_INPUTS = collectEagerRuntimeImportClosure([
   "scripts/worktree-setup.mjs",
   "scripts/bundled-plugin-assets.mts",
   "scripts/pnpm-runner.mts",
-  "scripts/windows-cmd-helpers.mjs",
   "scripts/lib/bundled-plugin-build-entries.mjs",
-  "scripts/lib/bundled-plugin-paths.mjs",
   "scripts/lib/managed-child-process.mts",
-  "scripts/lib/optional-bundled-clusters.mjs",
   "scripts/lib/output-root-guard.mjs",
-  "scripts/lib/record-shared.mjs",
-  "scripts/lib/repo-root.mjs",
-  "scripts/lib/root-package-bundled-plugin-excludes.mjs",
-  "scripts/lib/static-extension-assets.mts",
-  "scripts/lib/vitest-resource-ownership.mts",
-  "scripts/lib/windows-taskkill.mjs",
-  "src/shared/non-packaged-plugin-dirs.ts",
-];
+]);
 
 type CommandCall = { kind: "pnpm" | "gateway-build"; args: string[]; cwd: string };
 

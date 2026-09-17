@@ -186,6 +186,7 @@ src/agents/tool-policy-shared.ts
 src/agents/tool-policy.ts
 src/agents/tools/automations-tool-name.ts
 src/agents/tools/sessions-send-tokens.ts
+src/agents/utility-model-setting.ts
 src/agents/utils/git.ts
 src/agents/workspace-default-path.ts
 src/agents/workspace-default.ts
@@ -392,6 +393,7 @@ src/config/redact-snapshot.raw.ts
 src/config/redact-snapshot.secret-ref.ts
 src/config/redact-snapshot.ts
 src/config/resolution-facts.ts
+src/config/runtime-config-capture-state.ts
 src/config/runtime-overrides.ts
 src/config/runtime-snapshot.ts
 src/config/runtime-source-projection.ts
@@ -415,10 +417,12 @@ src/config/types.models.ts
 src/config/types.secrets.ts
 src/config/types.tools.ts
 src/config/types.ts
+src/config/utility-model-separation-migration.ts
 src/config/validation-channel-rules.ts
 src/config/validation-core.ts
 src/config/validation-issues.ts
 src/config/validation-plugin-config.ts
+src/config/validation-plugin-registry.ts
 src/config/validation-plugin-rules.ts
 src/config/validation.ts
 src/config/version.ts
@@ -638,6 +642,7 @@ src/infra/sqlite-post-commit.ts
 src/infra/sqlite-private-directory.ts
 src/infra/sqlite-readonly-location-cleanup.ts
 src/infra/sqlite-readonly-location.ts
+src/infra/sqlite-readonly-location.worker.ts
 src/infra/sqlite-readonly-worker-protocol.ts
 src/infra/sqlite-readonly-worker.ts
 src/infra/sqlite-runtime-version.ts
@@ -779,6 +784,7 @@ src/plugins/current-plugin-metadata-snapshot.ts
 src/plugins/current-plugin-metadata-state.ts
 src/plugins/default-enablement.ts
 src/plugins/dev-source-root.ts
+src/plugins/discovery-availability.ts
 src/plugins/discovery.ts
 src/plugins/doctor-contract-artifact.ts
 src/plugins/doctor-contract-module.ts
@@ -913,6 +919,7 @@ src/plugins/root-artifact-path.ts
 src/plugins/roots.ts
 src/plugins/runtime-close-error.ts
 src/plugins/runtime-context.ts
+src/plugins/runtime-degraded-state.ts
 src/plugins/runtime-state-key.ts
 src/plugins/runtime-state.ts
 src/plugins/runtime-workspace-state.ts
@@ -993,6 +1000,7 @@ src/shared/gateway-edge-auth-headers.ts
 src/shared/gateway-tailscale-auth-policy.ts
 src/shared/global-singleton.ts
 src/shared/http-error-response.ts
+src/shared/immutable-data.ts
 src/shared/import-specifier.ts
 src/shared/incognito-session-key.ts
 src/shared/json-schema-defaults.ts

@@ -140,7 +140,7 @@ function projectHealthSessions(
 
 async function buildHealthSessionSummary(storePath: string, agentId?: string) {
   const reader = await createHealthSessionStoreReader(agentId ? [agentId] : []);
-  const store = reader.read(storePath, agentId);
+  const store = await reader.read(storePath, agentId);
   return projectHealthSessions(store.path, store);
 }
 
@@ -154,19 +154,21 @@ export async function buildHealthAgentSummaries(
   // One roster pass for every agent: per-agent resolution re-walks the roster
   // and froze large fleets for tens of seconds each refresh (#137570).
   const heartbeats = resolveHeartbeatSummariesForAgents(cfg, agentIds);
-  return ordered.map((entry, index) => {
-    const store = reader.read(
+  const agents: AgentHealthSummary[] = [];
+  for (const [index, entry] of ordered.entries()) {
+    const store = await reader.read(
       resolveSessionStorePathCore(cfg.session?.store, { agentId: entry.id }),
       entry.id,
     );
-    return {
+    agents.push({
       agentId: entry.id,
       name: entry.name,
       isDefault: entry.id === defaultAgentId,
       heartbeat: expectDefined(heartbeats[index], "heartbeat summary"),
       sessions: projectHealthSessions(store.path, store),
-    };
-  });
+    });
+  }
+  return agents;
 }
 
 function buildPluginHealthSummary(cfg: OpenClawConfig): PluginHealthSummary | undefined {

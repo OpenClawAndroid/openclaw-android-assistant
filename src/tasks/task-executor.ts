@@ -143,6 +143,7 @@ export function findTaskByRunId(runId: string): TaskRecord | undefined {
 
 export function startTaskRunByRunIdCore(params: {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   startedAt?: number;
@@ -155,6 +156,7 @@ export function startTaskRunByRunIdCore(params: {
 
 export function recordTaskRunProgressByRunIdCore(params: {
   runId: string;
+  taskId?: string;
   runtime?: TaskRuntime;
   sessionKey?: string;
   childSessionKey?: string | null;

@@ -553,7 +553,7 @@ suite.define(() => {
             return digest(algorithm, data);
           };
         });
-        const chatModule = await holdModuleResponse(page, /\/assets\/chat-page-[^/]+\.js/);
+        const chatModule = await holdModuleResponse(page, /\/assets\/route-entry-[^/]+\.js/);
         try {
           const sessionKey = "agent:main:late-recovery-scope";
           const gateway = await installMockGateway(page, {
@@ -571,7 +571,7 @@ suite.define(() => {
           await gateway.waitForRequest("sessions.create");
           if (hydration === "during chat preparation") {
             await gateway.resolveDeferred("sessions.create");
-            // Navigation selects the accepted session before awaiting route preparation.
+            // The provisional route cannot adopt selection while its preview module is blocked.
             await expect
               .poll(() =>
                 page.locator("openclaw-app").evaluate((element) => {
@@ -581,7 +581,7 @@ suite.define(() => {
                   return app.runtime.context.gateway.snapshot.sessionKey;
                 }),
               )
-              .toBe(sessionKey);
+              .toBe("agent:main:main");
             await chatModule.request;
           }
 
@@ -644,7 +644,9 @@ suite.define(() => {
         } else {
           await gateway.setOnline(false);
           await waitForControlUiGatewayReconnecting(page);
-          await expectPendingNewSession(page, submittedMessage);
+          // Unknown reconnect identity cannot display the retained private draft.
+          expect(await page.getByText(submittedMessage, { exact: true }).isVisible()).toBe(false);
+          expect(await page.locator("openclaw-chat-pane").count()).toBe(0);
           await gateway.setOnline(true);
           await waitForControlUiGatewayReady(page);
         }
@@ -713,20 +715,29 @@ suite.define(() => {
         await waitForControlUiGatewayReady(page);
         await waitForGatewayRecoveryScope(page);
 
-        await page
-          .getByRole("alert")
-          .filter({
-            hasText:
-              "The Gateway changed while this session was starting. Check recent sessions before starting this task again.",
-          })
-          .waitFor();
-        // Restarts keep the same draft owner; changed or missing owners cannot inherit its text.
-        const expectedMessage = change === "process restarts" ? "do not duplicate this task" : "";
-        await expect
-          .poll(() => page.locator(".new-session-page__message").inputValue())
-          .toBe(expectedMessage);
+        const warning = page.getByRole("alert").filter({
+          hasText:
+            "The Gateway changed while this session was starting. Check recent sessions before starting this task again.",
+        });
+        await page.locator(".new-session-page__message").waitFor();
+        if (change === "process restarts") {
+          await warning.waitFor();
+          await expect
+            .poll(() => page.locator(".new-session-page__message").inputValue())
+            .toBe("do not duplicate this task");
+          expect(await page.getByRole("button", { name: "Start session" }).isDisabled()).toBe(true);
+        } else {
+          // A different principal gets a fresh draft, not the previous owner's
+          // private text or frozen startup controller (including its error).
+          await expect.poll(() => page.locator(".new-session-page__message").inputValue()).toBe("");
+          expect(await warning.isVisible()).toBe(false);
+          expect(
+            await page.getByText("do not duplicate this task", { exact: true }).isVisible(),
+          ).toBe(false);
+          await page.locator(".new-session-page__message").fill("new owner's task");
+          expect(await page.getByRole("button", { name: "Start session" }).isEnabled()).toBe(true);
+        }
         expect(await page.locator(".new-session-page__starting").isVisible()).toBe(false);
-        expect(await page.getByRole("button", { name: "Start session" }).isDisabled()).toBe(true);
         expect(await gateway.getRequests("sessions.create")).toHaveLength(1);
         expect(new URL(page.url()).pathname).toBe("/new");
       });

@@ -16,17 +16,22 @@ import {
   advanceCronActiveJobGeneration,
   bindCronJobAdmittedRun,
   bindCronSelfRemovalCommitGuard,
+  captureCronJobMessageActionAuthority,
   markCronJobActive,
   noteActiveCronJobRemoval,
   requestActiveCronJobCancellation,
   resetCronActiveJobs,
 } from "../active-jobs.js";
 import { setupCronServiceSuite } from "../service.test-harness.js";
-import { assertServiceCronRunReceiptCurrent } from "../service/run-receipts.js";
+import { update } from "../service/ops-mutations.js";
+import {
+  assertServiceCronRunReceiptCurrent,
+  markServiceCronJobActive,
+} from "../service/run-receipts.js";
 import { proposeCronRunRecovery, recoverCronRunProposal } from "../service/run-recovery.js";
 import { createCronServiceState } from "../service/state.js";
 import { loadCronStore, saveCronStore } from "../store.js";
-import type { CronJob } from "../types.js";
+import type { CronJob, CronStoredJob, CronToolsAllowProvenance } from "../types.js";
 import { cronStoreKey } from "./key.js";
 import {
   assertCronRunReceiptCurrent,
@@ -116,6 +121,127 @@ function makeForeignOwner(handle: CronRunReceiptHandle) {
 }
 
 describe("cron run receipt store", () => {
+  it.each([
+    { writer: "service", enabled: true, change: "tools" },
+    { writer: "service", enabled: false, change: "tools" },
+    { writer: "canonical store", enabled: true, change: "tools" },
+    { writer: "service", enabled: true, change: "origin" },
+    { writer: "canonical store", enabled: true, change: "origin" },
+  ])(
+    "retires message access after $writer $change changes from enabled=$enabled without retiring its receipt",
+    async ({ writer, enabled, change }) => {
+      const { storePath } = await makeStorePath();
+      const job: CronStoredJob = {
+        ...makeJob("message-permission-change"),
+        enabled,
+        payload: { kind: "agentTurn", message: "read updates", toolsAllow: ["message", "exec"] },
+        scheduledToolPolicy: { version: 1, mode: "trusted" },
+      };
+      const provenance: CronToolsAllowProvenance = {
+        version: 1,
+        source: "final-executable-surface",
+        callerOrigin: { kind: "external", channel: "discord" },
+      };
+      if (change === "origin") {
+        const owner = {
+          agentId: "alpha",
+          sessionKey: "agent:alpha:discord:channel:creator",
+          accountId: "creator",
+        };
+        job.owner = owner;
+        job.scheduledToolPolicy = {
+          version: 1,
+          mode: "account",
+          ownerSessionKey: owner.sessionKey,
+          ownerAccountId: owner.accountId,
+        };
+        job.toolsAllowProvenance = provenance;
+      }
+      await saveCronStore(storePath, { version: 1, jobs: [job] });
+      const receipt = claim(storePath, job, Date.now());
+      const state = createCronServiceState({
+        storePath,
+        cronEnabled: true,
+        log: logger,
+        enqueueSystemEvent: vi.fn(),
+        requestHeartbeat: vi.fn(),
+        runIsolatedAgentJob: vi.fn(),
+      });
+      const marker = markServiceCronJobActive(state, job, receipt);
+      const controller = new AbortController();
+      const admission = prepareAgentRunAdmission({
+        cfg: {},
+        operationalRunInstance: createOperationalRunInstanceRef("message-permission-run"),
+        facts: {
+          runId: "message-permission-run",
+          agentId: job.agentId!,
+          ingress: { kind: "schedule", boundary: "cron.isolated-agent", state: "present" },
+        },
+      });
+      try {
+        const admitted = await admission.admit("embedded");
+        bindCronJobAdmittedRun(marker, admitted, controller.signal);
+        const assertCurrent = captureCronJobMessageActionAuthority({
+          jobId: job.id,
+          operationalRunInstance: admitted.operationalRunInstance,
+        });
+        expect(assertCurrent).not.toThrow();
+        // An admission that began disabled and unrelated tool/delivery edits keep access.
+        await update(state, job.id, {
+          name: "renamed",
+          delivery: { mode: "none" },
+          ...(change === "tools"
+            ? { payload: { kind: "agentTurn" as const, toolsAllow: ["message"] } }
+            : {}),
+        });
+        expect(assertCurrent).not.toThrow();
+        if (change === "origin") {
+          for (const channel of ["slack", "discord"]) {
+            const toolsAllowProvenance: CronToolsAllowProvenance = {
+              ...provenance,
+              callerOrigin: { kind: "external", channel },
+            };
+            if (writer === "service") {
+              await update(
+                state,
+                job.id,
+                { payload: { kind: "agentTurn", toolsAllow: ["message", "exec"] } },
+                { toolsAllowProvenance },
+              );
+            } else {
+              await saveCronStore(storePath, {
+                version: 1,
+                jobs: [{ ...job, toolsAllowProvenance }],
+              });
+              expect(assertCurrent).toThrow();
+            }
+          }
+        } else if (writer === "service") {
+          await update(state, job.id, { payload: { kind: "agentTurn", toolsAllow: ["read"] } });
+          await update(state, job.id, { payload: { kind: "agentTurn", toolsAllow: ["message"] } });
+        } else {
+          await saveCronStore(storePath, {
+            version: 1,
+            jobs: [{ ...job, payload: { kind: "command", argv: ["true"] } }],
+          });
+          expect(assertCurrent).toThrow();
+          await saveCronStore(storePath, { version: 1, jobs: [job] });
+        }
+        expect(assertCurrent).toThrow();
+        expect(controller.signal.aborted).toBe(false);
+        expect(() => assertServiceCronRunReceiptCurrent(state, receipt, marker)).not.toThrow();
+        expect(receipts(storePath, job.id)[0]?.status).toBe("running");
+      } finally {
+        admission.close();
+        if (state.timer) {
+          clearTimeout(state.timer);
+        }
+        finishCronRunReceipt({ handle: receipt, status: "ok", finishedAtMs: Date.now() });
+        resetCronActiveJobs();
+      }
+    },
+  );
+
   it("reports the recorded database refusal when a scheduled agent is unavailable", async () => {
     const { storePath } = await makeStorePath();
     const job = makeJob("database-refusal");

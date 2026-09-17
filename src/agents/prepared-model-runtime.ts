@@ -59,6 +59,7 @@ import {
   isPreparedModelRuntimeOwnerInRefreshScope,
   listConfiguredRefreshInputs,
   refreshCommittedProviderCatalogs,
+  createPreparedModelRuntimeCatalogRecovery,
   resolveSafeRefreshAgentIds,
   updateOwnersForScopedRefresh,
 } from "./prepared-model-runtime.refresh-scope.js";
@@ -564,6 +565,11 @@ async function refreshPreparedModelRuntimeSnapshotsNow(
     registerEntriesAfterBuildStart: true,
   });
 }
+
+export const recoverPreparedModelRuntimeCatalogWorker = createPreparedModelRuntimeCatalogRecovery(
+  owners,
+  refreshPreparedModelRuntimeSnapshots,
+);
 
 /** Serializes config/plugin publications so only the latest completed refresh retires owners. */
 export function refreshPreparedModelRuntimeSnapshots(

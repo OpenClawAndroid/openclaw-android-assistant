@@ -24,19 +24,26 @@ import {
   type HandoffSessionWorkAdmission,
   type SessionWorkAdmissionLease,
 } from "./session-work-admission-handoff.js";
+import {
+  waitForSessionWorkAdmissionRelease,
+  type SessionWorkAdmissionInterrupt,
+} from "./session-work-admission-interruption.js";
 
 export {
   cancelSessionWorkAdmissionHandoff,
   consumeSessionWorkAdmissionHandoff,
   type SessionWorkAdmissionLease,
 } from "./session-work-admission-handoff.js";
+export {
+  waitForSessionWorkAdmissionRelease,
+  type SessionWorkAdmissionInterrupt,
+} from "./session-work-admission-interruption.js";
 
 export const SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS = 15_000;
 type SessionWorkAdmission = HandoffSessionWorkAdmission & {
   lifecycleGeneration: string;
   phase: "pending" | "acquired";
   owner?: symbol;
-  interrupt?: (reason?: Error) => void;
   released: Promise<void>;
 };
 
@@ -525,7 +532,7 @@ export async function beginSessionWorkAdmission(params: {
   assertAllowed: () => Promise<void> | void;
   /** Final writer-ordered validation; use when one-time effects must not run during the first check. */
   revalidateAllowed?: () => Promise<void> | void;
-  onInterrupt?: (reason?: Error) => void;
+  onInterrupt?: SessionWorkAdmissionInterrupt;
   signal?: AbortSignal;
 }): Promise<SessionWorkAdmissionLease> {
   if (isGatewaySubordinateWorkAdmissionClosed()) {
@@ -553,7 +560,7 @@ export async function beginSessionWorkAdmission(params: {
     interrupt: (reason) => {
       admission.interrupted ??= reason ?? new Error("Session work admission interrupted");
       try {
-        params.onInterrupt?.(admission.interrupted);
+        return params.onInterrupt?.(admission.interrupted);
       } finally {
         if (!writerBarrierStarted) {
           pendingController.abort(admission.interrupted);
@@ -696,8 +703,9 @@ function startNormalizedSessionWorkAdmissionInterruption(params: {
   reason?: Error;
   identities: readonly string[];
   pendingOnly?: boolean;
-}): { released: Promise<void> } {
+}): { released: Promise<void>; interruptedRunIds: ReadonlySet<string> } {
   const admissions = new Set<SessionWorkAdmission>();
+  const interruptedRunIds = new Set<string>();
   const currentAdmissions = CURRENT_SESSION_WORK_ADMISSIONS.getStore();
   for (const identity of params.identities) {
     for (const admission of ACTIVE_SESSION_WORK_ADMISSIONS.get(identity) ?? []) {
@@ -714,9 +722,13 @@ function startNormalizedSessionWorkAdmissionInterruption(params: {
   }
   for (const admission of admissions) {
     admission.interrupted ??= params.reason ?? new Error("Session work admission interrupted");
-    admission.interrupt?.(admission.interrupted);
+    const receipt = admission.interrupt?.(admission.interrupted);
+    if (receipt) {
+      interruptedRunIds.add(receipt.runId);
+    }
   }
   return {
+    interruptedRunIds,
     released: Promise.all(Array.from(admissions, (admission) => admission.released)).then(
       () => undefined,
     ),
@@ -727,7 +739,7 @@ export function startSessionWorkAdmissionInterruption(params: {
   reason?: Error;
   scope: string;
   identities: Iterable<string | undefined>;
-}): { released: Promise<void> } {
+}): { released: Promise<void>; interruptedRunIds: ReadonlySet<string> } {
   return startNormalizedSessionWorkAdmissionInterruption({
     identities: normalizeSessionIdentities(params.scope, params.identities),
     reason: params.reason,
@@ -741,25 +753,7 @@ export async function interruptSessionWorkAdmissions(params: {
   timeoutMs?: number;
 }): Promise<boolean> {
   const { released } = startSessionWorkAdmissionInterruption(params);
-  if (params.timeoutMs === undefined) {
-    await released;
-    return true;
-  }
-  const timeoutMs = params.timeoutMs;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      released.then(() => true),
-      new Promise<false>((resolve) => {
-        timer = setTimeout(() => resolve(false), Math.max(0, timeoutMs));
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
+  return waitForSessionWorkAdmissionRelease(released, params.timeoutMs);
 }
 
 if (process.env.VITEST || process.env.NODE_ENV === "test") {

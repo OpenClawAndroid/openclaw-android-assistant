@@ -559,6 +559,7 @@ describe("ModelSetupPage first-run activation ownership", () => {
       context: () => context,
       routeData: () => routeData,
       pageState: () => routeData.state,
+      activationState: () => ({ phase: "idle" }),
       actionsDisabled: () => false,
       canUseSetup: () => true,
       canVerify: () => true,

@@ -6,6 +6,7 @@ import type {
 import {
   fetchLiveProviderModelIds,
   getCachedLiveProviderModelRows,
+  getCachedUpstreamProviderCatalog,
   liveModelCatalogAuthCacheKey,
   type FetchLiveProviderModelIdsParams,
   type FetchLiveProviderModelRowsParams,
@@ -22,6 +23,11 @@ import {
   getCachedLiveCatalogValue,
   type ManifestProviderCatalogEntry,
 } from "./provider-catalog-shared.js";
+import {
+  projectProviderCatalogSnapshotRows,
+  projectUpstreamProviderCatalogSnapshot,
+  type ProviderCatalogSnapshot,
+} from "./provider-catalog-snapshot.internal.js";
 import {
   normalizeProviderId,
   type ModelDefinitionConfig,
@@ -210,6 +216,92 @@ export async function buildLiveModelProviderConfig<T extends ModelDefinitionConf
     // when discovery is unavailable or the provider returns an unexpected body.
   }
   return fallback;
+}
+
+type UpstreamProviderCatalogRequest = Pick<
+  FetchLiveProviderModelIdsParams,
+  "apiKey" | "discoveryApiKey" | "fetchGuard" | "signal"
+>;
+
+/** Keeps one provider's public metadata snapshot separate from per-call discovery credentials. */
+export function createUpstreamProviderCatalog(params: {
+  providerId: string;
+  seed: ProviderCatalogSnapshot;
+  upstreamSeed?: ProviderCatalogSnapshot;
+  providerConfig: Omit<ModelProviderConfig, "models" | "apiKey">;
+  metadataEndpoint: string;
+  modelsEndpoint: string;
+  anthropicBaseUrl: string;
+  timeoutMs: number;
+  ttlMs: number;
+  auditContext: string;
+  isStaticEntryActive: (entry: ReturnType<ProviderCatalogSnapshot["get"]>) => boolean;
+  decorateModel?: Parameters<typeof projectUpstreamProviderCatalogSnapshot>[0]["decorateModel"];
+}) {
+  let snapshot = params.seed;
+  const buildStaticProvider = (apiKey?: string): ModelProviderConfig => ({
+    ...params.providerConfig,
+    ...(apiKey ? { apiKey } : {}),
+    models: [...params.seed.values()]
+      .filter(({ model }) => params.isStaticEntryActive(snapshot.get(model.id)))
+      .map(({ model }) => model),
+  });
+  const refreshMetadata = async (
+    request: Pick<UpstreamProviderCatalogRequest, "fetchGuard" | "signal">,
+  ): Promise<ProviderCatalogSnapshot | undefined> => {
+    const provider = await getCachedUpstreamProviderCatalog({
+      endpoint: params.metadataEndpoint,
+      providerId: params.providerId,
+      fetchGuard: request.fetchGuard,
+      signal: request.signal,
+    });
+    if (!provider) {
+      return undefined;
+    }
+    snapshot = projectUpstreamProviderCatalogSnapshot({
+      providerId: params.providerId,
+      provider,
+      seed: params.upstreamSeed ?? params.seed,
+      anthropicBaseUrl: params.anthropicBaseUrl,
+      defaultBaseUrl: params.providerConfig.baseUrl,
+      decorateModel: params.decorateModel,
+    });
+    return snapshot;
+  };
+  return {
+    getSnapshot: () => snapshot,
+    buildStaticProvider,
+    refreshMetadata,
+    async buildLiveProvider(
+      request: UpstreamProviderCatalogRequest = {},
+    ): Promise<ModelProviderConfig> {
+      if (!request.apiKey && !request.discoveryApiKey) {
+        return buildStaticProvider();
+      }
+      try {
+        await refreshMetadata(request);
+      } catch {
+        // Metadata failure retains the last snapshot; account discovery below
+        // remains strict and must still report its own failure or empty result.
+      }
+      // Refresh lifecycle before deriving fallback rows, even when advertising fails.
+      return await buildLiveModelProviderConfig({
+        discoveryMode: "strict",
+        providerId: params.providerId,
+        endpoint: params.modelsEndpoint,
+        providerConfig: params.providerConfig,
+        models: buildStaticProvider().models,
+        apiKey: request.apiKey,
+        discoveryApiKey: request.discoveryApiKey,
+        fetchGuard: request.fetchGuard,
+        signal: request.signal,
+        timeoutMs: params.timeoutMs,
+        ttlMs: params.ttlMs,
+        auditContext: params.auditContext,
+        projectRows: (rows) => projectProviderCatalogSnapshotRows(rows, snapshot),
+      });
+    },
+  };
 }
 
 function resolveLiveModelDiscoveryEndpoint(baseUrl: string, endpointPath: string): string {

@@ -7,6 +7,7 @@
 import { getRuntimeConfigSnapshot } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
+  resolveMessageActionTurnAuthorization,
   resolveMessageActionTurnCapability,
   selectMessageActionRequesterIdentity,
 } from "../gateway/message-action-turn-capability.js";
@@ -91,6 +92,19 @@ function createPluginToolDelivery(params: {
   // Capabilities bind the source policy session, even when plugins execute in
   // a shared or durable session. Keep validation separate from execution identity.
   const policySessionKey = params.options?.agentSessionKey ?? sessionKey;
+  if (
+    resolveMessageActionTurnAuthorization({
+      token,
+      agentId,
+      runId,
+      sessionKey: policySessionKey,
+      sessionId,
+    })?.scheduled
+  ) {
+    // Scheduled grants are consumed by individual message actions. They do not
+    // delegate the source conversation's plugin delivery capability.
+    return undefined;
+  }
   const channelPlugin = activeRegistry.channels.find(
     (entry) => entry.plugin.id === deliveryContext.channel,
   )?.plugin;

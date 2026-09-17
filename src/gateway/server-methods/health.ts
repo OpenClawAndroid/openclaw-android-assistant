@@ -11,7 +11,7 @@ import type { ChannelRuntimeSnapshot } from "../server-channel-runtime.types.js"
 import { HEALTH_REFRESH_INTERVAL_MS } from "../server-constants.js";
 import { formatError } from "../server-utils.js";
 import { shouldScheduleBackgroundHealthRefresh } from "../server/health-refresh-admission.js";
-import { readGatewayProcessVitals } from "../server/process-vitals.js";
+import { readGatewayProcessVitals, readGatewayWorkerPoolFacts } from "../server/process-vitals.js";
 import { respondUnavailableOnThrow } from "./response.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
@@ -172,7 +172,11 @@ export const healthHandlers: GatewayRequestHandlers = {
     });
     respond(
       true,
-      { ...status, ...readGatewayProcessVitals(context.getEventLoopHealth) },
+      {
+        ...status,
+        ...readGatewayProcessVitals(context.getEventLoopHealth),
+        workerPools: await readGatewayWorkerPoolFacts(),
+      },
       undefined,
     );
   },

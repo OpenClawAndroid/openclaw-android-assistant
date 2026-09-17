@@ -1,5 +1,6 @@
 // Defines user-facing config field labels used by schema metadata.
 import { MEDIA_AUDIO_FIELD_LABELS } from "./media-audio-field-metadata.js";
+import { META_FIELD_LABELS } from "./schema.meta.js";
 import { NODE_CAPABILITY_FIELD_LABELS } from "./schema.node-capabilities.js";
 import { CLOUD_WORKER_FIELD_LABELS } from "./zod-schema.cloud-workers.js";
 import { DESKTOP_FIELD_LABELS } from "./zod-schema.desktop.js";
@@ -11,10 +12,7 @@ export const FIELD_LABELS: Record<string, string> = {
   "channels.discord.activities": "Discord Activities",
   "channels.discord.activities.clientSecret": "Discord Activities Client Secret",
   "channels.discord.activities.applicationId": "Discord Activities Application ID",
-  meta: "Compatibility Metadata",
-  "meta.lastTouchedVersion": "Config Last Touched Version",
-  "meta.migrations": "Config Migration Markers",
-  "meta.migrations.modelPolicyAllowlist": "Model Policy Allowlist Migration",
+  ...META_FIELD_LABELS,
   env: "Environment",
   "env.shellEnv": "Shell Environment Import",
   "env.shellEnv.enabled": "Shell Environment Import Enabled",

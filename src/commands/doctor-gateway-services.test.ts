@@ -11,6 +11,12 @@ import type { LaunchctlResult } from "../daemon/launchd-exec.js";
 import type { ServiceConfigAudit } from "../daemon/service-audit.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { withTempDir } from "../test-utils/temp-dir.js";
+import {
+  makeDoctorIo,
+  makeDoctorPrompts,
+  pinSnapshotMock,
+  registerDoctorRuntimePinTests,
+} from "./doctor-gateway-runtime.test-utils.js";
 import { createDoctorPrompter } from "./doctor-prompter.js";
 import {
   readEmbeddedGatewayTokenForTest,
@@ -185,29 +191,6 @@ const originalParentAllowsGatewayServiceRepair =
   process.env.OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_SERVICE_REPAIR;
 const originalParentAllowsGatewayActivation =
   process.env.OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION;
-
-function makeDoctorIo() {
-  return { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
-}
-
-function makeDoctorPrompts() {
-  return {
-    confirm: vi.fn().mockResolvedValue(true),
-    confirmAutoFix: vi.fn().mockResolvedValue(true),
-    confirmAggressiveAutoFix: vi.fn().mockResolvedValue(true),
-    confirmRuntimeRepair: vi.fn().mockResolvedValue(true),
-    select: vi.fn().mockResolvedValue("node"),
-    shouldRepair: false,
-    shouldForce: false,
-    repairMode: {
-      shouldRepair: false,
-      shouldForce: false,
-      nonInteractive: false,
-      canPrompt: true,
-      updateInProgress: false,
-    },
-  };
-}
 
 function mockProcessPlatform(platform: NodeJS.Platform) {
   Object.defineProperty(process, "platform", {
@@ -437,6 +420,7 @@ function setupGatewayTokenRepairScenario() {
 
 describe("maybeRepairGatewayServiceConfig", () => {
   beforeEach(() => {
+    pinSnapshotMock.mockReset().mockReturnValue({ revision: "empty", stored: false });
     vi.clearAllMocks();
     delete process.env.OPENCLAW_GATEWAY_TOKEN;
     fsMocks.realpath.mockImplementation(async (value: string) => value);
@@ -709,6 +693,8 @@ describe("maybeRepairGatewayServiceConfig", () => {
       }
     },
   );
+
+  registerDoctorRuntimePinTests({ mocks, runRepair, createRecommendedServiceAudit });
 
   it("preserves a supported Bun runtime when repairing the Gateway service", async () => {
     const bunPath = "/home/test/.bun/bin/bun";
@@ -2040,6 +2026,7 @@ describe("maybeRepairGatewayServiceConfig", () => {
 
 describe("maybeScanExtraGatewayServices", () => {
   beforeEach(() => {
+    pinSnapshotMock.mockReset().mockReturnValue({ revision: "empty", stored: false });
     vi.clearAllMocks();
     mocks.isContainerEnvironment.mockReturnValue(false);
     mocks.findExtraGatewayServices.mockResolvedValue([]);
@@ -2512,6 +2499,7 @@ describe("maybeResolveDuelingSystemdGatewayScopes", () => {
   };
 
   beforeEach(() => {
+    pinSnapshotMock.mockReset().mockReturnValue({ revision: "empty", stored: false });
     vi.clearAllMocks();
     mocks.findSystemdGatewayInstallation.mockResolvedValue({ kind: "none" });
     mocks.renderGatewayServiceCleanupHints.mockReturnValue([]);

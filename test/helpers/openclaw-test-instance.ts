@@ -331,9 +331,12 @@ async function waitForGatewayReady(
         throw exitedBeforeReadinessError();
       }
 
-      const remainingMs = timeoutMs - (Date.now() - startedAt);
-      const attemptTimeoutMs = Math.min(1_000, Math.max(1, remainingMs));
       const attemptStartedAt = Date.now();
+      const remainingMs = timeoutMs - (attemptStartedAt - startedAt);
+      if (remainingMs <= 0) {
+        break;
+      }
+      const attemptTimeoutMs = Math.min(1_000, Math.max(1, remainingMs));
       const probe: ReadinessProbe = { attempt: ++attempts, phase: "headers", elapsedMs: 0 };
       const probeAbort = new AbortController();
       const abortProbe = () => probeAbort.abort(signal?.reason);

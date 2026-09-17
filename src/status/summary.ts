@@ -476,11 +476,11 @@ export async function getStatusSummary(
 
   const sessionStores =
     options.sessionStores ??
-    readStatusSessionStores(
+    (await readStatusSessionStores(
       cfg,
       agentList.agents,
       includeSensitive ? STATUS_RECENT_SESSION_LIMIT : 0,
-    );
+    ));
   const byAgent = await Promise.all(
     sessionStores.byAgent.map(async ({ agent, path, count, recent }) => ({
       agentId: agent.id,

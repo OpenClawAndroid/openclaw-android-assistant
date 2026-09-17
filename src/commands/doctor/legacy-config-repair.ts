@@ -25,7 +25,10 @@ export function planLegacyConfigForUpdateChannel(
   includeIdentity: LegacyConfigUpdatePlan["includeIdentity"] = {},
 ): LegacyConfigUpdatePlan | undefined {
   const hasAuthoredIncludes = containsAuthoredInclude(configSnapshot.parsed);
-  const migrated = migrateLegacyConfig(configSnapshot.sourceConfig);
+  const migrated = migrateLegacyConfig(configSnapshot.sourceConfig, {
+    authoredRaw: configSnapshot.parsed,
+    resolvedRaw: configSnapshot.sourceConfig,
+  });
   if (!migrated.config) {
     return undefined;
   }

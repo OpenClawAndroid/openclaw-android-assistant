@@ -124,10 +124,15 @@ suite.define(() => {
         })
         .toBe(listCountBeforeBatch + 1);
       if (scenario === "failed refresh" || scenario === "Undo with failed refresh") {
-        await gateway.rejectDeferred("sessions.list", {
+        const error = {
           code: "UNAVAILABLE",
           message: "Archive list refresh unavailable",
+        };
+        // Keep later roster reads failed too: a successful read supplies the real pin timestamp.
+        await gateway.setMethodResponse("sessions.list", {
+          cases: [{ match: rosterMatch, response: { __mockError: error } }],
         });
+        await gateway.rejectDeferred("sessions.list", error);
       } else if (scenario === "Undo without restore events") {
         // These committed events arrive while the original rows are still held.
         // Undo must retire their confirmation even if its own events are dropped.
@@ -213,10 +218,15 @@ suite.define(() => {
           match: rosterMatch,
         });
         if (scenario === "Undo with failed refresh") {
-          await gateway.rejectDeferred("sessions.list", {
+          const error = {
             code: "UNAVAILABLE",
             message: "Undo list refresh unavailable",
+          };
+          // Keep later roster reads failed too: a successful read supplies the real pin timestamp.
+          await gateway.setMethodResponse("sessions.list", {
+            cases: [{ match: rosterMatch, response: { __mockError: error } }],
           });
+          await gateway.rejectDeferred("sessions.list", error);
           await expect
             .poll(() => page.locator("[data-sidebar-session-error]").textContent())
             .toContain("Undo list refresh unavailable");

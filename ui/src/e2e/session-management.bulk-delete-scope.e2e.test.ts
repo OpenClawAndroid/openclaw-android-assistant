@@ -116,6 +116,15 @@ suite.define(() => {
             .result?.sessions.map((row) => row.key) ?? []
         );
       });
+    const settledResearchRevision = () =>
+      page.evaluate(() => {
+        const sessions =
+          document.querySelector<AppSidebarSessionNavigationElement>("openclaw-app-sidebar")
+            ?.sessionData.context?.sessions;
+        return sessions?.state.agentId === "research" && !sessions.state.loading
+          ? sessions.canonicalListRevision
+          : -1;
+      });
     try {
       await page.goto(`${suite.server.baseUrl}chat`);
       await filter("Archived");
@@ -140,20 +149,22 @@ suite.define(() => {
       await rowFor(research[0]!.key).waitFor({ state: "visible" });
       const loadMore = sidebar.getByRole("button", { name: "Load more sessions", exact: true });
       await loadMore.waitFor({ state: "visible" });
+      await expect.poll(settledResearchRevision).toBeGreaterThan(0);
+      const revision = await settledResearchRevision();
       await capture("before-delete-response");
-      // The A-specific filtered read follows both committed deletes and is the
-      // observable barrier that the original presenter has finished its refresh.
-      const previous = (
-        await gateway.getRequests("sessions.list", { agentId: "main", archived: true })
-      ).length;
-      await gateway.deferNext("sessions.list", { agentId: "main", archived: true });
+      // Both deletes settle before the mutation owner reconciles the current
+      // roster. Wait for its accepted publication before testing pagination.
+      const researchQuery = { agentId: "research", includeGlobal: true };
+      const previous = (await gateway.getRequests("sessions.list", researchQuery)).length;
+      await gateway.deferNext("sessions.list", researchQuery);
       await gateway.resolveDeferred("sessions.delete");
       await gateway.waitForRequest("sessions.delete", { match: { key: targets[1]!.key } });
       await gateway.waitForRequest("sessions.list", {
         after: previous,
-        match: { agentId: "main", archived: true },
+        match: researchQuery,
       });
-      await gateway.resolveDeferred("sessions.list", sessionsListResponse([]));
+      await gateway.resolveDeferred("sessions.list");
+      await expect.poll(settledResearchRevision).toBeGreaterThan(revision);
       expect((await gateway.getRequests("sessions.delete")).map(({ params }) => params)).toEqual(
         targets.map((target) =>
           expect.objectContaining({

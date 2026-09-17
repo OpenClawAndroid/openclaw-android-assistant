@@ -36,11 +36,13 @@ import {
   resolveBareModelDefaultProvider,
   resolveConfiguredModelRef,
   resolveHooksGmailModel,
-  resolveModelAliasFromPair,
   resolveModelRefFromString,
   type ModelAliasIndex,
 } from "./model-selection-shared.js";
-export { resolveAllowedModelRefCore as resolveAllowedModelRef } from "./model-selection-resolve.js";
+export {
+  resolveAllowedModelRefCore as resolveAllowedModelRef,
+  resolveModelAliasFromPair,
+} from "./model-selection-resolve.js";
 export { buildAllowedModelSet } from "./model-selection-shared.js";
 export {
   resolveThinkingDefault,
@@ -72,7 +74,6 @@ export {
   resolveBareModelDefaultProvider,
   resolveConfiguredModelRef,
   resolveHooksGmailModel,
-  resolveModelAliasFromPair,
   resolveModelRefFromString,
 };
 export {

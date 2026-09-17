@@ -78,6 +78,35 @@ placement. A conflicting current explicit host setting or required sandbox
 isolation blocks the command instead of moving it to another host. Current tool
 and approval policies still apply.
 
+With `message` in the tool cap, scheduled agent turns can read messages and channel
+information on supported channel plugins without an inbound chat. Operator-created
+jobs use the current operator read policy. Agent-created jobs retain their recorded
+creator origin and account, and the channel's delegated read restrictions still
+apply. Delivery settings do not grant read access.
+
+Current global, agent, profile, and provider tool policy is checked when each new
+scheduled message invocation starts. Configuration changes apply to later invocations;
+an invocation already admitted retains its configuration. Disabling or removing a job,
+withdrawing its `message` capability, or revoking its caller or plugin authority stops
+further affected reads from that occurrence, including pending reads before another
+provider request or result delivery. Re-enabling the job does not restore an
+occurrence's revoked access. Older agent-created jobs
+without recorded creator origin need to be recreated or explicitly reauthorized
+from a fresh authenticated creator turn.
+
+Trusted operator jobs can also use Discord `channel-edit` through `message`,
+including the existing channel and thread edit options. The job needs `message`
+in its tool policy, an enabled account and action, and the bot's required Discord
+permissions. Use an updated Discord plugin with
+[scheduled write support](/plugins/sdk-channel-plugins#scheduled-channel-administration).
+Account-created jobs do not inherit operator administration from this support.
+
+Channel-name lookup and subsequent edit requests retain the current job and
+plugin authority. Configuration changes apply to the next message invocation;
+disabling or narrowing the job itself stops later requests and retries in the
+current invocation. A confirmed edit still returns its result if authority ends
+while the response is pending.
+
 `--model` sets the job's primary model; it does not replace a session `/model` override, so configured fallback chains still apply on top of it. An unresolved or disallowed model fails the run with an explicit validation error rather than silently falling back to the default. If a job has `--model` but no explicit or configured fallback list, OpenClaw passes an empty fallback override instead of silently appending the agent primary as a hidden retry target.
 
 Pick the model for the job's difficulty, not the agent's default. Routine

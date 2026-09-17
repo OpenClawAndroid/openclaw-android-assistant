@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import { createTestGatewayClient } from "../../test-helpers/gateway-client.ts";
-import { invalidateChatMetadataStore, type ChatMetadataResult } from "./chat-metadata-cache.ts";
+import {
+  invalidateChatMetadataForSessionEvent,
+  invalidateChatMetadataStore,
+  type ChatMetadataResult,
+} from "./chat-metadata-cache.ts";
 import {
   beginChatMetadataPublication,
   loadChatMetadata,
@@ -16,6 +20,76 @@ const commands: ChatMetadataResult = { commands: [] };
 const models = [{ id: "fresh", name: "Fresh", provider: "test" }];
 
 describe("automatic metadata admission", () => {
+  it("reuses metadata across concurrent presentations and route remounts until invalidated", async () => {
+    let metadataReads = 0;
+    const client = createTestGatewayClient((method) => {
+      if (method === "chat.metadata") {
+        metadataReads += 1;
+        return Promise.resolve(commands);
+      }
+      return Promise.resolve({ models });
+    });
+    let release = subscribeChatMetadata(client, scope, () => {});
+    const first = loadChatMetadataRefresh(client, scope);
+    const concurrent = loadChatMetadataRefresh(client, scope);
+    await Promise.all([first.completed, concurrent.completed]);
+    expect(metadataReads).toBe(1);
+    release();
+
+    release = subscribeChatMetadata(client, scope, () => {});
+    await loadChatMetadataRefresh(client, scope).completed;
+    expect(metadataReads).toBe(1);
+    release();
+
+    invalidateChatMetadataStore(client, scope);
+    release = subscribeChatMetadata(client, scope, () => {});
+    await loadChatMetadataRefresh(client, scope).completed;
+    expect(metadataReads).toBe(2);
+    release();
+  });
+
+  it.each([
+    { reason: "delete", sessionKey: scope.sessionKey },
+    { reason: "create", sessionKey: scope.sessionKey },
+    { reason: "new", sessionKey: scope.sessionKey },
+    { reason: "recovery", sessionKey: scope.sessionKey },
+    { reason: "delete", sessionKey: undefined },
+    { reason: "cleanup", sessionKey: undefined },
+  ])("retires cached sessions before remount after $reason ($sessionKey)", async (event) => {
+    const retiredCommands: ChatMetadataResult = {
+      commands: [
+        {
+          name: "retired",
+          description: "Retired",
+          source: "native",
+          scope: "text",
+          acceptsArgs: false,
+        },
+      ],
+    };
+    let metadataReads = 0;
+    const client = createTestGatewayClient((method) => {
+      if (method === "chat.metadata") {
+        metadataReads += 1;
+        return Promise.resolve(metadataReads === 1 ? retiredCommands : commands);
+      }
+      return Promise.resolve({ models });
+    });
+    const draft = { agentId: "main" };
+    beginChatMetadataPublication(client, draft).publish(commands);
+    let release = subscribeChatMetadata(client, scope, () => {});
+    await loadChatMetadataRefresh(client, scope).completed;
+    release();
+
+    invalidateChatMetadataForSessionEvent(client, { ...event, agentId: "main" }, {});
+    release = subscribeChatMetadata(client, scope, () => {});
+    await loadChatMetadataRefresh(client, scope).completed;
+    expect(metadataReads).toBe(2);
+    expect(peekChatMetadata(client, scope)).toEqual(commands);
+    expect(peekChatMetadata(client, draft)).toEqual(commands);
+    release();
+  });
+
   it.each(["metadata", "catalog"] as const)(
     "rechecks hidden demand after both producers settle with %s first",
     async (first) => {

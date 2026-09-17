@@ -23,6 +23,7 @@ import {
 } from "./prepared-model-catalog-owner.js";
 import * as runtimeBuild from "./prepared-model-runtime.build.js";
 import { startSerializedSnapshotBuildBatch } from "./prepared-model-runtime.build.js";
+import * as runtimeFacts from "./prepared-model-runtime.facts.js";
 import {
   acquireAgentRunPreparedModelRuntime,
   acquireReadOnlyPreparedModelRuntime,
@@ -313,15 +314,24 @@ describe("prepared build candidate lifetime", () => {
   });
 
   it("fails a timed-out publication without overlapping its late build with a retry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     getPreparedModelRuntimeTestApi().setModelRuntimeBuildTimeoutMsForTest(1);
+    const sourceStarted = createDeferred();
     const source = createDeferred<{ agentDir: string; wrote: false }>();
-    mocks.ensureOpenClawModelsJson.mockImplementationOnce(async () => await source.promise);
+    mocks.ensureOpenClawModelsJson.mockImplementationOnce(async () => {
+      sourceStarted.resolve();
+      return await source.promise;
+    });
     const input = { config: {}, agentDir: state.agentDir("timeout") };
     const builds = vi.spyOn(runtimeBuild, "startSerializedSnapshotBuildBatch");
+    const publication = publishPreparedModelRuntimeSnapshot(input);
+    const timedOut = expect(publication).rejects.toThrow(
+      "prepared model runtime publication (agent catalog sources) timed out",
+    );
     try {
-      await expect(publishPreparedModelRuntimeSnapshot(input)).rejects.toThrow(
-        "prepared model runtime publication (agent catalog sources) timed out",
-      );
+      await sourceStarted.promise;
+      await vi.advanceTimersByTimeAsync(1);
+      await timedOut;
       await expect(prepareModelRuntimeSnapshot(input)).rejects.toThrow(
         "prepared model runtime publication (agent catalog sources) timed out",
       );
@@ -342,6 +352,7 @@ describe("prepared build candidate lifetime", () => {
       source.resolve({ agentDir: input.agentDir, wrote: false });
       await Promise.all(builds.mock.results.map((result) => result.value.completion));
       builds.mockRestore();
+      vi.useRealTimers();
     }
   });
 
@@ -496,7 +507,7 @@ describe("prepared build candidate lifetime", () => {
           await expect(snapshot.loadFullModelCatalog!()).rejects.toThrow("superseded");
         }
       }
-      expect(mocks.prepareStaticCatalog).toHaveBeenCalledOnce();
+      expect(mocks.prepareStaticCatalog).toHaveBeenCalledTimes(allowed ? 1 : 0);
     } finally {
       await started.completion;
     }
@@ -510,12 +521,20 @@ describe("prepared build candidate lifetime", () => {
         agentDir: state.agentDir("candidate-checkpoint"),
         readOnly: true,
       };
+      let current = checkpoint === "after";
+      const prepareWorkspace = runtimeFacts.prepareWorkspaceBuildGroup;
+      const preparation = vi
+        .spyOn(runtimeFacts, "prepareWorkspaceBuildGroup")
+        .mockImplementationOnce(async (...args) => {
+          const prepared = await prepareWorkspace(...args);
+          current = false;
+          return prepared;
+        });
       const candidate = {
         input,
         catalogOwner: preparePublishedModelCatalogOwnerIdentity(input),
-        isGenerationCurrent: () => false,
-        isBuildCurrent: () => false,
-        ...(checkpoint === "before" ? { isPreparationCurrent: () => false } : {}),
+        isGenerationCurrent: () => current,
+        isBuildCurrent: () => current,
       };
       const build = startSerializedSnapshotBuildBatch([candidate], new Map(), 1_000, "static");
       try {
@@ -524,6 +543,7 @@ describe("prepared build candidate lifetime", () => {
         expect(mocks.discoverModels).not.toHaveBeenCalled();
       } finally {
         await build.completion;
+        preparation.mockRestore();
       }
     },
   );

@@ -1,5 +1,5 @@
 // Builds CI node/Vitest shard plans from the full suite configuration.
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { matchesGlob, relative } from "node:path";
 import {
   agentVitestProjectOwners,
@@ -140,6 +140,17 @@ type PolicyTestWatch = {
 // this inventory covers the remaining tests that changed targeting cannot
 // discover from imports alone.
 const policyTestWatches = [
+  {
+    testFile: "test/scripts/pr-worktree-provision.test.ts",
+    ownerGlobs: ["scripts/pr-lib/wrapper-components.txt"],
+    watchGlobs: [
+      "scripts/pr",
+      "scripts/pr-lib/**",
+      ...readFileSync(new URL("../pr-lib/wrapper-components.txt", import.meta.url), "utf8")
+        .trim()
+        .split("\n"),
+    ],
+  },
   {
     testFile: "ui/src/components/web-awesome-migration.node.test.ts",
     watchGlobs: ["ui/src/**/*.ts"],

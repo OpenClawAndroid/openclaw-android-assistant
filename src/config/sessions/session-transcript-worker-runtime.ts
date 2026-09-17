@@ -195,6 +195,7 @@ const historyClearTimeout = clearTimeout;
 let historyIdleTimer: NodeJS.Timeout | undefined;
 let historyGeneration = 0;
 let historyNativeSequence = 0;
+let historyRetiredSequence = 0;
 
 function pruneHistoryDatabases(): void {
   for (const [key, resource] of historyDatabases) {
@@ -209,6 +210,7 @@ function rotateHistoryWorkers(): Promise<void> {
   const through = historyNativeSequence;
   // rotate pauses dispatch synchronously; later factories receive a greater sequence.
   return historyPages.rotate().then(() => {
+    historyRetiredSequence = Math.max(historyRetiredSequence, through);
     for (const resource of historyDatabases.values()) {
       if (resource.nativeSequence !== undefined && resource.nativeSequence <= through) {
         resource.nativeSequence = undefined;
@@ -218,10 +220,11 @@ function rotateHistoryWorkers(): Promise<void> {
   });
 }
 
+// Missing reads can leave an idle worker without retaining any database custody.
 function armHistoryIdleRetirement(): void {
   historyClearTimeout(historyIdleTimer);
   if (
-    !historyDatabases.size ||
+    historyNativeSequence <= historyRetiredSequence ||
     [...historyDatabases.values()].some((resource) => resource.pending)
   ) {
     return;
@@ -309,14 +312,11 @@ export async function withSessionHistoryWorkerDatabase<T>(
           { inputBytes, timeoutMs: 60_000 },
         );
         const value = receive(unwrapReply<"history-page" | "session-row-presence">(reply));
-        // The worker closes the previous database before entering this request's scope.
-        for (const other of historyDatabases.values()) {
-          if (
-            other !== owned &&
-            other.nativeSequence !== undefined &&
-            other.nativeSequence < sequence
-          ) {
-            other.nativeSequence = undefined;
+        if (reply.ok && reply.closedHistoryDatabase) {
+          const closed = historyDatabases.get(JSON.stringify(reply.closedHistoryDatabase));
+          // A later dispatched request may already hold this target's next native custody.
+          if (closed?.nativeSequence !== undefined && closed.nativeSequence <= sequence) {
+            closed.nativeSequence = undefined;
           }
         }
         assertCurrent();

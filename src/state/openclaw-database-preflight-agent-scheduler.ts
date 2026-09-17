@@ -1,8 +1,15 @@
+import { createAgentSchemaInspectionWorker } from "./openclaw-agent-schema-inspection-worker.js";
 import type { OpenClawDatabaseSchemaPreflight } from "./openclaw-database-preflight.types.js";
 
 // Snapshot preparation can be disk-heavy; overlap one additional agent
 // without fanning out across every registered database.
 export const AGENT_DATABASE_PREFLIGHT_CONCURRENCY = 2;
+
+export type AgentDatabasePreflightStats = {
+  schemaProcessCount: number;
+  schemaInspectionCount: number;
+  schemaSnapshotCount: number;
+};
 
 export async function preflightAgentDatabasesBounded<T>(
   targets: readonly T[],
@@ -10,10 +17,11 @@ export async function preflightAgentDatabasesBounded<T>(
     target: T,
     inspection: OpenClawDatabaseSchemaPreflight,
     claimAgentTarget: (realPath: string, agentId: string | undefined) => boolean,
+    inspectSchema: ReturnType<typeof createAgentSchemaInspectionWorker>["inspect"],
   ) => Promise<void>,
   result: OpenClawDatabaseSchemaPreflight,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<AgentDatabasePreflightStats> {
   const inspectedAgentPaths = new Set<string>();
   const inspectedAgentTargets = new Set<string>();
   const claimAgentTarget = (realPath: string, agentId: string | undefined) => {
@@ -32,8 +40,11 @@ export async function preflightAgentDatabasesBounded<T>(
   const inspections: Array<OpenClawDatabaseSchemaPreflight | undefined> = [];
   const failures = new Map<number, unknown>();
   let nextInspectionIndex = 0;
+  const readers: ReturnType<typeof createAgentSchemaInspectionWorker>[] = [];
 
   const worker = async () => {
+    await using reader = createAgentSchemaInspectionWorker();
+    readers.push(reader);
     while (true) {
       if (signal?.aborted || failures.size > 0) {
         return;
@@ -55,7 +66,7 @@ export async function preflightAgentDatabasesBounded<T>(
         indeterminate: [],
       };
       try {
-        await inspect(target, inspection, claimAgentTarget);
+        await inspect(target, inspection, claimAgentTarget, reader.inspect);
         inspections[index] = inspection;
       } catch (error) {
         failures.set(index, error);
@@ -96,4 +107,9 @@ export async function preflightAgentDatabasesBounded<T>(
       (result.pendingMigrations ??= []).push(...inspection.pendingMigrations);
     }
   }
+  return {
+    schemaProcessCount: readers.reduce((count, reader) => count + reader.processCount, 0),
+    schemaInspectionCount: readers.reduce((count, reader) => count + reader.inspectionCount, 0),
+    schemaSnapshotCount: readers.reduce((count, reader) => count + reader.snapshotCount, 0),
+  };
 }

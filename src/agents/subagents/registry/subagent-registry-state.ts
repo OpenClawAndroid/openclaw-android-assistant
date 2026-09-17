@@ -1,3 +1,4 @@
+import { expectDefined } from "@openclaw/normalization-core";
 import { isVitestRuntimeEnv } from "../../../infra/env.js";
 import {
   emitSessionLifecycleEvent,
@@ -31,7 +32,10 @@ import {
   saveSubagentRegistryToSqlite,
 } from "./subagent-registry.store.sqlite.js";
 import type { SubagentRunMaintenanceRecord, SubagentRunRecord } from "./subagent-registry.types.js";
-import { collectSubagentSessionReadKeys } from "./subagent-session-read-scope.js";
+import {
+  collectSubagentSessionReadKeys,
+  SubagentSessionReadLookup,
+} from "./subagent-session-read-scope.js";
 
 type SubagentRunsCacheFill<T extends SubagentRunReadRecord> = {
   promise: Promise<void>;
@@ -39,8 +43,8 @@ type SubagentRunsCacheFill<T extends SubagentRunReadRecord> = {
 };
 
 type SubagentRunsCacheState<T extends SubagentRunReadRecord> = (
-  | { snapshot: Map<string, T>; changes?: never }
-  | { snapshot?: undefined; changes?: Map<string, T | undefined> }
+  | { snapshot: Map<string, T>; changes?: never; lookup?: SubagentSessionReadLookup }
+  | { snapshot?: undefined; changes?: Map<string, T | undefined>; lookup?: never }
 ) & {
   context?: OpenClawStateWorkerContext;
   pending?: SubagentRunsCacheFill<T>;
@@ -232,6 +236,9 @@ function rememberSubagentRunsSnapshot<T extends SubagentRunReadRecord>(
     cache.state = previous;
     return;
   }
+  const lookup = previous.lookup;
+  // A failed projection/update cannot leave derived membership ahead of its Map.
+  previous.lookup = undefined;
   for (const runId of new Set(changedRunIds)) {
     const entry = runs.get(runId);
     if (entry) {
@@ -239,8 +246,9 @@ function rememberSubagentRunsSnapshot<T extends SubagentRunReadRecord>(
     } else {
       snapshot.delete(runId);
     }
+    lookup?.set(runId, snapshot.get(runId));
   }
-  cache.state = { snapshot, context };
+  cache.state = { snapshot, context, ...(lookup ? { lookup } : {}) };
 }
 
 function rememberPersistedSubagentRunsSnapshot(
@@ -295,6 +303,20 @@ function loadPersistedSubagentRunsForRead<T extends SubagentRunReadRecord>(
   const runs = applySubagentRunChanges(cache.load(), cache.state.changes);
   cache.state = { snapshot: runs, context: cache.captureContext?.() };
   return runs;
+}
+
+function getSessionListLookup<T extends SubagentRunReadRecord>(
+  cache: SubagentRunsCache<T>,
+): SubagentSessionReadLookup | undefined {
+  const state = cache.state;
+  if (cache !== persistedSubagentSessionListRunsReadCache || !state.snapshot) {
+    return undefined;
+  }
+  return (state.lookup ??= new SubagentSessionReadLookup(state.snapshot));
+}
+
+function indexedSnapshotRows<T>(snapshot: Map<string, T>, keys: readonly string[]): T[] {
+  return keys.map((key) => expectDefined(snapshot.get(key), "indexed subagent cache entry"));
 }
 
 export function clearSubagentRunsReadCacheForTest(): void {
@@ -584,8 +606,16 @@ export function getSubagentSessionListRunsSnapshotForRead(
     if (keys.size === 0) {
       return new Map();
     }
-    return getSubagentRunsSnapshot(inMemoryRuns, persistedSubagentSessionListRunsReadCache, {
-      load: () => loadSubagentSessionListRunsFromSqlite([...keys]).values(),
+    const cache = persistedSubagentSessionListRunsReadCache;
+    return getSubagentRunsSnapshot(inMemoryRuns, cache, {
+      fresh: true,
+      load: () => {
+        const cached = getPersistedSubagentRunsSnapshot(cache);
+        const lookup = cached ? getSessionListLookup(cache) : undefined;
+        return cached && lookup
+          ? indexedSnapshotRows(cached, lookup.selectControllers(keys))
+          : loadSubagentSessionListRunsFromSqlite([...keys]).values();
+      },
       matches: (entry) => keys.has(entry.controllerSessionKey?.trim() || entry.requesterSessionKey),
     });
   }
@@ -602,11 +632,11 @@ function getSubagentSessionTreeSnapshot<T extends SubagentRunReadRecord>(
     return new Map();
   }
   const cached = shouldReadPersistedSubagentRuns() ? getPersistedSubagentRunsSnapshot(cache) : null;
-  let selected = collectSubagentSessionReadKeys(
-    sessionKeys,
-    cached?.values() ?? [],
-    inMemoryRuns.values(),
-  );
+  const lookup = cached ? getSessionListLookup(cache) : undefined;
+  const indexed = lookup?.selectSessions(sessionKeys, inMemoryRuns.values());
+  let selected =
+    indexed?.sessionKeys ??
+    collectSubagentSessionReadKeys(sessionKeys, cached?.values() ?? [], inMemoryRuns.values());
   return getSubagentRunsSnapshot(inMemoryRuns, cache, {
     // The loader owns cache selection so topology and metadata use the same source.
     fresh: true,
@@ -614,21 +644,33 @@ function getSubagentSessionTreeSnapshot<T extends SubagentRunReadRecord>(
     borrowPersisted: true,
     load: () => {
       if (cached) {
-        return cached.values();
+        return indexed ? indexedSnapshotRows(cached, indexed.cacheKeys) : cached.values();
       }
       const snapshot = load();
       // A tree covering every physical row may populate the existing full cache.
       if (snapshot.complete) {
         applySubagentRunChanges(snapshot.runs, cache.state.changes);
-        snapshot.sessionKeys = collectSubagentSessionReadKeys(
-          sessionKeys,
-          snapshot.runs.values(),
-          inMemoryRuns.values(),
-        );
+        const loadedLookup =
+          cache === persistedSubagentSessionListRunsReadCache
+            ? new SubagentSessionReadLookup(snapshot.runs)
+            : undefined;
+        const loadedIndex = loadedLookup?.selectSessions(sessionKeys, inMemoryRuns.values());
+        snapshot.sessionKeys =
+          loadedIndex?.sessionKeys ??
+          collectSubagentSessionReadKeys(
+            sessionKeys,
+            snapshot.runs.values(),
+            inMemoryRuns.values(),
+          );
         cache.state = {
           snapshot: snapshot.runs,
           context: cache.captureContext?.(),
+          ...(loadedLookup ? { lookup: loadedLookup } : {}),
         };
+        if (loadedIndex) {
+          selected = snapshot.sessionKeys;
+          return indexedSnapshotRows(snapshot.runs, loadedIndex.cacheKeys);
+        }
       }
       selected = snapshot.sessionKeys;
       return snapshot.runs.values();

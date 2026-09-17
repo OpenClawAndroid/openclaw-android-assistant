@@ -46,6 +46,7 @@ import {
 import { DEDUPE_MAX, DEDUPE_TTL_MS } from "../server-constants.js";
 import { startGatewayMaintenanceTimers } from "../server-maintenance.js";
 import { createGatewayMaintenanceStateForTest } from "../test-helpers.maintenance-state.js";
+import { messageActionContextFromSessionKeyForTests } from "./send.test-helpers.js";
 import type { GatewayRequestContext } from "./types.js";
 
 type ResolveOutboundTarget = typeof import("../../infra/outbound/targets.js").resolveOutboundTarget;
@@ -108,7 +109,8 @@ vi.mock("../../channels/plugins/index.js", () => ({
   normalizeChannelId: (value: string) => (value === "webchat" ? null : value),
 }));
 
-vi.mock("../../channels/plugins/message-action-dispatch.js", () => ({
+vi.mock("../../channels/plugins/message-action-dispatch.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../channels/plugins/message-action-dispatch.js")>()),
   dispatchChannelMessageAction: mocks.dispatchChannelMessageAction,
   prepareExternalMessageActionTargetForResolution: (ctx: { params: Record<string, unknown> }) => ({
     params: ctx.params,
@@ -137,37 +139,6 @@ function resolveAgentIdFromSessionKeyForTests(params: {
     }
   }
   return explicitAgentId ?? "main";
-}
-
-function messageActionContextFromSessionKeyForTests(sessionKey: string): {
-  expiresAtMs: number;
-  toolContext?: {
-    currentChannelProvider?: string;
-    currentChannelId?: string;
-    currentChatType?: "direct" | "group" | "channel";
-  };
-} {
-  const parts = sessionKey.split(":");
-  const provider = parts[2];
-  const peerKind = parts[3];
-  const peerId = parts.slice(4).join(":");
-  const currentChatType =
-    peerKind === "direct" || peerKind === "dm"
-      ? "direct"
-      : peerKind === "group" || peerKind === "channel"
-        ? peerKind
-        : undefined;
-  return {
-    expiresAtMs: Date.now() + 60_000,
-    toolContext:
-      provider && peerId
-        ? {
-            currentChannelProvider: provider,
-            currentChannelId: peerId,
-            currentChatType,
-          }
-        : undefined,
-  };
 }
 
 vi.mock("../../agents/agent-scope.js", async (importOriginal) => ({

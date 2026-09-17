@@ -625,13 +625,10 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
       refreshInternal(options, true, undefined, "automatic"),
     refreshAutomatic: (options: SessionRefreshOptions) =>
       refreshInternal(options, false, undefined, "automatic"),
-    refreshReplacement: (agentId?: string | null) =>
-      refreshInternal(
-        replacementOptions(agentId),
-        false,
-        undefined,
-        agentId?.trim() ? "explicit" : "automatic",
-      ).then((attempt) => (attempt?.matchesRequestedQuery ? attempt.result : null)),
+    refreshReplacement: () =>
+      refreshInternal(replacementOptions(), false, undefined, "automatic").then((attempt) =>
+        attempt?.matchesRequestedQuery ? attempt.result : null,
+      ),
     refreshSelection: (selectedAgent: () => string | null, foreground = false) => {
       if (foreground) {
         // Navigation supersedes the previous request's publication and drain ownership.

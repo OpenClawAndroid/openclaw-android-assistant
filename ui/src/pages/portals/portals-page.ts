@@ -12,6 +12,7 @@ import { titleForRoute } from "../../app-navigation.ts";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import { icon } from "../../components/icons.ts";
 import { t } from "../../i18n/index.ts";
+import { registerPortalsEnglish } from "../../i18n/locales/en-portals.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import { canCallGatewayMethod, isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
@@ -20,6 +21,8 @@ import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { probePortalReachable, type PortalReachability } from "./portal-reachability.ts";
 import { resolvePortalUrl } from "./portal-url.ts";
 import "./portals.css";
+
+registerPortalsEnglish();
 
 const PORTAL_FRAME_SANDBOX =
   "allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts";

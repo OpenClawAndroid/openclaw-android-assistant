@@ -1,7 +1,11 @@
 // Session store target discovery maps configured and on-disk agent stores to canonical targets.
 import fsSync from "node:fs";
 import path from "node:path";
-import { resolveAgentDir, resolveConfiguredAgentId } from "../../agents/agent-scope-config.js";
+import {
+  resolveAgentDir,
+  resolveAgentEntry,
+  resolveConfiguredAgentId,
+} from "../../agents/agent-scope-config.js";
 import { listAgentEntries, listAgentIds, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { resolveAgentSessionDirsFromAgentsDirSync } from "../../agents/session-dirs.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
@@ -149,6 +153,9 @@ export function listKnownSessionStoreAgentIds(
 /** Checks whether an agent is configured to own a session store. */
 export function isConfiguredSessionStoreAgentId(cfg: OpenClawConfig, agentId: string): boolean {
   const normalizedAgentId = normalizeAgentId(agentId);
+  if (resolveAgentEntry(cfg, normalizedAgentId)) {
+    return true;
+  }
   return listConfiguredSessionStoreAgentIds(cfg).includes(normalizedAgentId);
 }
 

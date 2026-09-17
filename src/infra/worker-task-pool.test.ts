@@ -285,6 +285,46 @@ describe("worker task pool", () => {
     expect(await pool.run({ label: "recovered" }, {})).toMatchObject({ label: "recovered" });
   });
 
+  it("keeps a shared worker healthy when an input factory rejects before dispatch", async () => {
+    const pool = createPool({
+      workerUrl,
+      restartOnError: false,
+      idleTimeoutMs: 0,
+      maxPendingTasks: 2,
+      maxPendingBytes: 16,
+    });
+    const first = await pool.run({ label: "first" }, {});
+    const input = createDeferredCore<PoolFixtureInput>();
+    const reason = new Error("queued catalog owner superseded");
+    const released = vi.fn();
+    const rejected = pool.run(() => input.promise, {
+      inputBytes: 8,
+      onInputConsumed: released,
+    });
+    const sibling = pool.run({ label: "sibling" }, { inputBytes: 8 });
+    const settled = Promise.allSettled([rejected, sibling]);
+    input.reject(reason);
+
+    expect(await settled).toEqual([
+      { status: "rejected", reason },
+      {
+        status: "fulfilled",
+        value: expect.objectContaining({ label: "sibling", threadId: first.threadId }),
+      },
+    ]);
+    expect(released).toHaveBeenCalledOnce();
+    await expect(pool.run({ label: "later" }, { inputBytes: 16 })).resolves.toMatchObject({
+      label: "later",
+      threadId: first.threadId,
+    });
+    expect(pool.getSnapshot()).toMatchObject({
+      workers: 1,
+      workersCreated: 1,
+      activeTasks: 0,
+      pendingTasks: 0,
+    });
+  });
+
   it.each(["tasks", "bytes"] as const)(
     "rejects excess pending %s and releases rejected inputs in caller context",
     async (bound) => {

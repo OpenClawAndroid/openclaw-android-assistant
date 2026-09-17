@@ -182,7 +182,7 @@ const SystemAgentToolSchema = Type.Object({
   path: Type.Optional(
     Type.String({
       description:
-        "Config path for config_* actions; absolute packed archive path for plugin_activate_artifact",
+        "Dotted config key for config_* actions, e.g. gateway.port or agents.defaults.model; use . for the root schema. For plugin_activate_artifact only, an absolute archive file path.",
     }),
   ),
   sha256: Type.Optional(

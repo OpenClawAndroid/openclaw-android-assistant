@@ -23,6 +23,10 @@ export class OpenClawAgentDatabaseReadOnlyScope {
   private database?: OpenClawAgentReadOnlyDatabaseHandle;
   private target?: { agentId: string; path: string };
 
+  get hasRetainedConnection(): boolean {
+    return this.database !== undefined;
+  }
+
   close(): void {
     const database = this.database;
     // Descendant async contexts retain this object after run returns. Revoke reuse first.

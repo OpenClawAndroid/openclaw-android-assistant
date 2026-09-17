@@ -10,10 +10,13 @@ import {
 import {
   channelSupportsMessageCapability,
   channelSupportsMessageCapabilityForChannel,
+  createMessageActionDiscoveryContext,
   type ChannelMessageActionDiscoveryInput,
   listCrossChannelSchemaSupportedMessageActions,
+  listMessageActionDiscoveryChannels,
   type PreparedMessageToolCatalog,
   resolveChannelMessageToolSchemaProperties,
+  resolveMessageActionDiscoveryForPlugin,
 } from "../../channels/plugins/message-action-discovery.js";
 import type { ChannelMessageCapability } from "../../channels/plugins/message-capabilities.js";
 import type { ChannelMessageActionName } from "../../channels/plugins/types.public.js";
@@ -41,6 +44,8 @@ export type MessageToolDiscoveryParams = {
   agentId?: string;
   requesterSenderId?: string;
   senderIsOwner?: boolean;
+  /** Host-redeemed scheduled account; never changes the current delivery context. */
+  scheduledAccountScope?: { channel?: string; accountId: string };
   preparedMessageToolCatalog?: PreparedMessageToolCatalog;
 };
 
@@ -209,6 +214,20 @@ export function resolveEffectiveCurrentChannelContext(
   };
 }
 
+function resolveDiscoveryAccountId(
+  params: MessageToolDiscoveryParams,
+  channel: string | undefined,
+  contextualAccountId: ChannelMessageActionDiscoveryInput["accountId"],
+): ChannelMessageActionDiscoveryInput["accountId"] {
+  const scope = params.scheduledAccountScope;
+  const scopedChannel = normalizeMessageChannel(scope?.channel);
+  return scope &&
+    (scope.channel === undefined ||
+      (scopedChannel !== undefined && scopedChannel === normalizeMessageChannel(channel)))
+    ? scope.accountId
+    : contextualAccountId;
+}
+
 function buildMessageActionDiscoveryInput(
   params: MessageToolDiscoveryParams,
   channel?: string,
@@ -220,7 +239,7 @@ function buildMessageActionDiscoveryInput(
     currentChannelId: params.currentChannelId,
     currentThreadTs: params.currentThreadTs,
     currentMessageId: params.currentMessageId,
-    accountId: params.currentAccountId,
+    accountId: resolveDiscoveryAccountId(params, channel, params.currentAccountId),
     sessionKey: params.sessionKey,
     sessionId: params.sessionId,
     agentId: params.agentId,
@@ -272,7 +291,19 @@ export function resolveMessageToolActionSchemaActions(
 }
 
 function listAllMessageToolActions(params: MessageToolDiscoveryParams): ChannelMessageActionName[] {
-  const pluginActions = listAllChannelSupportedActions(buildMessageActionDiscoveryInput(params));
+  const pluginActions = params.scheduledAccountScope?.channel
+    ? listMessageActionDiscoveryChannels(params.preparedMessageToolCatalog).flatMap(
+        (plugin) =>
+          resolveMessageActionDiscoveryForPlugin({
+            pluginId: plugin.id,
+            actions: plugin.actions,
+            context: createMessageActionDiscoveryContext(
+              buildMessageActionDiscoveryInput(params, plugin.id),
+            ),
+            includeActions: true,
+          }).actions,
+      )
+    : listAllChannelSupportedActions(buildMessageActionDiscoveryInput(params));
   return uniqueValues<ChannelMessageActionName>(["send", "broadcast", ...pluginActions]);
 }
 
@@ -286,6 +317,23 @@ function resolveIncludeCapability(
       buildMessageActionDiscoveryInput(params, currentChannel),
       capability,
     );
+  }
+  if (params.scheduledAccountScope) {
+    const capabilities = listMessageActionDiscoveryChannels(params.preparedMessageToolCatalog).map(
+      (plugin) => {
+        const accountId = resolveDiscoveryAccountId(params, plugin.id, undefined);
+        return resolveMessageActionDiscoveryForPlugin({
+          pluginId: plugin.id,
+          actions: plugin.actions,
+          context: {
+            cfg: params.cfg,
+            ...(accountId !== undefined ? { accountId } : {}),
+          },
+          includeCapabilities: true,
+        }).capabilities;
+      },
+    );
+    return capabilities.some((values) => values.includes(capability));
   }
   return channelSupportsMessageCapability(
     params.cfg,
@@ -328,12 +376,16 @@ export function buildMessageToolSchema(params: MessageToolDiscoveryParams, actio
   const includePresentation = resolveIncludePresentation(params);
   const includeDeliveryPin = resolveIncludeDeliveryPin(params);
   const includeBestEffort = resolveIncludeBestEffort(params);
-  const extraProperties = resolveChannelMessageToolSchemaProperties(
-    buildMessageActionDiscoveryInput(
+  const extraProperties = resolveChannelMessageToolSchemaProperties({
+    ...buildMessageActionDiscoveryInput(
       params,
       normalizeMessageChannel(params.currentChannelProvider) ?? undefined,
     ),
-  );
+    resolveAccountIdForChannel: params.scheduledAccountScope
+      ? (channel, contextualAccountId) =>
+          resolveDiscoveryAccountId(params, channel, contextualAccountId)
+      : undefined,
+  });
   return buildMessageToolSchemaFromActions(
     actions.length > 0 ? actions : ["send"],
     {

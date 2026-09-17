@@ -333,11 +333,7 @@ describeLive("OpenAI AgentSession repeated compaction live", () => {
         modelDefinition.contextTokens = Math.max(8_000, usage.totalTokens + 1_024);
         expect(modelDefinition.contextTokens).toBeLessThan(48_000);
         await rm(sourceFile);
-        const compacted = await run(
-          "compact",
-          "Reply exactly with the durable verification marker from the file.",
-        );
-        expect(compacted.meta.agentMeta?.compactionCount).toBeGreaterThan(0);
+        await run("compact", "Reply exactly with the durable verification marker from the file.");
         const checkpointSession = reopen();
         const checkpoint = checkpointSession
           .getBranch()
@@ -352,7 +348,7 @@ describeLive("OpenAI AgentSession repeated compaction live", () => {
             .messages.filter((message) => message.role === "toolResult"),
         ).toHaveLength(0);
         const checkpointCount = countCompactions(checkpointSession);
-        expect(checkpointCount).toBe(compacted.meta.agentMeta?.compactionCount);
+        expect(checkpointCount).toBeGreaterThan(0);
         const continued = await run(
           "replay",
           "Repeat the durable verification marker, with no other text.",

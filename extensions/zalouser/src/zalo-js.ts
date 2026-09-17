@@ -66,6 +66,7 @@ const GROUP_CONTEXT_CACHE_TTL_MS = 5 * 60_000;
 const GROUP_CONTEXT_CACHE_MAX_ENTRIES = 500;
 const LISTENER_WATCHDOG_INTERVAL_MS = 30_000;
 const LISTENER_WATCHDOG_MAX_GAP_MS = 35_000;
+const LISTENER_HANDSHAKE_TIMEOUT_MS = 30_000;
 const ZALO_TIMESTAMP_MS_THRESHOLD = 1_000_000_000_000;
 const MAX_SAFE_ZALO_TIMESTAMP_SECONDS = Number.MAX_SAFE_INTEGER / 1000;
 
@@ -1732,85 +1733,65 @@ export async function startZaloListener(params: {
   onError: (error: Error) => void;
 }): Promise<{ stop: () => void }> {
   const profile = normalizeProfile(params.profile);
-
+  const api = await withZaloApi(profile, async (apiLocal) => apiLocal);
   const existing = activeListeners.get(profile);
   if (existing) {
     throw new Error(
       `Zalo listener already running for profile "${profile}" (account "${existing.accountId}")`,
     );
   }
-
-  const api = await withZaloApi(profile, async (apiLocal) => apiLocal);
+  if (params.abortSignal.aborted) {
+    return { stop: () => {} };
+  }
   let stopped = false;
-  let watchdogTimer: ReturnType<typeof setInterval> | null = null;
   let lastWatchdogTickAt = Date.now();
-
+  const onConnected = () => clearTimeout(connectTimer);
+  const detachTerminalHandlers = () => {
+    api.listener.off("error", onError);
+    api.listener.off("closed", onClosed);
+  };
   const cleanup = () => {
     if (stopped) {
       return;
     }
     stopped = true;
-    if (watchdogTimer) {
-      clearInterval(watchdogTimer);
-      watchdogTimer = null;
-    }
-    try {
-      api.listener.off("message", onMessage);
-      api.listener.off("error", onError);
-      api.listener.off("closed", onClosed);
-    } catch {
-      // ignore listener detachment errors
-    }
-    try {
-      api.listener.stop();
-    } catch {
-      // ignore
-    }
+    clearTimeout(connectTimer);
+    clearInterval(watchdogTimer);
+    params.abortSignal.removeEventListener("abort", cleanup);
+    api.listener.off("message", onMessage);
+    api.listener.off("connected", onConnected);
     activeListeners.delete(profile);
+    // zca-js stop() resets before ws closes. Retire the API so a retry cannot
+    // reuse that listener while its previous socket is still closing.
+    invalidateApi(profile);
   };
-
-  const onMessage = (incoming: Message) => {
-    if (incoming.isSelf) {
-      return;
-    }
-    void Promise.resolve(params.onMessage(incoming)).catch((error: unknown) => {
-      failListener(error instanceof Error ? error : new Error(String(error)));
-    });
-  };
-
   const failListener = (error: Error) => {
     if (stopped || params.abortSignal.aborted) {
       return;
     }
     cleanup();
-    invalidateApi(profile);
     params.onError(error);
   };
-
   const onError = (error: unknown) => {
-    const wrapped = error instanceof Error ? error : new Error(String(error));
-    failListener(wrapped);
+    failListener(error instanceof Error ? error : new Error(String(error)));
   };
-
-  const onClosed = (code: number, reason: string) => {
-    failListener(new Error(`Zalo listener closed (${code}): ${reason || "no reason"}`));
-  };
-
-  api.listener.on("message", onMessage);
-  api.listener.on("error", onError);
-  api.listener.on("closed", onClosed);
-
-  try {
-    api.listener.start({ retryOnClose: false });
-  } catch (error) {
-    cleanup();
-    throw error;
-  }
-
-  watchdogTimer = setInterval(() => {
-    if (stopped || params.abortSignal.aborted) {
+  const onMessage = (incoming: Message) => {
+    if (incoming.isSelf) {
       return;
     }
+    void Promise.resolve(params.onMessage(incoming)).catch(onError);
+  };
+  const onClosed = (code: number, reason: string) => {
+    // Closing a CONNECTING ws emits error on nextTick, then closed. Keep the
+    // guarded error handler until that terminal event to avoid an unhandled error.
+    detachTerminalHandlers();
+    failListener(new Error(`Zalo listener closed (${code}): ${reason || "no reason"}`));
+  };
+  const connectTimer = setTimeout(() => {
+    failListener(new Error("Zalo listener websocket handshake timed out"));
+  }, LISTENER_HANDSHAKE_TIMEOUT_MS);
+  connectTimer.unref?.();
+  const watchdogTimer = setInterval(() => {
     const now = Date.now();
     const gapMs = now - lastWatchdogTickAt;
     lastWatchdogTickAt = now;
@@ -1824,21 +1805,20 @@ export async function startZaloListener(params: {
     );
   }, LISTENER_WATCHDOG_INTERVAL_MS);
   watchdogTimer.unref?.();
-
-  params.abortSignal.addEventListener(
-    "abort",
-    () => {
-      cleanup();
-    },
-    { once: true },
-  );
-
-  activeListeners.set(profile, {
-    profile,
-    accountId: params.accountId,
-    stop: cleanup,
-  });
-
+  api.listener.on("message", onMessage);
+  api.listener.on("error", onError);
+  api.listener.on("closed", onClosed);
+  api.listener.on("connected", onConnected);
+  params.abortSignal.addEventListener("abort", cleanup, { once: true });
+  activeListeners.set(profile, { profile, accountId: params.accountId, stop: cleanup });
+  try {
+    api.listener.start({ retryOnClose: false });
+  } catch (error) {
+    cleanup();
+    // A synchronous zca-js start failure did not create a socket to close.
+    detachTerminalHandlers();
+    throw error;
+  }
   return { stop: cleanup };
 }
 

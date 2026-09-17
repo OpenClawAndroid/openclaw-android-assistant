@@ -2575,7 +2575,7 @@ describe("config io write", () => {
             },
             meta: {
               lastTouchedVersion: persisted.meta?.lastTouchedVersion,
-              migrations: { modelPolicyAllowlist: true },
+              migrations: { modelPolicyAllowlist: true, utilityModelSeparation: true },
             },
           });
           expect(typeof persisted.meta?.lastTouchedVersion).toBe("string");

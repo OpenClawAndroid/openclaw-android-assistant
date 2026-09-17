@@ -134,4 +134,7 @@ runs:
       shell: bash
       env:
         PROJECT_DIR: ${{ steps.setup-pnpm.outputs.project-dir }}
-      run: echo "pnpm-version=$(cd "$PROJECT_DIR" && pnpm -v)" >> "$GITHUB_OUTPUT"
+      run: |
+        set -euo pipefail
+        pnpm_version="$(cd "$PROJECT_DIR" && pnpm -v)"
+        echo "pnpm-version=$pnpm_version" >> "$GITHUB_OUTPUT"

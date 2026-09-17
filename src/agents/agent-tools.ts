@@ -67,11 +67,7 @@ import {
   type ResolvedConversationCapabilityProfile,
 } from "./conversation-capability-profile.js";
 import type { ConversationRecallContext } from "./conversation-recall.types.js";
-import {
-  buildConversationToolPolicyPipelineSteps,
-  projectConversationToolNames,
-  resolveConversationToolPolicies,
-} from "./conversation-tool-policy-pipeline.js";
+import { projectConversationToolNames } from "./conversation-tool-policy-pipeline.js";
 import { createCoreCodingTools } from "./core-coding-tools.js";
 import type { OpenClawCodingToolConstructionPlan } from "./core-tool-factory-descriptors.js";
 import {
@@ -93,6 +89,7 @@ import { applySwarmCollectorToolContract } from "./openclaw-tools.swarm.js";
 import type { PreparedModelRuntimeSnapshot } from "./prepared-model-runtime.js";
 import type { SandboxContext } from "./sandbox.js";
 import { resolveSandboxFileIdentity } from "./sandbox/file-mutation-identity.js";
+import { createEmbeddedMessageInvocationPolicy } from "./scheduled-message-invocation.js";
 import {
   resolveScheduledExecPolicy,
   resolveScheduledToolCallerContext,
@@ -109,7 +106,6 @@ import { resolveToolFsConfig } from "./tool-fs-policy.js";
 import type { PreparedSessionPermissionPolicy } from "./tool-fs-policy.js";
 import { resolveToolLoopDetectionConfig } from "./tool-loop-detection-config.js";
 import { buildDeclaredToolAllowlistContext } from "./tool-policy-declared-context.js";
-import { applyToolPolicyPipeline } from "./tool-policy-pipeline.js";
 import {
   expandToolGroups,
   hasRestrictiveAllowPolicy,
@@ -493,11 +489,6 @@ export function createOpenClawCodingToolsInternal(
     ...(forceHeartbeatTool ? [HEARTBEAT_RESPONSE_TOOL_NAME] : []),
     ...toolSearchControlAllowlist,
   ];
-  const conversationToolPolicies = resolveConversationToolPolicies({
-    capabilityProfile,
-    additionalProfileAllow: runtimeProfileAlsoAllow,
-    additionalPolicyAllow: toolSearchControlAllowlist,
-  });
   const sandboxWorkspaceMediaReadAllowed =
     projectConversationToolNames({
       capabilityProfile,
@@ -665,8 +656,7 @@ export function createOpenClawCodingToolsInternal(
       sessionKey: options?.sessionKey,
       runId: options?.runId,
       operationalRunInstance: options?.operationalRunInstance,
-      // Detached completions return to the live session, not the sandbox policy scope.
-      notifySessionKey: options?.runSessionKey ?? options?.sessionKey,
+      runSessionKey: executionSessionKey,
       sessionId: options?.sessionId,
       sessionStore: options?.config?.session?.store,
       eventRouting: resolveEventSessionRoutingPolicy({
@@ -821,6 +811,21 @@ export function createOpenClawCodingToolsInternal(
           : tool,
       )
     : coreTools;
+  const messageInvocationPolicy = createEmbeddedMessageInvocationPolicy({
+    config: options?.config,
+    capabilityProfile,
+    runtimeProfileAlsoAllow,
+    toolSearchControlAllowlist,
+    scheduledToolPolicy: options?.scheduledToolPolicy,
+    pluginMetadataSnapshot: options?.preparedModelRuntime?.metadataSnapshot,
+    ownerOnlyCoreToolPolicy,
+    catalog: () => ({
+      tools: toolsForModelProvider,
+      declaredToolAllowlist,
+      unavailableCoreToolReason,
+    }),
+    isAvailable: (): boolean => authorizedTools.some((tool) => tool.name === "message"),
+  });
   const tools: AnyAgentTool[] = [
     ...scheduledCoreTools,
     // Include channel-defined agent tools (login, etc.).
@@ -861,6 +866,9 @@ export function createOpenClawCodingToolsInternal(
             agentThreadId: options?.messageThreadId,
             nativeChannelId: options?.nativeChannelId,
             messageActionTurnCapability: options?.messageActionTurnCapability,
+            admitScheduledMessageInvocation: options?.messageActionTurnCapability
+              ? messageInvocationPolicy.admit
+              : undefined,
             agentGroupId: options?.groupId ?? null,
             agentGroupChannel: options?.groupChannel ?? null,
             agentGroupSpace: options?.groupSpace ?? null,
@@ -1004,32 +1012,15 @@ export function createOpenClawCodingToolsInternal(
     localModelLeanPreserveToolNames,
   });
   options?.recordToolPrepStage?.("model-provider-policy");
+  const declaredToolAllowlist = buildDeclaredToolAllowlistContext({
+    config: options?.config,
+    metadataSnapshot: options?.preparedModelRuntime?.metadataSnapshot,
+    workspaceDir: workspaceRoot,
+    toolDenylist: pluginToolDenylist,
+  });
   // Sender identity is primarily command/action auth, with one Gateway parity exception:
   // explicit non-owner callers never receive owner-only control-plane core tools.
-  const subagentFiltered = applyToolPolicyPipeline({
-    tools: toolsForModelProvider,
-    toolMeta: (tool) => getPluginToolMeta(tool),
-    warn: logWarn,
-    steps: buildConversationToolPolicyPipelineSteps({
-      capabilityProfile,
-      policies: conversationToolPolicies,
-      additionalStepsAfterSandbox: [
-        {
-          policy: ownerOnlyCoreToolPolicy,
-          label: "gateway sender owner-only tools",
-          unavailableCoreToolReason,
-        },
-      ],
-      includeRuntimeToolPolicy: true,
-      unavailableCoreToolReason,
-    }),
-    declaredToolAllowlist: buildDeclaredToolAllowlistContext({
-      config: options?.config,
-      metadataSnapshot: options?.preparedModelRuntime?.metadataSnapshot,
-      workspaceDir: workspaceRoot,
-      toolDenylist: pluginToolDenylist,
-    }),
-  });
+  const subagentFiltered = messageInvocationPolicy.filter();
   // Host-bound ring-zero tools carry their own authority checks. Agent policy
   // must not deadlock setup, but the tools still receive schema/hook wrappers.
   const authorizedTools = applySwarmCollectorToolContract(

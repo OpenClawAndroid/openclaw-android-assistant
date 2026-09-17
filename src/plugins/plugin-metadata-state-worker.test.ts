@@ -6,13 +6,19 @@ import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { resolveConfigWidePluginMetadataSnapshotAsync } from "../config/io.plugin-metadata.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import { withArtifactPreservingStateReads } from "../state/openclaw-state-db-readonly.js";
+import { writeConfigMachineState } from "../state/config-machine-state-write.js";
+import {
+  withArtifactPreservingStateReads,
+  withOpenClawStateDatabaseReadSnapshot,
+} from "../state/openclaw-state-db-readonly.js";
 import {
   closeOpenClawStateDatabaseAsync,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
 import * as bundledDiscovery from "./bundled-discovery-state.js";
+import { resolvePluginInstallRoots, withPluginInstallRoots } from "./install-root-context.js";
 import { loadInstalledPluginIndexInstallRecords } from "./installed-plugin-index-record-reader.js";
+import { resolveInstalledPluginIndexStateDatabaseOptions } from "./installed-plugin-index-store-path.js";
 import {
   readPersistedInstalledPluginIndex,
   readPersistedInstalledPluginIndexSync,
@@ -22,6 +28,7 @@ import { listPersistedBundledPluginRecoveryLocations } from "./location-bridges.
 import {
   createPluginCache,
   invalidatePluginCacheMetadata,
+  PluginCacheFactInvalidatedError,
   retirePluginCache,
   withPluginCache,
 } from "./plugin-cache.js";
@@ -334,4 +341,100 @@ it("reads the installed ledger inside the existing install lifecycle lease witho
     }
     lease.assertOwned();
   });
+});
+
+it.each(
+  [false, true].flatMap((pinned) =>
+    ["sync", "async", "async-empty-memo"].map((reader) => ({ pinned, reader })),
+  ),
+)(
+  "keeps captured inventory and policy together after a concurrent memo refresh ($reader, pinned roots: $pinned)",
+  async ({ pinned, reader }) => {
+    const env = environment();
+    await seed(env, index("captured ledger"));
+    writeConfigMachineState("plugins.bundledDiscovery", "compat", { env });
+    await closeOpenClawStateDatabaseAsync();
+    const readEnv = pinned ? environment() : env;
+    const captured = createDeferredCore();
+    const resume = createDeferredCore();
+    const afterCleanup = createDeferredCore();
+    let descendant:
+      | Promise<ReturnType<typeof bundledDiscovery.readBundledDiscoveryModeMemoized>>
+      | undefined;
+    const inspect = () =>
+      withArtifactPreservingStateReads(() =>
+        withPluginCache(createPluginCache(), () =>
+          withOpenClawStateDatabaseReadSnapshot(
+            async () => {
+              captured.resolve();
+              await resume.promise;
+              if (reader !== "sync") {
+                await resolveConfigWidePluginMetadataSnapshotAsync({
+                  config: {},
+                  env: readEnv,
+                  allowCurrent: false,
+                });
+              }
+              const stored = readPersistedInstalledPluginIndexSync({ env: readEnv });
+              const mode = bundledDiscovery.readBundledDiscoveryModeMemoized(readEnv);
+              descendant = afterCleanup.promise.then(() =>
+                bundledDiscovery.readBundledDiscoveryModeMemoized(readEnv),
+              );
+              return { mode, diagnostics: stored?.diagnostics };
+            },
+            resolveInstalledPluginIndexStateDatabaseOptions({ env: readEnv }),
+          ),
+        ),
+      );
+    const reading = pinned
+      ? withPluginInstallRoots(resolvePluginInstallRoots(env), inspect)
+      : inspect();
+    try {
+      await Promise.race([captured.promise, reading]);
+      // This writer runs outside the suspended inspection's async context.
+      writeConfigMachineState("plugins.bundledDiscovery", "allowlist", { env });
+      writeConfigMachineState(
+        "plugins.installedIndex",
+        { revision: 2, index: index("new ledger") },
+        { env },
+      );
+      bundledDiscovery.clearBundledDiscoveryModeMemo();
+      if (reader !== "async-empty-memo") {
+        expect(bundledDiscovery.readBundledDiscoveryModeMemoized(env)).toBe("allowlist");
+      }
+      resume.resolve();
+      expect(await reading).toEqual({
+        mode: "compat",
+        diagnostics: [{ level: "warn", message: "captured ledger" }],
+      });
+      expect(bundledDiscovery.readBundledDiscoveryModeMemoized(env)).toBe("allowlist");
+      // An escaped descendant must resume ordinary memo semantics after snapshot cleanup.
+      writeConfigMachineState("plugins.bundledDiscovery", "compat", { env });
+      afterCleanup.resolve();
+      expect(await descendant).toBe("allowlist");
+    } finally {
+      resume.resolve();
+      afterCleanup.resolve();
+      await reading.catch(() => {});
+      await descendant?.catch(() => {});
+    }
+  },
+);
+
+it("does not reactivate policy preparation inside a later snapshot of the same database", async () => {
+  const env = environment();
+  await seed(env, index());
+  await withArtifactPreservingStateReads(() =>
+    withPluginCache(createPluginCache(), async () => {
+      const options = resolveInstalledPluginIndexStateDatabaseOptions({ env });
+      const activate = await withOpenClawStateDatabaseReadSnapshot(
+        () => bundledDiscovery.prepareBundledDiscoveryMode(env),
+        options,
+      );
+      expect(activate).toThrow(PluginCacheFactInvalidatedError);
+      await withOpenClawStateDatabaseReadSnapshot(async () => {
+        expect(activate).toThrow(PluginCacheFactInvalidatedError);
+      }, options);
+    }),
+  );
 });

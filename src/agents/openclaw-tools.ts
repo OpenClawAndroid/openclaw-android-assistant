@@ -249,6 +249,7 @@ export function createOpenClawTools(options?: OpenClawToolsOptions): AnyAgentToo
         sessionId: options?.sessionId,
         messageActionTurnCapability:
           options?.messageToolTurnCapability?.token ?? options?.messageActionTurnCapability,
+        admitScheduledInvocation: options?.admitScheduledMessageInvocation,
         config: options?.config,
         preparedMessageToolCatalog: options?.preparedModelRuntime?.messageToolCatalog,
         currentChannelId: options?.currentChannelId,

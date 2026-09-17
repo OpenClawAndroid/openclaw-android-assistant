@@ -57,7 +57,7 @@ export function buildSessionListRowMetadataContext(params: {
   return {
     subagentRuns,
     subagentRunsByChildSessionKey,
-    selectedModelByOverrideRef: new Map(),
+    configuredDefaultModelByAgent: new Map(),
     thinkingMetadataByModelRef: new Map(),
     findModelCatalogEntry: (catalog, query) => {
       let entries = catalogEntries.get(catalog);

@@ -1,10 +1,43 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { freezeJsonSnapshot } from "../shared/immutable-data.js";
+import { inheritLegacyDefaultAgentId } from "./legacy.default-agent-owner.js";
+import { cloneConfigWithResolutionFacts } from "./resolution-facts.js";
+import {
+  bindRuntimeConfigCapture,
+  getRuntimeConfigCapture,
+} from "./runtime-config-capture-state.js";
 import { getRuntimeConfigSnapshot, getRuntimeConfigSourceSnapshot } from "./runtime-snapshot.js";
 import { projectRuntimeChangesOntoSource } from "./source-value-projection.js";
 import type { OpenClawConfig } from "./types.js";
 
+/** Captures runtime and authored values together for one admitted preparation generation. */
+export function captureRuntimeConfig(config: OpenClawConfig): OpenClawConfig {
+  if (getRuntimeConfigCapture(config)) {
+    return config;
+  }
+  const captured = freezeJsonSnapshot(
+    inheritLegacyDefaultAgentId(config, cloneConfigWithResolutionFacts(config)),
+  );
+  const source = projectConfigOntoRuntimeSourceSnapshot(config);
+  const capturedSource =
+    source === config
+      ? captured
+      : freezeJsonSnapshot(
+          inheritLegacyDefaultAgentId(source, cloneConfigWithResolutionFacts(source)),
+        );
+  bindRuntimeConfigCapture(captured, { source: capturedSource, origin: config });
+  if (capturedSource !== captured) {
+    bindRuntimeConfigCapture(capturedSource, { source: capturedSource, origin: source });
+  }
+  return captured;
+}
+
 /** Projects a runtime-derived config back onto the active authored source snapshot. */
 export function projectConfigOntoRuntimeSourceSnapshot(config: OpenClawConfig): OpenClawConfig {
+  const captured = getRuntimeConfigCapture(config);
+  if (captured) {
+    return captured.source;
+  }
   const runtimeConfigSnapshot = getRuntimeConfigSnapshot();
   const runtimeConfigSourceSnapshot = getRuntimeConfigSourceSnapshot();
   if (!runtimeConfigSnapshot || !runtimeConfigSourceSnapshot) {

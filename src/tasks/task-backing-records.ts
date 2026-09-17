@@ -53,12 +53,10 @@ export function sameTaskBackingInstance(
       : false;
 }
 
-export function selectCurrentCanonicalTaskBacking(params: {
+export function selectLatestCanonicalTaskBacking(params: {
   runtime: TaskRuntime;
   scopeKind: TaskScopeKind;
-  ownerKey: string;
   childSessionKey: string;
-  runId: string;
   candidates: readonly TaskRecord[];
   isTaskMirroredFlow: (flowId: string) => boolean;
 }): { task: TaskRecord; instance: TaskBackingInstance } | undefined {
@@ -84,7 +82,16 @@ export function selectCurrentCanonicalTaskBacking(params: {
         right.task.taskId.localeCompare(left.task.taskId)
       );
     });
-  const current = candidates[0];
+  return candidates[0];
+}
+
+export function selectCurrentCanonicalTaskBacking(
+  params: Parameters<typeof selectLatestCanonicalTaskBacking>[0] & {
+    ownerKey: string;
+    runId: string;
+  },
+): ReturnType<typeof selectLatestCanonicalTaskBacking> {
+  const current = selectLatestCanonicalTaskBacking(params);
   return current?.task.ownerKey === params.ownerKey && current.task.runId?.trim() === params.runId
     ? current
     : undefined;

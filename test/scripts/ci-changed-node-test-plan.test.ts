@@ -1286,14 +1286,19 @@ describe("CI changed Node test plan", () => {
         true,
       );
     }
+    const nativeFiles = new Set(listExtensionTestFilesForRoots(databaseWorkerExtensionTestRoots));
     for (const [index, shard] of shards.entries()) {
       for (const other of shards.slice(index + 1)) {
+        const combinedNativeFiles = fallbackGroups([shard, other])
+          .flatMap((group) => group.includePatterns ?? [])
+          .filter((file) => nativeFiles.has(file));
         const canShareJob =
           !shard.pretestBuildMode &&
           !other.pretestBuildMode &&
           shard.runner === other.runner &&
           shard.requiresDist === other.requiresDist &&
-          shard.predictedSeconds! + other.predictedSeconds! <= 240;
+          shard.predictedSeconds! + other.predictedSeconds! <= 240 &&
+          combinedNativeFiles.length <= 20;
         expect(canShareJob, `${shard.shardName} and ${other.shardName} fit one job`).toBe(false);
       }
     }
@@ -1394,9 +1399,10 @@ describe("CI changed Node test plan", () => {
   });
 
   it("partitions every database-worker file exactly once in a broad fallback", () => {
-    const groups = fallbackGroups(
-      createChangedExtensionFallbackShards(["scripts/lib/ci-changed-node-test-plan.mts"]),
-    );
+    const shards = createChangedExtensionFallbackShards([
+      "scripts/lib/ci-changed-node-test-plan.mts",
+    ]);
+    const groups = fallbackGroups(shards);
     const workerGroups = groups.filter((group) =>
       group.configs.includes("test/vitest/vitest.extension-database-workers.config.ts"),
     );
@@ -1404,6 +1410,16 @@ describe("CI changed Node test plan", () => {
       ...databaseWorkerExtensionTestRoots,
       ...databaseWorkerExtensionTestFiles,
     ]);
+    const nativeFiles = new Set(listExtensionTestFilesForRoots(databaseWorkerExtensionTestRoots));
+    for (const group of workerGroups) {
+      expect(
+        group.includePatterns?.filter((file) => nativeFiles.has(file)).length,
+      ).toBeLessThanOrEqual(20);
+    }
+    for (const shard of shards) {
+      const files = fallbackGroups([shard]).flatMap((group) => group.includePatterns ?? []);
+      expect(files.filter((file) => nativeFiles.has(file)).length).toBeLessThanOrEqual(20);
+    }
     expect(workerGroups.length).toBeGreaterThan(1);
     expect(workerGroups.flatMap((group) => group.includePatterns ?? []).toSorted()).toEqual(
       expectedFiles.toSorted(),
@@ -1599,21 +1615,38 @@ describe("CI changed Node test plan", () => {
     }
   });
 
-  it("serializes the Memory Core extension fallback config", () => {
-    expect(
-      createChangedExtensionFallbackShards(["extensions/memory-core/src/memory/mmr.ts"]),
-    ).toEqual([
-      {
-        checkName: "checks-node-changed-extensions-config",
-        configs: ["test/vitest/vitest.extension-database-workers.config.ts"],
-        includePatterns: listExtensionTestFilesForRoots(["extensions/memory-core"]),
+  it.each([
+    { name: "fallback", createShards: createChangedExtensionFallbackShards },
+    { name: "direct", createShards: createChangedNodeTestShards },
+  ])("serializes bounded Memory Core jobs for $name changes", ({ createShards }) => {
+    const shards = createShards([
+      "extensions/memory-core/src/memory/mmr.ts",
+      "extensions/memory-core/src/memory/mmr.test.ts",
+    ]);
+    expect(shards).not.toBeNull();
+    expect(shards!.length).toBeGreaterThan(1);
+    for (const shard of shards!) {
+      expect(shard).toMatchObject({
         planConcurrency: 1,
         predictedSeconds: expect.any(Number),
         requiresDist: false,
         runner: "blacksmith-8vcpu-ubuntu-2404",
-        shardName: "changed-extensions-config",
-      },
-    ]);
+      });
+      expect(
+        fallbackGroups([shard]).flatMap((group) => group.includePatterns ?? []).length,
+      ).toBeLessThanOrEqual(20);
+    }
+    const groups = fallbackGroups(shards!);
+    expect(
+      groups.every(
+        (group) =>
+          group.configs.length === 1 &&
+          group.configs[0] === "test/vitest/vitest.extension-database-workers.config.ts",
+      ),
+    ).toBe(true);
+    expect(groups.flatMap((group) => group.includePatterns ?? []).toSorted()).toEqual(
+      listExtensionTestFilesForRoots(["extensions/memory-core"]),
+    );
   });
 
   it.each([
@@ -1790,23 +1823,5 @@ describe("CI changed Node test plan", () => {
     expect(targetShards.every((shard) => (shard.targets?.length ?? 0) <= 12)).toBe(true);
     const targets = targetShards.flatMap((shard) => shard.targets ?? []);
     expect(new Set(targets).size).toBe(targets.length);
-  });
-
-  it("serializes the owning Memory Core extension config for direct changes", () => {
-    const shards = createChangedNodeTestShards([
-      "extensions/memory-core/src/memory/mmr.ts",
-      "extensions/memory-core/src/memory/mmr.test.ts",
-    ]);
-    expect(shards).not.toBeNull();
-    expect(shards).toContainEqual({
-      checkName: "checks-node-changed-extensions-config",
-      configs: ["test/vitest/vitest.extension-database-workers.config.ts"],
-      includePatterns: listExtensionTestFilesForRoots(["extensions/memory-core"]),
-      planConcurrency: 1,
-      predictedSeconds: expect.any(Number),
-      requiresDist: false,
-      runner: "blacksmith-8vcpu-ubuntu-2404",
-      shardName: "changed-extensions-config",
-    });
   });
 });

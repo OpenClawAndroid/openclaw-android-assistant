@@ -7,12 +7,14 @@ import type { FilePreviewModalFile } from "../../components/file-preview-modal.t
 import "../../components/file-preview-modal-registration.ts";
 import { icons } from "../../components/icons.ts";
 import { t } from "../../i18n/index.ts";
+import { registerPluginManagementEnglish } from "../../i18n/locales/en-plugin-management.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import type { GatewayPageController } from "../../lit/gateway-page-controller.ts";
-import "../../i18n/locales/en-plugin-management.ts";
 import { renderPluginCapabilitySection } from "./overview.ts";
 import { showPluginToolPreview, type PluginToolPreview } from "./tool-preview.ts";
 import "./skill-preview.css";
+
+registerPluginManagementEnglish();
 
 export type PluginSkillPreviewState = {
   request: PluginsSkillsReadParams;

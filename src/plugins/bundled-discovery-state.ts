@@ -1,6 +1,10 @@
 // Bundled-discovery compatibility is machine-owned upgrade state.
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { readConfigMachineState } from "../state/config-machine-state.js";
+import {
+  getActiveOpenClawStateDatabaseReadSnapshot,
+  isArtifactPreservingStateRead,
+} from "../state/openclaw-state-db-readonly.js";
 import type { OpenClawStateDatabaseOptions } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import {
@@ -81,10 +85,14 @@ export function readBundledDiscoveryModeMemoized(
   behavior: { artifactPreservingReadOnly?: boolean } = {},
   readPreparedValue?: (databasePath: string) => unknown,
 ): "compat" | "allowlist" | undefined {
-  if (behavior.artifactPreservingReadOnly) {
-    // Copied-state planning binds the observed bytes, not process-stable runtime metadata.
-    // Read a private SQLite snapshot so neither cached state nor source WAL coordination leaks in.
-    return readBundledDiscoveryMode(env === process.env ? {} : { env }, behavior);
+  const options = env === process.env ? {} : { env };
+  if (
+    behavior.artifactPreservingReadOnly ||
+    (isArtifactPreservingStateRead() &&
+      getActiveOpenClawStateDatabaseReadSnapshot(resolveBundledDiscoveryOptions(options)))
+  ) {
+    // Snapshot policy and inventory must share private bytes without replacing the live memo.
+    return readBundledDiscoveryMode(options, behavior);
   }
   const key = resolveBundledDiscoveryMemoKey(env);
   if (discoveryState.memoized?.key !== key) {
@@ -114,6 +122,30 @@ export async function prepareBundledDiscoveryMode(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<() => void> {
   const owner = getPluginCache();
+  const options = resolveBundledDiscoveryOptions({ env });
+  const snapshot = isArtifactPreservingStateRead()
+    ? getActiveOpenClawStateDatabaseReadSnapshot(options)
+    : undefined;
+  if (snapshot) {
+    const metadata = owner.metadata;
+    const generation = discoveryState.generation;
+    const signal = getPluginCacheRetirementSignal(owner);
+    // Private policy needs no global activation, but its caller must retain this exact scope.
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      if (
+        owner.metadata !== metadata ||
+        discoveryState.generation !== generation ||
+        getActiveOpenClawStateDatabaseReadSnapshot(options) !== snapshot
+      ) {
+        throw new PluginCacheFactInvalidatedError(
+          "Plugin discovery snapshot changed during preparation; retry the operation.",
+        );
+      }
+    };
+    assertCurrent();
+    return assertCurrent;
+  }
   const cache = owner.preparedBundledDiscoveryModes;
   const key = resolveBundledDiscoveryMemoKey(env);
   const generation = discoveryState.generation;

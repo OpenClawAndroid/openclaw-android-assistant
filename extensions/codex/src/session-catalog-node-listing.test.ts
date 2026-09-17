@@ -110,8 +110,8 @@ describe("Codex supervision catalog", () => {
       backwardsCursor: "page-0",
     });
     expect(bindingStore.managedThreads.snapshot).toHaveBeenCalledTimes(1);
-    expect(listPage).toHaveBeenNthCalledWith(1, { limit: 2 });
-    expect(listPage).toHaveBeenNthCalledWith(2, { cursor: "page-2", limit: 1 });
+    expect(listPage).toHaveBeenNthCalledWith(1, { limit: 2 }, undefined, true);
+    expect(listPage).toHaveBeenNthCalledWith(2, { cursor: "page-2", limit: 1 }, undefined, true);
   });
 
   it("keeps paired-node catalogs non-archived and metadata-only", async () => {
@@ -360,11 +360,15 @@ describe("Codex supervision catalog", () => {
       },
     });
 
-    expect(control.listPage).toHaveBeenCalledWith({
-      cursor: "local-page-2",
-      limit: 7,
-      searchTerm: "match",
-    });
+    expect(control.listPage).toHaveBeenCalledWith(
+      {
+        cursor: "local-page-2",
+        limit: 7,
+        searchTerm: "match",
+      },
+      undefined,
+      false,
+    );
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({

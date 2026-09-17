@@ -1,6 +1,9 @@
+import { isDeepStrictEqual } from "node:util";
+import { isRuntimeToolAllowed } from "../../agents/tool-policy-match.js";
 import { cloneCronRuntimeAuthority, type CronRuntimeAuthority } from "../runtime-authority.js";
 import {
   createTrustedCronScheduledToolPolicy,
+  normalizeCronScheduledToolCallerOrigin,
   resolveCronScheduledToolPolicy,
   type CronScheduledToolPolicy,
 } from "../scheduled-tool-policy.js";
@@ -12,6 +15,42 @@ import type {
   CronToolsAllowProvenance,
 } from "../types.js";
 import type { CronAddOptions, CronUpdateOptions } from "./state.js";
+
+/** Snapshots the normalized permissions used by scheduled message access. */
+export function resolveCronJobMessageActionAuthorityInputs(job: CronStoredJob) {
+  const policy = resolveCronScheduledToolPolicy({
+    toolsAllow: job.payload.toolsAllow,
+    scheduledToolPolicy: job.scheduledToolPolicy,
+    owner: job.owner,
+  });
+  if (
+    !cronJobUsesToolRuntime(job) ||
+    !policy ||
+    !isRuntimeToolAllowed("message", job.payload.toolsAllow)
+  ) {
+    return undefined;
+  }
+  return {
+    policy,
+    ...(policy.mode === "account"
+      ? {
+          callerOrigin: normalizeCronScheduledToolCallerOrigin(
+            job.toolsAllowProvenance?.callerOrigin,
+          ),
+        }
+      : {}),
+  };
+}
+
+export function cronJobMessageActionAuthorityInputsEqual(
+  previous: CronStoredJob,
+  next: CronStoredJob,
+): boolean {
+  return isDeepStrictEqual(
+    resolveCronJobMessageActionAuthorityInputs(previous),
+    resolveCronJobMessageActionAuthorityInputs(next),
+  );
+}
 
 export function consumeRuntimeAuthorityMutationOptions(
   opts: CronAddOptions | CronUpdateOptions | undefined,
@@ -125,7 +164,8 @@ function reconcileToolsAllowProvenance(params: {
     return;
   }
   if (
-    params.job.payload.toolsAllowIsDefault === true &&
+    cronJobUsesToolRuntime(params.job) &&
+    params.job.payload.toolsAllow !== undefined &&
     params.toolsAllowProvenance?.version === 1 &&
     params.toolsAllowProvenance.source === "final-executable-surface"
   ) {

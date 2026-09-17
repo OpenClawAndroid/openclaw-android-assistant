@@ -48,7 +48,7 @@ async function mountWithCatalog(
   const gateway = createGatewayHarness({ request } as unknown as GatewayBrowserClient);
   gateway.publish({
     hello: {
-      features: { methods: ["sessions.catalog.list"] },
+      features: { methods: ["sessions.catalog.list"], events: ["sessions.catalog.changed"] },
     } as ApplicationGatewaySnapshot["hello"],
   });
   const { sidebar, context } = await mountSidebar(
@@ -290,9 +290,9 @@ describe("AppSidebar catalog deletion", () => {
   );
 
   it.each([
-    ["poll", false],
+    ["event", false],
     ["page", false],
-    ["poll", true],
+    ["event", true],
     ["page", true],
   ] as const)(
     "discards a pre-delete %s response (archive completed: %s) and requests fresh rows",
@@ -330,7 +330,8 @@ describe("AppSidebar catalog deletion", () => {
             cursors: { "gateway:local": "page-2" },
           });
         } else {
-          await vi.advanceTimersByTimeAsync(30_000);
+          gateway.publishEvent("sessions.catalog.changed", { agentId: "main" });
+          await vi.advanceTimersByTimeAsync(200);
         }
         expect(request.mock.calls.map(([method]) => method)).toEqual(["sessions.catalog.list"]);
 

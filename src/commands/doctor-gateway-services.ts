@@ -21,6 +21,7 @@ import {
 import { execLaunchctl, isLaunchctlNotLoaded } from "../daemon/launchd-exec.js";
 import { OPENCLAW_WRAPPER_ENV_KEY } from "../daemon/program-args.js";
 import { renderSystemNodeWarning, resolveSystemNodeInfo } from "../daemon/runtime-paths.js";
+import { readDaemonRuntimePin } from "../daemon/runtime-pin-state.js";
 import { readWindowsStartupFallbackRuntimeForUpdate } from "../daemon/schtasks.js";
 import {
   auditGatewayServiceConfig,
@@ -57,9 +58,9 @@ import { isTruthyEnvValue } from "../infra/env.js";
 import { NON_DEFAULT_INSTALL_SERVICE_SKIP_REASON } from "../infra/gateway-supervision.js";
 import { readWindowsProcessArgsSync } from "../infra/windows-port-pids.js";
 import type { RuntimeEnv } from "../runtime.js";
-import { buildGatewayInstallPlan } from "./daemon-install-helpers.js";
-import { resolveGatewayDaemonRuntime, type GatewayDaemonRuntime } from "./daemon-runtime.js";
+import { resolveGatewayDaemonRuntime } from "./daemon-runtime.js";
 import { resolveGatewayAuthTokenForService } from "./doctor-gateway-auth-token.js";
+import { buildExpectedGatewayServicePlan } from "./doctor-gateway-runtime-plan.js";
 import type { DoctorOptions, DoctorPrompter } from "./doctor-prompter.js";
 import { isDoctorUpdateRepairMode } from "./doctor-repair-mode.js";
 import {
@@ -163,28 +164,6 @@ function findGatewayEntrypoint(programArguments?: string[]): string | null {
     return null;
   }
   return programArguments[gatewayIndex - 1] ?? null;
-}
-
-async function buildExpectedGatewayServicePlan(params: {
-  cfg: OpenClawConfig;
-  command: GatewayServiceCommandConfig;
-  serviceInstallEnv: NodeJS.ProcessEnv;
-  port: number;
-  runtime: GatewayDaemonRuntime;
-  runtimePath?: string;
-}) {
-  const managed = resolveManagedGatewayServiceCommand(params.command);
-  return buildGatewayInstallPlan({
-    env: params.serviceInstallEnv,
-    port: params.port,
-    runtime: params.runtime,
-    runtimePath: params.runtimePath,
-    existingCommand: params.command,
-    existingEnvironment: managed?.environment,
-    existingEnvironmentValueSources: managed?.environmentValueSources,
-    warn: (message, title) => note(message, title),
-    config: params.cfg,
-  });
 }
 
 async function normalizeExecutablePath(value: string): Promise<string> {
@@ -555,10 +534,13 @@ export async function maybeRepairGatewayServiceConfig(
     "Gateway heap",
   );
   const managedWrapperPath = managedDefinition.environment?.[OPENCLAW_WRAPPER_ENV_KEY]?.trim();
-  const serviceInstallEnv =
-    managedWrapperPath && !Object.hasOwn(process.env, OPENCLAW_WRAPPER_ENV_KEY)
-      ? { ...process.env, [OPENCLAW_WRAPPER_ENV_KEY]: managedWrapperPath }
-      : process.env;
+  const pinSnapshot = readDaemonRuntimePin({ kind: "gateway", env: process.env }, command);
+  const serviceInstallEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...(managedWrapperPath && !Object.hasOwn(process.env, OPENCLAW_WRAPPER_ENV_KEY)
+      ? { [OPENCLAW_WRAPPER_ENV_KEY]: managedWrapperPath }
+      : {}),
+  };
   const serviceWrapperPath = normalizeOptionalString(
     command.environment?.[OPENCLAW_WRAPPER_ENV_KEY],
   );
@@ -590,9 +572,17 @@ export async function maybeRepairGatewayServiceConfig(
   }
   const expectedGatewayToken = tokenRefConfigured ? undefined : gatewayTokenResolution.token;
   const port = resolveGatewayPort(cfg, process.env);
-  const runtimeChoice = resolveGatewayDaemonRuntime(managedDefinition.programArguments);
+  const hasInstallWrapper = Boolean(serviceInstallEnv[OPENCLAW_WRAPPER_ENV_KEY]?.trim());
+  const activeRuntimePin = hasInstallWrapper ? undefined : pinSnapshot.pin?.path;
+  const runtimeChoice = hasInstallWrapper
+    ? "node"
+    : resolveGatewayDaemonRuntime(
+        activeRuntimePin ? [activeRuntimePin] : managedDefinition.programArguments,
+      );
   const installedRuntimePath =
-    runtimeChoice === "bun" ? managedDefinition.programArguments[0] : undefined;
+    runtimeChoice === "bun"
+      ? (activeRuntimePin ?? managedDefinition.programArguments[0])
+      : undefined;
   const expectedPlan = await buildExpectedGatewayServicePlan({
     cfg,
     command,
@@ -600,6 +590,7 @@ export async function maybeRepairGatewayServiceConfig(
     port,
     runtime: runtimeChoice,
     runtimePath: installedRuntimePath,
+    pinnedRuntimePath: pinSnapshot.pin?.path,
   });
   const expectedManagedServiceEnvKeys = readManagedServiceEnvKeysFromEnvironment(
     expectedPlan.environment,
@@ -625,7 +616,8 @@ export async function maybeRepairGatewayServiceConfig(
       level: "recommended",
     });
   }
-  const needsNodeRuntime = needsNodeRuntimeMigration(audit.issues);
+  const needsNodeRuntime =
+    !hasInstallWrapper && !activeRuntimePin && needsNodeRuntimeMigration(audit.issues);
   // Unusable runtimes and version-managed Node services migrate through a concrete system Node.
   const systemNodeInfo = needsNodeRuntime
     ? await resolveSystemNodeInfo({ env: process.env })
@@ -936,6 +928,7 @@ export async function maybeRepairGatewayServiceConfig(
     port: updatedPort,
     runtime: needsNodeRuntime && systemNodePath ? "node" : runtimeChoice,
     runtimePath: needsNodeRuntime && systemNodePath ? systemNodePath : installedRuntimePath,
+    pinnedRuntimePath: pinSnapshot.pin?.path,
   });
   // Windows `install` activates the task/login item. Require both a running
   // gateway and parent authorization so `update --no-restart` stays non-disruptive.
@@ -943,6 +936,7 @@ export async function maybeRepairGatewayServiceConfig(
     updateRepairMode && !updateRepairShouldInstall ? service.stage : service.install;
   try {
     await repairService({
+      runtimePinUpdate: { expected: pinSnapshot, pin: pinSnapshot.pin },
       env: serviceRepairEnv,
       stdout: process.stdout,
       warn: (message) => note(message, "Gateway"),

@@ -316,16 +316,38 @@ export function pruneSessionStateEventsInDatabase(db: DatabaseSync, now: number)
     if (predicate.sequenceAtOrBelow !== undefined) {
       query = query.where("sequence", "<=", predicate.sequenceAtOrBelow);
     }
-    for (const row of executeSqliteQuerySync(db, query).rows) {
-      const maxSequence = normalizeSqliteNumber(row.max_sequence) ?? 0;
+    // Decode the whole aggregate before any writes, retaining native integer errors.
+    const rows = executeSqliteQuerySync(db, query).rows;
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      const batch = rows.slice(offset, offset + 100);
+      const selections = batch.map((row) =>
+        kysely.selectNoFrom((eb) => [
+          eb.val(row.session_key).as("session_key"),
+          eb.val(row.agent_id).as("agent_id"),
+          eb.val(normalizeSqliteNumber(row.max_sequence) ?? 0).as("max_sequence"),
+        ]),
+      );
       executeSqliteQuerySync(
         db,
         kysely
+          .with("pruned", () => selections[0]!.unionAll(selections.slice(1)))
+          .with("watermarks", (qb) =>
+            // Decoding and rebinding malformed UTF-8 can collapse distinct stored keys.
+            qb
+              .selectFrom("pruned")
+              .select(["session_key", "agent_id"])
+              .select((eb) => eb.fn.max<number>("max_sequence").as("max_sequence"))
+              .groupBy(["session_key", "agent_id"]),
+          )
           .updateTable("session_state_heads")
-          .set({ pruned_max_sequence: maxSequence, updated_at: now })
-          .where("session_key", "=", row.session_key)
-          .where("agent_id", "=", row.agent_id)
-          .where("pruned_max_sequence", "<", maxSequence),
+          .from("watermarks")
+          .set((eb) => ({
+            pruned_max_sequence: eb.ref("watermarks.max_sequence"),
+            updated_at: now,
+          }))
+          .whereRef("session_state_heads.session_key", "=", "watermarks.session_key")
+          .whereRef("session_state_heads.agent_id", "=", "watermarks.agent_id")
+          .whereRef("session_state_heads.pruned_max_sequence", "<", "watermarks.max_sequence"),
       );
     }
   };

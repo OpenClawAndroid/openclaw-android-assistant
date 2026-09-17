@@ -249,15 +249,16 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
   let state = createSessionState(agentId, keys);
   let canonicalListRevision = 1;
   const listeners = new Set<(next: SessionState) => void>();
+  const notify = () => {
+    for (const listener of listeners) {
+      listener(state);
+    }
+  };
   const pullRequestSummaries = new Map<string, SessionCatalogPullRequestSummary>();
   const archiveProvenance = createSessionRowProvenance();
   const archiveState = createSessionArchiveState(
     (key) => state.result?.sessions.find((row) => row.key === key),
-    () => {
-      for (const listener of listeners) {
-        listener(state);
-      }
-    },
+    notify,
     archiveProvenance,
   );
   const groupsPut = vi.fn(() => Promise.resolve<SessionGroupMutationResult>("completed"));
@@ -281,6 +282,9 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
     Promise.resolve(),
   );
   const refreshReplacement = vi.fn(() => Promise.resolve(state.result));
+  const reconcileMutation = vi.fn<SessionCapability["reconcileMutation"]>(async () => ({
+    status: "refreshed",
+  }));
   const patchMany = vi.fn(
     async (
       targets: SessionsPatchManyParams["targets"],
@@ -308,9 +312,7 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
       return false;
     }
     state = { ...state, result };
-    for (const listener of listeners) {
-      listener(state);
-    }
+    notify();
     return true;
   });
   let scopedSessions: SessionCapability | null = null;
@@ -328,9 +330,7 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
         ),
       },
     };
-    for (const listener of listeners) {
-      listener(state);
-    }
+    notify();
     return assigned;
   });
   const sessions = {
@@ -360,9 +360,7 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
       } else {
         pullRequestSummaries.delete(key);
       }
-      for (const listener of listeners) {
-        listener(state);
-      }
+      notify();
     },
     groupsLoad: () => Promise.resolve(),
     groupsGeneration: () => 0,
@@ -427,6 +425,7 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
     invalidate: (...args: Parameters<SessionCapability["invalidate"]>) =>
       scopedSessions!.invalidate(...args),
     refreshReplacement,
+    reconcileMutation,
     subscribeMessages,
     unsubscribeMessages,
   } as unknown as SessionCapability;
@@ -492,9 +491,7 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
   });
   const publish = (statePatch: Partial<SessionState>) => {
     state = { ...state, ...statePatch };
-    for (const listener of listeners) {
-      listener(state);
-    }
+    notify();
   };
   return {
     sessions,
@@ -510,6 +507,7 @@ export function createSessionsHarness(agentId: string, keys: string[]) {
     reconcile,
     refresh,
     refreshReplacement,
+    reconcileMutation,
     subscribeMessages,
     unsubscribeMessages,
     publish,

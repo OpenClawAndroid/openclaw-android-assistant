@@ -39,7 +39,6 @@ import {
   sessionProjectionKey,
   resolveSessionCatalogProfiles,
   projectChatSessionMetadata,
-  type PreparedAgentProjection,
 } from "./chat-metadata-session-projection.js";
 import type {
   ChatStartupProjectionReadParams,
@@ -54,9 +53,15 @@ type PreparedAgentMetadata = PreparedAgentFacts & {
 
 type PreparedProjection<T> = { read: () => T; isCurrent: () => boolean };
 
+type PreparedChatMetadataProjection = Awaited<
+  ReturnType<ChatMetadataRuntimeDeps["buildProjection"]>
+> & {
+  agent: PreparedAgentMetadata;
+};
+
 type AgentProjectionEntry =
-  | { state: "pending"; promise: Promise<PreparedAgentProjection> }
-  | { state: "ready"; projection: PreparedAgentProjection };
+  | { state: "pending"; promise: Promise<PreparedChatMetadataProjection> }
+  | { state: "ready"; projection: PreparedChatMetadataProjection };
 
 type PreparedMetadataGeneration = {
   epoch: number;
@@ -67,6 +72,29 @@ type PreparedMetadataGeneration = {
 };
 
 const CHAT_METADATA_CACHE_MAX_ENTRIES = 64;
+
+function readPreparedChatMetadata(
+  projection: PreparedChatMetadataProjection,
+  readParams: ChatMetadataReadParams,
+  config: OpenClawConfig,
+): ChatMetadataResult {
+  readParams.draftAccountSelection?.assertCurrent();
+  const { agent } = projection;
+  return projectChatSessionMetadata(
+    readParams,
+    {
+      ...projection.read(),
+      ...(agent.commands !== undefined ? { commands: agent.commands } : {}),
+      swarmEnabled: agent.swarmEnabled,
+      accountSelection: resolveChatAccountSelection({
+        authStore: agent.authStore,
+        sessionEntry: readParams.sessionEntry,
+        requesterProfileId: readParams.requesterProfileId,
+      }),
+    },
+    config,
+  );
+}
 
 export class ChatMetadataSnapshotUnavailableError extends Error {
   constructor(message = "prepared chat metadata snapshot is unavailable") {
@@ -194,7 +222,7 @@ export function createGatewayChatMetadataRuntime(params: {
     requesterProfileId?: string,
     assertCurrent?: () => void,
     useRequesterDefaults = false,
-  ): Promise<PreparedAgentProjection> => {
+  ): Promise<PreparedChatMetadataProjection> => {
     assertOpen();
     assertCurrent?.();
     // Retired owners cannot produce a fresh projection; only publication can replace their facts.
@@ -253,22 +281,10 @@ export function createGatewayChatMetadataRuntime(params: {
       })
       .then((prepared) => {
         assertCurrent?.();
-        const preparedProjection: PreparedAgentProjection = {
+        // Shared catalogs retain agent facts, never the caller's entry or authority closure.
+        const preparedProjection: PreparedChatMetadataProjection = {
           ...prepared,
-          read: () => {
-            // Revocation is terminal, not a stale projection for readCurrent to retry forever.
-            assertCurrent?.();
-            return {
-              ...prepared.read(),
-              ...(agent.commands !== undefined ? { commands: agent.commands } : {}),
-              swarmEnabled: agent.swarmEnabled,
-              accountSelection: resolveChatAccountSelection({
-                authStore: agent.authStore,
-                sessionEntry,
-                requesterProfileId,
-              }),
-            };
-          },
+          agent,
         };
         // Only this pending entry may publish its settlement; eviction or invalidation
         // must not let an obsolete completion replace a newer profile projection.
@@ -533,7 +549,16 @@ export function createGatewayChatMetadataRuntime(params: {
       );
       return {
         isCurrent: projection.isCurrent,
-        read: () => projectChatSessionMetadata(readParams, projection.read(), deps.getConfig()),
+        read: () =>
+          readPreparedChatMetadata(
+            projection,
+            {
+              ...readParams,
+              sessionEntry,
+              requesterProfileId: draft?.owner ?? readParams.requesterProfileId,
+            },
+            deps.getConfig(),
+          ),
       };
     });
   };
@@ -549,13 +574,13 @@ export function createGatewayChatMetadataRuntime(params: {
     );
     const hasSessionContext = hasSessionCatalogContext(profiles);
     const assemble = (
-      neutral: PreparedAgentProjection,
-      session: PreparedAgentProjection,
+      neutral: PreparedChatMetadataProjection,
+      session: PreparedChatMetadataProjection,
     ): ChatStartupProjectionResult => ({
       // History consumes stable catalogs only; live readiness stays inside the current-read fence.
       ...(readParams.readPolicy === "ready"
         ? {}
-        : { metadata: projectChatSessionMetadata(readParams, session.read(), deps.getConfig()) }),
+        : { metadata: readPreparedChatMetadata(session, readParams, deps.getConfig()) }),
       sessionModelCatalog: session.modelCatalog,
       defaultModelCatalog: neutral.modelCatalog,
     });

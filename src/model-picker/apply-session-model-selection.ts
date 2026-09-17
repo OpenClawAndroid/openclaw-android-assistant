@@ -217,7 +217,7 @@ export async function applySessionModelSelection(
       cfg: params.cfg,
       catalog: [...params.modelCatalog],
       defaultProvider: params.defaultProvider,
-      defaultModel: params.defaultModel,
+      defaultModel: { provider: params.defaultProvider, model: params.defaultModel },
       agentId: params.agentId,
     });
   if (!resetToDefault && !policy.allows(request)) {

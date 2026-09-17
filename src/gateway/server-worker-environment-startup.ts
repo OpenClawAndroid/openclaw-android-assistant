@@ -201,7 +201,7 @@ export async function createGatewayWorkerEnvironmentRuntime(params: {
       },
     }));
     const bundle = await producer.prepare();
-    await producer.prune(listRetainedBundleHashes());
+    await producer.prune(listRetainedBundleHashes);
     if (install === "bundle") {
       return bundle;
     }

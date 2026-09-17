@@ -424,15 +424,16 @@ function createSkillUploadStore(options?: SkillUploadStoreOptions) {
             }
           }
 
-          const activeCount = executeSqliteQuerySync(
+          const atCapacity = executeSqliteQueryTakeFirstSync(
             db,
             kysely
               .selectFrom("skill_uploads")
-              .select("upload_id")
+              .select((eb) => eb.val(1).as("present"))
               .where("expires_at", ">", createdAt)
-              .limit(MAX_ACTIVE_SKILL_UPLOADS),
-          ).rows.length;
-          if (activeCount >= MAX_ACTIVE_SKILL_UPLOADS) {
+              .offset(MAX_ACTIVE_SKILL_UPLOADS - 1)
+              .limit(1),
+          );
+          if (atCapacity) {
             throw new SkillUploadRequestError("too many active skill uploads");
           }
 

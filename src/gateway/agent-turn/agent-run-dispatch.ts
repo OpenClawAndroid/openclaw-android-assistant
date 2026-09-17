@@ -40,6 +40,7 @@ import { withTimeout } from "../../infra/fs-safe.js";
 import { defaultRuntime } from "../../runtime.js";
 import { createRunningTaskRun } from "../../tasks/detached-task-runtime.js";
 import { getTaskById } from "../../tasks/runtime-internal.js";
+import { captureTaskCancellationControl } from "../../tasks/task-cancellation-context.js";
 import { bindTaskFlowExecution } from "../../tasks/task-flow-registry.store.sqlite.js";
 import { mapAgentRunTerminalOutcomeToTaskStatus } from "../../tasks/task-registry-common.js";
 import { bindTaskRunExecution } from "../../tasks/task-registry.store.sqlite.js";
@@ -530,6 +531,7 @@ export function dispatchAgentRunFromGateway(params: {
       ) {
         return err("Task no longer owns an active Gateway run.");
       }
+      captureTaskCancellationControl()?.assertCurrent();
       const result = abortChatRunById(createChatAbortOps(params.context), {
         runId: params.runId,
         sessionKey,

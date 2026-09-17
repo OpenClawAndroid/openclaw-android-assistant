@@ -62,6 +62,14 @@ export type SessionListProjectionTiming = {
   yieldCount: number;
 };
 
+type SessionListCpuTiming = {
+  startSyncCpu: () => NodeJS.CpuUsage | undefined;
+  finishSyncCpu: (
+    metric: "prepareThreadCpuMs" | "rowThreadCpuMs",
+    started: NodeJS.CpuUsage | undefined,
+  ) => void;
+};
+
 type SessionSelectionScope =
   | { opts: SessionsListParams; targetsBySessionKey: GatewayStoredSessionTargets }
   | {
@@ -336,6 +344,7 @@ export async function listSessionsFromStoreAsync(
   params: ListSessionsFromStoreParams & {
     workStartedAt?: number;
     projectionTiming?: SessionListProjectionTiming;
+    cpuTiming?: SessionListCpuTiming;
   },
 ): Promise<SessionsListResult> {
   const stateContext = captureOpenClawStateWorkerContext();
@@ -347,6 +356,7 @@ export async function listSessionsFromStoreAsync(
   return withPinnedActivePluginRegistryWorkspaceDir(() =>
     withSessionProjectionWorkBudget(async (budget) => {
       const timing = params.projectionTiming;
+      const cpuTiming = params.cpuTiming;
       let syncStartedAt = timing ? performance.now() : 0;
       let syncPhase: "prepareSyncMs" | "rowSyncMs" | undefined = "prepareSyncMs";
       const yieldIfNeeded = (): Promise<void> | undefined => {
@@ -379,8 +389,17 @@ export async function listSessionsFromStoreAsync(
           budget.yieldIfNeeded,
         );
         // Each chunk shares roster facts, then releases them before another request can run.
-        let step = withAgentRosterFactsBatch(cfg, () => preparation.next());
-        while (!step.done) {
+        let step: ReturnType<typeof preparation.next>;
+        while (true) {
+          const chunkCpu = cpuTiming?.startSyncCpu();
+          try {
+            step = withAgentRosterFactsBatch(cfg, () => preparation.next());
+          } finally {
+            cpuTiming?.finishSyncCpu("prepareThreadCpuMs", chunkCpu);
+          }
+          if (step.done) {
+            break;
+          }
           if (step.value) {
             const checkpoint = performance.now();
             if (timing) {
@@ -396,13 +415,15 @@ export async function listSessionsFromStoreAsync(
           if (pause) {
             await pause;
           }
-          step = withAgentRosterFactsBatch(cfg, () => preparation.next());
         }
         const list = step.value;
         const sessions: GatewaySessionRow[] = [];
         const includeTranscriptFields = list.includeDerivedTitles || list.includeLastMessage;
-        const transcriptFields = includeTranscriptFields
-          ? readScopedSessionTitleFieldsFromTranscriptBatch(
+        let transcriptFields: ReturnType<typeof readScopedSessionTitleFieldsFromTranscriptBatch>;
+        if (includeTranscriptFields) {
+          const transcriptCpu = cpuTiming?.startSyncCpu();
+          try {
+            transcriptFields = readScopedSessionTitleFieldsFromTranscriptBatch(
               list.entries.slice(0, list.transcriptFieldRows).flatMap(([key, entry]) => {
                 if (!entry.sessionId) {
                   return [];
@@ -417,8 +438,13 @@ export async function listSessionsFromStoreAsync(
                   },
                 ];
               }),
-            )
-          : [];
+            );
+          } finally {
+            cpuTiming?.finishSyncCpu("prepareThreadCpuMs", transcriptCpu);
+          }
+        } else {
+          transcriptFields = [];
+        }
         // Optional transcript reads can spend the remaining budget even for an empty page.
         const checkpoint = performance.now();
         if (timing) {
@@ -433,56 +459,67 @@ export async function listSessionsFromStoreAsync(
         let transcriptFieldIndex = 0;
         for (let nextRowIndex = 0; nextRowIndex < list.entries.length;) {
           // Release roster facts before a pause so resumed rows observe current entries.
-          const pause = withAgentRosterFactsBatch(cfg, () => {
-            while (nextRowIndex < list.entries.length) {
-              const i = nextRowIndex++;
-              const [key, entry] = expectDefined(list.entries[i], "entries entry at i");
-              const target = expectDefined(targetsBySessionKey.get(key), "session row owner");
-              const { inputs, presentation } = readSessionRowInputs({
-                cfg,
-                storePath: target.storeTarget.storePath, // Aggregate paths are display-only.
-                store,
-                modelSource: target,
-                key: target.storeKey ?? key,
-                entry,
-                agentId: target.agentId,
-                modelCatalog: params.modelCatalog,
-                now: list.now,
-                storeChildSessionLinksByKey: list.storeChildSessionLinksByKey,
-                excludedChildKeys: list.excludedChildKeys,
-                rowContext: list.rowContext,
-                configuredAgentIds: list.configuredAgentIds,
-                skipTranscriptUsageFallback: true,
-                lightweightListRow: true,
-              });
-              const row = presentSessionRow(materializeSessionRow(inputs), presentation);
-              row.key = key;
-              if (entry?.sessionId && i < list.transcriptFieldRows && includeTranscriptFields) {
-                const { firstUserMessage, lastMessagePreview } = expectDefined(
-                  transcriptFields[transcriptFieldIndex++],
-                  "batched transcript fields at transcriptFieldIndex",
-                );
-                if (list.includeDerivedTitles) {
-                  row.derivedTitle = deriveSessionTitle(entry, firstUserMessage, row.displayName);
+          let pause: Promise<void> | undefined;
+          const rowCpu = cpuTiming?.startSyncCpu();
+          try {
+            pause = withAgentRosterFactsBatch(cfg, () => {
+              while (nextRowIndex < list.entries.length) {
+                const i = nextRowIndex++;
+                const [key, entry] = expectDefined(list.entries[i], "entries entry at i");
+                const target = expectDefined(targetsBySessionKey.get(key), "session row owner");
+                const { inputs, presentation } = readSessionRowInputs({
+                  cfg,
+                  storePath: target.storeTarget.storePath, // Aggregate paths are display-only.
+                  store,
+                  modelSource: target,
+                  key: target.storeKey ?? key,
+                  entry,
+                  agentId: target.agentId,
+                  modelCatalog: params.modelCatalog,
+                  now: list.now,
+                  storeChildSessionLinksByKey: list.storeChildSessionLinksByKey,
+                  excludedChildKeys: list.excludedChildKeys,
+                  rowContext: list.rowContext,
+                  configuredAgentIds: list.configuredAgentIds,
+                  skipTranscriptUsageFallback: true,
+                  lightweightListRow: true,
+                });
+                const row = presentSessionRow(materializeSessionRow(inputs), presentation);
+                row.key = key;
+                if (entry?.sessionId && i < list.transcriptFieldRows && includeTranscriptFields) {
+                  const { firstUserMessage, lastMessagePreview } = expectDefined(
+                    transcriptFields[transcriptFieldIndex++],
+                    "batched transcript fields at transcriptFieldIndex",
+                  );
+                  if (list.includeDerivedTitles) {
+                    row.derivedTitle = deriveSessionTitle(entry, firstUserMessage, row.displayName);
+                  }
+                  if (list.includeLastMessage && lastMessagePreview) {
+                    row.lastMessagePreview = lastMessagePreview;
+                  }
                 }
-                if (list.includeLastMessage && lastMessagePreview) {
-                  row.lastMessagePreview = lastMessagePreview;
+                sessions.push(row);
+                const rowPause = nextRowIndex < list.entries.length ? yieldIfNeeded() : undefined;
+                if (rowPause) {
+                  return rowPause;
                 }
               }
-              sessions.push(row);
-              const rowPause = nextRowIndex < list.entries.length ? yieldIfNeeded() : undefined;
-              if (rowPause) {
-                return rowPause;
-              }
-            }
-            return undefined;
-          });
+              return undefined;
+            });
+          } finally {
+            cpuTiming?.finishSyncCpu("rowThreadCpuMs", rowCpu);
+          }
           if (pause) {
             await pause;
           }
         }
 
-        return buildSessionsListResult(params, list, sessions);
+        const resultCpu = cpuTiming?.startSyncCpu();
+        try {
+          return buildSessionsListResult(params, list, sessions);
+        } finally {
+          cpuTiming?.finishSyncCpu("rowThreadCpuMs", resultCpu);
+        }
       } finally {
         if (timing && syncPhase) {
           timing[syncPhase] += performance.now() - syncStartedAt;

@@ -281,7 +281,7 @@ describe("native plugin session actions", () => {
           2,
         ),
       );
-      await sessions.refreshReplacement("writer");
+      await sessions.refresh({ agentId: "writer", force: true });
       await element.updateComplete;
       expect(button()?.textContent?.trim()).toBe("Review Writer");
       button()?.click();

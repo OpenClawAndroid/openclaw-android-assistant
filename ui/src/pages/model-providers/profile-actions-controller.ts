@@ -4,6 +4,7 @@ import type {
 } from "../../../../src/gateway/server-methods/models-auth-status.types.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { RuntimeConfigCapability } from "../../lib/config/runtime-config-capability.ts";
+import { invalidateModelAuthStatusRequests } from "../../lib/model-auth-request-state.ts";
 import { modelProviderErrorMessage } from "./config-mutation.ts";
 import type { ModelProviderLogoutTarget } from "./data.ts";
 import type { ModelProvidersData } from "./load.ts";
@@ -83,11 +84,14 @@ export class ModelProviderProfileActionsController {
     this.options.clearMessage(cardId);
     try {
       const result = await this.options.getConfig().runExternalMutation(
-        (activeClient) =>
-          activeClient.request<ModelAuthLogoutResult>("models.authLogout", {
+        async (activeClient) => {
+          const receipt = await activeClient.request<ModelAuthLogoutResult>("models.authLogout", {
             ...target,
             agentId,
-          }),
+          });
+          invalidateModelAuthStatusRequests(activeClient);
+          return receipt;
+        },
         { canDispatch: () => isCurrentScope() && this.options.canMutate() },
       );
       if (!isCurrentScope()) {
@@ -153,6 +157,7 @@ export class ModelProviderProfileActionsController {
             ...(pending.profileIds ? { profileIds: pending.profileIds } : {}),
             agentId,
           });
+          invalidateModelAuthStatusRequests(client);
           if (!this.isCurrentScope(client, clientEpoch, agentEpoch, agentId)) {
             return;
           }

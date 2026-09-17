@@ -1110,9 +1110,9 @@ extensions/slack/src/monitor/message-handler/prepare.ts	1
 extensions/slack/src/monitor/message-handler/preview-finalize.ts	3
 extensions/slack/src/monitor/message-handler/subteam-mentions.ts	1
 extensions/slack/src/monitor/provider-support.ts	3
-extensions/slack/src/monitor/provider.ts	5
+extensions/slack/src/monitor/provider.ts	4
 extensions/slack/src/monitor/reconnect-policy.ts	6
-extensions/slack/src/monitor/relay-source.ts	2
+extensions/slack/src/monitor/relay-source.ts	1
 extensions/slack/src/monitor/slash.ts	10
 extensions/slack/src/monitor/thread-resolution.ts	1
 extensions/slack/src/monitor/thread.ts	2
@@ -1590,7 +1590,7 @@ src/agents/auth-profiles/portability.ts	1
 src/agents/auth-profiles/profiles.ts	1
 src/agents/auth-profiles/repair.ts	1
 src/agents/auth-profiles/source-check.ts	1
-src/agents/auth-profiles/sqlite.ts	2
+src/agents/auth-profiles/sqlite.ts	1
 src/agents/auth-profiles/store.ts	1
 src/agents/auth-profiles/usage.ts	4
 src/agents/bash-process-registry.ts	1
@@ -2477,7 +2477,7 @@ src/config/plugins-allowlist.ts	1
 src/config/redact-snapshot.ts	4
 src/config/runtime-overrides.ts	2
 src/config/runtime-snapshot.ts	1
-src/config/runtime-source-projection.ts	3
+src/config/runtime-source-projection.ts	4
 src/config/schema.ts	1
 src/config/sessions/archive-compression.ts	1
 src/config/sessions/cleanup-service.ts	3
@@ -2979,7 +2979,7 @@ src/infra/sqlite-user-version.ts	1
 src/infra/sqlite-wal.ts	4
 src/infra/startup-migration-checkpoint.ts	1
 src/infra/state-migrations.acp-replay.ts	1
-src/infra/state-migrations.audit-backup.ts	2
+src/infra/state-migrations.audit-backup.ts	1
 src/infra/state-migrations.audit-records.ts	4
 src/infra/state-migrations.audit-recovery-protocol.ts	3
 src/infra/state-migrations.channel-pairing.ts	5
@@ -3186,7 +3186,7 @@ src/plugins/bundle-mcp.ts	2
 src/plugins/bundled-channel-config-metadata.ts	4
 src/plugins/bundled-plugin-scan.ts	1
 src/plugins/candidate-install-owner.ts	2
-src/plugins/capability-provider-runtime.ts	12
+src/plugins/capability-provider-runtime.ts	13
 src/plugins/captured-registration.ts	2
 src/plugins/channel-presence-policy.ts	2
 src/plugins/channel-validation.ts	1
@@ -3252,7 +3252,7 @@ src/plugins/manifest-setup-normalizers.ts	5
 src/plugins/manifest.ts	2
 src/plugins/marketplace.ts	6
 src/plugins/memory-runtime.ts	1
-src/plugins/native-module-require.ts	3
+src/plugins/native-module-require.ts	2
 src/plugins/official-external-provider-endpoints.ts	1
 src/plugins/openai-compatible-embedding-provider.ts	2
 src/plugins/plugin-command-dispatch-contract.ts	1
@@ -3427,7 +3427,7 @@ src/state/local-onboarding-state.ts	1
 src/state/openclaw-agent-board-schema.ts	1
 src/state/openclaw-agent-db-permissions.ts	1
 src/state/openclaw-agent-db-registry-listing.ts	3
-src/state/openclaw-agent-db-registry.ts	7
+src/state/openclaw-agent-db-registry.ts	5
 src/state/openclaw-agent-db-schema.ts	2
 src/state/openclaw-agent-db-session-migrations.ts	4
 src/state/openclaw-agent-db-session-provenance.ts	2

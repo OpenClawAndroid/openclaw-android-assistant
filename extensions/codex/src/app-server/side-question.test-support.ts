@@ -1,9 +1,12 @@
 import { nativeHookRelayTesting } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { resetDiagnosticEventsForTest } from "openclaw/plugin-sdk/diagnostic-runtime";
 import { resetGlobalHookRunner } from "openclaw/plugin-sdk/hook-runtime";
-import { afterEach, beforeEach, vi } from "vitest";
-import { createFakeCodexAppServerClient } from "./codex-app-server.test-fixtures.js";
-import { isJsonObject, type CodexServerNotification } from "./protocol.js";
+import { afterEach, beforeEach, expect, vi } from "vitest";
+import {
+  codexTestTurnIds,
+  createFakeCodexAppServerClient,
+} from "./codex-app-server.test-fixtures.js";
+import { isJsonObject, type CodexServerNotification, type JsonObject } from "./protocol.js";
 import {
   createCodexTestBindingStore,
   type CodexAppServerBindingStore,
@@ -387,3 +390,64 @@ export {
   TEST_HOST_CAPABILITIES,
   type SelectionRetryParams,
 };
+
+export async function runSideQuestionWithManagedWebSearchCall(
+  params: Parameters<typeof runCodexAppServerSideQuestion>[0] = sideParams(),
+  options: {
+    preserveToolFactory?: boolean;
+    toolName?: string;
+    toolArguments?: JsonObject;
+  } = {},
+) {
+  const client = createFakeClient();
+  let resolveTurnStarted!: () => void;
+  const turnStarted = new Promise<void>((resolve) => {
+    resolveTurnStarted = resolve;
+  });
+  if (!options.preserveToolFactory) {
+    createOpenClawCodingToolsMock.mockReturnValue([
+      {
+        name: "web_search",
+        description: "Search the web",
+        parameters: { type: "object", properties: {}, additionalProperties: true },
+        execute: toolExecuteMock,
+      },
+    ]);
+  }
+  client.request.mockImplementation(async (method: string) => {
+    if (method === "thread/fork") {
+      return threadResult("side-thread");
+    }
+    if (method === "thread/inject_items") {
+      return {};
+    }
+    if (method === "turn/start") {
+      queueMicrotask(resolveTurnStarted);
+      return turnStartResult("turn-1");
+    }
+    if (method === "thread/unsubscribe" || method === "turn/interrupt") {
+      return {};
+    }
+    throw new Error(`unexpected request: ${method}`);
+  });
+  getSharedCodexAppServerClientMock.mockResolvedValue(client);
+
+  const run = runCodexAppServerSideQuestion(params);
+  await turnStarted;
+  const toolResponse = await client.handleRequest({
+    id: 42,
+    method: "item/tool/call",
+    params: {
+      ...codexTestTurnIds("side-thread"),
+      callId: "tool-1",
+      tool: options.toolName ?? "web_search",
+      arguments: options.toolArguments ?? { query: "service providers" },
+    },
+  });
+  expect(toolResponse).not.toBeUndefined();
+  client.emit(turnCompleted("side-thread", "turn-1", "Search answer."));
+  const result = await run;
+  const forkCall = client.request.mock.calls.find(([method]) => method === "thread/fork");
+  const forkConfig = (forkCall?.[1] as { config?: Record<string, unknown> } | undefined)?.config;
+  return { forkConfig, result, toolResponse };
+}

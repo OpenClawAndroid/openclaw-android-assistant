@@ -428,6 +428,7 @@ describe("early startup task maintenance", () => {
           // Exercise both the startup sweep and the recurring maintenance sweep.
           for (const elapsedMs of [5_000, 60_000]) {
             await vi.advanceTimersByTimeAsync(elapsedMs);
+            await vi.dynamicImportSettled();
             if (updateCanary) {
               expect(getTaskById(copiedTask.taskId)).toEqual(copiedTask);
               expect(getTaskById(expiredTask.taskId)).toEqual(expiredTask);

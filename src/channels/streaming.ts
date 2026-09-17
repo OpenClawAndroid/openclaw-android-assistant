@@ -237,6 +237,8 @@ export type ChannelProgressDraftLine = {
   detail?: string;
   /** Optional lifecycle status, such as completed or exit code. */
   status?: string;
+  /** Completion metadata for authored text; never rendered as a tool status. */
+  complete?: boolean;
   /** Normalized tool name when the line represents tool work. */
   toolName?: string;
   /** Whether final formatting should add a bullet/line prefix. */

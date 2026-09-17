@@ -441,6 +441,7 @@ export async function publishPreparedModelRuntimeOwnerBatch(params: {
     const input = owner.input;
     owner.environmentFingerprint = effectiveEnvironmentFingerprint(input);
     owner.generation += 1;
+    owner.authCaptureStarted = false;
     owner.needsRefresh = true;
     owner.refreshError = undefined;
     owner.pendingPluginGeneration = params.reusePluginGenerations
@@ -465,7 +466,11 @@ export async function publishPreparedModelRuntimeOwnerBatch(params: {
         owner.provenance === "run" || (owner.provenance === "ephemeral" && input.readOnly === true),
       isGenerationCurrent,
       isBuildCurrent: params.isBuildCurrent ?? isCurrent,
-      isPreparationCurrent: params.isBuildCurrent,
+      onBeforeAuthCapture: () => {
+        if (owner.generation === generation) {
+          owner.authCaptureStarted = true;
+        }
+      },
       isEligible: () =>
         (params.isPublicationCurrent?.() ?? true) &&
         owner.generation === generation &&
@@ -536,8 +541,8 @@ export async function publishPreparedModelRuntimeOwnerBatch(params: {
             );
             for (const candidate of currentGroup) {
               if (params.registerEntriesAfterBuildStart === true) {
-                // First-build hooks may emit auth mutations. Publish the owner only after those
-                // hooks start so an event cannot refresh a generation that was not visible yet.
+                // Pending owners become visible before awaited preparation; auth replay follows
+                // the explicit credential-capture boundary rather than promise scheduling.
                 const previous = params.owners.get(candidate.key);
                 params.owners.set(candidate.key, candidate.owner);
                 if (previous && previous !== candidate.owner) {
@@ -624,6 +629,7 @@ export async function publishModelRuntimeSnapshot(
   const key = ownerKey(input);
   const owner = prepareModelRuntimeOwner(input, provenance, catalogMode, existing);
   owner.generation += 1;
+  owner.authCaptureStarted = false;
   owner.needsRefresh = true;
   owner.refreshError = undefined;
   owner.pluginGeneration = undefined;
@@ -638,6 +644,11 @@ export async function publishModelRuntimeSnapshot(
         inventoryOwner: owner,
         isGenerationCurrent,
         isBuildCurrent: isGenerationCurrent,
+        onBeforeAuthCapture: () => {
+          if (owner.generation === generation) {
+            owner.authCaptureStarted = true;
+          }
+        },
         prepareInboundPluginRegistry: provenance === "configured",
         ownsRegistryResources:
           provenance === "run" || (provenance === "ephemeral" && input.readOnly === true),

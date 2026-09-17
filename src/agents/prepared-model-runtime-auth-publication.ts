@@ -313,9 +313,18 @@ export function invalidatePreparedModelRuntimeOwnersForAuthMutation(
   const invalidatedConfiguredAgentIds = new Set<string>();
   for (const owner of owners.values()) {
     if (
-      !normalizedEvent.affectsInheritedStores &&
-      owner.input.agentDir !== normalizedEvent.agentDir &&
-      owner.input.inheritedAuthDir !== normalizedEvent.agentDir
+      // An initial active build will read current credentials; failed owners still need recovery.
+      (!owner.snapshot &&
+        owner.buildCompletion &&
+        !owner.authCaptureStarted &&
+        !owner.refreshError &&
+        owner.input.inheritedAuthDir ===
+          normalizeOptionalDir(
+            resolveLegacyInheritedAuthDir(owner.input.config, owner.input.env),
+          )) ||
+      (!normalizedEvent.affectsInheritedStores &&
+        owner.input.agentDir !== normalizedEvent.agentDir &&
+        owner.input.inheritedAuthDir !== normalizedEvent.agentDir)
     ) {
       continue;
     }

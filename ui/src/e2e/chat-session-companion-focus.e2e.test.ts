@@ -173,15 +173,19 @@ suite.define(() => {
           deferredMethods: ["sessions.companion.ask"],
         });
         await page.goto(`${suite.server.baseUrl}chat`);
+        const input = page.getByRole("textbox", { name: "Ask in side chat", exact: true });
         if (open) {
           await openChatSidePanelType(page, "Side chat");
+          // Complete the opening's focus handoff before filling the main composer.
+          await expect
+            .poll(() => input.evaluate((element) => document.activeElement === element))
+            .toBe(true);
         }
         const mainInput = page.locator(".agent-chat__composer-shell textarea");
         await mainInput.fill("/btw what is this?");
         await mainInput.press("Enter");
         const request = await gateway.waitForRequest("sessions.companion.ask");
         expect(request.params).toMatchObject({ question: "what is this?" });
-        const input = page.getByRole("textbox", { name: "Ask in side chat", exact: true });
         await expect.poll(() => input.isDisabled()).toBe(true);
         await gateway.resolveDeferred("sessions.companion.ask", {
           answer: "A side conversation.",

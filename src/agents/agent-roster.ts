@@ -17,34 +17,44 @@ export type ListedAgentEntry = {
   source: { kind: "entries"; key: string } | { kind: "list"; index: number };
 };
 
-/** Lists valid configured agent entries from config. */
-export function listAgentEntriesWithSource(cfg: AgentRosterConfig): ListedAgentEntry[] {
+function collectAgentEntries(cfg: AgentRosterConfig, withSource: true): ListedAgentEntry[];
+function collectAgentEntries(cfg: AgentRosterConfig, withSource: false): AgentEntry[];
+function collectAgentEntries(
+  cfg: AgentRosterConfig,
+  withSource: boolean,
+): Array<AgentEntry | ListedAgentEntry> {
   const roster = readAgentRosterProperty(cfg);
   if (roster?.kind === "entries" && isRecord(roster.value)) {
-    return Object.entries(roster.value).flatMap(([id, entry]) =>
-      isRecord(entry)
-        ? [
-            {
-              entry: { ...entry, id },
-              source: { kind: "entries" as const, key: id },
-            },
-          ]
-        : [],
-    );
+    const result: Array<AgentEntry | ListedAgentEntry> = [];
+    for (const [id, entry] of Object.entries(roster.value)) {
+      if (isRecord(entry)) {
+        const projected = { ...entry, id };
+        result.push(
+          withSource ? { entry: projected, source: { kind: "entries", key: id } } : projected,
+        );
+      }
+    }
+    return result;
   }
   if (roster?.kind !== "list" || !Array.isArray(roster.value)) {
     return [];
   }
-  return roster.value.flatMap((entry, index) =>
+  const listed = roster.value.flatMap((entry, index) =>
     entry !== null && typeof entry === "object"
       ? [{ entry: entry as AgentEntry, source: { kind: "list" as const, index } }] // SAFETY: Raw roster compatibility keeps objects verbatim; callers normalize ids.
       : [],
   );
+  return withSource ? listed : listed.map(({ entry }) => entry);
+}
+
+/** Lists valid configured agent entries from config. */
+export function listAgentEntriesWithSource(cfg: AgentRosterConfig): ListedAgentEntry[] {
+  return collectAgentEntries(cfg, true);
 }
 
 /** Lists valid configured agent entries from either supported representation. */
 export function listAgentEntries(cfg: AgentRosterConfig): AgentEntry[] {
-  return listAgentEntriesWithSource(cfg).map(({ entry }) => entry);
+  return collectAgentEntries(cfg, false);
 }
 
 /** Reads the explicitly owned raw roster without normalizing malformed values. */

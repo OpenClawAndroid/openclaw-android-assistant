@@ -587,6 +587,32 @@ describe("scripts/lib/plugin-npm-security-scan.mts", () => {
     },
   );
 
+  it.each([
+    ["codex", "@openclaw/codex", "src/session-catalog-native.test.ts", 1],
+    ["logbook", "@openclaw/logbook", "src/analyze.test.ts", 1],
+    ["onepassword", "@openclaw/onepassword", "src/secret-ref-resolver.test.ts", 4],
+  ] as const)(
+    "reviews exact current process-test counts for %s",
+    async (extensionId, packageName, fixturePath, expectedCount) => {
+      const spawnProbe =
+        'import { spawn } from "node:child_process";\n' +
+        "spawn(process.execPath, []);\n".repeat(expectedCount);
+      const { artifact } = writePluginArtifact({
+        extensionId,
+        packageName,
+        files: { [fixturePath]: spawnProbe },
+      });
+      const current = await scanPublishablePluginPackages([artifact]);
+      expect(current.scanErrors).toEqual([]);
+      expect(current.packageResults[0]?.unexpectedCriticalFindings).toEqual([]);
+      expect(current.packageResults[0]?.reviewedCriticalFindings).toEqual(
+        Array.from({ length: expectedCount }, () => `${packageName}:dangerous-exec:${fixturePath}`),
+      );
+      const frozen = await scanPublishablePluginPackages([artifact], "release/2026.9.4");
+      expect(frozen.packageResults[0]?.unexpectedCriticalFindings).toHaveLength(expectedCount);
+    },
+  );
+
   it.each([null, 0, 1, 2])(
     "reviews exactly one packed composition fixture for current and 9.5 only: %s",
     async (count) => {
@@ -636,6 +662,81 @@ describe("scripts/lib/plugin-npm-security-scan.mts", () => {
         ).toHaveLength(
           current ? (count === null || count === 1 ? 0 : 1) : count === null || count === 0 ? 0 : 1,
         );
+      }
+    },
+  );
+
+  it.each([null, 0, 1, 2])(
+    "reviews exactly one packed native catalog fixture for current and 9.5 only: %s",
+    async (count) => {
+      const packageName = "@openclaw/codex";
+      const fixturePath = "src/session-catalog-native.test.ts";
+      const fixtureKey = `${packageName}:dangerous-exec:${fixturePath}`;
+      const probe = 'import { spawn } from "node:child_process";\nspawn(process.execPath, []);\n';
+      // Read as inert package input: never import or launch the native fixture here.
+      const nativeSource = readFileSync(
+        join(process.cwd(), "extensions/codex", fixturePath),
+        "utf8",
+      );
+      const artifact = writePluginArtifact({
+        extensionId: "codex",
+        packageName,
+        files: {
+          "src/app-server/transport-stdio.ts": probe,
+          "src/app-server/sandbox-exec-server/sandbox-child.ts": probe,
+          "src/app-server/transport-process-snapshot.ts": probe,
+          ...(count === null
+            ? {}
+            : {
+                [fixturePath]:
+                  count === 0 ? "export {};\n" : nativeSource + probe.repeat(count - 1),
+              }),
+          "src/session-catalog-unreviewed.test.ts": probe,
+        },
+      });
+      for (const context of [
+        "",
+        "release/2026.9.5",
+        "release/2026.9.1",
+        "release/2026.9.2",
+        "release/2026.9.3",
+        "release/2026.9.4",
+        "extended-stable/2026.6.33",
+        "extended-stable/2026.7.33",
+      ]) {
+        const current = context === "" || context === "release/2026.9.5";
+        const scanned = await scanPublishablePluginPackages([artifact.artifact], context);
+        expect(scanned.scanErrors, context).toEqual([]);
+        const result = scanned.packageResults[0]!;
+        expect(result.expectedReviewedCriticalFindings, context).toEqual(
+          current && count !== null ? [fixtureKey] : [],
+        );
+        expect(
+          result.reviewedCriticalFindings.filter((key) => key === fixtureKey),
+          context,
+        ).toEqual(current ? Array.from({ length: count ?? 0 }, () => fixtureKey) : []);
+        expect(
+          result.unexpectedCriticalFindings.filter((finding) => finding.path === fixturePath),
+          context,
+        ).toHaveLength(current ? 0 : (count ?? 0));
+        expect(result.unexpectedCriticalFindings, context).toContainEqual({
+          line: 2,
+          path: "src/session-catalog-unreviewed.test.ts",
+          ruleId: "dangerous-exec",
+        });
+        const report = buildPluginNpmSecurityScanReport({
+          candidateSha: CANDIDATE_SHA,
+          packageResults: scanned.packageResults,
+          targetContextRef: context,
+          toolingSha: TOOLING_SHA,
+        });
+        expect(report.status, context).toBe("fail"); // Unknown test sites are never admitted.
+        if (current) {
+          expect(
+            report.errors.filter((error) => error.includes("reviewed critical inventory mismatch")),
+            context,
+          ).toHaveLength(count === 0 || count === 2 ? 1 : 0);
+        }
       }
     },
   );

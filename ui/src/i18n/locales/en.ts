@@ -25,6 +25,7 @@ export const en: TranslationMap & {
   configPage: TranslationMap;
   connection: TranslationMap;
   configView: TranslationMap;
+  custodian: TranslationMap;
   debug: TranslationMap & {
     lanes: TranslationMap & Record<"lane" | "active" | "queued" | "blocked", string>;
     overlay: TranslationMap &
@@ -47,11 +48,14 @@ export const en: TranslationMap & {
   devices: TranslationMap;
   desktop: TranslationMap &
     Record<"title" | "openWindow" | "unavailable" | "toggle" | "reconnect" | "connecting", string>;
+  filePreview: TranslationMap & { bundle: TranslationMap };
   updates: TranslationMap;
   login: TranslationMap;
+  modelSetup: TranslationMap;
   newSession: TranslationMap;
   skillWorkshop: TranslationMap;
   systems: TranslationMap;
+  usage: TranslationMap & { overview: TranslationMap };
 } = {
   pluginUi: {
     sessionRecentMessages: "Recent messages",
@@ -250,14 +254,7 @@ export const en: TranslationMap & {
     openInControlUi: "Open links in Control UI browser",
   },
   filePreview: {
-    bundle: {
-      binary: "This binary file is included in the bundle but cannot be displayed as text.",
-      "too-large":
-        "This file exceeds the preview limit. Its contents have not been truncated or loaded.",
-      unavailable:
-        "This file could not be read safely or is unavailable. Close and reopen the skill to try again.",
-      incomplete: "Some bundle content is unavailable. Select a file to see its status.",
-    },
+    bundle: {},
     label: "Support files",
     listLabel: "Files",
     searchPlaceholder: "Search files…",
@@ -2453,27 +2450,7 @@ export const en: TranslationMap & {
     sources: "Auto-start sources",
   },
   cloudWorkersPage: {},
-  portalsPage: {
-    listLabel: "Active portals",
-    portLabel: "Port {port}",
-    openNewTab: "Open in new tab",
-    closePortal: "Close {title}",
-    previewTitle: "{title} portal preview",
-    loading: "Loading portals…",
-    emptyHint: "Ask the agent to start a portal:",
-    promptShow: "Show me in a portal.",
-    promptStart: "Start the application in a portal.",
-    promptMakeAvailable: "Make the server available in a portal.",
-    unsupported: "This gateway does not support portals.",
-    loadFailed: "Could not load portals: {error}",
-    closeFailed: "Could not close the portal: {error}",
-    unreachableTitle: "Portal not reachable from this browser",
-    unreachableBody:
-      "The Gateway is likely being accessed through a proxy or tunnel that exposes only its main port. Open this URL from a browser on the Gateway host.",
-    writeAccessRequiredTitle: "Write access required",
-    writeAccessRequiredBody: "This portal requires an operator with write access.",
-    retry: "Retry",
-  },
+  portalsPage: {},
   modelSetup: {
     missingAuth: "No provider credential is configured for this model. Set it up in Model Setup.",
     commandHint: "Try /models or /help.",
@@ -2495,17 +2472,7 @@ export const en: TranslationMap & {
       wait: "The previous setup attempt may still be running. Check again can refresh its result. If no model appears, check again after {time} to choose a provider.",
       useCurrent: "Verify & use selected model",
     },
-    verify: {
-      title: "Selected model",
-      button: "Check model",
-      retry: "Try again",
-      checkAgain: "Check again",
-      checkingButton: "Checking…",
-      checking: "Checking — asking {modelRef} for a quick reply…",
-      ready: "Ready",
-      readyIn: "Ready · {latencyMs} ms",
-      providerUnavailable: "{provider} isn’t responding.",
-    },
+    verify: {},
     access: {
       adminRequired: "Model setup requires operator.admin access.",
       gatewayTooOld: "The Gateway is running an older OpenClaw version",
@@ -2520,13 +2487,7 @@ export const en: TranslationMap & {
       retry: "Retry test",
       testingButton: "Testing…",
     },
-    nativeDiscovery: {
-      title: "Discover existing conversations",
-      body: "Show native assistant conversations from this Gateway host in OpenClaw. This is discovery, not an import or copy.",
-      enable: "Show existing native conversations",
-      decline:
-        "Leave unchecked to keep native session catalogs off when you connect your AI provider. Existing installations are not changed.",
-    },
+    nativeDiscovery: {},
     empty: {
       title: "Recommended installs",
       intro: "No existing AI access was detected. Install one of these tools, then check again.",
@@ -2567,16 +2528,8 @@ export const en: TranslationMap & {
       verifyHint: "OpenClaw verifies a real model reply before marking the connection ready.",
       required: "Choose a provider and enter an API key or token.",
     },
-    success: {
-      title: "Connection verified",
-      body: "OpenClaw received a real reply from {modelRef}. You can start chatting now.",
-      activeModel: "Active model",
-      latency: "Verified in {latencyMs} ms",
-      openChat: "Start chatting",
-      continueSetup: "Continue setup",
-      stayHere: "Stay in settings",
-      configuredModel: "Configured model",
-    },
+    success: {},
+    utility: {},
     failure: {
       auth: "Authentication failed",
       rateLimit: "Rate limited",
@@ -3587,44 +3540,8 @@ export const en: TranslationMap & {
       familyHint: "Roll up known rotated transcript-backed session ids.",
       familyIncluded: "Historical lineage includes {count} session instances.",
     },
-    filters: {
-      title: "Filters",
-      to: "to",
-      startDate: "Start date",
-      endDate: "End date",
-      timeZone: "Time zone",
-      timeZoneLocal: "Local",
-      timeZoneUtc: "UTC",
-      pin: "Pin",
-      pinned: "Pinned",
-      selectAll: "Select All",
-      clear: "Clear",
-      clearAll: "Clear All",
-      remove: "Remove filter",
-      removeDays: "Remove days filter",
-      removeHours: "Remove hours filter",
-      removeSession: "Remove session filter",
-      all: "All",
-      days: "Days",
-      hours: "Hours",
-      session: "Session",
-      agent: "Agent",
-      channel: "Channel",
-      provider: "Provider",
-      model: "Model",
-      tool: "Tool",
-      daysCount: "{count} days",
-      hoursCount: "{count} hours",
-      sessionsCount: "{count} sessions",
-    },
-    query: {
-      placeholder:
-        "Filter sessions (e.g. key:agent:main:cron* model:gpt-4o has:errors minTokens:2000)",
-      apply: "Filter (client-side)",
-      matching: "{shown} of {total} sessions match",
-      inRange: "{total} sessions in range",
-      tip: "Tip: use filters or click bars to refine days.",
-    },
+    filters: {},
+    query: {},
     export: {
       label: "Export",
       changed: "Session context changed while preparing the export. Refresh usage and try again.",
@@ -3632,36 +3549,10 @@ export const en: TranslationMap & {
       dailyCsv: "Daily CSV",
       json: "JSON",
     },
-    cacheStatus: {
-      warning: "Usage data may be incomplete. Checking for updated totals automatically.",
-      paused:
-        "Usage data may be incomplete. Automatic checks paused; select Refresh to check again.",
-    },
-    empty: {
-      title: "Start with a date range",
-      subtitle:
-        "Load usage data to compare costs, inspect sessions, and drill into timelines without leaving the dashboard.",
-      hint: "Select a date range and click Refresh to load usage.",
-      noData: "No data",
-      featureOverview: "Overview cards",
-      featureSessions: "Session ranking",
-      featureTimeline: "Timeline drilldown",
-    },
-    daily: {
-      title: "Daily Usage",
-      total: "Total",
-      byType: "By Type",
-      tokensTitle: "Daily Token Usage",
-      costTitle: "Daily Cost",
-      compressedScaleHint: "Square-root scale keeps low-usage days visible.",
-    },
-    costWindows: {
-      title: "Cost Windows",
-      subtitle: "Calendar windows ending {date}",
-      selectedRange: "Selected Range",
-      lastDays: "Last {count} days",
-      perDay: "/ day",
-    },
+    cacheStatus: {},
+    empty: {},
+    daily: {},
+    costWindows: {},
     breakdown: {
       output: "Output",
       input: "Input",
@@ -3673,74 +3564,8 @@ export const en: TranslationMap & {
     },
     overview: {
       title: "Usage Overview",
-      messages: "Messages",
-      messagesHint: "Total user and assistant messages in range.",
-      messagesAbbrev: "msgs",
-      user: "user",
-      assistant: "assistant",
-      toolCalls: "Tool Calls",
-      toolCallsHint: "Total tool call count across sessions.",
-      toolsUsed: "tools used",
-      errors: "Errors",
-      errorsHint: "Total message and tool errors in range.",
-      toolResults: "tool results",
-      avgTokens: "Avg Tokens / Msg",
-      avgTokensHint: "Average tokens per message in this range.",
-      avgCost: "Avg Cost / Msg",
-      avgCostHint: "Average cost per message when providers report costs.",
-      avgCostHintMissing:
-        "Average cost per message when providers report costs. Cost data is missing for some or all sessions in this range.",
-      acrossMessages: "Across {count} messages",
-      sessions: "Sessions",
-      sessionsHint: "Distinct sessions in the range.",
-      sessionsInRange: "of {count} in range",
-      throughput: "Throughput",
-      throughputHint: "Throughput shows tokens per minute over active time. Higher is better.",
-      tokensPerMinute: "tok/min",
-      perMinute: "/ min",
-      errorRate: "Error Rate",
-      errorHint: "Error rate = errors / total messages. Lower is better.",
-      avgSession: "avg session",
-      cacheHitRate: "Cache Hit Rate",
-      cacheHint:
-        "Cache hit rate = cache read / (input + cache read + cache write). Higher is better.",
-      cached: "cached",
-      prompt: "prompt",
-      calls: "calls",
-      costShare: "{percent}% of cost",
-      topModels: "Top Models",
-      topProviders: "Top Providers",
-      topTools: "Top Tools",
-      topAgents: "Top Agents",
-      topChannels: "Top Channels",
-      peakErrorDays: "Peak Error Days",
-      peakErrorHours: "Peak Error Hours",
-      noModelData: "No model data",
-      noProviderData: "No provider data",
-      noToolCalls: "No tool calls",
-      noAgentData: "No agent data",
-      noChannelData: "No channel data",
-      noErrorData: "No error data",
     },
-    sessions: {
-      title: "Sessions",
-      shown: "{count} shown",
-      total: "{count} total",
-      avg: "avg",
-      all: "All",
-      recent: "Recently viewed",
-      recentShort: "Recent",
-      sort: "Sort",
-      ascending: "Ascending",
-      descending: "Descending",
-      clearSelection: "Clear Selection",
-      noRecent: "No recent sessions",
-      noneInRange: "No sessions in range",
-      more: "+{count} more",
-      selected: "Selected ({count})",
-      copy: "Copy",
-      limitReached: "Showing first 1,000 sessions. Narrow date range for complete results.",
-    },
+    sessions: {},
     details: {
       noUsageData: "No usage data for this session.",
       duration: "Duration",
@@ -3786,27 +3611,7 @@ export const en: TranslationMap & {
       you: "You",
       noMessagesMatch: "No messages match the filters.",
     },
-    mosaic: {
-      title: "Activity by Time",
-      subtitleEmpty: "Estimates require session timestamps.",
-      subtitle: "Estimated from session spans (first/last activity). Time zone: {zone}.",
-      noTimelineData: "No timeline data yet.",
-      dayOfWeek: "Day of Week",
-      midnight: "Midnight",
-      fourAm: "4am",
-      eightAm: "8am",
-      noon: "Noon",
-      fourPm: "4pm",
-      eightPm: "8pm",
-      legend: "Low → High token density",
-      sun: "Sun",
-      mon: "Mon",
-      tue: "Tue",
-      wed: "Wed",
-      thu: "Thu",
-      fri: "Fri",
-      sat: "Sat",
-    },
+    mosaic: {},
   },
   // Login copy lives in the lazy en-login catalog; the anchor keeps its merge target.
   login: {},

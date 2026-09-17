@@ -12,6 +12,7 @@ import { GatewayRequestError, type GatewayEventFrame } from "../api/gateway.ts";
 import { t } from "../i18n/index.ts";
 import { formatUiError } from "../lib/format-error.ts";
 import {
+  invalidateQuestionList,
   publishQuestionClientResolution,
   registerQuestionClientOwner,
   requestQuestionGateway,
@@ -302,6 +303,9 @@ function recordQuestionResolution(
   state: QuestionPromptState,
   resolved: QuestionResolvedEvent,
 ): void {
+  if (state.client) {
+    invalidateQuestionList(state.client);
+  }
   const prompt = state.prompts.get(resolved.id);
   if (prompt) {
     applyQuestionResolution(state, prompt, resolved);
@@ -323,6 +327,9 @@ export function handleQuestionPromptEvent(
     const record = parseQuestionRequestedEvent(event.payload);
     if (!record) {
       return false;
+    }
+    if (state.client) {
+      invalidateQuestionList(state.client);
     }
     const previous = state.prompts.get(record.id);
     if (previous && previous.status !== "pending") {
@@ -392,7 +399,11 @@ async function refreshPendingQuestions(
   const startedAtRevision = state.revision;
   const listResult = await requestQuestionGateway(client, "question.list", {});
   const records = parseQuestionListResult(listResult);
-  if (!records || !isCurrentClient()) {
+  if (!records) {
+    invalidateQuestionList(client);
+    return false;
+  }
+  if (!isCurrentClient()) {
     return false;
   }
   const refreshedIds = new Set(records.map((record) => record.id));

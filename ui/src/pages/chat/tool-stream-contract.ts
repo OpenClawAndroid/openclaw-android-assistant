@@ -104,5 +104,5 @@ export type ToolStreamHost = {
   waitingApprovalStatuses?: Map<string, WaitingApprovalStatus>;
   waitingApprovalResolvedIds?: Set<string>;
   requestUpdate?: () => void;
-  sessions: Pick<SessionCapability, "refreshReplacement">;
+  sessions: Pick<SessionCapability, "reconcileMutation">;
 };

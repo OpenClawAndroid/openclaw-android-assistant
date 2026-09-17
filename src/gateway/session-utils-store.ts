@@ -18,9 +18,15 @@ import { resolveExecDefaults } from "../agents/exec-defaults.js";
 import { resolveAgentAvatarUrlFromSource } from "../agents/identity-avatar-file.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.js";
 import { splitTrailingAuthProfile } from "../agents/model-ref-profile.js";
-import { resolveDefaultModelForAgent } from "../agents/model-selection.js";
+import {
+  buildModelAliasIndex,
+  resolveDefaultModelForAgent,
+  resolveModelRefFromString,
+} from "../agents/model-selection.js";
 import { resolveSandboxConfigForAgent } from "../agents/sandbox/config.js";
 import { SESSION_PERMISSION_BY_EXEC_MODE } from "../agents/session-permission-exec-mode.js";
+import { readUtilityModelSetting } from "../agents/utility-model-setting.js";
+import { resolveConfiguredPrimaryModelForAgent } from "../agents/utility-model.js";
 import { insideGitCheckout } from "../agents/worktrees/git.js";
 import { getRuntimeConfig } from "../config/io.js";
 import { resolveAgentModelFallbackValues } from "../config/model-input.js";
@@ -312,13 +318,16 @@ function resolveGatewayAgentModel(
   // Agent rows expose model identity to clients; credential-profile binding stays in
   // canonical config and is consumed only by execution-time model selection.
   const primary = `${resolvedModel.provider}/${resolvedModel.model}`;
+  const utilityOnly =
+    !resolveConfiguredPrimaryModelForAgent({ cfg, agentId }) &&
+    readUtilityModelSetting(cfg, agentId).kind === "explicit";
   const fallbackOverride = resolveAgentModelFallbacksOverride(cfg, agentId);
   const defaultFallbacks = resolveAgentModelFallbackValues(cfg.agents?.defaults?.model);
   const fallbacks = normalizeFallbackList(
     (fallbackOverride ?? defaultFallbacks).map((value) => splitTrailingAuthProfile(value).model),
   );
   return {
-    primary,
+    ...(utilityOnly ? {} : { primary }),
     ...(fallbacks.length > 0 ? { fallbacks } : {}),
   };
 }
@@ -399,6 +408,16 @@ export function listAgentsForGateway(
         : undefined;
     const resolvedModel = resolveDefaultModelForAgent({ cfg, agentId: id });
     const model = resolveGatewayAgentModel(cfg, id, resolvedModel);
+    const utilitySetting = readUtilityModelSetting(cfg, id);
+    const selectionParams = { cfg, agentId: id, defaultProvider: resolvedModel.provider };
+    const utility =
+      utilitySetting.kind === "explicit"
+        ? resolveModelRefFromString({
+            ...selectionParams,
+            raw: utilitySetting.modelRef,
+            aliasIndex: buildModelAliasIndex(selectionParams),
+          })?.ref
+        : undefined;
     const sessionKey = resolveAgentMainSessionKey({ cfg, agentId: id });
     const agentRuntime = projectWorkerPlacementAgentRuntime(
       resolveModelAgentRuntimeMetadata({
@@ -452,6 +471,7 @@ export function listAgentsForGateway(
         thinkingDefault: thinkingProfile.thinkingDefault,
       },
       { model },
+      utility ? { utilityModel: `${utility.provider}/${utility.model}` } : {},
       defaultPermissionMode ? { defaultPermissionMode } : {},
     );
     const provenance = provenanceById.get(id);

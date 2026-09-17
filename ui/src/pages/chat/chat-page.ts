@@ -1,12 +1,10 @@
 import { consume } from "@lit/context";
-import { html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
 import { mergeChatPageChrome, mobileNavLayoutMediaQuery } from "../../app/mobile-nav-layout.ts";
 import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { McpAppUnmountGate } from "../../components/mcp-app-unmount.ts";
 import { UI_COMMAND_EVENT, type UiCommandDetail } from "../../components/panel-toggle-contract.ts";
-import { t } from "../../i18n/index.ts";
 import type { BoardFace } from "../../lib/board/settings.ts";
 import { readSessionDragData, sessionDragActive } from "../../lib/sessions/drag.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
@@ -16,7 +14,12 @@ import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { persistSessionBoardFace } from "./chat-board-face-persistence.ts";
 import { currentRouteLocation, stillOwnsCanonicalLocation } from "./chat-canonical-location.ts";
 import { resolveDropIndicator, type DropIndicator } from "./chat-page-drop-indicator.ts";
-import { renderChatPagePaneCell, renderChatPageSplitLayout } from "./chat-page-pane-render.ts";
+import {
+  renderPendingChatPage,
+  renderChatPageBody,
+  renderChatPagePaneCell,
+  renderChatPageSplitLayout,
+} from "./chat-page-pane-render.ts";
 import { ChatPageRetainedSessions } from "./chat-page-retained-sessions.ts";
 import { closeStagedPane, resumeStagedPanes } from "./chat-pane-attachment-handoff.ts";
 import { bindChatPageSession } from "./chat-state-route.ts";
@@ -56,14 +59,28 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
   @state() private mergedChrome = false;
   @state() private dropIndicator: DropIndicator | null = null;
 
-  get sessionSplitAvailable(): boolean {
-    return this.presented && !this.narrow && Boolean(this.data?.sessionKey?.trim());
+  private get pendingCreate(): boolean {
+    return this.data?.creation?.admitted === false;
   }
 
-  private readonly subscriptions = new SubscriptionsController(this).watch(
-    () => this.context?.sessions,
-    (sessions, notify) => sessions.subscribe(notify),
-  );
+  get sessionSplitAvailable(): boolean {
+    return (
+      this.presented &&
+      !this.pendingCreate &&
+      !this.narrow &&
+      Boolean(this.data?.sessionKey?.trim())
+    );
+  }
+
+  private readonly subscriptions = new SubscriptionsController(this)
+    .watch(
+      () => this.context?.sessions,
+      (sessions, notify) => sessions.subscribe(notify),
+    )
+    .watch(
+      () => this.context?.chatSubmissions,
+      (submissions, notify) => submissions.subscribeCreate(notify),
+    );
   private mediaQuery: MediaQueryList | null = null;
   private mobileNavMediaQuery: MediaQueryList | null = null;
   private dragDepth = 0;
@@ -126,7 +143,7 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
     this.syncRouteToActivePane();
     this.syncRouteBindings();
     const layout = this.layout ?? this.classicLayout();
-    if (this.presented) {
+    if (this.presented && !this.pendingCreate) {
       this.viewerPresence.sync(this.context?.gateway, layout, this.narrow);
     }
   }
@@ -152,7 +169,7 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
   }
 
   override updated(changedProperties: Map<PropertyKey, unknown>) {
-    if (!this.presented) {
+    if (!this.presented || this.pendingCreate) {
       this.clearCloseFocus();
       this.viewerPresence.dispose();
       if (changedProperties.has("presented")) {
@@ -237,7 +254,7 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
   };
 
   private readonly handleUiCommand = (event: Event) => {
-    if (!this.presented || !(event instanceof CustomEvent)) {
+    if (!this.presented || this.pendingCreate || !(event instanceof CustomEvent)) {
       return;
     }
     const { command, sessionKey: sourceSessionKey } = event.detail as UiCommandDetail;
@@ -376,7 +393,7 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
   private syncRouteToActivePane() {
     const layout = this.layout;
     const sessionKey = this.data?.sessionKey?.trim();
-    if (!layout || !sessionKey) {
+    if (!layout || !sessionKey || this.pendingCreate) {
       return;
     }
     const activePane = findPane(layout, layout.activePaneId)?.pane;
@@ -387,7 +404,7 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
   }
 
   private syncRouteBindings() {
-    if (!this.presented) {
+    if (!this.presented || this.pendingCreate) {
       return;
     }
     const activePane = this.layout && findPane(this.layout, this.layout.activePaneId)?.pane;
@@ -689,7 +706,13 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
   }
 
   override render() {
-    const indicator = this.dropIndicator;
+    if (this.pendingCreate) {
+      return this.mcpAppUnmountGate.render(
+        "pending-create",
+        () => renderPendingChatPage(this.context, this.data.sessionKey, this.presented),
+        () => [...this.querySelectorAll<ChatPaneElement>("openclaw-chat-pane")],
+      );
+    }
     const layout = this.layout ?? this.classicLayout();
     const retainedSessions = this.retainedSessions.retain(panesOf(layout));
     const nextPaneKeys = new Set<string>();
@@ -703,29 +726,11 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
         }
       }
     }
-    const renderValue = () => html`
-      <div class="chat-split-view__drop-container">
-        ${this.renderSplitLayout(layout, Boolean(this.layout), retainedSessions)}
-        ${
-          indicator
-            ? html`<div
-                class="chat-split-view__drop-indicator ${
-                  indicator.zone.kind === "center" ? "chat-split-view__drop-indicator--center" : ""
-                }"
-                style=${`left: ${indicator.rect.left}px; top: ${indicator.rect.top}px; width: ${indicator.rect.width}px; height: ${indicator.rect.height}px;`}
-              >
-                <span class="chat-split-view__drop-indicator-label"
-                  >${
-                    indicator.zone.kind === "center"
-                      ? t("chat.splitView.dropOpenHere")
-                      : t("chat.splitView.dropSplit")
-                  }</span
-                >
-              </div>`
-            : nothing
-        }
-      </div>
-    `;
+    const renderValue = () =>
+      renderChatPageBody(
+        this.renderSplitLayout(layout, Boolean(this.layout), retainedSessions),
+        this.dropIndicator,
+      );
     return this.mcpAppUnmountGate.render(JSON.stringify([...nextPaneKeys]), renderValue, () =>
       [...this.querySelectorAll<ChatPaneElement>("openclaw-chat-pane")].filter(
         (pane) => !nextPaneKeys.has(pane.dataset.mcpAppOwnerKey ?? ""),

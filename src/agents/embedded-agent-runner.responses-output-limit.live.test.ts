@@ -160,7 +160,7 @@ describeLive("embedded Responses output-limit recovery live", () => {
         expect(receipt).toMatch(/^RECEIPT_[0-9a-f-]{36}$/);
         await expect(fs.stat(unfinishedPath)).rejects.toMatchObject({ code: "ENOENT" });
         expect(requests).toHaveLength(3);
-        expect(JSON.stringify(requests[2]?.input)).toContain(receipt);
+        expect(requests[2]?.previous_response_id).toBeTypeOf("string");
         expect(result.payloads?.map((payload) => payload.text ?? "").join("\n")).toContain(receipt);
         expect(result.payloads?.some((payload) => payload.isError)).toBe(false);
         expect(

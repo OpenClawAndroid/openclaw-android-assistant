@@ -43,6 +43,8 @@ function metadataScopeKey(scope: ChatMetadataParams): string {
   ]);
 }
 
+const MAX_CACHED_CHAT_METADATA = 64;
+
 function metadataEntryFor(
   client: GatewayBrowserClient,
   params: ChatMetadataParams,
@@ -58,16 +60,26 @@ function metadataEntryFor(
     ) => {
       if (
         sessionEvent !== undefined &&
-        (!scope ||
-          (sessionEvent?.reason !== "reset" &&
-            sessionEvent?.phase !== "reset" &&
-            sessionEvent?.reason !== "command-metadata" &&
-            sessionEvent?.reason !== "patch"))
+        ((!scope && sessionEvent?.reason !== "delete" && sessionEvent?.reason !== "cleanup") ||
+          (sessionEvent?.phase !== "reset" &&
+            ![
+              "reset",
+              "patch",
+              "command-metadata",
+              "create",
+              "new",
+              "delete",
+              "recovery",
+              "cleanup",
+            ].some((reason) => reason === sessionEvent?.reason)))
       ) {
         return;
       }
       const invalidated = Array.from(entries.values()).filter(
         (entry) =>
+          (sessionEvent === undefined ||
+            scope !== undefined ||
+            entry.scope.sessionKey !== undefined) &&
           (sessionDefaults && scope?.sessionKey
             ? uiConversationMatches(
                 sessionDefaults,
@@ -90,7 +102,7 @@ function metadataEntryFor(
         notifyChatMetadataListeners(entry, {
           type: "invalidated",
           // Session mutations own roster reconciliation; global changes also change session facts.
-          refreshSessionFacts: !scope?.sessionKey,
+          refreshSessionFacts: sessionEvent === undefined && !scope?.sessionKey,
         });
         entry.release();
       }
@@ -112,13 +124,12 @@ function metadataEntryFor(
       refreshRevision: 0,
       catalogRevision: 0,
       release: () => {
-        // Selected-account projections live with their consumers, not every conversation/draft.
-        // Retire the writer too: a late startup/read cannot repopulate a released entry.
+        // Keep completed metadata across remounts; active consumers and transports are never evicted.
         if (
-          (params.sessionKey || params.authProfileId) &&
           created.listeners.size === 0 &&
           !created.activeRequest &&
-          !created.queuedRequest
+          !created.queuedRequest &&
+          (!created.result || entries.size > MAX_CACHED_CHAT_METADATA)
         ) {
           created.writer = undefined;
           if (entries.get(key) === created) {
@@ -134,6 +145,17 @@ function metadataEntryFor(
       }
     });
     entry = created;
+    entries.set(key, entry);
+    for (const candidate of entries.values()) {
+      if (entries.size <= MAX_CACHED_CHAT_METADATA) {
+        break;
+      }
+      if (candidate !== entry) {
+        candidate.release();
+      }
+    }
+  } else {
+    entries.delete(key);
     entries.set(key, entry);
   }
   return entry;
@@ -327,7 +349,6 @@ export function subscribeChatMetadata(
     if ((scope.sessionKey || scope.authProfileId) && entry.listeners.size === 0) {
       entry.refreshRevision += 1;
       entry.writer = undefined;
-      entry.result = undefined;
     }
     entry.release();
   };

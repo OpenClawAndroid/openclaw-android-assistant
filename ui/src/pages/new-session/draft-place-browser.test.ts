@@ -412,6 +412,18 @@ describe("DraftPlaceBrowser", () => {
 });
 
 describe("DraftGatewayState", () => {
+  it("does not start preference reads after the draft disconnects during module loading", async () => {
+    const request = vi.fn(async () => ({ status: "ok", entries: {} }));
+    const fixture = createBrowser(request);
+    fixture.context.gateway.snapshot.selfUser = { id: "profile-one" };
+    fixture.hello.features.methods.push("users.prefs.get", "users.prefs.set");
+    fixture.gateway.synchronize(fixture.context.gateway);
+    expect(fixture.gateway.preferenceLoading).toBe(true);
+    fixture.gateway.disconnect();
+    await vi.dynamicImportSettled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it.each(["disconnect", "credential", "gateway"])(
     "rejects late place catalogs synchronously after %s invalidation",
     async (change) => {

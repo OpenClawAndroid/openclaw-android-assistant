@@ -426,27 +426,35 @@ export type PluginPackageCapture = {
 export const isPluginPackageFile = (root: string, file: string) =>
   isPathInside(root, file) && !path.relative(root, file).split(path.sep).includes("node_modules");
 
+function isCapturedPathInside(root: string, file: string): boolean {
+  return process.platform === "win32"
+    ? isPathInside(root, file)
+    : file === root ||
+        (file.startsWith(root) && (root.endsWith("/") || file.charCodeAt(root.length) === 47));
+}
+
 function isCapturedPackageFile(root: string, file: string): boolean {
   if (process.platform === "win32") {
     return isPluginPackageFile(root, file);
   }
-  if (file === root) {
-    return true;
-  }
-  if (!file.startsWith(root) || (!root.endsWith("/") && file.charCodeAt(root.length) !== 47)) {
-    return false;
-  }
-  return !/(?:^|\/)node_modules(?:\/|$)/u.test(file.slice(root.length));
+  return (
+    isCapturedPathInside(root, file) &&
+    !/(?:^|\/)node_modules(?:\/|$)/u.test(file.slice(root.length))
+  );
 }
 
 /** Retain the matched lookup root; dependency links need their own source-relative mapping. */
 export function findPluginCapturedPackage(
-  packages: Iterable<PluginPackageCapture>,
+  packages: ReadonlyMap<string, PluginPackageCapture>,
   filename: string,
+  directory: string,
 ) {
-  // The artifact producer already normalizes captured roots and dependency links.
+  // The artifact producer normalizes its directory, captured roots, and dependency links.
   const file = process.platform === "win32" ? filename : path.resolve(filename);
-  for (const owner of packages) {
+  if (!isCapturedPathInside(directory, file)) {
+    return undefined;
+  }
+  for (const owner of packages.values()) {
     if (isCapturedPackageFile(owner.capturedRoot, file)) {
       return { owner, root: owner.capturedRoot };
     }

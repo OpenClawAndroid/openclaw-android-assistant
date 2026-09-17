@@ -201,6 +201,7 @@ export class ShellNavigationOwner {
       // in-flight navigation: it wins over the one-shot restore, and the stale
       // committed route must not be persisted over the remembered destination.
       const pendingDiffers =
+        routeContext.chatSubmissions.creation ||
         routeState.routeId !== committedRouteId ||
         (routeState.location?.pathname ?? "") !== committedPathname ||
         (routeState.location?.search ?? "") !== committedSearch;

@@ -425,7 +425,7 @@ describe("Models provider login", () => {
   });
 
   it("releases a saved login on disposal while Cancel is pending and allows a second login", async () => {
-    const { context, request } = loginHarness();
+    const { context, request, publishEvent } = loginHarness();
     const client = context.gateway.snapshot.client!;
     const initialAuth = await client.request<ModelAuthStatusResult>("models.authStatus");
     const originalRequest = request.getMockImplementation()!;
@@ -469,6 +469,7 @@ describe("Models provider login", () => {
             await prompter.text({ message: "Enter your key", sensitive: true });
             owner.lockCancellation();
             profiles.add(profileId);
+            publishEvent({ type: "event", event: "chat.metadata.changed", payload: {} });
             await prompter.note("Credentials saved. Continue to finish.", "Provider notes");
           });
           sessions.set(params.sessionId, session);

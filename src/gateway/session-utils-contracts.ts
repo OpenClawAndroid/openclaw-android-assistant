@@ -32,7 +32,7 @@ export type SessionListRowContext = {
   projectedAgentRuns?: ProjectedAgentRunIndex;
   subagentRuns: SubagentRunReadIndex<SubagentRunReadRecord>;
   subagentRunsByChildSessionKey: ReadonlyMap<string, readonly SubagentRunReadRecord[]>;
-  selectedModelByOverrideRef: Map<string, ReturnType<typeof resolveSessionModelRef>>;
+  configuredDefaultModelByAgent: Map<string, ReturnType<typeof resolveSessionModelRef>>;
   thinkingMetadataByModelRef: Map<string, GatewayModelThinkingProfile>;
   findModelCatalogEntry: typeof findModelCatalogEntry;
   selectModelCatalogRuntimeEntry: typeof selectModelCatalogRuntimeEntry;

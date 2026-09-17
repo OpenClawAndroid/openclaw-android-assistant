@@ -127,7 +127,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       currentRow: () => (this.state ? selectedChatSessionRow(this.state) : undefined),
       onPendingChange,
       publishError: (error: unknown) => this.publishHeaderError(error, scope.headerOutcomeOwner),
-      refreshReplacement: (agentId?: string | null) => scope.sessions.refreshReplacement(agentId),
+      reconcileMutation: (agentId?: string | null) => scope.sessions.reconcileMutation(agentId),
       requestUpdate: () => this.requestUpdate(),
     };
     const { changeChatPanePlacement } = await import("./chat-pane-placement.runtime.ts");
@@ -156,7 +156,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       isCurrent: () => this.ownsHeaderOutcomeScope(scope),
       onReclaimingChange,
       publishError: (error: unknown) => this.publishHeaderError(error, scope.headerOutcomeOwner),
-      refreshReplacement: (agentId?: string | null) => scope.sessions.refreshReplacement(agentId),
+      reconcileMutation: (agentId?: string | null) => scope.sessions.reconcileMutation(agentId),
       requestUpdate: () => this.requestUpdate(),
     };
     const { reclaimChatPanePlacement } = await import("./chat-pane-placement.runtime.ts");

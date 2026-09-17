@@ -7,6 +7,7 @@ import {
   resetPreparedModelRuntimeHarness,
 } from "./prepared-model-runtime.test-harness.js";
 import { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { retainLegacyDefaultAgentId } from "../config/legacy.default-agent-owner.js";
@@ -412,7 +413,7 @@ describe("prepared reply dispatch runtime", () => {
       if (request.selections) {
         return createEmptyPluginRegistry();
       }
-      return request.config === firstConfig ? firstRegistry : replacementRegistry;
+      return isDeepStrictEqual(request.config, firstConfig) ? firstRegistry : replacementRegistry;
     });
     await refreshPreparedModelRuntimeSnapshots(firstConfig, {
       gatewayLifecycle: true,
@@ -438,6 +439,7 @@ describe("prepared reply dispatch runtime", () => {
       modelCatalog: firstSnapshot?.modelCatalog,
       inboundPluginRegistry: firstRegistry,
     });
+    expect(firstRuntime?.inboundPluginRegistry).toBe(firstRegistry);
     expect(firstRuntime?.pluginGeneration?.pluginMetadataSnapshot).toBe(
       mocks.pluginMetadataSnapshot,
     );
@@ -445,7 +447,11 @@ describe("prepared reply dispatch runtime", () => {
     expect(Object.isFrozen(firstRuntime)).toBe(true);
 
     const replacementCatalog = createDeferred<{ entries: [] }>();
-    mocks.prepareStaticCatalog.mockImplementationOnce(async () => await replacementCatalog.promise);
+    const replacementCatalogStarted = createDeferred();
+    mocks.prepareStaticCatalog.mockImplementationOnce(async () => {
+      replacementCatalogStarted.resolve();
+      return await replacementCatalog.promise;
+    });
     let refresh: ReturnType<typeof refreshPreparedModelRuntimeSnapshots> | undefined;
     let read: ReturnType<typeof loadPublishedGatewayReplyDispatchRuntime> | undefined;
     try {
@@ -454,9 +460,8 @@ describe("prepared reply dispatch runtime", () => {
         allowGatewaySubagentBinding: true,
         pluginMetadataSnapshot: mocks.pluginMetadataSnapshot as never,
       });
-      await vi.waitFor(() =>
-        expect(mocks.loadAgentRuntimePluginRegistryHandle).toHaveBeenCalledTimes(4),
-      );
+      await replacementCatalogStarted.promise;
+      expect(mocks.loadAgentRuntimePluginRegistryHandle).toHaveBeenCalledTimes(4);
       expect(getPreparedModelRuntimeSnapshot(input)).toBeUndefined();
       let resolvedRuntime: unknown;
       read = loadPublishedGatewayReplyDispatchRuntime({ agentId: "default" }).then((runtime) => {
@@ -476,6 +481,7 @@ describe("prepared reply dispatch runtime", () => {
         config: replacementConfig,
         inboundPluginRegistry: replacementRegistry,
       });
+      expect(replacementRuntime?.inboundPluginRegistry).toBe(replacementRegistry);
       expect(replacementRuntime).not.toBe(firstRuntime);
       expect(replacementRuntime?.modelCatalog).not.toBe(firstRuntime?.modelCatalog);
     } finally {

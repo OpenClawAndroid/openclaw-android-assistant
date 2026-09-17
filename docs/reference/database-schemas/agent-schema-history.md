@@ -71,6 +71,14 @@ admissions and drains active work before startup fails. Ordinary archive work
 keeps its global FIFO; certification retains per-database write ordering and
 fresh physical-owner checks.
 
+Transcript-index reconciliation shares one worker across agent databases, including
+repairs scheduled by dashboard title reads. Each task retains its own message
+channel, source snapshot, and deletion lease. Successful reuse follows read-handle
+close, parent write settlement, and exact lease release. After a native worker
+failure, recovery joins termination and accepted parent writes before releasing
+the failed task's lease. Final Gateway shutdown closes admission, drains accepted
+repairs and lease recovery, then joins worker exit before shared-state retirement.
+
 The 20-to-21 migration installs the table and triggers and marks every existing
 node pending without parsing, repairing or certifying session contents. Both
 schema version markers advance in the same maintenance transaction. Earlier

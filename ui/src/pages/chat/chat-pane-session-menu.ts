@@ -144,7 +144,10 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
             }
           },
           refreshSidebarSessions: async (agentId) => {
-            await scope.sessions.refreshReplacement(agentId);
+            const outcome = await scope.sessions.reconcileMutation(agentId);
+            if (outcome.status === "failed" && this.isHeaderSessionActionCurrent(scope, owner)) {
+              this.publishHeaderError(outcome.error, owner);
+            }
           },
         },
         pruneSidebarSessionEntry: (key) => {

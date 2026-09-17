@@ -233,6 +233,40 @@ describe("createChannelProgressDraftCompositor", () => {
     expect(rendered).toContain("Shelling\n\n💬 _Checking the workspace_");
   });
 
+  it("publishes completion metadata even when the last preamble delta has identical text", async () => {
+    const update = vi.fn(() => true);
+    const progress = createChannelProgressDraftCompositor({
+      entry: {
+        streaming: {
+          mode: "progress",
+          progress: { toolProgress: false, label: false, commentary: true, maxLines: 1 },
+        },
+      },
+      mode: "progress",
+      active: true,
+      seed: "test",
+      updateOnLineChange: true,
+      update,
+    });
+    await progress.pushCommentaryProgress("I’ll check the key releases.", {
+      itemId: "p1",
+      complete: false,
+    });
+    expect(progress.getSnapshot().lines).toEqual([expect.objectContaining({ complete: false })]);
+    update.mockClear();
+    await progress.pushCommentaryProgress("I’ll check the key releases.", {
+      itemId: "p1",
+      complete: true,
+    });
+    expect(update).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenLastCalledWith(
+      "_I’ll check the key releases._",
+      expect.objectContaining({
+        lines: [expect.objectContaining({ complete: true })],
+      }),
+    );
+  });
+
   it("collapses cumulative id-less commentary snapshots onto one line", async () => {
     const update = vi.fn();
     const progress = createChannelProgressDraftCompositor({

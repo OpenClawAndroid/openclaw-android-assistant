@@ -1,3 +1,4 @@
+import "./dynamic-tool-build.test-support.js";
 // Codex tests cover dynamic tool build plugin behavior.
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -30,9 +31,7 @@ import {
   setRuntimeConfigSnapshot,
 } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
 import {
-  buildDynamicTools,
   disableCodexPluginThreadConfig,
   resolveCodexAppServerExecutionCwd,
   resolveCodexExternalSandboxPolicyForOpenClawSandbox,
@@ -47,7 +46,6 @@ import {
   resolveCodexDynamicToolsLoadingForRuntime,
 } from "./dynamic-tool-profile.js";
 import { createCodexDynamicToolBridge } from "./dynamic-tools.js";
-import { createCodexTestHostCapabilities } from "./host-capability.test-support.js";
 import * as nativeExecutionPolicy from "./native-execution-policy.js";
 import {
   CODEX_OPENCLAW_DIRECT_DYNAMIC_TOOL_NAMESPACE,
@@ -56,59 +54,17 @@ import {
 import { resolveCodexDynamicToolDirectNames } from "./run-attempt-tools.js";
 import { createCodexTestModel } from "./test-support.js";
 
-const hoisted = vi.hoisted(() => ({
-  normalizeAgentRuntimeTools: vi.fn(),
-  resolveWebSearchToolPolicy: vi.fn(),
-  loadNodeExecAvailability: vi.fn(),
-}));
-
-vi.mock("openclaw/plugin-sdk/agent-harness", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/agent-harness")>();
-
-  return {
-    ...actual,
-    resolveWebSearchToolPolicy: (
-      ...args: Parameters<(typeof actual)["resolveWebSearchToolPolicy"]>
-    ) => {
-      hoisted.resolveWebSearchToolPolicy(...args);
-      return actual.resolveWebSearchToolPolicy(...args);
-    },
-  };
-});
-
-vi.mock("openclaw/plugin-sdk/agent-harness-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/agent-harness-runtime")>();
-  return {
-    ...actual,
-    normalizeAgentRuntimeTools: (...args: Parameters<typeof actual.normalizeAgentRuntimeTools>) => {
-      hoisted.normalizeAgentRuntimeTools(...args);
-      return actual.normalizeAgentRuntimeTools(...args);
-    },
-  };
-});
-
-vi.mock("openclaw/plugin-sdk/node-selection-runtime", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("openclaw/plugin-sdk/node-selection-runtime")>();
-  return { ...actual, loadNodeExecAvailability: hoisted.loadNodeExecAvailability };
-});
+const {
+  buildDynamicToolsForTest,
+  createCodexRuntimePlanFixture,
+  createParams,
+  hoisted,
+  resetOpenClawCodingToolsFactoryForTests,
+  setOpenClawCodingToolsFactoryForTests,
+} = await import("./dynamic-tool-build.test-support.js");
 
 let tempDir: string;
 const hostCapabilityClosers: Array<() => void> = [];
-
-type OpenClawCodingToolsOptionsForTest = NonNullable<
-  Parameters<NonNullable<typeof dynamicToolBuildState.openClawCodingToolsFactory>>[0]
->;
-
-function setOpenClawCodingToolsFactoryForTests(
-  factory: NonNullable<typeof dynamicToolBuildState.openClawCodingToolsFactory>,
-): void {
-  dynamicToolBuildState.openClawCodingToolsFactory = factory;
-}
-
-function resetOpenClawCodingToolsFactoryForTests(): void {
-  dynamicToolBuildState.openClawCodingToolsFactory = undefined;
-}
 
 async function bindProductionCodexHostCapabilities(
   params: EmbeddedRunAttemptParams,
@@ -122,52 +78,6 @@ async function bindProductionCodexHostCapabilities(
 type RuntimeDynamicToolForTest = Parameters<
   typeof createCodexDynamicToolBridge
 >[0]["tools"][number];
-
-function createParams(sessionFile: string, workspaceDir: string): EmbeddedRunAttemptParams {
-  return {
-    hostCapabilities: createCodexTestHostCapabilities(),
-    prompt: "hello",
-    sessionId: "session-1",
-    sessionKey: "agent:main:session-1",
-    sessionFile,
-    workspaceDir,
-    runId: "run-1",
-    provider: "codex",
-    modelId: "gpt-5.4-codex",
-    model: createCodexTestModel("codex"),
-    contextTokenBudget: 150_000,
-    contextWindowInfo: {
-      tokens: 150_000,
-      referenceTokens: 200_000,
-      source: "agentContextTokens",
-    },
-    thinkLevel: "medium",
-    disableTools: true,
-    timeoutMs: 5_000,
-    authStorage: {} as never,
-    authProfileStore: { version: 1, profiles: {} },
-    modelRegistry: {} as never,
-  } as EmbeddedRunAttemptParams;
-}
-
-function createCodexRuntimePlanFixture(): NonNullable<EmbeddedRunAttemptParams["runtimePlan"]> {
-  return {
-    auth: {},
-    observability: {
-      resolvedRef: "codex/gpt-5.4-codex",
-      provider: "codex",
-      modelId: "gpt-5.4-codex",
-      harnessId: "codex",
-    },
-    prompt: {
-      resolveSystemPromptContribution: () => undefined,
-    },
-    tools: {
-      normalize: (tools: unknown[]) => tools,
-      logDiagnostics: () => undefined,
-    },
-  } as unknown as NonNullable<EmbeddedRunAttemptParams["runtimePlan"]>;
-}
 
 function createRuntimeDynamicTool(name: string): RuntimeDynamicToolForTest {
   return {
@@ -190,47 +100,6 @@ function shellTestToolNames(tools: readonly { name: string }[]): string[] {
   return tools
     .map((tool) => tool.name)
     .filter((name) => ["message", "gateway_exec", "gateway_process", "node_exec"].includes(name));
-}
-
-async function buildDynamicToolsForTest(
-  params: EmbeddedRunAttemptParams,
-  workspaceDir: string,
-  options: Partial<Parameters<typeof buildDynamicTools>[0]> = {},
-) {
-  const sandboxSessionKey = params.sessionKey;
-  if (!sandboxSessionKey) {
-    throw new Error("createParams must provide a sessionKey for Codex dynamic tool tests.");
-  }
-  return buildDynamicTools({
-    params,
-    resolvedWorkspace: workspaceDir,
-    effectiveWorkspace: workspaceDir,
-    sandboxSessionKey,
-    sandbox: { enabled: false, backendId: "docker" } as never,
-    ...(params.permissionMode && params.sessionRoot
-      ? {
-          sessionPermissionPolicy: {
-            mode: params.permissionMode,
-            root: params.sessionRoot,
-            execMode:
-              params.permissionMode === "read-only"
-                ? "deny"
-                : params.permissionMode === "guarded"
-                  ? "ask"
-                  : params.permissionMode === "workspace"
-                    ? "auto"
-                    : "full",
-          },
-        }
-      : {}),
-    nativeToolSurfaceEnabled: true,
-    runAbortController: new AbortController(),
-    sessionAgentId: "main",
-    policyAgentId: params.sandboxAgentId ?? options.sessionAgentId ?? "main",
-    pluginConfig: {},
-    onYieldDetected: () => undefined,
-    ...options,
-  });
 }
 
 describe("Codex app-server dynamic tool build", () => {
@@ -261,29 +130,6 @@ describe("Codex app-server dynamic tool build", () => {
       "Resume after the fact-checker replies",
       "Research started; results will follow.",
     );
-  });
-
-  it("hands the question tools this run's own way to show a prompt", async () => {
-    // Codex dispatches dynamic tools itself, so no tool-start handler reserves the
-    // prompt for a blocking question. Without this the question is never shown and
-    // the turn waits out its full timeout.
-    const workspaceDir = path.join(tempDir, "question-prompt-workspace");
-    const params = createParams(path.join(tempDir, "question-prompt-session.jsonl"), workspaceDir);
-    params.disableTools = false;
-    params.runtimePlan = createCodexRuntimePlanFixture();
-    params.messageChannel = "telegram";
-    const onToolResult = vi.fn();
-    params.onToolResult = onToolResult;
-    let capturedQuestionPrompt: OpenClawCodingToolsOptionsForTest["questionPrompt"];
-    setOpenClawCodingToolsFactoryForTests((options) => {
-      capturedQuestionPrompt = options?.questionPrompt;
-      return [];
-    });
-
-    await buildDynamicToolsForTest(params, workspaceDir);
-
-    expect(capturedQuestionPrompt?.send).toBe(onToolResult);
-    expect(capturedQuestionPrompt?.messageChannel).toBe("telegram");
   });
 
   it("binds a resolver-backed constructed tool surface exactly once", async () => {
