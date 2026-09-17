@@ -40,6 +40,20 @@ first, stop the Gateway through its actual supervisor or foreground process owne
 replace the package, run Doctor, and restart through that same owner.
 `--no-restart` cannot repair the old admission check.
 
+Registry updates inspect the exact candidate's Node requirement before staging.
+An incompatible runtime produces `node-runtime-preflight`, with the target
+version, required engine range, selected Node version, and an upgrade command.
+npm directory permission failures produce `global-install-permission-denied`,
+naming the directory, its owner when available, and the next action. Dry-run JSON
+includes these outcomes in `failures`; the update report and Doctor's update
+history retain recorded failures. The serving Gateway stays in place during
+these preflight checks.
+
+These checks run in the **installed updater**. Older updaters cannot gain new
+preflight behavior from the candidate they have not installed yet. If upgrading
+from an older release, check [Node requirements](/install/node) and the npm
+prefix's permissions first; see [update troubleshooting](/install/update-troubleshooting#node-and-global-install-permissions).
+
 <Note>
 On FreeBSD, OpenClaw 2026.9.4 can stop before staging an update with
 `managed handoff process start identity is unavailable`. Changing the target or

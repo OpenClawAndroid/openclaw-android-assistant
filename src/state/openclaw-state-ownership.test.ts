@@ -394,37 +394,30 @@ describe("external shared-state ownership", () => {
       claimedAt: 2,
     } as const;
     const { DatabaseSync } = requireNodeSqlite();
-    const originalExec = Object.getOwnPropertyDescriptor(DatabaseSync.prototype, "exec")?.value as
-      | ((this: import("node:sqlite").DatabaseSync, sql: string) => void)
-      | undefined;
-    if (!originalExec) {
-      throw new Error("DatabaseSync.exec descriptor is unavailable");
-    }
+    const prepare = sqliteReadonlyLocation.prepareSqliteReadOnlyLocationSync;
     let writer: InstanceType<typeof DatabaseSync> | undefined;
     let injected = false;
-    const exec = vi.spyOn(DatabaseSync.prototype, "exec").mockImplementation(function (
-      this: import("node:sqlite").DatabaseSync,
-      sql: string,
-    ) {
-      if (!injected && sql.includes("PRAGMA busy_timeout")) {
-        injected = true;
+    const snapshot = vi
+      .spyOn(sqliteReadonlyLocation, "prepareSqliteReadOnlyLocationSync")
+      .mockImplementationOnce((pathname) => {
+        const prepared = prepare(pathname);
         writer = new DatabaseSync(databasePath);
-        originalExec.call(writer, "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;");
+        writer.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;");
         writer
           .prepare(
             "INSERT INTO config_machine_state (state_key, value_json, updated_at_ms) VALUES (?, ?, ?)",
           )
           .run(STATE_SUPERVISION_KEY, JSON.stringify(ownership), ownership.claimedAt);
-      }
-      return originalExec.call(this, sql);
-    });
+        injected = true;
+        return prepared;
+      });
 
     try {
       expect(inspectOpenClawStateOwnershipAtPath(databasePath)).toBeNull();
       expect(injected).toBe(true);
       expect(inspectOpenClawStateOwnershipAtPath(databasePath)).toEqual(ownership);
     } finally {
-      exec.mockRestore();
+      snapshot.mockRestore();
       writer?.close();
     }
   });

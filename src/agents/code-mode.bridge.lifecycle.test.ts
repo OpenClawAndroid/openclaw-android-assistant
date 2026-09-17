@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { composeTranscriptDisplay } from "../chat/transcript-display-position.js";
+import { resolveDefaultSessionStorePath } from "../config/sessions/paths.js";
 import { upsertSessionEntryCore } from "../config/sessions/session-accessor.js";
 import {
   estimateParentForkPromptTokens,
@@ -13,6 +14,8 @@ import {
 } from "../config/sessions/session-accessor.sqlite-parent-fork.js";
 import { projectChatDisplayMessages } from "../gateway/chat-display-projection.js";
 import { readSessionMessagesAsync } from "../gateway/session-transcript-readers.js";
+import { readNestedToolActivity } from "../sessions/nested-tool-activity.js";
+import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import { wrapToolWithAbortSignal } from "./agent-tools.abort.js";
 import { buildExecApprovalPendingToolResult } from "./bash-tools.exec-host-shared.js";
 import { disposeAllCodeModeRuns } from "./code-mode-state.js";
@@ -34,12 +37,77 @@ import { attachInternalToolExecutionPreparer } from "./runtime/internal-hooks.js
 import { SessionManager } from "./sessions/session-manager.js";
 import { clearToolSearchCatalog } from "./tool-search.js";
 import { jsonResult } from "./tools/common.js";
+import { createMessageTool } from "./tools/message-tool-execution.js";
 import { createSessionsYieldTool } from "./tools/sessions-yield-tool.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("Code Mode subscribed bridge lifecycle", () => {
   afterEach(() => resetCodeModeTestState());
+
+  it("returns a committed source reply after recording its nested tool activity", async () => {
+    await withStateDirEnv("openclaw-code-mode-source-reply-", async () => {
+      const name = "source-reply";
+      const scope = {
+        agentId: "main",
+        sessionId: `session-code-mode-${name}`,
+        sessionKey: `agent:main:${name}`,
+        storePath: resolveDefaultSessionStorePath("main"),
+      };
+      await upsertSessionEntryCore(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+      const manager = SessionManager.open(scope);
+      manager.appendMessage({ role: "user", content: "Review this format", timestamp: 1 });
+      const harness = createSubscribedCodeModeHarness({ name, sessionManager: manager });
+      const config = { agents: { entries: { main: { default: true } } } };
+      const target = createMessageTool({
+        config,
+        preparedMessageToolCatalog: { version: 0, channels: [], getChannel: () => undefined },
+        currentChannelProvider: "webchat",
+        agentSessionKey: scope.sessionKey,
+        runSessionKey: scope.sessionKey,
+        sessionId: scope.sessionId,
+        agentId: scope.agentId,
+        runId: harness.runId,
+        getScopedChannelsCommandSecretTargets: () => ({ targetIds: new Set<string>() }),
+        resolveCommandSecretRefsViaGateway: async () => ({
+          resolvedConfig: config,
+          diagnostics: [],
+          targetStatesByPath: {},
+          hadUnresolvedTargets: false,
+        }),
+      });
+      applyCodeModeCatalog({ ...harness, tools: [...harness.tools, target] });
+      try {
+        const result = await runUntilCompleted({
+          execTool: expectDefined(harness.tools[0], "Code Mode exec tool"),
+          waitTool: expectDefined(harness.tools[1], "Code Mode wait tool"),
+          code: 'return await message({ action: "send", message: "Review complete", final: true });',
+        });
+        const messages = SessionManager.open(scope)
+          .getEntries()
+          .flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
+        expect(messages.filter((message) => message.role === "assistant")).toEqual([
+          expect.objectContaining({ content: [{ type: "text", text: "Review complete" }] }),
+        ]);
+        expect(result.status, JSON.stringify(result)).toBe("completed");
+        expect(result.value).toMatchObject({
+          deliveryStatus: "sent",
+          sourceReplyTranscriptOwner: true,
+        });
+        expect(messages.map(readNestedToolActivity).filter(Boolean)).toEqual(
+          harness.nestedToolActivities,
+        );
+        expect(harness.nestedToolActivities).toHaveLength(1);
+        expect(harness.nestedToolActivities[0]?.details).toMatchObject({
+          toolName: "message",
+          isError: false,
+        });
+        expect(manager.buildSessionContext().messages.some(readNestedToolActivity)).toBe(false);
+      } finally {
+        harness.dispose();
+      }
+    });
+  });
 
   it.each(["redacted", "rejected"])(
     "preserves nested source delivery when output is %s",

@@ -25,7 +25,10 @@ Session label lookups use a nonunique partial index on
 `session_nodes(label, session_key)` for non-null labels, without changing agent
 schema 20. The existing writable schema owner installs and repairs the index;
 read-only startup accepts its absence until that owner opens the database. A
-present but noncanonical definition still fails schema validation. Canonical
+present but noncanonical definition still fails strict offline validation;
+Gateway startup admits canonical index repairs to the same writable schema owner
+before readiness and logs the rebuilt indexes and elapsed time. Missing tables
+and incompatible column definitions remain refusals. Canonical
 session JSON, label uniqueness checks, and retention remain unchanged. Older
 same-version readers can ignore the extra index, so binary rollback leaves it
 intact. The accepted design is recorded in the

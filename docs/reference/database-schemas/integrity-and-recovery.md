@@ -36,6 +36,37 @@ Schema compatibility preflight can read agent schema headers without a full inte
 
 Private snapshots remain necessary inside owner-held source-exclusion or canonical-mutation scopes, for incomplete WAL families whose inspection would create source sidecars, and for rollback journals requiring private recovery. Those cases use the existing snapshot owner and deadline; ordinary inspection errors do not trigger a full-copy fallback. Shared-state preflight is unchanged. `openclaw database preflight` performs the release-local shape comparison for an explicit copied file. The background verifier also scans already-open databases about once daily.
 
+Private snapshot files remain temporary artifacts: the creator registers cleanup
+before copying and publishes the finished copy by rename. Graceful shutdown
+drains existing shutdown owners and joins snapshot workers before cleanup. Cleanup
+keeps every token until copied data is removed, so partial removal remains recoverable.
+Native termination and hard kills can skip that drain. Each staging directory holds
+an open SQLite transaction as its lifetime token. Reclamation obtains exclusive
+tokens for the parent and every nested worker before inspecting or removing the
+copy, independent of PID namespaces. Worker admission checks the parent's token;
+retirement is committed before handles close so a late worker cannot restart it.
+The first snapshot operation in a process reclaims abandoned copies and logs the
+copied-data byte count. Asynchronous callers run that same reclamation pass in the
+SQLite worker, keeping directory traversal and removal off their event loop.
+Concurrent callers share the pass but can cancel their own waits independently.
+The last departing caller requests a stop after the current directory is fully
+removed; a later allocation resumes the remaining backlog. The worker owns its
+own lifetime, so one caller’s scope cannot terminate another caller’s reclamation.
+Shutdown and the existing reclamation deadline also stop at directory boundaries.
+Allocation and token registration follow the pass atomically. Synchronous callers
+retain the inline pass. Reclamation worker failures warn and allow allocation to continue.
+Legacy directories use a 24-hour age threshold, including legacy children under a
+current parent. Updaters also mark staging for a selected installation as legacy-compatible
+before launching workers that may predate tokens. Current workers fence admission
+inside an existing legacy parent, including the intervening `openclaw` cache
+directory created by released workers. Reclamation understands both generations
+in that layout and applies the same token and age rules to inner staging directories.
+A read-only scan checks all legacy activity before token I/O; validation
+repeats under locks before deletion. Copies that are still too recent keep their existing timestamps.
+Coordination files do not count as copied data or legacy activity. Live or unverified tokens, recent legacy copies,
+unknown contents, and symlinks are left alone with a warning. Canonical databases
+and backups are never reclaimed by this owner.
+
 Schema-only agent inspections during Doctor and restart checks read metadata in
 a child process, within one SQLite read transaction, without copying the whole
 database. Empty files, rollback journals, incomplete WAL sidecars, and

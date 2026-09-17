@@ -7,13 +7,10 @@ import * as embeddedAgent from "../agents/embedded-agent.js";
 import { getReplyFromConfig } from "../auto-reply/reply/get-reply.js";
 import { clearConfigCache, getRuntimeConfig } from "../config/config.js";
 import {
-  appendTranscriptMessage,
-  deleteSessionEntryLifecycle,
   listSessionParticipantsReadOnly,
   loadSessionEntry,
   loadTranscriptEventsSync,
   patchSessionEntryCore,
-  replaceSessionEntry,
 } from "../config/sessions/session-accessor.js";
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
 import type { SessionEntry } from "../config/sessions/types.js";
@@ -35,6 +32,7 @@ import type {
   GatewayRequestHandlerOptions,
   RespondFn,
 } from "./server-methods/types.js";
+import { seedDeletedSessionTranscript } from "./session-history-fixture.test-support.js";
 import {
   bindSessionRowProjection,
   getSessionRowProjection,
@@ -322,19 +320,10 @@ describe("Goal chat admission and continuation", () => {
       sessionKey: "agent:main:retained-goal-history",
       sessionId: randomUUID(),
     };
-    await replaceSessionEntry(retainedScope, {
-      sessionId: retainedScope.sessionId,
-      updatedAt: Date.now(),
-    });
-    await appendTranscriptMessage(retainedScope, {
-      message: { role: "user", content: "Keep this deleted conversation's history unchanged." },
-    });
-    await deleteSessionEntryLifecycle({
-      agentId: retainedScope.agentId,
-      storePath,
-      target: { canonicalKey: retainedScope.sessionKey, storeKeys: [retainedScope.sessionKey] },
-      archiveTranscript: false,
-    });
+    await seedDeletedSessionTranscript(
+      { ...retainedScope, storePath },
+      "Keep this deleted conversation's history unchanged.",
+    );
     expect(loadSessionEntry(retainedScope)).toBeUndefined();
     const retainedEvents = loadTranscriptEventsSync(retainedScope);
     expect(retainedEvents.length).toBeGreaterThan(0);

@@ -12,6 +12,7 @@ import * as sessionEntryStatus from "../config/sessions/session-accessor.sqlite-
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
+import { observeSessionRowBackfill } from "./session-row-backfill.test-support.js";
 import { bindSessionRowProjection } from "./session-row-projection-access.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import type { SessionsListResult } from "./session-utils.types.js";
@@ -153,8 +154,11 @@ test("sessions.list retains transcript titles beyond the database handle cap", a
   }
 
   const cfg = { session: { store: storeTemplate }, agents: testState.agentsConfig };
+  const backfilled = observeSessionRowBackfill(agentIds.map((agentId) => `agent:${agentId}:main`));
   const projection = await createSessionRowProjection({ cfg });
   try {
+    await backfilled;
+    await projection.ensureMaterialized();
     for (const limit of [undefined, 100]) {
       const result = await directSessionReq<SessionsListResult>(
         "sessions.list",
@@ -182,7 +186,7 @@ test("sessions.list retains transcript titles beyond the database handle cap", a
   }
 });
 
-test("projection startup retains transcript titles for clean snapshots", async () => {
+test("projection backfill retains transcript titles for clean snapshots", async () => {
   const { storePath } = await createSessionStoreDir();
   const sessionKey = "agent:main:warm-cache";
   const sessionId = "warm-cache";
@@ -206,6 +210,12 @@ test("projection startup retains transcript titles for clean snapshots", async (
       agents: { list: [{ id: "main", default: true }] },
       session: { store: storePath },
     },
+  });
+  await vi.waitFor(() => {
+    expect(
+      projection.snapshot({ agentId: "main", key: sessionKey }, { includeLastMessage: true }).row
+        ?.lastMessagePreview,
+    ).toBe("Warm response");
   });
   const titlePageSpy = vi.spyOn(sessionAccessor, "readSessionTranscriptMessageEventPage");
   try {
@@ -245,6 +255,7 @@ test("projection startup retains every row beyond the former prewarm limit", asy
     },
   });
   try {
+    await projection.ensureMaterialized();
     expect(projection.select().length).toBe(2_001);
     expect(projection.snapshot({ agentId: "main", key: "agent:main:large-2000" }).row).toEqual(
       expect.objectContaining({ key: "agent:main:large-2000", sessionId: "large-2000" }),

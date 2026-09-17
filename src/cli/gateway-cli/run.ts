@@ -1076,6 +1076,7 @@ async function runGatewayCommandOnce(opts: GatewayRunOpts, hooks: GatewayRunRunt
         hostLifecycle,
         startupOperation,
       } = {}) => {
+        const snapshotPreparation = await import("../../config/io.snapshot-preparation.js");
         const startupConfigSnapshotReadForThisStart = startupConfigSnapshotReadForNextStart;
         startupConfigSnapshotReadForNextStart = undefined;
         return await startGatewayServer(port, {
@@ -1088,10 +1089,9 @@ async function runGatewayCommandOnce(opts: GatewayRunOpts, hooks: GatewayRunRunt
           startupStartedAt,
           hostLifecycle,
           startupOperation,
+          prepareConfigSnapshot: snapshotPreparation.prepareHostConfigSnapshot,
           ...(requestHotReloadRecovery ? { hotReloadRecovery: requestHotReloadRecovery } : {}),
-          ...(startupConfigSnapshotReadForThisStart
-            ? { startupConfigSnapshotRead: startupConfigSnapshotReadForThisStart }
-            : {}),
+          startupConfigSnapshotRead: startupConfigSnapshotReadForThisStart,
           ...(envSidecarStartupMode !== "start" ? { sidecarStartup: envSidecarStartupMode } : {}),
           ...(channelAutostartSuppression ? { channelAutostartSuppression } : {}),
           ...(channelAutostartSuppression ? { tryRecoverChannelAutostartSuppression } : {}),

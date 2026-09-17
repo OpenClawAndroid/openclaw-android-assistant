@@ -154,7 +154,7 @@ function resolveSessionsListDefaultsAgentId(
     : normalizeAgentId(tryResolveLegacyCompatibilityAgentId(cfg) ?? LEGACY_IMPLICIT_AGENT_ID);
 }
 
-type RecordRow = NonNullable<ReturnType<SessionRowProjection["describe"]>>;
+type RecordRow = ReturnType<SessionRowProjection["selectEntries"]>[number];
 const sentinel = (key: string) => key === "global" || key === "unknown";
 
 /** Preserve federation before caller visibility and activity filters. */
@@ -171,7 +171,7 @@ export function prepareSessionRowSelection(
     subagentRuns: residentContext.subagentRuns.atTime(now),
   };
   const rows = projection
-    .select({ agentId: selectedScope.agentId, sortBy: opts.sortBy })
+    .selectEntries({ agentId: selectedScope.agentId, sortBy: opts.sortBy })
     .filter(
       (row) =>
         selectedScope.paths.has(row.storeTarget.storePath) &&
@@ -216,7 +216,11 @@ export function prepareSessionRowSelection(
     userProfileIdentityById: rowContext.userProfileIdentityById,
     getRowContext: () => rowContext,
     getTarget: (key: string): (RecordRow & { storeKey?: string }) | undefined => {
-      const row = winners.get(key);
+      const winner = winners.get(key);
+      const row =
+        winner && opts.search
+          ? projection.describe({ ...winner, storePath: winner.storeTarget.storePath })
+          : winner;
       return row && key !== row.key ? { ...row, storeKey: row.key } : row;
     },
   };
@@ -303,7 +307,9 @@ export async function listProjectedSessions(params: {
     syncCpu = diagnostics?.startSyncCpu();
     let materializedRowCount = 0;
     const sessions = selection.entries.flatMap(([key], index) => {
-      const record = getTarget(key);
+      const target = getTarget(key);
+      const record =
+        target && projection.describe({ ...target, storePath: target.storeTarget.storePath });
       if (!record) {
         return [];
       }

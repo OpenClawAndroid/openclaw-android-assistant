@@ -1909,60 +1909,69 @@ describe("openclaw test instance", () => {
     },
   );
 
-  it.each(["headers", "body"] as const)(
-    "keeps stalled readiness %s inside the startup deadline",
-    async (phase) => {
-      const processState = createGatewayProcessState();
-      const fetchImpl = createStalledReadinessFetch(phase);
-      const startedAt = Date.now();
-      const error = await testing
-        .waitForGatewayReady(processState, [], [], 12345, 25, fetchImpl)
-        .catch((failure: unknown) => failure);
+  it.each(
+    (["headers", "body"] as const).flatMap((phase) => [
+      { phase, exits: false, name: `keeps stalled readiness ${phase} inside the startup deadline` },
+      { phase, exits: true, name: `aborts stalled readiness ${phase} when the gateway exits` },
+    ]),
+  )("$name", async ({ phase, exits }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const processState = createGatewayProcessState(exits ? { pid: 12345 } : {});
+    const fetchImpl = createStalledReadinessFetch(phase);
+    const cleanup = new AbortController();
+    let settled = false;
+    const completion = testing
+      .waitForGatewayReady(
+        processState,
+        [],
+        [],
+        12345,
+        exits ? 5_000 : 25,
+        fetchImpl,
+        cleanup.signal,
+      )
+      .catch((failure: unknown) => failure)
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+    const exitTimer = exits
+      ? setTimeout(() => {
+          processState.signalCode = "SIGTERM";
+          processState.emit("exit", null, "SIGTERM");
+        }, 25)
+      : undefined;
+    try {
+      await vi.advanceTimersByTimeAsync(24);
+      expect(settled).toBe(false);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+      expect(processState.listenerCount("exit")).toBe(1);
 
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      const error = await completion;
       expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toContain("timeout waiting for gateway readiness");
+      expect((error as Error).message).toContain(
+        exits ? "gateway exited before readiness" : "timeout waiting for gateway readiness",
+      );
       expect(readReadinessReceipt(error)).toMatchObject({
         attempts: 1,
-        lastProbe: { attempt: 1, phase, error: "timeout" },
+        elapsedMs: 25,
+        lastProbe: { attempt: 1, phase, error: exits ? "child-exit" : "timeout", elapsedMs: 25 },
+        ...(exits ? { child: { pid: 12345, exitCode: null, signalCode: "SIGTERM" } } : {}),
       });
       expect(fetchImpl).toHaveBeenCalledOnce();
       expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
       expect(processState.listenerCount("exit")).toBe(0);
-      expect(Date.now() - startedAt).toBeLessThan(500);
-    },
-  );
-
-  it.each(["headers", "body"] as const)(
-    "aborts stalled readiness %s when the gateway exits",
-    async (phase) => {
-      const processState = createGatewayProcessState({ pid: 12345 });
-      const fetchImpl = createStalledReadinessFetch(phase);
-      const startedAt = Date.now();
-      const exitTimer = setTimeout(() => {
-        processState.signalCode = "SIGTERM";
-        processState.emit("exit", null, "SIGTERM");
-      }, 25);
-      try {
-        const error = await testing
-          .waitForGatewayReady(processState, [], [], 12345, 5_000, fetchImpl)
-          .catch((failure: unknown) => failure);
-
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toContain("gateway exited before readiness");
-        expect(readReadinessReceipt(error)).toMatchObject({
-          attempts: 1,
-          lastProbe: { attempt: 1, phase, error: "child-exit" },
-          child: { pid: 12345, exitCode: null, signalCode: "SIGTERM" },
-        });
-        expect(fetchImpl).toHaveBeenCalledOnce();
-        expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-        expect(processState.listenerCount("exit")).toBe(0);
-        expect(Date.now() - startedAt).toBeLessThan(500);
-      } finally {
-        clearTimeout(exitTimer);
-      }
-    },
-  );
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      clearTimeout(exitTimer);
+      cleanup.abort();
+      await completion;
+      vi.useRealTimers();
+    }
+  });
 
   it("retains an expired probe snapshot after abort-ignoring headers and body arrive", async () => {
     const processState = createGatewayProcessState({ pid: 12345 });

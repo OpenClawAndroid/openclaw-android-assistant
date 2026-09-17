@@ -2,11 +2,14 @@
  * Gateway startup plugin bootstrap tests.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createPluginRecord } from "../plugins/loader-records.js";
-import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
+import type { PluginManifestRecord, PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import { PluginInstance } from "../plugins/plugin-instance.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
+import { createPluginManifestRecordFixture } from "../plugins/plugin-metadata.test-support.js";
+import type { ProviderPolicySurface } from "../plugins/provider-policy-surface.types.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { capturePluginLifecycleAuthority } from "../plugins/registry-lifecycle.js";
 import type { PluginRegistry } from "../plugins/registry-types.js";
@@ -24,6 +27,9 @@ const applyPluginAutoEnable = vi.hoisted(() =>
 const initSubagentRegistry = vi.hoisted(() => vi.fn());
 const getActivePluginRegistry = vi.hoisted(() => vi.fn<() => PluginRegistry | undefined>());
 const setActivePluginRegistry = vi.hoisted(() => vi.fn());
+const resolveProviderPolicySurfaceForOwner = vi.hoisted(() =>
+  vi.fn<(owner: PluginManifestRecord) => ProviderPolicySurface | null>(() => null),
+);
 const prepareGatewayPluginLoad = vi.hoisted(() =>
   vi.fn((params: { cfg: OpenClawConfig }) => ({
     pluginRegistry: createEmptyPluginRegistry(),
@@ -107,7 +113,6 @@ const pluginLookUpTableMetrics = vi.hoisted(() => ({
 const loadPluginLookUpTable = vi.hoisted(() =>
   vi.fn((_params: unknown) => ({
     ...pluginMetadataSnapshot,
-    manifestRegistry: pluginManifestRegistry,
     startup: {
       pluginIds: ["telegram"] as string[],
       channelPluginIds: ["telegram"] as string[],
@@ -166,6 +171,10 @@ vi.mock("../plugins/plugin-lookup-table.js", () => ({
 }));
 
 vi.mock("../plugins/registry.js", () => import("../plugins/registry-empty.js"));
+
+vi.mock("../plugins/provider-public-artifacts.js", () => ({
+  resolveProviderPolicySurfaceForOwner,
+}));
 
 vi.mock("../plugins/runtime.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../plugins/runtime.js")>()),
@@ -538,6 +547,7 @@ describe("prepareGatewayPluginBootstrap startup plugins", () => {
 
 describe("loadGatewayStartupPluginRuntime", () => {
   beforeEach(() => {
+    resolveProviderPolicySurfaceForOwner.mockReset().mockReturnValue(null);
     prepareGatewayPluginLoad.mockReset().mockImplementation((params) => ({
       pluginRegistry: createEmptyPluginRegistry(),
       gatewayMethods: ["ping"],
@@ -668,6 +678,117 @@ describe("loadGatewayStartupPluginRuntime", () => {
       expect.stringContaining('memory.search.provider="voyage"'),
     );
   });
+
+  it.each(["registered owner", "ready", "inspection failed", "inspection stalled"] as const)(
+    "reports registered memory provider setup per active agent without blocking startup: %s",
+    async (outcome) => {
+      const log = createLog();
+      const registry = createEmptyPluginRegistry();
+      const registeredOwner = createPluginManifestRecordFixture({
+        id: "llama-cpp",
+        contracts: { embeddingProviders: ["local"] },
+      });
+      const disabledOwner = createPluginManifestRecordFixture({
+        id: "a-disabled",
+        contracts: registeredOwner.contracts,
+      });
+      registry.embeddingProviders.push({
+        pluginId: "llama-cpp",
+        source: "synthetic-llama-cpp",
+        provider: { id: "local", create: async () => ({ provider: null }) },
+      });
+      const cfg: OpenClawConfig = {
+        memory: { search: { provider: "local" } },
+        plugins: { entries: { "a-disabled": { enabled: false } } },
+        agents: {
+          entries: {
+            main: { memory: { search: { enabled: false } } },
+            helper: {},
+          },
+        },
+      };
+      const inspectionGate = createDeferred();
+      if (outcome !== "inspection stalled") {
+        inspectionGate.resolve();
+      }
+      const inspectEmbeddingProviderSetup = vi.fn(async () => {
+        await inspectionGate.promise;
+        if (outcome === "inspection failed") {
+          throw new Error("synthetic setup inspection failed");
+        }
+        return outcome === "ready"
+          ? null
+          : {
+              provider: "local",
+              reason: "Local embeddings need a managed llama-server.",
+              fixHint:
+                "Run `openclaw models --agent helper auth login --provider llama-cpp --method local`.",
+            };
+      });
+      const disabledPolicy = {
+        inspectEmbeddingProviderSetup: vi.fn(),
+      };
+      resolveProviderPolicySurfaceForOwner.mockImplementation((owner) =>
+        owner === registeredOwner ? { inspectEmbeddingProviderSetup } : disabledPolicy,
+      );
+      prepareGatewayPluginLoad.mockReturnValueOnce({
+        pluginRegistry: registry,
+        gatewayMethods: ["ping"],
+        resolvedConfig: cfg,
+        retireGatewayRuntimeBindings: vi.fn(),
+      });
+      const { loadGatewayStartupPluginRuntime } = await import("./server-startup-plugins.js");
+
+      let startupCompleted = false;
+      const startup = loadGatewayStartupPluginRuntime({
+        cfg,
+        log,
+        baseMethods: ["ping"],
+        startupPluginIds: ["llama-cpp"],
+        pluginLookUpTable: {
+          ...loadPluginLookUpTable({}),
+          workerProviderIds: [],
+          manifestRegistry: { plugins: [disabledOwner, registeredOwner], diagnostics: [] },
+        },
+      }).then((result) => {
+        startupCompleted = true;
+        return result;
+      });
+      try {
+        await vi.waitFor(() => expect(startupCompleted).toBe(true));
+      } finally {
+        inspectionGate.resolve();
+      }
+      expect((await startup).pluginRegistry).toBe(registry);
+      expect(inspectEmbeddingProviderSetup).toHaveBeenCalledExactlyOnceWith({
+        config: cfg,
+        env: process.env,
+        agentId: "helper",
+        provider: "local",
+      });
+      if (outcome === "registered owner") {
+        expect(resolveProviderPolicySurfaceForOwner).toHaveBeenCalledExactlyOnceWith(
+          registeredOwner,
+        );
+        expect(disabledPolicy.inspectEmbeddingProviderSetup).not.toHaveBeenCalled();
+      }
+      if (outcome === "registered owner" || outcome === "inspection stalled") {
+        await vi.waitFor(() =>
+          expect(log.warn).toHaveBeenCalledWith(
+            expect.stringMatching(/helper.*degraded.*llama-server.*models --agent helper/s),
+          ),
+        );
+      } else if (outcome === "inspection failed") {
+        await vi.waitFor(() =>
+          expect(log.warn).toHaveBeenCalledWith(
+            expect.stringContaining("synthetic setup inspection failed"),
+          ),
+        );
+      } else {
+        expect(log.warn).not.toHaveBeenCalled();
+      }
+    },
+  );
 });
 
 describe("warnUnregisteredConfiguredMemoryEmbeddingProviders", () => {

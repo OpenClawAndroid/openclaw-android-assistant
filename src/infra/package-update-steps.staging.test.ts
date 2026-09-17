@@ -9,7 +9,7 @@ import {
   createRootRunner,
   writePackageRoot,
 } from "./package-update-steps.test-support.js";
-import { resolveNpmGlobalPrefixLayoutFromPrefix } from "./update-global.js";
+import { resolveNpmGlobalPrefixLayoutFromPrefix } from "./update-npm-prefix.js";
 
 function stagedPrefixFromArgs(argv: string[]): string {
   const prefixIndex = argv.indexOf("--prefix");

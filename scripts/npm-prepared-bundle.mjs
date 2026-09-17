@@ -258,6 +258,24 @@ function readAttemptJobs(repository, producer, runGh) {
   throw new Error("Incomplete npm producer job inventory.");
 }
 
+function validateProducerRun(run, producer, toolingSha, expectedAttempt) {
+  const workflow = producerWorkflow(producer);
+  const [runPath, runRef] = String(run.path).split("@");
+  if (
+    String(run.id) !== producer.runId ||
+    String(run.run_attempt) !== String(expectedAttempt) ||
+    run.head_sha !== toolingSha ||
+    runPath !== workflow.path ||
+    (runRef !== undefined && runRef !== workflow.fullRef) ||
+    run.head_branch !== workflow.ref ||
+    run.event !== "workflow_dispatch" ||
+    run.repository?.full_name !== producer.repository ||
+    run.head_repository?.full_name !== producer.repository
+  ) {
+    throw new Error("npm bundle producer run identity mismatch.");
+  }
+}
+
 /**
  * @param {{
  *   producer: Record<string, string>,
@@ -291,31 +309,12 @@ export function verifyNpmBundleProducer({
           ? VERIFY_JOB_NAME
           : PREPARE_JOB_NAME,
   });
-  const workflow = producerWorkflow(producer);
   const run = githubJson(
     repository,
     `actions/runs/${producer.runId}/attempts/${producer.runAttempt}`,
     runGh,
   );
-  const [runPath, runRef] = String(run.path).split("@");
-  if (
-    String(run.id) !== producer.runId ||
-    String(run.run_attempt) !== producer.runAttempt ||
-    run.head_sha !== toolingSha ||
-    runPath !== workflow.path ||
-    (runRef !== undefined && runRef !== workflow.fullRef) ||
-    run.head_branch !== workflow.ref ||
-    run.event !== "workflow_dispatch" ||
-    run.repository?.full_name !== repository ||
-    run.head_repository?.full_name !== repository
-  ) {
-    throw new Error("npm bundle producer run identity mismatch.");
-  }
-  // Qualification retries reuse completed producer jobs from failed attempts.
-  // Publication additionally requires the complete producer attempt to succeed.
-  if (requireCompletedParent && (run.status !== "completed" || run.conclusion !== "success")) {
-    throw new Error("npm publication requires a successful producer parent.");
-  }
+  validateProducerRun(run, producer, toolingSha, producer.runAttempt);
   const matches = readAttemptJobs(repository, producer, runGh).filter(
     (job) => job.name === producer.jobName,
   );
@@ -331,7 +330,47 @@ export function verifyNpmBundleProducer({
   ) {
     throw new Error("npm bundle requires its unique exact completed producer job.");
   }
-  return { run, job };
+  if (!requireCompletedParent) {
+    // Qualification retries can consume a successful job from a failed attempt.
+    return { run, job };
+  }
+
+  const current = githubJson(repository, `actions/runs/${producer.runId}`, runGh);
+  const currentAttempt = Number(decimal(String(current.run_attempt), "current producer attempt"));
+  validateProducerRun(current, producer, toolingSha, currentAttempt);
+  if (
+    currentAttempt < Number(producer.runAttempt) ||
+    current.status !== "completed" ||
+    current.conclusion !== "success"
+  ) {
+    throw new Error("npm publication requires a successful producer parent.");
+  }
+  // Failed-job reruns retain green jobs. A later receipt-only retry may make
+  // the parent successful without recreating this descriptor or package, but
+  // a later execution of this same job supersedes its earlier proof.
+  for (let attempt = Number(producer.runAttempt) + 1; attempt <= currentAttempt; attempt += 1) {
+    const jobs = readAttemptJobs(repository, { ...producer, runAttempt: String(attempt) }, runGh);
+    if (
+      jobs.length === 0 ||
+      jobs.some(
+        (entry) =>
+          String(entry.run_id) !== producer.runId ||
+          Number(entry.run_attempt) !== attempt ||
+          entry.head_sha !== toolingSha,
+      )
+    ) {
+      throw new Error("Incomplete or mismatched npm producer attempt evidence.");
+    }
+    if (jobs.some((entry) => entry.name === producer.jobName)) {
+      throw new Error("npm bundle producer job was superseded by a later attempt.");
+    }
+  }
+  const reread = githubJson(repository, `actions/runs/${producer.runId}`, runGh);
+  validateProducerRun(reread, producer, toolingSha, currentAttempt);
+  if (reread.status !== "completed" || reread.conclusion !== "success") {
+    throw new Error("npm producer parent changed while verifying completed evidence.");
+  }
+  return { run: reread, job };
 }
 
 export function verifyNpmSourceCheck({ descriptor, repository, sourceSha, toolingSha, runGh }) {

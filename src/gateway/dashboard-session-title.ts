@@ -12,10 +12,14 @@ import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { withTimeout } from "../infra/fs-safe.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
-import { getOrCreatePromise } from "../shared/lazy-promise.js";
 import type { ChatAttachment } from "./chat-attachments.js";
 import { deriveGoalSessionTitle } from "./derive-goal-session-title.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
+import {
+  hasExplicitSessionName,
+  resolveExplicitSessionName,
+  sessionTitleRequests,
+} from "./session-title-state.js";
 import { readSessionTitleFieldsFromTranscript } from "./session-transcript-title-reader.js";
 
 type DashboardSessionTitleModelEntry = Pick<
@@ -36,13 +40,6 @@ const WORKTREE_SESSION_TITLE_TIMEOUT_MS = 8_000;
 const WORKTREE_SESSION_TITLE_ATTEMPT_TIMEOUT_MS = 4_000;
 const DASHBOARD_SESSION_TITLE_PROMPT =
   "Generate a concise session title (3-6 words, max 60 characters) from the user's first message. Use the same language as the message, in sentence case: capitalize only the first word and words that language always capitalizes. No emoji. Return only the title.";
-
-// One title request per session generation. Concurrent triggers cannot race duplicate model
-// calls or metadata writes; late callers receive the in-flight promise so they
-// may await the persisted title before proceeding. Stored promises always
-// settle: isolated completion enforces a timeout, so a hung model call cannot
-// pin an entry here and block future attempts.
-const sessionTitleRequests = new Map<string, Promise<boolean>>();
 
 function decodeTextAttachmentPrefix(attachment: ChatAttachment, maxChars: number): string | null {
   const mimeType = attachment.mimeType?.trim().toLowerCase();
@@ -99,21 +96,6 @@ type SessionTitleAttempt =
   | { kind: "persisted" }
   | { kind: "skipped" }
   | { kind: "in-flight"; settled: Promise<boolean> };
-
-export function resolveExplicitSessionName(entry: SessionEntry | undefined): string | undefined {
-  const label = entry?.label?.trim();
-  if (label) {
-    return label;
-  }
-  // autoLabel is device metadata and must not block generated displayName titles.
-  return [entry?.displayName, entry?.subject, entry?.groupChannel, entry?.space]
-    .map((value) => value?.trim())
-    .find(Boolean);
-}
-
-export function hasExplicitSessionName(entry: SessionEntry | undefined): boolean {
-  return Boolean(resolveExplicitSessionName(entry));
-}
 
 function isAutoTitleSessionKey(sessionKey: string): boolean {
   const rest = parseAgentSessionKey(sessionKey)?.rest ?? "";
@@ -339,8 +321,8 @@ export async function maybeGenerateSessionTitle(params: {
     return { kind: "skipped" };
   }
 
-  const requestKey = `${params.storePath}\0${sessionKey}\0${params.sessionId}`;
-  const existing = sessionTitleRequests.get(requestKey);
+  const requestTarget = { ...scope, sessionId: params.sessionId };
+  const existing = sessionTitleRequests.get(requestTarget);
   if (existing) {
     return { kind: "in-flight", settled: existing };
   }
@@ -367,44 +349,40 @@ export async function maybeGenerateSessionTitle(params: {
     return { kind: "skipped" };
   }
 
-  const request = getOrCreatePromise(
-    sessionTitleRequests,
-    requestKey,
-    () =>
-      Promise.resolve().then(async () => {
-        params.commitGuard?.();
-        const generation = generateDashboardSessionTitle({
-          cfg: params.cfg,
-          agentId: params.agentId,
-          entry: params.entry ?? entry,
-          userMessage: sourceText,
-          ...(params.worktree ? { timeoutMs: WORKTREE_SESSION_TITLE_ATTEMPT_TIMEOUT_MS } : {}),
-        });
-        const displayName = await (params.worktree
-          ? withTimeout(generation, WORKTREE_SESSION_TITLE_TIMEOUT_MS, "worktree title generation")
-          : generation);
-        if (!displayName) {
-          return false;
-        }
+  const request = sessionTitleRequests.run(requestTarget, () =>
+    Promise.resolve().then(async () => {
+      params.commitGuard?.();
+      const generation = generateDashboardSessionTitle({
+        cfg: params.cfg,
+        agentId: params.agentId,
+        entry: params.entry ?? entry,
+        userMessage: sourceText,
+        ...(params.worktree ? { timeoutMs: WORKTREE_SESSION_TITLE_ATTEMPT_TIMEOUT_MS } : {}),
+      });
+      const displayName = await (params.worktree
+        ? withTimeout(generation, WORKTREE_SESSION_TITLE_TIMEOUT_MS, "worktree title generation")
+        : generation);
+      if (!displayName) {
+        return false;
+      }
 
-        let persisted = false;
-        await patchSessionEntryCore(
-          scope,
-          (current) => {
-            if (current.sessionId !== params.sessionId || hasExplicitSessionName(current)) {
-              return null;
-            }
-            persisted = true;
-            return { displayName };
-          },
-          {
-            requireWriteSuccess: true,
-            ...(params.commitGuard ? { assertCommitAllowed: params.commitGuard } : {}),
-          },
-        );
-        return persisted;
-      }),
-    { evictOnSettled: true },
+      let persisted = false;
+      await patchSessionEntryCore(
+        scope,
+        (current) => {
+          if (current.sessionId !== params.sessionId || hasExplicitSessionName(current)) {
+            return null;
+          }
+          persisted = true;
+          return { displayName };
+        },
+        {
+          requireWriteSuccess: true,
+          ...(params.commitGuard ? { assertCommitAllowed: params.commitGuard } : {}),
+        },
+      );
+      return persisted;
+    }),
   );
   return (await request) ? { kind: "persisted" } : { kind: "skipped" };
 }

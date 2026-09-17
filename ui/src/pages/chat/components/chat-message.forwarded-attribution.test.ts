@@ -164,7 +164,7 @@ describe("forwarded message attribution", () => {
       name: "other-agent session prefixes the agent name",
       key: "agent:research:bench",
       chipText: "agent:research:bench",
-      prefix: "Research Agent —",
+      prefix: "Research Agent ·",
       titled: false,
     },
     {

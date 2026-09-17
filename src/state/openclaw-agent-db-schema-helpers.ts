@@ -10,9 +10,15 @@ import { repairCanonicalSqliteIndexes } from "../infra/sqlite-index-schema.js";
 import {
   assertSqliteSchemaContains,
   assertSqliteSchemaTablesPresent,
+  collectSqliteSchemaIssues,
+  getCanonicalSqliteNamedIndexContracts,
   getCanonicalSqliteTableNames,
   type SqliteSchemaCompatibility,
 } from "../infra/sqlite-schema-contract.js";
+import {
+  legacySqliteSchemaIssueMessages,
+  throwSqliteSchemaMismatches,
+} from "../infra/sqlite-schema-issues.js";
 import { readSqliteUserVersion } from "../infra/sqlite-user-version.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import {
@@ -124,8 +130,9 @@ export function assertOpenClawAgentSchemaContains(
   pathname: string,
   schemaSql: string,
   participantSchema: "current" | "legacy" = "current",
+  allowStartupIndexRepair = false,
 ): void {
-  assertSqliteSchemaContains(database, pathname, schemaSql, {
+  const compatibility = {
     ...AGENT_SCHEMA_COMPATIBILITY,
     allowedMissingTables: [
       ...AGENT_SCHEMA_COMPATIBILITY.allowedMissingTables,
@@ -136,7 +143,25 @@ export function assertOpenClawAgentSchemaContains(
       ...AGENT_SCHEMA_COMPATIBILITY.allowedMissingColumns,
       ...(participantSchema === "legacy" ? LEGACY_PARTICIPANT_OPTIONAL_COLUMNS : []),
     ],
-  });
+  };
+  if (!allowStartupIndexRepair) {
+    assertSqliteSchemaContains(database, pathname, schemaSql, compatibility);
+    return;
+  }
+  // Admission is read-only; the writable schema owner rebuilds these projections
+  // before session startup completes. Constraints and canonical data stay strict.
+  const repairableIndexes = new Set(
+    getCanonicalSqliteNamedIndexContracts(schemaSql).map((index) => index.name),
+  );
+  const issues = collectSqliteSchemaIssues(database, schemaSql, compatibility);
+  if (
+    issues.some(
+      (issue) =>
+        issue.code !== "missing-or-drifted-index" || !repairableIndexes.has(issue.objectName),
+    )
+  ) {
+    throwSqliteSchemaMismatches(pathname, legacySqliteSchemaIssueMessages(issues));
+  }
 }
 
 export function assertOpenClawAgentCurrentRuntimeSchema(

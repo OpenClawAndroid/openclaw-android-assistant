@@ -47,6 +47,7 @@ import {
   resolveRuntimePlacementSeconds,
 } from "./ci-test-timings.mts";
 import { listTrackedTestFiles } from "./list-test-files.mts";
+import { isExclusiveCiTestConfig } from "./local-check-runtime.mts";
 import {
   listVitestRuntimeConsumerFiles,
   mergeVitestPretestBuildModes,
@@ -2555,6 +2556,27 @@ const WHOLE_CONFIG_SPLIT_FILE_LISTERS = new Map<string, () => string[]>([
   ["core-unit-fast-isolated", getUnitFastIsolatedTestFiles],
 ]);
 
+const wholeConfigSplitFileCache = new Map<string, string[]>();
+
+function listWholeConfigSplitFiles(shardName: string): string[] | undefined {
+  const listFiles = WHOLE_CONFIG_SPLIT_FILE_LISTERS.get(shardName);
+  if (!listFiles) {
+    return undefined;
+  }
+  // Test fixtures deliberately replace the CLI process inventory. The other
+  // owner inventories are immutable for the process lifetime and expensive to
+  // rediscover (git walks plus glob matching) on every candidate plan.
+  if (shardName === "agentic-cli-process") {
+    return listFiles();
+  }
+  let files = wholeConfigSplitFileCache.get(shardName);
+  if (!files) {
+    files = listFiles();
+    wholeConfigSplitFileCache.set(shardName, files);
+  }
+  return files;
+}
+
 type HostedToolingTailDonation = {
   parentShardName: string;
   file: string;
@@ -2630,8 +2652,7 @@ function splitOversizedCompactGroup(
   ) {
     return [{ group, seconds: measuredProfileSeconds }];
   }
-  const includePatterns =
-    group.includePatterns ?? WHOLE_CONFIG_SPLIT_FILE_LISTERS.get(group.shard_name)?.();
+  const includePatterns = group.includePatterns ?? listWholeConfigSplitFiles(group.shard_name);
   const buildModes = new Map(
     includePatterns?.map((file) => [file, resolveTestFilesBuildMode([file])]) ?? [],
   );
@@ -2941,7 +2962,9 @@ export function createSelectedNodeTestShardBundles(
     const matches = canonicalGroups.filter(
       (group) =>
         !group.requiresDist &&
-        ((group.configs.length === 1 && group.configs[0] === configs.get(target)) ||
+        ((group.configs.includes(configs.get(target)!) &&
+          group.configs.some(isExclusiveCiTestConfig)) ||
+          (group.configs.length === 1 && group.configs[0] === configs.get(target)) ||
           (isWholeToolingPair(group) && group.configs.includes(configs.get(target)!))) &&
         group.env?.OPENCLAW_NODE_TEST_VITEST_ARGS_JSON === undefined &&
         (!group.includePatterns || group.includePatterns.includes(target)),
@@ -3048,7 +3071,7 @@ function createCompactNodeTestShardBundles(
       shard_name: shard.shardName,
     });
     const partitionFiles = group.pretestBuildMode
-      ? (group.includePatterns ?? WHOLE_CONFIG_SPLIT_FILE_LISTERS.get(group.shard_name)?.())
+      ? (group.includePatterns ?? listWholeConfigSplitFiles(group.shard_name))
       : undefined;
     const partition = partitionFiles
       ? partitionRuntimeTestFiles(group.configs, partitionFiles)
@@ -3502,5 +3525,17 @@ function createCompactNodeTestShardBundles(
     }
   }
 
+  for (const job of compactJobs) {
+    if (
+      job.planConcurrency !== 2 ||
+      !job.groups.some((group) => group.configs.some(isExclusiveCiTestConfig))
+    ) {
+      continue;
+    }
+    // Keep packed jobs and their summed time budgets; Gateway boots own the host
+    // serially. Preserve the previous two-worker ceiling inside every child.
+    job.planConcurrency = 1;
+    job.env = { ...job.env, ...PINNED_COMPACT_GROUP_ENV };
+  }
   return compactJobs.toSorted((a, b) => a.checkName.localeCompare(b.checkName));
 }

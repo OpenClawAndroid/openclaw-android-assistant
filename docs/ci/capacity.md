@@ -152,6 +152,17 @@ before claiming realized savings.
 
 ## Measured shard weights
 
+Gateway core, database-worker, methods, methods-isolated, server, and
+server-isolated configs run with exclusive plan admission. Cold in-process
+Gateway boot measured 37 seconds alone and 50 seconds under contention against
+a 90-second test budget. Jobs containing these configs execute their packed
+plans serially. Existing bins, summed duration budgets, runner allocations,
+file partitions, and timing keys stay unchanged; formerly parallel jobs retain
+their two-worker ceiling through the job environment. This adds no jobs and
+leaves ordinary jobs' concurrency unchanged. The shard runner enforces the same
+config policy even when a caller requests two plans. Precise changed-test
+selection retains the Gateway config owner and its admission metadata.
+
 Complete hybrid main and pull-request plans retain their existing jobs and runner
 allocations while admitting measured runtime groups within 440 seconds, including
 the existing 100-second build allowance. This reserves 40 seconds of the

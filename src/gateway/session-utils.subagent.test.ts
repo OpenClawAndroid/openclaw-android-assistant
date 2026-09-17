@@ -162,7 +162,7 @@ describe("session list subagent metadata", () => {
             .get()?.bytes;
           expect(typeof selectedPayloadBytes).toBe("number");
           expect(retainedValidationBytes).toBeLessThanOrEqual(Number(selectedPayloadBytes) * 2);
-          await rowReader.ready();
+          await (await rowReader.ready()).ensureMaterialized();
           const startupInspections = unrelatedInspections;
           expect((await rowReader.row(parentKey))?.key).toBe(parentKey);
           expect(unrelatedInspections).toBe(startupInspections);
@@ -229,7 +229,7 @@ describe("session list subagent metadata", () => {
             { trackOwner: true, ownsContext: true },
           );
           subagentRegistryState.clearSubagentRunsReadCacheForTest();
-          await rowReader.ready();
+          await (await rowReader.ready()).ensureMaterialized();
           const parse = vi.spyOn(JSON, "parse");
           try {
             const parent = (await rowReader.snapshot(parentKey, { now })).row;

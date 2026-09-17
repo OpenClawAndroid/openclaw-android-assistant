@@ -103,9 +103,6 @@ export async function resolveSessionKeyFromResolveParams(params: {
   p: SessionsResolveParams;
 }): Promise<SessionsResolveResult> {
   const { client, p, projection } = params;
-  do {
-    await projection.ensureMaterialized();
-  } while (projection.needsMaterialization);
   const { cfg } = projection.state;
   const { sharing } = prepareProjectedSessionPresentation(projection, client);
   const { entryFilter } = sharing;
@@ -115,15 +112,8 @@ export async function resolveSessionKeyFromResolveParams(params: {
       agentId,
       configuredAgentsOnly,
     });
-  const agentCheck = (key: string, entry: SessionEntry | undefined, agentId?: string) => {
-    const row = agentId ? projection.describe({ agentId, key }) : prepare().getTarget(key);
-    return validateSessionAgentExists(
-      cfg,
-      key,
-      entry,
-      row?.materialized.source.thinkingProjection.acpMeta ?? null,
-    );
-  };
+  const agentCheck = (key: string, entry: SessionEntry | undefined) =>
+    validateSessionAgentExists(cfg, key, entry, entry?.acp);
   const sessionIdMatches = (agentId?: string) =>
     filterAndSortSessionEntries({
       ...prepare(agentId),
@@ -183,10 +173,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
       ...prepared,
       entryFilter,
       opts: { ...resolveSessionVisibilityFilterOptions(p), archived: "all" },
-    }).filter(
-      ([candidateKey, entry]) =>
-        agentCheck(candidateKey, entry, prepared.getTarget(candidateKey)?.agentId) === null,
-    );
+    }).filter(([candidateKey, entry]) => agentCheck(candidateKey, entry) === null);
     const candidate = ([candidateKey, entry]: [string, SessionEntry]) =>
       sessionResolveCandidate(
         candidateKey,
@@ -243,7 +230,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
         return noSessionFoundResult({ p, message: `No session found: ${key}` });
       }
       return (
-        agentCheck(target.key, entry, target.agentId) ?? {
+        agentCheck(target.key, entry) ?? {
           ok: true,
           key: target.key,
           agentId: requestedAgent.agentId,
@@ -298,11 +285,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
       }
       const ownerTaggedMatch = ownerTaggedMatches.values().next().value;
       if (ownerTaggedMatch) {
-        const check = agentCheck(
-          ownerTaggedMatch.key,
-          ownerTaggedMatch.entry,
-          ownerTaggedMatch.agentId,
-        );
+        const check = agentCheck(ownerTaggedMatch.key, ownerTaggedMatch.entry);
         return (
           check ?? {
             ok: true,
@@ -335,7 +318,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
       }
       selectedAgentId = resolvedOwner.agentId;
     }
-    const agentCheckSessionId = agentCheck(selection.sessionKey, selectedEntry, selectedAgentId);
+    const agentCheckSessionId = agentCheck(selection.sessionKey, selectedEntry);
     if (agentCheckSessionId) {
       return agentCheckSessionId;
     }
@@ -366,7 +349,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
       },
     }).flatMap(([candidateKey, entry]) => {
       const target = prepared.getTarget(candidateKey);
-      return target && !agentCheck(candidateKey, entry, target.agentId)
+      return target && !agentCheck(candidateKey, entry)
         ? [sessionResolveCandidate(candidateKey, entry, target.agentId)]
         : [];
     });
@@ -423,7 +406,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
   }
 
   const [labelKey, labelEntry] = expectDefined(matches[0], "label session match at 0");
-  const agentCheckLabel = agentCheck(labelKey, labelEntry, prepared.getTarget(labelKey)?.agentId);
+  const agentCheckLabel = agentCheck(labelKey, labelEntry);
   if (agentCheckLabel) {
     return agentCheckLabel;
   }

@@ -190,6 +190,23 @@ restoring selectors or removing state. Runtime reproductions of state-selection
 leaks require enforced storage isolation, such as a VM or container without access
 to operator stores, not merely temporary `HOME` or state-directory overrides.
 
+## Public test diagnostics
+
+The shared Vitest reporter factory redacts credential-shaped fields in assertion
+messages, diffs, expected/received values, stacks, source excerpts, and annotations
+before forwarding them to the selected reporters. Keys remain visible and values
+become `<redacted len=N>`. This also applies to explicit `--reporter` selections,
+UI/browser configurations, and JSON/JUnit reports. Hosted logs are public, and
+runner-issued tokens may not be registered for GitHub masking.
+
+Unquoted environment records use one assignment per line: spaces and punctuation
+on the right-hand side belong to that value. Multiline strings split into quoted
+fragments by Node's inspector are redacted as one value.
+
+Redaction is unconditional and affects diagnostic output, not assertion behavior.
+Test console capture is outside this boundary; tests must still avoid logging
+credentials directly.
+
 ## JSON reports across native processes
 
 For a multi-project or chunked run, explicitly request native JSON with an output

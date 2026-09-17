@@ -197,6 +197,7 @@ describe("cron run receipt store", () => {
           ownerSessionKey: originOwner.sessionKey,
           ownerAccountId: originOwner.accountId,
         };
+        job.schedule = { kind: "every", everyMs: 60_000, anchorMs: job.createdAtMs };
         job.toolsAllowProvenance = provenance;
       }
       await saveCronStore(storePath, { version: 1, jobs: [job] });
@@ -280,13 +281,19 @@ describe("cron run receipt store", () => {
           expect(restored.state.triggerState).toEqual(job.state.triggerState);
         } else {
           // An admission that began disabled and unrelated tool/delivery edits keep access.
-          await update(state, job.id, {
-            name: "renamed",
-            delivery: { mode: "none" },
-            ...(mutation === "tool policy"
-              ? { payload: { kind: "agentTurn" as const, toolsAllow: ["message"] } }
-              : {}),
-          });
+          await update(
+            state,
+            job.id,
+            mutation === "origin"
+              ? { description: "descriptive origin notes" }
+              : {
+                  name: "renamed",
+                  delivery: { mode: "none" },
+                  ...(mutation === "tool policy"
+                    ? { payload: { kind: "agentTurn" as const, toolsAllow: ["message"] } }
+                    : {}),
+                },
+          );
           expect(assertCurrent).not.toThrow();
           if (mutation === "origin") {
             for (const channel of ["slack", "discord"]) {

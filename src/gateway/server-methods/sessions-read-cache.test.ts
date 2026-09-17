@@ -35,6 +35,7 @@ import { ensureProfileForEmail, setUserProfileRole } from "../../state/user-prof
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { invalidateOperatorRolePolicy } from "../operator-role-policy.js";
 import { persistGatewaySessionLifecycleEvent } from "../session-lifecycle-state.js";
+import { observeSessionRowBackfill } from "../session-row-backfill.test-support.js";
 import { getSessionRowProjection } from "../session-row-projection-access.js";
 import type { WorkerSessionPlacementRecord } from "../worker-environments/placement-store.js";
 import {
@@ -144,7 +145,15 @@ describe("resident sessions.list", () => {
       const context = requestContext(config);
       const client = identifiedClient("owner@example.com");
 
+      const enriched = observeSessionRowBackfill([
+        "agent:main:active",
+        "agent:main:draft",
+        "agent:main:archived",
+        "agent:work:active",
+      ]);
       await initializeSessionReadContext(context);
+      await enriched;
+      await listSessions({ client, context, request: { archived: "all", limit: 100 } });
       const statements = vi.spyOn(DatabaseSync.prototype, "prepare");
       const results = await Promise.all(
         Array.from({ length: 16 }, () =>
@@ -421,6 +430,14 @@ describe("resident sessions.list", () => {
       emitSessionTranscriptUpdate({
         target: { agentId: "main", sessionId: "main-active", sessionKey: "agent:main:active" },
       });
+      await vi.waitFor(() =>
+        expect(
+          getSessionRowProjection(context)?.snapshot(
+            { agentId: "main", key: "agent:main:active" },
+            { includeLastMessage: true },
+          ).row?.lastMessagePreview,
+        ).toBe("Fresh committed preview"),
+      );
       const refreshed = await listSessions({ client, context, request });
       expect(
         first.sessions.find((row) => row.key === "agent:main:active")?.lastMessagePreview,
@@ -466,6 +483,13 @@ describe("resident sessions.list", () => {
       expect(degradedRow?.lastMessagePreview).toBeUndefined();
 
       await waitForSessionTranscriptIndexReconcile({ agentId: "main", env: state.env });
+      await vi.waitFor(async () =>
+        expect(
+          (await listSessions({ client, context, request })).sessions.find(
+            (row) => row.key === sessionKey,
+          )?.lastMessagePreview,
+        ).toBe("active reply"),
+      );
       const healed = await listSessions({ client, context, request });
       expect(healed.sessions.find((session) => session.key === sessionKey)).toMatchObject({
         derivedTitle: "Active prompt",

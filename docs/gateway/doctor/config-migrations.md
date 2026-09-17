@@ -74,6 +74,54 @@ from the refusal. See [Database schemas](/reference/database-schemas#schema-bump
 for the publication contract and the remaining risk for an old CLI stalled
 beyond the grace period.
 
+## Replay a July 2026 config upgrade
+
+From a source checkout with its pnpm dependencies installed, run:
+
+```bash
+node scripts/doctor-config-upgrade-replay.mjs
+```
+
+The driver runs with plain Node and imports only Node built-ins. It requires
+the checkout's fixture and `pnpm openclaw` build wrapper; an installed npm
+package alone cannot run this replay. No `tsx` invocation is needed for the driver.
+
+The replay uses the synthetic `test/fixtures/doctor-2026.7.1.json` config. It
+builds through `pnpm openclaw`, isolates the home, state, config, and logs under
+`.local`, and selects free loopback ports. It captures validation before repair,
+two `doctor --fix --non-interactive` passes, validation after the first pass,
+and Gateway startup. It keeps the original config, both repaired copies, and
+command output in the printed directory. The second pass must leave the config
+bytes unchanged. It never needs credentials or a running Gateway.
+
+A second fixture covers `messages.tts` moving to `tts` before retired TTS fields
+are removed. Doctor preserves the old preference-file path in shared machine
+state before removing `prefsPath`; existing canonical settings and stored state
+keep precedence, and the preferences file stays intact.
+
+The fixture combines a two-agent `agents.list` roster, the legacy model
+allowlist, local memory search, a CLI audio model, Telegram account allowlists,
+and the retired `meta.lastTouchedAt`, `gateway.tailscale.resetOnExit`, and
+`gateway.nodes.denyCommands` keys. The current media field is optional plural
+`capabilities`; Doctor adds `["audio"]` when moving an audio-only model to
+`tools.media.models`. A singular `capability` field is not required.
+
+Local embeddings keep the `local` provider and their existing model selection.
+The in-process `node-llama-cpp` runtime was replaced by a managed `llama-server`.
+When managed setup is missing, Doctor and Gateway startup name the degraded
+semantic recall and the plugin's guided setup command:
+
+```bash
+openclaw models --agent main auth login --provider llama-cpp --method local
+```
+
+Run that command interactively and choose the appropriate managed setup, then
+verify with `openclaw memory status --deep`. Setup can offer embeddings without
+changing the chat model. Downloads require setup consent. In the July provider,
+`memorySearch.model` did not select the local GGUF: `local.modelPath` did.
+Doctor therefore preserves both fields instead of silently turning an ignored
+model value into a different embedding model. See [llama.cpp](/plugins/llama-cpp).
+
 ## Checks 0-2
 
 <AccordionGroup>

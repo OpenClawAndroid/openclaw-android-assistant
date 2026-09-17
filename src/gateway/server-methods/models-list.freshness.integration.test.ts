@@ -2,19 +2,19 @@ import { once } from "node:events";
 import { createServer, type ServerResponse } from "node:http";
 import { expect, it } from "vitest";
 import type { ModelsListResult } from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
-import { createDeferred, withTestTimeout } from "../../../test/helpers/promise.js";
-import { getPublishedPreparedModelCatalogOwnerSnapshot } from "../../agents/prepared-model-catalog.js";
-import { registerPreparedModelRuntimePublicationListener } from "../../agents/prepared-model-runtime.publication-events.js";
+import { withTestTimeout } from "../../../test/helpers/promise.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { disconnectGatewayClient, startGatewayWithClient } from "../test-helpers.e2e.js";
+import { waitForCatalogPublication } from "./models-auth-catalog.test-support.js";
 
-it.each([
+it.for([
   { withSibling: false, getterBacked: false },
   { withSibling: true, getterBacked: false },
   { withSibling: false, getterBacked: true },
 ])(
   "models.list renews accepted inventory (failed sibling: $withSibling, getter-backed: $getterBacked)",
-  async ({ withSibling, getterBacked }) => {
+  { timeout: 120_000 },
+  async ({ withSibling, getterBacked }, { signal }) => {
     const state = await createOpenClawTestState({
       label: "catalog-freshness",
       env: {
@@ -142,7 +142,13 @@ it.each([
           });
           return { ...result, models: result.models.filter((row) => row.provider === provider) };
         };
-        expect((await list(true)).models.map((row) => row.id)).toEqual(["original"]);
+        const original = await waitForCatalogPublication({
+          signal,
+          start: () => list(true),
+          read: list,
+          ready: (result) => result.models.some((row) => row.id === "original"),
+        });
+        expect(original.models.map((row) => row.id)).toEqual(["original"]);
         const initialRequests = requests;
         advertised = ["original", "newly-published"];
         hold = true;
@@ -164,45 +170,42 @@ it.each([
           ["original"],
         ]);
         expect(requests).toBe(initialRequests + 1);
-        const owner = getPublishedPreparedModelCatalogOwnerSnapshot({ agentId: "main" });
-        const acceptedCatalog = owner?.readFullModelCatalog?.();
-        expect(acceptedCatalog).toBeDefined();
-        const renewalPublished = createDeferred();
-        const unregisterPublication = registerPreparedModelRuntimePublicationListener((event) => {
-          // Worker completion precedes acceptance; acquisition-start events keep the old snapshot.
-          if (
-            event.phase === "catalog-published" &&
-            owner?.readFullModelCatalog?.() !== acceptedCatalog
-          ) {
-            renewalPublished.resolve();
-          }
-        });
         failSibling = withSibling;
         hold = false;
-        try {
-          for (const response of held.splice(0)) {
-            reply(response);
-          }
-          await withTestTimeout(
-            renewalPublished.promise,
-            3_000,
-            "catalog renewal was not published",
-          );
-        } finally {
-          unregisterPublication();
+        for (const response of held.splice(0)) {
+          // Exercise publication after a slow provider response.
+          setTimeout(() => reply(response), 3_500);
         }
-        expect((await list()).models.map((row) => row.id)).toEqual(["newly-published", "original"]);
+        const renewed = await waitForCatalogPublication({
+          signal,
+          read: list,
+          ready: (result) => result.models.some((row) => row.id === "newly-published"),
+        });
+        expect(renewed.models.map((row) => row.id)).toEqual(["newly-published", "original"]);
 
+        if (!withSibling) {
+          fail = true;
+        }
+        const failed = await waitForCatalogPublication({
+          signal,
+          read: list,
+          ready: (result) => result.refreshFailed === true,
+        });
+        expect(failed.refreshFailed).toBe(true);
         if (withSibling) {
-          await expect.poll(async () => (await list()).refreshFailed).toBe(true);
           advertised = ["original", "newly-published", "after-sibling-failure"];
-          await expect
-            .poll(async () => (await list()).models.map((row) => row.id))
-            .toEqual(["after-sibling-failure", "newly-published", "original"]);
+          const afterSiblingFailure = await waitForCatalogPublication({
+            signal,
+            read: list,
+            ready: (result) => result.models.some((row) => row.id === "after-sibling-failure"),
+          });
+          expect(afterSiblingFailure.models.map((row) => row.id)).toEqual([
+            "after-sibling-failure",
+            "newly-published",
+            "original",
+          ]);
           expect((await list()).refreshFailed).toBe(true);
         } else {
-          fail = true;
-          await expect.poll(async () => (await list()).refreshFailed).toBe(true);
           const failedRequests = requests;
           expect((await list()).models.map((row) => row.id)).toEqual([
             "newly-published",
@@ -213,7 +216,13 @@ it.each([
           fail = false;
         }
         failSibling = false;
-        expect((await list(true)).refreshFailed).not.toBe(true);
+        const recovered = await waitForCatalogPublication({
+          signal,
+          start: () => list(true),
+          read: list,
+          ready: (result) => result.refreshFailed !== true,
+        });
+        expect(recovered.refreshFailed).not.toBe(true);
       } finally {
         hold = false;
         for (const response of held.splice(0)) {
@@ -230,5 +239,4 @@ it.each([
       await state.cleanup();
     }
   },
-  120_000,
 );

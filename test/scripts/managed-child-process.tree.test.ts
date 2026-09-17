@@ -46,7 +46,12 @@ it("cancels admission while Windows platform code loads without spawning or reta
 it("preserves requested command inputs across Windows platform loading", async () => {
   const root = dirs.make("managed-platform-inputs-");
   const child = new ChildProcess();
-  Object.defineProperties(child, { pid: { value: 12345 }, exitCode: { value: 0 } });
+  Object.defineProperties(child, {
+    pid: { value: 12345 },
+    exitCode: { value: 0 },
+    stdout: { value: null, writable: true },
+    stderr: { value: null, writable: true },
+  });
   let launched: { argument?: string; value?: string } | undefined;
   mocks.spawnWindowsJobChild.mockImplementation((_command, args, options) => {
     launched = { argument: args[0], value: options.env.VALUE };

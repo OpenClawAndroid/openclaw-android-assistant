@@ -428,8 +428,14 @@ export function renderMessageGroupContent(group: MessageGroup, opts: RenderMessa
   if (isActivityMessageGroup(group)) {
     return renderActivityGroup([group], opts, "continuation");
   }
+  const messageOptions = { ...opts, isForwarded: hasForwardedSource(group) };
   const messages = group.messages.map((item, index) =>
-    renderPreparedGroupMessage(group, index, opts, prepareGroupMessage(group, item, opts)),
+    renderPreparedGroupMessage(
+      group,
+      index,
+      messageOptions,
+      prepareGroupMessage(group, item, opts),
+    ),
   );
   return html`${messages}${
     opts.showToolCalls === false ? nothing : renderBrowserTabPreviews([group], opts)
@@ -444,7 +450,8 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
     normalizedRole === "user" &&
     Boolean(opts.userId && group.sender) &&
     !isOwnSenderGroup(group, opts.userId);
-  const isForwarded = normalizedRole === "assistant" && hasForwardedSource(group);
+  const forwardedSource = hasForwardedSource(group);
+  const isForwarded = normalizedRole === "assistant" && forwardedSource;
   const showSenderName =
     !isForwarded &&
     !sourceOnly &&
@@ -564,7 +571,7 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
     >
       ${inlineUserAvatar ? nothing : avatar}
       <div class="chat-group-messages">
-        ${isForwarded ? renderForwardedAttribution(group, opts) : nothing}
+        ${forwardedSource ? renderForwardedAttribution(group, opts) : nothing}
         ${
           replyToLabel
             ? html`
@@ -591,6 +598,7 @@ export function renderMessageGroup(group: MessageGroup, opts: RenderMessageGroup
                 index,
                 {
                   ...opts,
+                  isForwarded: forwardedSource,
                   avatar: inlineUserAvatar && index === lastMessageIndex ? avatar : undefined,
                 },
                 prepared,

@@ -127,6 +127,8 @@ Final payloads are assembled from assistant text (plus optional reasoning), inli
 
 If a required-reply turn ends after a fully settled tool batch without a composed answer, OpenClaw can make a tool-free finalization pass. Earlier tool errors and pre-tool progress do not count as a final answer. This pass does not repeat completed tools. Fatal automation failures, including denied execution, remain failures even when finalization produces an answer.
 
+An explicit `NO_REPLY` in the current attempt's successful canonical answer is intentional silence, even when earlier assistant text was streamed in the same input. It does not trigger another finalization pass or replay superseded text, and it does not retract text already delivered. Pending tools, accepted child runs, and yielded work retain completion ownership; silence does not mark that work finished. Assistant errors and aborts are not intentional silence.
+
 Prompt-segment diagnostics attribute attachment/context blocks and generated inbound metadata separately from user text. A prompt containing only those blocks does not need trailing user text for reply processing to complete.
 
 ## Compaction and retries

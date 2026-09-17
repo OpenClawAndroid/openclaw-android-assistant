@@ -707,7 +707,11 @@ it.each([
   "different unit",
   "different profile",
   "foreign executable",
+  "unchanged protected command",
   "changed protected command",
+  "changed protected environment",
+  "changed protected working directory",
+  "changed protected override",
 ])("revalidates the shipped managed-service stop record: %s", (scenario) =>
   withServiceHome(async (home) => {
     mockProcessPlatform("linux");
@@ -716,7 +720,8 @@ it.each([
       programArguments: [process.execPath, path.join(root, "openclaw.mjs"), "gateway"],
       environment: { HOME: home },
     };
-    // v2026.9.2/v2026.9.3 forward this stop record to the fresh migration finalizer.
+    const protectedCommand = scenario.includes("protected");
+    // Stable updaters through v2026.9.4 omit metadata for known-empty systemd overrides.
     const before: PreManagedServiceStop = {
       stoppedAtMs: 1,
       stopped: true,
@@ -731,7 +736,7 @@ it.each([
         kind: "owned",
         root,
         fingerprint: sha256Hex(stableStringify(command)),
-        refreshDefinition: scenario !== "changed protected command",
+        refreshDefinition: !protectedCommand,
       },
     };
     if (scenario === "matching UID" || scenario === "mismatching UID") {
@@ -740,6 +745,14 @@ it.each([
     const service = createMockGatewayService({
       readCommand: async () => ({
         ...command,
+        ...(protectedCommand
+          ? {
+              managedDefinition: command,
+              managedOverrides:
+                scenario === "changed protected override" ? { launcher: "command" as const } : {},
+            }
+          : {}),
+        ...(scenario === "changed protected working directory" ? { workingDirectory: home } : {}),
         programArguments:
           scenario === "foreign executable"
             ? [process.execPath, path.join(home, "other", "openclaw.mjs"), "gateway"]
@@ -748,6 +761,7 @@ it.each([
               : command.programArguments,
         environment: {
           ...command.environment,
+          ...(scenario === "changed protected environment" ? { FIXTURE_VALUE: "changed" } : {}),
           ...(scenario === "different unit" ? { OPENCLAW_SYSTEMD_UNIT: "other-gateway" } : {}),
           ...(scenario === "different profile"
             ? {
@@ -774,8 +788,15 @@ it.each([
       root,
       preManagedServiceStop: before,
     });
-    if (scenario === "shipped handoff" || scenario === "matching UID") {
-      await expect(revalidated).resolves.toMatchObject({ kind: "owned", refreshDefinition: true });
+    if (
+      scenario === "shipped handoff" ||
+      scenario === "matching UID" ||
+      scenario === "unchanged protected command"
+    ) {
+      await expect(revalidated).resolves.toMatchObject({
+        kind: "owned",
+        refreshDefinition: !protectedCommand,
+      });
     } else {
       await expect(revalidated).rejects.toThrow(/ownership or manager identity changed/);
     }

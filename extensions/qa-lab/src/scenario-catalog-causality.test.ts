@@ -284,6 +284,71 @@ describe("qa scenario catalog causality", () => {
     expect(actions.some((action) => (action as { call?: string }).call === "sleep")).toBe(false);
   });
 
+  it("keeps full-access restart delivery independent from subagent completion handoff", async () => {
+    const scenario = requireFlowScenario(readQaScenarioById("gateway-restart-full-access-live"));
+    const prompt =
+      typeof scenario.execution.config?.prompt === "string" ? scenario.execution.config.prompt : "";
+    const actions = scenario.execution.flow?.steps[1]?.actions ?? [];
+    const outboundIndex = actions.findIndex(
+      (action) =>
+        (action as { call?: string; saveAs?: string }).call === "waitForOutboundMessage" &&
+        (action as { saveAs?: string }).saveAs === "outbound",
+    );
+    const childIndex = actions.findIndex(
+      (action) =>
+        (action as { call?: string; saveAs?: string }).call === "waitForCondition" &&
+        (action as { saveAs?: string }).saveAs === "childTask",
+    );
+    const childWait = actions[childIndex] as
+      | { args?: Array<{ lambda?: { expr?: string } }> }
+      | undefined;
+
+    expect(prompt).toContain("expectsCompletionMessage false");
+    expect(prompt).toContain("do not call sessions_yield or wait for the child");
+    expect(childWait?.args?.[0]?.lambda?.expr).toContain("task.status === 'completed'");
+    expect(childWait?.args?.[0]?.lambda?.expr).not.toContain("terminalOutcome");
+    expect(childWait?.args?.[0]?.lambda?.expr).toContain(
+      "task.deliveryStatus === 'not_applicable'",
+    );
+    expect(outboundIndex).toBeGreaterThanOrEqual(0);
+    expect(childIndex).toBeGreaterThan(outboundIndex);
+
+    const childAssertionPath = actions.slice(childIndex, childIndex + 3);
+    await expect(
+      runLoadedScenarioFlow("gateway-restart-full-access-live", {
+        flow: {
+          steps: [
+            {
+              name: "accepts a successful silent child task",
+              actions: [
+                { set: "sessionKey", value: "agent:qa:restart-proof" },
+                ...childAssertionPath,
+              ],
+            },
+          ],
+        },
+        api: {
+          env: {
+            gateway: {
+              call: async () => ({
+                tasks: [
+                  {
+                    title: "restart-proof-child",
+                    sessionKey: "agent:qa:restart-proof",
+                    childSessionKey: "agent:qa:restart-proof:child",
+                    status: "completed",
+                    deliveryStatus: "not_applicable",
+                  },
+                ],
+              }),
+            },
+          },
+          readSessionTranscriptSummary: async () => ({ finalText: "CHILD-RESTART-OK" }),
+        },
+      }),
+    ).resolves.toMatchObject({ status: "pass" });
+  });
+
   it.each(["gateway-restart-inflight-run", "gateway-restart-multi-live"] as const)(
     "ignores pre-scenario gateway sentinel logs during %s recovery",
     async (scenarioId) => {

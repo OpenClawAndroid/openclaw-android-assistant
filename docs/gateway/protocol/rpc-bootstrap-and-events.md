@@ -28,11 +28,19 @@ the snapshot is being built. Reconcile those events with the response and issue
 a trailing `sessions.list` refresh when needed, including when an event only
 invalidates the cached list. Reconnects require a new subscription and snapshot.
 
-The Gateway keeps materialized rows for every live durable session in memory.
-Committed owner changes refresh the affected rows; there is no completed-page
-cache or one-second staleness window. Newly admitted or replaced stores are
-hydrated once, and rows disappear when their store leaves the current topology.
-Each response applies the current viewer's visibility and current activity time.
+The Gateway keeps durable session metadata in memory and fills materialized rows
+incrementally. Committed owner changes refresh affected rows; there is no
+completed-page cache or one-second staleness window. Keyed descriptions,
+resolution, and chat startup prepare their requested row without waiting for the
+bulk refresh. Newly admitted or replaced stores load their metadata once, and
+rows disappear when their store leaves the current topology. Each response
+applies the current viewer's visibility and current activity time.
+
+Resident rows use stored titles and usage. Legacy titles, optional message
+previews, and terminal fallback-model metadata fill in through bounded background
+transcript reads; they can be absent from an early response. Foreground requests take priority over background transcript reads and title writes. Backfill does not restore cold archives or parse oversized
+messages, call a model, or change session activity ordering. Missing usage remains
+absent until the normal usage writer records it.
 
 Both methods accept `activeOnly: true` to select currently running or queued sessions before pagination. Activity comes from the live runtime owners, not a stored status flag. Ordinary listing behavior is unchanged when the option is omitted or false. Active-only results include each visible agent-owned `global` and `unknown` session with its raw key and captured `agentId`; callers identify rows by agent, key, and `sessionId` together. Literal `agent:<id>:global` and `agent:<id>:unknown` sessions remain different rows. Active-only raw sentinel rows omit the optional `childSessions` and `hasActiveSubagentRun` fields; use `hasActiveRun` for direct activity. Normal permissions, archive/inclusion filters, and page limits still apply. Sessionless/internal runs are outside the session index.
 

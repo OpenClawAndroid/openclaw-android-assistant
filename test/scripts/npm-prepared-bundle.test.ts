@@ -195,7 +195,7 @@ async function bundleFixture(callerWorkflowPath = workflowPath) {
     if (endpoint.includes("/jobs?")) {
       return JSON.stringify({ total_count: 1, jobs: [job] });
     }
-    if (endpoint.endsWith("/attempts/2")) {
+    if (endpoint.endsWith("/attempts/2") || endpoint.endsWith("/runs/12")) {
       return JSON.stringify(run);
     }
     if (endpoint.endsWith("/artifacts/78")) {
@@ -424,6 +424,97 @@ describe("prepared npm bundle", () => {
     expect(verifyNpmBundleProducer(options).job.id).toBe(fixture.job.id);
     fixture.job.conclusion = "failure";
     expect(() => verifyNpmBundleProducer(options)).toThrow("unique exact completed producer job");
+  });
+
+  it("retains the exact green qualifier when only a later receipt job is retried", async () => {
+    const fixture = await bundleFixture();
+    Object.assign(fixture.run, { status: "completed", conclusion: "failure" });
+    fixture.job.name = "Qualify prepared npm package";
+    const current = { ...fixture.run, run_attempt: 3, conclusion: "success" };
+    const receipt = { ...fixture.job, id: 46, run_attempt: 3, name: "Seal artifact receipt" };
+    const requests: string[] = [];
+    const runGh = (args: string[]) => {
+      const endpoint = args[1] ?? "";
+      requests.push(endpoint);
+      if (endpoint.endsWith("/runs/12")) {
+        return JSON.stringify(current);
+      }
+      if (endpoint.includes("/attempts/3/jobs?")) {
+        return JSON.stringify({ total_count: 1, jobs: [receipt] });
+      }
+      return fixture.runGh(args);
+    };
+    const result = verifyNpmBundleProducer({
+      producer: { ...fixture.descriptor.producer, jobName: fixture.job.name },
+      repository,
+      toolingSha,
+      qualified: true,
+      requireCompletedParent: true,
+      runGh,
+    });
+    expect(result.run.run_attempt).toBe(3);
+    expect(result.job.id).toBe(fixture.job.id);
+    expect(result.job.run_attempt).toBe(2);
+    expect(requests.filter((endpoint) => endpoint.endsWith("/runs/12"))).toHaveLength(2);
+    expect(requests.some((endpoint) => endpoint.includes("/attempts/3/jobs?"))).toBe(true);
+  });
+
+  it.each([
+    "superseded qualifier",
+    "missing attempt jobs",
+    "mismatched attempt jobs",
+    "changed current tooling",
+    "current attempt regressed",
+    "current attempt advanced during verification",
+    "current run restarted during verification",
+  ])("rejects stale producer proof: %s", async (scenario) => {
+    const fixture = await bundleFixture();
+    Object.assign(fixture.run, { status: "completed", conclusion: "success" });
+    fixture.job.name = "Qualify prepared npm package";
+    const current = { ...fixture.run, run_attempt: 3 };
+    const receipt = { ...fixture.job, id: 46, run_attempt: 3, name: "Seal artifact receipt" };
+    let currentReads = 0;
+    const runGh = (args: string[]) => {
+      const endpoint = args[1] ?? "";
+      if (endpoint.endsWith("/runs/12")) {
+        currentReads += 1;
+        return JSON.stringify({
+          ...current,
+          ...(scenario === "changed current tooling" ? { head_sha: "d".repeat(40) } : {}),
+          ...(scenario === "current attempt regressed" ? { run_attempt: 1 } : {}),
+          ...(currentReads === 2 && scenario === "current attempt advanced during verification"
+            ? { run_attempt: 4 }
+            : {}),
+          ...(currentReads === 2 && scenario === "current run restarted during verification"
+            ? { status: "in_progress", conclusion: null }
+            : {}),
+        });
+      }
+      if (endpoint.includes("/attempts/3/jobs?")) {
+        const jobs =
+          scenario === "missing attempt jobs"
+            ? []
+            : [
+                {
+                  ...receipt,
+                  ...(scenario === "superseded qualifier" ? { name: fixture.job.name } : {}),
+                  ...(scenario === "mismatched attempt jobs" ? { run_attempt: 2 } : {}),
+                },
+              ];
+        return JSON.stringify({ total_count: jobs.length, jobs });
+      }
+      return fixture.runGh(args);
+    };
+    expect(() =>
+      verifyNpmBundleProducer({
+        producer: { ...fixture.descriptor.producer, jobName: fixture.job.name },
+        repository,
+        toolingSha,
+        qualified: true,
+        requireCompletedParent: true,
+        runGh,
+      }),
+    ).toThrow(/producer|attempt evidence/);
   });
 
   it.each([

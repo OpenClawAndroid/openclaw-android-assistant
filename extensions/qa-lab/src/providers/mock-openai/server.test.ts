@@ -13,6 +13,9 @@ import { startQaMockOpenAiServer } from "./server.js";
 
 type MockServer = { baseUrl: string };
 
+const ACCEPTED_SPAWN_RESULT = '{"status":"accepted","childSessionKey":"child"}';
+const SUBAGENT_WAITING = "Waiting for the bounded QA subagent";
+
 const cleanups: Array<() => Promise<void>> = [];
 const QA_IMAGE_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3RQQkAMAzAwPg33Wnos+wgBo40dboAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANYADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAC+Azy47PDiI4pA2wAAAABJRU5ErkJggg==";
@@ -4967,15 +4970,15 @@ Update and merge these partial structured summaries.`,
     });
     expect(await repeatedHandoff.text()).not.toContain('"name":"sessions_spawn"');
 
-    const handoffFinal = await expectNonStreamingResponses(server, {
+    const handoffWaiting = await expectNonStreamingResponses(server, {
       tools: [SESSIONS_SPAWN_TOOL],
       input: [
         makeUserInput(handoffPrompt),
-        makeToolOutput("SUBAGENT-OK"),
+        makeToolOutput(ACCEPTED_SPAWN_RESULT),
         makeUserInput("Continue."),
       ],
     });
-    expect(outputText(await handoffFinal.json())).toContain("Delegated task");
+    expect(outputText(await handoffWaiting.json())).toContain(SUBAGENT_WAITING);
 
     const fanoutPrompt =
       "Subagent fanout synthesis check: delegate two bounded subagents sequentially, then report both results together.";
@@ -7807,13 +7810,7 @@ Update and merge these partial structured summaries.`,
   });
 
   it("dispatches Anthropic /v1/messages tool_result follow-ups through the shared scenario logic", async () => {
-    // This verifies the Anthropic adapter correctly feeds tool_result
-    // content blocks into the shared scenario dispatcher so downstream
-    // "has this scenario already called a tool?" logic fires the same way
-    // it does on the OpenAI /v1/responses route. The subagent handoff
-    // scenario is ideal because the mock has a two-stage flow: first
-    // delegate prompt → sessions_spawn tool_use, then tool_result →
-    // "Delegated task: ..." prose summary.
+    // Both provider routes keep accepted spawn receipts pending.
     const server = await startMockServer();
 
     const body = (await expectAnthropicMessagesJson(server, {
@@ -7832,7 +7829,7 @@ Update and merge these partial structured summaries.`,
             },
           ],
         },
-        makeAnthropicToolResult("toolu_mock_spawn_1", "SUBAGENT-OK"),
+        makeAnthropicToolResult("toolu_mock_spawn_1", ACCEPTED_SPAWN_RESULT),
       ],
     })) as {
       stop_reason: string;
@@ -7842,10 +7839,7 @@ Update and merge these partial structured summaries.`,
     const textBlock = body.content.find((block) => block.type === "text") as
       | { text: string }
       | undefined;
-    // The mock's subagent-handoff branch echoes "Delegated task", a
-    // tool-output evidence line, and a folded-back "Evidence" marker.
-    expect(textBlock?.text).toContain("Delegated task");
-    expect(textBlock?.text).toContain("Evidence");
+    expect(textBlock?.text).toContain(SUBAGENT_WAITING);
   });
 
   it("places tool_result after the parent user message even in mixed-content turns", async () => {
@@ -8188,15 +8182,14 @@ Update and merge these partial structured summaries.`,
             },
           ],
         },
-        makeAnthropicToolResult("toolu_mock_spawn_1", "SUBAGENT-OK"),
+        makeAnthropicToolResult("toolu_mock_spawn_1", ACCEPTED_SPAWN_RESULT),
       ],
     });
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     const body = await response.text();
     expect(body).toContain("event: content_block_delta");
     expect(body).toContain('"type":"text_delta"');
-    expect(body).toContain("Delegated task");
-    expect(body).toContain("Evidence");
+    expect(body).toContain(SUBAGENT_WAITING);
   });
 
   it("keeps Anthropic remember prompts on the prose branch even when system text mentions HEARTBEAT", async () => {

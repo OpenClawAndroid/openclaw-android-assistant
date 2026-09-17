@@ -17,47 +17,56 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 describe("resident session rows", () => {
-  it.each(["list", "describe"] as const)(
-    "keeps sessions.%s current when a commit arrives as readiness resolves",
-    async (method) => {
-      await withOpenClawTestState({ scenario: "minimal" }, async () => {
-        const context = requestContext(await seedSessions());
-        const client = identifiedClient("owner@example.com");
-        await listSessions({ context, client, request: { archived: "all" } });
-        const projection = getSessionRowProjection(context)!;
-        const key = "agent:main:active";
-        const entry = projection.describe({ agentId: "main", key })!.entry;
-        const respond = vi.fn();
-        const handler =
-          method === "list"
-            ? sessionReadHandlers["sessions.list"]!
-            : sessionByKeyReadHandlers["sessions.describe"]!;
-        const pending = handler({
-          req: { type: "req", id: "commit-during-readiness", method: `sessions.${method}` },
-          params: method === "list" ? { archived: "all" } : { key },
-          context,
-          client,
-          isWebchatConnect: () => false,
-          respond,
-        });
+  it.each([
+    { method: "list", transition: "a commit arrives as readiness resolves" },
+    { method: "describe", transition: "its row is dirtied before the request" },
+  ] as const)("keeps sessions.$method current when $transition", async ({ method }) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const context = requestContext(await seedSessions());
+      const client = identifiedClient("owner@example.com");
+      await listSessions({ context, client, request: { archived: "all" } });
+      const projection = getSessionRowProjection(context)!;
+      const key = "agent:main:active";
+      const entry = projection.describe({ agentId: "main", key })!.entry;
+      const respond = vi.fn();
+      const handler =
+        method === "list"
+          ? sessionReadHandlers["sessions.list"]!
+          : sessionByKeyReadHandlers["sessions.describe"]!;
+      const commit = () =>
         replaceSessionEntrySync(
           { agentId: "main", sessionKey: key },
           { ...entry, label: "Current" },
         );
-        await expect(Promise.resolve(pending)).resolves.toBeUndefined();
-        expect(respond.mock.calls[0]?.[0]).toBe(true);
-        expect(respond.mock.calls[0]?.[1]).toMatchObject(
-          method === "list"
-            ? {
-                sessions: expect.arrayContaining([
-                  expect.objectContaining({ key, label: "Current" }),
-                ]),
-              }
-            : { session: expect.objectContaining({ key, label: "Current" }) },
-        );
+      if (method === "describe") {
+        commit();
+      }
+      const pending = handler({
+        req: { type: "req", id: "commit-during-readiness", method: `sessions.${method}` },
+        params: method === "list" ? { archived: "all" } : { key },
+        context,
+        client,
+        isWebchatConnect: () => false,
+        respond,
       });
-    },
-  );
+      if (method === "list") {
+        commit();
+      } else {
+        expect(respond).toHaveBeenCalledTimes(1);
+      }
+      await expect(Promise.resolve(pending)).resolves.toBeUndefined();
+      expect(respond.mock.calls[0]?.[0]).toBe(true);
+      expect(respond.mock.calls[0]?.[1]).toMatchObject(
+        method === "list"
+          ? {
+              sessions: expect.arrayContaining([
+                expect.objectContaining({ key, label: "Current" }),
+              ]),
+            }
+          : { session: expect.objectContaining({ key, label: "Current" }) },
+      );
+    });
+  });
 
   it("replies in the final authorized presentation before yielding its result promise", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {

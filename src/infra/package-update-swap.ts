@@ -43,14 +43,12 @@ import {
   createFreeBsdPkgOwnershipInspection,
   FreeBsdPkgOwnershipError,
 } from "./update-freebsd-pkg-ownership.js";
-import {
-  resolveNpmGlobalPrefixLayoutFromGlobalRoot,
-  verifyPackageUpdateRecovery,
-} from "./update-global.js";
+import { verifyPackageUpdateRecovery } from "./update-global.js";
 import {
   finalizeNativePackageStage,
   NativePackageRollbackError,
 } from "./update-native-package-stage.js";
+import { resolveNpmGlobalPrefixLayoutFromGlobalRoot } from "./update-npm-prefix.js";
 import { UPDATE_RUNNER_TIMEOUT_MS } from "./update-run-timeouts.js";
 import type { UpdateStepResult } from "./update-runner-types.js";
 

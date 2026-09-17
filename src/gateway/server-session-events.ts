@@ -290,7 +290,7 @@ async function handleTranscriptUpdateBroadcast(
     // Updates from raw transcript events may not carry seq; fall back to the
     // current transcript line count for cursor-compatible live history.
     const updateStorePath = targetStorePath ?? compatibleLegacyMarker?.storePath;
-    const fallbackTarget = projection?.select({
+    const fallbackTarget = projection?.selectEntries({
       agentId: routingAgentId,
       key: sessionKey,
       storePath: updateStorePath,

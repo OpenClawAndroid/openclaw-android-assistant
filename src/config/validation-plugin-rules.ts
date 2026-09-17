@@ -41,10 +41,7 @@ import {
   createPluginRegistryConfigValidator,
   collectSecretRefProviderSourceIssues,
 } from "./validation-plugin-registry.js";
-
-export type ValidateConfigWithPluginsResult =
-  | { ok: true; config: OpenClawConfig; warnings: ConfigValidationIssue[] }
-  | { ok: false; issues: ConfigValidationIssue[]; warnings: ConfigValidationIssue[] };
+import type { ValidateConfigWithPluginsResult } from "./validation.types.js";
 
 export type ValidateConfigWithPluginsParams = {
   env?: NodeJS.ProcessEnv;

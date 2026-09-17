@@ -239,6 +239,12 @@ test.for(
       }
       const cfg = (await getGatewayConfigModule()).getRuntimeConfig();
       const projection = await createSessionRowProjection({ cfg });
+      await vi.waitFor(() =>
+        expect(
+          projection.snapshot({ key, agentId: "ops" }, { includeDerivedTitles: true }).row
+            ?.derivedTitle,
+        ).toBe("Physical database title"),
+      );
       const ensure = projection.ensureMaterialized;
       const spy = vi.spyOn(projection, "ensureMaterialized").mockImplementationOnce(async () => {
         await ensure();

@@ -292,6 +292,63 @@ esac
     },
   );
 
+  it.skipIf(process.platform === "win32").each([
+    {
+      label: "active jobs and a failure hidden by queued run status",
+      jobs: [
+        { name: "tests", status: "in_progress", conclusion: "" },
+        { name: "lint", status: "queued", conclusion: null },
+        { name: "check-dependencies\u001b[31m\n", status: "completed", conclusion: "failure" },
+      ],
+      progress:
+        'jobs=3 running=1 queued=1 completed=1 other=0 failing=1 failed=["check-dependencies?"]',
+    },
+    { label: "missing job details", jobs: undefined, progress: "jobs=unknown" },
+    { label: "malformed job details", jobs: [{ name: "incomplete" }], progress: "jobs=unknown" },
+  ])("reports $label without changing native completion", async ({ jobs, progress }) => {
+    await withTempDir("openclaw-watch-pr-ci-progress-", async (root) => {
+      const callsPath = join(root, "calls.jsonl");
+      writeFileSync(callsPath, "");
+      const result = await runWatcher(
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify(args) + "\\n");
+let value;
+if (args[0] === "pr" && args[1] === "view") {
+  value = { state: "OPEN", mergeable: true, headRefOid: ${JSON.stringify(sha)} };
+} else if (args.includes("repos/openclaw/openclaw/actions/workflows/ci.yml/runs")) {
+  value = { workflow_runs: [{ id: 201 }] };
+} else if (args[0] === "run" && args[1] === "view") {
+  value = { status: "queued", conclusion: null };
+  if (args[args.indexOf("--json") + 1].includes("jobs")) {
+    value = ${JSON.stringify({ status: "queued", conclusion: null, jobs })};
+  }
+} else {
+  throw new Error("unexpected gh invocation: " + JSON.stringify(args));
+}
+console.log(JSON.stringify(value));
+`,
+        sha,
+        ["--completion", "ci-run"],
+      );
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(16);
+      expect(result.stdout).toContain(`STATUS run=queued conclusion=pending ${progress}`);
+      expect(result.stdout).toContain("TIMEOUT completion=ci-run");
+      expect(result.stdout).not.toContain("\nGREEN");
+      expect(result.stdout).not.toContain("\nFAILING");
+      const calls = readFileSync(callsPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as string[]);
+      const runReads = calls.filter((args) => args[0] === "run" && args[1] === "view");
+      expect(runReads.map((args) => args[args.indexOf("--json") + 1])).toEqual([
+        "status,conclusion",
+        "status,conclusion,jobs",
+      ]);
+    });
+  });
+
   describe.skipIf(process.platform === "win32")("proxy failures", () => {
     it.each([
       ...[

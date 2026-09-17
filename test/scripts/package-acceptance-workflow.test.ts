@@ -4180,6 +4180,10 @@ case "$2" in
     printf '%s\\n' "$MOCK_QUALIFIED_RUN"
     exit 0
     ;;
+  */actions/runs/"\${MOCK_QUALIFIED_RUN_ID:-}")
+    printf '%s\\n' "$MOCK_QUALIFIED_RUN"
+    exit 0
+    ;;
   */actions/artifacts/555)
     printf '%s\\n' "$MOCK_QUALIFIED_ARTIFACT"
     exit 0
@@ -4318,6 +4322,7 @@ globalThis.fetch = async (url) => {
     NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
     MOCK_QUALIFIED_ARCHIVE: archivePath,
     MOCK_QUALIFIED_ARTIFACT: JSON.stringify(artifactMetadata),
+    MOCK_QUALIFIED_RUN_ID: runId,
     MOCK_QUALIFIED_RUN: JSON.stringify({
       id: Number(runId),
       run_attempt: 1,

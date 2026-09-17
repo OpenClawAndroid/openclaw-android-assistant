@@ -16,16 +16,14 @@ import { validateConfigObjectRaw } from "./validation-core.js";
 import {
   validatePreparedConfigWithPlugins,
   type ValidateConfigWithPluginsParams,
-  type ValidateConfigWithPluginsResult,
 } from "./validation-plugin-rules.js";
+import type {
+  PreparedConfigValidationPluginMetadata,
+  ValidateConfigWithPluginsResult,
+} from "./validation.types.js";
 
 export { validateConfigObject, validateConfigObjectRaw } from "./validation-core.js";
 export { collectUnsupportedSecretRefPolicyIssues } from "./validation-issues.js";
-
-export type PreparedConfigValidationPluginMetadata = {
-  manifestRegistry: PluginManifestRegistry;
-  installedPluginRecordIds: ReadonlySet<string>;
-};
 
 export type ValidateConfigWithPluginsAsyncParams = Omit<
   ValidateConfigWithPluginsParams,

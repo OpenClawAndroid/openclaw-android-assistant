@@ -606,7 +606,7 @@ describe("terminal resolution", () => {
   ])(
     "keeps reply-optional subagent $label distinct at the terminal producer",
     async ({ rawText, expectedKind }) => {
-      const assistant = emptyAssistant();
+      const assistant = emptyAssistant({ content: [{ type: "text", text: rawText ?? "" }] });
       const attempt = makeEmbeddedRunnerAttempt({
         assistantTexts: rawText ? [rawText] : [],
         toolMetas: [{ toolName: "write", replaySafe: false }],

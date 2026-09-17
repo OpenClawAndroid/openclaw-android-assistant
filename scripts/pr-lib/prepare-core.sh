@@ -171,13 +171,12 @@ verify_prep_branch_matches_prepared_head() {
 prepare_init() {
   local pr="$1"
   # Validate the exact reviewed head before taking the lock past its reversible phase.
-  review_validate_artifacts "$pr" || return 1
+  review_validate_artifacts "$pr" true || return 1
   require_ready_review_recommendation || return 1
   mark_pr_operation_side_effects_started
   enter_worktree "$pr" false || return 1
 
   require_artifact .local/pr-meta.env
-  require_artifact .local/review.md
 
   local recorded_source_head=""
   if [ -s .local/prep-context.env ]; then

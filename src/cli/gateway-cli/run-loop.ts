@@ -16,7 +16,6 @@ import {
 import type { GatewayHostLifecycle, GatewayStartupOperation } from "../../gateway/server-public.js";
 import { GatewayStartupCleanupError } from "../../gateway/server-shutdown.js";
 import type { startGatewayServer } from "../../gateway/server.js";
-import { flushDiagnosticsTimeline } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import type { GatewayActiveWorkSnapshot } from "../../infra/gateway-active-work.js";
 import {
@@ -30,8 +29,8 @@ import { GATEWAY_SHUTDOWN_TIMEOUT_MS as SHUTDOWN_TIMEOUT_MS } from "../../infra/
 import { consumeGatewaySuspendHandoff } from "../../infra/gateway-suspend-coordinator.js";
 import type { GatewayRestartIntent } from "../../infra/restart-intent.js";
 import type { GatewayRestartEmitter } from "../../infra/restart.js";
+import { cleanupSnapshotOperations } from "../../infra/sqlite-readonly-location-cleanup.js";
 import { findStartupMaintenanceRequiredError } from "../../infra/startup-maintenance-required.js";
-import { flushLogger } from "../../logging/logger.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   type GatewayDrainReason,
@@ -42,6 +41,7 @@ import type { RuntimeEnv } from "../../runtime.js";
 import { drainGlobalSingletonLifecycleState } from "../../shared/global-singleton.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { createGatewayHostLifecycle } from "./host-lifecycle.js";
+import { flushGatewayLogsBeforeExit } from "./run-loop-log-flush.js";
 import { resolveGatewayShutdownBudget } from "./run-loop-shutdown-budget.js";
 import { createGatewayStartupOperations } from "./run-loop-startup.js";
 import {
@@ -54,7 +54,6 @@ const DEFAULT_RESTART_DRAIN_TIMEOUT_MS = 300_000;
 const RESTART_DRAIN_STILL_PENDING_WARN_MS = 30_000;
 const UPDATE_RESPAWN_HEALTH_TIMEOUT_MS = 10_000;
 const UPDATE_RESPAWN_HEALTH_POLL_MS = 200;
-const LOG_FLUSH_EXIT_TIMEOUT_MS = 4_000;
 const HARD_EXIT_WATCHDOG_GRACE_MS = 2_000;
 
 type GatewayRunSignalAction = "stop" | "restart" | "external-restart";
@@ -238,20 +237,6 @@ export async function runGatewayLoop(params: {
     cleanupSignals();
     params.runtime.exit(code);
   };
-  const flushLogsBeforeExit = async (timeoutMs = LOG_FLUSH_EXIT_TIMEOUT_MS) => {
-    flushDiagnosticsTimeline();
-    let flushTimer: ReturnType<typeof setTimeout> | undefined;
-    const flushed = await Promise.race([
-      flushLogger().then(() => true),
-      new Promise<false>((resolve) => {
-        flushTimer = setTimeout(() => resolve(false), timeoutMs);
-      }),
-    ]);
-    clearTimeout(flushTimer);
-    if (!flushed) {
-      gatewayLog.warn(`log flush did not settle within ${timeoutMs}ms; continuing shutdown`);
-    }
-  };
   const exitProcessAfterLogFlush = async (
     code: number,
     initialOwner?: GatewayRestartIntent["successorOwner"],
@@ -269,10 +254,11 @@ export async function runGatewayLoop(params: {
       .catch((error: unknown) => {
         gatewayLog.warn(`managed local service shutdown failed: ${formatErrorMessage(error)}`);
       });
+    await cleanupSnapshotOperations();
     if (hostStopOwner && hostLifecycle !== hostStopOwner) {
       return;
     }
-    await flushLogsBeforeExit();
+    await flushGatewayLogsBeforeExit(gatewayLog);
     for (;;) {
       if (hostStopOwner && hostLifecycle !== hostStopOwner) {
         return;
@@ -392,7 +378,7 @@ export async function runGatewayLoop(params: {
     } finally {
       // Exit rescue cannot replay an issued file append; join it before final authority checks.
       // Reserve half the hard-exit grace for final shutdown bookkeeping.
-      await flushLogsBeforeExit(HARD_EXIT_WATCHDOG_GRACE_MS / 2);
+      await flushGatewayLogsBeforeExit(gatewayLog, HARD_EXIT_WATCHDOG_GRACE_MS / 2);
       const owner = getManagedUpdateOwner();
       if (owner) {
         forceActiveRestartExit?.();

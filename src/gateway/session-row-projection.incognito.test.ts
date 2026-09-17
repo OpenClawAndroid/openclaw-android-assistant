@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
-import { replaceSessionEntrySync } from "../config/sessions/session-accessor.js";
+import {
+  persistSessionTranscriptTurn,
+  replaceSessionEntrySync,
+} from "../config/sessions/session-accessor.js";
 import { clearAgentRunContext, registerAgentRunContext } from "../infra/agent-run-registry.js";
 import {
   closeOpenClawAgentDatabaseByPath,
@@ -24,6 +27,16 @@ it("fences transient incognito rows across resets and physical database replacem
       incognito: true as const,
     };
     replaceSessionEntrySync(target, entry);
+    await persistSessionTranscriptTurn(
+      { ...target, sessionId: entry.sessionId },
+      {
+        messages: [
+          { message: { role: "user", content: "Private conversation title" } },
+          { message: { role: "assistant", content: "Private response" } },
+        ],
+        touchSessionEntry: false,
+      },
+    );
     const cfg = { agents: { list: [{ id: "main", default: true }] } };
     const projection = await createSessionRowProjection({ cfg });
     try {
@@ -36,9 +49,13 @@ it("fences transient incognito rows across resets and physical database replacem
         sessionId: entry.sessionId,
         activeModel: { provider: "row-fixture", model: "active" },
       });
-      expect(projection.snapshot(query).row).toMatchObject({
+      expect(
+        projection.snapshot(query, { includeDerivedTitles: true, includeLastMessage: true }).row,
+      ).toMatchObject({
         activeModelProvider: "row-fixture",
         activeModel: "active",
+        derivedTitle: "Private conversation title",
+        lastMessagePreview: "Private response",
       });
       expect(
         projection.capture({ ...query, storePath: "/configured/sessions.json" })?.entry,

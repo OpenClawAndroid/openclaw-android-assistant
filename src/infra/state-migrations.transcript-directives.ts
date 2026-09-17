@@ -454,7 +454,9 @@ export async function migrateHistoricalTranscriptDirectives(
     }
     if (targets.length > 0) {
       await withAgentDatabaseMaintenanceLease({ env }, async (maintenance) => {
-        for (const target of targets) {
+        for (const target of targets.toSorted(
+          (a, b) => a.agentId.localeCompare(b.agentId) || a.path.localeCompare(b.path),
+        )) {
           try {
             const result = await migrateAgentDatabase(
               { agentId: target.agentId, pathname: target.path },

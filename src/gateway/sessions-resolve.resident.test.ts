@@ -33,6 +33,7 @@ it("resolves all selectors from one resident projection and sees committed label
     const resolve = (p: SessionsResolveParams) =>
       resolveSessionKeyFromResolveParams({ cfg, client: null, projection, p });
     try {
+      await projection.ensureMaterialized();
       const reads = (["all", "get", "iterate"] as const).map((method) =>
         vi.spyOn(StatementSync.prototype, method),
       );
@@ -71,6 +72,7 @@ it("searches stored and selected model identities from retained row facts withou
     replaceSessionEntrySync(scope, entry);
     const projection = await createSessionRowProjection({ cfg });
     try {
+      await projection.ensureMaterialized();
       const reads = (["all", "get", "iterate"] as const).map((method) =>
         vi.spyOn(StatementSync.prototype, method),
       );

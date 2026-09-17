@@ -1,6 +1,7 @@
 // QA Lab mock provider input and tool-output extraction.
 import {
   type ResponsesInputItem,
+  type MockOpenAiRequestKind,
   QA_SUBAGENT_TERMINAL_MATRIX_PROMPT_RE,
   QA_SUBAGENT_TERMINAL_MATRIX_WORKER_RE,
   QA_SUBAGENT_PRIVATE_WORKER_RE,
@@ -432,6 +433,27 @@ function extractAllInputTexts(input: ResponsesInputItem[]) {
     ])
     .filter(Boolean)
     .join("\n");
+}
+
+export function classifyMockOpenAiRequest(
+  input: ResponsesInputItem[],
+  body: Record<string, unknown>,
+): MockOpenAiRequestKind {
+  const instructionText = extractAllRequestTexts(
+    input.filter((item) => item.role === "developer" || item.role === "system"),
+    body,
+  );
+  if (instructionText.startsWith("Write an Activity recap for someone scanning their tasks:")) {
+    return "activity-summary";
+  }
+  if (
+    /context summarization assistant[\s\S]*structured summary[\s\S]*do not continue/i.test(
+      instructionText,
+    )
+  ) {
+    return "compaction-summary";
+  }
+  return hasToolOutput(input) ? "tool-continuation" : "agent-initial";
 }
 
 export function extractInstructionsText(body: Record<string, unknown>) {

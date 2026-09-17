@@ -166,7 +166,7 @@ describe("normalizeCronJobCreate", () => {
 
     expect(child(createAgent({ payload }), "payload")).not.toHaveProperty("model");
   });
-  it("retains only authored native requester facts without claiming a captured tool surface", () => {
+  it("retains only authored native requester and caller facts without claiming a captured tool surface", () => {
     const ignoredGetter = vi.fn(() => true);
     const channelRequester = Object.defineProperty(
       {
@@ -191,6 +191,7 @@ describe("normalizeCronJobCreate", () => {
     expect(normalized.toolsAllowProvenance).toEqual({
       version: 1,
       source: "authenticated-requester",
+      callerOrigin: { kind: "local" },
       channelRequester: CHANNEL_REQUESTER,
     });
     expect(ignoredGetter).not.toHaveBeenCalled();

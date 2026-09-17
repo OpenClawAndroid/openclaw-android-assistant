@@ -452,9 +452,6 @@ export async function handleChatHistoryRequest({
     );
     return;
   }
-  do {
-    await rowProjection.ensureMaterialized();
-  } while (rowProjection.needsMaterialization);
   const currentSharing = readCurrentSharing();
   if (!currentSharing) {
     return;

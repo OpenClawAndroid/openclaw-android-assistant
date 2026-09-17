@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   createSessionRowProjection,
   type SessionRowProjection,
@@ -213,6 +213,14 @@ it("projects shared rows under their logical owner while retaining the physical 
     );
 
     await withResidentRows(cfg, async (projection) => {
+      await vi.waitFor(() =>
+        expect(
+          projection.snapshot(
+            { key: "global", agentId: "ops", storePath },
+            { includeDerivedTitles: true },
+          ).row?.derivedTitle,
+        ).toBe("Shared physical global title"),
+      );
       for (const configuredAgentsOnly of [false, true]) {
         const combined = loadCombinedSessionStoreForGatewayCore(cfg, { configuredAgentsOnly });
         expect(combined.durableTargets).toEqual([{ agentId: "main", storePath }]);

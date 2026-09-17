@@ -93,7 +93,7 @@ it.each(
     const sourceBytes = await fs.readFile(source);
     const sourceEntries = await fs.readdir(path.dirname(source));
     const preload = path.join(fixture, "deletion-fault.mjs");
-    // Fault only this child's raw snapshot, leaving actual copy/read/cleanup owners intact.
+    // Fault this child's copied payload removal, leaving copy/read/cleanup owners intact.
     await fs.writeFile(
       preload,
       `
@@ -106,13 +106,13 @@ it.each(
       const fault = ${JSON.stringify(scenario.cleanup)};
       let attempts = 0;
       const prepareRemoval = (location) => {
-        const directory = String(location);
+        const snapshot = String(location);
+        const directory = path.dirname(snapshot);
         if (path.dirname(directory) !== path.join(cache, "openclaw") ||
-            !path.basename(directory).startsWith("openclaw-sqlite-readonly-" + process.pid + "-")) {
+            path.basename(snapshot) !== "database.sqlite") {
           return undefined;
         }
         attempts++;
-        const snapshot = path.join(directory, "database.sqlite");
         const before = fs.existsSync(snapshot);
         const fail = fault === "persistent" || (fault === "transient" && attempts === 1);
         return { directory, snapshot, before, fail };
@@ -156,6 +156,9 @@ it.each(
         maxOutputBytes: { stdout: 1024 * 1024, stderr: 20_000 },
       },
     );
+    expect(await fs.readFile(source)).toEqual(sourceBytes);
+    expect(await fs.readdir(path.dirname(source))).toEqual(sourceEntries);
+    expect(await fs.readFile(sentinel, "utf8")).toBe("unrelated preserved");
     const attempts = (await fs.readFile(attemptsPath, "utf8"))
       .trim()
       .split("\n")
@@ -180,9 +183,6 @@ it.each(
         retained,
       }),
     );
-    expect(await fs.readFile(source)).toEqual(sourceBytes);
-    expect(await fs.readdir(path.dirname(source))).toEqual(sourceEntries);
-    expect(await fs.readFile(sentinel, "utf8")).toBe("unrelated preserved");
     expect(attempts).toHaveLength(scenario.cleanup === "healthy" ? 1 : 2);
     expect(attempts.every((attempt) => attempt.before)).toBe(true);
     expect(attempts.at(-1)?.after).toBe(scenario.cleanup === "persistent");

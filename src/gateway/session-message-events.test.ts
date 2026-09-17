@@ -45,6 +45,7 @@ import {
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
 import { resolveCurrentUserProfileDisplay } from "./current-user-profile-display.js";
+import { seedCompletedSessionTranscript } from "./session-row-fixtures.test-support.js";
 import { removeSessionTestDirectories } from "./session-test-directories.test-support.js";
 import { testState } from "./test-helpers.runtime-state.js";
 import {
@@ -1943,7 +1944,10 @@ describe("session.message websocket events", () => {
 
   test("includes live usage metadata on session.message transcript events", async () => {
     const storePath = await createSessionStoreFile();
-    await writeSessionStore({
+    const transcriptMessage = await seedCompletedSessionTranscript({
+      storePath,
+      sessionId: "sess-main",
+      sessionKey: "agent:main:main",
       entries: {
         main: {
           sessionId: "sess-main",
@@ -1959,34 +1963,21 @@ describe("session.message websocket events", () => {
           totalTokensFresh: false,
         },
       },
-      storePath,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "usage snapshot" }],
+        provider: "openai",
+        model: "gpt-5.4",
+        usage: {
+          input: 2_000,
+          output: 400,
+          cacheRead: 300,
+          cacheWrite: 100,
+          cost: { total: 0.0042 },
+        },
+        timestamp: Date.now(),
+      },
     });
-    const transcriptMessage = {
-      role: "assistant",
-      content: [{ type: "text", text: "usage snapshot" }],
-      provider: "openai",
-      model: "gpt-5.4",
-      usage: {
-        input: 2_000,
-        output: 400,
-        cacheRead: 300,
-        cacheWrite: 100,
-        cost: { total: 0.0042 },
-      },
-      timestamp: Date.now(),
-    };
-    await persistSessionTranscriptTurn(
-      {
-        agentId: "main",
-        sessionId: "sess-main",
-        sessionKey: "agent:main:main",
-        storePath,
-      },
-      {
-        messages: [{ message: transcriptMessage }],
-        updateMode: "none",
-      },
-    );
 
     await withOperatorSessionSubscriber(async (ws) => {
       const { messageEvent } = await emitTranscriptUpdateAndCollectMessageEvent({

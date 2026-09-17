@@ -33,11 +33,25 @@ producers, observes the effective child attempts, and writes the final all-group
 the planned and effective attempt, accepted attempt for every logical job, and
 a digest of the composite job evidence.
 
-Parent recovery follows the original artifact producer attempts without rerunning
-them. If a producer failed or its recorded attempt changed, start a fresh
-all-group validation. Lost or expired original dispatch records and receipts also
-require fresh validation. This applies to npm qualification, Docker preparation,
-and candidate preparation.
+Npm qualification participates in the same failed-job recovery: the controller
+retries its failed jobs on the original producer run, without rerunning
+successful diagnostic children.
+It waits for active attempts and diagnostic drain, adopts verified newer
+npm producer attempts, then reruns the parent collector once. Successful package
+preparation jobs and their exact artifact descriptors carry forward; a retry
+must not substitute rebuilt bytes for the candidate already tested.
+
+The parent authenticates the original dispatch identity and the latest successful
+producer receipt. Package and qualification jobs can come from different attempts;
+each must remain the effective successful job in that run's attempt history.
+Changed source, tooling, dispatch identity, superseded jobs, missing evidence,
+and expired receipts remain errors, not reasons to trust stale evidence.
+
+A failed npm producer is a retry target, not a reason to reject continuation.
+The controller uses GitHub's failed-job rerun operation on the same run, then
+collects its result. Frozen workflows still execute their original code:
+upgrading the local controller does not retrofit receipt adoption into an older
+workflow. Final verification must pass before recovery is reported successful.
 
 Each child or parent rerun mutation is sent exactly once. If GitHub returns an
 ambiguous transient error, the controller performs read-only reconciliation

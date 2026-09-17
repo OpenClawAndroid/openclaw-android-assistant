@@ -32,7 +32,7 @@ import {
 } from "./server-methods/sessions-read-cache.test-support.js";
 import { getSessionRowProjection } from "./session-row-projection-access.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
-import * as titles from "./session-transcript-title-reader.js";
+import * as transcriptBackfill from "./session-row-transcript-backfill.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -107,10 +107,9 @@ it("heals resident titles after reconciliation without a transcript mutation or 
     const client = identifiedClient("owner@example.com");
     const options = { includeDerivedTitles: true, includeLastMessage: true };
     // Model the optional reader's unavailable result without racing automatic reconciliation.
-    const titleRead = vi.spyOn(titles, "readSessionTitleFieldsFromTranscript").mockReturnValue({
-      firstUserMessage: null,
-      lastMessagePreview: null,
-    });
+    const titleRead = vi
+      .spyOn(transcriptBackfill, "backfillSessionRowTranscriptFields")
+      .mockResolvedValue({});
     const transcriptUpdates = vi.fn();
     const stop = onInternalSessionTranscriptUpdate(transcriptUpdates);
     try {
@@ -122,6 +121,7 @@ it("heals resident titles after reconciliation without a transcript mutation or 
           lastMessagePreview: undefined,
         }),
       ]);
+      await vi.waitFor(() => expect(titleRead).toHaveBeenCalled());
       titleRead.mockRestore();
       database.db
         .prepare("UPDATE session_transcript_index_state SET needs_rebuild = 1 WHERE session_id = ?")
@@ -139,6 +139,11 @@ it("heals resident titles after reconciliation without a transcript mutation or 
         derivedTitle: "Explain the recovered session",
         lastMessagePreview: "The existing reply is available again.",
       };
+      await vi.waitFor(() =>
+        expect(
+          projection.snapshot({ agentId: scope.agentId, key: scope.sessionKey }, options).row,
+        ).toMatchObject(expected),
+      );
       const prepares = vi.spyOn(DatabaseSync.prototype, "prepare");
       const execs = vi.spyOn(DatabaseSync.prototype, "exec");
       const nativeCalls = (["all", "get", "iterate", "run"] as const).map((method) =>

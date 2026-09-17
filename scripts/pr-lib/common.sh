@@ -144,7 +144,6 @@ EOF_NODE
 }
 
 print_review_stdout_summary() {
-  require_artifact .local/review.md
   require_artifact .local/review.json
   require_artifact .local/pr-meta.env
 
@@ -160,7 +159,7 @@ print_review_stdout_summary() {
   echo "pr_url=${PR_URL:-}"
   echo "recommendation: $recommendation"
   echo "findings: $finding_count"
-  cat .local/review.md
+  node "$(review_artifacts_helper_path)" render .local/review.json
 }
 
 print_relevant_log_excerpt() {

@@ -677,7 +677,9 @@ class SettingsScreensContrastTest {
     val renderedTogether =
       try {
         gateway.terminal = true
-        composeRule.onNodeWithText("Refresh").performScrollTo().performClick()
+        // Connection bootstrap can refresh concurrently; this test targets publication coherence.
+        // The operational-caption test covers the actual Refresh button.
+        composeRule.runOnIdle { model.refreshExecApprovals() }
         composeRule.waitUntil(10_000) {
           composeRule.onAllNodesWithText("Approval approval-1").fetchSemanticsNodes().isNotEmpty() && noticeReached.count == 0L
         }

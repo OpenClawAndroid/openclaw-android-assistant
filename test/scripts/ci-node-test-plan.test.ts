@@ -21,6 +21,7 @@ import {
 } from "../../scripts/lib/ci-node-test-plan.mts";
 import { isRuntimePlacementIncludePatterns } from "../../scripts/lib/ci-test-timings-schema.mts";
 import * as testTimings from "../../scripts/lib/ci-test-timings.mts";
+import * as buildPrerequisites from "../../scripts/lib/vitest-build-prerequisites.mts";
 import { listVitestRuntimeConsumerFiles } from "../../scripts/lib/vitest-build-prerequisites.mts";
 import {
   createCompactSplitTimingGeneration,
@@ -134,6 +135,9 @@ const PRIVATE_QA_TOOLING_TEST = "test/e2e/qa-lab/runtime/gateway-codex-delivery-
 const DEFAULT_NODE_TEST_RUNNER = "blacksmith-8vcpu-ubuntu-2404";
 const BUNDLED_NODE_TEST_RUNNER = "blacksmith-4vcpu-ubuntu-2404";
 const EXTRA_LARGE_NODE_TEST_RUNNER = "blacksmith-32vcpu-ubuntu-2404";
+function usesTwoWorkerPacking(job: CompactNodeTestShard | undefined) {
+  return job?.planConcurrency === 2 || job?.env?.OPENCLAW_VITEST_MAX_WORKERS === "2";
+}
 function isNumberedToolingGroup(group: { shard_name: string }) {
   return /^core-tooling-\d+(?:-hosted-\d+)?$/u.test(group.shard_name);
 }
@@ -238,6 +242,60 @@ function listAllToolingTestFiles(): string[] {
 }
 
 describe("scripts/lib/ci-node-test-plan.mts", () => {
+  it("keeps Gateway boot plans serial without adding jobs or changing ordinary packing", () => {
+    vi.spyOn(testTimings, "readCompactGroupTimings").mockReturnValue({});
+    vi.spyOn(testTimings, "readRuntimePlacementTimings").mockReturnValue([]);
+    vi.spyOn(buildPrerequisites, "resolveVitestPretestBuildMode").mockReturnValue(undefined);
+    const original = fullSuiteVitestShards.slice();
+    try {
+      fullSuiteVitestShards.splice(
+        0,
+        fullSuiteVitestShards.length,
+        ...[
+          ["agentic-gateway-server-isolated", "gateway-server-isolated"],
+          ["agentic-agents-core-models", "unit-support"],
+          ["ordinary-a", "hooks"],
+          ["ordinary-b", "secrets"],
+        ].map(([name, config]) => ({
+          name: name!,
+          config: `fixture-${name}.config.ts`,
+          projects: [`test/vitest/vitest.${config}.config.ts`],
+        })),
+      );
+      const jobs = createNodeTestShardBundles({
+        compactMode: "push",
+        runnerBackend: "blacksmith",
+        includeReleaseOnlyPluginShards: false,
+      });
+      const gateway = expectDefined(
+        jobs.find((job) =>
+          job.groups.some((group) =>
+            group.configs.includes("test/vitest/vitest.gateway-server-isolated.config.ts"),
+          ),
+        ),
+        "Gateway job",
+      );
+      expect(gateway.planConcurrency).toBe(1);
+      expect(gateway.groups.map((group) => group.shard_name).toSorted()).toEqual([
+        "agentic-agents-core-models",
+        "agentic-gateway-server-isolated",
+      ]);
+      expect(gateway.env).toEqual({ OPENCLAW_VITEST_MAX_WORKERS: "2" });
+      const ordinary = expectDefined(
+        jobs.find((job) => job !== gateway),
+        "ordinary job",
+      );
+      expect(ordinary.planConcurrency).toBe(2);
+      expect(ordinary.groups.map((group) => group.shard_name).toSorted()).toEqual([
+        "ordinary-a",
+        "ordinary-b",
+      ]);
+      expect(jobs).toHaveLength(2);
+    } finally {
+      fullSuiteVitestShards.splice(0, fullSuiteVitestShards.length, ...original);
+    }
+  });
+
   // Read-only cases share this baseline; inventory and timing mutations build fresh plans.
   let defaultShards: ReturnType<typeof createNodeTestShards>;
 
@@ -812,7 +870,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       expect(dense.some((shard) => shard.groups.length > 10)).toBe(profile !== "github");
       for (const shard of dense.filter((entry) => entry.groups.length > 10)) {
         expect(shard).toMatchObject({
-          planConcurrency: 2,
+          planConcurrency: shard.env?.OPENCLAW_VITEST_MAX_WORKERS === "2" ? 1 : 2,
           requiresDist: false,
           runner: EXTRA_LARGE_NODE_TEST_RUNNER,
         });
@@ -837,7 +895,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         .every(
           (shard) =>
             (shard.predictedSeconds ?? Infinity) <=
-            (shard.planConcurrency === 2 ? 360 : isCombinedUnbuiltCliJob(shard) ? 250 : 210),
+            (usesTwoWorkerPacking(shard) ? 360 : isCombinedUnbuiltCliJob(shard) ? 250 : 210),
         ),
     ).toBe(true);
     // Slow process files retain singleton envelopes without inheriting the
@@ -916,7 +974,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       shard.groups.some((group) => group.shard_name === "agentic-gateway-core-3"),
     );
     expect(tail?.predictedSeconds).toBeGreaterThanOrEqual(140);
-    expect(tail?.predictedSeconds).toBeLessThanOrEqual(tail?.planConcurrency === 2 ? 360 : 210);
+    expect(tail?.predictedSeconds).toBeLessThanOrEqual(usesTwoWorkerPacking(tail) ? 360 : 210);
   });
 
   it.each([
@@ -1432,7 +1490,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         expect(
           plan.every(
             (shard) =>
-              shard.groups.length > 0 && (shard.planConcurrency === 2 || shard.groups.length <= 10),
+              shard.groups.length > 0 && (usesTwoWorkerPacking(shard) || shard.groups.length <= 10),
           ),
         ).toBe(true);
         expect(plan.every((shard) => Number.isFinite(shard.predictedSeconds))).toBe(true);
@@ -1444,7 +1502,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       }
     }
     expect(compact.every((shard) => Array.isArray(shard.groups))).toBe(true);
-    expect(compact.every((shard) => shard.planConcurrency === 2 || shard.groups.length <= 10)).toBe(
+    expect(compact.every((shard) => usesTwoWorkerPacking(shard) || shard.groups.length <= 10)).toBe(
       true,
     );
     expect(compact.some((shard) => shard.requiresDist)).toBe(true);
@@ -1505,7 +1563,11 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
             "original hybrid runner anchor",
           )
         : undefined;
-      if (originalHybridJob?.planConcurrency === 2 && shard.planConcurrency === 1) {
+      if (
+        originalHybridJob?.planConcurrency === 2 &&
+        shard.planConcurrency === 1 &&
+        !usesTwoWorkerPacking(shard)
+      ) {
         expect(shard.pretestBuildMode).toBe("runtime");
       }
       const promoted =
@@ -1563,7 +1625,9 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         expect(shard.runner).toBe(
           originalHybridJob
             ? originalHybridJob.runner
-            : blacksmithTooling || shard.groups[0]?.runner === EXTRA_LARGE_NODE_TEST_RUNNER
+            : blacksmithTooling ||
+                usesTwoWorkerPacking(shard) ||
+                shard.groups[0]?.runner === EXTRA_LARGE_NODE_TEST_RUNNER
               ? EXTRA_LARGE_NODE_TEST_RUNNER
               : nativeFullCli
                 ? "blacksmith-16vcpu-ubuntu-2404"
@@ -1788,7 +1852,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       shard.groups.some((group) => group.shard_name === "agentic-control-plane-startup-core"),
     );
     expect(startupCoreJob?.runner).toBe(
-      startupCoreJob?.planConcurrency === 2
+      usesTwoWorkerPacking(startupCoreJob)
         ? EXTRA_LARGE_NODE_TEST_RUNNER
         : DEFAULT_NODE_TEST_RUNNER,
     );
@@ -2291,6 +2355,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
   it("preserves runtime preparation and core-only ownership in full and compact plans", () => {
     const qaConfig = "test/vitest/vitest.extension-qa.config.ts";
     const doctorRuntimeTargets = [
+      "src/commands/doctor-config-flow.legacy-composition.test.ts",
       "src/commands/doctor-config-preflight.process.test.ts",
       "src/commands/doctor-config-preflight.refusal.process.test.ts",
       "src/commands/doctor-config-preflight.v17-atomicity.process.test.ts",
@@ -4099,7 +4164,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       expect(
         after.every(
           (shard) =>
-            (shard.planConcurrency === 2 || shard.groups.length <= 10) &&
+            (usesTwoWorkerPacking(shard) || shard.groups.length <= 10) &&
             (shard.planConcurrency === 1 ||
               (runnerBackend !== "github" &&
                 shard.planConcurrency === 2 &&

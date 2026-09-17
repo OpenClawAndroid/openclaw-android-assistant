@@ -23,9 +23,6 @@ export const sessionByKeyReadHandlers: GatewayRequestHandlers = {
     if (!projection) {
       throw new Error("Session projection is unavailable before Gateway startup completes");
     }
-    do {
-      await projection.ensureMaterialized();
-    } while (projection.needsMaterialization);
     const cfg = projection.state.cfg;
     const requestedAgent = resolveRequestedSessionAgentId(cfg, key, params.agentId);
     if (!requestedAgent.ok) {

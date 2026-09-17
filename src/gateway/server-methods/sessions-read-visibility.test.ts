@@ -11,6 +11,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { ensureProfileForEmail, setUserProfileRole } from "../../state/user-profiles.js";
+import { observeSessionRowBackfill } from "../session-row-backfill.test-support.js";
 import { rolePolicyConfig } from "../session-sharing.test-utils.js";
 import * as sessionTranscriptReaders from "../session-transcript-readers.js";
 import {
@@ -20,6 +21,7 @@ import {
 } from "../test/server-sessions.test-helpers.js";
 import {
   identifiedClient,
+  initializeSessionReadContext,
   listSessions,
   requestContext,
 } from "./sessions-read-cache.test-support.js";
@@ -123,6 +125,11 @@ test.each([
       includeDerivedTitles: transcript,
       includeLastMessage: transcript,
     };
+    if (transcript) {
+      const backfilled = observeSessionRowBackfill([sessionKey]);
+      await initializeSessionReadContext(context);
+      await backfilled;
+    }
     const result = await listSessions({ client, context, request });
     expect.soft(result.sessions).toHaveLength(1);
     expect.soft(result.sessions[0]).toMatchObject({

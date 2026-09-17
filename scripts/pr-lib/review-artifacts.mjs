@@ -22,44 +22,35 @@ const REVIEW_ARTIFACT_ENUMS = Object.freeze({
   changelog: Object.freeze(["required", "not_required"]),
 });
 
-function reviewArtifactEnumHint(enumName, initialValue) {
-  const allowed = REVIEW_ARTIFACT_ENUMS[enumName];
-  if (!allowed?.includes(initialValue)) {
-    throw new Error(`Invalid initial value ${initialValue} for review enum ${enumName}.`);
-  }
-  return `${initialValue} (allowed: ${allowed.join("|")})`;
-}
-
-// Both artifacts carry the same stamp: review.md holds the prose verdict a human
-// reads, so binding only review.json would still let a foreign markdown verdict
-// ride along with a freshly stamped JSON.
 function reviewIdentityLine({ number, headSha }) {
   return `Review artifact for PR #${number} at ${headSha}`;
 }
 
-function createReviewMarkdownTemplate(identity) {
-  return `${reviewIdentityLine(identity)}
-
-A) TL;DR recommendation
-
-B) What changed and what is good?
-
-C) Security findings
-
-D) What is the PR intent? Is this the most optimal implementation?
-
-E) Concerns or questions (actionable)
-
-F) Tests
-
-G) Docs status
-
-H) Changelog
-
-I) Follow ups (optional)
-
-J) Suggested PR comment (optional)
-`;
+function renderReviewMarkdown(review) {
+  const lines = [reviewIdentityLine(review.pr), "", review.recommendation, ""];
+  for (const finding of review.findings) {
+    lines.push(`- ${finding.severity}: ${finding.title} (${finding.area})`, `  ${finding.fix}`);
+  }
+  lines.push(
+    "",
+    `Issue: ${review.issueValidation.status} (performed=${review.issueValidation.performed}). ${review.issueValidation.summary}`,
+    `Behavior: ${review.behavioralSweep.status} (performed=${review.behavioralSweep.performed}, silentDropRisk=${review.behavioralSweep.silentDropRisk}). ${review.behavioralSweep.summary}`,
+  );
+  for (const branch of review.behavioralSweep.branches) {
+    lines.push(`- ${branch.path}: ${branch.decision} → ${branch.outcome}`);
+  }
+  lines.push("", `Tests: ${review.tests.result}`);
+  for (const test of review.tests.ran) {
+    lines.push(`- ${test}`);
+  }
+  for (const gap of review.tests.gaps) {
+    lines.push(`- Gap: ${gap}`);
+  }
+  lines.push(`Docs: ${review.docs}`, `Changelog: ${review.changelog}`);
+  if (review.nitSweep) {
+    lines.push(`Optional nits: ${review.nitSweep.summary}`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function createReviewArtifactTemplate({ number, headSha }) {
@@ -68,33 +59,28 @@ function createReviewArtifactTemplate({ number, headSha }) {
     // disagrees with .local/pr-meta.json, so a review written for another PR (or
     // an already-superseded head) can never be landed as this one's verdict.
     pr: { number, headSha },
-    recommendation: reviewArtifactEnumHint("recommendation", "NEEDS WORK"),
+    recommendation: "NEEDS WORK",
     findings: [],
-    nitSweep: {
-      performed: true,
-      status: reviewArtifactEnumHint("nitSweepStatus", "none"),
-      summary: "No optional nits identified.",
-    },
     behavioralSweep: {
-      performed: true,
-      status: reviewArtifactEnumHint("behavioralSweepStatus", "not_applicable"),
-      summary: "No runtime branch-level behavior changes require sweep evidence.",
-      silentDropRisk: reviewArtifactEnumHint("behavioralSweepRisk", "none"),
+      performed: false,
+      status: "needs_work",
+      summary: "Review not completed yet.",
+      silentDropRisk: "unknown",
       branches: [],
     },
     issueValidation: {
-      performed: true,
-      source: reviewArtifactEnumHint("issueValidationSource", "pr_body"),
-      status: reviewArtifactEnumHint("issueValidationStatus", "unclear"),
+      performed: false,
+      source: "pr_body",
+      status: "unclear",
       summary: "Review not completed yet.",
     },
     tests: {
       ran: [],
       gaps: [],
-      result: reviewArtifactEnumHint("testsResult", "pass"),
+      result: "not_run",
     },
-    docs: reviewArtifactEnumHint("docs", "not_applicable"),
-    changelog: reviewArtifactEnumHint("changelog", "not_required"),
+    docs: "not_applicable",
+    changelog: "not_required",
   };
 }
 
@@ -106,7 +92,7 @@ function jsonValue(value) {
   return JSON.stringify(value === undefined ? null : value);
 }
 
-function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
+function validateReviewArtifacts({ review, prMeta }) {
   const violations = [];
   const add = (message) => {
     if (!violations.includes(message)) {
@@ -165,18 +151,6 @@ function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
       `Review artifact identity mismatch in .local/review.json: authored for PR #${String(stamp.number)} at ${String(stamp.headSha)}, but .local/pr-meta.json describes PR #${String(prMeta.number)} at ${String(prMeta.headRefOid)}; re-run scripts/pr review-artifacts-init`,
     );
   }
-  if (prMetaIdentifiesHead) {
-    const expectedLine = reviewIdentityLine({
-      number: prMeta.number,
-      headSha: prMeta.headRefOid,
-    });
-    if (reviewMarkdown.split("\n")[0] !== expectedLine) {
-      add(
-        `Review artifact identity mismatch in .local/review.md: first line must be ${jsonValue(expectedLine)}; re-run scripts/pr review-artifacts-init`,
-      );
-    }
-  }
-
   const recommendationIsString = requireType(
     typeof value.recommendation === "string",
     "Invalid recommendation in .local/review.json: recommendation must be a string",
@@ -190,10 +164,6 @@ function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
     findings.every(isObject),
     "Invalid finding entry in .local/review.json: each finding must be an object",
   );
-  const nitSweepIsObject = requireType(
-    isObject(value.nitSweep),
-    "Invalid nit sweep in .local/review.json: nitSweep must be an object",
-  );
   const issueValidationIsObject = requireType(
     isObject(value.issueValidation),
     "Invalid issue validation in .local/review.json: issueValidation must be an object",
@@ -206,12 +176,6 @@ function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
     isObject(value.tests),
     "Invalid tests in .local/review.json: tests must be an object",
   );
-
-  for (const section of ["A)", "B)", "C)", "D)", "E)", "F)", "G)", "H)", "I)", "J)"]) {
-    if (!reviewMarkdown.split("\n").some((line) => line.startsWith(section))) {
-      add(`Missing section header in .local/review.md: ${section}`);
-    }
-  }
 
   if (recommendationIsString) {
     requireEnum(
@@ -257,43 +221,49 @@ function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
     );
   }
 
-  const nitSweep = nitSweepIsObject ? value.nitSweep : {};
-  const nitSweepPerformedIsBoolean = requireType(
-    typeof nitSweep.performed === "boolean",
-    "Invalid nit sweep in .local/review.json: nitSweep.performed must be a boolean",
-  );
-  if (nitSweepPerformedIsBoolean && nitSweep.performed !== true) {
-    add("Invalid nit sweep in .local/review.json: nitSweep.performed must be true");
-  }
-  const nitSweepStatusIsString = requireType(
-    typeof nitSweep.status === "string",
-    "Invalid nit sweep status in .local/review.json: nitSweep.status must be a string",
-  );
-  if (nitSweepStatusIsString) {
-    const validStatus = requireEnum(
-      nitSweep.status,
-      "nitSweepStatus",
-      "Invalid nit sweep status in .local/review.json",
+  if (value.nitSweep !== undefined) {
+    const nitSweepIsObject = requireType(
+      isObject(value.nitSweep),
+      "Invalid nit sweep in .local/review.json: nitSweep must be an object",
     );
-    if (validStatus && nitSweep.status === "none" && nitFindingsCount > 0) {
+    const nitSweep = nitSweepIsObject ? value.nitSweep : {};
+    const nitSweepPerformedIsBoolean = requireType(
+      typeof nitSweep.performed === "boolean",
+      "Invalid nit sweep in .local/review.json: nitSweep.performed must be a boolean",
+    );
+    if (nitSweepPerformedIsBoolean && nitSweep.performed !== true) {
+      add("Invalid nit sweep in .local/review.json: nitSweep.performed must be true");
+    }
+    const nitSweepStatusIsString = requireType(
+      typeof nitSweep.status === "string",
+      "Invalid nit sweep status in .local/review.json: nitSweep.status must be a string",
+    );
+    if (nitSweepStatusIsString) {
+      const validStatus = requireEnum(
+        nitSweep.status,
+        "nitSweepStatus",
+        "Invalid nit sweep status in .local/review.json",
+      );
+      if (validStatus && nitSweep.status === "none" && nitFindingsCount > 0) {
+        add(
+          "Invalid nit sweep in .local/review.json: nitSweep.status is none but NIT findings exist",
+        );
+      }
+      if (validStatus && nitSweep.status === "has_nits" && nitFindingsCount < 1) {
+        add(
+          "Invalid nit sweep in .local/review.json: nitSweep.status is has_nits but no NIT findings exist",
+        );
+      }
+    }
+    requireType(
+      typeof nitSweep.summary === "string",
+      "Invalid nit sweep summary in .local/review.json: nitSweep.summary must be a string",
+    );
+    if (typeof nitSweep.summary === "string" && !isNonEmptyString(nitSweep.summary)) {
       add(
-        "Invalid nit sweep in .local/review.json: nitSweep.status is none but NIT findings exist",
+        "Invalid nit sweep summary in .local/review.json: nitSweep.summary must be a non-empty string",
       );
     }
-    if (validStatus && nitSweep.status === "has_nits" && nitFindingsCount < 1) {
-      add(
-        "Invalid nit sweep in .local/review.json: nitSweep.status is has_nits but no NIT findings exist",
-      );
-    }
-  }
-  requireType(
-    typeof nitSweep.summary === "string",
-    "Invalid nit sweep summary in .local/review.json: nitSweep.summary must be a string",
-  );
-  if (typeof nitSweep.summary === "string" && !isNonEmptyString(nitSweep.summary)) {
-    add(
-      "Invalid nit sweep summary in .local/review.json: nitSweep.summary must be a non-empty string",
-    );
   }
 
   const issueValidation = issueValidationIsObject ? value.issueValidation : {};
@@ -301,7 +271,11 @@ function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
     typeof issueValidation.performed === "boolean",
     "Invalid issue validation in .local/review.json: issueValidation.performed must be a boolean",
   );
-  if (issuePerformedIsBoolean && issueValidation.performed !== true) {
+  if (
+    issuePerformedIsBoolean &&
+    value.recommendation === "READY FOR /prepare-pr" &&
+    issueValidation.performed !== true
+  ) {
     add("Invalid issue validation in .local/review.json: issueValidation.performed must be true");
   }
   const issueSourceIsString = requireType(
@@ -351,7 +325,11 @@ function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
     typeof behavioralSweep.performed === "boolean",
     "Invalid behavioral sweep in .local/review.json: behavioralSweep.performed must be a boolean",
   );
-  if (behavioralPerformedIsBoolean && behavioralSweep.performed !== true) {
+  if (
+    behavioralPerformedIsBoolean &&
+    value.recommendation === "READY FOR /prepare-pr" &&
+    behavioralSweep.performed !== true
+  ) {
     add("Invalid behavioral sweep in .local/review.json: behavioralSweep.performed must be true");
   }
   const behavioralStatusIsString = requireType(
@@ -415,7 +393,7 @@ function validateReviewArtifacts({ review, reviewMarkdown, prMeta }) {
       "Invalid behavioral sweep in .local/review.json: runtime file changes require behavioralSweep.status=pass|needs_work",
     );
   }
-  if (runtimeReviewRequired && branches.length < 1) {
+  if (runtimeReviewRequired && behavioralSweep.performed === true && branches.length < 1) {
     add(
       "Invalid behavioral sweep in .local/review.json: runtime file changes require at least one branch entry",
     );
@@ -544,16 +522,19 @@ function main(argv = process.argv.slice(2)) {
     const identity = { number: Number(prNumber), headSha };
     process.stdout.write(
       command === "markdown"
-        ? createReviewMarkdownTemplate(identity)
+        ? renderReviewMarkdown(createReviewArtifactTemplate(identity))
         : `${JSON.stringify(createReviewArtifactTemplate(identity), null, 2)}\n`,
     );
     return;
   }
-  if (command === "validate" && args.length === 3) {
-    const [reviewPath, reviewMarkdownPath, prMetaPath] = args;
+  if (command === "render" && args.length === 1) {
+    process.stdout.write(renderReviewMarkdown(readJson(args[0])));
+    return;
+  }
+  if (command === "validate" && args.length === 2) {
+    const [reviewPath, prMetaPath] = args;
     const violations = validateReviewArtifacts({
       review: readJson(reviewPath),
-      reviewMarkdown: readFileSync(reviewMarkdownPath, "utf8"),
       prMeta: readJson(prMetaPath),
     });
     if (violations.length > 0) {
@@ -566,7 +547,7 @@ function main(argv = process.argv.slice(2)) {
     return;
   }
   console.error(
-    "Usage: review-artifacts.mjs template|markdown <pr-number> <head-sha> | validate <review.json> <review.md> <pr-meta.json>",
+    "Usage: review-artifacts.mjs template|markdown <pr-number> <head-sha> | render <review.json> | validate <review.json> <pr-meta.json>",
   );
   process.exitCode = 2;
 }

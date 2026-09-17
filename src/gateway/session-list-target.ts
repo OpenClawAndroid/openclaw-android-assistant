@@ -5,6 +5,6 @@ export type SessionListTargetLookup = (key: string) =>
   | {
       agentId: string;
       storeKey?: string;
-      materialized: Pick<ReturnType<typeof materializeSessionRow>, "source">;
+      materialized?: Pick<ReturnType<typeof materializeSessionRow>, "source">;
     }
   | undefined;

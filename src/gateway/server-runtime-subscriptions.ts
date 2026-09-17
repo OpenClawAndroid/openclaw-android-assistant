@@ -26,7 +26,10 @@ import { captureAgentRunTerminalWriteContext } from "../infra/agent-run-terminal
 import { onTrustedToolExecutionEvent } from "../infra/diagnostic-events.js";
 import { onHeartbeatEvent } from "../infra/heartbeat-events.js";
 import type { SubsystemLogger } from "../logging/subsystem.js";
-import { onGatewaySuspendAdmissionChange } from "../process/gateway-work-admission.js";
+import {
+  onGatewaySuspendAdmissionChange,
+  runWithRetainedGatewayRootWork,
+} from "../process/gateway-work-admission.js";
 import { onSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
 import { onInternalSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { createLazyPromise, createLazyPromiseLoader } from "../shared/lazy-runtime.js";
@@ -68,14 +71,16 @@ function dispatchEventHandler<TEvent>(params: {
   context: Record<string, unknown>;
   onFailure?: () => void;
 }) {
-  return params
-    .loadHandler()
-    .then((handler) => handler(params.event))
-    .then(() => undefined)
-    .catch((error: unknown) => {
-      params.log.warn(params.failureMessage, { ...params.context, error });
-      params.onFailure?.();
-    });
+  return runWithRetainedGatewayRootWork(() =>
+    params
+      .loadHandler()
+      .then((handler) => handler(params.event))
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        params.log.warn(params.failureMessage, { ...params.context, error });
+        params.onFailure?.();
+      }),
+  );
 }
 
 /** Register gateway runtime event subscriptions and return unsubscribe handles. */

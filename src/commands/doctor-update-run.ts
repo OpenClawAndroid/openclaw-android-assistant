@@ -1,5 +1,8 @@
 import { note } from "../../packages/terminal-core/src/note.js";
-import { UPDATE_ACTIVATION_TIMEOUT_REASON } from "../shared/update-outcome.js";
+import {
+  UPDATE_ACTIVATION_TIMEOUT_REASON,
+  UPDATE_ENVIRONMENT_FAILURE_REASONS,
+} from "../shared/update-outcome.js";
 
 /** Startup and proven-pristine preflights do not need a public ledger snapshot. */
 export async function noteStaleUpdateRuns(options: {
@@ -28,7 +31,12 @@ export async function noteStaleUpdateRuns(options: {
   }
   const [latest] = await listUpdateRunsAsync({ limit: 1 });
   if (latest) {
-    if (latest.status === "failed" && latest.reason === UPDATE_ACTIVATION_TIMEOUT_REASON) {
+    if (
+      latest.status === "failed" &&
+      latest.reason &&
+      (latest.reason === UPDATE_ACTIVATION_TIMEOUT_REASON ||
+        UPDATE_ENVIRONMENT_FAILURE_REASONS.has(latest.reason))
+    ) {
       note(`Update ${latest.runId}: ${renderUpdateRunReport(latest).markdown}`, "Update history");
     }
     const warnings = updateRunWarningMessages(latest.steps);

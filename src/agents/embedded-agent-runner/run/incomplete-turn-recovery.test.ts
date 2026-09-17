@@ -33,15 +33,29 @@ function emptyAttempt(assistant = emptyAssistant()) {
 }
 
 describe("incomplete-turn recovery policy", () => {
-  it.each(["required", "optional"] as const)(
-    "keeps async-owned work out of completed silence (reply=%s)",
-    (terminalReplyExpectation) => {
+  it.each(
+    (["required", "optional"] as const).flatMap((terminalReplyExpectation) =>
+      ["async tool", "active lifecycle item", "unfinished lifecycle item"].map((owner) => ({
+        terminalReplyExpectation,
+        owner,
+      })),
+    ),
+  )(
+    "keeps $owner out of completed silence (reply=$terminalReplyExpectation)",
+    ({ terminalReplyExpectation, owner }) => {
       const assistant = emptyAssistant({ content: [{ type: "text", text: "NO_REPLY" }] });
       const attempt = makeEmbeddedRunnerAttempt({
         assistantTexts: ["NO_REPLY"],
         lastAssistant: assistant,
         currentAttemptAssistant: assistant,
-        toolMetas: [{ toolName: "image_generate", asyncStarted: true, replaySafe: false }],
+        toolMetas: [
+          { toolName: "image_generate", asyncStarted: owner === "async tool", replaySafe: false },
+        ],
+        itemLifecycle: {
+          startedCount: 1,
+          completedCount: owner === "async tool" ? 1 : 0,
+          activeCount: owner === "active lifecycle item" ? 1 : 0,
+        },
         replayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
         currentAttemptReplayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
       });
@@ -60,6 +74,39 @@ describe("incomplete-turn recovery policy", () => {
       expect(resolveIncompleteTurnPayloadText({ ...state, externalAbort: false })).toBeNull();
     },
   );
+
+  it.each([
+    { name: "empty terminal stop", text: "", stopReason: "stop" },
+    { name: "visible terminal stop", text: "The final answer.", stopReason: "stop" },
+    { name: "failed terminal sentinel", text: "NO_REPLY", stopReason: "error" },
+    { name: "aborted terminal sentinel", text: "NO_REPLY", stopReason: "aborted" },
+  ] as const)("does not revive earlier silence after $name", ({ text, stopReason }) => {
+    const assistant = emptyAssistant({ content: [{ type: "text", text }], stopReason });
+    const attempt = emptyAttempt(assistant);
+    attempt.assistantTexts = ["NO_REPLY"];
+    expect(
+      shouldTreatEmptyAssistantReplyAsSilent({
+        allowEmptyAssistantReplyAsSilent: true,
+        onlyExplicitSilentReply: true,
+        terminalReplyExpectation: "required",
+        payloadCount: 0,
+        aborted: false,
+        timedOut: false,
+        attempt,
+      }),
+    ).toBe(false);
+    if (stopReason === "error") {
+      expect(
+        resolveIncompleteTurnPayloadText({
+          payloadCount: 0,
+          aborted: false,
+          externalAbort: false,
+          timedOut: false,
+          attempt,
+        }),
+      ).toContain("couldn't generate a response");
+    }
+  });
 
   it.each(
     [

@@ -49,6 +49,7 @@ import {
   type UpdateCommandExecutor,
 } from "./update-command-executor.js";
 import { readUpdateCandidateSource } from "./update-command-managed-context.js";
+import { inspectNpmGlobalDestination } from "./update-command-package-destination.js";
 import { UnreportedUpdateAdmissionOutcome, type RefuseUpdate } from "./update-command-result.js";
 import {
   failUpdateCommandRun,
@@ -85,13 +86,14 @@ export async function resolveUpdateCommandTarget(
   let { devTarget } = prepared;
   let root = discoveredRoot;
   let updateInstallKind = installKind;
-  const refuseUpdate: RefuseUpdate = async (reason, message, failureFacts) => {
+  const refuseUpdate: RefuseUpdate = async (reason, message, failureFacts, recoverySteps) => {
     const report = {
       root,
       installKind: updateInstallKind,
       reason,
       message,
       failureFacts,
+      recoverySteps,
       opts,
       controlPlaneUpdateSentinelMeta,
     };
@@ -254,6 +256,13 @@ export async function resolveUpdateCommandTarget(
         packageName: installedPackageName,
         pkgOwnership,
       });
+      if (packageInstallTarget.manager === "npm") {
+        const destination = await inspectNpmGlobalDestination(root, updateStepTimeoutMs);
+        if (destination.kind !== "owned" && destination.kind !== "empty") {
+          await refuseUpdate(destination.reason, destination.message, destination.failureFacts);
+          return undefined;
+        }
+      }
       const diskWarning = createLowDiskSpaceWarning({
         targetPath: packageInstallTarget.packageRoot
           ? path.dirname(packageInstallTarget.packageRoot)

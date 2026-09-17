@@ -15,16 +15,13 @@ import { parseProjectGitUrl } from "../../projects/project-git-url.js";
 import { resolveProjectDirectory } from "../../projects/project-registry.js";
 import { getSessionRepositoryWorkspaceStore } from "../../state/session-repository-workspaces.js";
 import { githubApiToken } from "../control-ui-github-api.js";
-import {
-  generateWorktreeSessionTitle,
-  hasExplicitSessionName,
-  resolveExplicitSessionName,
-} from "../dashboard-session-title.js";
+import { generateWorktreeSessionTitle } from "../dashboard-session-title.js";
 import { ADMIN_SCOPE } from "../operator-scopes.js";
 import type {
   PrepareGatewaySessionLifecycle,
   PreparedGatewaySessionLifecycle,
 } from "../session-lifecycle-preparation.js";
+import { hasExplicitSessionName, resolveExplicitSessionName } from "../session-title-state.js";
 import {
   prepareSessionWorktree,
   resolveSessionWorktreeBase,

@@ -361,6 +361,16 @@ it.each(["global", "unknown"] as const)(
         archived: "all" as const,
         limit: 10,
       };
+      await vi.waitFor(() => {
+        for (const agentId of ["ops", "research"]) {
+          expect(
+            getSessionRowProjection(context)?.snapshot(
+              { agentId, key: sentinel, storePath: storePathFor(agentId) },
+              { includeLastMessage: true },
+            ).row?.lastMessagePreview,
+          ).toBe(`${agentId} progress`);
+        }
+      });
       const active = await listSessions({ client, context, request });
       expect(active).toMatchObject({ count: 3, totalCount: 3, nextOffset: null });
       expect(active.sessions).toMatchObject([
@@ -465,6 +475,7 @@ it.each([{ activeMinutes: 1 }, { activeOnly: true }])(
       const request = { ...filter, agentId: "main", limit: 100 };
 
       await initializeSessionReadContext(context);
+      await listSessions({ client, context, request });
       const reads = vi.spyOn(rowInputs, "readSessionRowInputs");
       const results = await Promise.all(
         Array.from({ length: 8 }, () => listSessions({ client, context, request })),

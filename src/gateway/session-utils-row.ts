@@ -92,6 +92,8 @@ export function readSessionRowInputs(params: {
   storePath: string;
   storeAgentId?: string;
   active?: boolean;
+  /** A supplied resident model avoids transcript reads; null uses only stored model facts. */
+  activeModel?: { provider: string; model: string } | null;
   store: Record<string, SessionEntry>;
   modelSource?: GatewaySessionModelSource;
   key: string;
@@ -171,6 +173,7 @@ export function readSessionRowInputs(params: {
   const activeModel = resolveGatewaySessionActiveModel({
     cfg,
     active: params.active,
+    activeModel: params.activeModel,
     storeAgentId: params.storeAgentId,
     selectedModel,
     projectedAgentRuns: (rowContext.projectedAgentRuns ??= buildProjectedAgentRunIndex()),
@@ -350,6 +353,7 @@ export function buildGatewaySessionRow(
 function resolveGatewaySessionActiveModel(params: {
   cfg: OpenClawConfig;
   active?: boolean;
+  activeModel?: { provider: string; model: string } | null;
   agentId?: string;
   storeAgentId?: string;
   sessionId?: string;
@@ -388,21 +392,26 @@ function resolveGatewaySessionActiveModel(params: {
     return undefined;
   }
 
+  const fallbackEntry =
+    params.activeModel === undefined
+      ? readSessionFallbackModel({
+          selectedProvider: selectedModel.provider,
+          selectedModel: selectedModel.model,
+          sessionEntry: params.entry,
+          config: params.cfg,
+          sessionScope: {
+            agentId: params.storeAgentId ?? params.agentId,
+            sessionKey: params.sessionKey,
+            storePath: params.storePath,
+          },
+        })
+      : params.activeModel
+        ? { modelProvider: params.activeModel.provider, model: params.activeModel.model }
+        : undefined;
   const { selected, active } = resolveSelectedAndActiveModel({
     selectedProvider: selectedModel.provider,
     selectedModel: selectedModel.model,
-    sessionEntry:
-      readSessionFallbackModel({
-        selectedProvider: selectedModel.provider,
-        selectedModel: selectedModel.model,
-        sessionEntry: params.entry,
-        config: params.cfg,
-        sessionScope: {
-          agentId: params.storeAgentId ?? params.agentId,
-          sessionKey: params.sessionKey,
-          storePath: params.storePath,
-        },
-      }) ?? params.entry,
+    sessionEntry: fallbackEntry ?? params.entry,
   });
   return resolveActiveFallbackState({
     selectedModelRef: selected.label,

@@ -23,7 +23,9 @@ import {
 } from "../infra/agent-run-registry.js";
 import type { SubsystemLogger } from "../logging/subsystem.js";
 import {
+  getActiveGatewayRootWorkCount,
   resetGatewayWorkAdmission,
+  tryBeginGatewayRootWorkAdmission,
   tryBeginGatewaySuspendAdmission,
 } from "../process/gateway-work-admission.js";
 import { emitSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
@@ -728,6 +730,7 @@ describe("startGatewayEventSubscriptions", () => {
 
   it("logs real asynchronous transcript failures and recovers the broadcast queue", async () => {
     transcriptBroadcastMocks.useActualHandler = true;
+    const failedRead = createDeferred();
     const persistenceFailure = new Error("session transcript read failed");
     const transcriptPosition = { source: "recovered-generation", rawSeq: 7 };
     const storedMessage = {
@@ -736,7 +739,10 @@ describe("startGatewayEventSubscriptions", () => {
       __openclaw: { transcriptPosition },
     };
     transcriptBroadcastMocks.readMessageById
-      .mockRejectedValueOnce(persistenceFailure)
+      .mockImplementationOnce(async () => {
+        await failedRead.promise;
+        throw persistenceFailure;
+      })
       .mockResolvedValueOnce({ found: true, oversized: false, seq: 2, message: storedMessage });
 
     const params = createParams();
@@ -757,10 +763,20 @@ describe("startGatewayEventSubscriptions", () => {
         },
       });
 
-    emitMessage("failed-message");
+    const admission = tryBeginGatewayRootWorkAdmission("test:transcript-publisher");
+    if (!admission) {
+      throw new Error("Transcript publisher admission was closed");
+    }
+    await admission.run(async () => emitMessage("failed-message"));
+    admission.release();
     await waitForFast(() =>
       expect(transcriptBroadcastMocks.readMessageById).toHaveBeenCalledOnce(),
     );
+    try {
+      expect(getActiveGatewayRootWorkCount()).toBe(1);
+    } finally {
+      failedRead.resolve();
+    }
     await waitForFast(() =>
       expect(warn).toHaveBeenCalledWith("Transcript update dispatch failed", {
         sessionKey: "agent:main:main",
@@ -786,6 +802,7 @@ describe("startGatewayEventSubscriptions", () => {
     );
     expect(transcriptBroadcastMocks.readMessageById).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenCalledOnce();
+    await waitForFast(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
   });
 
   it("broadcasts progress-card retirement without session-list subscribers", () => {

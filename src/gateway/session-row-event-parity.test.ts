@@ -121,6 +121,13 @@ it("delivers nested event rows identical to the full list for each viewer and cl
     const projection = getSessionRowProjection(context)!;
     const detach = connection.attachSessionRowProjection(projection);
     try {
+      await projection.ensureMaterialized();
+      const request = {
+        includeDerivedTitles: true,
+        includeLastMessage: true,
+        includeActivitySummary: true,
+      };
+      await Promise.all(peers.map(({ client }) => listSessions({ client, context, request })));
       const prepares = vi.spyOn(DatabaseSync.prototype, "prepare");
       const exec = vi.spyOn(DatabaseSync.prototype, "exec");
       const expected = await Promise.all(
@@ -128,11 +135,7 @@ it("delivers nested event rows identical to the full list for each viewer and cl
           const result = await listSessions({
             client,
             context,
-            request: {
-              includeDerivedTitles: true,
-              includeLastMessage: true,
-              includeActivitySummary: true,
-            },
+            request,
           });
           return result.sessions.find((row) => row.key === key)!;
         }),

@@ -188,10 +188,14 @@ export function bindCronManagementGrant(runId: string | undefined) {
   };
 }
 
-/** Retains native provenance before late CLI admission without minting execution authority. */
+/** Retains authenticated provenance before late CLI admission without execution authority. */
 export function captureCronRequesterGrantIssuer(runId: string | undefined) {
   const scope = activeCronCreatorAuthority.getStore();
-  if (!scope || !hasCronChannelRequester(scope) || scope.runId !== runId) {
+  if (
+    !scope ||
+    (scope.callerOrigin.kind !== "local" && !hasCronChannelRequester(scope)) ||
+    scope.runId !== runId
+  ) {
     return undefined;
   }
   return (
@@ -214,7 +218,7 @@ export function captureCronRequesterGrantIssuer(runId: string | undefined) {
   };
 }
 
-/** Captures the requester independently of optional full tool-surface materialization. */
+/** Captures authenticated requester facts independently of full tool-surface materialization. */
 export function bindCronRequesterGrant(runId: string | undefined) {
   const issue = captureCronRequesterGrantIssuer(runId);
   const authority = getGatewayToolCallerIdentity()?.approvalAuthority;

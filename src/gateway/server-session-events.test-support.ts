@@ -76,7 +76,7 @@ const projection = {
   },
   ensureMaterialized: async () => {},
   isCurrent: () => true,
-  select(query: { key?: string; agentId?: string; storePath?: string }) {
+  selectEntries(query: { key?: string; agentId?: string; storePath?: string }) {
     if (!query.key) {
       return (
         listAccessorSessionEntriesReadOnlyMock({
@@ -112,11 +112,11 @@ const projection = {
       : [];
   },
   capture(query: { key: string; agentId: string; storePath?: string }) {
-    return projection.select(query)[0];
+    return projection.selectEntries(query)[0];
   },
   findBySessionId(query: { sessionId: string; agentId?: string; storePath?: string }) {
     return projection
-      .select({ agentId: query.agentId, storePath: query.storePath })
+      .selectEntries({ agentId: query.agentId, storePath: query.storePath })
       .filter(({ entry }) => entry.sessionId === query.sessionId);
   },
   snapshot(query: { key: string; agentId: string }) {

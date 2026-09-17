@@ -10,6 +10,7 @@ import {
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+import { validReview, writeReviewArtifacts } from "./pr-review-artifact-fixture.js";
 import { copyPrWrapperSources } from "./pr-wrapper.test-support.js";
 
 const temps = useAutoCleanupTempDirTracker(afterEach);
@@ -238,6 +239,13 @@ describePosix("native PR wrapper repository ownership", () => {
     "uses owner repository metadata for early %s validation",
     (command) => {
       const f = fixture();
+      if (command === "prepare-run") {
+        const review = validReview(f.head);
+        review.pr.number = 123;
+        review.recommendation = "READY FOR /prepare-pr";
+        review.issueValidation.status = "valid";
+        writeReviewArtifacts(f.worktree, review, { prNumber: 123, headSha: f.head });
+      }
       const result = f.run(f.caller, [
         command,
         "123",

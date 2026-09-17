@@ -9,6 +9,7 @@ import {
   replaceTranscriptEventsSync,
   upsertSessionEntryCore,
 } from "../../config/sessions/session-accessor.js";
+import { createNestedToolActivity } from "../../sessions/nested-tool-activity.js";
 import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
 import { createZeroUsageFixture } from "../test-helpers/usage-fixtures.js";
 import type { AppendPersistenceOptions } from "./session-manager-types.js";
@@ -22,6 +23,37 @@ const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
     cleanup();
   }),
 );
+
+function preparedTurnMessage(
+  kind: "assistant" | "nested-tool",
+  timestamp: number,
+): Parameters<SessionManager["appendMessage"]>[0] {
+  if (kind === "nested-tool") {
+    return createNestedToolActivity({
+      runId: "prepared-run",
+      scopeId: "prepared-scope",
+      afterEntryId: null,
+      startOrder: 0,
+      toolCallId: "prepared-message",
+      toolName: "message",
+      input: { action: "send", message: "Delivered reply" },
+      result: { content: [{ type: "text", text: "Sent" }] },
+      isError: false,
+      startedAt: timestamp,
+      timestamp,
+    });
+  }
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: "stale reply" }],
+    api: "openai-responses",
+    provider: "openai",
+    model: "gpt-5.5",
+    usage: createZeroUsageFixture(),
+    stopReason: "stop",
+    timestamp,
+  };
+}
 
 describe("SessionManager stale-parent rebase", () => {
   it("rebases a stale active append onto the out-of-band transcript tail", async () => {
@@ -155,40 +187,72 @@ describe("SessionManager stale-parent rebase", () => {
     ).toBe("rewritten");
   });
 
-  it("rejects a stale prepared assistant after a newer user turn", async () => {
+  it.each(["assistant", "nested-tool"] as const)(
+    "rejects a stale prepared %s after a newer user turn",
+    async (kind) => {
+      const dir = tempDirs.make("openclaw-session-manager-");
+      const target = {
+        agentId: "main",
+        sessionId: "stale-assistant-new-user",
+        sessionKey: "agent:main:stale-assistant-new-user",
+        storePath: path.join(dir, "sessions.json"),
+      };
+      await upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
+      await appendTranscriptMessage(target, {
+        eventId: "base-user",
+        message: { role: "user", content: "base", timestamp: 1 },
+        now: 1,
+      });
+      const manager = SessionManager.open(target, dir);
+      await appendTranscriptMessage(target, {
+        appendIntent: "active-branch",
+        eventId: "new-user",
+        message: { role: "user", content: "new", timestamp: 2 },
+        now: 2,
+      });
+      const branchBeforeAppend = manager.getBranch();
+      const eventsBeforeAppend = await loadTranscriptEvents(target);
+
+      expect(() => manager.appendMessage(preparedTurnMessage(kind, 3))).toThrow(
+        "SQLite transcript changed while preparing rewrite",
+      );
+      expect(manager.getBranch()).toEqual(branchBeforeAppend);
+      expect(await loadTranscriptEvents(target)).toEqual(eventsBeforeAppend);
+    },
+  );
+
+  it("rejects a stale custom message after a same-turn assistant append", async () => {
     const dir = tempDirs.make("openclaw-session-manager-");
     const target = {
       agentId: "main",
-      sessionId: "stale-assistant-new-user",
-      sessionKey: "agent:main:stale-assistant-new-user",
+      sessionId: "stale-custom-message",
+      sessionKey: "agent:main:stale-custom-message",
       storePath: path.join(dir, "sessions.json"),
     };
     await upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
     await appendTranscriptMessage(target, {
       eventId: "base-user",
       message: { role: "user", content: "base", timestamp: 1 },
-      now: 1,
     });
     const manager = SessionManager.open(target, dir);
     await appendTranscriptMessage(target, {
-      appendIntent: "active-branch",
-      eventId: "new-user",
-      message: { role: "user", content: "new", timestamp: 2 },
-      now: 2,
+      eventId: "delivered-reply",
+      message: preparedTurnMessage("assistant", 2),
     });
+    const branchBeforeAppend = manager.getBranch();
+    const eventsBeforeAppend = await loadTranscriptEvents(target);
 
     expect(() =>
       manager.appendMessage({
-        role: "assistant",
-        content: [{ type: "text", text: "stale reply" }],
-        api: "openai-responses",
-        provider: "openai",
-        model: "gpt-5.5",
-        usage: createZeroUsageFixture(),
-        stopReason: "stop",
+        role: "custom",
+        customType: "extension-input",
+        content: "Additional instructions",
+        display: true,
         timestamp: 3,
       }),
     ).toThrow("SQLite transcript changed while preparing rewrite");
+    expect(manager.getBranch()).toEqual(branchBeforeAppend);
+    expect(await loadTranscriptEvents(target)).toEqual(eventsBeforeAppend);
   });
 
   it("fences a prepared assistant retry to the snapshot that passed validation", async () => {
@@ -261,45 +325,43 @@ describe("SessionManager stale-parent rebase", () => {
     ]);
   });
 
-  it("rejects a newer user outside the restored active ancestry", async () => {
-    const dir = tempDirs.make("openclaw-session-manager-");
-    const target = {
-      agentId: "main",
-      sessionId: "stale-assistant-side-user",
-      sessionKey: "agent:main:stale-assistant-side-user",
-      storePath: path.join(dir, "sessions.json"),
-    };
-    await upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
-    const source = SessionManager.open(target, dir);
-    const baseId = source.appendMessage({ role: "user", content: "base", timestamp: 1 });
-    const preparedParentId = source.appendMessage({
-      role: "assistant",
-      content: [{ type: "text", text: "ready" }],
-      api: "openai-responses",
-      provider: "openai",
-      model: "gpt-5.5",
-      usage: createZeroUsageFixture(),
-      stopReason: "stop",
-      timestamp: 2,
-    });
-    const stale = SessionManager.open(target, dir);
-    source.branch(baseId);
-    source.appendMessage({ role: "user", content: "side user", timestamp: 3 });
-    source.branch(preparedParentId);
-
-    expect(() =>
-      stale.appendMessage({
+  it.each(["assistant", "nested-tool"] as const)(
+    "rejects a prepared %s after a newer user outside the restored active ancestry",
+    async (kind) => {
+      const dir = tempDirs.make("openclaw-session-manager-");
+      const target = {
+        agentId: "main",
+        sessionId: "stale-assistant-side-user",
+        sessionKey: "agent:main:stale-assistant-side-user",
+        storePath: path.join(dir, "sessions.json"),
+      };
+      await upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
+      const source = SessionManager.open(target, dir);
+      const baseId = source.appendMessage({ role: "user", content: "base", timestamp: 1 });
+      const preparedParentId = source.appendMessage({
         role: "assistant",
-        content: [{ type: "text", text: "stale reply" }],
+        content: [{ type: "text", text: "ready" }],
         api: "openai-responses",
         provider: "openai",
         model: "gpt-5.5",
         usage: createZeroUsageFixture(),
         stopReason: "stop",
-        timestamp: 4,
-      }),
-    ).toThrow("SQLite transcript changed while preparing rewrite");
-  });
+        timestamp: 2,
+      });
+      const stale = SessionManager.open(target, dir);
+      source.branch(baseId);
+      source.appendMessage({ role: "user", content: "side user", timestamp: 3 });
+      source.branch(preparedParentId);
+      const branchBeforeAppend = stale.getBranch();
+      const eventsBeforeAppend = await loadTranscriptEvents(target);
+
+      expect(() => stale.appendMessage(preparedTurnMessage(kind, 4))).toThrow(
+        "SQLite transcript changed while preparing rewrite",
+      );
+      expect(stale.getBranch()).toEqual(branchBeforeAppend);
+      expect(await loadTranscriptEvents(target)).toEqual(eventsBeforeAppend);
+    },
+  );
 
   it("preserves a deliberate manager branch from an ancestor", async () => {
     const dir = tempDirs.make("openclaw-session-manager-");

@@ -431,12 +431,20 @@ export type CronToolsAllowProvenance =
       callerOrigin?: CronScheduledToolCallerOrigin;
       channelRequester?: CronAuthenticatedChannelRequester;
     }
-  | {
+  | ({
       version: 1;
       source: "authenticated-requester";
-      callerOrigin?: never;
-      channelRequester: CronAuthenticatedChannelRequester;
-    };
+    } & (
+      | {
+          /** Authenticated creator origin captured independently of the tool surface. */
+          callerOrigin: CronScheduledToolCallerOrigin;
+          channelRequester?: CronAuthenticatedChannelRequester;
+        }
+      | {
+          callerOrigin?: never;
+          channelRequester: CronAuthenticatedChannelRequester;
+        }
+    ));
 
 /** Persisted row shape; public Gateway and wire contracts use CronJob. */
 export type CronStoredJob = CronJob & {

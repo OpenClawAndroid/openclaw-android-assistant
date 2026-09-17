@@ -18,6 +18,8 @@ function createChild() {
   Object.defineProperties(child, {
     pid: { value: 12345 },
     exitCode: { get: () => exitCode },
+    stdout: { value: null, writable: true },
+    stderr: { value: null, writable: true },
   });
   return {
     child,

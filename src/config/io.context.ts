@@ -53,8 +53,8 @@ import type { ConfigFileSnapshot, OpenClawConfig } from "./types.js";
 import {
   validateConfigObjectWithPlugins,
   validateConfigObjectWithPluginsAsync,
-  type PreparedConfigValidationPluginMetadata,
 } from "./validation.js";
+import type { PreparedConfigValidationPluginMetadata } from "./validation.types.js";
 
 type ValidateConfigWithPluginsResult = ReturnType<typeof validateConfigObjectWithPlugins>;
 

@@ -220,6 +220,14 @@ async function writeInstalledCandidateWorkers(packageRoot: string, legacy: boole
   const directory = path.join(packageRoot, "dist/infra");
   await fs.promises.mkdir(directory, { recursive: true });
   await fs.promises.writeFile(path.join(packageRoot, "package.json"), '{"type":"module"}');
+  const stagingProbe = `
+    const staging = process.env.XDG_CACHE_HOME;
+    const marker = process.env.CANDIDATE_EXPECT_LEGACY_STAGING === "1"
+      ? /^openclaw-sqlite-readonly-[1-9][0-9]*-/ : /^openclaw-sqlite-readonly-v2-/;
+    if (!marker.test(path.basename(staging)) || !fs.existsSync(path.join(staging, "owner.sqlite"))) {
+      throw new Error("Candidate staging lifetime is unprotected before worker entry");
+    }
+  `;
   // These fixtures implement the released command shapes, not updater-relative imports.
   await fs.promises.writeFile(
     path.join(directory, "update-candidate-state.worker.js"),
@@ -227,6 +235,7 @@ async function writeInstalledCandidateWorkers(packageRoot: string, legacy: boole
     import fs from "node:fs";
     import path from "node:path";
     import { DatabaseSync } from "node:sqlite";
+    ${stagingProbe}
     let input = "";
     for await (const chunk of process.stdin) input += chunk;
     const parsed = JSON.parse(input);
@@ -262,6 +271,7 @@ async function writeInstalledCandidateWorkers(packageRoot: string, legacy: boole
     `
     import fs from "node:fs";
     import path from "node:path";
+    ${stagingProbe}
     if (process.argv[2] !== "--openclaw-sqlite-readonly-child" || process.argv[3] !== "sync") {
       throw new Error("Unexpected SQLite snapshot worker protocol");
     }
@@ -335,7 +345,11 @@ it.each(
         config: {},
         root: candidateRoot,
         nodeRunner,
-        env: { ...process.env, CANDIDATE_SNAPSHOT_REPORT: report },
+        env: {
+          ...process.env,
+          CANDIDATE_SNAPSHOT_REPORT: report,
+          CANDIDATE_EXPECT_LEGACY_STAGING: "1",
+        },
       });
       expect(after).toEqual(before);
       expect(fs.readFileSync(shared)).toEqual(sourceBytes);

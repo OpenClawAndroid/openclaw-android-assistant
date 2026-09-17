@@ -651,6 +651,20 @@ export async function acquireOpenClawStateDatabaseFileExclusion(pathname: string
     releaseAdmission();
     throw error;
   }
+  const closeWriter = (errors: unknown[]) => {
+    const database = cachedDatabases.get(databasePath);
+    if (database) {
+      try {
+        // Physical custody permits closure after authority loss, not further mutation.
+        handles.runWithCanonicalWrites(handles.assertCurrent, () => {
+          errors.push(...closeOpenClawStateDatabaseHandle(database));
+        });
+        notifyOpenClawStateDatabaseClosed(database);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  };
   return {
     assertCurrent: handles.assertCurrent,
     runWithSourceReads: handles.runWithSourceReads,
@@ -662,16 +676,21 @@ export async function acquireOpenClawStateDatabaseFileExclusion(pathname: string
           value: await handles.runWithCanonicalMutation(
             assertCurrent,
             operation,
-            async (assertInspection) => {
+            async (assertInspection, signal) => {
+              signal?.throwIfAborted();
               assertInspection();
               const opened = getOpenClawStateDatabaseIfOpenAtPath(databasePath);
               if (opened) {
-                return await prepareSqliteReadOnlyLocationFromOwnedDatabase(opened.db, () => {
-                  assertInspection();
-                  if (getOpenClawStateDatabaseIfOpenAtPath(databasePath) !== opened) {
-                    throw new Error("SQLite inspection lost its original native owner");
-                  }
-                });
+                return await prepareSqliteReadOnlyLocationFromOwnedDatabase(
+                  opened.db,
+                  () => {
+                    assertInspection();
+                    if (getOpenClawStateDatabaseIfOpenAtPath(databasePath) !== opened) {
+                      throw new Error("SQLite inspection lost its original native owner");
+                    }
+                  },
+                  signal,
+                );
               }
               // Before first open, no cached OR uncached source handle may exist.
               handles.assertDrainedDuringMutation();
@@ -686,18 +705,7 @@ export async function acquireOpenClawStateDatabaseFileExclusion(pathname: string
         outcome = { error };
       }
       const errors: unknown[] = "error" in outcome ? [outcome.error] : [];
-      const database = cachedDatabases.get(databasePath);
-      if (database) {
-        try {
-          // Physical custody permits closure, never another mutation after authority loss.
-          handles.runWithCanonicalWrites(handles.assertCurrent, () => {
-            errors.push(...closeOpenClawStateDatabaseHandle(database));
-          });
-          notifyOpenClawStateDatabaseClosed(database);
-        } catch (error) {
-          errors.push(error);
-        }
-      }
+      closeWriter(errors);
       try {
         handles.assertNoPins();
       } catch (error) {
@@ -728,19 +736,7 @@ export async function acquireOpenClawStateDatabaseFileExclusion(pathname: string
       }
       // Revoke issued raw SQLite capabilities before yielding to an invalid
       // async binder. Keep the physical fence until that promise has settled.
-      const database = cachedDatabases.get(databasePath);
-      if (database) {
-        try {
-          // Cleanup retains physical custody even if mutation authority expired.
-          // No user callback or lifecycle notification runs in this scope.
-          handles.runWithCanonicalWrites(handles.assertCurrent, () => {
-            errors.push(...closeOpenClawStateDatabaseHandle(database));
-          });
-          notifyOpenClawStateDatabaseClosed(database);
-        } catch (error) {
-          errors.push(error);
-        }
-      }
+      closeWriter(errors);
       if (result !== undefined) {
         errors.push(new Error("checkpoint binding must complete synchronously with undefined"));
         try {

@@ -227,6 +227,7 @@ export function renderGroupedMessage(
   messageKey: string,
   opts: {
     isStreaming: boolean;
+    isForwarded?: boolean;
     sessionKey?: string;
     presented?: boolean;
     transcriptVisible?: boolean;

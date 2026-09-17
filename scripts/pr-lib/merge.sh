@@ -474,6 +474,7 @@ merge_run() {
     merge_outcome_resume "$pr"
     return
   fi
+  review_artifact_preflight "$pr" true || return 1
   # Capture before gates or cwd changes; retained outcomes above reconcile even
   # when the original operator file no longer exists.
   if [ -n "$body_path" ]; then
@@ -491,7 +492,6 @@ merge_run() {
   fi
 
   local required required_artifacts=(
-    .local/review.md
     .local/review.json
     .local/pr-meta.env
     .local/pr-meta.json

@@ -145,22 +145,23 @@ export async function resolveSettledUpdateCommandResult(
   const activationTimeout = collectNestedErrorCandidates(failure).find(
     (error): error is UpdateActivationTimeoutError => error instanceof UpdateActivationTimeoutError,
   );
-  const result: UpdateRunResult = settlementFailed
+  const failedStep: UpdateStepResult | undefined = settlementFailed
+    ? {
+        name: "update executor settlement",
+        command: "openclaw update",
+        cwd: pendingResult.root ?? params.root,
+        durationMs: 0,
+        exitCode: 1,
+        stderrTail: activationTimeout?.message ?? formatErrorMessage(failure),
+      }
+    : undefined;
+  const result: UpdateRunResult = failedStep
     ? {
         ...pendingResult,
         status: "error",
         reason: activationTimeout?.reason ?? "update-executor-settlement-failed",
-        steps: [
-          ...pendingResult.steps,
-          {
-            name: "update executor settlement",
-            command: "openclaw update",
-            cwd: pendingResult.root ?? params.root,
-            durationMs: 0,
-            exitCode: 1,
-            stderrTail: activationTimeout?.message ?? formatErrorMessage(failure),
-          },
-        ],
+        failedStep,
+        steps: [...pendingResult.steps, failedStep],
       }
     : failure instanceof UpdateCommandFailure
       ? failure.result
@@ -251,7 +252,7 @@ export async function recordUpdatePackageCompletion(
     // A caller's successful activation does not establish recovery/cleanup safety.
     // Unknown exceptions and unqualified completion refusals must fail the command.
     return new UpdateCommandFailure(
-      { ...result, status: "error", reason: "package-backup-retention-failed" },
+      { ...result, status: "error", reason: "package-backup-retention-failed", failedStep: step },
       1,
       step.stderrTail ?? "Package backup completion was not verified.",
       { cause: cleanupFailure },
@@ -331,30 +332,32 @@ async function publishPreMutationUpdateOutcome(
     );
   }
   const outcome = await prepareOutcome();
+  const failedStep: UpdateStepResult | undefined =
+    outcome.status === "error"
+      ? {
+          name: params.reason,
+          command: "openclaw update",
+          cwd: params.root,
+          durationMs: 0,
+          exitCode: 1,
+          stderrTail: params.message,
+          ...(params.recoverySteps ? { recoverySteps: params.recoverySteps } : {}),
+          failureFacts: normalizeUpdateFailureFacts(
+            params.failureFacts ?? [
+              { check: params.reason, code: params.reason, message: params.message },
+            ],
+            run?.env,
+          ),
+        }
+      : undefined;
   const result = completeUpdateCommandRun(
     {
       ...outcome,
       mode: params.installKind === "git" ? "git" : "unknown",
       root: params.root,
       reason: params.reason,
-      steps:
-        outcome.status === "error"
-          ? [
-              {
-                name: params.reason,
-                command: "openclaw update",
-                cwd: params.root,
-                durationMs: 0,
-                exitCode: 1,
-                failureFacts: normalizeUpdateFailureFacts(
-                  params.failureFacts ?? [
-                    { check: params.reason, code: params.reason, message: params.message },
-                  ],
-                  run?.env,
-                ),
-              },
-            ]
-          : [],
+      failedStep,
+      steps: failedStep ? [failedStep] : [],
       ...(outcome.status === "skipped"
         ? { before: { version: await readPackageVersion(params.root) } }
         : {}),

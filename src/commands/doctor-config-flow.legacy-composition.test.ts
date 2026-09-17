@@ -5,9 +5,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readConfigFileSnapshot } from "../config/config.js";
 import { writeOpenClawConfig } from "../config/test-helpers.js";
 import { runInitialConfigWriteHealth } from "../flows/doctor-health-contribution-runners.config.js";
+import { readConfigMachineState } from "../state/config-machine-state.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { getFreePort } from "../test-utils/ports.js";
 import { prepareDoctorContext } from "./doctor-config-flow.test-support.js";
+import {
+  createBuiltRuntime,
+  runBuiltRuntime,
+} from "./doctor-config-preflight.process.test-support.js";
 import { withDoctorConfigPreflightHome } from "./doctor-config-preflight.test-support.js";
 
 async function repairConfig(configPath: string) {
@@ -18,6 +24,94 @@ async function repairConfig(configPath: string) {
 
 describe("Doctor legacy config composition", () => {
   afterEach(() => closeOpenClawStateDatabaseForTest());
+
+  it("preserves the July TTS preference locator before retiring its config keys", async () => {
+    await withDoctorConfigPreflightHome(async (home) => {
+      const prefsPath = path.join(home, "speech-preferences.json");
+      const preferences = '{"tts":{"auto":"off","maxLength":1200}}\n';
+      await fs.writeFile(prefsPath, preferences);
+      const configPath = await writeOpenClawConfig(home, {
+        agents: { list: [{ id: "main" }] },
+        messages: { tts: { prefsPath, personas: { narrator: { prompt: { style: "calm" } } } } },
+        gateway: { mode: "local" },
+        plugins: { enabled: false },
+      });
+      await repairConfig(configPath);
+      expect((await readConfigFileSnapshot()).valid).toBe(true);
+      expect(readConfigMachineState("tts.prefsPath")).toBe(prefsPath);
+      expect(await fs.readFile(prefsPath, "utf8")).toBe(preferences);
+      const first = await fs.readFile(configPath, "utf8");
+      expect(JSON.parse(first)).not.toHaveProperty("messages.tts");
+      expect(JSON.parse(first)).not.toHaveProperty("tts.prefsPath");
+      expect((await repairConfig(configPath)).shouldWriteConfig).toBe(false);
+      expect(await fs.readFile(configPath, "utf8")).toBe(first);
+    });
+  });
+
+  it.each([false, true])(
+    "converges the July upgrade fixture with explicit local model=%s",
+    async (explicitModel) => {
+      await withDoctorConfigPreflightHome(async (home) => {
+        const raw = JSON.parse(
+          await fs.readFile(
+            new URL("../../test/fixtures/doctor-2026.7.1.json", import.meta.url),
+            "utf8",
+          ),
+        );
+        if (explicitModel) {
+          raw.agents.defaults.memorySearch.local = { modelPath: "/synthetic/embedding.gguf" };
+        }
+        raw.gateway.port = await getFreePort();
+        const configPath = await writeOpenClawConfig(home, raw);
+        const runtimeRoot = createBuiltRuntime(path.join(home, "cli"));
+        const env: NodeJS.ProcessEnv = {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          WINDIR: process.env.WINDIR,
+          ComSpec: process.env.ComSpec,
+          HOME: home,
+          USERPROFILE: home,
+          TMPDIR: home,
+          OPENCLAW_STATE_DIR: path.dirname(configPath),
+          OPENCLAW_CONFIG_PATH: configPath,
+          NO_COLOR: "1",
+        };
+        const run = (args: string[], expected = 0) => {
+          const result = runBuiltRuntime(runtimeRoot, env, args, 60_000);
+          const output = `${result.stdout}\n${result.stderr}`;
+          expect(result.error, output).toBeUndefined();
+          expect(result.status, output).toBe(expected);
+        };
+        const doctorArgs = ["doctor", "--fix", "--non-interactive", "--no-workspace-suggestions"];
+        run(["config", "validate"], 1);
+        run(doctorArgs);
+        const first = await fs.readFile(configPath, "utf8");
+        const saved = JSON.parse(first);
+        run(["config", "validate"]);
+        expect(saved.agents).not.toHaveProperty("list");
+        expect(saved.agents.ownership).toBe("explicit");
+        expect(Object.keys(saved.agents.entries)).toEqual(["main", "research"]);
+        expect(saved.agents.defaults.systemAgent.agentId).toBe("main");
+        expect(saved.meta.migrations.modelPolicyAllowlist).toBe(true);
+        expect(saved.agents.defaults.modelPolicy.allow).toEqual([
+          "anthropic/claude-sonnet-4-6",
+          "anthropic/claude-opus-4-7",
+        ]);
+        expect(saved.memory.search).toEqual({ ...raw.agents.defaults.memorySearch });
+        expect(saved.tools.media.models).toEqual([
+          { ...raw.tools.media.audio.models[0], capabilities: ["audio"] },
+        ]);
+        expect(saved.gateway.nodes.commands.deny).toEqual(["system.run"]);
+        expect(saved.channels.telegram.groupAllowFrom).toEqual(["123456789"]);
+        expect(saved.channels.telegram.accounts.secondary.groupAllowFrom).toEqual(["987654321"]);
+        expect(saved.plugins.entries.browser.enabled).toBe(true);
+        expect(saved.meta).not.toHaveProperty("lastTouchedAt");
+        expect(saved.gateway.tailscale).not.toHaveProperty("resetOnExit");
+        run(doctorArgs);
+        expect(await fs.readFile(configPath, "utf8")).toBe(first);
+      });
+    },
+  );
 
   it.each([
     "list",

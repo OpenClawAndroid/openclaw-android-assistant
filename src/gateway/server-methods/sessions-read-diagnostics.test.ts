@@ -78,8 +78,8 @@ function controlProjectionClock(
   afterRow?: () => void,
 ) {
   vi.spyOn(performance, "now").mockImplementation(() => clock);
-  const select = projection.select.bind(projection);
-  vi.spyOn(projection, "select").mockImplementation((...args) => {
+  const select = projection.selectEntries.bind(projection);
+  vi.spyOn(projection, "selectEntries").mockImplementation((...args) => {
     try {
       return select(...args);
     } finally {
@@ -116,6 +116,7 @@ test.each(["channel-only", "slow-warning"])("attributes %s operations", async (m
     const client = { ...identifiedClient("owner@example.com"), connId: "private-connection" };
     const request = { agentId: "main", limit: 1, includeDerivedTitles: true };
     await initializeSessionReadContext(context);
+    await getSessionRowProjection(context)!.ensureMaterialized();
     const owner = getSessionRowProjection(context)!;
     const ensure = owner.ensureMaterialized.bind(owner);
     const warn = mode === "slow-warning";
@@ -212,6 +213,7 @@ test("reports materialized and reused selected rows after a keyed commit", async
     const context = requestContext(await seedSessions());
     const client = identifiedClient("owner@example.com");
     await initializeSessionReadContext(context);
+    await getSessionRowProjection(context)!.ensureMaterialized();
     const projection = getSessionRowProjection(context)!;
     const initial = await listSessions({ client, context, request: { agentId: "main", limit: 1 } });
     const query = { agentId: "main", key: initial.sessions[0]!.key };
@@ -249,6 +251,7 @@ test("captures a fast failed readiness wait while preserving the original error"
     const context = requestContext(await seedSessions());
     const client = identifiedClient("owner@example.com");
     await initializeSessionReadContext(context);
+    await getSessionRowProjection(context)!.ensureMaterialized();
     setDiagnosticsEnabledForProcess(false);
     vi.spyOn(performance, "now").mockImplementation(() => clock);
     const failure = new Error("synthetic-private-projection-error");
@@ -296,6 +299,7 @@ test.each([
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const context = requestContext(await seedSessions());
       await initializeSessionReadContext(context);
+      await getSessionRowProjection(context)!.ensureMaterialized();
       setDiagnosticsEnabledForProcess(false);
       vi.spyOn(performance, "now").mockImplementation(() => clock);
       const failure = new Error("synthetic-private-synchronous-error");
@@ -309,7 +313,7 @@ test.each([
         throw failure;
       };
       if (stage === "selection") {
-        vi.spyOn(getSessionRowProjection(context)!, "select").mockImplementation(fail);
+        vi.spyOn(getSessionRowProjection(context)!, "selectEntries").mockImplementation(fail);
       } else if (stage === "row") {
         vi.spyOn(sessionRows, "presentSessionRow").mockImplementation(fail);
       }
@@ -362,6 +366,7 @@ test("attributes concurrent presentation and readiness waits to each request tra
     const client = identifiedClient("owner@example.com");
     const request = { agentId: "main", limit: 1 };
     await initializeSessionReadContext(context);
+    await getSessionRowProjection(context)!.ensureMaterialized();
     const projection = getSessionRowProjection(context)!;
     const ensure = projection.ensureMaterialized.bind(projection);
     const release = createDeferredCore();
@@ -432,6 +437,7 @@ test("reports fresh visibility after a readiness yield without charging the wait
     const client = identifiedClient("viewer@example.com");
     const context = requestContext(config);
     await initializeSessionReadContext(context);
+    await getSessionRowProjection(context)!.ensureMaterialized();
     const projection = getSessionRowProjection(context)!;
     controlProjectionClock(projection);
     const ensure = projection.ensureMaterialized.bind(projection);
@@ -476,6 +482,7 @@ test.each([
     const context = requestContext(await seedSessions());
     const client = identifiedClient("owner@example.com");
     await initializeSessionReadContext(context);
+    await getSessionRowProjection(context)!.ensureMaterialized();
     const projection = getSessionRowProjection(context)!;
     const cpuThrows = mode === "cpu-start-throws" || mode === "cpu-finish-throws";
     controlProjectionClock(projection, () => {
@@ -543,9 +550,10 @@ test("preserves the original selection error even when its slow diagnostic sink 
     const context = requestContext(await seedSessions());
     const client = identifiedClient("owner@example.com");
     await initializeSessionReadContext(context);
+    await getSessionRowProjection(context)!.ensureMaterialized();
     vi.spyOn(performance, "now").mockImplementation(() => clock);
     const failure = new Error("synthetic projection failure");
-    vi.spyOn(getSessionRowProjection(context)!, "select").mockImplementationOnce(() => {
+    vi.spyOn(getSessionRowProjection(context)!, "selectEntries").mockImplementationOnce(() => {
       clock += 1_500;
       cpu.user += 500;
       cpu.system += 125;

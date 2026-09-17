@@ -561,13 +561,14 @@ const mergeAuthorizationCommand = `
 enter_worktree() { PR_MAIN_SHA=${mainSha}; }
 refresh_main_snapshot() { PR_MAIN_SHA=${mainSha}; }
 verify_prep_branch_matches_prepared_head() { :; }
+review_artifact_preflight() { :; }
 validate_review_artifact_data() { :; }
 require_ready_review_recommendation() { :; }
 mark_pr_operation_side_effects_started() { :; }
 is_canonical_pr_number() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
 merge_outcome_load_local() { MERGE_OUTCOME_OID=""; MERGE_OUTCOME_RECORD=""; }
 merge_outcome_write() { MERGE_OUTCOME_RECORD="$1"; printf '%s\\n' "$1" > .local/intent.json; }
-for artifact in review.md review.json pr-meta.env pr-meta.json prep.md; do
+for artifact in review.json pr-meta.env pr-meta.json prep.md; do
   echo fixture > ".local/$artifact"
 done
 printf '%s\\n' PREP_HEAD_SHA=${headSha} PREP_REPLACED_HOSTED_ANCESTRY=false PREP_AUTHOR_ACCESS=maintainer > .local/prep.env

@@ -32,6 +32,7 @@ import {
 } from "../../infra/update-channels.js";
 import { CONTROL_PLANE_UPDATE_HANDOFF_STARTED_REASON } from "../../infra/update-control-plane-sentinel.js";
 import { devUpdateTargetFromGitTarget } from "../../infra/update-dev-target.js";
+import { createUpdateErrorFact } from "../../infra/update-failure-facts.js";
 import { FreeBsdPkgOwnershipError } from "../../infra/update-freebsd-pkg-ownership.js";
 import { resolveUpdateInstallRoot } from "../../infra/update-install-root.js";
 import {
@@ -56,7 +57,6 @@ import {
   createUpdateRun,
   finishUpdateRun,
   getUpdateRun,
-  heartbeatUpdateRun,
   recordUpdateRunPhase,
   recordUpdateRunStep,
   recordUpdateRunVerification,
@@ -80,6 +80,10 @@ import { parseRestartRequestParams } from "./restart-request.js";
 import type { GatewayRequestHandlers } from "./types.js";
 import { recordHandoffFailure, resolveGatewayUpdateAdmission } from "./update-admission.js";
 import { updateReportHandler } from "./update-report.js";
+import {
+  createUnexpectedUpdateFailureResult,
+  createUpdateRunRecording,
+} from "./update-run-recording.js";
 import { updateStatusHandlers } from "./update-status.js";
 import { assertValidParams } from "./validation.js";
 
@@ -159,7 +163,12 @@ export const updateHandlers: GatewayRequestHandlers = {
     });
     wakeUpdateRunWatcher();
 
-    let result: Awaited<ReturnType<typeof runGatewayUpdate>>;
+    let result: Awaited<ReturnType<typeof runGatewayUpdate>> = {
+      status: "error",
+      mode: "unknown",
+      steps: [],
+      durationMs: 0,
+    };
     let handoff:
       | { status: "started"; pid?: number; command: string }
       | { status: "already-running" | "unavailable"; command: string; message: string }
@@ -228,6 +237,8 @@ export const updateHandlers: GatewayRequestHandlers = {
       const configChannel = normalizeUpdateChannel(config.update?.channel);
       const { status, installSurface } = await resolveGatewayUpdateAdmission(timeoutMs);
       const installRoot = installSurface.root;
+      result.mode = installSurface.mode;
+      result.root = installRoot;
       const refusedUpdate = (
         outcome: "error" | "skipped",
         reason: string,
@@ -517,20 +528,7 @@ export const updateHandlers: GatewayRequestHandlers = {
         recordUpdateRunPhase(runId, "staging");
         result = await runGatewayUpdate({
           runId,
-          progress: {
-            onHeartbeat: () => heartbeatUpdateRun(runId, driver),
-            onStepStart: (step) =>
-              recordUpdateRunStep(runId, {
-                step: step.name,
-                status: "in_progress",
-                startedAtMs: Date.now(),
-              }),
-            onStepComplete: (step) => {
-              for (const entry of updateRunStepsFromResultStep(step)) {
-                recordUpdateRunStep(runId, { ...entry, endedAtMs: Date.now() });
-              }
-            },
-          },
+          ...createUpdateRunRecording(runId, driver, sentinelMeta),
           timeoutMs,
           cwd: installSurface.root,
           channel:
@@ -565,13 +563,7 @@ export const updateHandlers: GatewayRequestHandlers = {
         outcomeMessage = error.message;
       }
       context?.logGateway?.warn(`update.run failed error=${formatErrorMessage(error)}`);
-      result = {
-        status: "error",
-        mode: "unknown",
-        reason: error instanceof FreeBsdPkgOwnershipError ? error.reason : "unexpected-error",
-        steps: [],
-        durationMs: 0,
-      };
+      result = createUnexpectedUpdateFailureResult(run, result, error);
     }
 
     result = normalizeControlPlaneUpdateResult(result);
@@ -629,12 +621,17 @@ export const updateHandlers: GatewayRequestHandlers = {
         await writeRestartSentinel(payload);
         sentinelPersisted = true;
         recordLatestUpdateRestartSentinel(payload);
-      } catch {
+      } catch (error) {
         if (result.status === "ok" && handoff?.status !== "started") {
           outcomeMessage =
             "The update was installed, but its restart notice could not be saved. Run openclaw update status after the gateway restarts.";
           recordUpdateRunPhase(runId, "restarting", {
             origin: { nextAction: outcomeMessage },
+            step: {
+              step: "restarting",
+              status: "failed",
+              failureFacts: [createUpdateErrorFact("restarting", error)],
+            },
           });
           outcomeRun = finishUpdateRun(runId, {
             status: "failed",

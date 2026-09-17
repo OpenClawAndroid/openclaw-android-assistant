@@ -500,7 +500,13 @@ describe("composed cleanup and terminal outcome", () => {
       expect(value.exitCode).toBe(1);
       expect(value.jsonOutput).toHaveLength(1);
       const report = value.jsonOutput[0];
-      expect(report).toMatchObject({ status: "error", reason });
+      expect(report).toMatchObject({
+        status: "error",
+        reason,
+        failedStep: {
+          name: settlementFailed ? "update executor settlement" : "global install backup retention",
+        },
+      });
       expect(value.sentinel).toMatchObject({ payload: { status: "error", stats: { reason } } });
       expect(value.history?.status).toBe("failed");
       expect.soft(value.history?.downtimeMs).toBe(settlementFailed ? null : 0);

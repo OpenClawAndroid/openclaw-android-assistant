@@ -44,6 +44,8 @@ const ROOT_TEST_ENTRY_GLOBS = [
   "src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts}!",
   "scripts/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts}!",
   "test/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts}!",
+  // The PR artifact Vitest suite launches this standalone Node regression by path.
+  "test/scripts/pr-review-artifacts.node.mjs!",
   // tsgo:test:root checks these compile-only contracts without runtime imports.
   "test/type-contracts/**/*.ts!",
   // The module-generation test launches this Bun regression directly from its source path.

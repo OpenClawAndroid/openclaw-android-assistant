@@ -7,6 +7,7 @@ import { cloneConfigWithResolutionFacts } from "../../../config/resolution-facts
 import { isPluginSourceModulePath } from "../../../plugins/native-module-require.js";
 import { getCachedPluginModuleLoader } from "../../../plugins/plugin-module-loader-cache.js";
 import { applyChannelDoctorCompatibilityMigrations } from "./channel-legacy-config-migrate.js";
+import { resolveChannelAccountBindingRepairInput } from "./legacy-config-binding-repair-input.js";
 import { LEGACY_CONFIG_MIGRATIONS } from "./legacy-config-migrations.js";
 
 const require = createRequire(import.meta.url);
@@ -65,7 +66,7 @@ export function applyLegacyDoctorMigrations(
   const ownership: ReturnType<
     typeof import("./legacy-config-binding-repair.runtime.js").repairUnownedChannelAccountBindings
   > =
-    options.pluginContracts !== false
+    options.pluginContracts !== false && resolveChannelAccountBindingRepairInput(compat.next)
       ? loadBindingRepair().repairUnownedChannelAccountBindings({
           config: compat.next,
           sourceConfigBeforeMigrations: options.sourceConfigBeforeMigrations,

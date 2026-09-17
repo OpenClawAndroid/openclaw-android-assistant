@@ -149,6 +149,22 @@ function resolveCommand(command: string): string {
   throw new Error(`command not found in test PATH: ${command}`);
 }
 
+function seedReadyReview(fixture: ReturnType<typeof makeMismatchedWrapperRepo>) {
+  const reviewRoot = join(fixture.canonical, ".worktrees", "pr-123");
+  fixture.git(fixture.canonical, [
+    "worktree",
+    "add",
+    "--detach",
+    reviewRoot,
+    fixture.localRevision,
+  ]);
+  const review = validReview(fixture.localRevision);
+  review.pr.number = 123;
+  review.recommendation = "READY FOR /prepare-pr";
+  review.issueValidation.status = "valid";
+  writeReviewArtifacts(reviewRoot, review, { prNumber: 123, headSha: fixture.localRevision });
+}
+
 function parseSubcommandClassifications(script: string): Map<string, string> {
   const start = script.indexOf("# PR_SUBCOMMAND_CLASSIFICATIONS_BEGIN");
   const end = script.indexOf("# PR_SUBCOMMAND_CLASSIFICATIONS_END");
@@ -556,6 +572,9 @@ describe("scripts/pr wrappers", () => {
     "routes mismatched %s to the canonical wrapper despite opt-in",
     (command) => {
       const fixture = makeMismatchedWrapperRepo();
+      if (command === "prepare-run") {
+        seedReadyReview(fixture);
+      }
       const result = spawnSync(
         join(fixture.linked, "scripts", "pr"),
         [
@@ -821,7 +840,7 @@ fi
             'script_parent_dir="$1/scripts"',
             'source "$script_parent_dir/pr-lib/review.sh"',
             'node "$(review_artifacts_helper_path)" template "$2" "$3"',
-            'node "$(review_artifacts_helper_path)" validate .local/review.json .local/review.md .local/pr-meta.json',
+            'node "$(review_artifacts_helper_path)" validate .local/review.json .local/pr-meta.json',
           ].join("\n"),
           "anchor-review",
           anchor,
@@ -1032,6 +1051,7 @@ exit 99
 
   it("routes a mismatched landing subcommand through the materialized anchor", () => {
     const fixture = makeMismatchedWrapperRepo();
+    seedReadyReview(fixture);
     parkCanonicalOffAnchor(fixture);
     const result = spawnSync(join(fixture.linked, "scripts", "pr"), ["prepare-run", "123"], {
       cwd: fixture.linked,
@@ -1093,9 +1113,7 @@ exit 99
       number: 123,
       headSha: fixture.localRevision,
     });
-    expect(readScript(join(reviewRoot, ".local", "review.md")).split("\n")[0]).toBe(
-      `Review artifact for PR #123 at ${fixture.localRevision}`,
-    );
+    expect(existsSync(join(reviewRoot, ".local", "review.md"))).toBe(false);
   });
 
   it.each([

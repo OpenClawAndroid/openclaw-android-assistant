@@ -13,6 +13,7 @@ import {
   relativizeScopedPatterns,
 } from "../test/vitest/vitest.pattern-file.ts";
 import { loadVitestPerformanceConfig } from "../test/vitest/vitest.performance-config.ts";
+import { createRedactingReporterPlugin } from "../test/vitest/vitest.reporters.ts";
 import {
   jsdomOptimizedDeps,
   nonIsolatedRunnerPath,
@@ -163,7 +164,7 @@ const chromiumLaunchOptions = resolveChromiumLaunchOptions();
 export function createUiBrowserVitestConfig(env = process.env): ViteUserConfig {
   return defineProject({
     root: here,
-    plugins: [controlUiLocaleModulesPlugin()],
+    plugins: [controlUiLocaleModulesPlugin(), createRedactingReporterPlugin()],
     optimizeDeps: {
       include: [
         // These controls share wa-popup's eager registration. Optimize them together
@@ -217,6 +218,7 @@ export function createUiBrowserVitestConfig(env = process.env): ViteUserConfig {
 
 export default defineConfig({
   root: here,
+  plugins: [createRedactingReporterPlugin()],
   resolve: {
     alias: workspaceSourceAliases,
   },

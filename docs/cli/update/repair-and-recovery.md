@@ -16,6 +16,11 @@ After a failed interactive update or repair, OpenClaw finishes cleanup and offer
 **Diagnose update failure**, **Report update failure**, or **Exit**. Reporting
 previews the sanitized issue body and requires separate confirmation.
 
+Unexpected exceptions retain the known update mode, resolved target, failed step,
+and any recorded recovery outcome. Reports include a bounded, redacted error code
+or name and first message line through the same diagnostics as failed commands;
+unrecognized private text and stack traces are excluded from the public preview.
+
 Choosing **Diagnose update failure** opens [Triage](/cli/triage), which starts the
 first directly launchable coding agent on `PATH`, in this order: Claude Code,
 Codex, OpenCode, then Pi. It passes the captured update failure directly and leaves

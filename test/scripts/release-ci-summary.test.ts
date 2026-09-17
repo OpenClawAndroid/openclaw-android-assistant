@@ -17,7 +17,7 @@ import { crc32 } from "node:zlib";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
-import { preflightContinuation } from "../../scripts/frv.mjs";
+import { continueFailed, preflightContinuation } from "../../scripts/frv.mjs";
 import { buildFullReleaseCandidateRequest } from "../../scripts/full-release-candidate-contract.mjs";
 import {
   createPublicationAdmission,
@@ -308,6 +308,7 @@ describe("original publication admission reader", () => {
       }
       const result = preflightContinuation(observed, fixture.runId, {
         getReleaseEvidenceClient: () => client,
+        getRun: client.getRun,
         getParentJobs: async () => [
           ...originalJobs,
           ...fixture.client.getParentJobs(fixture.runId),
@@ -2362,6 +2363,112 @@ describe("release CI summary child correlation", () => {
 
     expectDefined(fixture.runs[0], "CI run").status = "in_progress";
     await expect(validateReleaseRunEvidence(options, fixture.client)).rejects.toThrow();
+  });
+
+  it("continues a failed npm producer through the real release evidence verifier", async () => {
+    const fixture = trustedMainNpmFixture();
+    const repository = "openclaw/openclaw";
+    const producer = {
+      ...fixture.parentRun,
+      id: 81,
+      head_repository: { full_name: repository },
+      path: ".github/workflows/full-release-artifacts.yml",
+      display_title: `Full Release Artifacts full-release-validation-${fixture.runId}-1-artifacts-npm`,
+      conclusion: "failure",
+    };
+    const originalParent = {
+      ...fixture.parentRun,
+      display_title: "Full Release Validation",
+      conclusion: "failure",
+    };
+    Object.assign(fixture.parentRun, originalParent);
+    const resolveId = 901;
+    const npmId = 902;
+    const sourceJobs = fixture.client.getParentJobs(fixture.runId);
+    const sourceLog = fixture.client.getJobLog;
+    const getJobLog = async (id: number) => {
+      if (id === resolveId) {
+        return `RERUN_GROUP: all\nFAIL_FAST: false\nTARGET_SHA: ${fixture.targetSha}`;
+      }
+      if (id === npmId) {
+        return `TARGET_SHA: ${fixture.targetSha}\nDispatched full-release-artifacts.yml: https://github.com/${repository}/actions/runs/81 (attempt 1)`;
+      }
+      return sourceLog(id);
+    };
+    const getRun = async (id: string) =>
+      structuredClone(id === "81" ? producer : fixture.client.getRun(id));
+    const rerunFailed = vi.fn(async (id: string) => {
+      expect(id).toBe("81");
+      producer.run_attempt = 2;
+      producer.conclusion = "success";
+    });
+    const rerunParent = vi.fn(async () => {
+      fixture.parentRun.run_attempt = 2;
+      fixture.parentRun.conclusion = "success";
+      fixture.parentView.attempt = 2;
+      fixture.manifest.runAttempt = "2";
+      fixture.artifact.name = `full-release-validation-${fixture.runId}-2`;
+      fixture.client.getParentJobs.mockReturnValue([
+        ...sourceJobs,
+        ...sourceJobs.map((job) => ({
+          ...job,
+          id: job.id + 1000,
+          run_attempt: 2,
+          conclusion: "skipped",
+          started_at: "2026-07-10T02:00:00Z",
+          completed_at: "2026-07-10T02:01:00Z",
+        })),
+      ]);
+    });
+    const verify = vi.fn(
+      async (
+        runId: string,
+        _plan: unknown,
+        _deadline?: number,
+        expectedRunAttempts?: Record<string, number>,
+      ) =>
+        validateReleaseRunEvidence(
+          {
+            runId,
+            expectedRunAttempts,
+            verifierSourceContent: readFileSync(SCRIPT),
+            verifierSourceSha: "c".repeat(40),
+          },
+          fixture.client,
+        ),
+    );
+    await expect(
+      continueFailed(fixture.executionPlan, fixture.runId, {
+        repository,
+        getRun,
+        getRunAttempt: async (id: string) => (id === fixture.runId ? originalParent : getRun(id)),
+        getAttemptJobs: async (id: string) => fixture.client.getRunAttemptJobs(id),
+        getParentJobs: async () => [
+          ...sourceJobs,
+          ...[
+            [resolveId, "Resolve target ref"],
+            [npmId, "Prepare release npm artifacts"],
+          ].map(([id, name]) => ({
+            id,
+            name,
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success",
+          })),
+        ],
+        getJobLog,
+        getReleaseEvidenceClient: () => ({
+          ...createReleaseEvidenceClient(repository),
+          getWorkflowSource: () => "node scripts/full-release-artifacts.mjs resolve",
+        }),
+        rerunFailed,
+        rerunParent,
+        verify,
+      }),
+    ).resolves.toMatchObject({ action: "reran-parent" });
+    expect(rerunFailed).toHaveBeenCalledExactlyOnceWith("81");
+    expect(rerunParent).toHaveBeenCalledExactlyOnceWith(fixture.runId);
+    expect((await verify.mock.results[0]!.value).children).toHaveLength(5);
   });
 
   it.each(["complete", "deleted-manifest", "deleted-plan", "changed-plan", "deleted-publication"])(

@@ -30,6 +30,8 @@ import {
   restoreEnvChangesIfUnchanged,
   snapshotEnv,
 } from "./io.read-helpers.js";
+import { materializeConfigSnapshotDefaults } from "./io.snapshot-preparation.js";
+import type { CapturedConfigSnapshotPreparation } from "./io.snapshot-preparation.types.js";
 import {
   collectInvalidConfigLegacyIssues,
   createConfigFileSnapshot,
@@ -51,10 +53,12 @@ import {
 } from "./legacy.js";
 import { materializeRuntimeConfig } from "./materialize.js";
 import { ConfigMutationConflictError } from "./mutation-conflict.js";
+import { captureManagedConfigSnapshotPreparation } from "./runtime-snapshot.js";
 import type { ConfigFileSnapshot, LegacyConfigIssue, OpenClawConfig } from "./types.js";
 import { validateConfigObjectWithPlugins } from "./validation.js";
 
 type InternalReadOptions = {
+  preparation?: CapturedConfigSnapshotPreparation | null;
   allowCurrentPluginMetadata?: boolean;
   recoverSuspicious?: boolean;
   skipSuspiciousRecovery?: boolean;
@@ -85,7 +89,27 @@ export async function readConfigFileSnapshotInternal(
   options: InternalReadOptions = {},
   sourceRaw?: string,
 ): Promise<ReadConfigFileSnapshotInternalResult> {
+  const preparation =
+    options.preparation === undefined
+      ? captureManagedConfigSnapshotPreparation(context.configPath)
+      : options.preparation;
+  preparation?.assertCurrent();
+  const result = await readConfigSnapshotWithPreparation(
+    context,
+    { ...options, preparation },
+    sourceRaw,
+  );
+  preparation?.assertCurrent();
+  return result;
+}
+
+async function readConfigSnapshotWithPreparation(
+  context: ConfigIoContext,
+  options: InternalReadOptions,
+  sourceRaw: string | undefined,
+): Promise<ReadConfigFileSnapshotInternalResult> {
   const { deps, configPath, pathResolution } = context;
+  const preparation = options.preparation;
   maybeLoadDotEnvForConfig(deps.env);
   const envBeforeRead = snapshotEnv(deps.env);
   if (sourceRaw === undefined && !deps.fs.existsSync(configPath)) {
@@ -96,7 +120,6 @@ export async function readConfigFileSnapshotInternal(
       env: deps.env,
       allowCurrentPluginMetadata: options.allowCurrentPluginMetadata,
     });
-    const coreOnly = context.options.pluginValidation === "core-only";
     const legacyIssues: LegacyConfigIssue[] = [];
     return await finalizeReadConfigSnapshotInternalResult(deps, {
       snapshot: createConfigFileSnapshot({
@@ -109,12 +132,11 @@ export async function readConfigFileSnapshotInternal(
         // Missing config is the fresh-install default path: materialize the
         // same runtime defaults an existing empty {} config gets, so snapshot
         // consumers see identical out-of-box behavior either way.
-        runtimeConfig: materializeRuntimeConfig(config, {
-          ...pathResolution,
-          ...(coreOnly
-            ? { manifestRegistry: { plugins: [] } }
-            : { loadManifestRegistry: () => metadata.load(config).manifestRegistry }),
-        }),
+        runtimeConfig: preparation
+          ? await preparation((prepare) =>
+              prepare({ kind: "materialize", context, metadata, config }),
+            )
+          : materializeConfigSnapshotDefaults(context, config, metadata),
         hash: hashConfigRaw(null),
         issues: [],
         warnings: [],
@@ -252,20 +274,30 @@ export async function readConfigFileSnapshotInternal(
     const { deferredPluginMigrations, validated } = await deps.measure(
       "config.snapshot.read.validate",
       () =>
-        withSynchronousArtifactPreservingStateSnapshot(() => {
-          const pending = context.resolveDeferredPluginMigrations();
-          return {
-            deferredPluginMigrations: pending,
-            validated: validateConfigObjectWithPlugins(validationConfigRaw, {
-              ...pathResolution,
-              pluginValidation: context.options.pluginValidation,
-              loadPluginMetadataSnapshot: pluginMetadata.load,
-              sourceRaw: effectiveParsed,
-              preservedLegacyRootKeys: context.options.preservedLegacyRootKeys,
-              deferredPluginMigrations: pending,
+        preparation
+          ? preparation((prepare) =>
+              prepare({
+                kind: "validate",
+                context,
+                metadata: pluginMetadata,
+                raw: validationConfigRaw,
+                sourceRaw: effectiveParsed,
+              }),
+            )
+          : withSynchronousArtifactPreservingStateSnapshot(() => {
+              const pending = context.resolveDeferredPluginMigrations();
+              return {
+                deferredPluginMigrations: pending,
+                validated: validateConfigObjectWithPlugins(validationConfigRaw, {
+                  ...pathResolution,
+                  pluginValidation: context.options.pluginValidation,
+                  loadPluginMetadataSnapshot: pluginMetadata.load,
+                  sourceRaw: effectiveParsed,
+                  preservedLegacyRootKeys: context.options.preservedLegacyRootKeys,
+                  deferredPluginMigrations: pending,
+                }),
+              };
             }),
-          };
-        }),
     );
     if (!validated.ok) {
       const availableSnapshot = pluginMetadata.getSnapshot();
@@ -356,6 +388,7 @@ export async function readConfigFileSnapshotInternal(
           after: snapshotEnv(deps.env),
         });
         return await readConfigFileSnapshotInternal(context, {
+          preparation,
           allowCurrentPluginMetadata: options.allowCurrentPluginMetadata,
           recoverSuspicious: options.recoverSuspicious,
           skipSuspiciousRecovery: true,
@@ -403,6 +436,7 @@ export async function readConfigFileSnapshotInternal(
       ),
     );
   } catch (error) {
+    preparation?.assertCurrent();
     if (findStartupMaintenanceRequiredError(error)) {
       throw error;
     }
@@ -516,7 +550,9 @@ export async function readConfigFileSnapshotWithPluginMetadataFromContext(
   context: ConfigIoContext,
   options: ConfigSnapshotReadOptions = {},
 ): Promise<ReadConfigFileSnapshotWithPluginMetadataResult> {
+  const preparation = captureManagedConfigSnapshotPreparation(context.configPath);
   const result = await readConfigFileSnapshotInternal(context, {
+    preparation,
     allowCurrentPluginMetadata: options.allowCurrentPluginMetadata,
     recoverSuspicious: options.recoverSuspicious === true,
     allowSuspiciousRecovery: options.allowSuspiciousRecovery,
@@ -528,9 +564,20 @@ export async function readConfigFileSnapshotWithPluginMetadataFromContext(
       env: context.deps.env,
       allowCurrentPluginMetadata: options.allowCurrentPluginMetadata,
     });
-    pluginMetadata.load(result.snapshot.sourceConfig);
+    if (preparation) {
+      await preparation((prepare) =>
+        prepare({
+          kind: "metadata",
+          metadata: pluginMetadata,
+          config: result.snapshot.sourceConfig,
+        }),
+      );
+    } else {
+      pluginMetadata.load(result.snapshot.sourceConfig);
+    }
     pluginMetadataSnapshot = pluginMetadata.getSnapshot();
   }
+  preparation?.assertCurrent();
   return {
     snapshot: result.snapshot,
     ...(pluginMetadataSnapshot ? { pluginMetadataSnapshot } : {}),

@@ -260,7 +260,11 @@ function fixture(
   const save = (state: typeof initial) => {
     writeFileSync(statePath, JSON.stringify(state));
     if (!state.review) {
-      writeFileSync(join(worktree, ".local/review.md"), "stale review\n");
+      const file = join(worktree, ".local/review.json");
+      writeFileSync(
+        file,
+        JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), docs: "invalid" }),
+      );
     }
     if (!state.ready) {
       const file = join(worktree, ".local/review.json");
@@ -1720,7 +1724,6 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
     "wrong-approval",
     "malformed-approval",
     "review-json",
-    "review-markdown",
     "meta-head",
     "prep-context",
     "prep-head",
@@ -1732,7 +1735,7 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
     "head-during-checks",
     "prep.env",
     "gates.env",
-    "review.md",
+    "review.json",
   ])("replacement recovery refuses stale or unapproved evidence: %s", (fault) => {
     const f = fixture();
     f.save({ ...f.state(), mode: "unapplied" });
@@ -1756,13 +1759,12 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
     if (fault === "head-during-checks") {
       next.duringChecks = { head: f.head };
     }
-    if (["prep.env", "gates.env", "review.md"].includes(fault)) {
+    if (["prep.env", "gates.env", "review.json"].includes(fault)) {
       next.duringChecks = { artifact: fault };
     }
     f.save(next);
     const staleArtifact: Record<string, string> = {
       "review-json": "review.json",
-      "review-markdown": "review.md",
       "meta-head": "pr-meta.env",
       "prep-context": "prep-context.env",
       "prep-head": "prep.env",

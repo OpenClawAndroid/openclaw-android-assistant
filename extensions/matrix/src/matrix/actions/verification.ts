@@ -505,6 +505,7 @@ export async function getMatrixVerificationStatus(
       } else {
         await client.prepareForOneOff();
       }
+      await client.refreshOwnDeviceKeys();
       return await readMatrixVerificationStatus(client, opts);
     },
     "discard",

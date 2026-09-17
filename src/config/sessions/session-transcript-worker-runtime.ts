@@ -20,6 +20,8 @@ import type {
 } from "./session-accessor.types.js";
 import { SessionTranscriptColdError } from "./session-cold-storage-state.js";
 import type { SessionHistoryWorkerResult } from "./session-history-types.js";
+import { listSessionMembers } from "./session-sharing-store.js";
+import type { SessionMember } from "./session-sharing-store.kernel.js";
 import { resolveSessionStorePathForScope } from "./session-store-path.js";
 import { SessionTranscriptProjectionUnavailableError } from "./session-transcript-projection-error.js";
 import {
@@ -31,6 +33,7 @@ import type {
   SessionBranchSummaryWorkerInput,
   SessionTranscriptHistoryWorkerInput,
   SessionRowPresenceWorkerInput,
+  SessionMembersWorkerInput,
   SessionModelContextWorkerInput,
   SessionTranscriptWorkerReply,
 } from "./session-transcript.worker.js";
@@ -52,8 +55,8 @@ const sessionEntries = new WorkerTaskPool<
 >({ workerUrl, maxWorkers: 1, sharedCompute: true });
 
 const historyPages = new WorkerTaskPool<
-  SessionTranscriptHistoryWorkerInput | SessionRowPresenceWorkerInput,
-  SessionTranscriptWorkerReply<"history-page" | "session-row-presence">
+  SessionTranscriptHistoryWorkerInput | SessionRowPresenceWorkerInput | SessionMembersWorkerInput,
+  SessionTranscriptWorkerReply<"history-page" | "session-row-presence" | "session-members">
 >({
   workerUrl,
   maxWorkers: 1,
@@ -76,7 +79,8 @@ function unwrapReply<
     | "session-entry"
     | "history-page"
     | "branch-summaries"
-    | "session-row-presence",
+    | "session-row-presence"
+    | "session-members",
 >(reply: SessionTranscriptWorkerReply<Kind>) {
   if (reply.ok) {
     return reply.value;
@@ -153,6 +157,9 @@ export type SessionHistoryWorkerDatabase = {
     inputBytes: number,
   ) => Promise<SessionHistoryWorkerResult>;
   readEntryPresence: (scope: SessionRowPresenceWorkerInput["scope"]) => Promise<boolean>;
+  readMembers: (
+    input: Omit<SessionMembersWorkerInput, "kind" | "database">,
+  ) => Promise<SessionMember[]>;
 };
 
 /** Capture the exact metadata owner before initial-writer admission can wait. */
@@ -186,6 +193,24 @@ export function prepareSessionEntryPresenceRead(input: SessionAccessScope): Read
             async (owner) => await owner.readEntryPresence(scope),
           ),
   };
+}
+
+/** Full membership evidence shares the existing read-only agent database worker. */
+export async function listSessionMembersInWorker(
+  input: SessionAccessScope,
+): Promise<SessionMember[]> {
+  const env = { ...(input.env ?? process.env) };
+  env.OPENCLAW_STATE_DIR = resolveStateDir(env);
+  const resolved = resolveSqliteScope({ ...input, env });
+  const options = toDatabaseOptions(resolved);
+  const databasePath = resolveOpenClawAgentSqlitePath(options);
+  if (isIncognitoOpenClawAgentSqlitePath(databasePath, options)) {
+    // Incognito SQLite exists only in this process and keeps its native owner.
+    return listSessionMembers({ ...input, env });
+  }
+  return await withSessionHistoryWorkerDatabase(options, (owner) =>
+    owner.readMembers({ sessionKey: resolved.sessionKey, env }),
+  );
 }
 
 const historyDatabases = new Map<string, HistoryDatabaseResource>();
@@ -293,9 +318,10 @@ export async function withSessionHistoryWorkerDatabase<T>(
     const runRequest = async <TResult>(
       prepare: () =>
         | Omit<SessionTranscriptHistoryWorkerInput, "database">
-        | Omit<SessionRowPresenceWorkerInput, "database">,
+        | Omit<SessionRowPresenceWorkerInput, "database">
+        | Omit<SessionMembersWorkerInput, "database">,
       inputBytes: number,
-      receive: (value: SessionHistoryWorkerResult | boolean) => TResult,
+      receive: (value: SessionHistoryWorkerResult | boolean | SessionMember[]) => TResult,
     ): Promise<TResult> => {
       assertCurrent();
       let sequence = 0;
@@ -311,7 +337,9 @@ export async function withSessionHistoryWorkerDatabase<T>(
           },
           { inputBytes, timeoutMs: 60_000 },
         );
-        const value = receive(unwrapReply<"history-page" | "session-row-presence">(reply));
+        const value = receive(
+          unwrapReply<"history-page" | "session-row-presence" | "session-members">(reply),
+        );
         if (reply.ok && reply.closedHistoryDatabase) {
           const closed = historyDatabases.get(JSON.stringify(reply.closedHistoryDatabase));
           // A later dispatched request may already hold this target's next native custody.
@@ -333,11 +361,22 @@ export async function withSessionHistoryWorkerDatabase<T>(
       assertCurrent,
       run: async (prepare, inputBytes) =>
         await runRequest(prepare, inputBytes, (value) => {
-          if (typeof value === "boolean") {
-            throw new Error("Session history worker returned metadata presence instead of history");
+          if (typeof value === "boolean" || Array.isArray(value)) {
+            throw new Error("Session history worker returned metadata instead of history");
           }
           return value;
         }),
+      readMembers: async (input) =>
+        await runRequest(
+          () => ({ kind: "session-members", ...input }),
+          JSON.stringify(input).length * 2,
+          (value) => {
+            if (!Array.isArray(value)) {
+              throw new Error("Session history worker returned another result instead of members");
+            }
+            return value;
+          },
+        ),
       readEntryPresence: async (scope) =>
         await runRequest(
           () => ({ kind: "session-row-presence", scope }),

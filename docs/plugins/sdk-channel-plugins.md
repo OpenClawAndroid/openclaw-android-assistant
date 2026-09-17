@@ -699,8 +699,8 @@ An opted-in adapter must honor the existing
 
 This optional field keeps older adapters source-compatible. An omitted or empty
 declaration leaves newly enabled scheduled actions denied. Existing bundled
-provider-owned message-management paths keep their admission rules. To support
-the new installed-plugin path,
+provider-owned interactive paths keep their admission rules. To support the new
+installed-plugin path,
 upgrade OpenClaw and the plugin, implement the request and retry checks above,
 declare only the covered actions, and load the updated registration. Existing
 direct-operator and interactive actions retain their admission rules. Upgrading

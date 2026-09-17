@@ -87,6 +87,9 @@ checkout revision. Partial, filtered or unknown plans retain the explicit step;
 release-gate dispatches retain their separate merge-tree proof. Both state
 repair passes, all static baseline ratchets and required Node failure aggregation
 remain unchanged.
+The explicit step prepares the runtime once with `pnpm build qaRuntime` before
+forking the config process and four state processes. A failed preparation stops
+the step before those launchers consume memory or attempt their own builds.
 The corpus uses the normal bundled-plugin resolver to select the prepared
 runtime from this checkout instead of forcing TypeScript plugin entrypoints.
 Plugins whose Doctor contracts require source loading retain that behavior;

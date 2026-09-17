@@ -650,9 +650,10 @@ export function createSlackProgressRuntime(runtimeParams: {
           progressDraft.reset();
         };
   // A queued turn can drain after its dispatch returned, so dispatch closeout is
-  // no longer available to settle the card it published. Leave none in Working.
+  // no longer available to settle its presentation. Quiet preambles are also
+  // temporary: leaving one behind falsely suggests the completed run is working.
   const onQueuedFollowupSettled =
-    !useDraftProgressCard && !useNativeProgressStreaming
+    !useDraftProgressCard && !useNativeProgressStreaming && !preambleOnlyProgress
       ? undefined
       : async () => {
           if (useNativeProgressStreaming) {
@@ -663,6 +664,13 @@ export function createSlackProgressRuntime(runtimeParams: {
                 ? undefined
                 : buildNativeProgressCompletionChunks(nativeProgressTerminalStatus),
             );
+            progressDraft.markFinalReplyDelivered();
+            return;
+          }
+          if (preambleOnlyProgress) {
+            progressDraft.markFinalReplyStarted();
+            await draftStream?.clear();
+            await draftStream?.dropDetachedMessages();
             progressDraft.markFinalReplyDelivered();
             return;
           }

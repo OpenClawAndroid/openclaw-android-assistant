@@ -540,15 +540,6 @@ function prepareScheduledMessageWriteContext(
   if (!policy || !ctx.messageActionAuthorization?.scheduled) {
     return undefined;
   }
-  if (
-    policy === "provider" &&
-    prepared.enforcement.kind === "provider-owned" &&
-    prepared.enforcement.pluginTrust === "bundled" &&
-    !prepared.plugin.actions?.writeAuthorityActions?.includes(action)
-  ) {
-    // Retain existing bundled provider admission until its adapter opts into this fence.
-    return undefined;
-  }
   const accountId =
     ctx.accountId ?? resolveChannelDefaultAccountId({ plugin: prepared.plugin, cfg: ctx.cfg });
   const access = resolveScheduledMessageActionAccess({

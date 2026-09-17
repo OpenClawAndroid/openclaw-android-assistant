@@ -26,7 +26,6 @@ import { assertPreparedSkillLibrarySelection } from "../../skills/library/select
 import {
   buildDashboardSessionTitleSource,
   generateWorktreeSessionTitle,
-  resolveExplicitSessionName,
 } from "../dashboard-session-title.js";
 import { ADMIN_SCOPE, authorizeOperatorScopesForRequiredScope } from "../method-scopes.js";
 import { ModelAccountConnectAuthorityError } from "../model-account-connect.js";
@@ -34,6 +33,7 @@ import { resolveSessionCreateCatalogSelectionError } from "../session-create-mod
 import { buildDashboardSessionKey, createGatewaySession } from "../session-create-service.js";
 import type { PreparedGatewaySessionLifecycle } from "../session-lifecycle-preparation.js";
 import { resolveRequestedSessionAgentId as resolveRequestedGlobalAgentId } from "../session-request-agent.js";
+import { resolveExplicitSessionName } from "../session-title-state.js";
 import {
   loadGatewaySessionEntryReadOnly,
   resolveGatewaySessionStoreTarget,

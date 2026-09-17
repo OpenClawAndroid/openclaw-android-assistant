@@ -1,5 +1,4 @@
-// Config patch tests cover control-UI config edits, secret-ref writes, auth
-// profile persistence, and rate limiting through a real Gateway owner.
+// Config RPCs cover control-UI edits, secrets, auth persistence, and rate limiting.
 import fsNode from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -9,6 +8,7 @@ import { withTestTimeout } from "../../test/helpers/promise.js";
 import { runQaGatewayFixture } from "../../test/helpers/qa-gateway-cleanup.js";
 import { resolveDefaultAgentDir } from "../agents/agent-scope.js";
 import { getRuntimeConfig } from "../config/config.js";
+import { prepareHostConfigSnapshot } from "../config/io.snapshot-preparation.js";
 import { REDACTED_SENTINEL } from "../config/redact-snapshot.js";
 import { resetGatewayRestartStateForInProcessRestart } from "../infra/restart.js";
 import { applyLoggingConfig, resetLogger, setLoggerOverride } from "../logging/logger.js";
@@ -143,7 +143,7 @@ async function startConfigRpcGateway({
   const port = await getFreePort();
   server = await startGatewayServer(port, {
     auth: { mode: "token", token: GATEWAY_TOKEN },
-    // These config RPCs do not exercise browser asset serving or preparation.
+    prepareConfigSnapshot: prepareHostConfigSnapshot,
     controlUiEnabled: false,
     hotReloadRecovery,
   });
@@ -207,9 +207,7 @@ async function writeJsonFile(filePath: string, value: unknown) {
 }
 
 async function getConfigHash() {
-  const current = await rpcReq<{
-    hash?: string;
-  }>(requireClient(), "config.get", {});
+  const current = await rpcReq(requireClient(), "config.get", {});
   expect(current.ok).toBe(true);
   expect(typeof current.payload?.hash).toBe("string");
   return String(current.payload?.hash);

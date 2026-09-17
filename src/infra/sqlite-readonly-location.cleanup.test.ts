@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import {
+  registerSignalExitBarrier,
+  waitForSignalExitBarriers,
+} from "../cli/signal-exit-barrier.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { adoptPreparedLocation } from "./sqlite-readonly-location-cleanup.js";
 import { readSqliteSchemaHeaderFromSnapshotAsync } from "./sqlite-schema-header.js";
@@ -26,6 +30,74 @@ function fixture(strict: boolean) {
 }
 
 describe("prepared SQLite snapshot cleanup", () => {
+  it.each([false, true])(
+    "retains all snapshot tokens when data removal fails (async: %s)",
+    async (asynchronous) => {
+      const { ownedRoot, prepared } = fixture(false);
+      const location = path.join(ownedRoot, "snapshot-child/database.sqlite");
+      const tokens = [ownedRoot, path.dirname(location)].map((directory) =>
+        path.join(directory, "owner.sqlite"),
+      );
+      for (const token of tokens) {
+        fs.writeFileSync(token, "");
+      }
+      const remove = fs.rmSync;
+      const failDataRemoval: typeof fs.rmSync = (target, options) => {
+        if (String(target) === ownedRoot) {
+          // A recursive rm may unlink metadata before reaching a busy data file.
+          for (const token of tokens) {
+            remove(token, { force: true });
+          }
+        }
+        if (String(target) === ownedRoot || String(target) === location) {
+          throw Object.assign(new Error("snapshot data still open"), { code: "EBUSY" });
+        }
+        remove(target, options);
+      };
+      const stub = asynchronous
+        ? vi
+            .spyOn(fs.promises, "rm")
+            .mockImplementation(async (target, options) => failDataRemoval(target, options))
+        : vi.spyOn(fs, "rmSync").mockImplementation(failDataRemoval);
+      try {
+        expect(asynchronous ? await prepared.cleanupAsync() : prepared.cleanup()).toBe(false);
+        expect(fs.existsSync(location)).toBe(true);
+        expect(tokens.every((token) => fs.existsSync(token))).toBe(true);
+      } finally {
+        stub.mockRestore();
+      }
+      expect(await prepared.cleanupAsync()).toBe(true);
+      expect(fs.existsSync(ownedRoot)).toBe(false);
+    },
+  );
+
+  it("keeps the private read view until other shutdown owners have drained", async () => {
+    const { ownedRoot } = fixture(false);
+    const entered = createDeferredCore();
+    const release = createDeferredCore();
+    const unregister = registerSignalExitBarrier(async () => {
+      entered.resolve();
+      await release.promise;
+      expect(fs.readFileSync(path.join(ownedRoot, "snapshot-child/database.sqlite"), "utf8")).toBe(
+        "private synthetic snapshot",
+      );
+    });
+    const removal = vi.spyOn(fs.promises, "rm");
+    const shutdown = waitForSignalExitBarriers();
+    try {
+      await entered.promise;
+      expect(removal).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      try {
+        await shutdown;
+      } finally {
+        unregister();
+      }
+    }
+    expect(fs.existsSync(ownedRoot)).toBe(false);
+  });
+
   it("retains header cancellation and failed async removal while cleanup remains retryable", async () => {
     const { ownedRoot, prepared } = fixture(false);
     const controller = new AbortController();

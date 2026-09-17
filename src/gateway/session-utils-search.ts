@@ -140,7 +140,7 @@ export function createSessionListSearchMatcher(params: {
     if (matchesSessionListSearch([identityNames.get(agentId)], search)) {
       return true;
     }
-    const source = target.materialized.source;
+    const source = expectDefined(target.materialized, "prepared search row").source;
     if (shouldResolveDerivedSessionModelSearchFields(search)) {
       const subagentRun = context().subagentRuns.getDisplaySubagentRun(storeKey);
       const resolvedModel = resolveSessionModelIdentityRef(

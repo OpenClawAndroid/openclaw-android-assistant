@@ -59,6 +59,19 @@ media imports or pending send admission finish before using the quick picker.
 The composer stays protected during handoff, but a committed offline Gateway
 remains usable without waiting for a network connection.
 
+## Dictation and attachments
+
+Tap the composer microphone to dictate. The composer shows when recognition is
+starting, listening, or transcribing, with an interim transcript while you speak.
+Only the final transcript is added to your draft. Tap Stop to finish listening,
+or Cancel while starting or transcribing to discard that attempt. Recognition
+errors leave your existing draft intact and explain how to retry.
+
+After picking or sharing photos and files, **Preparing attachments…** stays visible
+until they are ready. Send remains disabled during preparation. **Queuing message…**
+covers local send admission; the message's outbox status then shows delivery or
+any failure. Offline messages still use the durable queue.
+
 ## Wear OS companion
 
 The Wear OS companion uses the paired Android phone's authenticated Gateway connection; the watch never receives or stores Gateway credentials. It can select agents and sessions, read bounded transcripts, send text or dictated replies, abort an active run, start realtime Talk inside the selected session, and connect or disconnect the paired phone's Gateway. It also offers local reply notifications, dark or light appearance, and optional automatic speech for replies. Agent and Gateway controls are capability-negotiated for staggered phone/watch updates. Realtime Talk streams microphone and playback audio over a temporary Wear OS Data Layer channel and stops when the selected phone, Gateway connection, or audio channel is lost.

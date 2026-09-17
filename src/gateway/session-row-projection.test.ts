@@ -1,4 +1,5 @@
 import { renameSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it, vi } from "vitest";
 import { notifyPreparedModelRuntimePublication } from "../agents/prepared-model-runtime.publication-events.js";
@@ -35,6 +36,7 @@ it("resolves agent-scoped legacy locators from resident topology for reads and d
       );
     }
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       const main = projection.capture({ agentId: "main", key: "global" })!;
       const work = projection.capture({ agentId: "work", key: "global" })!;
@@ -60,9 +62,9 @@ it("resolves agent-scoped legacy locators from resident topology for reads and d
       exec.mockRestore();
       const before = projection.materializedCount;
       sessionChanges.emit({ agentId: "main", sessionKey: "global", storePath: locator });
-      expect(() =>
-        projection.snapshot({ agentId: "main", key: "global", storePath: locator }),
-      ).toThrow("Await session projection");
+      expect(
+        projection.snapshot({ agentId: "main", key: "global", storePath: locator }).row?.sessionId,
+      ).toBe("main-alias");
       expect(projection.describe({ agentId: "work", key: "global", storePath: locator })).toBe(
         work,
       );
@@ -94,6 +96,7 @@ it("retains current rows across agent scopes without SQLite and refreshes only t
       }
     }
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       expect(projection.select().length).toBe(4);
       const untouched = projection.describe({ agentId: "work", key: "agent:work:child" });
@@ -142,6 +145,7 @@ it("keeps session-ID aliases out of exact-key describe", async () => {
       { sessionId: "agent:main:missing", updatedAt: 1 },
     );
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       expect(projection.snapshot({ agentId: "main", key: "agent:main:missing" }).row).toBeNull();
       expect(
@@ -170,6 +174,7 @@ it("refreshes dirty canonical rows before presenting their main alias", async ()
       { sessionId: "main-session-id", updatedAt: 1, label: "before" },
     );
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       replaceSessionEntrySync(
         { agentId: "main", sessionKey: "agent:main:main" },
@@ -194,6 +199,7 @@ it.each(["reset", "replace"] as const)(
         { sessionId: "old", updatedAt: 1 },
       );
       const projection = await createSessionRowProjection({ cfg });
+      await projection.ensureMaterialized();
       try {
         const old = projection.describe({ agentId: "main", key });
         replaceSessionEntrySync(
@@ -228,6 +234,7 @@ it("settles a committed write queued while the previous materialization is finis
     const entry = { sessionId: "finishing-write", updatedAt: 1 };
     replaceSessionEntrySync(scope, entry);
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       const materialize = rowInputs.materializeSessionRow;
       let latestCommitted = false;
@@ -261,6 +268,7 @@ it("retains dirty work after a failed materialization and retries the same commi
       { sessionId: "retry", updatedAt: 1 },
     );
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       vi.spyOn(rowInputs, "readSessionRowInputs").mockImplementationOnce(() => {
         throw new Error("cold input unavailable");
@@ -301,7 +309,16 @@ it("invalidates parent links when a child moves and when deletion crosses a mate
         },
       );
     }
+    let workMs = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => workMs);
+    const readInputs = rowInputs.readSessionRowInputs;
+    const inputs = vi.spyOn(rowInputs, "readSessionRowInputs").mockImplementation((params) => {
+      const result = readInputs(params);
+      workMs += 20;
+      return result;
+    });
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       replaceSessionEntrySync(
         { agentId: "main", storePath, sessionKey: child },
@@ -327,6 +344,8 @@ it("invalidates parent links when a child moves and when deletion crosses a mate
       ).toBeUndefined();
     } finally {
       projection.dispose();
+      inputs.mockRestore();
+      clock.mockRestore();
     }
   });
 });
@@ -349,6 +368,7 @@ it("hydrates a same-path replacement and retires its previous inventory", async 
     );
     closeOpenClawAgentDatabaseByPath(staged, "main");
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       closeOpenClawAgentDatabaseByPath(storePath, "main");
       renameSync(staged, storePath);
@@ -452,6 +472,7 @@ it("keeps cross-agent inheritance and parent selection when main aliases collaps
       { sessionId: "child", updatedAt: 2, parentSessionKey: "agent:work:main" },
     );
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       expect(projection.snapshot({ agentId: "main", key }).row).toMatchObject({
         parentSessionKey: "global",
@@ -500,6 +521,7 @@ it("retains physical sentinels and stable store precedence after a primary updat
       registerOpenClawAgentDatabase({ agentId: "main", path: storePath });
     }
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       expect(projection.select().length).toBe(2);
       expect(
@@ -603,6 +625,7 @@ it("keeps a committed insertion when topology publishes before the refresh", asy
       { sessionId: "existing", updatedAt: 1 },
     );
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       const key = "agent:main:new";
       replaceSessionEntrySync(
@@ -635,6 +658,7 @@ it("refreshes thread model inheritance when its implicit parent changes", async 
       { sessionId: "thread", updatedAt: 2 },
     );
     const projection = await createSessionRowProjection({ cfg });
+    await projection.ensureMaterialized();
     try {
       expect(projection.snapshot({ agentId: "main", key }).row?.model).toBe("before");
       replaceSessionEntrySync(
@@ -667,6 +691,7 @@ it.each(["global", "unknown"])(
         { sessionId: "seed", updatedAt: 1 },
       );
       const projection = await createSessionRowProjection({ cfg });
+      await projection.ensureMaterialized();
       try {
         replaceSessionEntrySync(
           { agentId: "main", storePath, sessionKey: key },

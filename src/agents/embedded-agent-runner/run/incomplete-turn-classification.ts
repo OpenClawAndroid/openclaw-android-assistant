@@ -2,6 +2,7 @@
 import { asFiniteNumber } from "@openclaw/normalization-core/number-coercion";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { getReplyPayloadMetadata } from "../../../auto-reply/reply-payload.js";
+import { parseReplyDirectives } from "../../../auto-reply/reply/reply-directives.js";
 import { isSilentReplyPayloadText, SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
 import { extractEmbeddedAssistantText } from "../../embedded-agent-utils.js";
 import {
@@ -11,6 +12,7 @@ import {
 import type { AgentMessage } from "../../runtime/index.js";
 import { assessLastAssistantMessage } from "../thinking.js";
 import type { EmbeddedAgentRunResult } from "../types.js";
+import { resolveRawAssistantAnswerText } from "./assistant-answer.js";
 import { resolveCurrentAttemptAssistant } from "./attempt-terminal-evidence.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
 
@@ -185,8 +187,23 @@ export function joinAssistantTexts(assistantTexts?: readonly string[]): string {
   return (assistantTexts ?? []).join("\n\n").trim();
 }
 
-export function hasOnlySilentAssistantReply(assistantTexts?: readonly string[]): boolean {
-  const nonEmptyTexts = (assistantTexts ?? []).filter((text) => text.trim().length > 0);
+/** Uses the current canonical answer, never earlier accumulated text, to recognize authored silence. */
+export function hasExplicitSilentAssistantReply(
+  attempt: Pick<
+    IncompleteTurnAttempt,
+    "assistantTexts" | "currentAttemptAssistant" | "currentAttemptCompletedAssistant"
+  >,
+): boolean {
+  const assistant = resolveCurrentAttemptAssistant(attempt);
+  if (assistant) {
+    return (
+      assistant.stopReason !== "error" &&
+      assistant.stopReason !== "aborted" &&
+      parseReplyDirectives(resolveRawAssistantAnswerText(assistant)).isSilent
+    );
+  }
+  // Text-only attempt projections have no canonical message to supersede these fragments.
+  const nonEmptyTexts = attempt.assistantTexts.filter((text) => text.trim().length > 0);
   return (
     nonEmptyTexts.length > 0 &&
     nonEmptyTexts.every((text) => isSilentReplyPayloadText(text, SILENT_REPLY_TOKEN))

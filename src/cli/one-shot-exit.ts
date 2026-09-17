@@ -2,6 +2,7 @@ import { drainProcessOutput } from "../process/output-drain.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { defaultRuntime, ExitError } from "../runtime.js";
 import { waitForPendingCliDisposers } from "./runtime-cleanup.js";
+import { waitForCliSignalExit } from "./signal-exit-barrier.js";
 
 type VitestWorkerMarkers = {
   tinypoolState?: unknown;
@@ -109,6 +110,7 @@ export async function runCliWithExitFinalization(params: {
       requestExitAfterOneShotOutput(runtime, resolveProcessExitCode(1));
     }
   } finally {
+    await waitForCliSignalExit();
     const automaticExit = requestExitAfterSystemCaCliCompletion(runtime, {
       env: params.env,
       execArgv: params.execArgv,

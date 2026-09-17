@@ -37,8 +37,10 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -1026,6 +1028,68 @@ class ChatComposerLayoutTest {
     editor.performTextReplacement("")
     assertComposerControlsVisible(primaryAction = "Start Talk")
     composeRule.onNodeWithContentDescription(nativeString("Send")).assertDoesNotExist()
+  }
+
+  @Test
+  fun dictationShowsPlatformProgressAndCommitsOnlyTheFinalTranscript() {
+    val permission = Manifest.permission.RECORD_AUDIO
+    val permissionWasGranted = app.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    val recognitionAvailable = SpeechRecognizer.isOnDeviceRecognitionAvailable(app)
+    shadowOf(app).grantPermissions(permission)
+    ShadowSpeechRecognizer.setIsOnDeviceRecognitionAvailable(true)
+    val lifecycleOwner =
+      object : LifecycleOwner {
+        override val lifecycle = LifecycleRegistry(this).apply { currentState = Lifecycle.State.RESUMED }
+      }
+
+    fun mic(label: String) =
+      composeRule.onNode(
+        SemanticsMatcher("dictation control: $label") { node ->
+          node.config.getOrNull(SemanticsActions.OnClick)?.label == nativeString(label)
+        },
+      )
+    try {
+      val viewModel = showChat(viewportWidth = 320.dp)
+      composeRule.runOnIdle {
+        viewModel.attachRuntimeUi(lifecycleOwner, app.permissionRequester)
+        controller.handleGatewayEvent(
+          "agent",
+          """{"sessionKey":"${AndroidScreenshotFixture.mainSessionKey}","runId":"android-screenshot-active-run","seq":1,"stream":"lifecycle","data":{"phase":"end"}}""",
+        )
+      }
+      val editor = composeRule.onNode(hasSetTextAction())
+      editor.performTextReplacement("Existing draft")
+      mic("Dictation").performClick()
+      composeRule.onNodeWithText(nativeString("Starting dictation…")).assertIsDisplayed()
+      composeRule.onNodeWithContentDescription(nativeString("Send")).assertIsNotEnabled()
+      val recognizer = shadowOf(ShadowSpeechRecognizer.getLatestSpeechRecognizer())
+      assertTrue(recognizer.lastRecognizerIntent.getBooleanExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false))
+      composeRule.runOnIdle { recognizer.triggerOnReadyForSpeech(Bundle()) }
+      composeRule.onNodeWithText(nativeString("Listening…")).assertIsDisplayed()
+      composeRule.runOnIdle {
+        recognizer.triggerOnPartialResults(
+          Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("a partial sentence")) },
+        )
+      }
+      composeRule.onNodeWithText("a partial sentence").assertIsDisplayed()
+      editor.assertTextEquals("Existing draft")
+      composeRule.runOnIdle { recognizer.triggerOnEndOfSpeech() }
+      composeRule.onNodeWithText(nativeString("Transcribing…")).assertIsDisplayed()
+      mic("Cancel dictation").assertIsDisplayed()
+      composeRule.onNodeWithContentDescription(nativeString("Send")).assertIsNotEnabled()
+      composeRule.runOnIdle {
+        recognizer.triggerOnResults(
+          Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("a finished sentence")) },
+        )
+      }
+      editor.assertTextEquals("Existing draft a finished sentence")
+      composeRule.onNodeWithText(nativeString("Transcribing…")).assertDoesNotExist()
+      composeRule.onNodeWithText("a partial sentence").assertDoesNotExist()
+      composeRule.onNodeWithContentDescription(nativeString("Send")).assertIsEnabled()
+    } finally {
+      ShadowSpeechRecognizer.setIsOnDeviceRecognitionAvailable(recognitionAvailable)
+      if (!permissionWasGranted) shadowOf(app).denyPermissions(permission)
+    }
   }
 
   @Test
@@ -3940,6 +4004,7 @@ class ChatComposerLayoutTest {
       val owner = model.captureChatShareOwner()
       val editor = composeRule.onNode(hasSetTextAction())
       editor.assertTextEquals(caption)
+      composeRule.onNodeWithText(nativeString("Preparing attachments…")).assertIsDisplayed()
       composeRule.onNodeWithContentDescription("Send").assertIsDisplayed().assertIsNotEnabled()
       composeRule.runOnIdle {
         assertEquals(ChatComposerSendStartResult.Unavailable, model.chatComposerState.beginSend(owner).result)
@@ -3950,6 +4015,7 @@ class ChatComposerLayoutTest {
         composeRule.runOnIdle { model.chatComposerState.attachments.value[owner] == listOf(attachment) }
       }
       composeRule.onNodeWithText(attachment.fileName).assertIsDisplayed()
+      composeRule.onNodeWithText(nativeString("Preparing attachments…")).assertDoesNotExist()
       editor.assertTextEquals(caption)
       composeRule.onNodeWithContentDescription("Send").assertIsDisplayed().assertIsEnabled()
       composeRule.runOnIdle {
@@ -4499,12 +4565,14 @@ class ChatComposerLayoutTest {
     val admissionId = composeRule.runOnIdle { requireNotNull(viewModel.chatComposerState.tryBeginTrackedSend(owner)) }
     try {
       composeRule.onNodeWithContentDescription("Send").assertIsDisplayed().assertIsNotEnabled()
+      composeRule.onNodeWithText(nativeString("Queuing message…")).assertIsDisplayed()
       composeRule.onNodeWithContentDescription("Start Talk").assertDoesNotExist()
     } finally {
       composeRule.runOnIdle { viewModel.chatComposerState.finishTrackedSend(admissionId) }
     }
 
     composeRule.onNodeWithContentDescription("Send").assertIsDisplayed().assertIsEnabled()
+    composeRule.onNodeWithText(nativeString("Queuing message…")).assertDoesNotExist()
     if (text.isNotEmpty()) editor.assertTextEquals(text)
     attachment?.let { composeRule.onNodeWithText(it.fileName).assertIsDisplayed() }
   }

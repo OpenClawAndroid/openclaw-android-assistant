@@ -84,6 +84,59 @@ The controls require a connected Gateway, support for the corresponding typed
 Gateway method, and administrator scope. When those conditions are not met, use
 the CLI fallback on the Gateway host.
 
+## Node and global install permissions
+
+For `node-runtime-preflight`, upgrade the runtime named in the message to a
+version satisfying both the candidate's full engine range and the updater's
+supported Node range. The suggested version is the lowest supported release in
+that intersection. Follow the recovery steps for the detected runtime manager
+(nvm, fnm, Volta, or system Node). The next step runs `update` through the
+original installation's absolute `openclaw.mjs` launcher using the selected Node.
+It does not rely on `openclaw` remaining on PATH after a version-manager switch,
+or recommend a global install into an uninspected prefix.
+
+Keep the same service account, profile, and state/config overrides. Recovery
+restores the recorded service selectors, including overrides absent from your
+shell; credentials are not included. The ordinary update invocation rechecks
+the selected npm prefix and managed service before installation, and retains
+the original package owner. Its normal runtime selection, service refresh,
+restart, and verification checks apply. Containers redeploy the target image
+with the same state/config mounts.
+
+`global-install-foreign-destination` means the selected prefix is foreign or its
+ownership could not be established. An inaccessible prefix, failed npm prefix
+probe, or unreadable layout stops the update before staging; an unknown
+destination is never treated as empty. Restore inspection access or make
+`npm prefix -g` succeed with the selected runtime. Ask the deployment owner to
+verify unreadable layouts and explicitly select the intended installation.
+The report names the destination (or says that npm could not resolve it), the cause,
+and the selected service's launcher when available. Switch the runtime back and
+retry through the retained absolute launcher. Alternatively, with the destination
+owner's agreement, explicitly select that installation for the intended service
+using a printed `gateway install --force` command when available, then update. This changes
+the service binding; it is not permission to overwrite another deployment's
+package. Dry-run returns the same refusal. Recorded attempts remain in update
+history and are shown by Doctor.
+
+If the ranges do not overlap, install a supported Node and select a compatible
+OpenClaw target; that candidate cannot run through this updater on a supported
+Node release. See [Node.js](/install/node).
+
+For `global-install-permission-denied`, check the named directory and owner.
+If you own the directory, the message gives a scoped `chmod u+rwx` command.
+For an administrator-owned npm prefix, have that account perform the package
+update or grant the intended updater write access. Keep the Gateway's existing
+state and configuration; invoking the whole updater with `sudo` can select a
+different home and service account. Do not recursively change ownership of a
+shared system prefix. A personal install can instead use a
+[user-writable npm prefix](/install/node#permission-errors-on-npm-install-g-linux).
+
+Permission errors discovered after admission carry the same reason. The report's
+rollback and service-recovery constraints still apply if activation had begun.
+Inside a container, the same next action also directs you to pull or build the
+target OpenClaw image and redeploy with the same state/config mounts. Package
+changes inside a running container are not durable.
+
 ## Plugin repair warnings
 
 Doctor's configured-plugin repair and payload-verification warnings do not block

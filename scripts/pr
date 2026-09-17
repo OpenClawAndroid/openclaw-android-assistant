@@ -491,6 +491,11 @@ main() {
 
   require_cmds
 
+  case "$cmd" in
+    review-validate-artifacts) review_artifact_preflight "${1-}" || return 1 ;;
+    prepare-init | prepare-run) review_artifact_preflight "${1-}" true || return 1 ;;
+  esac
+
   # merge-run reconciles retained outcomes before reading disposable artifacts or base guards.
   if [ "$cmd" != merge-run ] && is_main_only_pr_command "$cmd"; then
     require_main_target_pr "${1-}"

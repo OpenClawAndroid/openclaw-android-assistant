@@ -56,19 +56,16 @@ describe("canonical cron schedule JSON round-trip", () => {
   it.each(["final-executable-surface", "authenticated-requester"] as const)(
     "round-trips private %s provenance through canonical job JSON",
     (source) => {
-      const provenance: CronToolsAllowProvenance = {
-        version: 1,
-        source,
-        channelRequester: {
-          version: 1,
-          channel: "discord",
-          accountId: "work",
-          senderId: "123456789012345678",
-        },
+      const channelRequester = {
+        version: 1 as const,
+        channel: "discord",
+        accountId: "work",
+        senderId: "123456789012345678",
       };
-      if (provenance.source === "final-executable-surface") {
-        provenance.callerOrigin = { kind: "local" };
-      }
+      const provenance: CronToolsAllowProvenance =
+        source === "final-executable-surface"
+          ? { version: 1, source, callerOrigin: { kind: "local" }, channelRequester }
+          : { version: 1, source, channelRequester };
       const job = projectCronJobThroughStorageCodec({
         ...makeCronJob({}),
         toolsAllowProvenance: provenance,

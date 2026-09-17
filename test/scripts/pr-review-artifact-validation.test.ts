@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
@@ -13,6 +13,7 @@ import {
 } from "./pr-review-artifact-fixture.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const bash = process.platform === "darwin" ? "/bin/bash" : "bash";
 const reviewScript = join(process.cwd(), "scripts/pr-lib/review.sh");
 const reviewArtifactsScript = join(process.cwd(), "scripts/pr-lib/review-artifacts.mjs");
 const mergeScript = join(process.cwd(), "scripts/pr-lib/merge.sh");
@@ -29,6 +30,15 @@ const REVIEW_SHELL_COMMAND_SURFACE = [
   "  fi",
   "}",
 ].join("\n");
+
+it("runs dependency-free CLI and native lock regressions", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["--test", join(process.cwd(), "test/scripts/pr-review-artifacts.node.mjs")],
+    { encoding: "utf8", timeout: 30000 },
+  );
+  expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+});
 
 function validReadyReview() {
   const review = validReview();
@@ -48,7 +58,7 @@ function runValidation(
   writeReviewArtifacts(fixtureRoot, review, options);
 
   return spawnSync(
-    "bash",
+    bash,
     [
       "-c",
       [
@@ -56,6 +66,8 @@ function runValidation(
         'source "$1"',
         REVIEW_SHELL_COMMAND_SURFACE,
         'fixture_root="$2"',
+        'common_repo_root() { printf "%s\\n" "$fixture_root"; }',
+        `pr_worktree_state() { printf '{"path":"%s","present":true}\\n' "$fixture_root"; }`,
         'enter_worktree() { cd "$fixture_root"; }',
         'require_artifact() { [ -s "$1" ]; }',
         options.guardFailure
@@ -74,7 +86,7 @@ function runValidation(
 
 function runReviewShellFunction(fixtureRoot: string, invocation: string) {
   return spawnSync(
-    "bash",
+    bash,
     [
       "-c",
       [
@@ -137,7 +149,7 @@ function runMergeVerification(
   const reviewComments = JSON.stringify(validClawsweeperReviewCommentPages(42, head));
 
   return spawnSync(
-    "bash",
+    bash,
     [
       "-c",
       [
@@ -244,15 +256,12 @@ describePosix("scripts/pr review artifact validation", () => {
     );
   });
 
-  it("rejects a review markdown authored for a different PR", () => {
+  it("does not use legacy Markdown as review authority", () => {
     const result = runValidation(validReadyReview(), {
       markdownIdentityLine: `Review artifact for PR #113928 at ${REVIEWED_HEAD}`,
     });
 
-    expect(result.status).toBe(1);
-    expect(result.stdout).toContain(
-      `Review artifact identity mismatch in .local/review.md: first line must be "${REVIEWED_IDENTITY_LINE}"`,
-    );
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
   });
 
   it("rejects a review with no PR identity stamp", () => {
@@ -285,22 +294,18 @@ describePosix("scripts/pr review artifact validation", () => {
     const rewritten = JSON.parse(readFileSync(join(localDir, "review.json"), "utf8"));
     expect(rewritten.pr).toEqual({ number: REVIEWED_PR, headSha: REVIEWED_HEAD });
     expect(rewritten.recommendation).toContain("NEEDS WORK");
-    const markdown = readFileSync(join(localDir, "review.md"), "utf8");
-    expect(markdown.split("\n")[0]).toBe(REVIEWED_IDENTITY_LINE);
-    expect(markdown).toContain("A) TL;DR recommendation");
+    expect(existsSync(join(localDir, "review.md"))).toBe(false);
   });
 
-  it("re-stamps markdown left over from another PR even when the JSON stamp matches", () => {
+  it("preserves legacy prose without discarding matching JSON", () => {
     const { result, localDir } = runArtifactsInit({
       review: validReadyReview(),
       markdown: `Review artifact for PR #113928 at ${REVIEWED_HEAD}\n\nA) Ship another PR\n`,
     });
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-    expect(result.stdout).toContain("moved aside .local/review.md");
-    expect(readFileSync(join(localDir, "review.md"), "utf8").split("\n")[0]).toBe(
-      REVIEWED_IDENTITY_LINE,
-    );
+    expect(result.stdout).toContain("already stamped");
+    expect(readFileSync(join(localDir, "review.md"), "utf8")).toContain("A) Ship another PR");
   });
 
   it("preserves in-progress artifacts already stamped for this head", () => {
@@ -534,30 +539,22 @@ describePosix("scripts/pr review artifact validation", () => {
     expect(result.stdout).toContain("3 artifact violations");
   });
 
-  it("derives template enum hints from the validation table", () => {
+  it("creates a valid unfinished review without fabricated proof", () => {
     const result = spawnSync(
       process.execPath,
       [reviewArtifactsScript, "template", String(REVIEWED_PR), REVIEWED_HEAD],
       { encoding: "utf8" },
     );
     const template = JSON.parse(result.stdout) as ReturnType<typeof validReview>;
-
-    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.status).toBe(0);
     expect(template.pr).toEqual({ number: REVIEWED_PR, headSha: REVIEWED_HEAD });
-    expect(template.recommendation).toBe(
-      "NEEDS WORK (allowed: READY FOR /prepare-pr|NEEDS WORK|NEEDS DISCUSSION|NOT USEFUL (CLOSE))",
-    );
-    expect(template.nitSweep.status).toBe("none (allowed: none|has_nits)");
-    expect(template.behavioralSweep.status).toBe(
-      "not_applicable (allowed: pass|needs_work|not_applicable)",
-    );
-    expect(template.behavioralSweep.silentDropRisk).toBe("none (allowed: none|present|unknown)");
-    expect(template.issueValidation.source).toBe("pr_body (allowed: linked_issue|pr_body|both)");
-    expect(template.issueValidation.status).toBe(
-      "unclear (allowed: valid|unclear|invalid|already_fixed_on_main)",
-    );
-    expect(template.tests.result).toBe("pass (allowed: pass|fail|not_run)");
-    expect(template.docs).toBe("not_applicable (allowed: up_to_date|missing|not_applicable)");
-    expect(template.changelog).toBe("not_required (allowed: required|not_required)");
+    expect(template.recommendation).toBe("NEEDS WORK");
+    expect(template.nitSweep).toBeUndefined();
+    expect(template.behavioralSweep.performed).toBe(false);
+    expect(template.issueValidation.performed).toBe(false);
+    expect(template.tests.result).toBe("not_run");
+    expect(runValidation(template).status).toBe(0);
+    template.recommendation = "READY FOR /prepare-pr";
+    expect(runValidation(template).status).toBe(1);
   });
 });

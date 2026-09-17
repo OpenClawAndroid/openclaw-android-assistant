@@ -2,9 +2,25 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { z } from "zod";
 import { resolveStateDir } from "../config/paths.js";
 import { redactSupportDiagnosticLine } from "../logging/diagnostic-support-redaction.js";
+import { extractErrorCode, formatErrorMessage, readErrorName } from "./errors.js";
 import type { UpdateFailureFactSchema } from "./update-run-schema.js";
 
 export type UpdateFailureFact = z.infer<typeof UpdateFailureFactSchema>;
+
+export function createUpdateErrorFact(
+  check: string,
+  error: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+): UpdateFailureFact {
+  return createUpdateFailureFact(
+    {
+      check,
+      code: extractErrorCode(error) || readErrorName(error) || "Error",
+      message: formatErrorMessage(error),
+    },
+    env,
+  );
+}
 
 /** Capture diagnostics before output is reduced to a command tail. */
 export function createUpdateFailureFact(

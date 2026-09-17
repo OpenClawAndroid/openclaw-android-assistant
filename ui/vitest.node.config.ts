@@ -1,11 +1,12 @@
 // Control UI config module wires vitest behavior.
 import { defineConfig } from "vitest/config";
+import { createRedactingReporterPlugin } from "../test/vitest/vitest.reporters.ts";
 import { sharedVitestConfig } from "../test/vitest/vitest.shared.config.ts";
 import { controlUiLocaleModulesPlugin } from "./config/control-ui-locales.ts";
 
 // Node-only tests for pure logic (no Playwright/browser dependency).
 export default defineConfig({
-  plugins: [controlUiLocaleModulesPlugin()],
+  plugins: [controlUiLocaleModulesPlugin(), createRedactingReporterPlugin()],
   test: {
     reporters: sharedVitestConfig.test.reporters,
     clearMocks: false,

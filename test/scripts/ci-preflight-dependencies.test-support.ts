@@ -3,7 +3,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /** Execute the workflow's native Node manifest with runtime dependencies forbidden. */
-export function runDependencyFreePreflight(source: string, directory: string) {
+export function runDependencyFreePreflight(
+  source: string,
+  directory: string,
+  nodeExecPath: string,
+) {
   const preload = path.join(directory, "preflight-import-guard.mjs");
   const output = path.join(directory, "github-output.txt");
   writeFileSync(
@@ -36,7 +40,7 @@ registerHooks({
       delete env[key];
     }
   }
-  const result = spawnSync(process.execPath, ["--import", preload, "--input-type=module"], {
+  const result = spawnSync(nodeExecPath, ["--import", preload, "--input-type=module"], {
     cwd: process.cwd(),
     input: source,
     encoding: "utf8",

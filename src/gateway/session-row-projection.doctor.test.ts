@@ -36,6 +36,7 @@ it("admits a Doctor-renamed legacy key into an already resident store without re
     const originalEntry = storedEntry.get(oldKey);
     const projection = await createSessionRowProjection({ cfg });
     try {
+      await projection.ensureMaterialized();
       expect(projection.select().map((row) => row.key)).toEqual([existingKey]);
       const scans = vi.spyOn(entryReaders, "listSessionEntriesReadOnly");
 

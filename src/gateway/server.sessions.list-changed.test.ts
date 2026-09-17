@@ -31,6 +31,11 @@ import {
   expectChangedBroadcast,
 } from "./server.sessions.list-changed.test-helpers.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
+import { observeSessionRowBackfill } from "./session-row-backfill.test-support.js";
+import {
+  seedCompletedSessionTranscript,
+  seedSessionListBackfillFixture,
+} from "./session-row-fixtures.test-support.js";
 import { embeddedRunMock, rpcReq, testState, writeSessionStore } from "./test-helpers.js";
 import {
   setupGatewaySessionsTestHarness,
@@ -95,7 +100,7 @@ async function invokeSessionsList({
   if (!defer) {
     await request;
   }
-  return { request, respond };
+  return { request, respond, context: requestContext };
 }
 
 async function mutationCatalogSnapshot(
@@ -226,14 +231,17 @@ async function expectListedSessionActiveRun(
   expect(session.status).toBe(expectedStatus);
 }
 
-test("sessions.list uses prepared transcript usage and selected model fields", async () => {
+test("sessions.list uses persisted usage and selected model fields", async () => {
   const { storePath } = await createSessionStoreDir();
   testState.agentConfig = {
     models: {
       "anthropic/claude-sonnet-4-6": { params: { context1m: true } },
     },
   };
-  await writeSessionStore({
+  await seedCompletedSessionTranscript({
+    storePath,
+    sessionId: "sess-child",
+    sessionKey: "agent:main:dashboard:child",
     entries: {
       main: sessionStoreEntry("sess-parent"),
       "dashboard:child": sessionStoreEntry("sess-child", {
@@ -252,23 +260,18 @@ test("sessions.list uses prepared transcript usage and selected model fields", a
         cacheWrite: 0,
       }),
     },
-  });
-  await seedSessionTranscript({
-    sessionId: "sess-child",
-    sessionKey: "agent:main:dashboard:child",
-    storePath,
-    messages: [
-      {
-        role: "assistant",
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        usage: {
-          input: 2_000,
-          output: 500,
-          cacheRead: 1_000,
-          cost: { total: 0.0042 },
-        },
+    message: {
+      role: "assistant",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      usage: {
+        input: 2_000,
+        output: 500,
+        cacheRead: 1_000,
+        cost: { total: 0.0042 },
       },
+    },
+    trailingMessages: [
       {
         role: "assistant",
         provider: "openclaw",
@@ -820,36 +823,15 @@ test("sessions.list leaves failed-first-turn dashboard sessions untitled instead
   expect(session.derivedTitle).toBeUndefined();
 });
 
-test("sessions.list yields before responding during bulk transcript hydration", async () => {
+test("sessions.list yields for bulk metadata and later serves backfilled transcript fields", async () => {
   const { storePath } = await createSessionStoreDir();
-  const entries: Record<string, ReturnType<typeof sessionStoreEntry>> = {};
-  const now = Date.now();
-  for (let i = 0; i < 11; i += 1) {
-    const sessionId = `sess-list-yield-${i}`;
-    entries[`bulk-${i}`] = sessionStoreEntry(sessionId, { updatedAt: now - i });
-  }
-  await writeSessionStore({ entries });
-  for (let i = 0; i < 11; i += 1) {
-    const sessionId = `sess-list-yield-${i}`;
-    await seedSessionTranscript({
-      sessionId,
-      sessionKey: `agent:main:bulk-${i}`,
-      storePath,
-      messages: [
-        { role: "user", content: `title ${i}` },
-        { role: "assistant", content: `last ${i}` },
-      ],
-    });
-  }
-
-  const { request, respond } = await invokeSessionsList({
+  const keys = await seedSessionListBackfillFixture(storePath, 11);
+  const backfilled = observeSessionRowBackfill(keys);
+  const params = { includeDerivedTitles: true, includeLastMessage: true, limit: 11 };
+  const { request, respond, context } = await invokeSessionsList({
     requestId: "req-sessions-list-yield",
     defer: true,
-    params: {
-      includeDerivedTitles: true,
-      includeLastMessage: true,
-      limit: 11,
-    },
+    params,
     context: {
       logGateway: {
         debug: vi.fn(),
@@ -862,7 +844,14 @@ test("sessions.list yields before responding during bulk transcript hydration", 
 
   expect(respond).not.toHaveBeenCalled();
   await request;
-  const payload = expectRespondPayload(respond);
+  expectRespondPayload(respond);
+  await backfilled;
+  const refreshed = await invokeSessionsList({
+    requestId: "req-sessions-list-backfilled",
+    params,
+    context: { ...context },
+  });
+  const payload = expectRespondPayload(refreshed.respond);
   const session = findSession(payload, "agent:main:bulk-0");
   expectFields(session, {
     derivedTitle: "Title 0",
@@ -899,7 +888,10 @@ test("sessions.list does not block on slow model catalog discovery", async () =>
 
 test("sessions.changed mutation events include live usage metadata", async () => {
   const { storePath } = await createSessionStoreDir();
-  await writeSessionStore({
+  await seedCompletedSessionTranscript({
+    storePath,
+    sessionId: "sess-main",
+    sessionKey: "agent:main:main",
     entries: {
       main: sessionStoreEntry("sess-main", {
         providerOverride: "openai",
@@ -913,26 +905,19 @@ test("sessions.changed mutation events include live usage metadata", async () =>
         totalTokensFresh: false,
       }),
     },
-  });
-  await seedSessionTranscript({
-    sessionId: "sess-main",
-    sessionKey: "agent:main:main",
-    storePath,
-    messages: [
-      {
-        role: "assistant",
-        provider: "openai",
-        model: "gpt-5.3-codex-spark",
-        usage: {
-          input: 5_107,
-          output: 1_827,
-          cacheRead: 1_536,
-          cacheWrite: 0,
-          cost: { total: 0 },
-        },
-        timestamp: Date.now(),
+    message: {
+      role: "assistant",
+      provider: "openai",
+      model: "gpt-5.3-codex-spark",
+      usage: {
+        input: 5_107,
+        output: 1_827,
+        cacheRead: 1_536,
+        cacheWrite: 0,
+        cost: { total: 0 },
       },
-    ],
+      timestamp: Date.now(),
+    },
   });
 
   const result = await invokeSessionsPatch({
