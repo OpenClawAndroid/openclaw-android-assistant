@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { channel as createDiagnosticsChannel } from "node:diagnostics_channel";
 import { availableParallelism } from "node:os";
-import { parentPort, Worker, type Transferable, type WorkerOptions } from "node:worker_threads";
+import { Worker, type WorkerOptions } from "node:worker_threads";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { createDeferredCore, type Deferred } from "../shared/deferred.js";
+import { createDeferredCore } from "../shared/deferred.js";
 import { runBestEffortCleanup } from "./non-fatal-cleanup.js";
 import { resolveRuntimeWorkerThreadExecArgv } from "./runtime-worker-url.js";
 import {
@@ -13,21 +13,24 @@ import {
   DEFAULT_WORKER_PENDING_TASKS,
   getWorkerComputeCapacity,
 } from "./worker-task-capacity.js";
+import {
+  cancelWorkerNativeSections,
+  createWorkerNativeSectionState,
+  releaseWorkerNativeSectionsOnExit,
+  waitForWorkerNativeSections,
+} from "./worker-task-native-sections.js";
 import type { Slot, Task, WorkerTaskInput, WorkerTaskOptions } from "./worker-task-pool.types.js";
 
 export type { WorkerTaskRequestContext, WorkerTaskResponse } from "./worker-task-pool.types.js";
+export type { WorkerTaskControl } from "./worker-task-native-sections.js";
+export { serveWorkerTasks } from "./worker-task-server.js";
+export type { WorkerTaskChannel } from "./worker-task-server.js";
 
 // Reusable workers must not retain the first submitting caller's async scope.
 const runInWorkerPoolContext = AsyncLocalStorage.snapshot();
 const taskDiagnostics = createDiagnosticsChannel("openclaw.worker.task");
 
 type WorkerReply<Output> = { status: "ok"; value: Output } | { status: "failed"; error: string };
-type WorkerChannelResponse = { input: unknown; consumed: () => void };
-type WorkerConversation = {
-  taskId: number;
-  responseId: number;
-  pending?: Deferred<WorkerChannelResponse>;
-};
 export class WorkerTaskError extends Error {
   constructor(
     message: string,
@@ -251,7 +254,7 @@ export class WorkerTaskPool<Input, Output> {
         nextTask.computePermit = permit;
       }
       if (!slot) {
-        slot = {};
+        slot = { nativeSections: createWorkerNativeSectionState() };
         this.slots.add(slot);
       }
       this.clearTimeoutFn(slot.idleTimer);
@@ -301,6 +304,7 @@ export class WorkerTaskPool<Input, Output> {
       this.fail(slot, new WorkerTaskError(String(error), "unavailable")),
     );
     worker.once("exit", (code) => {
+      releaseWorkerNativeSectionsOnExit(slot.nativeSections);
       this.workers--;
       this.fail(slot, new WorkerTaskError(`worker exited with code ${code}`, "unavailable"));
     });
@@ -339,7 +343,12 @@ export class WorkerTaskPool<Input, Output> {
       if (!task.done) {
         const transferStartedAt = performance.now();
         worker.postMessage(
-          { input, taskId: task.id, interactive: Boolean(task.options.onRequest) },
+          {
+            input,
+            taskId: task.id,
+            interactive: Boolean(task.options.onRequest),
+            nativeSections: slot.nativeSections.buffer,
+          },
           transferList,
         );
         task.transferMs += performance.now() - transferStartedAt;
@@ -617,10 +626,21 @@ export class WorkerTaskPool<Input, Output> {
 
   private retire(slot: Slot<Input, Output>): Promise<void> {
     this.clearTimeoutFn(slot.idleTimer);
+    cancelWorkerNativeSections(slot.nativeSections);
     // Retain error listeners until exit: termination can race a worker startup error.
     // Constructor observers can retire this slot before its Worker is assigned.
     return (slot.retiring ??= Promise.resolve()
-      .then(() => slot.worker?.terminate())
+      .then(async () => {
+        if (slot.worker) {
+          // Node can abort if termination interrupts zlib between allocation and initialization.
+          // Keep custody until the current bounded native operation settles, including on timeout.
+          const settlement = waitForWorkerNativeSections(slot.nativeSections);
+          if (settlement) {
+            await settlement;
+          }
+          await slot.worker.terminate();
+        }
+      })
       .then(() => {
         const directory = slot.temporaryDirectory;
         if (directory) {
@@ -655,100 +675,4 @@ export class WorkerTaskPool<Input, Output> {
         throw error;
       }));
   }
-}
-
-/** A conversation never outlives the pool task or crosses worker generations. */
-export type WorkerTaskChannel = {
-  consumeInput: () => void;
-  request: (
-    value: unknown,
-    transferList?: readonly Transferable[],
-  ) => Promise<{ input: unknown; consumed: () => void }>;
-};
-
-/** Pool dispatch is serial per worker; handlers finish cleanup before returning their result. */
-export function serveWorkerTasks<Output>(
-  handler: (input: unknown, channel?: WorkerTaskChannel) => Output | Promise<Output>,
-  options: { transferList?: (value: Output) => Transferable[] } = {},
-): void {
-  const port = parentPort;
-  if (!port) {
-    return;
-  }
-  let active: WorkerConversation | undefined;
-  port.on(
-    "message",
-    (message: { input: unknown; taskId: number; interactive?: boolean; responseId?: number }) => {
-      if (message.responseId !== undefined) {
-        if (
-          !active ||
-          message.taskId !== active.taskId ||
-          message.responseId !== active.responseId ||
-          !active.pending
-        ) {
-          throw new Error("stale worker task response");
-        }
-        const pending = active.pending;
-        active.pending = undefined;
-        let consumed = false;
-        const taskId = message.taskId;
-        const id = message.responseId;
-        pending.resolve({
-          input: message.input,
-          consumed: () => {
-            if (consumed) {
-              return;
-            }
-            consumed = true;
-            port.postMessage({ status: "consumed", taskId, id });
-          },
-        });
-        return;
-      }
-      if (active) {
-        throw new Error("overlapping worker tasks");
-      }
-      const task: WorkerConversation = { taskId: message.taskId, responseId: 0 };
-      active = task;
-      const channel: WorkerTaskChannel | undefined = message.interactive
-        ? {
-            consumeInput: () =>
-              port.postMessage({ status: "consumed", taskId: task.taskId, id: 0 }),
-            request: (value, transferList) => {
-              if (active !== task || task.pending) {
-                throw new Error("closed or busy worker channel");
-              }
-              task.pending = createDeferredCore();
-              port.postMessage(
-                {
-                  status: "request",
-                  taskId: task.taskId,
-                  id: ++task.responseId,
-                  value,
-                },
-                transferList ? [...transferList] : [],
-              );
-              return task.pending.promise;
-            },
-          }
-        : undefined;
-      void Promise.resolve()
-        .then(() => handler(message.input, channel))
-        .then((value) => {
-          active = undefined;
-          port.postMessage(
-            { status: "ok", value, taskId: task.taskId },
-            options.transferList?.(value) ?? [],
-          );
-        })
-        .catch((error: unknown) => {
-          active = undefined;
-          port.postMessage({
-            status: "failed",
-            taskId: task.taskId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-    },
-  );
 }

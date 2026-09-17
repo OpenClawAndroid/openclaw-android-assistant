@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ownedGitWorkerBytes } from "../../infra/git-worker-context.js";
+import { ownedWorkerBytes } from "../../infra/worker-transfer-bytes.js";
 import {
   readActualWorkspaceManifestImpl,
   readWorkspaceFileSnapshotWithLimit,
@@ -91,7 +91,7 @@ export async function executeWorkspaceManifestComputation(
     case "workspace.manifest.stage-input":
       return await buildWorkspaceStageInput(command.input);
     case "workspace.manifest.entries":
-      return ownedGitWorkerBytes(await readStagedWorkerWorkspaceEntries(command.input));
+      return ownedWorkerBytes(await readStagedWorkerWorkspaceEntries(command.input));
     case "workspace.manifest.capture": {
       const input = decodeManifestValue(command);
       return await withHashes(input.hashes, async () => {

@@ -16,7 +16,10 @@ import {
 } from "../../pages/chat/chat-send-ack.ts";
 import { formatTerminalChatSendAckError } from "../../pages/chat/chat-send-support.ts";
 import type { HumanMention } from "../chat/chat-types.ts";
-import type { SessionPlacementTarget } from "./session-placement-recovery.ts";
+import type {
+  SessionPlacementStartMode,
+  SessionPlacementTarget,
+} from "./session-placement-recovery.ts";
 
 type SessionPlacementStartOutcome =
   | { status: "started"; messageId: string }
@@ -37,6 +40,7 @@ type PlacementReadResult =
   | { status: "unavailable" };
 type PlacementResolution =
   | { status: "active"; placement: SessionPlacement }
+  | { status: "dispatch" }
   | { status: "cancelled" }
   | { status: "interrupted" }
   | { status: "cleanup-rejected"; error: string }
@@ -132,6 +136,7 @@ async function resolveActivePlacement(
     key: string;
     agentId: string;
     initial?: SessionPlacement;
+    mode: SessionPlacementStartMode;
     cleanupOnCancellation: () => boolean;
   },
   isCurrent: () => boolean,
@@ -199,6 +204,15 @@ async function resolveActivePlacement(
           : { status: "cancelled" };
       } else if (placement?.state === "active") {
         return { status: "active", placement };
+      } else if (
+        params.mode === "retry" &&
+        (!placement ||
+          placement.state === "local" ||
+          placement.state === "reclaimed" ||
+          placement.state === "failed")
+      ) {
+        // Explicit Retry may allocate again; the Gateway still owns failed-worker cleanup gates.
+        return { status: "dispatch" };
       } else if (placement && !PENDING_PLACEMENT_STATES.has(placement.state)) {
         if (placement.state === "failed") {
           const cleanupError = await reclaimSessionPlacement(client, params);
@@ -344,7 +358,7 @@ export async function startSessionPlacementInitialTurn(
     mentions?: readonly HumanMention[];
     attachments?: unknown[];
     messageId?: string;
-    recovering?: boolean;
+    mode: SessionPlacementStartMode;
     cleanupOnCancellation?: () => boolean;
   },
   isCurrent: () => boolean,
@@ -355,26 +369,23 @@ export async function startSessionPlacementInitialTurn(
   const cleanupOnCancellation = params.cleanupOnCancellation ?? (() => true);
   let resolution: PlacementResolution | undefined;
   let dispatchError = "";
-  if (params.recovering) {
-    const existing = await readPlacement(client, params.key);
-    if (existing.status === "missing") {
-      resolution = { status: "missing" };
-    } else if (existing.status === "rejected") {
-      resolution = { status: "cleanup-rejected", error: existing.error };
-    } else {
-      resolution = await resolveActivePlacement(
-        client,
-        {
-          key: params.key,
-          agentId: params.agentId,
-          initial: existing.status === "read" ? existing.placement : undefined,
-          cleanupOnCancellation,
-        },
-        isCurrent,
-      );
-    }
+  if (params.mode !== "dispatch") {
+    resolution = await resolveActivePlacement(
+      client,
+      { key: params.key, agentId: params.agentId, mode: params.mode, cleanupOnCancellation },
+      isCurrent,
+    );
   }
-  if (!resolution) {
+  if (resolution?.status === "dispatch" && !isCurrent()) {
+    if (!cleanupOnCancellation()) {
+      return { status: "interrupted" };
+    }
+    const cleanupError = await reclaimSessionPlacement(client, params);
+    return cleanupError
+      ? { status: "cleanup-rejected", error: cleanupError }
+      : { status: "cancelled" };
+  }
+  if (!resolution || resolution.status === "dispatch") {
     try {
       const dispatched = await client.request<SessionsDispatchResult>(
         "sessions.dispatch",
@@ -390,6 +401,7 @@ export async function startSessionPlacementInitialTurn(
           key: params.key,
           agentId: params.agentId,
           initial: dispatched.placement,
+          mode: "recover",
           cleanupOnCancellation,
         },
         isCurrent,
@@ -404,7 +416,7 @@ export async function startSessionPlacementInitialTurn(
       }
       resolution = await resolveActivePlacement(
         client,
-        { key: params.key, agentId: params.agentId, cleanupOnCancellation },
+        { key: params.key, agentId: params.agentId, mode: "recover", cleanupOnCancellation },
         isCurrent,
       );
     }

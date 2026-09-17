@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import * as sqliteInspection from "../infra/sqlite-readonly-worker.js";
 import { preflightAgentDatabasesBounded } from "./openclaw-database-preflight-agent-scheduler.js";
 import type { OpenClawDatabaseSchemaPreflight } from "./openclaw-database-preflight.types.js";
 
@@ -11,6 +12,57 @@ function createResult(): OpenClawDatabaseSchemaPreflight {
 }
 
 describe("bounded agent database preflight scheduling", () => {
+  it("rejects an expired inspection failure before background ownership is established", async () => {
+    vi.useFakeTimers();
+    const budget = vi
+      .spyOn(sqliteInspection, "readSqliteInspectionBudget")
+      .mockImplementation((_operation, pathname) => ({
+        timeoutMs: pathname === "unowned.sqlite" ? 1 : 100,
+        size: "fixture",
+      }));
+    const releases = [createDeferred(), createDeferred()];
+    const failure = new Error("unowned database inspection failed");
+    const started: number[] = [];
+    const defer = vi.fn(() => {
+      throw new Error("An unfinished healthy peer prevents background handoff");
+    });
+    const run = preflightAgentDatabasesBounded(
+      [0, 1, 2],
+      async (target) => {
+        started.push(target);
+        await releases[target]?.promise;
+        if (target === 0) {
+          throw failure;
+        }
+      },
+      createResult(),
+      undefined,
+      {
+        signal: new AbortController().signal,
+        path: (target) => (target === 0 ? "unowned.sqlite" : "healthy.sqlite"),
+        track: () => {},
+        defer,
+      },
+    );
+    void run.catch(() => {});
+    try {
+      await vi.advanceTimersByTimeAsync(1);
+      releases[0]!.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      releases[1]!.resolve();
+      await expect(run).rejects.toBe(failure);
+      expect(defer).not.toHaveBeenCalled();
+      expect(started).toEqual([0, 1]);
+    } finally {
+      for (const release of releases) {
+        release.resolve();
+      }
+      await Promise.allSettled([run]);
+      budget.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("runs at most two inspections concurrently", async () => {
     const releases = {
       0: createDeferred(),

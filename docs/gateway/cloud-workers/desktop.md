@@ -20,6 +20,10 @@ The desktop never gains public ingress. The node reads `/var/lib/crabbox/vnc.pas
 
 An open chat updates its desktop target when committed session placement events arrive, including worker replacement and teardown, without waiting for a sidebar refresh.
 
+Closing the requesting Gateway connection cancels pending viewer setup and unclaimed node streams, freeing their observer slots without waiting for ticket expiry. Other connected viewers retain their streams.
+
+If you close or replace a Desktop panel during setup, it releases the unused observation when setup returns. This frees that attempt's node stream and viewer slot without waiting for ticket expiry or interrupting another viewer. A connected viewer retains the existing brief-hide behavior.
+
 The Gateway sends WebSocket keepalives on desktop observer and node desktop or portal streams while idle, so an unchanged screen or quiet preview does not go silent behind a proxy. Backpressure may delay pong replies without revoking the stream; the owning session and control connection still govern teardown.
 
 When another operator takes control, your viewer reconnects in view-only mode. The notice identifies the new controller by their authenticated profile name, or their authenticated user ID when no profile name is set. Connections without an authenticated user identity show a generic takeover notice.

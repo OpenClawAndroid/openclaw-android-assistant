@@ -87,7 +87,7 @@ async function selectDefault(row: Locator) {
 }
 
 suite.define(() => {
-  it("restores Labs, Security, and Models overrides to inherited defaults across reloads", async () => {
+  it("persists Full tools and restores inherited Labs, browser, and Models defaults across reloads", async () => {
     await suite.withPage(
       {
         colorScheme: "dark",
@@ -170,10 +170,15 @@ suite.define(() => {
 
         expect((await page.goto(`${suite.server.baseUrl}settings/security`))?.status()).toBe(200);
         const browserRow = settingsRow(page, "Browser enabled");
-        const profileRow = settingsRow(page, "Tool profile");
+        const profileRow = settingsRow(page, "Available tools");
         await browserRow.getByRole("switch", { name: "Browser enabled", exact: true }).waitFor();
         await expect.poll(() => browserRow.textContent()).toContain("Default: Enabled");
-        await expect.poll(() => profileRow.textContent()).toContain("Default: Full");
+        expect(
+          await profileRow
+            .getByRole("radio", { name: "Minimal", exact: true })
+            .getAttribute("aria-checked"),
+        ).toBe("true");
+        expect(await profileRow.textContent()).not.toContain("Default: Full");
 
         if (captureUiProofEnabled) {
           await page
@@ -189,7 +194,14 @@ suite.define(() => {
         await browserRow.locator(".settings-row__title").click();
         await profileRow.getByRole("radio", { name: "Full", exact: true }).click();
         await expectInherited(browserRow, "Enabled");
-        await expectInherited(profileRow, "Full");
+        await expect
+          .poll(() =>
+            profileRow
+              .getByRole("radio", { name: "Full", exact: true })
+              .getAttribute("aria-checked"),
+          )
+          .toBe("true");
+        expect(await profileRow.textContent()).not.toContain("Using default: Full");
         await expect
           .poll(async () => {
             const requests = await gateway.getRequests("config.set");
@@ -198,11 +210,12 @@ suite.define(() => {
               return false;
             }
             const raw = requestRaw(latest);
-            return (
-              !hasOwnPath(raw, ["browser", "enabled"]) && !hasOwnPath(raw, ["tools", "profile"])
-            );
+            return {
+              browserEnabledOverridden: hasOwnPath(raw, ["browser", "enabled"]),
+              tools: raw.tools,
+            };
           })
-          .toBe(true);
+          .toMatchObject({ browserEnabledOverridden: false, tools: { profile: "full" } });
         await expect
           .poll(() => page.locator("openclaw-settings-save-indicator").textContent())
           .toContain("Saved");
@@ -213,13 +226,21 @@ suite.define(() => {
             .first()
             .screenshot({
               animations: "disabled",
-              path: path.join(uiProofArtifactDir, "04-security-inherited-defaults.png"),
+              path: path.join(uiProofArtifactDir, "04-security-full-tools-default-browser.png"),
             });
         }
 
         expect((await page.reload())?.status()).toBe(200);
         await expectInherited(settingsRow(page, "Browser enabled"), "Enabled");
-        await expectInherited(settingsRow(page, "Tool profile"), "Full");
+        const reloadedProfileRow = settingsRow(page, "Available tools");
+        await expect
+          .poll(() =>
+            reloadedProfileRow
+              .getByRole("radio", { name: "Full", exact: true })
+              .getAttribute("aria-checked"),
+          )
+          .toBe("true");
+        expect(await reloadedProfileRow.textContent()).not.toContain("Using default: Full");
 
         expect((await page.goto(`${suite.server.baseUrl}settings/model-providers`))?.status()).toBe(
           200,

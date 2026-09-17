@@ -423,7 +423,8 @@ function resolveSkillsWatcherUsePolling(): boolean {
   const envPolling = process.env.CHOKIDAR_USEPOLLING;
   if (envPolling === undefined) {
     const platform: string = process.platform;
-    return platform === "os400";
+    // Remove the Bun default after oven-sh/bun#34160 fixes native watcher registration scaling.
+    return platform === "os400" || Boolean(process.versions.bun);
   }
   const normalized = envPolling.toLowerCase();
   return Boolean(normalized) && normalized !== "false" && normalized !== "0";

@@ -11,6 +11,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import { getActiveGatewayRootWorkCount } from "../process/gateway-work-admission.js";
 import { createLazyPromise } from "../shared/lazy-runtime.js";
+import { getAgentDatabaseStartupAdmission } from "../state/agent-database-startup.js";
 import { resolveGatewayAuth } from "./auth.js";
 import { diffGatewayReloadPaths } from "./config-diff.js";
 import {
@@ -22,6 +23,7 @@ import {
   reconcileClientPluginNodeCapabilities,
 } from "./plugin-node-capability.js";
 import { collectGatewayProcessMemoryUsageMb, finishGatewayRestartTrace } from "./restart-trace.js";
+import { activateGatewayAgentDatabaseStartup } from "./server-agent-database-startup.js";
 import type { GatewayKernelRuntime } from "./server-kernel-request-runtime.js";
 import { GATEWAY_EVENTS } from "./server-methods-list.js";
 import { refreshConnectedNodeSurfaceCaches } from "./server-methods/nodes.read.js";
@@ -149,12 +151,13 @@ export async function finishGatewayStartup(params: {
     getPluginNodeCapabilities,
   } = runtime;
   const startupPluginRuntimeClaim = kernel.pluginRuntimeGeneration.currentClaim();
-  const { attachGatewayWsHandlers } = await startupTrace.measure(
+  const databaseStartupAdmission = getAgentDatabaseStartupAdmission();
+  const { attachGatewayWsConnectionHandler } = await startupTrace.measure(
     "gateway.ws-imports",
-    () => import("./server-ws-runtime.js"),
+    () => import("./server/ws-connection.js"),
   );
   await startupTrace.measure("gateway.ws-attach", () =>
-    attachGatewayWsHandlers({
+    attachGatewayWsConnectionHandler({
       wss,
       clients,
       connectionWork: runtime.connectionWork,
@@ -182,7 +185,8 @@ export async function finishGatewayStartup(params: {
       getMethodRegistry: () => getAttachedGatewayMethodRegistry(),
       ...(workerEnvironmentService ? { workerConnectionService: workerEnvironmentService } : {}),
       broadcast,
-      context: gatewayRequestContext,
+      refreshHealthSnapshot: gatewayRequestContext.refreshHealthSnapshot,
+      buildRequestContext: () => gatewayRequestContext,
     }),
   );
   await startupTrace.measure("http.listen", () => startListening());
@@ -363,6 +367,24 @@ export async function finishGatewayStartup(params: {
     ),
   );
   kernel.setPostAttachHandles(postAttachHandles);
+  if (databaseStartupAdmission) {
+    void postAttachHandles.startupSettled
+      .then(() => {
+        if (!lifecycle.closePreludeStarted) {
+          activateGatewayAgentDatabaseStartup({
+            admission: databaseStartupAdmission,
+            getConfig: getRuntimeConfig,
+            getPluginRegistry: () => pluginRuntime.registry,
+            getPluginMetadataSnapshot,
+            isCurrent: () => !lifecycle.closePreludeStarted,
+            log,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        log.warn(`agent database startup preparation could not activate: ${String(error)}`);
+      });
+  }
   startupTrace.detail("memory.ready", [
     ...collectGatewayProcessMemoryUsageMb(),
     ...(minimalTestGateway ? [] : await collectGatewayWorkerPoolMetrics()),

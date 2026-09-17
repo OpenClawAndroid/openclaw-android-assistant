@@ -15,6 +15,7 @@ export function codexCatalogPageCacheKey(
   params: CodexSessionCatalogPageParams,
   agentId: string | undefined,
   sourceHomeId: string | undefined,
+  maxScanPages = MAX_TITLE_SEARCH_CATALOG_PAGES,
 ): string {
   // Mirror listPage's search/cwd normalization; these trimmed values are what reach app-server.
   return JSON.stringify([
@@ -24,6 +25,7 @@ export function codexCatalogPageCacheKey(
     params.limit ?? null,
     params.searchTerm?.trim().toLocaleLowerCase() || null,
     params.cwd?.trim() || null,
+    params.searchTerm?.trim() ? maxScanPages : null,
   ]);
 }
 

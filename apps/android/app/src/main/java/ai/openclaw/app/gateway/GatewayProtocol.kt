@@ -954,6 +954,8 @@ enum class GatewayMethod(
   TalkVoiceComplete("talk.voice.complete"),
   PluginsCredentialsInspect("plugins.credentials.inspect"),
   PluginsSkillsRead("plugins.skills.read"),
+  DiagnosticsHeapProfile("diagnostics.heapProfile"),
+  DesktopRelease("desktop.release"),
 }
 
 enum class GatewayEvent(

@@ -191,6 +191,40 @@ describe("session companion asks", () => {
     harness.service.dispose();
   });
 
+  it("drops context when read authority changes during preparation", async () => {
+    vi.useFakeTimers();
+    let authorized = true;
+    const harness = createHarness({
+      readContext: async () => {
+        authorized = false;
+        return {
+          kind: "ready",
+          context: {
+            empty: false,
+            messages: [{ role: "user", text: "private context", ts: 1 }],
+            sessionId: "session-1",
+          },
+        };
+      },
+    });
+
+    await expect(
+      harness.service.ask({
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        question: "What changed?",
+        connId: "conn-1",
+        assertSourceCurrent: () => {
+          if (!authorized) {
+            throw new SessionCompanionAskError("session-missing", "Side chat is unavailable.");
+          }
+        },
+      }),
+    ).rejects.toMatchObject({ reason: "session-missing" });
+    expect(harness.run).not.toHaveBeenCalled();
+    harness.service.dispose();
+  });
+
   it("distinguishes a genuinely empty session from a missing session", async () => {
     vi.useFakeTimers();
     const empty = createHarness({

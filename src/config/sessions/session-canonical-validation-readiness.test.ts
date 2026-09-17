@@ -165,3 +165,32 @@ it("refuses to publish canonical readiness after its physical verification recei
     expect(hasOpenClawAgentCanonicalValidation(database)).toBe(false);
   });
 });
+
+it("retains pending validation when startup authority is revoked before worker write admission", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const { options, database } = seedPendingRows(1);
+    invalidateOpenClawAgentDatabaseValidation(database.path);
+    expect(hasOpenClawAgentCanonicalValidation(database)).toBe(false);
+    let revoked = false;
+    const createWorker = archiveWorker.createSqliteTranscriptArchiveWorker;
+    vi.spyOn(archiveWorker, "createSqliteTranscriptArchiveWorker").mockImplementation((data) => {
+      const worker = createWorker(data);
+      worker.on("message", (message: { type: string }) => {
+        if (message.type === "admission-request") {
+          revoked = true;
+        }
+      });
+      return worker;
+    });
+    await expect(
+      certifySessionCanonicalValidationPending(options, undefined, () => {
+        if (revoked) {
+          throw new Error("startup preparation was superseded");
+        }
+      }),
+    ).rejects.toThrow("startup preparation was superseded");
+    expect(revoked).toBe(true);
+    expect(hasPendingCanonicalSessionValidation(database)).toBe(true);
+    expect(hasOpenClawAgentCanonicalValidation(database)).toBe(false);
+  });
+});

@@ -19,10 +19,8 @@ import { assertOpenClawAgentCurrentRuntimeSchema } from "../state/openclaw-agent
 import { invalidateOpenClawAgentDatabaseValidation } from "../state/openclaw-agent-db-validation-cache.js";
 import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
-import {
-  createReadonlySessionHistoryReader,
-  type PreparedSessionHistoryReadTarget,
-} from "./session-history-readonly-reader.js";
+import type { PreparedSessionHistoryReadTarget } from "./session-history-read.types.js";
+import { createReadonlySessionHistoryReader } from "./session-history-readonly-reader.js";
 import { readChatHistoryMessageId } from "./session-history-tail.js";
 
 async function withHistory(

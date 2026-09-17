@@ -1,3 +1,4 @@
+import "../agents/subagents/spawn/subagent-spawn-model.mocks.shared.js";
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import * as subagentKill from "../agents/subagents/registry/subagent-control-kill.js";

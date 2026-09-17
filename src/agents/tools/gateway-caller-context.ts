@@ -57,6 +57,8 @@ type GatewayToolCallerIdentity = {
   cronExecToolTarget?: { host: "gateway"; ask?: "always" };
   /** One-shot Gateway-owned proof for a freshly resolved configured-MCP cap. */
   cronCreatorAuthorityGrant?: CronCreatorAuthorityGrant;
+  /** Host-only native issuer retained by the current MCP grant; never serialized. */
+  mintCronRequesterGrant?: (signal?: AbortSignal) => CronCreatorAuthorityGrant;
   cronManagementGrant?: CronCreatorAuthorityGrant;
   // Trusted run context, carried separately from model-authored tool arguments.
   turnSourceChannel?: string;
@@ -109,6 +111,7 @@ function bindGatewayToolContextResolver(
 type AdmittedGatewayToolCallerParams = {
   admittedRunContext: AdmittedRunContext;
   receiptAuthority?: () => boolean | void;
+  mintCronRequesterGrant?: GatewayToolCallerIdentity["mintCronRequesterGrant"];
   approvalSignals?: readonly AbortSignal[];
   agentId?: string;
   sessionKey?: string;
@@ -168,6 +171,9 @@ export function createAdmittedGatewayToolCallerIdentity(
       params.receiptAuthority,
     ),
     ...(params.approvalSignals?.length ? { approvalSignals: params.approvalSignals } : {}),
+    ...(params.mintCronRequesterGrant
+      ? { mintCronRequesterGrant: params.mintCronRequesterGrant }
+      : {}),
     turnSourceChannel: params.turnSourceChannel,
     turnSourceLocal: params.turnSourceLocal,
     turnSourceTo: params.turnSourceTo,
@@ -251,6 +257,8 @@ export async function withGatewayToolCallerIdentity<T>(
   const cronExecToolTarget = identity.cronExecToolTarget ?? inheritedOwner?.cronExecToolTarget;
   const cronCreatorAuthorityGrant =
     identity.cronCreatorAuthorityGrant ?? inheritedOwner?.cronCreatorAuthorityGrant;
+  const mintCronRequesterGrant =
+    inheritedOwner?.mintCronRequesterGrant ?? identity.mintCronRequesterGrant;
   const cronManagementGrant = identity.cronManagementGrant ?? inheritedOwner?.cronManagementGrant;
   const turnSourceChannel = inheritedOwner?.turnSourceChannel ?? identity.turnSourceChannel?.trim();
   const turnSourceLocal = inheritedOwner?.turnSourceLocal ?? identity.turnSourceLocal;
@@ -279,6 +287,7 @@ export async function withGatewayToolCallerIdentity<T>(
       ...(cronToolsAllowCapture ? { cronToolsAllowCapture } : {}),
       ...(cronExecToolTarget ? { cronExecToolTarget } : {}),
       ...(cronCreatorAuthorityGrant ? { cronCreatorAuthorityGrant } : {}),
+      ...(mintCronRequesterGrant ? { mintCronRequesterGrant } : {}),
       ...(cronManagementGrant ? { cronManagementGrant } : {}),
       ...(executionIdentityToken ? { executionIdentityToken } : {}),
       ...(receiptAuthority ? { receiptAuthority } : {}),

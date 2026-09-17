@@ -601,35 +601,36 @@ export function createProcessSupervisor(): ProcessSupervisor & {
         forceKillTimer.unref?.();
       };
 
-      const waitPromise = (async (): Promise<RunExit> => {
-        const result = await adapter.wait();
-        const deadlineReason = resolveElapsedTimeoutReason({
-          nowMs: performance.now(),
-          overallTimeoutDeadlineMs: overallDeadline.deadlineMs,
-          noOutputTimeoutDeadlineMs: outputDeadline.deadlineMs,
-        });
-        const terminalReason = forcedReason ?? deadlineReason;
-        settleResult();
-
-        const reason: TerminationReason =
-          terminalReason ?? (result.signal != null ? ("signal" as const) : ("exit" as const));
-        const exit: RunExit = {
-          reason,
-          exitCode: result.code,
-          exitSignal: result.signal,
-          oomScoreWrapperSelected: adapter.oomScoreWrapperSelected === true,
-          durationMs: Date.now() - startedAtMs,
-          ...captured,
-          timedOut: isTimeoutReason(reason),
-          noOutputTimedOut: terminalReason === "no-output-timeout",
-        };
-        return exit;
-      })().catch((err: unknown) => {
-        if (!resultSettled) {
+      const waitOutcome = Promise.allSettled([
+        (async (): Promise<RunExit> => {
+          const result = await adapter.wait();
+          const deadlineReason = resolveElapsedTimeoutReason({
+            nowMs: performance.now(),
+            overallTimeoutDeadlineMs: overallDeadline.deadlineMs,
+            noOutputTimeoutDeadlineMs: outputDeadline.deadlineMs,
+          });
+          const terminalReason = forcedReason ?? deadlineReason;
           settleResult();
-        }
-        throw err;
-      });
+
+          const reason: TerminationReason =
+            terminalReason ?? (result.signal != null ? ("signal" as const) : ("exit" as const));
+          const exit: RunExit = {
+            reason,
+            exitCode: result.code,
+            exitSignal: result.signal,
+            oomScoreWrapperSelected: adapter.oomScoreWrapperSelected === true,
+            durationMs: Date.now() - startedAtMs,
+            ...captured,
+            timedOut: isTimeoutReason(reason),
+            noOutputTimedOut: terminalReason === "no-output-timeout",
+          };
+          return exit;
+        })().finally(() => {
+          if (!resultSettled) {
+            settleResult();
+          }
+        }),
+      ]);
 
       const managedRun: ManagedRun = {
         activity: Object.freeze({
@@ -649,7 +650,13 @@ export function createProcessSupervisor(): ProcessSupervisor & {
         pid: adapter.pid,
         startedAtMs,
         stdin: adapter.stdin,
-        wait: async () => await waitPromise,
+        wait: async () => {
+          const [outcome] = await waitOutcome;
+          if (outcome.status === "rejected") {
+            throw outcome.reason;
+          }
+          return outcome.value;
+        },
         ...(adapter.waitForExtinction && { waitForExtinction: () => cleanup.promise }),
         cancel: (reason = "manual-cancel") => {
           requestCancel(reason);

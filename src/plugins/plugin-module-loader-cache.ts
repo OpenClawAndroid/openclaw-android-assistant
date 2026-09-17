@@ -213,6 +213,7 @@ function resolvePluginModuleLoaderCacheEntry(params: ResolvePluginModuleLoaderCa
     ? {
         cacheKey: createPluginLoaderModuleCacheKey({ tryNative, aliasMap: explicit }),
         getAliasMap: () => explicit,
+        hasSourceSdkAliases: undefined,
         getSourceTransformAliasMap: () => explicit,
         resolveAlias: (specifier: string) => explicit[specifier],
       }
@@ -232,6 +233,7 @@ function resolvePluginModuleLoaderCacheEntry(params: ResolvePluginModuleLoaderCa
   return {
     loaderFilename,
     getAliasMap: aliases.getAliasMap,
+    hasSourceSdkAliases: aliases.hasSourceSdkAliases,
     resolveAlias: aliases.resolveAlias,
     tryNative,
     transformOpenClawDependencies,
@@ -252,10 +254,12 @@ function createPluginModuleLoader(
   // fallback must transform both the entry and OpenClaw SDK dependencies.
   let sourceSdkAliases: boolean | undefined;
   const hasSourceSdkAliases = () =>
-    (sourceSdkAliases ??= Object.entries(params.getAliasMap()).some(
-      ([specifier, target]) =>
-        isPluginSdkAliasSpecifier(specifier) && isPluginSourceModulePath(target),
-    ));
+    (sourceSdkAliases ??=
+      params.hasSourceSdkAliases?.() ??
+      Object.entries(params.getAliasMap()).some(
+        ([specifier, target]) =>
+          isPluginSdkAliasSpecifier(specifier) && isPluginSourceModulePath(target),
+      ));
   const sourceSdkReferences = new Map<string, boolean>();
   const referencesSourceSdk = (target: string) => {
     const cached = sourceSdkReferences.get(target);

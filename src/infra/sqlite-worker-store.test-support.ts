@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, linkSync, renameSync, watch, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parentPort, threadId } from "node:worker_threads";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { Generated } from "kysely";
 import { clearNodeSqliteKyselyCacheForDatabase } from "./kysely-sync-cache-state.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
@@ -10,13 +11,28 @@ import { runSqliteImmediateTransactionSync } from "./sqlite-transaction.js";
 import type { SqliteWorkerBackend } from "./sqlite-worker-contract.js";
 
 let pendingCloses = 0;
+type ReplyOwnership = { kind: string; before: number; after: number };
+const replyOwnership: ReplyOwnership[] = [];
 if (parentPort) {
   const postMessage = parentPort.postMessage.bind(parentPort);
   parentPort.postMessage = (...args) => {
     if (pendingCloses > 0) {
       throw new Error("Fixture close acknowledgement preceded native cleanup");
     }
+    const reply: unknown = args[0];
+    const bytes =
+      isRecord(reply) && reply.ok === true && reply.value instanceof Uint8Array
+        ? reply.value
+        : undefined;
+    const before = bytes?.byteLength;
     Reflect.apply(postMessage, undefined, args);
+    if (bytes && before !== undefined && isRecord(reply)) {
+      replyOwnership.push({
+        kind: typeof reply.transfer === "string" ? reply.transfer : "inline",
+        before,
+        after: bytes.byteLength,
+      });
+    }
   };
 }
 
@@ -29,6 +45,7 @@ type Receipt = { actor: string; writes: number; threadId: number };
 export type FixtureOperations = {
   append: { input: { value: string }; output: Receipt };
   read: { input: undefined; output: string[] };
+  takeReplyOwnership: { input: undefined; output: ReplyOwnership[] };
   commitThenExit: { input: { value: string }; output: never };
   commitUnserializable: { input: { value: string }; output: symbol };
   failClose: { input: undefined; output: undefined };
@@ -111,6 +128,9 @@ function createFixtureBackend(
   }
   return {
     execute(command) {
+      if (command.type === "takeReplyOwnership") {
+        return replyOwnership.splice(0);
+      }
       if (command.type === "delayClose") {
         delayedClose = command.input;
         return undefined;

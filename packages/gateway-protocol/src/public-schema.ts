@@ -109,6 +109,8 @@ export {
   DesktopObserveParamsSchema,
   DesktopObserveResultSchema,
   DesktopLaunchParamsSchema,
+  DesktopReleaseParamsSchema,
+  DesktopReleaseResultSchema,
   SystemInfoParamsSchema,
   SystemInfoResultSchema,
   StateVersionSchema,

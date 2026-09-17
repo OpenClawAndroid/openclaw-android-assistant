@@ -9,8 +9,6 @@ import type { SubagentRunReadIndex } from "../agents/subagents/registry/subagent
 import type { SubagentRunReadRecord } from "../agents/subagents/registry/subagent-registry-read.types.js";
 import type { ThinkLevel, listThinkingLevelOptions } from "../auto-reply/thinking.js";
 import type { SessionAcpMeta, SessionEntry } from "../config/sessions.js";
-import type { SessionEntryReadSource } from "../config/sessions/session-accessor.js";
-import type { InternalSessionEntry } from "../config/sessions/types.js";
 import type { ProjectedAgentRunIndex } from "../infra/agent-run-registry.js";
 import type { ModelCostConfig } from "../utils/usage-format.js";
 import type { CurrentUserProfileDisplay } from "./current-user-profile-display.js";
@@ -43,19 +41,6 @@ export type SessionListRowContext = {
 };
 
 export type SessionListRowContextProvider = () => SessionListRowContext;
-
-export type GatewaySessionStoreTarget = {
-  agentId: string;
-  storePath: string;
-  canonicalKey: string;
-  storeKeys: string[];
-};
-
-export type GatewaySessionStoreTargetWithStore = GatewaySessionStoreTarget & {
-  canonicalValidationError?: Error;
-  store: Record<string, InternalSessionEntry>;
-  readSource?: SessionEntryReadSource;
-};
 
 export function createSessionRowModelCacheKey(
   provider: string | undefined,

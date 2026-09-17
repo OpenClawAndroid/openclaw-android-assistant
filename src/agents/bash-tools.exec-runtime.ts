@@ -706,8 +706,6 @@ export async function runExecProcess({
     notifyOnExit: opts.notifyOnExit,
     notifyOnExitEmptySuccess: opts.notifyOnExitEmptySuccess === true,
     exitNotified: false,
-    stdin: undefined,
-    pid: undefined,
     startedAt,
     cwd: opts.workdir,
     maxOutputChars: opts.maxOutput,
@@ -720,8 +718,6 @@ export async function runExecProcess({
     aggregated: "",
     tail: "",
     exited: false,
-    exitCode: undefined as number | null | undefined,
-    exitSignal: undefined as NodeJS.Signals | number | null | undefined,
     truncated: false,
     backgrounded: false,
     cursorKeyMode: opts.usePty ? "unknown" : "normal",
@@ -806,6 +802,11 @@ export async function runExecProcess({
     let finalOutcome = outcome;
     session.finalizing = true;
     try {
+      if (!opts.sandbox && managedRun?.waitForExtinction) {
+        // Root completion does not release descendants that retained the group's lineage fd.
+        managedRun.cancel();
+        await managedRun.waitForExtinction();
+      }
       await finalizeSandboxExec({
         status: outcome.status,
         exitCode: outcome.exitCode,
@@ -823,7 +824,7 @@ export async function runExecProcess({
         // Background observers need the finalizer failure in the same bounded, redacted output.
         appendOutput(session, "stderr", `\n${redactToolPayloadText(formatErrorMessage(error))}\n`);
       } else {
-        logWarn(`exec: sandbox finalize after process failure failed (${String(error)}).`);
+        logWarn(`exec: finalization after process failure failed (${String(error)}).`);
       }
     } finally {
       // Finalization can release remote process/session resources. Keep the

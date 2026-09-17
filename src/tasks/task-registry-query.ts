@@ -7,7 +7,7 @@ import {
   sameTaskBackingInstance,
   selectLatestCanonicalTaskBacking,
 } from "./task-backing-records.js";
-import { getTaskFlowById } from "./task-flow-runtime-internal.js";
+import { getTaskMirroredFlowIds } from "./task-flow-runtime-internal.js";
 import { clearTaskActivity } from "./task-registry-activity.js";
 import { isActiveTaskStatus } from "./task-registry-common.js";
 import type { TaskRegistryControlRuntime } from "./task-registry-control.types.js";
@@ -357,13 +357,20 @@ export function findTaskByRunId(runId: string): TaskRecord | undefined {
     }
   }
   const superseded = new Set<string>();
+  let mirroredFlowIds: ReadonlySet<string> | undefined;
   for (const { childSessionKey, scopeKind, candidates } of acpScopes.values()) {
     const current = selectLatestCanonicalTaskBacking({
       runtime: "acp",
       scopeKind,
       childSessionKey,
       candidates,
-      isTaskMirroredFlow: (flowId) => getTaskFlowById(flowId)?.syncMode === "task_mirrored",
+      isTaskMirroredFlow: (flowId) => {
+        // Admit flows only when a candidate needs them, once for this synchronous lookup.
+        mirroredFlowIds ??= getTaskMirroredFlowIds(
+          matches.flatMap((task) => (task.parentFlowId ? [task.parentFlowId.trim()] : [])),
+        );
+        return mirroredFlowIds.has(flowId);
+      },
     });
     if (!current) {
       continue;

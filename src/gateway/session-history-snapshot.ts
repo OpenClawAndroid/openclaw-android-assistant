@@ -40,6 +40,7 @@ export async function readSessionHistorySnapshotKernel(
     rawMessages = snapshot.messages;
     transcriptPath = snapshot.transcriptPath;
     projected = projectChatDisplayMessagesWithState(rawMessages, {
+      subagentCoordination: options.readers.subagentCoordination,
       includeCommentaryFallbacks: true,
       maxChars: params.maxChars ?? DEFAULT_CHAT_HISTORY_TEXT_MAX_CHARS,
       ...(options.deferProfileDisplay

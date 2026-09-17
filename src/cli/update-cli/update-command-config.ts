@@ -390,7 +390,10 @@ export async function maybeRepairLegacyConfigForUpdateChannel(params: {
 
   const { repairLegacyConfigForUpdateChannel } =
     await import("../../commands/doctor/legacy-config-repair.js");
-  const { snapshot, repaired } = await repairLegacyConfigForUpdateChannel(params);
+  const { snapshot, repaired, warnings } = await repairLegacyConfigForUpdateChannel(params);
+  for (const warning of warnings ?? []) {
+    defaultRuntime.error(`Warning: ${warning}`);
+  }
   if (!params.jsonMode && repaired) {
     defaultRuntime.log(theme.muted("Migrated legacy config before changing update channel."));
   }

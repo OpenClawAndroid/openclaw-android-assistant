@@ -29,6 +29,7 @@ import { notifyListeners } from "../shared/listeners.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import type { EmbeddedTuiBackend as EmbeddedTuiBackendType } from "./embedded-backend.js";
+import { registerEmbeddedBackendStreamTests } from "./embedded-backend.stream.test-support.js";
 import type { TuiModelChoice } from "./tui-backend.js";
 
 type EmbeddedAgentResult = {
@@ -3615,121 +3616,14 @@ describe("EmbeddedTuiBackend", () => {
     });
   });
 
-  it.each([
-    {
-      name: "unkeyed replacement snapshots",
-      updates: [{ text: "Hello world" }, { text: "Goodbye world" }],
-      expectedDeltas: [
-        { deltaText: "Hello world", replace: undefined },
-        { deltaText: "Goodbye world", replace: true },
-      ],
-      expectedText: "Goodbye world",
-    },
-    {
-      name: "identical snapshots from distinct assistant items",
-      updates: [
-        { itemId: "first", text: "Echo" },
-        { itemId: "second", text: "Echo" },
-      ],
-      expectedDeltas: [
-        { deltaText: "Echo", replace: undefined },
-        { deltaText: "\n\nEcho", replace: undefined },
-      ],
-      expectedText: "Echo\n\nEcho",
-    },
-    {
-      name: "a new assistant item extending an earlier item's text",
-      updates: [
-        { itemId: "first", text: "Echo", delta: "Echo" },
-        { itemId: "second", text: "Echo!", delta: "Echo!" },
-      ],
-      expectedDeltas: [
-        { deltaText: "Echo", replace: undefined },
-        { deltaText: "\n\nEcho!", replace: undefined },
-      ],
-      expectedText: "Echo\n\nEcho!",
-    },
-    {
-      name: "replayed and growing snapshots of one assistant item",
-      updates: [
-        { itemId: "answer", text: "Echo", delta: "Echo" },
-        { itemId: "answer", text: "Echo", delta: "Echo" },
-        { itemId: "answer", text: "Echo again", delta: " again" },
-      ],
-      expectedDeltas: [
-        { deltaText: "Echo", replace: undefined },
-        { deltaText: " again", replace: undefined },
-      ],
-      expectedText: "Echo again",
-    },
-    {
-      name: "item-scoped deltas without snapshots",
-      updates: [
-        { itemId: "first", delta: "Echo" },
-        { itemId: "first", delta: "Echo" },
-        { itemId: "second", delta: "!" },
-      ],
-      expectedDeltas: [
-        { deltaText: "Echo", replace: undefined },
-        { deltaText: "Echo", replace: undefined },
-        { deltaText: "\n\n!", replace: undefined },
-      ],
-      expectedText: "EchoEcho\n\n!",
-    },
-    {
-      name: "empty corrections that remove only the current assistant item",
-      updates: [
-        { itemId: "first", text: "Hello" },
-        { itemId: "second", text: " world" },
-        { itemId: "second", text: "" },
-      ],
-      expectedDeltas: [
-        { deltaText: "Hello", replace: undefined },
-        { deltaText: "\n\n world", replace: undefined },
-        { deltaText: "Hello", replace: true },
-      ],
-      expectedText: "Hello",
-    },
-  ])("projects local embedded $name", async ({ updates, expectedDeltas, expectedText }) => {
-    const pending = deferred<EmbeddedAgentResult>();
-    agentCommandFromIngressMock.mockReturnValueOnce(pending.promise);
-
-    const backend = new EmbeddedTuiBackend();
-    const events = captureBackendEvents(backend);
-
-    backend.start();
-    await sendMainChat(backend, "replace", "run-local-replace");
-
-    for (const data of updates) {
-      registeredListener?.({ runId: "run-local-replace", stream: "assistant", data });
-    }
-
-    pending.resolve({ payloads: [], meta: {} });
-    await flushMicrotasks();
-
-    const chatPayloads = events
-      .filter((entry) => entry.event === "chat")
-      .map(
-        (entry) =>
-          entry.payload as {
-            state?: string;
-            deltaText?: string;
-            replace?: boolean;
-            message?: { content?: Array<{ text?: string }> };
-          },
-      );
-    expect(
-      chatPayloads
-        .filter((payload) => payload.state === "delta")
-        .map((payload) => ({
-          deltaText: payload.deltaText,
-          replace: payload.replace,
-        })),
-    ).toEqual(expectedDeltas);
-    expect(chatPayloads.at(-1)).toMatchObject({
-      state: "final",
-      message: { content: [{ text: expectedText }] },
-    });
+  registerEmbeddedBackendStreamTests({
+    createBackend: () => new EmbeddedTuiBackend(),
+    createPendingReply: () => deferred<EmbeddedAgentResult>(),
+    prepareReply: (reply) => agentCommandFromIngressMock.mockReturnValueOnce(reply),
+    emitAgentEvent: (event) => registeredListener?.(event),
+    captureBackendEvents,
+    flushMicrotasks,
+    embeddedEventTimestamp,
   });
 
   it("keeps internal context private when local deltas split its delimiters", async () => {

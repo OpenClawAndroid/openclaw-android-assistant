@@ -308,6 +308,7 @@ export async function readChatHistoryPageKernel(
         );
     const project = (messages: unknown[]) =>
       projectChatDisplayMessagesWithState(messages, {
+        subagentCoordination: options.readers.subagentCoordination,
         includeCommentaryFallbacks: true,
         maxChars: effectiveMaxChars,
         ...(options.deferProfileDisplay
@@ -327,7 +328,10 @@ export async function readChatHistoryPageKernel(
       const recoveryContext = await readChatHistoryRecoveryContext({
         messages: localMessages,
         createRecovery: (messages) => {
-          const recovery = createChatHistoryRecoveryProjection({ maxChars: effectiveMaxChars });
+          const recovery = createChatHistoryRecoveryProjection({
+            maxChars: effectiveMaxChars,
+            subagentCoordination: options.readers.subagentCoordination,
+          });
           recovery.append(messages);
           return recovery;
         },

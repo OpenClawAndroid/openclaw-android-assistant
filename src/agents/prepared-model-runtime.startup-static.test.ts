@@ -231,7 +231,8 @@ vi.mock("./runtime-plugins.js", () => ({
   loadAgentRuntimePluginRegistryHandle: mocks.loadAgentRuntimePluginRegistryHandle,
 }));
 
-vi.mock("./embedded-agent-runner/model.static-catalog.js", () => ({
+vi.mock("./embedded-agent-runner/model.static-catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./embedded-agent-runner/model.static-catalog.js")>()),
   loadBundledProviderStaticCatalogContextModels: mocks.loadStaticCatalog,
   createBundledStaticCatalogModelResolver: () => mocks.resolveStaticCatalogModel,
 }));
@@ -284,7 +285,14 @@ describe("prepared model runtime Gateway catalog mode", () => {
   ] as const)(
     "publishes $name policy with model caps for lightweight configured and full catalog reads",
     async ({ profile, expectedLevels }) => {
-      const config = { agents: { defaults: { model: { primary: "openai/gpt-5.5" } } } };
+      const config = {
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.5" },
+            models: { "openai/gpt-5.5": { alias: "Current" } },
+          },
+        },
+      };
       const policy = { resolveThinkingProfile: () => profile };
       mocks.resolveProviderPolicySurface.mockReturnValue(policy);
       await refreshPreparedModelRuntimeSnapshots(config, {
@@ -299,6 +307,8 @@ describe("prepared model runtime Gateway catalog mode", () => {
         workspaceDir: "/tmp/prepared-static-workspace",
       });
       expect(snapshot).toBeDefined();
+      const turnAliases = snapshot!.configuredModelAliases;
+      expect(turnAliases).toEqual([{ alias: "Current", provider: "openai", model: "gpt-5.5" }]);
       expect(snapshot!.pluginRegistry?.providers).toEqual([]);
       const configuredCatalog = snapshot!.modelCatalog;
       expect(configuredCatalog.entries).toHaveLength(1);
@@ -337,8 +347,10 @@ describe("prepared model runtime Gateway catalog mode", () => {
       for (const entry of workerCatalog.entries) {
         expect(Object.getOwnPropertySymbols(entry)).toEqual([]);
       }
+      workerCatalog.entries.push({ provider: "openai", id: "discovered-later", name: "Later" });
       mocks.runPreparedModelCatalogWorker.mockResolvedValueOnce(workerCatalog);
       const fullCatalog = await snapshot!.loadFullModelCatalog!();
+      expect(snapshot!.configuredModelAliases).toBe(turnAliases);
       mocks.resolveProviderPolicySurface.mockImplementation(() => {
         throw new Error("lightweight projection must not load provider artifacts");
       });

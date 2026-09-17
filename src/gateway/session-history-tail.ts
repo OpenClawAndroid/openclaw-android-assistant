@@ -270,6 +270,7 @@ export async function readIncrementalChatHistoryTail(params: {
     const projection = projectChatDisplayMessagesWithState(
       newerContext.length > 0 ? [...filteredRawMessages, ...newerContext] : filteredRawMessages,
       {
+        subagentCoordination: params.readers.subagentCoordination,
         includeCommentaryFallbacks: true,
         maxChars: params.effectiveMaxChars,
         ...(resolveProfileDisplay && !params.deferProfileDisplay
@@ -304,6 +305,7 @@ export async function readIncrementalChatHistoryTail(params: {
       messages: result.filteredRawMessages,
       createRecovery: (messages) => {
         const recovery = createChatHistoryRecoveryProjection({
+          subagentCoordination: params.readers.subagentCoordination,
           maxChars: params.effectiveMaxChars,
         });
         if (sessionStartedAt === undefined) {
@@ -425,6 +427,7 @@ export async function readIncrementalChatHistoryTail(params: {
   if (projectionDirty) {
     result = await projectWindow();
   }
+  params.readers.subagentCoordination?.assertCurrent?.();
   return {
     overreadContextMessage,
     projected: result.projected,

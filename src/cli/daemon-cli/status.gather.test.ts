@@ -14,6 +14,7 @@ import type { ExtraGatewayService } from "../../daemon/inspect.js";
 import type { ForeignLaunchdJob } from "../../daemon/launchd-foreign-jobs.js";
 import type { StaleOpenClawUpdateLaunchdJob } from "../../daemon/launchd.js";
 import type { ServiceConfigAudit } from "../../daemon/service-audit.js";
+import { ServiceInspectionError } from "../../daemon/service-inspection-error.js";
 import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { createMockGatewayService } from "../../daemon/service.test-helpers.js";
 import { gatewayEdgeAuthValueForTarget } from "../../gateway/edge-auth.js";
@@ -25,7 +26,6 @@ import {
   sendMinimalGatewayResponse,
 } from "../../gateway/minimal-gateway.test-helpers.js";
 import { requireNodeSqlite } from "../../infra/node-sqlite.js";
-import type { PortListener, PortUsageStatus } from "../../infra/ports-types.js";
 import type { GatewayRestartHandoff } from "../../infra/restart-handoff.js";
 import { resetSecretRedactionRegistryForTest } from "../../logging/secret-redaction-registry.test-support.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -41,12 +41,17 @@ import { registerGatewayCli } from "../gateway-cli/register.js";
 import { registerDaemonCli } from "./register.js";
 import type { GatewayRestartSnapshot } from "./restart-health.js";
 import { gatherDaemonStatus, renderPortDiagnosticsForCli } from "./status.gather.js";
+import {
+  callGatewayStatusProbe,
+  formatPortDiagnostics,
+  inspectPortConnections,
+  inspectPortUsage,
+  inspectPortUsages,
+  type GatewayStatusProbeOptions,
+  type PortUsageInspectionOptions,
+  type PortUsageTestSummary,
+} from "./status.gather.probes.test-support.js";
 import { printDaemonStatus } from "./status.print.js";
-
-type PortConnections = Awaited<
-  ReturnType<typeof import("../../infra/ports-inspect.js").inspectPortConnections>
->;
-type GatewayStatusProbeOptions = Parameters<typeof import("./probe.js").probeGatewayStatus>[0];
 
 const readFile = fs.readFile.bind(fs);
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -57,20 +62,6 @@ const preflightOpenClawDatabaseSchemas = vi.fn<
   typeof import("../../state/openclaw-database-preflight.js").preflightOpenClawDatabaseSchemas
 >(async () => ({ incompatible: [], indeterminate: [] }));
 
-const callGatewayStatusProbe = vi.fn<
-  (opts: GatewayStatusProbeOptions) => Promise<{
-    ok: boolean;
-    url?: string;
-    error?: string | null;
-    server?: { version?: string | null; buildId?: string | null; connId?: string | null };
-    version?: string | null;
-  }>
->(async (_opts: GatewayStatusProbeOptions) => ({
-  ok: true,
-  url: "ws://127.0.0.1:19001",
-  error: null,
-  server: { version: "2026.5.6", buildId: "build-2026.5.6", connId: "conn-1" },
-}));
 const isDefaultInstallIdentity = vi.fn((_env?: NodeJS.ProcessEnv) => true);
 const isGatewayExternallySupervised = vi.fn((_env?: NodeJS.ProcessEnv) => false);
 const resolveGatewayProbeAuthSafeWithSecretInputsCalls = vi.fn<(opts?: unknown) => void>();
@@ -87,49 +78,6 @@ const findStaleOpenClawUpdateLaunchdJobs = vi.fn<
 const findForeignLaunchdJobs = vi.fn<(env?: NodeJS.ProcessEnv) => Promise<ForeignLaunchdJob[]>>(
   async () => [],
 );
-type PortUsageTestSummary = {
-  port: number;
-  status: PortUsageStatus;
-  listeners: PortListener[];
-  hints: string[];
-};
-
-type PortUsageInspectionOptions = { probeHosts?: readonly string[] };
-
-const inspectPortUsage = vi.fn<
-  (port: number, options?: PortUsageInspectionOptions) => Promise<PortUsageTestSummary>
->(async (port: number) => ({
-  port,
-  status: "free",
-  listeners: [],
-  hints: [],
-}));
-const inspectPortUsages = vi.fn<
-  (
-    ports: readonly number[],
-    options?: { probeHostsByPort?: ReadonlyMap<number, readonly string[]> },
-  ) => Promise<Map<number, PortUsageTestSummary>>
->(
-  async (ports) =>
-    new Map(
-      ports.map((port) => [
-        port,
-        {
-          port,
-          status: "free",
-          listeners: [],
-          hints: [],
-        },
-      ]),
-    ),
-);
-const inspectPortConnections = vi.fn<(port: number) => Promise<PortConnections>>(
-  async (port: number) => ({
-    port,
-    connections: [],
-  }),
-);
-const formatPortDiagnostics = vi.fn<(usage: PortUsageTestSummary) => string[]>(() => []);
 const readLastGatewayErrorLine = vi.fn<
   (_env?: NodeJS.ProcessEnv, _options?: { requirePatternMatch?: boolean }) => Promise<string | null>
 >(async (_env?: NodeJS.ProcessEnv, _options?: { requirePatternMatch?: boolean }) => null);
@@ -1481,6 +1429,50 @@ describe("gatherDaemonStatus", () => {
     });
     expect(inspectGatewayRestart).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { platform: "linux", reason: "service-manager-unavailable", recorded: true },
+    { platform: "linux", reason: "service-manager-unavailable", recorded: false },
+    { platform: "linux", reason: "systemd-user-bus-unavailable", recorded: true },
+    { platform: "darwin", reason: "launchd-gui-domain-unavailable", recorded: true },
+  ] as const)(
+    "reports $reason with recorded service=$recorded without inventing manager availability",
+    async ({ platform, reason, recorded }) =>
+      withMockedPlatform(platform, async () => {
+        const inspectionError = new ServiceInspectionError(reason);
+        serviceIsLoaded.mockRejectedValueOnce(inspectionError);
+        serviceReadRuntime.mockRejectedValueOnce(inspectionError);
+        if (!recorded) {
+          serviceReadCommand.mockResolvedValueOnce(null);
+        }
+        const status = await gatherStatus({ probe: false, deep: true });
+        expect(status.service.inspectionReason).toBe(reason);
+        expect(status.service.loaded).toBeNull();
+        const log = vi.spyOn(defaultRuntime, "log").mockImplementation(() => {});
+        const error = vi.spyOn(defaultRuntime, "error").mockImplementation(() => {});
+        try {
+          printDaemonStatus(status, { json: false, deep: true });
+          const output = [...log.mock.calls, ...error.mock.calls].flat().join("\n");
+          if (reason === "service-manager-unavailable") {
+            expect(output).toContain("Service: no supported service manager detected");
+            expect(status.config?.daemon?.path).toBe(status.config?.cli.path);
+            expect(status.gateway?.port).toBe(18789);
+            expect(status.service.targetRole).toBe("diagnostic-only");
+            expect(output.includes("recorded service unit is stale")).toBe(recorded);
+            expect(output.includes("Recorded command:")).toBe(recorded);
+            expect(output).toContain("Restart the Gateway you launched manually");
+            expect(output).not.toContain("Service: LaunchAgent (unknown)");
+            expect(output).not.toContain("Retry: openclaw gateway status --deep");
+          } else {
+            expect(output).toContain("Service: LaunchAgent (unknown)");
+            expect(output).not.toContain("no supported service manager detected");
+          }
+        } finally {
+          log.mockRestore();
+          error.mockRestore();
+        }
+      }),
+  );
 
   it("surfaces recent service restart handoffs only during deep status", async () => {
     readGatewayRestartHandoffSync.mockReturnValueOnce({

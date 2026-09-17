@@ -8,6 +8,7 @@ import type { InputProvenance } from "../../sessions/input-provenance.js";
 import type { AgentRuntimeIdentity } from "../agent-runtime-identity-token.js";
 import type { AgentRunRequest } from "./agent-request-types.js";
 import {
+  isDirectGatewayChatUserTurn,
   resolveGatewayChatCronCreatorAuthorityAdmission,
   resolveGatewayCronCreatorAuthorityAdmission,
   type GatewayCronCreatorAuthorityAdmission,
@@ -163,6 +164,19 @@ function createChatParams(
 }
 
 describe("resolveGatewayChatCronCreatorAuthorityAdmission", () => {
+  it.each([
+    ["Incognito", { isIncognito: true }],
+    ["fresh message after reconnect", { isReconnectResume: true }],
+  ] as const)("keeps %s dashboard input separate from cron authority", (_label, mode) => {
+    const params = createChatParams({
+      client: createClient({ isLocalClient: undefined, controlUiAdmin: true }),
+      ...mode,
+    });
+    expect(isDirectGatewayChatUserTurn(params)).toBe(true);
+    expect(resolveGatewayChatCronCreatorAuthorityAdmission(params)).toBeUndefined();
+    expect(isDirectGatewayChatUserTurn({ ...params, isDirectExternalUser: false })).toBe(false);
+  });
+
   it("mints only for a direct external local-admin user turn", () => {
     expect(resolveGatewayChatCronCreatorAuthorityAdmission(createChatParams())).toEqual({
       runId: "run-local-chat",

@@ -13,14 +13,16 @@ const mocks = vi.hoisted(() => ({
     mocks.events.push("sessions.count");
     return true;
   }),
-  loadCombinedSessionStoreForGatewayCore: vi.fn((_cfg: unknown, options: { agentId: string }) => {
-    mocks.events.push(`sessions.load.${options.agentId}`);
-    return {
-      durableStorePath: `/state/${options.agentId}.sqlite`,
-      storePath: `/state/${options.agentId}.sqlite`,
-      store: {},
-    };
-  }),
+  loadCombinedSessionStoreForGatewayAsync: vi.fn(
+    async (_cfg: unknown, options: { agentId: string }) => {
+      mocks.events.push(`sessions.load.${options.agentId}`);
+      return {
+        durableStorePath: `/state/${options.agentId}.sqlite`,
+        storePath: `/state/${options.agentId}.sqlite`,
+        store: {},
+      };
+    },
+  ),
   listSessionsFromStoreAsync: vi.fn(async (params: { opts: { agentId: string } }) => {
     mocks.events.push(`sessions.rows.${params.opts.agentId}`);
     return { sessions: [] };
@@ -33,7 +35,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../config/sessions/combined-store-gateway.js", () => ({
   canPrewarmCombinedSessionStoresForGateway: mocks.canPrewarmCombinedSessionStoresForGateway,
-  loadCombinedSessionStoreForGatewayCore: mocks.loadCombinedSessionStoreForGatewayCore,
+  loadCombinedSessionStoreForGatewayAsync: mocks.loadCombinedSessionStoreForGatewayAsync,
 }));
 
 vi.mock("./session-utils-list.js", () => ({
@@ -53,7 +55,7 @@ beforeEach(() => {
     mocks.events.push("sessions.count");
     return true;
   });
-  mocks.loadCombinedSessionStoreForGatewayCore.mockClear();
+  mocks.loadCombinedSessionStoreForGatewayAsync.mockClear();
   mocks.listSessionsFromStoreAsync.mockClear();
   mocks.listManagedPlugins.mockClear();
 });
@@ -119,11 +121,11 @@ describe("scheduleGatewayHandlerPrewarm", () => {
       "sessions.rows.research",
       "plugins",
     ]);
-    expect(mocks.loadCombinedSessionStoreForGatewayCore).toHaveBeenNthCalledWith(1, cfg, {
+    expect(mocks.loadCombinedSessionStoreForGatewayAsync).toHaveBeenNthCalledWith(1, cfg, {
       agentId: "main",
       projection: "list",
     });
-    expect(mocks.loadCombinedSessionStoreForGatewayCore).toHaveBeenNthCalledWith(2, cfg, {
+    expect(mocks.loadCombinedSessionStoreForGatewayAsync).toHaveBeenNthCalledWith(2, cfg, {
       agentId: "research",
       projection: "list",
     });

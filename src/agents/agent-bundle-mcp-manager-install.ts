@@ -255,6 +255,7 @@ export function createSessionMcpRuntimeManagerInstall(
       redactConnectionServerNames: new Set(params.resolverRequesterServerNames),
       requesterScope: params.requesterScope,
       toolOverrides: params.toolOverrides,
+      toolDenylist: params.toolDenylist,
     });
   };
 

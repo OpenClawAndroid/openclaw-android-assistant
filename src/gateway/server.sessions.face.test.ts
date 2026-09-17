@@ -7,6 +7,7 @@ import { loadSessionEntry } from "../config/sessions/session-accessor.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import {
   closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync,
   listOpenIncognitoAgentDatabases,
   openOpenClawAgentDatabase,
   resolveIncognitoOpenClawAgentSqlitePath,
@@ -94,7 +95,7 @@ test("dashboard defaults persist for another client and clear without changing t
 
   // Drop the cached handle before the next client reads the durable session row.
   const target = resolveSqliteTargetFromSessionStorePath(storePath, { agentId: "main" });
-  expect(closeOpenClawAgentDatabaseByPath(target.path)).toBe(true);
+  expect(await closeOpenClawAgentDatabaseByPathAsync(target.path)).toBe(true);
   const reader = await openClient({ scopes: ["operator.read"] });
   try {
     const described = await rpcReq<{ session: { boardPresentation?: string } }>(
@@ -134,7 +135,7 @@ test("dashboard defaults persist for another client and clear without changing t
     expect(cleared.ok).toBe(true);
     expect(cleared.payload?.entry.boardPresentation).toBeUndefined();
     expect(cleared.payload?.entry.boardFace).toBe("dashboard");
-    expect(closeOpenClawAgentDatabaseByPath(target.path)).toBe(true);
+    expect(await closeOpenClawAgentDatabaseByPathAsync(target.path)).toBe(true);
     const entry = loadSessionEntry({ agentId: "main", sessionKey: key, storePath });
     expect(entry?.boardFace).toBe("dashboard");
     expect(entry).not.toHaveProperty("boardPresentation");

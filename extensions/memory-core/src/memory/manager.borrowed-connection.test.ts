@@ -19,7 +19,7 @@ import * as sqliteRuntime from "openclaw/plugin-sdk/sqlite-runtime";
 import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordMemorySessionTombstones } from "../memory-entry-origins.js";
-import { MemoryIndexRevisionConflictError } from "./manager-db.js";
+import { MemoryIndexRevisionConflictError } from "./manager-db-kernel.js";
 import { createManagerIndexFixture } from "./manager-index.test-support.js";
 import { closeAllMemoryIndexManagers } from "./manager-runtime.js";
 import { MemoryIndexManager } from "./manager.js";

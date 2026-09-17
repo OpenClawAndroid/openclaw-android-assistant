@@ -10,6 +10,19 @@ import { readFlowAssertExpression, requireFlowScenario } from "./scenario-catalo
 import { runLoadedScenarioFlow } from "./scenario-flow-runner.test-support.js";
 
 describe("qa scenario catalog causality", () => {
+  it("treats denied Telegram admission as silent transport suppression", () => {
+    for (const scenarioId of [
+      "telegram-policy-hot-reload",
+      "telegram-group-policy-hot-reload",
+      "telegram-repeated-command-authorization",
+    ]) {
+      const scenario = requireFlowScenario(readQaScenarioById(scenarioId));
+      const flow = JSON.stringify(scenario.execution.flow);
+      expect(flow).toContain("waitForNoOutbound");
+      expect(flow).not.toContain("not authorized");
+    }
+  });
+
   it("never slices bounded gateway log snapshots with absolute cursors", () => {
     expect(readQaScenarioPackYamlSource()).not.toMatch(
       /readGatewayLogs\s*\(\s*\)[^\r\n]*\.slice\s*\(/u,

@@ -26,8 +26,8 @@ import {
   parseAcpDatabaseSessionKeyCandidates,
   selectAcpSessionRow,
 } from "./session-meta-keys.js";
+import { rowToAcpSessionMeta } from "./session-meta-readonly.js";
 import { resolveSessionStorePathForAcp } from "./session-meta-store.js";
-import { rowToAcpSessionMeta } from "./session-meta.js";
 
 type DoctorAcpScope = { config: OpenClawConfig; env: NodeJS.ProcessEnv; pluginId: string };
 

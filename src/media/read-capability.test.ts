@@ -332,6 +332,34 @@ describe("resolveAgentScopedOutboundMediaAccess", () => {
     ).rejects.toThrow(/not under an allowed directory/i);
   });
 
+  it("rejects a physical alias into a sibling sandbox", async () => {
+    const baseDir = tempDirs.make("sibling-sandbox-alias-");
+    const stateDir = path.join(baseDir, "state");
+    const workspaceDir = path.join(baseDir, "workspace-main");
+    const sessionWorkspaceDir = path.join(stateDir, "sandboxes", "active");
+    const siblingDir = path.join(stateDir, "sandboxes", "sibling");
+    const aliasDir = path.join(baseDir, "attachment-parent");
+    vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionWorkspaceDir, { recursive: true });
+    await fs.mkdir(siblingDir, { recursive: true });
+    await fs.writeFile(path.join(siblingDir, "secret.txt"), "sibling-secret");
+    await fs.symlink(siblingDir, aliasDir, process.platform === "win32" ? "junction" : "dir");
+
+    const source = path.join(aliasDir, "secret.txt");
+    const access = resolveAgentScopedOutboundMediaAccess({
+      cfg: { agents: { list: [{ id: "main", workspace: workspaceDir }] } },
+      agentId: "main",
+      workspaceDir,
+      sessionWorkspaceDir,
+      mediaSources: [source],
+    });
+
+    await expect(
+      loadWebMediaRaw(source, buildOutboundMediaLoadOptions({ mediaAccess: access })),
+    ).rejects.toThrow(/not under an allowed directory/i);
+  });
+
   it("allows media from the exact active session workspace", async () => {
     const baseDir = tempDirs.make("active-sandbox-media-");
     const stateDir = path.join(baseDir, "state");

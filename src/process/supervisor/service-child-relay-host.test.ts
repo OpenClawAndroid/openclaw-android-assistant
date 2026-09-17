@@ -705,9 +705,9 @@ it.each(["EPERM", "EIO", "still present"])(
     now.mockReturnValue(15_000);
     close();
     await expect(adapter.waitForExtinction()).rejects.toThrow(
-      cause ? "owned process group" : "hard deadline",
+      failure === "EIO" ? "owned process group" : "hard deadline",
     );
-    if (cause) {
+    if (failure === "EIO") {
       await expect(adapter.waitForExtinction()).rejects.toSatisfy(
         (error: unknown) => error instanceof Error && error.cause === cause,
       );
@@ -722,25 +722,34 @@ it.each(["EPERM", "EIO", "still present"])(
   },
 );
 
-it("retains extinction ownership until the kernel group disappears", async () => {
-  const { adapter, completeRoot, emit, close, groupProbe } = await createRelay("linux");
-  groupProbe.mockReturnValueOnce(true);
-  completeRoot();
-  await adapter.wait();
-  const settled = vi.fn();
-  const extinction = adapter.waitForExtinction().then(settled);
-  emit({ type: "closing", reason: "lineage-closed" });
-  await nextTurn();
-  expect(groupProbe).not.toHaveBeenCalled();
-  close();
-  await nextTurn();
-  expect(settled).not.toHaveBeenCalled();
-  await extinction;
-  expect(groupProbe.mock.calls).toEqual([
-    [-1235, 0],
-    [-1235, 0],
-  ]);
-});
+it.each(["success", "EPERM"])(
+  "retains extinction ownership after %s until ESRCH",
+  async (probe) => {
+    const { adapter, completeRoot, emit, close, groupProbe } = await createRelay("linux");
+    groupProbe.mockImplementationOnce(() => {
+      if (probe === "EPERM") {
+        throw Object.assign(new Error("synthetic unsignalable group"), { code: "EPERM" });
+      }
+      return true;
+    });
+    completeRoot();
+    await adapter.wait();
+    const settled = vi.fn();
+    const extinction = adapter.waitForExtinction();
+    void extinction.then(settled, settled);
+    emit({ type: "closing", reason: "lineage-closed" });
+    await nextTurn();
+    expect(groupProbe).not.toHaveBeenCalled();
+    close();
+    await nextTurn();
+    expect(settled).not.toHaveBeenCalled();
+    await extinction;
+    expect(groupProbe.mock.calls).toEqual([
+      [-1235, 0],
+      [-1235, 0],
+    ]);
+  },
+);
 
 it.each(["before", "after"])(
   "joins forced stdio cleanup when control closes %s the force request",

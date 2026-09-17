@@ -73,6 +73,7 @@ export type {
   SessionEntryPatchOptions,
   SessionEntryPatchResult,
   SessionEntryReadScope,
+  SessionEntryReadSource,
   SessionEntryReadView,
   SessionEntryReplacement,
   SessionEntryReplacementSnapshot,
@@ -335,6 +336,4 @@ export {
   appendSessionTranscriptReport,
   readLatestSessionTranscriptReport,
 } from "./session-accessor.sqlite-transcript-reports.js";
-export type { SessionEntryReadSource } from "./session-accessor.sqlite-exact-read.js";
-
 export { listSessionParticipantsReadOnly } from "./session-accessor.sqlite-participant-read.js";

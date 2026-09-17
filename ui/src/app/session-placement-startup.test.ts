@@ -595,6 +595,9 @@ describe("application session placement startup", () => {
       }>();
       let dispatches = 0;
       const request = vi.fn((method: string) => {
+        if (method === "sessions.describe") {
+          return Promise.resolve({ session: { sessionId: "session-startup" } });
+        }
         if (method === "sessions.dispatch") {
           if (++dispatches > 1) {
             return retryDispatch.promise;

@@ -261,7 +261,11 @@ function createCodexSessionCatalogControlFromRequests(params: {
       );
     },
     retireConnection: params.retireConnection,
-    async listPage(pageParams, diagnostics = startCodexCatalogPageDiagnostics("uncached")) {
+    async listPage(
+      pageParams,
+      diagnostics = startCodexCatalogPageDiagnostics("uncached"),
+      options = {},
+    ) {
       let outcome: "resolved" | "rejected" = "rejected";
       let sourceAttempt: ReturnType<CodexCatalogSourceBackoff["begin"]> | undefined;
       try {
@@ -314,7 +318,8 @@ function createCodexSessionCatalogControlFromRequests(params: {
         let cursor = queryParams.cursor;
         let backwardsCursor: string | undefined;
         const seen = new Set(cursor ? [cursor] : []);
-        const maxPages = search ? MAX_TITLE_SEARCH_CATALOG_PAGES : 1;
+        const maxPages = search ? (options?.maxScanPages ?? MAX_TITLE_SEARCH_CATALOG_PAGES) : 1;
+        let scannedPages = 0;
         let stopReason: "limit" | "exhausted" | "page-bound" = "page-bound";
         for (let i = 0; i < maxPages; i++) {
           const native = await requests.index(queryParams.cwd).list(
@@ -327,6 +332,7 @@ function createCodexSessionCatalogControlFromRequests(params: {
           if (i === 0) {
             backwardsCursor = native.backwardsCursor;
           }
+          scannedPages++;
           const page = filterCatalogPageByTitle(native, search);
           sessions.push(...page.sessions);
           managedThreads.push(...(native.managedThreads ?? []));
@@ -346,6 +352,7 @@ function createCodexSessionCatalogControlFromRequests(params: {
         }
         const catalogPage: CodexSessionCatalogPage = {
           sessions,
+          ...(scannedPages > 1 ? { scannedPages } : {}),
           ...(managedThreads.length ? { managedThreads } : {}),
           ...(cursor ? { nextCursor: cursor } : {}),
           ...(backwardsCursor ? { backwardsCursor } : {}),
@@ -579,12 +586,13 @@ export function createCodexSessionCatalogControl(params: {
       ...control,
       requireEligibleThread: (threadId) =>
         withPinnedConnection((pinned) => pinned.requireEligibleThread(threadId)),
-      async listPage(pageParams: CodexSessionCatalogPageParams, _diagnostics, headWalk = false) {
+      async listPage(pageParams: CodexSessionCatalogPageParams, _diagnostics, options) {
+        const headWalk = options?.headWalk ?? false;
         source?.assertCurrent();
         const listDiagnostics = currentCodexCatalogListDiagnostics();
         const runtimeConfig = params.getRuntimeConfig();
         if (!runtimeConfig) {
-          return await control.listPage(pageParams);
+          return await control.listPage(pageParams, undefined, options);
         }
         let sources = catalogPagesByConfig.get(runtimeConfig);
         if (!sources) {
@@ -598,7 +606,12 @@ export function createCodexSessionCatalogControl(params: {
           cache = { settled: new Map(), pending: new Map() };
           sources.set(sourceKey, cache);
         }
-        const key = codexCatalogPageCacheKey(pageParams, agentId, source?.sourceHomeId);
+        const key = codexCatalogPageCacheKey(
+          pageParams,
+          agentId,
+          source?.sourceHomeId,
+          options?.maxScanPages,
+        );
         const pending = cache.pending.get(key);
         if (pending) {
           pending.headWalk ||= headWalk;
@@ -637,7 +650,7 @@ export function createCodexSessionCatalogControl(params: {
         // Result eviction must not retire a live producer or its stale refresh value.
         // Pending entries belong only to started work and leave on every settlement.
         const page = control
-          .listPage(pageParams, diagnostics ?? null)
+          .listPage(pageParams, diagnostics ?? null, options)
           .then(
             (value) => {
               retainCodexCatalogPage(

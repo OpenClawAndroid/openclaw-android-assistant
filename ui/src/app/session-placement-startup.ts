@@ -8,6 +8,7 @@ import {
 } from "../lib/sessions/session-placement-recovery-storage-key.ts";
 import type {
   SessionPlacementRecovery,
+  SessionPlacementStartMode,
   SessionPlacementTarget,
 } from "../lib/sessions/session-placement-recovery.ts";
 import { showToast } from "../lib/toast.ts";
@@ -44,7 +45,7 @@ export type ApplicationPlacementStartupStatus = {
 type PlacementStartupInput = {
   readonly recovery: SessionPlacementRecovery;
   readonly persistRecovery: boolean;
-  readonly recovering: boolean;
+  readonly mode: SessionPlacementStartMode;
   readonly createdAt: number;
 };
 
@@ -311,7 +312,7 @@ export function createApplicationPlacementStartup(
         input: {
           recovery: paused,
           persistRecovery: pending?.persistRecovery ?? true,
-          recovering: true,
+          mode: "recover",
           createdAt: pending?.createdAt ?? Date.now(),
         },
         persisted,

@@ -8,7 +8,7 @@ import {
   getPreparedModelFullCatalogAuth,
   setPreparedModelFullCatalogAuth,
 } from "./prepared-model-runtime-auth.js";
-import type { AuthStorageData } from "./sessions/auth-storage.js";
+import type { AuthStorage, AuthStorageData } from "./sessions/auth-storage.js";
 
 type LoadStaticCatalog =
   typeof import("./embedded-agent-runner/model.static-catalog.js").loadBundledProviderStaticCatalogContextModels;
@@ -49,7 +49,7 @@ const preparedModelRuntimeMocks = vi.hoisted(() => ({
     getOAuthProviders: vi.fn(() => []),
   },
   modelRegistry: {
-    fork: vi.fn((authStorage: unknown) => ({ authStorage })),
+    fork: vi.fn((authStorage: AuthStorage) => ({ authStorage })),
     getAll: vi.fn<() => ModelCatalogSnapshot["entries"]>(() => []),
     find: vi.fn(() => null),
   },
@@ -360,9 +360,11 @@ vi.mock("./auth-profiles/external-cli-sync.js", () => ({
   resolveExternalCliAuthProfiles: () => [],
 }));
 
-vi.mock("./model-discovery-context.js", () => ({
-  resolveModelPluginMetadataSnapshot: () => undefined,
-}));
+vi.mock("./model-discovery-context.js", async (importOriginal) => {
+  const { resolveModelWorkspaceDir } =
+    await importOriginal<typeof import("./model-discovery-context.js")>();
+  return { resolveModelWorkspaceDir, resolveModelPluginMetadataSnapshot: () => undefined };
+});
 
 vi.mock("./models-config.js", () => ({
   ensureOpenClawModelsJson: (...args: unknown[]) =>
@@ -385,7 +387,8 @@ vi.mock("./runtime-plugins.js", () => ({
     preparedModelRuntimeMocks.loadAgentRuntimePluginRegistryHandle(...args),
 }));
 
-vi.mock("./embedded-agent-runner/model.static-catalog.js", () => ({
+vi.mock("./embedded-agent-runner/model.static-catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./embedded-agent-runner/model.static-catalog.js")>()),
   loadBundledProviderStaticCatalogContextModels: (...args: Parameters<LoadStaticCatalog>) =>
     preparedModelRuntimeMocks.loadStaticCatalog(...args),
   createBundledStaticCatalogModelResolver: (...args: Parameters<CreateStaticCatalogResolver>) =>
@@ -423,6 +426,7 @@ export function getPreparedModelRuntimeTestApi(): PreparedModelRuntimeTestApi {
 }
 
 export async function resetPreparedModelRuntimeHarness(state: OpenClawTestState): Promise<void> {
+  await import("./prepared-model-runtime.js");
   await getPreparedModelRuntimeTestApi().resetPreparedModelRuntimeSnapshotsForTest();
   agentScopeMocks.resolveAgentDir
     .mockReset()
@@ -442,7 +446,7 @@ export async function resetPreparedModelRuntimeHarness(state: OpenClawTestState)
   preparedModelRuntimeMocks.preparedAuthMaterializations = [];
   preparedModelRuntimeMocks.modelRegistry.fork
     .mockReset()
-    .mockImplementation((authStorage: unknown) => ({ authStorage }));
+    .mockImplementation((authStorage: AuthStorage) => ({ authStorage }));
   preparedModelRuntimeMocks.modelRegistry.getAll.mockReset().mockReturnValue([]);
   preparedModelRuntimeMocks.modelRegistry.find.mockReset().mockReturnValue(null);
   preparedModelRuntimeMocks.buildPreparedModelCatalogSnapshot

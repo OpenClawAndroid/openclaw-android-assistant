@@ -157,6 +157,17 @@ describe("tools.catalog handler", () => {
     expect(groups.some((group) => group.source === "plugin")).toBe(false);
     const media = groups.find((group) => group.id === "media");
     expect(media?.tools.map((tool) => `${tool.source}:${tool.id}`) ?? []).toContain("core:tts");
+    expect(groups.flatMap((group) => group.tools).filter((tool) => tool.id === "openclaw")).toEqual(
+      [
+        {
+          id: "openclaw",
+          label: "openclaw",
+          description: "Delegate OpenClaw setup and repair",
+          source: "core",
+          defaultProfiles: [],
+        },
+      ],
+    );
   });
 
   it("includes agents_wait by default and honors an explicit Swarm opt-out", async () => {

@@ -98,6 +98,8 @@ export async function createGatewayHttpTransport(params: {
   getRuntimeConfig?: () => import("../config/config.js").OpenClawConfig;
   bindHost: string;
   port: number;
+  /** Test-instance listener held since allocation; caller closes it if construction fails. */
+  testListener?: HttpServer;
   updateCanary?: boolean;
   controlUiEnabled?: boolean;
   controlUiBasePath: string;
@@ -150,6 +152,19 @@ export async function createGatewayHttpTransport(params: {
     params: Parameters<PluginRuntimeCore["hooks"]["dispatchHookAgentTurn"]>[0],
   ) => ReturnType<PluginRuntimeCore["hooks"]["dispatchHookAgentTurn"]>;
 }> {
+  if (params.testListener) {
+    const address = params.testListener.address();
+    if (
+      params.gatewayTls?.enabled ||
+      params.bindHost !== "127.0.0.1" ||
+      !address ||
+      typeof address === "string" ||
+      address.address !== params.bindHost ||
+      address.port !== params.port
+    ) {
+      throw new Error("Test Gateway listener must own the configured HTTP loopback endpoint");
+    }
+  }
   const loadRuntimeConfig = params.getRuntimeConfig ?? (() => params.cfg);
   const resolvePluginRouteRegistry = () =>
     params.getPluginRouteRegistry?.() ?? params.pluginRegistry;
@@ -318,8 +333,10 @@ export async function createGatewayHttpTransport(params: {
   const createGatewayListener = (
     ingressTransport: GatewayIngressTransport,
     tlsOptions: GatewayTlsRuntime["tlsOptions"] | undefined,
+    testListener?: HttpServer,
   ): HttpServer => {
     const httpServer = createGatewayHttpServer({
+      testListener,
       clients: params.clients,
       controlUiEnabled: params.controlUiEnabled,
       controlUiBasePath: params.controlUiBasePath,
@@ -375,10 +392,11 @@ export async function createGatewayHttpTransport(params: {
     });
     return httpServer;
   };
-  for (const _ of bindHosts) {
+  for (const host of bindHosts) {
     const httpServer = createGatewayListener(
       { kind: "ordinary" },
       params.gatewayTls?.enabled ? params.gatewayTls.tlsOptions : undefined,
+      host === params.bindHost ? params.testListener : undefined,
     );
     gatewayHttpServers.push(httpServer);
     httpServers.push(httpServer);
@@ -527,12 +545,14 @@ export async function createGatewayHttpTransport(params: {
         // helpers. A collision must fail startup instead of sending credentials to it.
         const requiredLoopbackAlias = host === requiredAlias;
         try {
-          await listenGatewayHttpServer({
-            httpServer: server,
-            bindHost: host,
-            port: params.port,
-            retryEaddrinuse: !requiredLoopbackAlias,
-          });
+          if (server !== params.testListener) {
+            await listenGatewayHttpServer({
+              httpServer: server,
+              bindHost: host,
+              port: params.port,
+              retryEaddrinuse: !requiredLoopbackAlias,
+            });
+          }
           boundHosts.add(host);
         } catch (err) {
           if (host === bindHosts[0] || requiredLoopbackAlias) {

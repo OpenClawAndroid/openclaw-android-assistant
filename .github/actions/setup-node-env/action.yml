@@ -161,10 +161,12 @@ runs:
         fi
 
     - name: Configure dependency cache store
-      if: inputs.cache-mode != 'off' && inputs.dependency-cache == 'true'
+      if: inputs.cache-mode != 'off' && (runner.os != 'Windows' || inputs.dependency-cache == 'true')
       shell: bash
       run: |
         set -euo pipefail
+        # Store-only readers must use the publisher's path: Actions includes
+        # cache paths in its version, even when the keys are identical.
         # Keep both sides of pnpm's hard links below the workspace so one tar
         # archive preserves them without relying on runner-home path depth.
         # Pnpm also needs registry metadata for offline supply-chain checks.

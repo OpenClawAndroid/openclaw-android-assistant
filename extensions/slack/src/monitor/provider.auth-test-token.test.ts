@@ -386,13 +386,17 @@ describe("auth.test boot call", () => {
     client.conversations.info.mockResolvedValueOnce({
       channel: { name: "general", is_channel: true },
     });
-    const { replyMock, sendMock } = getSlackTestState();
+    const { replyMock, sendMock, appStartMock } = getSlackTestState();
     replyMock.mockResolvedValue({ text: "identity preserved" });
+    const started = new Promise<void>((resolve) => {
+      appStartMock.mockImplementationOnce(async () => resolve());
+    });
 
     const monitor = startSlackMonitor(monitorSlackProvider, {
       appToken: "xapp-1-A1-opaque",
     });
-    await vi.waitFor(() => expect(getSlackTestState().appStartMock).toHaveBeenCalledTimes(1));
+    await started;
+    expect(appStartMock).toHaveBeenCalledTimes(1);
     expect([...getSlackTestState().interactionRegistrations].toSorted()).toEqual([
       "action",
       "command",

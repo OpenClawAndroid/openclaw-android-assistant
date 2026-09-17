@@ -114,61 +114,70 @@ describe("message tool queued gateway delivery", () => {
   });
 });
 
-it("rejects a missing scheduled account before resolving another provider's credentials", async () => {
-  const cfg: OpenClawConfig = {
-    channels: {
-      discord: { accounts: { creator: { token: "synthetic-creator-token" } } },
-      slack: { botToken: "synthetic-root-slack-token" },
-    },
-  };
-  const plugin = createChannelTestPluginBase({
-    id: "slack",
-    config: { listAccountIds: () => ["default"], resolveAccount: () => ({ enabled: true }) },
-  });
-  setActivePluginRegistry(createTestRegistry([{ pluginId: "slack", source: "test", plugin }]));
-  const identity = {
-    agentId: "main",
-    runId: "scheduled-account-selection",
-    sessionKey: "agent:main:cron:account-selection",
-  };
-  const token = mintMessageActionTurnCapability({
-    ...identity,
-    scheduled: {
-      policy: {
-        version: 1,
-        mode: "account",
-        ownerSessionKey: "agent:main:local-creator",
-        ownerAccountId: "creator",
-        ownerOrigin: { kind: "local" },
+it.each(["read", "edit", "delete", "pin", "unpin"] as const)(
+  "rejects a missing scheduled account before resolving another provider's credentials for %s",
+  async (action) => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        discord: { accounts: { creator: { token: "synthetic-creator-token" } } },
+        slack: { botToken: "synthetic-root-slack-token" },
       },
-      assertCurrent: () => {},
-    },
-  });
-  const resolveSecrets = vi.fn(async () => {
-    throw new Error("Credential preparation must not run for a missing account");
-  });
-  try {
-    const tool = createMessageTool({
-      config: cfg,
-      agentId: identity.agentId,
-      runId: identity.runId,
-      agentSessionKey: identity.sessionKey,
-      agentAccountId: "creator",
-      currentChannelProvider: "discord",
-      messageActionTurnCapability: token,
-      preparedMessageToolCatalog: EMPTY_CATALOG,
-      admitScheduledInvocation: () => cfg,
-      resolveCommandSecretRefsViaGateway: resolveSecrets,
+    };
+    const plugin = createChannelTestPluginBase({
+      id: "slack",
+      config: { listAccountIds: () => ["default"], resolveAccount: () => ({ enabled: true }) },
     });
-    await expect(
-      tool.execute("read", { action: "read", channel: "slack", target: "channel:C123" }),
-    ).rejects.toThrow('Unknown account "creator" for channel slack');
-    expect(resolveSecrets).not.toHaveBeenCalled();
-  } finally {
-    revokeMessageActionTurnCapability(token);
-    resetPluginRuntimeStateForTest();
-  }
-});
+    setActivePluginRegistry(createTestRegistry([{ pluginId: "slack", source: "test", plugin }]));
+    const identity = {
+      agentId: "main",
+      runId: "scheduled-account-selection",
+      sessionKey: "agent:main:cron:account-selection",
+    };
+    const token = mintMessageActionTurnCapability({
+      ...identity,
+      scheduled: {
+        policy: {
+          version: 1,
+          mode: "account",
+          ownerSessionKey: "agent:main:local-creator",
+          ownerAccountId: "creator",
+          ownerOrigin: { kind: "local" },
+        },
+        assertCurrent: () => {},
+      },
+    });
+    const resolveSecrets = vi.fn(async () => {
+      throw new Error("Credential preparation must not run for a missing account");
+    });
+    try {
+      const tool = createMessageTool({
+        config: cfg,
+        agentId: identity.agentId,
+        runId: identity.runId,
+        agentSessionKey: identity.sessionKey,
+        agentAccountId: "creator",
+        currentChannelProvider: "discord",
+        messageActionTurnCapability: token,
+        preparedMessageToolCatalog: EMPTY_CATALOG,
+        admitScheduledInvocation: () => cfg,
+        resolveCommandSecretRefsViaGateway: resolveSecrets,
+      });
+      await expect(
+        tool.execute(action, {
+          action,
+          channel: "slack",
+          target: "channel:C123",
+          ...(action === "read" ? {} : { messageId: "100000000000000002" }),
+          ...(action === "edit" ? { message: "Updated scheduled message" } : {}),
+        }),
+      ).rejects.toThrow('Unknown account "creator" for channel slack');
+      expect(resolveSecrets).not.toHaveBeenCalled();
+    } finally {
+      revokeMessageActionTurnCapability(token);
+      resetPluginRuntimeStateForTest();
+    }
+  },
+);
 
 describe("message tool prompt-cache contract", () => {
   it.each([false, true])(

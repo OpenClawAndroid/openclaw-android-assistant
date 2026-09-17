@@ -952,6 +952,42 @@ function runSessionStateAssertion(
   }
 }
 
+function seedSessionSourceFixture(stateDir: string, scenario = "base", missingPath = false) {
+  const root = join(stateDir, "..");
+  const env = {
+    ...process.env,
+    OPENCLAW_STATE_DIR: stateDir,
+    OPENCLAW_CONFIG_PATH: join(root, "openclaw.json"),
+    OPENCLAW_TEST_WORKSPACE_DIR: join(root, "workspace"),
+    OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: scenario,
+    OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE: "manual",
+    OPENCLAW_UPGRADE_SURVIVOR_RUNTIME_ROOT: root,
+    OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT: join(root, "artifacts"),
+    OPENCLAW_UPGRADE_SURVIVOR_MISSING_LOAD_PATH_SEEDED: "",
+  };
+  writeJson(env.OPENCLAW_CONFIG_PATH, { plugins: { allow: [], entries: {} } });
+  // Use the production shell seed boundary before the same assertions seed used by artifact-only.
+  env.OPENCLAW_UPGRADE_SURVIVOR_MISSING_LOAD_PATH_SEEDED = execFileSync(
+    "bash",
+    [
+      "-euc",
+      `source scripts/e2e/lib/upgrade-survivor/missing-load-path.sh
+SCENARIO="$OPENCLAW_UPGRADE_SURVIVOR_SCENARIO"
+UPDATE_RESTART_MODE="$OPENCLAW_UPGRADE_SURVIVOR_UPDATE_RESTART_MODE"
+phase() { shift; "$@"; }
+${missingPath ? "run_missing_load_path_fixture seed" : ""}
+"$1" "$2" seed
+printf '%s' "\${OPENCLAW_UPGRADE_SURVIVOR_MISSING_LOAD_PATH_SEEDED:-}"
+`,
+      "survivor-session-source-seed",
+      testNodeExecPath,
+      ASSERTIONS_PATH,
+    ],
+    { env, encoding: "utf8" },
+  ).trim();
+  return env;
+}
+
 function assertConfiguredPluginState(params: { installPath?: string } = {}): void {
   const root = mkdtempSync(join(tmpdir(), "openclaw-upgrade-survivor-"));
   try {
@@ -1946,7 +1982,7 @@ process.stdout.write(sessionDir + "\\n");
     }
   });
 
-  it("accepts the ACPX OpenClaw tools bridge scenario during seed", () => {
+  it("requires saved ACP identity and model selection to survive the bridge scenario", () => {
     const root = mkdtempSync(join(tmpdir(), "openclaw-upgrade-survivor-acpx-"));
     try {
       const stateDir = join(root, "state");
@@ -1963,6 +1999,45 @@ process.stdout.write(sessionDir + "\\n");
         },
         stdio: "pipe",
       });
+      const seeded = JSON.parse(readFileSync(join(stateDir, "sessions", "sessions.json"), "utf8"));
+      const acp = seeded["slack:channel:CUPGRADE"].acp;
+      expect(acp).toMatchObject({
+        backend: "acpx",
+        identity: {
+          acpxSessionId: "upgrade-acpx-session",
+          agentSessionId: "upgrade-agent-session",
+        },
+        runtimeOptions: { model: "gpt-5.5", runtimeMode: "plan" },
+      });
+      const assertSavedAcp = (saved: unknown) =>
+        runSessionStateAssertion(
+          (migratedStateDir) => {
+            writeMigratedSessionState(migratedStateDir);
+            const db = new DatabaseSync(
+              join(migratedStateDir, "agents", "main", "agent", "openclaw-agent.sqlite"),
+            );
+            try {
+              db.prepare("UPDATE session_nodes SET entry_json = ? WHERE session_key = ?").run(
+                JSON.stringify({ acp: saved }),
+                "agent:main:slack:channel:cupgrade",
+              );
+            } finally {
+              db.close();
+            }
+            return undefined;
+          },
+          { scenario: "acpx-openclaw-tools-bridge" },
+        );
+      expect(() => assertSavedAcp(acp)).not.toThrow();
+      expect(() => assertSavedAcp(undefined)).toThrow(
+        "saved ACP session or model selection changed",
+      );
+      expect(() =>
+        assertSavedAcp({
+          ...acp,
+          runtimeOptions: { ...acp.runtimeOptions, model: "changed-model" },
+        }),
+      ).toThrow("saved ACP session or model selection changed");
     } finally {
       rmSync(root, { force: true, recursive: true });
     }
@@ -2311,6 +2386,88 @@ process.stdout.write(sessionDir + "\\n");
             { scenario },
           ),
         ).toThrow(/stale-sentinel/);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "artifact-only base/manual validates legacy-source cleanup without a missing-path seed (retained=%s)",
+    (retained) => {
+      const verify = () =>
+        runSessionStateAssertion((stateDir) => {
+          const env = seedSessionSourceFixture(stateDir);
+          writeMigratedSessionState(stateDir);
+          if (!retained) {
+            rmSync(join(stateDir, "sessions"), { recursive: true });
+          }
+          return env;
+        });
+      if (retained) {
+        expect(verify).toThrow(/legacy sessions.json survived migration/);
+      } else {
+        expect(verify).not.toThrow();
+      }
+    },
+  );
+
+  it.each([
+    { scenario: "base", corruption: "none", error: undefined },
+    { scenario: "missing-load-path", corruption: "none", error: undefined },
+    { scenario: "base", corruption: "fixture", error: /ENOENT.*fixture.json/s },
+    {
+      scenario: "base",
+      corruption: "source",
+      error: /Uninspected legacy session source bytes changed/,
+    },
+    {
+      scenario: "base",
+      corruption: "file-store",
+      error: /Retained legacy sources must have canonical SQLite sessions/,
+    },
+    { scenario: "base", corruption: "sqlite-row", error: /main legacy session row missing/ },
+  ])(
+    "seeded $scenario preserves strict source/SQLite proof ($corruption)",
+    ({ scenario, corruption, error }) => {
+      const verify = () =>
+        runSessionStateAssertion(
+          (stateDir) => {
+            const env = seedSessionSourceFixture(stateDir, scenario, true);
+            if (corruption === "file-store") {
+              writeMigratedSessionFiles(stateDir);
+            } else {
+              writeMigratedSessionState(stateDir);
+            }
+            if (corruption === "fixture") {
+              rmSync(
+                join(
+                  env.OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT,
+                  "missing-load-path",
+                  "fixture.json",
+                ),
+              );
+            } else if (corruption === "source") {
+              writeFileSync(
+                join(stateDir, "sessions", "upgrade-main-session.jsonl"),
+                "changed source",
+              );
+            } else if (corruption === "sqlite-row") {
+              const db = new DatabaseSync(
+                join(stateDir, "agents", "main", "agent", "openclaw-agent.sqlite"),
+              );
+              try {
+                db.exec("DELETE FROM session_nodes WHERE session_key = 'agent:main:main'");
+              } finally {
+                db.close();
+              }
+            }
+            return env;
+          },
+          { scenario },
+        );
+      if (error) {
+        expect(verify).toThrow(error);
+      } else {
+        expect(verify).not.toThrow();
       }
     },
   );

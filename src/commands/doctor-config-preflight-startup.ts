@@ -33,6 +33,7 @@ import {
   readAgentDatabaseAdmissionRefusal,
   recordAgentDatabaseAdmissions,
 } from "../state/agent-database-admission.js";
+import { getAgentDatabaseStartupAdmission } from "../state/agent-database-startup.js";
 import {
   withArtifactPreservingStateReads,
   withOpenClawStateDatabaseReadSnapshot,
@@ -412,13 +413,21 @@ export async function assertDoctorPreflightMigrationsComplete(params: {
       receipt.refusedAgentDatabasePaths?.length,
   );
   const admissions =
-    scopedRefusals.length > 0 ? await evaluateAgentDatabaseAdmissions(params.cfg) : [];
+    scopedRefusals.length > 0
+      ? getAgentDatabaseStartupAdmission()
+        ? listAgentDatabaseAdmissionRefusals()
+        : await evaluateAgentDatabaseAdmissions(params.cfg)
+      : [];
   if (scopedRefusals.length > 0) {
     recordAgentDatabaseAdmissions(admissions);
   }
   const isolatedPaths = new Set(
     admissions
-      .filter((refusal) => canIsolateAgentDatabase(params.cfg, refusal.agentId))
+      .filter(
+        (refusal) =>
+          refusal.code !== "agent-database-ownership-mismatch" ||
+          canIsolateAgentDatabase(params.cfg, refusal.agentId),
+      )
       .flatMap((refusal) => refusal.paths.map((pathname) => path.resolve(pathname))),
   );
   for (const receipt of scopedRefusals) {

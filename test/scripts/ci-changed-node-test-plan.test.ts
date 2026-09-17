@@ -41,6 +41,7 @@ import {
   databaseWorkerExtensionTestRoots,
 } from "../vitest/vitest.extension-database-workers-paths.mjs";
 import { isGatewayServerTestFile } from "../vitest/vitest.gateway-server-paths.mjs";
+import { boundaryTestFiles } from "../vitest/vitest.unit-paths.mjs";
 
 const CODEX_TEST_PROCESS_FILE_LIMIT = 12;
 const githubActivityHelper = ".agents/skills/openclaw-pr-maintainer/scripts/github-activity.sh";
@@ -861,26 +862,79 @@ describe("CI changed Node test plan", () => {
     }
   });
 
-  it("keeps boundary coverage on test-only diffs without the build-artifacts lane", () => {
-    // Test-only diffs skip build-artifacts (which hosts the full boundary
-    // gate), so the plan carries its own nondist boundary shard instead.
-    expect(createChangedNodeTestShards(["test/extension-import-boundaries.test.ts"])).toEqual([
-      {
-        checkName: "checks-node-changed",
-        configs: [],
-        requiresDist: false,
-        runner: "blacksmith-8vcpu-ubuntu-2404",
-        shardName: "changed",
-        targets: ["test/extension-import-boundaries.test.ts"],
-      },
-      {
-        checkName: "checks-node-changed-boundary",
-        configs: ["test/vitest/vitest.boundary.config.ts"],
-        requiresDist: false,
-        runner: "blacksmith-8vcpu-ubuntu-2404",
-        shardName: "changed-boundary",
-      },
-    ]);
+  it.each(
+    (["blacksmith", "hybrid", "github"] as const).flatMap((runnerBackend) =>
+      boundaryTestFiles.map((target) => ({ runnerBackend, target })),
+    ),
+  )(
+    "runs $target once through the local boundary owner on $runnerBackend",
+    ({ runnerBackend, target }) => {
+      expect(createChangedNodeTestShards([target], { runnerBackend })).toEqual([
+        {
+          checkName: "checks-node-changed-boundary",
+          configs: ["test/vitest/vitest.boundary.config.ts"],
+          requiresDist: false,
+          runner: "blacksmith-8vcpu-ubuntu-2404",
+          shardName: "changed-boundary",
+        },
+      ]);
+      // Local explicit selection still runs only the requested file.
+      expect(buildVitestRunPlans([target])).toMatchObject([
+        {
+          config: "test/vitest/vitest.boundary.config.ts",
+          includePatterns: [target],
+          forwardedArgs: [],
+          watchMode: false,
+        },
+      ]);
+    },
+  );
+
+  it.each([
+    "src/tasks/task-registry.test.ts",
+    "src/agents/embedded-agent-runner/run/attempt-yield-handoff.test.ts",
+  ])("retains the other test owner alongside a boundary target: %s", (companion) => {
+    expect(
+      createChangedNodeTestShards(["test/extension-import-boundaries.test.ts", companion]),
+    ).toEqual(createChangedNodeTestShards([companion]));
+  });
+
+  it.each(["src/agents/live-provider-owner.ts", "test/scripts/ci-linux-git.test.ts"])(
+    "keeps an explicit boundary target when no local full owner is emitted: %s",
+    (companion) => {
+      const target = "test/extension-import-boundaries.test.ts";
+      const shards = createChangedNodeTestShards([target, companion]);
+      expect(shards).not.toBeNull();
+      expect(shards?.flatMap((shard) => shard.targets ?? [])).toContain(target);
+      expect(shards?.map((shard) => shard.checkName)).not.toContain("checks-node-changed-boundary");
+      if (companion.endsWith(".test.ts")) {
+        expect(shards?.some((shard) => shard.requiresDist)).toBe(true);
+        expect(shards?.filter((shard) => shard.groups)).toEqual(
+          createChangedNodeTestShards([companion])?.filter((shard) => shard.groups),
+        );
+      }
+    },
+  );
+
+  it.each(["docs/help/index.md", "src/infra/deleted-boundary.test.ts"])(
+    "retains the local boundary owner with an ignored companion: %s",
+    (companion) => {
+      const target = "test/extension-import-boundaries.test.ts";
+      expect(createChangedNodeTestShards([target, companion])).toEqual(
+        createChangedNodeTestShards([target]),
+      );
+    },
+  );
+
+  it.each([
+    "src/infra/deleted-boundary.ts",
+    "tsconfig.json",
+    "test/vitest/vitest.boundary.config.ts",
+    "scripts/lib/ci-changed-node-test-plan.mts",
+  ])("validates an unresolved companion before crediting boundary coverage: %s", (companion) => {
+    expect(
+      createChangedNodeTestShards(["test/extension-import-boundaries.test.ts", companion]),
+    ).toBeNull();
   });
 
   it("classifies build-artifact and QA smoke impact by changed surface", () => {

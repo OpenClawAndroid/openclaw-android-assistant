@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, it, vi } from "vitest";
 import * as runtimePaths from "../../daemon/runtime-paths.js";
 import * as daemonService from "../../daemon/service.js";
+import { createMockGatewayService } from "../../daemon/service.test-helpers.js";
 import * as gatewaySupervision from "../../infra/gateway-supervision.js";
 import * as packageMetadata from "../../infra/update-check-package-target.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -50,7 +51,13 @@ it.each(cases.flatMap((entry) => [true, false].map((json) => Object.assign({}, e
     fixture.managedServiceNodeRunner = "/service/node";
     vi.spyOn(shared, "resolveNodeRunner").mockReturnValue("/current/node");
     vi.spyOn(gatewaySupervision, "assertGatewayServiceMutationAllowed").mockReturnValue();
-    const service = daemonService.resolveGatewayService();
+    const service = createMockGatewayService({
+      isLoaded: async () => true,
+      readRuntime: async () => ({
+        status: running ? "running" : "stopped",
+        systemd: { managerUid: 2001 },
+      }),
+    });
     vi.spyOn(service, "readCommand").mockResolvedValue(
       owned
         ? {

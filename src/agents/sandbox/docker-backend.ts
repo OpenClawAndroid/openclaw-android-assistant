@@ -96,6 +96,7 @@ async function createContainerSandboxBackend(
     workspaceDir: params.workspaceDir,
     agentWorkspaceDir: params.agentWorkspaceDir,
     skillsWorkspaceDir: params.skillsWorkspaceDir,
+    readOnlyResourceMounts: params.readOnlyResourceMounts,
     cfg: params.cfg,
     ...(params.requireCurrentConfig !== undefined
       ? { requireCurrentConfig: params.requireCurrentConfig }
@@ -150,6 +151,7 @@ function createContainerSandboxBackendHandle(params: {
     configLabelKind: "Image",
     capabilities: {
       browser: params.engine.id === "docker",
+      readOnlyResourceMounts: true,
     },
     async buildExecSpec({ command, workdir, env, usePty }) {
       await validateSandboxContainerEngineTarget(params.engine, params.podmanTarget);

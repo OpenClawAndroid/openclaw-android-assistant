@@ -909,6 +909,7 @@ function descriptor(socketPath: string, workspaceDir: string): WorkerLaunchDescr
       liveEvents: { ackedSeq: 0, nextSeq: 1 },
       toolAuthority: {
         allowedToolNames: ["read", "write", "edit", "apply_patch", "exec", "process"],
+        exec: { host: "gateway", security: "full", ask: "off" },
       },
     },
   };
@@ -2403,7 +2404,7 @@ describe("worker runtime", () => {
   });
 
   it.each(["guarded", "workspace"] as const)(
-    "keeps the %s worker allowlist fast path",
+    "denies default safe bins under the %s worker permission policy",
     async (mode) => {
       const { gateway, workspaceDir, launch } = await setup({
         inferencePlans: ["safe-tool", "text"],
@@ -2418,8 +2419,7 @@ describe("worker runtime", () => {
           (message) => message.role === "toolResult",
         ),
       );
-      expect(toolResult).not.toContain("approval_required");
-      expect(toolResult).toMatch(/\b0\b/u);
+      expect(toolResult).toContain("approval_required");
     },
   );
 

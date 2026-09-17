@@ -660,6 +660,17 @@ export function getTaskFlowById(flowId: string): TaskFlowRecord | undefined {
   return flow ? cloneFlowRecord(flow) : undefined;
 }
 
+export function getTaskMirroredFlowIds(flowIds: Iterable<string>): ReadonlySet<string> {
+  ensureTaskFlowRegistryReady();
+  const mirrored = new Set<string>();
+  for (const flowId of flowIds) {
+    if (flows.get(flowId)?.syncMode === "task_mirrored") {
+      mirrored.add(flowId);
+    }
+  }
+  return mirrored;
+}
+
 export function listTaskFlowsForOwnerKey(ownerKey: string): TaskFlowRecord[] {
   ensureTaskFlowRegistryReady();
   const normalizedOwnerKey = ownerKey.trim();

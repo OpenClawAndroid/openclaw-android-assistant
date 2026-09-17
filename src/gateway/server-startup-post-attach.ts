@@ -28,12 +28,6 @@ import { createDeferredCore } from "../shared/deferred.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { hasSameTranscriptCaptureIntent } from "../transcripts/config-reload.js";
 import { resolveTranscriptsConfig } from "../transcripts/config.js";
-import {
-  canReadDetailedUpdateMetadata,
-  GATEWAY_EVENT_UPDATE_AVAILABLE,
-  projectUpdateAvailable,
-  type GatewayUpdateAvailableEventPayload,
-} from "./events.js";
 import type { GatewayBroadcastToConnIdsFn } from "./server-broadcast-types.js";
 import type { GatewayControlUiRootLifecycle } from "./server-control-ui-root.js";
 import type { GatewayRecoveryRuntime } from "./server-instance-runtime.types.js";
@@ -50,11 +44,11 @@ import {
   type GatewayStartupOutcomeRecorder,
 } from "./server-startup-outcomes.js";
 import { measureStartup, type GatewayStartupTrace } from "./server-startup-trace.js";
+import { createDeferredGatewayUpdateCheck } from "./server-startup-update-check.js";
 import {
   beginMacOSSystemCaWarmupOnce,
   type warmMacOSSystemCaOffMainThread,
 } from "./system-ca-warmup.js";
-import { startUpdateRunWatcher, wakeUpdateRunWatcher } from "./update-run-watcher.js";
 const ACP_BACKEND_READY_TIMEOUT_MS = 5_000;
 const ACP_BACKEND_READY_POLL_MS = 50;
 type Awaitable<T> = T | Promise<T>;
@@ -946,144 +940,6 @@ const defaultGatewayPostAttachRuntimeDeps: GatewayPostAttachRuntimeDeps = {
     (await import("../agents/subagents/registry/subagent-registry.js")).activateSubagentRegistry,
 };
 
-function createDeferredGatewayUpdateCheck(params: {
-  startupTrace?: GatewayStartupTrace;
-  runtimeDeps: GatewayPostAttachRuntimeDeps;
-  getConfig: () => OpenClawConfig;
-  log: {
-    info: (msg: string) => void;
-    warn: (msg: string) => void;
-  };
-  isNixMode: boolean;
-  broadcastToConnIds: GatewayBroadcastToConnIdsFn;
-  getClientConnIds: (filter?: (client: GatewayClient) => boolean) => ReadonlySet<string>;
-  waitForPostReadyWork?: () => Promise<void>;
-  activeWorkInspectors?: Partial<GatewayActiveWorkInspectors>;
-}): { start: () => void; stop: () => Promise<void> } {
-  let stopped = false;
-  let runWatcher: ReturnType<typeof startUpdateRunWatcher> | undefined;
-  let owner: ReturnType<typeof createGatewayUpdateCheck> | undefined;
-  let ownerReady: Promise<void> | undefined;
-  let initialization: Promise<unknown> | undefined;
-  let stopPromise: Promise<void> | undefined;
-  let latestUpdateAvailable: GatewayUpdateAvailableEventPayload["updateAvailable"] = null;
-  let latestSchedule: GatewayUpdateAvailableEventPayload["schedule"];
-
-  const broadcastUpdateAvailable = (payload: GatewayUpdateAvailableEventPayload) => {
-    if (stopped) {
-      return;
-    }
-    const detailedConnIds = params.getClientConnIds((client) =>
-      canReadDetailedUpdateMetadata(client.connect.role ?? "operator", client.connect.scopes ?? []),
-    );
-    const legacyConnIds = new Set(params.getClientConnIds());
-    for (const connId of detailedConnIds) {
-      legacyConnIds.delete(connId);
-    }
-    params.broadcastToConnIds(GATEWAY_EVENT_UPDATE_AVAILABLE, payload, detailedConnIds, {
-      dropIfSlow: true,
-    });
-    params.broadcastToConnIds(
-      GATEWAY_EVENT_UPDATE_AVAILABLE,
-      { updateAvailable: projectUpdateAvailable(payload.updateAvailable, false) ?? null },
-      legacyConnIds,
-      { dropIfSlow: true },
-    );
-  };
-
-  const stop = () => {
-    stopped = true;
-    return (stopPromise ??= (async () => {
-      // Fence immediately; a lazy factory that finishes later stops its own
-      // owner below. Never join the post-ready barrier during failed startup.
-      const cleanup = Promise.all([runWatcher?.stop(), owner?.stop()]);
-      await ownerReady;
-      await cleanup;
-      await initialization;
-    })());
-  };
-
-  const start = () => {
-    if (ownerReady || stopped) {
-      return;
-    }
-    runWatcher = startUpdateRunWatcher({
-      broadcast: (event, payload) =>
-        params.broadcastToConnIds(event, payload, params.getClientConnIds()),
-      log: params.log,
-    });
-    ownerReady = (async () => {
-      try {
-        owner = await params.runtimeDeps.createGatewayUpdateCheck({
-          getConfig: params.getConfig,
-          onUpdateRunCreated: wakeUpdateRunWatcher,
-          log: params.log,
-          isNixMode: params.isNixMode,
-          ...(params.activeWorkInspectors
-            ? { activeWorkInspectors: params.activeWorkInspectors }
-            : {}),
-          onUpdateAvailableChange: (updateAvailable) => {
-            latestUpdateAvailable = updateAvailable;
-            const payload: GatewayUpdateAvailableEventPayload = {
-              updateAvailable,
-              ...(latestSchedule ? { schedule: latestSchedule } : {}),
-            };
-            broadcastUpdateAvailable(payload);
-          },
-          onUpdateScheduleChange: (schedule) => {
-            latestSchedule = schedule;
-            const payload: GatewayUpdateAvailableEventPayload = {
-              updateAvailable: latestUpdateAvailable,
-              schedule,
-            };
-            broadcastUpdateAvailable(payload);
-          },
-        });
-      } catch (err) {
-        if (!stopped) {
-          params.log.warn(`gateway update check failed to initialize: ${String(err)}`);
-        }
-        return;
-      }
-      if (stopped) {
-        await owner.stop();
-        return;
-      }
-      // Local identity is ready before channel selection; remote discovery
-      // stays post-ready, but both already have the same shutdown owner.
-      const updateCheck = owner;
-      initialization = (async () => updateCheck.initialize())().catch((err: unknown) => {
-        if (!stopped) {
-          params.log.warn(`gateway update status failed to initialize: ${String(err)}`);
-        }
-      });
-    })();
-    void ownerReady.catch(() => {});
-    void (async () => {
-      await params.waitForPostReadyWork?.();
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      await ownerReady;
-      if (!stopped) {
-        await runWithGatewayIndependentRootWorkAdmission(
-          async () =>
-            await measureStartup(params.startupTrace, "post-attach.update-check", () =>
-              owner?.start(),
-            ),
-          "startup:update-check",
-        );
-      }
-    })().catch((err: unknown) => {
-      if (!stopped) {
-        params.log.warn(`gateway update check readiness wait failed: ${String(err)}`);
-      }
-    });
-  };
-
-  return { start, stop };
-}
-
 /** Start work that depends on the HTTP server being attached and visible. */
 export async function startGatewayPostAttachRuntime(
   params: {
@@ -1295,13 +1151,14 @@ export async function startGatewayPostAttachRuntime(
       ? { start: () => {}, stop: async () => {} }
       : createDeferredGatewayUpdateCheck({
           startupTrace: params.startupTrace,
-          runtimeDeps,
+          createUpdateCheck: runtimeDeps.createGatewayUpdateCheck,
           getConfig: params.getConfig,
           log: params.log,
           isNixMode: params.isNixMode,
           broadcastToConnIds: params.broadcastToConnIds,
           getClientConnIds: params.getClientConnIds,
           waitForPostReadyWork: params.waitForPostReadyWork,
+          isClosing: params.isClosing,
           activeWorkInspectors: params.activeWorkInspectors,
         });
   if (!params.minimalTestGateway) {

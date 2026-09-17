@@ -232,11 +232,21 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
       reservationTransferred: false,
       stopped: false,
     };
+    const signal = request.requester?.signal
+      ? AbortSignal.any([active.controller.signal, request.requester.signal])
+      : active.controller.signal;
+    const assertRequesterCurrent = () => {
+      signal.throwIfAborted();
+      if (request.requester?.isCurrent() === false) {
+        throw new Error("Desktop observer connection is no longer current");
+      }
+    };
+    assertRequesterCurrent();
     // Publish ownership before discovery can yield so drain/destroy can abort this attempt.
     activeStreams.add(active);
     try {
       await claimOwner(binding);
-      active.controller.signal.throwIfAborted();
+      assertRequesterCurrent();
       await options.desktopRegistry.activate({
         sourceKey: binding.environmentId,
         ownerEpoch: binding.ownerEpoch,
@@ -244,12 +254,13 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
           await stopOwnedOperations(binding.environmentId, binding.ownerEpoch);
         },
       });
-      active.controller.signal.throwIfAborted();
+      assertRequesterCurrent();
       const capturedRuntime = runtime;
       if (!capturedRuntime) {
         throw new Error("Worker environment node desktop runtime is unavailable");
       }
-      const node = await findCurrentNode(binding, capturedRuntime, active.controller.signal);
+      const node = await findCurrentNode(binding, capturedRuntime, signal);
+      assertRequesterCurrent();
       active.reservation = options.desktopRegistry.reserveObserver(
         binding.environmentId,
         binding.ownerEpoch,
@@ -274,8 +285,11 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
             : {}),
         },
         timeoutMs: 0,
-        signal: active.controller.signal,
-        isDispatchAuthorized: () => bindingIsCurrent(binding, capturedRuntime, node),
+        signal,
+        isDispatchAuthorized: () =>
+          !signal.aborted &&
+          request.requester?.isCurrent() !== false &&
+          bindingIsCurrent(binding, capturedRuntime, node),
       });
       // A successful stream invoke returns only after the outbound splice closes. Before
       // attachment, any invoke result is therefore a terminal startup failure.
@@ -285,6 +299,7 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
       void invocationFinished.catch(() => undefined);
       const attached = await Promise.race([active.ticket.attached, invocationFinished]);
       active.stream = attached.stream;
+      assertRequesterCurrent();
       if (!bindingIsCurrent(binding, capturedRuntime, node)) {
         throw new Error("Worker environment node desktop owner changed before attachment");
       }
@@ -293,6 +308,7 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
       }
       const { DESKTOP_OBSERVE_PATH, mintDesktopObserverToken } =
         await import("../desktop/observe-bridge.js");
+      assertRequesterCurrent();
       if (!bindingIsCurrent(binding, capturedRuntime, node)) {
         throw new Error("Worker environment node desktop owner changed before publication");
       }
@@ -313,6 +329,7 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
         control: request.control,
         requester: request.requester,
         attachment,
+        onAbandon: () => stopStream(active),
         preauth: {
           auth: "vnc-password",
           credentials: { password: attached.vncPassword },

@@ -2,9 +2,9 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
+import { readAcpSessionMetaForEntry } from "../acp/runtime/session-meta-readonly.js";
 import {
   readAcpSessionMeta,
-  readAcpSessionMetaForEntry,
   repairAcpSessionMetaKeyForMigration,
 } from "../acp/runtime/session-meta.js";
 import { resolveModelAgentRuntimeMetadata } from "../agents/agent-runtime-metadata.js";

@@ -9,10 +9,7 @@ import type { InboundEventKind } from "../../channels/inbound-event/kind.js";
 import type { ConversationReadInvocationOrigin } from "../../channels/plugins/conversation-read-origin.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { PreparedMessageToolCatalog } from "../../channels/plugins/message-action-discovery.js";
-import {
-  isFencedProviderReadAction,
-  isScheduledMessageWriteAction,
-} from "../../channels/plugins/message-action-dispatch.js";
+import { isScheduledMessageWriteAction } from "../../channels/plugins/message-action-dispatch.js";
 import type { ChannelMessageActionName } from "../../channels/plugins/types.public.js";
 import { resolveCommandSecretRefsViaGateway } from "../../cli/command-secret-gateway.js";
 import { getScopedChannelsCommandSecretTargets } from "../../cli/command-secret-targets.js";
@@ -173,6 +170,7 @@ type MessageToolOptions = {
   sandboxRoot?: string;
   sandboxContainerWorkdir?: string;
   sandboxFsBridge?: SandboxFsBridge;
+  sandboxReadOnlyResourceMounts?: readonly { hostPath: string; containerPath: string }[];
   sandboxWorkspaceMediaReadAllowed?: boolean;
   requireExplicitTarget?: boolean;
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
@@ -291,6 +289,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
           localRoots: [
             sandboxRoot,
             ...(options?.sandboxContainerWorkdir ? [options.sandboxContainerWorkdir] : []),
+            ...(options?.sandboxReadOnlyResourceMounts?.map((mount) => mount.containerPath) ?? []),
           ],
           readFile: createSandboxBridgeReadFile({
             sandbox: { root: sandboxRoot, bridge: options.sandboxFsBridge },
@@ -314,8 +313,14 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
       const action = readToolStringParam(params, "action", {
         required: true,
       }) as ChannelMessageActionName;
-      const { authorization: trustedTurnContext, config: rawConfig } =
-        turnAuthority.beginInvocation();
+      const {
+        authorization: trustedTurnContext,
+        config: rawConfig,
+        scheduledRead,
+        assertDashboardReadCurrent,
+        hasChannelTurnContext,
+        gatewayTurnCapability,
+      } = turnAuthority.beginInvocation(action);
       const messageActionAuthorization: MessageActionAuthorization = trustedTurnContext ?? {};
       const requestedAccountId = readToolStringParam(params, "accountId");
       const effectiveCurrentChannel = resolveEffectiveCurrentChannelContext(options, {
@@ -335,14 +340,12 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
           ? decisions.executionIdentityToken
           : undefined;
       const deliveryRunId = options?.runId ?? executionIdentityToken?.runId;
-      const scheduledRead = isFencedProviderReadAction(action)
-        ? messageActionAuthorization.scheduled
-        : undefined;
       const scheduledWrite = isScheduledMessageWriteAction(action)
         ? messageActionAuthorization.scheduled
         : undefined;
-      const scheduledReadAccountId =
-        scheduledRead?.policy.mode === "account" ? scheduledRead.policy.ownerAccountId : undefined;
+      const scheduledPolicy = (scheduledRead ?? scheduledWrite)?.policy;
+      const scheduledAccountId =
+        scheduledPolicy?.mode === "account" ? scheduledPolicy.ownerAccountId : undefined;
       if (normalizeOptionalString(options?.messageActionTurnCapability) && !trustedTurnContext) {
         decisions.recordTurnCapabilityInactive();
         throw new Error("message action turn capability is no longer active");
@@ -350,8 +353,8 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
       const assertActionCurrent = () => {
         assertCaller();
         turnAuthority.assertCurrent();
-        scheduledRead?.assertCurrent();
-        scheduledWrite?.assertCurrent();
+        (scheduledRead ?? scheduledWrite)?.assertCurrent();
+        assertDashboardReadCurrent?.();
       };
       assertActionCurrent();
       if (options?.sourceReplyOnly) {
@@ -402,7 +405,8 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
         decisions.runBoundary(() => explicitTargetGuard.require(params, action));
       }
 
-      const gateway = createMessageToolGateway(params, options, signal, {
+      const gatewayContext = { ...options, messageActionTurnCapability: gatewayTurnCapability };
+      const gateway = createMessageToolGateway(params, gatewayContext, signal, {
         resolveConfig: () => cfg,
         preserveWriteOutcome: Boolean(scheduledWrite),
       });
@@ -434,7 +438,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
         targets: params.targets,
         fallbackChannel: effectiveCurrentChannel.currentChannelProvider,
         accountId: requestedAccountId,
-        fallbackAccountId: scheduledReadAccountId ?? agentAccountId,
+        fallbackAccountId: scheduledAccountId ?? agentAccountId,
       });
       // Broadcast execution only narrows on an explicit non-all channel. Target
       // prefixes cannot authorize fewer providers than the runner will execute.
@@ -446,7 +450,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
         validateExplicitMessageAccountSelection({
           cfg: rawConfig,
           channel: unscopedExplicitBroadcast ? undefined : scope.channel,
-          accountId: requestedAccountId ?? scheduledReadAccountId,
+          accountId: requestedAccountId ?? scheduledAccountId,
           checkResolvedAccount: false,
         }),
       );
@@ -465,10 +469,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
             : [scope.channel],
           trustedCurrentChannel: trustedTurnContext?.toolContext?.currentChannelProvider,
           trustedRequesterAccountId: trustedTurnContext?.requesterAccountId,
-          // Scheduled grants have no inbound conversation. Dispatch validates
-          // their recorded creator scope against the resolved provider/account.
-          hasTrustedTurnContext:
-            trustedTurnContext !== undefined && messageActionAuthorization.scheduled === undefined,
+          hasTrustedTurnContext: hasChannelTurnContext,
         }),
       );
       if (explicitAccountId) {
@@ -492,7 +493,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
       ).resolvedConfig;
       assertActionCurrent();
 
-      const accountId = explicitAccountId ?? scheduledReadAccountId ?? agentAccountId;
+      const accountId = explicitAccountId ?? scheduledAccountId ?? agentAccountId;
       const pollVoteEchoRoute = resolvePollVoteEchoRoute({
         action,
         args: params,
@@ -598,7 +599,9 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
         sourceReplySinkDeliveryMode === "message_tool_only" &&
         normalizeOptionalString(trustedTurnContext?.toolContext?.currentSourceTurnId) !== undefined;
       return await withChannelReadAuthority(
-        action === "download-file" || scheduledRead ? assertActionCurrent : undefined,
+        action === "download-file" || scheduledRead || assertDashboardReadCurrent
+          ? assertActionCurrent
+          : undefined,
         async () => {
           let result: MessageActionResult;
           try {

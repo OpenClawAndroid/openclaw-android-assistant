@@ -4,7 +4,7 @@ import {
   getNodeSqliteKysely,
   openNodeSqliteDatabase,
   type SqliteWorkerBackend,
-} from "openclaw/plugin-sdk/sqlite-runtime";
+} from "openclaw/plugin-sdk/sqlite-worker-runtime";
 import type { IMessageReceiptDbOperations } from "./send-receipt-db.js";
 import { normalizeIMessageHandle } from "./targets.js";
 

@@ -23,6 +23,7 @@ import { getRuntimeConfig } from "../../config/config.js";
 import { conversationIdentityFromMsgContext } from "../../config/sessions/conversation-identity.js";
 import { resolveGroupSessionKey } from "../../config/sessions/group.js";
 import { normalizeMediaFacts } from "../../media/media-facts.js";
+import { normalizeAccountId } from "../../routing/account-id.js";
 import { MEDIA_ONLY_USER_TEXT } from "../../sessions/user-turn-media.js";
 import {
   createUserTurnTranscriptRecorder,
@@ -588,6 +589,15 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     freshChannelCronAuthorityTurn && command.senderIsOwner
       ? (opts?.runId ?? crypto.randomUUID())
       : undefined;
+  const channelRequester =
+    authorityRunId && messageProvider === "discord" && sessionCtx.SenderId
+      ? {
+          version: 1 as const,
+          channel: messageProvider,
+          accountId: normalizeAccountId(replyRoute.accountId),
+          senderId: sessionCtx.SenderId,
+        }
+      : undefined;
   const inheritedCronCreatorAuthorityCapability = opts?.cronCreatorAuthorityCapability;
   const cronOwner = {
     channel: messageProvider,
@@ -603,6 +613,8 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
             source: "channel-owner",
             isCurrent: () => isConfiguredCommandOwner(getRuntimeConfig(), cronOwner),
           },
+          undefined,
+          channelRequester,
         )
       : undefined;
   const cronCreatorAuthorityCapability =

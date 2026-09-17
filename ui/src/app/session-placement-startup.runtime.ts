@@ -11,6 +11,7 @@ import {
   listSessionPlacementRecoveries,
   readSessionPlacementRecovery,
   type SessionPlacementRecovery,
+  type SessionPlacementStartMode,
   type SessionPlacementPendingRecovery,
   type SessionPlacementPausedRecovery,
   pauseSessionPlacementRecovery,
@@ -192,7 +193,7 @@ export default function createApplicationPlacementStartupRuntime(
   const run = (
     entry: PlacementStartupEntry,
     recovery: SessionPlacementRecovery,
-    recovering: boolean,
+    mode: SessionPlacementStartMode,
   ) => {
     let currentRecovery = recovery;
     void advanceSessionPlacementDraft({
@@ -200,7 +201,7 @@ export default function createApplicationPlacementStartupRuntime(
       recovery: currentRecovery,
       persistRecovery: entry.persistRecovery,
       cleanupOnCancellation: () => !entry.persistRecovery && entry.work.kind !== "paused",
-      recovering,
+      mode,
       isLifecycleCurrent: () => lifecycleCurrent(entry),
       ownsRecovery: () => ownsRecovery(entry),
       clearRecovery: () =>
@@ -300,7 +301,7 @@ export default function createApplicationPlacementStartupRuntime(
     entries.set(owner.sessionKey, entry);
     publish();
     if (input.recovery.phase !== "paused") {
-      run(entry, input.recovery, input.recovering);
+      run(entry, input.recovery, input.mode);
     }
   };
 
@@ -326,7 +327,7 @@ export default function createApplicationPlacementStartupRuntime(
         start({
           recovery: entry.work.recovery,
           persistRecovery: entry.persistRecovery,
-          recovering: true,
+          mode: "recover",
           createdAt: entry.createdAt,
         });
       }
@@ -335,7 +336,7 @@ export default function createApplicationPlacementStartupRuntime(
       params.gateway.connection.gatewayUrl,
       snapshot.client.recoveryScope,
     )) {
-      start({ recovery, persistRecovery: true, recovering: true, createdAt: Date.now() });
+      start({ recovery, persistRecovery: true, mode: "recover", createdAt: Date.now() });
     }
   };
 
@@ -404,7 +405,7 @@ export default function createApplicationPlacementStartupRuntime(
       start({
         recovery,
         persistRecovery: entry.persistRecovery,
-        recovering: true,
+        mode: "recover",
         createdAt: entry.createdAt,
       });
     },
@@ -416,7 +417,7 @@ export default function createApplicationPlacementStartupRuntime(
       if (entry.work.recovery.reason === "unconfirmed") {
         entry.work = { kind: "checking", recovery: entry.work.recovery };
         publish();
-        run(entry, entry.work.recovery, true);
+        run(entry, entry.work.recovery, "recover");
         return;
       }
       const { reason, error: _error, ...submission } = entry.work.recovery;
@@ -437,7 +438,7 @@ export default function createApplicationPlacementStartupRuntime(
       start({
         recovery,
         persistRecovery: entry.persistRecovery,
-        recovering: false,
+        mode: "retry",
         createdAt: entry.createdAt,
       });
     },

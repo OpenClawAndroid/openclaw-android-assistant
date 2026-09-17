@@ -15,6 +15,7 @@ import {
   isTerminalAgentWaitTimeout,
   waitForAgentRunReply,
 } from "../run-wait.js";
+import { SUBAGENT_COMPLETION_OUTCOME_INSTRUCTION } from "../subagents/completion/subagent-completion-instructions.js";
 import { runAgentStep } from "./agent-step.js";
 import {
   callAgentToolGatewayRequest,
@@ -100,6 +101,7 @@ export async function runSessionsSendA2AFlow(params: {
   message: string;
   announceTimeoutMs: number;
   maxPingPongTurns: number;
+  replyMode?: "peer" | "one-way";
   requesterSessionKey?: string;
   requesterAgentId?: string;
   requesterChannel?: string;
@@ -143,7 +145,8 @@ export async function runSessionsSendA2AFlow(params: {
             timeoutMs: params.announceTimeoutMs,
             lane: resolveNestedAgentLaneForSession(params.requesterSessionKey),
             sourceSessionKey: params.targetSessionKey,
-            sourceTool: "sessions_send",
+            sourceTool: params.replyMode === "one-way" ? "subagent_announce" : "sessions_send",
+            ...(params.replyMode === "one-way" ? { sourceRole: "subagent" as const } : {}),
             callGateway: gatewayCall,
           });
         }
@@ -155,6 +158,25 @@ export async function runSessionsSendA2AFlow(params: {
       return;
     }
     if (isNonDeliverableSessionsReply(latestReply)) {
+      return;
+    }
+
+    if (params.replyMode === "one-way") {
+      if (params.requesterSessionKey) {
+        await runAgentStep({
+          agentId: params.requesterAgentId,
+          sessionKey: params.requesterSessionKey,
+          message: latestReply,
+          extraSystemPrompt: `A child session returned the result of your earlier sessions_send request. ${SUBAGENT_COMPLETION_OUTCOME_INSTRUCTION} This result is delivered once; your response will not be sent back to the child.`,
+          timeoutMs: params.announceTimeoutMs,
+          lane: resolveNestedAgentLaneForSession(params.requesterSessionKey),
+          sourceAgentId: params.targetAgentId,
+          sourceSessionKey: params.targetSessionKey,
+          sourceTool: "subagent_announce",
+          sourceRole: "subagent",
+          callGateway: gatewayCall,
+        });
+      }
       return;
     }
 

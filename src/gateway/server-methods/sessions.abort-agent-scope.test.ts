@@ -47,13 +47,17 @@ vi.mock("../worker-environments/session-target.js", () => ({
   }),
 }));
 
+vi.mock("../../config/sessions/combined-store-gateway.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../config/sessions/combined-store-gateway.js")>()),
+  loadCombinedSessionStoreForGatewayAsync: async (...args: unknown[]) =>
+    loadCombinedSessionStoreForGatewayMock(...args),
+}));
+
 vi.mock("../session-utils.js", async () => {
   const actual = await vi.importActual<typeof import("../session-utils.js")>("../session-utils.js");
   return {
     ...actual,
     listSessionsFromStoreAsync: (...args: unknown[]) => listSessionsFromStoreAsyncMock(...args),
-    loadCombinedSessionStoreForGatewayCore: (...args: unknown[]) =>
-      loadCombinedSessionStoreForGatewayMock(...args),
     loadSessionEntry: (...args: unknown[]) =>
       loadSessionEntryMock(...(args as [string, { agentId?: string }?])),
     loadGatewaySessionEntryReadOnly: (...args: unknown[]) =>

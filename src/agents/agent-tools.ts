@@ -17,7 +17,6 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { GroupToolPolicyConfig } from "../config/types.tools.js";
 import type { DiagnosticTraceContext } from "../infra/diagnostic-trace-context.js";
 import { resolveEventSessionRoutingPolicy } from "../infra/event-session-routing.js";
-import { applyExecPolicyLayer } from "../infra/exec-policy.js";
 import { mergeGatewayAgentCliPath } from "../infra/openclaw-cli-shim.js";
 import { logWarn } from "../logger.js";
 import type {
@@ -67,7 +66,7 @@ import {
   type ResolvedConversationCapabilityProfile,
 } from "./conversation-capability-profile.js";
 import type { ConversationRecallContext } from "./conversation-recall.types.js";
-import { projectConversationToolNames } from "./conversation-tool-policy-pipeline.js";
+import { isConversationToolAllowed } from "./conversation-tool-policy-pipeline.js";
 import { createCoreCodingTools } from "./core-coding-tools.js";
 import type { OpenClawCodingToolConstructionPlan } from "./core-tool-factory-descriptors.js";
 import {
@@ -91,17 +90,17 @@ import type { SandboxContext } from "./sandbox.js";
 import { resolveSandboxFileIdentity } from "./sandbox/file-mutation-identity.js";
 import { createEmbeddedMessageInvocationPolicy } from "./scheduled-message-invocation.js";
 import {
-  resolveScheduledExecPolicy,
   resolveScheduledToolCallerContext,
   type ScheduledToolPolicyContext,
 } from "./scheduled-tool-policy.js";
 import {
   resolveSessionPermissionCoreToolPolicy,
-  resolveSessionPermissionExecPolicy,
+  projectEffectiveExecPolicy,
 } from "./session-permission-exec-mode.js";
 import { resolveSessionPlacementComputer } from "./session-placement-computer.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { TrustedSubagentCompletionHandoff } from "./subagents/announce/subagent-announce-handoff.js";
+import { subagentAttachmentRootForRun } from "./subagents/subagent-attachment-paths.js";
 import { resolveToolFsConfig } from "./tool-fs-policy.js";
 import type { PreparedSessionPermissionPolicy } from "./tool-fs-policy.js";
 import { resolveToolLoopDetectionConfig } from "./tool-loop-detection-config.js";
@@ -450,6 +449,7 @@ export function createOpenClawCodingToolsInternal(
       ? resolveSessionAgentId({ config: options.config, sessionKey: options.runSessionKey })
       : agentId);
   const executionSessionKey = options?.runSessionKey ?? options?.sessionKey;
+  const attachmentReadRoot = subagentAttachmentRootForRun(executionAgentId, executionSessionKey);
 
   const enableHeartbeatTool =
     options?.enableHeartbeatTool === true ||
@@ -489,12 +489,7 @@ export function createOpenClawCodingToolsInternal(
     ...(forceHeartbeatTool ? [HEARTBEAT_RESPONSE_TOOL_NAME] : []),
     ...toolSearchControlAllowlist,
   ];
-  const sandboxWorkspaceMediaReadAllowed =
-    projectConversationToolNames({
-      capabilityProfile,
-      toolNames: ["read"],
-      warn: () => undefined,
-    }).length === 1;
+  const sandboxWorkspaceMediaReadAllowed = isConversationToolAllowed(capabilityProfile, "read");
   // Borrowed tool restrictions do not transfer ownership of the policy session's processes.
   const scopeKey = resolveProcessToolScopeKey({
     scopeKey: options?.exec?.scopeKey,
@@ -580,6 +575,7 @@ export function createOpenClawCodingToolsInternal(
   const fsPolicy = {
     workspaceOnly,
     ...(sessionPermissionPolicy ? { root: sessionPermissionPolicy.root } : {}),
+    ...(attachmentReadRoot ? { readOnlyRoots: [attachmentReadRoot] } : {}),
   };
   const readOnly = sessionCoreToolPolicy?.readOnly ?? false;
   const applyPatchConfig = execConfig.applyPatch;
@@ -599,25 +595,22 @@ export function createOpenClawCodingToolsInternal(
   const imageSanitization = resolveImageSanitizationLimits(options?.config);
   options?.recordToolPrepStage?.("workspace-policy");
   const execDefaults = options?.exec ?? {};
-  const effectiveExecPolicy = sessionPermissionPolicy
-    ? resolveSessionPermissionExecPolicy(sessionPermissionPolicy, options?.exec)
-    : applyExecPolicyLayer(execConfig, options?.exec);
-  // A scheduled cap narrows the rebuilt exec tool to its captured policy.
-  // Its approval floor outranks a reused full session; the wrapper below
-  // prevents caller arguments from weakening either restriction.
   const scheduledExecTarget = options?.scheduledToolPolicy?.execTarget;
-  const scheduledExecPolicy = resolveScheduledExecPolicy(
-    { ...effectiveExecPolicy, host: execDefaults.host ?? execConfig.host },
+  const effectiveExecPolicy = projectEffectiveExecPolicy({
+    base: execConfig,
+    overrides: options?.exec,
+    permissionPolicy: sessionPermissionPolicy,
     scheduledExecTarget,
-  );
+  });
   const processToolAvailabilityRef: NonNullable<ExecToolDefaults["processToolAvailabilityRef"]> =
     {};
   const coreTools = createCoreCodingTools({
     abortSignal: options?.abortSignal,
+    attachmentReadRoot,
     codingRoot,
     containmentRoot,
     includeBaseCodingTools,
-    includeShellTools,
+    shellTools: includeShellTools ? "full" : "disabled",
     workspaceOnly,
     readOnly,
     sandbox,
@@ -632,11 +625,7 @@ export function createOpenClawCodingToolsInternal(
     applyPatchWorkspaceOnly,
     execDefaults: {
       ...execDefaults,
-      bypassHostApprovalFloors:
-        scheduledExecTarget?.ask !== "always" &&
-        sessionCoreToolPolicy?.bypassHostApprovalFloors &&
-        effectiveExecPolicy.security === "full",
-      ...scheduledExecPolicy,
+      ...effectiveExecPolicy,
       config: execRuntimeConfig,
       preparedRunEnvironment,
       reviewer: options?.exec?.reviewer ?? execConfig.reviewer,
@@ -847,7 +836,10 @@ export function createOpenClawCodingToolsInternal(
               ? { permissionMode: sessionPermissionPolicy.mode }
               : undefined,
             execOverrides: {
-              ...scheduledExecPolicy,
+              host: effectiveExecPolicy.host,
+              mode: effectiveExecPolicy.mode,
+              security: effectiveExecPolicy.security,
+              ask: effectiveExecPolicy.ask,
               node: options?.exec?.node ?? execConfig.node,
             },
             approvalReviewerDeviceIds: options?.approvalReviewerDeviceId
@@ -878,6 +870,7 @@ export function createOpenClawCodingToolsInternal(
             sandboxRoot,
             sandboxContainerWorkdir: sandbox?.containerWorkdir,
             sandboxFsBridge,
+            sandboxReadOnlyResourceMounts: sandbox?.readOnlyResourceMounts,
             stagedMediaPaths: options?.stagedMediaPaths,
             sandboxWorkspaceMediaReadAllowed,
             fsPolicy,

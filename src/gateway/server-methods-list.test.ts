@@ -215,6 +215,8 @@ describe("listGatewayMethods", () => {
       ...voiceSelectionMethods,
       "plugins.credentials.inspect",
       "plugins.skills.read",
+      "diagnostics.heapProfile",
+      "desktop.release",
     ];
     expect(listGatewayMethods().slice(-expectedSuffix.length)).toEqual(expectedSuffix);
     const methods = listGatewayMethods();
@@ -256,6 +258,8 @@ describe("listGatewayMethods", () => {
       ...voiceSelectionMethods,
       "plugins.credentials.inspect",
       "plugins.skills.read",
+      "diagnostics.heapProfile",
+      "desktop.release",
     ]);
   });
 
@@ -426,6 +430,8 @@ describe("listGatewayMethods", () => {
       ...voiceSelectionMethods,
       "plugins.credentials.inspect",
       "plugins.skills.read",
+      "diagnostics.heapProfile",
+      "desktop.release",
     ];
     expect(coreMethods.slice(-expectedCoreSuffix.length)).toEqual(expectedCoreSuffix);
     expect(methods.indexOf("approval.get")).toBeGreaterThan(methods.indexOf("tts.speak"));

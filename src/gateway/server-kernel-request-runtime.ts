@@ -3,6 +3,7 @@ import { retireQuestionChannelGateway } from "../infra/question-channel-runtime.
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import { bindLegacyPluginSdkResourceHost } from "../plugins/legacy-sdk-resource-host.js";
 import { bindGatewayContextResolver } from "../plugins/runtime/gateway-request-scope.js";
+import { closeGatewayDeviceRevocation } from "./device-revocation.js";
 import { createGatewayChatMetadataLifecycle } from "./server-chat-metadata-lifecycle.js";
 import type { startGatewayCoreRuntime } from "./server-core-runtime.js";
 import { attachInitialGatewayLifetimeSidecars } from "./server-lifetime-sidecars.js";
@@ -60,6 +61,7 @@ export async function prepareGatewayKernelRequestRuntime(params: {
       // Received mutations and their finalizers join before lifetime sidecars stop.
       // Retire this exact context too when no request ever bound its coordinator.
       retireQuestionChannelGateway(runtime.connectionWork.signal);
+      closeGatewayDeviceRevocation(gatewayRequestContext);
       await gatewayRequestContext.scopeUpgradeCoordinator?.close();
     },
   });

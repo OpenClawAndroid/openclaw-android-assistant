@@ -139,7 +139,7 @@ describe("DraftSubmissionFlow submit gates", () => {
           phase: "dispatching",
         }),
         persistRecovery: true,
-        recovering: phase === "dispatching",
+        mode: phase === "dispatching" ? "recover" : "dispatch",
         createdAt: expect.any(Number),
       });
       expect(flow.error).toBeNull();

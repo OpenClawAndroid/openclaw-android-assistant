@@ -1,13 +1,24 @@
-import { readFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { isBuiltin } from "node:module";
+import { join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import { resolve as resolvePackageImport } from "import-meta-resolve";
 import ts from "typescript";
 
-export function collectEagerRuntimeImportClosure(inputs: readonly string[]): string[] {
-  const root = process.cwd();
-  const { config } = ts.readConfigFile("tsconfig.json", (file) => ts.sys.readFile(file));
+export function collectEagerRuntimeImportClosure(
+  inputs: readonly string[],
+  {
+    root = process.cwd(),
+    validatePackages = false,
+  }: { root?: string; validatePackages?: boolean } = {},
+): string[] {
+  const { config } = ts.readConfigFile(join(root, "tsconfig.json"), (file) =>
+    ts.sys.readFile(file),
+  );
   const { options } = ts.convertCompilerOptionsFromJson(config.compilerOptions, root);
   const runtimeHost = {
     ...ts.sys,
+    getCurrentDirectory: () => root,
     fileExists: (file: string) => !/\.d\.[cm]?ts$/.test(file) && ts.sys.fileExists(file),
   };
   const resolutionCache = ts.createModuleResolutionCache(root, (file) => file, options);
@@ -38,14 +49,21 @@ export function collectEagerRuntimeImportClosure(inputs: readonly string[]): str
         runtimeHost,
         resolutionCache,
       ).resolvedModule;
-      if (!dependency) {
-        if (specifier.startsWith(".")) {
-          throw new Error(`${file}: unresolved ${specifier}`);
-        }
-        continue;
+      if (!dependency && specifier.startsWith(".")) {
+        throw new Error(`${file}: unresolved ${specifier}`);
       }
-      if (!dependency.isExternalLibraryImport) {
+      if (dependency && !dependency.isExternalLibraryImport) {
         closure.add(relative(root, dependency.resolvedFileName).split(sep).join("/"));
+      } else if (validatePackages && !isBuiltin(specifier)) {
+        const packageName = specifier
+          .split("/")
+          .slice(0, specifier.startsWith("@") ? 2 : 1)
+          .join("/");
+        if (!existsSync(join(root, "node_modules", packageName, "package.json"))) {
+          throw new Error(`${file}: unpinned package ${specifier}`);
+        }
+        // TypeScript declarations do not prove that Node can import an export subpath.
+        resolvePackageImport(specifier, pathToFileURL(resolve(root, file)).href);
       }
     }
   }

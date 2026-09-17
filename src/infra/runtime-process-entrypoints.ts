@@ -4,6 +4,11 @@ const currentModuleUrl = import.meta.url;
 export const SQLITE_READONLY_CHILD_ARG = "--openclaw-sqlite-readonly-child";
 
 export const runtimeProcessEntrypoints = {
+  spawnBroker: {
+    currentModuleUrl,
+    sourceWorkerName: "../process/spawn-broker/worker",
+    distWorkerPath: "process/spawn-broker/worker.js",
+  },
   cronStreamMatcher: {
     currentModuleUrl,
     sourceWorkerName: "../gateway/cron-stream-matcher.worker",
@@ -108,6 +113,11 @@ export const runtimeProcessEntrypoints = {
     currentModuleUrl,
     sourceWorkerName: "../config/sessions/session-transcript.worker",
     distWorkerPath: "config/sessions/session-transcript.worker.js",
+  },
+  sessionMetadata: {
+    currentModuleUrl,
+    sourceWorkerName: "../config/sessions/session-accessor.sqlite-list.worker",
+    distWorkerPath: "config/sessions/session-accessor.sqlite-list.worker.js",
   },
   sessionTranscriptReconcile: {
     currentModuleUrl,

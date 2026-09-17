@@ -17,6 +17,7 @@ const params = {
   agentId: "cloud",
   target: { kind: "profile", profileId: "aws" } as const,
   message: "run remotely",
+  mode: "dispatch" as const,
 };
 
 function clientWith(request: ReturnType<typeof vi.fn>): Pick<GatewayBrowserClient, "request"> {
@@ -569,7 +570,7 @@ describe("session placement startup", () => {
         {
           ...params,
           messageId: "message-recovered",
-          recovering: true,
+          mode: "recover",
         },
         () => true,
       ),
@@ -874,7 +875,7 @@ describe("session placement startup", () => {
     await expect(
       startSessionPlacementInitialTurn(
         clientWith(request),
-        { ...params, recovering: true, messageId: "recovery-message-1" },
+        { ...params, mode: "recover", messageId: "recovery-message-1" },
         () => true,
       ),
     ).resolves.toEqual({ status: "started", messageId: "recovery-message-1" });

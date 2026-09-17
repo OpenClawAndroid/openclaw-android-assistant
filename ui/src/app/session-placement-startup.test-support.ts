@@ -89,7 +89,7 @@ export function createPlacementStartupHarness(
   }
   return {
     startup,
-    input: { recovery, persistRecovery: true, recovering: false, createdAt: 1_000 },
+    input: { recovery, persistRecovery: true, mode: "dispatch" as const, createdAt: 1_000 },
     client,
     gateway,
     sessions,

@@ -116,7 +116,7 @@ describe("Codex supervision catalog", () => {
         now: () => now,
       });
 
-      const list = () => control.listPage({ limit: 25 }, undefined, headWalk);
+      const list = () => control.listPage({ limit: 25 }, undefined, { headWalk });
       await list();
       await list();
       expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledOnce();
@@ -368,7 +368,7 @@ describe("Codex supervision catalog", () => {
         cwd: `/workspace/project-${index}`,
       }));
       const list = (query: (typeof queries)[number]) =>
-        control.listPage(query, undefined, headWalk);
+        control.listPage(query, undefined, { headWalk });
       for (const query of queries) {
         await list(query);
       }
@@ -453,6 +453,7 @@ describe("Codex supervision catalog", () => {
     });
 
     await expect(control.listPage({ limit: 2, searchTerm: "match" })).resolves.toEqual({
+      scannedPages: 3,
       sessions: [
         expect.objectContaining({ threadId: "match-1", name: "Match one" }),
         expect.objectContaining({ threadId: "match-2", name: "MATCH two" }),
@@ -485,6 +486,7 @@ describe("Codex supervision catalog", () => {
 
     await expect(control.listPage({ limit: 10, searchTerm: "match" })).resolves.toEqual({
       sessions: [],
+      scannedPages: 20,
       nextCursor: "page-20",
     });
     expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(20);
@@ -505,6 +507,57 @@ describe("Codex supervision catalog", () => {
     );
     expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["pending", "settled"])(
+    "keeps a smaller search budget independent of a %s page",
+    async (state) => {
+      const held = createDeferred<unknown>();
+      const started = createDeferred<void>();
+      const response = (cursor: number) => ({
+        data: [idleThread({ id: `other-${cursor}`, name: "Other", source: "cli" })],
+        nextCursor: String(cursor + 1),
+      });
+      commandRpcMocks.codexControlRequest
+        .mockImplementationOnce(() => {
+          started.resolve();
+          return held.promise;
+        })
+        .mockImplementation(async (_plugin, _method, request) => response(Number(request.cursor)));
+      const control = createCodexSessionCatalogControl({
+        getPluginConfig: () => ({ supervision: { enabled: true } }),
+        getRuntimeConfig: () => config,
+        now: () => 1_000,
+      });
+      const query = { cursor: "0", limit: 1, searchTerm: "Wanted" };
+      let largerSettled = false;
+      const larger = control.listPage(query, undefined, { maxScanPages: 3 }).finally(() => {
+        largerSettled = true;
+      });
+      const pending = [larger];
+      try {
+        await started.promise;
+        if (state === "settled") {
+          held.resolve(response(0));
+          await larger;
+        }
+        const smaller = control.listPage(query, undefined, { maxScanPages: 1 });
+        pending.push(smaller);
+        // Keep the native response held across the second producer's asynchronous setup.
+        await nextTurn();
+        expect(largerSettled).toBe(state === "settled");
+        held.resolve(response(0));
+        await expect(smaller).resolves.toEqual({ sessions: [], nextCursor: "1" });
+        await expect(larger).resolves.toEqual({
+          sessions: [],
+          scannedPages: 3,
+          nextCursor: "3",
+        });
+      } finally {
+        held.resolve(response(0));
+        await Promise.allSettled(pending);
+      }
+    },
+  );
 
   it("shares one timeout budget across title-search pages", async () => {
     let elapsedMs = 0;

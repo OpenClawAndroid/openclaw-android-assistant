@@ -54,7 +54,10 @@ export class CodexCatalogVisiblePage {
           ...(params.cwd ? { cwd: params.cwd } : {}),
         },
         undefined,
-        !params.cursor,
+        {
+          headWalk: !params.cursor,
+          maxScanPages: MAX_TITLE_SEARCH_CATALOG_PAGES - this.pages,
+        },
       );
     } finally {
       if (diagnostics && !diagnostics.closed) {
@@ -64,9 +67,10 @@ export class CodexCatalogVisiblePage {
     }
     params.signal?.throwIfAborted();
     const page = filterCatalogPageByTitle(parseCatalogPage(rawPage), params.searchTerm);
-    if (this.pages++ === 0) {
+    if (this.pages === 0) {
       this.backwardsCursor = page.backwardsCursor;
     }
+    this.pages += rawPage.scannedPages ?? 1;
     let excludedFromPage = false;
     for (const managed of rawPage.managedThreads ?? []) {
       excludedFromPage = true;

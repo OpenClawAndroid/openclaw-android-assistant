@@ -55,7 +55,8 @@ vi.mock("./model.static-catalog.js", () => ({
   }),
 }));
 
-vi.mock("../model-suppression.js", () => {
+vi.mock("../model-suppression.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../model-suppression.js")>();
   function suppressionError({
     provider,
     id,
@@ -77,6 +78,11 @@ vi.mock("../model-suppression.js", () => {
     return `Unknown model: ${provider}/gpt-5.3-codex-spark. gpt-5.3-codex-spark is available only through ChatGPT/Codex OAuth. Run \`openclaw models auth login --provider openai\` and use openai/gpt-5.3-codex-spark with that OAuth profile; OpenAI API-key auth cannot use this model.`;
   }
   return {
+    ...actual,
+    resolveBuiltInModelSuppressionFromManifest: (input: Parameters<typeof suppressionError>[0]) => {
+      const errorMessage = suppressionError(input);
+      return errorMessage ? { suppress: true, errorMessage } : undefined;
+    },
     shouldSuppressBuiltInModelCore: (input: Parameters<typeof suppressionError>[0]) =>
       Boolean(suppressionError(input)),
     shouldUnconditionallySuppress: () => false,
@@ -863,11 +869,13 @@ describe("resolveModel forward-compat errors and overrides", () => {
     expect(result.error).toContain("VLLM_API_KEY");
   });
 
-  it("does not add auth hint for non-local providers", async () => {
+  it("points unknown models to the requested provider catalog", async () => {
     const result = await resolveModelForTest("google-antigravity", "some-model", "/tmp/agent");
 
     expect(result.model).toBeUndefined();
-    expect(result.error).toBe("Unknown model: google-antigravity/some-model");
+    expect(result.error).toBe(
+      "Unknown model: google-antigravity/some-model. Run `openclaw models list --refresh --provider google-antigravity` to inspect this provider's model choices, then retry with a model supported by your account.",
+    );
   });
 
   it("applies provider baseUrl override to registry-found models", async () => {

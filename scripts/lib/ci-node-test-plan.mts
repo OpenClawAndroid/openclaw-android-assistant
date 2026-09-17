@@ -3124,11 +3124,27 @@ function createCompactNodeTestShardBundles(
     }
   }
 
-  const estimateStripeSeconds = (group: NodeTestShardGroup) =>
-    Math.max(
-      synthesizedSplitSeconds.get(compactGroupTimingKey(group)) ?? 0,
-      estimateCompactStripeSeconds(group, options.runnerBackend),
-    );
+  // Packing revisits immutable groups; prepare their cost and family once.
+  // Keep facts within this plan's timing inputs and partitions.
+  const stripeFacts = new Map<
+    NodeTestShardGroup,
+    { seconds: number; family: string | undefined }
+  >();
+  const prepareStripe = (group: NodeTestShardGroup) => {
+    let facts = stripeFacts.get(group);
+    if (!facts) {
+      facts = {
+        seconds: Math.max(
+          synthesizedSplitSeconds.get(compactGroupTimingKey(group)) ?? 0,
+          estimateCompactStripeSeconds(group, options.runnerBackend),
+        ),
+        family: compactStripeFamily(group),
+      };
+      stripeFacts.set(group, facts);
+    }
+    return facts;
+  };
+  const estimateStripeSeconds = (group: NodeTestShardGroup) => prepareStripe(group).seconds;
   const estimateBinSeconds = (groups: NodeTestShardGroup[]) => {
     const mode = mergeVitestPretestBuildModes(groups.map((group) => group.pretestBuildMode));
     const buildSeconds = mode ? VITEST_PRETEST_BUILD_SECONDS[mode] : 0;
@@ -3148,7 +3164,7 @@ function createCompactNodeTestShardBundles(
     runnerRank(group) >= 0;
   const hasDistinctStripeFamilies = (groups: NodeTestShardGroup[]) => {
     const families = groups
-      .map(compactStripeFamily)
+      .map((group) => prepareStripe(group).family)
       .filter((family): family is string => family !== undefined);
     return new Set(families).size === families.length;
   };

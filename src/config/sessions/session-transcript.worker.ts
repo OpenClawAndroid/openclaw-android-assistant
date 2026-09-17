@@ -3,7 +3,7 @@ import type {
   SessionFileEntry,
   readSessionEntryResetRecallCutoff,
 } from "../../../packages/memory-host-sdk/src/host/session-files.js";
-import type { PreparedSessionHistoryReadTarget } from "../../gateway/session-history-readonly-reader.js";
+import type { PreparedSessionHistoryReadTarget } from "../../gateway/session-history-read.types.js";
 import { serveWorkerTasks } from "../../infra/worker-task-pool.js";
 import type { SensitiveTextRedactionSnapshot } from "../../logging/redact.js";
 import type { UserTurnTranscriptAdmissionReceipt } from "../../sessions/user-turn-transcript.types.js";

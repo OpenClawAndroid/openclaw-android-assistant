@@ -1,6 +1,7 @@
 import path from "node:path";
 import { disposeRegisteredAgentHarnesses } from "openclaw/plugin-sdk/agent-harness";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import type { QaRunnerTransportArtifacts } from "openclaw/plugin-sdk/qa-runner-runtime";
 import { createQaGatewayChild } from "./gateway-child.js";
 import type { QaLabLatestReport } from "./lab-server.types.js";
 import {
@@ -115,6 +116,7 @@ export async function runQaFlowSuiteStandard(
   let runError: unknown;
   let completionProgress: string | undefined;
   let terminalScenarios: QaSuiteScenarioResult[] | undefined;
+  let transportArtifacts: QaRunnerTransportArtifacts | undefined;
   let publishTerminalResult: (() => Promise<QaSuiteResult>) | undefined;
   const startedScenarioIds: string[] = [];
   try {
@@ -406,6 +408,9 @@ export async function runQaFlowSuiteStandard(
     ) {
       preserveGatewayRuntimeDir = path.join(outputDir, "artifacts", "gateway-runtime");
     }
+    if (!isQaSuiteNestedRun(params)) {
+      transportArtifacts = await transport.captureArtifacts?.({ outputDir });
+    }
     terminalScenarios = scenarios;
     completionProgress = `run complete: passed=${scenarios.length - failedCount - skippedCount} failed=${failedCount} skipped=${skippedCount} total=${scenarios.length}`;
     publishTerminalResult = async () => {
@@ -429,7 +434,7 @@ export async function runQaFlowSuiteStandard(
           concurrency,
           channel: params?.channelId ?? transport.id,
           channelDriver: transportFactoryResult.driver,
-          publishTransportArtifacts: !isQaSuiteNestedRun(params),
+          transportArtifacts,
           isolatedWorkers: false,
           writeEvidenceFile: params?.writeEvidenceFile,
           // Same "filtered → executed list, unfiltered → null" convention as

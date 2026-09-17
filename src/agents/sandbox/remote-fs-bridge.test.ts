@@ -150,7 +150,7 @@ describe("remote sandbox fs bridge", () => {
           codingRoot: workspaceDir,
           containmentRoot: workspaceDir,
           includeBaseCodingTools: true,
-          includeShellTools: false,
+          shellTools: "disabled",
           workspaceOnly: true,
           readOnly: false,
           sandbox,

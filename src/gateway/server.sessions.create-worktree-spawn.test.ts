@@ -1,3 +1,4 @@
+import "../agents/subagents/spawn/subagent-spawn-model.mocks.shared.js";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";

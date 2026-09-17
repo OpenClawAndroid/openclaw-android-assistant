@@ -354,7 +354,11 @@ async function readConfig(
   if (!options.background) {
     state.configLoading = true;
   }
-  if (state.configAutoSaveStatus !== "error" && state.configAutoSaveStatus !== "conflict") {
+  // Foreground reads replace transient errors, but a retained draft conflict still needs resolution.
+  if (
+    state.configAutoSaveStatus !== "conflict" &&
+    (!options.background || state.configAutoSaveStatus !== "error")
+  ) {
     state.lastError = null;
     state.chatError = null;
   }

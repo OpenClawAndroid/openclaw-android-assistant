@@ -778,10 +778,9 @@ describe("tools.effective handler", () => {
     await invoke();
 
     expectPayloadGroupIds(respond, ["core", "mcp"]);
-    expect(runtimeMocks.resolveSessionMcpConfigSummary).toHaveBeenCalledWith({
-      workspaceDir: "/tmp/sandbox-copy",
-      cfg: {},
-    });
+    expect(runtimeMocks.resolveSessionMcpConfigSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceDir: "/tmp/sandbox-copy", cfg: {} }),
+    );
     expect(runtimeMocks.acquireEffectiveToolInventoryRuntimeModelContext).toHaveBeenCalledTimes(2);
     expect(runtimeMocks.acquireEffectiveToolInventoryRuntimeModelContext).toHaveBeenLastCalledWith(
       expect.objectContaining({

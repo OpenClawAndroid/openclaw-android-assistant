@@ -182,11 +182,26 @@ test("configured-only multi-store target preparation is reused across distinct l
       });
     }
 
-    const matcher = vi.spyOn(agentDatabaseRegistry, "createOpenClawAgentDatabasePathMatcher");
+    const createMatcher = agentDatabaseRegistry.createOpenClawAgentDatabasePathMatcher;
+    let preparationStatCalls = 0;
     const lstat = vi.spyOn(fsSync, "lstatSync");
     const readlink = vi.spyOn(fsSync, "readlinkSync");
     const realpath = vi.spyOn(fsSync.realpathSync, "native");
     const stat = vi.spyOn(fsSync, "statSync");
+    const matcher = vi
+      .spyOn(agentDatabaseRegistry, "createOpenClawAgentDatabasePathMatcher")
+      .mockImplementation(() => {
+        const matches = createMatcher();
+        return (left, right) => {
+          const before = stat.mock.calls.length;
+          try {
+            return matches(left, right);
+          } finally {
+            // Reader admission separately checks physical stores after awaited work.
+            preparationStatCalls += stat.mock.calls.length - before;
+          }
+        };
+      });
     syncBuiltinESMExports();
     try {
       const first = await directSessionReq<{ path: string }>("sessions.list", {
@@ -197,12 +212,13 @@ test("configured-only multi-store target preparation is reused across distinct l
       expect(matcher).toHaveBeenCalledTimes(1);
       expect({
         realpath: realpath.mock.calls.length,
-        stat: stat.mock.calls.length,
+        stat: preparationStatCalls,
       }).toEqual({ realpath: agentIds.length, stat: agentIds.length });
 
       for (const spy of [matcher, lstat, readlink, realpath, stat]) {
         spy.mockClear();
       }
+      preparationStatCalls = 0;
       const second = await directSessionReq<{ path: string }>("sessions.list", {
         configuredAgentsOnly: true,
         includeUnknown: false,
@@ -214,7 +230,7 @@ test("configured-only multi-store target preparation is reused across distinct l
         matcher: matcher.mock.calls.length,
         readlink: readlink.mock.calls.length,
         realpath: realpath.mock.calls.length,
-        stat: stat.mock.calls.length,
+        stat: preparationStatCalls,
       }).toEqual({ lstat: 0, matcher: 0, readlink: 0, realpath: 0, stat: 0 });
     } finally {
       matcher.mockRestore();

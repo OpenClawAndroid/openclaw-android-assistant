@@ -1,6 +1,7 @@
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionsListParams } from "../../../packages/gateway-protocol/src/index.js";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
 import {
   addSubagentRunForTests,
@@ -52,20 +53,28 @@ const loader = vi.hoisted(() => ({
   rowGate: undefined as Promise<void> | undefined,
 }));
 
-vi.mock("../session-utils.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../session-utils.js")>();
+vi.mock("../../config/sessions/combined-store-gateway.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../config/sessions/combined-store-gateway.js")>();
   return {
     ...actual,
-    loadCombinedSessionStoreForGatewayCore: (
-      ...args: Parameters<typeof actual.loadCombinedSessionStoreForGatewayCore>
+    loadCombinedSessionStoreForGatewayAsync: async (
+      ...args: Parameters<typeof actual.loadCombinedSessionStoreForGatewayAsync>
     ) => {
       loader.calls(...args);
       if (loader.failNext) {
         loader.failNext = false;
         throw new Error("synthetic store load failure");
       }
-      return actual.loadCombinedSessionStoreForGatewayCore(...args);
+      return await actual.loadCombinedSessionStoreForGatewayAsync(...args);
     },
+  };
+});
+
+vi.mock("../session-utils.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../session-utils.js")>();
+  return {
+    ...actual,
     listSessionsFromStoreAsync: async (
       ...args: Parameters<typeof actual.listSessionsFromStoreAsync>
     ) => {
@@ -1012,34 +1021,50 @@ describe("sessions.list single-flight", () => {
   it("does not share work that started before an intervening session mutation", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const config = await seedSessions();
-      let releaseRows!: () => void;
-      loader.rowGate = new Promise<void>((resolve) => {
-        releaseRows = resolve;
-      });
+      const rowsGate = createDeferred();
+      const firstRows = createDeferred();
+      const secondRows = createDeferred();
+      loader.rowGate = rowsGate.promise;
+      loader.rowCalls
+        .mockImplementationOnce(() => firstRows.resolve())
+        .mockImplementationOnce(() => secondRows.resolve());
       const context = requestContext(config);
       const client = identifiedClient("owner@example.com");
       const request = { archived: "all" as const, limit: 100 };
+      const pending: Array<ReturnType<typeof listSessions>> = [];
+      try {
+        const beforeMutation = listSessions({ client, context, request });
+        pending.push(beforeMutation);
+        await Promise.race([firstRows.promise, beforeMutation]);
+        expect(loader.rowCalls).toHaveBeenCalledTimes(1);
+        await upsertSessionEntryCore(
+          { agentId: "main", sessionKey: "agent:main:created-mid-list" },
+          { sessionId: "created-mid-list", updatedAt: 500, visibility: "shared" },
+        );
+        emitSessionsChanged(context, {
+          reason: "test",
+          sessionKey: "agent:main:created-mid-list",
+        });
+        const afterMutation = listSessions({ client, context, request });
+        pending.push(afterMutation);
+        await Promise.race([secondRows.promise, afterMutation]);
+        expect(loader.rowCalls).toHaveBeenCalledTimes(2);
+        rowsGate.resolve();
 
-      const beforeMutation = listSessions({ client, context, request });
-      await vi.waitFor(() => expect(loader.rowCalls).toHaveBeenCalledTimes(1));
-      await upsertSessionEntryCore(
-        { agentId: "main", sessionKey: "agent:main:created-mid-list" },
-        { sessionId: "created-mid-list", updatedAt: 500, visibility: "shared" },
-      );
-      emitSessionsChanged(context, {
-        reason: "test",
-        sessionKey: "agent:main:created-mid-list",
-      });
-      const afterMutation = listSessions({ client, context, request });
-      await vi.waitFor(() => expect(loader.rowCalls).toHaveBeenCalledTimes(2));
-      releaseRows();
-
-      const [stale, fresh] = await Promise.all([beforeMutation, afterMutation]);
-      expect(stale.sessions.map((session) => session.key)).not.toContain(
-        "agent:main:created-mid-list",
-      );
-      expect(fresh.sessions.map((session) => session.key)).toContain("agent:main:created-mid-list");
-      expect(loader.calls).toHaveBeenCalledTimes(2);
+        const [stale, fresh] = await Promise.all([beforeMutation, afterMutation]);
+        expect(stale.sessions.map((session) => session.key)).not.toContain(
+          "agent:main:created-mid-list",
+        );
+        expect(fresh.sessions.map((session) => session.key)).toContain(
+          "agent:main:created-mid-list",
+        );
+        expect(loader.calls).toHaveBeenCalledTimes(2);
+      } finally {
+        rowsGate.resolve();
+        await Promise.allSettled(pending);
+        loader.rowCalls.mockReset();
+        loader.rowGate = undefined;
+      }
     });
   });
 });

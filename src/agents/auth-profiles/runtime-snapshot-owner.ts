@@ -103,12 +103,14 @@ export function listRuntimeLocalProfileIds(
 
 export function mergeLocalAuthProfileStoreWithInheritedStore(
   localStore: AuthProfileStore,
-  inheritedStore: AuthProfileStore,
+  inheritedStore: AuthProfileStore | undefined,
 ): RuntimeAuthProfileStore {
   // Preserve local ownership so later publication never retains another owner's inherited rows.
-  const merged = mergeAuthProfileStores(inheritedStore, localStore, {
-    preserveBaseRuntimeExternalProfiles: true,
-  });
+  const merged = inheritedStore
+    ? mergeAuthProfileStores(inheritedStore, localStore, {
+        preserveBaseRuntimeExternalProfiles: true,
+      })
+    : localStore;
   return setRuntimeLocalProfileMetadata(
     stripRuntimeExternalProfileMetadata(merged),
     listRuntimeLocalProfileIds(localStore, inheritedStore),

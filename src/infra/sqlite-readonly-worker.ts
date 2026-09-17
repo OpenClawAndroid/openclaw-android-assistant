@@ -124,13 +124,17 @@ type SqliteReadOnlyWorkerScope = {
   busy: boolean;
   controller: AbortController;
   pending: Set<Promise<string | SqliteSchemaHeader>>;
+  deadlineOwnedByCaller: boolean;
   worker?: ReturnType<typeof createScopedSqliteReadOnlyWorker>;
 };
 const readOnlyWorkerScope = new AsyncLocalStorage<SqliteReadOnlyWorkerScope>();
 
 /** Reuse only a child process's imports; every inspection reacquires source admission. */
-export async function withSqliteReadOnlyWorkerScope<T>(operation: () => Promise<T>): Promise<T> {
-  if (readOnlyWorkerScope.getStore()?.active) {
+export async function withSqliteReadOnlyWorkerScope<T>(
+  operation: () => Promise<T>,
+  options?: { signal: AbortSignal; deadlineOwnedByCaller: boolean },
+): Promise<T> {
+  if (!options && readOnlyWorkerScope.getStore()?.active) {
     return operation();
   }
   const scope: SqliteReadOnlyWorkerScope = {
@@ -138,15 +142,36 @@ export async function withSqliteReadOnlyWorkerScope<T>(operation: () => Promise<
     busy: false,
     controller: new AbortController(),
     pending: new Set(),
+    deadlineOwnedByCaller: options?.deadlineOwnedByCaller ?? false,
   };
+  const abort = () => scope.controller.abort(options?.signal.reason);
+  options?.signal.addEventListener("abort", abort, { once: true });
+  if (options?.signal.aborted) {
+    abort();
+  }
   try {
     return await readOnlyWorkerScope.run(scope, operation);
   } finally {
+    options?.signal.removeEventListener("abort", abort);
     scope.active = false;
     scope.controller.abort(new Error("SQLite read-only worker scope closed"));
     await Promise.allSettled(scope.pending);
     await scope.worker?.close();
   }
+}
+
+/** A retained startup inspection is cancelled by its Gateway, not by its foreground wait. */
+export function isSqliteInspectionDeadlineOwnedByCaller(): boolean {
+  return readOnlyWorkerScope.getStore()?.deadlineOwnedByCaller === true;
+}
+
+export function resolveSqliteInspectionSignal(signal?: AbortSignal): AbortSignal | undefined {
+  const scope = readOnlyWorkerScope.getStore();
+  return scope
+    ? signal
+      ? AbortSignal.any([signal, scope.controller.signal])
+      : scope.controller.signal
+    : signal;
 }
 
 function isAgentSchemaMeta(value: unknown): boolean {
@@ -404,11 +429,15 @@ function createScopedSqliteReadOnlyWorker() {
         stderr = "";
         outputBytes = 0;
         const abort = () => retire(options.signal?.reason);
-        const timer = setTimeout(
-          () =>
-            retire(sqliteInspectionTimeoutError("read-only snapshot", pathname, timeoutMs, size)),
-          timeoutMs,
-        );
+        const timer = isSqliteInspectionDeadlineOwnedByCaller()
+          ? undefined
+          : setTimeout(
+              () =>
+                retire(
+                  sqliteInspectionTimeoutError("read-only snapshot", pathname, timeoutMs, size),
+                ),
+              timeoutMs,
+            );
         const id = ++sequence;
         pending = {
           id,
@@ -544,7 +573,7 @@ function runSqliteReadOnlyWorkerOnce(
         encoding: "utf8",
         env: sqliteReadOnlyWorkerEnv(),
         maxBuffer: SQLITE_READONLY_WORKER_MAX_BUFFER,
-        timeout: timeoutMs,
+        timeout: isSqliteInspectionDeadlineOwnedByCaller() ? undefined : timeoutMs,
         killSignal: "SIGKILL",
       },
       (error, stdout, stderr) => {

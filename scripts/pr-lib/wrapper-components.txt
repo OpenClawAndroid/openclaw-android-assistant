@@ -706,7 +706,10 @@ src/infra/windows-port-pids.ts
 src/infra/windows-private-directory.ts
 src/infra/windows-process-start.ts
 src/infra/worker-task-capacity.ts
+src/infra/worker-task-native-sections.ts
 src/infra/worker-task-pool.ts
+src/infra/worker-task-server.ts
+src/infra/worker-transfer-bytes.ts
 src/infra/wsl.ts
 src/logger.ts
 src/logging/config.ts
@@ -928,6 +931,7 @@ src/plugins/runtime/generation-scope.ts
 src/plugins/runtime/generation-state.ts
 src/plugins/runtime/load-context-state.ts
 src/plugins/schema-validator.ts
+src/plugins/sdk-alias-normalization.ts
 src/plugins/sdk-alias.ts
 src/plugins/setup-descriptors.ts
 src/plugins/setup-presentation-url.ts
@@ -946,6 +950,13 @@ src/process/exec-termination.ts
 src/process/exec.ts
 src/process/kill-tree.ts
 src/process/scoped-child-reaper.ts
+src/process/spawn-broker/child.ts
+src/process/spawn-broker/context.ts
+src/process/spawn-broker/execa-client.ts
+src/process/spawn-broker/execa-message.ts
+src/process/spawn-broker/execa-protocol.ts
+src/process/spawn-broker/pipe.ts
+src/process/spawn-broker/protocol.ts
 src/process/windows-command.ts
 src/proxy-capture/env.ts
 src/proxy-capture/header-redaction.ts

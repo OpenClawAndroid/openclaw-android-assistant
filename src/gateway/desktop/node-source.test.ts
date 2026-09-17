@@ -123,6 +123,65 @@ function createFixture(boundary: "activation" | "pairing" | "attachment") {
 }
 
 describe("node desktop runtime policy", () => {
+  it.each(["activation", "pairing"] as const)(
+    "does not dispatch after the requesting connection closes during %s",
+    async (boundary) => {
+      const fixture = createFixture(boundary);
+      const controller = new AbortController();
+      const observed = fixture.service
+        .observe({
+          nodeId: "node",
+          control: false,
+          requester: {
+            signal: controller.signal,
+            isCurrent: () => !controller.signal.aborted,
+          },
+        })
+        .then(
+          () => true,
+          () => false,
+        );
+      await fixture.reached;
+      controller.abort();
+      fixture.release();
+      expect(await observed).toBe(false);
+      expect(fixture.forwarded).toEqual([]);
+    },
+  );
+
+  it("settles a canceled observer while its node pairing lookup is still pending", async () => {
+    const fixture = createFixture("pairing");
+    const controller = new AbortController();
+    let settled = false;
+    const observed = fixture.service
+      .observe({
+        nodeId: "node",
+        control: false,
+        requester: {
+          signal: controller.signal,
+          isCurrent: () => !controller.signal.aborted,
+        },
+      })
+      .then(
+        () => {
+          settled = true;
+          return true;
+        },
+        () => {
+          settled = true;
+          return false;
+        },
+      );
+    await fixture.reached;
+    controller.abort();
+    await expect.poll(() => settled).toBe(true);
+    expect(await observed).toBe(false);
+    expect(fixture.forwarded).toEqual([]);
+    fixture.release();
+    await Promise.resolve();
+    expect(fixture.forwarded).toEqual([]);
+  });
+
   it("keeps requester authority on the observer ticket after node attachment", async () => {
     const fixture = createFixture("attachment");
     const mint = vi.spyOn(observeBridge, "mintDesktopObserverToken");

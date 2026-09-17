@@ -238,6 +238,7 @@
   "session-transcript-runtime",
   "sqlite-runtime",
   "sqlite-runtime-testing",
+  "sqlite-worker-runtime",
   "session-transcript-hit",
   "session-visibility",
   "ssrf-dispatcher",

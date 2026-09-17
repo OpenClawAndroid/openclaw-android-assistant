@@ -87,6 +87,11 @@ async function runClawhubInstallProof(options: {
   const fixturePath = path.join(root, "fixture.json");
   await mkdir(bin);
   await mkdir(scratch);
+  await writeFile(
+    path.join(bin, "node"),
+    `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`,
+    { mode: 0o755 },
+  );
   await writeFile(fixturePath, JSON.stringify({ skillText: maintainedSkillText, ...options }));
   await writeFile(
     path.join(bin, "pnpm"),
@@ -150,7 +155,7 @@ switch (args[1]) {
   );
   expect(result.error).toBeUndefined();
   expect(
-    (await readdir(scratch)).filter((entry) => entry.startsWith("openclaw-skill-install-home.")),
+    (await readdir(scratch)).filter((entry) => entry.startsWith("openclaw-skill-install")),
   ).toEqual([]);
   const calls = (await readFile(callsPath, "utf8"))
     .trim()
@@ -178,7 +183,7 @@ async function listShellScripts(dir: string): Promise<string[]> {
 async function extractClawhubSkillInstallVerifier(): Promise<string> {
   const script = await readFile("scripts/e2e/lib/skills/clawhub-install-proof.sh", "utf8");
   const marker =
-    'node --input-type=module - "$OPENCLAW_CONFIG_PATH" "$skill_dir" "$origin_json" "$lock_json" "$info_json" "$slug" "$maintained_fixture" <<\'NODE\'\n';
+    'run_node_module "$OPENCLAW_CONFIG_PATH" "$skill_dir" "$origin_json" "$lock_json" "$info_json" "$slug" "$maintained_fixture" <<\'NODE\'\n';
   const start = script.indexOf(marker);
   if (start === -1) {
     throw new Error("ClawHub skill install verifier heredoc was not found");
@@ -194,7 +199,7 @@ async function extractClawhubSkillInstallVerifier(): Promise<string> {
 async function extractClawhubSkillInstallSelector(): Promise<string> {
   const script = await readFile("scripts/e2e/lib/skills/clawhub-install-proof.sh", "utf8");
   const marker =
-    'node --input-type=module - "$search_json" "$resolve_json" "$requested_slug" "$preferred_slug" "$maintained_fixture" <<\'NODE\'\n';
+    'run_node_module "$search_json" "$resolve_json" "$requested_slug" "$preferred_slug" "$maintained_fixture" <<\'NODE\'\n';
   const start = script.indexOf(marker);
   if (start === -1) {
     throw new Error("ClawHub skill install selector heredoc was not found");

@@ -43,6 +43,7 @@ import { runtimeProcessBuildEntries } from "./runtime-process-build-entries.mts"
 
 // These fixture hooks require physical module boundaries and complete namespaces.
 export const legacyFinalizerBuildSources = [
+  "src/commands/doctor/shared/legacy-config-binding-repair.runtime.ts",
   "src/cli/update-cli/update-command-legacy-finalize.test-support.ts",
   "src/infra/update-migrated-finalize.worker.ts",
   "src/infra/runtime-process-entrypoints.ts",
@@ -59,6 +60,8 @@ export const legacyFinalizerBuildSources = [
 // Test-only roots share the invocation generation without changing package entries.
 export const vitestWorkerBuildEntries = {
   ...runtimeProcessBuildEntries,
+  "legacy-config-binding-repair.runtime":
+    "src/commands/doctor/shared/legacy-config-binding-repair.runtime.ts",
   ...Object.fromEntries(
     [
       agentWorkerStoreFixtureEntrypoint,

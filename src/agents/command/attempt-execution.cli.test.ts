@@ -54,12 +54,9 @@ import type { ModelFallbackAttemptProvenance } from "../model-fallback.types.js"
 import { installSessionPlacementAdmissionProvider } from "../session-placement-admission.js";
 import { attachToolAllowlistIntersection } from "../tool-policy.js";
 import { createAgentAttemptLifecycleCallbacks } from "./attempt-callbacks.js";
-import {
-  persistAcpTurnTranscript,
-  persistCliTurnTranscript,
-  runAgentAttempt as runAgentAttemptImpl,
-} from "./attempt-execution.js";
+import { runAgentAttempt as runAgentAttemptImpl } from "./attempt-execution.js";
 import { resolveClaudeCliProjectDirForWorkspace } from "./claude-cli-project-dir.js";
+import { persistAcpTurnTranscript, persistCliTurnTranscript } from "./transcript-persistence.js";
 
 type RunAgentAttemptParams = Parameters<typeof runAgentAttemptImpl>[0];
 const SUBAGENT_ANNOUNCE_CHILD_SESSION_KEY = "agent:main:subagent:child";

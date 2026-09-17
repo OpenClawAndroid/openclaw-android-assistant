@@ -233,6 +233,8 @@ source (`env`, `file`, `exec`, or `store`), provider alias, and identifier. The
 Gateway returns that metadata only for the selected field and current config
 revision, without resolving the secret. **Cancel** removes this field's unsaved
 reference change, including after a rejected save, while preserving other edits.
+If Cancel cannot reload the saved configuration, the dialog keeps the draft and
+shows that read's error; background refreshes cannot replace the pending Cancel read.
 **Save** waits for the existing Settings write to be acknowledged; the dialog
 cannot be dismissed while that write is pending. If the saved value cannot be
 confirmed, the dialog keeps the draft and displays the recovery error. Failed

@@ -32,6 +32,7 @@ import { subagentRuns } from "../registry/subagent-registry-memory.js";
 import { onSubagentRegistryPersisted } from "../registry/subagent-registry-state.js";
 import { loadSubagentRegistryFromSqlite } from "../registry/subagent-registry.store.sqlite.js";
 import type { SubagentRunRecord } from "../registry/subagent-registry.types.js";
+import { resolveSubagentAttachmentDir } from "../subagent-attachment-paths.js";
 import {
   admitSubagentCompletionDelivery,
   blockSubagentCompletionDelivery,
@@ -942,18 +943,17 @@ describe("atomic subagent completion admission store", () => {
       });
 
       const cappedSubagent = structuredClone(subagentRuns.get(input.subagent.runId)!);
-      const attachmentsRootDir = path.join(tempDir, "attachments");
-      const attachmentsDir = path.join(attachmentsRootDir, "completion-run");
+      const { childSessionKey } = cappedSubagent;
+      const attachmentId = "2d4a8398-4d5a-4c20-9c16-0a5f6627cf92";
+      const attachmentsDir = resolveSubagentAttachmentDir("main", childSessionKey, attachmentId);
       await fs.mkdir(attachmentsDir, { recursive: true });
       await fs.writeFile(path.join(attachmentsDir, "result.txt"), "retained result");
-      cappedSubagent.attachmentsRootDir = attachmentsRootDir;
-      cappedSubagent.attachmentsDir = attachmentsDir;
-      Object.assign(cappedSubagent.delivery!, {
-        status: "suspended",
-        generation: 10,
-        suspendedAt: now,
-        suspendedReason: "expiry",
-      });
+      cappedSubagent.attachmentId = attachmentId;
+      const delivery = cappedSubagent.delivery!;
+      delivery.status = "suspended";
+      delivery.generation = 10;
+      delivery.suspendedAt = now;
+      delivery.suspendedReason = "expiry";
       const cappedTask: TaskRecord = {
         ...result.task!,
         deliveryStatus: "failed",

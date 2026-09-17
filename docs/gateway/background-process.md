@@ -60,6 +60,26 @@ Behavior:
 | `tools.exec.notifyOnExit`             | true    | Enqueue a system event + request heartbeat when a backgrounded exec exits.      |
 | `tools.exec.notifyOnExitEmptySuccess` | false   | Also enqueue completion events for successful backgrounded runs with no output. |
 
+### Disable automatic completion turns
+
+Background exec completion notifications are enabled by default. They can run a
+model turn marked `[OpenClaw exec completion]` even when
+`agents.defaults.heartbeat.every` is `"0m"`: that setting disables recurring polls,
+not completion follow-ups.
+
+To keep background commands running without automatic completion turns, set:
+
+```bash
+openclaw config set tools.exec.notifyOnExit false
+```
+
+An agent's `agents.entries.<id>.tools.exec.notifyOnExit` overrides the global
+setting. Set that override to `false` too, or remove it to inherit the global
+value. Newly started commands use the updated setting; commands already running
+retain the setting they started with. Use `process poll` or `process log` to
+collect their results on demand. This disables the completion event and its
+automatic model call without disabling `background: true` or the `process` tool.
+
 ## Worker environments
 
 On a paired-node or node-backed cloud worker, background processes belong to the
@@ -85,7 +105,30 @@ its proxy, not the development server: stop the server with `process kill`.
 
 ## Child process bridging
 
+After a host exec command finishes, OpenClaw releases its retained service-child
+group before reporting completion. Children left behind by shell backgrounding
+(`&`) are stopped with that group. To continue work across turns, start the
+long-running command with `background: true` and use `process` to collect its
+result. Its group stays owned until the command finishes; sandbox runtime
+lifetimes remain with the sandbox backend.
+
 When spawning long-running child processes outside the exec/process tools (CLI respawns, gateway helpers), attach the child-process bridge helper so termination signals forward and listeners detach on exit/close. This avoids orphaned processes on systemd and keeps shutdown consistent across platforms.
+
+On Linux with the default Node runtime, the Gateway starts a small spawn broker
+before loading its main runtime.
+If initial broker startup fails, the Gateway logs the failure reason and runtime
+entry path, then uses in-process spawning for the rest of that Gateway process.
+A new Gateway process tries the broker again.
+When the broker is ready, exec commands and command helpers spawn from it, so Linux does not copy
+the Gateway's page tables for each command. The existing process supervisors and
+service relays still own cancellation, output, and cleanup. After the broker first
+becomes ready, broker loss fails affected commands rather than rerunning them; later commands use the restarted
+broker. One-shot CLI commands, native file-descriptor inputs, and independently
+launched applications keep their local process transport, as do Bun, macOS, and Windows.
+The broker has its own process group, which the Gateway terminates on broker loss;
+service relays also retain their own parent-loss cleanup.
+A detached child can survive a broker crash before its PID is reported, matching
+the existing residual for directly spawned children when the Gateway crashes.
 
 A supervised command's timeout also covers startup, including blocked private-input
 delivery. The timeout result can return while cleanup continues. Scope retirement
@@ -98,6 +141,8 @@ confirm that the group has disappeared after graceful shutdown. A completed
 command or closed output pipe alone does not establish that its descendants have
 stopped. Forced termination without confirmed cleanup remains uncertain. Local
 TUI shell shutdown uses the same cleanup owner for its own commands.
+Permission-denied group probes still count as present; cleanup continues waiting
+within its original deadline for confirmed disappearance.
 If the host was busy, cleanup processes queued native completion events before
 reporting a timeout.
 

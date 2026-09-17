@@ -71,9 +71,21 @@ const configNames = fs
   .readdirSync(configCorpusDir)
   .filter((name) => name.endsWith(".json"))
   .toSorted();
-const cases = releases.flatMap((release) =>
+const allCases = releases.flatMap((release) =>
   configNames.map((configName) => [release, configName] as const),
 );
+const shardMatch = process.env.OPENCLAW_TEST_STARTUP_CORPUS_SHARD?.match(/^(\d+)\/(\d+)$/u);
+if (
+  process.env.OPENCLAW_TEST_STARTUP_CORPUS_SHARD &&
+  (!shardMatch || Number(shardMatch[1]) < 1 || Number(shardMatch[1]) > Number(shardMatch[2]))
+) {
+  throw new Error(
+    `Invalid OPENCLAW_TEST_STARTUP_CORPUS_SHARD: ${process.env.OPENCLAW_TEST_STARTUP_CORPUS_SHARD}`,
+  );
+}
+const shardIndex = shardMatch ? Number(shardMatch[1]) - 1 : 0;
+const shardCount = shardMatch ? Number(shardMatch[2]) : 1;
+const cases = allCases.filter((_entry, index) => index % shardCount === shardIndex);
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 afterEach(() => vi.unstubAllEnvs());
 

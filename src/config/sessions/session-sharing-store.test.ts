@@ -15,7 +15,6 @@ import {
 import {
   addSessionMember,
   isSessionMember,
-  listSessionMembershipKeys,
   listSessionMembers,
   removeSessionMember,
 } from "./session-sharing-store.js";
@@ -37,15 +36,9 @@ describe("session sharing store", () => {
       expect(listSessionMembers(scope)).toEqual([
         { identityId: "guest", addedBy: "owner", addedAt: 2 },
       ]);
-      expect(listSessionMembershipKeys(scope, [scope.sessionKey], "guest")).toEqual(
-        new Set([scope.sessionKey]),
-      );
       expect(isSessionMember(scope, "guest")).toBe(true);
       expect(isOpenClawAgentDatabaseOpen(databasePath)).toBe(false);
       expect(listSessionMembers(missingScope)).toEqual([]);
-      expect(listSessionMembershipKeys(missingScope, [missingScope.sessionKey], "guest")).toEqual(
-        new Set(),
-      );
       expect(isSessionMember(missingScope, "guest")).toBe(false);
       expect(fs.existsSync(missingPath)).toBe(false);
     });
@@ -75,13 +68,6 @@ describe("session sharing store", () => {
         { identityId: "zoe", addedBy: "owner", addedAt: 2 },
       ]);
       expect(isSessionMember(scope, "alice")).toBe(true);
-      expect(
-        listSessionMembershipKeys(
-          scope,
-          [scope.sessionKey, ...Array.from({ length: 450 }, (_, index) => `session-${index}`)],
-          "zoe",
-        ),
-      ).toEqual(new Set([scope.sessionKey]));
       expect(removeSessionMember(scope, "alice")).toEqual({
         identityId: "alice",
         addedBy: "owner",

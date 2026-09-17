@@ -1459,6 +1459,7 @@ describe("scripts/test-projects changed-target routing", () => {
         workflowPath === ".github/workflows/labeler.yml"
           ? [
               "test/scripts/ci-workflow-guards.test.ts",
+              "test/scripts/ancillary-workflow-concurrency.test.ts",
               "test/scripts/ci-changed-node-test-plan.test.ts",
               "test/scripts/labeler-label-cap.test.ts",
             ]

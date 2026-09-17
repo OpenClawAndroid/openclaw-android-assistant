@@ -1,15 +1,38 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { ChildProcess } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { extractErrorCode } from "@openclaw/normalization-core/error-coercion";
-import { execa, type Options as ExecaOptions, type ResultPromise } from "execa";
+import { execa } from "execa";
 import { markOpenClawExecEnv } from "../infra/openclaw-exec-env.js";
 import { mergeProcessEnv } from "../infra/process-env.js";
 import { getFileLockProcessStartTime } from "../shared/pid-alive.js";
 import { killProcessTree } from "./kill-tree.js";
+import { BrokerChild } from "./spawn-broker/child.js";
+import { getSpawnBroker } from "./spawn-broker/context.js";
+import {
+  brokerExecaOptions,
+  spawnBrokerCommand,
+  type CommandSubprocess,
+} from "./spawn-broker/execa-client.js";
+import type { CommandSpawnOptions } from "./spawn-broker/execa-types.js";
 import { resolveSafeChildProcessInvocation } from "./windows-command.js";
 
 export const COMMAND_PROCESS_TREE_KILL_GRACE_MS = 300;
+
+/** Remote PID and pipes arrive together before admission or stream subscription. */
+export async function waitForCommandSpawn(
+  child: { nodeChildProcess: ChildProcess } & PromiseLike<unknown>,
+): Promise<void> {
+  if (child.nodeChildProcess instanceof BrokerChild) {
+    try {
+      await child.nodeChildProcess.ready();
+    } catch {
+      // Execa owns launch-error metadata even when native spawn produced no PID.
+      await child;
+    }
+  }
+}
 
 type CommandProcessScope = {
   signal: AbortSignal;
@@ -55,10 +78,17 @@ export async function withCommandProcessScope<T>(
   });
 }
 
-function retainCommandProcess<OptionsType extends ExecaOptions>(
+function retainCommandProcess(
   scope: CommandProcessScope,
-  child: ResultPromise<OptionsType>,
+  child: { pid?: number; nodeChildProcess: ChildProcess } & PromiseLike<unknown>,
 ): void {
+  if (child.nodeChildProcess instanceof BrokerChild && child.pid === undefined) {
+    void child.nodeChildProcess.ready().then(
+      () => retainCommandProcess(scope, child),
+      () => {},
+    );
+    return;
+  }
   const pid = child.pid;
   // Windows executable finalizers retain a Job until process exit; dead launcher
   // PIDs cannot safely identify their surviving descendants through taskkill.
@@ -78,6 +108,9 @@ function retainCommandProcess<OptionsType extends ExecaOptions>(
     killProcessTree(pid, { detached: true, force: true });
   };
   scope.children.add(stop);
+  if (scope.signal.aborted) {
+    stop();
+  }
   const release = () => {
     try {
       // A direct child can exit while descendants retain its pipes or mutate
@@ -107,7 +140,7 @@ export function shouldSpawnWithShell(params: {
   return false;
 }
 
-type SpawnCommandOptions = ExecaOptions & {
+type SpawnCommandOptions = CommandSpawnOptions & {
   baseEnv?: NodeJS.ProcessEnv;
   /** The command runner routes scope cancellation through its termination owner. */
   inheritScopeCancellation?: boolean;
@@ -119,13 +152,14 @@ export function spawnCommandWithInvocation<
   argv: string[],
   options: OptionsType = {} as OptionsType,
 ): {
-  child: ResultPromise<OptionsType>;
+  child: CommandSubprocess<OptionsType>;
   invocation: ReturnType<typeof resolveSafeChildProcessInvocation>;
 } {
   const scope = commandProcessScope.getStore();
   if (scope?.signal.aborted) {
     throw new Error("Command process scope is closed");
   }
+  const sourceOptions: SpawnCommandOptions = options;
   const {
     baseEnv,
     env,
@@ -133,7 +167,7 @@ export function spawnCommandWithInvocation<
     cancelSignal,
     inheritScopeCancellation = true,
     ...execaOptions
-  } = options;
+  } = sourceOptions;
   const commandEnv = resolveCommandEnv({ argv, baseEnv, env });
   const invocation = resolveSafeChildProcessInvocation({
     argv,
@@ -141,7 +175,7 @@ export function spawnCommandWithInvocation<
     env: commandEnv,
     windowsVerbatimArguments,
   });
-  const child = execa(invocation.command, invocation.args, {
+  const commandOptions: CommandSpawnOptions = {
     ...execaOptions,
     cancelSignal: inheritScopeCancellation
       ? resolveCommandProcessSignal(cancelSignal)
@@ -152,18 +186,31 @@ export function spawnCommandWithInvocation<
     shell: false,
     windowsHide: invocation.windowsHide,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
-  } as ExecaOptions) as unknown as ResultPromise<OptionsType>;
+  };
+  const broker = getSpawnBroker();
+  // CLI and other platforms have no broker scope. Independent applications and
+  // native descriptors retain their explicitly selected in-process transport.
+  const remoteOptions = broker ? brokerExecaOptions(commandOptions) : undefined;
+  const child: CommandSubprocess<CommandSpawnOptions> =
+    broker && remoteOptions
+      ? spawnBrokerCommand(
+          broker,
+          [invocation.command, ...invocation.args],
+          commandOptions,
+          remoteOptions,
+        )
+      : execa(invocation.command, invocation.args, commandOptions);
   if (scope) {
     retainCommandProcess(scope, child);
   }
-  return { child, invocation };
+  return { child: child as CommandSubprocess<OptionsType>, invocation };
 }
 
 /** Spawn through the canonical argv, environment, and Windows safety boundary. */
 export function spawnCommand<OptionsType extends SpawnCommandOptions = SpawnCommandOptions>(
   argv: string[],
   options: OptionsType = {} as OptionsType,
-): ResultPromise<OptionsType> {
+): CommandSubprocess<OptionsType> {
   return spawnCommandWithInvocation(argv, options).child;
 }
 

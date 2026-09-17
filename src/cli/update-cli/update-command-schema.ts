@@ -126,6 +126,11 @@ export async function preflightUpdateCommandSchemas(params: {
         managedServiceRootRedirect,
         legacyConfigPlan: params.legacyConfigPlan,
       });
+      for (const service of admission.services.values()) {
+        if (service.serviceUpdateVerdict?.kind === "unavailable") {
+          preflightNotes.push(service.serviceUpdateVerdict.message);
+        }
+      }
       const target =
         updateInstallKind === "git"
           ? await inspectGitDryRunTargetSchemaVersions({

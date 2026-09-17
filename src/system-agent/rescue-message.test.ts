@@ -280,13 +280,6 @@ describe("OpenClaw rescue message", () => {
     );
   });
 
-  it("refuses model provider setup from remote rescue with a local pointer", async () => {
-    const cfg: OpenClawConfig = {};
-    const reply = await runRescue("/openclaw configure model provider", cfg);
-    expect(reply).toContain("cannot host model-provider credential setup");
-    expect(reply).toContain("openclaw onboard");
-  });
-
   it("refuses doctor repairs without creating a pending approval", async () => {
     await withRescueStateDir("doctor-fix-refused-", async () => {
       const cfg: OpenClawConfig = {};

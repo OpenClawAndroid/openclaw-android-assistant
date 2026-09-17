@@ -196,14 +196,19 @@ strings are equal. Select one with `OPENCLAW_UPGRADE_SURVIVOR_SCENARIO` and set
 `projects-doctor` preserves one registered project and one configured workspace,
 then runs the real `doctor --lint --only core/doctor/project-clone-shape --json`
 twice. It checks stored rows, schema, sentinels, and read-only snapshot cleanup.
-`projects-startup-migration` creates a project and managed worktree through the
-published owners using local Git, then imports synthetic legacy session JSON/JSONL
-through published Doctor. It requires the updater's candidate Doctor repair to fill
-in the registered project's canonical workspace before the first Gateway startup.
-Both normal Gateway starts must leave the repaired session and transcript unchanged,
-perform no workspace backfill, become ready, and report clean shutdown before
-persisted readback. The fixture is a supported legacy-format import, not a
-historical runtime-generated session. No additional Doctor recovery pass runs. Set
+`projects-startup-migration` prepares two independent project/worktree specimens
+through the published owners using local Git. Each has a verified backup and
+synthetic legacy session JSON/JSONL imported through published Doctor. The update
+must repair the first specimen's canonical workspace through candidate Doctor.
+The second state stays outside that update's discovery. Before startup, the
+candidate's Doctor schema owner runs under its maintenance lock to upgrade that
+database while preserving the legacy workspace fields and exact session/transcript
+bytes. Its first normal Gateway startup must preserve that state. After
+clean shutdown, an explicit `doctor --fix --non-interactive` repairs its canonical
+workspace; a second startup must leave the repaired state unchanged. These are
+supported legacy-format imports, not historical runtime-generated sessions.
+Both Gateway runs must become ready and report clean shutdown before persisted
+readback. Set
 `OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS` to a reviewed JSON file containing the
 candidate `commit`, `agentSchema`, and `operations.prepare`/`operations.open`
 triples of compiled basename, exact export symbol, and SHA-256. The snapshot

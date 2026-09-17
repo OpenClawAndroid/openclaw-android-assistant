@@ -314,6 +314,7 @@ async function gatherDaemonStatusImpl(
   // native service. Keep that service visible without borrowing its target or auth.
   const useNativeServiceTargetContext =
     localPortOverride === undefined &&
+    serviceState.inspectionReason !== "service-manager-unavailable" &&
     isDefaultInstallIdentity(process.env) &&
     !isGatewayExternallySupervised(process.env);
   const targetServiceCommand = useNativeServiceTargetContext ? command : null;

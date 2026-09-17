@@ -9,6 +9,23 @@ read_when:
 Checks 0-2 cover config normalization and the legacy config key migrations,
 plus how doctor publishes shared-state schema during an update.
 
+## Channel ownership during an update
+
+When Doctor migrates a legacy `agents.list` roster without a `default: true` marker
+to explicit ownership, it also preserves unbound accounts with a binding to the first
+agent from the old list, which received their implicit traffic before the
+update. Existing account bindings and narrower conversation routes remain unchanged. Doctor
+reports each added binding and saves it with the roster migration through the
+normal config backup and validation flow.
+
+Update-channel migration and manual `openclaw doctor --fix` use the original
+roster from the config snapshot. A narrower conversation route never establishes
+account-wide ownership. If the original roster is unavailable, Doctor reports
+`unresolved: original roster unavailable` with the exact binding to add and leaves
+the account's bindings unchanged. An unresolved account stays blocked
+with that reason while the Gateway and other accounts continue running; it does
+not enter a restart loop. Add the reported binding and restart the Gateway.
+
 ## Missing plugins during migration
 
 A configured plugin that is missing or cannot finish installation does not block
@@ -209,11 +226,10 @@ beyond the grace period.
     - If two or more `channels.<channel>.accounts` entries are configured without `channels.<channel>.defaultAccount` or `accounts.default`, doctor warns that fallback routing can pick an unexpected account.
     - If `channels.<channel>.defaultAccount` is set to an unknown account ID, doctor warns and lists configured account IDs.
 
-    In multi-agent configs, `doctor --fix` adds a missing account-scoped routing
-    binding when all matchable narrower bindings for that channel/account explicitly
-    name one configured agent. Existing routes remain unchanged. Accounts with no
-    owner evidence or conflicting owners need an explicit binding; Doctor does
-    not infer their owner from roster order or another channel/account.
+    In multi-agent configs, `doctor --fix` preserves the historical account owner
+    from the original legacy roster. Existing routes remain unchanged. Accounts
+    without historical ownership evidence need an explicit binding; Doctor never
+    promotes a narrower conversation route to account-wide ownership.
 
   </Accordion>
 </AccordionGroup>

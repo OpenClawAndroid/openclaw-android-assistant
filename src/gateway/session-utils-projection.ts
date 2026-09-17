@@ -1,9 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
-import {
-  readAcpSessionMeta,
-  readAcpSessionMetaForEntry,
-  readAcpSessionMetaBatch,
-} from "../acp/runtime/session-meta.js";
+import { readAcpSessionMetaForEntry } from "../acp/runtime/session-meta-readonly.js";
+import { readAcpSessionMeta, readAcpSessionMetaBatch } from "../acp/runtime/session-meta.js";
 import { resolveCurrentSessionAgentRuntimeMetadata } from "../agents/agent-runtime-metadata.js";
 import { findModelCatalogEntry } from "../agents/model-catalog-lookup.js";
 import { selectModelCatalogRuntimeEntry } from "../agents/model-catalog-view.js";

@@ -16,6 +16,7 @@ import { killProcessTree, signalProcessTree } from "../../kill-tree.js";
 import { prepareOomScoreAdjustedSpawn } from "../../linux-oom-score.js";
 import { pipeProcessOutput } from "../../pipe-output.js";
 import { scheduleAdoptedChildZombieReapAfterExit } from "../../scoped-child-reaper.js";
+import { SpawnBrokerError } from "../../spawn-broker/protocol.js";
 import { prepareSecretInputStdio, type SpawnStdioEntry } from "../../spawn-secret-input.js";
 import { spawnWithFallback } from "../../spawn-utils.js";
 import {
@@ -287,12 +288,16 @@ export async function createChildAdapter(
   const cleanup = createDeferredCore();
   // Worker errors can precede wait(), including while secret delivery is still pending.
   void completion.promise.catch(() => {});
-  void cleanup.promise.catch(() => {});
   let waitSettled = false;
   let processClosed = false;
   let forceKillWaitFallbackTimer: NodeJS.Timeout | null = null;
   let forcedWindowsCloseTimer: NodeJS.Timeout | null = null;
   let hardKillRequested = false;
+  let treeSignaling: Promise<void> | undefined;
+  const cleanupOutcome = Promise.allSettled([cleanup.promise]).then((outcomes) => {
+    clearForceKillWaitFallback();
+    return outcomes;
+  });
   let windowsTreeKillCompleted = false;
   let childExitState: { code: number | null; signal: NodeJS.Signals | null } | null = null;
   let childCloseState: { code: number | null; signal: NodeJS.Signals | null } | null = null;
@@ -322,23 +327,26 @@ export async function createChildAdapter(
       return;
     }
     waitSettled = true;
-    clearForceKillWaitFallback();
     clearForcedWindowsCloseTimer();
     completion.resolve(value);
   };
 
   const settleObservedClose = (value: { code: number | null; signal: NodeJS.Signals | null }) => {
     processClosed = true;
-    cleanup.resolve();
+    // Native close fences new signals; join all already-admitted deliveries before success.
+    if (treeSignaling) {
+      treeSignaling = treeSignaling.then(() => cleanup.resolve(), cleanup.reject);
+    } else {
+      cleanup.resolve();
+    }
     settleWait(value);
   };
 
-  const rejectPendingWait = (error: Error) => {
+  const rejectPendingWait = (error: unknown) => {
     if (waitSettled) {
       return;
     }
     waitSettled = true;
-    clearForceKillWaitFallback();
     clearForcedWindowsCloseTimer();
     completion.reject(error);
   };
@@ -444,7 +452,7 @@ export async function createChildAdapter(
   // Worker IPC failures close authority; ordinary post-spawn errors are nonterminal.
   child.on("error", (error) => {
     events.emitError(error, "process");
-    if (params.ownedWorker) {
+    if (params.ownedWorker || error instanceof SpawnBrokerError) {
       rejectPendingWait(error);
     }
   });
@@ -536,20 +544,29 @@ export async function createChildAdapter(
         // Let the tree owner traverse the live root before directly killing it.
         // On Windows, killing the root first can make `taskkill /T` lose the
         // descendant relationship. (#71662)
-        void signalProcessTreeForChildAndWait(pid, "SIGKILL").then(() => {
+        const previousSignal = treeSignaling;
+        treeSignaling = (async () => {
           try {
-            child.kill("SIGKILL");
-          } catch {
-            // ignore kill errors
+            await signalProcessTreeForChildAndWait(pid, "SIGKILL");
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // The native close observation still owns confirmation.
+            }
+            windowsTreeKillCompleted = true;
+            if (childCloseState) {
+              settleObservedClose(resolveObservedExitState(childCloseState));
+              return;
+            }
+            maybeSettleAfterExit();
+            scheduleForcedWindowsCloseSettlement();
+          } catch (error) {
+            cleanup.reject(error);
+            rejectPendingWait(error);
+          } finally {
+            await previousSignal;
           }
-          windowsTreeKillCompleted = true;
-          if (childCloseState) {
-            settleObservedClose(resolveObservedExitState(childCloseState));
-            return;
-          }
-          maybeSettleAfterExit();
-          scheduleForcedWindowsCloseSettlement();
-        });
+        })();
       } else {
         windowsTreeKillCompleted = true;
         try {
@@ -574,7 +591,6 @@ export async function createChildAdapter(
 
   const dispose = () => {
     awaitedStdout?.close();
-    clearForceKillWaitFallback();
     clearForcedWindowsCloseTimer();
     if (params.ownedWorker !== undefined) {
       disconnectWorkerIpc();
@@ -656,7 +672,10 @@ export async function createChildAdapter(
     } catch (error) {
       kill("SIGKILL");
       try {
-        await cleanup.promise;
+        const [outcome] = await cleanupOutcome;
+        if (outcome.status === "rejected") {
+          throw outcome.reason;
+        }
       } finally {
         dispose();
       }

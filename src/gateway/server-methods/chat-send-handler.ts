@@ -27,7 +27,10 @@ import type { SkillWorkshopProposalRevisionConstraint } from "../../skills/works
 import { discardPreparedInboundMedia } from "../chat-attachments.js";
 import { authorizeGatewaySessionCreation, resolveCreatorSandbox } from "../operator-role-policy.js";
 import type { ChatRunTiming } from "../server-chat-state.js";
-import { SessionMutationAuthorizationChangedError } from "../session-sharing.js";
+import {
+  resolveSessionMutationAuthorization,
+  SessionMutationAuthorizationChangedError,
+} from "../session-sharing.js";
 import { loadSessionEntry } from "../session-utils.js";
 import {
   prepareGatewaySkillAuthoring,
@@ -57,7 +60,7 @@ import { createGatewayChatUserTurnController } from "./chat-user-turn-recorder.j
 import { gatewayClientSessionCreator } from "./gateway-client-identity.js";
 import { emitSessionsChanged } from "./session-change-event.js";
 import { resolveOperatorSessionCreation } from "./session-creation-provenance.js";
-import type { GatewayRequestHandlerOptions } from "./types.js";
+import type { GatewayRequestHandlerOptions, SessionMutationAuthorization } from "./types.js";
 
 type ChatSendInternalOptions = {
   goalResume?: SessionGoalOperation & { action: "resume" };
@@ -79,6 +82,7 @@ async function handleChatSendWithOptions(
     respond,
     context,
     client,
+    hasCurrentClientAuthority,
     sessionMutationAuthorization,
     sessionMutationCommitGuard,
   }: GatewayRequestHandlerOptions,
@@ -87,7 +91,7 @@ async function handleChatSendWithOptions(
   options?: ChatSendInternalOptions,
 ): Promise<void> {
   const setup = await prepareAndAdmitChatSend(
-    { params, respond, context, client, sessionMutationAuthorization },
+    { params, respond, context, client, hasCurrentClientAuthority, sessionMutationAuthorization },
     onAdmissionOwned,
     options,
   );
@@ -149,7 +153,7 @@ async function handleChatSendWithOptions(
     return;
   }
   const { imageOrder, prepareAttachmentsMs } = preparedAttachments.value;
-  const cronCreatorAuthority = externalAuthorityAdmission?.resolve({
+  const externalAdmissionParams = {
     runId: clientRunId,
     sessionKey,
     spawnedBy: entry?.spawnedBy,
@@ -163,7 +167,48 @@ async function handleChatSendWithOptions(
       normalizedRequest.value.suppressCommandInterpretation ||
       normalizedRequest.value.systemProvenanceReceipt !== undefined,
     turnKind: normalizedRequest.value.turnKind,
-  });
+  };
+  const cronCreatorAuthority = externalAuthorityAdmission?.resolve(externalAdmissionParams);
+  let dashboardSessionAuthorization: SessionMutationAuthorization | undefined;
+  const assertDashboardReadCurrent = externalAuthorityAdmission?.allowsDashboardReads(
+    externalAdmissionParams,
+  )
+    ? () => {
+        admitted.value.assertWorkAdmissionCurrent();
+        sessionMutationCommitGuard?.();
+        // Admitted runs survive transport loss; their caller authority must stay current.
+        if (
+          client?.invalidated ||
+          hasCurrentClientAuthority?.() === false ||
+          !externalAuthorityAdmission.allowsDashboardReads(externalAdmissionParams)
+        ) {
+          throw new Error("Dashboard message read admission is no longer active.");
+        }
+        if (!dashboardSessionAuthorization) {
+          // The original preparation may create its SID. Capture it once, never a successor.
+          const resolved = resolveSessionMutationAuthorization({
+            client,
+            context,
+            method: "chat.send",
+            requestParams: { agentId: preparedSession.value.agentId, sessionKey },
+            expectedTarget: {
+              agentId: preparedSession.value.agentId,
+              sessionKey,
+              storePath,
+              sessionId: admitted.value.sessionBinding.sessionId,
+            },
+          });
+          if (resolved.error) {
+            throw new SessionMutationAuthorizationChangedError(resolved.error);
+          }
+          if (!resolved.authorization) {
+            throw new Error("Dashboard session authorization is unavailable.");
+          }
+          dashboardSessionAuthorization = resolved.authorization;
+        }
+        dashboardSessionAuthorization.assertCurrent();
+      }
+    : undefined;
 
   const admissionStartedAt = Date.now();
   const terminalizeRestartSafeAdmission = async (
@@ -570,6 +615,7 @@ async function handleChatSendWithOptions(
       skillWorkshopProposalRevision: options?.skillWorkshopProposalRevision,
       skillLibraryAuthoring,
       cronCreatorAuthority,
+      assertDashboardReadCurrent,
       externalAuthorityAdmission,
       injection: {
         beginCapturedMessageInjection,

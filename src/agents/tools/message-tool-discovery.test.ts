@@ -329,7 +329,7 @@ describe("scheduled account discovery", () => {
         currentChannelProvider: origin === "external" ? "slack" : undefined,
         currentAccountId: delivery,
         scheduledAccountScope: {
-          ...(origin === "external" ? { channel: "slack" } : {}),
+          ...(origin === "external" ? { channels: ["slack"] } : {}),
           accountId: owner,
         },
       });
@@ -377,7 +377,7 @@ describe("scheduled account discovery", () => {
       const baselineContexts = foreignContexts.splice(0);
       const scoped = discover({
         ...params,
-        scheduledAccountScope: { channel: "slack", accountId: "ops" },
+        scheduledAccountScope: { channels: ["slack"], accountId: "ops" },
       });
 
       expect(scoped.actions).toContain("read");

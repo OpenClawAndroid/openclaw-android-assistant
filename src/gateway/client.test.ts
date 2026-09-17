@@ -20,13 +20,7 @@ import {
 } from "../infra/device-identity.js";
 import { captureEnv } from "../test-utils/env.js";
 import type { GatewayClientOptions } from "./client.js";
-
-function waitForFast<T>(
-  callback: () => T | Promise<T>,
-  options: { timeout?: number; interval?: number } = {},
-) {
-  return vi.waitFor(callback, { interval: 1, ...options });
-}
+import { firstMockArg, waitForFast } from "./client.test-support.js";
 
 type MockLoggingConfig = {
   redactPatterns?: string[];
@@ -190,8 +184,7 @@ vi.mock("../infra/device-auth-store.js", async () => {
     loadDeviceAuthToken: (...args: unknown[]) => loadDeviceAuthTokenMock(...args),
     loadDeviceAuthTokenReadOnly: (...args: unknown[]) => loadDeviceAuthTokenReadOnlyMock(...args),
     loadOriginDeviceToken: (...args: unknown[]) => loadOriginDeviceTokenMock(...args),
-    loadOriginDeviceTokenReadOnly: (...args: unknown[]) =>
-      loadOriginDeviceTokenReadOnlyMock(...args),
+    loadOriginDeviceTokenReadOnly: loadOriginDeviceTokenReadOnlyMock,
     storeDeviceAuthToken: (...args: unknown[]) => storeDeviceAuthTokenMock(...args),
     storeOriginDeviceToken: (...args: unknown[]) => storeOriginDeviceTokenMock(...args),
     clearDeviceAuthToken: (...args: unknown[]) => clearDeviceAuthTokenMock(...args),
@@ -250,13 +243,6 @@ function expectRecordFields(
   return record;
 }
 
-function firstMockArg(mock: ReturnType<typeof vi.fn>, label: string): unknown {
-  const [arg] = mock.mock.calls[0] ?? [];
-  if (arg === undefined) {
-    throw new Error(`expected ${label}`);
-  }
-  return arg;
-}
 function createClientWithIdentity(
   deviceId: string,
   onClose: (code: number, reason: string) => void,
@@ -738,6 +724,7 @@ describe("GatewayClient close handling", () => {
       deviceId: "dev-1",
       role: "operator",
       env,
+      assertCurrent: expect.any(Function),
     });
     expect(logDebugMock).toHaveBeenCalledWith("cleared stale device-auth token for device dev-1");
     expect(onClose).toHaveBeenCalledWith(
@@ -2321,7 +2308,7 @@ describe("GatewayClient connect auth payload", () => {
       connectId: connect.id,
       failureDetails: { code: "AUTH_TOKEN_MISMATCH", canRetryWithDeviceToken: true },
     });
-    expect(loadOriginDeviceTokenMock).not.toHaveBeenCalled();
+    expect(loadOriginDeviceTokenMock).toHaveBeenCalledOnce();
     expect(onReconnectPaused).toHaveBeenCalledWith({
       code: 1008,
       reason: "connect failed",
@@ -2363,6 +2350,7 @@ describe("GatewayClient connect auth payload", () => {
         token: "stored-origin-token",
         scopes: ["operator.admin", "operator.read"],
         env: undefined,
+        expectedToken: "stored-origin-token",
       });
     });
     client.stop();
@@ -2398,6 +2386,7 @@ describe("GatewayClient connect auth payload", () => {
         token: "issued-origin-token",
         scopes: ["operator.read"],
         env: undefined,
+        expectedToken: null,
       });
     });
     expect(storeDeviceAuthTokenMock).not.toHaveBeenCalled();

@@ -1,5 +1,5 @@
 import { normalizeDeliveryContext } from "../utils/delivery-context.shared.js";
-import { getTaskFlowById } from "./task-flow-runtime-internal.js";
+import { getTaskMirroredFlowIds } from "./task-flow-runtime-internal.js";
 import {
   buildTaskCreateMergePatch,
   selectExistingTaskForCreate,
@@ -20,10 +20,17 @@ export function findExistingTaskForCreate(
     "candidates" | "isTaskMirroredFlow"
   >,
 ): TaskRecord | undefined {
+  const candidates = params.runId?.trim() ? getTasksByRunId(params.runId) : [];
+  let mirroredFlowIds: ReadonlySet<string> | undefined;
   return selectExistingTaskForCreate({
     ...params,
-    candidates: params.runId?.trim() ? getTasksByRunId(params.runId) : [],
-    isTaskMirroredFlow: (flowId) => getTaskFlowById(flowId)?.syncMode === "task_mirrored",
+    candidates,
+    isTaskMirroredFlow: (flowId) => {
+      mirroredFlowIds ??= getTaskMirroredFlowIds(
+        candidates.flatMap((task) => (task.parentFlowId ? [task.parentFlowId.trim()] : [])),
+      );
+      return mirroredFlowIds.has(flowId);
+    },
   });
 }
 

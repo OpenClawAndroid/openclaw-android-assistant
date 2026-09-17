@@ -51,6 +51,8 @@ export type CodexSessionCatalogSession = {
 
 export type CodexSessionCatalogPage = {
   sessions: CodexSessionCatalogSession[];
+  /** Internal logical scan count; one page when omitted. */
+  scannedPages?: number;
   /** Internal provenance filtered before this page reaches the provider catalog. */
   managedThreads?: Array<{ threadId: string; rolloutPath?: string }>;
   nextCursor?: string;
@@ -81,8 +83,12 @@ export type CodexSessionCatalogControl = {
   listPage(
     params: CodexSessionCatalogPageParams,
     diagnostics?: CodexCatalogPageDiagnostics | null,
-    /** The caller is filling a page begun at the head, rather than an older discovery cursor. */
-    headWalk?: boolean,
+    options?: {
+      /** The caller is filling a page begun at the head, rather than an older discovery cursor. */
+      headWalk?: boolean;
+      /** Remaining logical pages in the caller's combined search and exclusion scan. */
+      maxScanPages?: number;
+    },
   ): Promise<CodexSessionCatalogPage>;
   requireEligibleThread(threadId: string): Promise<CodexThread>;
   listDescendantPage(params: CodexThreadListParams): Promise<CodexThreadListResponse>;

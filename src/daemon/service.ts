@@ -288,6 +288,8 @@ async function readGatewayServiceStateWithBinding(
   const deadline = performance.now() + (timeoutMs && timeoutMs > 0 ? timeoutMs : 5000);
   systemdReadBinding?.verify();
   let absent = await service.isAbsent?.({ env: baseEnv, timeoutMs }).catch(() => false);
+  // Initial systemd absence proves no manager; strict absence below only proves no unit.
+  const managerAbsent = absent && service.readCommand === readSystemdServiceExecStart;
   systemdReadBinding?.verify();
   let commandInspection: GatewayServiceCommandInspection | undefined;
   const command = absent
@@ -342,13 +344,15 @@ async function readGatewayServiceStateWithBinding(
     }
   }
   if (absent) {
+    const inspectionReason = managerAbsent ? "service-manager-unavailable" : undefined;
     return {
+      inspectionReason,
       installed: false,
       loadState: { status: "not-loaded" },
       running: false,
       env,
       command: null,
-      runtime: { status: "stopped", missingUnit: true },
+      runtime: { status: "stopped", missingUnit: true, inspectionReason },
     };
   }
   const [installed, loadState, runtime, definitionMutationCapability] = await Promise.all([

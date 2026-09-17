@@ -42,7 +42,7 @@ describe("Codex catalog discovery cache", () => {
           held.resolve(response);
           await first;
         }
-        pending.push(control.listPage(query, undefined, true));
+        pending.push(control.listPage(query, undefined, { headWalk: true }));
         held.resolve(response);
         const pages = await Promise.all(pending);
         expect(pages[0]).toEqual(pages[1]);
@@ -50,7 +50,9 @@ describe("Codex catalog discovery cache", () => {
           await control.listPage({ cursor: `discovery-${index}`, limit: 1 });
         }
         const before = commandRpcMocks.codexControlRequest.mock.calls.length;
-        await expect(control.listPage(query, undefined, true)).resolves.toEqual(pages[0]);
+        await expect(control.listPage(query, undefined, { headWalk: true })).resolves.toEqual(
+          pages[0],
+        );
         expect(commandRpcMocks.codexControlRequest).toHaveBeenCalledTimes(before);
       } finally {
         held.resolve(response);

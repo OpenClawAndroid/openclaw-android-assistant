@@ -22,6 +22,7 @@ import { openDesktopFocus } from "./desktop-focus-window.ts";
 import { DesktopMobileKeyboard } from "./desktop-mobile-keyboard.ts";
 import {
   DesktopConnectionHandoff,
+  releaseDesktopObservation,
   type DesktopAppId,
   type DesktopCredentials,
   type ObservedDesktopConnection,
@@ -451,7 +452,9 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
         control,
         ...(supplied ? { credentials: supplied } : {}),
       });
+      const abandon = () => releaseDesktopObservation(client, observed.wsPath);
       if (operationId !== this.operationId) {
+        abandon();
         return;
       }
       this.controlling = observed.control;
@@ -459,20 +462,16 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
       if ((!this.canResize || !this.controlling) && this.sizingMode === "match") {
         this.sizingMode = "fit";
       }
-      const credentials = desktopAuth.rfbCredentials(observed, this.credentials);
-      if (
-        observed.auth === "vnc-password" &&
-        observed.preauthenticated !== true &&
-        !credentials?.password
-      ) {
+      const { credentials, auth, phase } = desktopAuth.forConnection(observed, this.credentials);
+      if (phase === "credentials") {
         this.connection.disconnect();
-        this.credentialAuth = "vnc-password";
+      }
+      this.connection.retainObservation(abandon);
+      this.credentialAuth = auth ?? this.credentialAuth;
+      if (phase === "credentials") {
         this.pendingConnection = { environmentId, control, observed, operationId };
         this.state = "credentials";
         return;
-      }
-      if (observed.auth === "ard-account") {
-        this.credentialAuth = "ard-account";
       }
       await this.connectObserved({ environmentId, control, observed, operationId }, credentials);
     } catch (error) {

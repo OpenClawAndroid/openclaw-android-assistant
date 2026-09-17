@@ -341,6 +341,8 @@ const rootDependencyOptions = withExternalPackageSubpaths({
     "jimp",
     "matrix-js-sdk",
     "prism-media",
+    // Extensions and external tool validation must share Format and Settings registries.
+    "typebox",
     "typescript",
     "vitest",
     // Selected plugin distributions install platform optionals beside bundled JavaScript.
@@ -453,6 +455,8 @@ function buildCoreDistEntries(): Record<string, string> {
     "plugins/sdk-alias": "src/plugins/sdk-alias.ts",
     "facade-activation-check.runtime": "src/plugin-sdk/facade-activation-check.runtime.ts",
     "plugin-metadata-readers.runtime": "src/plugins/plugin-metadata-readers.runtime.ts",
+    "legacy-config-binding-repair.runtime":
+      "src/commands/doctor/shared/legacy-config-binding-repair.runtime.ts",
     "infra/warning-filter": "src/infra/warning-filter.ts",
     "telegram-ingress-worker.runtime": bundledPluginFile(
       "telegram",

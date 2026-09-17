@@ -223,6 +223,7 @@ describe("tsdown config", () => {
       requireNativeHookRelayGraph(),
       requireStandaloneRuntimeGraph("infra/sqlite-readonly-location.worker"),
       requireStandaloneRuntimeGraph("agents/harness/native-hook-relay-client.worker"),
+      requireStandaloneRuntimeGraph("process/spawn-broker/worker"),
     ]);
 
     for (const config of configs) {
@@ -295,6 +296,11 @@ describe("tsdown config", () => {
       label: "native hook locator worker",
       entry: "agents/harness/native-hook-relay-client.worker",
       source: "src/agents/harness/native-hook-relay-client.worker.ts",
+    },
+    {
+      label: "spawn broker",
+      entry: "process/spawn-broker/worker",
+      source: "src/process/spawn-broker/worker.ts",
     },
   ])("emits the $label once without sealing its package loaders", ({ entry, source }) => {
     const child = requireStandaloneRuntimeGraph(entry);
@@ -418,7 +424,7 @@ describe("tsdown config", () => {
     expect(hookEntries).toStrictEqual([]);
   });
 
-  it("bundles SDK-owned helpers while retaining fs-safe package ownership", () => {
+  it("bundles SDK-owned helpers while retaining native package ownership", () => {
     for (const graph of [
       requireUnifiedDistGraph(),
       requireStandaloneRuntimeGraph("infra/sqlite-readonly-location.worker"),
@@ -436,6 +442,10 @@ describe("tsdown config", () => {
       expect(alwaysBundle("openclaw/plugin-sdk/ssrf-runtime")).toBe(false);
       expect(alwaysBundle("zod")).toBe(true);
       expect(alwaysBundle("zod/v4/core")).toBe(true);
+      for (const id of ["typebox", "typebox/schema", "typebox/format", "typebox/system"]) {
+        expect(alwaysBundle(id)).toBe(false);
+        expect(external(id, undefined, false)).toBe(true);
+      }
       expect(alwaysBundle("not-a-runtime-dependency")).toBe(false);
     }
   });

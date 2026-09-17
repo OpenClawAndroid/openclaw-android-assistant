@@ -49,7 +49,6 @@ import {
   NODE_WORKER_DESKTOP_COMPUTER_COMMAND,
 } from "../infra/node-commands.js";
 import { logWarn } from "../logger.js";
-import { runCommandWithTimeout } from "../process/exec.js";
 import { NODE_DESKTOP_STREAM_COMMAND } from "../shared/node-desktop-stream.js";
 import type { NodeHostClient } from "./client.js";
 import { invokeNodeWorkerComputerCommand, type NodeWorkerComputer } from "./computer-command.js";
@@ -61,6 +60,7 @@ import {
 import { invokeDeviceApps } from "./invoke-device-apps.js";
 import { invokeNodeFileCommand } from "./invoke-file-commands.js";
 import { boundMcpToolResultPayload } from "./invoke-mcp-result.js";
+import { runCommand } from "./invoke-run-command.js";
 import {
   buildSystemRunApprovalPlan,
   handleSystemRunInvoke,
@@ -70,7 +70,6 @@ import type {
   ExecEventPayload,
   ExecFinishedEventParams,
   NodeInvokeRequestPayload,
-  RunResult,
   SkillBinsProvider,
   SystemRunParams,
 } from "./invoke-types.js";
@@ -82,8 +81,6 @@ import type { NodeWorkerSupervisorControl } from "./node-worker-supervisor-contr
 import type { NodeWorkerWorkspaceRuntime } from "./node-worker-workspace.js";
 import { invokeRegisteredNodeHostCommand as invokePlugin } from "./plugin-node-host.js";
 import { resolveNodeHostedSkillDirectory } from "./skills.js";
-
-const OUTPUT_CAP = 200_000;
 
 const MCP_ERROR_MESSAGE_MAX_CHARS = 1_024;
 
@@ -305,84 +302,6 @@ function requireExecApprovalsBaseHash(
   }
   if (baseHash !== snapshot.hash) {
     throw new Error("INVALID_REQUEST: exec approvals changed; reload and retry");
-  }
-}
-
-// libuv reports a failed pre-exec `chdir(cwd)` as `spawn <argv0> ENOENT`, which
-// blames the shell/command instead of the missing working directory (#85202).
-// When the spawn cwd is set but is not a usable directory, name the real cause.
-// Diagnostic only: the run still fails closed — the cwd is never dropped to fall
-// back to the node's default directory.
-function clarifyNodeExecCwdSpawnError(
-  error: NodeJS.ErrnoException,
-  cwd: string | undefined,
-): string {
-  const message = error.message;
-  if (!cwd || (error.code && error.code !== "ENOENT" && error.code !== "ENOTDIR")) {
-    return message;
-  }
-  let reason: "does not exist" | "is not a directory";
-  try {
-    const stats = fs.statSync(cwd);
-    // An existing directory means the cwd is fine and the ENOENT is about the
-    // executable itself; leave the original message untouched.
-    if (stats.isDirectory()) {
-      return message;
-    }
-    reason = "is not a directory";
-  } catch (statError) {
-    const statCode = (statError as NodeJS.ErrnoException).code;
-    if (statCode !== "ENOENT" && statCode !== "ENOTDIR") {
-      return message;
-    }
-    reason =
-      statCode === "ENOTDIR" || error.code === "ENOTDIR" ? "is not a directory" : "does not exist";
-  }
-  return `node exec working directory ${reason} on the node host: ${cwd} (os reported: ${message})`;
-}
-
-async function runCommand(
-  argv: string[],
-  cwd: string | undefined,
-  env: Record<string, string> | undefined,
-  timeoutMs: number | undefined,
-  signal?: AbortSignal,
-  assertCurrent?: () => void,
-): Promise<RunResult> {
-  assertCurrent?.();
-  try {
-    const result = await runCommandWithTimeout(argv, {
-      baseEnv: env,
-      cwd,
-      killProcessTree: true,
-      maxCombinedOutputBytes: OUTPUT_CAP,
-      maxOutputBytes: OUTPUT_CAP,
-      outputCapture: "head",
-      input: Buffer.alloc(0),
-      signal,
-      timeoutMs: timeoutMs && timeoutMs > 0 ? timeoutMs : undefined,
-    });
-    const timedOut = result.termination === "timeout";
-    const exitCode = result.code ?? undefined;
-    return {
-      exitCode,
-      timedOut,
-      success: exitCode === 0 && !timedOut,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      error: null,
-      truncated: Boolean(result.stdoutTruncatedBytes || result.stderrTruncatedBytes),
-    };
-  } catch (err) {
-    return {
-      exitCode: undefined,
-      timedOut: false,
-      success: false,
-      stdout: "",
-      stderr: "",
-      error: clarifyNodeExecCwdSpawnError(err as NodeJS.ErrnoException, cwd),
-      truncated: false,
-    };
   }
 }
 
@@ -1118,15 +1037,5 @@ async function sendNodeEvent(client: NodeHostClient, event: string, payload: unk
   } catch {
     // ignore: node events are best-effort
   }
-}
-
-const testing = {
-  clarifyNodeExecCwdSpawnError,
-  runCommand,
-} as const;
-
-if (process.env.VITEST || process.env.NODE_ENV === "test") {
-  (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.nodeHostInvokeTestApi")] =
-    testing;
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

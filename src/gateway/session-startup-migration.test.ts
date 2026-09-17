@@ -115,7 +115,7 @@ describe("runStartupSessionMigration", () => {
     }
   });
 
-  it.each(["default", "custom", "shared"] as const)(
+  it.each(["default", "custom", "shared", "scoped"] as const)(
     "repairs transcript projections in the %s SQLite store before serving history",
     async (layout) => {
       const root = fs.realpathSync.native(tempDirs.make("openclaw-sqlite-session-startup-"));
@@ -124,11 +124,14 @@ describe("runStartupSessionMigration", () => {
         const env = { ...process.env };
         const agentId = "qa";
         const storePath =
-          layout === "default"
+          layout === "default" || layout === "scoped"
             ? undefined
             : path.join(root, "custom", layout === "shared" ? "shared.sqlite" : "sessions.json");
         const cfg: OpenClawConfig = {
-          agents: { ownership: "explicit", entries: { qa: {} } },
+          agents: {
+            ownership: "explicit",
+            entries: { qa: {}, ...(layout === "scoped" ? { main: {} } : {}) },
+          },
           ...(storePath ? { session: { store: storePath } } : {}),
         };
         const scope = {
@@ -155,10 +158,38 @@ describe("runStartupSessionMigration", () => {
           )
           .run(scope.sessionId);
         expect(sessionTranscriptIndexNeedsReconcile(database.db, scope.sessionId)).toBe(true);
+        const peerScope = {
+          ...scope,
+          agentId: "main",
+          sessionId: "peer-session",
+          sessionKey: "agent:main:peer",
+        };
+        const peerOptions = { agentId: "main", env };
+        if (layout === "scoped") {
+          await upsertSessionEntryCore(peerScope, {
+            sessionId: peerScope.sessionId,
+            updatedAt: 10,
+          });
+          await persistSessionTranscriptTurn(peerScope, {
+            messages: [
+              { eventId: "peer-message", message: { role: "user", content: "peer history" } },
+            ],
+            touchSessionEntry: false,
+          });
+          await waitForSessionTranscriptIndexReconcile(peerOptions);
+          openOpenClawAgentDatabase(peerOptions)
+            .db.prepare("UPDATE session_transcript_index_state SET needs_rebuild = 1")
+            .run();
+        }
         closeOpenClawAgentDatabasesForTest();
         const log = makeLog();
 
-        await runStartupSessionMigration({ cfg, env, log });
+        await runStartupSessionMigration({
+          cfg,
+          env,
+          log,
+          ...(layout === "scoped" ? { agentIds: new Set([agentId]) } : {}),
+        });
 
         const reopened = openOpenClawAgentDatabase(options);
         expect(sessionTranscriptIndexNeedsReconcile(reopened.db, scope.sessionId)).toBe(false);
@@ -170,6 +201,14 @@ describe("runStartupSessionMigration", () => {
         if (layout === "shared") {
           expect(reopened.agentId).toBe("main");
           expect(fs.existsSync(resolveOpenClawAgentSqlitePath({ agentId, env }))).toBe(false);
+        }
+        if (layout === "scoped") {
+          expect(
+            sessionTranscriptIndexNeedsReconcile(
+              openOpenClawAgentDatabase(peerOptions).db,
+              peerScope.sessionId,
+            ),
+          ).toBe(true);
         }
         expect(fs.existsSync(path.join(stateDir, "session-sqlite-migration-runs"))).toBe(false);
       });

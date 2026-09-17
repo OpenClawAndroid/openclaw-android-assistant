@@ -9,6 +9,7 @@ import * as agentScope from "../agents/agent-scope.js";
 import * as sessionsConfig from "../config/sessions.js";
 import { canPrewarmCombinedSessionStoresForGateway } from "../config/sessions/combined-store-gateway.js";
 import * as sessionAccessor from "../config/sessions/session-accessor.js";
+import * as sessionListReads from "../config/sessions/session-accessor.sqlite-list-read.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import * as agentDatabaseRegistry from "../state/openclaw-agent-db-registry.js";
@@ -396,8 +397,20 @@ test("sessions.list projects out prompt snapshots without changing full entry re
 
   const projections: Array<string | undefined> = [];
   const originalReadOnly = sessionAccessor.listSessionEntriesReadOnly;
+  const originalAsyncReadOnly = sessionListReads.listSessionEntriesReadOnlyAsync;
   const originalWritable = sessionAccessor.listSessionEntriesCore;
   const spies = [
+    vi
+      .spyOn(sessionListReads, "listSessionEntriesReadOnlyAsync")
+      .mockImplementation(async (scope) => {
+        projections.push(scope?.projection);
+        const entries = await originalAsyncReadOnly(scope);
+        for (const { entry } of entries) {
+          expect(entry.skillsSnapshot).toBeUndefined();
+          expect(entry.systemPromptReport).toBeUndefined();
+        }
+        return entries;
+      }),
     vi.spyOn(sessionAccessor, "listSessionEntriesReadOnly").mockImplementation((scope) => {
       projections.push(scope?.projection);
       return originalReadOnly(scope);

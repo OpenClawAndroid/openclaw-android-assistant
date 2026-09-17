@@ -8,7 +8,7 @@ import {
   selectCurrentCanonicalTaskBacking,
   type TaskBackingInstance,
 } from "./task-backing-records.js";
-import { getTaskFlowById } from "./task-flow-runtime-internal.js";
+import { getTaskFlowById, getTaskMirroredFlowIds } from "./task-flow-runtime-internal.js";
 import {
   ensureTaskRegistryReady,
   taskIdsByRelatedSessionKey,
@@ -22,11 +22,6 @@ export {
   type TaskBackingInstance,
 } from "./task-backing-records.js";
 
-function isCanonicalBackingTask(task: TaskRecord): boolean {
-  const flowId = task.parentFlowId?.trim();
-  return Boolean(flowId && getTaskFlowById(flowId)?.syncMode === "task_mirrored");
-}
-
 function resolveCurrentCanonicalBacking(
   params: Omit<
     Parameters<typeof selectCurrentCanonicalTaskBacking>[0],
@@ -34,15 +29,22 @@ function resolveCurrentCanonicalBacking(
   >,
 ) {
   ensureTaskRegistryReady();
+  const candidates = [...(taskIdsByRelatedSessionKey.get(params.childSessionKey) ?? [])].flatMap(
+    (taskId) => {
+      const task = tasks.get(taskId);
+      return task ? [task] : [];
+    },
+  );
+  let mirroredFlowIds: ReadonlySet<string> | undefined;
   return selectCurrentCanonicalTaskBacking({
     ...params,
-    candidates: [...(taskIdsByRelatedSessionKey.get(params.childSessionKey) ?? [])].flatMap(
-      (taskId) => {
-        const task = tasks.get(taskId);
-        return task ? [task] : [];
-      },
-    ),
-    isTaskMirroredFlow: (flowId) => getTaskFlowById(flowId)?.syncMode === "task_mirrored",
+    candidates,
+    isTaskMirroredFlow: (flowId) => {
+      mirroredFlowIds ??= getTaskMirroredFlowIds(
+        candidates.flatMap((task) => (task.parentFlowId ? [task.parentFlowId.trim()] : [])),
+      );
+      return mirroredFlowIds.has(flowId);
+    },
   });
 }
 
@@ -51,11 +53,32 @@ export function createNextAcpTaskBackingDetail(params: {
   instanceId: string;
 }): JsonValue {
   ensureTaskRegistryReady();
+  const candidateIds = taskIdsByRelatedSessionKey.get(params.childSessionKey) ?? [];
+  let mirroredFlowIds: ReadonlySet<string> | undefined;
+  const isCanonicalBackingTask = (task: TaskRecord): boolean => {
+    const firstFlowId = task.parentFlowId?.trim();
+    if (!firstFlowId) {
+      return false;
+    }
+    mirroredFlowIds ??= getTaskMirroredFlowIds(
+      (function* () {
+        // Restore observers can remove the selected task or append to this live index.
+        yield firstFlowId;
+        for (const taskId of candidateIds) {
+          const flowId = tasks.get(taskId)?.parentFlowId?.trim();
+          if (flowId) {
+            yield flowId;
+          }
+        }
+      })(),
+    );
+    return mirroredFlowIds.has(firstFlowId);
+  };
   // ACP serializes turns per child session. Persisting the next generation here
   // keeps same-run-id replacements distinguishable after restart.
   let generation = 0;
   let existingGeneration: number | undefined;
-  for (const taskId of taskIdsByRelatedSessionKey.get(params.childSessionKey) ?? []) {
+  for (const taskId of candidateIds) {
     const task = tasks.get(taskId);
     const instance = task ? readTaskBackingInstance(task.detail) : undefined;
     // Requester candidates serve list queries; generation history keeps its owner/child scope.

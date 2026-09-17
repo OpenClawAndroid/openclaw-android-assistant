@@ -60,9 +60,6 @@ export function createMatrixCryptoFacade(deps: {
   ) => Promise<Buffer>;
 }) {
   return {
-    prepare: async (_joinedRooms: string[]) => {
-      // matrix-js-sdk performs crypto prep during startup; no extra work required here.
-    },
     updateSyncData: async (
       _toDeviceMessages: unknown,
       _otkCounts: unknown,

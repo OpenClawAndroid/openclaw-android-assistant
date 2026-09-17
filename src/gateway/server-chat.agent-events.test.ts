@@ -2389,57 +2389,13 @@ describe("agent event handler", () => {
     nowSpy?.mockRestore();
   });
 
-  it.each([" NO_REPLY  ", " ANNOUNCE_SKIP ", " REPLY_SKIP "])(
-    "does not emit chat delta for suppressed control text %s",
-    (replyText) => {
-      const { broadcast, nodeSendToSession, nowSpy } = emitRun1AssistantText(
-        createHarness({ now: 1_000 }),
-        replyText,
-      );
-      expect(chatBroadcastCalls(broadcast)).toHaveLength(0);
-      expect(sessionChatCalls(nodeSendToSession)).toHaveLength(0);
-      nowSpy?.mockRestore();
-    },
-  );
-
-  it.each(["NO_REPLY", "ANNOUNCE_SKIP", "REPLY_SKIP"])(
-    "does not include %s text in chat final message",
-    (replyText) => {
-      const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
-        now: 2_000,
-      });
-      registerNamedChatRun(chatRunState, "2");
-
-      emitAgentEvent(handler, "run-2", "assistant", { text: replyText });
-      emitLifecycleEnd(handler, "run-2");
-
-      const payload = expectSingleFinalChatPayload(broadcast) as { message?: unknown };
-      expect(payload.message).toBeUndefined();
-      expect(sessionChatCalls(nodeSendToSession)).toHaveLength(1);
-      nowSpy?.mockRestore();
-    },
-  );
-
-  it("suppresses NO_REPLY lead fragments and does not leak NO in final chat message", () => {
-    const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
-      now: 2_100,
-    });
-    registerNamedChatRun(chatRunState, "3");
-
-    for (const text of ["NO", "NO_", "NO_RE", "NO_REPLY"]) {
-      emitAgentEvent(handler, "run-3", "assistant", { text });
-    }
-    emitLifecycleEnd(handler, "run-3");
-
-    const payload = expectSingleFinalChatPayload(broadcast) as { message?: unknown };
-    expect(payload.message).toBeUndefined();
-    expect(sessionChatCalls(nodeSendToSession)).toHaveLength(1);
-    nowSpy?.mockRestore();
-  });
-
   it.each([
-    ["ANNOUNCE_SKIP", ["ANN", "ANNOUNCE_", "ANNOUNCE_SKIP"]],
-    ["REPLY_SKIP", ["REP", "REPLY_", "REPLY_SKIP"]],
+    ["NO_REPLY", ["N", "NO", "NO_", "NO_RE", " NO_REPLY  "]],
+    ["padded ANNOUNCE_SKIP", [" ANNOUNCE_SKIP "]],
+    ["padded REPLY_SKIP", [" REPLY_SKIP "]],
+    ["ANNOUNCE_SKIP", ["A", "AN", "ANN", "ANNOUNCE_", "ANNOUNCE_SKIP"]],
+    ["REPLY_SKIP", ["R", "RE", "REP", "REPLY_", "REPLY_SKIP"]],
+    ["repeated REPLY_SKIP", ["REPLY_SKIP", "REPLY_SKIP\n\nRE", "REPLY_SKIP\n\nREPLY_SKIP"]],
   ] as const)(
     "suppresses %s lead fragments and does not leak the streamed prefix in the final chat message",
     (_replyText, fragments) => {
@@ -2460,19 +2416,58 @@ describe("agent event handler", () => {
     },
   );
 
-  it("keeps final short replies like 'No' even when lead-fragment deltas are suppressed", () => {
+  it.each(
+    ["NO_REPLY", "ANNOUNCE_SKIP", "REPLY_SKIP"].flatMap((token) =>
+      [0, 100].map((flushMs) => ({ token, flushMs })),
+    ),
+  )("retracts a visible item replaced by $token with a $flushMs ms flush", ({ token, flushMs }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const { broadcast, nodeSendToSession, chatRunState, handler } = createHarness();
+    registerNamedChatRun(chatRunState, "control-replacement");
+    emitAgentEvent(handler, "run-control-replacement", "assistant", {
+      itemId: "answer-1",
+      text: "Provisional answer",
+    });
+    expect(chatDeltaTexts(broadcast)).toEqual(["Provisional answer"]);
+    emitAgentEvent(
+      handler,
+      "run-control-replacement",
+      "assistant",
+      {
+        itemId: "answer-1",
+        text: token,
+      },
+      { seq: 2 },
+    );
+    vi.advanceTimersByTime(flushMs);
+    emitLifecycleEnd(handler, "run-control-replacement", 3);
+
+    const payloads = chatBroadcastCalls(broadcast).map(([, payload]) => payload);
+    expect(payloads).toMatchObject([
+      { state: "delta", message: { content: [{ text: "Provisional answer" }] } },
+      { state: "delta", replace: true, deltaText: "", message: { content: [{ text: "" }] } },
+      { state: "final" },
+    ]);
+    expect(payloads.at(-1)?.message).toBeUndefined();
+    expect(sessionChatCalls(nodeSendToSession)).toHaveLength(payloads.length);
+    handler.dispose();
+    chatRunState.clear();
+  });
+
+  it.each(["No", "RE", "A"])("keeps the final short reply %s after holding its prefix", (text) => {
     const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
       now: 2_200,
     });
     registerNamedChatRun(chatRunState, "4");
 
-    emitAgentEvent(handler, "run-4", "assistant", { text: "No" });
+    emitAgentEvent(handler, "run-4", "assistant", { text });
     emitLifecycleEnd(handler, "run-4");
 
     const payload = expectSingleFinalChatPayload(broadcast) as {
       message?: { content?: Array<{ text?: string }> };
     };
-    expect(payload.message?.content?.[0]?.text).toBe("No");
+    expect(payload.message?.content?.[0]?.text).toBe(text);
     expect(sessionChatCalls(nodeSendToSession)).toHaveLength(1);
     nowSpy?.mockRestore();
   });

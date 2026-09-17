@@ -28,6 +28,11 @@ function createStopHarness(phase: string) {
   const reclaim = createDeferred<{ ok: true }>();
   let nextDispatch = 0;
   const request = vi.fn((method: string, params: { idempotencyKey?: string }) => {
+    if (method === "sessions.describe") {
+      return Promise.resolve({
+        session: { placement: createStartupPlacement("reclaimed", 2) },
+      });
+    }
     if (method === "sessions.dispatch") {
       return nextDispatch++ === 0
         ? dispatch.promise

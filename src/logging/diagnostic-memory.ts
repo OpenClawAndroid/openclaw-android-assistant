@@ -375,7 +375,9 @@ export function emitDiagnosticMemorySample(options?: {
     });
     logMemoryPressure(pressure);
     if (pressure.level === "critical") {
-      log.warn("critical memory pressure snapshot disabled");
+      log.warn(
+        "critical memory pressure snapshot disabled; run openclaw gateway call diagnostics.heapProfile --timeout 30000",
+      );
     }
   }
   return memory;

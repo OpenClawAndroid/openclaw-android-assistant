@@ -241,7 +241,7 @@ type LiveSubagentContext = {
 };
 
 export async function runWithLiveSubagentGateway(
-  options: { children?: number },
+  options: { children?: number; additionalTools?: string[] },
   body: (context: LiveSubagentContext) => Promise<void>,
 ): Promise<void> {
   expect(Boolean(process.env.OPENAI_API_KEY?.trim()), "OpenAI API key is present").toBe(true);
@@ -300,7 +300,15 @@ export async function runWithLiveSubagentGateway(
         plugins: { enabled: false },
         tools: {
           codeMode: false,
-          allow: ["sessions_spawn", "sessions_yield", "subagents", "read", "exec", "process"],
+          allow: [
+            "sessions_spawn",
+            "sessions_yield",
+            "subagents",
+            "read",
+            "exec",
+            "process",
+            ...(options.additionalTools ?? []),
+          ],
           exec: { mode: "full", host: "gateway" },
         },
         models: {

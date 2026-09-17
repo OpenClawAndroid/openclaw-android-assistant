@@ -1,3 +1,4 @@
+import "./subagent-spawn-model.mocks.shared.js";
 /** Registered native children retain their own lifecycle after spawn handoff. */
 import { writeFile } from "node:fs/promises";
 import path from "node:path";

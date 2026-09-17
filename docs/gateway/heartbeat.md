@@ -22,7 +22,7 @@ Under the hood, heartbeat cadence is owned by the Automations scheduler: the gat
 
 Scheduled heartbeats require automations. When `cron.enabled` is `false` or `OPENCLAW_SKIP_CRON=1`, the gateway logs a startup warning and does not run scheduled heartbeats. Manual and event-driven heartbeat wakes remain available. There is no separate heartbeat fallback timer.
 
-Setting `heartbeat.every: "0m"` also disables only the recurring cadence. A targeted event-driven wake can still run one agent turn, such as the completion follow-up requested by a background exec task. It does not create or re-enable a recurring schedule. Use tool policy and sandboxing, rather than heartbeat cadence, to control whether those agent turns may execute commands.
+Setting `heartbeat.every: "0m"` disables only the recurring cadence. A targeted event-driven wake can still run one agent turn, such as a background exec completion. It does not create or re-enable a recurring schedule. To keep background exec without automatic completion turns or their model calls, set `tools.exec.notifyOnExit: false`; check `agents.entries.<id>.tools.exec.notifyOnExit` for per-agent overrides. Collect results with `process poll`. See [Background exec notifications](/gateway/background-process#disable-automatic-completion-turns). Tool policy and sandboxing control whether agent turns may execute commands.
 
 Targeted event wakes retain the same per-agent rate limits when recurring cadence is disabled. Those limits are a 30-second minimum between event turns, and a flood guard after five starts within 60 seconds. Deferred work resumes when its guard expires. Config reloads preserve this accounting without enrolling the agent in recurring or broadcast heartbeats.
 

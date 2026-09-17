@@ -15,6 +15,7 @@ import {
   markReplyOperationExecutionStarted,
 } from "../../auto-reply/reply/reply-run-registry.js";
 import { SqliteBoardStore } from "../../boards/sqlite-board-store.js";
+import * as combinedStores from "../../config/sessions/combined-store-gateway.js";
 import {
   loadSessionEntry,
   persistSessionTranscriptTurn,
@@ -445,7 +446,7 @@ it.each([{ activeMinutes: 1 }, { activeOnly: true }])(
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const { clock, config } = await seedSessionsWithActivityTimes();
       const context = requestContext(config);
-      const loads = vi.spyOn(sessionUtils, "loadCombinedSessionStoreForGatewayCore");
+      const loads = vi.spyOn(combinedStores, "loadCombinedSessionStoreForGatewayAsync");
       context.chatAbortControllers.set("active-run", {
         agentId: "main",
         sessionKey: "agent:main:active",
@@ -486,7 +487,7 @@ it.each(["settled", "replaced"] as const)(
           sessionId: `${agentId}-active`,
         } as never);
       }
-      const loads = vi.spyOn(sessionUtils, "loadCombinedSessionStoreForGatewayCore");
+      const loads = vi.spyOn(combinedStores, "loadCombinedSessionStoreForGatewayAsync");
       const project = sessionUtils.listSessionsFromStoreAsync;
       const projections = vi
         .spyOn(sessionUtils, "listSessionsFromStoreAsync")

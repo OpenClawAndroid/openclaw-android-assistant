@@ -27,11 +27,8 @@ import {
   normalizeInheritedToolAllowlist,
   normalizeInheritedToolDenylist,
 } from "../../inherited-tool-deny.js";
-import {
-  findSubagentSessionEntryById,
-  getSubagentDepthFromSessionStore,
-  readSubagentSessionStore,
-} from "./subagent-depth.js";
+import { findSubagentSessionEntryById } from "./subagent-depth-policy.js";
+import { getSubagentDepthFromSessionStore, readSubagentSessionStore } from "./subagent-depth.js";
 
 /** Resolved role for a main session, orchestrating subagent, or leaf subagent. */
 export type SubagentSessionRole = "main" | "orchestrator" | "leaf";

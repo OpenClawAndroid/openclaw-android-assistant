@@ -391,6 +391,7 @@ function renderRosterLoadMore(
   host: SidebarSessionListHost,
   sections: RenderableSessionSection[],
   hasMore: boolean | undefined,
+  loading: boolean,
 ) {
   if (!hasMore) {
     return nothing;
@@ -401,6 +402,8 @@ function renderRosterLoadMore(
         type="button"
         class="sidebar-session-pagination__button"
         aria-label=${t("chat.selectors.loadMoreRosterSessions")}
+        ?disabled=${loading}
+        aria-busy=${String(loading)}
         @click=${() => {
           void host.loadMoreSidebarSessions().then(() => {
             for (const section of sections) {
@@ -636,6 +639,7 @@ export function renderSessionList(params: {
   empty: boolean;
   sections: RenderableSessionSection[];
   nativeSessionsHaveMore: boolean;
+  nativeSessionsLoading: boolean;
   catalogs: SessionCatalogRenderSnapshot;
   catalogRenderer: SessionCatalogGroupsRenderer | null;
 }) {
@@ -651,7 +655,7 @@ export function renderSessionList(params: {
           catalogs: params.catalogs,
           catalogRenderer: params.catalogRenderer,
         })}
-        ${renderRosterLoadMore(host, params.sections, params.nativeSessionsHaveMore)}
+        ${renderRosterLoadMore(host, params.sections, params.nativeSessionsHaveMore, params.nativeSessionsLoading)}
         ${
           host.sessionsStatusFilter === "archived" && params.empty
             ? html`<span class="sidebar-session-empty-hint"

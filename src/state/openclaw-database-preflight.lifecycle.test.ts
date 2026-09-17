@@ -9,6 +9,7 @@ import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import * as snapshots from "../infra/sqlite-snapshot-source.js";
 import { sqliteWorkerPreloadEnv } from "../infra/sqlite-worker-preload.test-support.js";
 import { acquireStateDatabaseHandleExclusion } from "../infra/state-database-coordinator.js";
+import { withAgentDatabaseStartupAdmission } from "./agent-database-startup.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -55,14 +56,21 @@ it.each([
   ...(["success", "failure", "cancel"] as const).map((outcome) => ({
     source: "direct",
     outcome,
+    startup: false,
   })),
   ...(["close-failure", "cancel"] as const).map((outcome) => ({
     source: "snapshot",
     outcome,
+    startup: false,
+  })),
+  ...(["direct", "snapshot"] as const).map((source) => ({
+    source,
+    outcome: "cancel" as const,
+    startup: true,
   })),
 ])(
-  "joins all $source children and releases their leases before $outcome settlement",
-  async ({ source, outcome }) => {
+  "joins all $source children and releases their leases before $outcome settlement (startup=$startup)",
+  async ({ source, outcome, startup }) => {
     const root = tempDirs.make("openclaw-preflight-reader-lifecycle-");
     const initializedEnv = { OPENCLAW_STATE_DIR: path.join(root, "initialized") };
     const paths = [
@@ -165,15 +173,17 @@ it.each([
     const cancellation = new Error("intentional reader cancellation");
     const onAgentInspection = vi.fn();
     let settled = false;
-    const run = preflightOpenClawDatabaseSchemas({
-      env: { OPENCLAW_STATE_DIR: path.join(root, "absent-state") },
-      supportedVersions,
-      configuredAgentDatabaseCandidatePaths: paths,
-      verifyCurrentSchemaShape: true,
-      requireStartupMigrationReadiness: true,
-      signal: controller.signal,
-      onAgentInspection,
-    });
+    const inspect = () =>
+      preflightOpenClawDatabaseSchemas({
+        env: { OPENCLAW_STATE_DIR: path.join(root, "absent-state") },
+        supportedVersions,
+        configuredAgentDatabaseCandidatePaths: paths,
+        verifyCurrentSchemaShape: true,
+        requireStartupMigrationReadiness: true,
+        signal: controller.signal,
+        onAgentInspection,
+      });
+    const run = startup ? withAgentDatabaseStartupAdmission(inspect) : inspect();
     void run.then(
       () => {
         settled = true;
@@ -223,6 +233,8 @@ it.each([
       );
       if (outcome === "cancel") {
         controller.abort(cancellation);
+        await setImmediate();
+        expect(children.map((child) => child.killed)).toEqual([true, true]);
         await expect(run).rejects.toBe(cancellation);
       } else {
         fs.writeFileSync(marker("release-0"), "resume");

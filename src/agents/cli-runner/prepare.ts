@@ -161,12 +161,16 @@ import {
   resolveCliExecutionTarget,
   retainCliPluginExecutionConsumer,
 } from "./execution-target.js";
-import { buildCliAgentSystemPrompt, isClaudeCliBackendId, normalizeCliModel } from "./helpers.js";
+import { isClaudeCliBackendId, normalizeCliModel } from "./helpers.js";
 import { prepareCliHistoryBoundary } from "./history-boundary.js";
 import { cliBackendLog } from "./log.js";
-import { buildCliMcpGrantContext, normalizeOptionalMcpContextValue } from "./mcp-grant-context.js";
+import {
+  buildCliMcpGrantContext,
+  finalizeCliMcpGrant,
+  normalizeOptionalMcpContextValue,
+} from "./mcp-grant-context.js";
 import { CLAUDE_CLI_CONTEXT_MODEL_ALIASES, detectNodeClaudePlacement } from "./prepare-claude.js";
-import { composeCliPromptContext } from "./prompt-context.js";
+import { composeCliPromptContext, prepareCliSystemPrompt } from "./prompt-context.js";
 import {
   buildCliSessionHistoryPrompt,
   hasCliSessionTranscript,
@@ -1423,21 +1427,16 @@ async function prepareCliRunContextWithinReadFence(
   const restrictedLoopbackToolsAllow =
     params.cliToolAvailability?.openClaw ??
     (promptBuildRestrictsTools ? projectedTools.map((tool) => tool.name) : undefined);
-  // Native settings can remove tools after argv selection. Only a parent runtime
-  // initialization may fill this turn's pending authority; node tools stay local.
+  // Native tools on nodes stay local.
   const projectNativeToolAuthority =
     !skipsTurnPreparation && params.disableTools !== true && !nodeClaudePlacement
       ? backendResolved.projectNativeToolAuthority
       : undefined;
-  const mcpGrantContext = mcpContextBase
-    ? {
-        ...mcpContextBase,
-        ...(restrictedLoopbackToolsAllow !== undefined
-          ? { toolsAllow: [...restrictedLoopbackToolsAllow] }
-          : {}),
-        ...(projectNativeToolAuthority ? { nativeCronCreatorToolAllowlist: null } : {}),
-      }
-    : undefined;
+  const mcpGrant = finalizeCliMcpGrant(
+    mcpContextBase,
+    restrictedLoopbackToolsAllow,
+    Boolean(projectNativeToolAuthority),
+  );
   const toolBoundExtraSystemPromptHash = params.cliToolAvailability
     ? hashCliSessionText(
         JSON.stringify([
@@ -1464,17 +1463,16 @@ async function prepareCliRunContextWithinReadFence(
   let preparedExecution: PrivateCliBackendPreparedExecution | undefined;
   try {
     const mcpClientGrant =
-      mcpLoopbackRuntime && mcpGrantContext
+      mcpLoopbackRuntime && mcpGrant
         ? prepareDeps.mintMcpLoopbackClientGrant({
-            context: mcpGrantContext,
+            ...mcpGrant,
             runtimeOwnerToken: mcpLoopbackRuntime.ownerToken,
             admittedRunContext: params.admittedRunContext,
             messageActionTurnCapability: params.messageActionTurnCapability,
             abortSignal: params.abortSignal,
             assertCurrent: params.assertCurrent,
-            // MCP owns a canonical main target even when the native callback is sessionless.
             bindQuestionAnswerAuthority: (assertActive) =>
-              bindQuestionAnswerAuthorityForSession(mcpGrantContext.sessionKey, assertActive),
+              bindQuestionAnswerAuthorityForSession(mcpGrant.context.sessionKey, assertActive),
             ...(skillLibraryAuthoring ? { skillLibraryAuthoring } : {}),
             rootedExecution,
             ...(mcpToolAuth ? { toolAuth: mcpToolAuth } : {}),
@@ -2029,7 +2027,7 @@ async function prepareCliRunContextWithinReadFence(
       ? ""
       : isSideQuestion
         ? extraSystemPrompt
-        : buildCliAgentSystemPrompt({
+        : await prepareCliSystemPrompt({
             workspaceDir,
             cwd,
             config: params.config,

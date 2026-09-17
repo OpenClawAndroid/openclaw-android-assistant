@@ -2108,9 +2108,13 @@ openclaw-settings-save-indicator:empty {
   line-height: 18px;
 }
 
-.sidebar-session-pagination__button:hover,
+.sidebar-session-pagination__button:hover:not(:disabled),
 .sidebar-session-pagination__button:focus-visible {
   color: var(--text);
+}
+
+.sidebar-session-pagination__button:disabled {
+  opacity: 0.55;
 }
 
 .sidebar-session-empty-hint {

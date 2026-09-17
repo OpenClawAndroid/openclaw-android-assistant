@@ -29,10 +29,12 @@ import {
   isAssistantInternalReasoningContentType,
 } from "./chat-display-projection.helpers.js";
 import {
+  createSubagentCoordinationHistoryProjection,
   filterVisibleProjectedHistoryMessages,
   mergeTtsSupplementMessages,
   projectSessionsSendInterSessionMessages,
   toProjectedMessages,
+  type SubagentCoordinationDisplayResolver,
 } from "./chat-display-projection.history.js";
 import { createMessageToolVisibleReplyProjection } from "./chat-display-projection.message-tool.js";
 import {
@@ -55,6 +57,7 @@ type ChatDisplayProjectionOptions = {
   stripEnvelope?: boolean;
   turnBoundaryPending?: boolean;
   assistantErrorPending?: boolean;
+  subagentCoordination?: SubagentCoordinationDisplayResolver;
 };
 
 /** Keep profile display reads local to one history page or event projection operation. */
@@ -321,6 +324,7 @@ export function isPendingAssistantError(value: unknown): boolean {
   const message = asOptionalRecord(value);
   return (
     message?.role === "assistant" &&
+    message.display !== false &&
     message.stopReason === "error" &&
     (isPureStreamErrorFallbackAssistantMessage(message) ||
       (Boolean(readSessionTranscriptRunId(message)) &&
@@ -430,7 +434,7 @@ function projectEmptyAssistantErrorMessages(
 
 type ChatHistoryRecoveryOptions = Pick<
   ChatDisplayProjectionOptions,
-  "maxChars" | "stripEnvelope" | "assistantErrorPending"
+  "maxChars" | "stripEnvelope" | "assistantErrorPending" | "subagentCoordination"
 >;
 
 function prepareChatHistoryRecoveryMessages(
@@ -476,11 +480,16 @@ function prepareChatHistoryRecoveryMessages(
 
 export function createChatHistoryRecoveryProjection(options?: ChatHistoryRecoveryOptions) {
   const mirror = createMessageToolVisibleReplyProjection();
+  const projectCoordination = createSubagentCoordinationHistoryProjection(
+    options?.subagentCoordination,
+  );
   let recovery = createRecoveredAssistantErrorProjection(options?.assistantErrorPending);
   let processedMessages = 0;
   return {
     append(messages: unknown[]) {
-      const mirrored = mirror.append(prepareChatHistoryRecoveryMessages(messages, options));
+      const mirrored = mirror.append(
+        projectCoordination(prepareChatHistoryRecoveryMessages(messages, options)),
+      );
       if (mirrored.replacedFrom !== undefined && mirrored.replacedFrom < processedMessages) {
         // A late tool result can hide an earlier delivery mirror and undo a repair.
         // Replay the same recovery owner over retained derived rows in that case.
@@ -511,6 +520,7 @@ export function projectChatDisplayMessagesWithState(
   messages: unknown[],
   options?: ChatDisplayProjectionOptions,
 ): ChatDisplayProjectionResult {
+  options?.subagentCoordination?.assertCurrent?.();
   const recoveredErrors = projectChatHistoryRecovery(messages, options);
   const projectedErrors = projectEmptyAssistantErrorMessages(recoveredErrors.messages);
   const sanitizedMessages = toProjectedMessages(
@@ -543,6 +553,7 @@ export function projectChatDisplayMessagesWithState(
   if (commentaryFallbacksObserved) {
     result.commentaryFallbacksObserved = true;
   }
+  options?.subagentCoordination?.assertCurrent?.();
   return result;
 }
 

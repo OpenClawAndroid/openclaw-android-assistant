@@ -51,7 +51,7 @@ describe("extractQuickSettingsSecurity", () => {
     expect(extractQuickSettingsSecurity({})).toMatchObject({
       browserEnabled: true,
       browserEnabledOverridden: false,
-      toolProfile: "full",
+      toolProfile: "",
       toolProfileOverridden: false,
     });
   });

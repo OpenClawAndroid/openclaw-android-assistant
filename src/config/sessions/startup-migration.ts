@@ -167,6 +167,8 @@ export function assertSessionStoreMigrationComplete(params: {
 export async function runSessionStartupMigration(params: {
   cfg: OpenClawConfig;
   env?: NodeJS.ProcessEnv;
+  agentIds?: ReadonlySet<string>;
+  assertCurrent?: () => void;
   log: SessionStartupMigrationLogger;
   handoffDatabase?: (database: OpenClawAgentDatabaseOptions) => Promise<void>;
   deps?: {
@@ -175,12 +177,15 @@ export async function runSessionStartupMigration(params: {
     resolveAllAgentSessionStoreTargetsSync?: typeof resolveAllAgentSessionStoreTargetsSync;
   };
 }): Promise<void> {
+  params.assertCurrent?.();
   const env = params.env ?? process.env;
   const resolveTargets =
     params.deps?.resolveAllAgentSessionStoreTargetsSync ?? resolveAllAgentSessionStoreTargetsSync;
   const admittedTargets = () =>
     resolveTargets(params.cfg, { env }).filter(
-      (target) => !readAgentDatabaseAdmissionRefusal(target.agentId, { env }),
+      (target) =>
+        (!params.agentIds || params.agentIds.has(target.agentId)) &&
+        !readAgentDatabaseAdmissionRefusal(target.agentId, { env }),
     );
   const targets = admittedTargets();
   // Stable installations may still have file-backed history. Only Doctor imports it;
@@ -189,6 +194,7 @@ export async function runSessionStartupMigration(params: {
   const migrateLegacyMain =
     params.deps?.migrateLegacyMainSessionKeys ?? migrateLegacyMainSessionKeys;
   const result = await migrateLegacyMain({ cfg: params.cfg, env, mode: "detect" });
+  params.assertCurrent?.();
   if (result.warnings.length > 0) {
     params.log.warn(
       `session: retired main-agent session migration warnings:\n${result.warnings.map((warning) => `- ${warning}`).join("\n")}`,
@@ -202,6 +208,7 @@ export async function runSessionStartupMigration(params: {
   );
   let pendingWorktreeSessions = 0;
   const tasks = targets.map((target) => async () => {
+    params.assertCurrent?.();
     const options = toDatabaseOptions(resolveSqliteReadScope({ ...target, env }));
     const databasePath = resolveOpenClawAgentSqlitePath(options);
     if (databases.has(databasePath) || !fs.existsSync(databasePath)) {
@@ -226,11 +233,14 @@ export async function runSessionStartupMigration(params: {
           !registeredDatabases.has(`${options.agentId}\0${databasePath}`) ||
           !isCanonicalSqliteSessionMainKeyCurrent(options, mainKey)
         ) {
-          await withOpenClawAgentDatabaseAsync(options, (database) =>
-            setCanonicalSqliteSessionMainKey(database, mainKey),
+          await withOpenClawAgentDatabaseAsync(
+            options,
+            (database) => setCanonicalSqliteSessionMainKey(database, mainKey),
+            params.assertCurrent,
           );
         }
       } catch (error) {
+        params.assertCurrent?.();
         params.log.warn(
           `session: SQLite startup maintenance failed for ${target.agentId}; continuing: ${String(error)}`,
         );
@@ -241,12 +251,15 @@ export async function runSessionStartupMigration(params: {
         await import("./session-canonical-validation-readiness.js");
       const { withSqliteCanonicalValidationWorker } =
         await import("./session-accessor.sqlite-reclamation-worker.js");
+      params.assertCurrent?.();
       await withSqliteCanonicalValidationWorker((withWorker) =>
-        certifySessionCanonicalValidationPending(options, withWorker),
+        certifySessionCanonicalValidationPending(options, withWorker, params.assertCurrent),
       );
+      params.assertCurrent?.();
       try {
         migrateWorktreeSessions ??= (await import("./worktree-workspace-migration.js"))
           .migrateManagedWorktreeCanonicalWorkspaces;
+        params.assertCurrent?.();
         const worktreeReport = await migrateWorktreeSessions({
           ...target,
           cfg: params.cfg,
@@ -255,6 +268,7 @@ export async function runSessionStartupMigration(params: {
         });
         pendingWorktreeSessions += worktreeReport.found;
       } catch (error) {
+        params.assertCurrent?.();
         params.log.warn(
           `session: SQLite startup maintenance failed for ${target.agentId}; continuing: ${String(error)}`,
         );
@@ -262,7 +276,9 @@ export async function runSessionStartupMigration(params: {
       if (params.handoffDatabase) {
         // Runtime readiness failures must propagate; only successful handoff
         // transfers the cold connection beyond this maintenance operation.
+        params.assertCurrent?.();
         await params.handoffDatabase(options);
+        params.assertCurrent?.();
         handedOff = true;
       }
     } finally {
@@ -281,6 +297,7 @@ export async function runSessionStartupMigration(params: {
   if (hasError) {
     throw firstError;
   }
+  params.assertCurrent?.();
   if (pendingWorktreeSessions > 0) {
     params.log.warn(
       `session: ${pendingWorktreeSessions} managed-worktree session(s) need canonical workspace repair; run openclaw doctor --fix`,

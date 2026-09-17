@@ -244,12 +244,6 @@ function formatUnsupportedRemoteOperation(operation: SystemAgentOperation): stri
       "Run `openclaw setup` locally and say `connect " + operation.channel + "` instead.",
     ].join(" ");
   }
-  if (operation.kind === "model-setup") {
-    return [
-      "OpenClaw rescue cannot host model-provider credential setup from a message channel.",
-      "Run `openclaw onboard` locally; it live-tests the candidate route before saving it.",
-    ].join(" ");
-  }
   if (operation.kind === "doctor-fix") {
     return [
       "OpenClaw rescue cannot run doctor repairs from a message channel because they can change the inference route powering this session.",

@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import { isMainThread, threadId } from "node:worker_threads";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import * as registryRead from "../../agents/subagents/registry/subagent-registry-read.js";
+import * as sessionStore from "../../config/sessions/combined-store-gateway.js";
 import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
 import {
   areDiagnosticsEnabledForProcess,
@@ -18,7 +19,6 @@ import { createDeferredCore } from "../../shared/deferred.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import * as titleReader from "../session-transcript-title-reader.js";
 import * as rowProjection from "../session-utils-row.js";
-import * as sessionUtils from "../session-utils.js";
 import {
   identifiedClient,
   listSessions,
@@ -103,17 +103,26 @@ function expectNoCpuFields(record: unknown, fields: readonly string[] = threadCp
   }
 }
 
-function controlProjectionWork(hooks?: { afterPreparation?: () => void; afterRow?: () => void }) {
+function controlProjectionWork(hooks?: {
+  afterStoreLoad?: () => void;
+  afterPreparation?: () => void;
+  afterRow?: () => void;
+}) {
   vi.spyOn(performance, "now").mockImplementation(() => clock);
-  const load = sessionUtils.loadCombinedSessionStoreForGatewayCore;
-  vi.spyOn(sessionUtils, "loadCombinedSessionStoreForGatewayCore").mockImplementation((...args) => {
-    try {
-      return load(...args);
-    } finally {
-      cpu.user += 650;
-      cpu.system += 100;
-    }
-  });
+  const load = sessionStore.loadCombinedSessionStoreForGatewayAsync;
+  vi.spyOn(sessionStore, "loadCombinedSessionStoreForGatewayAsync").mockImplementation(
+    (...args) => {
+      try {
+        return load(...args).then((store) => {
+          hooks?.afterStoreLoad?.();
+          return store;
+        });
+      } finally {
+        cpu.user += 650;
+        cpu.system += 100;
+      }
+    },
+  );
   const readRowInputs = rowProjection.readSessionRowInputs;
   vi.spyOn(rowProjection, "readSessionRowInputs").mockImplementation((...args) => {
     try {
@@ -350,7 +359,7 @@ test.each([
   },
 );
 
-test("separates producer CPU from registry readiness, yielded work, and followers", async () => {
+test("separates producer CPU from async waits, yielded work, and followers", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
     const config = await seedSessions();
     const context = requestContext(config);
@@ -361,6 +370,9 @@ test("separates producer CPU from registry readiness, yielded work, and follower
     let projectedRows = 0;
     const rowsAtYield: number[] = [];
     const projection = controlProjectionWork({
+      afterStoreLoad: () => {
+        cpu.user += 500_000;
+      },
       afterRow: () => {
         projectedRows++;
         clock += 20;

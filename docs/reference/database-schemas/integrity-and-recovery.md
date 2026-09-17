@@ -32,15 +32,15 @@ operations, the daily verifier, or explicit maintenance instead of a full scan
 on each reopen. Schema, ownership, and current write authority are never borrowed
 from the integrity result.
 
-The Gateway startup preflight reads schema headers only. For ordinary rollback-mode agent databases and complete WAL families, a read-only child reads the schema version and optional writer build in one fresh SQLite transaction, including committed WAL changes, without copying unrelated database contents. Its source-reader lease stays held through native close; cancellation and timeout wait for child closure. Parent-side diagnostics do not open or close the live agent file, preserving the parent's SQLite locks. As with the previous online-backup reader, native SQLite may update SHM read marks or rebuild existing SHM after a quiescent family reopens; the database and WAL contents remain unchanged. These headers are not cached compatibility or integrity proof: full readiness and writable admission retain their existing validation and fresh authority checks.
+Schema compatibility preflight can read agent schema headers without a full integrity scan. For ordinary rollback-mode agent databases and complete WAL families, a read-only child reads the schema version and optional writer build in one fresh SQLite transaction, including committed WAL changes, without copying unrelated database contents. Its source-reader lease stays held through native close; cancellation and timeout wait for child closure. Parent-side diagnostics do not open or close the live agent file, preserving the parent's SQLite locks. As with the previous online-backup reader, native SQLite may update SHM read marks or rebuild existing SHM after a quiescent family reopens; the database and WAL contents remain unchanged. These headers are not cached compatibility or integrity proof: full readiness and writable admission retain their existing validation and fresh authority checks.
 
 Private snapshots remain necessary inside owner-held source-exclusion or canonical-mutation scopes, for incomplete WAL families whose inspection would create source sidecars, and for rollback journals requiring private recovery. Those cases use the existing snapshot owner and deadline; ordinary inspection errors do not trigger a full-copy fallback. Shared-state preflight is unchanged. `openclaw database preflight` performs the release-local shape comparison for an explicit copied file. The background verifier also scans already-open databases about once daily.
 
 Schema-only agent inspections during Doctor and restart checks read metadata in
 a child process, within one SQLite read transaction, without copying the whole
 database. Empty files, rollback journals, incomplete WAL sidecars, and
-owner-provided snapshots retain the private snapshot path. Full startup integrity
-admission, writable-open integrity checks, and repair validation remain unchanged.
+owner-provided snapshots retain the private snapshot path. Startup readiness also
+performs the full integrity and foreign-key checks described below.
 
 Memory search and maintenance managers borrow the verified per-agent connection. Acquisition does not reopen or rescan a healthy shared handle. Native and transformed plugin modules share the same process-owned connection lifecycle, query cache, and commit observers. Nested synchronous writes use SQLite savepoints on that connection. A manager retains that exact connection against cache eviction until its work drains, then releases its borrow without closing the database. Explicit quarantine and disposal still revoke it. Full memory rebuilds use separate temporary shadow databases and publish their derived tables in one synchronous transaction. Read-only memory status keeps its separate diagnostic connection and does not create or migrate a missing database.
 
@@ -91,6 +91,37 @@ for native close before accepting the result or releasing its scope. The source
 database and WAL remain unchanged; native WAL readers may update SHM read marks.
 Admission before the migration lease and the fresh check before migration writes
 remain separate, with no cached readiness result shared between them.
+
+### Startup on multi-agent hosts
+
+Current development builds already limit startup agent-database checks and
+session startup maintenance to two databases at a time. Each inspection's
+size-derived foreground allowance starts when its scheduled inspection begins, so waiting for a
+slot does not consume it. For example, a 267.5 MiB database without sidecars gets
+635 seconds. These concurrency and budget improvements precede the background
+startup recovery described here; installed releases can have shorter budgets
+and different concurrency.
+
+During startup, reaching the inspection's foreground deadline records a warning
+and marks that agent **degraded** while the Gateway continues with healthy agents.
+Its sessions remain unavailable, and its database is excluded from automatic
+migration and ordinary writes. The inspection continues in the background within
+the same concurrency limit. Expiring the wait does not establish corruption.
+
+A successful inspection alone does not make the agent available. The Gateway
+first refreshes its credentials and completes that agent's session validation,
+transcript preparation, and model preparation, with current database and runtime ownership checked before
+publication. Only then does it clear the pending refusal. A failed inspection or
+preparation leaves the agent degraded with the recorded reason; it does not stop
+healthy agents. Shared-state database failures retain their existing startup
+checks.
+
+Inspect `openclaw gateway call agents.list --json` or Gateway logs for the affected
+agent and reason. If the check fails, follow that reason's repair guidance; stop the Gateway
+before running `openclaw doctor --fix` against the same state directory or
+restoring the affected database from a verified backup. Restart after repair.
+Gateway shutdown cancels and joins pending inspections and preparation before
+releasing their owners. A result arriving during shutdown cannot readmit an agent.
 
 Integrity-child timeout and incomplete-exit errors include `lastObservedPhase`:
 

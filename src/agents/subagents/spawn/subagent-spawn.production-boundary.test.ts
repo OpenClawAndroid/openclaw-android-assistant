@@ -6,6 +6,7 @@ import { createDeferred } from "../../../../test/helpers/promise.js";
 import {
   clearConfigCache,
   clearRuntimeConfigSnapshot,
+  getRuntimeConfig,
   type OpenClawConfig,
 } from "../../../config/config.js";
 import {
@@ -62,6 +63,7 @@ import {
   getPreparedModelRuntimeMocks,
   resetPreparedModelRuntimeHarness,
 } from "../../prepared-model-runtime.test-harness.js";
+import { ModelRegistry } from "../../sessions/model-registry.js";
 import { createAgentsWaitTool } from "../../tools/agents-wait-tool.js";
 import {
   createAdmittedGatewayToolCallerIdentity,
@@ -156,6 +158,9 @@ beforeEach(async () => {
   stateDir = state.stateDir;
   runtimeConfig = await writeTestConfig();
   const preparedRuntime = getPreparedModelRuntimeMocks();
+  preparedRuntime.modelRegistry.fork.mockImplementation((authStorage) =>
+    ModelRegistry.inMemory(authStorage),
+  );
   const model = {
     api: "openai-completions" as const,
     baseUrl: "https://example.invalid/v1",
@@ -204,7 +209,7 @@ afterEach(async ({ task }) => {
 });
 
 async function createBoundParent() {
-  const cfg = runtimeConfig;
+  const cfg = getRuntimeConfig();
   const storePath = await writeSubagentSessionEntry({
     stateDir,
     agentId: "main",

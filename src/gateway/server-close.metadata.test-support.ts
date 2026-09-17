@@ -1,6 +1,8 @@
 // Shared real Gateway metadata/cache fixture; spies live only during acquisition.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { Socket } from "node:net";
 import path from "node:path";
 import { vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -17,6 +19,7 @@ import {
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createGatewayKernel } from "./server-kernel.js";
 import type { GatewayServer, GatewayServerOptions } from "./server-public.js";
+import { createGatewayHttpTransport } from "./server-runtime-state.js";
 import { startGatewayServerCore } from "./server-start.js";
 
 export async function createGatewayMetadataCloseFixture(label: string) {
@@ -89,7 +92,32 @@ export async function createGatewayMetadataCloseFixture(label: string) {
   };
   const kernels = new Map<number, Awaited<ReturnType<typeof createGatewayKernel>>>();
   const servers: GatewayServer[] = [];
+  const reservedListeners = new Map<number, Server>();
+  const rejectEarlyConnection = (socket: Socket) => socket.destroy();
+  const closeListener = async (listener: Server) => {
+    if (listener.listening) {
+      await new Promise<void>((resolve, reject) => {
+        listener.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  };
+  const reservePort = async (port = 0) => {
+    const listener = createServer();
+    listener.on("connection", rejectEarlyConnection);
+    await new Promise<void>((resolve, reject) => {
+      listener.once("error", reject);
+      listener.listen(port, "127.0.0.1", () => {
+        listener.off("error", reject);
+        resolve();
+      });
+    });
+    const address = listener.address();
+    assert(address && typeof address !== "string");
+    reservedListeners.set(address.port, listener);
+    return address.port;
+  };
   const create = createGatewayKernel;
+  const createTransport = createGatewayHttpTransport;
   setActivePluginRegistry(createEmptyPluginRegistry());
   return {
     state,
@@ -101,6 +129,7 @@ export async function createGatewayMetadataCloseFixture(label: string) {
     event,
     listeners,
     writeCallback,
+    reservePort: () => reservePort(),
     loadCallback(metadata: PluginMetadataSnapshot) {
       const record = metadata.manifestRegistry.plugins.find((entry) => entry.id === pluginId);
       assert(record);
@@ -116,6 +145,13 @@ export async function createGatewayMetadataCloseFixture(label: string) {
       });
     },
     async start(port: number, options?: GatewayServerOptions) {
+      let listener = reservedListeners.get(port);
+      assert(listener, "Reserve the Gateway listener before starting it");
+      // Explicit same-endpoint restarts bind anew after the prior Gateway closes.
+      if (!listener.listening) {
+        await reservePort(port);
+        listener = reservedListeners.get(port)!;
+      }
       const token = `metadata-close-token-${port}`;
       await state.writeConfig({
         ...config,
@@ -133,6 +169,9 @@ export async function createGatewayMetadataCloseFixture(label: string) {
           kernels.set(args[0] ?? 18789, kernel);
           return kernel;
         });
+      const transport = vi
+        .spyOn(await import("./server-runtime-state.js"), "createGatewayHttpTransport")
+        .mockImplementation((params) => createTransport({ ...params, testListener: listener }));
       let server: GatewayServer;
       try {
         server = await startGatewayServerCore(port, {
@@ -143,15 +182,23 @@ export async function createGatewayMetadataCloseFixture(label: string) {
           ...options,
         });
         servers.push(server);
+      } catch (error) {
+        await closeListener(listener);
+        throw error;
       } finally {
         factory.mockRestore();
+        transport.mockRestore();
       }
+      listener.off("connection", rejectEarlyConnection);
       await server.startupSettled;
       return server;
     },
     async cleanup() {
       for (const server of servers.toReversed()) {
         await server.close().catch(() => {});
+      }
+      for (const listener of reservedListeners.values()) {
+        await closeListener(listener);
       }
       restoreActivePluginRegistrySnapshot(original);
       await state.cleanup();

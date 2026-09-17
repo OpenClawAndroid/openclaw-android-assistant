@@ -1,13 +1,15 @@
 import { expectDefined } from "@openclaw/normalization-core";
-import type { SessionEntry } from "../config/sessions.js";
 import {
   listSessionEntriesCore as listAccessorSessionEntries,
   listSessionEntriesReadOnly as listAccessorSessionEntriesReadOnly,
   loadExactSessionEntryCandidates,
   loadExactSessionEntryCandidatesReadOnlyBatch,
-  type SessionEntryListScope,
-  type SessionEntryReadSource,
 } from "../config/sessions/session-accessor.js";
+import type {
+  SessionEntryListScope,
+  SessionEntryReadSource,
+} from "../config/sessions/session-accessor.types.js";
+import type { SessionEntry } from "../config/sessions/types.js";
 
 /**
  * Request-scoped store reuse.

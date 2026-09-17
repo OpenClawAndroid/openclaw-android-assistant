@@ -205,6 +205,15 @@ describe("SQLite worker store", () => {
         expect(frames.every((frame) => frame.backingBytes <= SQLITE_WORKER_MAX_RESULT_BYTES)).toBe(
           true,
         );
+        if (action === "read") {
+          const ownership = await store.execute({ type: "takeReplyOwnership", input: undefined });
+          expect(ownership.some((reply) => reply.kind === "inline")).toBe(true);
+          expect(ownership.filter((reply) => reply.kind === "frame")).toHaveLength(frames.length);
+          for (const reply of ownership) {
+            expect(reply.before).toBeGreaterThan(0);
+            expect.soft(reply.after, `${reply.kind} reply (${reply.before} bytes)`).toBe(0);
+          }
+        }
       } finally {
         messages.mockRestore();
         requests.mockRestore();

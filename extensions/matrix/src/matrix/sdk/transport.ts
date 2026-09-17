@@ -311,6 +311,7 @@ export function createMatrixGuardedFetch(params: {
   dispatcherPolicy?: PinnedDispatcherPolicy;
   captureRequestAuthority?: () => (() => void) | undefined;
   signal?: AbortSignal;
+  captureRequestSignal?: () => AbortSignal | undefined;
   beforeRequest?: (resource: RequestInfo | URL, init?: RequestInit) => Promise<void> | undefined;
 }): typeof fetch {
   return (async (resource: RequestInfo | URL, init?: RequestInit) => {
@@ -318,10 +319,10 @@ export function createMatrixGuardedFetch(params: {
     assertCurrent?.();
     const url = withoutMatrixStateAfterSyncParam(toFetchUrl(resource));
     const { signal, ...requestInit } = init ?? {};
-    const requestSignal =
-      params.signal && signal
-        ? AbortSignal.any([params.signal, signal])
-        : (params.signal ?? signal ?? undefined);
+    const signals = [params.signal, signal, params.captureRequestSignal?.()].filter(
+      (candidate): candidate is AbortSignal => candidate != null,
+    );
+    const requestSignal = signals.length > 0 ? AbortSignal.any(signals) : undefined;
     const beforeRequest = params.beforeRequest;
     const { response, release } = await fetchWithMatrixGuardedRedirects({
       url,

@@ -141,6 +141,41 @@ function toolsEffectiveResult() {
 }
 
 describe("AgentsListResultSchema", () => {
+  it.each([
+    { code: "agent-database-ownership-mismatch", embeddedOwnerId: "main", accepted: true },
+    { code: "agent-database-ownership-mismatch", accepted: false },
+    { code: "agent-database-inspection-pending", accepted: true },
+    { code: "agent-database-inspection-failed", accepted: true },
+    { code: "agent-database-inspection-pending", embeddedOwnerId: "main", accepted: false },
+    { code: "agent-database-inspection-failed", embeddedOwnerId: "main", accepted: false },
+    { code: "unknown", accepted: false },
+  ])(
+    "validates admission refusal $code with owner $embeddedOwnerId: $accepted",
+    ({ code, embeddedOwnerId, accepted }) => {
+      expect(
+        Value.Check(AgentsListResultSchema, {
+          defaultId: "main",
+          mainKey: "main",
+          scope: "per-sender",
+          agents: [
+            {
+              id: "worker",
+              status: "degraded",
+              admissionRefusal: {
+                agentId: "worker",
+                paths: ["/state/agents/worker/agent/openclaw-agent.sqlite"],
+                code,
+                ...(embeddedOwnerId ? { embeddedOwnerId } : {}),
+                reason: "The agent database is unavailable.",
+                repairHint: "Inspect the reported database before retrying.",
+              },
+            },
+          ],
+        }),
+      ).toBe(accepted);
+    },
+  );
+
   it.each([undefined, "read-only", "guarded", "workspace", "full"])(
     "accepts optional configured permission label %s but rejects non-session modes",
     (defaultPermissionMode) => {

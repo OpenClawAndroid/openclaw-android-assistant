@@ -1,6 +1,5 @@
-import { MessageChannel } from "node:worker_threads";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
-import { createDeferred } from "../../test/helpers/promise.js";
 import { runQaGatewayFixture } from "../../test/helpers/qa-gateway-cleanup.js";
 import { getActiveGatewayRootWorkCount } from "../process/gateway-work-admission.js";
 import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.js";
@@ -12,7 +11,7 @@ import * as lifecycleRuntime from "./server-lifecycle.js";
 
 describe("Gateway startup scheduling", () => {
   it.each([false, true])(
-    "services queued I/O after preparing shutdown (cancel: %s)",
+    "services queued tasks after preparing shutdown (cancel: %s)",
     async (cancel) => {
       const port = await getDeterministicFreePortBlock({ offsets: [0] });
       const token = "gateway-startup-fairness-token-1234567890";
@@ -35,26 +34,21 @@ describe("Gateway startup scheduling", () => {
         },
       });
       const events: string[] = [];
-      const { port1, port2 } = new MessageChannel();
       const prepareLifecycle = lifecycleRuntime.prepareGatewayLifecycle;
       const startCore = coreRuntime.startGatewayCoreRuntime;
       let kernel: Awaited<ReturnType<typeof createGatewayKernel>> | undefined;
-      let pendingIo: Promise<void> | undefined;
+      let pendingTask: Promise<void> | undefined;
       vi.spyOn(lifecycleRuntime, "prepareGatewayLifecycle").mockImplementation(async (params) => {
         const prepared = await prepareLifecycle(params);
         events.push("shutdown prepared");
-        const io = createDeferred();
-        pendingIo = io.promise;
-        void pendingIo.catch(() => {});
-        port1.once("message", () => {
-          events.push("I/O");
+        // Queue in the kernel's timer phase; message-port ordering relative to timers varies.
+        pendingTask = delay(0).then(async () => {
+          events.push("queued task");
           if (cancel) {
-            void prepared.beginClosePrelude().then(io.resolve, io.reject);
-          } else {
-            io.resolve();
+            await prepared.beginClosePrelude();
           }
         });
-        port2.postMessage("pending I/O");
+        void pendingTask.catch(() => {});
         return prepared;
       });
       const start = vi
@@ -77,26 +71,24 @@ describe("Gateway startup scheduling", () => {
           if (cancel) {
             await expect(startup).rejects.toThrow();
             expect(start).not.toHaveBeenCalled();
-            expect(events).toEqual(["shutdown prepared", "I/O"]);
+            expect(events).toEqual(["shutdown prepared", "queued task"]);
             expect(getActiveGatewayRootWorkCount()).toBe(0);
             expect(getActiveSecretsRuntimeConfigSnapshot()).toBeNull();
           } else {
             kernel = await startup;
-            expect(events).toEqual(["shutdown prepared", "I/O", "core startup"]);
+            expect(events).toEqual(["shutdown prepared", "queued task", "core startup"]);
             expect(kernel.startupState.dispatchReady).toBe(false);
             expect(kernel.lifecycle.closePreludeStarted).toBe(false);
           }
         },
         async () => {
-          await pendingIo;
+          await pendingTask;
         },
         async () => {
           await kernel?.closeOnStartupFailure();
         },
         async () => {
           vi.restoreAllMocks();
-          port1.close();
-          port2.close();
           await state.cleanup();
         },
       );

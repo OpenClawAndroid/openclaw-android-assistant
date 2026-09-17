@@ -20,6 +20,9 @@ import type { runQaFlowSuiteCleanupPlan } from "./suite.js";
 import { createTempDirHarness } from "./temp-dir.test-helper.js";
 
 const mocks = vi.hoisted(() => ({
+  captureTransportArtifacts: vi.fn(async () => ({
+    artifacts: [{ kind: "channel-driver-smoke" as const, path: "readiness.json" }],
+  })),
   captureRuntimeParityCell: vi.fn(async (params: { runtime: "codex"; wallClockMs: number }) => ({
     runtime: params.runtime,
     transcriptBytes: "",
@@ -89,7 +92,7 @@ vi.mock("./suite.js", async (importOriginal) => ({
   buildQaSuiteRuntimeMetrics: vi.fn(() => ({ wallMs: 1 })),
   captureGatewayHeapSnapshotCheckpoint: vi.fn(async () => undefined),
   createQaSuiteTransportAdapter: vi.fn(async () => ({
-    adapter: { id: "qa-channel" },
+    adapter: { id: "qa-channel", captureArtifacts: mocks.captureTransportArtifacts },
     cleanupBeforeGatewayStop: vi.fn(async () => {}),
     cleanupAfterGatewayStop: vi.fn(async () => {}),
   })),
@@ -574,6 +577,17 @@ describe("QA runtime parity scenario retry isolation", () => {
         ),
       });
       expect(runScenario).toHaveBeenCalledTimes(finishedCount);
+      expect(mocks.captureTransportArtifacts).toHaveBeenCalledOnce();
+      expect(mocks.captureTransportArtifacts.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.runQaFlowSuiteCleanupPlan.mock.invocationCallOrder[0]!,
+      );
+      expect(mocks.writeQaSuiteArtifacts).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transportArtifacts: {
+            artifacts: [{ kind: "channel-driver-smoke", path: "readiness.json" }],
+          },
+        }),
+      );
       expect(mocks.writeQaSuiteArtifacts.mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(lab.setLatestReport).mock.invocationCallOrder[0]!,
       );

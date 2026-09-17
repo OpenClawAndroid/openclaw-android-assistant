@@ -1,9 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
-import { iterateSqliteQuerySync } from "../../infra/kysely-sync.js";
+import { getNodeSqliteKysely, iterateSqliteQuerySync } from "../../infra/kysely-sync.js";
 import { stageSqliteTransactionState } from "../../infra/sqlite-post-commit.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
+import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
 import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
-import { getSessionKysely } from "./session-accessor.sqlite-scope.js";
 import {
   getSessionMaintenanceActivityAt,
   shouldPreserveMaintenanceEntry,
@@ -146,7 +146,7 @@ export function recordSessionEntryMaintenanceAgeFact(
     next,
     recheckAt: plannedAt + SESSION_ENTRY_MAINTENANCE_INTERVAL_MS,
   };
-  const query = getSessionKysely(database.db)
+  const query = getNodeSqliteKysely<Pick<OpenClawAgentKyselyDatabase, "session_nodes">>(database.db)
     .selectFrom("session_nodes")
     .select(["session_key", "updated_at", "last_activity_at", "last_interaction_at"])
     .select((eb) =>

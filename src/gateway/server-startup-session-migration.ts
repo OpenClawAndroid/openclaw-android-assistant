@@ -53,6 +53,7 @@ function isUnsettledPredecessor(entry: InternalSessionEntry): boolean {
 async function reconcileStartupOrphans(
   database: OpenClawAgentDatabaseOptions,
   log: SessionStartupMigrationLogger,
+  assertCurrent?: () => void,
 ) {
   const env = database.env ?? process.env;
   const statePath = resolveOpenClawStateSqlitePath(env);
@@ -64,6 +65,7 @@ async function reconcileStartupOrphans(
     return;
   }
   const assertGatewayOwner = () => {
+    assertCurrent?.();
     const lease = readGatewayOwnerLease({ env, current: true });
     if (
       !hasGatewayLifecycleCoordinator({ databasePath: statePath }) ||
@@ -135,6 +137,8 @@ async function reconcileStartupOrphans(
 export async function runStartupSessionMigration(params: {
   cfg: OpenClawConfig;
   env?: NodeJS.ProcessEnv;
+  agentIds?: ReadonlySet<string>;
+  assertCurrent?: () => void;
   log: SessionStartupMigrationLogger;
   deps?: SessionMigrationDeps;
 }): Promise<void> {
@@ -144,15 +148,18 @@ export async function runStartupSessionMigration(params: {
     ...params,
     handoffDatabase: async (database) => {
       try {
-        await reconcileStartupOrphans(database, params.log);
+        await reconcileStartupOrphans(database, params.log, params.assertCurrent);
       } catch (error) {
+        params.assertCurrent?.();
         params.log.warn(
           `session: retained startup orphans because ownership could not be verified: ${String(error)}`,
         );
       }
       reconcile ??= (await import("../config/sessions/session-transcript-reconcile.js"))
         .reconcileSessionTranscriptIndexes;
+      params.assertCurrent?.();
       const result = await reconcile(database);
+      params.assertCurrent?.();
       reconciledSessions += result.reconciledSessions;
     },
   });

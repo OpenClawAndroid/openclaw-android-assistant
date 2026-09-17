@@ -42,6 +42,10 @@ import { MatrixDecryptBridge } from "./sdk/decrypt-bridge.js";
 import { clearAllIndexedDbState } from "./sdk/idb-persistence.test-helpers.js";
 import { LogService } from "./sdk/logger.js";
 
+vi.mock("./sdk/joined-room-encryption.js", () => ({
+  reconcileJoinedRoomEncryption: vi.fn(async () => undefined),
+}));
+
 const createSharedMatrixClientMock = vi.hoisted(() => vi.fn());
 const captureReadAuthorityMock = vi.hoisted(() => vi.fn<() => (() => void) | undefined>());
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
@@ -2984,21 +2988,6 @@ describe("MatrixClient crypto bootstrapping", () => {
     await stopStartedClients();
     vi.useRealTimers();
     vi.restoreAllMocks();
-  });
-
-  it("passes cryptoDatabasePrefix into initRustCrypto", async () => {
-    matrixJsClient.getCrypto = vi.fn(() => undefined);
-
-    const client = new MatrixClient("https://matrix.example.org", "token", {
-      encryption: true,
-      cryptoDatabasePrefix: "openclaw-matrix-test",
-    });
-
-    await client.start();
-
-    expect(matrixJsClient.initRustCrypto).toHaveBeenCalledWith({
-      cryptoDatabasePrefix: "openclaw-matrix-test",
-    });
   });
 
   it("does not persist or start sync when startup aborts during crypto initialization", async () => {

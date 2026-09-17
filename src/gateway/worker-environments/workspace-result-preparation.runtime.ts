@@ -1,4 +1,4 @@
-import { ownedGitWorkerBytes } from "../../infra/git-worker-context.js";
+import { ownedWorkerBytes } from "../../infra/worker-transfer-bytes.js";
 import { runTasksWithConcurrency } from "../../utils/run-with-concurrency.js";
 import { readWorkspaceFileContentsWithLimit } from "./workspace-actual-manifest.js";
 import { parseChangedWorkspaceResult } from "./workspace-manifest-comparison.js";
@@ -134,5 +134,5 @@ export async function buildWorkspaceStageInput(
     chunks.push(Buffer.from(`M ${mode} :${blob.mark} ${quoteFastImportPath(blob.entry.path)}\n`));
   }
   chunks.push(Buffer.from("done\n"));
-  return ownedGitWorkerBytes(Buffer.concat(chunks));
+  return ownedWorkerBytes(Buffer.concat(chunks));
 }

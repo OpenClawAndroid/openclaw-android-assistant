@@ -853,7 +853,7 @@ NODE
     "${OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_MANIFEST_SHA256:-}" \
     "$fixture_root" \
     plugin_registry_pid \
-    "${registry_args[@]}"
+    ${registry_args[@]+"${registry_args[@]}"}
 }
 
 seed_legacy_runtime_deps_symlink() {
@@ -2021,6 +2021,39 @@ backup_project_worktree_fixture() {
     >"$ARTIFACT_ROOT/worktree-backup.json" 2>"$ARTIFACT_ROOT/worktree-backup.err"
 }
 
+prepare_project_worktree_startup_fixture() (
+  # The parent phase owns failure and cleanup; this child only prepares published state.
+  trap - ERR EXIT HUP INT TERM
+  local published_identity="$ARTIFACT_ROOT/baseline-package-identity.json"
+  ARTIFACT_ROOT="$ARTIFACT_ROOT/worktree-startup"
+  export OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT="$ARTIFACT_ROOT"
+  mkdir "$ARTIFACT_ROOT"
+  cp "$published_identity" "$ARTIFACT_ROOT/baseline-package-identity.json"
+  openclaw_test_state_create "$RUNTIME_ROOT/worktree-startup-state" minimal
+  node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs seed "$(package_root)"
+  backup_project_worktree_fixture
+  run_project_worktree_import dry-run
+  run_project_worktree_import import
+  node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs assert-import "$ARTIFACT_ROOT/worktree-import.json"
+  node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs snapshot published-import "$(package_root)" -
+  openclaw_e2e_write_state_env "$ARTIFACT_ROOT/state-env"
+)
+
+run_project_worktree_startup_fixture() {
+  OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT="$ARTIFACT_ROOT/worktree-startup" \
+    node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs "$@"
+}
+
+run_project_worktree_doctor() {
+  openclaw_e2e_maybe_timeout "$COMMAND_TIMEOUT" env \
+    -u OPENCLAW_UPDATE_IN_PROGRESS \
+    -u OPENCLAW_UPDATE_POST_CORE_CONVERGENCE \
+    -u OPENCLAW_UPDATE_PARENT_SUPPORTS_DOCTOR_CONFIG_WRITE \
+    -u OPENCLAW_UPDATE_DEFER_CONFIGURED_PLUGIN_INSTALL_REPAIR \
+    openclaw doctor --fix --non-interactive \
+    >"$ARTIFACT_ROOT/worktree-doctor.log" 2>&1
+}
+
 validate_worker_cell() {
   if [ "$WORKER_CELL" != "1" ]; then
     return 0
@@ -2049,6 +2082,7 @@ if [ "$WORKER_CELL" = "1" ]; then
     phase import-project-worktree run_project_worktree_import import
     phase assert-project-worktree-import node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs assert-import "$ARTIFACT_ROOT/worktree-import.json"
     phase snapshot-published-worktree node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs snapshot published-import "$(package_root)" -
+    phase prepare-independent-worktree-startup prepare_project_worktree_startup_fixture
   else
     phase seed-taskflow node scripts/e2e/lib/upgrade-survivor/taskflow-restoration.mjs seed --package-root "$(package_root)"
   fi
@@ -2071,7 +2105,16 @@ if [ "$WORKER_CELL" = "1" ]; then
       assert-doctor "$ARTIFACT_ROOT/projects-doctor-repeat.json" before-repeat after-repeat
     phase assert-projects-preservation node scripts/e2e/lib/upgrade-survivor/projects-doctor.mjs assert-final
   elif [ "$SCENARIO" = "projects-startup-migration" ]; then
-    phase snapshot-before-worktree-startup node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs \
+    phase assert-update-doctor-worktree-repair node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs \
+      snapshot after-update "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
+    cp "$ARTIFACT_ROOT/installed-package-identity.json" "$ARTIFACT_ROOT/worktree-startup/installed-package-identity.json"
+    source "$ARTIFACT_ROOT/worktree-startup/state-env"
+    export USERPROFILE="$HOME"
+    phase snapshot-before-worktree-schema run_project_worktree_startup_fixture \
+      snapshot before-schema "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
+    phase prepare-worktree-schema run_project_worktree_startup_fixture \
+      prepare-schema "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
+    phase snapshot-before-worktree-startup run_project_worktree_startup_fixture \
       snapshot before-startup "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
     for startup in first second; do
       GATEWAY_LOG="$ARTIFACT_ROOT/worktree-$startup-gateway.log"
@@ -2080,10 +2123,15 @@ if [ "$WORKER_CELL" = "1" ]; then
       phase "$startup-worktree-gateway-start" start_gateway
       phase "$startup-worktree-gateway-probes" check_gateway_probes
       phase "$startup-worktree-gateway-stop" stop_gateway
-      phase "assert-$startup-worktree-startup-log" node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs \
+      phase "assert-$startup-worktree-startup-log" run_project_worktree_startup_fixture \
         assert-logs "$startup" "$GATEWAY_LOG"
-      phase "snapshot-$startup-worktree-stop" node scripts/e2e/lib/upgrade-survivor/project-worktree-startup.mjs \
+      phase "snapshot-$startup-worktree-stop" run_project_worktree_startup_fixture \
         snapshot "after-$startup-stop" "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
+      if [ "$startup" = first ]; then
+        phase repair-project-worktree run_project_worktree_doctor
+        phase snapshot-after-worktree-doctor run_project_worktree_startup_fixture \
+          snapshot after-doctor "$(package_root)" "$OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS"
+      fi
     done
   else
     phase gateway-start start_gateway

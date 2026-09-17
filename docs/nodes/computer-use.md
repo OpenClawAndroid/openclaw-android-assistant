@@ -25,7 +25,7 @@ Provider selection never falls back per action. Switching providers closes the a
 - **Windows/Linux fulfiller:** bundled `cua-computer` plugin enabled on Windows x64/ARM64 or glibc-based Linux x64/ARM64. Its package includes the pinned CUA Driver SDK runtime; no `cua-driver` executable, daemon, or MCP server is configured.
 - For a node, the pairing update that includes `computer.act` approved on the Gateway. The Gateway's own computer does not require a paired node.
 - A vision-capable agent model.
-- Tool policy that exposes `computer`. The default `coding` profile does not. Add `computer` to `tools.alsoAllow`; ordinary sandboxed agents also need it in `tools.sandbox.tools.alsoAllow`. A cloud session's bound desktop is included in its default sandbox policy, while explicit allowlists and denies still apply.
+- Tool policy that exposes `computer`. Local onboarding selects Full when no profile is configured, but preserves an explicit `coding` profile, which excludes it. For Coding, add `computer` to `tools.alsoAllow`; ordinary sandboxed agents also need it in `tools.sandbox.tools.alsoAllow`. A cloud session's bound desktop is included in its default sandbox policy, while explicit allowlists and denies still apply. Full tool selection does not grant computer-control permissions. See [Tool profiles](/gateway/config-tools/tool-policy#tool-profiles).
 
 ## Gateway desktop
 
@@ -254,7 +254,7 @@ Reads reuse `screen.snapshot`; there is no second capture path. See [Camera and 
 
 1. Enable the platform fulfiller: on macOS, **Dashboard → Settings → This Mac → Capabilities → Allow Computer Control** starts enabled, then choose Peekaboo or CUA and grant **Accessibility** and **Screen Recording** under **This Mac → Permissions**; on Windows/Linux, follow the experimental `cua-computer` setup above.
 2. For a node target, approve the pairing update on the Gateway (a new command forces re-pairing). A Gateway target uses its locally enabled provider without node pairing.
-3. Expose the tool to the vision-capable agent. For the default `coding` profile:
+3. Expose the tool to the vision-capable agent. For an explicit `coding` profile:
 
    ```json5
    {

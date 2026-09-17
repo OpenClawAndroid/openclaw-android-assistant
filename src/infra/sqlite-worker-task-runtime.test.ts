@@ -14,13 +14,11 @@ import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { createPluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import { createPluginRuntime } from "../plugins/runtime/index.js";
 import { resetRuntimeTaskTestState } from "../plugins/runtime/runtime-task-test-harness.js";
-import { createDeferredCore } from "../shared/deferred.js";
 import { drainGlobalSingletonLifecycleState } from "../shared/global-singleton.js";
 import {
   acquireOpenClawStateDatabaseFileExclusion,
   closeOpenClawStateDatabaseAsync,
 } from "../state/openclaw-state-db-cache.js";
-import type { DB } from "../state/openclaw-state-db.generated.js";
 import {
   closeOpenClawStateDatabase,
   openOpenClawStateDatabase,
@@ -42,7 +40,6 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
-import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
 import { SqliteSchemaVersionError } from "./sqlite-user-version.js";
 import type {
   SqliteWorkerOperations,
@@ -204,141 +201,6 @@ describe("registered tasks.async runtime", () => {
     expect(commands.get("flows.createManaged")).toBe(count);
     expect(commands.get("flows.current")).toBeLessThanOrEqual(count * 2);
   });
-
-  it.each(["read", "update", "delete", "refresh"] as const)(
-    "does not overwrite a synchronous %s with a delayed worker observation",
-    async (intervening) => {
-      const runtime = createPluginRuntime();
-      const managed = runtime.tasks.async.managedFlows.bindSession({ sessionKey: ownerKey });
-      const legacy = runtime.tasks.managedFlows.bindSession({ sessionKey: ownerKey });
-      const created = await managed.createManaged({
-        controllerId: "tests/coexistence",
-        goal: "Original flow",
-      });
-      expect(legacy.get(created.flowId)?.revision).toBe(0);
-      const tieIds = [
-        "ffffffff-ffff-4fff-8fff-ffffffffffff",
-        "00000000-0000-4000-8000-000000000001",
-      ] as const;
-      if (intervening === "update") {
-        const randomId = vi
-          .spyOn(crypto, "randomUUID")
-          .mockReturnValueOnce(tieIds[0])
-          .mockReturnValueOnce(tieIds[1]);
-        try {
-          legacy.createManaged({
-            controllerId: "tests/ties",
-            goal: "First inserted",
-            createdAt: 100,
-          });
-          legacy.createManaged({
-            controllerId: "tests/ties",
-            goal: "Second inserted",
-            createdAt: 100,
-          });
-        } finally {
-          randomId.mockRestore();
-        }
-        expect(
-          legacy
-            .list()
-            .filter((record) => record.controllerId === "tests/ties")
-            .map((record) => record.flowId),
-        ).toEqual(tieIds);
-      }
-      const held = createDeferredCore();
-      const release = createDeferredCore();
-      const original = workerStore.runSqliteWorkerStoreOperation;
-      let paused = false;
-      vi.spyOn(workerStore, "runSqliteWorkerStoreOperation").mockImplementation(
-        <Operations extends SqliteWorkerOperations, T>(
-          store: SqliteWorkerStore<Operations>,
-          operation: (scope: Pick<SqliteWorkerStore<Operations>, "execute">) => T | Promise<T>,
-          stateContext?: Parameters<typeof workerStore.runSqliteWorkerStoreOperation>[2],
-          assertCurrent?: Parameters<typeof workerStore.runSqliteWorkerStoreOperation>[3],
-        ) =>
-          original(
-            store,
-            (scope) =>
-              operation({
-                execute: async (command, options) => {
-                  const result = await scope.execute(command, options);
-                  const target =
-                    intervening === "refresh" ? "flows.current" : "flows.updateManaged";
-                  if (!paused && command.type === target) {
-                    paused = true;
-                    held.resolve();
-                    await release.promise;
-                  }
-                  return result;
-                },
-              }),
-            stateContext,
-            assertCurrent,
-          ),
-      );
-      const onEvent = vi.fn();
-      configureTaskFlowRegistryRuntime({ observers: { onEvent } });
-      const pending = managed.finish({ flowId: created.flowId, expectedRevision: 0, endedAt: 100 });
-      try {
-        await held.promise;
-        if (intervening !== "refresh") {
-          expect(legacy.get(created.flowId)).toMatchObject({ revision: 1, status: "succeeded" });
-        }
-        if (intervening === "update") {
-          expect(
-            legacy
-              .list()
-              .filter((record) => record.controllerId === "tests/ties")
-              .map((record) => record.flowId),
-          ).toEqual(tieIds);
-          expect(
-            legacy.resume({ flowId: created.flowId, expectedRevision: 1, status: "running" }),
-          ).toMatchObject({ applied: true, flow: { revision: 2, status: "running" } });
-        } else if (intervening === "delete") {
-          expect(deleteTaskFlowRecordById(created.flowId)).toBe(true);
-        } else if (intervening === "refresh") {
-          const { db } = openOpenClawStateDatabase();
-          executeSqliteQuerySync(
-            db,
-            getNodeSqliteKysely<DB>(db)
-              .updateTable("flow_runs")
-              .set({ revision: 2, goal: "Refreshed canonical flow" })
-              .where("flow_id", "=", created.flowId),
-          );
-          reloadTaskFlowRegistryFromStore();
-        }
-        onEvent.mockClear();
-        release.resolve();
-        expect(await pending).toMatchObject({
-          applied: true,
-          flow: { revision: 1, status: "succeeded" },
-        });
-        if (intervening === "delete") {
-          expect(legacy.get(created.flowId)).toBeUndefined();
-        } else {
-          expect(legacy.get(created.flowId)).toMatchObject({
-            revision: intervening === "read" ? 1 : 2,
-            ...(intervening === "read" || intervening === "update"
-              ? { status: intervening === "read" ? "succeeded" : "running" }
-              : { goal: "Refreshed canonical flow" }),
-          });
-        }
-        if (intervening === "read") {
-          expect(onEvent).toHaveBeenCalledExactlyOnceWith({
-            kind: "upserted",
-            flow: expect.objectContaining({ revision: 1, status: "succeeded" }),
-            previous: expect.objectContaining({ revision: 0, status: "queued" }),
-          });
-        } else {
-          expect(onEvent).not.toHaveBeenCalled();
-        }
-      } finally {
-        release.resolve();
-        await pending;
-      }
-    },
-  );
 
   it("keeps the application loop running while the worker waits for SQLite write admission", async () => {
     const managed = createPluginRuntime().tasks.async.managedFlows.bindSession({

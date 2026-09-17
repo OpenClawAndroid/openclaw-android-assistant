@@ -98,6 +98,7 @@ export function createAgentTurnService(
       typeof principal?.connect?.device?.id === "string" ? principal.connect.device.id : undefined;
     const dedupeLifecycle = createAgentDedupeLifecycle({
       privateCompletion,
+      inputProvenance,
       cfg,
       request,
       runId,

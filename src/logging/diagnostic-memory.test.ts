@@ -567,7 +567,8 @@ describe("diagnostic memory", () => {
         }),
         expect.objectContaining({
           level: "WARN",
-          message: "critical memory pressure snapshot disabled",
+          message:
+            "critical memory pressure snapshot disabled; run openclaw gateway call diagnostics.heapProfile --timeout 30000",
           attributes: expect.objectContaining({
             subsystem: "gateway/diagnostics/memory",
           }),

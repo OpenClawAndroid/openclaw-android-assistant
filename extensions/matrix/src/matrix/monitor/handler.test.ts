@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { MAX_DATE_TIMESTAMP_MS } from "openclaw/plugin-sdk/number-runtime";
 import {
   testing as sessionBindingTesting,
@@ -1394,10 +1395,7 @@ describe("matrix monitor handler pairing account scope", () => {
   it("waits for the shared-session notice before dispatching the DM reply", async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "matrix-dm-shared-notice-order-"));
     const storePath = path.join(tempDir, "sessions.json");
-    let resolveNotice: ((value: string) => void) | undefined;
-    const noticeSent = new Promise<string>((resolve) => {
-      resolveNotice = resolve;
-    });
+    const { promise: noticeSent, resolve: resolveNotice } = createDeferred<string>();
     const sendNotice = vi.fn(() => noticeSent);
     const dispatchInboundMessage = vi.fn(async () => ({
       counts: { block: 0, final: 0, tool: 0 },
@@ -1434,7 +1432,7 @@ describe("matrix monitor handler pairing account scope", () => {
       });
       expect(dispatchInboundMessage).not.toHaveBeenCalled();
 
-      resolveNotice?.("$notice");
+      resolveNotice("$notice");
       await handled;
 
       expect(dispatchInboundMessage).toHaveBeenCalledTimes(1);
@@ -3136,20 +3134,14 @@ describe("matrix monitor handler draft streaming", () => {
     let capturedDeliver: DeliverFn | undefined;
     let capturedOnError: ((error: unknown, info: { kind: string }) => void) | undefined;
     let capturedReplyOpts: ReplyOpts | undefined;
-    let resolveCaptured: (() => void) | undefined;
-    const captured = new Promise<void>((resolve) => {
-      resolveCaptured = resolve;
-    });
+    const { promise: captured, resolve: resolveCaptured } = createDeferred<void>();
     const notifyCaptured = () => {
       if (capturedDeliver && capturedReplyOpts) {
-        resolveCaptured?.();
+        resolveCaptured();
       }
     };
     // Gate that keeps the handler's model run alive until the test releases it.
-    let resolveRunGate: (() => void) | undefined;
-    const runGate = new Promise<void>((resolve) => {
-      resolveRunGate = resolve;
-    });
+    const { promise: runGate, resolve: resolveRunGate } = createDeferred<void>();
 
     sendMessageMatrixMock.mockReset().mockResolvedValue({ messageId: "$draft1", roomId: "!room" });
     sendSingleTextMessageMatrixMock
@@ -3207,7 +3199,7 @@ describe("matrix monitor handler draft streaming", () => {
         // Release the run gate and wait for the handler to finish
         // (including the finally block that stops the draft stream).
         finish: async () => {
-          resolveRunGate?.();
+          resolveRunGate();
           await handlerDone;
         },
       };

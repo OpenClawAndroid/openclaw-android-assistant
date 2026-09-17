@@ -38,6 +38,7 @@ export async function acquireSessionMcpRuntime(params: {
   agentAccountId?: string | null;
   messageChannel?: string | null;
   toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
+  toolDenylist?: string[];
 }): Promise<SessionMcpRuntimeLease> {
   return await getSessionMcpRuntimeManager().acquire(params);
 }
@@ -57,6 +58,7 @@ export async function acquireRequesterScopedMcpRuntime(params: {
   agentAccountId?: string | null;
   messageChannel?: string | null;
   toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
+  toolDenylist?: string[];
 }): Promise<RequesterScopedMcpRuntimeHandle | undefined> {
   return await getSessionMcpRuntimeManager().acquireRequesterScoped(params);
 }
@@ -115,14 +117,24 @@ export async function retireSessionMcpRuntime(params: {
 }
 
 /** Releases an acquisition after its consumer has taken ownership, or after failure. */
-export async function releaseSessionMcpRuntime(lease: {
-  runtime: SessionMcpRuntime;
-  releaseLease?: () => void;
-}): Promise<void> {
+export async function releaseSessionMcpRuntime(
+  lease: Pick<SessionMcpRuntimeLease, "runtime" | "retireUnusedServers"> & {
+    releaseLease?: () => void;
+  },
+  retainedServerNames?: ReadonlySet<string>,
+): Promise<void> {
   lease.releaseLease?.();
-  await completeDeferredSessionMcpRuntimeRetirement(lease.runtime).catch((error: unknown) => {
-    logWarn(`bundle-mcp: deferred runtime cleanup failed: ${String(error)}`);
-  });
+  try {
+    if (retainedServerNames) {
+      await lease.retireUnusedServers?.(retainedServerNames);
+    }
+  } catch (error) {
+    logWarn(`bundle-mcp: unused server cleanup failed: ${String(error)}`);
+  } finally {
+    await completeDeferredSessionMcpRuntimeRetirement(lease.runtime).catch((error: unknown) => {
+      logWarn(`bundle-mcp: deferred runtime cleanup failed: ${String(error)}`);
+    });
+  }
 }
 
 /** Completes deferred retirement after its final run, view, or request lease releases. */

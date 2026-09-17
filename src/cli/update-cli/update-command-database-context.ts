@@ -43,21 +43,11 @@ export async function inspectUpdateDatabaseContexts(params: {
       }
       throw error;
     });
-    const unavailable =
-      inspected.serviceUpdateVerdict?.kind === "unavailable"
-        ? inspected.serviceUpdateVerdict
-        : undefined;
-    if (inspected.blockMessage || unavailable) {
+    if (inspected.blockMessage) {
       throw new UpdatePreMutationError(
         "managed-service-preflight",
-        formatUpdateAncestryBlockMessage(inspected.blockMessage ?? unavailable!.message),
+        formatUpdateAncestryBlockMessage(inspected.blockMessage),
         { failureFacts: collectServiceInspectionFailureFacts(inspected.serviceUpdateVerdict) },
-      );
-    }
-    if (inspected.serviceUpdateVerdict?.kind === "unresolved") {
-      throw new UpdatePreMutationError(
-        "managed-service-preflight",
-        "Gateway service installation ownership is unresolved. Run `openclaw gateway status --deep` and retry before changing package or Git files.",
       );
     }
     services.set(root, inspected);

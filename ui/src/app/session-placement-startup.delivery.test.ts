@@ -29,6 +29,11 @@ describe("application placement delivery recovery", () => {
         message: "send rejected",
       });
       const request = vi.fn((method: string, payload?: Record<string, unknown>) => {
+        if (method === "sessions.describe") {
+          return Promise.resolve({
+            session: { placement: createStartupPlacement("reclaimed", 3) },
+          });
+        }
         if (method === "sessions.dispatch") {
           return Promise.resolve({ placement: createStartupPlacement("active", 2) });
         }

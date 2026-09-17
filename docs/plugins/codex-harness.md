@@ -16,8 +16,10 @@ media delivery, and the visible transcript mirror.
 
 The native session catalog requests at most 64 threads per page and shortens
 previews to 500 characters before delivering them to catalog consumers. An unfiltered
-first list fetches one native page; older pages load on demand. Title searches retain
-their bounded scan. A single native preview
+first list fetches one native page; older pages load on demand. Title search and
+hiding OpenClaw-managed sessions share a 20-page catalog scan budget for each returned
+page. Continuing from its cursor searches the next pages without skipping older matches.
+A single native preview
 can still make its response large because the native API has no preview byte limit.
 Pages use native recency order with tie-safe cursors.
 

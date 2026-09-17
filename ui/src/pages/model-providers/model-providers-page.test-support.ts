@@ -260,7 +260,7 @@ export function createHarness(initialScopeId: string) {
   const subscribe = () => () => undefined;
   const owner = createRuntimeConfigCapability(gatewaySource.gateway);
   configOwners.add(owner);
-  const subscribeConfig = owner.subscribe;
+  const subscribeConfig = owner.subscribe.bind(owner);
   const runExternalMutation = owner.runExternalMutation;
   const runtimeConfig = Object.assign(owner, {
     ensureLoaded: vi.fn(owner.ensureLoaded),

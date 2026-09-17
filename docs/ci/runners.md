@@ -31,6 +31,22 @@ does not provide it. Other Node shards do not pay that setup cost.
 
 Current targets share one checkout/setup per fast contract family. The two weighted plugin selections still run as separate `test:contracts:plugins` processes; the two channel selections still run separate `test:contracts:channels` invocations, each retaining its four owning configs, four project slots and one worker per project. The envelopes run sequentially, and any nonzero exit stops the job before another envelope is admitted. Frozen targets keep their original matrix rows and execute one envelope per row. Runner routing, caches, worker budgets and aggregate-gate selection stay unchanged. In main run `33704083233`, the separate plugin bodies totaled 94 seconds and the channel bodies 145 seconds; those sums support consolidation but are not measured combined durations.
 
+The dependency warmer publishes the completed pnpm store immediately after setup,
+before unrelated SDK, build, or transform work can fail. All cache-enabled Node
+setups use the same workspace-local store path, including store-only readers;
+Actions includes that path in cache compatibility. Pnpm's side-effects cache
+carries native postinstall outputs such as Matrix crypto's binary and version
+marker, so a compatible warm install skips the download. Cold caches and changed
+native build inputs still require the upstream asset.
+Node discovery scans only the toolcache's executable levels, avoiding bundled
+npm dependency trees before selecting an already-installed runtime.
+
+In hybrid mode, one additional `ubuntu-24.04` warmer row installs and saves only
+the hosted dependency store. Blacksmith and GitHub-hosted cache backends are
+separate; warming Linux only on Blacksmith leaves hosted checks on old seeds.
+The existing Linux row retains full warming, and all-Blacksmith/all-GitHub modes
+retain their two-row matrix. This adds no Blacksmith runner registrations.
+
 ### Blacksmith runner capacity
 
 Npm preflight retains `blacksmith-32vcpu-ubuntu-2404`. Main CI previously used

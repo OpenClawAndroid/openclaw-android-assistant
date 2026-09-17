@@ -1,6 +1,5 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDeferred } from "../../test/helpers/promise.js";
 import { runQaGatewayFixture } from "../../test/helpers/qa-gateway-cleanup.js";
 import {
   createOperationalRunInstanceRef,
@@ -514,50 +513,72 @@ describe("CLI loopback question creator authority", () => {
     });
   });
 
-  it("joins a question request when the fixture fails before registration", async () => {
-    const bodyFailed = createDeferred();
-    const expectedError = new Error("fixture stopped before question registration");
-    let disposed = false;
-    let releaseHello = () => {};
-    let asking: Promise<unknown> | undefined;
-    let manager: Parameters<Parameters<typeof withQuestionGateway>[0]>[0]["manager"] | undefined;
-    const run = withCliQuestionLoopback(async (fixture) => {
-      manager = fixture.manager;
-      const grant = mintAttachGrant({ sessionKey });
-      const hello = fixture.holdNextHello();
-      releaseHello = hello.release;
-      try {
-        asking = fixture.ask(grant.token, true);
-        void asking.catch(() => {});
-        await Promise.race([hello.entered, asking]);
-        bodyFailed.resolve();
-        throw expectedError;
-      } finally {
-        revokeAttachGrant(grant.token);
-      }
-    }).finally(() => {
-      disposed = true;
-    });
-    void run.catch(() => {});
-    await runQaGatewayFixture(
-      async () => {
-        await Promise.race([bodyFailed.promise, run]);
-        await vi.waitFor(() => expect(disposed).toBe(true));
-      },
-      () => {
-        // Release the real transport even on the pre-fix failure so this proof
-        // cannot leave its late question waiting for the human-input deadline.
-        releaseHello();
-      },
-      () => asking?.catch(() => {}),
-      () => {
-        for (const question of manager?.list() ?? []) {
-          manager?.cancel(question.id, "test-cleanup");
+  it.for(["before", "after"] as const)(
+    "joins a question request when the fixture fails %s registration",
+    async (stage, { onTestFinished, signal }) => {
+      const expectedError = new Error(`fixture stopped ${stage} question registration`);
+      let releaseHello = () => {};
+      let asking: Promise<{ id: string; response: Promise<McpResponse> }> | undefined;
+      let requestSettled = false;
+      let manager: Parameters<Parameters<typeof withQuestionGateway>[0]>[0]["manager"] | undefined;
+      const run = withCliQuestionLoopback(async (fixture) => {
+        // Timed-out setup must not start a late request.
+        signal.throwIfAborted();
+        manager = fixture.manager;
+        const grant = mintAttachGrant({ sessionKey });
+        const hello = stage === "before" ? fixture.holdNextHello() : undefined;
+        if (hello) {
+          releaseHello = hello.release;
         }
-      },
-      () => expect(run).rejects.toBe(expectedError),
-    );
-  });
+        try {
+          asking = fixture.ask(grant.token, true);
+          void asking.catch(() => {});
+          const request = hello ? asking : (await asking).response;
+          void request.then(
+            () => {
+              requestSettled = true;
+            },
+            () => {
+              requestSettled = true;
+            },
+          );
+          if (hello) {
+            await Promise.race([hello.entered, asking]);
+          }
+          expect(fixture.manager.list()).toHaveLength(stage === "before" ? 0 : 1);
+          expect(requestSettled).toBe(false);
+          throw expectedError;
+        } finally {
+          revokeAttachGrant(grant.token);
+        }
+      });
+      onTestFinished(() =>
+        runQaGatewayFixture(
+          async () => {
+            // Also unblock recovery if Vitest times out a regressed join.
+            releaseHello();
+          },
+          () => asking?.catch(() => {}),
+          () => {
+            for (const question of manager?.list() ?? []) {
+              manager?.cancel(question.id, "test-cleanup");
+            }
+          },
+          () =>
+            run.catch((error: unknown) => {
+              if (error === expectedError || (signal.aborted && error === signal.reason)) {
+                return;
+              }
+              throw error;
+            }),
+        ),
+      );
+      // Keep hello held until the fixture has joined the aborted request.
+      await expect(run).rejects.toBe(expectedError);
+      expect(requestSettled).toBe(true);
+      expect(manager?.list()).toEqual([]);
+    },
+  );
 
   it("keeps attach questions answerable through structured controls without inventing a caller snapshot", async () => {
     await withCliQuestionLoopback(async (fixture) => {

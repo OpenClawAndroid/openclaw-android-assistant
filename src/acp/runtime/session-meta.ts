@@ -1,6 +1,5 @@
 /** SQLite-backed ACP session metadata storage keyed through session-store entries. */
 import type { DatabaseSync } from "node:sqlite";
-import { safeParseJsonRecord } from "@openclaw/normalization-core";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { Insertable } from "kysely";
 import { getRuntimeConfig } from "../../config/config.js";
@@ -8,8 +7,6 @@ import { patchSessionEntryWithKey } from "../../config/sessions/session-accessor
 import { readLegacyAcpMigrationContext } from "../../config/sessions/session-accessor.sqlite-acp-provenance.js";
 import {
   mergeSessionEntry,
-  type AcpSessionRuntimeOptions,
-  type SessionAcpIdentity,
   type SessionAcpMeta,
   type SessionEntry,
 } from "../../config/sessions/types.js";
@@ -38,6 +35,7 @@ import {
   selectAcpSessionRowForStoreEntry,
 } from "./session-meta-keys.js";
 import { clearLegacyEmbeddedAcpMetadata } from "./session-meta-legacy-cleanup.js";
+import { readAcpSessionMetaForEntry, rowToAcpSessionMeta } from "./session-meta-readonly.js";
 import {
   readSessionEntryFromStore,
   resolveSessionStorePathForAcp,
@@ -57,25 +55,6 @@ export type AcpSessionStoreEntry = {
   acp?: SessionAcpMeta;
   storeReadFailed?: boolean;
 };
-
-export function rowToAcpSessionMeta(row: AcpSessionRow): SessionAcpMeta {
-  const identity = safeParseJsonRecord(row.identity_json ?? "") as SessionAcpIdentity | undefined;
-  const runtimeOptions = safeParseJsonRecord(row.runtime_options_json ?? "") as
-    | AcpSessionRuntimeOptions
-    | undefined;
-  return {
-    backend: row.backend,
-    agent: row.agent,
-    runtimeSessionName: row.runtime_session_name,
-    ...(identity ? { identity } : {}),
-    mode: row.mode === "oneshot" ? "oneshot" : "persistent",
-    ...(runtimeOptions ? { runtimeOptions } : {}),
-    ...(row.cwd != null ? { cwd: row.cwd } : {}),
-    state: row.state === "running" || row.state === "error" ? row.state : "idle",
-    lastActivityAt: row.last_activity_at,
-    ...(row.last_error != null ? { lastError: row.last_error } : {}),
-  };
-}
 
 function bindAcpSessionMeta(params: {
   sessionKey: string;
@@ -117,38 +96,6 @@ export function readAcpSessionMeta(params: {
     sessionKey: params.sessionKey.trim(),
     clone: false,
   })?.acp;
-}
-
-export function readAcpSessionMetaForEntry(params: {
-  sessionKey: string;
-  agentId?: string;
-  cfg?: OpenClawConfig;
-  entry: AcpSessionEntryBinding | undefined;
-  env?: NodeJS.ProcessEnv;
-  databasePath?: string;
-}): SessionAcpMeta | undefined {
-  const sessionKey = params.sessionKey.trim();
-  if (!sessionKey) {
-    return undefined;
-  }
-  const row = withExistingOpenClawStateDatabaseReadOnly(
-    ({ db }) =>
-      resolveReadableAcpSessionRow({
-        row: selectAcpSessionRowForStoreEntry(
-          db,
-          sessionKey,
-          params.agentId,
-          params.cfg,
-          params.entry,
-        ),
-        entry: params.entry,
-      }),
-    { env: params.env, path: params.databasePath },
-  );
-  if (!row) {
-    return undefined;
-  }
-  return rowToAcpSessionMeta(row);
 }
 
 export function readAcpSessionMetaBatch(params: {

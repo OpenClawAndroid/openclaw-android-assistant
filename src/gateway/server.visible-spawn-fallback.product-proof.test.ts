@@ -641,7 +641,7 @@ async function withCliSpawnGrant(
         authorizeToolCall: currentGrant.isCurrent,
       }),
     );
-    expect(response).toMatchObject({
+    expect(response, JSON.stringify(response)).toMatchObject({
       result: { isError: false, content: [{ type: "text", text: expect.any(String) }] },
     });
     const payload = response as { result: { content: Array<{ type: string; text: string }> } };

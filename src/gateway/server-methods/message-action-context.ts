@@ -34,18 +34,17 @@ export function createMessageActionRuntimeAuthority(
     authorization?: MessageActionAuthorization;
   },
 ) {
-  const assertScheduledReadCurrent = isFencedProviderReadAction(params.request.action)
-    ? params.authorization?.scheduled?.assertCurrent
+  const assertReadCurrent = isFencedProviderReadAction(params.request.action)
+    ? (params.authorization?.scheduled?.assertCurrent ??
+      params.authorization?.assertDashboardReadCurrent)
     : undefined;
   const assertScheduledWriteCurrent = isScheduledMessageWriteAction(params.request.action)
     ? params.authorization?.scheduled?.assertCurrent
     : undefined;
-  const assertScheduledActionCurrent = assertScheduledReadCurrent ?? assertScheduledWriteCurrent;
-  const scheduledPolicy = assertScheduledReadCurrent
-    ? params.authorization?.scheduled?.policy
-    : undefined;
+  const assertActionCurrent = assertReadCurrent ?? assertScheduledWriteCurrent;
+  const scheduledPolicy = assertActionCurrent ? params.authorization?.scheduled?.policy : undefined;
   return {
-    assertScheduledReadCurrent,
+    assertReadCurrent,
     assertScheduledWriteCurrent,
     routeAccountId:
       normalizeOptionalString(params.request.accountId) ??
@@ -55,10 +54,10 @@ export function createMessageActionRuntimeAuthority(
       params.client,
       params.context,
       params.respond,
-      assertScheduledActionCurrent
+      assertActionCurrent
         ? () => {
             params.sessionMutationCommitGuard?.();
-            assertScheduledActionCurrent();
+            assertActionCurrent();
           }
         : params.sessionMutationCommitGuard,
     ),

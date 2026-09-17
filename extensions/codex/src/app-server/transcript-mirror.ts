@@ -262,6 +262,7 @@ export async function mirrorPromptAtTurnStartBestEffort(params: {
     const mirrorPromise = (async () => {
       const userPromptMessage = projectAgentHarnessTranscriptMessageForDisplay({
         hidden: params.params.trigger === "memory",
+        inputProvenance: params.params.inputProvenance,
         message: attachUpstreamUserText(
           attachCodexMirrorIdentity(
             await buildResolvedCodexUserPromptMessage(params.params),

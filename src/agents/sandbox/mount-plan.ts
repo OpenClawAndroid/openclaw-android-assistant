@@ -36,6 +36,7 @@ export async function prepareSandboxMountPlan(params: {
   workspaceAccess: SandboxWorkspaceAccess;
   binds?: readonly string[];
   tmpfs?: readonly string[];
+  readOnlyResourceMounts?: readonly { hostPath: string; containerPath: string }[];
 }): Promise<SandboxMountPlan> {
   const selection = resolveSandboxMountSelection(params);
   const namespace = await resolveDockerSourceNamespace(params.engine);
@@ -44,6 +45,7 @@ export async function prepareSandboxMountPlan(params: {
     params.agentWorkspaceDir,
     params.skillsWorkspaceDir ??
       resolveMaterializedSandboxSkillsWorkspaceDir(params.agentWorkspaceDir),
+    ...(params.readOnlyResourceMounts ?? []).map((mount) => mount.hostPath),
   ];
   const targets = selection.mounts.map((mount) => mount.containerPath);
   const binds = new Map<string, string>();

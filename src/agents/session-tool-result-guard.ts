@@ -912,8 +912,7 @@ export function installSessionToolResultGuard(
         toolCalls.length === 0 &&
         isTranscriptOnlyOpenClawAssistantMessage(nextMessage));
     if (!transcriptOnly) {
-      const toolCallCount = toolCalls.length;
-      if (pending.size > 0 && (toolCallCount === 0 || nextRole !== "assistant")) {
+      if (pending.size > 0 && (toolCalls.length === 0 || nextRole !== "assistant")) {
         flushPendingToolResults();
       }
     }
@@ -923,8 +922,7 @@ export function installSessionToolResultGuard(
     // this assistant append, and transcript repair can move late real results
     // back into strict provider order before the next replay.
     if (!allowSyntheticToolResults) {
-      const toolCallCount = toolCalls.length;
-      if (pending.size > 0 && toolCallCount > 0) {
+      if (pending.size > 0 && toolCalls.length > 0) {
         flushPendingToolResults();
       }
     }
@@ -956,6 +954,7 @@ export function installSessionToolResultGuard(
         const replayMessage = assistantErrorTranscript.record(
           finalMessage as AssistantAgentMessage,
           target,
+          message,
         );
         if (!replayMessage) {
           return undefined;

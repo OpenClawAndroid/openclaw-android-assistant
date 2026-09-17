@@ -443,7 +443,7 @@ Typical fields in `~/.openclaw/openclaw.json`:
 - `agents.defaults.workspace`
 - `agents.defaults.skipBootstrap` when `--skip-bootstrap` is passed
 - `agents.defaults.model` and provider config when the selected provider needs it
-- `tools.profile` (local onboarding defaults to `"coding"` when unset; existing explicit values are preserved)
+- `tools.profile` (local onboarding selects `"full"` when unset, including on a rerun; explicit profiles and other tool policies are preserved). Full tool selection is not Full Access execution permissions. See [Tool profiles](/gateway/config-tools/tool-policy#tool-profiles).
 - `gateway.*` (mode, bind, auth, tailscale)
 - `session.dmScope` (onboarding preserves explicit values and otherwise leaves it unset, so the `main` default keeps all direct messages across channels in the agent's rolling main session—the personal-agent default. For shared or multi-user inboxes, use `per-channel-peer`; `openclaw security audit` recommends isolation when it detects multi-user DM traffic)
 - `channels.telegram.botToken`, `channels.discord.token`, `channels.matrix.*`, `channels.signal.*`, `channels.imessage.*`

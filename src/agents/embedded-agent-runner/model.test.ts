@@ -80,7 +80,8 @@ vi.mock("../../plugins/provider-runtime.js", () => ({
   shouldPreferProviderRuntimeResolvedModel: () => false,
 }));
 
-vi.mock("../model-suppression.js", () => {
+vi.mock("../model-suppression.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../model-suppression.js")>();
   // Mirrors the canonical manifest-driven suppression in
   // extensions/qwen/openclaw.plugin.json and src/plugins/manifest-model-suppression.ts.
   function isQwenCodingPlanBaseUrl(value: string | undefined): boolean {
@@ -123,6 +124,7 @@ vi.mock("../model-suppression.js", () => {
   }
 
   return {
+    ...actual,
     shouldSuppressBuiltInModelCore: ({
       provider,
       id,
@@ -290,7 +292,10 @@ import {
   applyConfiguredProviderOverrides,
   findInlineModelMatch,
 } from "./model.configured-overrides.js";
-import { buildForwardCompatTemplate } from "./model.forward-compat.test-support.js";
+import {
+  buildForwardCompatTemplate,
+  expectUnknownModelErrorResult,
+} from "./model.forward-compat.test-support.js";
 import { buildInlineProviderModels } from "./model.inline-provider.js";
 import {
   createEmptyAgentDiscoveryStores,
@@ -1842,8 +1847,7 @@ describe("resolveModel", () => {
       },
     );
 
-    expect(result.model).toBeUndefined();
-    expect(result.error).toBe("Unknown model: mistral/mistral-medium-3-5");
+    expectUnknownModelErrorResult(result, "mistral", "mistral-medium-3-5");
     expect(resolveBundledStaticCatalogModelMock).not.toHaveBeenCalled();
     expect(resolveBundledProviderStaticCatalogModelMock).not.toHaveBeenCalled();
     expect(discoverAuthStorage).not.toHaveBeenCalled();
@@ -1943,43 +1947,34 @@ describe("resolveModel", () => {
     expect(model).not.toHaveProperty("maxTokensSource");
   });
 
-  it("defaults baseUrl-only Google fallback models to native Gemini transport", async () => {
-    const cfg = makeProviderConfig("google", {
-      baseUrl: "https://generativelanguage.googleapis.com",
-    });
-
-    const result = await resolveModelForTest(
-      "google",
-      "gemini-2.5-flash-lite",
-      state.agentDir(),
-      cfg,
-    );
-    const model = expectResolvedModel(result);
-
-    expect(model.provider).toBe("google");
-    expect(model.id).toBe("gemini-2.5-flash-lite");
-    expect(model.api).toBe("google-generative-ai");
-    expect(model.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta");
-  });
-
-  it("defaults baseUrl-only Google Vertex fallback models to native Vertex transport", async () => {
-    const cfg = makeProviderConfig("google-vertex", {
+  it.each([
+    {
+      provider: "google",
+      id: "gemini-2.5-flash-lite",
+      api: "google-generative-ai",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+      configuredBaseUrl: "https://generativelanguage.googleapis.com",
+    },
+    {
+      provider: "google-vertex",
+      id: "gemini-2.5-flash",
+      api: "google-vertex",
       baseUrl: "https://aiplatform.googleapis.com",
-    });
-
-    const result = await resolveModelForTest(
-      "google-vertex",
-      "gemini-2.5-flash",
-      state.agentDir(),
-      cfg,
-    );
-    const model = expectResolvedModel(result);
-
-    expect(model.provider).toBe("google-vertex");
-    expect(model.id).toBe("gemini-2.5-flash");
-    expect(model.api).toBe("google-vertex");
-    expect(model.baseUrl).toBe("https://aiplatform.googleapis.com");
-  });
+      configuredBaseUrl: "https://aiplatform.googleapis.com",
+    },
+  ])(
+    "defaults supported $provider models to native transport",
+    async ({ configuredBaseUrl, ...row }) => {
+      resolveBundledStaticCatalogModelMock.mockReturnValue({ ...makeModel(row.id), ...row });
+      const cfg = makeProviderConfig(row.provider, { baseUrl: configuredBaseUrl });
+      const result = await resolveModelForTest(row.provider, row.id, state.agentDir(), cfg);
+      const model = expectResolvedModel(result);
+      expect(model.provider).toBe(row.provider);
+      expect(model.id).toBe(row.id);
+      expect(model.api).toBe(row.api);
+      expect(model.baseUrl).toBe(row.baseUrl);
+    },
+  );
 
   it("clamps per-model maxTokens to the per-model context window", async () => {
     resolveBundledStaticCatalogModelMock.mockReturnValueOnce({
@@ -2347,8 +2342,7 @@ describe("resolveModel", () => {
 
     const result = await resolveModelForTest("openai", "typo-model", state.agentDir(), cfg);
 
-    expect(result.model).toBeUndefined();
-    expect(result.error).toBe("Unknown model: openai/typo-model");
+    expectUnknownModelErrorResult(result, "openai", "typo-model");
   });
 
   it("does not create fallback models from provider overlays alone", async () => {
@@ -2369,8 +2363,7 @@ describe("resolveModel", () => {
       makeOpenClawConfigFixture(cfg),
     );
 
-    expect(result.model).toBeUndefined();
-    expect(result.error).toBe("Unknown model: typoProvider/typoed-model");
+    expectUnknownModelErrorResult(result, "typoProvider", "typoed-model");
   });
 
   it("does not create fallback models from built-in provider api overlays", async () => {
@@ -2391,8 +2384,7 @@ describe("resolveModel", () => {
       makeOpenClawConfigFixture(cfg),
     );
 
-    expect(result.model).toBeUndefined();
-    expect(result.error).toBe("Unknown model: openai/typoed-model");
+    expectUnknownModelErrorResult(result, "openai", "typoed-model");
   });
 
   it("resolves per-model api and baseUrl override in fallback model", async () => {
@@ -2671,10 +2663,11 @@ describe("resolveModel", () => {
     });
   });
 
-  it("normalizes Google fallback baseUrls for custom providers", async () => {
+  it("normalizes Google baseUrls for explicitly configured custom provider models", async () => {
     const cfg = makeProviderConfig("google-paid", {
       baseUrl: "https://generativelanguage.googleapis.com",
       api: "google-generative-ai",
+      models: [{ id: "missing-model", name: "Configured model" }],
     });
 
     const result = await resolveModelForTest("google-paid", "missing-model", state.agentDir(), cfg);
@@ -3162,7 +3155,9 @@ describe("resolveModel", () => {
 
     const result = await resolveModelForTest("bytedance", "vision-model", state.agentDir(), cfg);
 
-    expect(result.error).toBe("Unknown model: bytedance/vision-model");
+    expect(result.error).toBe(
+      "Unknown model: bytedance/vision-model. Run `openclaw models list --refresh --provider bytedance` to inspect this provider's model choices, then retry with a model supported by your account.",
+    );
   });
 
   it("resolves direct moonshotai refs through manifest-owned provider aliases", async () => {
@@ -3455,8 +3450,7 @@ describe("resolveModel", () => {
               cfg,
             );
 
-      expect(result.model).toBeUndefined();
-      expect(result.error).toBe("Unknown model: azure-openai-responses/gpt-5.5");
+      expectUnknownModelErrorResult(result, "azure-openai-responses", "gpt-5.5");
       expect(resolveBundledStaticCatalogModelMock).not.toHaveBeenCalled();
       expect(resolveBundledProviderStaticCatalogModelMock).not.toHaveBeenCalled();
     },
@@ -3687,7 +3681,7 @@ describe("resolveModel", () => {
     });
 
     expect(result.error).toBe(
-      'Unknown model: openai/gpt-5.3-codex. Found agents.defaults.models["openai/gpt-5.3-codex"] bound to the "codex" agent runtime. Models served by an agent runtime come from that runtime and its linked account, not from models.providers["openai"].models[] — registering it there will not make it usable. Confirm "gpt-5.3-codex" is still offered by the "codex" runtime and switch agents.defaults.model.primary to a currently available model (run `openclaw models list --provider openai` to list them). See https://docs.openclaw.ai/concepts/model-providers.',
+      'Unknown model: openai/gpt-5.3-codex. Found agents.defaults.models["openai/gpt-5.3-codex"] bound to the "codex" agent runtime. Models served by an agent runtime come from that runtime and its linked account, not from models.providers["openai"].models[] — registering it there will not make it usable. Confirm "gpt-5.3-codex" is still offered by the "codex" runtime and switch agents.defaults.model.primary to a currently available model (run `openclaw models list --refresh --provider openai` to list them). See https://docs.openclaw.ai/concepts/model-providers.',
     );
   });
 

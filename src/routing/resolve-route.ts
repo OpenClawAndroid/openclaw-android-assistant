@@ -447,17 +447,6 @@ function getEvaluatedBindingsForChannelAccount(
   return evaluated;
 }
 
-/** @internal Lists matchable candidates from the canonical channel/account binding index. */
-export function listChannelAccountRouteBindings(
-  input: Pick<ResolveAgentRouteInput, "cfg" | "channel" | "accountId">,
-) {
-  return getEvaluatedBindingsForChannelAccount(
-    input.cfg,
-    normalizeLowercaseStringOrEmpty(input.channel),
-    normalizeAccountId(input.accountId),
-  ).bindings.map(({ binding }) => binding);
-}
-
 /** @internal Lists exact DM peers from the canonical channel/account binding index. */
 export function listExactDirectMessageBindingPeerIds(
   input: Pick<ResolveAgentRouteInput, "cfg" | "channel" | "accountId">,
@@ -757,7 +746,7 @@ export function resolveAgentRoute(input: ResolveAgentRouteInput): ResolvedAgentR
     unboundAgentId ??
       resolveDefaultAgentId(input.cfg, {
         surface: `${channel} account ${accountId} routing`,
-        hint: `Add a channel-wide binding for ${channel}:${accountId} or configure a sole agent.`,
+        hint: `Add a channel-wide binding for ${channel}:${accountId}: ${JSON.stringify({ agentId: "<agentId>", match: { channel, accountId } })}. Replace <agentId> with a configured agent, then restart the Gateway.`,
       }),
     "default",
   );

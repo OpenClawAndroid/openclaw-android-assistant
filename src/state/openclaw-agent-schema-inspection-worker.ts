@@ -6,7 +6,9 @@ import { resolveRuntimeProcessEntrypointUrl } from "../infra/runtime-process-url
 import { resolveRuntimeWorkerArgv } from "../infra/runtime-worker-url.js";
 import { readSqliteIntegrityFileIdentity } from "../infra/sqlite-file-generation.js";
 import {
+  isSqliteInspectionDeadlineOwnedByCaller,
   readSqliteInspectionBudget,
+  resolveSqliteInspectionSignal,
   sqliteInspectionTimeoutError,
 } from "../infra/sqlite-readonly-worker.js";
 import { createDeferredCore } from "../shared/deferred.js";
@@ -118,9 +120,10 @@ export function createAgentSchemaInspectionWorker() {
     },
     inspect: async (
       input: AgentSchemaInspectionInput,
-      signal?: AbortSignal,
+      callerSignal?: AbortSignal,
       snapshotPath?: string,
     ): Promise<AgentSchemaInspection | null> => {
+      const signal = resolveSqliteInspectionSignal(callerSignal);
       signal?.throwIfAborted();
       if (disposed || busy) {
         throw new Error(
@@ -203,16 +206,18 @@ export function createAgentSchemaInspectionWorker() {
                       ))),
           );
         };
-        const timeout = setTimeout(() => {
-          failure ??= sqliteInspectionTimeoutError(
-            "schema inspection",
-            input.pathname,
-            timeoutMs,
-            size,
-          );
-          kill();
-        }, timeoutMs);
-        timeout.unref();
+        const timeout = isSqliteInspectionDeadlineOwnedByCaller()
+          ? undefined
+          : setTimeout(() => {
+              failure ??= sqliteInspectionTimeoutError(
+                "schema inspection",
+                input.pathname,
+                timeoutMs,
+                size,
+              );
+              kill();
+            }, timeoutMs);
+        timeout?.unref();
         active.child.on("message", onMessage);
         active.child.once("close", onClose);
         signal?.addEventListener("abort", onAbort, { once: true });

@@ -4,6 +4,7 @@
  * Transport adapters use this module to turn provider-specific response bodies,
  * request ids, and binary payload guardrails into stable OpenClaw error shapes.
  */
+import { mediaKindFromMime } from "@openclaw/media-core/constants";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { normalizeOptionalString as trimToUndefined } from "../../packages/normalization-core/src/string-coerce.js";
@@ -469,25 +470,41 @@ export async function readProviderJsonArrayFieldResponse(
   return value;
 }
 
-function normalizeContentType(response: Response): string | undefined {
-  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-  return contentType || undefined;
-}
+// One HTTP media type, with token or quoted parameters (including escaped codec
+// commas) and empty parameter slots. Fetch combines repeated headers with commas
+// outside those quotes.
+const providerMediaContentTypePattern =
+  /^[!#$%&'*+.^_`|~\da-z-]+\/[!#$%&'*+.^_`|~\da-z-]+(?:[ \t]*;(?:[ \t]*[!#$%&'*+.^_`|~\da-z-]+[ \t]*=[ \t]*(?:[!#$%&'*+.^_`|~\da-z-]+|"(?:[\t !#-[\]-~\x80-\xff]|\\[\t !-~\x80-\xff])*"))?)*[ \t]*$/iu;
 
-/** Rejects text or JSON responses on provider endpoints that should return binary bytes. */
+/** Rejects non-binary responses and mismatched provider-owned audio/video families. */
 export function assertProviderBinaryResponseContent(
   response: Response,
   label: string,
   kind = "binary",
 ): void {
-  const contentType = normalizeContentType(response);
-  if (!contentType) {
+  const rawContentType = response.headers.get("content-type");
+  if (rawContentType === null) {
+    return;
+  }
+  const contentType = rawContentType.split(";")[0]?.trim().toLowerCase();
+  const requiresMediaFamily = kind === "audio" || kind === "video";
+  // Ogg may be declared without an audio family; generic binary aliases also
+  // leave the media family to the provider endpoint's existing contract.
+  const unspecifiedMedia =
+    contentType === "application/octet-stream" ||
+    contentType === "binary/octet-stream" ||
+    (kind === "audio" && contentType === "application/ogg");
+  if (!contentType && !requiresMediaFamily) {
     return;
   }
   if (
+    !contentType ||
     contentType === "application/json" ||
     contentType.endsWith("+json") ||
-    contentType.startsWith("text/")
+    contentType.startsWith("text/") ||
+    (requiresMediaFamily &&
+      (!providerMediaContentTypePattern.test(rawContentType.trim()) ||
+        (!unspecifiedMedia && mediaKindFromMime(contentType) !== kind)))
   ) {
     throw new Error(`${label}: malformed ${kind} response`);
   }

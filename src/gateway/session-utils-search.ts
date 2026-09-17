@@ -12,7 +12,7 @@ import {
   type SessionEntry,
 } from "../config/sessions.js";
 import type { GatewayStoredSessionTargets } from "../config/sessions/combined-store-gateway.js";
-import type { SessionEntryReadSource } from "../config/sessions/session-accessor.js";
+import type { SessionEntryReadSource } from "../config/sessions/session-accessor.types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { formatAgentRuntimeLabel } from "../shared/agent-runtime-display.js";
 import { formatGoalSummary } from "../shared/session-goal-display.js";

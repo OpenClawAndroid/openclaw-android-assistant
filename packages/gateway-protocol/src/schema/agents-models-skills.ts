@@ -1,6 +1,7 @@
 // Gateway Protocol schema module defines protocol validation shapes.
 import type { Static } from "typebox";
 import { Type } from "typebox";
+import { AgentDatabaseAdmissionRefusalSchema } from "./agent-database-admission.js";
 import { closedObject } from "./closed-object.js";
 import { ChatAccountSelectionSchema, ModelAuthProfileIdSchema } from "./model-account-selection.js";
 import {
@@ -95,16 +96,7 @@ export const AgentSummarySchema = closedObject({
   /** Effective explicit utility model; absent for automatic or disabled utility routing. */
   utilityModel: Type.Optional(NonEmptyString),
   status: Type.Optional(Type.Literal("degraded")),
-  admissionRefusal: Type.Optional(
-    closedObject({
-      agentId: NonEmptyString,
-      paths: Type.Array(NonEmptyString),
-      embeddedOwnerId: NonEmptyString,
-      code: Type.Literal("agent-database-ownership-mismatch"),
-      reason: NonEmptyString,
-      repairHint: NonEmptyString,
-    }),
-  ),
+  admissionRefusal: Type.Optional(AgentDatabaseAdmissionRefusalSchema),
   kind: Type.Optional(AgentKindSchema),
   createdVia: Type.Optional(AgentCreatedViaSchema),
   creatorAgentId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),

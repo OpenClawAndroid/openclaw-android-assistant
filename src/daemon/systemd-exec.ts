@@ -66,6 +66,13 @@ export function systemdInspectionError(
     return new ServiceInspectionError("service-manager-access-denied");
   }
   if (
+    scope === "system" &&
+    result.termination === "exit" &&
+    readSystemctlDetail(result).includes("System has not been booted with systemd")
+  ) {
+    return new ServiceInspectionError("service-manager-unavailable");
+  }
+  if (
     scope === "user" &&
     result.termination === "exit" &&
     isSystemdUserBusUnavailableDetail(readSystemctlDetail(result))

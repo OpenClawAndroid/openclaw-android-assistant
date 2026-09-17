@@ -111,13 +111,13 @@ subscription quota are separate billing buckets.
 - xAI decides which accounts can receive OAuth API tokens. If an account is
   not eligible, use the API-key path or check the subscription on xAI's side.
 
-Existing `xai/auto` selections on the Grok subscription route are retired.
+Existing `xai/auto` selections on the native xAI API and Grok subscription routes are retired.
 Run `openclaw doctor --fix` to replace affected config and session selections
 with `xai/grok-4.6`. Doctor preserves account pins and fallbacks, and leaves
 custom endpoints unchanged. For a pinned session, an unavailable account or a
 disallowed successor keeps the selection unchanged, with a diagnostic explaining
-the required action. Unpinned config can be repaired from its declared
-subscription route. You can also choose a permitted concrete model explicitly.
+the required action. Doctor moves a shared alias only when the applicable accounts
+and routes agree on its successor. You can also choose a permitted concrete model explicitly.
 
 For a manually managed Grok subscription token, set `models.providers.xai.auth`
 to `"token"` and `models.providers.xai.baseUrl` to

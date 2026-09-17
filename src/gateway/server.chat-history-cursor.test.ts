@@ -685,8 +685,7 @@ describe("chat.history cursor catch-up", () => {
       messages: Array<{ messageId: string; message: Record<string, unknown> }>;
     }>(context, "chat.history", { cursor: cached.payload?.deltaCursor });
     expect(delta).toMatchObject({ ok: true, payload: { kind: "delta" } });
-    // Full history currently consumes this boundary on the subsequently dropped fallback.
-    // The cursor contract preserves it on the first surviving message instead.
+    // Hidden commentary must not consume the boundary owed to the next visible row.
     expect(
       delta.payload?.messages.map(({ messageId, message }) => ({
         messageId,

@@ -64,6 +64,36 @@ type AuthorizedSessionMutationTarget = SessionMutationTarget & {
   lifecycleRevision?: string;
 };
 
+type ExpectedSessionMutationTarget = Readonly<{
+  agentId: string;
+  sessionKey: string;
+  storePath: string;
+  sessionId: string;
+}>;
+
+function sessionMutationTargetChanged(method: string, sessionKey: string) {
+  return new SessionMutationAuthorizationChangedError(
+    errorShape(ErrorCodes.INVALID_REQUEST, `session changed before ${method}; retry the request`, {
+      details: { code: "SESSION_MUTATION_AUTHORIZATION_CHANGED", method, sessionKey },
+    }),
+  );
+}
+
+function expectedSessionMutationTargetError(
+  expected: ExpectedSessionMutationTarget | undefined,
+  target: SessionSharingTarget | null,
+  method: string,
+): ErrorShape | null {
+  return expected &&
+    (!target ||
+      target.agentId !== expected.agentId ||
+      target.canonicalKey !== expected.sessionKey ||
+      target.storePath !== expected.storePath ||
+      target.entry.sessionId?.trim() !== expected.sessionId)
+    ? sessionMutationTargetChanged(method, expected.sessionKey).error
+    : null;
+}
+
 const AGENT_RUN_START_METHODS = new Set([
   "agent",
   "chat.send",
@@ -110,6 +140,8 @@ export function resolveSessionMutationAuthorization(params: {
   method: string;
   requestParams: unknown;
   context: GatewayRequestContext;
+  /** Trusted prepared identity; never adopt a later target while capturing authority. */
+  expectedTarget?: ExpectedSessionMutationTarget;
 }): { authorization?: SessionMutationAuthorization; error: ErrorShape | null } {
   const authorizesAgentRun =
     AGENT_RUN_START_METHODS.has(params.method) ||
@@ -122,7 +154,7 @@ export function resolveSessionMutationAuthorization(params: {
   // Capture this boundary for admins too so delayed writes cannot revive a reset card.
   const bindsProgressLifecycle = params.method === "progressCard.put";
   const adminBypass = isGatewayAdmin(params.client) && !authorizesAgentRun;
-  if (adminBypass && !bindsProgressLifecycle) {
+  if (adminBypass && !bindsProgressLifecycle && !params.expectedTarget) {
     return { error: null };
   }
   if (
@@ -238,6 +270,11 @@ export function resolveSessionMutationAuthorization(params: {
       context: params.context,
       getCfg,
     });
+  if (params.expectedTarget && targetRefs?.length !== 1) {
+    return {
+      error: sessionMutationTargetChanged(params.method, params.expectedTarget.sessionKey).error,
+    };
+  }
   if (!targetRefs) {
     if (isRequiredSessionTargetMethod(params.method)) {
       return {
@@ -266,6 +303,7 @@ export function resolveSessionMutationAuthorization(params: {
     }
     const target = resolved.target;
     const error =
+      expectedSessionMutationTargetError(params.expectedTarget, target, params.method) ??
       (target && authorizesAgentRun
         ? authorizeSessionAgentRun({
             cfg: getCfg(),
@@ -306,19 +344,7 @@ export function resolveSessionMutationAuthorization(params: {
     error: null,
     authorization: (() => {
       const targetChanged = (sessionKey: string) =>
-        new SessionMutationAuthorizationChangedError(
-          errorShape(
-            ErrorCodes.INVALID_REQUEST,
-            `session changed before ${params.method}; retry the request`,
-            {
-              details: {
-                code: "SESSION_MUTATION_AUTHORIZATION_CHANGED",
-                method: params.method,
-                sessionKey,
-              },
-            },
-          ),
-        );
+        sessionMutationTargetChanged(params.method, sessionKey);
       const assertTalkTargetCurrent = (cfg: OpenClawConfig) => {
         if (!talkInput || !talkSessionTarget) {
           return;
