@@ -98,6 +98,8 @@ confirm that the group has disappeared after graceful shutdown. A completed
 command or closed output pipe alone does not establish that its descendants have
 stopped. Forced termination without confirmed cleanup remains uncertain. Local
 TUI shell shutdown uses the same cleanup owner for its own commands.
+If the host was busy, cleanup processes queued native completion events before
+reporting a timeout.
 
 One-shot tool cleanup keeps configured sandbox runtimes on their
 [session, agent, or shared lifetime](/gateway/sandboxing#modes-scope-and-backend). It joins the local

@@ -79,8 +79,14 @@ to inspect their health API.
 The updater's `--severity-min error` pass exits `0` for these warnings, using the
 same warning policy as Gateway startup. Invalid configuration, unsafe state
 inspection, and errors reported by an actual health check retain their failures.
-Missing configured `plugins.load.paths` remain discovery errors and can still
-block update candidates; see [Plugin repair warnings](/install/update-troubleshooting#plugin-repair-warnings).
+Missing configured `plugins.load.paths` produce a warning under
+`core/doctor/final-config-validation`, with requirement
+`configured-plugin-path-unavailable` and the unavailable path in `source`.
+Permission, I/O, and other inspection failures instead use
+`configured-plugin-path-inspection-failed`, retain the filesystem `errorCode`
+and error message, and provide a recovery hint for the affected path.
+The updater retains the warning and continues. Doctor preserves settings whose
+plugin owner could not be inspected; see [Plugin repair warnings](/install/update-troubleshooting#plugin-repair-warnings).
 
 Bare `openclaw doctor --json` exits `0` once it emits a findings payload, including when `ok` is `false`. Argument errors remain nonzero. If the lint runner fails before producing a report, Doctor exits `2` and emits one redacted `{ ok: false, error: { type: "cli_error", message } }` document on stdout in JSON mode, without generic CLI startup guidance.
 

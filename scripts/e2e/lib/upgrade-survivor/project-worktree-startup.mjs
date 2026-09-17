@@ -455,7 +455,7 @@ export function assertProjectWorktreeStartupLog(log, start) {
       /session: recorded canonical workspaces for (\d+) managed-worktree session\(s\)/g,
     ),
   ].map((match) => Number(match[1]));
-  assert.deepEqual(backfills, start === "first" ? [1] : [], "Unexpected startup migration count");
+  assert.deepEqual(backfills, [], "Gateway startup performed an unexpected workspace repair");
   assert.match(log, /(?:\[shutdown\]|shutdown) completed cleanly in \d+ms/);
   assert(
     !/(?:\[shutdown\]|shutdown) (?:completed in \d+ms with warnings:|failed in \d+ms)/.test(log),
@@ -463,7 +463,15 @@ export function assertProjectWorktreeStartupLog(log, start) {
   return { backfills, cleanShutdown: true };
 }
 
-export function assertProjectWorktreeStartupPreservation(actual, original, expectedWorkspace) {
+export function assertProjectWorktreeStartupPreservation(actual, original, projectRoot) {
+  assert(STAGES.has(actual.stage));
+  const expectedWorkspace = actual.stage === "published-import" ? undefined : projectRoot;
+  const target = actual.agent.sessions.find((row) => row.session_key === KEY);
+  assert.equal(
+    JSON.parse(target.entry_json).worktree.canonicalWorkspaceDir,
+    expectedWorkspace,
+    "Update Doctor must repair the imported workspace before Gateway startup",
+  );
   assert.deepEqual(actual.shared, original.shared);
   assert.deepEqual(actual.agent.transcript, original.agent.transcript);
   assert.equal(actual.agent.sessions.length, original.agent.sessions.length);
@@ -518,12 +526,6 @@ async function snapshot(ctx, stage, packageRoot, bindings) {
   assert.equal(entry.worktree.repoRoot, f.project.repoRoot);
   assert.equal(entry.updatedAt, 10);
   assert.equal(entry.lastActivityAt, 10);
-  const expectedWorkspace = stage.startsWith("after-") ? f.project.repoRoot : undefined;
-  assert.equal(
-    entry.worktree.canonicalWorkspaceDir,
-    expectedWorkspace,
-    "Unexpected migration stage; do not delete metadata to recreate a legacy specimen",
-  );
   for (const [file, expected] of Object.entries(f.sentinelHashes)) {
     assert.equal(digest(file), expected);
   }
@@ -535,9 +537,15 @@ async function snapshot(ctx, stage, packageRoot, bindings) {
     ownerBindings: owner.evidence,
     sentinelHashes: f.sentinelHashes,
   };
-  if (stage !== "published-import") {
-    const original = readJson(path.join(ctx.artifacts, "worktree-published-import.json"));
-    assertProjectWorktreeStartupPreservation(result, original, expectedWorkspace);
+  const original =
+    stage === "published-import"
+      ? result
+      : readJson(path.join(ctx.artifacts, "worktree-published-import.json"));
+  assertProjectWorktreeStartupPreservation(result, original, f.project.repoRoot);
+  if (stage.startsWith("after-")) {
+    const before = readJson(path.join(ctx.artifacts, "worktree-before-startup.json"));
+    assert.deepEqual(agent, before.agent, "Startup changed persisted session/history bytes");
+    assert.deepEqual(shared, before.shared);
   }
   if (stage === "after-second-stop") {
     const first = readJson(path.join(ctx.artifacts, "worktree-after-first-stop.json"));

@@ -62,6 +62,19 @@ const POST_CORE_CONFIG_WRITER_MIN_VERSION = "2026.4.29";
 
 type PostCoreUpdateFailure = { status: "failed"; error: string };
 
+export async function postCoreUpdateParentOwnsCompletion(
+  resultPath: string | undefined,
+): Promise<boolean> {
+  if (!resultPath) {
+    return false;
+  }
+  // Transient handoff only; absent preserves the shipped child-owned completion contract.
+  const handoff = await readJsonIfExists<{ completionOwner?: string }>(
+    path.join(path.dirname(resultPath), "handoff.json"),
+  );
+  return handoff?.completionOwner === "parent";
+}
+
 export async function writePostCoreUpdateFailureFile(
   filePath: string | undefined,
   error: unknown,
@@ -358,6 +371,7 @@ export async function continuePostCoreUpdateInFreshProcess(params: {
     }
     await writePostCorePluginInstallRecordsFile(installRecordsPath, pluginInstallRecords);
     await writePostCoreSourceConfigFile(sourceConfigPath, params.preUpdateConfig);
+    await writeJson(path.join(resultDir, "handoff.json"), { completionOwner: "parent" });
     const jsonMode = params.opts.json === true;
     const childStdio = resolvePostCoreUpdateChildStdio(process.platform, jsonMode);
     const handoffEnv = buildPostCoreHandoffEnv({

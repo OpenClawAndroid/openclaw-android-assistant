@@ -177,6 +177,9 @@ function setSparseCheckout(repoDir: string) {
 function enterPrWorktree(repoDir: string, pr: number) {
   const result = runLockShell(repoDir, [
     "ensure_gh_api_auth() { return 0; }",
+    // Cold provisioning validates the live lock, even when entered without the CLI.
+    `acquire_pr_operation_lock ${pr}`,
+    "trap release_pr_operation_lock EXIT",
     `enter_worktree ${pr}`,
   ]);
   expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
@@ -819,6 +822,8 @@ describePosix("scripts/pr per-PR operation lock", () => {
       const template = (freshMainTemplate ??= createFreshMainTemplate());
       const repoDir = tempDirs.make("openclaw-pr-fresh-main-");
       cpSync(template.repoDir, repoDir, { recursive: true });
+      // The copied CLI now executes the cold provisioner, not only shell preflights.
+      linkPrWrapperDependencies(repoDir);
       const { cachedMain, canonicalTree } = template;
       const stateDir = join(repoDir, "fixture-state");
       const homeDir = join(stateDir, "home");
@@ -1943,7 +1948,8 @@ describePosix("scripts/pr per-PR operation lock", () => {
         {
           cwd: worktreeDir,
           encoding: "utf8",
-          timeout: 15_000,
+          // Linked landing verifies the full transitive anchor before starting cleanup.
+          timeout: wrapper === "linked" ? 120_000 : 15_000,
           env: {
             ...process.env,
             canonical_repo_root: join(repoDir, "untrusted-root"),

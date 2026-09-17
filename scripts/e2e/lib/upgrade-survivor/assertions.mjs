@@ -18,6 +18,7 @@ import {
   assertMSTeamsPollMigration,
   assertMSTeamsPluginFiles,
 } from "./msteams-polls.mjs";
+import * as sessionSourceFixture from "./session-source-fixture.mjs";
 import { assertUpgradeVolumeMigrated, seedUpgradeVolume } from "./sqlite-volume.mjs";
 
 const command = process.argv[2];
@@ -380,6 +381,7 @@ function seedState() {
   });
   // Volume imports start in per-agent JSON; other scenarios cover the older shared-store move.
   seedLegacySessionMetadata(stateDir, scenario === "sqlite-volume");
+  sessionSourceFixture.recordLegacySessionSources(stateDir);
   seedLegacyExecApprovalPolicy(stateDir);
   if (scenario === "msteams-polls") {
     seedMSTeamsPollMigration(stateDir, requireEnv("OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT"));
@@ -1053,12 +1055,8 @@ function assertSessionMetadataMigrated(stateDir, stage) {
   const legacyStorePath = path.join(stateDir, "sessions", "sessions.json");
   const agentSessionsDir = path.join(stateDir, "agents", "main", "sessions");
   const targetStorePath = path.join(agentSessionsDir, "sessions.json");
-  assert(
-    !fs.existsSync(legacyStorePath),
-    `legacy sessions.json survived migration: ${legacyStorePath}`,
-  );
-
   const { source, store } = readMigratedSessionStore(stateDir, targetStorePath);
+  sessionSourceFixture.assertLegacySessionSourceDisposition(legacyStorePath, source);
   const main = store["agent:main:main"];
   const direct = store["agent:main:+15551234567"];
   const group = store["agent:main:slack:channel:cupgrade"];
@@ -1672,7 +1670,14 @@ function assertSuccessfulUpdateJson([file, expectedVersion, observationRoot]) {
     `successful update version changed: ${String(result?.after?.version)}`,
   );
   assert(
-    Array.isArray(result?.steps) && result.steps.every((step) => step?.exitCode === 0),
+    Array.isArray(result?.steps) &&
+      result.steps.every(
+        (step) =>
+          step?.exitCode === 0 ||
+          (step?.name === "openclaw doctor" &&
+            step.exitCode === 86 &&
+            step.advisory?.kind === "package-post-install-doctor"),
+      ),
     "successful update contained a failed core step",
   );
 }
@@ -1922,6 +1927,8 @@ function assertMobilePairingEvidence(files) {
 
 if (command === "list-scenarios") {
   process.stdout.write(`${JSON.stringify([...SCENARIOS])}\n`);
+} else if (command === "missing-load-path") {
+  await import("./missing-load-path.mjs");
 } else if (command === "seed") {
   seedState();
 } else if (command === "seed-msteams-doctor") {

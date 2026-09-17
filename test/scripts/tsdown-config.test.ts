@@ -686,8 +686,8 @@ describe("tsdown config", () => {
             ...["FS_SAFE_NATIVE_MODE", "OPENCLAW_FS_SAFE_NATIVE_MODE"].map((key) =>
               probe(key, "require", "native", { [key]: "require" }),
             ),
-            probe("shared-config", "configured", "native"),
-            probe("default", "off", "fallback"),
+            probe("shared-config", "configured", "native", { FS_SAFE_NATIVE_MODE: "off" }),
+            probe("default", "auto", "native"),
           ]);
           for (const nativePackage of nativePackages) {
             fs.rmSync(path.join(relocatedRoot, path.relative(sourceRoot, nativePackage.root)), {

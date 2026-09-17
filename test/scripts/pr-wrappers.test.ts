@@ -866,6 +866,27 @@ fi
         expect.soft(result.status, `${entry}\n${result.stdout}\n${result.stderr}`).toBe(exitCode);
         expect.soft(result.stderr, entry).toContain(message);
       }
+      // Import the actual adapter closure before it rejects missing arguments.
+      // Real provisioning and allocation-lease renewal have separate flows.
+      const provision = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          join(anchor, "scripts/tsx.mjs"),
+          join(anchor, "scripts/pr-lib/worktree-provision.mts"),
+        ],
+        {
+          cwd: fixture.linked,
+          encoding: "utf8",
+          env: { ...fixture.env, TSX_TSCONFIG_PATH: join(anchor, "tsconfig.json") },
+        },
+      );
+      expect.soft(provision.status, provision.stderr).toBe(1);
+      expect.soft(provision.stderr).toContain("Usage: worktree-provision.mts");
+      expect.soft(provision.stderr).toContain("[pr-worktree-provision] FAILED (exit 1)");
+      expect
+        .soft(fixture.git(fixture.canonical, ["for-each-ref", "refs/openclaw"]).stdout)
+        .toBe("");
       // A later install may remove or redirect the canonical package aliases.
       // The materialized owner must keep its original installed dependency.
       const canonicalYaml = join(fixture.canonical, "node_modules/yaml");
@@ -957,9 +978,16 @@ fi
     },
   );
 
-  itPosix.each(["tampered", "missing"])(
-    "refuses an extracted anchor with a %s dependency",
-    (fault) => {
+  itPosix.each(
+    [
+      "scripts/lib/anchor-review-record.mjs",
+      "src/agents/worktrees/checkout.ts",
+      "src/state/openclaw-state-schema.sql",
+      "tsconfig.json",
+    ].flatMap((resource) => ["tampered", "missing"].map((fault) => ({ resource, fault }))),
+  )(
+    "refuses an extracted anchor with a $fault source/resource $resource",
+    ({ resource, fault }) => {
       const fixture = makeMismatchedWrapperRepo({ realModules: true });
       advanceAnchorReviewDependency(fixture);
       parkCanonicalOffAnchor(fixture);
@@ -971,9 +999,9 @@ fi
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-C" ]; then
     if [ "$OPENCLAW_TEST_FAULT" = missing ]; then
-      rm "$2/scripts/lib/anchor-review-record.mjs"
+      rm "$2/$OPENCLAW_TEST_FAULT_PATH"
     else
-      printf '\\n// tampered\\n' >> "$2/scripts/lib/anchor-review-record.mjs"
+      printf '\\n// tampered\\n' >> "$2/$OPENCLAW_TEST_FAULT_PATH"
     fi
     exit
   fi
@@ -990,6 +1018,7 @@ exit 99
           ...fixture.env,
           OPENCLAW_TEST_TAR: resolveCommand("tar"),
           OPENCLAW_TEST_FAULT: fault,
+          OPENCLAW_TEST_FAULT_PATH: resource,
         },
       });
       expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
@@ -1225,8 +1254,8 @@ exit 99
   });
 
   it.each(
-    ["tsx", "zod", "minimatch", "yaml"].flatMap((dependency) =>
-      [false, true].map((matching) => ({ dependency, matching })),
+    ["tsx", "zod", "minimatch", "yaml", "@openclaw/fs-safe", "jiti", "kysely"].flatMap(
+      (dependency) => [false, true].map((matching) => ({ dependency, matching })),
     ),
   )(
     "refuses missing $dependency before handoff (matching=$matching) without installing",

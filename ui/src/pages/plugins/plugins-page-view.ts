@@ -1,4 +1,5 @@
 import { html, nothing } from "lit";
+import type { PluginsSkillsReadParams } from "../../../../packages/gateway-protocol/src/schema/plugin-skills.ts";
 import {
   pathForPluginCatalogEntry,
   pathForPluginSettings,
@@ -31,6 +32,7 @@ import type { PluginsConsentController } from "./plugins-consent-controller.ts";
 import { renderPluginsHubHeader } from "./plugins-hub-header.ts";
 import { PLUGINS_HUB_PANEL_ID, type PluginsHubTab } from "./plugins-hub.ts";
 import type { PluginsRouteData } from "./route-data.ts";
+import type { PluginSettingsEditor } from "./settings-editor.ts";
 import {
   pluginAdvancedSchema,
   pluginConfigSchema,
@@ -41,6 +43,11 @@ import {
   renderPluginSettingsInventory,
   type PluginSettingsTab,
 } from "./settings-view.ts";
+import {
+  renderPluginSkillPreview,
+  renderPluginSkillsSection,
+  type PluginPreviewController,
+} from "./skill-preview.ts";
 
 type CatalogDetailState = {
   id: string;
@@ -57,6 +64,7 @@ type InstalledDetailState = {
 
 type PluginsPageViewActions = {
   openTool: (name: string) => void;
+  openSkill: (request: PluginsSkillsReadParams) => void;
   selectHubTab: (tab: PluginsHubTab) => void;
   closeCatalogDetail: () => void;
   retryCatalogDetail: () => void;
@@ -80,6 +88,7 @@ type PluginsPageViewActions = {
 };
 
 export type PluginsPageViewModel = {
+  renderCredential?: PluginSettingsEditor["renderCredential"];
   context: ApplicationContext;
   routeData?: PluginsRouteData;
   surface: "discovery" | "settings";
@@ -106,6 +115,7 @@ export type PluginsPageViewModel = {
   consentController: PluginsConsentController;
   installWizardController: InstallWizardController;
   actions: PluginsPageViewActions;
+  skillPreview: PluginPreviewController;
 };
 
 export function renderPluginsPage(model: PluginsPageViewModel) {
@@ -124,6 +134,19 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
   const installWizardConfigSchema = installWizard?.pluginId
     ? pluginConfigSchema(configAnalysis.schema, installWizard.pluginId)
     : null;
+  const catalog = catalogDetail?.result;
+  const catalogVersion = catalog?.plugin.catalog.latestVersion;
+  const catalogSkillsSection =
+    catalog && catalogVersion && catalog.detail.skills.length
+      ? renderPluginSkillsSection(catalog.detail.skills, (skillName) =>
+          actions.openSkill({
+            source: "catalog",
+            catalogId: catalog.plugin.id,
+            version: catalogVersion,
+            skillName,
+          }),
+        )
+      : undefined;
   const detailPluginId = detail?.pluginId ?? null;
   const settingsParentRoute =
     new URLSearchParams(model.routeData?.location.search ?? "").get("from") === "plugins"
@@ -160,6 +183,8 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
   };
 
   const renderInstalled = (pluginId: string) => {
+    const components = detail?.inspection?.components;
+    const skills = components?.skillDetails ?? components?.skills.map((name) => ({ name })) ?? [];
     const current = model.routeData?.location;
     const search = new URLSearchParams(current?.search);
     search.set("view", "settings");
@@ -172,8 +197,14 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
       pluginId,
       inspection: detail?.inspection ?? null,
       inspectionError: detail?.error ?? null,
+      renderCredential: model.renderCredential,
       tools: detail?.tools,
       onOpenTool: actions.openTool,
+      skillsSection: skills.length
+        ? renderPluginSkillsSection(skills, (skillName) =>
+            actions.openSkill({ source: "installed", pluginId, skillName }),
+          )
+        : undefined,
       settingsHref: `${current?.pathname ?? ""}?${search}`,
       configSchema: pluginConfigSchema(configAnalysis.schema, pluginId),
       hostControlsSchema: pluginHostControlsSchema(configAnalysis.schema, pluginId),
@@ -228,6 +259,7 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
                     ? renderInstalled(detailPluginId)
                     : renderPluginCatalogDetail({
                         connected: model.connected,
+                        skillsSection: catalogSkillsSection,
                         result: catalogDetail.result,
                         error: catalogDetail.error,
                         backHref: pathForRoute("plugins", context.basePath),
@@ -323,6 +355,7 @@ export function renderPluginsPage(model: PluginsPageViewModel) {
           })
         : nothing
     }
+    ${renderPluginSkillPreview(model.skillPreview)}
     ${
       consentController.consent
         ? renderPluginConsentDialog({

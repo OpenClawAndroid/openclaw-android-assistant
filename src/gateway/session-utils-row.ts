@@ -131,7 +131,7 @@ export function readSessionRowInputs(params: {
   const selectedModel = resolveSessionSelectedModelRef({
     cfg,
     sessionKey: key,
-    source: params.modelSource ?? { entry, loadSessionEntry: (parentKey) => store[parentKey] },
+    source: params.modelSource ?? { entry, readSourceEntry: (parentKey) => store[parentKey] },
     agentId,
     rowContext,
     allowPluginNormalization: !lightweight,

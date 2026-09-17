@@ -46,7 +46,7 @@ export function resolveSessionSelectedModelRef(
   }
   const storedOverride = resolveStoredModelOverrideCore({
     // A prepared miss is authoritative; the presentation store can contain another owner's alias.
-    loadSessionEntry: params.source.loadSessionEntry,
+    loadSessionEntry: params.source.readSourceEntry,
     sessionEntry: params.source.entry,
     sessionKey: params.sessionKey,
     parentSessionKey: params.source.entry?.parentSessionKey,

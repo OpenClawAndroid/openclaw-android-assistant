@@ -284,6 +284,21 @@ refresh_main_snapshot() {
   PR_MAIN_SHA="$sha"
 }
 
+provision_pr_worktree() {
+  local root="$1" pr="$2" seed_sha="$3" provisioner_dir
+  provisioner_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P) || return 1
+  # Runtime code and workspace aliases follow the wrapper's selected trust anchor.
+  # Pass current shell lock facts; the adapter consumes the owner's live predicate.
+  (
+    # The trusted wrapper pins installed packages; caller module-dir overrides
+    # must not redirect this source loader or reconcile its dependency links.
+    unset PNPM_CONFIG_MODULES_DIR pnpm_config_modules_dir npm_config_modules_dir
+    TSX_TSCONFIG_PATH="$provisioner_dir/../../tsconfig.json" \
+      node --import "$provisioner_dir/../tsx.mjs" "$provisioner_dir/worktree-provision.mts" \
+        "$root" "$pr" "$seed_sha" "$PR_OPERATION_LOCK_REF" "$PR_OPERATION_LOCK_OWNER_OID"
+  ) || return 1
+}
+
 enter_worktree() {
   # OR-list callers disable errexit throughout this function; guard required steps explicitly.
   local pr="$1"
@@ -320,7 +335,9 @@ enter_worktree() {
     # The PR lock owns this existing temp branch, not shared origin/main or FETCH_HEAD.
     PR_MAIN_SHA=""
     fetch_canonical_main "refs/heads/temp/pr-$pr" || return 1
-    git -C "$root" worktree add -B "temp/pr-$pr" "$dir" "refs/heads/temp/pr-$pr" || return 1
+    local seed_sha
+    seed_sha=$(GIT_NO_LAZY_FETCH=1 git -C "$root" rev-parse --verify "refs/heads/temp/pr-$pr^{commit}") || return 1
+    provision_pr_worktree "$root" "$pr" "$seed_sha" || return 1
     resolved_parent=$(resolve_existing_dir_path "$(dirname "$dir")") || return 1
     resolved_dir="$resolved_parent/pr-$pr"
     initialized_sha=$(git -C "$dir" rev-parse --verify HEAD) || return 1

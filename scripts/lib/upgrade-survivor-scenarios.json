@@ -13,6 +13,7 @@
     "plugin-deps-cleanup",
     "configured-plugin-installs",
     "missing-configured-plugin-migration",
+    "missing-load-path",
     "custom-plugin-siblings",
     "projects-doctor",
     "projects-startup-migration",

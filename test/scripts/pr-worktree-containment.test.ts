@@ -27,6 +27,12 @@ const reviewScript = join(repoRoot, "scripts/pr-lib/review.sh");
 const describePosix = process.platform === "win32" ? describe.skip : describe;
 // Directly sourced helpers need the same Darwin heredoc protection as scripts/pr.
 const bash = process.platform === "darwin" ? "/bin/bash" : "bash";
+// These directly sourced containment/transition fixtures inject shell Git
+// failures, without the wrapper's operation-lock or dependency environment.
+// Keep real worktree/index behavior at the provisioning boundary; the complete
+// locked adapter path is covered by pr-worktree-provision.test.ts.
+const provisionWorktreeFixture =
+  'provision_pr_worktree() { git -C "$1" worktree add -- "$1/.worktrees/pr-$2" "temp/pr-$2"; }';
 
 type Fixture = {
   root: string;
@@ -150,6 +156,7 @@ function runShell(fixture: Fixture, commands: string[], env?: NodeJS.ProcessEnv)
         'script_parent_dir="$fixture_root"',
         `gh_plain() { printf 'HTTP/2.0 200 OK\\n\\n{"data":{"viewer":{"login":"fixture-user"}}}\\n'; }`,
         "mark_pr_operation_side_effects_started() { :; }",
+        provisionWorktreeFixture,
         'pr_meta_json() { local head; head=$(git rev-parse refs/pull/42/head); jq -cn --arg head "$head" \'{number:42,title:"fixture",url:"https://example.invalid/42",state:"OPEN",isDraft:false,author:{login:"fixture"},baseRefName:"main",headRefName:"review/pr",headRefOid:$head,headRepository:{nameWithOwner:"fixture/repo",url:""},headRepositoryOwner:{login:"fixture"},additions:1,deletions:0,changedFiles:3}\'; }',
         'gh() { if [ "$#" = 5 ] && [ "$1 $2 $3 $4" = "pr view 42 --json" ]; then pr_meta_json 42 | jq --arg fields "$5" \'with_entries(select(.key as $key | $fields | split(",") | index($key)))\'; else echo "Unexpected fixture GitHub request" >&2; return 99; fi; }',
         ...commands,
@@ -253,7 +260,7 @@ describePosix("scripts/pr worktree containment", () => {
                 bash,
                 [
                   "-c",
-                  `set -euo pipefail\nsource "$1"\nsource "$2"\nsource "$3"\nscript_parent_dir="$4"\ngh_plain() { printf 'HTTP/2.0 200 OK\\n\\n{"data":{"viewer":{"login":"fixture-user"}}}\\n'; }\nmark_pr_operation_side_effects_started() { :; }\nreview_checkout_main "$5"`,
+                  `set -euo pipefail\nsource "$1"\nsource "$2"\nsource "$3"\nscript_parent_dir="$4"\ngh_plain() { printf 'HTTP/2.0 200 OK\\n\\n{"data":{"viewer":{"login":"fixture-user"}}}\\n'; }\nmark_pr_operation_side_effects_started() { :; }\n${provisionWorktreeFixture}\nreview_checkout_main "$5"`,
                   "pr-concurrency",
                   commonScript,
                   worktreeScript,
@@ -1077,7 +1084,7 @@ describePosix("scripts/pr worktree containment", () => {
     const tools = join(fixture.root, "tools");
     const commandLog = join(fixture.root, "git-commands.log");
     mkdirSync(tools);
-    const realGit = spawnSync("bash", ["-lc", "command -v git"], {
+    const realGit = spawnSync("bash", ["-c", "command -v git"], {
       encoding: "utf8",
     }).stdout.trim();
     writeFileSync(

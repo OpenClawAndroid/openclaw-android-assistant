@@ -429,7 +429,7 @@ describe("live update executor", () => {
 });
 
 describe("candidate executor delegation", () => {
-  const moduleUrl = new URL("./update-command-executor.ts", import.meta.url).href;
+  const moduleUrl = resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.executor).href;
   it.each([
     { mismatched: false, becomesReadable: false, revoked: false },
     { mismatched: true, becomesReadable: false, revoked: false },
@@ -693,7 +693,7 @@ describe("candidate executor delegation", () => {
           await Promise.race([
             ready.promise,
             pending.then((result) => {
-              throw new Error(result.stderr);
+              throw new Error(`Candidate exited before admission: ${JSON.stringify(result)}`);
             }),
           ]);
           expect(() => fence.assertCurrent()).toThrow("suspended");

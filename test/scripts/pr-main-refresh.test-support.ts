@@ -6,16 +6,15 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterAll } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
-import { copyPrWrapperSources } from "./pr-wrapper.test-support.js";
+import { copyPrWrapperSources, linkPrWrapperDependencies } from "./pr-wrapper.test-support.js";
 
 const templateDirs = useAutoCleanupTempDirTracker(afterAll);
-let fixtureTemplate: ReturnType<typeof createMainRefreshTemplate> | undefined;
+const fixtureTemplates = new Map<boolean, ReturnType<typeof createMainRefreshTemplate>>();
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/gu, `'\\''`)}'`;
@@ -45,7 +44,7 @@ function createFixtureGit(root: string) {
   return { env, realGit, git };
 }
 
-function createMainRefreshTemplate(directory: string) {
+function createMainRefreshTemplate(directory: string, perWorktreeConfig: boolean) {
   const root = realpathSync(directory);
   const canonical = join(root, "canonical");
   const origin = join(root, "origin.git");
@@ -55,7 +54,9 @@ function createMainRefreshTemplate(directory: string) {
   git(canonical, "config", "user.name", "OpenClaw Test");
   git(canonical, "config", "user.email", "test@example.invalid");
   git(canonical, "config", "core.hooksPath", "/dev/null");
-  git(canonical, "config", "extensions.worktreeConfig", "true");
+  if (perWorktreeConfig) {
+    git(canonical, "config", "extensions.worktreeConfig", "true");
+  }
   copyPrWrapperSources(canonical);
   cpSync(join(process.cwd(), ".github", "workflows"), join(canonical, ".github", "workflows"), {
     recursive: true,
@@ -92,10 +93,21 @@ function createMainRefreshTemplate(directory: string) {
 
 // Keep the complete wrapper/lock/entry/gate owners. Command resolution, Git
 // transport faults, and GitHub responses are synthetic.
-export function createMainRefreshFixture(directory: string) {
-  const template = (fixtureTemplate ??= createMainRefreshTemplate(
-    templateDirs.make("openclaw-pr-main-refresh-template-"),
-  ));
+export function createMainRefreshFixture(
+  directory: string,
+  options: { perWorktreeConfig?: boolean } = {},
+) {
+  // Existing regression fixtures retain worktreeConfig; acceleration starts with
+  // a distinct pristine fixture, never a shared-config reset after sparse use.
+  const perWorktreeConfig = options.perWorktreeConfig !== false;
+  let template = fixtureTemplates.get(perWorktreeConfig);
+  if (!template) {
+    template = createMainRefreshTemplate(
+      templateDirs.make("openclaw-pr-main-refresh-template-"),
+      perWorktreeConfig,
+    );
+    fixtureTemplates.set(perWorktreeConfig, template);
+  }
   const root = realpathSync(directory);
   const canonical = join(root, "canonical");
   const origin = join(root, "origin.git");
@@ -119,7 +131,7 @@ export function createMainRefreshFixture(directory: string) {
     "https://github.com/fixture/repo.git",
   );
   git(canonical, "worktree", "add", "--detach", worktree, head);
-  symlinkSync(join(process.cwd(), "node_modules"), join(canonical, "node_modules"), "dir");
+  linkPrWrapperDependencies(canonical);
   const local = join(worktree, ".local");
   mkdirSync(local);
   const metadata = {
@@ -619,16 +631,20 @@ if (process.argv[1]?.endsWith('/watch-pr-ci.mts')) {
         encoding: "utf8",
       });
     },
-    shell(command: string) {
+    shell(command: string, shellOptions: { supervised?: boolean } = {}) {
       // Sourced helpers bypass the entrypoint's Darwin heredoc protection.
+      const bash = process.platform === "darwin" ? "/bin/bash" : "bash";
+      const args = [
+        "-c",
+        `set -euo pipefail\nscript_parent_dir="$1/scripts"\nsource "$script_parent_dir/lib/plain-gh.sh"\nfor library in worktree operation-lock common changelog gates push review prepare-core merge; do source "$script_parent_dir/pr-lib/$library.sh"; done\n${command}`,
+        "fixture",
+        canonical,
+      ];
       return spawnSync(
-        process.platform === "darwin" ? "/bin/bash" : "bash",
-        [
-          "-c",
-          `set -euo pipefail\nscript_parent_dir="$1/scripts"\nsource "$script_parent_dir/lib/plain-gh.sh"\nfor library in worktree operation-lock common changelog gates push review prepare-core merge; do source "$script_parent_dir/pr-lib/$library.sh"; done\n${command}`,
-          "fixture",
-          canonical,
-        ],
+        shellOptions.supervised ? process.execPath : bash,
+        shellOptions.supervised
+          ? [join(canonical, "scripts/pr-lib/process-group-runner.mjs"), canonical, bash, ...args]
+          : args,
         { cwd: canonical, env, encoding: "utf8" },
       );
     },

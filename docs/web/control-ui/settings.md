@@ -199,6 +199,14 @@ The catalog shows featured plugins and category shelves. Search queries
 links use `/plugins/<catalog-id>`; installed-only links use
 `/settings/plugins/<plugin-id>`. Both show the same overview and actions.
 
+Open a skill on a plugin detail page to browse its complete declared folder. The
+viewer starts with `SKILL.md`, includes unlinked files and nested folders, and
+renders full Markdown documents. Files that cannot render, exceed the read
+limits, or are unavailable remain visible with an explanation. Installed and
+catalog plugins use the same viewer; catalog reads stay pinned to the selected
+release and do not install or execute the plugin. This viewer has no search or
+Copy controls. Reading a bundle requires `operator.read`.
+
 The **Skills** tab keeps the skill status report, enable/disable toggles, API
 key entry, and inline ClawHub skill search, scoped to the selected agent. The
 **Workshop** tab shows installed skills and pending
@@ -215,6 +223,24 @@ cannot be removed, only disabled.
 Reading the catalog and searching ClawHub require `operator.read`. Installing,
 enabling, disabling, or removing a plugin and changing MCP servers require
 `operator.admin`; those actions stay disabled for read-only operators.
+
+Plugin-declared credential fields support masked key entry and an inline key-signup
+link. The eye reveals only the key you are entering; it never retrieves the stored
+secret. Leaving an empty input unchanged preserves its existing credential.
+
+Administrators can inspect and edit a declared credential's secret reference: its
+source (`env`, `file`, `exec`, or `store`), provider alias, and identifier. The
+Gateway returns that metadata only for the selected field and current config
+revision, without resolving the secret. **Cancel** removes this field's unsaved
+reference change, including after a rejected save, while preserving other edits.
+**Save** waits for the existing Settings write to be acknowledged; the dialog
+cannot be dismissed while that write is pending. If the saved value cannot be
+confirmed, the dialog keeps the draft and displays the recovery error. Failed
+writes retain the draft, and stale revisions require a fresh read. Read-only config
+permits inspection but disables changes. Environment fallback is inspect-only:
+change the variable at its source. Saving a reference does not rotate a secret or
+verify a provider connection. Fields without declared credential metadata retain
+the ordinary schema editor.
 
 ClawHub installs run through the Gateway and keep the same trust, integrity,
 and plugin-install policy checks as other Gateway-mediated installs. Install,

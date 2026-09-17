@@ -156,7 +156,7 @@ test.each(["custom/model", "middle"])(
           resolveSessionSelectedModelRef({
             cfg: identityConfig,
             agentId: "main",
-            source: { entry, loadSessionEntry: () => undefined },
+            source: { entry, readSourceEntry: () => undefined },
             allowPluginNormalization: false,
           }),
         )
@@ -187,7 +187,7 @@ test.each([false, true])(
             resolveSessionSelectedModelRef({
               cfg: identityConfig,
               agentId: "main",
-              source: { entry, loadSessionEntry: () => undefined },
+              source: { entry, readSourceEntry: () => undefined },
               rowContext,
               allowPluginNormalization: false,
             }),

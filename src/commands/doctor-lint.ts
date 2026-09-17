@@ -10,7 +10,7 @@ import {
   registerBundledHealthChecks,
   resolveBundledHealthCheckPluginStateMode,
 } from "../flows/bundled-health-checks.js";
-import { configValidationIssuesToHealthFindings } from "../flows/doctor-core-checks.js";
+import { configValidationIssuesToHealthFindings } from "../flows/doctor-config-validation-findings.js";
 import { scrubDoctorErrorMessage } from "../flows/doctor-error-message.js";
 import { resolveDoctorContributionHealthChecks } from "../flows/doctor-health-contributions.js";
 import {
@@ -518,6 +518,7 @@ function toJsonFinding(f: HealthFinding): Record<string, unknown> {
     severity: f.severity,
     message: f.message,
     ...(f.source !== undefined ? { source: f.source } : {}),
+    ...(f.errorCode !== undefined ? { errorCode: f.errorCode } : {}),
     ...(f.path !== undefined ? { path: f.path } : {}),
     ...(f.line !== undefined ? { line: f.line } : {}),
     ...(f.column !== undefined ? { column: f.column } : {}),

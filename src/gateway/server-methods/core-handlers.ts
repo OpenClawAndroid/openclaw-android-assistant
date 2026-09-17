@@ -3,7 +3,7 @@ import { createLazyPromise } from "../../shared/lazy-promise.js";
 import {
   listCoreGatewayHandlerMethodNames,
   type CoreGatewayHandlerFamily,
-} from "../methods/core-descriptors.js";
+} from "../methods/core-method-policy.js";
 import { createLazyCoreHandlers } from "./lazy-core-handlers.js";
 import type { GatewayRequestHandlers } from "./types.js";
 

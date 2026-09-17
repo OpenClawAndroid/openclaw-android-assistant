@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
-import { createCoreGatewayMethodDescriptors } from "../methods/core-descriptors.js";
+import { createCoreGatewayMethodDescriptors } from "../methods/core-method-policy.js";
 import { environmentsHandlers, summarizeWorkerEnvironment } from "./environments.js";
 import {
   callEnvironmentMethod,

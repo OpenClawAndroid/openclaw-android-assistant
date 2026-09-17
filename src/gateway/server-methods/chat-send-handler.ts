@@ -364,18 +364,23 @@ async function handleChatSendWithOptions(
             entry: persistedUserTurn.sessionEntry,
           });
         }
-        recordSessionGoalChanged({
+        const goalChanged = recordSessionGoalChanged({
           sessionKey,
           agentId: preparedSession.value.agentId,
           entry: persistedUserTurn.sessionEntry,
           actor: gatewayClientSessionCreator(client),
           summary: `goal ${goalOperation.action}`,
         });
-        emitSessionsChanged(context, {
-          sessionKey,
-          agentId: preparedSession.value.agentId,
-          reason: "goal",
-        });
+        try {
+          // Publish the committed Goal before yielding; retain its event through terminalization.
+          emitSessionsChanged(context, {
+            sessionKey,
+            agentId: preparedSession.value.agentId,
+            reason: "goal",
+          });
+        } finally {
+          await goalChanged;
+        }
       }
       // A matching idempotency row and lifecycle claim commit atomically, so
       // retries adopt the durable turn without submitting it twice.

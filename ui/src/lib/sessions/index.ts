@@ -5,6 +5,7 @@ import { formatUiError } from "../format-error.ts";
 import { createGatewayConnectionLifecycle } from "../gateway-connection-lifecycle.ts";
 import type { SessionCreateOutcome } from "./create.ts";
 import type { SessionChangedResult, SessionReconcileOptions } from "./reconcile.ts";
+import { subscribeAgentSelection, type SessionAgentSelection } from "./session-agent-selection.ts";
 import type { SessionCapability, SessionGateway, SessionState } from "./session-capability.ts";
 import { createSessionDeletions } from "./session-deletions.ts";
 import { createSessionEventSubscriptionOwner } from "./session-event-subscription.ts";
@@ -57,11 +58,6 @@ export type {
   SessionScopeHostWithKey,
 } from "./navigation.ts";
 
-type SessionAgentSelection = {
-  readonly state: { readonly selectedId: string | null };
-  subscribe: (listener: () => void) => () => void;
-};
-
 export function createSessionCapability(
   gateway: SessionGateway,
   agentSelection: SessionAgentSelection,
@@ -96,6 +92,7 @@ export function createSessionCapability(
     readState: () => state,
     publish: (next) => {
       // Cache admission and retirement already own credential/profile boundaries.
+      roster.retireWarmLists();
       retirePresentation();
       if (next.resultCached) {
         presentation = { result: next.result, agentId: next.agentId, resultCached: true };
@@ -131,7 +128,6 @@ export function createSessionCapability(
   let hydratedClient: SessionGateway["snapshot"]["client"] = null;
   let hydratedSelfUserId: string | null = null;
   let connectionClient = gateway.snapshot.client;
-  let selectedAgentId = agentSelection.state.selectedId;
   let sessionEventSubscriptionError: string | null = null;
   let publishedErrorSource: "session-observer" | "operation" | null = null;
 
@@ -199,6 +195,9 @@ export function createSessionCapability(
       }
       const previousError = sessionEventSubscriptionError;
       sessionEventSubscriptionError = error;
+      if (error !== null) {
+        roster.retireWarmLists();
+      }
       const observerOwnsVisibleError = publishedErrorSource === "session-observer";
       if (error !== null && (state.error === null || observerOwnsVisibleError)) {
         publish({ ...state, error }, "session-observer");
@@ -226,6 +225,12 @@ export function createSessionCapability(
     snapshot: () => gateway.snapshot,
     readState: () => state,
     publish,
+    onWarmListsRetired: (agentIds) => {
+      const selectedId = agentSelection.state.selectedId;
+      if (!presentation.result && selectedId && agentIds.has(normalizeAgentId(selectedId))) {
+        notifySubscribers();
+      }
+    },
     observerError: () => sessionEventSubscriptionError,
     decorate: decorateRows,
     reconcileList: (result, revision, agentId) => {
@@ -269,10 +274,18 @@ export function createSessionCapability(
   });
 
   const notifyCreated = (key: string, entry?: SessionCreateOutcome["entry"], agentId?: string) => {
+    roster.retireWarmLists();
     thinkingClaims.recordCreated(key, entry, agentId);
     for (const listener of createdListeners) {
       listener(key);
     }
+  };
+
+  const publishMutation: typeof publish = (next, errorSource) => {
+    // A local mutation can complete without an event or successful refresh.
+    // Retire inactive windows before exposing its publication to selection.
+    roster.retireWarmLists();
+    publish(next, errorSource);
   };
 
   const mutations = createSessionMutations({
@@ -283,7 +296,7 @@ export function createSessionCapability(
       return row ? roster.projectFields(row) : undefined;
     },
     readState: () => state,
-    publish,
+    publish: publishMutation,
     copyRow: roster.copyRow,
     reconcileMutation: roster.reconcileMutation,
     publishedRow: (key) => roster.publishedRow((row) => row.key === key),
@@ -302,7 +315,7 @@ export function createSessionCapability(
     snapshot: () => gateway.snapshot,
     requestRevision: () => roster.requestRevision,
     readState: () => state,
-    publish,
+    publish: publishMutation,
     publishedRow: (matches) => roster.publishedRow(matches),
     redecorateLists: () => roster.redecorateLists(),
     invalidateLists: () => roster.scheduleEvent(),
@@ -439,6 +452,7 @@ export function createSessionCapability(
     const connectionChanged = connection.transition(next);
     if (connected) {
       if (presentationProfileId !== undefined && presentationProfileId !== selfUserId) {
+        roster.retireWarmLists();
         retirePresentation();
         notifySubscribers();
       }
@@ -522,18 +536,13 @@ export function createSessionCapability(
     }
   });
 
-  const stopSelection = agentSelection.subscribe(() => {
-    const nextAgentId = agentSelection.state.selectedId;
-    if (selectedAgentId === nextAgentId) {
-      return;
-    }
-    selectedAgentId = nextAgentId;
+  const stopSelection = subscribeAgentSelection(agentSelection, (nextAgentId, foreground) => {
     retirePresentation();
     notifySubscribers();
     // Selection publishes before Gateway hydration. A new connection bootstraps
     // the current selection; route changes on a hydrated connection replace its roster.
     if (nextAgentId && hydratedClient === gateway.snapshot.client) {
-      void roster.refreshSelection(() => agentSelection.state.selectedId);
+      void roster.refreshSelection(() => agentSelection.state.selectedId, foreground);
     }
   });
 
@@ -630,7 +639,9 @@ export function createSessionCapability(
       return state;
     },
     get presentation() {
-      return presentation;
+      return presentation.result
+        ? presentation
+        : (roster.selectionPresentation(agentSelection.state.selectedId) ?? presentation);
     },
     get canonicalListRevision() {
       return canonicalListRevision;

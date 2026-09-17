@@ -1,6 +1,5 @@
 // Doctor session SQLite tests exercise real temp stores and per-agent SQLite files.
 import { AsyncResource } from "node:async_hooks";
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import os from "node:os";
@@ -83,6 +82,7 @@ import { restoreSessionSqliteMigrationRun } from "./doctor-session-sqlite-restor
 import { retireSessionSqliteRecovery } from "./doctor-session-sqlite-retirement.js";
 import { createDoctorSessionSqliteTargetReport } from "./doctor-session-sqlite-types.js";
 import { runDoctorSessionSqlite, type DoctorSessionSqliteReport } from "./doctor-session-sqlite.js";
+import { createCompetingRestoreTarget } from "./doctor-session-sqlite.publication.test-support.js";
 import { withDoctorSqliteMaintenanceLock } from "./doctor-sqlite-maintenance-lock.js";
 import { doctorCommand } from "./doctor.js";
 
@@ -4634,39 +4634,21 @@ describe("runDoctorSessionSqlite", () => {
         if (competitorIdentity || String(from) !== archivePath || String(to) !== sourcePath) {
           return;
         }
-        // Insert after every pathname guard, then forward the real publication syscall.
-        execFileSync(
-          process.execPath,
-          [
-            "-e",
-            `const fs = require("node:fs");
-             const [kind, candidate, target] = process.argv.slice(1);
-             if (kind === "file") fs.copyFileSync(candidate, target, fs.constants.COPYFILE_EXCL);
-             else fs.symlinkSync(candidate, target);`,
-            destination,
-            competitorPath,
-            sourcePath,
-          ],
-          { timeout: 10_000 },
-        );
-        competitorIdentity = fs.lstatSync(sourcePath, { bigint: true });
+        // Insert after Doctor's pathname guards, then forward the guarded publication.
+        competitorIdentity = createCompetingRestoreTarget(destination, competitorPath, sourcePath);
       };
-      const rename = fs.renameSync;
-      const link = fsPromises.link;
-      const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
-        insertCompetitor(from, to);
-        return rename(from, to);
-      });
-      const linkSpy = vi.spyOn(fsPromises, "link").mockImplementation(async (from, to) => {
-        insertCompetitor(from, to);
-        return link(from, to);
-      });
+      const publish = directoryDurability.publishFileExclusive;
+      const publicationSpy = vi
+        .spyOn(directoryDurability, "publishFileExclusive")
+        .mockImplementation(async (options) => {
+          insertCompetitor(options.sourcePath, options.targetPath);
+          return publish(options);
+        });
       let result: Awaited<ReturnType<typeof runPublicSessionSqlite>>;
       try {
         result = await runPublicSessionSqlite(store, "restore");
       } finally {
-        renameSpy.mockRestore();
-        linkSpy.mockRestore();
+        publicationSpy.mockRestore();
       }
       const created = expectDefined(competitorIdentity, "separate writer ran at publication");
       const retained = fs.lstatSync(sourcePath, { bigint: true });
@@ -5078,13 +5060,15 @@ describe("runDoctorSessionSqlite", () => {
       const indexBytes = fs.readFileSync(index.archivePath);
       const transcriptBytes = fs.readFileSync(archivePath);
       fs.writeFileSync(store.transcriptPath, "new source history\n", { mode: 0o600 });
-      const link = fsPromises.link;
-      const linkSpy = vi.spyOn(fsPromises, "link").mockImplementation(async (from, to) => {
-        if (String(from) === index.archivePath && String(to) === index.sourcePath) {
-          throw Object.assign(new Error("injected unsupported hard link"), { code: "EXDEV" });
-        }
-        return link(from, to);
-      });
+      const publish = directoryDurability.publishFileExclusive;
+      const publicationSpy = vi
+        .spyOn(directoryDurability, "publishFileExclusive")
+        .mockImplementation(async (options) => {
+          if (options.sourcePath === index.archivePath && options.targetPath === index.sourcePath) {
+            throw Object.assign(new Error("injected unsupported hard link"), { code: "EXDEV" });
+          }
+          return publish(options);
+        });
       const copySpy = vi.spyOn(fs, "copyFileSync");
       const asyncCopySpy = vi.spyOn(fsPromises, "copyFile");
       try {
@@ -5093,10 +5077,17 @@ describe("runDoctorSessionSqlite", () => {
         expect(failed.report.targets[0]?.restore?.conflicts).toEqual(
           expect.arrayContaining([expect.objectContaining({ archivePath: index.archivePath })]),
         );
+        expect(publicationSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sourcePath: index.archivePath,
+            targetPath: index.sourcePath,
+            strategy: "link-required",
+          }),
+        );
         expect(copySpy).not.toHaveBeenCalled();
         expect(asyncCopySpy).not.toHaveBeenCalled();
       } finally {
-        linkSpy.mockRestore();
+        publicationSpy.mockRestore();
         copySpy.mockRestore();
         asyncCopySpy.mockRestore();
       }

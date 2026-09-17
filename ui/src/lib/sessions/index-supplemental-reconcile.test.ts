@@ -79,7 +79,7 @@ describe("supplemental session reconciliation", () => {
         return reconcile(result.session);
       };
       let primary: ReturnType<typeof sessions.refresh>;
-      let supplemental: Promise<boolean>;
+      let supplemental: ReturnType<typeof readDescription>;
       if (first === "primary") {
         primary = sessions.refresh({ agentId: "main", force: true });
         supplemental = readDescription();

@@ -209,7 +209,7 @@ export function createSessionListSearchMatcher(params: {
     const selected = resolveSessionSelectedModelRef({
       cfg,
       sessionKey: storeKey,
-      source: target.modelSource,
+      source: target,
       agentId,
       rowContext: context(),
       allowPluginNormalization: false,
@@ -290,7 +290,7 @@ function loadGatewaySessionSnapshot(
     store,
     modelSource: {
       entry,
-      loadSessionEntry: createGatewaySessionEntryReader({ cfg, agentId, store, readSource }),
+      readSourceEntry: createGatewaySessionEntryReader({ cfg, agentId, store, readSource }),
     },
     key: canonicalKey,
     entry,
@@ -337,7 +337,7 @@ export function buildGatewaySessionInfo(params: {
 }): GatewaySessionRow {
   return buildGatewaySessionRow({
     ...params,
-    modelSource: { entry: params.entry, loadSessionEntry: createGatewaySessionEntryReader(params) },
+    modelSource: { entry: params.entry, readSourceEntry: createGatewaySessionEntryReader(params) },
     skipTranscriptUsageFallback: true,
     lightweightListRow: true,
   });

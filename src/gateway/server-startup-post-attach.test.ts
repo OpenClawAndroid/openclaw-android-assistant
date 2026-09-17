@@ -266,7 +266,7 @@ const {
   testing,
 } = await import("./server-startup-post-attach.js");
 const { scheduleContextCachePrewarm } = await import("./server-startup-context-cache-prewarm.js");
-const { STARTUP_UNAVAILABLE_GATEWAY_METHODS } = await import("./methods/core-descriptors.js");
+const { STARTUP_UNAVAILABLE_GATEWAY_METHODS } = await import("./methods/core-method-policy.js");
 
 type PostAttachParams = Parameters<typeof startGatewayPostAttachRuntimeImpl>[0];
 type PostAttachRuntimeDeps = NonNullable<Parameters<typeof startGatewayPostAttachRuntimeImpl>[1]>;

@@ -11,6 +11,7 @@ import type { ChatHistoryResult } from "./chat-history-snapshot.ts";
 import { resetChatHistoryProjection, setChatError } from "./chat-history-state.ts";
 import { loadChatHistory } from "./chat-history.ts";
 import type { ChatHistoryHost, ChatState } from "./chat-state-contract.ts";
+import type { ChatAttachmentReadLifecycle } from "./components/chat-attachments.ts";
 import {
   captureChatComposerReplacement,
   loadChatComposerCommittedDraftRevision,
@@ -214,6 +215,7 @@ export async function clearChatHistory(
 export async function rewindChatHistory(
   state: RewindChatHistoryState,
   entryId: string,
+  attachmentReads: Pick<ChatAttachmentReadLifecycle, "abortReads" | "readSignal">,
 ): Promise<{ editorText?: string } | null> {
   if (!state.client || !state.connected) {
     return null;
@@ -234,6 +236,7 @@ export async function rewindChatHistory(
       state.chatMentions,
     );
   const composerSignature = readComposer();
+  const attachmentReadSignal = attachmentReads.readSignal;
   const ownsComposer = captureChatComposerReplacement(state, sessionKey, agentParams.agentId);
   try {
     const result = await state.sessions.rewind(sessionKey, entryId, agentParams);
@@ -273,6 +276,10 @@ export async function rewindChatHistory(
       result.editorAttachments,
     );
     state.handleChatDraftChange(editorText, []);
+    // Publish the complete restored draft before cancellation notifies the pane.
+    if (attachmentReads.readSignal === attachmentReadSignal) {
+      attachmentReads.abortReads();
+    }
     return result;
   } catch (error) {
     if (viewIsCurrent()) {

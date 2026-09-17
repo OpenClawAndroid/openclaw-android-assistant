@@ -24,7 +24,7 @@ export type SessionActorProfileIdentity = Extract<CurrentUserProfileDisplay, { k
 
 export type GatewaySessionModelSource = {
   entry: SessionEntry | undefined;
-  loadSessionEntry: (key: string) => SessionEntry | undefined;
+  readSourceEntry: (key: string) => SessionEntry | undefined;
 };
 
 export type SessionListRowContext = {

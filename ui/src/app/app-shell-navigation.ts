@@ -237,6 +237,7 @@ export class ShellNavigationOwner {
             selection: routeContext.agentSelection,
             gateway: routeContext.gateway,
             sessionKey: committedSessionKey,
+            background: true,
           });
         }
       }

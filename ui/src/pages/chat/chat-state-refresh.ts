@@ -576,20 +576,25 @@ async function refreshChat(
     host.sessionsResult = scopedHistory
       ? reconcileSessionHistory(
           host.sessionsResultAgentId === refreshedAgentId ? host.sessionsResult : null,
-          history.sessionInfo,
+          admitted === "defaults-only" ? selectedChatSessionRow(host) : history.sessionInfo,
           history.defaults,
           {
             resultAgentId: refreshedAgentId,
             selectedGlobalAgentId: refreshedAgentId,
             archivedFilter: "all",
           },
-          // Only this pane's changed projection proves a newer same-agent row;
-          // a later Main list cannot freeze Work history or block a missing row.
-          host.sessionsResultAgentId === refreshedAgentId &&
-            host.sessionsResult !== previousSessionsResult,
+          // Defaults-only admission preserves the current descriptor even when history
+          // began before this refresh captured the pane's projection.
+          admitted === "defaults-only" ||
+            (host.sessionsResultAgentId === refreshedAgentId &&
+              host.sessionsResult !== previousSessionsResult),
         )
       : host.sessions.state.result;
     host.sessionsResultAgentId = scopedHistory ? refreshedAgentId : host.sessions.state.agentId;
+    // Defaults-only admission cannot update descriptor flags or run state from stale history.
+    if (admitted === "defaults-only") {
+      return;
+    }
     const sessionInfo = selectedChatSessionRow(host);
     const rosterRow = sessionInfo ?? history.sessionInfo;
     if (sessionInfo) {

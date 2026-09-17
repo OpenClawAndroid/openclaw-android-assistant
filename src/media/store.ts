@@ -107,10 +107,8 @@ function openMediaStore(maxBytes = MAX_BYTES, rootDir = resolveMediaDir()) {
  */
 function sanitizeFilename(name: string): string {
   // Store keys require NFC; source filesystem paths keep their original spelling.
-  const base = sanitizeUntrustedFileName(name, "").normalize("NFC");
-  if (!base) {
-    return "";
-  }
+  // The nonempty fallback collapses to an empty prefix below for UUID-only keys.
+  const base = sanitizeUntrustedFileName(name, "_").normalize("NFC");
   const sanitized = base.replace(/[^\p{L}\p{N}._-]+/gu, "_");
   return truncateUtf16Safe(sanitized.replace(/_+/g, "_").replace(/^_|_$/g, ""), 60);
 }

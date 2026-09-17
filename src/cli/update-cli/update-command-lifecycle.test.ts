@@ -177,6 +177,7 @@ vi.mock("./update-command-runtime.js", () => ({
 vi.mock("./update-command-post-core.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./update-command-post-core.js")>()),
   continuePostCoreUpdateInFreshProcess: vi.fn(),
+  postCoreUpdateParentOwnsCompletion: vi.fn(),
   readPostCorePluginInstallRecordsFile: vi.fn(async () => {
     record("handoff-records");
     return {};
@@ -193,7 +194,11 @@ import {
   runUpdateFinalizationDoctorInFreshProcess,
 } from "./update-command-fresh-doctor.js";
 import { updatePluginsAfterCoreUpdate } from "./update-command-plugins.js";
-import { continuePostCoreUpdateInFreshProcess } from "./update-command-post-core.js";
+import {
+  continuePostCoreUpdateInFreshProcess,
+  postCoreUpdateParentOwnsCompletion,
+  writePostCorePluginUpdateResultFile,
+} from "./update-command-post-core.js";
 import { resumePostCoreUpdate } from "./update-command-resume.js";
 
 function expectLifecycleBoundary(preLeaseEvent: string): void {
@@ -505,29 +510,48 @@ describe("update plugin lifecycle lease boundaries", () => {
     }
   });
 
-  it("returns resumed package work without Doctor completion and rereads state under the lease", async () => {
-    await resumePostCoreUpdate({
-      root: "/tmp/openclaw",
-      channel: "stable",
-      opts: { yes: true },
-      timeoutMs: 1_000,
-    });
+  it.each([undefined, "parent"])(
+    "resumes with completion owner %s before publishing",
+    async (owner) => {
+      vi.mocked(postCoreUpdateParentOwnsCompletion).mockResolvedValueOnce(owner === "parent");
+      vi.stubEnv("OPENCLAW_UPDATE_POST_CORE_RESULT_PATH", "/fixture/post-core-result.json");
+      vi.mocked(writePostCorePluginUpdateResultFile).mockImplementationOnce(async () => {
+        record("publish-result");
+      });
+      await resumePostCoreUpdate({
+        root: "/tmp/openclaw",
+        channel: "stable",
+        opts: { yes: true },
+        timeoutMs: 1_000,
+      });
 
-    expectLifecycleBoundary("handoff-records");
-    expect(mocks.events.indexOf("runtime-completion:true")).toBeGreaterThan(
-      mocks.events.indexOf("lease-enter:false"),
-    );
-    expect(mocks.events.indexOf("runtime-completion:true")).toBeLessThan(
-      mocks.events.indexOf("prepare-config:true"),
-    );
-    expect(mocks.events).not.toContain("fresh-doctor:false");
-    expect(mocks.events).not.toContain("fresh-doctor:true");
-    expect(mocks.events).not.toContain("config-snapshot:false");
-    expect(mocks.events).not.toContain("config-snapshot:true");
-    expect(mocks.events).not.toContain("complete:false");
-    expect(mocks.events).not.toContain("complete:true");
-    expect(mocks.events).toContain("persisted-index:true");
-  });
+      expectLifecycleBoundary("handoff-records");
+      expect(mocks.events.indexOf("runtime-completion:true")).toBeGreaterThan(
+        mocks.events.indexOf("lease-enter:false"),
+      );
+      expect(mocks.events.indexOf("runtime-completion:true")).toBeLessThan(
+        mocks.events.indexOf("prepare-config:true"),
+      );
+      expect(mocks.events.includes("fresh-doctor:false")).toBe(owner === undefined);
+      expect(mocks.events).not.toContain("fresh-doctor:true");
+      expect(mocks.events).not.toContain("config-snapshot:false");
+      expect(mocks.events).not.toContain("config-snapshot:true");
+      expect(mocks.events.includes("complete:false")).toBe(owner === undefined);
+      expect(mocks.events).not.toContain("complete:true");
+      expect(mocks.events).toContain("persisted-index:true");
+      if (owner === undefined) {
+        expect(mocks.events.indexOf("fresh-doctor:false")).toBeLessThan(
+          mocks.events.indexOf("prepare-config:true"),
+        );
+        expect(mocks.events.indexOf("complete:false")).toBeGreaterThan(
+          mocks.events.lastIndexOf("lease-exit:false"),
+        );
+        expect(mocks.events.indexOf("publish-result:false")).toBeGreaterThan(
+          mocks.events.indexOf("complete:false"),
+        );
+      }
+    },
+  );
 
   it.each([undefined, "5"])(
     "runs finalizer doctors outside the lease with timeout %s",

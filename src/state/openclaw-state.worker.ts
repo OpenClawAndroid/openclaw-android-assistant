@@ -46,6 +46,10 @@ import {
   resolveProjectCloneRefreshOwnerInDatabase,
   resolveRecordedProjectRootInDatabase,
 } from "../projects/project-registry.kernel.js";
+import {
+  pruneSessionStateEventsInDatabase,
+  recordSessionStateEventInDatabase,
+} from "../sessions/session-state-events.kernel.js";
 import { mapTaskFlowView } from "../tasks/task-domain-views.js";
 import { runManagedTaskInFlowInDatabase } from "../tasks/task-flow-managed-run-task.kernel.js";
 import type { RunTaskInFlowResult } from "../tasks/task-flow-managed-run-task.types.js";
@@ -413,6 +417,19 @@ function createSharedStateWorkerBackend(
         path: context.databasePath,
         env: getSqliteWorkerStateContext().environment,
       };
+      if (command.type === "sessionState.recordGoalChange") {
+        return runOpenClawStateWriteTransaction(
+          ({ db }) =>
+            recordSessionStateEventInDatabase(db, command.input.event, command.input.now).notices,
+          writeOptions,
+        );
+      }
+      if (command.type === "sessionState.prune") {
+        return runOpenClawStateWriteTransaction(
+          ({ db }) => pruneSessionStateEventsInDatabase(db, command.input.now),
+          writeOptions,
+        );
+      }
       if (command.type === "plugins.catalogSnapshot.write") {
         try {
           runOpenClawStateWriteTransaction(

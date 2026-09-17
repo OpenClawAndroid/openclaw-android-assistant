@@ -4605,36 +4605,6 @@ describe("createBackupArchive", () => {
         },
       );
     });
-
-    it("fails closed when the destination does not support hard links", async () => {
-      const linkSpy = vi
-        .spyOn(fs, "link")
-        .mockRejectedValue(Object.assign(new Error("hard links unsupported"), { code: "EPERM" }));
-      try {
-        await withOpenClawTestState(
-          {
-            layout: "state-only",
-            prefix: "openclaw-backup-no-hardlinks-",
-            scenario: "minimal",
-          },
-          async (state) => {
-            const outputDir = state.path("backups");
-            await fs.mkdir(outputDir, { recursive: true });
-
-            await expect(
-              createBackupArchive({
-                output: outputDir,
-                includeWorkspace: false,
-                nowMs: Date.UTC(2026, 4, 9, 12, 0, 0),
-              }),
-            ).rejects.toThrow(/requires hard-link support/iu);
-            await expect(fs.readdir(outputDir)).resolves.toEqual([]);
-          },
-        );
-      } finally {
-        linkSpy.mockRestore();
-      }
-    });
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

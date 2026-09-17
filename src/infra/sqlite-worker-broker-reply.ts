@@ -9,6 +9,7 @@ import { releaseSqliteWorkerLifecycle } from "./sqlite-worker-broker-admission.j
 import type { Job } from "./sqlite-worker-broker.types.js";
 import {
   SQLITE_WORKER_MAX_MESSAGE_BYTES,
+  retainSqliteWorkerErrorCode,
   SqliteWorkerError,
   type SqliteWorkerReply,
   type SqliteWorkerRequest,
@@ -177,9 +178,7 @@ export function withSqliteWorkerCleanupFailure(failure: Error, cleanupError: unk
     "SQLite worker failure and cleanup failed",
     { cause: failure },
   );
-  return failure instanceof SqliteWorkerError
-    ? Object.assign(combined, { code: failure.code })
-    : combined;
+  return retainSqliteWorkerErrorCode(combined, failure);
 }
 
 export function settleFailedSqliteWorkerJobs({

@@ -208,8 +208,37 @@ elif common_git_dir=$(git -C "$script_parent_dir" rev-parse --path-format=absolu
             # A whole node_modules link could load unanchored workspace source.
             if ! node --input-type=module - "$canonical_repo_root/node_modules" "$anchor_exec_dir/node_modules" <<'EOF_NODE'
 import { mkdirSync, realpathSync, statSync, symlinkSync } from "node:fs";
-import { join } from "node:path";
-const dependencies = ["tsx", "zod", "minimatch", "yaml"].map((dependency) => {
+import { dirname, join } from "node:path";
+// Pin worker/native dependencies too; workspace packages stay anchored source.
+const dependencies = [
+  "@openclaw/fs-safe",
+  "@openclaw/proxyline",
+  "acorn",
+  "chalk",
+  "commander",
+  "dotenv",
+  "execa",
+  "hosted-git-info",
+  "import-meta-resolve",
+  "ipaddr.js",
+  "jiti",
+  "json5",
+  "koffi",
+  "kysely",
+  "minimatch",
+  "ms",
+  "p-map",
+  "semver",
+  "string-width",
+  "tsdown",
+  "tslog",
+  "tsx",
+  "typebox",
+  "typescript",
+  "undici",
+  "yaml",
+  "zod",
+].map((dependency) => {
   const installedPath = join(process.argv[2], dependency);
   try {
     const target = realpathSync(installedPath);
@@ -224,7 +253,9 @@ const dependencies = ["tsx", "zod", "minimatch", "yaml"].map((dependency) => {
 mkdirSync(process.argv[3]);
 for (const { dependency, target } of dependencies) {
   // Native junctions avoid Git Bash copying package directories on Windows.
-  symlinkSync(target, join(process.argv[3], dependency),
+  const link = join(process.argv[3], dependency);
+  mkdirSync(dirname(link), { recursive: true });
+  symlinkSync(target, link,
     process.platform === "win32" ? "junction" : "dir");
 }
 EOF_NODE

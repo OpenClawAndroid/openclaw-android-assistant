@@ -118,6 +118,11 @@ Any other `openrouter/<provider>/<model>` ref, including
 `openrouter/openrouter/fusion` (see [Fusion router](#fusion-router)), resolves
 dynamically against OpenRouter's live model catalog.
 
+Discovered models use OpenRouter's advertised tool support. When a model's
+`supported_parameters` list omits `tools`, OpenClaw sends requests without tool
+definitions or tool choice. Models without that metadata keep the default tool
+behavior.
+
 ## Image generation
 
 OpenRouter can back the `image_generate` tool. Set an OpenRouter image model

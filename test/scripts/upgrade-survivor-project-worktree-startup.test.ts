@@ -7,6 +7,7 @@ import {
 
 const sessionKey = "agent:main:dashboard:legacy-project-worktree";
 const original = {
+  stage: "published-import",
   shared: { project: [{ id: "project" }], worktrees: [{ id: "worktree" }] },
   agent: {
     sessions: [
@@ -27,8 +28,8 @@ const original = {
     transcript: [{ session_id: "target", seq: 1, event_json: "original bytes", created_at: 10 }],
   },
 };
-function migrated() {
-  const result = structuredClone(original);
+function migrated(stage = "before-startup") {
+  const result = { ...structuredClone(original), stage };
   const row = result.agent.sessions[0]!;
   const entry = JSON.parse(row.entry_json);
   entry.worktree.canonicalWorkspaceDir = "/fixture/project";
@@ -82,13 +83,29 @@ function publishedImportEvidence() {
 }
 
 describe("published project-worktree startup evidence", () => {
-  it("accepts the original imported shape and only the canonical workspace backfill", () => {
+  it("requires update Doctor to repair the workspace before either Gateway startup", () => {
     expect(() =>
-      assertProjectWorktreeStartupPreservation(original, original, undefined),
+      assertProjectWorktreeStartupPreservation(original, original, "/fixture/project"),
     ).not.toThrow();
+    for (const stage of ["before-startup", "after-first-stop", "after-second-stop"]) {
+      expect(() =>
+        assertProjectWorktreeStartupPreservation(migrated(stage), original, "/fixture/project"),
+      ).not.toThrow();
+      expect(() =>
+        assertProjectWorktreeStartupPreservation(
+          { ...original, stage },
+          original,
+          "/fixture/project",
+        ),
+      ).toThrow();
+    }
+    const premature = migrated("published-import");
     expect(() =>
-      assertProjectWorktreeStartupPreservation(migrated(), original, "/fixture/project"),
-    ).not.toThrow();
+      assertProjectWorktreeStartupPreservation(premature, premature, "/fixture/project"),
+    ).toThrow();
+    expect(() =>
+      assertProjectWorktreeStartupPreservation(migrated("unknown"), original, "/fixture/project"),
+    ).toThrow();
   });
 
   it.each([
@@ -141,31 +158,31 @@ describe("published project-worktree startup evidence", () => {
         "2026-09-16T15:10:34.169+00:00 [gateway] session: recorded canonical workspaces for 1 managed-worktree session(s)",
       shutdownPrefix: "2026-09-16T15:10:35.584+00:00 [shutdown]",
     },
-  ])("requires backfill and clean shutdown from $format logs", ({ migration, shutdownPrefix }) => {
-    const closed = `${shutdownPrefix} completed cleanly in 19ms`;
-    const warned = `${shutdownPrefix} completed in 19ms with warnings: database drain`;
-    const failed = `${shutdownPrefix} failed in 19ms`;
-    expect(assertProjectWorktreeStartupLog(`${migration}\n${closed}`, "first")).toEqual({
-      backfills: [1],
-      cleanShutdown: true,
-    });
-    expect(assertProjectWorktreeStartupLog(closed, "second")).toEqual({
-      backfills: [],
-      cleanShutdown: true,
-    });
-    for (const log of [
-      "gateway ready",
-      migration,
-      closed,
-      `${migration}\n${warned}`,
-      `${migration}\n${failed}`,
-      `${migration}\n${closed}\n${warned}`,
-      `${migration}\n${closed}\n${failed}`,
-    ]) {
-      expect(() => assertProjectWorktreeStartupLog(log, "first")).toThrow();
-    }
-    expect(() => assertProjectWorktreeStartupLog(`${migration}\n${closed}`, "second")).toThrow();
-  });
+  ])(
+    "requires clean shutdown without startup repair from $format logs",
+    ({ migration, shutdownPrefix }) => {
+      const closed = `${shutdownPrefix} completed cleanly in 19ms`;
+      const warned = `${shutdownPrefix} completed in 19ms with warnings: database drain`;
+      const failed = `${shutdownPrefix} failed in 19ms`;
+      for (const start of ["first", "second"]) {
+        expect(assertProjectWorktreeStartupLog(closed, start)).toEqual({
+          backfills: [],
+          cleanShutdown: true,
+        });
+        for (const log of [
+          "gateway ready",
+          migration,
+          `${migration}\n${closed}`,
+          warned,
+          failed,
+          `${closed}\n${warned}`,
+          `${closed}\n${failed}`,
+        ]) {
+          expect(() => assertProjectWorktreeStartupLog(log, start)).toThrow();
+        }
+      }
+    },
+  );
 
   it("accepts published fresh-import counters with separate pre-archive validation", () => {
     const { report, dryRun, manifest } = publishedImportEvidence();

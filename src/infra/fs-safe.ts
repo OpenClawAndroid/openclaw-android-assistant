@@ -65,64 +65,8 @@ export { withTimeout } from "@openclaw/fs-safe/advanced";
 // new Root.walk capability core-only until a dedicated plugin contract is approved.
 export type Root = Omit<FsSafeRoot, "walk">;
 
-const PINNED_WRITE_CATCH_ALL_MESSAGE = "path is not a regular file under root";
-
-const PINNED_WRITE_ERRNO_MESSAGES = new Map<string, string>([
-  ["EACCES", "permission denied"],
-  ["ENOSPC", "no space left on device"],
-  ["EPERM", "permission denied"],
-  ["EROFS", "read-only filesystem"],
-]);
-
-async function runPinnedWrite(write: () => Promise<void>): Promise<void> {
-  try {
-    await write();
-  } catch (error) {
-    if (
-      !(error instanceof FsSafeError) ||
-      error.code !== "invalid-path" ||
-      error.message !== PINNED_WRITE_CATCH_ALL_MESSAGE
-    ) {
-      throw error;
-    }
-    const cause = error.cause;
-    if (
-      !(cause instanceof Error) ||
-      !("code" in cause) ||
-      typeof cause.code !== "string" ||
-      !cause.code
-    ) {
-      throw error;
-    }
-    // fs-safe retains the errno but replaces its message with a path assertion.
-    // Keep its structured classification and original cause for existing callers.
-    const described = PINNED_WRITE_ERRNO_MESSAGES.get(cause.code) ?? "filesystem write failed";
-    throw new FsSafeError(error.code, `${described} (${cause.code})`, {
-      cause,
-      details: error.details,
-    });
-  }
-}
-
 export async function root(rootDir: string, defaults?: RootDefaults): Promise<Root> {
-  const created = await fsSafeRoot(rootDir, defaults);
-  const create = created.create.bind(created);
-  const write = created.write.bind(created);
-  // Keep the dependency's handle and identity. Its JSON methods call these writes.
-  const overrides: Pick<FsSafeRoot, "create" | "write"> = {
-    create: async (relativePath, data, options) =>
-      await runPinnedWrite(async () => {
-        // Select the dependency's overload without widening streamed-write options.
-        if (typeof data === "string" || Buffer.isBuffer(data)) {
-          await create(relativePath, data, options);
-        } else {
-          await create(relativePath, data, options);
-        }
-      }),
-    write: async (relativePath, data, options) =>
-      await runPinnedWrite(async () => await write(relativePath, data, options)),
-  };
-  return Object.assign(created, overrides);
+  return await fsSafeRoot(rootDir, defaults);
 }
 
 export type ExternalFileWriteOptions = {

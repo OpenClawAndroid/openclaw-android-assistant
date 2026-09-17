@@ -45,6 +45,7 @@ const aggregateScenarios = UPGRADE_SURVIVOR_SCENARIOS.filter(
     scenario !== "msteams-polls" &&
     scenario !== "abandoned-update" &&
     scenario !== "missing-configured-plugin-migration" &&
+    scenario !== "missing-load-path" &&
     scenario !== "projects-doctor" &&
     scenario !== "projects-startup-migration" &&
     scenario !== "taskflow-restoration" &&

@@ -214,15 +214,34 @@ export function createSessionReconciliation(host: Host) {
     defaults?: SessionsListResult["defaults"],
     options?: Parameters<SessionCapability["reconcile"]>[2],
     observation?: ReturnType<Host["roster"]["captureReconciliation"]>,
-  ): boolean => {
+  ): ReturnType<SessionCapability["reconcile"]> => {
     const state = host.readState();
     const historyAgentId =
       row?.agentId ??
       (isUiGlobalSessionKey(row?.key) ? options?.selectedGlobalAgentId : undefined) ??
       options?.resultAgentId ??
       state.agentId;
-    if (observation && !observation.isCurrent(row, historyAgentId)) {
+    if (observation && !observation.isCurrent(undefined, historyAgentId)) {
       return false;
+    }
+    if (
+      row &&
+      (!host.deletions.acceptsGeneration(row.key, row.sessionId, historyAgentId) ||
+        host.deletions.deletionState(row.key, historyAgentId, row.sessionId))
+    ) {
+      return false;
+    }
+    if (observation && !observation.isCurrent(row, historyAgentId)) {
+      // A newer same-agent row does not retire this history's scoped defaults.
+      // Admit only the pane's defaults after connection and generation checks;
+      // never publish its stale row or defaults into another agent's roster.
+      return defaults &&
+        row &&
+        isUiGlobalSessionKey(row.key) &&
+        historyAgentId !== state.agentId &&
+        options?.selectedGlobalAgentId === historyAgentId
+        ? "defaults-only"
+        : false;
     }
     const rowIsCurrent =
       Boolean(observation) || !row || host.roster.isCurrentRow(row, undefined, historyAgentId);
@@ -235,13 +254,6 @@ export function createSessionReconciliation(host: Host) {
           areUiSessionKeysEquivalent(canonical.key, row?.key) &&
           host.roster.isCurrentRow(canonical),
       )
-    ) {
-      return false;
-    }
-    if (
-      row &&
-      (!host.deletions.acceptsGeneration(row.key, row.sessionId, historyAgentId) ||
-        host.deletions.deletionState(row.key, historyAgentId, row.sessionId))
     ) {
       return false;
     }

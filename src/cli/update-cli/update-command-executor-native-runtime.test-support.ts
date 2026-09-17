@@ -2,6 +2,11 @@
 const currentModuleUrl = import.meta.url;
 
 export const updateExecutorNativeEntrypoints = {
+  signalExitBarrier: {
+    currentModuleUrl,
+    sourceWorkerName: "../signal-exit-barrier",
+    distWorkerPath: "cli/signal-exit-barrier.js",
+  },
   commandRepair: {
     currentModuleUrl,
     sourceWorkerName: "update-command-repair",

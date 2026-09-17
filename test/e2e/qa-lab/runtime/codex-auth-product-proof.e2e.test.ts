@@ -581,7 +581,9 @@ describe("Codex auth product proof", () => {
       );
       // App-server may perform read-only capability discovery before OpenClaw rejects the
       // removed profile, but it must not start or resume a conversation turn.
-      expect(operationalMethods).toEqual(["model/list", "account/read"]);
+      expect(
+        operationalMethods.filter((method) => method !== "model/list" && method !== "account/read"),
+      ).toEqual([]);
 
       console.log(
         `[qa-codex-missing-auth-profile] ${JSON.stringify({

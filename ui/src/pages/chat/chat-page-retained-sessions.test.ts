@@ -158,7 +158,7 @@ describe("chat page retained sessions", () => {
     );
     await page.updateComplete;
     expect(context.gateway.setSessionKey).toHaveBeenLastCalledWith(otherSession);
-    expect(context.agentSelection.set).toHaveBeenLastCalledWith("research");
+    expect(context.agentSelection.set).toHaveBeenLastCalledWith("research", { background: true });
     page
       .querySelector<HTMLElement>(".chat-split-view__cell")
       ?.dispatchEvent(new Event("pointerdown"));
@@ -169,7 +169,7 @@ describe("chat page retained sessions", () => {
       sessionKey: workSessionKey,
       lastActiveSessionKey: workSessionKey,
     });
-    expect(context.agentSelection.set).toHaveBeenLastCalledWith("main");
+    expect(context.agentSelection.set).toHaveBeenLastCalledWith("main", { background: true });
     expect(chatInputOwnerForContext(context).current).toBe("dock");
   });
 

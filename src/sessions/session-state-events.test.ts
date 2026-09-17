@@ -767,7 +767,7 @@ describe("session state events", () => {
     expect(peekSystemEventEntries(watcher)).toHaveLength(1);
   });
 
-  it("projects spawn, terminal, goal, and compaction producer helpers", () => {
+  it("projects spawn, terminal, goal, and compaction producer helpers", async () => {
     const database = createDatabaseOptions();
     recordSessionCreated({
       sessionKey: child,
@@ -804,7 +804,7 @@ describe("session state events", () => {
       requesterSessionKey: watcher,
       outcomeStatus: "cancelled",
     });
-    recordSessionGoalChanged({
+    await recordSessionGoalChanged({
       sessionKey: child,
       entry: {
         sessionId: "session-child",

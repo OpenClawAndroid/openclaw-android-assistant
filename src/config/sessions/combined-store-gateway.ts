@@ -49,12 +49,12 @@ import type { SessionEntry } from "./types.js";
 
 type GatewaySessionEntryProjection = NonNullable<SessionEntryListScope["projection"]>;
 
-type GatewayStoredSessionTarget = {
+// Model sources retain stored lineage; combined rows may project aliases for display.
+type GatewayStoredSessionTarget = GatewaySessionModelSource & {
   agentId: string;
   /** Exact stored key when a list uses an internal key to retain sentinel owners. */
   storeKey?: string;
   storeTarget: SessionStoreTarget;
-  modelSource: GatewaySessionModelSource;
 };
 
 export type GatewayStoredSessionTargets = ReadonlyMap<string, GatewayStoredSessionTarget>;
@@ -72,7 +72,7 @@ function createSessionModelSources(
     string,
     {
       entries: Record<string, SessionEntry>;
-      readers: Map<string, GatewaySessionModelSource["loadSessionEntry"]>;
+      readers: Map<string, GatewaySessionModelSource["readSourceEntry"]>;
     }
   >();
   const logicalEntries = new Map<string, SessionEntry | undefined>();
@@ -90,7 +90,7 @@ function createSessionModelSources(
         logicalAgentId: string,
         key: string,
         entry: SessionEntry,
-      ): GatewaySessionModelSource => {
+      ): GatewaySessionModelSource["readSourceEntry"] => {
         store[key] = entry;
         const identity = logicalKey(logicalAgentId, key);
         // Preserve target-order selection within an owner, including hidden sentinels.
@@ -139,7 +139,7 @@ function createSessionModelSources(
           };
           readers.set(logicalAgentId, read);
         }
-        return { entry, loadSessionEntry: read };
+        return read;
       };
     },
     remove(target: GatewayStoredSessionTarget, key: string) {
@@ -275,8 +275,7 @@ function mergeSessionEntryIntoCombined(params: {
   const projectedKey = params.projectedKey ?? canonicalKey;
   const existing = combined[projectedKey];
   if (existing && (canonicalKey === "global" || canonicalKey === "unknown")) {
-    // Reserved sentinels remain per-store federation state until goal 3 decides
-    // how multi-store ownership composes; target order owns the projection.
+    // Reserved sentinels keep their per-store source; target order owns the combined projection.
     return;
   }
   if (existing) {
@@ -321,7 +320,7 @@ function mergeOpenIncognitoStores(params: {
       storePath: target.storePath,
     });
     let merged = false;
-    const addModelSource = params.modelSources.prepareStore(target);
+    const addModelEntry = params.modelSources.prepareStore(target);
     const modelTarget = { agentId: target.agentId, storeTarget: target };
     for (const { sessionKey, entry } of store) {
       if (!isIncognitoSessionKey(sessionKey) || entry.incognito !== true) {
@@ -334,7 +333,8 @@ function mergeOpenIncognitoStores(params: {
         entry,
         target: {
           ...modelTarget,
-          modelSource: addModelSource(target.agentId, sessionKey, entry),
+          entry,
+          readSourceEntry: addModelEntry(target.agentId, sessionKey, entry),
         },
         canonicalKey: sessionKey,
       });
@@ -661,7 +661,7 @@ export function loadCombinedSessionStoreForGatewayCore(
     preparedAgentIds?.add(agentId);
     preparedAgentIds?.add(storeTarget.agentId);
     preparedAgentIds?.add(rowAgentId);
-    const addModelSource = modelSources.prepareStore(storeTarget);
+    const addModelEntry = modelSources.prepareStore(storeTarget);
     for (const { sessionKey: key, entry } of store) {
       const parsed = parseAgentSessionKey(key);
       const canonicalKey = resolveStoredSessionKeyForAgentStore({
@@ -678,7 +678,7 @@ export function loadCombinedSessionStoreForGatewayCore(
       const canonicalAgentId = normalizeAgentId(parsed?.agentId ?? rowAgentId);
       preparedAgentIds?.add(canonicalAgentId);
       // A scoped row can inherit a differently owned parent from this same physical store.
-      const modelSource = addModelSource(canonicalAgentId, canonicalKey, entry);
+      const readSourceEntry = addModelEntry(canonicalAgentId, canonicalKey, entry);
       if (requestedAgentId && canonicalAgentId !== requestedAgentId) {
         continue;
       }
@@ -697,7 +697,8 @@ export function loadCombinedSessionStoreForGatewayCore(
         target: {
           agentId: canonicalAgentId,
           storeTarget,
-          modelSource,
+          entry,
+          readSourceEntry,
           ...(projectedKey !== canonicalKey ? { storeKey: canonicalKey } : {}),
         },
         canonicalKey,

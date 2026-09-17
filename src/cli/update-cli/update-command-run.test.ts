@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { cronOwnerHardeningEntrypoints } from "../../cron/owner-hardening-runtime.test-support.js";
 import * as daemonExec from "../../daemon/exec-file.js";
 import * as gatewayService from "../../daemon/service.js";
 import * as systemdExec from "../../daemon/systemd-exec.js";
@@ -15,6 +16,8 @@ import {
 } from "../../daemon/systemd-service-files.js";
 import { systemdManagerVersionProbe } from "../../daemon/systemd-user-bus.test-support.js";
 import { resolvePathViaExistingAncestorSync } from "../../infra/boundary-path.js";
+import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
+import { triageTestRuntimeEntrypoints } from "../../infra/triage-runtime.test-support.js";
 import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
 import { createRetainedUpdateRecovery } from "../../infra/update-retained-recovery.test-support.js";
 import * as updateRunLedger from "../../infra/update-run-ledger.js";
@@ -29,6 +32,7 @@ import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { createUpdateProgress } from "./progress.js";
 import { captureTargetDatabaseSchemaContext } from "./schema-preflight.js";
+import { updateExecutorNativeEntrypoints } from "./update-command-executor-native-runtime.test-support.js";
 import {
   admitUpdateCommandRun,
   completeUpdateCommandRun,
@@ -38,6 +42,12 @@ import {
 } from "./update-command-run.js";
 import * as servicePlan from "./update-command-service-plan.js";
 import { publishUpdateCommandTerminalResult } from "./update-command-terminal.js";
+
+const sourceImportArgs = resolveRuntimeWorkerUrl(
+  updateExecutorNativeEntrypoints.commandRun,
+).pathname.endsWith(".ts")
+  ? ["--import", path.resolve("scripts/tsx.mjs")]
+  : [];
 
 const dirs = useAutoCleanupTempDirTracker(afterEach);
 it.each([
@@ -454,11 +464,11 @@ it.skipIf(process.platform === "win32").each([
       caller,
       `
       import fs from 'node:fs';
-      import { registerSignalExitGate } from ${JSON.stringify(new URL("../signal-exit-barrier.ts", import.meta.url).href)};
-      import { createUpdateRun, finishUpdateRun, getUpdateRun, recordUpdateRunPhase } from ${JSON.stringify(new URL("../../infra/update-run-ledger.ts", import.meta.url).href)};
-      import { createRetainedUpdateRecovery } from ${JSON.stringify(new URL("../../infra/update-retained-recovery.test-support.ts", import.meta.url).href)};
-      import { closeOpenClawStateDatabaseForTest } from ${JSON.stringify(new URL("../../state/openclaw-state-db.ts", import.meta.url).href)};
-      import { admitUpdateCommandRun, withUpdatePreviewSignals } from ${JSON.stringify(new URL("./update-command-run.ts", import.meta.url).href)};
+      import { registerSignalExitGate } from ${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.signalExitBarrier).href)};
+      import { createUpdateRun, finishUpdateRun, getUpdateRun, recordUpdateRunPhase } from ${JSON.stringify(resolveRuntimeWorkerUrl(triageTestRuntimeEntrypoints.updateRunLedger).href)};
+      import { createRetainedUpdateRecovery } from ${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.retainedRecovery).href)};
+      import { closeOpenClawStateDatabaseForTest } from ${JSON.stringify(resolveRuntimeWorkerUrl(cronOwnerHardeningEntrypoints.stateDatabase).href)};
+      import { admitUpdateCommandRun, withUpdatePreviewSignals } from ${JSON.stringify(resolveRuntimeWorkerUrl(updateExecutorNativeEntrypoints.commandRun).href)};
       const opts = { dryRun: true };
       const mode = ${JSON.stringify(mode)};
       if (mode === 'inherited') process.env.OPENCLAW_UPDATE_RUN_ID = createUpdateRun({trigger:'cli'}).runId;
@@ -489,7 +499,7 @@ it.skipIf(process.platform === "win32").each([
       });
     `,
     );
-    const child = spawn(process.execPath, ["--import", "./scripts/tsx.mjs", caller], {
+    const child = spawn(process.execPath, [...sourceImportArgs, caller], {
       cwd: process.cwd(),
       env: {
         ...process.env,

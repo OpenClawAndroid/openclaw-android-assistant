@@ -597,7 +597,7 @@ export abstract class ChatPaneHistory extends ChatPaneReplyNavigation {
     if (!state) {
       return false;
     }
-    const result = await rewindChatHistory(state, entryId);
+    const result = await rewindChatHistory(state, entryId, this.chatState.attachmentReads);
     if (!result) {
       state.requestUpdate?.();
       return false;

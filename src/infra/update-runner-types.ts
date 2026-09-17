@@ -63,6 +63,8 @@ export type UpdateRunResult = {
       changed: boolean;
       warnings?: Array<{
         pluginId?: string;
+        source?: string;
+        errorCode?: string;
         reason: string;
         message: string;
         guidance: string[];

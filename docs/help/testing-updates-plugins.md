@@ -198,11 +198,12 @@ then runs the real `doctor --lint --only core/doctor/project-clone-shape --json`
 twice. It checks stored rows, schema, sentinels, and read-only snapshot cleanup.
 `projects-startup-migration` creates a project and managed worktree through the
 published owners using local Git, then imports synthetic legacy session JSON/JSONL
-through published Doctor. It verifies the candidate's first normal Gateway startup
-backfills the registered project's canonical workspace and a second startup leaves
-the session and transcript unchanged. The fixture is a supported legacy-format
-import, not a historical runtime-generated session. Both Gateway runs must become
-ready and report clean shutdown before persisted readback. Set
+through published Doctor. It requires the updater's candidate Doctor repair to fill
+in the registered project's canonical workspace before the first Gateway startup.
+Both normal Gateway starts must leave the repaired session and transcript unchanged,
+perform no workspace backfill, become ready, and report clean shutdown before
+persisted readback. The fixture is a supported legacy-format import, not a
+historical runtime-generated session. No additional Doctor recovery pass runs. Set
 `OPENCLAW_UPGRADE_SURVIVOR_STARTUP_BINDINGS` to a reviewed JSON file containing the
 candidate `commit`, `agentSchema`, and `operations.prepare`/`operations.open`
 triples of compiled basename, exact export symbol, and SHA-256. The snapshot

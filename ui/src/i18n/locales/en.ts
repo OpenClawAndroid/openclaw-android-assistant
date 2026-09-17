@@ -250,6 +250,14 @@ export const en: TranslationMap & {
     openInControlUi: "Open links in Control UI browser",
   },
   filePreview: {
+    bundle: {
+      binary: "This binary file is included in the bundle but cannot be displayed as text.",
+      "too-large":
+        "This file exceeds the preview limit. Its contents have not been truncated or loaded.",
+      unavailable:
+        "This file could not be read safely or is unavailable. Close and reopen the skill to try again.",
+      incomplete: "Some bundle content is unavailable. Select a file to see its status.",
+    },
     label: "Support files",
     listLabel: "Files",
     searchPlaceholder: "Search files…",
@@ -1845,6 +1853,8 @@ export const en: TranslationMap & {
       "Settings restoration could not be confirmed. Your draft is kept. Check {path} before saving again.",
     recoveryBackup: "Inspect the recovery backup at {path}.",
     recoveryReload: "Discard draft and reload",
+    discardUnconfirmed:
+      "The last save could not be confirmed. Your draft is kept. Reload configuration before discarding this setting.",
     autoSaveConflict: "Settings changed elsewhere",
     retry: "Retry",
     applyChanges: "Apply changes",

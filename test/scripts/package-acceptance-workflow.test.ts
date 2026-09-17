@@ -2119,9 +2119,10 @@ describe("frozen admission workflow barriers", () => {
   );
 
   it.each(["published-upgrade-survivor", "update-migration"])(
-    "acquires the selected mobile-pairing blob before expanded %s admission",
+    "acquires selected upgrade metadata before expanded %s admission",
     (lane) => {
       const path = "src/gateway/node-command-policy.ts";
+      const scenarioCatalog = "scripts/lib/upgrade-survivor-scenarios.json";
       const inputs = {
         docker_lanes: lane,
         include_release_path_suites: false,
@@ -2144,6 +2145,7 @@ describe("frozen admission workflow barriers", () => {
       );
       const planned = fixture.selection();
       expect(planned.sourcePaths).toContain(path);
+      expect(planned.sourcePaths).toContain(scenarioCatalog);
       const origin = join(fixture.root, "origin.git");
       fixture.git("clone", "--bare", "--no-hardlinks", fixture.target, origin);
       fixture.git("-C", origin, "config", "uploadpack.allowFilter", "true");
@@ -2151,7 +2153,17 @@ describe("frozen admission workflow barriers", () => {
       fixture.git("config", "remote.origin.promisor", "true");
       fixture.git("config", "remote.origin.partialclonefilter", "blob:none");
       const oid = fixture.git("rev-parse", `${fixture.sha}:${path}`);
+      const scenarioCatalogOid = fixture.git("rev-parse", `${fixture.sha}:${scenarioCatalog}`);
       unlinkSync(join(fixture.target, ".git", "objects", oid.slice(0, 2), oid.slice(2)));
+      unlinkSync(
+        join(
+          fixture.target,
+          ".git",
+          "objects",
+          scenarioCatalogOid.slice(0, 2),
+          scenarioCatalogOid.slice(2),
+        ),
+      );
 
       const unavailable = fixture.admit();
       expect(unavailable.status).not.toBe(0);
@@ -2163,14 +2175,16 @@ describe("frozen admission workflow barriers", () => {
       const gitPath = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
       writeFileSync(
         join(acquisitionBin, "git"),
-        `#!/bin/sh\nif [ "$#" = 5 ] && [ "$3" = cat-file ] && [ "$4" = blob ] && [ "$5" = '${oid}' ]; then printf '%s\\n' "$5" >> '${requested}'; fi\nexec '${gitPath}' "$@"\n`,
+        `#!/bin/sh\nif [ "$#" = 5 ] && [ "$3" = cat-file ] && [ "$4" = blob ]; then printf '%s\\n' "$5" >> '${requested}'; fi\nexec '${gitPath}' "$@"\n`,
         { mode: 0o755 },
       );
       const acquired = fixture.run("Acquire selected contract objects", {
         PATH: `${acquisitionBin}:${process.env.PATH}`,
       });
       expect(acquired.status, acquired.stderr).toBe(0);
-      expect(readFileSync(requested, "utf8")).toBe(`${oid}\n`);
+      expect(readFileSync(requested, "utf8").trim().split("\n")).toEqual(
+        expect.arrayContaining([oid, scenarioCatalogOid]),
+      );
       const admitted = fixture.admit();
       expect(admitted.status, admitted.stderr).toBe(0);
       const record = JSON.parse(readFileSync(join(fixture.root, "frozen-admission.json"), "utf8"));

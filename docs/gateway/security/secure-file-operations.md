@@ -13,18 +13,18 @@ It is a **library guardrail** for trusted OpenClaw code that receives untrusted 
 
 ## Platform defaults
 
-OpenClaw sets fs-safe's native helper to **off** by default on macOS and Linux. Guarded JavaScript paths support normal filesystem operations there and keep runtime behavior deterministic across desktop, Docker, CI, and bundled-app environments.
+OpenClaw retains fs-safe's **auto** native mode on macOS, Linux, and Windows. Supported operations use the installed native helper; operations with documented JavaScript fallbacks can use those paths when native support is unavailable.
 
-On Windows, OpenClaw retains fs-safe's **auto** default. Secure credential reads need the matching native helper to verify ownership and ACLs on the same open file descriptor that supplies the bytes. This also enables other fs-safe native operations when the Windows helper is available.
+No-clobber `Root.move()` calls, including the default and `{ overwrite: false }`, require native support for an atomic no-replace rename. With native mode `off`, or a missing or unsupported helper, moving to an absent destination fails with `helper-unavailable` and leaves the source in place. A collision returns `already-exists`, preserving both the source and competing destination. A failed identity check after dispatch can still reject after the move has completed.
 
-fs-safe publishes prebuilt native helpers as optional platform packages for Linux x64/arm64 (glibc and musl), macOS x64/arm64, and Windows x64. A normal package install selects the matching package without a compiler. OpenClaw loads it through fs-safe's own dependency scope, including nested pnpm installs. Windows secure reads fail with `permission-unverified` when the helper is missing, outdated, disabled, or unsupported; there is no pathname-based permission fallback. This includes installs that omit optional dependencies and native Windows ARM64 runtimes. File SecretRef providers and GitHub identity credentials require these secure reads. Other operations retain their documented JavaScript fallback when native support is unavailable in `auto` mode.
+On Windows, secure credential reads need the matching native helper to verify ownership and ACLs on the same open file descriptor that supplies the bytes.
 
-Managed worktree acceleration uses isolated native helpers for APFS and Btrfs, without enabling native primitives in the Gateway process. These helpers use fs-safe's automatic native selection and honor the explicit mode settings below. See [Managed worktrees](/concepts/managed-worktrees#filesystem-acceleration).
+fs-safe publishes prebuilt native helpers as optional platform packages for Linux x64/arm64 (glibc and musl), macOS x64/arm64, and Windows x64. A normal package install selects the matching package without a compiler. OpenClaw loads it through fs-safe's own dependency scope, including nested pnpm installs. Windows secure reads fail with `permission-unverified` when the helper is missing, outdated, disabled, or unsupported; there is no pathname-based permission fallback. This includes installs that omit optional dependencies and native Windows ARM64 runtimes. File SecretRef providers and GitHub identity credentials require these secure reads.
 
-OpenClaw only changes the _default_. An explicit setting always wins:
+OpenClaw leaves fs-safe's explicit environment settings and programmatic `configureFsSafeNative()` precedence unchanged:
 
 ```bash
-# Guarded JavaScript paths; Windows secure credential reads become unavailable.
+# Guarded JavaScript paths; no-clobber moves and Windows secure reads are unavailable.
 OPENCLAW_FS_SAFE_NATIVE_MODE=off
 
 # Prefer native primitives when the installed platform helper loads.
@@ -36,11 +36,11 @@ OPENCLAW_FS_SAFE_NATIVE_MODE=require
 
 The generic fs-safe environment name also works: `FS_SAFE_NATIVE_MODE`.
 
-[Managed worktree acceleration](/concepts/managed-worktrees#filesystem-acceleration) uses isolated native operations for APFS and Btrfs cloning and metadata reads. Those operations use an available platform binding by default without enabling native helpers in the Gateway process. An explicit native mode applies to the isolated operations too; `off` selects normal Git checkout. Native writes remain owned by a supervised child until it exits, so cancellation cannot release the destination for cleanup while the child is still writing.
+[Managed worktree acceleration](/concepts/managed-worktrees#filesystem-acceleration) uses isolated native operations for APFS and Btrfs cloning and metadata reads. Those operations retain automatic native selection without changing the Gateway process's configuration. An explicit native mode applies to the isolated operations too; `off` selects normal Git checkout. Native writes remain owned by a supervised child until it exits, so cancellation cannot release the destination for cleanup while the child is still writing.
 
 fs-safe still maps the retired `FS_SAFE_PYTHON_MODE` and `OPENCLAW_FS_SAFE_PYTHON_MODE` values to native modes with a deprecation warning. Replace them with `FS_SAFE_NATIVE_MODE` or `OPENCLAW_FS_SAFE_NATIVE_MODE`. Python interpreter path settings are no longer used.
 
-Use `require` when all native-capable operations must fail if the platform binding is unavailable. `auto` allows documented JavaScript fallbacks; Windows secure credential reads always require descriptor-bound native verification.
+Use `require` when all native-capable operations must fail if the platform binding is unavailable. `auto` allows documented JavaScript fallbacks; no-clobber Root moves and Windows secure credential reads always require their native primitives.
 
 ## What stays protected without native acceleration
 

@@ -66,6 +66,7 @@ import {
   openSessionWorkspaceFile,
   revealSessionWorkspaceFile,
 } from "./components/chat-session-workspace.ts";
+import { markChatComposerEdit } from "./composer-persistence.ts";
 import { resolveChatLinkFaviconFetcher } from "./link-favicon-loader.ts";
 import { hasAbortableSessionRun, hasDirectSessionRun } from "./run-lifecycle.ts";
 import { lockChatScroll, scheduleChatScroll } from "./scroll.ts";
@@ -581,7 +582,12 @@ export class ChatPane extends ChatPaneLayoutRender {
       pendingAttachmentReads: attachmentReads.pendingReads,
       getPendingAttachmentReads: () => attachmentReads.pendingReads,
       readSignal: attachmentReadSignal,
-      onPendingReadsChange: (delta) => attachmentReads.updatePending(attachmentReadSignal, delta),
+      onPendingReadsChange: (delta) => {
+        if (delta === 1 && attachmentReadSignal === attachmentReads.readSignal) {
+          markChatComposerEdit(state);
+        }
+        attachmentReads.updatePending(attachmentReadSignal, delta);
+      },
       onAttachmentsChange: (next) => {
         state.chatAttachments = next;
         state.requestUpdate?.();

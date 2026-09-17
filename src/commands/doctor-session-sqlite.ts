@@ -33,6 +33,7 @@ import {
   resolveTrajectoryPath,
   resolveTrajectoryPointerPath,
   deferredPluginSessionStoreIds,
+  prepareSessionSourceVerification,
   readDeferredPluginSessionImport,
   recordDeferredPluginSessionImport,
   resolveVerifiedSessionSource,
@@ -663,19 +664,16 @@ async function inspectOrMigrateTarget(params: {
   // Keeping them out of the file path also prevents archiving a live database.
   const isSqliteStore = params.target.storePath.endsWith(".sqlite");
   let retainedImport: DeferredPluginSessionImport | undefined;
+  const sourceVerification = prepareSessionSourceVerification({
+    ...params,
+    sqlitePath: resolveTargetSqlitePath(params.target, params.env),
+  });
   if (!isSqliteStore && fs.existsSync(params.target.storePath)) {
     try {
-      retainedImport = readDeferredPluginSessionImport({
-        cfg: params.cfg,
-        target: params.target,
-        sqlitePath: resolveTargetSqlitePath(params.target, params.env),
-        env: params.env,
-      });
+      retainedImport = readDeferredPluginSessionImport(sourceVerification);
     } catch (error) {
       return createDoctorSessionSqliteTargetReport({
-        agentId: params.target.agentId,
-        storePath: params.target.storePath,
-        sqlitePath: resolveTargetSqlitePath(params.target, params.env),
+        ...sourceVerification.resolvedTarget,
         issues: [{ code: "retained_plugin_source_conflict", message: formatErrorMessage(error) }],
       });
     }
@@ -822,8 +820,9 @@ async function inspectOrMigrateTarget(params: {
         }
         const transcriptPath = resolveVerifiedSessionSource(
           source,
-          createMigrationTargetInput(params.target),
+          sourceVerification.resolvedTarget,
           params.env,
+          sourceVerification.verification,
         );
         if (!transcriptPath) {
           throw new Error(`Retained session migration source changed: ${record.transcriptPath}`);

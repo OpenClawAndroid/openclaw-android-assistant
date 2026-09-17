@@ -10737,6 +10737,7 @@ public struct PluginsInspectParams: Codable, Sendable {
 public struct PluginsInspectResult: Codable, Sendable {
     public let ok: Bool
     public let overview: [String: AnyCodable]?
+    public let credentials: [[String: AnyCodable]]?
     public let plugin: [String: AnyCodable]
     public let source: PluginInspectSource?
     public let declared: PluginDeclaredSurface
@@ -10749,6 +10750,7 @@ public struct PluginsInspectResult: Codable, Sendable {
     public init(
         ok: Bool,
         overview: [String: AnyCodable]? = nil,
+        credentials: [[String: AnyCodable]]? = nil,
         plugin: [String: AnyCodable],
         source: PluginInspectSource? = nil,
         declared: PluginDeclaredSurface,
@@ -10760,6 +10762,7 @@ public struct PluginsInspectResult: Codable, Sendable {
     {
         self.ok = ok
         self.overview = overview
+        self.credentials = credentials
         self.plugin = plugin
         self.source = source
         self.declared = declared
@@ -10773,6 +10776,7 @@ public struct PluginsInspectResult: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case ok
         case overview
+        case credentials
         case plugin
         case source
         case declared

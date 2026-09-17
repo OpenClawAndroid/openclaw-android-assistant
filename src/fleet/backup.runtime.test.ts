@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { configureFsSafeNative, getFsSafeNativeConfig } from "@openclaw/fs-safe/config";
 import { __setFsSafeTestHooksForTest } from "@openclaw/fs-safe/test-hooks";
 import * as tar from "tar";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,7 @@ let root: string;
 let record: FleetCellRecord;
 
 const tempRoot = createSuiteTempRootTracker({ prefix: "openclaw-fleet-backup-test-" });
+const nativeConfig = getFsSafeNativeConfig();
 
 function inspection(running = false): Extract<FleetContainerInspectResult, { kind: "ok" }> {
   return {
@@ -116,6 +118,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   __setFsSafeTestHooksForTest(undefined);
+  configureFsSafeNative(nativeConfig);
   vi.restoreAllMocks();
   await tempRoot.cleanup();
 });
@@ -132,20 +135,17 @@ describe("fleet backup runtime", () => {
     };
   }
 
-  function interruptCopy(archivePath: string, mutate: (targetPath: string) => Promise<void>) {
-    const error = Object.assign(new Error("archive copy interrupted"), { code: "EIO" });
+  function forceJavaScriptCopyFallback() {
+    // These fixtures exercise publication without native or filesystem hard-link support.
+    configureFsSafeNative({ mode: "off" });
     vi.spyOn(fs, "link").mockRejectedValue(
       Object.assign(new Error("unsupported"), { code: "ENOTSUP" }),
     );
-    const copyFile = fs.copyFile.bind(fs);
-    const legacyCopy = vi.spyOn(fs, "copyFile").mockImplementation(async (source, target, mode) => {
-      if (path.resolve(String(target)) !== archivePath) {
-        return await copyFile(source, target, mode);
-      }
-      await fs.writeFile(target, "");
-      await mutate(String(target));
-      throw error;
-    });
+  }
+
+  function interruptCopy(archivePath: string, mutate: (targetPath: string) => Promise<void>) {
+    forceJavaScriptCopyFallback();
+    const error = Object.assign(new Error("archive copy interrupted"), { code: "EIO" });
     __setFsSafeTestHooksForTest({
       afterPublishTargetCreated: async (method, targetPath) => {
         if (method === "exclusive-copy" && targetPath === archivePath) {
@@ -154,7 +154,6 @@ describe("fleet backup runtime", () => {
         }
       },
     });
-    return legacyCopy;
   }
 
   it("writes a private archive with manifest, data, and auth while skipping symlinks", async () => {
@@ -199,11 +198,9 @@ describe("fleet backup runtime", () => {
     expect(leftovers).toEqual([]);
   });
 
-  it("publishes a complete archive through the copy fallback", async () => {
+  it("publishes a complete archive through the JavaScript copy fallback", async () => {
     const archivePath = path.join(root, "copy.tgz");
-    vi.spyOn(fs, "link").mockRejectedValue(
-      Object.assign(new Error("unsupported"), { code: "ENOTSUP" }),
-    );
+    forceJavaScriptCopyFallback();
     const methods: string[] = [];
     __setFsSafeTestHooksForTest({
       afterPublishTargetCreated: (method) => {
@@ -218,16 +215,13 @@ describe("fleet backup runtime", () => {
 
   it("removes an interrupted owned copy and allows a backup retry", async () => {
     const archivePath = path.join(root, "interrupted.tgz");
-    const legacyCopy = interruptCopy(archivePath, (targetPath) =>
-      fs.writeFile(targetPath, "partial archive"),
-    );
+    interruptCopy(archivePath, (targetPath) => fs.writeFile(targetPath, "partial archive"));
 
     await expect(backupFleetCell(backupParams(archivePath))).rejects.toThrow(
       /archive copy interrupted/iu,
     );
     await expect(fs.lstat(archivePath)).rejects.toMatchObject({ code: "ENOENT" });
     __setFsSafeTestHooksForTest(undefined);
-    legacyCopy.mockRestore();
     await expect(backupFleetCell(backupParams(archivePath))).resolves.toMatchObject({
       archivePath,
     });
@@ -288,9 +282,7 @@ describe("fleet backup runtime", () => {
 
   it("rejects and removes a copy that fails publication content verification", async () => {
     const archivePath = path.join(root, "integrity-failure.tgz");
-    vi.spyOn(fs, "link").mockRejectedValue(
-      Object.assign(new Error("unsupported"), { code: "ENOTSUP" }),
-    );
+    forceJavaScriptCopyFallback();
     __setFsSafeTestHooksForTest({
       afterPublishTargetCreated: async (method, targetPath) => {
         if (method === "exclusive-copy" && targetPath === archivePath) {

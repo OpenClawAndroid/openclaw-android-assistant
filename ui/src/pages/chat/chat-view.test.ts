@@ -24,11 +24,7 @@ import {
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import type { SessionPatchOptions } from "../../lib/sessions/patch.ts";
 import { createTestSessionCapability } from "../../lib/sessions/session-capability.test-support.ts";
-import {
-  areUiSessionKeysEquivalent,
-  isUiGlobalScopeConfigured,
-  uiSessionRowMatchesSelectedChat,
-} from "../../lib/sessions/session-key.ts";
+import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
 import {
   createModelCatalog,
   createSessionsListResult,
@@ -51,6 +47,7 @@ import * as chatThread from "./chat-thread.ts";
 import { resetChatViewState } from "./chat-view-state.ts";
 import {
   appendChatBubble,
+  createChatProps,
   createPasteEvent,
   createTestTranscript,
   stubAnimationFrames,
@@ -695,93 +692,6 @@ function createDragEvent(type: string, types = ["Files"]): Event {
 
 function itemAt<T>(items: ArrayLike<T>, index: number, label: string): T {
   return expectDefined(items[index], `${label} ${index}`);
-}
-
-function createChatProps(overrides: Partial<ChatProps> = {}): ChatProps {
-  const transcript = createTestTranscript();
-  const sessionKey = overrides.sessionKey ?? "main";
-  const sessionHost = overrides.sessionHost;
-  const exactSelectedSession = overrides.sessions?.sessions.find((row) =>
-    areUiSessionKeysEquivalent(row.key, sessionKey),
-  );
-  const selectedSession = Object.hasOwn(overrides, "selectedSession")
-    ? overrides.selectedSession
-    : (exactSelectedSession ??
-      (sessionHost && isUiGlobalScopeConfigured(sessionHost)
-        ? overrides.sessions?.sessions.find((row) =>
-            uiSessionRowMatchesSelectedChat(sessionHost, row.key, sessionKey),
-          )
-        : undefined));
-  return {
-    transcript,
-    paneId: "single",
-    sessionKey,
-    onSessionKeyChange: () => undefined,
-    thinkingLevel: null,
-    showThinking: false,
-    showToolCalls: true,
-    loading: false,
-    sending: false,
-    compactionStatus: null,
-    fallbackStatus: null,
-    messages: [],
-    toolMessages: [],
-    streamSegments: [],
-    stream: null,
-    streamStartedAt: null,
-    assistantAvatarUrl: null,
-    draft: "",
-    modelCatalog: [],
-    modelSwitching: false,
-    queue: [],
-    realtimeTalkActive: false,
-    realtimeTalkStatus: "idle",
-    realtimeTalkDetail: null,
-    connected: true,
-    canSend: true,
-    disabledReason: null,
-    error: null,
-    runError: null,
-    approvalCanGrant: false,
-    sessions: null,
-    selectedSession,
-    canvasPluginSurfaceUrl: null,
-    embedSandboxMode: "scripts",
-    allowExternalEmbedUrls: false,
-    assistantName: "Val",
-    sendShortcut: "enter",
-    assistantAvatar: null,
-    userName: null,
-    userAvatar: null,
-    assistantAttachmentAuthToken: null,
-    autoExpandToolCalls: false,
-    attachments: [],
-    onAttachmentsChange: () => undefined,
-    showNewMessages: false,
-    onScrollToBottom: () => undefined,
-    onRefresh: () => undefined,
-    getDraft: () => "",
-    onDraftChange: () => undefined,
-    onRequestUpdate: () => undefined,
-    onSend: () => undefined,
-    onToggleRealtimeTalk: () => undefined,
-    onToggleRealtimeCamera: () => undefined,
-    onDismissError: () => undefined,
-    onAbort: () => undefined,
-    onQueueRemove: () => undefined,
-    onQueueSteer: () => undefined,
-    onClearHistory: () => undefined,
-    onOpenSessionCheckpoints: () => undefined,
-    agentsList: null,
-    currentAgentId: "main",
-    onAgentChange: () => undefined,
-    onNavigateToAgent: () => undefined,
-    onSessionSelect: () => undefined,
-    onOpenSidebar: () => undefined,
-    onChatScroll: () => undefined,
-    basePath: "",
-    ...overrides,
-  };
 }
 
 function renderChatView(overrides: Partial<ChatProps> = {}) {

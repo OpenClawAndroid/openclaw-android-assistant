@@ -68,9 +68,7 @@ it("lists admitted sessions across cached targets while preserving a refused dat
     );
     const scoped = loadCombinedSessionStoreForGatewayCore(cfg, { agentId: "main" });
     expect(
-      scoped.targetsBySessionKey
-        .get("agent:main:main")
-        ?.modelSource.loadSessionEntry("agent:cleaner:main"),
+      scoped.targetsBySessionKey.get("agent:main:main")?.readSourceEntry("agent:cleaner:main"),
     ).toBeUndefined();
     expect(scoped.diagnostics?.join("\n")).toContain(refusal?.reason);
     expect(await fs.readFile(copyPath)).toEqual(before);

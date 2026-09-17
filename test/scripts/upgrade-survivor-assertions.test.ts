@@ -458,6 +458,31 @@ describe("upgrade recovery result assertions", () => {
       }),
   );
 
+  it.each([
+    ["qualified advisory", "openclaw doctor", 86, "package-post-install-doctor", true],
+    ["wrong step", "global update", 86, "package-post-install-doctor", false],
+    ["wrong exit", "openclaw doctor", 1, "package-post-install-doctor", false],
+    ["missing kind", "openclaw doctor", 86, undefined, false],
+    ["wrong kind", "openclaw doctor", 86, "recoverable-maintenance", false],
+  ] as const)(
+    "accepts only the package post-install Doctor advisory (%s)",
+    (_case, name, exitCode, kind, accepted) => {
+      const result = runJsonAssertion(
+        "assert-successful-update-json",
+        {
+          status: "ok",
+          after: { version: "2026.8.1" },
+          steps: [
+            { name: "global install swap", exitCode: 0 },
+            { name, exitCode, ...(kind ? { advisory: { kind } } : {}) },
+          ],
+        },
+        "2026.8.1",
+      );
+      expect(result.status, result.stderr).toBe(accepted ? 0 : 1);
+    },
+  );
+
   describe("missing Codex migration update result", () => {
     const scenarioEnv = {
       OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: "missing-configured-plugin-migration",

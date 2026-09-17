@@ -6,6 +6,7 @@ import {
   type LiveModelCatalogFetchGuard,
 } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
 import { buildOpenAICompletionsParams } from "openclaw/plugin-sdk/provider-transport-runtime";
+import { Type } from "typebox";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import openrouterPlugin from "./index.js";
 import { buildOpenrouterLiveProvider } from "./provider-catalog.js";
@@ -59,6 +60,15 @@ describe("OpenRouter provider catalog", () => {
             architecture: { modality: "text+image->image" },
             context_length: 65_536,
           },
+          {
+            id: "acme/no-tools",
+            architecture: { modality: "text->text" },
+            supported_parameters: [],
+          },
+          {
+            id: "custom/legacy-model",
+            architecture: { modality: "text->text" },
+          },
         ],
       }),
       finalUrl: url,
@@ -84,6 +94,7 @@ describe("OpenRouter provider catalog", () => {
       name: "Partial Pricing Fixture",
       reasoning: true,
       input: ["text", "image"],
+      compat: { supportsTools: true },
       contextWindow: 1_048_576,
       maxTokens: 65_536,
       cost: {
@@ -103,6 +114,51 @@ describe("OpenRouter provider catalog", () => {
         ],
       },
     });
+    expect(
+      provider.models.find((model) => model.id === "google/gemini-3.5-flash-lite")?.compat,
+    ).toEqual({
+      supportsTools: false,
+    });
+    expect(provider.models.find((model) => model.id === "acme/no-tools")?.compat).toEqual({
+      supportsTools: false,
+    });
+    expect(
+      provider.models.find((model) => model.id === "custom/legacy-model")?.compat,
+    ).toBeUndefined();
+    expect(provider.models.find((model) => model.id === "openrouter/auto")?.compat).toBeUndefined();
+    for (const [id, supportsTools] of [
+      ["acme/partial-pricing", true],
+      ["google/gemini-3.5-flash-lite", false],
+      ["acme/no-tools", false],
+      ["custom/legacy-model", true],
+      ["openrouter/auto", true],
+    ] as const) {
+      const model = provider.models.find((entry) => entry.id === id);
+      if (!model) {
+        throw new Error(`Missing discovered model: ${id}`);
+      }
+      const request = buildOpenAICompletionsParams(
+        {
+          ...model,
+          input: model.input.filter((kind) => kind === "text" || kind === "image"),
+          provider: "openrouter",
+          api: "openai-completions",
+          baseUrl: provider.baseUrl,
+        },
+        {
+          messages: [{ role: "user", content: "Synthetic request", timestamp: 1 }],
+          tools: [{ name: "lookup", description: "Synthetic lookup", parameters: Type.Object({}) }],
+        },
+        { toolChoice: "required" },
+      );
+      if (supportsTools) {
+        expect(request.tools, id).toHaveLength(1);
+        expect(request.tool_choice, id).toBe("required");
+      } else {
+        expect(request, id).not.toHaveProperty("tools");
+        expect(request, id).not.toHaveProperty("tool_choice");
+      }
+    }
     expect(
       new Headers(vi.mocked(fetchGuard).mock.calls[0]?.[0].init?.headers).get("authorization"),
     ).toBe("Bearer resolved-openrouter-key");
@@ -170,6 +226,7 @@ describe("OpenRouter provider catalog", () => {
           : ["none", ...(efforts ?? ["minimal", "low", "medium", "high", "xhigh", "max"])],
       );
       expect(model?.thinkingLevelMap?.off).toBe(mandatory ? null : undefined);
+      expect(model.compat?.supportsTools).toBe(true);
       const provider = await registerSingleProviderPlugin(openrouterPlugin);
       const profile = provider.resolveThinkingProfile?.({
         provider: "openrouter",

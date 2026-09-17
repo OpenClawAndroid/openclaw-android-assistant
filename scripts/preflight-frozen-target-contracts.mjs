@@ -629,6 +629,7 @@ async function planWorkflowAdmission(input) {
   if (
     possibleLanes.some((lane) => /^(published-upgrade-survivor|update-migration)(-|$)/u.test(lane))
   ) {
+    sourcePaths.add("scripts/lib/upgrade-survivor-scenarios.json");
     sourcePaths.add("scripts/e2e/lib/upgrade-survivor/assertions.mjs");
   }
   if (docker.length > 256) {

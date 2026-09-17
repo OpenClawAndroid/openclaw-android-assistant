@@ -442,7 +442,7 @@ export async function listSessionsFromStoreAsync(
                 cfg,
                 storePath: target.storeTarget.storePath, // Aggregate paths are display-only.
                 store,
-                modelSource: target.modelSource,
+                modelSource: target,
                 key: target.storeKey ?? key,
                 entry,
                 agentId: target.agentId,

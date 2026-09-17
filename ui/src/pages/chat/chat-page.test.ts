@@ -175,7 +175,7 @@ describe("chat page split layout host", () => {
 
     document.body.append(page);
 
-    expect(setAgent).toHaveBeenCalledWith("research");
+    expect(setAgent).toHaveBeenCalledWith("research", { background: true });
   });
 
   it("renders one chrome-free active pane in classic mode", async () => {

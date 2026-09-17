@@ -129,6 +129,7 @@ vi.mock("./compaction-runtime-preparation.js", () => ({
     modelId,
   }),
   prepareCompactionHarnessAuth: vi.fn(async () => ({
+    ok: true,
     runtimeAuthProfileStore: {},
     runtimeAuthPreparation: {
       plan: { selectedAuthMode: "api-key" },

@@ -17,7 +17,7 @@ import {
   createDoctorLintSemanticIndex,
   snapshotDoctorLintSqliteFamily,
 } from "./doctor-lint.test-support.js";
-import { createTestRuntime } from "./test-runtime-config-helpers.js";
+import { createTestConfigSnapshot, createTestRuntime } from "./test-runtime-config-helpers.js";
 
 const mocks = vi.hoisted(() => ({
   actualOpenNodeSqliteDatabase: vi.fn(),
@@ -105,12 +105,7 @@ describe("runDoctorLintCli", () => {
   });
 
   it("bases exit code on the selected severity threshold", async () => {
-    mocks.readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      config: {},
-      path: "/tmp/openclaw.json",
-    });
+    mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
 
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
@@ -254,12 +249,7 @@ describe("runDoctorLintCli", () => {
   });
 
   it("does not expose deep mode to extension health check context", async () => {
-    mocks.readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      config: {},
-      path: "/tmp/openclaw.json",
-    });
+    mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
     const detect = vi.fn(async (_ctx: unknown) => []);
     registerHealthCheck({
       id: "test/deep-context",
@@ -320,12 +310,7 @@ describe("runDoctorLintCli", () => {
   });
 
   it("rejects unknown --only health check ids instead of reporting a false-clean run", async () => {
-    mocks.readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      config: {},
-      path: "/tmp/openclaw.json",
-    });
+    mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
 
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
@@ -404,12 +389,7 @@ describe("runDoctorLintCli", () => {
   });
 
   it("runs core contribution checks plus registered extension checks", async () => {
-    mocks.readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      config: {},
-      path: "/tmp/openclaw.json",
-    });
+    mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
     registerHealthCheck({
       id: "plugin/example/lint",
       kind: "plugin",
@@ -492,12 +472,7 @@ describe("runDoctorLintCli", () => {
   });
 
   it("fails informational findings when severity-min is explicit", async () => {
-    mocks.readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      config: {},
-      path: "/tmp/openclaw.json",
-    });
+    mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
     registerHealthCheck({
       id: "plugin/example/lint",
       kind: "plugin",
@@ -549,12 +524,7 @@ describe("runDoctorLintCli", () => {
     fs.writeFileSync(databasePath, "not a sqlite database");
     const sourceContents = fs.readFileSync(databasePath);
     const sourceEntries = fs.readdirSync(path.dirname(databasePath)).toSorted();
-    mocks.readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      config: {},
-      path: "/tmp/openclaw.json",
-    });
+    mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
 
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
@@ -789,7 +759,7 @@ describe("runDoctorLintCli", () => {
       ).resolves.toBe(1);
       expect(JSON.parse(String(stdout.mock.calls.at(-1)?.[0]))).toMatchObject({
         ok: false,
-        checksRun: 2,
+        checksRun: 3,
         findings: [
           {
             checkId: "memory-core/managed-local-embedding-setup",
@@ -985,12 +955,7 @@ describe("runDoctorLintCli", () => {
       expectedError: "health check already registered: core/doctor/not-yet-owned",
     },
   ] as const)("$title", async ({ checkId, kind, description, expectedError }) => {
-    mocks.readConfigFileSnapshot.mockResolvedValue({
-      exists: true,
-      valid: true,
-      config: {},
-      path: "/tmp/openclaw.json",
-    });
+    mocks.readConfigFileSnapshot.mockResolvedValue(createTestConfigSnapshot({}));
     registerHealthCheck({
       id: checkId,
       kind,

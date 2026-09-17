@@ -25,6 +25,10 @@ import type {
   ProjectRegistryInsert,
   ProjectRegistryRecord,
 } from "../projects/project-registry.kernel.js";
+import type {
+  SessionStateEventInput,
+  SessionStateNotice,
+} from "../sessions/session-state-events.kernel.js";
 import type { ManagedTaskInFlowInput } from "../tasks/task-flow-managed-run-task.kernel.js";
 import type { RunTaskInFlowResult } from "../tasks/task-flow-managed-run-task.types.js";
 import type {
@@ -68,6 +72,11 @@ export type OpenClawStateWorkerOperations = NativeHookRelayStoreWorkerOperations
   CronStoreSaveWorkerOperations &
   SessionDeliveryWorkerOperations &
   DeliveryQueueWorkerOperations & {
+    "sessionState.recordGoalChange": {
+      input: { event: SessionStateEventInput & { kind: "goal_changed" }; now: number };
+      output: SessionStateNotice[];
+    };
+    "sessionState.prune": { input: { now: number }; output: void };
     "doctor.databaseBloat": {
       input: undefined;
       output: ReturnType<typeof readSqliteDatabaseBloat>;

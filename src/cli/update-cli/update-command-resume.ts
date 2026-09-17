@@ -20,9 +20,13 @@ import {
   persistValidatedDowngradeConfig,
   readPostCorePreUpdateSourceConfig,
 } from "./update-command-config.js";
-import { completePostCorePluginUpdate } from "./update-command-fresh-doctor.js";
+import {
+  completePostCorePluginUpdate,
+  runUpdateFinalizationDoctorInFreshProcess,
+} from "./update-command-fresh-doctor.js";
 import { updatePluginsAfterCoreUpdate } from "./update-command-plugins.js";
 import {
+  postCoreUpdateParentOwnsCompletion,
   readPostCorePluginInstallRecordsFile,
   resolvePostCoreUpdateStartedAtMs,
   writePostCorePluginUpdateResultFile,
@@ -79,6 +83,24 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
   process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION =
     (await readPackageVersion(params.root)) ?? VERSION;
 
+  const parentOwnsCompletion = await postCoreUpdateParentOwnsCompletion(
+    process.env[POST_CORE_UPDATE_RESULT_PATH_ENV],
+  );
+  await withPluginLifecycleLease({}, async (lease) => {
+    await completeSourceUpdateRuntime({ root: params.root, timeoutMs: params.timeoutMs, lease });
+  });
+  if (!parentOwnsCompletion) {
+    // Shipped parents expect the child to prepare migration plugins and settle
+    // Doctor before plugin config writes; Doctor owns that preparation and its guards.
+    await runUpdateFinalizationDoctorInFreshProcess({
+      phase: "post-plugin",
+      root: params.root,
+      yes: params.opts.yes === true,
+      json: params.opts.json === true,
+      timeoutMs: params.timeoutMs,
+    });
+  }
+
   const configSnapshot = await readConfigFileSnapshot({
     skipPluginValidation: true,
     suppressFutureVersionWarning: true,
@@ -92,10 +114,7 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
   const parentPluginInstallRecords = await readPostCorePluginInstallRecordsFile(
     process.env[POST_CORE_UPDATE_INSTALL_RECORDS_PATH_ENV],
   );
-  const producedPluginUpdate = await withPluginLifecycleLease({}, async (lease) => {
-    await completeSourceUpdateRuntime({ root: params.root, timeoutMs: params.timeoutMs, lease });
-    // The core migration owner committed before activation. This fresh process
-    // reads that generation and only owns plugin convergence.
+  const producedPluginUpdate = await withPluginLifecycleLease({}, async () => {
     const preparedConfig = await preparePostCorePluginConfig({
       requestedChannel,
       preUpdateConfig: preUpdateSourceConfig,
@@ -127,15 +146,15 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
       pluginInstallRecords,
     });
   });
-  // Changed plugins already require the published parent's Doctor pass. Complete
-  // the otherwise-skipped retirement before the parent consumes this result.
+  // Release plugin ownership before Doctor reacquires it. Publishing the result
+  // permits the parent to stop this child, so all child-owned work must settle first.
   const pluginUpdate =
-    !producedPluginUpdate.changed && hasDeferredUpdateModelRetirement()
+    !parentOwnsCompletion || (!producedPluginUpdate.changed && hasDeferredUpdateModelRetirement())
       ? (
           await completePostCorePluginUpdate({
             root: params.root,
             pluginUpdate: producedPluginUpdate,
-            freshDoctorRequired: false,
+            freshDoctorRequired: producedPluginUpdate.changed,
             yes: params.opts.yes === true,
             json: params.opts.json === true,
             timeoutMs: params.timeoutMs,

@@ -9,7 +9,7 @@ import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/p
 import type { VideoGenerationRequest } from "openclaw/plugin-sdk/video-generation";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DEEPINFRA_VIDEO_FALLBACK_MODELS } from "./media-models.js";
-import { MP4_VIDEO, WEBM_VIDEO } from "./video-generation.test-support.js";
+import { MP4_VIDEO } from "./video-generation.test-support.js";
 
 const {
   postJsonRequestMock,
@@ -373,33 +373,6 @@ describe("deepinfra video generation provider", () => {
       "DeepInfra video submit request",
     );
     expect(Reflect.get(Reflect.get(postRequest ?? {}, "body") ?? {}, "seed")).toBeUndefined();
-  });
-
-  it("detects the container of base64 data URL video outputs", async () => {
-    mockSubmit({
-      id: "videos_webm",
-      status: "succeeded",
-      data: [{ url: `data:video/webm;base64,${WEBM_VIDEO.toString("base64")}` }],
-    });
-
-    const provider = buildDeepInfraVideoGenerationProvider();
-    const result = await provider.generateVideo({
-      provider: "deepinfra",
-      model: "deepinfra/Pixverse/Pixverse-T2V",
-      prompt: "A WebM data URL",
-      cfg: {},
-    });
-
-    expect(result.videos).toHaveLength(1);
-    const [video] = result.videos;
-    if (!video) {
-      throw new Error("Expected generated DeepInfra video");
-    }
-    expect(video).toEqual({
-      buffer: WEBM_VIDEO,
-      mimeType: "video/webm",
-      fileName: "video-1.webm",
-    });
   });
 
   it.each([

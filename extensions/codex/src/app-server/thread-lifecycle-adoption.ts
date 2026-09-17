@@ -268,7 +268,7 @@ export async function prepareCodexThreadResume(
 ): Promise<CodexThreadResumePreparation> {
   const assertClient = captureCodexAppServerClientLifetime(
     params.client,
-    binding.connectionScope === "supervision" ? "connection" : "native-process",
+    binding.connectionScope === "supervision" ? "connection" : "thread-configuration",
   );
   const assertCurrent = () => {
     params.params.hostCapabilities.assertActive();

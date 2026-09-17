@@ -33,7 +33,7 @@ export function sessionStoreTargetsFixture(params: {
   store: Record<string, SessionEntry>;
   agentId?: string;
 }) {
-  const loadSessionEntry = (key: string) => params.store[key];
+  const readSourceEntry = (key: string) => params.store[key];
   return new Map(
     Object.entries(params.store).map(([key, entry]) => {
       const agentId = fixtureOwner(params.cfg, key, params.agentId);
@@ -42,7 +42,8 @@ export function sessionStoreTargetsFixture(params: {
         {
           agentId,
           storeTarget: { agentId, storePath: params.storePath },
-          modelSource: { entry, loadSessionEntry },
+          entry,
+          readSourceEntry,
         },
       ] as const;
     }),

@@ -279,7 +279,7 @@ Slack-only:
 - `progress` is quiet by default: headline, authored commentary and reasoning,
   plan milestones, and approval requests. Intermediate tool failures and nonzero
   command exits are hidden. The same default applies on
-  every progress-draft channel; `streaming.progress.toolProgress: true` adds
+  other shared progress-card renderers; `streaming.progress.toolProgress: true` adds
   the rolling tool log with its icons.
 - `progress` mode deletes the status draft once the final answer is delivered,
   so busy channels keep no orphaned tool log above the reply. Error finals keep
@@ -289,6 +289,15 @@ Slack-only:
 
 ### Slack
 
+- Compact progress with `streaming.progress.toolProgress: false` preserves
+  the latest model preamble. With `commentary: true`, `label: false`, and
+  `maxLines: 1`, it is one italicized, temporary message without reasoning,
+  tool icons, command failures, plans, or file-edit counters. The first post
+  waits for a complete preamble so its Slack notification is readable; later
+  preambles edit that message. Actionable approval requests remain visible.
+  The final answer is a new reply, and only after Slack confirms delivery is
+  the preview deleted. Successful silent turns also remove their preview;
+  explicit message-tool posts remain durable.
 - `partial` can use Slack native streaming (`chat.startStream`/`append`/`stop`)
   when available.
 - `block` uses append-style draft previews.

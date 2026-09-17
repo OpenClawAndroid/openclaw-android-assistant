@@ -5,7 +5,7 @@ import { ADMIN_SCOPE, type OperatorScope } from "../operator-scopes.js";
 import {
   createCoreGatewayMethodDescriptors,
   isCoreGatewayMethodClassified,
-} from "./core-descriptors.js";
+} from "./core-method-policy.js";
 import {
   DYNAMIC_GATEWAY_METHOD_SCOPE,
   type GatewayMethodDescriptor,

@@ -115,7 +115,7 @@ export const sessionByKeyReadHandlers: GatewayRequestHandlers = {
         store,
         modelSource: {
           entry,
-          loadSessionEntry: createGatewaySessionEntryReader({
+          readSourceEntry: createGatewaySessionEntryReader({
             cfg,
             agentId: target.agentId,
             store,

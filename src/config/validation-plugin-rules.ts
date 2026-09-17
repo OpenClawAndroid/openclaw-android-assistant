@@ -5,14 +5,16 @@ import { listAgentEntriesWithSource } from "../agents/agent-scope.js";
 import type { DeferredPluginMigration } from "../infra/deferred-plugin-migrations.js";
 import { planManifestModelCatalogSuppressions } from "../model-catalog/index.js";
 import { normalizePluginsConfig, normalizePluginId } from "../plugins/config-state.js";
+import {
+  findUninspectedPluginDiagnostic,
+  pluginDiagnosticToConfigWarning,
+} from "../plugins/discovery-availability.js";
 import { loadInstalledPluginIndexInstallRecordsSync } from "../plugins/installed-plugin-index-record-reader.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import type { PluginOrigin } from "../plugins/plugin-origin.types.js";
 import { validatePluginSchemaValue } from "../plugins/schema-validator.js";
 import { resolveWebSearchInstallCatalogEntries } from "../plugins/web-search-install-catalog.js";
-import { resolveSecretRefProviderSourceMismatch } from "../secrets/ref-contract.js";
-import { discoverConfigSecretTargets } from "../secrets/target-registry.js";
 import { isRecord } from "../utils.js";
 import { GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA } from "./bundled-channel-config-metadata.generated.js";
 import {
@@ -23,7 +25,6 @@ import { resolveChannelSchemaSelection } from "./channel-schema-selection.js";
 import { resolveConfigWidePluginManifestRegistry } from "./io.plugin-metadata.js";
 import { materializeRuntimeConfig } from "./materialize.js";
 import type { ConfigValidationIssue, OpenClawConfig } from "./types.js";
-import { resolveSecretInputRef } from "./types.secrets.js";
 import {
   bundledChannelIds,
   collectChannelDmPolicyDependencyWarnings,
@@ -31,13 +32,15 @@ import {
   normalizeBundledChannelId,
 } from "./validation-channel-rules.js";
 import { collectHeartbeatOwnerWarnings } from "./validation-core.js";
-import { withConfigIssuePath } from "./validation-issues.js";
 import {
-  createPluginRegistryConfigValidator,
   formatChannelConfigIssueMessage,
   resolveDeferredChannelConfigWarning,
   validateExplicitPluginConfig,
 } from "./validation-plugin-config.js";
+import {
+  createPluginRegistryConfigValidator,
+  collectSecretRefProviderSourceIssues,
+} from "./validation-plugin-registry.js";
 
 export type ValidateConfigWithPluginsResult =
   | { ok: true; config: OpenClawConfig; warnings: ConfigValidationIssue[] }
@@ -69,43 +72,6 @@ type RegistryInfo = {
     { schema?: Record<string, unknown>; pluginId?: string; origin: PluginOrigin }
   >;
 };
-
-function collectSecretRefProviderSourceIssues(params: {
-  config: OpenClawConfig;
-  env?: NodeJS.ProcessEnv;
-  manifestRegistry: PluginManifestRegistry;
-}): ConfigValidationIssue[] {
-  const issues: ConfigValidationIssue[] = [];
-  for (const target of discoverConfigSecretTargets(params.config, {
-    env: params.env,
-    manifestRegistry: params.manifestRegistry,
-  })) {
-    const { ref } = resolveSecretInputRef({
-      value: target.value,
-      refValue: target.refValue,
-      defaults: params.config.secrets?.defaults,
-    });
-    if (!ref) {
-      continue;
-    }
-    const configuredSource = resolveSecretRefProviderSourceMismatch(params.config, ref);
-    if (!configuredSource) {
-      continue;
-    }
-    const path = target.refPath ?? target.path;
-    const pathSegments = target.refPathSegments ?? target.pathSegments;
-    issues.push(
-      withConfigIssuePath(
-        {
-          path,
-          message: `Secret provider "${ref.provider}" has source "${configuredSource}" but ref requests "${ref.source}".`,
-        },
-        pathSegments,
-      ),
-    );
-  }
-  return issues;
-}
 
 export function validatePreparedConfigWithPlugins(
   raw: unknown,
@@ -161,6 +127,15 @@ export function validatePreparedConfigWithPlugins(
 
   const issues: ConfigValidationIssue[] = [];
   const warnings: ConfigValidationIssue[] = [];
+  const preserveUnavailableConfig = (path: string): boolean => {
+    const diagnostic = findUninspectedPluginDiagnostic(
+      ensureLoadedRegistryInfo().registry.diagnostics,
+    );
+    if (diagnostic) {
+      warnings.push(pluginDiagnosticToConfigWarning(diagnostic, path));
+    }
+    return diagnostic !== undefined;
+  };
   const deferredPluginIds = new Set(
     opts.deferredPluginMigrations?.map(({ pluginId }) => normalizePluginId(pluginId)),
   );
@@ -376,6 +351,9 @@ export function validatePreparedConfigWithPlugins(
     if (activeProviderIds.includes(trimmed)) {
       return;
     }
+    if (preserveUnavailableConfig(issuePath)) {
+      return;
+    }
     const installCatalogEntry = resolveWebSearchInstallCatalogEntries().find(
       (entry) => entry.provider.id === trimmed,
     );
@@ -507,6 +485,9 @@ export function validatePreparedConfigWithPlugins(
         }
       }
       if (!allowedChannels.has(trimmed)) {
+        if (preserveUnavailableConfig(`channels.${trimmed}`)) {
+          continue;
+        }
         const issue = { path: `channels.${trimmed}`, message: `unknown channel id: ${trimmed}` };
         if (hasStalePluginEvidenceForUnknownChannel(trimmed)) {
           warnings.push({
@@ -516,6 +497,9 @@ export function validatePreparedConfigWithPlugins(
         } else {
           issues.push(issue);
         }
+        continue;
+      }
+      if (preserveUnavailableConfig(`channels.${trimmed}`)) {
         continue;
       }
       const channelSchema = ensureChannelSchemas().get(trimmed);
@@ -592,6 +576,9 @@ export function validatePreparedConfigWithPlugins(
       }
     }
     if (!heartbeatChannelIds.has(normalized)) {
+      if (preserveUnavailableConfig(issuePath)) {
+        return;
+      }
       issues.push({ path: issuePath, message: `unknown heartbeat target: ${target}` });
     }
   };

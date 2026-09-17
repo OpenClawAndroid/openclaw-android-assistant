@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -113,7 +114,16 @@ describe("startup admission before persistent writes", () => {
       reason: "Missing config",
     },
     {
-      name: "invalid plugin without an existing WAL",
+      name: "unavailable plugin without an existing WAL",
+      workspace: false,
+      repairable: true,
+      config: "local",
+      consolidated: true,
+      unavailablePlugin: true,
+      reason: "Configured plugin load path is unavailable",
+    },
+    {
+      name: "malformed plugin entry without an existing WAL",
       workspace: false,
       repairable: true,
       config: "local",
@@ -144,6 +154,7 @@ describe("startup admission before persistent writes", () => {
       reason,
       consolidated,
       invalidPlugin,
+      unavailablePlugin,
       repairedSession,
       restored,
     }) => {
@@ -203,9 +214,11 @@ describe("startup admission before persistent writes", () => {
                 config === "missing-mode"
                   ? {}
                   : { mode: config === "clobbered" ? "local" : config },
-              plugins: invalidPlugin
+              plugins: unavailablePlugin
                 ? { load: { paths: [path.join(root, "missing-plugin")] } }
-                : { enabled: false },
+                : invalidPlugin
+                  ? { entries: { broken: { enabled: "not-a-boolean" } } }
+                  : { enabled: false },
               agents: repairedSession
                 ? { list: [{ id: "" }] }
                 : { defaults: { workspace: workspaceDir } },
@@ -247,6 +260,7 @@ describe("startup admission before persistent writes", () => {
           path.join(stateDir, "agents", "main", "agent", "auth-profiles.json"),
           '{"version":1,"profiles":{}}\n',
         );
+        const configBefore = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : null;
         const schemaBefore = schemaMetadata(databasePath);
         const before = manifest(stateDir);
         expect(schemaBefore.userVersion).toBe(1);
@@ -264,6 +278,11 @@ describe("startup admission before persistent writes", () => {
           commandPath: ["gateway", "run"],
           runtime: { log: console.log, error: console.error, exit(code) { throw new ExitError(code); } },
         });
+        if (${Boolean(unavailablePlugin)}) {
+          const { runDoctorConfigPreflight } = await import(${JSON.stringify(runtimeUrl(doctorConfigRuntimeEntrypoints.preflight))});
+          const { snapshot } = await runDoctorConfigPreflight({ migrateState: false, migrateLegacyConfig: false, observe: false });
+          console.log("AVAILABILITY_WARNINGS=" + JSON.stringify(snapshot.warnings));
+        }
         if (${Boolean(restored)} && process.env.OPENCLAW_GATEWAY_TOKEN) {
           throw new Error("Discarded clobbered config environment leaked through admission.");
         }
@@ -298,13 +317,43 @@ describe("startup admission before persistent writes", () => {
         );
         const output = `${result.stdout}\n${result.stderr}`;
         expect(result.error, output).toBeUndefined();
-        expect(result.status, output).toBe(restored ? 0 : 78);
+        expect(result.status, output).toBe(restored || unavailablePlugin ? 0 : 78);
         expect(output).toContain(reason);
         if (restored) {
           expect(fs.readFileSync(configPath, "utf8")).toBe(
             fs.readFileSync(`${configPath}.bak`, "utf8"),
           );
           expect(schemaMetadata(databasePath).userVersion).toBe(OPENCLAW_STATE_SCHEMA_VERSION);
+        } else if (unavailablePlugin) {
+          // The availability ruling (#150016/#150312) admits repair; uninspected plugin input survives.
+          const repaired = JSON.parse(fs.readFileSync(configPath, "utf8"));
+          expect(repaired.plugins).toEqual({
+            load: { paths: [path.join(root, "missing-plugin")] },
+          });
+          expect(repaired.session).toEqual({ reset: { mode: "idle", idleMinutes: 45 } });
+          expect(fs.readFileSync(`${configPath}.bak`, "utf8")).toBe(configBefore);
+          expect(schemaMetadata(databasePath).userVersion).toBe(OPENCLAW_STATE_SCHEMA_VERSION);
+          const warningLine = output
+            .split("\n")
+            .find((line) => line.startsWith("AVAILABILITY_WARNINGS="));
+          assert(warningLine, "Admission must expose its typed availability warning");
+          const warnings = JSON.parse(warningLine.slice("AVAILABILITY_WARNINGS=".length));
+          expect(warnings).toContainEqual(
+            expect.objectContaining({
+              code: "configured-plugin-path-unavailable",
+              path: "plugins.load.paths",
+              source: path.join(root, "missing-plugin"),
+            }),
+          );
+          const after = manifest(stateDir);
+          for (const [file, hash] of Object.entries(before)) {
+            if (
+              file !== "openclaw.json" &&
+              !file.startsWith(path.join("state", "openclaw.sqlite"))
+            ) {
+              expect(after[file], file).toBe(hash);
+            }
+          }
         } else {
           expect(manifest(stateDir)).toEqual(before);
           expect(schemaMetadata(databasePath)).toEqual(schemaBefore);

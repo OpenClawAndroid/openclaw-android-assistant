@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Locator, Page } from "playwright";
 import { expect, it } from "vitest";
@@ -94,6 +94,161 @@ async function waitForCommittedAttachmentDraft(
 }
 
 suite.define(() => {
+  it.each([
+    "same-draft",
+    "rewind-completed",
+    "rewind-pending",
+    "rewind-failed",
+    "rewind-newer-draft",
+    "rewind-newer-file",
+  ] as const)("rewind draft attachment custody: %s", async (scenario) => {
+    await suite.withPage(createControlUiE2eContextOptions(), async ({ page }) => {
+      await installDeferredAttachmentReader(page);
+      const earlierText = "Restore this earlier synthetic prompt.";
+      const currentText = "Current synthetic draft with a selected file.";
+      const newerText = "Newer synthetic draft while rewind is pending.";
+      const retainsFile = !["rewind-completed", "rewind-pending"].includes(scenario);
+      const expectedText =
+        scenario === "rewind-newer-draft" ? newerText : retainsFile ? currentText : earlierText;
+      const prefix = {
+        role: "assistant",
+        content: "Synthetic conversation before the selected turn.",
+        __openclaw: { id: "rewind-prefix", seq: 1 },
+      };
+      const gateway = await installMockGateway(page, {
+        historyMessages: [
+          prefix,
+          { role: "user", content: earlierText, __openclaw: { id: "rewind-user", seq: 2 } },
+          {
+            role: "assistant",
+            content: "Synthetic answer after the selected turn.",
+            __openclaw: { id: "rewind-answer", seq: 3 },
+          },
+        ],
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      const proofDir = path.join(suite.artifactDir, scenario);
+      await mkdir(proofDir, { recursive: true });
+      await page.goto(`${suite.server.baseUrl}chat`);
+      const composer = page.locator(".agent-chat__composer-combobox textarea");
+      const send = page.getByRole("button", { name: "Send message", exact: true });
+      await composer.fill(currentText);
+      const selectFile = () =>
+        page.locator(".agent-chat__file-input").setInputFiles({
+          name: "late-selection.png",
+          mimeType: "image/png",
+          buffer: Buffer.from(ONE_PIXEL_PNG_B64, "base64"),
+        });
+      if (scenario !== "rewind-newer-file") {
+        await selectFile();
+        await expect.poll(() => send.isDisabled()).toBe(true);
+      }
+      const finishRead = () =>
+        page.evaluate(() => {
+          const proof = (globalThis as unknown as { attachmentReadProof: DeferredAttachmentProof })
+            .attachmentReadProof;
+          if (!proof.finish) {
+            throw new Error("Selected file read was not held");
+          }
+          proof.finish();
+        });
+      if (scenario === "same-draft" || scenario === "rewind-completed") {
+        await finishRead();
+        await page.getByRole("img", { name: "late-selection.png", exact: true }).waitFor();
+        await expect.poll(() => send.isEnabled()).toBe(true);
+      }
+      if (scenario !== "same-draft") {
+        await gateway.deferNext("sessions.rewind");
+        await page
+          .locator(".chat-bubble")
+          .filter({ hasText: earlierText })
+          .click({ button: "right" });
+        await page.getByRole("menuitem", { name: "Rewind to here", exact: true }).click();
+        await page
+          .locator(".chat-confirm-popover")
+          .getByRole("button", { name: "Rewind", exact: true })
+          .click();
+        const rewind = await gateway.waitForRequest("sessions.rewind");
+        expect(rewind.params).toMatchObject({ entryId: "rewind-user" });
+        if (scenario === "rewind-failed") {
+          await gateway.rejectDeferred("sessions.rewind", {
+            code: "UNAVAILABLE",
+            message: "Synthetic rewind failed; draft retained.",
+          });
+          await page
+            .getByText("Synthetic rewind failed; draft retained.", { exact: false })
+            .first()
+            .waitFor();
+        } else {
+          if (scenario === "rewind-newer-draft") {
+            await composer.fill(newerText);
+          } else if (scenario === "rewind-newer-file") {
+            await selectFile();
+            await expect.poll(() => send.isDisabled()).toBe(true);
+          }
+          await gateway.setHistoryMessages([prefix]);
+          await gateway.resolveDeferred("sessions.rewind", {
+            editorText: earlierText,
+            editorAttachments: [],
+          });
+          if (scenario === "rewind-newer-draft" || scenario === "rewind-newer-file") {
+            await expect
+              .poll(() => page.locator(".chat-bubble").filter({ hasText: earlierText }).count())
+              .toBe(0);
+          }
+        }
+        if (scenario !== "rewind-newer-file") {
+          await expect.poll(() => composer.inputValue()).toBe(expectedText);
+        }
+        await page.screenshot({ path: path.join(proofDir, "restored-before-release.png") });
+      }
+      if (scenario !== "same-draft" && scenario !== "rewind-completed") {
+        await finishRead();
+      }
+      await expect.poll(() => send.isEnabled()).toBe(true);
+      const observed = {
+        scenario,
+        composerText: await composer.inputValue(),
+        composerFiles: await page
+          .locator(".chat-attachment-thumb img")
+          .evaluateAll((images) => images.map((image) => image.getAttribute("alt"))),
+        readAborts: await page.evaluate(
+          () =>
+            (globalThis as unknown as { attachmentReadProof: DeferredAttachmentProof })
+              .attachmentReadProof.aborts,
+        ),
+        pageErrors,
+      };
+      await page.screenshot({ path: path.join(proofDir, "settled-before-send.png") });
+      await send.click();
+      const request = await gateway.waitForRequest("chat.send");
+      const sent = request.params as {
+        message: string;
+        attachments?: { fileName: string; mimeType: string; content: string }[];
+      };
+      await writeFile(
+        path.join(proofDir, "result.json"),
+        JSON.stringify({ ...observed, sent }, null, 2),
+      );
+      expect(pageErrors).toEqual([]);
+      expect(sent.message).toBe(expectedText);
+      expect(observed.composerFiles).toEqual(retainsFile ? ["late-selection.png"] : []);
+      expect(sent.attachments ?? []).toEqual(
+        retainsFile
+          ? [
+              {
+                type: "image",
+                fileName: "late-selection.png",
+                mimeType: "image/png",
+                content: ONE_PIXEL_PNG_B64,
+              },
+            ]
+          : [],
+      );
+    });
+  });
+
   it.each([
     { attachment: false, gesture: "held Enter", expectedTurns: 1 },
     { attachment: true, gesture: "held Enter", expectedTurns: 1 },

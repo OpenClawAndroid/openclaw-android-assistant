@@ -38,7 +38,7 @@ type CheckoutOptions = WorktreeFilesystemOptions & {
   worktreeRoot: string;
   destination: string;
   base: string;
-  branch?: string;
+  branch?: string | { mode: "existing"; name: string };
   sourceProfile?: WorktreeSourceProfile;
   prepareCommit?: (commit: string) => Promise<void>;
   rollbackGuard?: () => void;
@@ -314,6 +314,36 @@ async function prepareTemplate(options: CheckoutOptions) {
 
 /** Git owns registration, branches and indexes; the backend only materializes files. */
 export async function addManagedWorktree(input: CheckoutOptions): Promise<CheckoutResult> {
+  const existingBranch = typeof input.branch === "object" ? input.branch.name : undefined;
+  const createdBranch = typeof input.branch === "string" ? input.branch : undefined;
+  const expectedRef = existingBranch ? `refs/heads/${existingBranch}` : undefined;
+  const expectedCommit = expectedRef
+    ? await requireGit(
+        input.repoRoot,
+        ["rev-parse", "--verify", `${input.base}^{commit}`],
+        gitOptions(input),
+      )
+    : undefined;
+  const assertExistingSeed = async () => {
+    if (!expectedRef) {
+      return;
+    }
+    await requireGit(input.repoRoot, ["check-ref-format", expectedRef], gitOptions(input));
+    const actual = await requireGit(
+      input.repoRoot,
+      ["rev-parse", "--verify", expectedRef],
+      gitOptions(input),
+    );
+    const worktrees = await requireGit(
+      input.repoRoot,
+      ["worktree", "list", "--porcelain", "-z"],
+      gitOptions(input),
+    );
+    if (actual !== expectedCommit || worktrees.split("\0").includes(`branch ${expectedRef}`)) {
+      throw new Error("Caller-owned worktree branch moved or is in use; preserve it for recovery.");
+    }
+  };
+  await assertExistingSeed();
   const profile = input.sourceProfile;
   if (profile) {
     if (input.deferGitCheckout || (await worktreePathExists(input.destination))) {
@@ -330,16 +360,17 @@ export async function addManagedWorktree(input: CheckoutOptions): Promise<Checko
       throw new Error("Worktree source profile does not match the checkout commit.");
     }
   }
+  await assertExistingSeed();
   const added = await runGit(
     input.repoRoot,
     [
       "worktree",
       "add",
       "--no-checkout",
-      ...(input.branch ? ["-b", input.branch] : ["--detach"]),
+      ...(existingBranch ? [] : createdBranch ? ["-b", createdBranch] : ["--detach"]),
       "--",
       input.destination,
-      input.base,
+      existingBranch ?? input.base,
     ],
     {
       ...gitOptions(input),
@@ -368,11 +399,13 @@ export async function addManagedWorktree(input: CheckoutOptions): Promise<Checko
     );
   const registration = await readRegistration(rollbackOptions);
   const [commit, headRef] = registration.split("\n");
-  if (!commit || headRef !== (input.branch ? `refs/heads/${input.branch}` : "HEAD")) {
+  const expectedHeadRef = expectedRef ?? (createdBranch ? `refs/heads/${createdBranch}` : "HEAD");
+  if (!commit || headRef !== expectedHeadRef || (expectedCommit && commit !== expectedCommit)) {
     throw new Error("Worktree registration changed during creation; preserve it for recovery.");
   }
   const options = { ...input, base: commit };
-  let preserve = false;
+  // Native PR owns its seed and partial checkout, including cancellation failures.
+  let preserve = Boolean(existingBranch);
   let materializationStarted = false;
   const assertRegistration = async (
     commandOptions: Parameters<typeof requireGit>[2] = gitOptions(options),
@@ -523,6 +556,12 @@ export async function addManagedWorktree(input: CheckoutOptions): Promise<Checko
     } catch (error) {
       rollbackGuard();
       await assertRegistration(rollbackOptions);
+      if (existingBranch) {
+        throw new Error(
+          "Caller-owned worktree clone failed; preserve its registration and partial checkout for recovery.",
+          { cause: error },
+        );
+      }
       if (!destinationRemoved) {
         preserve = true;
         if (!(await worktreePathExists(markerPath))) {
@@ -572,7 +611,7 @@ async function removeFailedCheckout(options: CheckoutOptions): Promise<void> {
     ["worktree", "remove", "--force", options.destination],
     gitOptions(options),
   );
-  if (options.branch) {
+  if (typeof options.branch === "string") {
     assertOwned(options);
     await requireGit(options.repoRoot, ["branch", "-D", options.branch], gitOptions(options));
   }

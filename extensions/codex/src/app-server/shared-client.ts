@@ -1338,21 +1338,21 @@ export function retainSharedCodexAppServerClientByInstanceId(
 /** Captures physical ownership, independently of unrelated thread and reader leases. */
 export function captureCodexAppServerClientLifetime(
   client: CodexAppServerClient,
-  requiredOwnership: "connection" | "native-process",
+  requiredOwnership: "connection" | "thread-configuration" | "native-process",
 ): () => void {
   const state = getSharedCodexAppServerClientState();
-  // Ordinary refresh needs a process, not a connection to an external server.
-  // Supervision/release require only their original registered connection.
+  // Manual adoption requires a local process. Ordinary configuration refresh can
+  // use any owned connection; its caller separately verifies native thread unload.
   const start = state.startMetadata.get(client)?.startOptions;
   if (
     requiredOwnership === "native-process" &&
     (start?.transport !== "stdio" || isCodexAppServerProxyLaunch(start.args))
   ) {
     throw new AgentHarnessPreflightError(
-      "Codex ordinary configuration refresh requires an OpenClaw-managed local stdio process, not an external socket or app-server proxy. No turn was sent; reconnect through managed local stdio before continuing.",
+      "Codex manual thread adoption requires an OpenClaw-managed local stdio process, not an external socket or app-server proxy. No turn was sent; reconnect through managed local stdio before continuing.",
     );
   }
-  const isolated = requiredOwnership === "native-process" && state.isolatedClients.has(client);
+  const isolated = requiredOwnership !== "connection" && state.isolatedClients.has(client);
   const isCurrent = isolated
     ? () => state.isolatedClients.has(client) && !client.getCloseError()
     : captureSharedClientRegistration(client);

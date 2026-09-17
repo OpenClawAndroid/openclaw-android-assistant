@@ -104,6 +104,10 @@ export async function runUpdateLeaseChild(): Promise<void> {
     assert.equal(scenario.lane, "fresh-process");
     const resultPath = process.env.OPENCLAW_UPDATE_POST_CORE_RESULT_PATH;
     assert.ok(resultPath && scenario.pluginUpdate);
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(path.dirname(resultPath), "handoff.json"), "utf8")),
+      { completionOwner: "parent" },
+    );
     await withPluginLifecycleLease({ waitMs: 0 }, async () => record("packages-acquired"));
     await record("packages-released");
     const { readConfigFileSnapshot } = await import("../../config/config.js");

@@ -1048,7 +1048,7 @@ describe("OpenClaw shell keyboard shortcuts", () => {
     shell.handleGatewayEvent({ event: "config.changed", payload: {} });
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(harness.setSelection).toHaveBeenCalledExactlyOnceWith("main");
+    expect(harness.setSelection).toHaveBeenCalledExactlyOnceWith("main", { background: true });
   });
 
   it("keeps caches intact when a config.changed refresh returns the same roster", async () => {

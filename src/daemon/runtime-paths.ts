@@ -23,17 +23,11 @@ import { resolveStableNodePath } from "../infra/stable-node-path.js";
 import { getWindowsProgramFilesRoots } from "../infra/windows-install-roots.js";
 import { runExec } from "../process/exec.js";
 import { matchesVersionManagerPath } from "../shared/version-manager-path.js";
-import { isBunRuntime } from "./runtime-binary.js";
+import { isBunRuntime, isNodeRuntime } from "./runtime-binary.js";
 import { normalizeServicePathEntry } from "./service-path-policy.js";
 
 function getPathModule(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix;
-}
-
-function isNodeExecPath(execPath: string, platform: NodeJS.Platform): boolean {
-  const pathModule = getPathModule(platform);
-  const base = normalizeLowercaseStringOrEmpty(pathModule.basename(execPath));
-  return base === "node" || base === "node.exe";
 }
 
 function buildSystemNodeCandidates(
@@ -442,7 +436,7 @@ export async function resolvePreferredNodePath(
   const platform = params.platform ?? process.platform;
   const currentExecPath = params.execPath ?? process.execPath;
   const execFileImpl = params.execFile ?? execFileAsync;
-  const currentNode = isNodeExecPath(currentExecPath, platform)
+  const currentNode = isNodeRuntime(currentExecPath)
     ? await resolveRuntimeInfo(currentExecPath, "node", execFileImpl, env)
     : null;
   if (
