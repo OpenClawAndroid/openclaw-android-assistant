@@ -1436,7 +1436,7 @@ describe("maybeCompactCodexAppServerSession", () => {
       method: "turn/completed",
       params: {
         threadId: "thread-1",
-        turn: { id: "turn-1", threadId: "thread-1", status: "completed" },
+        turn: { id: "turn-1", status: "completed", items: [] },
       },
     });
     const result = requireCompactResult(await pendingResult);
@@ -1475,7 +1475,7 @@ describe("maybeCompactCodexAppServerSession", () => {
       method: "turn/completed",
       params: {
         threadId: "thread-1",
-        turn: { id: "compact-turn-hook", threadId: "thread-1", status: "interrupted" },
+        turn: { id: "compact-turn-hook", status: "interrupted", items: [] },
       },
     });
 
@@ -1506,7 +1506,7 @@ describe("maybeCompactCodexAppServerSession", () => {
       method: "turn/completed",
       params: {
         threadId: "thread-1",
-        turn: { id: "compact-turn-failed", threadId: "thread-1", status: "failed" },
+        turn: { id: "compact-turn-failed", status: "failed", items: [] },
       },
     });
 
@@ -1566,7 +1566,7 @@ describe("maybeCompactCodexAppServerSession", () => {
       method: "turn/completed",
       params: {
         threadId: "thread-1",
-        turn: { id: "compact-turn-stalled", threadId: "thread-1", status: "interrupted" },
+        turn: { id: "compact-turn-stalled", status: "interrupted", items: [] },
       },
     });
 
@@ -1861,7 +1861,7 @@ describe("maybeCompactCodexAppServerSession", () => {
           method: "turn/completed",
           params: {
             threadId: binding.threadId,
-            turn: { id: "compact-turn-retired", threadId: binding.threadId, status: "interrupted" },
+            turn: { id: "compact-turn-retired", status: "interrupted", items: [] },
           },
         });
         await pending;
@@ -2001,7 +2001,7 @@ describe("maybeCompactCodexAppServerSession", () => {
           method: "turn/completed",
           params: {
             threadId: binding.threadId,
-            turn: { id: "cleanup-turn", status: "interrupted" },
+            turn: { id: "cleanup-turn", status: "interrupted", items: [] },
           },
         });
         await pending;
@@ -2109,7 +2109,7 @@ describe("maybeCompactCodexAppServerSession", () => {
       method: "turn/completed",
       params: {
         threadId: "thread-1",
-        turn: { id: "compact-turn-aborted", threadId: "thread-1", status: "interrupted" },
+        turn: { id: "compact-turn-aborted", status: "interrupted", items: [] },
       },
     });
 
@@ -2740,7 +2740,7 @@ function createFakeCodexClient(
       method: "turn/completed",
       params: {
         threadId: "thread-1",
-        turn: { id: "compact-turn-1", threadId: "thread-1", status: "completed" },
+        turn: { id: "compact-turn-1", status: "completed", items: [] },
       },
     });
   };
@@ -2825,7 +2825,7 @@ function createFakeCodexClient(
           method: "turn/completed",
           params: {
             threadId,
-            turn: { id: "compact-turn-1", threadId, status: "completed" },
+            turn: { id: "compact-turn-1", status: "completed", items: [] },
           },
         });
       }

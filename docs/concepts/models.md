@@ -94,6 +94,15 @@ The Gateway prepares one model catalog for the CLI, `/models`, the Control UI,
 and native apps. Ordinary browsing and opening or reopening a model picker read
 the published catalog without starting provider discovery.
 
+If preparing a large fleet takes longer than the two-minute startup budget, the
+Gateway starts with the agent model runtimes that have finished preparing. A
+warning names the remaining agents and acquisition stage, including workspace
+plugins when known. `openclaw health --json` and the Gateway `status` RPC report
+`modelRuntime.degraded` and `modelRuntime.pendingAgents`. Preparation continues
+in the background; each completed agent becomes available, and the degraded
+status clears when the full publication finishes. An unfinished agent cannot
+serve model requests until its runtime and authentication facts are ready.
+
 After sign-in, starter models are available immediately. The provider shows
 “checking models…” while the Gateway discovers account models, then updates the
 open picker when discovery completes. Gateway startup and credential changes

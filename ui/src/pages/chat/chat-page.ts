@@ -7,7 +7,10 @@ import { McpAppUnmountGate } from "../../components/mcp-app-unmount.ts";
 import { UI_COMMAND_EVENT, type UiCommandDetail } from "../../components/panel-toggle-contract.ts";
 import type { BoardFace } from "../../lib/board/settings.ts";
 import { readSessionDragData, sessionDragActive } from "../../lib/sessions/drag.ts";
-import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
+import {
+  resolveSessionPreferredFaceForKey,
+  sessionNavigationTarget,
+} from "../../lib/sessions/route-navigation.ts";
 import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
@@ -420,28 +423,29 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
     this.syncRouteBindings();
   }
 
-  private updateRoute(sessionKey: string, replace = false, face = this.data.face ?? "chat") {
+  private updateRoute(sessionKey: string, replace = false, explicitFace?: BoardFace) {
     if (!this.presented) {
       return;
     }
     const data = this.data;
     const sameSession = data && areUiSessionKeysEquivalent(data.sessionKey, sessionKey);
+    let face = explicitFace ?? data?.face ?? "chat";
+    if (explicitFace === undefined && !sameSession) {
+      face = resolveSessionPreferredFaceForKey(this.context, sessionKey, data?.agentId);
+    }
     const options = sessionNavigationTarget({
       context: this.context,
       face,
+      preferenceDerivedFace: explicitFace === undefined && !sameSession,
       sessionKey,
       agentId: data?.agentId,
       shortIdLength: data?.sessionKey === sessionKey ? data.shortId?.length : undefined,
     }).options;
-    if (replace) {
-      const location =
-        sameSession && (data.draft || data.focusComposer)
-          ? locationWithoutDraft(currentRouteLocation(), options)
-          : options;
-      this.context.replace(face, location);
-    } else {
-      this.context.navigate(face, options);
-    }
+    const location =
+      replace && sameSession && (data.draft || data.focusComposer)
+        ? locationWithoutDraft(currentRouteLocation(), options)
+        : options;
+    this.context[replace ? "replace" : "navigate"](face, location);
   }
 
   private applySessionDrop(sessionKey: string, paneId: string, zone: SplitDropZone): void {

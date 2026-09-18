@@ -112,6 +112,10 @@ that permits one execution but not session trust offers allow-once and deny;
 byte-bound script approvals also remain one-shot. File prompts support both
 one-shot and session approval.
 
+If another connected Codex client answers a native approval request, OpenClaw
+dismisses the matching pending prompt without sending a second answer or treating
+that resolution as a timeout or tool failure.
+
 Terminal operator decisions reuse the Gateway's authoritative approval row and
 its exact execution binding. When execution identity collection is enabled,
 inspect the admitted run with

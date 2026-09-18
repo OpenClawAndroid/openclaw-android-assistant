@@ -608,6 +608,7 @@ src/infra/net/undici-error-diagnostics.ts
 src/infra/net/undici-family-policy.ts
 src/infra/net/undici-global-dispatcher.ts
 src/infra/net/undici-runtime.ts
+src/infra/node-compile-cache-env.ts
 src/infra/node-runner-inventory.ts
 src/infra/node-sqlite.ts
 src/infra/non-fatal-cleanup.ts

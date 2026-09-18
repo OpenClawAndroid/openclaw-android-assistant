@@ -289,6 +289,7 @@ export function projectChatTranscript(
   const loadedReplySources = new Map<string, LoadedReplySource>();
   const resolveReplyPreview = createReplyPreviewResolver(loadedReplySources, props);
   const sharedMessageRenderOptions = {
+    entryRefFor: transcript.entryAnimations.refFor,
     presented: props.presented,
     onReply: props.onSetReply
       ? (target) => state.transcriptRenderContext.onSetReply?.(target)
@@ -553,6 +554,7 @@ export function projectChatTranscript(
     expandedToolCards,
     messageRowKeysById,
   );
+  transcript.entryAnimations.project(chatItems, props.sessionKey);
   transcript.syncMessageRows(messageRowKeysById, transcriptMessageKeys);
   let turnRecapOwnerKey: string | null = null;
   if (turnRecap !== null && tailStatusOwner?.runId === turnRecap.runId) {

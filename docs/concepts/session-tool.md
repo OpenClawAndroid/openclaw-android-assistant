@@ -204,6 +204,15 @@ Thread-scoped chat sessions, such as keys ending in `:thread:<id>`, are not vali
 
 Messages and A2A follow-up replies are marked as inter-session data in the receiving prompt (`[Inter-session message ... isUser=false]`) and in transcript provenance. The receiving agent should treat them as tool-routed data, not as a direct end-user-authored instruction.
 
+Agent shell commands must not substitute operator CLI message RPCs for this
+path. With the inherited `OPENCLAW_SHELL=exec` marker, the CLI rejects
+`sessions.send`, `sessions.steer`, `chat.send`, `agent`, and `sessions.create`
+requests containing an initial message, task, or attachment. Use the session tool
+when available; a subagent without it should return its result through normal
+completion. A delivery failure does not authorize switching to the operator CLI.
+This check prevents accidental loss of attribution; the environment marker is
+not authentication or isolation from other processes running as the same OS user.
+
 After an independent peer session responds, OpenClaw can run a **reply-back loop** where the agents alternate messages up to the built-in limit. The target agent can reply `REPLY_SKIP` to stop early. Ordinary UI threads remain independent peers.
 
 Subagent coordination does not use this loop. A child report goes to its recipient once, without an automatic acknowledgment turn in the child. An explicitly waiting caller can still receive the recipient's reply inline. For a new child turn, the child's reply returns inline or is delivered once after the wait expires; the receiver's response is not sent back to the child.

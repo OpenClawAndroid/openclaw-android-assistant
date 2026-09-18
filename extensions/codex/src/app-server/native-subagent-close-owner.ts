@@ -315,7 +315,7 @@ export class CodexNativeSubagentCloseOwner {
         // stop a resumed runtime whose start notification has not arrived yet.
         const forget = forgetters[index];
         if (childState) {
-          this.retireChild(state, childState, "Subagent was closed.", () => forget?.());
+          this.retireChild(state, childState, "Subagent was closed.", forget);
         } else {
           forget?.();
         }

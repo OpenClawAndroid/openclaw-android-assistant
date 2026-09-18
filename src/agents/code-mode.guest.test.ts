@@ -364,7 +364,7 @@ describe("Code Mode guest execution", () => {
     const { config, catalogRef, tools: codeModeTools } = createCodeModeHarness();
     const privateNames = [
       "__openclawResult",
-      "__openclawEncodeFinalValue",
+      "__openclawRunCell",
       "__openclawSettleBridge",
       "__openclawTakeOutputJson",
       "__openclawFuturePrivateHook",

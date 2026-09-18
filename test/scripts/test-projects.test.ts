@@ -1192,6 +1192,7 @@ describe("scripts/test-projects changed-target routing", () => {
         "test/scripts/macos-native-test-launch.test.ts",
         "test/scripts/npm-prepared-bundle.test.ts",
         "test/scripts/openclaw-npm-extended-stable-release.test.ts",
+        "test/scripts/openclaw-npm-plugin-recovery-workflow.test.ts",
         "test/scripts/openclaw-npm-resume-run.test.ts",
         "test/scripts/package-acceptance-workflow.test.ts",
         "test/scripts/pr-crabbox-merge-bypass.test.ts",
@@ -1379,6 +1380,7 @@ describe("scripts/test-projects changed-target routing", () => {
         "test/scripts/authorized-beta-focused-evidence.test.ts",
         "test/scripts/frv.test.ts",
         "test/scripts/npm-prepared-bundle.test.ts",
+        "test/scripts/openclaw-npm-plugin-recovery-workflow.test.ts",
         "test/scripts/openclaw-npm-resume-run.test.ts",
         "test/scripts/release-candidate-checklist.test.ts",
         "test/scripts/verify-stable-main-closeout.test.ts",
@@ -2705,7 +2707,10 @@ describe("scripts/test-projects changed-target routing", () => {
       {
         config: "test/vitest/vitest.infra.config.ts",
         forwardedArgs: [],
-        includePatterns: ["src/agents/tools/cron-tool.output-contract.test.ts"],
+        includePatterns: [
+          "src/agents/tools/message-tool.internal-source-reply.integration.test.ts",
+          "src/agents/tools/cron-tool.output-contract.test.ts",
+        ],
         watchMode: false,
       },
       {

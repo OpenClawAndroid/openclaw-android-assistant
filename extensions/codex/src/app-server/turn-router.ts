@@ -8,6 +8,7 @@ import {
   readCodexNotificationThreadId,
   readCodexNotificationTurnId,
 } from "./notification-correlation.js";
+import { readCodexTurnCompletedNotification } from "./protocol-validators.js";
 import {
   isJsonObject,
   type CodexServerNotification,
@@ -425,9 +426,12 @@ class ClientTurnRouter implements CodexAppServerTurnRouter {
     if (!watchers && !route) {
       return undefined;
     }
+    const completedTurn =
+      notification.method === "turn/completed" &&
+      readCodexTurnCompletedNotification(notification.params) !== undefined;
     if (scope.turnId && watchers) {
       for (const watcher of watchers) {
-        if (watcher.turnId === scope.turnId && notification.method === "turn/completed") {
+        if (watcher.turnId === scope.turnId && completedTurn) {
           watcher.finish(true);
         } else if (watcher.turnId === scope.turnId && notification.method === "turn/started") {
           watcher.onStarted?.();
@@ -446,7 +450,7 @@ class ClientTurnRouter implements CodexAppServerTurnRouter {
       if (notification.method === "turn/started") {
         route.completedNativeTurnIds.delete(scope.turnId);
         route.observedNativeTurn = { id: scope.turnId, completed: false };
-      } else if (notification.method === "turn/completed") {
+      } else if (completedTurn) {
         // A bound route retains only its own terminal fact until the next arm.
         // Cleanup can then confirm completion without trusting an interrupt error.
         if (route.gate === "bound") {

@@ -40,6 +40,7 @@ export class BrokerChild extends EventEmitter implements ChildProcess {
   private readonly pendingEvents: Array<() => void> = [];
   private exited = false;
   private closed = false;
+  private processNotStarted = false;
 
   constructor(
     readonly requestId: number,
@@ -52,6 +53,15 @@ export class BrokerChild extends EventEmitter implements ChildProcess {
     void this.opened.promise.catch(() => {});
     // Errors remain observable after admission and before caller listeners attach.
     this.on("error", () => {});
+  }
+
+  /** Only the admission owner can establish that no native process was started. */
+  markNotStarted(): void {
+    this.processNotStarted = true;
+  }
+
+  get notStarted(): boolean {
+    return this.processNotStarted;
   }
 
   ready(): Promise<void> {

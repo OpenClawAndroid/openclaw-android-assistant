@@ -60,7 +60,6 @@ function createProfileAppearanceGateway(profileId: string | null) {
     agentRosterRefreshTimer: null,
     agentsListClient: null,
     agentsListSource: null,
-    criticalNoticeRuntime: null,
     lastLocalePrefSignature: null,
     outboxStoreImport: { load: vi.fn(async () => undefined) },
     previousGatewayPhase: null,

@@ -157,6 +157,7 @@ export class SpawnBrokerHost {
       child.fail(error);
     };
     if (!this.available || this.closing || this.requests.size >= MAX_REQUESTS) {
+      child.markNotStarted();
       queueMicrotask(() => fail(new SpawnBrokerError("Spawn broker is unavailable")));
       return request;
     }
@@ -342,6 +343,11 @@ export class SpawnBrokerHost {
           restorePipePrefix(pipe, message.bytes);
         }
       } else if (message.type === "execa-result") {
+        // Started commands publish their owned PID first on this ordered channel.
+        // A failed result without that admission is the worker's no-process outcome.
+        if (request.pid === undefined && message.result.failed) {
+          request.child.markNotStarted();
+        }
         request.result?.resolve(message.result);
         request.resultSettled = true;
         this.retire(message.id, request);

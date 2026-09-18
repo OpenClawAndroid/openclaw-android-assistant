@@ -311,9 +311,7 @@ export async function deliverSubagentAnnouncement(params: {
         createUserTurnTranscriptRecorder: createCompletionUserTurnTranscriptRecorder,
         signal: params.signal,
         isSourceSessionEffectsAllowed: params.isSourceSessionEffectsAllowed,
-        ...(params.isSourceSessionAdmissionAllowed
-          ? { isSourceSessionAdmissionAllowed: params.isSourceSessionAdmissionAllowed }
-          : {}),
+        isSourceSessionAdmissionAllowed: params.isSourceSessionAdmissionAllowed,
       });
     },
     direct: async () => {
@@ -334,9 +332,7 @@ export async function deliverSubagentAnnouncement(params: {
         sourceSessionKey: params.sourceSessionKey,
         sourceTool: params.sourceTool,
         isSourceSessionEffectsAllowed: params.isSourceSessionEffectsAllowed,
-        ...(params.isSourceSessionAdmissionAllowed
-          ? { isSourceSessionAdmissionAllowed: params.isSourceSessionAdmissionAllowed }
-          : {}),
+        isSourceSessionAdmissionAllowed: params.isSourceSessionAdmissionAllowed,
         isCompletionOwnedByRequesterYield: params.isCompletionOwnedByRequesterYield,
         requesterIsSubagent: params.requesterIsSubagent,
         completionTarget: params.completionTarget,

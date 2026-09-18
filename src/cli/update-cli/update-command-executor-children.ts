@@ -5,6 +5,8 @@ import {
   createManagedHandoffLeaseStore,
   type ManagedHandoffLease,
 } from "../../infra/update-managed-service-handoff-lease.js";
+import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
+import { withCommandProcessScope } from "../../process/exec-spawn.js";
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
 
 /** Private correlation sent only to the spawned candidate's stdin. The receiver
@@ -161,20 +163,24 @@ export function createChildOwner(params: {
             childKey: children[children.length - 1]!.key,
             databaseIdentity,
           };
-          const result = await operation(grant, (pid, argv) => {
-            assertOwners();
-            if (bound || pid === process.pid) {
-              throw new UpdateCommandRecoveryPendingError("Update process can be bound only once.");
-            }
-            for (let index = 0; index < children.length; index++) {
-              const assigned = store.bind(children[index]!, pid, undefined, argv);
-              if (!assigned) {
-                throw new UpdateCommandRecoveryPendingError("Update process binding failed.");
+          const result = await withCommandProcessScope(() =>
+            operation(grant, (pid, argv) => {
+              assertOwners();
+              if (bound || pid === process.pid) {
+                throw new UpdateCommandRecoveryPendingError(
+                  "Update process can be bound only once.",
+                );
               }
-              children[index] = assigned;
-            }
-            bound = true;
-          });
+              for (let index = 0; index < children.length; index++) {
+                const assigned = store.bind(children[index]!, pid, undefined, argv);
+                if (!assigned) {
+                  throw new UpdateCommandRecoveryPendingError("Update process binding failed.");
+                }
+                children[index] = assigned;
+              }
+              bound = true;
+            }),
+          );
           if (!bound) {
             throw new UpdateCommandRecoveryPendingError(
               "The update worker did not confirm startup.",
@@ -184,6 +190,10 @@ export function createChildOwner(params: {
           outcome = { result };
         } catch (error) {
           outcome = { error };
+        }
+        if ("error" in outcome && hasCommandProcessCleanupError(outcome.error)) {
+          admissionOpen = false;
+          throw outcome.error;
         }
         try {
           // Release the active generation before the original lineage, as in

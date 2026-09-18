@@ -95,3 +95,28 @@ export function setViewerPresenceContext(page: ChatPage) {
   });
   return { ...navigation, request };
 }
+
+export function createSessionTitleSource() {
+  const listeners = new Set<() => void>();
+  const state: {
+    result: { sessions: Array<{ key: string; displayName?: string }> } | null;
+  } = { result: null };
+  return {
+    sessions: {
+      ...createChatPageSessions(),
+      state,
+      presentation: state,
+      subscribe(listener: () => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    listeners,
+    publish(key: string, displayName: string) {
+      state.result = { sessions: [{ key, displayName }] };
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+  };
+}

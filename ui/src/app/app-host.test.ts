@@ -345,7 +345,6 @@ describe("OpenClaw shell source initialization", () => {
       agentsListClient: null,
       agentsListSource: null,
       context: undefined,
-      criticalNoticeRuntime: null,
       lastLocalePrefSignature: null,
       outboxStoreImport: { load: vi.fn(async () => undefined) },
       previousGatewayPhase: null,

@@ -236,7 +236,7 @@ export function isStaleFutureCronSlot(job: CronJob, nowMs: number): boolean {
   } catch {
     return false;
   }
-  if (!isFiniteTimestamp(naturalNext)) {
+  if (!isFiniteTimestamp(naturalNext) || nextRun === naturalNext) {
     return false;
   }
   let isScheduledSlot;
@@ -251,10 +251,6 @@ export function isStaleFutureCronSlot(job: CronJob, nowMs: number): boolean {
   if (nextRun < naturalNext) {
     return job.payload.kind !== "agentTurn";
   }
-  if (nextRun === naturalNext) {
-    return false;
-  }
-
   let followingNaturalNext: number | undefined;
   try {
     followingNaturalNext = computeStaggeredCronNextRunAtMs(job, naturalNext);

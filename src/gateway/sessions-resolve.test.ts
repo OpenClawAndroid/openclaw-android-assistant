@@ -1,6 +1,8 @@
 // Session resolve tests cover agent scoping, selector precedence, and protocol errors.
-import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { ErrorCodes } from "../../packages/gateway-protocol/src/index.js";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSessionRowProjectionFixture } from "./session-row-projection.test-support.js";
@@ -72,7 +74,8 @@ const resolveSessionKeyFromResolveParams = (
 
 describe("resolveSessionKeyFromResolveParams", () => {
   const canonicalKey = "agent:main:canon";
-  const storePath = "/tmp/sessions.json";
+  const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+  let storePath: string;
 
   const expectResolveToCanonicalKey = async (
     p: Parameters<typeof resolveSessionKeyFromResolveParams>[0]["p"],
@@ -90,6 +93,7 @@ describe("resolveSessionKeyFromResolveParams", () => {
   };
 
   beforeEach(() => {
+    storePath = path.join(tempDirs.make("sessions-resolve-"), "sessions.json");
     selectedStore = undefined;
     projections = new Map();
     hoisted.listAgentIdsMock.mockReset();

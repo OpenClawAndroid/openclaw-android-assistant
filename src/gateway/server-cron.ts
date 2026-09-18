@@ -1036,7 +1036,7 @@ export function buildGatewayCronService(params: {
     ),
     onEvent: (evt) => {
       // Any job/store change can alter session automation bindings, including
-      // in-place enable flips during runs; run/schedule events bump too (cheap).
+      // in-place enable flips during runs; the index publishes only binding deltas.
       invalidateSessionAutomationIndex();
       const jobSnapshot = evt.job ?? cron.getJob(evt.jobId);
       const scopedSessionKey =

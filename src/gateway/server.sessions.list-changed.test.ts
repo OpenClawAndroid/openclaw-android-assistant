@@ -823,7 +823,7 @@ test("sessions.list leaves failed-first-turn dashboard sessions untitled instead
   expect(session.derivedTitle).toBeUndefined();
 });
 
-test("sessions.list yields for bulk metadata and later serves backfilled transcript fields", async () => {
+test("sessions.list yields for bulk metadata and later serves previews without repairing titles", async () => {
   const { storePath } = await createSessionStoreDir();
   const keys = await seedSessionListBackfillFixture(storePath, 11);
   const backfilled = observeSessionRowBackfill(keys);
@@ -854,7 +854,7 @@ test("sessions.list yields for bulk metadata and later serves backfilled transcr
   const payload = expectRespondPayload(refreshed.respond);
   const session = findSession(payload, "agent:main:bulk-0");
   expectFields(session, {
-    derivedTitle: "Title 0",
+    derivedTitle: undefined,
     lastMessagePreview: "last 0",
   });
 });

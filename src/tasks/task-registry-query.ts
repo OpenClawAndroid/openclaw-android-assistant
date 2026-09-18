@@ -382,8 +382,9 @@ export function listTasksForAgentId(agentId: string): TaskRecord[] {
   if (!lookup) {
     return [];
   }
-  return snapshotTaskRecords(tasks)
+  return [...tasks.values()]
     .filter((task) => task.agentId?.trim() === lookup)
+    .map((task) => cloneTaskRecord(task))
     .toSorted(compareTasksNewestFirst);
 }
 

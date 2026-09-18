@@ -9,6 +9,7 @@ import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { markGatewaySigusr1RestartHandled } from "../infra/restart.js";
 import { getGatewayPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-state.js";
+import { getPluginInstance } from "../plugins/plugin-instance-scope.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import { getActivePluginRegistry } from "../plugins/runtime.js";
 import { captureEnv } from "../test-utils/env.js";
@@ -20,7 +21,6 @@ import {
   installInstanceBindingProbeCoordinator,
   writeChannelBindingProbePlugin,
   writeInstanceBindingProbePlugin,
-  withPluginServiceStopDeadline,
   type ChannelBindingMonitor,
   type ChannelBindingProof,
   type InstanceBindingProbeCoordinator,
@@ -33,6 +33,7 @@ import {
   requireBoundRuntime,
   requestInstanceBindingProbe,
   requestSettledInstanceBindingProbe,
+  reloadInstanceBindingAfterServiceDeadline,
 } from "./server-plugins.lifecycle.test-support.js";
 import {
   connectWebchatClient,
@@ -936,7 +937,7 @@ describe("gateway plugin instance bindings", () => {
     "refuses replacement during %s cleanup while keeping the Gateway available",
     { timeout: 600_000 },
     async (serviceStopFailure) => {
-      const { coordinator } = await prepareInstanceBindingTest({ serviceStopFailure });
+      const { coordinator, bundledRoot } = await prepareInstanceBindingTest({ serviceStopFailure });
       finishServiceStops.push(coordinator.serviceStopCompletion.resolve);
       const hotReloadRecovery = vi.fn(() => {
         // No run loop consumes this synthetic emission, so release its signal-admission lease.
@@ -971,9 +972,15 @@ describe("gateway plugin instance bindings", () => {
       expect(currentConfig.ok).toBe(true);
       expect(currentConfig.payload?.hash).toBeTypeOf("string");
       expect(currentConfig.payload?.raw).toBeTypeOf("string");
-      const reload = await withPluginServiceStopDeadline(coordinator, () =>
-        rpcReq(socket, "plugins.reload", { plugins: [{ pluginId: "instance-binding-probe" }] }),
-      );
+      const initialInstance = initialRegistry?.plugins
+        .filter((record) => record.id === "instance-binding-probe")
+        .map(getPluginInstance)[0];
+      const reload = await reloadInstanceBindingAfterServiceDeadline({
+        coordinator,
+        bundledRoot,
+        socket,
+        currentConfig,
+      });
       expect(reload, reload.error?.message).toMatchObject({
         ok: false,
         error: { details: { runtime: { committed: false, phase: "drain" } } },
@@ -985,10 +992,27 @@ describe("gateway plugin instance bindings", () => {
       );
       expect(hotReloadRecovery).not.toHaveBeenCalled();
       expect(coordinator.serviceStops).toBe(1);
-      expect(coordinator.serviceStarts).toBe(1);
-      expect(coordinator.runtimes).toHaveLength(initialRegistrationCount);
+      const recovered = serviceStopFailure === "timeout";
+      expect(coordinator.serviceStarts).toBe(recovered ? 2 : 1);
       expect(getGatewayPluginMetadataSnapshot()).toBe(initialMetadata);
-      expect(getActivePluginRegistry()).toBe(initialRegistry);
+      if (recovered) {
+        expect(initialInstance?.disposing).toBe(true);
+        expect(coordinator.gatewayStops).toEqual([initialProbe.registryId]);
+        expect(getActivePluginRegistry()).not.toBe(initialRegistry);
+        const restored = await requireBoundRuntime(
+          coordinator.runtimes.slice(initialRegistrationCount),
+          "restored original",
+        );
+        const restoredProbe = await requestInstanceBindingProbe(restored.runtime);
+        expect(restoredProbe.registryId).not.toBe(initialProbe.registryId);
+        expect(restoredProbe).toMatchObject({
+          sessionsId: initialProbe.sessionsId,
+          placementId: initialProbe.placementId,
+        });
+      } else {
+        expect(coordinator.runtimes).toHaveLength(initialRegistrationCount);
+        expect(getActivePluginRegistry()).toBe(initialRegistry);
+      }
       await expect(requestInstanceBindingProbe(initialRuntime)).rejects.toThrow(
         'Plugin "instance-binding-probe" runtime is no longer active.',
       );
@@ -997,7 +1021,7 @@ describe("gateway plugin instance bindings", () => {
       expect(afterReload.payload?.hash).toBe(currentConfig.payload?.hash);
       expect(afterReload.payload?.raw).toBe(currentConfig.payload?.raw);
 
-      coordinator.serviceStopCompletion.resolve();
+      const beforeRetryRegistrations = coordinator.runtimes.length;
       const retry = await rpcReq(socket, "plugins.reload", {
         plugins: [{ pluginId: "instance-binding-probe" }],
       });
@@ -1006,9 +1030,9 @@ describe("gateway plugin instance bindings", () => {
           ok: true,
           payload: { restartRequired: false },
         });
-        expect(coordinator.serviceStarts).toBe(2);
+        expect(coordinator.serviceStarts).toBe(3);
         const successor = await requireBoundRuntime(
-          coordinator.runtimes.slice(initialRegistrationCount),
+          coordinator.runtimes.slice(beforeRetryRegistrations),
           "replacement after service stop settled",
         );
         const successorProbe = await requestInstanceBindingProbe(successor.runtime);
@@ -1025,7 +1049,7 @@ describe("gateway plugin instance bindings", () => {
       }
       await server.close({ reason: "close after plugin cleanup refusal" });
       started.splice(started.indexOf(server), 1);
-      expect(coordinator.serviceStops).toBe(serviceStopFailure === "timeout" ? 2 : 1);
+      expect(coordinator.serviceStops).toBe(serviceStopFailure === "timeout" ? 3 : 1);
     },
   );
 });

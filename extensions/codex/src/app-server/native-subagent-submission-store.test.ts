@@ -53,7 +53,7 @@ function openState(root: string) {
   });
 }
 
-async function fixture() {
+async function fixture(initialReceipt?: CodexNativeSubagentSubmission) {
   const root = tempDirs.make("codex-native-submission-");
   const state = openState(root);
   const store = createCodexAppServerBindingStore(state);
@@ -67,6 +67,13 @@ async function fixture() {
     throw new Error("The fixture binding must have a history owner.");
   }
   await store.mutate(identity, { kind: "set", binding });
+  if (initialReceipt) {
+    await store.mutate(
+      identity,
+      { kind: "record-native-subagent-submission", owner, receipt: initialReceipt },
+      currentAuthority,
+    );
+  }
   return { root, state, store, owner };
 }
 
@@ -133,12 +140,7 @@ describe("native subagent submission receipts in the binding store", () => {
   it.each(["missing", "retired", "generation", "actor", "thread", "connection", "lifecycle"])(
     "rejects receipt reads and writes for a %s owner without changing the binding",
     async (scenario) => {
-      const { state, store, owner } = await fixture();
-      await store.mutate(
-        identity,
-        { kind: "record-native-subagent-submission", owner, receipt },
-        currentAuthority,
-      );
+      const { state, store, owner } = await fixture(receipt);
       let selectedIdentity = identity;
       let selectedOwner: CodexNativeSubagentHistoryOwner = owner;
       if (scenario === "missing") {
@@ -174,12 +176,7 @@ describe("native subagent submission receipts in the binding store", () => {
   it.each(["record-native-subagent-submission", "consume-native-subagent-submission"] as const)(
     "rechecks current authority inside the atomic %s update",
     async (kind) => {
-      const { state, store, owner } = await fixture();
-      await store.mutate(
-        identity,
-        { kind: "record-native-subagent-submission", owner, receipt },
-        currentAuthority,
-      );
+      const { state, owner } = await fixture(receipt);
       const before = state.lookup(bindingStoreKey(identity));
       let current = true;
       const guarded = createCodexAppServerBindingStore({
@@ -208,12 +205,7 @@ describe("native subagent submission receipts in the binding store", () => {
   );
 
   it("preserves receipts through same-owner writes and binding leases", async () => {
-    const { state, store, owner } = await fixture();
-    await store.mutate(
-      identity,
-      { kind: "record-native-subagent-submission", owner, receipt },
-      currentAuthority,
-    );
+    const { state, store, owner } = await fixture(receipt);
     await store.withLease(identity, async () => {
       await store.mutate(identity, { kind: "set", binding: { ...binding, model: "gpt-5.5" } });
       await store.mutate(identity, {
@@ -231,12 +223,7 @@ describe("native subagent submission receipts in the binding store", () => {
   it.each(["thread", "connection", "reset", "retire"])(
     "clears receipt metadata when the binding changes its %s boundary",
     async (scenario) => {
-      const { state, store, owner } = await fixture();
-      await store.mutate(
-        identity,
-        { kind: "record-native-subagent-submission", owner, receipt },
-        currentAuthority,
-      );
+      const { state, store, owner } = await fixture(receipt);
       if (scenario === "thread") {
         await store.mutate(identity, {
           kind: "replace-thread",

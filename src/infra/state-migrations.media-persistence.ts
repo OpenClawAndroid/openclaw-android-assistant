@@ -658,6 +658,7 @@ export async function migrateLegacyMediaPersistence(
           warnings.push(
             `Could not enumerate transcript archives in ${directory}: ${String(error)}`,
           );
+          recoverableWarningCount += 1;
           continue;
         }
         for (const archive of archives) {
@@ -678,6 +679,7 @@ export async function migrateLegacyMediaPersistence(
             warnings.push(
               `Skipped archived transcript media migration for ${archive}: ${String(error)}`,
             );
+            recoverableWarningCount += 1;
           }
         }
       }

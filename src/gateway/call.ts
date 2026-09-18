@@ -95,6 +95,7 @@ import {
   type OperatorScope,
 } from "./method-scopes.js";
 import { isLoopbackGatewayUrl } from "./net.js";
+import { assertGatewayCliMessageContext } from "./operator-cli-message-input.js";
 import {
   GatewayTransportError,
   type GatewayTransportErrorKind,
@@ -170,9 +171,7 @@ type CallGatewayBaseOptions = {
   serviceTargetUrl?: string;
 };
 
-export type CallGatewayCliOptions = CallGatewayBaseOptions & {
-  scopes?: OperatorScope[];
-};
+export type CallGatewayCliOptions = CallGatewayOptions;
 
 export type CallGatewayOptions = CallGatewayBaseOptions & {
   scopes?: OperatorScope[];
@@ -1357,6 +1356,7 @@ async function callGatewayWithScopeEscalation<T>(
 export async function callGatewayCli<T = Record<string, unknown>>(
   opts: CallGatewayCliOptions,
 ): Promise<T> {
+  assertGatewayCliMessageContext(opts.method, opts.params);
   if (Array.isArray(opts.scopes)) {
     return await callGatewayWithScopes(opts, opts.scopes);
   }

@@ -2568,7 +2568,7 @@ internal fun SettingsDetailFrame(
             contentDescription = nativeString("Back"),
             onClick = onBack,
           )
-          Text(text = title, style = ClawTheme.type.title, color = ClawTheme.colors.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+          Text(text = title, style = ClawTheme.type.display, color = ClawTheme.colors.text, modifier = Modifier.weight(1f))
           trailingAction?.invoke()
           SettingsIconMark(icon = icon)
         }

@@ -909,7 +909,7 @@ describe("runCodexAppServerAttempt native lifecycle", () => {
       method: "turn/completed",
       params: {
         threadId: "thread-existing",
-        turn: { id: "turn-1", status: "interrupted" },
+        turn: { id: "turn-1", status: "interrupted", items: [] },
       },
     });
     const firstResult = await firstRun;

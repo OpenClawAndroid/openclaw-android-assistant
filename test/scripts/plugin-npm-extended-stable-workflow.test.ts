@@ -342,43 +342,71 @@ describe("plugin npm extended-stable workflow", () => {
   });
 
   it.each([
-    { publishTag: "latest", identityExit: 0 },
-    { publishTag: "beta", identityExit: 0 },
-    { publishTag: "extended-stable", identityExit: 0 },
-    { publishTag: "latest", identityExit: 17 },
+    { publishTag: "latest", toolingTrusted: true, candidateMoved: false },
+    { publishTag: "beta", toolingTrusted: true, candidateMoved: false },
+    { publishTag: "extended-stable", toolingTrusted: true, candidateMoved: false },
+    { publishTag: "extended-stable", toolingTrusted: true, candidateMoved: true },
+    { publishTag: "latest", toolingTrusted: false, candidateMoved: false },
   ])(
-    "publishes the sealed artifact without a source install: $publishTag / identity $identityExit",
-    ({ publishTag, identityExit }) => {
+    "publishes sealed bytes only with current authority: $publishTag / trusted $toolingTrusted / moved $candidateMoved",
+    ({ publishTag, toolingTrusted, candidateMoved }) => {
       const nodeExecutable = requireNodeTool("node");
       const npmCli = realpathSync(requireNodeTool("npm"));
       const root = mkdtempSync(join(tmpdir(), "plugin-oidc-artifact-"));
       try {
         const bin = join(root, "bin");
         mkdirSync(bin);
-        mkdirSync(join(root, "scripts"));
+        mkdirSync(join(root, "scripts/lib"), { recursive: true });
+        for (const script of ["release-tooling-identity.mjs", "lib/record-shared.mjs"]) {
+          writeFileSync(join(root, "scripts", script), readFileSync(join("scripts", script)));
+        }
         writeFileSync(
           join(root, "scripts/plugin-npm-publish.sh"),
           '#!/bin/bash\necho "source rebuild requires an uninstalled candidate dependency tree" >&2\nexit 93\n',
         );
         const events = join(root, "events.jsonl");
+        writeFileSync(events, "");
         const tarball = join(root, "verified artifact.tgz");
         writeFileSync(tarball, "sealed preflight bytes");
-        for (const command of ["node", "npm"]) {
-          writeFileSync(
-            join(bin, command),
-            `#!${nodeExecutable}
+        const targetSha = "a".repeat(40);
+        const toolingSha = "b".repeat(40);
+        const candidateRef = "refs/heads/extended-stable/2026.7.33";
+        // The artifact was admitted at targetSha; the approval wait may advance the branch.
+        const currentRef = {
+          ref: candidateRef,
+          object: { type: "commit", sha: candidateMoved ? "c".repeat(40) : targetSha },
+        };
+        writeFileSync(join(bin, "node"), `#!/bin/bash\nexec "${nodeExecutable}" "$@"\n`, {
+          mode: 0o755,
+        });
+        writeFileSync(
+          join(bin, "gh"),
+          `#!${nodeExecutable}
+const fs = require("node:fs");
+const endpoint = process.argv[3];
+fs.appendFileSync(process.env.EVENTS, JSON.stringify({ command: "gh", endpoint }) + "\\n");
+if (endpoint === "repos/openclaw/openclaw/compare/${toolingSha}...main") {
+  process.stdout.write(${JSON.stringify(JSON.stringify({ status: toolingTrusted ? "ahead" : "diverged" }))});
+} else if (endpoint === "repos/openclaw/openclaw/git/ref/heads/extended-stable/2026.7.33") {
+  process.stdout.write(${JSON.stringify(JSON.stringify(currentRef))});
+} else {
+  process.stderr.write("Unexpected GitHub request: " + endpoint);
+  process.exit(90);
+}
+`,
+          { mode: 0o755 },
+        );
+        writeFileSync(
+          join(bin, "npm"),
+          `#!${nodeExecutable}
 const fs = require("node:fs");
 const args = process.argv.slice(2);
-if (${JSON.stringify(command)} === "npm") {
-  const result = require("node:child_process").spawnSync(process.execPath, [process.env.NPM_CLI, "config", "get", "registry"], { env: process.env, encoding: "utf8", timeout: 10_000 });
-  if (result.status !== 0) { process.stderr.write(result.stderr); process.exit(result.status ?? 1); }
-}
-fs.appendFileSync(process.env.EVENTS, JSON.stringify({ command: ${JSON.stringify(command)}, args, ...( ${JSON.stringify(command)} === "npm" ? { bytes: fs.readFileSync(args[1], "utf8"), token: Boolean(process.env.NPM_TOKEN || process.env.NODE_AUTH_TOKEN) } : {}) }) + "\\n");
-process.exit(${JSON.stringify(command)} === "node" ? Number(process.env.IDENTITY_EXIT) : 0);
+const result = require("node:child_process").spawnSync(process.execPath, [process.env.NPM_CLI, "config", "get", "registry"], { env: process.env, encoding: "utf8", timeout: 10_000 });
+if (result.status !== 0) { process.stderr.write(result.stderr); process.exit(result.status ?? 1); }
+fs.appendFileSync(process.env.EVENTS, JSON.stringify({ command: "npm", args, bytes: fs.readFileSync(args[1], "utf8"), token: Boolean(process.env.NPM_TOKEN || process.env.NODE_AUTH_TOKEN) }) + "\\n");
 `,
-            { mode: 0o755 },
-          );
-        }
+          { mode: 0o755 },
+        );
         writeFileSync(join(bin, "timeout"), '#!/bin/bash\nshift 3\nexec "$@"\n', {
           mode: 0o755,
         });
@@ -386,63 +414,68 @@ process.exit(${JSON.stringify(command)} === "node" ? Number(process.env.IDENTITY
           workflow().jobs?.publish_plugins_npm,
           "Publish with trusted publisher",
         );
-        const result = spawnSync(
-          "/bin/bash",
-          [
-            "-e",
-            "-o",
-            "pipefail",
-            "-c",
-            publish.run!.replaceAll("${{ matrix.plugin.packageDir }}", "extensions/fixture"),
-          ],
-          {
-            cwd: root,
-            encoding: "utf8",
-            timeout: 15_000,
-            env: {
-              PATH: `${bin}:/usr/bin:/bin`,
-              ...publish.env,
-              EVENTS: events,
-              NPM_CLI: npmCli,
-              RUNNER_TEMP: root,
-              IDENTITY_EXIT: String(identityExit),
-              TARBALL_PATH: tarball,
-              PUBLISH_TAG: publishTag,
-              NPM_TOKEN: "fixture-token-must-not-reach-npm",
-              NODE_AUTH_TOKEN: "fixture-token-must-not-reach-npm",
-            },
+        const result = spawnSync("/bin/bash", ["-e", "-o", "pipefail", "-c", publish.run!], {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 15_000,
+          env: {
+            PATH: `${bin}:/usr/bin:/bin`,
+            EVENTS: events,
+            NPM_CLI: npmCli,
+            RUNNER_TEMP: root,
+            TARBALL_PATH: tarball,
+            PUBLISH_TAG: publishTag,
+            PACKAGE_VERSION: "2026.7.33",
+            RELEASE_TARGET_SHA: targetSha,
+            OPENCLAW_RELEASE_TOOLING_REPOSITORY: "openclaw/openclaw",
+            OPENCLAW_RELEASE_TOOLING_FULL_REF: "refs/heads/main",
+            OPENCLAW_RELEASE_TOOLING_REF: "main",
+            OPENCLAW_RELEASE_TOOLING_SHA: toolingSha,
+            OPENCLAW_RELEASE_PUBLISH_RUN_ID: "",
+            OPENCLAW_RELEASE_PUBLISH_RUN_ATTEMPT: "",
+            OPENCLAW_RELEASE_PUBLISH_REF: "",
+            OPENCLAW_RELEASE_PUBLISH_FULL_REF: "",
+            OPENCLAW_RELEASE_PUBLISH_PARENT_STATE_POLICY: "",
+            NPM_TOKEN: "fixture-token-must-not-reach-npm",
+            NODE_AUTH_TOKEN: "fixture-token-must-not-reach-npm",
           },
-        );
-        expect(result.status, result.stderr).toBe(identityExit);
+        });
+        const allowed = toolingTrusted && !candidateMoved;
+        expect(result.status, result.stderr).toBe(allowed ? 0 : 1);
         expect(readdirSync(root).filter((name) => name.startsWith("plugin-npm-oidc."))).toEqual([]);
         const calls = readFileSync(events, "utf8")
           .trim()
           .split("\n")
           .map((line) => JSON.parse(line));
-        expect(calls[0].command).toBe("node");
-        expect(calls[0].args.slice(0, 2)).toEqual([
-          "scripts/release-tooling-identity.mjs",
-          "verify",
-        ]);
-        if (identityExit) {
-          expect(calls).toHaveLength(1);
+        const npmCalls = calls.filter((call) => call.command === "npm");
+        if (!allowed) {
+          expect(result.stderr).toContain(
+            candidateMoved ? "branch is missing or moved" : "not reachable from current main",
+          );
+          expect(npmCalls).toEqual([]);
         } else {
-          expect(calls).toHaveLength(2);
-          expect(calls[1]).toEqual({
-            command: "npm",
-            args: [
-              "publish",
-              tarball,
-              "--access",
-              "public",
-              "--ignore-scripts",
-              "--provenance",
-              "--tag",
-              publishTag,
-            ],
-            bytes: "sealed preflight bytes",
-            token: false,
-          });
+          expect(npmCalls).toEqual([
+            {
+              command: "npm",
+              args: [
+                "publish",
+                tarball,
+                "--access",
+                "public",
+                "--ignore-scripts",
+                "--provenance",
+                "--tag",
+                publishTag,
+              ],
+              bytes: "sealed preflight bytes",
+              token: false,
+            },
+          ]);
+          if (publishTag === "extended-stable") {
+            expect(calls.at(-2)?.endpoint).toBe(
+              "repos/openclaw/openclaw/git/ref/heads/extended-stable/2026.7.33",
+            );
+          }
         }
       } finally {
         rmSync(root, { recursive: true, force: true });
@@ -450,7 +483,7 @@ process.exit(${JSON.stringify(command)} === "node" ? Number(process.env.IDENTITY
     },
   );
 
-  it("trusts only the canonical monthly branch at the exact checked-out SHA", () => {
+  it("keeps main recovery bound to the canonical monthly source tip", () => {
     const trusted = step(
       workflow().jobs?.preview_plugins_npm,
       "Validate ref is on a trusted publish branch",
@@ -459,7 +492,9 @@ process.exit(${JSON.stringify(command)} === "node" ? Number(process.env.IDENTITY
       'extended_branch = f"extended-stable/{version.group(1)}.{version.group(2)}.33"',
     );
     expect(trusted.run).toContain("exact 40-character source SHA");
-    expect(trusted.run).toContain('os.environ["WORKFLOW_REF"] == f"refs/heads/{extended_branch}"');
+    expect(trusted.run).toContain(
+      'os.environ["WORKFLOW_REF"] in (f"refs/heads/{extended_branch}", "refs/heads/main")',
+    );
     expect(trusted.run).toContain(
       'exact_ref_match(\n        "HEAD",\n        f"refs/remotes/origin/{extended_branch}"',
     );
@@ -475,7 +510,7 @@ process.exit(${JSON.stringify(command)} === "node" ? Number(process.env.IDENTITY
       "Checkout",
       "Checkout trusted planning tooling",
       "Resolve checked-out ref",
-      "Verify trusted preflight tooling identity",
+      "Verify trusted preflight or recovery tooling identity",
       "Validate ref is on a trusted publish branch",
     ]) {
       const index = previewSteps.indexOf(step(preview, prerequisite));
@@ -487,7 +522,7 @@ process.exit(${JSON.stringify(command)} === "node" ? Number(process.env.IDENTITY
       expect(candidate.uses?.startsWith("./"), candidate.name).not.toBe(true);
       expect(candidate.run ?? "", candidate.name).not.toMatch(/\b(?:bun|npm|pnpm)\b/u);
     }
-    const toolingIdentity = step(preview, "Verify trusted preflight tooling identity");
+    const toolingIdentity = step(preview, "Verify trusted preflight or recovery tooling identity");
     expect(toolingIdentity.env).toMatchObject({
       WORKFLOW_FULL_REF: "${{ github.ref }}",
       WORKFLOW_REF: "${{ github.ref_name }}",
@@ -499,6 +534,19 @@ process.exit(${JSON.stringify(command)} === "node" ? Number(process.env.IDENTITY
     expect(toolingIdentity.run).toContain('--workflow-ref "$WORKFLOW_REF"');
     expect(toolingIdentity.run).toContain('--workflow-full-ref "$WORKFLOW_FULL_REF"');
     expect(toolingIdentity.run).toContain('--workflow-sha "$WORKFLOW_SHA"');
+    for (const [preflight, distTag, ref, expected] of [
+      [true, "default", "refs/heads/main", true],
+      [false, "extended-stable", "refs/heads/main", true],
+      [false, "extended-stable", "refs/heads/extended-stable/2026.8.33", false],
+      [false, "default", "refs/heads/main", false],
+    ] as const) {
+      expect(
+        runInNewContext(toolingIdentity.if!, {
+          github: { event_name: "workflow_dispatch", ref },
+          inputs: { preflight_only: preflight, npm_dist_tag: distTag },
+        }),
+      ).toBe(expected);
+    }
     const sourceSetup = step(preview, "Setup Node environment");
     const preparedSetup = step(preview, "Setup trusted Node for prepared publication");
     const preparedPlan = step(preview, "Read qualified npm preparation");

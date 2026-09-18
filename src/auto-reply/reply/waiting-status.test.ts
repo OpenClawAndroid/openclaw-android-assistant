@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getReplyPayloadMetadata } from "../reply-payload.js";
-import { buildSessionsYieldAcknowledgmentPayload } from "./sessions-yield-acknowledgment.js";
+import { buildWaitingStatusPayload } from "./waiting-status.js";
 
-describe("buildSessionsYieldAcknowledgmentPayload", () => {
+describe("buildWaitingStatusPayload", () => {
   const baseParams = {
     yielded: true,
     yieldAcknowledgment: " Research started; results will follow. ",
@@ -13,7 +13,7 @@ describe("buildSessionsYieldAcknowledgmentPayload", () => {
   } as const;
 
   it("builds an explicit waiting status", () => {
-    const payload = buildSessionsYieldAcknowledgmentPayload(baseParams);
+    const payload = buildWaitingStatusPayload(baseParams);
 
     expect(payload).toEqual({
       text: "Research started; results will follow.",
@@ -23,7 +23,6 @@ describe("buildSessionsYieldAcknowledgmentPayload", () => {
 
   it.each([
     { label: "non-yielded turn", overrides: { yielded: false } },
-    { label: "missing acknowledgment", overrides: { yieldAcknowledgment: undefined } },
     { label: "internal turn", overrides: { isInteractive: false } },
     { label: "heartbeat", overrides: { isHeartbeat: true } },
     { label: "silent turn", overrides: { silentExpected: true } },
@@ -31,8 +30,9 @@ describe("buildSessionsYieldAcknowledgmentPayload", () => {
     { label: "explicit silent reply", overrides: { hasExplicitSilentReply: true } },
     { label: "visible message delivery", overrides: { hasVisibleMessageDelivery: true } },
   ])("suppresses the status for a $label", ({ overrides }) => {
+    expect(buildWaitingStatusPayload({ ...baseParams, ...overrides })).toBeUndefined();
     expect(
-      buildSessionsYieldAcknowledgmentPayload({ ...baseParams, ...overrides }),
+      buildWaitingStatusPayload({ ...baseParams, yieldAcknowledgment: undefined, ...overrides }),
     ).toBeUndefined();
   });
 });

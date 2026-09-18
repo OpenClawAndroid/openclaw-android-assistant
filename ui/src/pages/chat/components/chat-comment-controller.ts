@@ -25,6 +25,7 @@ export function currentChatComments(props: ChatAttachmentControlsProps, sessionK
 class ChatCommentController extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) props!: ChatAttachmentControlsProps;
   @property() sessionKey = "";
+  @property() paneId = "";
   @property({ type: Boolean }) presented = true;
   private root: HTMLElement | null = null;
   private editorOwner?: AbortController;
@@ -187,6 +188,7 @@ class ChatCommentController extends OpenClawLightDomContentsElement {
     this.editingId = attachment.id;
     this.editorAnchor = anchor;
     this.positionEditor = showChatAnnotationEditor({
+      paneId: this.paneId,
       anchorRect: anchor.getBoundingClientRect(),
       anchorElement: anchor,
       sourceRange: this.root

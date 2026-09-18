@@ -33,7 +33,11 @@ type ResolvedSqliteSessionEntry = {
 /** Resolves one exact canonical entry without materializing the store. */
 export function resolveSessionEntry(
   scope: SessionAccessScope,
-  options: { readOnly?: boolean; databaseAgentId?: string } = {},
+  options: {
+    readOnly?: boolean;
+    databaseAgentId?: string;
+    projection?: SessionEntryReadScope["projection"];
+  } = {},
 ): ResolvedSqliteSessionEntry {
   const resolved = resolveSqliteScope(scope);
   if (options.databaseAgentId) {
@@ -42,7 +46,11 @@ export function resolveSessionEntry(
   const read = (
     database: Pick<OpenClawAgentDatabase, "agentId" | "db" | "path">,
   ): ResolvedSqliteSessionEntry => {
-    const selected = readSessionEntryRow(database, resolved.sessionKey);
+    const selected = readSessionEntryRow(
+      database,
+      resolved.sessionKey,
+      options.readOnly ? options.projection : "full",
+    );
     return {
       existing: selected?.entry,
       legacyKeys: [],

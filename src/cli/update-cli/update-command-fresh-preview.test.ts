@@ -11,7 +11,7 @@ import * as updateCheck from "../../infra/update-check.js";
 import { createManagedHandoffLeaseStore } from "../../infra/update-managed-service-handoff-lease.js";
 import { finishUpdateRun, getUpdateRun } from "../../infra/update-run-ledger.js";
 import type { UpdateRecoveryFence } from "../../infra/update-run-recovery.js";
-import { defaultRuntime } from "../../runtime.js";
+import { defaultRuntime, ExitError } from "../../runtime.js";
 import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
@@ -19,6 +19,7 @@ import {
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { removePreparedWorkerOwnershipColumns } from "../../state/openclaw-state-schema-v17.test-support.js";
 import * as oneShotExit from "../one-shot-exit.js";
+import { invokeUpdateCli } from "../update-cli-invocation.test-support.js";
 import { registerUpdateCli } from "../update-cli.js";
 import * as shared from "./shared.js";
 import * as execution from "./update-command-execution.js";
@@ -109,22 +110,34 @@ describe("update command admission with fresh state", () => {
     expectFreshStatePreserved();
   });
 
-  it("reports an invalid fresh dev target as a settled admission refusal", async () => {
-    const config = process.env.OPENCLAW_CONFIG_PATH!;
-    fs.mkdirSync(path.dirname(config), { recursive: true });
-    fs.writeFileSync(config, JSON.stringify({ update: { channel: "dev" } }));
-    vi.spyOn(commandRun, "readDevUpdateTarget").mockImplementation(() => {
-      throw new Error("fixture invalid dev target");
-    });
-    await expect(
-      updateCommand({ tag: "2026.9.2", yes: true, json: true, restart: false }),
-    ).rejects.toMatchObject({ code: 1 });
-    expect(defaultRuntime.writeJson).toHaveBeenCalledOnce();
-    expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "error", reason: "invalid-dev-target" }),
-    );
-    expectFreshStatePreserved();
-  });
+  it.each([false, true])(
+    "reports an invalid fresh dev target after settlement (dry run=%s)",
+    async (dryRun) => {
+      const config = process.env.OPENCLAW_CONFIG_PATH!;
+      fs.mkdirSync(path.dirname(config), { recursive: true });
+      fs.writeFileSync(config, JSON.stringify({ update: { channel: "dev" } }));
+      vi.spyOn(commandRun, "readDevUpdateTarget").mockImplementation(() => {
+        throw new Error("fixture invalid dev target");
+      });
+      const triage = vi.spyOn(commandTriage, "prepareUpdateCommandFailureTriage");
+      const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation((code) => {
+        throw new ExitError(code);
+      });
+      await expect(
+        invokeUpdateCli({ tag: "2026.9.2", yes: true, json: true, restart: false, dryRun }),
+      ).rejects.toMatchObject({ code: 1 });
+      expect(defaultRuntime.error).toHaveBeenCalledExactlyOnceWith("fixture invalid dev target");
+      expect(defaultRuntime.writeJson).toHaveBeenCalledTimes(dryRun ? 0 : 1);
+      if (!dryRun) {
+        expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
+          expect.objectContaining({ status: "error", reason: "invalid-dev-target" }),
+        );
+      }
+      expect(triage).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+      expectFreshStatePreserved();
+    },
+  );
 
   it.each([
     { source: "metadata", cleanup: "healthy" },

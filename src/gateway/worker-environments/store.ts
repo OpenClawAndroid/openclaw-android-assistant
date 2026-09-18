@@ -19,7 +19,6 @@ import type {
   WorkerSshEndpoint,
 } from "../../plugins/capability-provider.types.js";
 import { isValidSecretRef } from "../../secrets/ref-contract.js";
-import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { ensureWorkerEnvironmentNodeEnrollmentSchema } from "../../state/openclaw-state-db-schema-additive.js";
 import type {
   DB as StateDatabase,
@@ -53,6 +52,7 @@ import {
   workerEnvironmentStateRequiresLease,
   type WorkerEnvironmentState,
 } from "./state.js";
+import { createWorkerEnvironmentStoreWriter } from "./store-write.js";
 import { pruneExpiredTerminalWorkerEnvironments } from "./terminal-environment-retention.js";
 
 export { normalizeWorkerDesktopEndpoint } from "./desktop-endpoint.js";
@@ -749,21 +749,7 @@ export function createWorkerEnvironmentStore(
   const path = database.path;
   const now = options.now ?? Date.now;
   const read = () => openOpenClawStateDatabase({ path }).db;
-  let inventoryVersion = 0;
-  const write = <T>(operation: (db: DatabaseSync) => T): T => {
-    const result = runOpenClawStateWriteTransaction(
-      ({ db }) => {
-        const value = operation(db);
-        sessionChanges.emit({ all: true, scope: "worker-environments" }, db);
-        return value;
-      },
-      { path },
-    );
-    // Device pairing's nodeDeviceId patch deliberately stays outside this version:
-    // it changes no identity/epoch/state input. Runner availability owns its own fence.
-    inventoryVersion += 1;
-    return result;
-  };
+  const { write, inventoryVersion } = createWorkerEnvironmentStoreWriter(path);
   write((db) => reconcileAttachedSessionOwners(db, now()));
   // Listeners observe permanent credential revocations that must fence live transfers.
   // Rotation-style revocations (device reconcile re-mints) intentionally do not notify.
@@ -867,7 +853,7 @@ export function createWorkerEnvironmentStore(
       return write((db) => createIntent(db, input));
     },
     get: (environmentId: string) => find(read(), required(environmentId, "id")),
-    inventoryVersion: () => inventoryVersion,
+    inventoryVersion,
     hasNodeEnrollmentOwner(nodeId: string): boolean {
       const db = read();
       // Pairing can bind the node without changing inventoryVersion. Cleanup states

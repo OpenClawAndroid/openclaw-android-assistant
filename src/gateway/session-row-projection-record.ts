@@ -69,6 +69,20 @@ export function markRelated(
     }
   }
 }
+
+/** Mark resident logical owners without changing stored entries, relatives, or backfill. */
+export function markAutomation(
+  rows: Iterable<Row>,
+  agentId: string | undefined,
+  dirty: Set<string>,
+) {
+  for (const row of rows) {
+    if (!agentId || row.agentId === agentId) {
+      dirty.add(identity(row));
+    }
+  }
+}
+
 export function create(target: RowTarget, entry?: SessionEntry): Row {
   return {
     ...target,

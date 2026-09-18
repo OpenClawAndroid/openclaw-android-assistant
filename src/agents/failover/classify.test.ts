@@ -1,6 +1,38 @@
 import { describe, expect, it } from "vitest";
 import { classifyFailoverReason, classifyFailoverSignal } from "./classify.js";
 
+describe("HTTP 402 prose classification", () => {
+  it.each([
+    {
+      message: "Prompt tokens limit exceeded. See https://example.invalid/monthly/rate_limit",
+      reason: "billing",
+    },
+    {
+      message: "Organization spend limit reached. See https://example.invalid/subscription",
+      reason: "rate_limit",
+    },
+    {
+      message:
+        '{"help":"https://example.invalid/subscription","message":"Workspace spend limit reached"}',
+      reason: "rate_limit",
+    },
+  ])("classifies prose rather than URL hints: $message", ({ message, reason }) => {
+    expect(classifyFailoverSignal({ status: 402, message }, { providerPlugin: null })).toEqual({
+      kind: "reason",
+      reason,
+    });
+  });
+
+  it("does not treat a bare leading number and a URL as payment evidence", () => {
+    expect(
+      classifyFailoverReason(
+        "402 records processed. See https://example.invalid/organizations/synthetic/settings/keys",
+        { providerPlugin: null },
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("request validation behind gateway status codes", () => {
   it.each(["400 Your input exceeds the context window of this model", "413 status code (no body)"])(
     "preserves canonical assistant overflow evidence: %s",

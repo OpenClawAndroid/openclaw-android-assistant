@@ -626,6 +626,7 @@ describe("runCodexAppServerAttempt hooks and model diagnostics", () => {
           turn: {
             id: "turn-1",
             status,
+            items: [],
             ...(error ? { error } : {}),
           },
         },
@@ -780,6 +781,7 @@ describe("runCodexAppServerAttempt hooks and model diagnostics", () => {
         turn: {
           id: "turn-1",
           status: "failed",
+          items: [],
           error: { message: "codex exploded" },
         },
       },

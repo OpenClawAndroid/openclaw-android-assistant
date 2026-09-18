@@ -6,8 +6,6 @@ import { randomUUID } from "node:crypto";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import { embeddedAgentLog, OPENCLAW_VERSION } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { coerceErrorMessage, toStringifiedError } from "openclaw/plugin-sdk/error-runtime";
-import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
-import { addSafeTimeoutDelayGraceMs } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sliceUtf16Safe, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { parse as parseSemver } from "semver";
@@ -16,12 +14,10 @@ import {
   closeCodexCatalogClientSource,
   codexCatalogSourceForClient,
 } from "../session-catalog-source.js";
+import { CodexAppServerMessageDecoder } from "./client-message-decoder.js";
 import { dispatchCodexAppServerResponse } from "./client-response.js";
 import type { CodexAppServerStartOptions } from "./config-contracts.js";
 import { resolveCodexAppServerRuntimeOptions } from "./config-runtime.js";
-import { resolveDynamicToolServerRequestTimeoutMs } from "./dynamic-tool-execution.js";
-import { createCodexElicitationResponse } from "./elicitation-response.js";
-import { readCodexDynamicToolCallParams } from "./protocol-validators.js";
 import {
   type CodexAppServerRequestMethod,
   type CodexAppServerRequestParams,
@@ -39,6 +35,7 @@ import {
 import { createCodexRequestAttempt, type CodexRequestAttempt } from "./request-attempt.js";
 import type { CodexRequestWaiterFinished } from "./request-observation.js";
 import { CODEX_APP_SERVER_OVERLOADED_ERROR_CODE, CodexAppServerRpcError } from "./rpc-error.js";
+import { CodexServerRequests, type CodexServerRequestHandler } from "./server-requests.js";
 import { createStdioTransport } from "./transport-stdio.js";
 import { createWebSocketTransport } from "./transport-websocket.js";
 import {
@@ -51,8 +48,6 @@ import {
 import { CODEX_APP_SERVER_VERSION, MIN_SUPPORTED_CODEX_APP_SERVER_VERSION } from "./version.js";
 
 const CODEX_APP_SERVER_PARSE_LOG_MAX = 500;
-const CODEX_APP_SERVER_PARSE_BUFFER_MAX = 8 * 1024 * 1024;
-const CODEX_APP_SERVER_PARSE_BUFFER_MAX_LINES = 1_000;
 const CODEX_APP_SERVER_STDERR_TAIL_MAX = 2_000;
 const CODEX_APP_SERVER_OVERLOAD_MAX_RETRIES = 3;
 const CODEX_APP_SERVER_OVERLOAD_RETRY_BASE_MS = 50;
@@ -199,12 +194,6 @@ export function isCodexAppServerConnectionClosedError(error: unknown): boolean {
   );
 }
 
-type CodexServerRequestHandler = (
-  request: Required<Pick<RpcRequest, "id" | "method">> & { params?: JsonValue },
-  signal?: AbortSignal,
-  setExecutionTimeoutMs?: (timeoutMs: number) => void,
-) => Promise<JsonValue | undefined> | JsonValue | undefined;
-
 /** Notification handler registered on a Codex app-server client. */
 type CodexServerNotificationHandler = (
   notification: CodexServerNotification,
@@ -222,6 +211,7 @@ export type CodexAppServerRuntimeIdentity = {
 /** Stateful app-server JSON-RPC client over stdio or websocket transport. */
 export class CodexAppServerClient {
   private readonly instanceId = randomUUID();
+  private readonly messageDecoder = new CodexAppServerMessageDecoder(logCodexAppServerParseFailure);
   private readonly child: CodexAppServerTransport;
   private readonly lines: ReadlineInterface;
   private readonly pending = new Map<number | string, CodexRequestAttempt>();
@@ -229,7 +219,9 @@ export class CodexAppServerClient {
     CodexRequestAttempt,
     { preview?: CodexCatalogPreviewCache; remainingRows?: number }
   >();
-  private readonly requestHandlers = new Set<CodexServerRequestHandler>();
+  private readonly serverRequests = new CodexServerRequests((response) =>
+    this.writeMessage(response),
+  );
   private readonly notificationHandlers = new Set<CodexServerNotificationHandler>();
   private readonly pendingStartupWarnings: CodexServerNotification[] = [];
   private readonly closeHandlers = new Set<(client: CodexAppServerClient) => void>();
@@ -254,18 +246,11 @@ export class CodexAppServerClient {
   private stderrTail = "";
   private readonly privateTransportSecrets = new Set<string>();
   private privateStderrPending = "";
-  private pendingParse:
-    | {
-        text: string;
-        lineCount: number;
-        firstError: unknown;
-      }
-    | undefined;
 
   private constructor(child: CodexAppServerTransport) {
     this.child = child;
     this.lines = createInterface({ input: child.stdout });
-    this.lines.on("line", (line) => this.handleLine(line));
+    this.lines.on("line", (line) => this.handleParsedMessage(this.messageDecoder.parse(line)));
     this.lines.on("error", (error) => this.closeWithError(toStringifiedError(error)));
     child.stdout.on("error", (error) => this.closeWithError(toStringifiedError(error)));
     child.stderr.setEncoding("utf8");
@@ -767,8 +752,8 @@ export class CodexAppServerClient {
 
   /** Registers a handler for app-server requests sent back to OpenClaw. */
   addRequestHandler(handler: CodexServerRequestHandler): () => void {
-    this.requestHandlers.add(handler);
-    return () => this.requestHandlers.delete(handler);
+    this.serverRequests.handlers.add(handler);
+    return () => this.serverRequests.handlers.delete(handler);
   }
 
   /** Registers a notification handler and returns its disposer. */
@@ -907,60 +892,8 @@ export class CodexAppServerClient {
     return held ? text.slice(0, -held) : text;
   }
 
-  private handleLine(line: string): void {
-    // Live RPC values remain exact; the canonical presentation boundary redacts diagnostics.
-    const rawLine = line.endsWith("\r") ? line.slice(0, -1) : line;
-    if (this.pendingParse) {
-      this.handlePendingParseLine(rawLine);
-      return;
-    }
-    const trimmed = rawLine.trim();
-    if (!trimmed) {
-      return;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (error) {
-      if (shouldBufferCodexAppServerParseFailure(trimmed, error)) {
-        this.pendingParse = { text: trimmed, lineCount: 1, firstError: error };
-        return;
-      }
-      logCodexAppServerParseFailure(trimmed, error, 1);
-      return;
-    }
-    this.handleParsedMessage(parsed);
-  }
-
-  private handlePendingParseLine(line: string): void {
-    const pending = this.pendingParse;
-    if (!pending) {
-      return;
-    }
-    const candidate = `${pending.text}\\n${line}`;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(candidate);
-    } catch (error) {
-      const lineCount = pending.lineCount + 1;
-      if (
-        shouldBufferCodexAppServerParseFailure(candidate.trim(), error) &&
-        candidate.length <= CODEX_APP_SERVER_PARSE_BUFFER_MAX &&
-        lineCount <= CODEX_APP_SERVER_PARSE_BUFFER_MAX_LINES
-      ) {
-        this.pendingParse = { text: candidate, lineCount, firstError: pending.firstError };
-        return;
-      }
-      this.pendingParse = undefined;
-      logCodexAppServerParseFailure(candidate, error, lineCount);
-      return;
-    }
-    this.pendingParse = undefined;
-    this.handleParsedMessage(parsed);
-  }
-
   private handleParsedMessage(parsed: unknown): void {
-    if (!parsed || typeof parsed !== "object") {
+    if (this.closed || !parsed || typeof parsed !== "object") {
       return;
     }
     const message = parsed as RpcMessage;
@@ -972,7 +905,7 @@ export class CodexAppServerClient {
       return;
     }
     if ("id" in message && message.id !== undefined) {
-      void this.handleServerRequest({
+      void this.serverRequests.handle({
         id: message.id,
         method: message.method,
         params: message.params,
@@ -995,110 +928,11 @@ export class CodexAppServerClient {
       ) || this.nativeExecutionObserved;
   }
 
-  private async handleServerRequest(
-    request: Required<Pick<RpcRequest, "id" | "method">> & { params?: JsonValue },
-  ): Promise<void> {
-    try {
-      const result = await this.runServerRequestHandlers(request);
-      if (result !== undefined) {
-        this.writeMessage({ id: request.id, result });
-        return;
-      }
-      this.writeMessage({ id: request.id, result: defaultServerRequestResponse(request) });
-    } catch (error) {
-      const message = coerceErrorMessage(error);
-      embeddedAgentLog.warn("codex app-server server request handler failed", {
-        id: request.id,
-        method: request.method,
-        error,
-      });
-      this.writeMessage({
-        id: request.id,
-        error: {
-          code: -32603,
-          message,
-        },
-      });
-    }
-  }
-
-  private async runServerRequestHandlers(
-    request: Required<Pick<RpcRequest, "id" | "method">> & { params?: JsonValue },
-  ): Promise<JsonValue | undefined> {
-    const controller = new AbortController();
-    if (request.method !== "item/tool/call") {
-      return await this.runServerRequestHandlersWithoutTimeout(request, controller.signal);
-    }
-    let timeoutMs = resolveDynamicToolServerRequestTimeoutMs(
-      readCodexDynamicToolCallParams(request.params),
-    );
-    const deadline = createDeferred<JsonValue>();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    let settled = false;
-    let executionTimeoutResolved = false;
-    const armTimeout = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        embeddedAgentLog.warn("codex app-server server request timed out", {
-          id: request.id,
-          method: request.method,
-          timeoutMs,
-        });
-        controller.abort(new Error("codex app-server server request timed out"));
-        deadline.resolve(timeoutServerRequestResponse(timeoutMs));
-      }, timeoutMs);
-      timeout.unref?.();
-    };
-    const setExecutionTimeoutMs = (executionTimeoutMs: number) => {
-      if (
-        settled ||
-        controller.signal.aborted ||
-        executionTimeoutResolved ||
-        !Number.isFinite(executionTimeoutMs) ||
-        executionTimeoutMs <= 0
-      ) {
-        return;
-      }
-      // The admitted owner sets one execution budget; later progress cannot reset it.
-      executionTimeoutResolved = true;
-      timeoutMs = addSafeTimeoutDelayGraceMs(executionTimeoutMs, 30_000);
-      armTimeout();
-    };
-    armTimeout();
-    try {
-      return await Promise.race([
-        this.runServerRequestHandlersWithoutTimeout(
-          request,
-          controller.signal,
-          setExecutionTimeoutMs,
-        ),
-        deadline.promise,
-      ]);
-    } finally {
-      settled = true;
-      clearTimeout(timeout);
-    }
-  }
-
-  private async runServerRequestHandlersWithoutTimeout(
-    request: Required<Pick<RpcRequest, "id" | "method">> & { params?: JsonValue },
-    signal: AbortSignal,
-    setExecutionTimeoutMs?: (timeoutMs: number) => void,
-  ): Promise<JsonValue | undefined> {
-    for (const handler of this.requestHandlers) {
-      if (signal.aborted) {
-        return undefined;
-      }
-      const result = await handler(request, signal, setExecutionTimeoutMs);
-      if (result !== undefined) {
-        return result;
-      }
-    }
-    return undefined;
-  }
-
   private handleNotification(notification: CodexServerNotification): void {
     const params = notification.params;
+    if (notification.method === "serverRequest/resolved") {
+      this.serverRequests.resolve(params);
+    }
     if (
       notification.method === "item/commandExecution/outputDelta" ||
       notification.method === "item/commandExecution/terminalInteraction" ||
@@ -1146,7 +980,9 @@ export class CodexAppServerClient {
     this.closed = true;
     closeCodexCatalogClientSource(this);
     this.closeError = error;
+    this.messageDecoder.clear();
     this.lines.close();
+    this.serverRequests.close(error);
     this.rejectPendingRequests(error);
     return true;
   }
@@ -1167,60 +1003,12 @@ export class CodexAppServerClient {
   }
 }
 
-function defaultServerRequestResponse(
-  request: Required<Pick<RpcRequest, "id" | "method">> & { params?: JsonValue },
-): JsonValue {
-  if (request.method === "item/tool/call") {
-    return {
-      contentItems: [
-        {
-          type: "inputText",
-          text: "OpenClaw did not register a handler for this app-server tool call.",
-        },
-      ],
-      success: false,
-    };
-  }
-  if (
-    request.method === "item/commandExecution/requestApproval" ||
-    request.method === "item/fileChange/requestApproval"
-  ) {
-    return { decision: "decline" };
-  }
-  if (request.method === "item/permissions/requestApproval") {
-    return { permissions: {}, scope: "turn" };
-  }
-  if (request.method === "item/tool/requestUserInput") {
-    return {
-      answers: {},
-    };
-  }
-  if (request.method === "mcpServer/elicitation/request") {
-    return createCodexElicitationResponse("decline", null, {
-      message: "OpenClaw has no interactive handler for this elicitation.",
-    });
-  }
-  return {};
-}
-
 function stringifyCodexAppServerMessage(message: RpcRequest | RpcResponse): string {
   return (
     JSON.stringify(message, (_key, value) =>
       typeof value === "string" ? value.replace(UNPAIRED_SURROGATE_RE, "") : value,
     ) ?? "null"
   );
-}
-
-function timeoutServerRequestResponse(timeoutMs: number): JsonValue {
-  return {
-    contentItems: [
-      {
-        type: "inputText",
-        text: `OpenClaw dynamic tool call timed out after ${timeoutMs}ms before sending a response to Codex.`,
-      },
-    ],
-    success: false,
-  };
 }
 
 /** Raised when the initialize handshake detects an unsupported app-server version. */
@@ -1321,19 +1109,6 @@ function buildCodexAppServerExitError(code: unknown, signal: unknown, stderrTail
     `codex app-server exited: code=${formatExitValue(code)} signal=${formatExitValue(
       signal,
     )}${suffix}`,
-  );
-}
-
-// Codex has emitted JSON with raw newlines inside string values, which breaks
-// line framing. Buffer the fragments and re-join with an escaped newline so
-// the message parses; bounded by CODEX_APP_SERVER_PARSE_BUFFER_MAX*.
-function shouldBufferCodexAppServerParseFailure(value: string, error: unknown): boolean {
-  if (!value.startsWith("{") && !value.startsWith("[")) {
-    return false;
-  }
-  const message = coerceErrorMessage(error);
-  return (
-    message.includes("Unterminated string") || message.includes("Unexpected end of JSON input")
   );
 }
 

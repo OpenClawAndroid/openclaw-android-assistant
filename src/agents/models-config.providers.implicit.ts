@@ -463,8 +463,9 @@ export async function prepareImplicitProviderStaticCatalog(
     | "providerDiscoveryProviderIds"
     | "staticCatalogProviderIds"
     | "workspaceDir"
-  >,
+  > & { signal?: AbortSignal },
 ): Promise<PreparedProviderStaticCatalog> {
+  params.signal?.throwIfAborted();
   const env = params.env ?? process.env;
   const discoveryScope = resolveImplicitProviderDiscoveryScope(params);
   const providers = await resolveRuntimePluginDiscoveryProviders({
@@ -507,6 +508,7 @@ export async function prepareImplicitProviderStaticCatalog(
     );
   });
   const prepared = await prepareProviderStaticCatalog({
+    signal: params.signal,
     providers: staticCatalogProviderIds
       ? eligibleProviders.filter((provider) => {
           if ([...staticCatalogProviderIds].some((id) => matchesProviderPluginRef(provider, id))) {

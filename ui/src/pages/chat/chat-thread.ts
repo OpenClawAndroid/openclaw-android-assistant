@@ -19,11 +19,7 @@ import { buildChatItems, type BuildChatItemsProps } from "./chat-thread-build.ts
 import { readChatThreadMessageIdentity, sanitizeStreamText } from "./chat-thread-items.ts";
 import { getOrCreateSessionCacheValue, setSessionCacheValue } from "./session-cache.ts";
 
-export {
-  isPendingSendMessage,
-  persistedMessageEntryId,
-  readPendingSendStatus,
-} from "./chat-thread-items.ts";
+export { persistedMessageEntryId, readPendingSendStatus } from "./chat-thread-items.ts";
 export {
   assistantGroupCanOwnActiveRunStatus,
   coalesceActivityRuns,

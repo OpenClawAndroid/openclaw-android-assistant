@@ -8,6 +8,10 @@ import type {
 } from "../config/io.health-state.types.js";
 import type { CronStoreWorkerOperations } from "../cron/store/load-worker.types.js";
 import type { CronStoreSaveWorkerOperations } from "../cron/store/save-worker.types.js";
+import type {
+  ManagedImageRecord,
+  ManagedImageRecordEntry,
+} from "../gateway/managed-image-record-store.types.js";
 import type { DeferredPluginMigration } from "../infra/deferred-plugin-migrations.js";
 import type { DeliveryQueueWorkerOperations } from "../infra/delivery-queue.worker-contract.js";
 import type { PreparedPromotionClaim } from "../infra/promotions-feed.kernel.js";
@@ -63,6 +67,9 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
       output: SessionStateNotice[];
     };
     "sessionState.prune": { input: { now: number }; output: void };
+    "managedImages.read": { input: { attachmentId: string }; output: ManagedImageRecord | null };
+    "managedImages.entries": { input: { sessionKey?: string }; output: ManagedImageRecordEntry[] };
+    "managedImages.originalMediaIds": { input: undefined; output: string[] };
     "doctor.databaseBloat": {
       input: undefined;
       output: ReturnType<typeof readSqliteDatabaseBloat>;

@@ -374,7 +374,7 @@ describe("legacy state migration read-only refusals", () => {
     }
   });
 
-  it("defers configured-channel discovery only in copied-state planning", async () => {
+  it("leaves Doctor-only discovery out of automatic plans and execution", async () => {
     const fixture = await makeFixture();
     const pairingPath = path.join(fixture.stateDir, "credentials", "telegram-allowFrom.json");
     fs.mkdirSync(path.dirname(pairingPath), { recursive: true });
@@ -390,20 +390,8 @@ describe("legacy state migration read-only refusals", () => {
       snapshot: createCallerModeSnapshot(fixture),
       env: fixture.env,
     });
-    const plannedWorkshopIndex = plan.steps.findIndex((step) => step.refusal !== undefined);
-    expect(plan.steps[plannedWorkshopIndex]).toMatchObject({
-      id: "skill-workshop",
-      outcome: "deferred",
-      refusal: { code: "skill-workshop-planning-deferred" },
-    });
-    const plannedPluginIndex = plan.steps.findIndex((step) => step.id === "plugin-doctor-state");
-    expect(plannedPluginIndex).toBeGreaterThan(plannedWorkshopIndex);
-    for (const step of plan.steps.slice(plannedWorkshopIndex + 1)) {
-      expect(step).toMatchObject({
-        outcome: "deferred",
-        refusal: { code: "blocked-by-prior-refusal" },
-      });
-    }
+    expect(plan.steps.map((step) => step.id)).not.toContain("skill-workshop");
+    expect(plan.steps.map((step) => step.id)).not.toContain("channel-pairing");
     expect(fs.readFileSync(pairingPath, "utf8")).toBe(pairingBytes);
 
     const params = {
@@ -413,9 +401,8 @@ describe("legacy state migration read-only refusals", () => {
       legacySessionSurfaces: EMPTY_LEGACY_SESSION_SURFACES,
     };
     const automatic = await autoMigrateLegacyState(params);
-    expect(automatic.stepReceipts.find((step) => step.id === "skill-workshop")).toMatchObject({
-      outcome: "skipped",
-    });
+    expect(automatic.stepReceipts.map((step) => step.id)).not.toContain("skill-workshop");
+    expect(automatic.stepReceipts.map((step) => step.id)).not.toContain("channel-pairing");
     expect(readChannelPairingState("telegram", fixture.env)).toEqual(pairingBefore);
     expect(fs.readFileSync(pairingPath, "utf8")).toBe(pairingBytes);
 

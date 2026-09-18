@@ -1,5 +1,8 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import { listActiveEmbeddedRunSessionKeys } from "../agents/embedded-agent-runner/active-run-projections.js";
+import {
+  listActiveEmbeddedRunSessionKeys,
+  resolveActiveEmbeddedRunSessionId,
+} from "../agents/embedded-agent-runner/active-run-projections.js";
 import { resolveEmbeddedSessionLane } from "../agents/embedded-agent-runner/lanes.js";
 import { transitionMainSessionRecovery } from "../agents/main-session-recovery/main-session-recovery-state.js";
 import { isHeartbeatAcknowledgementText } from "../auto-reply/heartbeat.js";
@@ -299,7 +302,11 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
   const { sessionKey } = preflight.session;
   const isReplyRunActive =
     opts.deps?.isReplyRunActive ?? ((key: string) => replyRunRegistry.isActive(key));
-  if (isReplyRunActive(sessionKey) || hasActiveRunForSession(sessionKey, listActiveEmbeddedRuns)) {
+  // Keep injected lists authoritative; production checks the current indexed owner at each fence.
+  const isEmbeddedRunActive = opts.deps?.listActiveEmbeddedRunSessionKeys
+    ? (key: string) => hasActiveRunForSession(key, listActiveEmbeddedRuns)
+    : (key: string) => resolveActiveEmbeddedRunSessionId(key) !== undefined;
+  if (isReplyRunActive(sessionKey) || isEmbeddedRunActive(sessionKey)) {
     return skippedHeartbeatStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT, startedAt);
   }
 
@@ -319,7 +326,7 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     heartbeat,
     scheduledTasks,
     startedAt,
-    listActiveEmbeddedRuns,
+    isEmbeddedRunActive,
     isReplyRunActive,
     preflight,
   } as const;
@@ -331,7 +338,7 @@ export type ReadyHeartbeatWake = StageResult<ReturnType<typeof resolveHeartbeatW
 export async function prepareHeartbeatRunStage(wake: ReadyHeartbeatWake) {
   const { cfg, agentId, heartbeat, preflight } = wake;
   const { scheduledTasks, startedAt } = wake;
-  const { listActiveEmbeddedRuns, isReplyRunActive } = wake;
+  const { isEmbeddedRunActive, isReplyRunActive } = wake;
   const { entry, sessionKey, run, conversationEntry } = preflight.session;
   const previousUpdatedAt = entry?.updatedAt;
   const projectionSessionKey = run.kind === "isolated" ? run.baseSessionKey : sessionKey;
@@ -456,10 +463,7 @@ export async function prepareHeartbeatRunStage(wake: ReadyHeartbeatWake) {
             isolatedSessionKey,
             isolatedBaseSessionKey,
           });
-    if (
-      isReplyRunActive(isolatedSessionKey) ||
-      hasActiveRunForSession(isolatedSessionKey, listActiveEmbeddedRuns)
-    ) {
+    if (isReplyRunActive(isolatedSessionKey) || isEmbeddedRunActive(isolatedSessionKey)) {
       return skippedHeartbeatStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT, startedAt);
     }
     const staleIsolatedEntry = staleIsolatedSessionKey

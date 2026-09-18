@@ -23,7 +23,10 @@ import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
 } from "../state/openclaw-agent-db.js";
-import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import {
+  closeOpenClawStateDatabaseAsync,
+  closeOpenClawStateDatabaseForTest,
+} from "../state/openclaw-state-db.js";
 import { captureEnv, setTestEnvValue } from "../test-utils/env.js";
 import {
   cleanupManagedOutgoingMediaRecords,
@@ -138,8 +141,9 @@ beforeEach(() => {
   setRuntimeConfigSnapshot({ agents: { list: [{ id: "main" }] } });
 });
 
-afterEach(() => {
+afterEach(async () => {
   closeOpenClawAgentDatabasesForTest();
+  await closeOpenClawStateDatabaseAsync();
   closeOpenClawStateDatabaseForTest();
   clearRuntimeConfigSnapshot();
   savedEnv.restore();
@@ -397,7 +401,7 @@ describe("managed attachment SQLite visibility", () => {
       expect(
         await cleanupManagedOutgoingMediaRecords({ stateDir, sessionKey: f.scope.sessionKey }),
       ).toEqual({ deletedRecordCount: 1, deletedFileCount: 1, retainedCount: 0 });
-      expect(readManagedImageRecord(f.attachmentId, stateDir)).toBeNull();
+      expect(await readManagedImageRecord(f.attachmentId, stateDir)).toBeNull();
       expect(fs.existsSync(f.originalPath)).toBe(false);
       expect(fs.readFileSync(archivePath)).toEqual(archiveBefore);
     },
@@ -490,7 +494,7 @@ describe("managed attachment SQLite visibility", () => {
       await expect(
         cleanupManagedOutgoingMediaRecords({ stateDir, sessionKey: f.scope.sessionKey }),
       ).rejects.toBeInstanceOf(SyntaxError);
-      expect(readManagedImageRecord(f.attachmentId, stateDir)).not.toBeNull();
+      expect(await readManagedImageRecord(f.attachmentId, stateDir)).not.toBeNull();
       expect(fs.existsSync(f.originalPath)).toBe(true);
     },
   );

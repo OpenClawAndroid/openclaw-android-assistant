@@ -7,16 +7,15 @@ import {
   nativeHistoryOwner,
   notifyChildStarted,
   registerParent,
+  successfulSendInputOutput,
   taskRecord,
+  turnStartedNotification,
 } from "./native-subagent-monitor.test-support.js";
 
 type Client = ReturnType<typeof createClient>;
 
 async function startTurn(client: Client, threadId: string, turnId: string) {
-  await client.notify({
-    method: "turn/started",
-    params: { threadId, turn: { id: turnId, status: "inProgress", items: [], error: null } },
-  });
+  await client.notify(turnStartedNotification(turnId, { threadId, error: null }));
 }
 
 async function endTurn(
@@ -75,18 +74,9 @@ async function acceptFollowup(client: Client, parentThreadId = "parent-thread") 
       },
     },
   });
-  await client.notify({
-    method: "rawResponseItem/completed",
-    params: {
-      threadId: parentThreadId,
-      turnId: "parent-turn",
-      item: {
-        type: "function_call_output",
-        call_id: "submit-b",
-        output: '{"submission_id":"turn-b"}',
-      },
-    },
-  });
+  await client.notify(
+    successfulSendInputOutput({ parentThreadId, callId: "submit-b", submissionId: "turn-b" }),
+  );
 }
 
 function createFixture(historyOwner?: ReturnType<typeof nativeHistoryOwner>) {

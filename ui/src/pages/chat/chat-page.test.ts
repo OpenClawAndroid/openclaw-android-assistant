@@ -20,7 +20,7 @@ import { SESSION_DRAG_MIME } from "../../lib/sessions/drag.ts";
 import { sessionNavigationTarget } from "../../lib/sessions/route-navigation.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import {
-  createChatPageSessions,
+  createSessionTitleSource,
   setNavigationContext,
   setViewerPresenceContext,
 } from "./chat-page.test-support.ts";
@@ -59,31 +59,6 @@ type RenderedPane = HTMLElement & {
 };
 
 type RenderedDivider = HTMLElement & { orientation: "horizontal" | "vertical" };
-
-function createSessionTitleSource() {
-  const listeners = new Set<() => void>();
-  const state: {
-    result: { sessions: Array<{ key: string; displayName?: string }> } | null;
-  } = { result: null };
-  return {
-    sessions: {
-      ...createChatPageSessions(),
-      state,
-      presentation: state,
-      subscribe(listener: () => void) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-    },
-    listeners,
-    publish(key: string, displayName: string) {
-      state.result = { sessions: [{ key, displayName }] };
-      for (const listener of listeners) {
-        listener();
-      }
-    },
-  };
-}
 
 function createSplitLayout(sessionKey: string): ChatSplitLayout {
   const singlePane: ChatSplitLayout = {
@@ -358,6 +333,7 @@ describe("chat page split layout host", () => {
     expect(getLayout(page)?.columns.at(1)?.panes.at(0)?.sessionKey).toBe(WORK_SESSION_KEY);
     expect(navigation.replace).toHaveBeenLastCalledWith("chat", {
       pathname: sessionPath(WORK_SESSION_KEY),
+      search: "?__openclawSessionFacePreference=1",
     });
 
     window.dispatchEvent(
@@ -532,6 +508,40 @@ describe("chat page split layout host", () => {
       hash: "",
     });
   });
+
+  it.each([
+    { target: "agent:main:main", expectedFace: "dashboard", search: undefined },
+    {
+      target: "agent:main:uncached",
+      expectedFace: "chat",
+      search: "?__openclawSessionFacePreference=1",
+    },
+  ] as const)(
+    "preserves face authority when navigating to $target",
+    async ({ target, expectedFace, search }) => {
+      const page = new ChatPage();
+      const navigation = setNavigationContext(page);
+      page.data = { sessionKey: "main", face: "dashboard" };
+      document.body.append(page);
+      await page.updateComplete;
+
+      window.dispatchEvent(
+        new CustomEvent(UI_COMMAND_EVENT, {
+          cancelable: true,
+          detail: { command: { kind: "navigate", sessionKey: target } },
+        }),
+      );
+
+      expect(navigation.navigate).toHaveBeenCalledWith(expectedFace, {
+        pathname: sessionNavigationTarget({
+          face: expectedFace,
+          sessionKey: target,
+          fallbackAgentId: "main",
+        }).options.pathname,
+        ...(search ? { search } : {}),
+      });
+    },
+  );
 
   it("keeps catalog identity when consuming a route draft", async () => {
     const expectedSearch = catalogSessionSearch(CATALOG_KEY);
@@ -900,6 +910,7 @@ describe("chat page split layout host", () => {
     expect(loadSettings().chatSplitLayout).toBeUndefined();
     expect(navigation.navigate).toHaveBeenCalledWith("chat", {
       pathname: sessionPath(WORK_SESSION_KEY),
+      search: "?__openclawSessionFacePreference=1",
     });
     expect(navigation.replace).not.toHaveBeenCalled();
   });
@@ -920,6 +931,7 @@ describe("chat page split layout host", () => {
     expect(loadSettings().chatSplitLayout).toEqual(layout);
     expect(navigation.replace).toHaveBeenCalledWith("chat", {
       pathname: sessionPath(WORK_SESSION_KEY),
+      search: "?__openclawSessionFacePreference=1",
     });
   });
 
@@ -940,6 +952,7 @@ describe("chat page split layout host", () => {
     expect(loadSettings().chatSplitLayout).toEqual(layout);
     expect(navigation.replace).toHaveBeenCalledWith("chat", {
       pathname: sessionPath(WORK_SESSION_KEY),
+      search: "?__openclawSessionFacePreference=1",
     });
   });
 
@@ -957,6 +970,7 @@ describe("chat page split layout host", () => {
     expect(loadSettings().chatSplitLayout).toEqual(layout);
     expect(navigation.replace).toHaveBeenCalledWith("chat", {
       pathname: sessionPath(WORK_SESSION_KEY),
+      search: "?__openclawSessionFacePreference=1",
     });
   });
 
@@ -1013,6 +1027,7 @@ describe("chat page split layout host", () => {
     ]);
     expect(navigation.replace).toHaveBeenCalledWith("chat", {
       pathname: sessionPath(WORK_SESSION_KEY),
+      search: "?__openclawSessionFacePreference=1",
     });
   });
 
@@ -1095,6 +1110,7 @@ describe("chat page split layout host", () => {
     expect(getLayout(page)?.columns.at(0)?.panes.at(0)?.sessionKey).toBe(WORK_SESSION_KEY);
     expect(navigation.replace).toHaveBeenCalledWith("chat", {
       pathname: sessionPath(WORK_SESSION_KEY),
+      search: "?__openclawSessionFacePreference=1",
     });
   });
 });

@@ -80,21 +80,35 @@ export function isBackgroundWorkLane(lane: string): boolean {
 }
 
 export function getBackgroundWorkSnapshot(): CommandLaneSnapshot {
-  const group = getQueueState().laneGroups.get(BACKGROUND_WORK_GROUP);
-  const members = [...(group?.members ?? [])].map((lane) => getCommandLaneSnapshot(lane));
-  const activeCount = members.reduce((sum, member) => sum + member.activeCount, 0);
-  return {
+  const { lanes, laneGroups } = getQueueState();
+  const group = laneGroups.get(BACKGROUND_WORK_GROUP);
+  const snapshot: CommandLaneSnapshot = {
     lane: CommandLane.Background,
-    activeCount,
-    queuedCount: members.reduce((sum, member) => sum + member.queuedCount, 0),
+    activeCount: 0,
+    queuedCount: 0,
     maxConcurrent: BACKGROUND_WORK_MAX_CONCURRENT,
-    draining: members.some((member) => member.draining),
-    generation: Math.max(0, ...members.map((member) => member.generation)),
-    blockedBy:
-      activeCount >= BACKGROUND_WORK_MAX_CONCURRENT
-        ? "group-budget"
-        : members.some((member) => member.queuedCount > 0 && member.blockedBy === "lane")
-          ? "lane"
-          : null,
+    draining: false,
+    generation: 0,
+    blockedBy: null,
   };
+  // Rich lane snapshots each scan the whole group for capacity. Read existing
+  // member state directly so diagnostics stay linear without recreating lanes.
+  for (const lane of group?.members ?? []) {
+    const state = lanes.get(lane);
+    if (!state) {
+      continue;
+    }
+    const activeCount = state.activeTaskIds.size;
+    snapshot.activeCount += activeCount;
+    snapshot.queuedCount += state.queue.length;
+    snapshot.draining ||= state.draining;
+    snapshot.generation = Math.max(snapshot.generation, state.generation);
+    if (state.queue.length > 0 && activeCount >= state.maxConcurrent) {
+      snapshot.blockedBy = "lane";
+    }
+  }
+  if (snapshot.activeCount >= BACKGROUND_WORK_MAX_CONCURRENT) {
+    snapshot.blockedBy = "group-budget";
+  }
+  return snapshot;
 }

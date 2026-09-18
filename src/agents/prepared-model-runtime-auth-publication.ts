@@ -54,6 +54,7 @@ function partitionAuthMutationOwners(
 export class PreparedModelRuntimeAuthPublicationOwner {
   readonly #events: (readonly PreparedModelRuntimeOwner[])[] = [];
   #transaction: PreparedModelRuntimeAuthTransaction | undefined;
+  #drainTail: Promise<void> = Promise.resolve();
 
   enqueue(
     invalidatedOwners: readonly PreparedModelRuntimeOwner[],
@@ -116,6 +117,12 @@ export class PreparedModelRuntimeAuthPublicationOwner {
     }
     this.clearOwnerGates(transaction);
     return transaction;
+  }
+
+  releaseAdopted(gateId: PreparedModelRuntimeReplacementGateId): void {
+    if (this.#transaction?.adoptedBy === gateId) {
+      this.#transaction.adoptedBy = undefined;
+    }
   }
 
   resolve(
@@ -230,6 +237,17 @@ export class PreparedModelRuntimeAuthPublicationOwner {
     commit?: () => void;
     onOwnerFailure?: (error: unknown) => void;
   }): Promise<void> {
+    const pending = this.#drainTail.then(() => this.drainNow(params));
+    this.#drainTail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    await pending;
+  }
+
+  private async drainNow(
+    params: Parameters<PreparedModelRuntimeAuthPublicationOwner["drain"]>[0],
+  ): Promise<void> {
     while (this.#events.length > 0) {
       const components = partitionAuthMutationOwners(this.#events.splice(0));
       for (const componentOwners of components) {

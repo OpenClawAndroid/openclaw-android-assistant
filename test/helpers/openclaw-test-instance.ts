@@ -30,6 +30,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../../src/test-utils/openclaw-test-state.js";
+import { getDeterministicFreePortBlock } from "../../src/test-utils/ports.js";
 import { sleep } from "../../src/utils.js";
 import { decodeUtf8Tail } from "./bounded-child-output.js";
 import { runQaGatewayFixture } from "./qa-gateway-cleanup.js";
@@ -263,7 +264,7 @@ async function resolveGatewayEntrypoint(cwd: string): Promise<string[]> {
 }
 
 async function reserveGatewayPort(
-  port = 0,
+  port: number,
   verifyCleanup?: OpenClawTestInstanceOptions["verifyCleanup"],
 ) {
   // A probe must not retain a connection that can delay release before spawn.
@@ -280,11 +281,7 @@ async function reserveGatewayPort(
         resolve();
       });
     });
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("failed to reserve gateway port");
-    }
-    return { port: address.port, release };
+    return { release };
   } catch (error) {
     return await runQaGatewayFixture(
       async (): Promise<never> => {
@@ -716,7 +713,11 @@ export async function createOpenClawTestInstance(
   signal?.addEventListener("abort", closeAdmission, { once: true });
   try {
     signal?.throwIfAborted();
-    port = options.port ?? (reservation = await reserveGatewayPort(0, options.verifyCleanup)).port;
+    // The lazy sandbox uses port + 1; keep both listeners out of Linux's client-port pool.
+    port = options.port ?? (await getDeterministicFreePortBlock({ offsets: [0, 1] }));
+    if (options.port === undefined) {
+      reservation = await reserveGatewayPort(port, options.verifyCleanup);
+    }
     signal?.throwIfAborted();
     state = await createOpenClawTestState({
       label: options.name,

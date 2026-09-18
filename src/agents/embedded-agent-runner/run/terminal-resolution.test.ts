@@ -335,7 +335,9 @@ describe("terminal resolution", () => {
 
     expect(resolved).toMatchObject({
       result: {
-        payloads: [{ text: "I’m continuing this work and will send the result when it is ready." }],
+        payloads: undefined,
+        meta: { continuationPending: true },
+        acceptedSessionSpawns: attempt.acceptedSessionSpawns,
       },
     });
   });

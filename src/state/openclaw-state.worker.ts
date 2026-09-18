@@ -11,6 +11,11 @@ import {
 } from "../config/io.health-state.kernel.js";
 import { loadMutableCronStoreInWorker } from "../cron/store/load.worker.js";
 import { executeCronStoreSaveCommand } from "../cron/store/save.worker.js";
+import {
+  readManagedImageRecordInDatabase,
+  listManagedImageRecordEntriesInDatabase,
+  listManagedImageOriginalMediaIdsInDatabase,
+} from "../gateway/managed-image-record-store.kernel.js";
 import { readDeferredPluginMigrations } from "../infra/deferred-plugin-migrations.js";
 import { countFailedDeliveryQueueEntriesInDatabase } from "../infra/delivery-queue-sqlite.kernel.js";
 import { executePromotionCommand } from "../infra/promotions-feed.worker.js";
@@ -290,6 +295,15 @@ function createSharedStateWorkerBackend(
         );
       }
       const database = open();
+      if (command.type === "managedImages.read") {
+        return readManagedImageRecordInDatabase(database.db, command.input.attachmentId);
+      }
+      if (command.type === "managedImages.entries") {
+        return listManagedImageRecordEntriesInDatabase(database.db, command.input.sessionKey);
+      }
+      if (command.type === "managedImages.originalMediaIds") {
+        return listManagedImageOriginalMediaIdsInDatabase(database.db);
+      }
       if (command.type === "apns.registration.read") {
         return readApnsRegistrationFromDatabase(database.db, command.input);
       }

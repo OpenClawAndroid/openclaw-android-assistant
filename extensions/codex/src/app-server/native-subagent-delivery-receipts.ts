@@ -84,7 +84,7 @@ export function registerCodexNativeSubagentReceiptAlias<Parent extends ReceiptPa
   return known.deliveryReceipts.addAlias(childThreadId, agentPath);
 }
 
-type Receipt = { id: string; agentPath: string; result?: string };
+type Receipt = { agentPath: string; result?: string };
 type Outcome = {
   paths: Set<string>;
   result?: string;
@@ -96,7 +96,7 @@ type Outcome = {
 export class CodexNativeSubagentDeliveryReceipts {
   private readonly seen = new Set<string>();
   private readonly pending: Receipt[] = [];
-  private readonly outcomes = new Map<string, Outcome>();
+  private outcomes = new Map<string, Outcome>();
 
   observe(notification: CodexServerNotification): string[] {
     const params = isJsonObject(notification.params) ? notification.params : undefined;
@@ -120,7 +120,7 @@ export class CodexNativeSubagentDeliveryReceipts {
         const child = item.agentsStates[agentPath];
         result = isJsonObject(child) ? readString(child, "message") : result;
       }
-      this.pending.push({ id, agentPath, result: receiptResultKey(result) });
+      this.pending.push({ agentPath, result: receiptResultKey(result) });
     }
     return this.match();
   }
@@ -174,10 +174,7 @@ export class CodexNativeSubagentDeliveryReceipts {
         restored.set(runId, outcome);
       }
     }
-    this.outcomes.clear();
-    for (const [runId, outcome] of restored) {
-      this.outcomes.set(runId, outcome);
-    }
+    this.outcomes = restored;
     const matched = this.match();
     return [
       ...new Set([

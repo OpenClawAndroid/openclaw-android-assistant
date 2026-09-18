@@ -18,6 +18,227 @@ import {
 
 export function registerPluginServiceRecoveryTests(createRecoveryFixture: RecoveryFixtureFactory) {
   describe("Gateway plugin service recovery ownership", () => {
+    it.each(["settled", "rejected", "deadline"] as const)(
+      "observes shared-deadline service cleanup before restoring channels: %s",
+      async (outcome) => {
+        const entered = createDeferredCore();
+        const release = createDeferredCore();
+        const laterEntered = createDeferredCore();
+        const laterRelease = createDeferredCore();
+        const workRelease = createDeferredCore();
+        let completedWrites = 0;
+        const disposed: number[] = [];
+        const starts: string[] = [];
+        let registrations = 0;
+        const laterStop = vi.fn(async () => {
+          laterEntered.resolve();
+          await laterRelease.promise;
+        });
+        const fixture = await createRecoveryFixture({
+          abortOnCandidateStart: false,
+          initialStop: async () => {
+            entered.resolve();
+            await release.promise;
+            if (outcome === "rejected") {
+              throw new Error("original cleanup permanently refused");
+            }
+          },
+          register(api, owner) {
+            if (owner !== "first") {
+              return;
+            }
+            const generation = ++registrations;
+            api.lifecycle.onDispose?.(() => {
+              disposed.push(generation);
+            });
+            // The fixture's main service is registered last and stops first.
+            api.registerService({ id: "later-cleanup", start() {}, stop: laterStop });
+            api.registerChannel({
+              plugin: {
+                ...createChannelTestPluginBase({
+                  id: "cleanup-recovery",
+                  config: { listAccountIds: () => ["default", "parked"] },
+                }),
+                gateway: {
+                  startAccount: async ({ accountId, abortSignal }) => {
+                    starts.push(accountId);
+                    await new Promise<void>((resolve) => {
+                      abortSignal.addEventListener("abort", () => resolve(), { once: true });
+                    });
+                  },
+                },
+              },
+            });
+          },
+        });
+        const manager = createRecoveryChannelManager(fixture);
+        fixture.runtime.channelManager = manager;
+        await manager.stopChannel("cleanup-recovery", "parked");
+        await manager.startChannel("cleanup-recovery", undefined, {
+          manual: false,
+          preserveManualStop: true,
+        });
+        await vi.waitFor(() => expect(starts).toEqual(["default"]));
+        const original = getPluginInstance(fixture.previousRegistry.plugins[0]!);
+        assert(original);
+        const generation = fixture.owner.currentClaim();
+        const admittedWrite = original.run(async () => {
+          await workRelease.promise;
+          completedWrites += 1;
+        });
+        vi.useFakeTimers();
+        let settled = false;
+        const pending = fixture
+          .reload()
+          .catch((error: unknown) => error)
+          .then((result) => {
+            settled = true;
+            return result;
+          });
+        try {
+          await entered.promise;
+          await vi.advanceTimersByTimeAsync(5_000);
+          await laterEntered.promise;
+          expect(fixture.firstStop).toHaveBeenCalledOnce();
+          expect(laterStop).toHaveBeenCalledOnce();
+          await vi.advanceTimersByTimeAsync(10_000);
+          expect(fixture.candidates).toHaveLength(0);
+          expect(disposed).toEqual([]);
+          expect(registrations).toBe(1);
+          expect(starts).toEqual(["default"]);
+          expect(() => original.run(() => "stale")).toThrow("reloaded or disabled");
+          // The first observer used the shared budget; the second still owns its
+          // original cleanup despite having zero observation time remaining.
+          if (outcome === "deadline") {
+            await vi.advanceTimersByTimeAsync(70_000);
+            expect(settled).toBe(true);
+            expect(fixture.owner.getReloadStatus()?.phase).toBe("failed");
+          } else {
+            expect(settled).toBe(false);
+            expect(fixture.owner.getReloadStatus()?.phase).toBe("recovering");
+          }
+          release.resolve();
+          await vi.advanceTimersByTimeAsync(1_000);
+          expect(disposed).toEqual([]);
+          expect(registrations).toBe(1);
+          laterRelease.resolve();
+          await vi.advanceTimersByTimeAsync(1_000);
+          expect(disposed).toEqual([]);
+          expect(registrations).toBe(1);
+          expect(completedWrites).toBe(0);
+          workRelease.resolve();
+          await admittedWrite;
+          expect(completedWrites).toBe(1);
+          await vi.advanceTimersByTimeAsync(10_000);
+          expect(await pending).toMatchObject({ details: { committed: false, phase: "drain" } });
+          expect(fixture.owner.currentClaim()).toEqual(generation);
+          expect(fixture.firstStop).toHaveBeenCalledOnce();
+          expect(laterStop).toHaveBeenCalledOnce();
+          expect(fixture.siblingStop).not.toHaveBeenCalled();
+          expect(manager.isManuallyStopped("cleanup-recovery", "parked")).toBe(true);
+          if (outcome === "settled") {
+            expect(disposed).toEqual([1]);
+            expect(registrations).toBe(2);
+            expect(starts).toEqual(["default", "default"]);
+            expect(fixture.owner.getReloadStatus()).toBeUndefined();
+            expect(fixture.registryOwner.registry).not.toBe(fixture.previousRegistry);
+          } else {
+            expect(disposed).toEqual([]);
+            expect(registrations).toBe(1);
+            expect(fixture.owner.getReloadStatus()?.phase).toBe("failed");
+            expect(starts).toEqual(["default"]);
+          }
+          expect(manager.getRuntimeSnapshot().reloadingChannels?.size).toBe(0);
+          expect(() => original.run(() => "still stale")).toThrow("reloaded or disabled");
+        } finally {
+          release.resolve();
+          laterRelease.resolve();
+          workRelease.resolve();
+          await admittedWrite;
+          await vi.advanceTimersByTimeAsync(80_000);
+          await pending;
+          vi.useRealTimers();
+          await manager.stopChannel("cleanup-recovery");
+        }
+      },
+    );
+
+    it.each(["service", "channel"] as const)(
+      "does not recover a pending service stop mixed with permanent %s failure",
+      async (failureOwner) => {
+        const entered = createDeferredCore();
+        const release = createDeferredCore();
+        const permanent = new Error("mixed cleanup permanently refused");
+        let registrations = 0;
+        const pendingStop = vi.fn(async () => {
+          entered.resolve();
+          await release.promise;
+        });
+        const fixture = await createRecoveryFixture({
+          abortOnCandidateStart: false,
+          initialStop:
+            failureOwner === "service"
+              ? async () => {
+                  throw permanent;
+                }
+              : pendingStop,
+          register(api, owner) {
+            if (owner !== "first") {
+              return;
+            }
+            registrations += 1;
+            if (failureOwner === "service") {
+              api.registerService({ id: "pending-cleanup", start() {}, stop: pendingStop });
+            } else {
+              api.registerChannel({ plugin: createChannelTestPluginBase({ id: "first" }) });
+            }
+          },
+        });
+        const manager = createRecoveryChannelManager(fixture);
+        fixture.runtime.channelManager = manager;
+        if (failureOwner === "channel") {
+          vi.spyOn(manager, "stopChannel").mockRejectedValueOnce(permanent);
+        }
+        const original = getPluginInstance(fixture.previousRegistry.plugins[0]!);
+        const generation = fixture.owner.currentClaim();
+        vi.useFakeTimers();
+        let settled = false;
+        const pending = fixture
+          .reload()
+          .catch((error: unknown) => error)
+          .then((result) => {
+            settled = true;
+            return result;
+          });
+        try {
+          await entered.promise;
+          // Observe the existing service-stop and admitted-work drain deadlines.
+          await vi.advanceTimersByTimeAsync(15_000);
+          expect(settled).toBe(true);
+          expect(await pending).toMatchObject({ details: { committed: false, phase: "drain" } });
+          expect(fixture.owner.getReloadStatus()?.phase).toBe("failed");
+          expect(original?.acceptingCalls).toBe(false);
+          release.resolve();
+          await vi.advanceTimersByTimeAsync(70_000);
+          expect(fixture.owner.getReloadStatus()?.phase).toBe("failed");
+          expect(fixture.registryOwner.registry).toBe(fixture.previousRegistry);
+          expect(fixture.owner.currentClaim()).toEqual(generation);
+          expect(fixture.candidates).toHaveLength(0);
+          expect(registrations).toBe(1);
+          expect(fixture.firstStart).toHaveBeenCalledOnce();
+          expect(fixture.firstStop).toHaveBeenCalledOnce();
+          expect(pendingStop).toHaveBeenCalledOnce();
+          expect(fixture.siblingStop).not.toHaveBeenCalled();
+        } finally {
+          release.resolve();
+          await vi.advanceTimersByTimeAsync(70_000);
+          await pending;
+          vi.useRealTimers();
+          await manager.stopChannel("first");
+        }
+      },
+    );
+
     it("restores an unchanged channel after command-owner cleanup fails", async () => {
       const starts = { first: vi.fn(), sibling: vi.fn() };
       const fixture = await createRecoveryFixture({

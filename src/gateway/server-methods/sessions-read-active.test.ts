@@ -269,6 +269,7 @@ it.each(["global", "unknown"] as const)(
           sessionId,
           boardFace,
           updatedAt: 100 - index,
+          displayName: `${agentId.charAt(0).toUpperCase()}${agentId.slice(1)} task`,
           visibility: agentId === "private" ? "draft" : "shared",
           createdActor: { type: "human", source: "profile", id: "owner@example.test" },
         });

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { sessionChanges } from "../../sessions/session-row-changes.js";
 import {
@@ -7,6 +7,14 @@ import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabase,
 } from "../../state/openclaw-state-db.js";
+import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import {
+  identifiedClient,
+  listSessions,
+  requestContext,
+  seedSessions,
+} from "../server-methods/sessions-read-cache.test-support.js";
+import { getSessionRowProjection } from "../session-row-projection-access.js";
 import { createWorkerSessionPlacementStore } from "./placement-store.js";
 import { seedAttachedPlacementEnvironment } from "./placement-test-fixtures.js";
 import { createWorkerEnvironmentStore } from "./store.js";
@@ -17,6 +25,66 @@ const SESSION = {
   sessionKey: "agent:main:placement",
 };
 const DAY_MS = 24 * 60 * 60 * 1_000;
+
+it.each(["reopening the store", "reconciling an unchanged host"] as const)(
+  "keeps session lists resident when %s changes no environment rows",
+  async (operation) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
+      onTestFinished(() => clock.mockRestore());
+      const database = openOpenClawStateDatabase();
+      const store = createWorkerEnvironmentStore({ database, now: () => 1_000 });
+      const environmentId = "worker-unchanged";
+      store.createIntent({
+        environmentId,
+        providerId: "fake-provider",
+        profileId: "test-profile",
+        profileSnapshot: { settings: {}, lifetime: { idleMinutes: 10 } },
+        provisionOperationId: `provision:${environmentId}`,
+      });
+      store.transition({ environmentId, from: "requested", to: "provisioning" });
+      store.transition({
+        environmentId,
+        from: "provisioning",
+        to: "bootstrapping",
+        patch: {
+          leaseId: "lease-unchanged",
+          sharedHost: false,
+          sshEndpoint: {
+            host: "worker.example.test",
+            port: 22,
+            user: "openclaw",
+            hostKey: "ssh-ed25519 AAAA",
+            keyRef: { source: "file", provider: "worker-keys", id: "/test-key" },
+          },
+        },
+      });
+      const context = requestContext(await seedSessions());
+      const client = identifiedClient("owner@example.com");
+      const request = { limit: 1, archived: "all" as const };
+      const initial = await listSessions({ context, client, request });
+      const projection = getSessionRowProjection(context)!;
+      const before = projection.materializedCount;
+      const environment = store.get(environmentId);
+      if (operation === "reopening the store") {
+        createWorkerEnvironmentStore({ database, now: () => 1_000 });
+      } else {
+        store.reconcileSharedHost({
+          environmentId,
+          state: "bootstrapping",
+          leaseId: "lease-unchanged",
+          sharedHost: false,
+        });
+      }
+      expect(store.get(environmentId)).toEqual(environment);
+      expect(projection.dirtyRowCount).toBe(0);
+      const current = await listSessions({ context, client, request });
+      expect(current.sessions).toEqual(initial.sessions);
+      expect(current.totalCount).toBe(initial.totalCount);
+      expect(projection.materializedCount).toBe(before);
+    });
+  },
+);
 
 describe("worker store session change publications", () => {
   let database: OpenClawStateDatabase;

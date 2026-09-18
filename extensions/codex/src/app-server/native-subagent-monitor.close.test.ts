@@ -26,6 +26,7 @@ import {
   nativeCompletionNotification,
   notifyChildStarted,
   registerParent,
+  turnStartedNotification,
 } from "./native-subagent-monitor.test-support.js";
 import type { CodexServerNotification } from "./protocol.js";
 import { createClientHarness } from "./test-support.js";
@@ -390,13 +391,7 @@ describe("same-monitor close assignment proof", () => {
           send(collab("item/started", "resume-b", "resumeAgent"));
           send(collab("item/completed", "resume-b", "resumeAgent"));
           send(collab("item/started", "send-b", "sendInput", "running"));
-          send({
-            method: "turn/started",
-            params: {
-              threadId: childThreadId,
-              turn: { id: "assignment-b", status: "inProgress", items: [], error: null },
-            },
-          });
+          send(turnStartedNotification("assignment-b", { threadId: childThreadId, error: null }));
           send(collab("item/completed", "send-b", "sendInput", "running"));
           send(
             successfulSendInputOutput({
@@ -446,13 +441,7 @@ describe("same-monitor close assignment proof", () => {
               item: { ...directSpawnItem("v1", parentThreadId, childThreadId), id: "spawn-a" },
             },
           });
-          send({
-            method: "turn/started",
-            params: {
-              threadId: childThreadId,
-              turn: { id: "assignment-a", status: "inProgress", items: [], error: null },
-            },
-          });
+          send(turnStartedNotification("assignment-a", { threadId: childThreadId, error: null }));
           await vi.waitFor(() => {
             expect(taskRuntime.listTaskRecords()).toEqual(
               expect.arrayContaining([

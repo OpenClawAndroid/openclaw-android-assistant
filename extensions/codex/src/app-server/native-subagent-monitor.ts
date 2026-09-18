@@ -976,30 +976,31 @@ class Monitor {
         this.settleResumableChild(childState);
         return false;
       }
-      const completion = recovery.completion;
+      const completion = this.processRecoveredCompletion(state, childState, recovery);
       if (!completion) {
-        if (recovery.fallbackCompletion) {
-          this.recovery.setRecoveryFallback(
-            childState,
-            recovery.fallbackCompletion,
-            recovery.fallbackCompletion.completedAt ?? this.now(),
-          );
-        }
         return false;
       }
-      if (isNoFinalCompletion(completion)) {
-        this.recovery.setRecoveryFallback(
-          childState,
-          completion,
-          completion.completedAt ?? this.now(),
-        );
-        return false;
-      }
-      await this.processCompletion(state, childState, completion, completion.completedAt);
+      await completion;
       return true;
     } finally {
       statusRead.release();
     }
+  }
+
+  private processRecoveredCompletion(
+    state: ParentState,
+    child: ChildState,
+    recovery: ThreadRecovery,
+  ): Promise<void> | undefined {
+    const completion = recovery.completion;
+    if (completion && !isNoFinalCompletion(completion)) {
+      return this.processCompletion(state, child, completion, completion.completedAt);
+    }
+    const fallback = completion ?? recovery.fallbackCompletion;
+    if (fallback) {
+      this.recovery.setRecoveryFallback(child, fallback, fallback.completedAt ?? this.now());
+    }
+    return undefined;
   }
 
   private recordRecoveredChildTurn(
@@ -2391,28 +2392,12 @@ class Monitor {
         this.settleResumableChild(childState);
         return;
       }
-      const completion = recovery.completion;
-      if (!completion) {
-        if (recovery.fallbackCompletion) {
-          this.recovery.setRecoveryFallback(
-            childState,
-            recovery.fallbackCompletion,
-            recovery.fallbackCompletion.completedAt ?? this.now(),
-          );
-          return;
-        }
+      const completion = this.processRecoveredCompletion(state, childState, recovery);
+      if (completion) {
+        await completion;
+      } else if (!recovery.completion && !recovery.fallbackCompletion) {
         this.recovery.scheduleRecoveryPoll(childState);
-        return;
       }
-      if (isNoFinalCompletion(completion)) {
-        this.recovery.setRecoveryFallback(
-          childState,
-          completion,
-          completion.completedAt ?? this.now(),
-        );
-        return;
-      }
-      await this.processCompletion(state, childState, completion, completion.completedAt);
     } finally {
       statusRead.release();
     }

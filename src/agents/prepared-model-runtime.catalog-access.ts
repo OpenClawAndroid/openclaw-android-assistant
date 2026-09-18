@@ -46,7 +46,7 @@ import {
 import { retainPreparedPluginGeneration } from "./prepared-model-runtime.plugin-lifetime.js";
 import {
   createCatalogAttemptReporter,
-  notifyPreparedModelRuntimePublication,
+  notifyPreparedModelCatalogPublication,
 } from "./prepared-model-runtime.publication-events.js";
 import { scopeSyntheticAuthProviderRefs } from "./prepared-model-runtime.synthetic-auth.js";
 import type {
@@ -260,8 +260,10 @@ export function createFullModelCatalogAccess(params: {
   let published = capturePublication();
   const publishCatalog = () => {
     assertCurrent();
+    const previous = published;
     published = capturePublication();
     params.inventoryOwner.catalogInventory = inventory;
+    return { previous, current: published };
   };
   const refreshExpiredCatalog = () => {
     if (pending || !inventory) {
@@ -486,8 +488,7 @@ export function createFullModelCatalogAccess(params: {
               ? markPreparedModelCatalogFull(catalog)
               : catalog;
           if (!previous) {
-            publishCatalog();
-            attempt.published(providerIds);
+            attempt.published(providerIds, "provider", publishCatalog());
           }
         }).catch((error: unknown) => {
           if (previous) {
@@ -611,8 +612,7 @@ export function createFullModelCatalogAccess(params: {
         }
         catalog.authoritative =
           nativeCatalogAcquired && !catalog.refreshFailed ? sourceAuthority : false;
-        publishCatalog();
-        notifyPreparedModelRuntimePublication({ phase: "catalog-published" });
+        notifyPreparedModelCatalogPublication(publishCatalog());
       }
       return fullCatalog ?? staticCatalog;
     })()

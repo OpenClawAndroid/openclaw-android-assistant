@@ -86,6 +86,10 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
         }),
       );
       const json = !scenario.startsWith("human");
+      const traceExit =
+        scenario === "human-recovery-plugin-error" &&
+        process.platform !== "win32" &&
+        !process.versions.bun;
       const blockedPhase =
         scenario === "doctor-hang" || scenario === "doctor-progress"
           ? "doctor"
@@ -108,8 +112,17 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
       const readRun = () =>
         listUpdateRuns({ limit: 1 }, { env: { HOME: root, OPENCLAW_STATE_DIR: state } })[0];
       let observedPhaseStart: ReturnType<typeof readRun> | undefined;
+      let tracedChildPid: number | undefined;
       const result = await runCliProcessChild({
         nodeExecutable: testNodeExecPath,
+        ...(traceExit
+          ? {
+              interact: (child: import("node:child_process").ChildProcessWithoutNullStreams) => {
+                tracedChildPid = child.pid;
+                child.stdin.end();
+              },
+            }
+          : {}),
         ...(scenario === "phase-hang"
           ? {
               interact: async (
@@ -126,6 +139,7 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
             }
           : {}),
         nodeArgs: [
+          ...(traceExit ? ["--trace-exit"] : []),
           "--import",
           "tsx",
           fixture,
@@ -326,6 +340,34 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
         expect(result.stdout, failure).toContain("Update finalization failed.");
         expect(result.stdout, failure).toContain("Interactive recovery completed.");
         expect(result.stderr, failure).not.toContain("Process still alive after terminal output");
+        if (traceExit) {
+          expect(tracedChildPid, failure).toBeGreaterThan(0);
+          const diagnosticPrefix = "[cli-process-diagnostics] ";
+          const stderrLines = result.stderr.split("\n");
+          const exitBoundaries = stderrLines
+            .map((line, lineIndex) => ({ line, lineIndex }))
+            .filter(({ line }) => line.startsWith(`${diagnosticPrefix}{`))
+            .map(({ line, lineIndex }) => ({
+              lineIndex,
+              value: JSON.parse(line.slice(diagnosticPrefix.length)),
+            }))
+            .filter(
+              ({ value }) =>
+                value.pid === tracedChildPid && value.phase?.startsWith("exit-listeners-"),
+            );
+          expect(
+            exitBoundaries.map(({ value }) => value),
+            failure,
+          ).toMatchObject([
+            { phase: "exit-listeners-enter", pid: tracedChildPid, exitCode: 1 },
+            { phase: "exit-listeners-return", pid: tracedChildPid, exitCode: 1 },
+          ]);
+          const nativeExit = `(node:${tracedChildPid}) WARNING: Exited the environment with code 1`;
+          const nativeExitLine = stderrLines.findIndex((line) => line.includes(nativeExit));
+          for (const boundary of exitBoundaries) {
+            expect(nativeExitLine, failure).toBeGreaterThan(boundary.lineIndex);
+          }
+        }
         return;
       }
       const triageNotice = "Update failed. Preparing triage diagnostics...";

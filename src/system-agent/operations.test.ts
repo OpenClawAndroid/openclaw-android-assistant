@@ -519,7 +519,7 @@ describe("system agent operations", () => {
     ).rejects.toThrow("Run openclaw doctor --fix before creating main.");
 
     expect(createAgent).toHaveBeenCalledWith({
-      name: "main",
+      entry: { id: "main" },
       workspace: "/tmp/main",
       provenance: { createdVia: "agent", creatorAgentId: "openclaw" },
     });

@@ -819,21 +819,24 @@ describe("gateway chat metadata lifecycle", () => {
     }
   });
 
-  it("refreshes after the prepared owner publishes a completed full catalog", async () => {
-    const { lifecycle: pendingLifecycle, sidecarOwner } = createLifecycle(false);
-    const lifecycle = await pendingLifecycle;
+  it.each([true, false, undefined])(
+    "refreshes catalog status even when model facts changed is %s",
+    async (modelFactsChanged) => {
+      const { lifecycle: pendingLifecycle, sidecarOwner } = createLifecycle(false);
+      const lifecycle = await pendingLifecycle;
 
-    await lifecycle.attachContext(context, sidecarOwner.publish);
-    const modelListener = mocks.registerModelListener.mock.calls[0]?.[0];
-    modelListener({ phase: "published" });
-    await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(2));
-    mocks.invalidate.mockClear();
+      await lifecycle.attachContext(context, sidecarOwner.publish);
+      const modelListener = mocks.registerModelListener.mock.calls[0]?.[0];
+      modelListener({ phase: "published" });
+      await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(2));
+      mocks.invalidate.mockClear();
 
-    modelListener({ phase: "catalog-published" });
+      modelListener({ phase: "catalog-published", modelFactsChanged });
 
-    expect(mocks.invalidate).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(3));
-  });
+      expect(mocks.invalidate).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(3));
+    },
+  );
 
   it("keeps an owner available when a subordinate catalog publishes during attachment", async () => {
     const pendingRefresh = createDeferred();

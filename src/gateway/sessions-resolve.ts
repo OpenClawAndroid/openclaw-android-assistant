@@ -14,6 +14,8 @@ import {
   SESSION_UUID_SUFFIX_RE,
   SHORT_SESSION_ID_RE,
 } from "../../packages/session-url-contract/src/index.js";
+import { resolveLegacyFreeAcpSessionKey } from "../acp/runtime/session-meta-keys.js";
+import { readAcpSessionMetaBatch } from "../acp/runtime/session-meta.js";
 import { listAgentIds } from "../agents/agent-scope.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -120,15 +122,52 @@ export async function resolveSessionKeyFromResolveParams(params: {
       },
       selector,
     );
-  const agentCheck = (key: string, entry: SessionEntry | undefined) =>
-    validateSessionAgentExists(cfg, key, entry, entry?.acp);
-  const sessionIdMatches = (agentId?: string) =>
-    filterAndSortSessionEntries({
-      ...prepare(agentId, false, { sessionIdOrKey: sessionId }),
-      entryFilter,
-    }).filter(
-      ([candidateKey, entry]) => entry.sessionId === sessionId || candidateKey === sessionId,
-    );
+  const configuredAgentIds = new Set(listAgentIds(cfg));
+  const prepareAgentChecks = (
+    entries: Array<[string, SessionEntry]>,
+    getTarget: ReturnType<typeof prepare>["getTarget"],
+  ) => {
+    const facts = new Map<SessionEntry, SessionEntry["acp"]>();
+    const unresolved: Parameters<typeof readAcpSessionMetaBatch>[0]["entries"][number][] = [];
+    for (const [candidateKey, entry] of entries) {
+      const agentId = parseAgentSessionKey(candidateKey)?.agentId;
+      if (
+        !agentId ||
+        configuredAgentIds.has(agentId) ||
+        !resolveLegacyFreeAcpSessionKey(candidateKey)
+      ) {
+        continue;
+      }
+      const source = getTarget(candidateKey)?.materialized?.source;
+      if (entry.acp || source?.entry === entry) {
+        facts.set(entry, entry.acp ?? source?.thinkingProjection.acpMeta);
+      } else {
+        unresolved.push({ sessionKey: candidateKey, agentId, entry });
+      }
+    }
+    if (unresolved.length) {
+      for (const [entry, meta] of readAcpSessionMetaBatch({ cfg, entries: unresolved })) {
+        facts.set(entry, meta);
+      }
+    }
+    return (candidateKey: string, entry: SessionEntry | undefined) =>
+      validateSessionAgentExists(
+        cfg,
+        candidateKey,
+        entry,
+        (entry && facts.get(entry)) ?? entry?.acp ?? null,
+      );
+  };
+
+  const sessionIdMatches = (agentId?: string) => {
+    const prepared = prepare(agentId, false, { sessionIdOrKey: sessionId });
+    return {
+      matches: filterAndSortSessionEntries({ ...prepared, entryFilter }).filter(
+        ([candidateKey, entry]) => entry.sessionId === sessionId || candidateKey === sessionId,
+      ),
+      getTarget: prepared.getTarget,
+    };
+  };
 
   const key = normalizeOptionalString(p.key) ?? "";
   const hasKey = key.length > 0;
@@ -176,17 +215,20 @@ export async function resolveSessionKeyFromResolveParams(params: {
       : referenceKey;
     // URL references are discovery, including exact keys. Keep hidden rows out
     // before choosing a winner; the separate key selector retains its read contract.
+
     const slug = normalizeOptionalString(p.reference.slug);
     const candidates = (lookupKey?: string) => {
       const prepared = prepare(p.agentId, true, { key: lookupKey });
-      return filterAndSortSessionEntries({
+      const visibleEntries = filterAndSortSessionEntries({
         ...prepared,
         entryFilter,
         opts: { ...resolveSessionVisibilityFilterOptions(p), archived: "all" },
-      })
+      });
+      const checkAgent = prepareAgentChecks(visibleEntries, prepared.getTarget);
+      return visibleEntries
         .filter(
           ([candidateKey, entry]) =>
-            agentCheck(candidateKey, entry) === null &&
+            checkAgent(candidateKey, entry) === null &&
             (lookupKey !== undefined
               ? normalizeSessionKeyPreservingOpaquePeerIds(candidateKey) === lookupKey
               : SESSION_UUID_SUFFIX_RE.test(parseAgentSessionKey(candidateKey)?.rest ?? "") &&
@@ -240,7 +282,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
         return noSessionFoundResult({ p, message: `No session found: ${key}` });
       }
       return (
-        agentCheck(target.key, entry) ?? {
+        prepareAgentChecks([[target.key, entry]], () => target)(target.key, entry) ?? {
           ok: true,
           key: target.key,
           agentId: requestedAgent.agentId,
@@ -254,10 +296,15 @@ export async function resolveSessionKeyFromResolveParams(params: {
     if (!p.agentId) {
       const ownerTaggedMatches = new Map<
         string,
-        { agentId: string; entry: SessionEntry; key: string }
+        {
+          agentId: string;
+          entry: SessionEntry;
+          key: string;
+          getTarget: ReturnType<typeof prepare>["getTarget"];
+        }
       >();
       for (const agentId of listAgentIds(cfg)) {
-        const agentMatches = sessionIdMatches(agentId);
+        const { matches: agentMatches, getTarget } = sessionIdMatches(agentId);
         const agentSelection = resolveSessionIdMatchSelection(agentMatches, sessionId);
         if (agentSelection.kind === "ambiguous") {
           return {
@@ -278,6 +325,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
               agentId: owner.agentId,
               entry,
               key: agentSelection.sessionKey,
+              getTarget,
             });
           }
         }
@@ -295,7 +343,10 @@ export async function resolveSessionKeyFromResolveParams(params: {
       }
       const ownerTaggedMatch = ownerTaggedMatches.values().next().value;
       if (ownerTaggedMatch) {
-        const check = agentCheck(ownerTaggedMatch.key, ownerTaggedMatch.entry);
+        const check = prepareAgentChecks(
+          [[ownerTaggedMatch.key, ownerTaggedMatch.entry]],
+          ownerTaggedMatch.getTarget,
+        )(ownerTaggedMatch.key, ownerTaggedMatch.entry);
         return (
           check ?? {
             ok: true,
@@ -305,7 +356,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
         );
       }
     }
-    const matches = sessionIdMatches(p.agentId);
+    const { matches, getTarget } = sessionIdMatches(p.agentId);
     const selection = resolveSessionIdMatchSelection(matches, sessionId);
     if (selection.kind === "none") {
       return noSessionFoundResult({ p, message: `No session found: ${sessionId}` });
@@ -328,7 +379,10 @@ export async function resolveSessionKeyFromResolveParams(params: {
       }
       selectedAgentId = resolvedOwner.agentId;
     }
-    const agentCheckSessionId = agentCheck(selection.sessionKey, selectedEntry);
+    const agentCheckSessionId = prepareAgentChecks(matches, getTarget)(
+      selection.sessionKey,
+      selectedEntry,
+    );
     if (agentCheckSessionId) {
       return agentCheckSessionId;
     }
@@ -347,7 +401,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
       };
     }
     const prepared = prepare();
-    const matches = filterAndSortSessionEntries({
+    const matchingEntries = filterAndSortSessionEntries({
       ...prepared,
       opts: { ...prepared.opts, archived: "all" },
       entryFilter: (candidateKey, entry) => {
@@ -357,9 +411,11 @@ export async function resolveSessionKeyFromResolveParams(params: {
           (entryFilter?.(candidateKey, entry) ?? true),
         );
       },
-    }).flatMap(([candidateKey, entry]) => {
+    });
+    const checkAgent = prepareAgentChecks(matchingEntries, prepared.getTarget);
+    const matches = matchingEntries.flatMap(([candidateKey, entry]) => {
       const target = prepared.getTarget(candidateKey);
-      return target && !agentCheck(candidateKey, entry)
+      return target && !checkAgent(candidateKey, entry)
         ? [sessionResolveCandidate(candidateKey, entry, target.agentId)]
         : [];
     });
@@ -416,7 +472,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
   }
 
   const [labelKey, labelEntry] = expectDefined(matches[0], "label session match at 0");
-  const agentCheckLabel = agentCheck(labelKey, labelEntry);
+  const agentCheckLabel = prepareAgentChecks(matches, prepared.getTarget)(labelKey, labelEntry);
   if (agentCheckLabel) {
     return agentCheckLabel;
   }

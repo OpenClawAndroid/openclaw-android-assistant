@@ -1,5 +1,6 @@
 import http from "node:http";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { setImmediate as flushImmediate } from "node:timers/promises";
 import { expectDefined } from "@openclaw/normalization-core";
 import { expect, test, vi } from "vitest";
@@ -60,6 +61,8 @@ test.each(["separate", "shared", "single", "empty"] as const)(
       return;
     }
     const harness = await startGatewayServerHarness();
+    let readWorkMs = performance.now();
+    const workClock = vi.spyOn(performance, "now").mockImplementation(() => readWorkMs);
     let closing: Promise<void> | undefined;
     const httpAgent = new http.Agent({ keepAlive: true });
     const requestHealth = () =>
@@ -96,6 +99,8 @@ test.each(["separate", "shared", "single", "empty"] as const)(
           .spyOn(sessionAccessor, "readSessionStoreSummaryReadOnly")
           .mockImplementation((...args) => {
             const result = originalRead(...args);
+            // Exercise costly reads independently of the host's SQLite cache warmth.
+            readWorkMs += 20;
             reads += 1;
             setImmediate(() => completedReads.push(reads));
             if (reads === 1) {
@@ -247,6 +252,7 @@ test.each(["separate", "shared", "single", "empty"] as const)(
           .spyOn(sessionAccessor, "readSessionStoreSummaryReadOnly")
           .mockImplementationOnce((...args) => {
             const result = originalRead(...args);
+            readWorkMs += 20;
             setImmediate(() => {
               lifecycle.push("closing");
               closing = harness.close().then(() => {
@@ -267,6 +273,7 @@ test.each(["separate", "shared", "single", "empty"] as const)(
         }
       }
     } finally {
+      workClock.mockRestore();
       httpAgent.destroy();
       await (closing ?? harness.close());
     }

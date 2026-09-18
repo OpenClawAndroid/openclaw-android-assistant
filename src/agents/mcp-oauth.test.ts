@@ -564,6 +564,10 @@ describe("MCP OAuth provider", () => {
           allowAuthorizationRedirect: true,
         });
         await provider.saveCodeVerifier("existing-verifier");
+        expect(await provider.codeVerifier()).toBe("existing-verifier");
+        await provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize?state=existing-state"),
+        );
 
         await expect(
           resolveMcpOAuthAccessToken({
@@ -676,6 +680,10 @@ describe("MCP OAuth provider", () => {
           expires_in: 3600,
         });
         await provider.saveCodeVerifier("verifier");
+        expect(await provider.codeVerifier()).toBe("verifier");
+        await provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize?state=published-state"),
+        );
         await provider.invalidateCredentials?.("tokens");
 
         const store = readMcpOAuthStore(REMOTE_IDENTITY.storeKey);

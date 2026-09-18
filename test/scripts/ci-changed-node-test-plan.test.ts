@@ -433,12 +433,13 @@ describe("CI changed Node test plan", () => {
     "keeps the complete Git tooling family in canonical serial owners (%s)",
     (runnerBackend) => {
       const changedPaths = ["test/scripts/ci-linux-git.test.ts"];
+      const expectedTargets = [...gitToolingTargets, "test/scripts/test-projects.test.ts"];
       const shards = createChangedNodeTestShards(changedPaths, { runnerBackend });
       expect(shards).not.toBeNull();
       const groups = shards?.flatMap((shard) => shard.groups ?? []) ?? [];
       const tooling = groups.filter((group) => !group.requiresDist);
       expect(tooling.flatMap((group) => group.includePatterns ?? []).toSorted()).toEqual(
-        gitToolingTargets.toSorted(),
+        expectedTargets.toSorted(),
       );
       expect(shards?.every((shard) => shard.planConcurrency === 1)).toBe(true);
       const full = createNodeTestShardBundles({
@@ -500,7 +501,7 @@ describe("CI changed Node test plan", () => {
       }
       expect(new Set((shards ?? []).flatMap(resolveTestGitCommits))).toEqual(
         new Set([
-          ...gitToolingTargets.flatMap((target) => resolveTestGitCommits({ targets: [target] })),
+          ...expectedTargets.flatMap((target) => resolveTestGitCommits({ targets: [target] })),
           ...full.filter((shard) => shard.requiresDist).flatMap(resolveTestGitCommits),
         ]),
       );
@@ -654,11 +655,37 @@ describe("CI changed Node test plan", () => {
       source: "extensions/anthropic/openclaw.plugin.json",
       targets: ["src/agents/model-ref-shared.test.ts"],
     },
+    {
+      source: "src/test-utils/symlink-rebind-race.ts",
+      targets: expect.arrayContaining(["src/infra/fs-safe-import-boundary.test.ts"]),
+    },
   ])("routes $source through source-scanning policy tests", ({ source, targets: expected }) => {
     const shards = createChangedNodeTestShards([source]);
     const targets = shards?.flatMap((shard) => shard.targets ?? []) ?? [];
 
     expect(targets).toEqual(expected);
+  });
+
+  it.each([
+    {
+      source: "test/scripts/openclaw-npm-plugin-recovery-workflow.test.ts",
+      targets: [
+        "test/scripts/openclaw-npm-plugin-recovery-workflow.test.ts",
+        "test/scripts/test-projects.test.ts",
+      ],
+    },
+    ...[
+      "extensions/codex/src/app-server/run-attempt.native-config.test.ts",
+      "extensions/codex/src/app-server/run-attempt.subscription.test.ts",
+    ].map((source) => ({
+      source,
+      targets: expect.arrayContaining([source, "test/vitest-projects-config.test.ts"]),
+    })),
+  ])("selects inventory guards alongside $source", ({ source, targets: expected }) => {
+    const shards = createChangedNodeTestShards([source]);
+    expect(shards).not.toBeNull();
+    const targets = fallbackGroups(shards ?? []).flatMap((group) => group.includePatterns ?? []);
+    expect(targets.toSorted()).toEqual(expected);
   });
 
   it("routes cron alert sanitization changes through alert policy suites", () => {

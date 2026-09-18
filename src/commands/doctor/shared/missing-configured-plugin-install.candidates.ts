@@ -263,6 +263,13 @@ export function collectDownloadableInstallCandidates(params: {
     params.configuredPluginIds ?? collectConfiguredPluginIds(params.cfg, params.env);
   const configuredChannelIds =
     params.configuredChannelIds ?? collectConfiguredChannelIds(params.cfg, params.env);
+  if (
+    params.missingPluginIds.size === 0 &&
+    configuredPluginIds.size === 0 &&
+    configuredChannelIds.size === 0
+  ) {
+    return [];
+  }
   const candidates = new Map<string, DownloadableInstallCandidate>();
 
   for (const entry of listRawChannelPluginCatalogEntries({

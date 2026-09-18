@@ -256,10 +256,11 @@ export async function resolveTelegramInboundBody(params: {
   const nativeMediaFacts =
     allMedia.length > 0 ? allMedia : primaryMedia ? [{ kind: primaryMedia.kind }] : [];
   const cachedStickerDescription = allMedia[0]?.stickerMetadata?.cachedDescription;
-  const stickerSupportsVision =
-    msg.sticker && allMedia.some((media) => media.kind === "sticker" && media.path)
-      ? await resolveStickerVisionSupport({ cfg, agentId: routeAgentId })
-      : false;
+  const stickerHasMedia =
+    Boolean(msg.sticker) && allMedia.some((media) => media.kind === "sticker" && media.path);
+  const stickerSupportsVision = stickerHasMedia
+    ? await resolveStickerVisionSupport({ cfg, agentId: routeAgentId })
+    : false;
   const stickerCacheHit = Boolean(cachedStickerDescription) && !stickerSupportsVision;
   let formattedStickerDescription: string | undefined;
   if (stickerCacheHit) {
@@ -280,6 +281,9 @@ export async function resolveTelegramInboundBody(params: {
   let rawBody = [rawText, locationText].filter(Boolean).join("\n").trim();
   if (!rawBody) {
     rawBody = richText ?? resolveTelegramRichMessagePlaceholder(msg) ?? "";
+  }
+  if (!rawBody && msg.sticker && !stickerHasMedia && !formattedStickerDescription) {
+    rawBody = msg.sticker.emoji?.trim() || formatMediaPlaceholderText(nativeMediaFacts);
   }
   if (!rawBody && nativeMediaFacts.length === 0) {
     return null;

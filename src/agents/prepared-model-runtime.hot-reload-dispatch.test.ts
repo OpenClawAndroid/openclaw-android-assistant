@@ -3,6 +3,7 @@
 import {
   cleanupPreparedModelRuntimeHarness,
   getPreparedModelRuntimeMocks,
+  getPreparedModelRuntimeTestApi,
   resetPreparedModelRuntimeHarness,
 } from "./prepared-model-runtime.test-harness.js";
 import { setImmediate as nextTurn } from "node:timers/promises";
@@ -34,10 +35,13 @@ import {
   acquireAgentRunPreparedModelRuntime,
   acquirePreparedModelRuntimeSnapshot,
   advancePreparedModelRuntimeConfig,
+  getPreparedModelRuntimeSnapshot,
   loadPublishedGatewayReplyDispatchRuntime,
   markPreparedModelRuntimeSnapshotsStale,
   refreshPreparedModelRuntimeSnapshots,
+  registerPreparedModelRuntimePublicationListener,
 } from "./prepared-model-runtime.js";
+import { getPreparedModelRuntimeStartupStatus } from "./prepared-model-runtime.startup-status.js";
 
 const mocks = getPreparedModelRuntimeMocks();
 let state: OpenClawTestState;
@@ -112,6 +116,167 @@ function createPluginReloadHandler(
 }
 
 describe("Gateway plugin reload run admission", () => {
+  it("cancels degraded startup acquisition before plugin drain and publishes only its replacement", async () => {
+    mocks.configuredAgentIds = ["default", "held"];
+    const heldWorkspace = state.path("held-workspace");
+    mocks.configuredWorkspaces.set("held", heldWorkspace);
+    const modelConfig = (id: string): OpenClawConfig => ({
+      agents: { defaults: { model: `custom/${id}` } },
+      models: {
+        providers: {
+          custom: {
+            api: "openai-completions",
+            baseUrl: "https://provider.invalid/v1",
+            models: [
+              {
+                id,
+                name: id,
+                reasoning: false,
+                input: ["text"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 8192,
+                maxTokens: 1024,
+              },
+            ],
+          },
+        },
+      },
+    });
+    const retained = modelConfig("before-reload");
+    const committed = modelConfig("after-reload");
+    setRuntimeConfigSnapshot(retained, retained);
+    const acquisitionStarted = createDeferred();
+    const cancelled = createDeferred();
+    const finishCleanup = createDeferred();
+    const escape = createDeferred();
+    const drainageStarted = createDeferred();
+    const finishDrainage = createDeferred();
+    const pluginCommitted = createDeferred();
+    const events: string[] = [];
+    let oldSignal: AbortSignal | undefined;
+    let oldSettled = false;
+    mocks.prepareStaticCatalog.mockImplementation(async (rawOptions) => {
+      const options = rawOptions as {
+        config: OpenClawConfig;
+        workspaceDir?: string;
+        signal?: AbortSignal;
+      };
+      if (options.config.agents?.defaults?.model === "custom/after-reload") {
+        events.push("replacement-acquisition");
+      } else if (options.workspaceDir === heldWorkspace) {
+        events.push("old-acquisition");
+        oldSignal = options.signal;
+        const onAbort = () => {
+          events.push("old-cancelled");
+          cancelled.resolve();
+        };
+        oldSignal?.addEventListener("abort", onAbort, { once: true });
+        acquisitionStarted.resolve();
+        try {
+          await Promise.race([cancelled.promise, escape.promise]);
+          await Promise.race([finishCleanup.promise, escape.promise]);
+        } finally {
+          oldSignal?.removeEventListener("abort", onAbort);
+          oldSettled = true;
+          events.push("old-cleanup-finished");
+        }
+      }
+      // A cancelled callback may still return; publication must reject its old facts.
+      return { entries: [] };
+    });
+    const publications: Array<{ config: OpenClawConfig; models: string[] }> = [];
+    const unregister = registerPreparedModelRuntimePublicationListener(({ phase }) => {
+      if (phase !== "published") {
+        return;
+      }
+      const snapshot = getPreparedModelRuntimeSnapshot({
+        config: committed,
+        agentId: "held",
+        agentDir: state.agentDir("held"),
+      });
+      if (snapshot) {
+        publications.push({
+          config: snapshot.config,
+          models: snapshot.modelCatalog.entries.map(({ id }) => id),
+        });
+      }
+    });
+    const handler = createPluginReloadHandler(async ({ prepareConfigEffects, commitRuntime }) => {
+      prepareConfigEffects({ pluginIds: new Set(["synthetic"]), channels: new Set() });
+      events.push("plugin-drain");
+      drainageStarted.resolve();
+      await finishDrainage.promise;
+      await commitRuntime({ publish: () => setRuntimeConfigSnapshot(committed, committed) });
+      pluginCommitted.resolve();
+      return {
+        runtime: { operationId: "degraded-reload", generation: 1, pluginIds: ["synthetic"] },
+        activeChannels: new Set(),
+      };
+    });
+    const plan = buildGatewayReloadPlan([]);
+    plan.changedPaths = ["plugins.entries.synthetic"];
+    plan.reloadPlugins = true;
+    plan.pluginLifecycle = {
+      operationId: "degraded-reload",
+      pluginIds: ["synthetic"],
+      reason: "reload",
+    };
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    getPreparedModelRuntimeTestApi().setModelRuntimeBuildTimeoutMsForTest(120_000);
+    const startup = refreshPreparedModelRuntimeSnapshots(retained, {
+      gatewayLifecycle: true,
+      startup: true,
+      catalogMode: "static",
+    });
+    void startup.catch(() => {});
+    let reload: ReturnType<typeof handler.applyHotReload> | undefined;
+    try {
+      await acquisitionStarted.promise;
+      await vi.advanceTimersByTimeAsync(120_000);
+      await startup;
+      expect(getPreparedModelRuntimeStartupStatus()).toMatchObject({
+        degraded: true,
+        pendingAgents: ["held"],
+      });
+      await expect(
+        loadPublishedGatewayReplyDispatchRuntime({ agentId: "default" }),
+      ).resolves.toMatchObject({ config: retained });
+      reload = handler.applyHotReload(plan, committed);
+      void reload.catch(() => {});
+      await Promise.race([drainageStarted.promise, reload]);
+      expect(oldSignal?.aborted).toBe(true);
+      expect(events.indexOf("old-cancelled")).toBeLessThan(events.indexOf("plugin-drain"));
+      finishDrainage.resolve();
+      await Promise.race([pluginCommitted.promise, reload]);
+      await nextTurn();
+      expect(oldSettled).toBe(false);
+      expect(events).not.toContain("replacement-acquisition");
+      expect(publications).toEqual([]);
+      finishCleanup.resolve();
+      await expect(reload).resolves.toMatchObject({ status: "applied" });
+      expect(events.indexOf("old-cleanup-finished")).toBeLessThan(
+        events.indexOf("replacement-acquisition"),
+      );
+      await expect(
+        loadPublishedGatewayReplyDispatchRuntime({ agentId: "held" }),
+      ).resolves.toMatchObject({
+        config: committed,
+        modelCatalog: { entries: [expect.objectContaining({ id: "after-reload" })] },
+      });
+      expect(publications).toEqual([{ config: committed, models: ["after-reload"] }]);
+      expect(getPreparedModelRuntimeStartupStatus()?.degraded).not.toBe(true);
+    } finally {
+      escape.resolve();
+      finishCleanup.resolve();
+      finishDrainage.resolve();
+      await Promise.allSettled([startup, reload]);
+      await getPreparedModelRuntimeTestApi().resetPreparedModelRuntimeSnapshotsForTest();
+      unregister();
+      handler.stopRestartRetries();
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     { outcome: "commit", arrival: "during drainage" },
     { outcome: "rollback", arrival: "during drainage" },

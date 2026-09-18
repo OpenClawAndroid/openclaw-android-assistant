@@ -4,6 +4,7 @@ import { getPreparedRuntimeAuthProfileStoreSnapshot } from "../../agents/auth-pr
 import { getRuntimeAuthProfileStoreMetadataRevision } from "../../agents/auth-profiles/runtime-snapshots.js";
 import { getPublishedPreparedModelCatalogOwnerSnapshot } from "../../agents/prepared-model-catalog.js";
 import { getPreparedModelFullCatalogAuth } from "../../agents/prepared-model-runtime-auth.js";
+import { getPreparedModelRuntimeStartupStatus } from "../../agents/prepared-model-runtime.startup-status.js";
 import { resolveSwarmConfig } from "../../agents/subagents/swarm/swarm-config.js";
 import { resolveRuntimeConfigCacheKey } from "../../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -106,12 +107,15 @@ function captureGenerationFacts(deps: ChatMetadataRuntimeDeps): PreparedGenerati
   const agents = withAgentRosterFactsBatch(config, () =>
     listAgentIds(config)
       .filter((agentId) => !readAgentDatabaseAdmissionRefusal(agentId))
-      .map((rawAgentId): PreparedAgentFacts => {
+      .flatMap((rawAgentId): PreparedAgentFacts[] => {
         const agentId = normalizeAgentId(rawAgentId);
         // Metadata follows the published lifecycle owner while its replacement gate owns turnover;
         // display-only config publications must not make that still-current owner disappear.
         const owner = deps.getPreparedOwner({ agentId, config });
         if (!owner) {
+          if (getPreparedModelRuntimeStartupStatus()?.degraded) {
+            return [];
+          }
           throw new ChatMetadataSnapshotUnavailableError(
             `prepared chat metadata owner is unavailable for agent "${agentId}"`,
           );
@@ -125,21 +129,23 @@ function captureGenerationFacts(deps: ChatMetadataRuntimeDeps): PreparedGenerati
           throw new Error("prepared full model catalog omitted its auth generation");
         }
         const catalog = fullModelCatalog ?? owner.modelCatalog;
-        return {
-          agentId,
-          owner,
-          authStore: fullCatalogAuth?.authStore ??
-            deps.getPreparedAuthStore(owner.agentDir, owner.inheritedAuthDir) ?? {
-              version: 1,
-              profiles: {},
-            },
-          authModes: fullCatalogAuth?.authModes ?? owner.authModes,
-          authStoreRevision: `${deps.getAuthStoreRevision(owner.agentDir)}:${deps.getAuthStoreRevision(owner.inheritedAuthDir)}`,
-          modelCatalog: catalog,
-          // Catalog inventory is immutable; attempt progress and failure are live getters.
-          catalogStatusKey: JSON.stringify([catalog.pendingProviders, catalog.refreshFailed]),
-          skillsVersion: deps.getSkillsVersion(workspaceDir),
-        };
+        return [
+          {
+            agentId,
+            owner,
+            authStore: fullCatalogAuth?.authStore ??
+              deps.getPreparedAuthStore(owner.agentDir, owner.inheritedAuthDir) ?? {
+                version: 1,
+                profiles: {},
+              },
+            authModes: fullCatalogAuth?.authModes ?? owner.authModes,
+            authStoreRevision: `${deps.getAuthStoreRevision(owner.agentDir)}:${deps.getAuthStoreRevision(owner.inheritedAuthDir)}`,
+            modelCatalog: catalog,
+            // Catalog inventory is immutable; attempt progress and failure are live getters.
+            catalogStatusKey: JSON.stringify([catalog.pendingProviders, catalog.refreshFailed]),
+            skillsVersion: deps.getSkillsVersion(workspaceDir),
+          },
+        ];
       }),
   );
   return {

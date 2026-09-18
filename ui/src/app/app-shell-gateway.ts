@@ -47,13 +47,9 @@ export interface ShellGatewayHost {
   lastLocalePrefSignature: string | null;
   previousGatewayPhase: ApplicationContext["gateway"]["snapshot"]["phase"] | null;
   agentRosterRefreshTimer: ReturnType<typeof globalThis.setTimeout> | null;
-  criticalNoticeRuntime: Promise<
-    typeof import("../pages/chat/critical-observer-notice.runtime.ts")
-  > | null;
   readonly outboxStoreImport: { load: () => Promise<unknown> };
   recoverDeletedActiveSession(sessionState: ApplicationContext["sessions"]["state"]): void;
   selectChatSession(sessionKey: string, agentId?: string | null): void;
-  storedOutboxScopeHost(context: ApplicationContext<RouteId>): StoredOutboxScopeHost;
   requestUpdate(): void;
 }
 
@@ -146,25 +142,6 @@ export class ShellGatewayOwner {
       const context = this.host.context;
       if (context) {
         this.host.recoverDeletedActiveSession(context.sessions.state);
-      }
-      return;
-    }
-    if (event.event === "session.observer") {
-      const context = this.host.context;
-      if (context) {
-        // Recovery digests share the tracker so stale critical notices can announce again.
-        this.host.criticalNoticeRuntime ??=
-          import("../pages/chat/critical-observer-notice.runtime.ts");
-        const payload = event.payload;
-        void this.host.criticalNoticeRuntime.then((runtime) =>
-          runtime.handleCriticalObserverDigest({
-            payload,
-            selectedSessionKey: this.host.activeSessionKey,
-            sessionHost: this.host.storedOutboxScopeHost(context),
-            sessions: context.sessions.state.result?.sessions ?? [],
-            onOpen: (sessionKey, agentId) => this.host.selectChatSession(sessionKey, agentId),
-          }),
-        );
       }
       return;
     }
@@ -429,7 +406,6 @@ export class ShellGatewayOwner {
   }
 
   reset(): void {
-    void this.host.criticalNoticeRuntime?.then((runtime) => runtime.resetCriticalObserverTracker());
     this.host.agentsListClient = null;
     this.host.agentsListSource = null;
     this.host.sessionKeyClient = null;

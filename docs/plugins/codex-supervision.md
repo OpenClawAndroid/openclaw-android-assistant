@@ -102,6 +102,9 @@ Set `appServer.homeScope: "user"` explicitly if the harness should share native
 Codex state too. Supervision honors explicit `appServer` connection settings
 instead of replacing them with its local user-home default.
 
+To share a running local daemon and its existing `config.toml` and login, use
+the [local Codex configuration setup](/plugins/codex-harness/native-features#use-an-existing-local-configtoml).
+
 Catalog reads use the selected store's native Codex authentication, including
 when that store is under an OpenClaw agent directory. Browsing stored sessions
 does not require importing a native credential into OpenClaw. Ordinary managed
@@ -288,14 +291,15 @@ command.
 
 ## Branch from a local session
 
-Choose **Continue as branch** on a stored or idle row from the Gateway computer.
-OpenClaw creates a normal Chat entry, mirrors bounded user and assistant history
-through the source's last terminal persisted turn (completed, interrupted, or
-failed), records a pending harness branch, and opens the Chat. The generic model
-picker is locked, but no concrete model or provider has been selected yet. The
-source is not resumed, and the canonical harness thread is not started yet.
-Repeating the action opens the existing Chat instead of creating another
-branch.
+Open a stored or idle session from the Gateway computer in the **Codex** sidebar
+and send a message from its session viewer. OpenClaw creates a model-locked Chat
+entry, mirrors bounded user and assistant history through the source's last
+terminal persisted turn (completed, interrupted, or failed), records a pending
+harness branch, and forwards your message to the Chat. The generic model picker
+stays locked.
+Branch preparation does not resume the source or start the canonical harness
+thread; the forwarded message starts that work. Continuing the same source
+opens its existing Chat instead of creating another branch.
 
 The mirror keeps the newest visible tail that fits all three limits: at most 200
 user or assistant messages, 512 KiB of UTF-8 text in total, and 64 KiB per
@@ -303,7 +307,7 @@ message. Oversized messages are truncated with a marker, and older messages are
 omitted when a cap is reached. An image or local-image input becomes the literal
 `[Image attachment]` placeholder. Image data and local paths are not copied.
 
-Send the first normal Chat message to begin work. The Codex harness installs the
+The first forwarded message begins work. The Codex harness installs the
 real approval, elicitation, event, and delivery handlers. It uses an ephemeral
 native fork on the supervision connection to pin the source snapshot without
 supplying a model or provider override. Codex App Server selects both from its
@@ -621,9 +625,8 @@ change has not refreshed its advertised capabilities.
 ineligible state, its host is offline, or another action is pending. For a
 paired-node row, also verify `operator.admin` and that all three continuation
 commands are advertised and permitted. Terminal access alone is insufficient.
-Gateway-local stored and idle rows offer **Continue as branch** instead of
-unsafe exact-thread takeover. A row that already has a supervised Chat offers
-**Open Chat**.
+Send from a Gateway-local stored or idle session viewer to create a separate
+branch. Continuing a source that already has a supervised Chat opens that Chat.
 
 **Session eligibility could not be verified:** for filesystem-backed local
 sources, transcript, Continue, Archive, and terminal actions verify the selected

@@ -186,7 +186,7 @@ extensions/codex/src/app-server/plugin-approval-roundtrip.ts	1
 extensions/codex/src/app-server/plugin-inventory.ts	6
 extensions/codex/src/app-server/plugin-metadata-cache.ts	5
 extensions/codex/src/app-server/plugin-thread-app-admission.ts	1
-extensions/codex/src/app-server/protocol-validators.ts	7
+extensions/codex/src/app-server/protocol-validators.ts	3
 extensions/codex/src/app-server/remote-workspace-media.ts	6
 extensions/codex/src/app-server/request.ts	2
 extensions/codex/src/app-server/run-attempt-context.ts	2
@@ -2147,7 +2147,6 @@ src/channels/streaming-config-readers.ts	1
 src/channels/streaming.ts	6
 src/channels/thread-bindings-policy.ts	2
 src/channels/turn/agent-run-terminal-outcome.ts	1
-src/channels/turn/delivery-result.ts	2
 src/channels/turn/execution.ts	2
 src/channels/turn/history-window.ts	1
 src/channels/turn/lifecycle.ts	3
@@ -2187,7 +2186,6 @@ src/cli/claws-cli.runtime.ts	2
 src/cli/command-config-resolution.ts	2
 src/cli/command-format.ts	1
 src/cli/command-options.ts	1
-src/cli/command-secret-gateway.ts	1
 src/cli/command-secret-targets.ts	2
 src/cli/completion-runtime.ts	4
 src/cli/config-cli-input.ts	2
@@ -2311,7 +2309,6 @@ src/commands/doctor-config-analysis.ts	3
 src/commands/doctor-config-flow.ts	2
 src/commands/doctor-config-preflight.cron.ts	4
 src/commands/doctor-gateway-services.ts	1
-src/commands/doctor-heartbeat-main-session-repair.ts	1
 src/commands/doctor-heartbeat-scratch-migration.ts	5
 src/commands/doctor-main-session-recovery.ts	1
 src/commands/doctor-model-catalog-credentials.ts	1
@@ -2642,8 +2639,7 @@ src/gateway/node-pairing-ssh-verify.ts	1
 src/gateway/node-registry-private.ts	1
 src/gateway/node-registry.ts	4
 src/gateway/openai-agent-run-usage.ts	1
-src/gateway/openai-http.ts	27
-src/gateway/openresponses-http.ts	3
+src/gateway/openai-http.ts	22
 src/gateway/operator-approval-snapshot.ts	4
 src/gateway/operator-approval-store.ts	8
 src/gateway/operator-scopes.ts	1
@@ -2715,7 +2711,6 @@ src/gateway/server-methods/plugin-approval.ts	2
 src/gateway/server-methods/plugin-host-hooks.ts	1
 src/gateway/server-methods/question.ts	2
 src/gateway/server-methods/restart-request.ts	8
-src/gateway/server-methods/send.ts	2
 src/gateway/server-methods/session-catalog-terminal-start.ts	1
 src/gateway/server-methods/session-catalog.ts	5
 src/gateway/server-methods/session-create-initial-turn.ts	2
@@ -2920,7 +2915,7 @@ src/infra/outbound/delivery-queue-preparation.ts	1
 src/infra/outbound/delivery-queue-storage.ts	6
 src/infra/outbound/format.ts	1
 src/infra/outbound/message-account-selection.ts	2
-src/infra/outbound/message-action-execution.ts	4
+src/infra/outbound/message-action-execution.ts	3
 src/infra/outbound/message-action-runner.ts	1
 src/infra/outbound/message-action-send.ts	2
 src/infra/outbound/reply-payload-normalize.ts	3
@@ -3734,7 +3729,6 @@ ui/src/pages/chat/components/widget-card.ts	3
 ui/src/pages/chat/components/widget-export.ts	1
 ui/src/pages/chat/composer-dictation.ts	2
 ui/src/pages/chat/connect-error.ts	1
-ui/src/pages/chat/critical-observer-notice.ts	1
 ui/src/pages/chat/export.ts	1
 ui/src/pages/chat/input-history.ts	3
 ui/src/pages/chat/performance.ts	1

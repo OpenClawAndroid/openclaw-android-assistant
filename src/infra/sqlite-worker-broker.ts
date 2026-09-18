@@ -3,6 +3,7 @@ import { Worker } from "node:worker_threads";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { createDeferredCore } from "../shared/deferred.js";
 import { ensureSqliteLibrarySelected } from "./bun-sqlite-library.js";
+import { resolveNodeCompileCacheEnv } from "./node-compile-cache-env.js";
 import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerUrl } from "./runtime-worker-url.js";
 import {
@@ -250,7 +251,9 @@ export class SqliteWorkerBroker {
               await actor.slot.exit;
             }
             this.forget(actor);
-            await this.retireEmpty(actor.slot);
+            if (!actor.slot.actors.size && !actor.slot.pendingOpens) {
+              await this.retire(actor.slot);
+            }
           }
         } catch (cleanupError) {
           cleanupFailure = { error: cleanupError };
@@ -389,6 +392,7 @@ export class SqliteWorkerBroker {
     const worker = runOutsideCaller(
       () =>
         new Worker(url, {
+          env: resolveNodeCompileCacheEnv(),
           execArgv: url.pathname.endsWith(".ts")
             ? ["--import", import.meta.resolve("tsx/esm")]
             : [],
@@ -678,12 +682,6 @@ export class SqliteWorkerBroker {
     }
     actor.slot.actors.delete(actor);
     actor.cleanupState = "complete";
-  }
-
-  private async retireEmpty(slot: Slot): Promise<void> {
-    if (!slot.actors.size && !slot.pendingOpens) {
-      await this.retire(slot);
-    }
   }
 
   private retire(slot: Slot): Promise<void> {

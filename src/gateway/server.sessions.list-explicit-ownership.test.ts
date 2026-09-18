@@ -220,6 +220,7 @@ test.for(
       const entry = {
         sessionId: "ops-physical-session",
         updatedAt: 10,
+        displayName: "Physical database title",
         visibility:
           change === "join" || change === "leave" ? ("read-only" as const) : ("shared" as const),
         createdActor: { type: "human" as const, source: "profile" as const, id: "owner" },
@@ -228,7 +229,7 @@ test.for(
       await seedSessionTranscript({
         ...scope,
         sessionId: entry.sessionId,
-        messages: [{ role: "user", content: "Physical database title" }],
+        messages: [{ role: "user", content: "Physical database preview" }],
       });
       if (change === "leave") {
         addSessionMember(scope, {
@@ -241,16 +242,29 @@ test.for(
       const projection = await createSessionRowProjection({ cfg });
       await vi.waitFor(() =>
         expect(
-          projection.snapshot({ key, agentId: "ops" }, { includeDerivedTitles: true }).row
-            ?.derivedTitle,
-        ).toBe("Physical database title"),
+          projection.snapshot(
+            { key, agentId: "ops" },
+            { includeDerivedTitles: true, includeLastMessage: true },
+          ).row,
+        ).toMatchObject({
+          derivedTitle: "Physical database title",
+          lastMessagePreview: "Physical database preview",
+        }),
       );
       const ensure = projection.ensureMaterialized;
       const spy = vi.spyOn(projection, "ensureMaterialized").mockImplementationOnce(async () => {
         await ensure();
         expect(
-          projection.snapshot({ key, agentId: "ops" }, { includeDerivedTitles: true }).row,
-        ).toMatchObject({ key, agentId: "ops", derivedTitle: "Physical database title" });
+          projection.snapshot(
+            { key, agentId: "ops" },
+            { includeDerivedTitles: true, includeLastMessage: true },
+          ).row,
+        ).toMatchObject({
+          key,
+          agentId: "ops",
+          derivedTitle: "Physical database title",
+          lastMessagePreview: "Physical database preview",
+        });
         if (change === "delete") {
           await deleteSessionEntryLifecycle({
             agentId: scope.agentId,
@@ -275,7 +289,7 @@ test.for(
       try {
         const result = await directSessionReq<SessionsListResult>(
           "sessions.list",
-          { configuredAgentsOnly: true, includeDerivedTitles: true },
+          { configuredAgentsOnly: true, includeDerivedTitles: true, includeLastMessage: true },
           {
             client: sharingPolicyClient({ user: "viewer" }),
             context: bindSessionRowProjection({}, () => projection),
@@ -291,6 +305,7 @@ test.for(
               key,
               agentId: "ops",
               sessionId: entry.sessionId,
+              derivedTitle: "Physical database title",
               visibility: "read-only",
               sharingRole: change === "join" ? "member" : "viewer",
             },

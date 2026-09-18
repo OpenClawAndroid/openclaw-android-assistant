@@ -1,3 +1,4 @@
+import "../../../styles/chat/composer-context-strip.css";
 import { html, nothing } from "lit";
 import type { SessionGoal } from "../../../api/types.ts";
 import { icons } from "../../../components/icons.ts";
@@ -158,21 +159,22 @@ export function createGoalComposerController(
       const mode = current();
       return mode
         ? html`<div
-            class="agent-chat__goal-mode"
+            class="agent-chat__goal-mode composer-context-strip"
             role="group"
             aria-label=${t("chat.goals.composerMode")}
           >
-            <span class="agent-chat__goal-mode-label"
-              >${icons.flag}${t(
-                mode.action === "edit" ? "chat.goals.edit" : "chat.goals.composerMode",
-              )}</span
-            >
-            <span class="agent-chat__goal-mode-hint"
+            <span class="agent-chat__goal-mode-label composer-context-strip__label">
+              <span class="composer-context-strip__icon">${icons.flag}</span>
+              <span class="composer-context-strip__label-text"
+                >${t(mode.action === "edit" ? "chat.goals.edit" : "chat.goals.composerMode")}</span
+              >
+            </span>
+            <span class="agent-chat__goal-mode-hint composer-context-strip__text"
               >${t(mode.action === "edit" ? "chat.goals.editHint" : "chat.goals.startHint")}</span
             >
             <button
               type="button"
-              class="agent-chat__goal-action"
+              class="composer-context-strip__dismiss"
               aria-label=${t("chat.goals.cancel")}
               ?disabled=${mode.pending}
               @click=${cancel}

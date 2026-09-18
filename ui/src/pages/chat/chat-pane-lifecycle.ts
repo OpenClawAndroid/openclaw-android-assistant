@@ -71,7 +71,6 @@ import {
 import { resetChatViewState } from "./chat-view-state.ts";
 import { publishChatWorkContext } from "./chat-work-context.ts";
 import { dismissConfirmedActionPopovers } from "./components/chat-message.ts";
-import { dismissThreadPortals } from "./components/chat-thread-interactions.ts";
 import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/chat-tool-cards.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
 import { exportChatMarkdown } from "./export.ts";
@@ -99,7 +98,6 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   });
 
   private chatRouteReadyReported = false;
-  private currentSessionArchived: boolean | undefined;
   private stagedAttachmentGatewayOwner: ChatAttachmentGatewayOwner = null;
   private suppressStagedAttachmentHandoffOnDisconnect = false;
   private composerPresentation: ChatPaneComposerHandoff | undefined;
@@ -572,6 +570,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   }
 
   override willUpdate(changedProperties: Map<PropertyKey, unknown>) {
+    this.captureArchivePresentationFocus();
     if (!this.state || !isSidebarSlotVisible(this.state.sidebarLayout, "companion")) {
       // A later opening owns fresh presentation focus, even if this rail never mounted.
       this.sessionCompanionFocusGeneration += 1;
@@ -652,12 +651,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
         this.showComposerPrefillAttention(input);
       }
     }
-    const archived = this.state ? this.isCurrentSessionArchived(this.state) : false;
-    if (archived && this.currentSessionArchived === false) {
-      dismissThreadPortals(this.presentationId, this);
-      this.querySelector<HTMLElement>(".chat-thread")?.focus({ preventScroll: true });
-    }
-    this.currentSessionArchived = archived;
+    this.retireArchivedPresentation();
     this.cancelResetConfirmationForSessionChange();
     this.syncHistoryObserver();
     const board = this.resolveBoardView();

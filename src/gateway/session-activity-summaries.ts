@@ -128,7 +128,8 @@ export function createSessionActivitySummaries(deps: {
       agentId: target.agentId,
     }),
   });
-  const read = (target: ActivitySummaryTarget) => loadSessionEntryReadOnly(scope(target));
+  const read = (target: ActivitySummaryTarget) =>
+    loadSessionEntryReadOnly({ ...scope(target), projection: "list" });
   const current = (state: Tracked) =>
     !disposed &&
     states.get(activitySummaryScope(state)) === state &&

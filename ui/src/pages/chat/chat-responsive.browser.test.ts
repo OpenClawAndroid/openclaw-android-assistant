@@ -285,7 +285,6 @@ function readUiCss(): string {
     "ui/src/styles/layout.css",
     "ui/src/styles/layout.mobile.css",
     "ui/src/styles/components.css",
-    "ui/src/styles/rail-header.css",
     "ui/src/styles/chat/startup-layout.css",
     "ui/src/styles/chat/layout.css",
     "ui/src/styles/chat/message-layout.css",
@@ -294,6 +293,7 @@ function readUiCss(): string {
     "ui/src/styles/chat/composer-queue.css",
     "ui/src/styles/chat/progress-card.css",
     "ui/src/styles/chat/composer-progress.css",
+    "ui/src/styles/chat/composer-context-strip.css",
     "ui/src/styles/chat/text.css",
     "ui/src/styles/chat/grouped.css",
     "ui/src/styles/chat/tool-cards.css",
@@ -750,9 +750,9 @@ function chatHtml(opts: ChatFixtureOptions = {}, mobileNavLayout = false) {
                   <div class="agent-chat__composer-lede">
                   ${
                     opts.goalMode
-                      ? `<div class="agent-chat__goal-mode">
-                        <span class="agent-chat__goal-mode-label">Goal</span>
-                        <span class="agent-chat__goal-mode-hint">Enter your objective.</span>
+                      ? `<div class="agent-chat__goal-mode composer-context-strip">
+                        <span class="agent-chat__goal-mode-label composer-context-strip__label"><span class="composer-context-strip__icon">${iconSvg()}</span><span class="composer-context-strip__label-text">Goal</span></span>
+                        <span class="agent-chat__goal-mode-hint composer-context-strip__text">Enter your objective.</span>
                       </div>`
                       : ""
                   }

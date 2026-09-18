@@ -32,7 +32,6 @@ import {
   isReplyPayloadStatusNotice,
   isReplyPayloadTerminalContent,
   markReplyPayloadForSourceSuppressionDelivery,
-  setReplyPayloadMetadata,
 } from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 import {
@@ -59,8 +58,8 @@ import { attachMcpAppChannelAction } from "./mcp-app-channel-action.js";
 import { attachMcpConnectChannelAction } from "./mcp-connect-channel-action.js";
 import { normalizeReplyPayload } from "./normalize-reply.js";
 import { createReplyToModeFilterForChannel } from "./reply-threading.js";
-import { buildSessionsYieldAcknowledgmentPayload } from "./sessions-yield-acknowledgment.js";
 import { resolveStrandedReplyRecovery } from "./stranded-reply-recovery.js";
+import { buildWaitingStatusPayload } from "./waiting-status.js";
 type ReplyAgentAccounting = Awaited<ReturnType<typeof accountAgentTurn>>;
 
 export async function prepareReplyAgentPayloads(state: {
@@ -99,7 +98,7 @@ export async function prepareReplyAgentPayloads(state: {
     fallbackExhausted,
     fallbackTransition,
     modelUsed,
-    payloadArray: rawPayloadArray,
+    payloadArray,
     preserveUserFacingSessionState,
     promptTokens,
     providerUsed,
@@ -124,15 +123,6 @@ export async function prepareReplyAgentPayloads(state: {
     (runResult.meta?.pendingToolCalls?.length ?? 0) > 0;
   if (pendingContinuation && !implicitContinuation) {
     opts?.onPendingContinuation?.();
-  }
-  let payloadArray = rawPayloadArray;
-  if (implicitContinuation && payloadArray[0]) {
-    payloadArray = [
-      setReplyPayloadMetadata(markReplyPayloadForSourceSuppressionDelivery(payloadArray[0]), {
-        continuationStatus: true,
-      }),
-      ...payloadArray.slice(1),
-    ];
   }
 
   const successfulSourceReplyDelivery = hasSuccessfulSourceReplyDelivery({
@@ -168,10 +158,11 @@ export async function prepareReplyAgentPayloads(state: {
     followupRun.currentInboundEventKind !== "room_event" &&
     (followupRun.run.inputProvenance?.kind === undefined ||
       followupRun.run.inputProvenance.kind === "external_user");
-  const yieldAcknowledgmentPayload = terminalFailurePayload
+  const waitingStatusPayload = terminalFailurePayload
     ? undefined
-    : buildSessionsYieldAcknowledgmentPayload({
+    : buildWaitingStatusPayload({
         yielded: runResult.meta?.yielded === true,
+        continuationPending: implicitContinuation,
         yieldAcknowledgment: runResult.meta?.yieldAcknowledgment,
         isInteractive,
         isHeartbeat,
@@ -269,7 +260,7 @@ export async function prepareReplyAgentPayloads(state: {
       payload.isCommentary === true && opts?.commentaryPayloadsEnabled !== true;
     const isFilteredPayload =
       normalizeReplyPayload(payload, { applyChannelTransforms: false }) === null;
-    const shouldDeferToolWarning = yieldAcknowledgmentPayload && isGeneratedToolWarning(payload);
+    const shouldDeferToolWarning = waitingStatusPayload && isGeneratedToolWarning(payload);
     return isDisabledReasoningLane ||
       isDisabledCommentaryLane ||
       isFilteredPayload ||
@@ -432,7 +423,7 @@ export async function prepareReplyAgentPayloads(state: {
     payloadArray.length === 0 &&
     fallbackNoticePayloads.length === 0 &&
     !shouldDeliverTerminalFailure &&
-    !yieldAcknowledgmentPayload &&
+    !waitingStatusPayload &&
     (!emptyInteractiveReplyPayload || hasSpecificFallbackFailure)
   ) {
     const silentFallbackFailurePayload = await returnSilentFallbackFailureIfNeeded();
@@ -459,26 +450,26 @@ export async function prepareReplyAgentPayloads(state: {
   const payloadResult = await buildFinalPayloads(payloadCandidates);
   let { replyPayloads } = payloadResult;
   didLogHeartbeatStrip = payloadResult.didLogHeartbeatStrip;
-  const replyPayloadsWithoutToolWarnings = yieldAcknowledgmentPayload
+  const replyPayloadsWithoutToolWarnings = waitingStatusPayload
     ? replyPayloads.filter((payload) => !isGeneratedToolWarning(payload))
     : replyPayloads;
   const hasTerminalReplyPayload = replyPayloadsWithoutToolWarnings.some(
     (payload) =>
       isReplyPayloadTerminalContent(payload) &&
-      ((!shouldDeliverTerminalFailure && !yieldAcknowledgmentPayload) ||
+      ((!shouldDeliverTerminalFailure && !waitingStatusPayload) ||
         followupRun.run.sourceReplyDeliveryMode !== "message_tool_only" ||
         getReplyPayloadMetadata(payload)?.deliverDespiteSourceReplySuppression === true) &&
       normalizeReplyPayload(payload, { applyChannelTransforms: false }) !== null,
   );
-  if (yieldAcknowledgmentPayload && hasTerminalReplyPayload) {
+  if (waitingStatusPayload && hasTerminalReplyPayload) {
     replyPayloads = replyPayloadsWithoutToolWarnings;
   }
   if (shouldDeliverTerminalFailure && !hasTerminalReplyPayload && terminalFailurePayload) {
     const terminalPayloadResult = await buildFinalPayloads([terminalFailurePayload]);
     replyPayloads = [...replyPayloads, ...terminalPayloadResult.replyPayloads];
     didLogHeartbeatStrip = terminalPayloadResult.didLogHeartbeatStrip;
-  } else if (yieldAcknowledgmentPayload && !hasTerminalReplyPayload) {
-    const acknowledgmentResult = await buildFinalPayloads([yieldAcknowledgmentPayload]);
+  } else if (waitingStatusPayload && !hasTerminalReplyPayload) {
+    const acknowledgmentResult = await buildFinalPayloads([waitingStatusPayload]);
     replyPayloads =
       acknowledgmentResult.replyPayloads.length > 0
         ? [...replyPayloadsWithoutToolWarnings, ...acknowledgmentResult.replyPayloads]

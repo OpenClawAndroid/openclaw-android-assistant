@@ -14,7 +14,6 @@ import {
 import { resolveChannelDefaultAccountId } from "../channels/plugins/helpers.js";
 import { getChannelPlugin } from "../channels/plugins/registry.js";
 import type { ChannelId } from "../channels/plugins/types.public.js";
-import { migrateLegacySkillWorkshopProposals } from "../commands/doctor-skill-workshop-sqlite.js";
 import { readCurrentConfigForResolution } from "../config/io.runtime.js";
 import { resolveSessionStoreCompatibilityAgentId } from "../config/legacy.default-agent-owner.js";
 import { resolveConfigPath, resolveOAuthDir, resolveStateDir } from "../config/paths.js";
@@ -1021,7 +1020,7 @@ const unresolvedMigrationStepLayout = [
   ["node-host", "final", "doctor"],
   ["subagent-registry", "final", "doctor"],
   ["rescue-pending", "final", "doctor"],
-  ["skill-workshop", "final", "all"],
+  ["skill-workshop", "final", "doctor"],
   ["channel-pairing", "final", "doctor"],
   ["plugin-doctor-state", "final", "all"],
   ["sessions", "final", "doctor-agent"],
@@ -2095,20 +2094,21 @@ function buildLegacyStateMigrationSteps(
       runWithoutFileDetection: isDoctor && params.beforeWorkspaceStateMigration !== undefined,
     },
     ...doctorFinalSteps,
-    {
-      // Workspace attestations must settle before Workshop relocation can retire them.
-      ...finalStep("skill-workshop", () =>
-        migrateLegacySkillWorkshopProposals({
-          config: params.sessionConfig ?? params.config,
-          env: { ...env, OPENCLAW_STATE_DIR: stateDir },
-          retireMissingDrafts: isDoctor,
-          unavailableWorkspaceDirs: unavailableWorkshopWorkspaces,
-        }),
-      ),
-      runWithoutFileDetection: true,
-    },
     ...(isDoctor
       ? [
+          {
+            // Workspace attestations must settle before Workshop relocation can retire them.
+            ...finalStep("skill-workshop", async () => {
+              const { migrateLegacySkillWorkshopProposals } =
+                await import("../commands/doctor-skill-workshop-sqlite.js");
+              return migrateLegacySkillWorkshopProposals({
+                config: params.sessionConfig ?? params.config,
+                env: { ...env, OPENCLAW_STATE_DIR: stateDir },
+                unavailableWorkspaceDirs: unavailableWorkshopWorkspaces,
+              });
+            }),
+            runWithoutFileDetection: true,
+          },
           finalStep(
             "channel-pairing",
             channelPairingRefusal

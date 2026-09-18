@@ -73,6 +73,19 @@ When announce delivery uses `channel: "last"` or omits `channel`, a provider-pre
 
 For isolated jobs, chat delivery is shared: if a chat route is available, the agent can use the `message` tool even with `--no-deliver`. If the agent sends to the configured/current target, OpenClaw skips the fallback announce. Otherwise `announce`, `webhook`, and `none` only control what the runner does with the final reply after the agent turn.
 
+Scheduled `message` actions use the Gateway that owns the live run. Keep the
+job's account, channel, target, and configured delivery route, but do not supply
+per-call `gatewayUrl` or `gatewayToken` fields. Ordinary and standalone message
+calls can still use those fields. To recover an existing trusted job whose
+prompt or template supplies them, edit only that prompt or template to remove
+the two fields, then run the same job again. A Gateway action reports
+`Scheduled message actions require the active bound Gateway. Remove per-call
+gatewayUrl and gatewayToken fields and retry.` until those fields are removed;
+without a scheduler-host binding it reports `Scheduled message actions require
+an active bound Gateway.` Run the job on its owning Gateway instead of copying
+connection fields into the prompt. The next send then uses the live binding,
+including current cancellation and tool-policy withdrawal.
+
 When an agent creates an isolated reminder from an active chat, OpenClaw stores the preserved live delivery target for the fallback announce route. Internal session keys may be lowercase; provider delivery targets are not reconstructed from those keys when current chat context is available.
 
 Implicit announce delivery uses configured channel allowlists to validate and reroute stale targets. DM pairing-store approvals are not fallback automation recipients; set `delivery.to` or configure the channel `allowFrom` entry when a scheduled job should proactively send to a DM.

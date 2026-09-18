@@ -24,11 +24,7 @@ import { getPluginRegistryVersion } from "../plugins/runtime-state.js";
 import { waitForPluginRegistryRetirement } from "../plugins/runtime.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import { getPluginRuntimeLoadContext } from "../plugins/runtime/load-context.js";
-import {
-  startPluginServices,
-  PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
-  type PluginServicesHandle,
-} from "../plugins/services.js";
+import { startPluginServices, type PluginServicesHandle } from "../plugins/services.js";
 import {
   getGatewayRestartDrainSignal,
   waitForGatewayRestartFenceSettlement,
@@ -146,6 +142,10 @@ export async function reloadGatewayPlugins(
   const { channelTargets, startReplacedChannels, releaseChannelHandoffs } = channels;
   const {
     attempt,
+    stopPreviousServices,
+    isBlockingStopError,
+    rethrowServiceStopTimeout,
+    includeServiceStopFailure,
     assertResourceHandoff,
     drainInstances,
     drainForRecovery,
@@ -324,17 +324,14 @@ export async function reloadGatewayPlugins(
     const stopOwner = (strict: boolean, label: string, run: () => Promise<void>) =>
       strict ? attempt(stopErrors, run) : cleanup(label, run);
     await channels.stopPrevious(resourceHandoffIds, stopErrors, cleanup);
-    await stopOwner(resourceHandoffIds.size > 0, "Plugin service cleanup failed", async () => {
-      await previousServices?.stop({
-        strict: true,
-        deadlineAtMs: Date.now() + PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
-        pluginIds: changedPluginIds,
-      });
-    });
+    await stopOwner(resourceHandoffIds.size > 0, "Plugin service cleanup failed", () =>
+      stopPreviousServices(previousServices, resourceHandoffIds.size > 0),
+    );
     // Finish admitted work before legacy stop hooks can close shared connections.
     // Removal has no replacement to protect and keeps its bounded, deferred cleanup.
-    previousCleanupFailed = stopErrors.length > 0;
+    previousCleanupFailed = stopErrors.some(isBlockingStopError);
     await drainInstances(previousRegistry, resourceHandoffIds);
+    rethrowServiceStopTimeout();
     previousHooksStopped = true;
     await stopOwner(resourceHandoffIds.size > 0, "Plugin stop hook failed", () =>
       runLifecycleHooks(previousRegistry, false, previousConfig, recovery.previousHookIds),
@@ -494,7 +491,7 @@ export async function reloadGatewayPlugins(
       runtime: receipt,
     };
   } catch (error) {
-    let failure = error;
+    let failure = includeServiceStopFailure(error);
     const onCleanupFailure = (message: string) => (cleanupError: unknown) => {
       failure = new AggregateError([failure, cleanupError], message);
     };

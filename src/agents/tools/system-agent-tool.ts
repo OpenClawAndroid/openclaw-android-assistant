@@ -198,6 +198,9 @@ const SystemAgentToolSchema = Type.Object({
   agentId: Type.Optional(
     Type.String({ description: "Agent id for create_agent/open_agent/set_default_model" }),
   ),
+  name: Type.Optional(
+    Type.String({ description: "Display name for create_agent, separate from agentId" }),
+  ),
   role: Type.Optional(
     stringEnum(listAgentRoles(), {
       description: "Bundled role for create_agent; coordinator is the chief of staff",
@@ -385,10 +388,12 @@ function operationForAction(params: Record<string, unknown>): SystemAgentOperati
         throw new ToolInputError(`openclaw: unknown role; choose ${listAgentRoles().join(", ")}`);
       }
       const workspace = readToolStringParam(params, "workspace")?.trim();
+      const name = readToolStringParam(params, "name")?.trim();
       const model = readToolStringParam(params, "model")?.trim();
       return {
         kind: "create-agent",
         agentId: requireParam(params, "agentId"),
+        ...(name ? { name } : {}),
         ...(role ? { role } : {}),
         ...(workspace ? { workspace } : {}),
         ...(model ? { model } : {}),

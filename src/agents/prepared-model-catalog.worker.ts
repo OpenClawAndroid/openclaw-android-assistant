@@ -20,11 +20,17 @@ import { restorePreparedSyntheticAuthFacts } from "../plugins/provider-synthetic
 import { manifestPluginResolvesRuntimeModelCatalogAugment } from "../plugins/providers.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { resolveRuntimeSyntheticAuthProviderRefs } from "../plugins/synthetic-auth.runtime.js";
+import { normalizeAgentId } from "../routing/session-key.js";
 import {
   resolveAgentCredentialMapFromStore,
   resolveUsableAgentCredentialModes,
 } from "./agent-auth-credentials.js";
 import { resolveAmbientAgentCredentialsForDiscovery } from "./agent-auth-discovery.js";
+import {
+  registerResolvedAgentDir,
+  resolveRegisteredAgentIdForDir,
+  unregisterResolvedAgentDir,
+} from "./agent-dir-registry.js";
 import { overlayExternalAuthProfiles } from "./auth-profiles/external-auth-runtime.js";
 import { listExternalCliSyncProviderIds } from "./auth-profiles/external-cli-sync.js";
 import { mergeRuntimeExternalProfileReferences } from "./auth-profiles/runtime-external-profile-references.js";
@@ -168,7 +174,20 @@ export async function runPreparedModelCatalogWorkerRequest(
   request: PreparedModelWorkerRequest,
   prepareGeneration = () => prepareWorkerGeneration(value),
 ): Promise<PreparedModelWorkerResult> {
+  const directoryOwner = value.input.agentId
+    ? { agentId: value.input.agentId, agentDir: value.input.agentDir, env: value.input.env }
+    : undefined;
+  let registeredDirectoryOwner = false;
   try {
+    if (directoryOwner) {
+      registeredDirectoryOwner = registerResolvedAgentDir(directoryOwner);
+      if (
+        resolveRegisteredAgentIdForDir(directoryOwner.agentDir, directoryOwner.env) !==
+        normalizeAgentId(directoryOwner.agentId)
+      ) {
+        throw new Error(`Conflicting registered agent owners for ${directoryOwner.agentDir}`);
+      }
+    }
     restorePreparedSyntheticAuthFacts(value.input.config, request.syntheticAuth, {
       env: value.input.env,
       workspaceDir: value.input.workspaceDir,
@@ -395,6 +414,10 @@ export async function runPreparedModelCatalogWorkerRequest(
       status: "failed",
       error: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    if (directoryOwner && registeredDirectoryOwner) {
+      unregisterResolvedAgentDir(directoryOwner);
+    }
   }
 }
 

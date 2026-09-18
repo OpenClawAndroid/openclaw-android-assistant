@@ -346,9 +346,7 @@ export async function deliverAgentHarnessTaskCompletion(params: {
       directOrigin,
       sourceSessionKey: childSessionKey,
       sourceTool: AGENT_HARNESS_COMPLETION_SOURCE_TOOL,
-      ...(params.isSourceSessionAdmissionAllowed
-        ? { isSourceSessionAdmissionAllowed: params.isSourceSessionAdmissionAllowed }
-        : {}),
+      isSourceSessionAdmissionAllowed: params.isSourceSessionAdmissionAllowed,
       targetRequesterSessionKey: requesterSessionKey,
       requesterIsSubagent,
       expectsCompletionMessage: true,

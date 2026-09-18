@@ -38,7 +38,11 @@ import { getChatComposerState } from "./components/chat-composer-state.ts";
 import { dismissConfirmedActionPopovers } from "./components/chat-message.ts";
 import { clearSessionWorkspacePreviews } from "./components/chat-session-workspace-state.ts";
 import { resetTaskDetail } from "./components/chat-task-detail-state.ts";
-import { resetTranscriptSession } from "./components/chat-thread-interactions.ts";
+import {
+  dismissThreadPortals,
+  isThreadPresentationFocused,
+  resetTranscriptSession,
+} from "./components/chat-thread-interactions.ts";
 import { activeQueuedMessageEdit } from "./queued-message-edit.ts";
 
 const COMPOSER_PREFILL_ATTENTION_DURATION_MS = 600;
@@ -46,6 +50,29 @@ const COMPOSER_PREFILL_ATTENTION_CLASS = "agent-chat__input--prefill-attention";
 
 /** Owns foreground resources and composer state that follow one retained presentation. */
 export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
+  private currentSessionArchived: boolean | undefined;
+  private archiveFocusOwned = false;
+
+  protected captureArchivePresentationFocus(): void {
+    this.archiveFocusOwned = Boolean(
+      this.state &&
+      this.isCurrentSessionArchived(this.state) &&
+      this.currentSessionArchived === false &&
+      isThreadPresentationFocused(this.presentationId, this),
+    );
+  }
+
+  protected retireArchivedPresentation(): void {
+    const archived = this.state ? this.isCurrentSessionArchived(this.state) : false;
+    if (archived && this.currentSessionArchived === false) {
+      dismissThreadPortals(this.presentationId, this);
+      if (this.archiveFocusOwned) {
+        this.querySelector<HTMLElement>(".chat-thread")?.focus({ preventScroll: true });
+      }
+    }
+    this.currentSessionArchived = archived;
+  }
+
   private retainedQueuedEdit = false;
 
   get hasQueuedMessageEdit(): boolean {

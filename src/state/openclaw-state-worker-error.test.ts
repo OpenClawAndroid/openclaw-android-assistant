@@ -37,6 +37,37 @@ function roundTrip(error: Error): Error {
 }
 
 describe("shared-state worker error transport", () => {
+  it.each([false, true])("preserves RangeError identity with aggregate=%s", (aggregate) => {
+    const original = Object.assign(
+      new RangeError("Synthetic integer cannot be decoded safely", {
+        cause: new Error("Synthetic decoding cause"),
+      }),
+      { code: "ERR_OUT_OF_RANGE" },
+    );
+    const root = aggregate
+      ? new AggregateError([original, original], "Read and cleanup", { cause: original })
+      : original;
+    const decoded = roundTrip(root);
+    const restored = aggregate ? decoded.cause : decoded;
+    expect(restored).toBeInstanceOf(RangeError);
+    expect(restored).toMatchObject({
+      name: "RangeError",
+      message: original.message,
+      code: original.code,
+      cause: { message: "Synthetic decoding cause" },
+    });
+    if (aggregate) {
+      expect(decoded).toBeInstanceOf(AggregateError);
+      if (!(decoded instanceof AggregateError)) {
+        throw new Error("Expected aggregate read failure");
+      }
+      expect(decoded.errors).toHaveLength(2);
+      expect(decoded.errors[0]).toBe(restored);
+      expect(decoded.errors[1]).toBe(restored);
+    }
+    expect(hydrateOpenClawStateWorkerError(decoded)).toBe(decoded);
+  });
+
   it.each([
     "OPENCLAW_STATE_LEASE_INVALID_INPUT",
     "OPENCLAW_STATE_LEASE_TIMEOUT",
@@ -363,6 +394,7 @@ describe("shared-state worker error transport", () => {
     const imitation = Object.assign(new Error("imitation"), { name: "SqliteSchemaVersionError" });
     for (const error of [
       new Error("ordinary"),
+      Object.assign(new Error("range imitation"), { name: "RangeError", code: "ERR_OUT_OF_RANGE" }),
       imitation,
       new AggregateError([imitation], "ordinary aggregate"),
       { cause: new OpenClawStateOwnershipError("nested object") },

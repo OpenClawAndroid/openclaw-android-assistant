@@ -2,7 +2,6 @@ import path from "node:path";
 import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { ScheduledTaskAutoStartRecoveryError } from "../../daemon/schtasks-update-recovery.js";
-import { formatErrorMessage } from "../../infra/errors.js";
 import { tryReadJson } from "../../infra/json-files.js";
 import type { PackageUpdateTransaction } from "../../infra/package-update-steps.js";
 import { validateUpdateCandidateCanary } from "../../infra/update-candidate-canary.js";
@@ -21,6 +20,7 @@ import { UpdateRequesterRevokedError } from "../../infra/update-requester-author
 import { recordUpdateRunPhase } from "../../infra/update-run-ledger.js";
 import { readCurrentGitUpdateRecovery } from "../../infra/update-runner-git-recovery.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
+import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { defaultRuntime } from "../../runtime.js";
 import {
   parsePackageOpenClawSchemaVersions,
@@ -63,7 +63,7 @@ import {
 import { assertUpdateCommandRecovery } from "./update-command-recovery.js";
 import { runUpdateCommandRepair } from "./update-command-repair.js";
 import {
-  createUpdateCommandFailureResult,
+  resolveMutableUpdateFailure,
   type MutableUpdateExecutionResult,
 } from "./update-command-result.js";
 import { isUpdatedInstallGatewayExecutorSupported } from "./update-command-service-command.js";
@@ -679,23 +679,16 @@ export async function executeMutableUpdate(
     }
   } catch (err) {
     params.stop();
-    if (err instanceof UpdateCommandAbort) {
+    if (err instanceof UpdateCommandAbort && !hasCommandProcessCleanupError(err)) {
       return null;
     }
-    const preMutationFailure = err instanceof UpdatePreMutationError;
-    failure = { cause: err, detail: formatErrorMessage(err) };
-    defaultRuntime.error(failure.detail);
-    // Only explicit pre-mutation refusal permits original-runtime recovery.
-    // Mutable exceptions retain an unsafe outcome through cleanup/reporting.
-    result = createUpdateCommandFailureResult({
+    ({ result, failure } = await resolveMutableUpdateFailure({
+      cause: err,
       durationMs: Date.now() - params.startedAt,
       mode,
       root: params.root,
-      recovery: preMutationFailure
-        ? await originalRecovery()
-        : { serviceRestartSafe: false, reason: "runtime-verification-failed" },
-      failure,
-    });
+      originalRecovery,
+    }));
   }
 
   if (candidateFailureReason && result.status === "error") {

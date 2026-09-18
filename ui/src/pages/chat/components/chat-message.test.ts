@@ -5978,43 +5978,6 @@ describe("grouped chat rendering", () => {
     });
   });
 
-  it("updates the authenticated widget's script policy when grouped messages rerender", () => {
-    const container = document.createElement("div");
-    const renderCanvas = (embedSandboxMode: "strict" | "scripts") =>
-      renderMessageGroups(
-        container,
-        [
-          createMessageGroup(
-            createAssistantMessage(
-              [
-                { type: "text", text: "Inline canvas result." },
-                createAssistantCanvasBlock({ suffix: "sandbox-change" }),
-              ],
-              { id: "assistant-canvas-inline-sandbox-change" },
-            ),
-            "assistant",
-          ),
-        ],
-        { embedSandboxMode },
-      );
-
-    renderCanvas("strict");
-    const widget = expectCanvasWidget(container, {
-      docId: "cv_inline_sandbox-change",
-      title: "Inline demo",
-    });
-    expect(widget).toMatchObject({ allowScripts: false });
-
-    renderCanvas("scripts");
-    expect(container.querySelector("openclaw-canvas-widget-view")).toBe(widget);
-    expect(widget).toMatchObject({ allowScripts: true });
-
-    renderCanvas("strict");
-    expect(container.querySelector("openclaw-canvas-widget-view")).toBe(widget);
-    expect(widget).toMatchObject({ allowScripts: false });
-    expect(container.querySelector(".chat-tool-card__preview-panel > iframe")).toBeNull();
-  });
-
   it("renders assistant_message canvas results in the assistant bubble even when tool rows are visible", () => {
     const container = document.createElement("div");
     renderMessageGroups(

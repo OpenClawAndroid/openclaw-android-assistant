@@ -219,6 +219,12 @@ and pass a provider-specific `readRows` / `readModelId` only when the
 upstream response is not an OpenAI-compatible `{ data: [{ id, object }] }`
 shape.
 
+During model-runtime preparation, `staticCatalog.run` and `prepareSyntheticAuth`
+receive an optional `signal`. Shutdown and plugin/config replacement abort it.
+Stop awaited acquisition when it aborts and finish resource cleanup before the
+hook settles. OpenClaw discards cancelled results and joins cleanup before a
+replacement can acquire the same agent resources.
+
 For a separate authoritative metadata feed, the same
 `provider-catalog-live-runtime` subpath exposes `ProviderCatalogSnapshot`:
 each entry pairs a runtime model with its lifecycle status.

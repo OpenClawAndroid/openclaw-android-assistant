@@ -221,6 +221,7 @@ export function renderChat(props: ChatProps) {
                     ?.querySelector<HTMLElement>(".agent-chat__composer-combobox > textarea")
                     ?.focus({ preventScroll: true });
                 showChatAnnotationEditor({
+                  paneId: props.paneId,
                   anchorRect,
                   sourceRange: props.transcript.scrollElement
                     ? resolveChatCommentAnchor(props.transcript.scrollElement, selection)?.range
@@ -411,6 +412,7 @@ export function renderChat(props: ChatProps) {
         props.suggestionComposer
           ? nothing
           : html`<openclaw-chat-comment-controller
+              .paneId=${props.paneId}
               .props=${{ ...props, disabled: !canCompose }}
               .sessionKey=${props.sessionKey}
               .presented=${props.presented ?? true}

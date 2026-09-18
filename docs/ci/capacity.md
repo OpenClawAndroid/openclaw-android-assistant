@@ -162,6 +162,8 @@ their two-worker ceiling through the job environment. This adds no jobs and
 leaves ordinary jobs' concurrency unchanged. The shard runner enforces the same
 config policy even when a caller requests two plans. Precise changed-test
 selection retains the Gateway config owner and its admission metadata.
+Gateway admission is finalized before runtime placement, so inventory changes
+retain the admitted job ceiling instead of creating a different group policy.
 
 Complete hybrid main and pull-request plans retain their existing jobs and runner
 allocations while admitting measured runtime groups within 440 seconds, including

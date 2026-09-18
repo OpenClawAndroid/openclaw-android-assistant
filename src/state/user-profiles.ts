@@ -10,23 +10,18 @@ import {
 } from "../../packages/gateway-protocol/src/schema/users.js";
 import { executeSqliteQuerySync, executeSqliteQueryTakeFirstSync } from "../infra/kysely-sync.js";
 import { generateSecureUuid } from "../infra/secure-random.js";
-import { deferSqlitePostCommitPublication } from "../infra/sqlite-post-commit.js";
 import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabaseOptions,
 } from "./openclaw-state-db.js";
-import { mergeUserGitHubConnection } from "./user-github-connections.js";
-import { mergeUserModelAccounts } from "./user-model-accounts.js";
-import { ensureUserPreferencesSchema, mergeUserPreferences } from "./user-preferences.store.js";
-import { publishUserProfileAliasChange } from "./user-profile-events.js";
+import { ensureUserPreferencesSchema } from "./user-preferences.store.js";
 import {
   applyVerifiedGitHubIdentity,
   githubAuthenticationSubject,
-  prepareUserProfileGitHubMerge,
   selectUserProfileGitHubIdentities,
 } from "./user-profile-github-identity.js";
-import { publishUserProfilesChange, stageUserProfileCatalogChange } from "./user-profile-list.js";
+import { publishUserProfilesChange } from "./user-profile-list.js";
 import {
   normalizeUserProfileAvatarMime,
   requireResolvedUserProfileById,
@@ -37,6 +32,7 @@ import {
   userProfileAvatarPresence,
   userProfilesDb,
 } from "./user-profiles-internal.js";
+import { mergeUserProfiles } from "./user-profiles-merge.js";
 import { ensureGatewayOwnerProfileRow } from "./user-profiles-owner.js";
 import {
   ensureUserProfileRoleSchema,
@@ -335,58 +331,6 @@ function ensureProfileForProviderIdentity(params: {
     params.options,
     { operationLabel: "user-profiles.ensure-identity" },
   );
-}
-
-function mergeUserProfiles(
-  db: DatabaseSync,
-  sourceProfileId: string,
-  targetProfileId: string,
-  now: number,
-): void {
-  if (sourceProfileId === targetProfileId) {
-    return;
-  }
-  const kysely = userProfilesDb(db);
-  const sourceProfileIds = [
-    sourceProfileId,
-    ...executeSqliteQuerySync(
-      db,
-      kysely.selectFrom("user_profiles").select("id").where("merged_into", "=", sourceProfileId),
-    ).rows.map((row) => row.id),
-  ];
-  prepareUserProfileGitHubMerge(db, sourceProfileIds, targetProfileId);
-  mergeUserModelAccounts(db, sourceProfileId, targetProfileId);
-  mergeUserGitHubConnection(db, sourceProfileId, targetProfileId);
-  for (const mergedProfileId of sourceProfileIds) {
-    mergeUserPreferences(db, mergedProfileId, targetProfileId);
-  }
-  executeSqliteQuerySync(
-    db,
-    kysely
-      .updateTable("user_profile_emails")
-      .set({ profile_id: targetProfileId })
-      .where("profile_id", "in", sourceProfileIds),
-  );
-  executeSqliteQuerySync(
-    db,
-    kysely
-      .updateTable("user_profile_identities")
-      .set({ profile_id: targetProfileId })
-      .where("profile_id", "in", sourceProfileIds),
-  );
-  executeSqliteQuerySync(
-    db,
-    kysely
-      .updateTable("user_profiles")
-      .set({ merged_into: targetProfileId, updated_at: now })
-      .where("id", "in", sourceProfileIds),
-  );
-  executeSqliteQuerySync(
-    db,
-    kysely.updateTable("user_profiles").set({ updated_at: now }).where("id", "=", targetProfileId),
-  );
-  stageUserProfileCatalogChange(db, sourceProfileIds);
-  deferSqlitePostCommitPublication(db, publishUserProfileAliasChange);
 }
 
 function adoptDisplayNameIfEmpty(

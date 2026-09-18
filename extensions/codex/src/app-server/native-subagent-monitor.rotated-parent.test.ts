@@ -29,6 +29,7 @@ import {
   notifyChildStarted,
   registerCodexNativeSubagentMonitor,
   successfulSendInputOutput,
+  turnStartedNotification,
   threadRead,
 } from "./native-subagent-monitor.test-support.js";
 import { matchesCodexNativeSubagentSubmissionBinding } from "./session-binding-record.js";
@@ -218,13 +219,7 @@ it.each([
       try {
         initialParent.bindTurn("parent-a");
         await notifyChildStarted(first);
-        await first.notify({
-          method: "turn/started",
-          params: {
-            threadId: "child-thread",
-            turn: { id: "turn-a", status: "inProgress", items: [] },
-          },
-        });
+        await first.notify(turnStartedNotification("turn-a"));
         await first.notify(
           childTurnCompletedNotification({
             turnId: "turn-a",
@@ -543,13 +538,7 @@ it.each([
             "child-thread",
           );
         }
-        await current.notify({
-          method: "turn/started",
-          params: {
-            threadId: "child-thread",
-            turn: { id: "turn-b", status: "inProgress", items: [] },
-          },
-        });
+        await current.notify(turnStartedNotification("turn-b"));
         if (scenario === "active-followup-still-delivering") {
           await finishInitialDelivery();
           claimedAfterInitialDelivery = isCodexAppServerLiveThreadClaimed(
@@ -719,13 +708,7 @@ it.each([
   try {
     initial.bindTurn("initial-turn");
     await notifyChildStarted(client);
-    await client.notify({
-      method: "turn/started",
-      params: {
-        threadId: "child-thread",
-        turn: { id: "turn-a", status: "inProgress", items: [] },
-      },
-    });
+    await client.notify(turnStartedNotification("turn-a"));
     await client.notify(
       childTurnCompletedNotification({
         turnId: "turn-a",
@@ -763,13 +746,7 @@ it.each([
         submissionId: "turn-b",
       }),
     );
-    await client.notify({
-      method: "turn/started",
-      params: {
-        threadId: "child-thread",
-        turn: { id: "turn-b", status: "inProgress", items: [] },
-      },
-    });
+    await client.notify(turnStartedNotification("turn-b"));
     let secondRecord = structuredClone(records.get(secondRunId)!);
     expect(secondRecord).toMatchObject({ status: "running", runId: secondRunId });
     let receiptParent = "rotated-parent";

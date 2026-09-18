@@ -90,7 +90,11 @@ If it refuses with a database integrity error, install the corrective release
 manually and run `openclaw doctor --fix`.
 
 Failed update and repair attempts enter [recovery triage](/cli/update#recover-a-failed-update)
-after service recovery and cleanup finish.
+after service recovery and cleanup finish. Preflight and finalization join admitted
+command cleanup before handing off ownership or reporting completion. If cleanup
+cannot confirm that work stopped, the updater retains any acquired ownership and
+recovery artifacts and skips automatic service compensation and repair. Inspect
+`openclaw update status` and resolve the pending execution before retrying.
 A verified rollback does not automatically start triage: the previous generation
 is running again, and the report keeps the failing check as the reason.
 An interactive update offers the diagnose/report menu with **Exit** selected by

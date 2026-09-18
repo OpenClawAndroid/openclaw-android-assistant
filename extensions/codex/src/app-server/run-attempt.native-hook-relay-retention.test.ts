@@ -612,6 +612,7 @@ describe("runCodexAppServerAttempt native hook relay retention", () => {
           turn: {
             id: "turn-1",
             status: "failed",
+            items: [],
             error: { message: "parent failed after yielding" },
           },
         },

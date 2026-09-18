@@ -36,11 +36,6 @@ export function splitModelRef(ref?: string) {
     const model = trimmed.slice(slash + 1);
     return { provider, model };
   }
-  const provider = undefined;
-  const model = trimmed;
-  if (model) {
-    return { provider, model };
-  }
   return { provider: undefined, model: trimmed };
 }
 
@@ -162,21 +157,17 @@ export async function resolveSubagentModelAndThinkingPlan(params: {
     status: "ok" as const,
     resolvedModel,
     ...(inheritedModel ? { inheritedModel: choice.ref } : {}),
-    modelApplied: Boolean(resolvedModel),
+    modelApplied: true,
     thinkingOverride: thinkingPlan.thinkingOverride,
     initialSessionPatch: {
-      ...(resolvedModel
+      model: resolvedModel,
+      modelOverrideSource,
+      ...(modelOrigin
         ? {
-            model: resolvedModel,
-            modelOverrideSource,
-            ...(modelOrigin
-              ? {
-                  // Selected child models are session overrides, not legacy fallback residue.
-                  // Self-origin metadata keeps cleanup from discarding them before first use.
-                  modelOverrideFallbackOriginProvider: modelOrigin.provider,
-                  modelOverrideFallbackOriginModel: modelOrigin.model,
-                }
-              : {}),
+            // Selected child models are session overrides, not legacy fallback residue.
+            // Self-origin metadata keeps cleanup from discarding them before first use.
+            modelOverrideFallbackOriginProvider: modelOrigin.provider,
+            modelOverrideFallbackOriginModel: modelOrigin.model,
           }
         : {}),
       ...(authProfileId

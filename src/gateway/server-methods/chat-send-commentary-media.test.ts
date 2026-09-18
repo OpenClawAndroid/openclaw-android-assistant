@@ -511,7 +511,7 @@ describe("webchat commentary media", () => {
         if (scenario === "revoked" || scenario === "aborted" || scenario === "target-rewrite") {
           expect(readMessage()).not.toHaveProperty("openclawDisplayContent");
           expect(await fs.readdir(state.statePath("media", "outgoing", "originals"))).toEqual([]);
-          expect(listManagedImageRecordEntries({ sessionKey: scope.sessionKey })).toEqual([]);
+          expect(await listManagedImageRecordEntries({ sessionKey: scope.sessionKey })).toEqual([]);
           if (scenario === "target-rewrite") {
             expect(readMessage().content).toEqual([
               { type: "text", text: "Rewritten while loading" },

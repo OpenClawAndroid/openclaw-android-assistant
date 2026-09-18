@@ -375,7 +375,7 @@ const skillWorkshopRelocationCheck: HealthCheck = {
     ) {
       fixHints.push(
         ctx.mode === "doctor"
-          ? "Review the remaining targets and migration warnings above. Resolve their ownership or recovery blockers before retrying Doctor; repeating the same repair alone will not resolve them."
+          ? "If Workshop repair has not run, use `openclaw doctor --fix`. Otherwise review the remaining targets and migration warnings above. Resolve their ownership or recovery blockers before retrying Doctor; repeating the same repair alone will not resolve them."
           : "Run `openclaw doctor --fix` to process eligible Workshop relocations and legacy collection backups.",
       );
     }

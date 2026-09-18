@@ -363,6 +363,12 @@ export function createPageState(
   state.editQueuedChatMessage = (id) => {
     if (beginQueuedMessageEdit(state, id) === "unavailable") {
       setChatError(state, QUEUED_MESSAGE_EDIT_CONFLICT_ERROR);
+    } else {
+      for (const key of ["lastError", "chatError"] as const) {
+        if (state[key] === QUEUED_MESSAGE_EDIT_CONFLICT_ERROR) {
+          state[key] = null;
+        }
+      }
     }
     renderLifecycle.invalidate();
   };

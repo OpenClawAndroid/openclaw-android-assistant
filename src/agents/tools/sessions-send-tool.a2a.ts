@@ -138,7 +138,7 @@ export async function runSessionsSendA2AFlow(params: {
               : `sessions_send delivery to ${params.displayKey} failed${error}. The target may not have received the message; retry or report the failure instead of assuming delivery succeeded.`,
             extraSystemPrompt: wait.sourceReplyDelivered
               ? "The target run failed after its final source reply was delivered. Preserve the run error diagnosis. Do not resend the message or the reply."
-              : "A previous sessions_send delivery failed after it was accepted. Decide whether to retry, use another route, or report the failure. Do not assume the target received the message.",
+              : "A previous sessions_send delivery failed after it was accepted. Inspect the accepted operation before retrying, or report the failure. Preserve attributed session-tool delivery; do not replace it with an operator CLI request. Do not assume the target received the message.",
             timeoutMs: params.announceTimeoutMs,
             sourceSessionKey: params.targetSessionKey,
             sourceTool: params.replyMode === "one-way" ? "subagent_announce" : "sessions_send",

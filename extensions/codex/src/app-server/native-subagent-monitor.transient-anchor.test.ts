@@ -13,6 +13,7 @@ import {
   successfulSendInputOutput,
   taskRecord,
   threadRead,
+  turnStartedNotification,
 } from "./native-subagent-monitor.test-support.js";
 import type {
   CodexNativeSubagentSubmission,
@@ -24,13 +25,7 @@ const followupRunId = "codex-thread:child-thread:turn:turn-b";
 type Client = ReturnType<typeof createClient>;
 
 async function startTurn(client: Client, id: string) {
-  await client.notify({
-    method: "turn/started",
-    params: {
-      threadId: "child-thread",
-      turn: { id, status: "inProgress", items: [], error: null },
-    },
-  });
+  await client.notify(turnStartedNotification(id, { error: null }));
 }
 
 async function completeTurn(client: Client, id: string, text: string) {

@@ -26,7 +26,7 @@ import {
   listConfiguredMessageChannels,
   resolveMessageChannelSelection,
 } from "./channel-selection.js";
-import { OutboundHandoffRejectedError } from "./deliver-handoff.js";
+import { assertOutboundHandoffCurrent, OutboundHandoffRejectedError } from "./deliver-handoff.js";
 import { shouldUseInternalSourceReplySink } from "./internal-source-reply.js";
 import { validateExplicitMessageAccountSelection } from "./message-account-selection.js";
 import {
@@ -49,7 +49,6 @@ import {
 import { prepareMessageRoute, resolveMessageTarget } from "./message-action-routing.js";
 import { withSendNormalization } from "./message-action-send-payload.js";
 import { buildMessagePayload, executeMessageSend } from "./message-action-send.js";
-import type { MessageSendResult } from "./message.js";
 import {
   enforceMessageActionAllowlist,
   resolveEffectiveMessageToolsConfig,
@@ -67,11 +66,28 @@ export function getToolResult(result: MessageActionResult): AgentToolResult<unkn
   return "toolResult" in result ? result.toolResult : undefined;
 }
 
+function withMessageTargetPreparation<T>(
+  assertCallerCurrent: (() => void) | undefined,
+  prepare: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const assertCurrent = signal
+    ? () => {
+        throwIfAborted(signal);
+        assertCallerCurrent?.();
+      }
+    : assertCallerCurrent;
+  return withChannelReadAuthority(assertCurrent, prepare, signal).catch((error: unknown) => {
+    // Preparation has not handed a message to a provider; preserve that fact on cancellation.
+    assertOutboundHandoffCurrent(assertCurrent);
+    throw error;
+  });
+}
+
 async function handleBroadcastAction(
   input: MessageActionInput,
   params: Record<string, unknown>,
 ): Promise<MessageActionResult> {
-  throwIfAborted(input.abortSignal);
   const broadcastEnabled =
     resolveEffectiveMessageToolsConfig({ cfg: input.cfg, agentId: input.agentId })?.broadcast
       ?.enabled !== false;
@@ -123,16 +139,10 @@ async function handleBroadcastAction(
   if (targetChannels.length === 0) {
     throw new Error("Broadcast requires at least one configured channel.");
   }
-  const results: Array<{
-    channel: ChannelId;
-    to: string;
-    ok: boolean;
-    error?: string;
-    attempted?: false;
-    sentBeforeError?: true;
-    payload?: unknown;
-    result?: MessageSendResult;
-  }> = [];
+  const results: Extract<MessageActionResult, { kind: "broadcast" }>["payload"]["results"] = [];
+  const parentIdempotencyKey = input.messageActionAuthorization?.scheduled
+    ? normalizeOptionalString(params.idempotencyKey)
+    : undefined;
   const hasAcceptedResult = () =>
     !input.dryRun && results.some((result) => result.ok || result.sentBeforeError);
   const errorSentBefore = (error: unknown): boolean =>
@@ -188,14 +198,19 @@ async function handleBroadcastAction(
           accountId: explicitAccountId,
         });
         const targetArgs: Record<string, unknown> = { to: target };
-        const resolved = await resolveMessageTarget({
-          cfg: input.cfg,
-          channel: targetChannel,
-          action: "send",
-          args: targetArgs,
-          accountId: targetAccountId,
-          plugin: targetChannelPlugin,
-        });
+        const resolved = await withMessageTargetPreparation(
+          input.assertDirectAdapterHandoff,
+          () =>
+            resolveMessageTarget({
+              cfg: input.cfg,
+              channel: targetChannel,
+              action: "send",
+              args: targetArgs,
+              accountId: targetAccountId,
+              plugin: targetChannelPlugin,
+            }),
+          input.abortSignal,
+        );
         if (!resolved) {
           throw new Error("Broadcast target resolution unexpectedly deferred.");
         }
@@ -206,6 +221,9 @@ async function handleBroadcastAction(
             ...params,
             channel: targetChannel,
             target: resolved.to,
+            ...(parentIdempotencyKey
+              ? { idempotencyKey: `${parentIdempotencyKey}:${receiptDiscriminator}` }
+              : {}),
           },
         });
         const outcome = resolveMessageActionOutcome(sendResult, "Broadcast");
@@ -518,6 +536,7 @@ function buildInternalSourceReplyToolResult(payload: {
 }
 
 export async function runMessageAction(input: MessageActionInput): Promise<MessageActionResult> {
+  throwIfAborted(input.abortSignal);
   const cfg = input.cfg;
   let params = { ...input.params };
   const resolvedAgentId =
@@ -561,8 +580,8 @@ export async function runMessageAction(input: MessageActionInput): Promise<Messa
   return await withChannelReadAuthority(
     route.assertReadAuthorityCurrent,
     async () => {
-      const context = await withChannelReadAuthority(
-        route.assertTargetAuthorityCurrent,
+      const context = await withMessageTargetPreparation(
+        route.assertTargetAuthorityCurrent ?? input.assertDirectAdapterHandoff,
         async (): Promise<ResolvedActionContext> => {
           params = route.params;
           const { channel, channelPlugin, accountId, dryRun, defersExternalTargetResolution } =

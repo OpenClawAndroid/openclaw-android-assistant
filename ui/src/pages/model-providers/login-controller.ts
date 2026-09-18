@@ -1,19 +1,17 @@
 import { html, type ReactiveController, type ReactiveControllerHost } from "lit";
 import type { ModelAuthStatusResult, ProviderLoginOption } from "../../api/types.ts";
 import type { ApplicationContext } from "../../app/context.ts";
+import { WizardLoginController } from "../../components/wizard-login-controller.ts";
 import { renderWizardSingleChoice } from "../../components/wizard-step-controls.ts";
 import { t } from "../../i18n/index.ts";
 import { registerSettingsEnglish } from "../../i18n/locales/en-settings.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import { invalidateModelAuthStatusRequests } from "../../lib/model-auth-request-state.ts";
 import { loadModelAuthStatus } from "../../lib/model-auth.ts";
-import "../../styles/model-setup.css";
-import { initialWizardValue, type ModelSetupWizardState } from "../model-setup/state.ts";
-import {
+import type {
   ModelSetupWizardRunner,
-  type ModelSetupWizardCompletion,
+  ModelSetupWizardCompletion,
 } from "../model-setup/wizard-runner.ts";
-import { renderModelSetupWizard } from "../model-setup/wizard-view.ts";
 import type { ModelProviderRowMessage } from "./config-mutation.ts";
 import type { ModelProviderCard } from "./data.ts";
 registerSettingsEnglish();
@@ -36,47 +34,37 @@ export class ModelProviderLoginController implements ReactiveController {
     | { phase: "error"; message: string }
     | null = null;
   private inventoryRequest: AbortController | undefined;
-  private state: ModelSetupWizardState = { phase: "idle" };
-  private value: unknown;
   private generation = 0;
   private mutationActive = false;
-  private cancellationPending = false;
-  private cancellationNotice: string | null = null;
   private refreshWarning: string | null = null;
   private message: ModelProviderRowMessage | undefined;
   private readonly runner: ModelSetupWizardRunner;
+  private readonly wizard: WizardLoginController;
 
   constructor(
     private readonly host: ReactiveControllerHost,
     private readonly options: LoginControllerOptions,
   ) {
     host.addController(this);
-    this.runner = new ModelSetupWizardRunner({
+    this.wizard = new WizardLoginController(host, {
       getClient: () => options.getScope().context.gateway.snapshot.client,
       getAgentId: () => options.getScope().agentId,
-      onChange: (next) => {
-        const previousStep = this.state.phase === "step" ? this.state.step.id : null;
-        this.state = next;
-        if (next.phase === "step" && next.step.id !== previousStep) {
-          this.value = initialWizardValue(next.step);
-        } else if (next.phase !== "step") {
-          this.value = undefined;
-        }
-        this.host.requestUpdate();
-      },
+      onClose: () => this.reset(),
+      onAnswer: (value, includeValue) =>
+        void this.run(() => this.runner.answer(value, includeValue)),
       onBackgroundCompletion: (completion) => this.run(() => Promise.resolve(completion), true),
       requestFailedMessage: () => t("modelProviders.requestFailed"),
-      cancelledMessage: () => t("modelSetup.wizard.cancelled"),
       sessionExpiredMessage: () => t("modelProviders.login.sessionExpired"),
     });
+    this.runner = this.wizard.runner;
   }
 
   get busy(): boolean {
     return (
       this.picker !== null ||
       this.mutationActive ||
-      this.cancellationPending ||
-      this.state.phase !== "idle"
+      this.wizard.cancelling ||
+      this.runner.state.phase !== "idle"
     );
   }
 
@@ -179,13 +167,11 @@ export class ModelProviderLoginController implements ReactiveController {
     this.inventoryRequest = undefined;
     this.picker = null;
     this.mutationActive = false;
-    this.cancellationPending = false;
-    this.cancellationNotice = null;
     this.refreshWarning = null;
     this.message = undefined;
     // Cleanup addresses the original connection and wizard only. Late replies
     // cannot publish credentials or errors into another agent's view.
-    void this.runner.cancel();
+    this.wizard.reset();
   }
 
   hostDisconnected(): void {
@@ -228,7 +214,6 @@ export class ModelProviderLoginController implements ReactiveController {
                               return;
                             }
                             this.picker = null;
-                            this.cancellationNotice = null;
                             this.refreshWarning = null;
                             this.runner.prepareSignIn(selected.kind, selected.label);
                             void this.run(() => this.runner.start(selected.id, "models.authLogin"));
@@ -243,63 +228,11 @@ export class ModelProviderLoginController implements ReactiveController {
         </openclaw-modal-dialog>
       `;
     }
-    // The Gateway can refuse cancellation during credential persistence. Keep
-    // the modal open until its reply, including dismissal by Escape/backdrop.
-    return html`<div @modal-cancel=${(event: Event) => event.preventDefault()}>
-      ${renderModelSetupWizard({
-        mode: "auth",
-        state:
-          this.state.phase === "step"
-            ? { ...this.state, busy: this.state.busy || this.mutationActive }
-            : this.state,
-        refreshWarning: this.refreshWarning,
-        cancellationNotice: this.cancellationNotice,
-        value: this.value,
-        onValueChange: (value) => {
-          this.value = value;
-          this.host.requestUpdate();
-        },
-        onAnswer: (value, includeValue) =>
-          void this.run(() => this.runner.answer(value, includeValue)),
-        onCancel: () => void this.cancel(),
-        onClose: () => this.reset(),
-      })}
-    </div>`;
-  }
-
-  private async cancel(): Promise<void> {
-    if (this.cancellationPending || this.state.phase === "done") {
-      return;
-    }
-    const generation = this.generation;
-    this.cancellationPending = true;
-    this.cancellationNotice = null;
-    try {
-      const result = await this.runner.requestCancellation();
-      if (generation !== this.generation) {
-        return;
-      }
-      if (result === "running") {
-        this.cancellationNotice = t("modelProviders.login.finishing");
-      } else if (result === "cancelled") {
-        this.reset();
-      }
-    } catch (error) {
-      if (generation === this.generation) {
-        this.cancellationNotice = t("modelSetup.wizard.cancelFailed", {
-          error: formatUiError(error, t("modelProviders.requestFailed")),
-        });
-      }
-    } finally {
-      if (generation === this.generation) {
-        this.cancellationPending = false;
-        this.host.requestUpdate();
-      }
-    }
+    return this.wizard.render({ busy: this.mutationActive, refreshWarning: this.refreshWarning });
   }
 
   private async complete(): Promise<void> {
-    const label = this.state.authLabel;
+    const label = this.runner.state.authLabel;
     this.runner.close();
     this.message = {
       kind: "success",

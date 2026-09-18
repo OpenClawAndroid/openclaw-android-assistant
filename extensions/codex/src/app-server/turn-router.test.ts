@@ -261,7 +261,7 @@ describe("CodexAppServerTurnRouter", () => {
     });
     harness.send({
       method: "turn/completed",
-      params: { threadId: "thread-2", turn: { id: "turn-2", items: [] } },
+      params: { threadId: "thread-2", turn: { id: "turn-2", status: "completed", items: [] } },
     });
     harness.send({
       method: "item/agentMessage/delta",
@@ -293,7 +293,7 @@ describe("CodexAppServerTurnRouter", () => {
     expect(secondNotifications).toHaveBeenCalledWith(
       {
         method: "turn/completed",
-        params: { threadId: "thread-2", turn: { id: "turn-2", items: [] } },
+        params: { threadId: "thread-2", turn: { id: "turn-2", status: "completed", items: [] } },
       },
       { threadId: "thread-2", turnId: "turn-2" },
     );

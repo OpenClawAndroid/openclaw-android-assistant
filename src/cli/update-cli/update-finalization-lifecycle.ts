@@ -307,7 +307,9 @@ export class UpdateFinalizationLifecycle {
     };
     try {
       // Service custody must be acquired before cancellation, and restored outside it.
-      await custody?.enter?.();
+      await withCommandProcessScope(async () => {
+        await custody?.enter?.();
+      });
       // Borrowed invocations do not take over their host's lifetime.
       if (budgetMs !== undefined && hasCliProcessScope()) {
         const failure = new UpdateCommandFinalizedRecoveryFailure({
@@ -328,7 +330,9 @@ export class UpdateFinalizationLifecycle {
           return await output.run(() => run(scope));
         }, scope.signal),
       );
-      await custody?.restore?.(result);
+      await withCommandProcessScope(async () => {
+        await custody?.restore?.(result);
+      });
       const completed = outcome?.(result) ?? "completed";
       end(
         typeof completed === "string" ? completed : completed.outcome,

@@ -79,11 +79,7 @@ export class CodexNativeSubagentTaskMirror {
     this.expectedAuthoritativeRunIds.add(runId);
   }
 
-  startFollowupTurn(
-    threadId: string,
-    turnId: string,
-    nativeParentThreadId = this.params.parentThreadId,
-  ): string {
+  startFollowupTurn(threadId: string, turnId: string, nativeParentThreadId: string): void {
     const previousRunId = this.runId(threadId);
     const previous = this.runtime.listTaskRecords().find((task) => task.runId === previousRunId);
     const runId = codexNativeSubagentRunId(threadId, turnId);
@@ -99,7 +95,6 @@ export class CodexNativeSubagentTaskMirror {
       startedAt: this.now(),
       progressSummary: "Subagent started follow-up work.",
     });
-    return runId;
   }
 
   recordNativeTurn(runId: string, turnId: string): void {

@@ -342,6 +342,10 @@ never a shell or direct RPC substitute. An unavailable messaging tool is not
 permission to use the CLI. Subagents return results through their accepted task
 completion path; the parent relays any necessary coordination with other sessions.
 
+In an agent's `exec` subprocess (`OPENCLAW_SHELL=exec`), message RPCs are
+refused before connecting so worker reports cannot appear as fresh human input.
+Ordinary operator terminals and non-message Gateway diagnostics are unchanged.
+
 <ParamField path="--params <json>" type="string" default="{}">
   JSON object string for params.
 </ParamField>

@@ -148,19 +148,13 @@ export function createCodexAttemptServerRequestController(
         if (approvalResult.kind === "handled") {
           return approvalResult.response;
         }
-        return await userInputBridgeRef.current?.handleElicitationRequest({
-          id: request.id,
-          params: request.params,
-        });
+        return await userInputBridgeRef.current?.handleElicitationRequest(request, signal);
       }
       if (request.method === "item/tool/requestUserInput") {
         if (scope.turnId === turnId) {
           markCurrentTurnRequestProgress();
         }
-        return await userInputBridgeRef.current?.handleRequest({
-          id: request.id,
-          params: request.params,
-        });
+        return await userInputBridgeRef.current?.handleRequest(request, signal);
       }
       if (request.method !== "item/tool/call") {
         if (isCodexAppServerApprovalRequest(request.method)) {

@@ -39,13 +39,13 @@ import { warnPrivateMessageToolFinal } from "./private-message-tool-final.js";
 import { enqueueFollowupRun, resolveQueueSettings, type FollowupRun } from "./queue.js";
 import type { ReplyDispatchKind } from "./reply-dispatcher.types.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
-import { buildSessionsYieldAcknowledgmentPayload } from "./sessions-yield-acknowledgment.js";
 import { resolveSourceReplyVisibilityPolicy } from "./source-reply-delivery-mode.js";
 import {
   buildStrandedReplyDeliveryFailurePayload,
   resolveStrandedReplyRecovery,
 } from "./stranded-reply-recovery.js";
 import { createTypingSignaler } from "./typing-mode.js";
+import { buildWaitingStatusPayload } from "./waiting-status.js";
 
 type FollowupDeliveryDecision =
   | {
@@ -221,10 +221,10 @@ export function resolveFollowupDeliveryDecision(params: {
         ? markReplyPayloadForSourceSuppressionDelivery(accounting.terminalFailurePayload)
         : accounting.terminalFailurePayload
       : undefined
-    : (buildSessionsYieldAcknowledgmentPayload({
+    : (buildWaitingStatusPayload({
         yielded: result.meta?.yielded === true,
         yieldAcknowledgment: result.meta?.yieldAcknowledgment,
-        isInteractive,
+        isInteractive: isInteractive && turn.queued.currentInboundEventKind !== "room_event",
         isHeartbeat: opts?.isHeartbeat,
         silentExpected: turn.queued.run.silentExpected,
         isSubagentSession:

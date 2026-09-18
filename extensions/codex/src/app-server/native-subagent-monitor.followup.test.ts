@@ -18,6 +18,7 @@ import {
   nativeCompletionNotification,
   deliveredNativeCompletion,
   childTurnCompletedNotification,
+  turnStartedNotification,
   threadRead,
   taskRecord,
 } from "./native-subagent-monitor.test-support.js";
@@ -78,13 +79,7 @@ describe("CodexNativeSubagentMonitor", () => {
         },
       });
       if (version === "v1") {
-        await client.notify({
-          method: "turn/started",
-          params: {
-            threadId: "child-thread",
-            turn: { id: "initial-turn", status: "inProgress", items: [], error: null },
-          },
-        });
+        await client.notify(turnStartedNotification("initial-turn", { error: null }));
       }
       await client.notify(
         nativeCompletionNotification({
@@ -93,13 +88,7 @@ describe("CodexNativeSubagentMonitor", () => {
           result: "first result",
         }),
       );
-      await client.notify({
-        method: "turn/started",
-        params: {
-          threadId: "child-thread",
-          turn: { id: "followup-turn", status: "inProgress", items: [], error: null },
-        },
-      });
+      await client.notify(turnStartedNotification("followup-turn", { error: null }));
       onDirectChildAccepted.mockClear();
       expect(runtime.createRunningTaskRun).toHaveBeenCalledOnce();
       await client.notify({
@@ -205,13 +194,7 @@ describe("CodexNativeSubagentMonitor", () => {
         item: directSpawnItem("v2", "parent-thread", "child-thread"),
       },
     });
-    await client.notify({
-      method: "turn/started",
-      params: {
-        threadId: "child-thread",
-        turn: { id: "running-turn", status: "inProgress", items: [], error: null },
-      },
-    });
+    await client.notify(turnStartedNotification("running-turn", { error: null }));
     await first.unregister();
     expect(oldRelease).not.toHaveBeenCalled();
     const second = register(newClaim);
@@ -263,13 +246,7 @@ describe("CodexNativeSubagentMonitor", () => {
       }),
     );
     await parent.unregister();
-    await client.notify({
-      method: "turn/started",
-      params: {
-        threadId: "child-thread",
-        turn: { id: "unowned-turn", status: "inProgress", items: [], error: null },
-      },
-    });
+    await client.notify(turnStartedNotification("unowned-turn", { error: null }));
     expect(runtime.createRunningTaskRun).toHaveBeenCalledOnce();
   });
 
@@ -403,13 +380,7 @@ describe("CodexNativeSubagentMonitor", () => {
       });
       expect(claim).toHaveBeenCalledOnce();
       expect(records.size).toBe(1);
-      await client.notify({
-        method: "turn/started",
-        params: {
-          threadId: "child-thread",
-          turn: { id: "followup-turn", status: "inProgress", items: [], error: null },
-        },
-      });
+      await client.notify(turnStartedNotification("followup-turn", { error: null }));
       if (consumed === "fresh-unbound") {
         expect(records.size).toBe(1);
         expect(followupClaim).not.toHaveBeenCalled();
@@ -444,13 +415,7 @@ describe("CodexNativeSubagentMonitor", () => {
         if (consumed === "resumed") {
           await interact();
         }
-        await client.notify({
-          method: "turn/started",
-          params: {
-            threadId: "child-thread",
-            turn: { id: "resumed-turn", status: "inProgress", items: [], error: null },
-          },
-        });
+        await client.notify(turnStartedNotification("resumed-turn", { error: null }));
         if (consumed === "resumed-completed-first") {
           await complete("resumed-turn", secondResult);
         }
@@ -471,13 +436,7 @@ describe("CodexNativeSubagentMonitor", () => {
       }
       await complete(resumed ? "resumed-turn" : "followup-turn", secondResult);
       if (resumed) {
-        await client.notify({
-          method: "turn/started",
-          params: {
-            threadId: "child-thread",
-            turn: { id: "unadmitted-turn", status: "inProgress", items: [], error: null },
-          },
-        });
+        await client.notify(turnStartedNotification("unadmitted-turn", { error: null }));
         expect(claim).toHaveBeenCalledTimes(consumed === "resumed-completed-first" ? 2 : 3);
         expect(records.size).toBe(2);
       }
@@ -868,13 +827,7 @@ describe("CodexNativeSubagentMonitor", () => {
       if (interactionFirst) {
         await interact();
       }
-      await client.notify({
-        method: "turn/started",
-        params: {
-          threadId: "child-thread",
-          turn: { id: "turn-1", status: "inProgress", items: [] },
-        },
-      });
+      await client.notify(turnStartedNotification("turn-1"));
       if (!interactionFirst) {
         await interact();
       }

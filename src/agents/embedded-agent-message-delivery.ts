@@ -273,6 +273,10 @@ export function projectEmbeddedMessageDeliveryFact(
   result: MessageActionResult,
   currentSourceReply = false,
 ): EmbeddedMessageDeliveryFact | undefined {
+  const payloadDelivery = result.dryRun
+    ? undefined
+    : projectPluginMessageDeliveryFact(result.payload);
+  const partialDelivery = payloadDelivery?.partialDelivery ? payloadDelivery : undefined;
   if (currentSourceReply && result.handledBy === "plugin") {
     return result.dryRun
       ? { status: "dryRun", ...EMPTY_DELIVERY_FACT }
@@ -287,15 +291,15 @@ export function projectEmbeddedMessageDeliveryFact(
             partialDelivery: false,
             createdThreadIds: [],
           }
-        : undefined;
+        : partialDelivery;
   }
   if (result.kind === "poll") {
     return result.handledBy === "core" && result.pollResult
       ? projectPoll(result.pollResult)
-      : undefined;
+      : partialDelivery;
   }
   if (result.kind !== "broadcast") {
-    return undefined;
+    return partialDelivery;
   }
   const entries = result.payload.results.map((entry) => ({
     entry,

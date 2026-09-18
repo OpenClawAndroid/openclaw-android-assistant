@@ -219,8 +219,8 @@ yield only if external work still requires waiting. This applies even when the
 tool has already finished and its result appears in the transcript.
 
 Use the optional `message` field for private context that the resumed turn
-should receive. Use `acknowledgment` for a waiting reply when an interactive
-parent turn would otherwise end silently. The acknowledgment is not sent from
+should receive. OpenClaw sends a default waiting reply when an interactive
+parent turn would otherwise end silently; `acknowledgment` overrides its text. It is not sent from
 sub-agent, heartbeat, or silent turns, and it does not replace a reply or
 message already delivered during the turn. This host-owned waiting status
 bypasses message-tool-only source suppression; ordinary model replies remain

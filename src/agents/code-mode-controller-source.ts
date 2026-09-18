@@ -75,7 +75,7 @@ export const CODE_MODE_CONTROLLER_SOURCE = String.raw`
     const sequence = (bridgeSequences.get(methodName) ?? 0) + 1;
     bridgeSequences.set(methodName, sequence);
     const id = "bridge:" + methodName + ":" + String(sequence);
-    const argsJson = JSON.stringify(safe(args ?? []));
+    const argsJson = stringifyJson(args ?? []);
     // Guest toJSON/getters can create requests while serializing this input.
     assertQueueCapacity(queue);
     const callStack = new GuestError().stack;
@@ -454,7 +454,8 @@ export const CODE_MODE_CONTROLLER_SOURCE = String.raw`
     __openclawSettleBridge: { value: settle },
     __openclawDrainQueuedRequests: { value: drainQueuedRequests },
     __openclawAdmissionError: { value: () => admissionError },
-    __openclawEncodeFinalValue: { value: encodeFinalValue },
+    // Final getters must run before the worker drains output and settles host work.
+    __openclawRunCell: { value: async (run) => encodeFinalValue(await run()) },
     __openclawTakeOutputJson: { value: () => encodeFinalValue(output.splice(0)) },
     __openclawTrackRejection: {
       value: (promise, _reason, handled) => {

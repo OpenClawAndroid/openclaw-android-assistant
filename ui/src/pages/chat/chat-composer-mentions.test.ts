@@ -247,7 +247,7 @@ describe.each(["chat", "new-session"] as const)("%s human mentions", (kind) => {
     });
   });
 
-  it("reuses complete searches while refining and restoring cached queries", async () => {
+  it("searches each new query and restores only exact cached results", async () => {
     const view = composerFixture(kind);
     const roster: UsersMentionableResult = {
       users: [
@@ -257,26 +257,92 @@ describe.each(["chat", "new-session"] as const)("%s human mentions", (kind) => {
       ],
       truncated: false,
     };
-    view.request.mockResolvedValue(roster);
-    view.edit("@");
-    await vi.advanceTimersByTimeAsync(150);
-    for (const [query, count] of [
-      ["@h", 2],
-      ["@ha", 1],
-      ["@h", 2],
-      ["@", 3],
+    view.request
+      .mockResolvedValueOnce(roster)
+      .mockResolvedValueOnce({ users: roster.users.slice(0, 2), truncated: false })
+      .mockResolvedValueOnce({ users: roster.users.slice(0, 1), truncated: false });
+    for (const [query, count, requests] of [
+      ["@", 3, 1],
+      ["@h", 2, 2],
+      ["@ha", 1, 3],
+      ["@h", 2, 3],
+      ["@", 3, 3],
     ] as const) {
       view.edit(query);
-      expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(count);
       await vi.advanceTimersByTimeAsync(150);
+      expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(count);
+      expect(view.request).toHaveBeenCalledTimes(requests);
     }
-    expect(view.request).toHaveBeenCalledTimes(1);
     view.edit("@ha");
     view.key("Enter");
     expect(view.value()).toEqual({
       draft: "@Harper ",
       mentions: [{ profileId: "harper", start: 0, end: 7 }],
     });
+  });
+
+  it.each(["", "ste"])(
+    "keeps verified-login matches when refining a cached %j query",
+    async (prefix) => {
+      const view = composerFixture(kind);
+      const roster: UsersMentionableResult = {
+        users: [
+          { profileId: "profile-peter", displayName: "Peter Steinberger", online: true },
+          { profileId: "profile-other", displayName: "steipete", online: false },
+        ],
+        truncated: false,
+      };
+      view.request.mockResolvedValue(roster);
+      view.edit(`@${prefix}`);
+      await vi.advanceTimersByTimeAsync(150);
+      view.edit("@steipete", { data: "steipete".slice(prefix.length) });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(view.request).toHaveBeenLastCalledWith("users.mentionable", {
+        ...(kind === "chat" ? { sessionKey: "agent:main:chat" } : { agentId: "main" }),
+        query: "steipete",
+      });
+      expect(view.request).toHaveBeenCalledTimes(2);
+      expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(2);
+      expect(view.value().mentions).toEqual([]);
+      view.key("Enter");
+      expect(view.value()).toEqual({
+        draft: "@Peter Steinberger ",
+        mentions: [{ profileId: "profile-peter", start: 0, end: 18 }],
+      });
+      expect(view.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["Enter", "Tab"])("selects a typed full name with %s before sending", async (key) => {
+    const view = composerFixture(kind);
+    view.request.mockResolvedValue({
+      users: [{ profileId: "profile-peter", displayName: "Peter Steinberger", online: true }],
+      truncated: false,
+    });
+    for (const [input, data] of [
+      ["@", "@"],
+      ["@Peter", "Peter"],
+      ["@Peter ", " "],
+      ["@Peter Steinberger", "Steinberger"],
+    ] as const) {
+      view.edit(input, { data });
+      await vi.advanceTimersByTimeAsync(150);
+      expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(1);
+      expect(view.value().mentions).toEqual([]);
+    }
+    expect(view.request).toHaveBeenLastCalledWith("users.mentionable", {
+      ...(kind === "chat" ? { sessionKey: "agent:main:chat" } : { agentId: "main" }),
+      query: "Peter Steinberger",
+    });
+    expect(view.key(key).defaultPrevented).toBe(true);
+    expect(view.send).not.toHaveBeenCalled();
+    expect(view.value()).toEqual({
+      draft: "@Peter Steinberger ",
+      mentions: [{ profileId: "profile-peter", start: 0, end: 18 }],
+    });
+    view.key("Enter");
+    expect(view.send).toHaveBeenCalledWith(view.value());
   });
 
   it.each([
@@ -406,9 +472,36 @@ describe.each(["chat", "new-session"] as const)("%s human mentions", (kind) => {
       draft: "@Alex ",
       mentions: [{ profileId: "profile-alex-offline", start: 0, end: 5 }],
     });
-    expect(view.container.textContent).toContain("Will notify: @Alex");
+    expect(view.container.querySelector('[role="status"]')?.textContent).toContain("Will notify");
+    expect(view.container.querySelector('[role="status"]')?.textContent).not.toContain("@Alex");
     view.key("Enter");
     expect(view.send).toHaveBeenCalledWith(view.value());
+  });
+
+  it("shows the selected full name and removes notification without changing its draft", async () => {
+    const view = composerFixture(kind);
+    view.request.mockResolvedValue({
+      users: [{ profileId: "jordan", displayName: "Jordan Rivera", online: true }],
+      truncated: false,
+    });
+    view.edit("@Jo");
+    await vi.advanceTimersByTimeAsync(150);
+    view.key("Enter");
+    const status = view.container.querySelector('[role="status"]')!;
+    expect(status.textContent).toContain("Will notify");
+    expect(status.textContent).toContain("Jordan Rivera");
+    expect(status.textContent).not.toContain("Will notify:");
+    expect(status.textContent).not.toContain("@Jordan Rivera");
+    expect(status.querySelector('[role="img"][aria-label="Jordan Rivera"]')).not.toBeNull();
+    expect(status.querySelector('[title="@Jordan Rivera"]')).not.toBeNull();
+    expect(view.value()).toEqual({
+      draft: "@Jordan Rivera ",
+      mentions: [{ profileId: "jordan", start: 0, end: 14 }],
+    });
+    status.querySelector<HTMLButtonElement>('button[aria-label="Remove mention"]')!.click();
+    view.key("Enter");
+    expect(view.send).toHaveBeenCalledWith({ draft: "@Jordan Rivera ", mentions: [] });
+    expect(view.container.textContent).not.toContain("Will notify");
   });
 
   it("keeps the remaining same-name recipient after deleting the first token", () => {
@@ -428,21 +521,59 @@ describe.each(["chat", "new-session"] as const)("%s human mentions", (kind) => {
     const view = composerFixture(kind, "@Alex", [{ profileId: "alex", start: 0, end: 5 }]);
     view.edit("@Alx", { start: 3, end: 4, inputType: "deleteContentForward", data: null });
     expect(view.value().mentions).toEqual([]);
-    expect(view.container.textContent).not.toContain("Will notify:");
+    expect(view.container.textContent).not.toContain("Will notify");
     view.edit("@Alex", { start: 0, end: 4, inputType: "insertFromPaste" });
     view.key("Enter");
     expect(view.send).toHaveBeenCalledWith({ draft: "@Alex", mentions: [] });
     expect(view.request).not.toHaveBeenCalled();
   });
 
-  it.each(["email@Alex", "`@Alex", "> @Alex", "```\n@Alex"])(
-    "keeps %j as plain text",
-    async (text) => {
+  it.each([
+    "email@Alex",
+    "`@Alex",
+    "> @Alex",
+    "```\n@Alex",
+    "email@Peter Steinberger",
+    "`@Peter Steinberger",
+    "> @Peter Steinberger",
+    "```\n@Peter Steinberger",
+    "/command @Peter Steinberger",
+  ])("keeps %j as plain text", async (text) => {
+    const view = composerFixture(kind);
+    view.edit(text);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(view.request).not.toHaveBeenCalled();
+    expect(view.value().mentions).toEqual([]);
+  });
+
+  it.each(["insertFromPaste", "insertFromDrop"])(
+    "never binds a full name from %s",
+    async (inputType) => {
       const view = composerFixture(kind);
-      view.edit(text);
+      view.edit("@Peter Steinberger", { inputType });
       await vi.advanceTimersByTimeAsync(150);
+      view.key("Enter");
       expect(view.request).not.toHaveBeenCalled();
-      expect(view.value().mentions).toEqual([]);
+      expect(view.send).toHaveBeenCalledWith({ draft: "@Peter Steinberger", mentions: [] });
+    },
+  );
+
+  it.each(["@Peter Steinberger", "@Peter\nSteinberger"])(
+    "sends %j without recipients when no person was selected",
+    async (draft) => {
+      const view = composerFixture(kind);
+      view.edit("@Peter", { data: "@Peter" });
+      await vi.advanceTimersByTimeAsync(150);
+      view.edit(draft, { data: draft.slice("@Peter".length) });
+      await vi.advanceTimersByTimeAsync(150);
+      if (draft.includes("\n")) {
+        expect(view.container.querySelector('[role="listbox"]')).toBeNull();
+        expect(view.request).toHaveBeenCalledTimes(1);
+      } else {
+        view.key("Escape");
+      }
+      view.key("Enter");
+      expect(view.send).toHaveBeenCalledWith({ draft, mentions: [] });
     },
   );
 

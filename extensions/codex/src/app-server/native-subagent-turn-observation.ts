@@ -189,23 +189,20 @@ export class CodexNativeSubagentTurnObservation {
       }
       return;
     }
-    if (notification.method === "item/agentMessage/delta") {
+    if (
+      notification.method === "item/agentMessage/delta" ||
+      notification.method === "item/reasoning/summaryTextDelta"
+    ) {
       const delta = readString(params, "delta");
       if (delta) {
         if (!childState.activityObserved) {
           observe("running");
         }
-        emitAgentEvent({ ...owner, stream: "assistant", data: { delta } });
-      }
-      return;
-    }
-    if (notification.method === "item/reasoning/summaryTextDelta") {
-      const delta = readString(params, "delta");
-      if (delta) {
-        if (!childState.activityObserved) {
-          observe("running");
-        }
-        emitAgentEvent({ ...owner, stream: "thinking", data: { delta } });
+        emitAgentEvent({
+          ...owner,
+          stream: notification.method === "item/agentMessage/delta" ? "assistant" : "thinking",
+          data: { delta },
+        });
       }
       return;
     }
@@ -364,9 +361,6 @@ export class CodexNativeSubagentTurnObservation {
     options: { replace?: boolean } = {},
   ): void {
     const messages = this.getChildAssistantMessages(childState, turnId);
-    if (!messages.texts.has(itemId)) {
-      messages.order.push(itemId);
-    }
     const existing = messages.texts.get(itemId) ?? "";
     messages.texts.set(itemId, options.replace ? text : `${existing}${text}`);
   }
@@ -379,7 +373,6 @@ export class CodexNativeSubagentTurnObservation {
     if (!messages) {
       messages = {
         texts: new Map<string, string>(),
-        order: [],
         commentaryIds: new Set<string>(),
         finalMessageIds: new Set<string>(),
       };
@@ -394,7 +387,7 @@ function lastChildAssistantMessage(childState: ChildState, turnId: string): stri
   if (!messages) {
     return undefined;
   }
-  for (const itemId of messages.order.toReversed()) {
+  for (const itemId of [...messages.texts.keys()].toReversed()) {
     if (messages.finalMessageIds.has(itemId) && !messages.commentaryIds.has(itemId)) {
       const text = normalizeOptionalString(messages.texts.get(itemId));
       if (text) {

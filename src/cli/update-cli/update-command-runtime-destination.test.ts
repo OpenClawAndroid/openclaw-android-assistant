@@ -7,8 +7,13 @@ import {
   createMockGatewayService,
   mockSystemAccountHome,
 } from "../../daemon/service.test-helpers.js";
+import {
+  resolveCommandProcessSignal,
+  retainCommandProcessCleanup,
+} from "../../process/exec-spawn.js";
 import * as processExec from "../../process/exec.js";
 import { defaultRuntime, ExitError } from "../../runtime.js";
+import { createDeferredCore } from "../../shared/deferred.js";
 import { createCommandResult } from "../../test-utils/npm-spec-install-test-helpers.js";
 import { quoteCliArg, quotePowerShellArg } from "../quote-cli-arg.js";
 import { installFreshUpdateFixture } from "./update-command-fresh.test-support.js";
@@ -25,6 +30,70 @@ import { updateCommand } from "./update-command.js";
 
 vi.mock("../../infra/container-environment.js", () => ({ isContainerEnvironment: () => false }));
 const { fixture } = installFreshUpdateFixture();
+
+it.each(["forced", "uncertain"] as const)(
+  "settles npm destination inspection before publishing refusal (%s)",
+  async (cleanupResult) => {
+    vi.mocked(packageDestination.inspectNpmGlobalDestination).mockRestore();
+    const cleanup = createDeferredCore<"forced" | "uncertain">();
+    const joining = createDeferredCore();
+    const writes = vi.spyOn(packageUpdate, "runPackageInstallUpdate");
+    vi.spyOn(processExec, "runCommandWithTimeout").mockImplementation(async (argv) => {
+      expect(argv).toContain("prefix");
+      retainCommandProcessCleanup(cleanup.promise);
+      resolveCommandProcessSignal()?.addEventListener("abort", () => joining.resolve(), {
+        once: true,
+      });
+      throw new Error("npm prefix probe cancelled");
+    });
+    const launcher = path.join(fixture.root, "openclaw.mjs");
+    await fs.writeFile(launcher, "// original deployment\n");
+    const work = updateCommand({ tag: "2026.9.2", json: true, yes: true, dryRun: true }).catch(
+      (error: unknown) => error,
+    );
+    try {
+      await Promise.race([
+        joining.promise,
+        work.then(() => {
+          throw new Error("npm destination refusal escaped cleanup ownership");
+        }),
+      ]);
+      expect(defaultRuntime.writeJson).not.toHaveBeenCalled();
+      expect(defaultRuntime.error).not.toHaveBeenCalled();
+      expect(writes).not.toHaveBeenCalled();
+      expect(packageUpdate.stagePackageInstallUpdate).not.toHaveBeenCalled();
+    } finally {
+      cleanup.resolve(cleanupResult);
+      await work;
+    }
+    expect(defaultRuntime.writeJson).toHaveBeenCalledOnce();
+    expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "error",
+        reason:
+          cleanupResult === "uncertain"
+            ? "update-admission-cleanup-failed"
+            : "global-install-foreign-destination",
+        failedStep: expect.objectContaining({
+          failureFacts: [expect.objectContaining({ code: "global-install-foreign-destination" })],
+        }),
+        ...(cleanupResult === "uncertain"
+          ? { recovery: { serviceRestartSafe: false, reason: "runtime-verification-failed" } }
+          : {}),
+      }),
+    );
+    if (cleanupResult === "uncertain") {
+      expect(await work).toEqual(new ExitError(1));
+    } else {
+      expect(await work).toMatchObject({
+        result: { reason: "global-install-foreign-destination" },
+      });
+    }
+    expect(writes).not.toHaveBeenCalled();
+    expect(packageUpdate.stagePackageInstallUpdate).not.toHaveBeenCalled();
+    expect(await fs.readFile(launcher, "utf8")).toBe("// original deployment\n");
+  },
+);
 
 it.each([
   "foreign",

@@ -185,9 +185,20 @@ describe("read-only Skill Workshop migration inspection", () => {
         return record;
       });
       for (const record of records) {
+        await state.writeText(
+          `skill-workshop/proposals/${record.id}/${record.draftFile}`,
+          "# Saved\n",
+        );
         importLegacySkillProposal({ record, ownerAgentId: "main", store: { env: state.env } });
       }
       const [eligible, blocked] = records;
+      const inspect = () =>
+        runDoctorLintChecks(
+          { mode: "doctor", runtime: { log() {}, error() {}, exit() {} }, cfg: config },
+          { checks: createCoreHealthChecks(), onlyIds: ["core/doctor/skill-workshop-relocation"] },
+        );
+      const beforeRepair = await inspect();
+      expect(beforeRepair.findings[0]?.fixHint).toContain("`openclaw doctor --fix`");
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const migration = await migrateLegacySkillWorkshopProposals({ config, env: state.env });
         if (attempt === 0) {
@@ -198,10 +209,7 @@ describe("read-only Skill Workshop migration inspection", () => {
         expect(migration.warnings.join("\n")).toContain(
           "Legacy workspace setup state requires migration",
         );
-        const result = await runDoctorLintChecks(
-          { mode: "doctor", runtime: { log() {}, error() {}, exit() {} }, cfg: config },
-          { checks: createCoreHealthChecks(), onlyIds: ["core/doctor/skill-workshop-relocation"] },
-        );
+        const result = await inspect();
         expect(result.findings).toHaveLength(1);
         const finding = result.findings[0]!;
         expect(finding.message).toContain(blocked!.id);

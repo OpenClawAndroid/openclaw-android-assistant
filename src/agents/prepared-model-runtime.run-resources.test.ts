@@ -10,7 +10,14 @@ import {
   cleanupPluginLoaderFixturesForTest,
   resetPluginLoaderTestStateForTest,
 } from "../plugins/loader.test-fixtures.js";
-import { getPluginMetadataSnapshotCache, retirePluginCache } from "../plugins/plugin-cache.js";
+import {
+  getPluginCache,
+  getPluginCacheRetirementSignal,
+  getPluginMetadataSnapshotCache,
+  resetPluginCache,
+  retirePluginCache,
+  waitForPluginCacheRetirement,
+} from "../plugins/plugin-cache.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import { quiescePluginRegistry } from "../plugins/registry-lifecycle.js";
 import { createColdPluginFixture } from "../plugins/test-helpers/cold-plugin-fixtures.js";
@@ -530,6 +537,85 @@ it.each(["hold", "reject"] as const)(
         }
       },
       { catalog },
+    );
+  },
+);
+
+it.each(["process close", "process close after cache retirement"] as const)(
+  "joins registered plugin disposal during catalog acquisition (%s)",
+  async (retirement) => {
+    await withRunFixture(
+      async ({
+        acquire,
+        input,
+        original,
+        catalogStarted,
+        finishCatalog,
+        holdDisposal,
+        disposalStarted,
+        finishDisposal,
+      }) => {
+        holdDisposal();
+        const pending = acquire();
+        const acquisition = Promise.allSettled([pending]);
+        const metadataRetired = createDeferredCore();
+        let closed = false;
+        let closing: Promise<unknown> | undefined;
+        try {
+          await Promise.race([
+            catalogStarted.promise,
+            pending.then(() => {
+              throw new Error("Catalog acquisition bypassed the registered provider");
+            }),
+          ]);
+          if (retirement === "process close after cache retirement") {
+            const cache = getPluginCache();
+            resetPluginCache();
+            expect(getPluginCacheRetirementSignal(cache).aborted).toBe(true);
+            // Inspection resources have their own cache; final model close must still
+            // join their disposal after the metadata inventory has finished retiring.
+            closing = waitForPluginCacheRetirement(true).then(() => {
+              metadataRetired.resolve();
+              return closePreparedModelRuntimeSnapshots();
+            });
+          } else {
+            closing = closePreparedModelRuntimeSnapshots();
+          }
+          closing = closing.then(() => {
+            closed = true;
+          });
+          await nextTurn();
+          expect(closed).toBe(false);
+          expect(original().disposals).toBe(0);
+          expect(readAnswer(original())).toBe(42);
+          finishCatalog.resolve();
+          await Promise.race([
+            disposalStarted.promise,
+            closing.then(() => {
+              throw new Error("Retirement bypassed the registered plugin disposer");
+            }),
+          ]);
+          await nextTurn();
+          if (retirement === "process close after cache retirement") {
+            await metadataRetired.promise;
+          }
+          expect(closed).toBe(false);
+          expect(original().disposals).toBe(0);
+          expect(readAnswer(original())).toBe(42);
+          finishDisposal.resolve();
+          await closing;
+          expect((await acquisition)[0]?.status).toBe("rejected");
+          expect(getPreparedModelRuntimeSnapshot(input)).toBeUndefined();
+          expect(original().disposals).toBe(1);
+          expect(original().database.isOpen).toBe(false);
+          expectReopened(original());
+        } finally {
+          finishCatalog.resolve();
+          finishDisposal.resolve();
+          await Promise.allSettled([pending, closing]);
+        }
+      },
+      { catalog: "hold" },
     );
   },
 );

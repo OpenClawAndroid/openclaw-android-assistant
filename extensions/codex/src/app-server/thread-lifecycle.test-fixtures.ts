@@ -263,7 +263,7 @@ export function createCodexLifecycleTurnHarness(
     completeTurn: async ({ threadId, turnId }: { threadId: string; turnId: string }) => {
       await notify({
         method: "turn/completed",
-        params: { threadId, turn: { id: turnId, status: "completed" } },
+        params: { threadId, turn: { id: turnId, status: "completed", items: [] } },
       });
     },
     close: () => client.close(),

@@ -44,7 +44,9 @@ afterEach(() => resetPluginStateStoreForTests());
 describe("registered Codex harness model attribution", () => {
   it.each(["completed", "timed out"] as const)("attributes models (%s)", async (outcome) => {
     // Protocol events own completion; host load must not spend the attempt watchdog.
-    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    if (outcome === "timed out") {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    }
     const params = createTestParams();
     // Supervision replaces the helper model; this fixture supplies no host tools.
     params.hostCapabilities = Object.freeze({
@@ -113,12 +115,13 @@ describe("registered Codex harness model attribution", () => {
         ),
       },
     });
+    let nativeModel = "ready-native-model";
     const readyThread = {
       ...threadStartResult("native-thread", { cwd: params.workspaceDir }),
       model: "ready-native-model",
       modelProvider: "openai",
     };
-    const turnStarted = createDeferred<void>();
+    let turnStarted = createDeferred<void>();
     const requests: Array<{ method: string; params: unknown }> = [];
     const transport = createClientHarness({
       onWrite(line, send) {
@@ -146,7 +149,7 @@ describe("registered Codex harness model attribution", () => {
             result = { config: { model_provider: "openai" }, origins: {} };
             break;
           case "thread/read":
-            result = { thread: { ...readyThread.thread, path: rolloutPath } };
+            result = { thread: { ...readyThread.thread, model: nativeModel, path: rolloutPath } };
             break;
           case "thread/resume":
             send({
@@ -165,7 +168,7 @@ describe("registered Codex harness model attribution", () => {
                 method: "turn/completed",
                 params: {
                   threadId: "native-thread",
-                  turn: { id: "turn-1", status: "interrupted" },
+                  turn: { id: "turn-1", status: "interrupted", items: [] },
                 },
               }),
             );
@@ -292,7 +295,44 @@ describe("registered Codex harness model attribution", () => {
         expect(request.params).not.toHaveProperty("model");
         expect(request.params).not.toHaveProperty("modelProvider");
       }
+      if (outcome === "completed") {
+        nativeModel = "changed-native-model";
+        turnStarted = createDeferred<void>();
+        const next = registered.runAttempt({ ...params, runId: "native-second-turn" });
+        await Promise.race([
+          turnStarted.promise,
+          next.then((earlyResult) => {
+            throw new Error("Second attempt ended before turn/start", { cause: earlyResult });
+          }),
+        ]);
+        transport.send({
+          method: "turn/completed",
+          params: {
+            threadId: "native-thread",
+            turn: {
+              id: "turn-1",
+              status: "completed",
+              items: [{ type: "agentMessage", id: "second-answer", text: "Second native answer." }],
+            },
+          },
+        });
+        const second = await next;
+        expect(second).toHaveProperty("terminal", { kind: "ok" });
+        expect(second.assistantTexts).toEqual(["Second native answer."]);
+        expect(second.runtimeModelSelection).toEqual({ provider: "openai", model: nativeModel });
+        expect(second.currentAttemptAssistant).toMatchObject({
+          provider: "openai",
+          model: nativeModel,
+        });
+        expect(bindingStore.read(sessionBindingIdentity(params))).toMatchObject({
+          model: nativeModel,
+        });
+        expect(requests.filter(({ method }) => method === "thread/resume")).toHaveLength(1);
+        expect(requests.filter(({ method }) => method === "thread/unsubscribe")).toHaveLength(0);
+        expect(requests.filter(({ method }) => method === "thread/inject_items")).toHaveLength(1);
+      }
     } finally {
+      vi.useRealTimers();
       abort.abort("test cleanup");
       await transport.client.closeAndWait();
       await Promise.allSettled([run]);

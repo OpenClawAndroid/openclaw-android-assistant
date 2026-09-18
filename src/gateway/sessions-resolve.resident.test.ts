@@ -1,6 +1,7 @@
 import { StatementSync } from "node:sqlite";
 import { afterEach, expect, it, vi } from "vitest";
 import type { SessionsResolveParams } from "../../packages/gateway-protocol/src/index.js";
+import { writeAcpSessionMetaForMigration } from "../acp/runtime/session-meta.js";
 import { replaceSessionEntrySync } from "../config/sessions/session-accessor.js";
 import { writeSessionEntry } from "../config/sessions/session-accessor.sqlite-entry-store.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
@@ -10,6 +11,7 @@ import {
   runOpenClawAgentWriteTransaction,
 } from "../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { retainSessionListForegroundWork } from "./session-projection-work.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import { sharingPolicyClient } from "./session-sharing.test-utils.js";
 import {
@@ -20,6 +22,93 @@ import {
 import { resolveSessionKeyFromResolveParams } from "./sessions-resolve.js";
 
 afterEach(() => vi.restoreAllMocks());
+
+function addUnrelatedSessions() {
+  for (let index = 0; index < 96; index++) {
+    replaceSessionEntrySync(
+      { agentId: "main", sessionKey: `agent:main:other-${index}` },
+      { sessionId: `other-${index}`, updatedAt: index + 2, displayName: "Other session" },
+    );
+  }
+}
+
+it("resolves free ACP aliases from current resident facts without SQLite or discovery materialization", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const acpKey = "agent:harness:acp:12345678-0aaa-4000-8000-000000000009";
+    const acpEntry = {
+      sessionId: "free-acp-resident",
+      lifecycleRevision: "resident-revision",
+      updatedAt: 1,
+      label: "Free ACP",
+    };
+    replaceSessionEntrySync({ agentId: "harness", sessionKey: acpKey }, acpEntry);
+    writeAcpSessionMetaForMigration({
+      sessionKey: acpKey.replace("agent:harness:", "agent:HARNESS:"),
+      lifecycleRevision: acpEntry.lifecycleRevision,
+      meta: {
+        backend: "fixture",
+        agent: "harness",
+        runtimeSessionName: "free-resident",
+        mode: "persistent",
+        state: "idle",
+        lastActivityAt: 1,
+      },
+    });
+    addUnrelatedSessions();
+    const projection = await createSessionRowProjection({ cfg });
+    // Match the Gateway request lifetime so idle preview reads stay outside this proof.
+    const releaseForegroundWork = retainSessionListForegroundWork();
+    try {
+      await projection.ensureMaterialized();
+      const reads = (["all", "get", "iterate"] as const).map((method) =>
+        vi.spyOn(StatementSync.prototype, method),
+      );
+      const describe = vi.spyOn(projection, "describe");
+      const selections = vi.spyOn(projection, "selectEntries");
+      try {
+        for (const p of [
+          { sessionId: acpEntry.sessionId },
+          { label: acpEntry.label },
+          { shortId: "12345678" },
+        ]) {
+          selections.mockClear();
+          expect(
+            await resolveSessionKeyFromResolveParams({ cfg, client: null, projection, p }),
+          ).toMatchObject({ ok: true, key: acpKey, agentId: "harness" });
+          if ("sessionId" in p) {
+            const enumerated = selections.mock.results.reduce(
+              (count, selection) =>
+                count + (selection.type === "return" ? selection.value.length : 0),
+              0,
+            );
+            expect(enumerated).toBeLessThanOrEqual(2);
+          }
+        }
+        expect(describe).not.toHaveBeenCalled();
+        expect(
+          await resolveSessionKeyFromResolveParams({
+            cfg,
+            client: null,
+            projection,
+            p: { key: acpKey },
+          }),
+        ).toMatchObject({ ok: true, key: acpKey, agentId: "harness" });
+        for (const read of reads) {
+          expect(read).not.toHaveBeenCalled();
+        }
+      } finally {
+        describe.mockRestore();
+        selections.mockRestore();
+        for (const read of reads) {
+          read.mockRestore();
+        }
+      }
+    } finally {
+      projection.dispose();
+      releaseForegroundWork();
+    }
+  });
+});
 
 const cfg = {
   agents: {
@@ -40,12 +129,7 @@ const entry = {
 it("bounds exact discovery by matching rows instead of the resident roster", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
     replaceSessionEntrySync(scope, entry);
-    for (let index = 0; index < 96; index++) {
-      replaceSessionEntrySync(
-        { agentId: "main", sessionKey: `agent:main:other-${index}` },
-        { sessionId: `other-${index}`, updatedAt: index + 2, displayName: "Other session" },
-      );
-    }
+    addUnrelatedSessions();
     const projection = await createSessionRowProjection({ cfg });
     try {
       await projection.ensureMaterialized();

@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { getCompileCacheDir } from "node:module";
 import path from "node:path";
 import { toUSVString } from "node:util";
 import { formatByteSize } from "@openclaw/normalization-core";
@@ -9,6 +8,7 @@ import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coerc
 import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { hasErrnoCode } from "./errno.js";
+import { resolveNodeCompileCacheEnv } from "./node-compile-cache-env.js";
 import {
   runtimeProcessEntrypoints,
   SQLITE_READONLY_CHILD_ARG,
@@ -322,18 +322,8 @@ function sqliteReadOnlyWorkerArgv(pathname: string, options: SqliteReadOnlyWorke
   ];
 }
 
-function sqliteReadOnlyWorkerEnv(): NodeJS.ProcessEnv {
-  const env = process.env;
-  if (env.NODE_COMPILE_CACHE !== undefined || env.NODE_DISABLE_COMPILE_CACHE !== undefined) {
-    return env;
-  }
-  // Programmatic cache enablement applies only to the current Node instance.
-  const directory = getCompileCacheDir?.();
-  return directory ? { ...env, NODE_COMPILE_CACHE: directory } : env;
-}
-
 function createScopedSqliteReadOnlyWorker() {
-  const env = { ...sqliteReadOnlyWorkerEnv() };
+  const env = { ...resolveNodeCompileCacheEnv() };
   const cwd = process.cwd();
   const workerUrl = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sqliteReadOnly);
   const child = spawn(
@@ -428,7 +418,7 @@ function createScopedSqliteReadOnlyWorker() {
   });
   return {
     compatible() {
-      const currentEnv = sqliteReadOnlyWorkerEnv();
+      const currentEnv = resolveNodeCompileCacheEnv();
       const keys = Object.keys(currentEnv);
       return (
         !retired &&
@@ -596,7 +586,7 @@ function runSqliteReadOnlyWorkerOnce(
       sqliteReadOnlyWorkerArgv(pathname, options),
       {
         encoding: "utf8",
-        env: sqliteReadOnlyWorkerEnv(),
+        env: resolveNodeCompileCacheEnv(),
         maxBuffer: SQLITE_READONLY_WORKER_MAX_BUFFER,
         timeout: reclaim || isSqliteInspectionDeadlineOwnedByCaller() ? undefined : timeoutMs,
         killSignal: "SIGKILL",
@@ -677,7 +667,7 @@ export function runSqliteReadOnlyWorkerSync(pathname: string, stagingRoot: strin
     sqliteReadOnlyWorkerArgv(pathname, { mode: "sync", stagingRoot }),
     {
       encoding: "utf8",
-      env: sqliteReadOnlyWorkerEnv(),
+      env: resolveNodeCompileCacheEnv(),
       maxBuffer: SQLITE_READONLY_WORKER_MAX_BUFFER,
       timeout: timeoutMs,
       killSignal: "SIGKILL",

@@ -8,11 +8,13 @@ import {
   getTaskById,
   listTaskRecordsForOwnerTree,
   listTaskRecordPage,
+  listTasksForAgentId,
   deleteTaskRecordById,
   resetTaskRegistryForTests,
 } from "./task-registry-query.js";
 import { markTaskTerminalById } from "./task-registry-record-api.js";
 import {
+  readTaskRegistryRevision,
   reloadTaskRegistryFromStoreAsync,
   tasks as authoritativeTasks,
 } from "./task-registry-state.js";
@@ -39,6 +41,95 @@ async function readTaskPage(params: Parameters<typeof listTaskRecordPage>[0]) {
   }
   return result.value;
 }
+
+describe("listTasksForAgentId", () => {
+  it("clones only selected details from a 10000-task registry", () => {
+    const records = Array.from({ length: 10_000 }, (_, index): TaskRecord => ({
+      taskId: `task-${index}`,
+      runtime: "cli",
+      requesterSessionKey: "agent:main:main",
+      ownerKey: "agent:main:main",
+      scopeKind: "session",
+      agentId: `agent-${index % 100}`,
+      executionOwner: { host: "worker.example", pid: 123, startIdentity: 1 },
+      task: "Agent task selection",
+      status: "queued",
+      deliveryStatus: "not_applicable",
+      notifyPolicy: "silent",
+      createdAt: Math.floor(index / 200),
+      detail: { nested: { value: `detail-${index}` } },
+    }));
+    const store = createInMemoryTaskRegistryStore({
+      tasks: new Map(records.map((task) => [task.taskId, task])),
+      deliveryStates: new Map(),
+    });
+    configureTaskRegistryRuntime({ store });
+    getTaskById("task-0");
+    const revision = readTaskRegistryRevision();
+    const read = vi.spyOn(store, "loadSnapshot");
+    const write = vi.spyOn(store, "upsertTaskWithDeliveryState");
+    const clone = vi.spyOn(globalThis, "structuredClone");
+
+    const selected = listTasksForAgentId(" agent-17 ");
+    const detailClones = clone.mock.calls.length;
+    clone.mockRestore();
+
+    // Agent selection keeps insertion order within a creation-time tie, unlike
+    // the generic task list's reverse-insertion ordering.
+    const expected = Array.from({ length: 50 }, (_, index) => 49 - index).flatMap((group) => [
+      records[group * 200 + 17],
+      records[group * 200 + 117],
+    ]);
+    expect(selected).toEqual(expected);
+    expect(selected).toHaveLength(100);
+    expect(authoritativeTasks.size).toBe(10_000);
+    expect(readTaskRegistryRevision()).toBe(revision);
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+
+    const first = expectDefined(selected[0], "selected task");
+    const stored = expectDefined(authoritativeTasks.get(first.taskId), "authoritative task");
+    expect(first).not.toBe(stored);
+    expect(first.detail).not.toBe(stored.detail);
+    expect(first.executionOwner).not.toBe(stored.executionOwner);
+    (first.detail as { nested: { value: string } }).nested.value = "edited";
+    expectDefined(first.executionOwner, "selected execution owner").host = "edited.example";
+    expect(getTaskById(first.taskId)).toEqual(expected[0]);
+    expect(stored).toEqual(expected[0]);
+    expect(detailClones).toBe(100);
+  });
+
+  it("keeps exact agent matching and observes reloaded records", async () => {
+    const task: TaskRecord = {
+      taskId: "trimmed",
+      runtime: "cli",
+      requesterSessionKey: "agent:worker:main",
+      ownerKey: "agent:worker:main",
+      scopeKind: "session",
+      agentId: " worker ",
+      task: "Agent matching",
+      status: "queued",
+      deliveryStatus: "not_applicable",
+      notifyPolicy: "silent",
+      createdAt: 1,
+    };
+    configureTaskSnapshot([
+      task,
+      { ...task, taskId: "case-sensitive", agentId: "Worker" },
+      { ...task, taskId: "requester-only", agentId: undefined, requesterAgentId: "worker" },
+    ]);
+    expect(listTasksForAgentId(" worker ")).toEqual([task]);
+    expect(listTasksForAgentId("Worker").map((row) => row.taskId)).toEqual(["case-sensitive"]);
+    expect(listTasksForAgentId(" \t ")).toEqual([]);
+    expect(listTasksForAgentId("missing")).toEqual([]);
+
+    const replacement = { ...task, taskId: "replacement", detail: { version: 2 } };
+    configureTaskSnapshot([replacement]);
+    await reloadTaskRegistryFromStoreAsync(captureOpenClawStateWorkerContext());
+    expect(listTasksForAgentId("worker")).toEqual([replacement]);
+    expect(getTaskById(task.taskId)).toBeUndefined();
+  });
+});
 
 describe("listTaskRecordsForOwnerTree", () => {
   it("preserves insertion order and detached snapshots across owner changes, cycles, and removal", () => {

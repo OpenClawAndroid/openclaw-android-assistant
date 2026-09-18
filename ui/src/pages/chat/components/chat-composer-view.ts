@@ -10,7 +10,7 @@ import { icons } from "../../../components/icons.ts";
 import { renderSessionProgressCard } from "../../../components/session-progress-card.ts";
 import { t } from "../../../i18n/index.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
-import "../../../styles/chat/reply-preview.css";
+import "../../../styles/chat/composer-context-strip.css";
 import type { ComposerDictationController } from "../composer-dictation.ts";
 import { insertComposerDictation } from "../composer-dictation.ts";
 import {
@@ -28,12 +28,10 @@ import {
 import { focusComposerFromChrome, paneDomId } from "./chat-composer-dom.ts";
 import type { GoalComposerController } from "./chat-composer-goal-mode.ts";
 import { renderChatGoal } from "./chat-composer-goal.ts";
-import {
-  renderSelectedHumanMentions,
-  type HumanMentionMenuHost,
-} from "./chat-composer-mention-menu.ts";
+import type { HumanMentionMenuHost } from "./chat-composer-mention-menu.ts";
 import { renderChatComposerPlusMenu } from "./chat-composer-plus-menu.ts";
 import { renderChatQueue } from "./chat-composer-queue.ts";
+import { renderSelectedHumanMentions } from "./chat-composer-selected-mentions.ts";
 import {
   resetSkillMenuState,
   renderSkillMenu,
@@ -405,8 +403,7 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                   : nothing
               }
               <div class="agent-chat__composer-lede">
-                ${goalComposer.render()} ${renderAttachmentPreview(props)}
-                ${renderAttachmentReadStatus(props.getPendingAttachmentReads?.() ?? props.pendingAttachmentReads ?? 0)}
+                ${goalComposer.render()}
                 ${renderSelectedHumanMentions(visibleDraft, props.mentions, () => {
                   commitComposerDraft(props, props.getDraft?.() ?? props.draft, []);
                   requestUpdate();
@@ -414,21 +411,25 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                 ${
                   props.replyTarget
                     ? html`
-                        <div class="chat-reply-preview">
-                          <span class="chat-reply-preview__icon">${icons.messageSquare}</span>
-                          <span class="chat-reply-preview__label"
-                            >${t("chat.messages.replyingTo", {
-                              name: props.replyTarget.senderLabel ?? t("chat.messages.message"),
-                            })}</span
-                          >
-                          <span class="chat-reply-preview__text"
+                        <div class="chat-reply-preview composer-context-strip">
+                          <span class="chat-reply-preview__label composer-context-strip__label">
+                            <span class="chat-reply-preview__icon composer-context-strip__icon"
+                              >${icons.messageSquare}</span
+                            >
+                            <span class="composer-context-strip__label-text"
+                              >${t("chat.messages.replyingTo", {
+                                name: props.replyTarget.senderLabel ?? t("chat.messages.message"),
+                              })}</span
+                            >
+                          </span>
+                          <span class="chat-reply-preview__text composer-context-strip__text"
                             >${truncateUtf16Safe(props.replyTarget.text, 120)}${
                               props.replyTarget.text.length > 120 ? "..." : ""
                             }</span
                           >
                           <button
                             type="button"
-                            class="chat-reply-preview__dismiss"
+                            class="chat-reply-preview__dismiss composer-context-strip__dismiss"
                             @click=${() => props.onClearReply?.()}
                             aria-label=${t("chat.composer.cancelReply")}
                             title=${t("chat.composer.cancelReply")}
@@ -439,6 +440,8 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                       `
                     : nothing
                 }
+                ${renderAttachmentPreview(props)}
+                ${renderAttachmentReadStatus(props.getPendingAttachmentReads?.() ?? props.pendingAttachmentReads ?? 0)}
                 ${renderComposerDictationStatus(dictation)}
                 ${renderChatAttachmentInputs({ ...props, disabled: !canCompose })}
                 ${

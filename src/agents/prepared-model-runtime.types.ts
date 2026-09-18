@@ -175,6 +175,8 @@ export type PreparedModelRuntimePublicationOptions = {
 
 export type PreparedModelRuntimeRefreshOptions = {
   gatewayLifecycle?: boolean;
+  /** Startup may serve settled agents while the remaining publication continues. */
+  startup?: boolean;
   defaultWorkspaceDir?: string;
   catalogMode?: PreparedModelRuntimeCatalogMode;
   onBuildStats?: (stats: PreparedModelRuntimeBuildStats) => void;
@@ -259,6 +261,7 @@ export type PreparedModelRuntimeOwner = {
 };
 
 export type PreparedModelRuntimeReplacement = {
+  degraded?: boolean;
   gateId: PreparedModelRuntimeReplacementGateId;
   promise: Promise<void>;
   resolve: () => void;

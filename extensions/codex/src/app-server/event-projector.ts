@@ -26,7 +26,7 @@ import {
   readCodexNotificationThreadId,
 } from "./notification-correlation.js";
 import type { CodexApprovalKind } from "./plugin-approval-roundtrip.js";
-import { readCodexTurn } from "./protocol-validators.js";
+import { readCodexTurnCompletedNotification } from "./protocol-validators.js";
 import {
   isJsonObject,
   type CodexDynamicToolCallOutputContentItem,
@@ -505,7 +505,7 @@ export class CodexAppServerEventProjector extends CodexTurnProjection {
   }
 
   private async handleTurnCompleted(params: JsonObject): Promise<void> {
-    const turn = readCodexTurn(params.turn);
+    const turn = readCodexTurnCompletedNotification(params)?.turn;
     if (!turn || turn.id !== this.turnId) {
       return;
     }
@@ -542,7 +542,7 @@ export class CodexAppServerEventProjector extends CodexTurnProjection {
         this.eventProjection.emitCompactionEnd(itemId, false);
       }
     }
-    const turnItems = turn.items ?? [];
+    const turnItems = turn.items;
     // Upstream terminal summaries contain only the last assistant item. Keep
     // earlier unsettled deliveries at their producer instead of inferring them.
     const unsettledAsyncDeliveries = this.asyncDeliveryProjection.pending();

@@ -448,7 +448,7 @@ describe("resident sessions.list", () => {
     });
   });
 
-  it("refreshes degraded title facts after transcript reconciliation", async () => {
+  it("refreshes reconciled previews without repairing legacy titles", async () => {
     await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
       const config = await seedSessions();
       const sessionKey = "agent:main:active";
@@ -467,6 +467,8 @@ describe("resident sessions.list", () => {
       database.db
         .prepare("UPDATE session_transcript_index_state SET needs_rebuild = 1 WHERE session_id = ?")
         .run(sessionId);
+      const storedEntry = loadSessionEntry({ agentId: "main", sessionKey });
+      expect(storedEntry?.displayName).toBeUndefined();
       const context = requestContext(config);
       const client = identifiedClient("owner@example.com");
       const request = {
@@ -479,7 +481,7 @@ describe("resident sessions.list", () => {
 
       const degraded = await listSessions({ client, context, request });
       const degradedRow = degraded.sessions.find((session) => session.key === sessionKey);
-      expect(degradedRow?.derivedTitle).not.toBe("Active prompt");
+      expect(degradedRow?.derivedTitle).toBeUndefined();
       expect(degradedRow?.lastMessagePreview).toBeUndefined();
 
       await waitForSessionTranscriptIndexReconcile({ agentId: "main", env: state.env });
@@ -492,11 +494,12 @@ describe("resident sessions.list", () => {
       );
       const healed = await listSessions({ client, context, request });
       expect(healed.sessions.find((session) => session.key === sessionKey)).toMatchObject({
-        derivedTitle: "Active prompt",
+        derivedTitle: undefined,
         lastMessagePreview: "active reply",
       });
 
       expect((await listSessions({ client, context, request })).sessions).toEqual(healed.sessions);
+      expect(loadSessionEntry({ agentId: "main", sessionKey })).toEqual(storedEntry);
     });
   });
 

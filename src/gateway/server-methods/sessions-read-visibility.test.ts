@@ -106,6 +106,7 @@ test.each([
       {
         sessionId,
         updatedAt: 42,
+        displayName: "Research transcript title",
         visibility: "draft",
         createdActor: { type: "human", source: "profile", id: ownerId },
       },

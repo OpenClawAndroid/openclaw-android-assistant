@@ -410,6 +410,19 @@ export function closeAgentNotification(params: {
   };
 }
 
+export function turnStartedNotification(
+  turnId: string,
+  { threadId = "child-thread", ...turn }: { threadId?: string; error?: null } = {},
+): CodexServerNotification {
+  return {
+    method: "turn/started",
+    params: {
+      threadId,
+      turn: { id: turnId, status: "inProgress", items: [], ...turn },
+    },
+  };
+}
+
 export function childTurnCompletedNotification(params: {
   status: "completed" | "failed" | "interrupted";
   error?: string;

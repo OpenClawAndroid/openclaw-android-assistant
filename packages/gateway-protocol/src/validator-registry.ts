@@ -372,6 +372,7 @@ export const validateSystemAgentSetupAuthStartParams = compile(
   S.SystemAgentSetupAuthStartParamsSchema,
 );
 export const validateWizardStartParams = compile(S.WizardStartParamsSchema);
+export const validateMcpAuthLoginParams = compile(S.McpAuthLoginParamsSchema);
 export const validateWizardNextParams = compile(S.WizardNextParamsSchema);
 export const validateWizardCancelParams = compile(S.WizardCancelParamsSchema);
 export const validateWizardStatusParams = compile(S.WizardStatusParamsSchema);

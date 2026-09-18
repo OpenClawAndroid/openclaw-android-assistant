@@ -19,7 +19,9 @@ import {
   createClient,
   notifyChildStarted,
   registerCodexNativeSubagentMonitor,
+  successfulSendInputOutput,
   threadRead,
+  turnStartedNotification,
 } from "./native-subagent-monitor.test-support.js";
 import type {
   CodexNativeSubagentSubmission,
@@ -185,13 +187,7 @@ describe("CodexNativeSubagentMonitor", () => {
       onTestFinished(closeFirstParent);
       firstParent.bindTurn("parent-turn-a");
       await notifyChildStarted(first);
-      await first.notify({
-        method: "turn/started",
-        params: {
-          threadId: "child-thread",
-          turn: { id: "turn-a", status: "inProgress", items: [] },
-        },
-      });
+      await first.notify(turnStartedNotification("turn-a"));
       await first.notify(
         childTurnCompletedNotification({
           turnId: "turn-a",
@@ -245,18 +241,14 @@ describe("CodexNativeSubagentMonitor", () => {
             },
           },
         });
-        await first.notify({
-          method: "rawResponseItem/completed",
-          params: {
-            threadId: binding.threadId,
+        await first.notify(
+          successfulSendInputOutput({
+            parentThreadId: binding.threadId,
             turnId: "parent-turn-b",
-            item: {
-              type: "function_call_output",
-              call_id: "send-b",
-              output: '{"submission_id":"turn-b"}',
-            },
-          },
-        });
+            callId: "send-b",
+            submissionId: "turn-b",
+          }),
+        );
         await vi.waitFor(() => expect(firstRecord).toBeDefined());
         await expect(firstRecord).resolves.toBe(true);
         const expectedReceipt = {
@@ -272,13 +264,7 @@ describe("CodexNativeSubagentMonitor", () => {
           expectedReceipt,
         ]);
         if (scenario === "admitted" || scenario === "delivered-with-receipt") {
-          await first.notify({
-            method: "turn/started",
-            params: {
-              threadId: "child-thread",
-              turn: { id: "turn-b", status: "inProgress", items: [] },
-            },
-          });
+          await first.notify(turnStartedNotification("turn-b"));
           expect(taskRuntime.listTaskRecords()).toHaveLength(2);
           if (scenario === "delivered-with-receipt") {
             await vi.waitFor(() => expect(heldConsume).toHaveBeenCalledOnce());

@@ -3,10 +3,7 @@ import {
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import { readAcpSessionMetaForEntry } from "../acp/runtime/session-meta-readonly.js";
-import {
-  readAcpSessionMeta,
-  repairAcpSessionMetaKeyForMigration,
-} from "../acp/runtime/session-meta.js";
+import { readAcpSessionMeta } from "../acp/runtime/session-meta.js";
 import { resolveModelAgentRuntimeMetadata } from "../agents/agent-runtime-metadata.js";
 import {
   listAgentEntries,
@@ -133,19 +130,7 @@ function readAcpMetaForDeletedAgentCheck(params: {
     }
   }
 
-  repairAcpSessionMetaKeyForMigration({
-    sessionKey: params.sessionKey,
-    candidateSessionKeys: directKeys,
-    entry: params.entry ?? undefined,
-  });
-  const finalAgentId =
-    parseAgentSessionKey(params.sessionKey)?.agentId ??
-    tryResolveSessionCompatibilityOwnerAgentId(params.cfg, params.sessionKey);
-  return readAcpSessionMetaForEntry({
-    sessionKey: params.sessionKey,
-    ...(finalAgentId ? { agentId: finalAgentId } : {}),
-    entry: params.entry ?? undefined,
-  });
+  return undefined;
 }
 
 function loadSessionEntryWithMode(

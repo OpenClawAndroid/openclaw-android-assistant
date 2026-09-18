@@ -25,7 +25,7 @@ type ErrorValue =
   | { undefined: true };
 
 type ErrorIdentity =
-  | { type: "error" | "aggregate" | "ownership" | "newer-schema" }
+  | { type: "error" | "aggregate" | "ownership" | "newer-schema" | "range-error" }
   | { type: "ownership-metadata"; databasePath: string }
   | { type: "external-ownership"; databasePath: string; managerId: string }
   | { type: "state-lease"; leaseCode: OpenClawStateLeaseErrorCode }
@@ -82,6 +82,9 @@ function identifyError(error: Error): ErrorIdentity {
   }
   if (error instanceof StartupMaintenanceRequiredError) {
     return { type: "maintenance", kind: error.kind };
+  }
+  if (error instanceof RangeError) {
+    return { type: "range-error" };
   }
   return { type: error instanceof AggregateError ? "aggregate" : "error" };
 }
@@ -163,6 +166,7 @@ function parseIdentity(node: Record<string, unknown>): ErrorIdentity | undefined
     case "aggregate":
     case "ownership":
     case "newer-schema":
+    case "range-error":
       return { type: node.type };
     case "ownership-metadata":
       return typeof node.databasePath === "string"
@@ -263,6 +267,8 @@ function createError(node: ErrorNode): Error {
   switch (node.type) {
     case "error":
       return new Error(node.message);
+    case "range-error":
+      return new RangeError(node.message);
     case "aggregate":
       return new AggregateError([], node.message);
     case "ownership":

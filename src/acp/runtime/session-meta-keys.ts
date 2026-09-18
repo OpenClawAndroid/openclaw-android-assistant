@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { Insertable, Selectable } from "kysely";
 import { tryResolveLegacyDataOwnerAgentId } from "../../agents/agent-scope-config.js";
 import { resolvePersistedSessionStoreOwnerForKey } from "../../config/sessions/session-store-owner.js";
@@ -142,6 +143,52 @@ export function acpSessionRowMatchesEntry(
   );
 }
 
+/** Only raw free-runtime ACP aliases have the historical case-fold lookup contract. */
+export function resolveLegacyFreeAcpSessionKey(sessionKey: string): string | undefined {
+  const normalized = normalizeLowercaseStringOrEmpty(sessionKey);
+  const parsed = parseAgentSessionKey(normalized);
+  return parsed?.rest.startsWith("acp:") && !parsed.rest.startsWith("acp:binding:")
+    ? normalized
+    : undefined;
+}
+
+export function selectLegacyFreeAcpSessionRows(
+  database: DatabaseSync,
+  sessionKeys: readonly string[],
+): Map<string, AcpSessionRow[]> {
+  const keys = [
+    ...new Set(
+      sessionKeys.flatMap((key) => {
+        const normalized = resolveLegacyFreeAcpSessionKey(key);
+        return normalized ? [normalized] : [];
+      }),
+    ),
+  ];
+  const rowsByKey = new Map<string, AcpSessionRow[]>();
+  for (let index = 0; index < keys.length; index += 500) {
+    const rows = executeSqliteQuerySync(
+      database,
+      getAcpSessionKysely(database)
+        .selectFrom("acp_sessions")
+        .selectAll()
+        .where(
+          (eb) => eb.fn<string>("lower", ["session_key"]),
+          "in",
+          keys.slice(index, index + 500),
+        )
+        .orderBy("last_activity_at", "desc")
+        .orderBy("session_key", "asc"),
+    ).rows;
+    for (const row of rows) {
+      const key = normalizeLowercaseStringOrEmpty(row.session_key);
+      const matches = rowsByKey.get(key) ?? [];
+      matches.push(row);
+      rowsByKey.set(key, matches);
+    }
+  }
+  return rowsByKey;
+}
+
 export function selectAcpSessionRowForStoreEntry(
   db: DatabaseSync,
   storeSessionKey: string,
@@ -156,7 +203,12 @@ export function selectAcpSessionRowForStoreEntry(
       return row;
     }
   }
-  return undefined;
+  const legacyKey = resolveLegacyFreeAcpSessionKey(storeSessionKey);
+  return legacyKey
+    ? selectLegacyFreeAcpSessionRows(db, [legacyKey])
+        .get(legacyKey)
+        ?.find((row) => acpSessionRowMatchesEntry(row, entry))
+    : undefined;
 }
 
 export function resolveReadableAcpSessionRow(params: {

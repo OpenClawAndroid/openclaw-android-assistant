@@ -192,6 +192,13 @@ CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
   "@openclaw/codex:dangerous-exec:src/app-server/sandbox-exec-server.fs-bridge-composition.test.ts",
   1,
 );
+// The native session-catalog performance support spawns the real Codex
+// app-server once under its owned test state to time catalog queries. It was
+// added after 2026.9.4 (#150659).
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/session-catalog-native-performance.test-support.ts",
+  1,
+);
 
 // The native catalog fixture launches the pinned app-server with a temporary home,
 // child-only environment, and denied outbound proxies; it always joins the child.

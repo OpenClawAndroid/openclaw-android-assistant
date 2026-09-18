@@ -271,7 +271,7 @@ describe("managed service update handoff", () => {
     const result = await runManagedServiceManagerBoundary("launchd", {
       controlDisconnect: "transferred",
       nativePreparation: "timeout-stop",
-      launchdTeardown: { bootoutDelayMs: 2_500 },
+      launchdTeardown: { waitForNativeTimeout: true },
       ledger: true,
       helperExitCode: 18,
     });

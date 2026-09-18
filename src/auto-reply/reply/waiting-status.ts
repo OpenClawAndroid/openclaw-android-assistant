@@ -1,8 +1,9 @@
-import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
+import { setReplyPayloadMetadata } from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 
-export function buildSessionsYieldAcknowledgmentPayload(params: {
+export function buildWaitingStatusPayload(params: {
   yielded: boolean;
+  continuationPending?: boolean;
   yieldAcknowledgment?: string;
   isInteractive: boolean;
   isHeartbeat?: boolean;
@@ -11,10 +12,8 @@ export function buildSessionsYieldAcknowledgmentPayload(params: {
   hasExplicitSilentReply: boolean;
   hasVisibleMessageDelivery: boolean;
 }): ReplyPayload | undefined {
-  const text = params.yieldAcknowledgment?.trim();
   if (
-    !params.yielded ||
-    !text ||
+    (!params.yielded && !params.continuationPending) ||
     !params.isInteractive ||
     params.isHeartbeat === true ||
     params.silentExpected === true ||
@@ -24,5 +23,15 @@ export function buildSessionsYieldAcknowledgmentPayload(params: {
   ) {
     return undefined;
   }
-  return markReplyPayloadForSourceSuppressionDelivery({ text });
+  return setReplyPayloadMetadata(
+    {
+      text:
+        params.yieldAcknowledgment?.trim() ||
+        "I’m continuing this work and will send the result when it is ready.",
+    },
+    {
+      deliverDespiteSourceReplySuppression: true,
+      ...(params.continuationPending ? { continuationStatus: true } : {}),
+    },
+  );
 }

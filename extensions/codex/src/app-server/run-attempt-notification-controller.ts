@@ -37,7 +37,6 @@ export function createCodexAttemptNotificationController(
   const {
     state,
     turnIdRef,
-    userInputBridgeRef,
     steeringQueueRef,
     activeTurnItemIds,
     pendingOpenClawDynamicToolCompletionIds,
@@ -90,7 +89,6 @@ export function createCodexAttemptNotificationController(
     }
     const projector = projectorRef.current;
     const turnId = turnIdRef.current;
-    userInputBridgeRef.current?.handleNotification(notification);
     if (!projector || !turnId) {
       if (notification.method === "error") {
         state.latestStartupErrorNotification = notification;

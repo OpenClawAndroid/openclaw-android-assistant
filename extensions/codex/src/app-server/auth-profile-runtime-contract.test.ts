@@ -172,13 +172,9 @@ function createCodexAuthProfileHarness(params: {
     seenAgentDirs,
     seenClientOptions,
     async completeTurn() {
-      await harness.notify({
-        method: "turn/completed",
-        params: {
-          threadId: "thread-auth-contract",
-          turnId: "turn-auth-contract",
-          turn: { id: "turn-auth-contract", status: "completed" },
-        },
+      await harness.completeTurn({
+        threadId: "thread-auth-contract",
+        turnId: "turn-auth-contract",
       });
     },
   };

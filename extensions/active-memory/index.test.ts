@@ -3625,6 +3625,7 @@ describe("active-memory plugin", () => {
     registerPluginConfig({ timeoutMs: 100, logging: true });
     const sessionKey = "agent:main:timeout-boilerplate-transcript";
     seedSession(sessionKey, "s-timeout-boilerplate-transcript", 0);
+    const recallRunSpy = vi.spyOn(recallRun, "runRecallSubagent");
     runEmbeddedAgent.mockImplementationOnce(
       async (params: { sessionFile: string; abortSignal?: AbortSignal }) => {
         await writeTranscriptJsonl(params.sessionFile, [
@@ -3641,12 +3642,11 @@ describe("active-memory plugin", () => {
       },
     );
 
+    // Join the recall owner before shared mocks and session state can be reset.
     const result = await runPromptBuild(
       { prompt: "what wings should i order? timeout boilerplate" },
-      {
-        sessionKey,
-      },
-    );
+      { sessionKey },
+    ).finally(() => Promise.allSettled(recallRunSpy.mock.results.map(({ value }) => value)));
 
     expect(result).toBeUndefined();
     const lines = getActiveMemoryLines(sessionKey);

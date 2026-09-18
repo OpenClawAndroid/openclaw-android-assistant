@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertCodexModelListResponse,
-  readCodexTurn,
+  readCodexTurnCompletedNotification,
   assertCodexThreadStartResponse,
   assertCodexThreadResumeResponse,
 } from "./protocol-validators.js";
@@ -154,46 +154,55 @@ describe("assertCodexModelListResponse", () => {
   });
 });
 
-describe("readCodexTurn", () => {
-  it("normalizes omitted agent-message delivery to the synchronous default", () => {
-    const turn = readCodexTurn({
-      id: "turn-1",
-      status: "completed",
-      items: [{ id: "message-1", type: "agentMessage", text: "done" }],
-    });
+describe("readCodexTurnCompletedNotification", () => {
+  it("accepts an omitted optional agent-message delivery without inventing fields", () => {
+    const turn = readCodexTurnCompletedNotification({
+      threadId: "thread-1",
+      turn: {
+        id: "turn-1",
+        status: "completed",
+        items: [{ id: "message-1", type: "agentMessage", text: "done" }],
+      },
+    })?.turn;
 
-    expect(turn?.items[0]).toMatchObject({
+    expect(turn?.items[0]).toEqual({
       id: "message-1",
       type: "agentMessage",
-      delivery: null,
+      text: "done",
     });
   });
 
   it("does not merge defaults from unrelated thread item union branches", () => {
-    const turn = readCodexTurn({
-      id: "turn-1",
-      status: "completed",
-      items: [{ id: "item-1", type: "plan", text: "ship it" }],
-    });
+    const turn = readCodexTurnCompletedNotification({
+      threadId: "thread-1",
+      turn: {
+        id: "turn-1",
+        status: "completed",
+        items: [{ id: "item-1", type: "plan", text: "ship it" }],
+      },
+    })?.turn;
 
     expect(turn?.items[0]).toEqual({ id: "item-1", type: "plan", text: "ship it" });
   });
 
   it("accepts nullable arrays in generated dynamic tool call items", () => {
-    const turn = readCodexTurn({
-      id: "turn-1",
-      status: "completed",
-      items: [
-        {
-          arguments: {},
-          contentItems: null,
-          id: "item-1",
-          status: "completed",
-          tool: "render",
-          type: "dynamicToolCall",
-        },
-      ],
-    });
+    const turn = readCodexTurnCompletedNotification({
+      threadId: "thread-1",
+      turn: {
+        id: "turn-1",
+        status: "completed",
+        items: [
+          {
+            arguments: {},
+            contentItems: null,
+            id: "item-1",
+            status: "completed",
+            tool: "render",
+            type: "dynamicToolCall",
+          },
+        ],
+      },
+    })?.turn;
 
     expect(turn?.items[0]).toMatchObject({
       contentItems: null,

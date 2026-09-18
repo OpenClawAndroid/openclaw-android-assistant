@@ -8236,6 +8236,24 @@ public struct McpAppViewExpiredErrorDetails: Codable, Sendable {
     }
 }
 
+public struct McpAuthLoginParams: Codable, Sendable {
+    public let sessionid: String
+    public let servername: String
+
+    public init(
+        sessionid: String,
+        servername: String)
+    {
+        self.sessionid = sessionid
+        self.servername = servername
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionid = "sessionId"
+        case servername = "serverName"
+    }
+}
+
 public struct MentionInboxItem: Codable, Sendable {
     public let id: String
     public let senderprofileid: String

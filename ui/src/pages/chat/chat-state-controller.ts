@@ -326,7 +326,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
     if (!state) {
       return;
     }
-    scheduleCommittedChatScroll(state, force, false, { contentChanged });
+    scheduleCommittedChatScroll(state, force, state.chatHasAutoScrolled, { contentChanged });
   }
 
   restoreComposer(options: { preserveCurrent?: boolean } = {}) {

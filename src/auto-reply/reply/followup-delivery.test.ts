@@ -190,30 +190,43 @@ describe("resolveFollowupDeliveryDecision", () => {
     },
   );
 
-  it("delivers a yield acknowledgment after accepting a child spawn", () => {
-    const execution = createSettledExecution();
-    if (execution.outcome.kind === "settled") {
-      execution.outcome.result.meta = {
-        durationMs: 0,
-        yielded: true,
-        yieldAcknowledgment: "Research started; results will follow.",
-      };
-      execution.outcome.result.acceptedSessionSpawns = [
-        { runId: "child", childSessionKey: "agent:main:child" },
-      ];
-    }
+  it.each([undefined, "Research started; results will follow."])(
+    "delivers a waiting status after accepting a child spawn (acknowledgment: %s)",
+    (yieldAcknowledgment) => {
+      const execution = createSettledExecution();
+      if (execution.outcome.kind === "settled") {
+        execution.outcome.result.meta = {
+          durationMs: 0,
+          yielded: true,
+          yieldAcknowledgment,
+        };
+        execution.outcome.result.acceptedSessionSpawns = [
+          {
+            runId: "child-run",
+            childSessionKey: "agent:main:subagent:child",
+            expectsCompletionMessage: true,
+          },
+        ];
+      }
 
-    expect(
-      resolveFollowupDeliveryDecision({
-        turn: createTurn(),
-        execution,
-        accounting: createAccounting(),
-      }),
-    ).toMatchObject({
-      kind: "deliver",
-      payloads: [{ text: "Research started; results will follow." }],
-    });
-  });
+      expect(
+        resolveFollowupDeliveryDecision({
+          turn: createTurn(),
+          execution,
+          accounting: createAccounting(),
+        }),
+      ).toMatchObject({
+        kind: "deliver",
+        payloads: [
+          {
+            text:
+              yieldAcknowledgment ??
+              "I’m continuing this work and will send the result when it is ready.",
+          },
+        ],
+      });
+    },
+  );
 
   it("delivers a yield acknowledgment despite private partial output in group message-tool-only mode", () => {
     const turn = createTurn();
@@ -538,9 +551,9 @@ describe("resolveFollowupDeliveryDecision", () => {
     ["legacy outbound send", { didSendViaMessagingTool: true }, false],
     ["deterministic approval prompt", { didSendDeterministicApprovalPrompt: true }, false],
     [
-      "visible progress with yield acknowledgment",
+      "visible progress while yielded",
       {
-        meta: { durationMs: 0, yielded: true, yieldAcknowledgment: "Still working" },
+        meta: { durationMs: 0, yielded: true },
         messagingToolSentTargets: [progressTarget],
       },
       false,

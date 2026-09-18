@@ -1113,16 +1113,15 @@
               "type": "boolean"
             },
             "limit": {
+              "maximum": 1000,
               "minimum": 1,
               "type": "integer"
             },
             "messageId": {
-              "description": "Return history around this message id. Ignores offset; limit still bounds the window.",
               "minLength": 1,
               "type": "string"
             },
             "offset": {
-              "description": "Plain-pagination offset. Ignored when messageId is set (anchored reads window history around messageId instead).",
               "minimum": 0,
               "type": "integer"
             },
@@ -1131,11 +1130,11 @@
               "type": "integer"
             },
             "sessionId": {
-              "description": "Transcript session id that owns messageId. Requires messageId.",
               "minLength": 1,
               "type": "string"
             },
             "sessionKey": {
+              "minLength": 1,
               "type": "string"
             }
           },

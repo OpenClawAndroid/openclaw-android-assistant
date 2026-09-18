@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { backup } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { trackSqliteStatementExecutions } from "../../test/helpers/sqlite-statement-execution-counter.js";
 import { ACTIVITY_SUMMARY_FORMAT_REVISION } from "../config/sessions/activity-summary.js";
 import { resolveSessionStorePathCore } from "../config/sessions/paths.js";
 import {
@@ -281,6 +282,50 @@ describe("Activity recap lifecycle with the canonical session store", () => {
     } finally {
       parse.mockRestore();
     }
+  });
+
+  it("does not decode saved prompts during transcript notification bursts", async () => {
+    await messages(2);
+    const prompt = "Saved recap prompt marker. ".repeat(40_000);
+    await patchSessionEntryCore(scope, () => ({ skillsSnapshot: { prompt, skills: [] } }));
+    const before = read()!;
+    const completion = createDeferred<ReturnType<typeof result>>();
+    complete.mockImplementationOnce(() => completion.promise);
+    service.ensure(target);
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
+    const database = openOpenClawAgentDatabase({ agentId: "main" });
+    const queries = trackSqliteStatementExecutions(database.db, ["entries"], (sql) =>
+      /from\s+"session_nodes"/i.test(sql) ? "entries" : null,
+    );
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      for (let index = 0; index < 100; index += 1) {
+        service.handleTranscript({ target: { ...scope }, lifecycleRevision: "lifecycle-1" });
+      }
+      expect(queries.rowCounts.entries).toBeGreaterThanOrEqual(100);
+      expect(queries.textBytes.entries).toBeLessThan(100 * 1024);
+      expect(parse.mock.calls.some(([json]) => json.includes("Saved recap prompt marker."))).toBe(
+        false,
+      );
+      expect(complete).toHaveBeenCalledTimes(1);
+    } finally {
+      parse.mockRestore();
+      queries.restore();
+      completion.resolve(result("Completed the requested work."));
+    }
+    // Transcript notifications defer the dirty follow-up until the refresh interval;
+    // the terminal event requests its immediate completion without another model call.
+    expect(view()?.state).toBe("updating");
+    terminal(service);
+    await vi.waitFor(() => expect(view()?.state).toBe("current"));
+    expect(read()).toMatchObject({
+      sessionId: before.sessionId,
+      lifecycleRevision: before.lifecycleRevision,
+      updatedAt: before.updatedAt,
+      skillsSnapshot: before.skillsSnapshot,
+      activitySummary: { text: "Completed the requested work.", coveredMessages: 2 },
+    });
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes new work, catches up after archiving, and makes no calls for idle metadata changes", async () => {

@@ -124,7 +124,12 @@ function hasKnownBareLeading402Signal(text: string): boolean {
   );
 }
 function normalize402Message(raw: string): string {
-  return normalizeOptionalLowercaseString(raw)?.replace(LEADING_402_WRAPPER_RE, "").trim() ?? "";
+  return (
+    normalizeOptionalLowercaseString(raw)
+      ?.replace(LEADING_402_WRAPPER_RE, "")
+      .replace(/\bhttps?:\/\/[^\s<>"']+/g, " ")
+      .trim() ?? ""
+  );
 }
 function classify402Message(message: string): PaymentRequiredFailoverReason {
   const normalized = normalize402Message(message);

@@ -3,24 +3,25 @@ import {
   readSessionTranscriptBoundedMessageTailPage,
 } from "../config/sessions/session-accessor.js";
 import { SessionTranscriptColdError } from "../config/sessions/session-cold-storage-state.js";
+import type { SessionEntry } from "../config/sessions/types.js";
 import { readSessionFallbackModel } from "../status/session-fallback-model.js";
-import { backfillSessionTitle } from "./dashboard-session-title-backfill.js";
 import { projectSessionDisplayMessage } from "./session-display-projection.js";
 import { sqliteMessageEventWithSeq } from "./session-transcript-entry-message.js";
 
-/** Optional transcript fields run after foreground projection work, never during materialization. */
-export async function backfillSessionRowTranscriptFields(
-  params: Parameters<typeof backfillSessionTitle>[0] & {
-    model?: Pick<
-      Parameters<typeof readSessionFallbackModel>[0],
-      "selectedProvider" | "selectedModel" | "config"
-    >;
-  },
-): Promise<{ lastMessagePreview?: string; fallbackModel?: { provider: string; model: string } }> {
-  if (params.shouldCommit?.() === false) {
-    return {};
-  }
-  await backfillSessionTitle(params);
+/** Read-only transcript fields run after foreground projection work, never during materialization. */
+export async function backfillSessionRowTranscriptFields(params: {
+  agentId: string;
+  storeAgentId?: string;
+  storePath: string;
+  sessionKey: string;
+  sessionId: string;
+  sessionEntry: SessionEntry;
+  shouldCommit?: () => boolean;
+  model?: Pick<
+    Parameters<typeof readSessionFallbackModel>[0],
+    "selectedProvider" | "selectedModel" | "config"
+  >;
+}): Promise<{ lastMessagePreview?: string; fallbackModel?: { provider: string; model: string } }> {
   if (params.shouldCommit?.() === false) {
     return {};
   }

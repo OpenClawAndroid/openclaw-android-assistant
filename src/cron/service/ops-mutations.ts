@@ -39,6 +39,7 @@ import {
 import {
   consumeRuntimeAuthorityMutationOptions,
   cronJobMessageActionAuthorityInputsEqual,
+  cronJobMessageToolAuthorityInputsEqual,
   reconcileCronChannelRequesterAuthority,
   reconcileRuntimeAuthority,
 } from "./jobs-tool-policy.js";
@@ -148,6 +149,8 @@ async function persistUpdatedJob(params: {
   const scheduleChanged = !cronSchedulingInputsEqual(previousJob, nextJob);
   const messageActionAuthorityChanged =
     (isJobEnabled(previousJob) && !isJobEnabled(nextJob)) ||
+    !cronJobMessageToolAuthorityInputsEqual(previousJob, nextJob);
+  const messageSourceAuthorityChanged =
     !cronJobMessageActionAuthorityInputsEqual(previousJob, nextJob) ||
     (triggerStateChanged &&
       Boolean(
@@ -166,6 +169,7 @@ async function persistUpdatedJob(params: {
         ownerChanged,
         triggerStateChanged,
         messageActionAuthorityChanged,
+        messageSourceAuthorityChanged,
         ...(scheduleChanged ? { scheduleChangedJob: nextJob } : {}),
       }),
     ),

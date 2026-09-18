@@ -4956,11 +4956,6 @@ describe("runReplyAgent typing (heartbeat)", () => {
       },
     },
     {
-      label: "yielded continuation",
-      pendingContinuation: true,
-      result: { payloads: [], meta: { yielded: true } },
-    },
-    {
       label: "pending tool continuation",
       pendingContinuation: true,
       result: { payloads: [], meta: { pendingToolCalls: [{ name: "hosted_tool" }] } },
@@ -4974,105 +4969,81 @@ describe("runReplyAgent typing (heartbeat)", () => {
     expect(onPendingContinuation).toHaveBeenCalledTimes(pendingContinuation ? 1 : 0);
   });
 
-  it("delivers one bounded status for an accepted child continuation", async () => {
+  it.each([
+    { label: "implicit continuation", meta: { continuationPending: true }, implicit: true },
+    { label: "yield without acknowledgment", meta: { yielded: true }, implicit: false },
+    {
+      label: "explicit acknowledgment",
+      meta: { yielded: true, yieldAcknowledgment: "Research started; results will follow." },
+      implicit: false,
+    },
+  ])("delivers one waiting status for $label", async ({ meta, implicit }) => {
     state.runEmbeddedAgentMock.mockResolvedValueOnce({
-      payloads: [{ text: "I’m continuing this work and will send the result when it is ready." }],
-      meta: { continuationPending: true },
-      acceptedSessionSpawns: [{ runId: "child", childSessionKey: "agent:main:child" }],
+      payloads: [],
+      meta: { durationMs: 0, ...meta },
+      acceptedSessionSpawns: [
+        {
+          runId: "child-run",
+          childSessionKey: "agent:main:subagent:child",
+          expectsCompletionMessage: true,
+        },
+      ],
     });
     const onPendingContinuation = vi.fn();
     const { run } = createMinimalRun({ opts: { onPendingContinuation } });
 
     const result = await run();
     expect(result).toMatchObject({
-      text: "I’m continuing this work and will send the result when it is ready.",
+      text:
+        meta.yieldAcknowledgment ??
+        "I’m continuing this work and will send the result when it is ready.",
       replyToId: "msg",
     });
     expect(onPendingContinuation).toHaveBeenCalledOnce();
-    expect(
-      getReplyPayloadMetadata(requireRecord(result, "continuation status"))?.continuationStatus,
-    ).toBe(true);
+    const metadata = getReplyPayloadMetadata(requireRecord(result, "waiting status"));
+    expect(metadata?.deliverDespiteSourceReplySuppression).toBe(true);
+    expect(metadata?.continuationStatus === true).toBe(implicit);
+    expect(onPendingContinuation.mock.calls[0]).toEqual(
+      implicit ? [{ settle: expect.any(Function) }] : [],
+    );
   });
 
-  it("delivers an explicit yield acknowledgment after accepting a child spawn", async () => {
-    state.runEmbeddedAgentMock.mockResolvedValueOnce({
-      payloads: [],
-      meta: {
-        yielded: true,
-        yieldAcknowledgment: "Research started; results will follow.",
-      },
-      acceptedSessionSpawns: [{ runId: "child", childSessionKey: "agent:main:child" }],
-    });
-    const onPendingContinuation = vi.fn();
-    const { run } = createMinimalRun({ opts: { onPendingContinuation } });
-
-    await expect(run()).resolves.toMatchObject({
-      text: "Research started; results will follow.",
-      replyToId: "msg",
-    });
-    expect(onPendingContinuation).toHaveBeenCalledOnce();
-  });
-
-  it("prefers a yield acknowledgment over an earlier generated tool warning", async () => {
+  it.each([
+    { label: "default status" },
+    { label: "explicit status", acknowledgment: "Research started; results will follow." },
+    {
+      label: "room event",
+      acknowledgment: "Research started; results will follow.",
+      roomEvent: true,
+      warning: true,
+    },
+    { label: "empty acknowledgment", acknowledgment: "[[reply_to_current]]", warning: true },
+  ])("resolves an earlier tool warning with $label", async (testCase) => {
     const toolWarning = setReplyPayloadMetadata(
       { text: "⚠️ Bash failed", isError: true },
       { toolErrorWarning: { toolName: "bash" } },
     );
     state.runEmbeddedAgentMock.mockResolvedValueOnce({
       payloads: [toolWarning],
-      meta: {
-        yielded: true,
-        yieldAcknowledgment: "Research started; results will follow.",
-      },
-      acceptedSessionSpawns: [{ runId: "child", childSessionKey: "agent:main:child" }],
+      meta: { yielded: true, yieldAcknowledgment: testCase.acknowledgment },
+      acceptedSessionSpawns: [
+        {
+          runId: "child-run",
+          childSessionKey: "agent:main:subagent:child",
+          expectsCompletionMessage: true,
+        },
+      ],
     });
-    const { run } = createMinimalRun();
+    const { run } = createMinimalRun({
+      currentInboundEventKind: testCase.roomEvent ? "room_event" : undefined,
+    });
 
     await expect(run()).resolves.toMatchObject({
-      text: "Research started; results will follow.",
-      replyToId: "msg",
-    });
-  });
-
-  it("keeps a generated tool warning when the yield acknowledgment is not deliverable", async () => {
-    const toolWarning = setReplyPayloadMetadata(
-      { text: "⚠️ Bash failed", isError: true },
-      { toolErrorWarning: { toolName: "bash" } },
-    );
-    state.runEmbeddedAgentMock.mockResolvedValueOnce({
-      payloads: [toolWarning],
-      meta: {
-        yielded: true,
-        yieldAcknowledgment: "Research started; results will follow.",
-      },
-    });
-    const { run } = createMinimalRun({ currentInboundEventKind: "room_event" });
-
-    await expect(run()).resolves.toMatchObject({
-      text: "⚠️ Bash failed",
-      isError: true,
-      replyToId: "msg",
-    });
-  });
-
-  it("keeps a generated tool warning when the yield acknowledgment normalizes to empty", async () => {
-    const toolWarning = setReplyPayloadMetadata(
-      { text: "⚠️ Bash failed", isError: true },
-      { toolErrorWarning: { toolName: "bash" } },
-    );
-    state.runEmbeddedAgentMock.mockResolvedValueOnce({
-      payloads: [toolWarning],
-      meta: {
-        yielded: true,
-        yieldAcknowledgment: "[[reply_to_current]]",
-      },
-      acceptedSessionSpawns: [{ runId: "child", childSessionKey: "agent:main:child" }],
-    });
-    const { run } = createMinimalRun();
-
-    await expect(run()).resolves.toMatchObject({
-      text: "⚠️ Bash failed",
-      isError: true,
+      text: testCase.warning
+        ? "⚠️ Bash failed"
+        : (testCase.acknowledgment ??
+          "I’m continuing this work and will send the result when it is ready."),
+      ...(testCase.warning ? { isError: true } : {}),
       replyToId: "msg",
     });
   });

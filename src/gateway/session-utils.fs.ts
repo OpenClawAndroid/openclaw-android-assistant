@@ -97,16 +97,14 @@ export function buildSessionPreviewItems(
   view: "display" | "model-context" = "display",
 ): SessionPreviewItem[] {
   const items: SessionPreviewItem[] = [];
-  for (const message of messages) {
-    const projected = projectSessionDisplayMessage(message, { maxChars, view });
+  // Rejected rows do not consume the limit; older text cannot affect a full preview.
+  for (let index = messages.length - 1; index >= 0 && items.length < maxItems; index -= 1) {
+    const projected = projectSessionDisplayMessage(messages[index], { maxChars, view });
     if (!projected) {
       continue;
     }
     items.push(projected);
   }
 
-  if (items.length <= maxItems) {
-    return items;
-  }
-  return items.slice(-maxItems);
+  return items.toReversed();
 }

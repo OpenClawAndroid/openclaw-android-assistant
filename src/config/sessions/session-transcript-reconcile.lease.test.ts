@@ -1,4 +1,3 @@
-import { pathToFileURL } from "node:url";
 import { MessageChannel, type Worker, type MessagePort } from "node:worker_threads";
 import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
@@ -68,9 +67,11 @@ it.each([
         observer.beforeCreate = (filename, workerOptions) => {
           const planner = creations++ === 0;
           if (fault === "startup" && planner) {
+            // Bun follow-up (oven-sh/bun#43222): Restore a missing entry once Bun closes ports
+            // transferred before worker entry resolution fails.
             return {
-              filename: new URL("./missing-worker.js", pathToFileURL(`${stateDir}/`)),
-              options: workerOptions,
+              filename: "throw new Error('planner startup fixture')",
+              options: { ...workerOptions, eval: true },
             };
           }
           if (!planner && (fault === "release-exit" || fault === "release-error")) {

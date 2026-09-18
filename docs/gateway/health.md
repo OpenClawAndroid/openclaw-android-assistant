@@ -36,6 +36,16 @@ a fleet total.
 
 ## Deep diagnostics
 
+`openclaw health --json` reports `modelRuntime.degraded: true` when a large
+fleet's model preparation exceeds the startup budget. `pendingAgents` names the
+agents still preparing and `stage` identifies the current acquisition phase.
+The Gateway remains running and completed agents remain usable. Background
+preparation clears the degraded status when all runtimes are ready.
+
+Health and status collection groups fast session-store reads into short work
+slices, keeping busy background preparation from delaying every individual read.
+Slow reads finish their transaction before yielding to other Gateway work.
+
 - Creds on disk: `ls -l ~/.openclaw/credentials/whatsapp/<accountId>/creds.json` (mtime should be recent).
 - Session store: `ls -l ~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite`. Count and recent recipients are surfaced via `status`.
 - Relink flow: `openclaw channels logout && openclaw channels login --verbose` when status codes 409-515 or `loggedOut` appear in logs. The QR login flow auto-restarts once for status 515 after pairing.

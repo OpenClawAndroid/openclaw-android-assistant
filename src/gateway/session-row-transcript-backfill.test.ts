@@ -1,11 +1,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as sessionAccessor from "../config/sessions/session-accessor.js";
-import type { SessionEntry } from "../config/sessions/types.js";
-import { createDeferredCore } from "../shared/deferred.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
-import { backfillSessionTitle } from "./dashboard-session-title-backfill.js";
-import { maybeGenerateDashboardSessionTitle } from "./dashboard-session-title.js";
 import { backfillSessionRowTranscriptFields } from "./session-row-transcript-backfill.js";
 
 const generateConversationLabelWithFallback = vi.hoisted(() => vi.fn());
@@ -23,7 +19,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-type BackfillParams = Parameters<typeof backfillSessionTitle>[0];
+type BackfillParams = Parameters<typeof backfillSessionRowTranscriptFields>[0];
 
 async function withSession(
   run: (params: BackfillParams) => Promise<void>,
@@ -60,17 +56,14 @@ async function withSession(
 }
 
 describe("session row transcript backfill", () => {
-  it("persists a legacy title without moving its activity and returns a transient preview", async () => {
+  it("returns a transient preview without changing legacy metadata", async () => {
     await withSession(
       async (params) => {
         const before = sessionAccessor.loadSessionEntry(params);
         await expect(backfillSessionRowTranscriptFields(params)).resolves.toEqual({
           lastMessagePreview: "Found the slow query",
         });
-        expect(sessionAccessor.loadSessionEntry(params)).toEqual({
-          ...before,
-          displayName: "Investigate why the gateway times out",
-        });
+        expect(sessionAccessor.loadSessionEntry(params)).toEqual(before);
         expect(generateConversationLabelWithFallback).not.toHaveBeenCalled();
       },
       [
@@ -121,92 +114,5 @@ describe("session row transcript backfill", () => {
         { role: "assistant", content: "x".repeat(70 * 1024) },
       ],
     );
-  });
-
-  it.each([
-    ["a replacement lifecycle", { lifecycleRevision: "replacement" }],
-    ["a manual rename", { label: "Manual title" }],
-    ["a newly running turn", { status: "running" }],
-  ] satisfies Array<[string, Partial<SessionEntry>]>)(
-    "preserves %s admitted before its metadata write",
-    async (_name, mutation) => {
-      await withSession(async (params) => {
-        const patch = sessionAccessor.patchSessionEntryCore;
-        vi.spyOn(sessionAccessor, "patchSessionEntryCore").mockImplementationOnce(
-          async (scope, update, options) => {
-            await patch(scope, () => mutation);
-            return patch(scope, update, options);
-          },
-        );
-        await expect(backfillSessionTitle(params)).resolves.toBe(false);
-        expect(sessionAccessor.loadSessionEntry(params)).toMatchObject(mutation);
-        expect(sessionAccessor.loadSessionEntry(params)?.displayName).toBeUndefined();
-      });
-    },
-  );
-
-  it("rejects a title from a transcript rewritten before its metadata commit", async () => {
-    await withSession(async (params) => {
-      const patch = sessionAccessor.patchSessionEntryCore;
-      vi.spyOn(sessionAccessor, "patchSessionEntryCore").mockImplementationOnce(
-        async (scope, update, options) => {
-          await sessionAccessor.replaceTranscriptEvents(params, [
-            { type: "session", version: 3, id: params.sessionId },
-            {
-              type: "message",
-              id: "replacement-user",
-              parentId: null,
-              message: { role: "user", content: "A different branch" },
-            },
-          ]);
-          return patch(scope, update, options);
-        },
-      );
-      await expect(backfillSessionTitle(params)).resolves.toBe(false);
-      expect(sessionAccessor.loadSessionEntry(params)?.displayName).toBeUndefined();
-    });
-  });
-
-  it("does not commit after the resident owner revokes the queued backfill", async () => {
-    await withSession(async (params) => {
-      let active = true;
-      const patch = sessionAccessor.patchSessionEntryCore;
-      vi.spyOn(sessionAccessor, "patchSessionEntryCore").mockImplementationOnce(
-        (scope, update, options) => {
-          active = false;
-          return patch(scope, update, options);
-        },
-      );
-      await expect(backfillSessionTitle({ ...params, shouldCommit: () => active })).resolves.toBe(
-        false,
-      );
-      expect(sessionAccessor.loadSessionEntry(params)?.displayName).toBeUndefined();
-    });
-  });
-
-  it("lets an in-flight foreground title request keep its naming decision", async () => {
-    await withSession(async (params) => {
-      const started = createDeferredCore();
-      const title = createDeferredCore<string>();
-      generateConversationLabelWithFallback.mockImplementation(() => {
-        started.resolve();
-        return title.promise;
-      });
-      const foreground = maybeGenerateDashboardSessionTitle({
-        ...params,
-        cfg: { agents: { defaults: { model: { primary: "openai/gpt-5.5" } } } },
-        entry: sessionAccessor.loadSessionEntry(params),
-        userMessage: "Investigate why the gateway times out",
-      });
-      await started.promise;
-      try {
-        await expect(backfillSessionTitle(params)).resolves.toBe(false);
-      } finally {
-        title.resolve("Model-generated title");
-        await foreground;
-      }
-      expect(sessionAccessor.loadSessionEntry(params)?.displayName).toBe("Model-generated title");
-      expect(generateConversationLabelWithFallback).toHaveBeenCalledOnce();
-    });
   });
 });

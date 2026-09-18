@@ -308,7 +308,10 @@ describe("managed Codex plugin refresh", () => {
               }
               send({
                 method: "turn/completed",
-                params: { threadId: "thread-1", turn: { id: "turn-1", status: "interrupted" } },
+                params: {
+                  threadId: "thread-1",
+                  turn: { id: "turn-1", status: "interrupted", items: [] },
+                },
               });
               send({ id: message.id, result: {} });
             };

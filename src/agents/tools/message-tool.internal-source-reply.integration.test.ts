@@ -424,7 +424,7 @@ describe("WebChat message tool internal source reply", () => {
           },
         });
         expect(JSON.stringify(assistant)).not.toContain(workspaceDir);
-        expect(listManagedImageRecordEntries({ stateDir, sessionKey })).toHaveLength(3);
+        expect(await listManagedImageRecordEntries({ stateDir, sessionKey })).toHaveLength(3);
         const published = updates.find(
           (update) =>
             update.runId === "restart-proof-run" &&
@@ -496,7 +496,7 @@ describe("WebChat message tool internal source reply", () => {
         const appendSpy = vi
           .spyOn(sessionTranscript, "appendAssistantMessageToSessionTranscript")
           .mockImplementationOnce(async (params) => {
-            for (const { record } of listManagedImageRecordEntries({
+            for (const { record } of await listManagedImageRecordEntries({
               stateDir: state.stateDir,
               sessionKey,
             })) {
@@ -575,7 +575,10 @@ describe("WebChat message tool internal source reply", () => {
         }
         expect(preparedOriginals).toHaveLength(1);
         const committed = outcome === "lifecycle-drain-failure";
-        const records = listManagedImageRecordEntries({ stateDir: state.stateDir, sessionKey });
+        const records = await listManagedImageRecordEntries({
+          stateDir: state.stateDir,
+          sessionKey,
+        });
         expect(records).toHaveLength(committed ? 1 : 0);
         for (const original of preparedOriginals) {
           if (committed) {

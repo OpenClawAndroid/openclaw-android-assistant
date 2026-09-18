@@ -74,36 +74,6 @@
   min-height: calc(42px + var(--chat-progress-underlap) + 1px);
 }
 
-.agent-chat__goal-mode {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--chat-composer-hairline) 60%, transparent);
-  color: var(--text);
-}
-
-.agent-chat__goal-mode-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.agent-chat__goal-mode-label svg {
-  width: 16px;
-  height: 16px;
-}
-
-.agent-chat__goal-mode-hint {
-  flex: 1;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .agent-chat__goal {
   align-self: center;
   display: flex;

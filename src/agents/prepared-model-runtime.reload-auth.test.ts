@@ -172,7 +172,9 @@ describe("prepared model runtime reload auth adoption", () => {
         .toBe(dispatch);
       expect.soft(snapshot.modelCatalog.refreshFailed).toBe(true);
       expect.soft(original.refreshFailed).toBe(true);
-      expect.soft(events).toContainEqual({ phase: "catalog-failed", error: failure });
+      expect
+        .soft(events)
+        .toContainEqual({ phase: "catalog-failed", error: failure, modelFactsChanged: false });
       expect.soft(events.map((event) => event.phase)).not.toContain("failed");
       const runInput = {
         config: dispatch.config,
