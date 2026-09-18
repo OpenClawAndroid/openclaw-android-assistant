@@ -9,7 +9,7 @@ export async function listSessionCloudProfiles(
 ) {
   const catalog = await request<EnvironmentsListResult>({
     method: "environments.list",
-    params: {},
+    params: { projection: "profiles" },
   });
   const profiles = catalog.profiles ?? [];
   const profileId = normalizeOptionalString(readToolStringParam(params, "profileId"));

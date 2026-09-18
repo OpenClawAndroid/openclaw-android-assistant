@@ -108,7 +108,7 @@ export interface ShellViewHost
   openNewSession(agentId: string, target?: NewSessionTarget): void;
   openPalette(): void;
   refreshControlUi: () => Promise<boolean>;
-  recoverNotFoundRoute(): boolean;
+  recoverNotFoundRoute: () => boolean;
   requestUpdate(): void;
   resizeNavigation(splitRatio: number): void;
   selectChatSession(sessionKey: string, agentId?: string | null): void;
@@ -602,7 +602,7 @@ export function renderApplicationShell(host: ShellViewHost) {
           .router=${runtime.router}
           .retryContext=${context}
           .retentionScope=${gatewayPresentationScope(context.gateway)}
-          .onNotFound=${() => host.recoverNotFoundRoute()}
+          .onNotFound=${host.recoverNotFoundRoute}
           .notFoundRecoveryReady=${gatewayConnected}
         ></openclaw-router-outlet>
       </main>

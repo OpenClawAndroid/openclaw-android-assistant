@@ -196,29 +196,15 @@ export async function cleanupCodexAttempt(
       userInputBridgeRef.current?.cancelPending(),
     );
     await runCleanupStep("codex-turn-deadline-clear", () => deadlines.dispose());
-    await runCleanupStep("codex-dynamic-tool-cleanup", async () => {
-      const cleanupReason =
-        terminalState.settledTurnStatus === "completed"
-          ? "completion"
-          : state.timeout
-            ? "timeout"
-            : runAbortController.signal.aborted
-              ? "cancel"
-              : "error";
-      const cleanups = prompt.context.attemptTools.runCleanups.splice(0);
-      const settled = await Promise.allSettled(
-        cleanups.map(async (cleanup) => await cleanup(cleanupReason)),
-      );
-      const errors = settled.filter(
-        (result): result is PromiseRejectedResult => result.status === "rejected",
-      );
-      if (params.oneShotCliRun && errors.length) {
-        throw new AggregateError(
-          errors.map((result) => result.reason),
-          "Codex tool cleanup failed",
-        );
-      }
-    });
+    await prompt.context.attemptTools.disposeTools(
+      terminalState.settledTurnStatus === "completed"
+        ? "completion"
+        : state.timeout
+          ? "timeout"
+          : runAbortController.signal.aborted
+            ? "cancel"
+            : "error",
+    );
     await runCleanupStep("codex-route-release", releaseCurrentRoute);
     await checkpointCleanup;
     await runCleanupStep(

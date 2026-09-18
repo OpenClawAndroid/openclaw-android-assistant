@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { acquireQaLease, resumeQaLease, QaCredentialBrokerError } from "./qa-credential-lease.mjs";
 
@@ -7,7 +8,9 @@ const env = {
   OPENCLAW_QA_CONVEX_SECRET_CI: "ci-secret",
 };
 
-test("a resumed event loop cannot use a lease whose confirmation expired", async () => {
+test("a resumed event loop cannot use a lease whose confirmation expired", async (context) => {
+  context.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
+  context.mock.method(performance, "now", () => Date.now());
   const operations = [];
   const lease = await acquireQaLease({
     kind: "telegram-test-userbot",
@@ -23,8 +26,9 @@ test("a resumed event loop cannot use a lease whose confirmation expired", async
       );
     },
   });
-  // Timers cannot run during this suspension; the caller checks before yielding.
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+  assert.doesNotThrow(() => lease.assertHealthy());
+  // Advance both clocks without delivering the suspended heartbeat callbacks.
+  context.mock.timers.setTime(150);
   assert.throws(() => lease.assertHealthy(), /confirmation expired/u);
   await lease.abandon();
   assert.deepEqual(operations, ["acquire", "heartbeat"]);

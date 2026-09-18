@@ -176,6 +176,8 @@ function asControlFactory(
   }
   const forRequest = "forRequest" in control ? control.forRequest : () => control;
   return {
+    hasActiveWork: () => false,
+    disconnect: async () => {},
     forRequest,
     forNode: async () => ({
       control: forRequest("main"),

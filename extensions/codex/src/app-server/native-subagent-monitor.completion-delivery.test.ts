@@ -70,7 +70,7 @@ describe("CodexNativeSubagentMonitor", () => {
         const terminal = () =>
           client.notify(
             childStatus === "shutdown"
-              ? nativeCompletionNotification({ statusLabel: "shutdown", result: "child result" })
+              ? nativeCompletionNotification({ statusLabel: "shutdown", turnId: "parent-turn" })
               : childTurnCompletedNotification({
                   status: childStatus === "completed" ? "completed" : "failed",
                   ...(childStatus === "errored" ? { error: "child result" } : {}),
@@ -99,7 +99,12 @@ describe("CodexNativeSubagentMonitor", () => {
               status: childStatus === "errored" ? "failed" : "completed",
               senderThreadId: "parent-thread",
               receiverThreadIds: ["child-thread"],
-              agentsStates: { "child-thread": { status: childStatus, message: "child result" } },
+              agentsStates: {
+                "child-thread": {
+                  status: childStatus,
+                  message: childStatus === "shutdown" ? null : "child result",
+                },
+              },
             },
           },
         });

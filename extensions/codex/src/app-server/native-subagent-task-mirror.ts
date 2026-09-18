@@ -50,7 +50,6 @@ export class CodexNativeSubagentTaskMirror {
   private readonly mirrorStateByThreadId = new Map<string, "mirrored" | "failed">();
   private readonly terminalRunIds = new Set<string>();
   private readonly authoritativeRunIds = new Set<string>();
-  private readonly expectedAuthoritativeRunIds = new Set<string>();
   private readonly runIdsByThreadId = new Map<string, string>();
   private readonly now: () => number;
 
@@ -67,16 +66,9 @@ export class CodexNativeSubagentTaskMirror {
     this.terminalRunIds.add(runId);
   }
 
-  markAuthoritativeCompletionExpected(childThreadId: string): void {
-    // App-server history or streamed terminal events supply the real result.
-    // Callers without either path keep mirror terminal states as their fallback.
-    this.expectedAuthoritativeRunIds.add(this.runId(childThreadId));
-  }
-
   restoreCurrentTaskRun(threadId: string, runId: string): void {
     this.runIdsByThreadId.set(threadId, runId);
     this.mirrorStateByThreadId.set(threadId, "mirrored");
-    this.expectedAuthoritativeRunIds.add(runId);
   }
 
   startFollowupTurn(threadId: string, turnId: string, nativeParentThreadId: string): void {
@@ -85,7 +77,6 @@ export class CodexNativeSubagentTaskMirror {
     const runId = codexNativeSubagentRunId(threadId, turnId);
     this.runIdsByThreadId.set(threadId, runId);
     this.mirrorStateByThreadId.delete(threadId);
-    this.expectedAuthoritativeRunIds.add(runId);
     this.createRunningTask({
       threadId,
       turnId,
@@ -221,24 +212,11 @@ export class CodexNativeSubagentTaskMirror {
       return;
     }
     if (statusType === "systemError") {
-      if (this.expectedAuthoritativeRunIds.has(runId)) {
-        this.terminalRunIds.delete(runId);
-        this.runtime.recordTaskRunProgressByRunId({
-          runId,
-          lastEventAt: eventAt,
-          progressSummary: "Subagent hit a system error; awaiting recovery.",
-        });
-        return;
-      }
-      this.terminalRunIds.add(runId);
-      this.runtime.finalizeTaskRunByRunId({
+      this.terminalRunIds.delete(runId);
+      this.runtime.recordTaskRunProgressByRunId({
         runId,
-        status: "failed",
-        endedAt: eventAt,
         lastEventAt: eventAt,
-        error: "Subagent encountered a system error.",
-        progressSummary: "Subagent hit a system error.",
-        terminalSummary: "Subagent failed.",
+        progressSummary: "Subagent hit a system error; awaiting recovery.",
       });
       return;
     }
@@ -450,24 +428,11 @@ export class CodexNativeSubagentTaskMirror {
     if (normalizedStatus === "completed") {
       this.terminalRunIds.add(runId);
       const summary = normalizeOptionalString(message) ?? "Subagent completed.";
-      if (this.expectedAuthoritativeRunIds.has(runId)) {
-        this.runtime.recordTaskRunProgressByRunId({
-          runId,
-          lastEventAt: eventAt,
-          progressSummary: summary,
-        });
-      } else {
-        // Remote V1 has no trusted completion envelope or local transcript.
-        // Its collab-completed state is therefore the terminal fallback.
-        this.runtime.finalizeTaskRunByRunId({
-          runId,
-          status: "succeeded",
-          endedAt: eventAt,
-          lastEventAt: eventAt,
-          progressSummary: summary,
-          terminalSummary: summary,
-        });
-      }
+      this.runtime.recordTaskRunProgressByRunId({
+        runId,
+        lastEventAt: eventAt,
+        progressSummary: summary,
+      });
       return;
     }
     if (normalizedStatus === "blocked") {

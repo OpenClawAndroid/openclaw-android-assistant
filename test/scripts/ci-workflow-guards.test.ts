@@ -396,7 +396,7 @@ function runWorkflowShellScript(
             nodeOptions === "--import tsx "
               ? `--import ${quoteShell(TSX_IMPORT)} `
               : (nodeOptions ?? "");
-          return `${quoteShell(process.execPath)} ${loader}${quoteShell(modulePath)}`;
+          return `${quoteShell(testNodeExecPath)} ${loader}${quoteShell(modulePath)}`;
         },
       )
       .replaceAll(

@@ -2544,6 +2544,10 @@ describe("scripts/test-projects changed-target routing", () => {
       "src/plugins/doctor-contract-registry.load-paths.test.ts",
     ],
     ["test/vitest/vitest.plugin-sdk.config.ts", "src/plugin-sdk/provider-auth.test.ts"],
+    [
+      "test/vitest/vitest.unit-fast.config.ts",
+      "src/agents/embedded-agent-runner/run/model-setup.selected-model.test.ts",
+    ],
   ])("preserves whole-owner watch coverage for %s with %s", (config, file) => {
     const [plan] = buildVitestRunPlans(["--watch", config, file]);
     expect(plan).toMatchObject({
@@ -2686,21 +2690,43 @@ describe("scripts/test-projects changed-target routing", () => {
   });
 
   it.each([
-    [
-      "src/agents/embedded-agent-runner/run",
-      "test/vitest/vitest.agents-embedded-agent-run.config.ts",
-    ],
-    ["src/agents/runtime-plan", "test/vitest/vitest.agents-support.config.ts"],
-  ])("routes focused agent directory %s to its owning shard", (directory, config) => {
-    expect(buildVitestRunPlans([directory])).toEqual([
-      {
-        config,
-        forwardedArgs: [directory],
-        includePatterns: null,
-        watchMode: false,
-      },
-    ]);
-  });
+    {
+      directory: "src/agents/embedded-agent-runner/run",
+      config: "test/vitest/vitest.agents-embedded-agent-run.config.ts",
+      workerFiles: [
+        "src/agents/embedded-agent-runner/run/model-setup.ownership.test.ts",
+        "src/agents/embedded-agent-runner/run/model-setup.selected-model.test.ts",
+        "src/agents/embedded-agent-runner/run/runtime-preparation.thinking.test.ts",
+      ],
+    },
+    {
+      directory: "src/agents/runtime-plan",
+      config: "test/vitest/vitest.agents-support.config.ts",
+      workerFiles: [],
+    },
+  ])(
+    "routes focused agent directory $directory across its owners",
+    ({ directory, config, workerFiles }) => {
+      expect(buildVitestRunPlans([directory])).toEqual([
+        ...(workerFiles.length > 0
+          ? [
+              {
+                config: "test/vitest/vitest.infra.config.ts",
+                forwardedArgs: [],
+                includePatterns: workerFiles,
+                watchMode: false,
+              },
+            ]
+          : []),
+        {
+          config,
+          forwardedArgs: [directory],
+          includePatterns: null,
+          watchMode: false,
+        },
+      ]);
+    },
+  );
 
   it("splits the focused agent tools directory across its worker and tools owners", () => {
     expect(buildVitestRunPlans(["src/agents/tools"])).toEqual([
@@ -2722,12 +2748,22 @@ describe("scripts/test-projects changed-target routing", () => {
     ]);
   });
 
-  it("keeps shuffle options on the single owning embedded-run shard", () => {
+  it("keeps shuffle options on both embedded-run owners", () => {
     const directory = "src/agents/embedded-agent-runner/run";
 
     expect(
       buildVitestRunPlans([directory, "--", "--sequence.shuffle", "--sequence.seed", "3"]),
     ).toEqual([
+      {
+        config: "test/vitest/vitest.infra.config.ts",
+        forwardedArgs: ["--sequence.shuffle", "--sequence.seed", "3"],
+        includePatterns: [
+          "src/agents/embedded-agent-runner/run/model-setup.ownership.test.ts",
+          "src/agents/embedded-agent-runner/run/model-setup.selected-model.test.ts",
+          "src/agents/embedded-agent-runner/run/runtime-preparation.thinking.test.ts",
+        ],
+        watchMode: false,
+      },
       {
         config: "test/vitest/vitest.agents-embedded-agent-run.config.ts",
         forwardedArgs: ["--sequence.shuffle", "--sequence.seed", "3", directory],

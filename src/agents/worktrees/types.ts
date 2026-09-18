@@ -37,6 +37,17 @@ export type ManagedWorktreeRecord = {
   runEndCleanup?: ManagedWorktreeRunEndCleanup;
 };
 
+type WorktreeSourceCurrent = {
+  assertCurrent: () => void;
+  /** Checkout custody for rollback within this callback, independent of caller/source freshness. */
+  assertCheckoutCurrent?: () => void;
+  signal?: AbortSignal;
+};
+
+export type WorktreeSourceStage = <T>(
+  run: (current: WorktreeSourceCurrent) => T | Promise<T>,
+) => Promise<T>;
+
 export type CreateManagedWorktreeParams = {
   repoRoot: string;
   name?: string;
@@ -55,6 +66,10 @@ export type CreateManagedWorktreeParams = {
   onProgress?: (phase: "checkout" | "setup") => void;
   /** Synchronous caller-authority guard checked at allocation commit boundaries. */
   commitGuard?: () => void;
+  /** Revalidate the selected source for one operation without retaining its guard afterward. */
+  withSource?: WorktreeSourceStage;
+  /** Cleanup retains checkout custody without requiring a retired source selection. */
+  withRollback?: <T>(run: (assertCurrent: () => void) => Promise<T>) => Promise<T>;
 };
 
 export type CreateEmptyManagedWorktreeParams = Omit<

@@ -36,10 +36,7 @@ import {
   listLegacyAuthProfileSources,
   warnLegacyAuthProfileSourcesIgnored,
 } from "./legacy-source-diagnostic.js";
-import {
-  resolveLegacyAuthProfileSourceCandidates,
-  type LegacyAuthProfileSource,
-} from "./legacy-source-files.js";
+import { resolveLegacyAuthProfileSourceCandidates } from "./legacy-source-files.js";
 import {
   shouldPersistRuntimeExternalOAuthProfile,
   type RuntimeExternalOAuthProfile,
@@ -72,6 +69,13 @@ import {
   setRuntimeExternalCliProfileIds,
 } from "./runtime-external-profile-references.js";
 import {
+  createAuthProfileStoreRuntimeReader,
+  resolveExternalCliOverlayOptions,
+  type AuthProfileReadOwner,
+  type LoadAuthProfileStoreOptions,
+  type ResolvedExternalCliOverlayOptions,
+} from "./runtime-read.js";
+import {
   captureRuntimeAuthProfileLegacyCandidates,
   pruneAuthProfileStoreReferences,
   preserveResolvedSecretBackedCredentials,
@@ -103,6 +107,7 @@ import {
   setRuntimeAuthProfileStoreSnapshotAtDatabasePath,
   type OwnedRuntimeAuthProfileStoreSnapshotEntry,
 } from "./runtime-snapshots.js";
+import { loadPersistedAuthProfileStoreFromRows } from "./sqlite-read.js";
 import {
   deletePersistedAuthProfileStoreRaw,
   inspectPersistedAuthProfileStoreRaw,
@@ -140,30 +145,6 @@ function withCredentialSources(
     ),
   };
 }
-
-type LoadAuthProfileStoreOptions = {
-  /** Limit a credential-read refusal to the provider being resolved; writes stay owner-wide. */
-  migrationProvider?: string;
-  deferScopedMigrationRefusals?: boolean;
-  onReadOwner?: (owner: AuthProfileReadOwner) => void;
-  /** Materialize only this explicitly selected personal account into the returned view. */
-  profileId?: string;
-  allowKeychainPrompt?: boolean;
-  config?: OpenClawConfig;
-  database?: AuthProfileDatabase;
-  externalCli?: ExternalCliAuthDiscovery;
-  inheritedAuthDir?: string;
-  readOnly?: boolean;
-  syncExternalCli?: boolean;
-  externalCliProviderIds?: Iterable<string>;
-  externalCliProfileIds?: Iterable<string>;
-};
-
-type AuthProfileReadOwner = {
-  databasePath: string;
-  candidates: LegacyAuthProfileSource[];
-  readStore: () => AuthProfileStore | null;
-};
 
 type SaveAuthProfileStoreOptions = {
   filterExternalAuthProfiles?: boolean;
@@ -311,13 +292,6 @@ function preserveLegacyOAuthRefsOnSave(params: {
   return nextProfiles ? { ...params.payload, profiles: nextProfiles } : params.payload;
 }
 
-type ResolvedExternalCliOverlayOptions = {
-  allowKeychainPrompt?: boolean;
-  config?: OpenClawConfig;
-  externalCliProviderIds?: Iterable<string>;
-  externalCliProfileIds?: Iterable<string>;
-};
-
 let runtimeSnapshotPublisherForTest: ((publish: () => void) => void) | undefined;
 
 type RuntimeSnapshotPublication = {
@@ -401,51 +375,6 @@ function loadPersistedAuthProfileStores(
             owner.location === "state-db" ? "shared-state" : "agent",
           )
         : loadPersistedAuthProfileStore(),
-  };
-}
-
-function resolveExternalCliOverlayOptions(
-  options: LoadAuthProfileStoreOptions | undefined,
-): ResolvedExternalCliOverlayOptions {
-  const discovery = options?.externalCli;
-  if (!discovery) {
-    return {
-      ...(options?.allowKeychainPrompt !== undefined
-        ? { allowKeychainPrompt: options.allowKeychainPrompt }
-        : {}),
-      ...(options?.config ? { config: options.config } : {}),
-      ...(options?.externalCliProviderIds
-        ? { externalCliProviderIds: options.externalCliProviderIds }
-        : {}),
-      ...(options?.externalCliProfileIds
-        ? { externalCliProfileIds: options.externalCliProfileIds }
-        : {}),
-    };
-  }
-  if (discovery.mode === "none") {
-    const config = discovery.config ?? options?.config;
-    return {
-      allowKeychainPrompt: false,
-      ...(config ? { config } : {}),
-      externalCliProviderIds: [],
-      externalCliProfileIds: [],
-    };
-  }
-  if (discovery.mode === "existing") {
-    const allowKeychainPrompt = discovery.allowKeychainPrompt ?? options?.allowKeychainPrompt;
-    const config = discovery.config ?? options?.config;
-    return {
-      ...(allowKeychainPrompt !== undefined ? { allowKeychainPrompt } : {}),
-      ...(config ? { config } : {}),
-    };
-  }
-  const allowKeychainPrompt = discovery.allowKeychainPrompt ?? options?.allowKeychainPrompt;
-  const config = discovery.config ?? options?.config;
-  return {
-    ...(allowKeychainPrompt !== undefined ? { allowKeychainPrompt } : {}),
-    ...(config ? { config } : {}),
-    ...(discovery.providerIds ? { externalCliProviderIds: discovery.providerIds } : {}),
-    ...(discovery.profileIds ? { externalCliProfileIds: discovery.profileIds } : {}),
   };
 }
 
@@ -1538,6 +1467,7 @@ export function createAuthProfileStoreRuntime(
     agentDir?: string,
     options?: LoadAuthProfileStoreOptions,
     env?: NodeJS.ProcessEnv,
+    preparedRows?: Parameters<typeof loadPersistedAuthProfileStoreFromRows>[0],
   ): AuthProfileStore {
     if (isEnvOnlyAuthProfileRuntime()) {
       return createEmptyAuthProfileStore();
@@ -1548,6 +1478,9 @@ export function createAuthProfileStoreRuntime(
       ? resolveAgentAuthPath(effectiveAgentDir)
       : resolveSharedAuthPath(env);
     const readStore = () => {
+      if (preparedRows) {
+        return loadPersistedAuthProfileStoreFromRows(preparedRows, databasePath);
+      }
       const store =
         !effectiveAgentDir && env && !effectiveOptions?.database
           ? loadPersistedSharedAuthProfileStore(env)
@@ -1571,13 +1504,27 @@ export function createAuthProfileStoreRuntime(
       candidates: resolveLegacyAuthProfileSourceCandidates({ agentDir: effectiveAgentDir, env }),
       readStore,
     });
-    assertAuthProfileMigrationReady(
-      effectiveAgentDir,
-      env,
-      effectiveOptions?.migrationProvider,
-      effectiveOptions?.config,
-      effectiveOptions?.deferScopedMigrationRefusals,
-    );
+    if (preparedRows) {
+      assertAuthProfileMigrationCandidates({
+        databasePath,
+        candidates: resolveLegacyAuthProfileSourceCandidates({ agentDir: effectiveAgentDir, env }),
+        hasCredentials: () => {
+          const raw = preparedRows.store.status === "readable" ? preparedRows.store.raw : undefined;
+          return isRecord(raw) && isRecord(raw.profiles) && Object.keys(raw.profiles).length > 0;
+        },
+        provider: effectiveOptions?.migrationProvider,
+        config: effectiveOptions?.config,
+        deferScopedRefusals: effectiveOptions?.deferScopedMigrationRefusals,
+      });
+    } else {
+      assertAuthProfileMigrationReady(
+        effectiveAgentDir,
+        env,
+        effectiveOptions?.migrationProvider,
+        effectiveOptions?.config,
+        effectiveOptions?.deferScopedMigrationRefusals,
+      );
+    }
     const store = readStore();
     const legacySources = listLegacyAuthProfileSources({
       agentDir: effectiveAgentDir,
@@ -1610,62 +1557,25 @@ export function createAuthProfileStoreRuntime(
     return applyScopedAuthReadThrough(markRuntimePersistedProfiles(synced));
   }
 
-  /** Loads the effective runtime store for an agent, including inherited main profiles. */
-  function loadAuthProfileStoreForRuntime(
-    agentDir?: string,
-    options?: LoadAuthProfileStoreOptions,
-    env?: NodeJS.ProcessEnv,
-  ): AuthProfileStore {
-    if (isEnvOnlyAuthProfileRuntime()) {
-      return createEmptyAuthProfileStore();
-    }
-    if (options?.profileId && isUserModelAuthProfileId(options.profileId)) {
-      const shared = loadAuthProfileStoreForRuntime(
-        agentDir,
-        { ...options, profileId: undefined },
-        env,
-      );
-      return authProfileRuntimeMode.getStore()
-        ? shared
-        : materializePersonalAuthProfile(shared, options.profileId);
-    }
-    const effectiveAgentDir = resolveRuntimeAuthProfileAgentDir(agentDir);
-    const effectiveOptions = resolveRuntimeAuthProfileLoadOptions(options);
-    const store = loadAuthProfileStoreForAgent(effectiveAgentDir, effectiveOptions, env);
-    const authPath = effectiveAgentDir
-      ? resolveAgentAuthPath(effectiveAgentDir)
-      : resolveSharedAuthPath(env);
-    const mainAuthPath = effectiveOptions?.inheritedAuthDir
-      ? resolveAgentAuthPath(effectiveOptions.inheritedAuthDir)
-      : resolveSharedAuthPath(env);
-    const externalCli = resolveExternalCliOverlayOptions(effectiveOptions);
-    if (!effectiveAgentDir || authPath === mainAuthPath) {
-      return setRuntimeLocalProfileMetadata(
-        overlayExternalAuthProfiles(store, {
-          agentDir: effectiveAgentDir,
-          ...externalCli,
-        }),
-        listRuntimeLocalProfileIds(store),
-      );
-    }
-
-    const mainStore = loadInheritedAuthProfileStore(
-      () => loadAuthProfileStoreForAgent(effectiveOptions?.inheritedAuthDir, effectiveOptions, env),
-      effectiveOptions?.inheritedAuthDir,
-      env ?? getScopedAuthProfileEnv(),
-    );
-    const mergedStore = mainStore
-      ? mergeAuthProfileStores(mainStore, store, { preserveBaseRuntimeExternalProfiles: true })
-      : store;
-    return setRuntimeLocalProfileMetadata(
-      overlayExternalAuthProfiles(mergedStore, {
-        agentDir: effectiveAgentDir,
-        ...externalCli,
-      }),
-      listRuntimeLocalProfileIds(store, mainStore),
-      runtimeStoreInheritsMainState(mergedStore, store),
-    );
-  }
+  const { loadAuthProfileStoreForRuntime, loadAuthProfileStoreForRuntimeAsync } =
+    createAuthProfileStoreRuntimeReader({
+      isEnvOnlyAuthProfileRuntime,
+      getScopedAuthProfileEnv,
+      resolveRuntimeAuthProfileAgentDir,
+      resolveRuntimeAuthProfileLoadOptions,
+      loadAuthProfileStoreForAgent,
+      overlayExternalAuthProfiles,
+      captureScope: () => {
+        const mode = authProfileRuntimeMode.getStore();
+        return {
+          isolated: Boolean(mode),
+          run: (agentDir, env, run) =>
+            mode?.kind === "agent-dir"
+              ? authProfileRuntimeMode.run({ ...mode, agentDir: agentDir!, env }, run)
+              : run(),
+        };
+      },
+    });
 
   /** Retain read owners, never copies of their migration refusals, for a session facade. */
   function createAuthProfileStoreReadScope(agentDir: string, config: OpenClawConfig | undefined) {
@@ -2283,6 +2193,7 @@ export function createAuthProfileStoreRuntime(
     updateAuthProfileStoreWithLock,
     loadAuthProfileStore,
     loadAuthProfileStoreForRuntime,
+    loadAuthProfileStoreForRuntimeAsync,
     loadAuthProfileStoreForSecretsRuntime,
     loadAuthProfileStoreWithoutExternalProfiles,
     ensureAuthProfileStore,

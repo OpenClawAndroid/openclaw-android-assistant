@@ -894,6 +894,10 @@ export type SessionEntryCreateWithTranscriptOptions = {
   requireWriteSuccess?: boolean;
   /** Synchronous caller-authority guard checked by the storage owner before commits. */
   commitGuard?: () => void;
+  /** Retain source authority around each final writer, after asynchronous preparation. */
+  withCommit?: <T>(run: (assertSourceCurrent: () => void) => Promise<T>) => Promise<T>;
+  /** Non-throwing notification after the entry's outer COMMIT, before publication or cleanup. */
+  onLifecycleCommitted?: (entry: SessionEntry) => void;
 };
 
 export type SessionPatchProjectionSnapshot = { store: Readonly<Record<string, SessionEntry>> };

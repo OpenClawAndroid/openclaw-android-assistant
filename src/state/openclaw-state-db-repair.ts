@@ -36,6 +36,7 @@ import {
   ensureFirstUseAdditiveStateColumnsForStrictMigration,
 } from "./openclaw-state-db-schema-additive.js";
 import { tableExists } from "./openclaw-state-db-schema-helpers.js";
+import { assertOpenClawStateSchemaRepairAllowed } from "./openclaw-state-db-schema-policy.js";
 import {
   assertCanonicalStateSchemaShape,
   dropLegacyStateTables,
@@ -67,6 +68,7 @@ export function repairStateSchema(
   changes: string[];
   warnings: string[];
 } {
+  assertOpenClawStateSchemaRepairAllowed(pathname);
   ensureOpenClawStatePermissions(pathname, env);
   // This private handle rebuilds referenced tables and is closed after repair.
   const db = openNodeSqliteDatabase(pathname, { enableForeignKeyConstraints: false });

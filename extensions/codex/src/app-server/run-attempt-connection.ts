@@ -431,7 +431,6 @@ export async function prepareCodexAttemptConnection({ params, options }: CodexRu
       binding: startupBinding,
       bindingStore,
       identity: bindingIdentity,
-      sessionFile: params.sessionFile,
       agentDir,
       codexHome: appServer.start.env?.CODEX_HOME,
       config: params.config,

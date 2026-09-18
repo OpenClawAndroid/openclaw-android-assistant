@@ -64,6 +64,8 @@ export function createCodexSessionCatalogNodeHostCommands(
       command: CODEX_APP_SERVER_THREADS_LIST_COMMAND,
       cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
       dangerous: false,
+      hasActiveWork: controlFactory.hasActiveWork,
+      onDisconnect: controlFactory.disconnect,
       handle: async (paramsJSON) => {
         const request = await bindRequest(paramsJSON);
         const pageParams = readPageParams(request.params);
@@ -103,6 +105,8 @@ export function createCodexSessionCatalogNodeHostCommands(
       command: CODEX_APP_SERVER_THREAD_TURNS_LIST_COMMAND,
       cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
       dangerous: false,
+      hasActiveWork: controlFactory.hasActiveWork,
+      onDisconnect: controlFactory.disconnect,
       handle: async (paramsJSON) => {
         const request = await bindRequest(paramsJSON);
         const action = readNodeTranscriptParams(request.params);
@@ -130,6 +134,8 @@ export function createCodexSessionCatalogNodeHostCommands(
       command: CODEX_CATALOG_TRANSCRIPT_READ_COMMAND,
       cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
       dangerous: false,
+      hasActiveWork: controlFactory.hasActiveWork,
+      onDisconnect: controlFactory.disconnect,
       handle: async (paramsJSON) => {
         const request = await bindRequest(paramsJSON);
         const action = readNodeTranscriptParams(request.params);

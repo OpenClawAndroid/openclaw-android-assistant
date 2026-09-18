@@ -19,6 +19,7 @@ COPY node-version.mjs ./
 COPY node-sqlite.mjs ./
 COPY node-runtime-update.mjs ./
 COPY node-runtime-recovery.mjs ./
+COPY node-host-launcher.mjs ./
 COPY ui/package.json ./ui/package.json
 COPY packages ./packages
 COPY extensions ./extensions

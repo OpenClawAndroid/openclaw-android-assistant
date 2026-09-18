@@ -101,6 +101,19 @@ navigation outside the app is outside its control. Production connection setting
 and `pnpm ui:dev` behavior are unchanged; use that command when you intentionally
 need a real Gateway or external integration.
 
+## Chat render scheduling
+
+Streaming deltas and session-roster notifications must not trigger a render for
+each event. The chat stream owns its frame queue; the shell and chat-page session
+subscriptions coalesce their presentation updates through `SubscriptionsController`.
+Their state synchronization stays immediate, while the Lit commit runs inside the
+scheduled frame so child property bindings do not escape into a later microtask.
+Disconnecting or replacing a subscription retires its queued frame. Hidden
+documents retain immediate invalidation because animation frames may be suspended.
+
+The `chat-stream-runtime-budgets.e2e.test.ts` suite protects streaming with
+structural update counts; chat-page unit tests cover intervening roster publications.
+
 ## Talk live smoke test
 
 Maintainers can exercise the browser Talk paths end to end from the repository

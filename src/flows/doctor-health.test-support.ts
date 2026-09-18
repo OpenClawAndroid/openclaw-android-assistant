@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   writeUpdatePostInstallDoctorResult: vi.fn(),
   service: vi.fn(),
   probePortUsage: vi.fn<(typeof import("../infra/ports-probe.js"))["probePortUsage"]>(),
+  inspectGatewayRestart:
+    vi.fn<(typeof import("../cli/daemon-cli/restart-health.js"))["inspectGatewayRestart"]>(),
+  waitForGatewayHealthyRestart:
+    vi.fn<(typeof import("../cli/daemon-cli/restart-health.js"))["waitForGatewayHealthyRestart"]>(),
   packageRoot: vi.fn<() => string | undefined>(),
   runtimeTmpDir: vi.fn<() => string>(),
   restartedHealthy: true,
@@ -28,6 +32,25 @@ const mocks = vi.hoisted(() => ({
 const runtimeDirs = useAutoCleanupTempDirTracker(afterEach);
 beforeEach(() => {
   mocks.runtimeTmpDir.mockReturnValue(runtimeDirs.make("openclaw-doctor-runtime-"));
+  mocks.inspectGatewayRestart.mockReset().mockImplementation(async (params) => ({
+    runtime: await params.service.readRuntime(params.env ?? process.env),
+    portUsage: { port: params.port, status: "busy", listeners: [], hints: [] },
+    healthy: true,
+    staleGatewayPids: [],
+    gatewayVersion: params.expectedVersion ?? null,
+    gatewayBuildId: params.expectedBuildId ?? null,
+    gatewayBootId: "synthetic-current-boot",
+  }));
+  mocks.waitForGatewayHealthyRestart.mockReset().mockImplementation(async (params) => ({
+    runtime: await params.service.readRuntime(params.env ?? process.env),
+    portUsage: { port: params.port, status: "busy", listeners: [], hints: [] },
+    healthy: mocks.restartedHealthy,
+    staleGatewayPids: [],
+    gatewayVersion: params.expectedVersion ?? null,
+    gatewayBuildId: params.expectedBuildId ?? null,
+    gatewayBootId: "synthetic-restarted-boot",
+    waitOutcome: mocks.restartedHealthy ? "healthy" : "timeout",
+  }));
 });
 
 // The synthetic manager's leases and locks belong to its private fixture root.
@@ -114,7 +137,8 @@ vi.mock("../cli/update-cli/update-command-service-plan.js", async (importOrigina
 
 vi.mock("../cli/daemon-cli/restart-health.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../cli/daemon-cli/restart-health.js")>()),
-  waitForGatewayHealthyRestart: async () => ({ healthy: mocks.restartedHealthy }),
+  inspectGatewayRestart: mocks.inspectGatewayRestart,
+  waitForGatewayHealthyRestart: mocks.waitForGatewayHealthyRestart,
   renderRestartDiagnostics: () => ["synthetic readiness failure"],
 }));
 

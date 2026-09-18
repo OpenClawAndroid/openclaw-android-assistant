@@ -152,8 +152,8 @@ describe("resident sessions.list", () => {
         "agent:work:active",
       ]);
       await initializeSessionReadContext(context);
-      await enriched;
       await listSessions({ client, context, request: { archived: "all", limit: 100 } });
+      await enriched;
       const statements = vi.spyOn(DatabaseSync.prototype, "prepare");
       const results = await Promise.all(
         Array.from({ length: 16 }, () =>

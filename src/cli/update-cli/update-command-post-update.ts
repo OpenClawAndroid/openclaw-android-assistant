@@ -5,6 +5,7 @@ import {
   buildControlPlaneUpdateRestartHealthPendingResult,
   resolveManagedServiceUpdateFailureExitCode,
 } from "../../infra/update-control-plane-sentinel.js";
+import { collectUpdateDoctorFailureFacts } from "../../infra/update-doctor-result.js";
 import { normalizeControlPlaneUpdateResult } from "../../infra/update-restart-sentinel-payload.js";
 import { recordUpdateRunStep } from "../../infra/update-run-ledger.js";
 import { isUpdateGatewayReadinessPending } from "../../infra/update-run-step.js";
@@ -705,6 +706,7 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
       throw error;
     }
     const message = formatErrorMessage(error);
+    const failureFacts = collectUpdateDoctorFailureFacts(error);
     defaultRuntime.error(`Post-update verification failed: ${message}`);
     const reported = await reportResult({
       ...params.result,
@@ -719,6 +721,7 @@ export async function finishUpdate(params: FinishUpdateParams): Promise<UpdateRu
           durationMs: Math.max(0, Date.now() - params.startedAt),
           exitCode: 1,
           stderrTail: message,
+          ...(failureFacts.length ? { failureFacts } : {}),
         },
       ],
     });

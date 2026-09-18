@@ -3,7 +3,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { sleepWithAbort } from "../infra/backoff.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
-import type { PluginHookGatewayCronService } from "../plugins/hook-types.js";
+import type { PluginHookGatewayCronService } from "../plugins/hook-gateway.types.js";
 import { createHookRunner } from "../plugins/hooks.js";
 import {
   PluginHostCleanupTimeoutError,
@@ -217,14 +217,21 @@ export function createPluginReloadCleanup({
       pendingServiceCleanup && pendingServiceCleanup.error !== error
         ? new AggregateError([pendingServiceCleanup.error, error], "Previous plugin cleanup failed")
         : error,
-    assertResourceHandoff: (pluginIds: ReadonlySet<string>) => {
-      for (const record of previousRegistry.plugins) {
-        if (pluginIds.has(record.id) && getPluginInstance(record)?.hasActiveCall) {
-          throw new Error(
-            `Plugin ${record.id} cannot replace itself from its own active call; retry after the call finishes.`,
-          );
+    reserveResourceHandoff: (pluginIds: ReadonlySet<string>) => {
+      const releases: Array<() => void> = [];
+      const release = () => releases.splice(0).forEach((close) => close());
+      try {
+        for (const record of previousRegistry.plugins) {
+          const instance = pluginIds.has(record.id) && getPluginInstance(record);
+          if (instance) {
+            releases.push(instance.reserveReplacement());
+          }
         }
+      } catch (error) {
+        release();
+        throw error;
       }
+      return release;
     },
     drainInstances,
     drainForRecovery: async (

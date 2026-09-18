@@ -44,8 +44,10 @@ import {
 import {
   scanCodexCatalogRollouts,
   codexCatalogRolloutLogicalPath,
+  indexCodexCatalogRowsByRollout,
   isCodexCatalogRolloutPathCovered,
   readCodexCatalogRollout,
+  resolveCodexCatalogRolloutFingerprint,
 } from "./session-catalog-rollouts.js";
 import { CodexCatalogSettingsIndex } from "./session-catalog-settings.js";
 import { setCodexCatalogSource } from "./session-catalog-source.js";
@@ -419,17 +421,12 @@ export class CodexCatalogIndex {
         if (!isCurrent(row.threadId)) {
           continue;
         }
-        const logicalPath = row.rolloutPath && codexCatalogRolloutLogicalPath(row.rolloutPath);
         const previous = this.rows.get(row.threadId);
-        const fingerprint = logicalPath
-          ? (files.get(logicalPath) ??
-            files.get(`${logicalPath}.zst`) ??
-            (useStateDbOnly &&
-            previous?.rolloutPath &&
-            codexCatalogRolloutLogicalPath(previous.rolloutPath) === logicalPath
-              ? previous.fingerprint
-              : undefined))
-          : undefined;
+        const fingerprint = resolveCodexCatalogRolloutFingerprint(
+          row.rolloutPath,
+          useStateDbOnly ? previous : undefined,
+          files,
+        );
         this.observations.mark(row.threadId);
         this.put({
           ...row,
@@ -482,11 +479,7 @@ export class CodexCatalogIndex {
       return;
     }
     this.assertCurrent();
-    const byPath = new Map(
-      [...this.rows.values()].flatMap((row) =>
-        row.rolloutPath ? [[codexCatalogRolloutLogicalPath(row.rolloutPath), row] as const] : [],
-      ),
-    );
+    const byPath = indexCodexCatalogRowsByRollout(this.rows.values());
     const { files, present } = await scanCodexCatalogRollouts(root, new Set(byPath.keys()));
     this.assertCurrent();
     const observed = new Map(files);
@@ -640,13 +633,7 @@ export class CodexCatalogIndex {
     }
     if (row) {
       const previous = this.rows.get(thread.id);
-      const fingerprint =
-        previous?.rolloutPath &&
-        row.rolloutPath &&
-        codexCatalogRolloutLogicalPath(previous.rolloutPath) ===
-          codexCatalogRolloutLogicalPath(row.rolloutPath)
-          ? previous.fingerprint
-          : undefined;
+      const fingerprint = resolveCodexCatalogRolloutFingerprint(row.rolloutPath, previous);
       this.observations.mark(thread.id);
       this.put({
         ...row,
@@ -678,6 +665,20 @@ export class CodexCatalogIndex {
 
   get(threadId: string): CodexCatalogIndexRow | undefined {
     return this.rows.get(threadId);
+  }
+
+  hasActiveWork(): boolean {
+    return Boolean(
+      this.initializing ||
+      (!this.restored && this.restoring) ||
+      this.background ||
+      this.reconciling ||
+      this.reconcilingNative ||
+      this.currency.hasActiveWork() ||
+      this.observations.hasActiveWork() ||
+      this.events.hasActiveWork() ||
+      this.persistence.hasActiveWork(),
+    );
   }
 
   async list(
@@ -717,8 +718,10 @@ export class CodexCatalogIndex {
     this.liveStatus.invalidate();
     this.liveSettings.invalidate();
     this.unsubscribe();
-    this.currency.close();
+    // close() joins the running scan after retirement has fenced its publications.
+    void this.currency.close();
     clearImmediate(this.background);
+    this.background = undefined;
     return this.persistence.retire();
   }
 
@@ -729,6 +732,7 @@ export class CodexCatalogIndex {
       this.restoring,
       this.reconciling,
       this.reconcilingNative,
+      this.currency.close(),
       writes,
       this.events.close(),
     ]);

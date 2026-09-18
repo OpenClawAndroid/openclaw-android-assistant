@@ -125,13 +125,17 @@ async function runCliShimInner(moduleUrl, options, nodeArgs) {
     }
     const implementationUrl = new URL(options.implementation, moduleUrl);
     const implementationPath = fileURLToPath(implementationUrl);
-    const nodeExecutable = process.versions.bun ? "node" : process.execPath;
-    child = spawn(nodeExecutable, [...nodeArgs, implementationPath, ...process.argv.slice(2)], {
-      cwd: process.cwd(),
-      detached,
-      env: process.env,
-      stdio: "inherit",
-    });
+    const nodeExecutable = options.executable ?? (process.versions.bun ? "node" : process.execPath);
+    child = spawn(
+      nodeExecutable,
+      [...nodeArgs, ...(options.execArgv ?? []), implementationPath, ...process.argv.slice(2)],
+      {
+        cwd: process.cwd(),
+        detached,
+        env: process.env,
+        stdio: "inherit",
+      },
+    );
     const result = await new Promise((resolve, reject) => {
       child.once("error", reject);
       child.once("close", (code, signal) => resolve({ code, signal }));

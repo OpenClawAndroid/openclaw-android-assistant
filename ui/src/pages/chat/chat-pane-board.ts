@@ -320,14 +320,23 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
         };
         const presentation =
           savedLayout?.dashboardPresentationOverride ?? row?.boardPresentation ?? "split";
+        const savedPresentation =
+          savedLayout &&
+          (sidebarDashboardPresentation(savedLayout) ??
+            (savedLayout.columns.some((column) =>
+              column.panels.some((panel) => panel.slot === "dashboard"),
+            )
+              ? "split"
+              : undefined));
         if (this.dashboardExpanded) {
           this.showDashboard(true);
         } else if (
           savedLayout &&
           (savedLayout.dashboardPresentationOverride === undefined ||
-            sidebarDashboardPresentation(savedLayout) === presentation)
+            savedPresentation === presentation)
         ) {
           // Reapplying an unchanged default must not replace the saved side tab.
+          // A retained but hidden Dashboard is split, even when another panel is focused.
           // Legacy layouts also retain their complete presentation without provenance.
           this.commitSidebarLayout(this.restorePaneSidebarLayout(savedLayout), { persist: false });
         } else {

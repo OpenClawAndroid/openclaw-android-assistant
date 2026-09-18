@@ -91,7 +91,7 @@ const CODEX_DISABLED_NATIVE_SHELL_DYNAMIC_TOOLS = new Set([
 ]);
 
 /** Keeps node filesystem and process ownership on its native exec-server. */
-export function resolveCodexNodePlacementToolConstructionPlan(
+function resolveCodexNodePlacementToolConstructionPlan(
   sandbox: OpenClawSandboxContext | undefined,
   nativeToolSurfaceEnabled: boolean | undefined,
 ): OpenClawCodingToolsOptions["toolConstructionPlan"] {

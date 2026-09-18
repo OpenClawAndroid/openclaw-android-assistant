@@ -246,6 +246,14 @@ provider or plugin runtime ownership. Kernels and their transaction callbacks
 remain synchronous. The asynchronous task and flow read facade runs these read
 kernels in the shared-state worker.
 
+Synchronous task creation and managed-flow worker creation share one create/reuse
+operation. Each adapter keeps its selection order and transaction boundaries.
+Filling a missing delivery origin commits before optional metadata changes; that
+later stage rereads the selected task and revalidates its parent flow and backing.
+Run-scoped native transitions retain their initial ordered task selection, reread
+each exact identity, and finish its publication before processing the next sibling.
+Equivalent terminal updates still repair linked flows and publish observations.
+
 Routine status reads stream task audit metadata through the same shared worker
 and return fixed-size history aggregates plus candidates for live reconciliation.
 They do not decode retained task payloads or restore delivery-state maps. Reads
@@ -300,6 +308,18 @@ opening, with Gateway schema authority delegated by its live coordinator owner.
 Classified database errors survive transport, and canonical close joins worker
 operations and native cleanup. Cold registry restoration and runtime-configuration
 preparation still retain their existing main-thread behavior.
+
+Dynamic model resolution awaits persisted auth-profile reads. Agent-local and
+legacy shared credentials use the isolated read-only child, so reads can coexist
+with the agent database's memory publication worker. Captured source-exclusion
+scopes read through their owned private snapshot. Relocated shared credentials
+and selected personal accounts use the canonical shared-state worker. Missing
+stores remain missing. Bounded transfer frames preserve complete credential
+rows without an aggregate size limit. Reader cleanup settles before the result
+reaches model preparation; host-owned overlays and migration checks retain
+captured persisted facts and revalidate after cleanup. A recorded refusal on an unreadable inherited agent store
+does not hide healthy local credentials; selected-store failures still propagate.
+Credential mutations and synchronous SDK readers retain their existing owners.
 
 Model-context reads and session transcript preparation use the session-transcript
 worker with separate bounded queues. Background preparation cannot occupy the
@@ -671,6 +691,13 @@ existing-only admission, and all stages of a prune use the captured database
 context. The cold hook CLI retains its separate read-only locator worker.
 
 ### Preserve the data and concurrency contracts
+
+Doctor's local device-token inventory executes in the shared-state worker. The
+detector awaits its result and preserves role ordering, malformed-row omission,
+and best-effort diagnostic behavior. Lint keeps this read in its private active
+state view and joins worker cleanup before retiring that snapshot; source-path
+legacy-file checks retain their separate environment. Device identity, pairing
+reads, and client token operations retain their existing owners.
 
 An adapter must make these contracts explicit and verify them against a real
 database:

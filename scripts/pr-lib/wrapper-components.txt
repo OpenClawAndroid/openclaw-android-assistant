@@ -152,6 +152,8 @@ src/agents/agent-run-terminal-reply.ts
 src/agents/agent-runtime-id.ts
 src/agents/agent-scope-config.ts
 src/agents/agent-scope.ts
+src/agents/auth-profiles/sqlite-json.ts
+src/agents/auth-profiles/sqlite-read-pool.ts
 src/agents/configured-provider-fallback.ts
 src/agents/configured-provider-model.ts
 src/agents/defaults.ts
@@ -338,6 +340,7 @@ src/config/io.health-state.ts
 src/config/io.invalid-config.ts
 src/config/io.load.ts
 src/config/io.meta.ts
+src/config/io.observe-recovery-effects.ts
 src/config/io.observe-recovery.ts
 src/config/io.observe-state.ts
 src/config/io.observe-suspicious.ts
@@ -512,6 +515,7 @@ src/infra/bun-sqlite-library.ts
 src/infra/clawhub-integrity.ts
 src/infra/clawhub-spec.ts
 src/infra/command-carriers.ts
+src/infra/config-dir.ts
 src/infra/container-env-file.ts
 src/infra/crypto-digest.ts
 src/infra/dedupe.ts
@@ -533,6 +537,7 @@ src/infra/diagnostics-timeline.ts
 src/infra/directory-durability.ts
 src/infra/disk-space.ts
 src/infra/dispatch-wrapper-resolution.ts
+src/infra/dotenv-global-core.ts
 src/infra/dotenv-global.ts
 src/infra/dotenv.ts
 src/infra/ed25519-signature.ts
@@ -649,10 +654,12 @@ src/infra/sqlite-integrity.ts
 src/infra/sqlite-number.ts
 src/infra/sqlite-post-commit.ts
 src/infra/sqlite-private-directory.ts
+src/infra/sqlite-readonly-auth-transfer.ts
 src/infra/sqlite-readonly-location-cleanup.ts
 src/infra/sqlite-readonly-location.ts
 src/infra/sqlite-readonly-location.worker.ts
 src/infra/sqlite-readonly-worker-protocol.ts
+src/infra/sqlite-readonly-worker-session.ts
 src/infra/sqlite-readonly-worker.ts
 src/infra/sqlite-runtime-version.ts
 src/infra/sqlite-schema-contract-assembly.ts
@@ -1041,6 +1048,7 @@ src/skills/discovery/agent-filter.ts
 src/skills/discovery/filter.ts
 src/state/config-machine-state-write.ts
 src/state/config-machine-state.ts
+src/state/openclaw-agent-db-contract.ts
 src/state/openclaw-agent-db-metadata.ts
 src/state/openclaw-agent-db-migration-required.ts
 src/state/openclaw-agent-db.paths.ts
@@ -1053,6 +1061,7 @@ src/state/openclaw-state-db-cache.ts
 src/state/openclaw-state-db-contract.ts
 src/state/openclaw-state-db-delivery-queue-backfill.ts
 src/state/openclaw-state-db-doctor-schema.ts
+src/state/openclaw-state-db-existing-schema.ts
 src/state/openclaw-state-db-existing-write.ts
 src/state/openclaw-state-db-fast-path.ts
 src/state/openclaw-state-db-handle.ts
@@ -1066,8 +1075,10 @@ src/state/openclaw-state-db-readonly.ts
 src/state/openclaw-state-db-repair.ts
 src/state/openclaw-state-db-runtime-failure.ts
 src/state/openclaw-state-db-schema-additive.ts
+src/state/openclaw-state-db-schema-discovery.ts
 src/state/openclaw-state-db-schema-helpers.ts
 src/state/openclaw-state-db-schema-migration-required.ts
+src/state/openclaw-state-db-schema-policy.ts
 src/state/openclaw-state-db-schema-repair.ts
 src/state/openclaw-state-db-schema-runtime.ts
 src/state/openclaw-state-db-schema-v12-foldin.ts

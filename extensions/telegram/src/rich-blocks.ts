@@ -222,15 +222,33 @@ function irRangeToRichText(ir: MarkdownIR, rangeStart: number, rangeEnd: number)
   const stack: Active[] = [];
   const root: RichText[] = [];
   const frameStack: RichText[][] = [root];
+  let leafIndex = 0;
+  let firstSpanIndex = 0;
 
   for (let i = 0; i < points.length - 1; i += 1) {
     const start = points[i] ?? 0;
-    const leaf = leaves.find((entry) => entry.start <= start && entry.end > start);
-    if (!leaf || (leaf.kind === "atom" && leaf.start !== start)) {
+    // HTML traversal emits source-ordered leaves.
+    while (leafIndex < leaves.length && leaves[leafIndex]!.end <= start) {
+      leafIndex += 1;
+    }
+    const leaf = leaves[leafIndex];
+    if (!leaf || leaf.start > start || (leaf.kind === "atom" && leaf.start !== start)) {
       continue;
     }
     const end = leaf.kind === "atom" ? leaf.end : (points[i + 1] ?? start);
-    const covering = spans.filter((span) => span.start <= start && span.end >= end);
+    while (firstSpanIndex < spans.length && spans[firstSpanIndex]!.end <= start) {
+      firstSpanIndex += 1;
+    }
+    const covering: Active[] = [];
+    for (let spanIndex = firstSpanIndex; spanIndex < spans.length; spanIndex += 1) {
+      const span = spans[spanIndex]!;
+      if (span.start > start) {
+        break;
+      }
+      if (span.end >= end) {
+        covering.push(span);
+      }
+    }
     const annotation = covering.find((span) => span.kind === "annotation");
     // Dominance applies only to the covered range. Surrounding formatting resumes
     // after a transcript header. Code is already literal in IR; its merged range

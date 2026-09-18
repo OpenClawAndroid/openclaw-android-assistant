@@ -198,6 +198,7 @@ vi.mock("./update-command-post-core.js", async (importOriginal) => ({
   }),
   resolvePostCoreUpdateStartedAtMs: vi.fn(async () => 1_000),
   writePostCorePluginUpdateResultFile: vi.fn(async () => undefined),
+  writePostCoreUpdateFailureFile: vi.fn(async () => undefined),
 }));
 
 import { readPackageVersion, tryWriteCompletionCache } from "./shared.js";
@@ -212,6 +213,7 @@ import {
   continuePostCoreUpdateInFreshProcess,
   postCoreUpdateParentOwnsCompletion,
   writePostCorePluginUpdateResultFile,
+  writePostCoreUpdateFailureFile,
 } from "./update-command-post-core.js";
 import { resumePostCoreUpdate } from "./update-command-resume.js";
 
@@ -251,6 +253,8 @@ describe("update plugin lifecycle lease boundaries", () => {
     mocks.interactive = false;
     mocks.triage.mockReset().mockResolvedValue({ status: "completed", hint: "fixture" });
     mocks.maintenance.mockReset().mockResolvedValue(undefined);
+    vi.mocked(writePostCorePluginUpdateResultFile).mockReset().mockResolvedValue(undefined);
+    vi.mocked(writePostCoreUpdateFailureFile).mockReset().mockResolvedValue(undefined);
     vi.mocked(readPackageVersion).mockResolvedValue(VERSION);
     vi.mocked(continuePostCoreUpdateInFreshProcess).mockImplementation(async () => {
       record("target-convergence");
@@ -565,6 +569,60 @@ describe("update plugin lifecycle lease boundaries", () => {
           mocks.events.indexOf("complete:false"),
         );
       }
+    },
+  );
+
+  it.each(["success", "doctor", "plugins"])(
+    "restores legacy post-core service custody before publishing %s",
+    async (phase) => {
+      const failure = new Error(`Synthetic ${phase} failure`);
+      const finish = vi.fn(async () => {
+        record("restore-service");
+      });
+      mocks.maintenance.mockImplementationOnce(async () => {
+        record("park-service");
+        return {
+          run: <T>(operation: () => T): T => operation(),
+          releaseState: async () => {
+            record("release-state");
+          },
+          finish,
+          release: async () => {
+            record("release-custody");
+          },
+        };
+      });
+      vi.mocked(postCoreUpdateParentOwnsCompletion).mockResolvedValueOnce(false);
+      vi.stubEnv("OPENCLAW_UPDATE_POST_CORE_RESULT_PATH", "/fixture/post-core-result.json");
+      const publish = async () => {
+        expect(finish).toHaveBeenCalledOnce();
+        record("publish");
+      };
+      vi.mocked(writePostCorePluginUpdateResultFile).mockImplementationOnce(publish);
+      vi.mocked(writePostCoreUpdateFailureFile).mockImplementationOnce(publish);
+      if (phase === "doctor") {
+        vi.mocked(runUpdateFinalizationDoctorInFreshProcess).mockRejectedValueOnce(failure);
+      } else if (phase === "plugins") {
+        vi.mocked(updatePluginsAfterCoreUpdate).mockRejectedValueOnce(failure);
+      }
+      const run = resumePostCoreUpdate({
+        root: "/tmp/openclaw",
+        channel: "stable",
+        opts: { yes: true },
+        timeoutMs: 1_000,
+      });
+      if (phase === "success") {
+        await run;
+      } else {
+        await expect(run).rejects.toBe(failure);
+      }
+      expect(finish).toHaveBeenCalledOnce();
+      expect(mocks.events.indexOf("release-state:false")).toBeGreaterThan(
+        mocks.events.indexOf("park-service:false"),
+      );
+      expect(mocks.events.indexOf("publish:false")).toBeGreaterThan(
+        mocks.events.indexOf("restore-service:false"),
+      );
     },
   );
 

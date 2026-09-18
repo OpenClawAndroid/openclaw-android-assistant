@@ -63,6 +63,7 @@ import { resolveGatewayAuthTokenForService } from "./doctor-gateway-auth-token.j
 import { buildExpectedGatewayServicePlan } from "./doctor-gateway-runtime-plan.js";
 import type { DoctorOptions, DoctorPrompter } from "./doctor-prompter.js";
 import { isDoctorUpdateRepairMode } from "./doctor-repair-mode.js";
+import { formatServiceConfigIssues, reportServiceDefinitionDrift } from "./doctor-service-audit.js";
 import {
   confirmDoctorServiceRepair,
   EXTERNAL_SERVICE_REPAIR_NOTE,
@@ -514,15 +515,9 @@ export async function maybeRepairGatewayServiceConfig(
       command: null,
       platform: process.platform,
     });
+    reportServiceDefinitionDrift(audit);
     if (audit.issues.length > 0) {
-      note(
-        audit.issues
-          .map((issue) =>
-            issue.detail ? `- ${issue.message} (${issue.detail})` : `- ${issue.message}`,
-          )
-          .join("\n"),
-        "Gateway service config",
-      );
+      note(formatServiceConfigIssues(audit.issues).join("\n"), "Gateway service config");
     }
     return cfg;
   }
@@ -603,6 +598,7 @@ export async function maybeRepairGatewayServiceConfig(
     expectedServicePath: expectedPlan.environment.PATH,
     expectedPort: port,
   });
+  reportServiceDefinitionDrift(audit);
   if (audit.runtimeNote) {
     note(audit.runtimeNote, "Gateway runtime");
   }
@@ -695,11 +691,7 @@ export async function maybeRepairGatewayServiceConfig(
     consolidatedLines.push("");
     emittedSourceCheckoutWarning = true;
   }
-  consolidatedLines.push(
-    ...audit.issues.map((issue) =>
-      issue.detail ? `- ${issue.message} (${issue.detail})` : `- ${issue.message}`,
-    ),
-  );
+  consolidatedLines.push(...formatServiceConfigIssues(audit.issues));
   note(consolidatedLines.join("\n"), "Gateway service config");
   if (audit.issues.every((issue) => issue.code === SERVICE_AUDIT_CODES.gatewayRuntimeProbeFailed)) {
     return cfg;

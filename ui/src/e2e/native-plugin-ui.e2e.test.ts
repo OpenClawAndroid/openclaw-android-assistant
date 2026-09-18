@@ -14,23 +14,15 @@ import {
   restoreChatAsMain,
 } from "./chat-side-panel.test-support.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
-import { catalog, pluginId, pluginModule } from "./native-plugin-ui.test-support.ts";
+import {
+  catalog,
+  pluginId,
+  pluginModule,
+  waitForPendingPluginInitializer,
+  type NativePluginWindow,
+} from "./native-plugin-ui.test-support.ts";
 
 const suite = createControlUiE2eSuite({ name: "Native plugin UI ownership" });
-type NativePluginWindow = Window & {
-  nativePluginProof?: { release?: () => void };
-  nativeActionProof?: {
-    runs: number;
-    current?: {
-      signal: AbortSignal;
-      release: () => void;
-      withdraw: () => void;
-      done: boolean;
-      outcome: string;
-    };
-  };
-};
-
 const hungPluginModule = `export default { id:"hung-ui", async activate(host) {
   await host.request("fixture.peerStarted");
   await new Promise(resolve => { globalThis.nativePluginProof.release = resolve; });
@@ -463,9 +455,7 @@ suite.define(() => {
           bootstrapGate.resolve();
           await gateway.waitForRequest("fixture.activationStarted");
           await gateway.waitForRequest("fixture.peerStarted");
-          await page.waitForFunction(
-            () => typeof (window as NativePluginWindow).nativePluginProof?.release === "function",
-          );
+          await waitForPendingPluginInitializer(page);
           await expectLoading();
           await page.screenshot({ path: path.join(suite.artifactDir, "startup-loading.png") });
           await page.evaluate(() => {
@@ -849,6 +839,7 @@ suite.define(() => {
         }
         await reload("pending");
         await gateway.waitForRequest("fixture.activationStarted");
+        await waitForPendingPluginInitializer(page);
         await reload("three");
         await page.getByRole("heading", { name: "Fixture revision three" }).waitFor();
         await page.screenshot({
@@ -986,6 +977,7 @@ suite.define(() => {
             expect.objectContaining({ pluginId, revision: "two", status: "activated" }),
           );
         expect(await reload.isDisabled()).toBe(true);
+        await waitForPendingPluginInitializer(page);
         await page.clock.fastForward(15_000);
         await page
           .getByText("Plugin UI initialization timed out. Check the plugin and reload its UI.", {

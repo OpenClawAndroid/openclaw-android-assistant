@@ -21,7 +21,10 @@ import {
   legacyFinalizerBuildSources,
   vitestWorkerBuildEntries,
 } from "./vitest-worker-build-entries.mts";
-import { vitestWorkerDeclarationEntries } from "./vitest-worker-declarations.mts";
+import {
+  vitestWorkerDeclarationEntries,
+  vitestWorkerRuntimeAssets,
+} from "./vitest-worker-declarations.mts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -190,6 +193,16 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
   }
   for (const name of Object.keys(entry)) {
     fs.accessSync(path.join(directory, "dist", `${name}.js`));
+  }
+  for (const asset of vitestWorkerRuntimeAssets) {
+    const source = path.join(root, asset);
+    const destination = path.join(directory, asset);
+    const contents = fs.readFileSync(source);
+    const hash = hashVitestWorkerArtifact(contents);
+    inputs[source] ??= hash;
+    fs.writeFileSync(destination, contents, { flag: "wx" });
+    // Output paths stay relative to dist, including package-root runtime assets.
+    outputs[path.relative(outDir, destination).replaceAll("\\", "/")] = hash;
   }
   // Version consumers need the built source identity without making this
   // disposable generation a competing OpenClaw installation root.

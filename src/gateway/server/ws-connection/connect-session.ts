@@ -9,6 +9,7 @@ import { ConnectErrorDetailCodes } from "../../../../packages/gateway-protocol/s
 import { ErrorCodes, PROTOCOL_VERSION } from "../../../../packages/gateway-protocol/src/index.js";
 import { getRuntimeConfig } from "../../../config/io.js";
 import { captureAuthenticatedNodePairingState } from "../../../infra/device-pairing-node-state.js";
+import { compareOpenClawReleaseVersions } from "../../../infra/npm-registry-spec.js";
 import { upsertPresence } from "../../../infra/system-presence.js";
 import { loadVoiceWakeRoutingConfig } from "../../../infra/voicewake-routing.js";
 import { loadVoiceWakeConfig } from "../../../infra/voicewake.js";
@@ -64,9 +65,6 @@ import type {
   DeviceAuthorizedGatewayConnect,
   GatewayConnectPhaseContext,
 } from "./message-handler-types.js";
-
-/** Match production release versions (YYYY.M.PATCH or YYYY.M.PATCH-beta.N). */
-const RELEASED_VERSION_RE = /^\d{4}\.\d+\.\d+/;
 
 type AuthenticatedNodePairingAdmission = NonNullable<
   Awaited<ReturnType<typeof captureAuthenticatedNodePairingState>>
@@ -473,19 +471,16 @@ export async function attachAuthenticatedGatewayConnect(
   }
   // Only an exact cryptographic device match proves the same install; independent
   // SSH-tunneled or separate-state nodes are exempt even when they appear local.
+  // Restart stale nodes after a shared install update; an independently updated
+  // node can be newer than its Gateway and still use the negotiated protocol.
   // Reject before registration/presence so supervisor restarts leave no phantom online state.
   if (role === "node" && isLocalClient) {
     const localNodeId = await resolveLocalNodeId();
     if (localNodeId && device?.id === localNodeId) {
       const gatewayVersion = resolveRuntimeServiceVersion(process.env);
       const clientVersion = connectParams.client.version;
-      if (
-        clientVersion &&
-        gatewayVersion &&
-        clientVersion !== gatewayVersion &&
-        RELEASED_VERSION_RE.test(gatewayVersion) &&
-        RELEASED_VERSION_RE.test(clientVersion)
-      ) {
+      const releaseOrder = compareOpenClawReleaseVersions(clientVersion, gatewayVersion);
+      if (releaseOrder !== null && releaseOrder < 0) {
         logWsControl.info(
           `node version mismatch conn=${connId} client=${formatForLog(clientLabel)} clientVersion=${formatForLog(clientVersion)} gatewayVersion=${gatewayVersion}; closing for supervisor restart`,
         );

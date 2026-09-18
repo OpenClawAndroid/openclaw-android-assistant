@@ -12,12 +12,17 @@ import type {
 // launchd defaults to a 10s spawn throttle. Keep that default explicitly so
 // crash loops back off instead of respawning every second while still allowing
 // explicit kickstart restarts to take effect.
-const LAUNCH_AGENT_THROTTLE_INTERVAL_SECONDS = 10;
 export const LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS = 20;
 // launchd stores plist integer values in decimal; 0o077 renders as 63 (owner-only files).
-const LAUNCH_AGENT_UMASK_DECIMAL = 0o077;
-const LAUNCH_AGENT_PROCESS_TYPE = "Interactive";
-const LAUNCH_AGENT_STDIN_PATH = "/dev/null";
+export const LAUNCH_AGENT_POLICY = {
+  RunAtLoad: true,
+  KeepAlive: true,
+  ExitTimeOut: LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS,
+  ProcessType: "Interactive",
+  ThrottleInterval: 10,
+  Umask: 0o077,
+  StandardInPath: "/dev/null",
+} as const;
 export const LAUNCH_AGENT_ENV_WRAPPER_SHELL = "/bin/sh";
 
 const plistEscape = (value: string): string =>
@@ -351,5 +356,15 @@ export function buildLaunchAgentPlist({
     ? `\n    <key>Comment</key>\n    <string>${plistEscape(comment.trim())}</string>`
     : "";
   const envXml = renderEnvDict(environment);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n  <dict>\n    <key>Label</key>\n    <string>${plistEscape(label)}</string>\n    ${commentXml}\n    <key>RunAtLoad</key>\n    <true/>\n    <key>KeepAlive</key>\n    <true/>\n    <key>ExitTimeOut</key>\n    <integer>${LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS}</integer>\n    <key>ProcessType</key>\n    <string>${LAUNCH_AGENT_PROCESS_TYPE}</string>\n    <key>ThrottleInterval</key>\n    <integer>${LAUNCH_AGENT_THROTTLE_INTERVAL_SECONDS}</integer>\n    <key>Umask</key>\n    <integer>${LAUNCH_AGENT_UMASK_DECIMAL}</integer>\n    <key>ProgramArguments</key>\n    <array>${argsXml}\n    </array>\n    ${workingDirXml}\n    <key>StandardInPath</key>\n    <string>${plistEscape(LAUNCH_AGENT_STDIN_PATH)}</string>\n    <key>StandardOutPath</key>\n    <string>${plistEscape(stdoutPath)}</string>\n    <key>StandardErrorPath</key>\n    <string>${plistEscape(stderrPath)}</string>${envXml}\n  </dict>\n</plist>\n`;
+  const policyXml = Object.entries(LAUNCH_AGENT_POLICY)
+    .map(([key, value]) => {
+      const type = typeof value === "number" ? "integer" : "string";
+      const xml =
+        typeof value === "boolean"
+          ? `<${value}/>`
+          : `<${type}>${plistEscape(String(value))}</${type}>`;
+      return `    <key>${key}</key>\n    ${xml}`;
+    })
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n  <dict>\n    <key>Label</key>\n    <string>${plistEscape(label)}</string>\n    ${commentXml}\n${policyXml}\n    <key>ProgramArguments</key>\n    <array>${argsXml}\n    </array>\n    ${workingDirXml}\n    <key>StandardOutPath</key>\n    <string>${plistEscape(stdoutPath)}</string>\n    <key>StandardErrorPath</key>\n    <string>${plistEscape(stderrPath)}</string>${envXml}\n  </dict>\n</plist>\n`;
 }

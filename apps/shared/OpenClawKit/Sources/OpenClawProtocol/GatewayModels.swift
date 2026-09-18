@@ -6866,15 +6866,19 @@ public struct EnvironmentsDestroyResult: Codable, Sendable {
 
 public struct EnvironmentsListParams: Codable, Sendable {
     public let runtimeid: String?
+    public let projection: String?
 
     public init(
-        runtimeid: String? = nil)
+        runtimeid: String? = nil,
+        projection: String? = nil)
     {
         self.runtimeid = runtimeid
+        self.projection = projection
     }
 
     private enum CodingKeys: String, CodingKey {
         case runtimeid = "runtimeId"
+        case projection
     }
 }
 

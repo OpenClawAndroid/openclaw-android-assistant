@@ -319,19 +319,22 @@ export async function registerDetachedChild(
 export function nativeCompletionNotification(
   params: {
     agentPath?: string;
-    statusLabel?: string;
-    result?: string | null;
     parentThreadId?: string;
     turnId?: string;
-  } = {},
+  } & (
+    | { statusLabel?: "completed"; result?: string | null }
+    | { statusLabel: "errored"; result: string }
+    | { statusLabel: "shutdown" | "not_found"; result?: never }
+  ) = {},
 ): CodexServerNotification {
   const agentPath = params.agentPath ?? "child-thread";
   const statusLabel = params.statusLabel ?? "completed";
   const result = params.result === undefined ? "child final result" : params.result;
-  const statusValue = result === null ? "null" : JSON.stringify(result);
-  const content =
-    `<subagent_notification>{"agent_path":${JSON.stringify(agentPath)},"status":{` +
-    `${JSON.stringify(statusLabel)}:${statusValue}}}</subagent_notification>`;
+  const status =
+    statusLabel === "shutdown" || statusLabel === "not_found"
+      ? statusLabel
+      : { [statusLabel]: result };
+  const content = `<subagent_notification>${JSON.stringify({ agent_path: agentPath, status })}</subagent_notification>`;
   return {
     method: "rawResponseItem/completed",
     params: {
@@ -339,20 +342,11 @@ export function nativeCompletionNotification(
       ...(params.turnId ? { turnId: params.turnId } : {}),
       item: {
         type: "message",
-        role: "assistant",
-        phase: "commentary",
-        content: [
-          {
-            type: "output_text",
-            text: JSON.stringify({
-              author: agentPath,
-              recipient: "/root",
-              other_recipients: [],
-              content,
-              trigger_turn: false,
-            }),
-          },
-        ],
+        role: "user",
+        content: [{ type: "input_text", text: content }],
+        internal_chat_message_metadata_passthrough: {
+          content_item_kinds: ["multi_agent.subagent_notification"],
+        },
       },
     },
   };

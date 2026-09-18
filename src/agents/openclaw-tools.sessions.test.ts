@@ -1621,13 +1621,11 @@ describe("sessions tools", () => {
   ])(
     "records exactly one cross-agent contribution at the original prompt time only after admission (timeoutSeconds: $timeoutSeconds, admitted: $admitted)",
     async ({ timeoutSeconds, admitted }) => {
-      const storePath = path.join(
+      const storeTemplate = path.join(
         tempDirs.make("openclaw-session-send-participant-"),
-        "agents",
-        "research",
-        "agent",
-        "openclaw-agent.sqlite",
+        "agents/{agentId}/agent/openclaw-agent.sqlite",
       );
+      const storePath = resolveSessionStorePathCore(storeTemplate, { agentId: "research" });
       const scope = { agentId: "research", sessionKey: "agent:research:main", storePath };
       const sessionId = "participant-target";
       const promptedAt = 1_000;
@@ -1654,7 +1652,7 @@ describe("sessions tools", () => {
         const tool = createSessionsSendTool({
           agentSessionKey: "agent:main:main",
           expectedTargetSessionId: sessionId,
-          config: { ...TEST_CONFIG, session: { ...TEST_CONFIG.session, store: storePath } },
+          config: { ...TEST_CONFIG, session: { ...TEST_CONFIG.session, store: storeTemplate } },
           callGateway: callGatewayMock,
         });
         const result = await tool.execute("participant-send", {

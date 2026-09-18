@@ -209,7 +209,10 @@ function prepareGatewaySessionStoreLookup(
       ...(params.projection ? { projection: params.projection } : {}),
       ...(params.storeCache ? { cache: params.storeCache } : {}),
     },
-    store: index === 0 && target.storePath === fallback.storePath ? params.store : undefined,
+    result:
+      index === 0 && target.storePath === fallback.storePath && params.store !== undefined
+        ? ok(params.store)
+        : undefined,
   }));
   return {
     reads,

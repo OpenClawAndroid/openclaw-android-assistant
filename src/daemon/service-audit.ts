@@ -1,15 +1,19 @@
 /** Audits installed daemon service definitions for drift and repair candidates. */
-import fs from "node:fs/promises";
 import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { resolveInlineCommandMatch } from "../infra/shell-inline-command.js";
 import { POSIX_SHELL_WRAPPERS } from "../infra/shell-wrapper-resolution.js";
 import { parseTcpPort } from "../infra/tcp-port.js";
-import { resolveLaunchAgentPlistPath } from "./launchd.js";
+import { auditLaunchdDefinition } from "./service-audit-launchd.js";
 import { auditGatewayRuntime, SERVICE_RUNTIME_AUDIT_CODES } from "./service-audit-runtime.js";
+import { auditScheduledTaskDefinition } from "./service-audit-schtasks.js";
 import { auditSystemdUnit, SYSTEMD_SERVICE_AUDIT_CODES } from "./service-audit-systemd.js";
-import type { GatewayServiceCommand, ServiceConfigIssue } from "./service-audit-types.js";
+import type {
+  GatewayServiceCommand,
+  ServiceConfigIssue,
+  ServiceDefinitionDrift,
+} from "./service-audit-types.js";
 import { getMinimalServicePathPartsFromEnv, SERVICE_PROXY_ENV_KEYS } from "./service-env.js";
 import {
   collectInlineManagedServiceEnvKeys,
@@ -20,11 +24,16 @@ import {
 } from "./service-managed-env.js";
 import { isNonMinimalServicePathEntry, normalizeServicePathEntry } from "./service-path-policy.js";
 
-export type { GatewayServiceCommand, ServiceConfigIssue } from "./service-audit-types.js";
+export type {
+  GatewayServiceCommand,
+  ServiceConfigIssue,
+  ServiceDefinitionDrift,
+} from "./service-audit-types.js";
 
-export type ServiceConfigAudit =
+export type ServiceConfigAudit = (
   | { ok: true; issues: ServiceConfigIssue[]; runtimeNote?: string }
-  | { ok: false; issues: ServiceConfigIssue[]; runtimeNote?: string };
+  | { ok: false; issues: ServiceConfigIssue[]; runtimeNote?: string }
+) & { definitionDrift?: ServiceDefinitionDrift[]; definitionDriftError?: string };
 export const SERVICE_AUDIT_CODES = {
   ...SERVICE_RUNTIME_AUDIT_CODES,
   ...SYSTEMD_SERVICE_AUDIT_CODES,
@@ -72,38 +81,6 @@ function isOpaquePosixShellInlineCommand(programArguments: string[]): boolean {
       allowCombinedC: true,
     }).command !== null
   );
-}
-
-async function auditLaunchdPlist(
-  env: Record<string, string | undefined>,
-  issues: ServiceConfigIssue[],
-) {
-  const plistPath = resolveLaunchAgentPlistPath(env);
-  let content;
-  try {
-    content = await fs.readFile(plistPath, "utf8");
-  } catch {
-    return;
-  }
-
-  const hasRunAtLoad = /<key>RunAtLoad<\/key>\s*<true\s*\/>/i.test(content);
-  const hasKeepAlive = /<key>KeepAlive<\/key>\s*<true\s*\/>/i.test(content);
-  if (!hasRunAtLoad) {
-    issues.push({
-      code: SERVICE_AUDIT_CODES.launchdRunAtLoad,
-      message: "LaunchAgent is missing RunAtLoad=true",
-      detail: plistPath,
-      level: "recommended",
-    });
-  }
-  if (!hasKeepAlive) {
-    issues.push({
-      code: SERVICE_AUDIT_CODES.launchdKeepAlive,
-      message: "LaunchAgent is missing KeepAlive=true",
-      detail: plistPath,
-      level: "recommended",
-    });
-  }
 }
 
 function auditGatewayCommand(programArguments: string[] | undefined, issues: ServiceConfigIssue[]) {
@@ -416,6 +393,8 @@ export async function auditGatewayServiceConfig(params: {
   timeoutMs?: number;
 }): Promise<ServiceConfigAudit> {
   const issues: ServiceConfigIssue[] = [];
+  const definitionDrift: ServiceDefinitionDrift[] = [];
+  let definitionDriftError: string | undefined;
   const platform = params.platform ?? process.platform;
 
   auditGatewayCommand(params.command?.programArguments, issues);
@@ -438,11 +417,29 @@ export async function auditGatewayServiceConfig(params: {
   );
 
   if (platform === "linux") {
-    await auditSystemdUnit(params.env, issues, params.timeoutMs);
-  } else if (platform === "darwin") {
-    await auditLaunchdPlist(params.env, issues);
+    definitionDriftError = await auditSystemdUnit(
+      params.env,
+      issues,
+      params.timeoutMs,
+      params.command,
+      definitionDrift,
+    );
   }
 
-  const notes = runtimeNote ? { runtimeNote } : {};
+  try {
+    if (platform === "darwin") {
+      await auditLaunchdDefinition(params.env, issues, definitionDrift, params.timeoutMs);
+    } else if (platform === "win32" && params.command) {
+      await auditScheduledTaskDefinition(params.env, definitionDrift, params.timeoutMs);
+    }
+  } catch {
+    definitionDriftError = "Service definition inspection could not be completed.";
+  }
+
+  const notes = {
+    ...(runtimeNote ? { runtimeNote } : {}),
+    ...(definitionDrift.length ? { definitionDrift } : {}),
+    ...(definitionDriftError ? { definitionDriftError } : {}),
+  };
   return issues.length === 0 ? { ok: true, issues, ...notes } : { ok: false, issues, ...notes };
 }

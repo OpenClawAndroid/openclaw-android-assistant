@@ -38,6 +38,7 @@ internal class WearProxyController(
   private val requestGateway: suspend (method: String, params: JsonObject) -> JsonElement,
   private val isGatewayConnected: () -> Boolean,
   private val gatewayStatusText: () -> String,
+  private val gatewayProblemCode: () -> String? = { null },
   private val hasOperatorAdminScope: () -> Boolean = { false },
   private val supportsSessionModelCatalog: () -> Boolean = { false },
   private val activeAgentId: () -> String? = { null },
@@ -130,9 +131,12 @@ internal class WearProxyController(
 
   private fun proxyStatus(params: JsonObject): JsonObject {
     params.requireOnly()
+    val connected = isGatewayConnected()
+    val status = gatewayStatusText()
     return buildJsonObject {
-      put("connected", isGatewayConnected())
-      put("status", gatewayStatusText().takeCodePoints(MAX_STATUS_CHARS))
+      put("connected", connected)
+      put("status", status.takeCodePoints(MAX_STATUS_CHARS))
+      if (!connected) put("failure", wearConnectionFailure(gatewayProblemCode(), status).wireValue)
       put(
         "capabilities",
         buildJsonArray {

@@ -60,6 +60,10 @@ When gateway auth is configured, the Control UI avatar endpoint requires the sam
 
 If you disable gateway auth (not recommended on shared hosts), the avatar route also becomes unauthenticated, in line with the rest of the gateway.
 
+Concurrent profile-photo requests can share a Gravatar lookup. Each HTTP request
+keeps its own timeout and disconnect lifecycle, so one expired or disconnected
+request does not interrupt another client loading the same photo.
+
 ## Assistant media route auth
 
 Local image previews follow the chat's filesystem permissions. Project chats use

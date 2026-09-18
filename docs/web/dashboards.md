@@ -155,7 +155,8 @@ never needs the agent.
   override. Applying a shared default does not create a personal override.
   Dock position, dimensions, and other panels remain local. Reopening or reloading
   an unchanged dashboard view preserves the selected side-panel tab, including
-  Side chat. Existing browser layouts without presentation provenance retain
+  Side chat or Files when Chat remains main. It also preserves a closed side panel
+  or a focused Chat view. Existing browser layouts without presentation provenance retain
   their complete saved layout
   until you deliberately choose a presentation; OpenClaw does not guess whether
   an older expansion was automatic. Local layout retention remains 500 sessions.

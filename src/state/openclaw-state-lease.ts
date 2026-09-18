@@ -659,6 +659,11 @@ export async function withOpenClawStateLease<T>(
             ) {
               throw new Error("This lease mode does not support worker writes");
             }
+            // A delayed expiry timer must not admit another synchronous effect.
+            if (confirmedExpiresAt === undefined || Date.now() >= confirmedExpiresAt) {
+              abortLost();
+              assertActive();
+            }
           },
         });
         return run(lease);

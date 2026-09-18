@@ -311,8 +311,21 @@ export function registerPluginServiceRecoveryTests(createRecoveryFixture: Recove
     });
 
     it("restores prepared config effects when channel admission cannot pause", async () => {
-      const rollback = vi.fn(async () => {});
-      const fixture = await createRecoveryFixture({ prepareConfigEffects: () => rollback });
+      const rollback = vi.fn(async () => {
+        for (const record of fixture.previousRegistry.plugins) {
+          getPluginInstance(record)?.retainWork()();
+        }
+      });
+      const fixture = await createRecoveryFixture({
+        prepareConfigEffects: () => {
+          const record = fixture.previousRegistry.plugins.find((plugin) => plugin.id === "first");
+          assert(record);
+          expect(() => getPluginInstance(record)?.retainWork()).toThrow(
+            "replacement is in progress",
+          );
+          return rollback;
+        },
+      });
       const failure = new Error("fixture channel pause failed");
       vi.spyOn(fixture.runtime.channelManager, "pauseChannelStarts").mockImplementationOnce(() => {
         throw failure;

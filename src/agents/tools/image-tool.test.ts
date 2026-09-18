@@ -167,14 +167,11 @@ vi.mock("../auth-profiles.js", () => ({
   externalCliDiscoveryForProviderAuth: (params: { provider: string }) => params,
   ensureAuthProfileStore: readMockRuntimeAuthProfileStore,
   loadAuthProfileStoreForRuntime: readMockRuntimeAuthProfileStore,
-  ensureAuthProfileStoreWithoutExternalProfiles: (agentDir?: string) =>
-    readMockAuthProfileStore(agentDir),
-  hasAnyAuthProfileStoreSource: (agentDir?: string) => {
-    if (!agentDir) {
-      return false;
-    }
-    return fsSync.existsSync(path.join(agentDir, "auth-profiles.json"));
-  },
+  loadAuthProfileStoreForRuntimeAsync: async (agentDir?: string) =>
+    readMockRuntimeAuthProfileStore(agentDir),
+  ensureAuthProfileStoreWithoutExternalProfiles: readMockAuthProfileStore,
+  hasAnyAuthProfileStoreSource: (agentDir?: string) =>
+    Boolean(agentDir && fsSync.existsSync(path.join(agentDir, "auth-profiles.json"))),
   listProfilesForProvider: (
     store: { profiles?: Record<string, { provider?: string }> },
     provider: string,

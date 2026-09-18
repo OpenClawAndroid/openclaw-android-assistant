@@ -191,6 +191,14 @@ Gateway-hosted services also receive `ctx.getCron?.()` for the scheduler operati
 already available to Gateway hooks: `list`, `add`, `update`, `remove`, and
 `removeStaleJobFamily`. Non-Gateway service hosts omit this getter.
 
+Current Gateway service handles also provide `await cron.isEnabled()` to observe
+whether automatic scheduling is enabled, including the `OPENCLAW_SKIP_CRON`
+override. It returns only a boolean, not storage metadata or permission to mutate
+jobs. The method is optional in the public type for older host implementations;
+its absence means unknown, not enabled or disabled. Consumers that support older
+hosts can keep their previous reconciliation behavior when it is absent.
+Disabled scheduling does not disable job CRUD or required plugin cleanup.
+
 Service cleanup retains the owning plugin's cleanup context so `stop()` can
 release resources after ordinary call admission closes. Keep the resources and
 unsubscribe functions acquired by that startup attempt, and release those exact

@@ -22,7 +22,9 @@ vi.mock("node:fs", async (importOriginal) => {
     },
   };
 });
-vi.mock("../infra/executable-path.js", () => ({ resolveExecutablePath: () => process.execPath }));
+vi.mock("../infra/node-runtime-executable.js", () => ({
+  resolveNodeRuntimeExecutable: () => process.execPath,
+}));
 vi.mock("../infra/runtime-worker-url.js", () => ({
   resolveRuntimeWorkerUrl: () => new URL("file:///fixture/terminal-worker.js"),
   resolveRuntimeWorkerArgv: () => [],
@@ -34,7 +36,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it("force-stops a failed terminal worker when procfs identity is unavailable", async () => {
+it("joins failed terminal startup cleanup when procfs identity is unavailable", async () => {
   vi.useFakeTimers();
   const child = Object.assign(new EventEmitter(), {
     pid: 7777,
@@ -60,10 +62,21 @@ it("force-stops a failed terminal worker when procfs identity is unavailable", a
       cols: 80,
       rows: 24,
     });
+    const settled = vi.fn();
+    void starting.then(settled, settled);
     child.emit("error", new Error("worker failed before startup"));
-    await expect(starting).rejects.toThrow("worker failed before startup");
     await vi.advanceTimersByTimeAsync(2_000);
     expect(signals.mock.calls).toEqual([[7777, "SIGKILL"]]);
+    expect(settled).not.toHaveBeenCalled();
+    child.emit("message", { type: "ready", pid: 8888 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).not.toHaveBeenCalled();
+    child.emit("message", { type: "exit", exitCode: 1 });
+    child.emit("exit", 1, null);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).not.toHaveBeenCalled();
+    child.stdout.end();
+    await expect(starting).rejects.toThrow("worker failed before startup");
     await vi.advanceTimersByTimeAsync(60_000);
     expect(signals.mock.calls).toEqual([[7777, "SIGKILL"]]);
   });

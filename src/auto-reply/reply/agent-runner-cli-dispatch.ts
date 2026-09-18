@@ -23,7 +23,7 @@ import { inferToolMetaFromArgsCore, isCommandBearingToolCall } from "../../agent
 import { normalizeAgentPlanSteps } from "../../channels/streaming.js";
 import type { AgentEventPayload } from "../../infra/agent-events.js";
 import { emitAgentEvent, withAgentRunLifecycleGeneration } from "../../infra/agent-events.js";
-import { isAgentPlanProgressToolName } from "../../session-cards/progress-card-channel-summary.js";
+import { isAgentPlanProgressToolName } from "../../session-cards/progress-card-input.js";
 import { FAST_MODE_AUTO_PROGRESS_KIND, type ReplyPayload } from "../reply-payload.js";
 import { formatToolAggregate } from "../tool-meta.js";
 import type { GetReplyOptions } from "../types.js";

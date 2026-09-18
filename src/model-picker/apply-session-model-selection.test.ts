@@ -15,6 +15,7 @@ import {
   onSessionLifecycleEvent,
   type SessionLifecycleEvent,
 } from "../sessions/session-lifecycle-events.js";
+import { createModelSelectionInputs } from "./apply-session-model-selection.test-support.js";
 
 // Runtime eligibility belongs to the published-owner tests; these cases exercise its consumers.
 vi.mock("../agents/model-runtime-choice.js", () => ({
@@ -28,128 +29,35 @@ vi.mock("../agents/model-catalog.runtime.js", () => ({
   loadProviderScopedThinkingCatalog: vi.fn(async () => []),
 }));
 
-const effects = vi.hoisted(() => ({
-  enqueueSystemEvent: vi.fn(),
-  info: vi.fn(),
-  mutateConfigFileWithRetry: vi.fn(),
-  refreshQueuedFollowupSession: vi.fn(),
-  triggerSessionPatchHook: vi.fn(),
-  warn: vi.fn(),
-}));
-const placementMocks = vi.hoisted(() => ({
-  getMany: vi.fn(),
-  resolveWorkerPlacementSessionRuntimeCapabilities: vi.fn(),
-}));
+const { effects, factories, resetMocks } = await vi.hoisted(async () => {
+  const { createModelSelectionMocks } =
+    await import("./apply-session-model-selection.test-support.js");
+  return createModelSelectionMocks();
+});
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 let lifecycleEvents: SessionLifecycleEvent[];
 let unsubscribeLifecycle: () => void;
 
-vi.mock("../infra/system-events.js", () => ({
-  enqueueSystemEvent: (...args: unknown[]) => effects.enqueueSystemEvent(...args),
-}));
-vi.mock("../auto-reply/reply/queue.js", () => ({
-  refreshQueuedFollowupSession: (...args: unknown[]) =>
-    effects.refreshQueuedFollowupSession(...args),
-}));
-vi.mock("../gateway/session-patch-hooks.js", () => ({
-  triggerSessionPatchHook: (...args: unknown[]) => effects.triggerSessionPatchHook(...args),
-}));
-vi.mock("../config/config.js", async () => {
-  const actual = await vi.importActual<typeof import("../config/config.js")>("../config/config.js");
-  return { ...actual, mutateConfigFileWithRetry: effects.mutateConfigFileWithRetry };
-});
+vi.mock("../infra/system-events.js", factories.systemEvents);
+vi.mock("../auto-reply/reply/queue.js", factories.queue);
+vi.mock("../gateway/session-patch-hooks.js", factories.patchHooks);
+vi.mock("../config/config.js", factories.config);
 
-vi.mock("../logging/subsystem.js", async () => {
-  const actual =
-    await vi.importActual<typeof import("../logging/subsystem.js")>("../logging/subsystem.js");
-  return {
-    ...actual,
-    createSubsystemLogger: (subsystem: string) =>
-      subsystem === "agents/sticky-model-selection"
-        ? { info: effects.info, warn: effects.warn }
-        : actual.createSubsystemLogger(subsystem),
-  };
-});
+vi.mock("../logging/subsystem.js", factories.logging);
 
-vi.mock("../gateway/session-worker-placement-context.js", () => ({
-  resolveSessionWorkerPlacementContext: () => ({
-    workerSessionPlacementService: {
-      getMany: placementMocks.getMany,
-    },
-  }),
-}));
-vi.mock("../gateway/worker-environments/placement-session-runtime.js", () => ({
-  resolveWorkerPlacementSessionRuntimeCapabilities:
-    placementMocks.resolveWorkerPlacementSessionRuntimeCapabilities,
-}));
+vi.mock("../gateway/session-worker-placement-context.js", factories.placementContext);
+vi.mock("../gateway/worker-environments/placement-session-runtime.js", factories.placementRuntime);
 
-import {
-  applySessionModelSelection,
-  type ApplySessionModelSelectionParams,
-} from "./apply-session-model-selection.js";
+import { applySessionModelSelection } from "./apply-session-model-selection.js";
 
-const catalog = [
-  {
-    provider: "anthropic",
-    id: "claude-opus-4-6",
-    name: "Claude Opus",
-    contextTokens: 32_000,
-  },
-  { provider: "openai", id: "gpt-4o", name: "GPT-4o", contextTokens: 16_000 },
-] satisfies ModelCatalogEntry[];
-
-function createEntry(overrides: Partial<SessionEntry> = {}): SessionEntry {
-  return {
-    sessionId: "session-1",
-    updatedAt: 1,
-    delivery: { kind: "none" },
-    ...overrides,
-  };
-}
-
-function createParams(overrides: Partial<ApplySessionModelSelectionParams> = {}) {
-  const sessionEntry = overrides.sessionEntry ?? createEntry();
-  const sessionKey = overrides.sessionKey ?? "agent:main:dm:1";
-  return {
-    cfg: {},
-    agentId: "main",
-    sessionKey,
-    sessionEntry,
-    sessionStore: { [sessionKey]: sessionEntry },
-    defaultProvider: "anthropic",
-    defaultModel: "claude-opus-4-6",
-    currentProvider: "anthropic",
-    currentModel: "claude-opus-4-6",
-    modelCatalog: catalog,
-    thinkingCatalog: catalog,
-    canPersistStickyModelSelection: false,
-    request: {
-      provider: "openai",
-      model: "gpt-4o",
-      isDefault: false,
-      runtime: { kind: "unchanged" },
-    },
-    markLiveSwitchPending: true,
-    ...overrides,
-  } satisfies ApplySessionModelSelectionParams;
-}
+const { catalog, createEntry, createParams } = createModelSelectionInputs();
 
 beforeEach(() => {
   vi.mocked(loadProviderScopedThinkingCatalog).mockReset().mockResolvedValue([]);
   lifecycleEvents = [];
   unsubscribeLifecycle = onSessionLifecycleEvent((event) => lifecycleEvents.push(event));
-  effects.enqueueSystemEvent.mockReset();
-  effects.info.mockReset();
-  effects.warn.mockReset();
-  effects.mutateConfigFileWithRetry.mockReset().mockResolvedValue({
-    nextConfig: {},
-    result: "defaults",
-  });
-  effects.refreshQueuedFollowupSession.mockReset();
-  effects.triggerSessionPatchHook.mockReset();
-  placementMocks.getMany.mockReset().mockReturnValue(new Map());
-  placementMocks.resolveWorkerPlacementSessionRuntimeCapabilities.mockReset();
+  resetMocks();
 });
 
 afterEach(() => unsubscribeLifecycle());

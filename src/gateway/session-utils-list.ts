@@ -230,13 +230,23 @@ export function prepareSessionRowSelection(
     configuredAgentIds: new Set(listAgentIds(cfg)),
     userProfileIdentityById: rowContext.userProfileIdentityById,
     getRowContext: () => rowContext,
-    getTarget: (key: string): (RecordRow & { storeKey?: string }) | undefined => {
+    getTarget: (
+      key: string,
+    ):
+      | (RecordRow & {
+          storeKey?: string;
+          getModelFacts?: () => ReturnType<SessionRowProjection["modelFacts"]>;
+        })
+      | undefined => {
       const winner = winners.get(key);
-      const row =
-        winner && opts.search
-          ? projection.describe({ ...winner, storePath: winner.storeTarget.storePath })
-          : winner;
-      return row && key !== row.key ? { ...row, storeKey: row.key } : row;
+      if (!winner || (!opts.search && key === winner.key)) {
+        return winner;
+      }
+      return {
+        ...winner,
+        ...(key !== winner.key ? { storeKey: winner.key } : {}),
+        getModelFacts: () => projection.modelFacts(winner),
+      };
     },
   };
 }
@@ -316,7 +326,7 @@ export async function listProjectedSessions(params: {
             );
             return (
               visible &&
-              (opts.hasBoard === undefined || row?.facts?.hasBoard === opts.hasBoard) &&
+              (opts.hasBoard === undefined || row?.hasBoard === opts.hasBoard) &&
               (!opts.activeOnly || Boolean(row && active(row.key, entry, row.agentId)?.active))
             );
           },
@@ -331,6 +341,7 @@ export async function listProjectedSessions(params: {
     cpuPhase = "rowThreadCpuMs";
     syncCpu = diagnostics?.startSyncCpu();
     let materializedRowCount = 0;
+    projection.setArchivePageSize(selection.entries.length);
     const sessions = selection.entries.flatMap(([key], index) => {
       const target = getTarget(key);
       const record =

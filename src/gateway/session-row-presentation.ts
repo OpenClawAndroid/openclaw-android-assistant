@@ -104,7 +104,7 @@ export function prepareProjectedSessionPresentation(
               !excludedChildKeys.has(sessionKey) &&
               (client === undefined ||
                 !projection
-                  .select({ key: sessionKey })
+                  .selectEntries({ key: sessionKey })
                   .some((child) => sharing.entryFilter?.(child.key, child.entry) === false)),
           ),
         })),

@@ -223,6 +223,55 @@ describe("recovered assistant errors", () => {
 });
 
 describe("appended history recovery", () => {
+  it.each([
+    {
+      name: "duplicate explicit ids",
+      ids: ["send", "send"],
+      texts: ["First", "Second"],
+      mirrorId: "send",
+    },
+    {
+      name: "ambiguous legacy text",
+      ids: ["first", "second"],
+      texts: ["Same", "Same"],
+      mirrorId: undefined,
+    },
+  ])("does not reconcile mirrors with $name across chunks", ({ ids, texts, mirrorId }) => {
+    const call = {
+      role: "assistant",
+      content: ids.map((id, index) => ({
+        type: "toolCall",
+        id,
+        name: "message",
+        arguments: { action: "send", message: texts[index] },
+      })),
+    };
+    const delivery = {
+      role: "assistant",
+      provider: "openclaw",
+      model: "delivery-mirror",
+      content: [{ type: "text", text: texts[0] }],
+      ...(mirrorId
+        ? { openclawDeliveryMirror: { kind: "message-tool-source-reply", toolCallId: mirrorId } }
+        : {}),
+    };
+    const result = {
+      role: "toolResult",
+      toolName: "message",
+      toolCallId: ids[0],
+      content: { ok: true },
+    };
+    const rows = [call, delivery, result];
+    const original = structuredClone(rows);
+    for (let split = 0; split <= rows.length; split++) {
+      const projection = createChatHistoryRecoveryProjection();
+      projection.append(rows.slice(0, split));
+      projection.append(rows.slice(split));
+      expect(projection.result().messages).toEqual(rows);
+    }
+    expect(rows).toEqual(original);
+  });
+
   it("reconciles an earlier delivery mirror after its tool result arrives in another chunk", () => {
     const call = {
       role: "assistant",

@@ -304,7 +304,7 @@ it.each([
     if (restartFails) {
       expect(listUpdateRuns()[0]).toMatchObject({
         status: "failed",
-        reason: "finalize:targetConfigConvergence",
+        reason: "doctor-gateway-restoration-failed",
       });
       const diagnostics = vi.mocked(defaultRuntime.error).mock.calls.flat().join("\n");
       expect(diagnostics).toContain("managed Gateway could not be restored");

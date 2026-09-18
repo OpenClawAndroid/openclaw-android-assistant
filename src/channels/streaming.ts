@@ -18,7 +18,7 @@ import type {
   StreamingMode,
   TextChunkMode,
 } from "../config/types.base.js";
-import { isAgentPlanProgressToolName } from "../session-cards/progress-card-channel-summary.js";
+import { isAgentPlanProgressToolName } from "../session-cards/progress-card-input.js";
 import { DEFAULT_PROGRESS_DRAFT_LABELS, selectProgressLabel } from "../shared/progress-labels.js";
 import { compactProgressText } from "../shared/text-truncate.js";
 import { escapeMarkdownText } from "../shared/text/escape-markdown.js";

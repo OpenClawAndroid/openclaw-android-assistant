@@ -219,6 +219,20 @@ describe("registerNodeCli", () => {
     expect(daemonMocks.runNodeHost.mock.calls[0]?.[0]).not.toHaveProperty("forceWorkerRuns");
   });
 
+  it("hosts worker sessions for this foreground process with --session-host", async () => {
+    await createProgram().parseAsync(["node", "run", "--session-host"], { from: "user" });
+
+    expect(daemonMocks.runNodeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ forceWorkerRuns: true }),
+    );
+    expect(daemonMocks.runNodeHost.mock.calls[0]?.[0]).not.toHaveProperty("ephemeral");
+    expect(daemonMocks.runNodeDaemonInstall).not.toHaveBeenCalled();
+
+    daemonMocks.runNodeHost.mockClear();
+    await createProgram().parseAsync(["node", "run"], { from: "user" });
+    expect(daemonMocks.runNodeHost.mock.calls[0]?.[0]).not.toHaveProperty("forceWorkerRuns");
+  });
+
   it("falls back to configured node run port when --port is omitted", async () => {
     daemonMocks.loadNodeHostConfig.mockResolvedValue({
       version: 1,

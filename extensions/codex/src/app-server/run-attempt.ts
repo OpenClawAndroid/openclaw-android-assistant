@@ -149,7 +149,9 @@ export async function runCodexAppServerAttempt(
         }
       }
     } finally {
-      await attemptTools.disposeMcpTools();
+      await attemptTools.disposeTools(
+        connection.runAbortController.signal.aborted ? "cancel" : "error",
+      );
     }
   } finally {
     // Preparation can fail before the active turn installs its terminal freeze.

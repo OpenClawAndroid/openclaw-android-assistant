@@ -42,6 +42,7 @@ function createLazyTool(
 const fileTransferNodeHostCommands: OpenClawPluginNodeHostCommand[] = [
   {
     command: "file.fetch",
+    hasActiveWork: () => false,
     cap: "file",
     dangerous: true,
     handle: async (paramsJSON) => {
@@ -53,6 +54,7 @@ const fileTransferNodeHostCommands: OpenClawPluginNodeHostCommand[] = [
   },
   {
     command: "dir.list",
+    hasActiveWork: () => false,
     cap: "file",
     dangerous: true,
     handle: async (paramsJSON) => {
@@ -64,6 +66,7 @@ const fileTransferNodeHostCommands: OpenClawPluginNodeHostCommand[] = [
   },
   {
     command: "dir.fetch",
+    hasActiveWork: () => false,
     cap: "file",
     dangerous: true,
     handle: async (paramsJSON) => {
@@ -75,6 +78,7 @@ const fileTransferNodeHostCommands: OpenClawPluginNodeHostCommand[] = [
   },
   {
     command: "file.write",
+    hasActiveWork: () => false,
     cap: "file",
     dangerous: true,
     handle: async (paramsJSON) => {

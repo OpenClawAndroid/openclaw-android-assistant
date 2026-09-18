@@ -19,7 +19,7 @@ export type TaskExecutionRestoreStore = {
 
 export type TaskRegistryMutationScope = {
   taskId: string;
-  flowId: string;
+  flowId?: string;
   runId?: string;
   childSessionKey?: string;
 };

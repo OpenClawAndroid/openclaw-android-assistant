@@ -70,6 +70,7 @@ export function createSessionShareNodeCommands(
   return [
     {
       command: SESSION_SHARE_LIST_COMMAND,
+      hasActiveWork: () => false,
       cap: "openclaw-sessions",
       dangerous: false,
       isAvailable: ({ config }) => sessionShareGroups(config).length > 0,
@@ -147,6 +148,7 @@ export function createSessionShareNodeCommands(
     },
     {
       command: SESSION_SHARE_READ_COMMAND,
+      hasActiveWork: () => false,
       cap: "openclaw-sessions",
       dangerous: false,
       isAvailable: ({ config }) => sessionShareGroups(config).length > 0,

@@ -1,3 +1,26 @@
+import type { Page } from "playwright";
+
+export type NativePluginWindow = Window & {
+  nativePluginProof?: { release?: () => void };
+  nativeActionProof?: {
+    runs: number;
+    current?: {
+      signal: AbortSignal;
+      release: () => void;
+      withdraw: () => void;
+      done: boolean;
+      outcome: string;
+    };
+  };
+};
+
+export async function waitForPendingPluginInitializer(page: Page): Promise<void> {
+  // Request capture precedes its reply and the initializer's awaited continuation.
+  await page.waitForFunction(
+    () => typeof (window as NativePluginWindow).nativePluginProof?.release === "function",
+  );
+}
+
 export const pluginId = "ui-fixture";
 
 export function catalog(revision: string) {

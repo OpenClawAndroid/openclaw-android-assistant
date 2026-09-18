@@ -70,7 +70,7 @@ it("consumes an incognito describe response without SQLite or resident private r
       expect(respond).toHaveBeenCalledExactlyOnceWith(true, {
         session: expect.objectContaining({ key: query.key, sessionId: "private-description" }),
       });
-      expect(projection.select()).toEqual([]);
+      expect(projection.selectEntries()).toEqual([]);
       expect(() => retained?.describe(query)).toThrow("no longer active");
     } finally {
       projection.dispose();
@@ -101,9 +101,9 @@ it("keeps missing private reads absent and refuses unprepared keys and asynchron
           },
         ),
       ).rejects.toThrow("must remain synchronous");
-      expect(() => retained?.select({ key: query.key })).toThrow("no longer active");
+      expect(() => retained?.selectEntries({ key: query.key })).toThrow("no longer active");
       expect(projection.capture(query)).toBeUndefined();
-      expect(projection.select()).toEqual([]);
+      expect(projection.selectEntries()).toEqual([]);
     } finally {
       projection.dispose();
     }
@@ -138,7 +138,7 @@ it("prepares only the private response's child selections before consumption", a
         ],
       };
       vi.spyOn(projection, "describe").mockReturnValue(row);
-      const select = vi.spyOn(projection, "select").mockReturnValue([]);
+      const select = vi.spyOn(projection, "selectEntries").mockReturnValue([]);
       await projection.withPreparedExactRows(
         () => [query],
         (read) => {
@@ -147,8 +147,10 @@ it("prepares only the private response's child selections before consumption", a
           select.mockImplementation(() => {
             throw new Error("child metadata must be read before consumption");
           });
-          expect(read.select({ key: childKey })).toEqual([]);
-          expect(() => read.select({ key: "agent:main:unprepared-child" })).toThrow("not prepared");
+          expect(read.selectEntries({ key: childKey })).toEqual([]);
+          expect(() => read.selectEntries({ key: "agent:main:unprepared-child" })).toThrow(
+            "not prepared",
+          );
           expect(select).not.toHaveBeenCalled();
         },
       );

@@ -128,6 +128,11 @@ export type ProfileUsageStats = {
   lastProbeAt?: number;
 };
 
+export type UserModelAuthProfile = {
+  credential: AuthProfileCredential;
+  usageStats?: ProfileUsageStats;
+};
+
 /** Durable, non-secret auth profile selection state. */
 export type AuthProfileState = {
   /**
@@ -139,6 +144,16 @@ export type AuthProfileState = {
   lastGood?: Record<string, string>;
   /** Usage statistics per profile for round-robin rotation */
   usageStats?: Record<string, ProfileUsageStats>;
+};
+
+export type PersistedAuthProfileStoreInspection =
+  | { status: "missing"; reason: "database" | "table" | "row" }
+  | { status: "readable"; raw: unknown }
+  | { status: "unreadable" };
+
+export type AuthProfileRowRead = {
+  store: PersistedAuthProfileStoreInspection;
+  state: PersistedAuthProfileStoreInspection;
 };
 
 /** Persisted credential payload without runtime-only selection state. */

@@ -83,6 +83,7 @@ import type {
   PreparedModelRuntimeInput,
   PreparedModelRuntimePluginGeneration,
 } from "./prepared-model-runtime.types.js";
+import { releaseRuntimePluginWork, retainRuntimePluginWork } from "./runtime-plugin-work.js";
 import { AuthStorage } from "./sessions/auth-storage.js";
 
 type PreparedConfiguredRegistryGroup = {
@@ -172,7 +173,10 @@ export async function prepareWorkspaceBuildGroup(
         retainedRegistries.add(registry);
         const release = retainPreparedPluginRegistry(registry);
         if (release) {
-          registryBorrows.defer(release);
+          let releaseWork = () => {};
+          // Record physical cleanup before replacement admission can refuse this build's work.
+          registryBorrows.defer(() => releaseRuntimePluginWork(release, releaseWork));
+          releaseWork = retainRuntimePluginWork([registry]);
         }
       }
     },

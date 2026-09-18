@@ -386,25 +386,61 @@ function createDiscordRanges(source: string, maxChars: number, maxLines: number)
   if (!fence) {
     collect(source.length);
   }
-  const overlaps = (start: number, end: number) =>
-    spans.some((span) => span.start < end && span.end > start);
-  const joins = (end: number, start: number) =>
-    end <= start && spans.some((span) => span.start < end && end < span.end && start < span.end);
+  const firstSpanEndingAfter = (position: number) => {
+    let low = 0;
+    let high = spans.length;
+    // The parser emits disjoint inline spans in source order.
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2);
+      const span = expectDefined(spans[middle], "Discord inline span");
+      if (span.end <= position) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
+  };
+  const firstPrefixEndingAfter = (position: number) => {
+    let low = 0;
+    let high = spans.length;
+    // Spans in the same container can share a prefix; prefix ends remain ordered.
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2);
+      const span = expectDefined(spans[middle], "Discord inline span");
+      if (span.base + span.code.prefix.end <= position) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return spans[low];
+  };
+  const overlaps = (start: number, end: number) => {
+    const span = spans[firstSpanEndingAfter(start)];
+    return Boolean(span && span.start < end);
+  };
+  const joins = (end: number, start: number) => {
+    if (end > start) {
+      return false;
+    }
+    const span = spans[firstSpanEndingAfter(end)];
+    return Boolean(span && span.start < end && start < span.end);
+  };
   const boundary = (start: number, end: number) => {
     let safe = avoidTrailingHighSurrogateBreak(source, start, end);
-    for (const span of spans) {
-      const prefix = span.code.prefix;
-      if (span.base + prefix.start < safe && safe < span.base + prefix.end) {
-        return span.base + prefix.start;
+    const prefixSpan = firstPrefixEndingAfter(safe);
+    if (prefixSpan && prefixSpan.base + prefixSpan.code.prefix.start < safe) {
+      return prefixSpan.base + prefixSpan.code.prefix.start;
+    }
+    const span = spans[firstSpanEndingAfter(safe)];
+    if (span && span.start < safe) {
+      if (source[safe - 1] === "\r" && source[safe] === "\n") {
+        safe -= 1;
       }
-      if (span.start < safe && safe < span.end) {
-        if (source[safe - 1] === "\r" && source[safe] === "\n") {
+      if (span.atomicTicks) {
+        while (source[safe - 1] === "`" && source[safe] === "`") {
           safe -= 1;
-        }
-        if (span.atomicTicks) {
-          while (source[safe - 1] === "`" && source[safe] === "`") {
-            safe -= 1;
-          }
         }
       }
     }
@@ -413,9 +449,10 @@ function createDiscordRanges(source: string, maxChars: number, maxLines: number)
   const render = (start: number, end: number) => {
     let cursor = start,
       text = "";
-    for (const span of spans) {
-      if (span.end <= start || span.start >= end) {
-        continue;
+    for (let index = firstSpanEndingAfter(start); index < spans.length; index += 1) {
+      const span = expectDefined(spans[index], "Discord inline span");
+      if (span.start >= end) {
+        break;
       }
       const prefix = span.code.prefix;
       const prefixStart = span.base + prefix.start;

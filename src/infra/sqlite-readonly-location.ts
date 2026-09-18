@@ -429,7 +429,8 @@ async function createStableReadOnlyCopy(
   }
 }
 
-async function createOnlineReadOnlyBackup(
+/** Native reads may create WAL-index files; callers need an isolated child or a private source. */
+export async function createOnlineReadOnlyBackup(
   pathname: string,
   stagingRoot?: string,
   signal?: AbortSignal,

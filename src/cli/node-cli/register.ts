@@ -56,6 +56,7 @@ export function registerNodeCli(program: Command) {
     .option("--tls-fingerprint <sha256>", "Expected TLS certificate fingerprint (sha256)")
     .option("--node-id <id>", "Override the generated node instance id")
     .option("--display-name <name>", "Override node display name")
+    .option("--session-host", "Host worker sessions for this foreground process")
     .addOption(new Option("--ephemeral").hideHelp())
     .option("--share-installed-apps", "Share installed macOS applications with the Gateway")
     .option("--no-share-installed-apps", "Disable installed application sharing")
@@ -93,7 +94,8 @@ export function registerNodeCli(program: Command) {
         gatewayCandidates,
         gatewayBootstrapToken: pair?.bootstrapToken,
         preferGatewayBootstrapToken: pair !== undefined,
-        ...(opts.ephemeral === true ? { forceWorkerRuns: true, ephemeral: true } : {}),
+        ...(opts.ephemeral === true || opts.sessionHost === true ? { forceWorkerRuns: true } : {}),
+        ...(opts.ephemeral === true ? { ephemeral: true } : {}),
         nodeId: opts.nodeId,
         displayName: opts.displayName,
         installedAppsSharing: opts.shareInstalledApps,

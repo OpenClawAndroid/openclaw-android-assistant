@@ -373,7 +373,7 @@ export type OpenClawPluginServiceContext = {
   logger: PluginLogger;
   serviceHealth?: OpenClawPluginServiceHealth;
   /** Gateway-owned scheduler access, revoked when this service stops. */
-  getCron?: () => import("./hook-types.js").PluginHookGatewayCronService | undefined;
+  getCron?: () => import("./hook-gateway.types.js").PluginHookGatewayCronService | undefined;
   gatewayEvents?: import("./gateway-events.js").OpenClawPluginGatewayEvents;
   startupTrace?: {
     detail?: (name: string, metrics: ReadonlyArray<readonly [string, number | string]>) => void;

@@ -32,13 +32,15 @@ import { codexAppInventoryResponse } from "./app-inventory.test-helpers.js";
 import {
   buildCodexOpenClawPromptContext,
   buildCodexSystemPromptReport,
-  buildCodexWorkspaceBootstrapContext,
-  getCodexWorkspaceMemoryToolNames,
   prependCodexOpenClawPromptContext,
 } from "./attempt-context.js";
 import * as attemptStartup from "./attempt-startup.js";
 import { readAttemptTerminal } from "./attempt-terminal.test-helper.js";
 import { TURN_FINALIZE_DRAIN_ABORT_GRACE_MS, withCodexStartupTimeout } from "./attempt-timeouts.js";
+import {
+  buildCodexWorkspaceBootstrapContext,
+  getCodexWorkspaceMemoryToolNames,
+} from "./attempt-workspace-context.js";
 import { prepareCodexAppServerAuthBinding } from "./auth-binding.js";
 import { resolveCodexAppServerFallbackApiKeyCacheKey } from "./auth-cache-key.js";
 import {
@@ -80,6 +82,7 @@ import {
 import { itemNotification, rawItemCompleted, turnCompleted } from "./protocol.test-helpers.js";
 import * as runAttemptResources from "./run-attempt-resources.js";
 import { resolveCodexDynamicToolDirectNames } from "./run-attempt-tools.js";
+import { setAgentWorkspaceForTest } from "./run-attempt-workspace.test-support.js";
 import { readMirrorIdentity } from "./upstream-prompt-provenance.js";
 import * as userInputBridge from "./user-input-bridge.js";
 
@@ -296,19 +299,6 @@ function createNamedDynamicTool(
       additionalProperties: false,
     },
   };
-}
-
-function setAgentWorkspaceForTest(params: EmbeddedRunAttemptParams, workspaceDir: string): void {
-  params.config = {
-    ...params.config,
-    agents: {
-      ...params.config?.agents,
-      defaults: {
-        ...params.config?.agents?.defaults,
-        workspace: workspaceDir,
-      },
-    },
-  } as EmbeddedRunAttemptParams["config"];
 }
 
 async function buildDynamicToolsForTest(
@@ -963,6 +953,7 @@ function installCleanupTrackingClient(turnStartError?: Error) {
   );
   retireSpy.mockReturnValue({ found: true, activeLeases: 0, pendingAcquires: 0, closed: true });
   const events: string[] = [];
+  const turnStarted = createDeferred<void>();
   const closeAndWait = vi.fn(async () => {
     events.push("closeAndWait");
     return { exited: true, cleanup: "closed" };
@@ -989,6 +980,7 @@ function installCleanupTrackingClient(turnStartError?: Error) {
           if (turnStartError) {
             throw turnStartError;
           }
+          turnStarted.resolve();
           return turnStartResult();
         }
         return {};
@@ -1004,7 +996,19 @@ function installCleanupTrackingClient(turnStartError?: Error) {
     state.client = client;
     return client as never;
   });
-  return { closeAndWait, events, retireSpy, state };
+  return {
+    closeAndWait,
+    events,
+    retireSpy,
+    state,
+    waitForTurnStart: (run: Promise<unknown>) =>
+      Promise.race([
+        turnStarted.promise,
+        run.then(() => {
+          throw new Error("Codex attempt ended before turn/start");
+        }),
+      ]),
+  };
 }
 
 setupRunAttemptTestHooks();
@@ -1016,29 +1020,77 @@ beforeEach(() => {
 });
 
 describe("runCodexAppServerAttempt", () => {
-  it("drains executable tool cleanup once after a completed attempt", async () => {
-    const cleanup = vi.fn(async (_reason: string) => undefined);
-    const cleanupOwners: boolean[] = [];
-    testing.setOpenClawCodingToolsFactoryForTests((options) => {
-      cleanupOwners.push(options?.registerRunCleanup !== undefined);
-      options?.registerRunCleanup?.(cleanup);
-      return [createRuntimeDynamicTool("message")];
+  it.each(["completion", "tool preparation", "tool registration", "prompt preparation"] as const)(
+    "drains executable tool cleanup once after %s",
+    async (outcome) => {
+      const cleanup = vi.fn(async (_reason: string) => undefined);
+      const cleanupOwners: boolean[] = [];
+      const preparationError = new Error(`failed during ${outcome}`);
+      testing.setOpenClawCodingToolsFactoryForTests((options) => {
+        cleanupOwners.push(options?.registerRunCleanup !== undefined);
+        options?.registerRunCleanup?.(cleanup);
+        if (
+          (outcome === "tool preparation" && options?.registerRunCleanup) ||
+          (outcome === "tool registration" && !options?.registerRunCleanup)
+        ) {
+          throw preparationError;
+        }
+        return [createRuntimeDynamicTool("message")];
+      });
+      const { sessionFile, workspaceDir } = createRunPaths();
+      const params = createParams(sessionFile, workspaceDir);
+      params.disableTools = false;
+      params.runtimePlan = createCodexRuntimePlanFixture();
+      setCodexTestModelSupportsTools(params, true);
+      const harness = createStartedThreadHarness();
+      if (outcome === "prompt preparation") {
+        initializeGlobalHookRunner(
+          createMockPluginRegistry([
+            { hookName: "before_prompt_build", handler: async () => ({ toolsAllow: [] }) },
+          ]),
+        );
+      }
+
+      const run = runCodexAppServerAttempt(params);
+      if (outcome === "completion") {
+        await harness.waitForMethod("turn/start");
+        await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+        await run;
+      } else if (outcome === "prompt preparation") {
+        await expect(run).rejects.toThrow("cannot enforce before_prompt_build toolsAllow");
+      } else {
+        await expect(run).rejects.toBe(preparationError);
+      }
+
+      expect(cleanupOwners).toEqual(outcome === "tool preparation" ? [true] : [true, false]);
+      expect(cleanup).toHaveBeenCalledOnce();
+      expect(cleanup).toHaveBeenCalledWith(outcome === "completion" ? "completion" : "error");
+    },
+  );
+
+  it("preserves preparation failure and records failed one-shot tool cleanup", async () => {
+    const preparationError = new Error("tool preparation failed");
+    const cleanupError = new Error("tool cleanup failed");
+    const cleanup = vi.fn(async () => {
+      throw cleanupError;
     });
+    testing.setOpenClawCodingToolsFactoryForTests((options) => {
+      options?.registerRunCleanup?.(cleanup);
+      throw preparationError;
+    });
+    const warning = vi.spyOn(embeddedAgentLog, "warn");
     const { sessionFile, workspaceDir } = createRunPaths();
     const params = createParams(sessionFile, workspaceDir);
+    params.oneShotCliRun = true;
     params.disableTools = false;
     params.runtimePlan = createCodexRuntimePlanFixture();
     setCodexTestModelSupportsTools(params, true);
-    const harness = createStartedThreadHarness();
 
-    const run = runCodexAppServerAttempt(params);
-    await harness.waitForMethod("turn/start");
-    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
-    await run;
-
-    expect(cleanupOwners).toEqual([true, false]);
+    await expect(runCodexAppServerAttempt(params)).rejects.toBe(preparationError);
     expect(cleanup).toHaveBeenCalledOnce();
-    expect(cleanup).toHaveBeenCalledWith("completion");
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("step=codex-dynamic-tool-cleanup error=Codex tool cleanup failed"),
+    );
   });
 
   it("executes and reports the same materialized SecretRef credential", async () => {
@@ -3103,12 +3155,12 @@ describe("runCodexAppServerAttempt", () => {
     expect(request.mock.calls.map(([method]) => method)).not.toContain("app/read");
   });
   it("retires the shared Codex app-server client after one-shot cleanup turns", async () => {
-    const { closeAndWait, events, retireSpy, state } = installCleanupTrackingClient();
+    const { closeAndWait, events, retireSpy, state, waitForTurnStart } =
+      installCleanupTrackingClient();
     const params = createRunParams();
     params.cleanupBundleMcpOnRunEnd = true;
     const run = runCodexAppServerAttempt(params);
-    // The keyed router only delivers turn/completed after the turn is bound.
-    await vi.waitFor(() => expect(events).toContain("request:turn/start"), fastWait);
+    await waitForTurnStart(run);
     if (!state.notify) {
       throw new Error("expected turn notification handler");
     }
@@ -3137,52 +3189,14 @@ describe("runCodexAppServerAttempt", () => {
     );
   });
   it("keeps the shared Codex app-server client warm without one-shot cleanup", async () => {
-    const retireSpy = vi.spyOn(
-      sharedClientModule,
-      "clearSharedCodexAppServerClientIfCurrentAndUnclaimed",
-    );
-    const closeAndWait = vi.fn(async () => ({ exited: true, cleanup: "closed" }));
-    let notify: ((notification: CodexServerNotification) => Promise<void>) | undefined;
-    const request = vi.fn(async (method: string) => {
-      if (method === "configRequirements/read") {
-        return { requirements: null };
-      }
-      if (method === "config/read") {
-        return { config: {}, origins: {}, layers: [] };
-      }
-      if (method === "thread/start") {
-        return threadStartResult();
-      }
-      if (method === "turn/start") {
-        return turnStartResult();
-      }
-      return {};
-    });
-    setCodexAppServerClientFactoryForTest(
-      async () =>
-        ({
-          ...mockClientRuntimeMethods(),
-          request,
-          addNotificationHandler: vi.fn((handler) => {
-            notify = handler;
-            return () => undefined;
-          }),
-          addRequestHandler: vi.fn(() => () => undefined),
-          addCloseHandler: vi.fn(() => () => undefined),
-          closeAndWait,
-        }) as never,
-    );
+    const { closeAndWait, retireSpy, state, waitForTurnStart } = installCleanupTrackingClient();
     const params = createRunParams();
     const run = runCodexAppServerAttempt(params);
-    // The keyed router only delivers turn/completed after the turn is bound.
-    await vi.waitFor(
-      () => expect(request.mock.calls.map(([method]) => method)).toContain("turn/start"),
-      fastWait,
-    );
-    if (!notify) {
+    await waitForTurnStart(run);
+    if (!state.notify) {
       throw new Error("expected turn notification handler");
     }
-    await notify(turnCompleted({ id: "turn-1", status: "completed" }));
+    await state.notify(turnCompleted({ id: "turn-1", status: "completed" }));
     await run;
     expect(retireSpy).not.toHaveBeenCalled();
     expect(closeAndWait).not.toHaveBeenCalled();
@@ -3568,12 +3582,13 @@ describe("runCodexAppServerAttempt", () => {
         throw new Error("binding retention cleanup failed");
       },
     };
-    const { closeAndWait, events, retireSpy, state } = installCleanupTrackingClient();
+    const { closeAndWait, events, retireSpy, state, waitForTurnStart } =
+      installCleanupTrackingClient();
     const abortController = new AbortController();
     const removeAbortListener = vi.spyOn(abortController.signal, "removeEventListener");
     params.abortSignal = abortController.signal;
     const run = runCodexAppServerAttempt(params, { bindingStore: failingBindingStore });
-    await vi.waitFor(() => expect(events).toContain("request:turn/start"), fastWait);
+    await waitForTurnStart(run);
     failBindingRetention = true;
     if (!state.notify) {
       throw new Error("expected turn notification handler");
@@ -4708,86 +4723,6 @@ describe("runCodexAppServerAttempt", () => {
       [threadStartParams.developerInstructions ?? "", collaborationInstructions].join("\n\n")
         .length,
     );
-  });
-
-  it("inherits external-cwd agent instructions through Codex thread creation", async () => {
-    const { sessionFile, workspaceDir: executionDir } = createRunPaths();
-    const agentWorkspaceDir = path.join(tempDir, "agent-workspace");
-    const agentsGuidance = "Follow agent workspace AGENTS guidance.";
-    const soulGuidance = "Keep the agent workspace voice.";
-    await fs.mkdir(executionDir, { recursive: true });
-    await fs.mkdir(agentWorkspaceDir, { recursive: true });
-    await fs.writeFile(path.join(agentWorkspaceDir, "AGENTS.md"), agentsGuidance);
-    await fs.writeFile(path.join(agentWorkspaceDir, "SOUL.md"), soulGuidance);
-    await fs.writeFile(path.join(executionDir, "AGENTS.md"), "Execution project instructions");
-    const harness = createStartedThreadHarness(undefined, { persistedThreads: [] });
-    const params = createParams(sessionFile, executionDir);
-    params.bootstrapWorkspaceDir = agentWorkspaceDir;
-    setAgentWorkspaceForTest(params, agentWorkspaceDir);
-
-    const run = runCodexAppServerAttempt(params);
-    await harness.waitForMethod("turn/start");
-    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
-    const result = await run;
-
-    const threadStart = harness.requests.find((request) => request.method === "thread/start");
-    if (!threadStart) {
-      throw new Error("expected thread/start request");
-    }
-    const threadInstructions =
-      (threadStart.params as { developerInstructions?: string }).developerInstructions ?? "";
-    expect(threadInstructions).toContain("OpenClaw Agent Workspace Instructions");
-    expect(threadInstructions).toContain(path.join(agentWorkspaceDir, "AGENTS.md"));
-    expect(threadInstructions).toContain(agentsGuidance);
-    expect(threadInstructions).not.toContain(soulGuidance);
-
-    const turnStart = harness.requests.find((request) => request.method === "turn/start");
-    if (!turnStart) {
-      throw new Error("expected turn/start request");
-    }
-    const collaborationInstructions =
-      (
-        turnStart.params as {
-          collaborationMode?: { settings?: { developer_instructions?: string | null } };
-        }
-      ).collaborationMode?.settings?.developer_instructions ?? "";
-    expect(collaborationInstructions).toContain(soulGuidance);
-    expect(collaborationInstructions).not.toContain(agentsGuidance);
-    const agentWorkspaceStats = result.systemPromptReport?.injectedWorkspaceFiles.find(
-      (file) => file.path === path.join(agentWorkspaceDir, "AGENTS.md"),
-    );
-    expect(agentWorkspaceStats).toMatchObject({
-      rawChars: agentsGuidance.length,
-      injectedChars: agentsGuidance.length,
-      truncated: false,
-    });
-
-    const updatedGuidance = "Updated AGENTS guidance must wait for a new session.";
-    await fs.writeFile(path.join(agentWorkspaceDir, "AGENTS.md"), updatedGuidance);
-    harness.close();
-    const resumeHarness = createResumeHarness("thread-1");
-    const resumeParams = createParams(sessionFile, executionDir);
-    resumeParams.bootstrapWorkspaceDir = agentWorkspaceDir;
-    setAgentWorkspaceForTest(resumeParams, agentWorkspaceDir);
-    const resumedRun = runCodexAppServerAttempt(resumeParams);
-    await Promise.race([resumedRun, resumeHarness.waitForMethod("turn/start")]);
-    await resumeHarness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
-    expect(readAttemptTerminal(await resumedRun)).toMatchObject({
-      aborted: false,
-      timedOut: false,
-      promptError: null,
-    });
-    expect(resumeHarness.requests.some(({ method }) => method === "turn/interrupt")).toBe(false);
-    const threadResume = resumeHarness.requests.find(
-      (request) => request.method === "thread/resume",
-    );
-    if (!threadResume) {
-      throw new Error("expected thread/resume request");
-    }
-    const resumedInstructions =
-      (threadResume.params as { developerInstructions?: string }).developerInstructions ?? "";
-    expect(resumedInstructions).toContain(agentsGuidance);
-    expect(resumedInstructions).not.toContain(updatedGuidance);
   });
 
   it.each([

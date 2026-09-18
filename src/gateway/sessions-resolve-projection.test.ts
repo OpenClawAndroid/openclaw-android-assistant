@@ -321,8 +321,11 @@ describe("session resolution metadata", () => {
         );
         expect(read(siblingKey)?.sessionId).toBe("sibling");
         closeOpenClawAgentDatabasesForTest();
-        expect(read(scope.sessionKey)).toBeUndefined();
-        expect(read(siblingKey)).toBeUndefined();
+        for (const key of [scope.sessionKey, siblingKey]) {
+          expect(() => read(key)).toThrow(
+            expect.objectContaining({ code: "SESSION_CANONICAL_KEY_MIGRATION_REQUIRED" }),
+          );
+        }
       });
     },
   );

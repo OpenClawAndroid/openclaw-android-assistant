@@ -301,12 +301,15 @@ export const environmentsHandlers: GatewayRequestHandlers = {
       }
     }
     await respondUnavailableOnThrow(respond, async () => {
-      const workers = listWorkerEnvironments(context);
-      const environments = await listGatewayEnvironments(context, workers, params.runtimeId);
-      const summarizedAtMs = Date.now();
-      environments.push(
-        ...workers.map((record) => summarizeWorkerEnvironment(record, summarizedAtMs)),
-      );
+      let environments: EnvironmentSummary[] = [];
+      if (params.projection !== "profiles") {
+        const workers = listWorkerEnvironments(context);
+        environments = await listGatewayEnvironments(context, workers, params.runtimeId);
+        const summarizedAtMs = Date.now();
+        environments.push(
+          ...workers.map((record) => summarizeWorkerEnvironment(record, summarizedAtMs)),
+        );
+      }
       const profiles = await listWorkerProfilesWithMachines(context);
       respond(true, { environments, ...(profiles.length > 0 ? { profiles } : {}) }, undefined);
     });

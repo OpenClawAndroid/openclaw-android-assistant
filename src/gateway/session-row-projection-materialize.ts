@@ -90,17 +90,19 @@ export function readResidentSessionRow(
       activitySummaryEnabledByAgent.set(row.agentId, activitySummaryEnabled);
     }
   }
+  const facts = readSessionRowFacts({
+    cfg,
+    target: row,
+    entry: row.entry,
+    context: params.gatewayContext,
+    placementFactsReader: params.placementFactsReader,
+    activitySummaryEnabled,
+  });
   return {
     materialized,
     fallbackModel: presentation.activeModel,
-    facts: readSessionRowFacts({
-      cfg,
-      target: row,
-      entry: row.entry,
-      context: params.gatewayContext,
-      placementFactsReader: params.placementFactsReader,
-      activitySummaryEnabled,
-    }),
+    facts,
+    hasBoard: facts.hasBoard,
     membership: new Set(
       listSessionMembers({ ...row.storeTarget, sessionKey: row.key }).map(
         (member) => member.identityId,

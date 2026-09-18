@@ -3,7 +3,6 @@ import { asNonNegativeFiniteNumber } from "@openclaw/normalization-core/number-c
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { SESSION_PARTICIPANT_LIMIT } from "../../packages/gateway-protocol/src/schema/session-participant.js";
 import { resolveModelContextTokenProjection } from "../agents/context.js";
-import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { resolveFastModeState } from "../agents/fast-mode.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.js";
 import { resolveModelContextWindowProfile } from "../agents/model-context-window.js";
@@ -43,7 +42,6 @@ import { projectSessionDeliveryFields } from "../utils/delivery-context.shared.j
 import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel-constants.js";
 import { buildControlUiChannelAvatarUrl } from "./control-ui-contract.js";
 import { normalizeControlUiBasePath } from "./control-ui-shared.js";
-import { readPreparedGatewayModelCatalogMetadata } from "./server-model-catalog-view.js";
 import { sessionHasAutomation } from "./session-automation-index.js";
 import { sessionClassificationForRow } from "./session-classification.js";
 import {
@@ -52,7 +50,7 @@ import {
   projectSessionParticipants,
 } from "./session-identity-projection.js";
 import { isSessionPermissionChangePending } from "./session-permission-change.js";
-import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
+import { readSessionRowModelFacts } from "./session-row-model-facts.js";
 import { buildSessionSwarmSummary } from "./session-swarm-summary.js";
 import { readSessionTitleFieldsFromTranscript as readScopedSessionTitleFieldsFromTranscript } from "./session-transcript-title-reader.js";
 import type {
@@ -76,10 +74,6 @@ import {
   resolveGatewaySessionGoal,
 } from "./session-utils-display.js";
 import { resolveSessionSelectedModelRef } from "./session-utils-model-selection.js";
-import {
-  resolveGatewaySessionThinkingProjectionInternal,
-  resolveSessionDisplayModelIdentityRefCached,
-} from "./session-utils-model.js";
 import {
   buildSessionListRowMetadataContext,
   resolveTranscriptUsageFallbacks,
@@ -130,18 +124,17 @@ export function readSessionRowInputs(params: {
     participants.delete(JSON.stringify(owner.actor.identity));
   }
   const displayName = resolveGatewaySessionDisplayName(key, entry);
-  const preparedCatalog =
-    params.modelCatalog instanceof Map ? params.modelCatalog.get(agentId) : undefined;
-  const metadataSnapshot = readPreparedGatewayModelCatalogMetadata(preparedCatalog);
-  const selectedModel = resolveSessionSelectedModelRef({
-    cfg,
-    sessionKey: key,
-    source: params.modelSource ?? { entry, readSourceEntry: (parentKey) => store[parentKey] },
-    agentId,
-    rowContext,
-    allowPluginNormalization: !lightweight,
-    manifestPlugins: metadataSnapshot,
-  });
+  const { selectedModel, rowModelIdentity, thinkingProjection, catalogEntry } =
+    readSessionRowModelFacts({
+      cfg,
+      key,
+      entry,
+      source: params.modelSource ?? { entry, readSourceEntry: (parentKey) => store[parentKey] },
+      agentId,
+      rowContext,
+      modelCatalog: params.modelCatalog,
+      lightweightListRow: lightweight,
+    });
   const freshSessionTotalTokens = asNonNegativeFiniteNumber(resolveFreshSessionTotalTokens(entry));
   const usageByFallbackModel =
     params.skipTranscriptUsageFallback !== true
@@ -163,13 +156,6 @@ export function readSessionRowInputs(params: {
         })
       : undefined;
   const { provider, model } = selectedModel;
-  const rowModelIdentity = resolveSessionDisplayModelIdentityRefCached({
-    cfg,
-    provider,
-    model,
-    rowContext,
-  });
-
   // Display aliases do not change the selected route's catalog or runtime policy.
   const activeModel = resolveGatewaySessionActiveModel({
     cfg,
@@ -202,33 +188,6 @@ export function readSessionRowInputs(params: {
     lastMessagePreview = (params.includeLastMessage && fields.lastMessagePreview) || undefined;
   }
 
-  // Entries and provider policy must stay bound to the same prepared agent owner;
-  // the Gateway startup registry can contain a different set of plugins.
-  const rowModelCatalog =
-    params.modelCatalog instanceof Map ? preparedCatalog?.entries : params.modelCatalog;
-
-  // Event/list rows must not rediscover plugin-backed configured catalog metadata.
-  // Lightweight projections may use an already-active provider policy, but must
-  // not fall through to public artifacts that reload the manifest registry.
-  const thinkingProjection = resolveGatewaySessionThinkingProjectionInternal({
-    cfg,
-    agentId,
-    provider: provider ?? DEFAULT_PROVIDER,
-    model: model ?? DEFAULT_MODEL,
-    sessionKey: resolveStoredSessionKeyForAgentStore({
-      cfg,
-      agentId,
-      sessionKey: key,
-    }),
-    entry,
-    modelCatalog: rowModelCatalog ?? (lightweight ? [] : undefined),
-    modelCatalogRouteVariants: preparedCatalog?.routeVariants,
-    metadataSnapshot,
-    rowContext,
-    providerPolicySource: preparedCatalog?.pluginRegistry ?? (lightweight ? "active" : undefined),
-  });
-  const catalogEntry =
-    rowModelCatalog && provider && model ? thinkingProjection.catalogEntry : undefined;
   const contextWindowProfile = resolveModelContextWindowProfile({
     catalogEntry,
     selected: entry?.contextWindow,

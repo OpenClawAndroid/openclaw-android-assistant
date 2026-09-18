@@ -79,7 +79,11 @@ async function readLogSlice(params: {
   filter?: (line: string) => boolean;
   redaction: ReturnType<typeof resolveRedactOptions>;
 }): Promise<Omit<LogTailPayload, "file">> {
-  const size = (await fs.stat(params.file).catch(missingPathToNull))?.size ?? 0;
+  const stat = await fs.stat(params.file).catch(missingPathToNull);
+  if (stat && !stat.isFile()) {
+    throw new Error(`Log path is not a regular file: ${params.file}`);
+  }
+  const size = stat?.size ?? 0;
   const maxBytes = clamp(params.maxBytes, 1, MAX_BYTES);
   const limit = clamp(params.limit, 1, MAX_LIMIT);
   let cursor =

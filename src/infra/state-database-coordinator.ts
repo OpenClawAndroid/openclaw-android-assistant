@@ -682,13 +682,17 @@ export function acquireStateDatabaseHandleExclusion(params: CoordinatorOptions) 
   };
 }
 
-/** Only a live process-local exclusion owner may copy its already-drained source. */
-export function hasStateDatabaseSourceExclusion(databasePath: string): boolean {
-  const pathname = resolveLifecycleCoordinatorPath("state-handles", {
+function resolveSourceScopePath(databasePath: string): string {
+  return resolveLifecycleCoordinatorPath("state-handles", {
     databasePath,
     runtimeDirectory: resolveStateLifecycleRuntimeDirectory(),
     uid: typeof process.getuid === "function" ? process.getuid() : undefined,
   });
+}
+
+/** Only a live process-local exclusion owner may copy its already-drained source. */
+export function hasStateDatabaseSourceExclusion(databasePath: string): boolean {
+  const pathname = resolveSourceScopePath(databasePath);
   const scope = sourceReadScopes.getStore()?.get(pathname);
   if (!scope?.active) {
     return false;
@@ -697,15 +701,30 @@ export function hasStateDatabaseSourceExclusion(databasePath: string): boolean {
   return true;
 }
 
+/** Capture this exact excluded read interval before asynchronous preparation. */
+export function prepareStateDatabaseSourceExclusion(
+  databasePath: string,
+): (() => void) | undefined {
+  const pathname = resolveSourceScopePath(databasePath);
+  const scope = sourceReadScopes.getStore()?.get(pathname);
+  if (!scope) {
+    return undefined;
+  }
+  const assertCurrent = () => {
+    if (!scope.active || sourceReadScopes.getStore()?.get(pathname) !== scope) {
+      throw new SqliteCoordinatorError("SQLite excluded read scope is closed or no longer current");
+    }
+    scope.assertCurrent();
+  };
+  assertCurrent();
+  return assertCurrent;
+}
+
 /** Capture the exact task-local mutation interval, never just its physical owner. */
 export function prepareStateDatabaseCanonicalMutation(
   databasePath: string,
 ): (() => void) | undefined {
-  const pathname = resolveLifecycleCoordinatorPath("state-handles", {
-    databasePath,
-    runtimeDirectory: resolveStateLifecycleRuntimeDirectory(),
-    uid: typeof process.getuid === "function" ? process.getuid() : undefined,
-  });
+  const pathname = resolveSourceScopePath(databasePath);
   const scope = canonicalWriteScopes.getStore()?.get(pathname);
   if (!scope?.mutation) {
     return undefined;
@@ -726,11 +745,7 @@ export function prepareStateDatabaseCanonicalMutation(
  * may still be open. This never authorizes a child process or a source reopen. */
 export function prepareStateDatabaseMutationSnapshot(databasePath: string, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const pathname = resolveLifecycleCoordinatorPath("state-handles", {
-    databasePath,
-    runtimeDirectory: resolveStateLifecycleRuntimeDirectory(),
-    uid: typeof process.getuid === "function" ? process.getuid() : undefined,
-  });
+  const pathname = resolveSourceScopePath(databasePath);
   const scope = canonicalWriteScopes.getStore()?.get(pathname);
   if (!scope?.mutation) {
     return undefined;

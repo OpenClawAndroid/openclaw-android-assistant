@@ -574,7 +574,6 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
       binding,
       bindingStore,
       identity: bindingIdentity,
-      sessionFile: params.sessionFile,
       agentDir,
       codexHome: appServer.start.env?.CODEX_HOME,
       config: params.config,

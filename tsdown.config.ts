@@ -932,6 +932,15 @@ const configs: UserConfig[] = [
       false,
     ),
   ),
+  nodeBuildConfig(
+    {
+      name: TSDOWN_UNIFIED_CONFIG_GROUP,
+      entry: { "node-host-launcher-bootstrap": "src/node-host/launcher-bootstrap.ts" },
+      deps: unifiedDeps,
+      outputOptions: { codeSplitting: false },
+    },
+    false,
+  ),
   workerDeployBuildConfig({ "worker/worker": "src/worker/worker-deploy-entry.ts" }),
   workerDeployBuildConfig({
     "worker/image-processor.worker": "src/worker/worker-deploy-image-processor.ts",

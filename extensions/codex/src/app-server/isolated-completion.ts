@@ -48,6 +48,7 @@ export async function runCodexIsolatedCompletion(
     ...authSelection,
     authRequirement,
     timeoutMs: params.timeoutMs,
+    thinkLevel: params.thinkLevel,
     signal: params.abortSignal,
     assertCurrent: params.assertCurrent,
     agentDir: params.agentDir,
@@ -59,6 +60,7 @@ export async function runCodexIsolatedCompletion(
     requiredModalities: ["text"],
     isolation: "configured-transport",
     requireNoExternalCapabilities: true,
+    allowEmptyText: params.outputTextPolicy === "strict-visible",
   });
   params.assertCurrent?.();
   assertCodexPassiveTurnItems(result.items, params.prompt, "isolated completion");

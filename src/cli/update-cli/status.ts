@@ -12,6 +12,12 @@ import {
   resolveUpdateAvailability,
 } from "../../commands/status.update.js";
 import { readSourceConfigBestEffort } from "../../config/config.js";
+import { isDefaultInstallIdentity, resolveIsNixMode } from "../../config/paths.js";
+import {
+  auditGatewayServiceConfig,
+  type ServiceDefinitionDrift,
+} from "../../daemon/service-audit.js";
+import { resolveGatewayService } from "../../daemon/service.js";
 import {
   formatDeferredPluginMigration,
   readDeferredPluginMigrations,
@@ -72,6 +78,36 @@ export async function updateStatusCommand(opts: UpdateStatusOptions): Promise<vo
   const runStatus = readUpdateRunStatus();
   const safeMessage = (message: string) =>
     sanitizeTerminalText(redactSensitiveText(message, { mode: "tools" }));
+  let serviceDefinition: { drift: ServiceDefinitionDrift[]; warnings: string[] } | undefined;
+  if (
+    config.gateway?.mode !== "remote" &&
+    isDefaultInstallIdentity(process.env) &&
+    !resolveIsNixMode(process.env)
+  ) {
+    try {
+      const command = await resolveGatewayService().readCommand(process.env, {
+        requireEffective: true,
+        timeoutMs,
+      });
+      if (command) {
+        const audit = await auditGatewayServiceConfig({ env: process.env, command, timeoutMs });
+        serviceDefinition = {
+          drift: audit.definitionDrift ?? [],
+          warnings: [
+            ...(audit.definitionDrift ?? []).map((fact) => fact.message),
+            ...(audit.definitionDriftError ? [audit.definitionDriftError] : []),
+          ].map(safeMessage),
+        };
+      }
+    } catch (error) {
+      serviceDefinition = {
+        drift: [],
+        warnings: [
+          safeMessage(`Service definition inspection failed: ${formatErrorMessage(error)}`),
+        ],
+      };
+    }
+  }
   const migrationWarnings: string[] = [];
   const migrationWarningErrors: string[] = [];
   for (const readWarnings of [
@@ -97,6 +133,7 @@ export async function updateStatusCommand(opts: UpdateStatusOptions): Promise<vo
       },
       availability: updateAvailability,
       ...(runtimeFindings.length > 0 ? { runtimeFindings } : {}),
+      ...(serviceDefinition ? { serviceDefinition } : {}),
       ...(migrationWarnings.length > 0 ? { migrationWarnings } : {}),
       ...(migrationWarningsError ? { migrationWarningsError } : {}),
       ...runStatus,
@@ -151,6 +188,9 @@ export async function updateStatusCommand(opts: UpdateStatusOptions): Promise<vo
   );
   defaultRuntime.log("");
 
+  for (const warning of serviceDefinition?.warnings ?? []) {
+    defaultRuntime.log(theme.warn(`Warning: ${warning}`));
+  }
   for (const warning of migrationWarnings) {
     defaultRuntime.log(theme.warn(`Warning: ${warning}`));
   }

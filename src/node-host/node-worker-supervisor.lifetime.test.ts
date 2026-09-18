@@ -142,6 +142,7 @@ describe("node worker environment lifetime", () => {
       const server = requireNodeWorkerProcessIdentity(background.pid);
       connection = await observeBackgroundConnection(background.url);
       expect(completed.state).toBe("completed");
+      expect(supervisor.hasActiveWork()).toBe(true);
       expect(store.get(first.launchId)).toMatchObject({ state: "running", worker: running.worker });
       expect(capacitySnapshots.at(-1)).toEqual({ total: 1, available: 0 });
       expect(await (await fetch(background.url)).text()).toBe("preview-ready");
@@ -214,6 +215,7 @@ describe("node worker environment lifetime", () => {
       await supervisor.stopEnvironment(environment);
       await vi.waitFor(() => expectBackgroundRetired(connection!, running.worker!, server));
       expect(capacitySnapshots.at(-1)).toEqual({ total: 1, available: 1 });
+      expect(supervisor.hasActiveWork()).toBe(false);
       expect(await supervisor.status(first.launchId)).toEqual(completed);
       expect((await supervisor.status(waiting.launchId))?.state).toBe("cancelled");
     } finally {

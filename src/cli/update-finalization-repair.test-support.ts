@@ -50,6 +50,7 @@ export const revalidateManagedGatewayServiceAfterUpdate = async () => verdict;
     "../daemon/service.ts",
     `${shared}
 const service = {
+  readCommand: async () => command,
   restart: async ({assertCurrent}) => {
     assertCurrent();
     await fs.writeFile(statePath, 'running');

@@ -6,7 +6,36 @@ import { Session as InspectorSession } from "node:inspector/promises";
 import { expect, it } from "vitest";
 import type { SessionsCatalogListParams } from "../../../packages/gateway-protocol/src/index.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { retainSessionListForegroundWork } from "../session-projection-work.js";
 import { createComposedCatalogFixture } from "./session-catalog.performance.test-support.js";
+
+function measureHostCpuReference(): number {
+  const bytes = Uint8Array.from({ length: 65_536 }, (_, index) => index & 255);
+  const hash = () => {
+    let checksum = 0x811c9dc5;
+    for (let pass = 0; pass < 8; pass++) {
+      for (const byte of bytes) {
+        checksum = Math.imul(checksum ^ byte, 0x01000193) >>> 0;
+      }
+    }
+    return checksum;
+  };
+  const durations: number[] = [];
+  for (let sample = 0; sample < 26; sample++) {
+    const started = performance.now();
+    const checksum = hash();
+    const duration = performance.now() - started;
+    expect(checksum).toBe(2_398_395_845);
+    if (sample >= 5) {
+      durations.push(duration);
+    }
+  }
+  const median = durations.toSorted((a, b) => a - b)[10];
+  if (median === undefined || median <= 0) {
+    throw new Error("Expected a positive host CPU reference median");
+  }
+  return median;
+}
 
 function allocatedBytes(node: HeapProfiler.SamplingHeapProfileNode): number {
   return node.selfSize + node.children.reduce((total, child) => total + allocatedBytes(child), 0);
@@ -34,6 +63,7 @@ it("measures 100 composed catalog lists against real session and plugin stores",
     async (state) => {
       const counters = createCatalogIoCounters();
       let fixture: Awaited<ReturnType<typeof createComposedCatalogFixture>> | undefined;
+      let releaseForeground: (() => void) | undefined;
       try {
         counters.begin();
         fixture = await createComposedCatalogFixture(state, counters);
@@ -102,14 +132,28 @@ it("measures 100 composed catalog lists against real session and plugin stores",
         do {
           await fixture.projection.ensureMaterialized();
         } while (fixture.projection.needsMaterialization);
+        const cpuReferenceP50Ms = measureHostCpuReference();
+        // Keep optional transcript backfill out of the measured foreground work.
+        releaseForeground = retainSessionListForegroundWork();
         counters.begin();
         const durations: number[] = [];
+        const workPerList = [];
+        let previousIo = counters.snapshot();
         let minimumRows = Infinity;
         const cpuStart = process.threadCpuUsage();
         for (let index = 0; index < 100; index++) {
           const started = performance.now();
           const result = await fixture.list(variants[index % variants.length]);
           durations.push(performance.now() - started);
+          const currentIo = counters.snapshot();
+          workPerList.push({
+            sqliteReadCalls: currentIo.sqliteReadCalls - previousIo.sqliteReadCalls,
+            bindingAuthorityReads:
+              currentIo.bindingAuthorityReads - previousIo.bindingAuthorityReads,
+            pluginStateWorkerOperations:
+              currentIo.pluginStateWorkerOperations - previousIo.pluginStateWorkerOperations,
+          });
+          previousIo = currentIo;
           minimumRows = Math.min(minimumRows, result.sessions.length);
         }
         const cpu = process.threadCpuUsage(cpuStart);
@@ -148,6 +192,7 @@ it("measures 100 composed catalog lists against real session and plugin stores",
             adoptedRows: 3,
             lists: 100,
             p50Ms: durations[49],
+            cpuReferenceP50Ms,
             p95Ms: durations[94],
             threadCpuMsPerList: (cpu.user + cpu.system) / 100_000,
             sampledInstrumentedAllocationBytesPerList: sampledAllocationBytes / 100,
@@ -160,7 +205,7 @@ it("measures 100 composed catalog lists against real session and plugin stores",
               Object.entries(io).map(([key, value]) => [key, value / 100]),
             ),
             scope:
-              "Explicit local Codex host through the real Gateway handler, registered provider, session accessor and plugin stores. Main-thread SQL counts include freshness and binding authority reads; worker read operations are reported separately. File counts cover sync, callback and promise fs read/open APIs.",
+              "Explicit local Codex host through Gateway request admission, registered provider, session accessor and plugin stores. Main-thread SQL counts include freshness and binding authority reads; worker read operations are reported separately. File counts cover sync, callback and promise fs read/open APIs.",
           }),
         );
         expect(cpuSamples.totalCpuSamples).toBeGreaterThan(0);
@@ -172,9 +217,21 @@ it("measures 100 composed catalog lists against real session and plugin stores",
         expect(io.pluginStateWorkerReadOperations).toBe(0);
         expect(io.sessionEntryReads).toBe(0);
         expect(io.sessionPayloadReads).toBe(0);
-        expect(io.bindingAuthorityReads).toBeGreaterThan(0);
-        expect(durations[49]).toBeLessThan(20);
+        // Each adopted binding needs six reads for freshness, schema admission, and authority.
+        for (const work of workPerList) {
+          expect(work).toEqual({
+            sqliteReadCalls: 18,
+            bindingAuthorityReads: 3,
+            pluginStateWorkerOperations: 0,
+          });
+        }
+        // Two-CPU reference 1.568–1.615 ms gives 31.36–32.30 ms: >3x the prior 9.43 ms
+        // main median, below 10x the fastest 3.479 ms list. CPU-scaling the 23.95 ms
+        // hosted sighting predicts ~79.7 ms. Without an independent bound, uniform
+        // composition CPU growth leaves exact SQL budgets green.
+        expect(durations[49]).toBeLessThan(cpuReferenceP50Ms * 20);
       } finally {
+        releaseForeground?.();
         try {
           await fixture?.close();
         } finally {

@@ -31,6 +31,7 @@ export function createCodexTerminalStartNodeHostCommand(): OpenClawPluginNodeHos
     cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
     dangerous: false,
     duplex: true,
+    hasActiveWork: () => false,
     isAvailable: ({ env }) =>
       Boolean(resolveNodeHostExecutable("codex", { env, strategy: "direct" })),
     handle: async (paramsJSON, io) => {
@@ -128,6 +129,7 @@ export function createCodexTerminalNodeHostCommand(
     cap: CODEX_APP_SERVER_THREADS_CAPABILITY,
     dangerous: false,
     duplex: true,
+    hasActiveWork: () => false,
     isAvailable: ({ env }) =>
       Boolean(
         resolveNodeHostExecutable("codex", {

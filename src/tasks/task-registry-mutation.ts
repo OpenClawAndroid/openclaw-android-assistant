@@ -13,8 +13,6 @@ import {
   cloneTaskDeliveryState,
   cloneTaskRecord,
   cloneTaskRecordForObserver,
-  applyTaskRecordPatch,
-  isEquivalentTaskRecord,
 } from "./task-registry-records.js";
 import {
   withTaskRegistryMutation,
@@ -25,6 +23,7 @@ import {
   taskDeliveryStates,
   tasks,
 } from "./task-registry-state.js";
+import { prepareTaskRecordUpdate } from "./task-registry-transition.operation.js";
 import {
   addOwnerKeyIndex,
   deleteOwnerKeyIndex,
@@ -97,19 +96,10 @@ export function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskReco
       if (!current) {
         return null;
       }
-      const next = applyTaskRecordPatch(current, patch);
-      const becomesTerminal =
-        !isTerminalTaskStatus(current.status) && isTerminalTaskStatus(next.status);
-      const sessionIndexChanged =
-        normalizeOptionalString(current.requesterSessionKey) !==
-          normalizeOptionalString(next.requesterSessionKey) ||
-        normalizeOptionalString(current.ownerKey) !== normalizeOptionalString(next.ownerKey) ||
-        normalizeOptionalString(current.childSessionKey) !==
-          normalizeOptionalString(next.childSessionKey);
-      const parentFlowIndexChanged = current.parentFlowId?.trim() !== next.parentFlowId?.trim();
+      const { task: next, becomesTerminal, persisted } = prepareTaskRecordUpdate(current, patch);
       ensureLinkedTaskFlowRegistryReady(current);
       ensureLinkedTaskFlowRegistryReady(next);
-      if (!isTerminalTaskStatus(current.status) || !isEquivalentTaskRecord(current, next)) {
+      if (persisted) {
         if (becomesTerminal) {
           flushTaskActivity(taskId);
         }
@@ -118,45 +108,66 @@ export function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskReco
         if (!tryPersistTaskUpsert(next, "update")) {
           return null;
         }
-        tasks.set(taskId, next);
-        bumpTaskRegistryRevision();
-        if (becomesTerminal) {
-          clearTaskActivity(taskId);
-        }
-        if (patch.runId && patch.runId !== current.runId) {
-          rebuildRunIdIndex();
-        }
-        if (sessionIndexChanged) {
-          deleteOwnerKeyIndex(taskId, current);
-          addOwnerKeyIndex(taskId, next);
-          deleteRelatedSessionKeyIndex(taskId, current);
-          addRelatedSessionKeyIndex(taskId, next);
-        }
-        if (parentFlowIndexChanged) {
-          deleteParentFlowIdIndex(taskId, current);
-          addParentFlowIdIndex(taskId, next);
-        }
       }
-      // Storage no-ops still repair linked flows and retry failed observer publications.
-      syncFlowFromTaskAfterTaskMutation(next, "update");
-      try {
-        syncManagedFlowCancellationFromTask(next);
-      } catch (error) {
-        taskRegistryLog.warn("Failed to finalize managed flow cancellation from task update", {
-          taskId,
-          flowId: next.parentFlowId,
-          error,
-        });
-      }
-      emitTaskRegistryObserverEvent(() => ({
-        kind: "upserted",
-        task: cloneTaskRecordForObserver(next),
-        previous: cloneTaskRecordForObserver(current),
-      }));
-      return cloneTaskRecord(next);
+      return publishTaskRecordUpdate(current, next, persisted);
     },
     () => null,
   );
+}
+
+/** Reuse the update publication owner after a shared create/reuse kernel commits. */
+export function publishTaskRecordUpdate(
+  current: TaskRecord,
+  next: TaskRecord,
+  persisted: boolean,
+): TaskRecord {
+  const taskId = next.taskId;
+  const becomesTerminal =
+    !isTerminalTaskStatus(current.status) && isTerminalTaskStatus(next.status);
+  const sessionIndexChanged =
+    normalizeOptionalString(current.requesterSessionKey) !==
+      normalizeOptionalString(next.requesterSessionKey) ||
+    normalizeOptionalString(current.ownerKey) !== normalizeOptionalString(next.ownerKey) ||
+    normalizeOptionalString(current.childSessionKey) !==
+      normalizeOptionalString(next.childSessionKey);
+  const parentFlowIndexChanged = current.parentFlowId?.trim() !== next.parentFlowId?.trim();
+  if (persisted) {
+    tasks.set(taskId, next);
+    bumpTaskRegistryRevision();
+    if (becomesTerminal) {
+      clearTaskActivity(taskId);
+    }
+    if (next.runId && next.runId !== current.runId) {
+      rebuildRunIdIndex();
+    }
+    if (sessionIndexChanged) {
+      deleteOwnerKeyIndex(taskId, current);
+      addOwnerKeyIndex(taskId, next);
+      deleteRelatedSessionKeyIndex(taskId, current);
+      addRelatedSessionKeyIndex(taskId, next);
+    }
+    if (parentFlowIndexChanged) {
+      deleteParentFlowIdIndex(taskId, current);
+      addParentFlowIdIndex(taskId, next);
+    }
+  }
+  // Storage no-ops still repair linked flows and retry failed observer publications.
+  syncFlowFromTaskAfterTaskMutation(next, "update");
+  try {
+    syncManagedFlowCancellationFromTask(next);
+  } catch (error) {
+    taskRegistryLog.warn("Failed to finalize managed flow cancellation from task update", {
+      taskId,
+      flowId: next.parentFlowId,
+      error,
+    });
+  }
+  emitTaskRegistryObserverEvent(() => ({
+    kind: "upserted",
+    task: cloneTaskRecordForObserver(next),
+    previous: cloneTaskRecordForObserver(current),
+  }));
+  return cloneTaskRecord(next);
 }
 
 export function upsertTaskDeliveryState(state: TaskDeliveryState): TaskDeliveryState {

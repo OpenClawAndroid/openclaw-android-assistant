@@ -9,6 +9,7 @@ import { replaceSessionEntrySync } from "../config/sessions/session-accessor.js"
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import * as projectionWork from "./session-projection-work.js";
+import { ready } from "./session-row-projection-record.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import { seedSessionRowProjectionTranscriptFixture } from "./session-row-projection.transcript-fixture.test-support.js";
 
@@ -77,7 +78,7 @@ it("reuses the subagent index across a 2,048-session drain with unrelated writes
           rssDelta: memoryAfter.rss - memoryBefore.rss,
         }),
       );
-      expect(projection.select()).toHaveLength(count);
+      expect(projection.selectEntries().filter(ready)).toHaveLength(count);
       expect(projection.dirtyRowCount).toBe(0);
       expect(yields).toBeGreaterThanOrEqual(32);
       expect(
@@ -93,9 +94,13 @@ it("reuses the subagent index across a 2,048-session drain with unrelated writes
   });
 }, 120_000);
 
-it.each(["ownership", "retirement", "clear", "persistence"] as const)(
-  "refreshes subagent facts before synchronous %s observers read the row",
-  async (publication) => {
+it.each(
+  (["ownership", "retirement", "clear", "persistence"] as const).flatMap((publication) =>
+    [false, true].map((archived) => ({ publication, archived })),
+  ),
+)(
+  "refreshes subagent facts before synchronous $publication observers (archived=$archived)",
+  async ({ publication, archived }) => {
     await withOpenClawTestState(
       { scenario: "minimal", env: { OPENCLAW_TEST_READ_SUBAGENT_RUNS_FROM_SQLITE: "1" } },
       async () => {
@@ -106,7 +111,11 @@ it.each(["ownership", "retirement", "clear", "persistence"] as const)(
         for (const key of [child, parent, nextParent]) {
           replaceSessionEntrySync(
             { agentId: "main", sessionKey: key },
-            { sessionId: key, updatedAt: 1 },
+            {
+              sessionId: key,
+              updatedAt: 1,
+              ...(archived && key === child ? { archivedAt: 1 } : {}),
+            },
           );
         }
         const run: SubagentRunRecord = {
@@ -123,17 +132,22 @@ it.each(["ownership", "retirement", "clear", "persistence"] as const)(
         };
         subagentRuns.set(run.runId, run);
         const projection = await createSessionRowProjection({ cfg });
-        const snapshot = () => projection.snapshot({ agentId: "main", key: child }).row;
+        const snapshot = () =>
+          archived ? undefined : projection.snapshot({ agentId: "main", key: child }).row;
         let observed: ReturnType<typeof snapshot> | undefined;
+        let observedParents: string[][] | undefined;
         const stop = sessionChanges.subscribe(() => {
           observed = snapshot();
+          observedParents = [parent, nextParent].map((parentSessionKey) =>
+            projection.selectEntries({ parentSessionKey }).map((row) => row.key),
+          );
         });
         try {
-          expect(snapshot()?.controlOwnerSessionKey).toBe(parent);
+          expect(snapshot()?.controlOwnerSessionKey).toBe(archived ? undefined : parent);
           if (publication === "ownership" || publication === "persistence") {
             const replacement = { ...run, requesterSessionKey: nextParent };
             subagentRuns.set(run.runId, replacement);
-            expect(snapshot()?.controlOwnerSessionKey).toBe(parent);
+            expect(snapshot()?.controlOwnerSessionKey).toBe(archived ? undefined : parent);
             if (publication === "ownership") {
               subagentRuns.commitOwnership(replacement);
             } else {
@@ -141,14 +155,22 @@ it.each(["ownership", "retirement", "clear", "persistence"] as const)(
             }
           } else if (publication === "retirement") {
             subagentRuns.delete(run.runId);
-            expect(snapshot()?.controlOwnerSessionKey).toBe(parent);
+            expect(snapshot()?.controlOwnerSessionKey).toBe(archived ? undefined : parent);
             subagentRuns.confirmRetirement(run);
           } else {
             subagentRuns.clear();
           }
           const moved = publication === "ownership" || publication === "persistence";
-          expect(observed?.key).toBe(child);
-          expect(observed?.controlOwnerSessionKey).toBe(moved ? nextParent : undefined);
+          expect(observed?.key).toBe(archived ? undefined : child);
+          expect(observed?.controlOwnerSessionKey).toBe(
+            !archived && moved ? nextParent : undefined,
+          );
+          expect(observedParents).toEqual([[], moved ? [child] : []]);
+          if (archived) {
+            expect(
+              projection.capture({ agentId: "main", key: child })?.materialized,
+            ).toBeUndefined();
+          }
           await projection.ensureMaterialized();
           expect(
             projection.snapshot({ agentId: "main", key: parent }).row?.childSessions,

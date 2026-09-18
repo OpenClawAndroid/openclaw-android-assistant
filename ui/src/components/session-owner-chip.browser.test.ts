@@ -286,9 +286,10 @@ describe.skipIf(!hasBrowserLayout)("session owner stack layout", () => {
         ownerCount === 2 ? "Owned by Ada · with Bob" : `Owned by Ada · +${ownerCount - 1} more`,
       );
       for (const state of ["idle", "hover", "active", "selected"]) {
-        await userEvent.unhover(row);
         if (state === "hover") {
           await userEvent.hover(row);
+        } else if (state === "idle" || state === "active") {
+          await userEvent.unhover(row);
         }
         row.classList.toggle("sidebar-recent-session--active", state === "active");
         row.classList.toggle("sidebar-recent-session--selected", state === "selected");

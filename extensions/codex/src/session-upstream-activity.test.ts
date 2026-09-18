@@ -78,6 +78,8 @@ function createActivityChecker(params: {
     api,
     bindingStore,
     control: {
+      hasActiveWork: () => false,
+      disconnect: async () => {},
       forRequest: () => params.control,
       forNode: async () => {
         throw new Error("Node source is outside this local activity fixture");

@@ -64,6 +64,9 @@ reconcile dependencies before the remote wrapper starts.
 Run the test toolchain on Node 24.16+ or Node 26.1+, matching the packaged
 runtime floor. Older Node bindings can truncate SQLite TEXT values at embedded NUL characters.
 
+The script erasability gate uses Node's strip-only parser, including when package
+checks run under Bun. It selects an installed Node runtime and skips Bun's `node` shim.
+
 The test toolchain pins stable Vitest `5.0.0`, including its browser and coverage
 packages. Use `describe(name, { concurrent: false }, callback)` for ordered
 suites. Await asynchronous assertions, keep `vi.mock`/`vi.hoisted` at module

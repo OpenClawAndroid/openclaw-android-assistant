@@ -28,14 +28,14 @@ import {
 } from "../../test-utils/bundled-plugin-public-surface.js";
 import type { OpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
+import { handleGatewayRequest } from "../server-methods.js";
 import { bindSessionRowProjection } from "../session-row-projection-access.js";
 import {
   createSessionRowProjection,
   type SessionRowProjection,
 } from "../session-row-projection.js";
-import { sessionCatalogHandlers } from "./session-catalog.js";
 import type { createCatalogIoCounters } from "./session-catalog.performance-counters.test-support.js";
-import type { GatewayRequestHandler, GatewayClient } from "./types.js";
+import type { GatewayClient } from "./types.js";
 
 type CatalogResult = {
   catalogs: Array<{ id: string; hosts: SessionCatalogHost[]; error?: { message: string } }>;
@@ -259,13 +259,8 @@ export async function createComposedCatalogFixture(
     ): Promise<unknown> {
       let result: unknown;
       let responded = false;
-      const handler = sessionCatalogHandlers[method];
-      if (!handler) {
-        throw new Error(`Missing ${method} handler`);
-      }
-      await handler({
+      await handleGatewayRequest({
         req: { type: "req", id: `composed-${++sequence}`, method, params },
-        params,
         client,
         context,
         isWebchatConnect: () => false,
@@ -278,7 +273,7 @@ export async function createComposedCatalogFixture(
           }
           result = payload;
         },
-      } as Parameters<GatewayRequestHandler>[0]);
+      });
       if (!responded) {
         throw new Error("Catalog request did not respond");
       }

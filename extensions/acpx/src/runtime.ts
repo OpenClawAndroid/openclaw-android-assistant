@@ -660,8 +660,8 @@ export class AcpxRuntime implements CompleteAcpRuntime {
 
   private async loadOperationSnapshotForHandle(
     handle: OpenClawRuntimeHandle,
+    generation: AcpxGeneration,
     allowRetired = false,
-    generation = this.generationForHandle(handle),
   ): Promise<AcpxHandleOperationSnapshot> {
     const resource = generation.resource;
     if (!allowRetired) {
@@ -741,6 +741,24 @@ export class AcpxRuntime implements CompleteAcpRuntime {
       this.generationRegistry.assertCurrentGeneration(generation);
     }
     return { record, command, generation };
+  }
+
+  private async runWithOperationSnapshot<T>(
+    handle: OpenClawRuntimeHandle,
+    run: (snapshot: AcpxHandleOperationSnapshot) => Promise<T>,
+  ): Promise<T> {
+    const generation = this.generationForHandle(handle);
+    // Hold the owner before lookup can yield; the verified record gets its own
+    // reservation without leaving a gap between snapshot and operation custody.
+    return await this.runInGeneration(handle, { generation }, async () => {
+      const snapshot = await this.loadOperationSnapshotForHandle(handle, generation);
+      this.generationRegistry.assertCurrentGeneration(generation);
+      return await this.runInGeneration(
+        handle,
+        { generation, recordId: snapshot.record?.acpxRecordId },
+        () => run(snapshot),
+      );
+    });
   }
 
   private resolveDelegateForOperationSnapshot(
@@ -988,8 +1006,7 @@ export class AcpxRuntime implements CompleteAcpRuntime {
     input: Parameters<AcpRuntime["ensureSession"]>[0],
   ): Promise<OpenClawRuntimeHandle> {
     const resource = assertAcpxSessionOwnerLocator(input, this.legacyBareSessionKeys);
-    const generation = this.generationRegistry.currentGeneration(resource);
-    return await generation.ensureQueue.enqueue(resource + "\u0000" + generation.id, () =>
+    return await this.generationRegistry.runAdmission(resource, (generation) =>
       this.runInGeneration(input, { generation }, async () => {
         this.generationRegistry.assertCurrentGeneration(generation);
         const handle = {
@@ -1128,8 +1145,7 @@ export class AcpxRuntime implements CompleteAcpRuntime {
         fallbackCode: "ACP_TURN_FAILED",
         run,
       });
-    const snapshotPromise = this.loadOperationSnapshotForHandle(input.handle);
-    const turnPromise = snapshotPromise.then((snapshot) => {
+    const turnPromise = this.runWithOperationSnapshot(input.handle, (snapshot) => {
       const { command, generation } = snapshot;
       this.generationRegistry.assertCurrentGeneration(generation);
       const delegate = this.resolveDelegateForOperationSnapshot(input.handle, snapshot);
@@ -1224,37 +1240,26 @@ export class AcpxRuntime implements CompleteAcpRuntime {
   async getStatus(
     input: Parameters<NonNullable<AcpRuntime["getStatus"]>>[0],
   ): Promise<AcpRuntimeStatus> {
-    const snapshot = await this.loadOperationSnapshotForHandle(input.handle);
-    return this.runInGeneration(
-      input.handle,
-      { generation: snapshot.generation, recordId: snapshot.record?.acpxRecordId },
-      () =>
-        this.resolveDelegateForOperationSnapshot(input.handle, snapshot).getStatus(
-          toAcpxResourceInput(input),
-        ),
+    return this.runWithOperationSnapshot(input.handle, (snapshot) =>
+      this.resolveDelegateForOperationSnapshot(input.handle, snapshot).getStatus(
+        toAcpxResourceInput(input),
+      ),
     );
   }
 
   async setMode(input: Parameters<NonNullable<AcpRuntime["setMode"]>>[0]): Promise<void> {
-    const snapshot = await this.loadOperationSnapshotForHandle(input.handle);
-    await this.runInGeneration(
-      input.handle,
-      { generation: snapshot.generation, recordId: snapshot.record?.acpxRecordId },
-      () =>
-        this.resolveDelegateForOperationSnapshot(input.handle, snapshot).setMode(
-          toAcpxResourceInput(input),
-        ),
+    await this.runWithOperationSnapshot(input.handle, (snapshot) =>
+      this.resolveDelegateForOperationSnapshot(input.handle, snapshot).setMode(
+        toAcpxResourceInput(input),
+      ),
     );
   }
 
   async setConfigOption(
     input: Parameters<NonNullable<AcpRuntime["setConfigOption"]>>[0],
   ): ReturnType<NonNullable<AcpRuntime["setConfigOption"]>> {
-    const snapshot = await this.loadOperationSnapshotForHandle(input.handle);
-    return await this.runInGeneration(
-      input.handle,
-      { generation: snapshot.generation, recordId: snapshot.record?.acpxRecordId },
-      () => this.setConfigOptionUnlocked(input, snapshot),
+    return await this.runWithOperationSnapshot(input.handle, (snapshot) =>
+      this.setConfigOptionUnlocked(input, snapshot),
     );
   }
 
@@ -1318,14 +1323,10 @@ export class AcpxRuntime implements CompleteAcpRuntime {
   }
 
   async cancel(input: Parameters<AcpRuntime["cancel"]>[0]): Promise<void> {
-    const snapshot = await this.loadOperationSnapshotForHandle(input.handle);
-    await this.runInGeneration(
-      input.handle,
-      { generation: snapshot.generation, recordId: snapshot.record?.acpxRecordId },
-      () =>
-        this.resolveDelegateForOperationSnapshot(input.handle, snapshot).cancel(
-          toAcpxResourceInput(input),
-        ),
+    await this.runWithOperationSnapshot(input.handle, (snapshot) =>
+      this.resolveDelegateForOperationSnapshot(input.handle, snapshot).cancel(
+        toAcpxResourceInput(input),
+      ),
     );
   }
 
@@ -1345,7 +1346,7 @@ export class AcpxRuntime implements CompleteAcpRuntime {
     // Snapshot reads can yield to reset. Retain cleanup custody before the first
     // await so retirement cannot shut down this close's private runtime.
     await this.runInGeneration(input.handle, { generation }, async () => {
-      const snapshot = await this.loadOperationSnapshotForHandle(input.handle, true, generation);
+      const snapshot = await this.loadOperationSnapshotForHandle(input.handle, generation, true);
       const delegate = this.resolveDelegateForOperationSnapshot(input.handle, snapshot);
       await acpxOperationScope.run({ generation, closeRecord: snapshot.record }, async () => {
         // Detach before a destructive backend close can stall. Only the captured

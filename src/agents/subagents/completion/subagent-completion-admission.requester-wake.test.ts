@@ -7,8 +7,13 @@ import {
   type OpenClawStateDatabase,
 } from "../../../state/openclaw-state-db.js";
 import { ensureTaskRegistryReady, getTaskById } from "../../../tasks/runtime-internal.js";
+import { getTaskFlowById } from "../../../tasks/task-flow-registry.js";
+import { upsertTaskFlowRegistryRecordToSqlite } from "../../../tasks/task-flow-registry.store.sqlite.js";
 import { publishTaskRecordAfterAtomicStore } from "../../../tasks/task-registry.js";
-import { resetTaskRegistryForTests } from "../../../tasks/task-runtime.test-helpers.js";
+import {
+  resetTaskFlowRegistryForTests,
+  resetTaskRegistryForTests,
+} from "../../../tasks/task-runtime.test-helpers.js";
 import { loadPendingFinalDeliveryPayload } from "../registry/subagent-registry-lifecycle-delivery.js";
 import { subagentRuns } from "../registry/subagent-registry-memory.js";
 import { onSubagentRegistryPersisted } from "../registry/subagent-registry-state.js";
@@ -44,6 +49,7 @@ describe("persisted subagent requester wakes", () => {
   afterEach(() => {
     subagentRuns.clear();
     resetTaskRegistryForTests({ persist: false });
+    resetTaskFlowRegistryForTests({ persist: false });
     closeOpenClawStateDatabaseForTest();
     vi.unstubAllEnvs();
   });
@@ -112,6 +118,77 @@ describe("persisted subagent requester wakes", () => {
       driver.controller.clearScheduledResumeTimers();
     }
   });
+
+  it.each([true, false])(
+    "publishes the mirrored parent flow before requester settlement observers (delivered=%s)",
+    async (delivered) => {
+      const input = armRequesterWake(records());
+      const flowId = "requester-parent-flow";
+      input.task.parentFlowId = flowId;
+      persistOwner(input);
+      upsertTaskFlowRegistryRecordToSqlite({
+        flowId,
+        syncMode: "task_mirrored",
+        ownerKey: input.task.ownerKey,
+        goal: "Unfinished parent flow",
+        revision: 4,
+        status: "running",
+        notifyPolicy: input.task.notifyPolicy,
+        createdAt: input.task.createdAt,
+        updatedAt: input.task.createdAt,
+      });
+      resetTaskFlowRegistryForTests({ persist: false });
+      database = openOpenClawStateDatabase();
+      expect(getTaskFlowById(flowId)).toMatchObject({ status: "running", revision: 4 });
+
+      const driver = requesterWakeDriver([input]);
+      driver.wake.mockImplementation(async (params) => {
+        params.completeBatch([input.subagent], 1, {
+          delivered,
+          path: "direct",
+          error: delivered ? undefined : "requester unavailable",
+        });
+        return delivered;
+      });
+      const observed = vi.fn(() => ({
+        inTransaction: database.db.isTransaction,
+        task: getTaskById(input.task.taskId),
+        flow: getTaskFlowById(flowId),
+      }));
+      const unsubscribe = onSubagentRegistryPersisted(observed);
+      const expectedTask = {
+        status: "succeeded",
+        terminalOutcome: delivered ? "succeeded" : "blocked",
+        deliveryStatus: delivered ? "delivered" : "failed",
+      };
+      const expectedFlow = {
+        flowId,
+        revision: 5,
+        status: delivered ? "succeeded" : "blocked",
+        goal: input.task.task,
+        blockedTaskId: delivered ? undefined : input.task.taskId,
+      };
+      try {
+        await driver.run();
+        expect(driver.wake).toHaveBeenCalledOnce();
+        expect(observed).toHaveBeenCalledOnce();
+        expect(observed.mock.results[0]?.value).toMatchObject({
+          inTransaction: false,
+          task: expectedTask,
+          flow: expectedFlow,
+        });
+        expect(input.subagent.requesterSettleWake).toBeUndefined();
+        resetTaskFlowRegistryForTests({ persist: false });
+        reopenOwners();
+        expect(getTaskById(input.task.taskId)).toMatchObject(expectedTask);
+        expect(getTaskFlowById(flowId)).toMatchObject(expectedFlow);
+        expect(systemEvents()).toHaveLength(delivered ? 0 : 1);
+      } finally {
+        unsubscribe();
+        driver.controller.clearScheduledResumeTimers();
+      }
+    },
+  );
 
   it.each(["second owner", "second task write", "retirement"] as const)(
     "commits the entire requester batch or nothing when %s refuses settlement",
@@ -428,16 +505,18 @@ describe("persisted subagent requester wakes", () => {
   );
 
   it.each([
-    "rearmed",
-    "retired",
-    "replaced",
-    "not yet durable",
-    "blocked",
-    "blocked retirement",
-    "blocked newer wave",
+    { change: "rearmed", delivered: true },
+    { change: "retired", delivered: true },
+    { change: "replaced", delivered: true },
+    { change: "not yet durable", delivered: true },
+    { change: "blocked", delivered: true },
+    { change: "blocked retirement", delivered: true },
+    { change: "blocked newer wave", delivered: true },
+    { change: "rearmed", delivered: false },
+    { change: "retired", delivered: false },
   ] as const)(
-    "retains the known outcome for an unchanged sibling when one member is %s",
-    async (change) => {
+    "retains the known outcome for unchanged siblings when one member is $change (delivered=$delivered)",
+    async ({ change, delivered }) => {
       vi.useFakeTimers();
       const first = records();
       const second = records();
@@ -446,7 +525,13 @@ describe("persisted subagent requester wakes", () => {
       second.subagent.runId = "completion-second";
       second.subagent.taskRunId = second.task.runId;
       second.subagent.childSessionKey = second.task.childSessionKey = "agent:main:subagent:second";
-      const inputs = [first, second];
+      const third = records();
+      third.task.taskId = "task-third";
+      third.task.runId = "task-run-third";
+      third.subagent.runId = "completion-third";
+      third.subagent.taskRunId = third.task.runId;
+      third.subagent.childSessionKey = third.task.childSessionKey = "agent:main:subagent:third";
+      const inputs = [first, second, third];
       const ids = inputs.map(({ subagent }) => subagent.runId);
       for (const input of inputs) {
         armRequesterWake(input, ids);
@@ -464,9 +549,10 @@ describe("persisted subagent requester wakes", () => {
           inputs.map(({ subagent }) => subagent),
           1,
           {
-            delivered: true,
+            delivered,
             path: "direct",
-            requesterVisibleFinalDelivered: true,
+            requesterVisibleFinalDelivered: delivered ? true : undefined,
+            error: delivered ? undefined : "requester unavailable",
           },
           finalized,
         );
@@ -528,9 +614,13 @@ describe("persisted subagent requester wakes", () => {
           await vi.advanceTimersByTimeAsync(60_000);
         }
         expect(driver.wake).toHaveBeenCalledOnce();
-        expect(first.subagent.requesterSettleWake).toBeUndefined();
-        expect(first.subagent.delivery?.status).toBe("delivered");
-        expect(getTaskById(first.task.taskId)?.deliveryStatus).toBe("delivered");
+        for (const input of [first, third]) {
+          expect(input.subagent.requesterSettleWake).toBeUndefined();
+          expect(input.subagent.delivery?.status).toBe(delivered ? "delivered" : "failed");
+          expect(getTaskById(input.task.taskId)?.deliveryStatus).toBe(
+            delivered ? "delivered" : "failed",
+          );
+        }
         expect(getTaskById(second.task.taskId)).toEqual(secondTaskBeforeRetry);
         expect(getTaskById(second.task.taskId)?.deliveryStatus).toBe(
           blocked ? "failed" : "session_queued",
@@ -546,12 +636,17 @@ describe("persisted subagent requester wakes", () => {
           expect(subagentRuns.has(second.subagent.runId)).toBe(false);
         }
         reopenOwners();
-        expect(subagentRuns.get(first.subagent.runId)?.requesterSettleWake).toBeUndefined();
+        for (const input of [first, third]) {
+          expect(subagentRuns.get(input.subagent.runId)?.requesterSettleWake).toBeUndefined();
+          expect(getTaskById(input.task.taskId)?.deliveryStatus).toBe(
+            delivered ? "delivered" : "failed",
+          );
+        }
         expect(subagentRuns.get(second.subagent.runId)?.requesterSettleWake).toEqual(
           ["retired", "blocked", "blocked retirement"].includes(change) ? undefined : newerWake,
         );
         expect(getTaskById(second.task.taskId)).toEqual(secondTaskBeforeRetry);
-        expect(systemEvents()).toHaveLength(blocked ? 1 : 0);
+        expect(systemEvents()).toHaveLength((blocked ? 1 : 0) + (delivered ? 0 : 2));
       } finally {
         driver.controller.clearScheduledResumeTimers();
         vi.useRealTimers();
@@ -594,7 +689,7 @@ describe("persisted subagent requester wakes", () => {
     },
   );
 
-  it.each(["missing outcome", "paused", "mismatched task"] as const)(
+  it.each(["missing outcome", "paused", "mismatched task", "superseded generation"] as const)(
     "does not settle uncaptured completion with %s evidence",
     (change) => {
       const input = failedRecords("failed", { status: "error" });
@@ -603,11 +698,15 @@ describe("persisted subagent requester wakes", () => {
         input.subagent.execution.outcome = undefined;
       } else if (change === "paused") {
         input.subagent.pauseReason = "sessions_yield";
-      } else {
+      } else if (change === "mismatched task") {
         input.task.status = "timed_out";
       }
       persistOwner(input);
       const before = structuredClone(input);
+      if (change === "superseded generation") {
+        before.subagent.delivery!.generation = 2;
+        upsertSubagentRunRowInDatabase(database, bindSubagentRunRecord(before.subagent));
+      }
       expect(
         blockSubagentCompletionDelivery({
           subagent: input.subagent,

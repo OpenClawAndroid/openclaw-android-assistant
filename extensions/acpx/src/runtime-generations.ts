@@ -76,6 +76,8 @@ export class AcpxGenerationRegistry {
         ensureQueue: new KeyedAsyncQueue(),
         retired: false,
         activeOperations: 0,
+        pendingAdmissions: 0,
+        admissionState: "unadmitted",
         activeRecordOperations: new Map(),
         closedRecordIds: new Set(),
         records: new Map(),
@@ -86,6 +88,32 @@ export class AcpxGenerationRegistry {
       this.generations.set(resource, generation);
     }
     return generation;
+  }
+
+  async runAdmission<T>(
+    resource: string,
+    run: (generation: AcpxGeneration) => Promise<T>,
+  ): Promise<T> {
+    const generation = this.currentGeneration(resource);
+    // Queued callers already captured this generation; the first failure cannot retire it under them.
+    generation.pendingAdmissions += 1;
+    try {
+      return await generation.ensureQueue.enqueue(resource + "\u0000" + generation.id, async () => {
+        try {
+          const result = await run(generation);
+          generation.admissionState = "admitted";
+          return result;
+        } catch (error) {
+          if (generation.admissionState !== "admitted") {
+            generation.admissionState = "failed";
+          }
+          throw error;
+        }
+      });
+    } finally {
+      generation.pendingAdmissions -= 1;
+      this.releaseIdleGeneration(generation);
+    }
   }
 
   retireGeneration(generation: AcpxGeneration): void {
@@ -102,6 +130,7 @@ export class AcpxGenerationRegistry {
     if (
       !generation.retired ||
       generation.activeOperations !== 0 ||
+      generation.pendingAdmissions !== 0 ||
       !delegate ||
       delegate === this.delegate ||
       this.retiringDelegates.has(delegate)
@@ -134,18 +163,24 @@ export class AcpxGenerationRegistry {
         generation.activeRecordOperations.set(recordId, remaining);
       }
       generation.activeOperations -= 1;
-      if (
-        !generation.retired &&
-        generation.closeCompleted &&
-        generation.activeOperations === 0 &&
-        generation.records.size === 0 &&
-        this.generations.get(generation.resource) === generation
-      ) {
-        generation.retired = true;
-        this.generations.delete(generation.resource);
-      }
-      this.releaseRetiredDelegate(generation);
+      this.releaseIdleGeneration(generation);
     };
+  }
+
+  private releaseIdleGeneration(generation: AcpxGeneration): void {
+    if (
+      !generation.retired &&
+      (generation.closeCompleted || generation.admissionState === "failed") &&
+      generation.pendingAdmissions === 0 &&
+      generation.activeOperations === 0 &&
+      generation.records.size === 0 &&
+      this.generations.get(generation.resource) === generation
+    ) {
+      // Empty failed admission owns no reset intent or persistent-state mutation.
+      generation.retired = true;
+      this.generations.delete(generation.resource);
+    }
+    this.releaseRetiredDelegate(generation);
   }
 
   assertCurrentGeneration(generation: AcpxGeneration): void {

@@ -53,6 +53,9 @@ export function createSessionRowProjectionTranscriptUpdates(params: {
       found = new Set([...params.matching(query), ...params.matching(query, "id")]);
     }
     for (const row of found) {
+      if (row.entry?.archivedAt !== undefined && !row.materialized) {
+        continue;
+      }
       const id = identity(row);
       const window = windows.get(id);
       if (window) {

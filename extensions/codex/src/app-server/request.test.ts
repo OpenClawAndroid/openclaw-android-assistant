@@ -965,7 +965,10 @@ describe("requestCodexAppServerJson sandbox guard", () => {
           vi.setSystemTime(Date.now() + wallJumpMs);
           return { rateLimitsByLimitId: { codex: { limitId: "codex" } } };
         }
-        return { account: { email: "codex-account@example.com" } };
+        return {
+          account: { type: "chatgpt", email: "codex-account@example.com", planType: "pro" },
+          requiresOpenaiAuth: true,
+        };
       });
       const closeAndWait = vi.fn(async () => undefined);
       sharedClientMocks.createIsolatedCodexAppServerClient.mockResolvedValue({

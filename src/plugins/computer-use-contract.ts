@@ -571,6 +571,8 @@ export function registerComputerUseProvider(
   let execution: { id: string; promise: Promise<ComputerUseExecution> } | undefined;
   let closingPromise: Promise<void> | undefined;
   let pendingClose: Promise<void> | undefined;
+  const hasActiveWork = () =>
+    execution !== undefined || closingPromise !== undefined || pendingClose !== undefined;
 
   const executionEnvelopeFromParams = (paramsJSON: string | null | undefined) => {
     let value: unknown;
@@ -687,6 +689,7 @@ export function registerComputerUseProvider(
     dangerous: false,
     prepare: (context) => provider.prepare?.(context),
     isAvailable: () => provider.isAvailable(),
+    hasActiveWork,
     watchAvailability: (context, onChange) => {
       const stopWatching = provider.watchAvailability?.(context, onChange);
       return () => {
@@ -719,6 +722,7 @@ export function registerComputerUseProvider(
     dangerous: true,
     computerUse: () => provider.capabilities(),
     isAvailable: () => provider.isAvailable(),
+    hasActiveWork,
     handle: async (paramsJSON, _io, context) => {
       const envelope = executionEnvelopeFromParams(paramsJSON);
       if (!envelope.executionId) {

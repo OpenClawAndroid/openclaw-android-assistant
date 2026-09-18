@@ -91,8 +91,9 @@ export async function listSessionFixture(
       }),
   });
   if (params.opts.includeActivitySummary) {
-    for (const row of projection.select()) {
+    for (const row of projection.selectEntries()) {
       row.facts = readSessionRowFacts({ cfg: params.cfg, target: row, entry: row.entry });
+      row.hasBoard = row.facts.hasBoard;
     }
   }
   const profileId = params.ownerFirstActorId ?? params.involvingActorId;

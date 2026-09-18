@@ -149,6 +149,7 @@ function shouldRetain(
 function createSessionEventWakeRuntime() {
   const pending = new Map<string, WakeGroup>();
   const active = new Map<string, ActiveWake>();
+  const waiters = new Set<Settlement>();
   const abortSignals = new AsyncLocalStorage<AbortSignal>();
   let handler: WakeHandler | null = null;
   let generation = 0;
@@ -464,6 +465,12 @@ function createSessionEventWakeRuntime() {
     generation += 1;
     const ownedGeneration = generation;
     handler = next;
+    if (!next) {
+      // Waiters cannot depend on a future runner; shared notifications retain their queue ownership.
+      for (const waiter of waiters) {
+        waiter.settle({ status: "skipped", reason: "handler-unavailable" });
+      }
+    }
     clearTimeout(timer);
     timer = undefined;
     timerDefersReadyWork = false;
@@ -538,6 +545,7 @@ function createSessionEventWakeRuntime() {
         settle: (result) => {
           if (settlement.active) {
             settlement.active = false;
+            waiters.delete(settlement);
             signal?.removeEventListener("abort", onAbort);
             resolve(result);
           }
@@ -547,7 +555,10 @@ function createSessionEventWakeRuntime() {
         settlement.settle({ status: "failed", reason: "heartbeat wake cancelled" });
       if (signal?.aborted) {
         onAbort();
+      } else if (!handler) {
+        settlement.settle({ status: "skipped", reason: "handler-unavailable" });
       } else {
+        waiters.add(settlement);
         signal?.addEventListener("abort", onAbort, { once: true });
         enqueueRequest(options, settlement);
       }

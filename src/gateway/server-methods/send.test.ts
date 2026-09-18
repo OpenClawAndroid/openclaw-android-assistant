@@ -157,6 +157,7 @@ vi.mock("../../plugins/loader.js", () => ({
 
 vi.mock("../../infra/outbound/channel-bootstrap.runtime.js", () => ({
   bootstrapOutboundChannelPlugin: vi.fn(),
+  bootstrapOutboundChannelPluginAsync: vi.fn(),
   resetOutboundChannelBootstrapStateForTests: vi.fn(),
 }));
 
@@ -2856,9 +2857,7 @@ describe("gateway send mirroring", () => {
 
   it("recovers cold plugin resolution for threaded sends", async () => {
     mocks.resolveOutboundTarget.mockReturnValue({ ok: true, to: "123" });
-    mocks.deliverOutboundPayloads.mockResolvedValue([
-      { messageId: "m-threaded", channel: "slack" },
-    ]);
+    mockDeliverySuccess("m-threaded");
     const outboundPlugin = {
       id: "slack",
       outbound: { sendPoll: mocks.sendPoll },

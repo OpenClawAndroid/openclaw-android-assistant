@@ -8,6 +8,7 @@ import type {
   PreparedModelRuntimeResourceClaim,
   PreparedModelRuntimeSnapshot,
 } from "./prepared-model-runtime.types.js";
+import { releaseRuntimePluginWork, retainRuntimePluginWork } from "./runtime-plugin-work.js";
 import {
   acquireAgentRuntimePluginRegistry,
   type AcquiredAgentRuntimePluginRegistry,
@@ -51,16 +52,23 @@ class PreparedRegistryResources {
     }
   }
 
-  retain(): PreparedModelRuntimeResourceClaim {
+  retain(work = false): PreparedModelRuntimeResourceClaim {
     this.assertOpen();
-    const claim = this.acquired.resources.retain();
+    const releaseWork = work ? retainRuntimePluginWork([this.acquired.registry]) : () => {};
+    let claim: PreparedModelRuntimeResourceClaim;
+    try {
+      claim = this.acquired.resources.retain();
+    } catch (error) {
+      releaseWork();
+      throw error;
+    }
     this.claims++;
     let release: Promise<void> | undefined;
     return {
       release: () => {
         if (!release) {
           const completion = createDeferredCore();
-          release = completion.promise;
+          release = releaseRuntimePluginWork(() => completion.promise, releaseWork);
           const pending = this.trackRelease(claim.release);
           this.claims--;
           // The final generation lease joins original-view and donor cleanup as well.
@@ -121,7 +129,7 @@ export class PreparedModelRuntimeBuildResources {
 
   private retain(resources: PreparedRegistryResources | undefined): void {
     if (resources && !this.claims.has(resources)) {
-      this.claims.set(resources, resources.retain());
+      this.claims.set(resources, resources.retain(true));
     }
   }
 
@@ -142,8 +150,10 @@ export class PreparedModelRuntimeBuildResources {
       try {
         assertLifetime();
         this.retain(resources);
+        // The build claim now owns finite work before producer custody crosses another await.
+        acquired.releaseWork();
       } catch (error) {
-        await resources.close();
+        await releaseRuntimePluginWork(() => resources.close(), acquired.releaseWork);
         throw error;
       }
     } else {

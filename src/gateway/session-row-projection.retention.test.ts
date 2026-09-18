@@ -5,6 +5,7 @@ import { setRuntimeConfigSnapshot } from "../config/config.js";
 import { replaceSessionEntrySync } from "../config/sessions/session-accessor.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { retainSessionListForegroundWork } from "./session-projection-work.js";
+import { ready } from "./session-row-projection-record.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import { listProjectedSessions } from "./session-utils-list.js";
 
@@ -36,7 +37,7 @@ it("collects superseded resident rows and their materializations after metadata 
     const retired: { row: WeakRef<object>; materialized: WeakRef<object> }[] = [];
     const control = createCollectionControl();
     function refreshEntries(revision: number) {
-      for (const row of projection.select()) {
+      for (const row of projection.selectEntries().filter(ready)) {
         retired.push({ row: new WeakRef(row), materialized: new WeakRef(row.materialized) });
         write(row.key, revision);
       }
@@ -58,7 +59,7 @@ it("collects superseded resident rows and their materializations after metadata 
       expect(control.deref()).toBeUndefined();
       expect(retired.filter(({ row }) => row.deref())).toHaveLength(0);
       expect(retired.filter(({ materialized }) => materialized.deref())).toHaveLength(0);
-      expect(projection.select()).toHaveLength(keys.length);
+      expect(projection.selectEntries().filter(ready)).toHaveLength(keys.length);
     } finally {
       projection.dispose();
       release();

@@ -6,6 +6,7 @@ import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
+import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { withTempDir } from "../test-utils/temp-dir.js";
 import {
   clearDeviceAuthToken,
@@ -183,9 +184,8 @@ describe("infra/device-auth-store", () => {
   });
 
   it("stores and loads normalized device auth tokens in SQLite", async () => {
-    await withTempDir("openclaw-device-auth-", async (stateDir) => {
+    await withOpenClawTestState({ label: "device-auth" }, async ({ stateDir, env }) => {
       vi.spyOn(Date, "now").mockReturnValue(1234);
-      const env = createEnv(stateDir);
 
       const entry = storeDeviceAuthToken({
         deviceId: "device-1",
@@ -202,14 +202,13 @@ describe("infra/device-auth-store", () => {
         updatedAtMs: 1234,
       });
       expect(loadDeviceAuthToken({ deviceId: "device-1", role: "operator", env })).toEqual(entry);
-      expect(loadDeviceAuthTokens({ deviceId: "device-1", env })).toEqual([entry]);
+      expect(await loadDeviceAuthTokens({ deviceId: "device-1", env })).toEqual([entry]);
       expect(fs.existsSync(path.join(stateDir, "identity", "device-auth.json"))).toBe(false);
     });
   });
 
   it("isolates device ids and overwrites only the normalized role", async () => {
-    await withTempDir("openclaw-device-auth-", async (stateDir) => {
-      const env = createEnv(stateDir);
+    await withOpenClawTestState({ label: "device-auth" }, async ({ env }) => {
       vi.spyOn(Date, "now").mockReturnValueOnce(1).mockReturnValueOnce(2).mockReturnValueOnce(3);
 
       storeDeviceAuthToken({ deviceId: "device-1", role: "node", token: "node", env });
@@ -222,7 +221,7 @@ describe("infra/device-auth-store", () => {
         env,
       });
 
-      expect(loadDeviceAuthTokens({ deviceId: "device-1", env })).toEqual([
+      expect(await loadDeviceAuthTokens({ deviceId: "device-1", env })).toEqual([
         { token: "node", role: "node", scopes: [], updatedAtMs: 1 },
         replacement,
       ]);
@@ -233,8 +232,7 @@ describe("infra/device-auth-store", () => {
   });
 
   it("fails closed for malformed canonical scope metadata", async () => {
-    await withTempDir("openclaw-device-auth-", async (stateDir) => {
-      const env = createEnv(stateDir);
+    await withOpenClawTestState({ label: "device-auth" }, async ({ env }) => {
       const { db } = openOpenClawStateDatabase({ env });
       executeSqliteQuerySync(
         db,
@@ -258,7 +256,7 @@ describe("infra/device-auth-store", () => {
       );
 
       expect(loadDeviceAuthToken({ deviceId: "device-1", role: "operator", env })).toBeNull();
-      expect(loadDeviceAuthTokens({ deviceId: "device-1", env })).toEqual([]);
+      expect(await loadDeviceAuthTokens({ deviceId: "device-1", env })).toEqual([]);
     });
   });
 

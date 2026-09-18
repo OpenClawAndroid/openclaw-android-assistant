@@ -361,7 +361,7 @@ describe("CI changed Node test plan", () => {
     (runnerBackend) => {
       const yieldTest = "src/agents/embedded-agent-runner/run/attempt-yield-handoff.test.ts";
       const siblings = [
-        "src/agents/embedded-agent-runner/model.test.ts",
+        "src/agents/embedded-agent-runner/model-resolution-consistency.test.ts",
         "src/agents/embedded-agent-runner/run.incomplete-turn.classification.test.ts",
         "src/agents/embedded-agent-runner/run.overflow-compaction.test.ts",
       ];
@@ -1163,8 +1163,21 @@ describe("CI changed Node test plan", () => {
     ).toBe(true);
   });
 
-  it("fails safe to the full plan for broad changes", () => {
-    expect(createChangedNodeTestShards(["package.json"])).toBeNull();
+  it.each([
+    ["package.json", "blacksmith", true],
+    ["test/scripts/ci-node-test-plan.test.ts", "blacksmith", true],
+    ["test/scripts/ci-node-test-plan.test.ts", "hybrid", true],
+    ["test/scripts/ci-node-test-plan.test.ts", "github", false],
+  ] as const)("resolves full-plan coverage for %s on %s", (changedPath, runnerBackend, full) => {
+    const shards = createChangedNodeTestShards([changedPath], { runnerBackend });
+    if (full) {
+      expect(shards).toBeNull();
+    } else {
+      expect(shards).not.toBeNull();
+      expect(
+        fallbackGroups(shards ?? []).flatMap((group) => group.includePatterns ?? []),
+      ).toContain(changedPath);
+    }
   });
 
   it("fails safe for raw Git paths that resemble normalized script paths", () => {

@@ -209,6 +209,12 @@ does not revoke the schedule: subsequent runs use the endpoint's current account
 subject to the captured app ceiling and current app/tool policy. Scheduled
 authority does not store or replay authentication credentials.
 
+Scheduled app approval ceilings preserve native tool overrides and the approval
+policy of the account identified by each tool. For tools that select an account
+when called, the shared tool ceiling uses the strictest combination of the
+configured account and default policies. Such tools can require approval across
+accounts even when one account permits the action automatically.
+
 Removing or un-configuring the endpoint, changing its connection fingerprint, or
 changing its captured managed requirements rejects the run before app execution.
 The job remains inspectable, with an error in automation run history and its

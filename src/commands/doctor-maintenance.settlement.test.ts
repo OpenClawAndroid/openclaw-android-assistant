@@ -3,7 +3,7 @@ import type {
   maybeStopManagedServiceBeforeMutableUpdate,
   PreManagedServiceStop,
 } from "../cli/update-cli/update-command-service-maintenance.js";
-import type { readGatewayServiceState } from "../daemon/service.js";
+import type { GatewayService, readGatewayServiceState } from "../daemon/service.js";
 import { collectNestedErrorCandidates } from "../infra/error-graph-internal.js";
 import { hasCommandProcessCleanupError } from "../process/exec-result.js";
 import { resolveCommandProcessSignal, retainCommandProcessCleanup } from "../process/exec-spawn.js";
@@ -13,6 +13,7 @@ import { beginDoctorMaintenance } from "./doctor-maintenance.js";
 const boundary = vi.hoisted(() => ({
   stop: vi.fn<typeof maybeStopManagedServiceBeforeMutableUpdate>(),
   read: vi.fn<typeof readGatewayServiceState>(),
+  command: vi.fn<GatewayService["readCommand"]>(),
   revalidate: vi.fn(),
   restart: vi.fn(),
   health: vi.fn(),
@@ -82,7 +83,7 @@ vi.mock("../cli/update-cli/update-command-service-maintenance.js", () => ({
   revalidateManagedGatewayServiceAfterUpdate: boundary.revalidate,
 }));
 vi.mock("../daemon/service.js", () => ({
-  resolveGatewayService: () => ({ restart: boundary.restart }),
+  resolveGatewayService: () => ({ readCommand: boundary.command, restart: boundary.restart }),
   readGatewayServiceState: boundary.read,
 }));
 vi.mock("../daemon/service-operation-lock.js", () => ({
@@ -135,11 +136,13 @@ beforeEach(() => {
     params.onStopped?.(stopped);
     return stopped;
   });
+  const command = { programArguments: ["/synthetic/node", `${root}/openclaw.mjs`, "gateway"] };
+  boundary.command.mockResolvedValue(command);
   boundary.read.mockResolvedValue({
     installed: true,
     running: false,
     env: serviceEnv,
-    command: { programArguments: ["/synthetic/node", `${root}/openclaw.mjs`, "gateway"] },
+    command,
     loadState: { status: "loaded" },
     runtime: { status: "stopped" },
   });

@@ -143,6 +143,10 @@ host.
     provider's disabled-thinking policy; whether thinking can be disabled depends
     on the selected model and auth route.
 
+    Codex isolated completions pass explicit reasoning levels through the native
+    model's supported-effort mapping. When reasoning is omitted, these bounded
+    calls keep their low-effort default.
+
     <Warning>
     Model overrides require operator opt-in via `plugins.entries.<id>.llm.allowModelOverride: true` in config. `plugins.entries.<id>.llm.allowedModels` restricts those overrides; `plugins.entries.<id>.llm.allowedCompletionModels` separately restricts every completion, including host-resolved defaults. For direct completions, a `model@profile` override remains part of the authorized model override. Isolated `model@profile` overrides and `execution.authProfileId` require `plugins.entries.<id>.llm.allowAuthProfileOverride: true`. Cross-agent completions require `plugins.entries.<id>.llm.allowAgentIdOverride: true`.
     </Warning>

@@ -2,6 +2,9 @@
 export const nativeSchtasksIntegrationEnabled =
   process.platform === "win32" && process.env.CI_WINDOWS_SCHTASKS_INTEGRATION === "1";
 
+// The CLI loads this package-root supervisor by URL instead of bundling it.
+export const vitestWorkerRuntimeAssets = ["node-host-launcher.mjs"];
+
 export const runtimeProcessDeclarationEntries = {
   "extensions/memory-core/manager-cpu-entrypoints":
     "extensions/memory-core/src/memory/manager-cpu-entrypoints.ts",

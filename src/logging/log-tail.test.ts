@@ -287,6 +287,22 @@ describe("readConfiguredLogTail", () => {
     expect(fileShrink.skippedBytes).toBeUndefined();
   });
 
+  it.each(["initial read", "at directory size", "past directory size"])(
+    "rejects a directory log target on %s",
+    async (position) => {
+      const { readConfiguredLogTail } = await import("./log-tail.js");
+      const file = tempDirs.make("openclaw-log-tail-directory-");
+      const { size } = await fs.stat(file);
+      const cursor =
+        position === "initial read"
+          ? undefined
+          : size + (position === "past directory size" ? 1 : 0);
+      setLoggerOverride({ file, level: "silent" });
+
+      await expect(readConfiguredLogTail({ cursor })).rejects.toThrow();
+    },
+  );
+
   it.each(["missing", "empty"])(
     "resets a positive cursor when its file becomes %s",
     async (state) => {

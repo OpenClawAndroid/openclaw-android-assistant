@@ -624,7 +624,7 @@ export function createProjectsHandlers(service: ProjectWorktreeService): Gateway
           errorShape(ErrorCodes.INVALID_REQUEST, `unknown project id: ${params.id}`),
         );
       };
-      const project = resolveProjectRegistry(context.getRuntimeConfig(), params.id);
+      const project = await resolveProjectRegistry(context.getRuntimeConfig(), params.id);
       if (!project || project.source === "workspace") {
         respondUnknownProject();
         return;

@@ -879,16 +879,15 @@ describe("tsdown config", () => {
       )
       .flatMap((entry) => Object.entries(entry.entry ?? {}));
     const runtimeEntryNames = runtimeEntries.map(([name]) => name);
-    expect(runtimeEntryNames).toContain("native-hook-relay/entry");
-    const declarationEntryNames = runtimeEntryNames.filter(
-      (name) => name !== "native-hook-relay/entry",
+    const runtimeOnlyEntryNames = ["native-hook-relay/entry", "node-host-launcher-bootstrap"];
+    expect(runtimeEntryNames).toEqual(expect.arrayContaining(runtimeOnlyEntryNames));
+    const declarationEntries = runtimeEntries.filter(
+      ([name]) => !runtimeOnlyEntryNames.includes(name),
     );
+    const declarationEntryNames = declarationEntries.map(([name]) => name);
     const standaloneEntries = Object.entries(standaloneRuntimeConfig?.entry ?? {});
     const standaloneNames = new Set(standaloneEntries.map(([name]) => name));
-    const declarationInputs = Object.fromEntries([
-      ...runtimeEntries.filter(([name]) => name !== "native-hook-relay/entry"),
-      ...standaloneEntries,
-    ]);
+    const declarationInputs = Object.fromEntries([...declarationEntries, ...standaloneEntries]);
     for (const declarationConfig of unifiedDeclarationConfigs) {
       expect(declarationConfig?.dts).toMatchObject({ emitDtsOnly: true });
       // Runtime and inventory graphs retain every alias in the declaration input map.

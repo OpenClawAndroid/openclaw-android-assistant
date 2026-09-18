@@ -19,11 +19,36 @@ export function decodeLaunchAgentPlistFixture(
       .replaceAll("&lt;", "<")
       .replaceAll("&amp;", "&");
   const args = xml.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1];
-  const label = xml.match(/<key>Label<\/key>\s*<string>([\s\S]*?)<\/string>/)?.[1];
   const environment = xml.match(/<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/)?.[1];
+  const scalarFields = Object.fromEntries(
+    Array.from(
+      xml
+        .replace(/<key>EnvironmentVariables<\/key>\s*<dict>[\s\S]*?<\/dict>/, "")
+        .matchAll(
+          /<key>([^<]*)<\/key>\s*(?:<(string|integer)>([\s\S]*?)<\/\2>|<(true|false)\s*\/>)/g,
+        ),
+      (match) => [
+        decode(match[1] ?? ""),
+        match[4]
+          ? match[4] === "true"
+          : match[2] === "integer"
+            ? Number(match[3])
+            : decode(match[3] ?? ""),
+      ],
+    ),
+  );
+  const arrayFields = Object.fromEntries(
+    Array.from(xml.matchAll(/<key>([^<]*)<\/key>\s*<array>([\s\S]*?)<\/array>/g), (match) => [
+      decode(match[1] ?? ""),
+      Array.from((match[2] ?? "").matchAll(/<string>([\s\S]*?)<\/string>/g), (item) =>
+        decode(item[1] ?? ""),
+      ),
+    ]),
+  );
   return {
     stdout: JSON.stringify({
-      Label: label === undefined ? undefined : decode(label),
+      ...scalarFields,
+      ...arrayFields,
       ProgramArguments:
         args === undefined
           ? undefined

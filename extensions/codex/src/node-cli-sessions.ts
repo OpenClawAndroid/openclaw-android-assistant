@@ -63,12 +63,14 @@ export function createCodexCliSessionNodeHostCommands(): OpenClawPluginNodeHostC
     {
       command: CODEX_CLI_SESSIONS_LIST_COMMAND,
       cap: "codex-cli-sessions",
+      hasActiveWork: () => false,
       handle: listLocalCodexCliSessions,
     },
     {
       command: CODEX_CLI_SESSION_RESUME_COMMAND,
       cap: "codex-cli-sessions",
       dangerous: true,
+      hasActiveWork: () => activeResumeSessions.size > 0,
       handle: resumeLocalCodexCliSession,
     },
   ];

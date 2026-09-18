@@ -2259,7 +2259,7 @@ describe("codex command", () => {
     const deps = createDeps({
       readCodexStatusProbes: vi.fn(async () => ({
         models: { ok: true as const, value: { models: [] } },
-        account: { ok: true as const, value: {} },
+        account: { ok: true as const, value: { account: null, requiresOpenaiAuth: true } },
         limits: { ok: true as const, value: { rateLimits: null, rateLimitsByLimitId: null } },
         mcps: { ok: true as const, value: { data: [] } },
         skills: {
@@ -2819,6 +2819,11 @@ describe("codex command", () => {
             "openai:work-api-key-backup",
           ],
         },
+        usageStats: {
+          "openai:personal-email@gmail.com": {
+            blockedUntil: secondaryResetSeconds * 1000,
+          },
+        },
       },
       config,
       agentDir,
@@ -3077,77 +3082,6 @@ describe("codex command", () => {
     expect(result.text).toContain("\n  1. fresh-key   API key   — active now");
     expect(result.text).not.toContain("stale-key   API key   — active now");
     expect(safeCodexControlRequest).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not mark any profile active when all explicit-order token credentials are expired", async () => {
-    // Both profiles use type:"token" with expired expiry, so resolveAuthProfileEligibility
-    // returns eligible=false for both. resolveActiveProfileId must return undefined rather
-    // than marking an ineligible profile as active; the display shows "no working credential".
-    const config = {};
-    const now = Date.now();
-    installAuthProfileStore(
-      {
-        version: 1,
-        profiles: {
-          "openai:fresh@example.com": {
-            type: "token",
-            provider: "openai",
-            token: "fresh-token",
-            expires: now - 1000,
-            email: "fresh@example.com",
-          },
-          "openai:stale@example.com": {
-            type: "token",
-            provider: "openai",
-            token: "stale-token",
-            expires: now - 2000,
-            email: "stale@example.com",
-          },
-        },
-        order: {
-          openai: ["openai:fresh@example.com", "openai:stale@example.com"],
-        },
-        lastGood: {
-          openai: "openai:stale@example.com",
-        },
-      },
-      config,
-    );
-
-    const safeCodexControlRequest = vi
-      .fn()
-      // call 1: account info for the active/first profile
-      .mockResolvedValueOnce({
-        ok: true,
-        value: { account: { type: "unknown" }, requiresOpenaiAuth: true },
-      })
-      // call 2: rate limits for the active profile
-      .mockResolvedValueOnce({
-        ok: false,
-        error: "rate limits unavailable",
-      })
-      // call 3: readSubscriptionUsage — no activeProfileId means the subscription
-      // profile (fresh, type:"token") is fetched separately
-      .mockResolvedValueOnce({
-        ok: false,
-        error: "subscription limits unavailable",
-      });
-
-    const result = await runCommand("account", { safeCodexControlRequest }, { config });
-
-    // With all credentials expired, no profile is active — the display shows
-    // "no working credential" and both profiles are labelled "sign-in expired".
-    // lastGood (stale) must not override the stated operator rank, and the
-    // first explicit-order entry must not be falsely marked active when ineligible.
-    expect(result.text).toContain("no working credential");
-    expect(result.text).toContain(
-      "\n  1. fresh@example.com   ChatGPT subscription   — sign-in expired",
-    );
-    expect(result.text).toContain(
-      "\n  2. stale@example.com   ChatGPT subscription   — sign-in expired",
-    );
-    expect(result.text).not.toContain("active now");
-    expect(safeCodexControlRequest).toHaveBeenCalledTimes(3);
   });
 
   it.each([

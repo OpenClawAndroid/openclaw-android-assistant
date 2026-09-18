@@ -400,6 +400,9 @@ focused fixes; never widen automatically.
 Publish with `openclaw-release-publish.yml` using `release_profile=from-validation`
 unless a maintainer intentionally wants to cross-check a specific profile; the
 publish workflow reads the effective profile from the full-validation manifest.
+Stable publication requires soak unless the operator supplies `stable_soak_waiver`
+with a reason; the publisher forwards and records that reason in release evidence
+without changing validation coverage or other publication gates.
 
 ### Extended-stable validation
 

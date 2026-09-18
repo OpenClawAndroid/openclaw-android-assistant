@@ -635,13 +635,15 @@ export function createChangedNodeTestShards(
     return null;
   }
 
-  // Packing changes can move every compact child. Observe the complete plan on
+  // Packing changes and their policy guard need the complete compact plan on
   // Blacksmith while preserving hosted targeting and its registration footprint.
   if (
     options.runnerBackend !== "github" &&
     changedPaths.some(
       (file) =>
-        file === "config/ci-test-timings.json" || file === "scripts/lib/ci-node-test-plan.mts",
+        file === "config/ci-test-timings.json" ||
+        file === "scripts/lib/ci-node-test-plan.mts" ||
+        file === "test/scripts/ci-node-test-plan.test.ts",
     )
   ) {
     return null;

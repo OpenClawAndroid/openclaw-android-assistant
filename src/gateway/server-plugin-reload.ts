@@ -7,7 +7,7 @@ import { isTruthyEnvValue } from "../infra/env.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import { prepareGatewayPluginMetadataSnapshotPublication } from "../plugins/current-plugin-metadata-snapshot.js";
-import type { PluginHookGatewayCronService } from "../plugins/hook-types.js";
+import type { PluginHookGatewayCronService } from "../plugins/hook-gateway.types.js";
 import {
   PluginHostCleanupTimeoutError,
   withPluginHostCleanupTimeout,
@@ -128,6 +128,7 @@ export async function reloadGatewayPlugins(
   >[] = [];
   const quiescedInstances: PluginInstanceHandle[] = [];
   let rollbackConfigEffects: (() => Promise<void>) | undefined;
+  let releaseResourceHandoff: (() => void) | undefined;
   const skipChannels =
     isTruthyEnvValue(params.env?.OPENCLAW_SKIP_CHANNELS) ||
     isTruthyEnvValue(params.env?.OPENCLAW_SKIP_PROVIDERS);
@@ -146,7 +147,7 @@ export async function reloadGatewayPlugins(
     isBlockingStopError,
     rethrowServiceStopTimeout,
     includeServiceStopFailure,
-    assertResourceHandoff,
+    reserveResourceHandoff,
     drainInstances,
     drainForRecovery,
     disposeInstances,
@@ -165,7 +166,6 @@ export async function reloadGatewayPlugins(
     retainRetirement: (retire) => kernel.pluginMetadata.retire(cache, retire),
   });
   const replacement = kernel.pluginRuntimeGeneration.reserve();
-  replacement.setReloadStatus({ phase: "reloading", pluginIds: [...changedPluginIds] });
   const assertCurrent = () => {
     params.assertInvokerOwned?.();
     if (params.isAborted?.()) {
@@ -261,11 +261,12 @@ export async function reloadGatewayPlugins(
         )
         .map((record) => record.id),
     );
-    assertResourceHandoff(resourceHandoffIds);
     channels.collectTargets(nextRegistry, changedPluginIds);
     recovery.capture(changedPluginIds);
     await params.checkpoint?.();
     assertCurrent();
+    // No yield between the final work check, admission fence, and invalidation.
+    releaseResourceHandoff = reserveResourceHandoff(resourceHandoffIds);
     rollbackConfigEffects = params.prepareConfigEffects({
       pluginIds: changedPluginIds,
       channels: channelTargets,
@@ -615,6 +616,8 @@ export async function reloadGatewayPlugins(
               { dropIfSlow: true },
             );
           } else {
+            // Restored preparation must be able to retain the still-callable instances.
+            releaseResourceHandoff?.();
             for (const instance of quiescedInstances) {
               instance.resume();
             }
@@ -706,6 +709,7 @@ export async function reloadGatewayPlugins(
       { cause: failure },
     );
   } finally {
+    releaseResourceHandoff?.();
     // A completed operation never retains an in-progress channel pause. Failed
     // instances keep their own resource/admission fence until a later safe reload.
     channels.release("failed");

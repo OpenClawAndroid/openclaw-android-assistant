@@ -538,6 +538,23 @@ function createMinimalRun(params?: {
   };
 }
 
+function createDiscordFallbackRun() {
+  return createMinimalRun({
+    runOverrides: {
+      provider: "lmstudio",
+      model: "gemma-4-e4b-it",
+      messageProvider: "discord",
+    },
+    sessionCtx: {
+      Provider: "discord",
+      OriginatingChannel: "discord",
+      OriginatingTo: "channel:C1",
+      AccountId: "primary",
+      MessageSid: "1503645939964055592",
+    },
+  });
+}
+
 function requireScheduledFollowupRunner(): (run: FollowupRun) => Promise<void> {
   const scheduled = vi.mocked(scheduleFollowupDrain).mock.calls.at(-1);
   if (!scheduled) {
@@ -5658,20 +5675,7 @@ describe("runReplyAgent typing (heartbeat)", () => {
       .mockImplementationOnce(makeCompletedFallbackRunner());
 
     try {
-      const { run } = createMinimalRun({
-        runOverrides: {
-          provider: "lmstudio",
-          model: "gemma-4-e4b-it",
-          messageProvider: "discord",
-        },
-        sessionCtx: {
-          Provider: "discord",
-          OriginatingChannel: "discord",
-          OriginatingTo: "channel:C1",
-          AccountId: "primary",
-          MessageSid: "1503645939964055592",
-        },
-      });
+      const { run } = createDiscordFallbackRun();
 
       const res = await run();
       const payload = Array.isArray(res) ? res[0] : res;
@@ -5734,20 +5738,7 @@ describe("runReplyAgent typing (heartbeat)", () => {
       .mockImplementationOnce(makeCompletedFallbackRunner());
 
     try {
-      const { run } = createMinimalRun({
-        runOverrides: {
-          provider: "lmstudio",
-          model: "gemma-4-e4b-it",
-          messageProvider: "discord",
-        },
-        sessionCtx: {
-          Provider: "discord",
-          OriginatingChannel: "discord",
-          OriginatingTo: "channel:C1",
-          AccountId: "primary",
-          MessageSid: "1503645939964055592",
-        },
-      });
+      const { run } = createDiscordFallbackRun();
       const res = await run();
       const payload = Array.isArray(res) ? res[0] : res;
 
@@ -5770,20 +5761,7 @@ describe("runReplyAgent typing (heartbeat)", () => {
       .mockImplementationOnce(makeCompletedFallbackRunner());
 
     try {
-      const { run } = createMinimalRun({
-        runOverrides: {
-          provider: "lmstudio",
-          model: "gemma-4-e4b-it",
-          messageProvider: "discord",
-        },
-        sessionCtx: {
-          Provider: "discord",
-          OriginatingChannel: "discord",
-          OriginatingTo: "channel:C1",
-          AccountId: "primary",
-          MessageSid: "1503645939964055592",
-        },
-      });
+      const { run } = createDiscordFallbackRun();
 
       const res = await run();
       const payload = Array.isArray(res) ? res[0] : res;
@@ -5807,20 +5785,7 @@ describe("runReplyAgent typing (heartbeat)", () => {
       .mockImplementationOnce(makeCompletedFallbackRunner());
 
     try {
-      const { run } = createMinimalRun({
-        runOverrides: {
-          provider: "lmstudio",
-          model: "gemma-4-e4b-it",
-          messageProvider: "discord",
-        },
-        sessionCtx: {
-          Provider: "discord",
-          OriginatingChannel: "discord",
-          OriginatingTo: "channel:C1",
-          AccountId: "primary",
-          MessageSid: "1503645939964055592",
-        },
-      });
+      const { run } = createDiscordFallbackRun();
 
       const res = await run();
       const payload = Array.isArray(res) ? res[0] : res;

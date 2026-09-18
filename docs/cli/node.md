@@ -98,6 +98,7 @@ Options:
 - `--tls-fingerprint <sha256>`: Expected TLS certificate fingerprint (sha256)
 - `--node-id <id>`: Override the client instance ID stored in shared SQLite state (does not reset pairing)
 - `--display-name <name>`: Override the node display name
+- `--session-host`: Host worker sessions for this foreground process without changing the saved worker-hosting preference
 - `--commands <ids>`: Persist an exact comma-separated command allowlist (repeatable); advertise only available matches and their required capabilities. Disables computer use, skills, plugin tools, MCP servers, and worker hosting. Omitting the flag preserves the saved list.
 - `--all-commands`: Advertise the full default command surface and forget any saved `--commands` allowlist. Cannot be combined with `--commands`.
 - `--share-installed-apps`: On macOS, advertise installed applications through `device.apps`
@@ -225,6 +226,29 @@ Gateway reports a terminal token/password/bootstrap auth pause, the node host
 logs the close detail and exits non-zero so launchd/systemd/Task Scheduler can
 restart it with fresh config and credentials. Pairing-required pauses stay in
 the foreground flow so the pending request can be approved.
+
+## Automatic updates
+
+Long-running packaged `node run` processes and installed node services check
+hourly for updates by default. A new version is prepared in a separate node
+runtime, leaving the global CLI package and a co-located Gateway in place.
+Activation waits until commands, terminals, workers, plugin work, pending output,
+and cleanup are idle. The node then restarts with its existing identity, pairing,
+settings, and launch options. Automatic activations are at least 12 hours apart;
+there is no deadline that interrupts busy work.
+
+Disable this on the node machine with:
+
+```bash
+openclaw config set nodeHost.autoUpdate.enabled false
+```
+
+`update.checkOnStart: false` and `OPENCLAW_NO_AUTO_UPDATE=1` also disable node
+automatic updates. The Gateway's `update.auto.enabled` preference is separate.
+Source checkouts, native app nodes, private workers, `dev`, and
+`extended-stable` installs do not auto-apply. Releases requiring database
+migrations defer to the normal update workflow. See
+[Headless node updates](/install/updating/automatic-updates#headless-node-updates).
 
 ## Pairing
 

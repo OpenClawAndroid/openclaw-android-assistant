@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
+import { createLazyRuntimeSurface } from "openclaw/plugin-sdk/lazy-runtime";
 import type {
   AnyAgentTool,
   OpenClawPluginApi,
@@ -49,12 +49,22 @@ import {
 
 const EAGER_BROWSER_CONTROL_SERVICE_ENV = "OPENCLAW_EAGER_BROWSER_CONTROL_SERVER";
 const logger = createSubsystemLogger("browser");
+let hasBrowserNodeHostWork: (() => boolean) | undefined;
+let hasBrowserProxyUploadWork: (() => boolean) | undefined;
 
-const loadBrowserRegistrationRuntimeModule = createLazyRuntimeModule(
+const loadBrowserRegistrationRuntimeModule = createLazyRuntimeSurface(
   () => import("./register.runtime.js"),
+  (runtime) => {
+    hasBrowserNodeHostWork = runtime.hasBrowserNodeHostWork;
+    return runtime;
+  },
 );
-const loadBrowserUploadCleanupRuntimeModule = createLazyRuntimeModule(
+const loadBrowserUploadCleanupRuntimeModule = createLazyRuntimeSurface(
   () => import("./src/browser-proxy-upload-cleanup.runtime.js"),
+  (runtime) => {
+    hasBrowserProxyUploadWork = runtime.hasBrowserProxyUploadWork;
+    return runtime;
+  },
 );
 
 function deriveChatTypeFromSessionKey(
@@ -218,6 +228,11 @@ function createBrowserProxyNodeHostCommand(command: string): OpenClawPluginNodeH
   return {
     command,
     cap: "browser",
+    hasActiveWork: () =>
+      (loadBrowserRegistrationRuntimeModule.peek() !== undefined &&
+        hasBrowserNodeHostWork?.() !== false) ||
+      (loadBrowserUploadCleanupRuntimeModule.peek() !== undefined &&
+        hasBrowserProxyUploadWork?.() !== false),
     isAvailable: ({ config }) =>
       config.browser?.enabled !== false && config.nodeHost?.browserProxy?.enabled !== false,
     handle: async (paramsJSON, _io, context) => {

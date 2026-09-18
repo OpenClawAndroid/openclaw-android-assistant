@@ -5,6 +5,8 @@ import type { ApplicationContext } from "../../app/context.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import { createTestSessionCapability } from "../../lib/sessions/session-capability.test-support.ts";
 import type { ChatPage } from "./chat-page.ts";
+import type { ChatSplitLayout } from "./split-layout-types.ts";
+import { insertPane } from "./split-layout.ts";
 
 export function createChatPageSessions(
   gateway: Parameters<typeof createTestSessionCapability>[0] = {
@@ -124,4 +126,33 @@ export function createSessionTitleSource() {
       }
     },
   };
+}
+
+export function createSplitLayout(sessionKey: string): ChatSplitLayout {
+  const singlePane: ChatSplitLayout = {
+    columns: [{ id: "c1", panes: [{ id: "p1", sessionKey }], paneWeights: [1] }],
+    columnWeights: [1],
+    activePaneId: "p1",
+  };
+  return insertPane(singlePane, "p1", sessionKey, "right");
+}
+
+export function setLayout(page: ChatPage, layout: ChatSplitLayout | undefined) {
+  (page as unknown as { layout: ChatSplitLayout | undefined }).layout = layout;
+}
+
+export function stubMatchMedia(matches: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
 }

@@ -1,7 +1,6 @@
 import { getCompileCacheDir } from "node:module";
 
-export function resolveNodeCompileCacheEnv(): NodeJS.ProcessEnv {
-  const env = process.env;
+export function resolveNodeCompileCacheEnv(env = process.env): NodeJS.ProcessEnv {
   if (env.NODE_COMPILE_CACHE !== undefined || env.NODE_DISABLE_COMPILE_CACHE !== undefined) {
     return env;
   }

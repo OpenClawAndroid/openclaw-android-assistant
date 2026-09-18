@@ -1808,6 +1808,7 @@ class NodeRuntime private constructor(
       requestGateway = ::requestWearGateway,
       isGatewayConnected = operatorSession::isReady,
       gatewayStatusText = { synchronized(gatewayStatusLock) { operatorStatusText } },
+      gatewayProblemCode = { synchronized(gatewayStatusLock) { operatorConnectionProblem?.code } },
       hasOperatorAdminScope = { OperatorAdminScope in _operatorScopes.value },
       supportsSessionModelCatalog = { gatewayAdvertisesCapability("session-scoped-model-catalog") == true },
       activeAgentId = ::currentWearAgentId,

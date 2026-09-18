@@ -16,7 +16,7 @@ import { createCodexElicitationResponse } from "./elicitation-response.js";
 import { CodexEphemeralTurn } from "./ephemeral-turn.js";
 import type { CodexUsageProjection } from "./event-projector-usage.js";
 import { readCodexAppServerConfigOptions } from "./launch-args.js";
-import { readModelListResult } from "./models.js";
+import { readModelListResult, type CodexAppServerModel } from "./models.js";
 import { mergeCodexThreadConfigs } from "./plugin-thread-config.js";
 import {
   assertCodexThreadStartResponse,
@@ -31,6 +31,7 @@ import type {
   JsonObject,
   JsonValue,
 } from "./protocol.js";
+import { resolveCodexAppServerReasoningEffort } from "./reasoning-effort.js";
 import {
   isCodexAppServerStartSelectionChangedError,
   type createIsolatedCodexAppServerClient,
@@ -96,6 +97,7 @@ type CodexBoundedTurnParams = {
   preparedAuth?: CodexAppServerPreparedAuth;
   authRequirement?: CodexAppServerAuthRequirement;
   timeoutMs: number;
+  thinkLevel?: Parameters<typeof resolveCodexAppServerReasoningEffort>[0]["thinkLevel"];
   signal?: AbortSignal;
   assertCurrent?: () => void;
   agentDir?: string;
@@ -109,7 +111,7 @@ type CodexBoundedTurnParams = {
   threadConfig?: JsonObject;
   historyItems?: JsonValue[];
   requireNoExternalCapabilities?: boolean;
-  /** Finalizer-only: preserve a completed turn whose protocol carries no answer item. */
+  /** Preserve a completed turn when the caller's contract accepts no visible answer. */
   allowEmptyText?: boolean;
 };
 
@@ -256,7 +258,7 @@ async function runBoundedCodexAppServerTurnInWorkspace(
       await client.request<unknown>(
         "thread/start",
         {
-          model: modelSelection.runtimeModelId,
+          model: modelSelection.model,
           ...(params.modelProvider ? { modelProvider: params.modelProvider } : {}),
           cwd: workspace.cwd,
           approvalPolicy: "on-request",
@@ -309,7 +311,14 @@ async function runBoundedCodexAppServerTurnInWorkspace(
             threadId: thread.thread.id,
             input: params.input,
             approvalPolicy: "on-request",
-            effort: "low",
+            effort:
+              params.thinkLevel === undefined
+                ? "low"
+                : resolveCodexAppServerReasoningEffort({
+                    thinkLevel: params.thinkLevel,
+                    modelId: modelSelection.model,
+                    supportedReasoningEfforts: modelSelection.supportedReasoningEfforts,
+                  }),
           } satisfies CodexTurnStartParams,
           requestOptions,
         ),
@@ -345,7 +354,7 @@ async function runBoundedCodexAppServerTurnInWorkspace(
         text: result.text,
         items: result.items,
         usage: result.usage,
-        model: modelSelection.catalogId,
+        model: modelSelection.id,
         nativeSelection: { model: thread.model, modelProvider: thread.modelProvider },
       };
     } finally {
@@ -484,7 +493,7 @@ async function resolveCodexBoundedTurnModel(params: {
   timeoutMs: number;
   signal: AbortSignal;
   assertCurrent?: () => void;
-}): Promise<{ catalogId: string; runtimeModelId: string }> {
+}): Promise<CodexAppServerModel> {
   const result = await params.client.request<unknown>(
     "model/list",
     { limit: null, cursor: null, includeHidden: params.selection.mode === "required" },
@@ -505,7 +514,7 @@ async function resolveCodexBoundedTurnModel(params: {
         `Codex app-server has no model supporting ${params.requiredModalities.join(" and ")} input.`,
       );
     }
-    return { catalogId: selected.id, runtimeModelId: selected.model };
+    return selected;
   }
 
   const model = params.selection.id;
@@ -519,7 +528,7 @@ async function resolveCodexBoundedTurnModel(params: {
   if (params.requiredModalities.includes("text") && !match.inputModalities.includes("text")) {
     throw new Error(`Codex app-server model does not support text: ${model}`);
   }
-  return { catalogId: match.id, runtimeModelId: match.model };
+  return match;
 }
 
 function resolveCodexBoundedTurnAbortError(

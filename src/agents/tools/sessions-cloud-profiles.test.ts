@@ -26,7 +26,10 @@ it("pages cloud profile summaries and returns the selected OS/machine catalog", 
     profileId: "profile-32",
   });
   expect(selected.details).toEqual({ profile: profiles[32] });
-  expect(callGateway).toHaveBeenCalledWith({ method: "environments.list", params: {} });
+  expect(callGateway).toHaveBeenCalledWith({
+    method: "environments.list",
+    params: { projection: "profiles" },
+  });
   const missing = await tool.execute("missing", {
     action: "cloud_profiles",
     profileId: "removed",

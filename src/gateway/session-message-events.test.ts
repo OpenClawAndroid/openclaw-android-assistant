@@ -31,7 +31,6 @@ import { emitAgentEvent } from "../infra/agent-events.js";
 import { claimAgentRunContext, clearAgentRunContext } from "../infra/agent-run-registry.js";
 import * as secureRandom from "../infra/secure-random.js";
 import { emitSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
-import * as transcriptEvents from "../sessions/transcript-events.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { persistUserTurnTranscript } from "../sessions/user-turn-transcript.test-support.js";
 import {
@@ -1667,47 +1666,44 @@ describe("session.message websocket events", () => {
       storePath,
     });
 
-    const emitSpy = vi.spyOn(transcriptEvents, "emitSessionTranscriptUpdate");
-    try {
-      const appended = await appendAssistantMessageToSessionTranscript({
-        sessionKey: "agent:main:main",
-        text: "live websocket message",
-        storePath,
-      });
-      expect(appended.ok).toBe(true);
-      if (!appended.ok) {
-        throw new Error(`append failed: ${appended.reason}`);
-      }
-      const emitParams = requireRecord(emitSpy.mock.calls.at(0)?.[0], "transcript update params");
-      expect(emitParams.sessionKey).toBe("agent:main:main");
-      expect(emitParams.target).toMatchObject({
+    const delivered = withOperatorSessionSubscriber((ws) =>
+      waitForSessionMessageEvent(ws, "agent:main:main"),
+    );
+    const appended = await appendAssistantMessageToSessionTranscript({
+      sessionKey: "agent:main:main",
+      text: "live websocket message",
+      storePath,
+    });
+    expect(appended.ok).toBe(true);
+    if (!appended.ok) {
+      throw new Error(`append failed: ${appended.reason}`);
+    }
+    const payload = requireRecord((await delivered).payload, "transcript message event");
+    expectRecordFields(payload, {
+      agentId: "main",
+      sessionId: "sess-main",
+      sessionKey: "agent:main:main",
+      messageId: appended.messageId,
+    });
+    expectRecordFields(payload.message, {
+      role: "assistant",
+      content: [{ type: "text", text: "live websocket message" }],
+    });
+    await expect(
+      loadTranscriptEvents({
         agentId: "main",
         sessionId: "sess-main",
         sessionKey: "agent:main:main",
-      });
-      expect(emitParams.messageId).toBe(appended.messageId);
-      expectRecordFields(emitParams.message, {
-        role: "assistant",
-        content: [{ type: "text", text: "live websocket message" }],
-      });
-      await expect(
-        loadTranscriptEvents({
-          agentId: "main",
-          sessionId: "sess-main",
-          sessionKey: "agent:main:main",
-          storePath,
+        storePath,
+      }),
+    ).resolves.toContainEqual(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [{ type: "text", text: "live websocket message" }],
         }),
-      ).resolves.toContainEqual(
-        expect.objectContaining({
-          message: expect.objectContaining({
-            content: [{ type: "text", text: "live websocket message" }],
-          }),
-          type: "message",
-        }),
-      );
-    } finally {
-      emitSpy.mockRestore();
-    }
+        type: "message",
+      }),
+    );
   });
 
   test("strips blocked original content from live session.message events", async () => {

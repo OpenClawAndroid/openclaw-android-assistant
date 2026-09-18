@@ -681,7 +681,7 @@ function readTurnCompletion(
   return undefined;
 }
 
-function readLastAgentMessage(turn: JsonObject): string | undefined {
+export function readLastAgentMessage(turn: JsonObject): string | undefined {
   const items = Array.isArray(turn.items) ? turn.items : [];
   let legacyResult: string | undefined;
   for (let index = items.length - 1; index >= 0; index -= 1) {

@@ -12,7 +12,7 @@ export type SessionRowReadView = {
     record: records.MaterializedRow,
     options?: records.SnapshotOptions,
   ): ReturnType<typeof records.present>;
-  select(query: { key: string }): records.MaterializedRow[];
+  selectEntries(query: { key: string }): records.EntryRow[];
   readonly state: { cfg: OpenClawConfig; rowContext: SessionListRowContext };
 };
 
@@ -41,7 +41,7 @@ function consumePreparedSessionRows<T>(
 ): T {
   let state = initialState;
   const privateRows = new Map<string, records.MaterializedRow | undefined>();
-  const childSelections = new Map<string, records.MaterializedRow[]>();
+  const childSelections = new Map<string, records.EntryRow[]>();
   const privateKey = (query: records.Lookup) => {
     const key = resolveStoredSessionKeyForAgentStore({
       cfg: state.cfg,
@@ -60,7 +60,7 @@ function consumePreparedSessionRows<T>(
     for (const group of row?.materialized.row.swarm?.groups ?? []) {
       for (const child of group.children ?? []) {
         if (!childSelections.has(child.sessionKey)) {
-          childSelections.set(child.sessionKey, owner.select({ key: child.sessionKey }));
+          childSelections.set(child.sessionKey, owner.selectEntries({ key: child.sessionKey }));
         }
       }
     }
@@ -95,7 +95,7 @@ function consumePreparedSessionRows<T>(
       assertActive();
       return owner.present(record, options);
     },
-    select(query) {
+    selectEntries(query) {
       assertActive();
       if (privateRows.size > 0) {
         const rows = childSelections.get(query.key);
@@ -104,7 +104,7 @@ function consumePreparedSessionRows<T>(
         }
         return rows;
       }
-      return owner.select(query);
+      return owner.selectEntries(query);
     },
     get state() {
       assertActive();

@@ -12,6 +12,7 @@ import {
   getPreparedModelRuntimeSnapshot,
   refreshPreparedModelRuntimeSnapshots,
 } from "../../agents/prepared-model-runtime.js";
+import { resolvePreparedModelRuntimeOwnerBySnapshot } from "../../agents/prepared-model-runtime.owner.js";
 import { registerPreparedModelRuntimePublicationListener } from "../../agents/prepared-model-runtime.publication-events.js";
 import type { OpenClawConfig } from "../../config/types.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
@@ -93,7 +94,7 @@ it("models.list retains a failed renewal before shared worker recovery", async (
               const { threadId } = require("node:worker_threads");
               const rows = await getCachedLiveCatalogValue({
                 keyParts: [${JSON.stringify(baseUrl)}, provider, auth.discoveryApiKey],
-                ttlMs: provider === ${JSON.stringify(provider)} ? 1 : 86400000,
+                ttlMs: provider === ${JSON.stringify(provider)} ? 0 : 86400000,
                 load: async () => {
                   const response = await fetch(${JSON.stringify(baseUrl)} + "/" + provider, {
                     headers: { "x-fixture-thread": String(threadId) },
@@ -162,13 +163,26 @@ it("models.list retains a failed renewal before shared worker recovery", async (
         config: cfg,
       });
       expect(original).toBeDefined();
+      const providerFacts = resolvePreparedModelRuntimeOwnerBySnapshot(
+        original!,
+      )?.catalogInventory?.providers.get(provider);
+      if (!providerFacts) {
+        throw new Error("Missing published recovery fixture inventory");
+      }
+      expect(providerFacts.expiresAt).toBeUndefined();
+      const initialRequests = requests;
+      expect((await list()).models).toEqual(initial.models);
+      expect(requests).toBe(initialRequests);
       releasePublication = registerPreparedModelRuntimePublicationListener((event) => {
         if (event.phase === "published" && !original!.isCurrent()) {
           events.emit("recovered");
         }
       });
+      // Arm the held request before making renewal due; a wall-clock TTL can expire
+      // during the initial models.list response, before this observer exists.
       hold = true;
       const renewal = once(events, "request");
+      providerFacts.expiresAt = 0;
       const retained = await list();
       expect(retained.models).toEqual(initial.models);
       await withTestTimeout(renewal, 3_000, "models.list did not start the due renewal");

@@ -118,7 +118,7 @@ export function createSessionRowProjectionFixture(params: {
   for (const [key, entry] of Object.entries(store)) {
     setEntry(key, entry);
   }
-  const select = (options?: Parameters<SessionRowProjection["select"]>[0]) => {
+  const selectEntries = (options?: Parameters<SessionRowProjection["selectEntries"]>[0]) => {
     const query = options ?? {};
     const matchingKeys =
       query.sessionIdOrKey &&
@@ -152,6 +152,11 @@ export function createSessionRowProjectionFixture(params: {
           (!query.storePath || row.storeTarget.storePath === query.storePath),
       ),
     describe,
+    setArchivePageSize: () => {},
+    modelFacts: (row) => {
+      const source = describe(row)!.materialized.source;
+      return { ...source, catalogEntry: source.thinkingProjection.catalogEntry };
+    },
     withPreparedExactRows: async (_queries, consume) => ({
       kind: "complete",
       value: consume(projection),
@@ -191,8 +196,7 @@ export function createSessionRowProjectionFixture(params: {
       }),
     },
     isCurrent: (row) => rows.get(id(row))?.generation === row.generation,
-    select,
-    selectEntries: select,
+    selectEntries,
     snapshot: (query, options) => {
       const record = describe(query);
       return record

@@ -487,6 +487,7 @@ describe("markdownToTelegramRichBlocks", () => {
   it.each([
     {
       markdown: "**A ||B** C|| D",
+      plainText: "A B C D",
       text: [
         { type: "bold", text: ["A ", { type: "spoiler", text: "B" }] },
         { type: "spoiler", text: " C" },
@@ -495,6 +496,7 @@ describe("markdownToTelegramRichBlocks", () => {
     },
     {
       markdown: "||A **B|| C** D",
+      plainText: "A B C D",
       text: [
         { type: "spoiler", text: ["A ", { type: "bold", text: "B" }] },
         { type: "bold", text: " C" },
@@ -503,6 +505,7 @@ describe("markdownToTelegramRichBlocks", () => {
     },
     {
       markdown: "[A ||B](https://example.com) C|| D",
+      plainText: "A B C D",
       text: [
         {
           type: "url",
@@ -513,10 +516,27 @@ describe("markdownToTelegramRichBlocks", () => {
         " D",
       ],
     },
-  ])("preserves crossing inline ranges in $markdown", ({ markdown, text }) => {
+    {
+      markdown: "<tg-math>x **y</tg-math> z**",
+      plainText: "x y z",
+      text: [
+        { type: "mathematical_expression", expression: "x y" },
+        { type: "bold", text: " z" },
+      ],
+    },
+    {
+      markdown: "**before <tg-math>x** y</tg-math> after",
+      plainText: "before x y after",
+      text: [
+        { type: "bold", text: "before " },
+        { type: "mathematical_expression", expression: "x y" },
+        " after",
+      ],
+    },
+  ])("preserves crossing inline ranges in $markdown", ({ markdown, plainText, text }) => {
     const result = markdownToTelegramRichBlocks(markdown);
     expect(result.blocks).toEqual([{ type: "paragraph", text }]);
-    expect(result.plainText).toBe("A B C D");
+    expect(result.plainText).toBe(plainText);
   });
 
   it.each([

@@ -88,7 +88,6 @@ export type ChildState = NativeSubagentAssignment & {
   nativeTurnState?: NativeTurnState;
   activityWait?: { itemId: string; wait: NativeExecutionWait };
   activityObserved?: true;
-  assistantMessagesByTurn: Map<string, ChildAssistantMessages>;
   recoveryAttempt: number;
   recoveryTimer?: ReturnType<typeof setTimeout>;
   recoveryInFlight?: Promise<boolean>;
@@ -124,12 +123,6 @@ export type KnownChild = {
     admittedSubmission?: CodexNativeSubagentSubmission;
   }>;
   agentPaths: Set<string>;
-};
-
-export type ChildAssistantMessages = {
-  texts: Map<string, string>;
-  commentaryIds: Set<string>;
-  finalMessageIds: Set<string>;
 };
 
 export type RecoveredCompletion = CodexNativeSubagentCompletion & {

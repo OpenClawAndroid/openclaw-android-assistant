@@ -9,6 +9,10 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { runSessionStartupMigration } from "../config/sessions/startup-migration.js";
 import {
+  ensureProjectRegistrySchema,
+  insertProjectRegistryInDatabase,
+} from "../projects/project-registry.kernel.js";
+import {
   closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
   isOpenClawAgentDatabaseOpen,
@@ -17,6 +21,7 @@ import {
 import {
   closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
+  runOpenClawStateWriteTransaction,
 } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { noteSessionTranscriptHealth } from "./doctor-session-transcripts.js";
@@ -48,6 +53,17 @@ it("repairs discovered worktree sessions only through Doctor and releases their 
   await withEnvAsync({ OPENCLAW_AGENT_DIR: undefined, OPENCLAW_STATE_DIR: stateDir }, async () => {
     const env = { ...process.env };
     const cfg = { agents: { entries: { main: { workspace: repoRoot }, ops: { workspace } } } };
+    // Persisted legacy project setup, not a public Git registration-flow proof.
+    ensureProjectRegistrySchema({ env });
+    const project = runOpenClawStateWriteTransaction(
+      ({ db }) =>
+        insertProjectRegistryInDatabase(db, {
+          displayName: "Legacy workspace project",
+          repoRoot: workspace,
+          source: "registered",
+        }),
+      { env },
+    );
     const scopes = ["main", "ops"].map((agentId) => ({
       agentId,
       env,
@@ -70,7 +86,7 @@ it("repairs discovered worktree sessions only through Doctor and releases their 
       await replaceSessionEntry(scope, {
         sessionId: `${scope.agentId}-worktree-session`,
         updatedAt: Date.now(),
-        ...(scope.agentId === "main" ? { spawnedCwd } : {}),
+        ...(scope.agentId === "main" ? { spawnedCwd, projectId: project.id } : {}),
         worktree: {
           id: scope.agentId === "main" ? "legacy" : "other",
           branch: "openclaw/legacy",

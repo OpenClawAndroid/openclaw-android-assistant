@@ -45,6 +45,10 @@ export class CodexCatalogIndexEvents {
 
   constructor(private readonly owner: CodexCatalogIndexEventOwner) {}
 
+  hasActiveWork(): boolean {
+    return this.pending.size > 0 || this.upserting.size > 0;
+  }
+
   handle(event: CodexServerNotification, readThread: ReadThread, source: CodexCatalogSource): void {
     if (this.closed || !isRecord(event.params)) {
       return;

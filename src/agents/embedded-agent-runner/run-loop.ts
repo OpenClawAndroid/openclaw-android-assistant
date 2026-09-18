@@ -89,6 +89,7 @@ export async function runPreparedEmbeddedLoop(
     "runtime",
     () =>
       prepareEmbeddedRunRuntime({
+        assertCurrent: input.laneController.throwIfAborted,
         runParams: params,
         sessionAdmission: input.sessionAdmission,
         provider,

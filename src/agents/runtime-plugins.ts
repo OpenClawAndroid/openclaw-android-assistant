@@ -38,6 +38,7 @@ import {
   type AgentHarnessPluginSelection,
   type RuntimePluginLoadPurpose,
 } from "./harness/runtime-plugin-load-plan.js";
+import { releaseRuntimePluginWork, retainRuntimePluginWork } from "./runtime-plugin-work.js";
 
 type AgentRuntimePluginRegistryParams = {
   config?: OpenClawConfig;
@@ -173,6 +174,7 @@ export type AcquiredAgentRuntimePluginRegistry =
       primaryRegistry: PluginRegistry;
       resources: NonNullable<ReturnType<typeof getPluginRegistryInspectionResources>>;
       releaseRegistry: () => Promise<void>;
+      releaseWork: () => void;
     };
 
 /** Prepared read-only owners reuse the load plan while owning fresh, uncached registrations. */
@@ -188,12 +190,15 @@ export async function acquireAgentRuntimePluginRegistry(
   const acquired = await (params.metadataSnapshot
     ? withPluginMetadataSnapshotScope(params.metadataSnapshot, acquire)
     : acquire());
+  let releaseWork = () => {};
   try {
     const { registry, donor } = adoptAgentRuntimeRegistrations(
       acquired.registry,
       params,
       loadOptions.config,
     );
+    // Fence replacement before adopting donors, including the await back to the build owner.
+    releaseWork = retainRuntimePluginWork([registry]);
     const primaryResources = getPluginRegistryInspectionResources(acquired.registry);
     if (!primaryResources) {
       throw new Error("Acquired prepared registry has no registration resource owner");
@@ -209,10 +214,11 @@ export async function acquireAgentRuntimePluginRegistry(
       primaryRegistry: acquired.registry,
       resources: primaryResources,
       releaseRegistry: acquired.release,
+      releaseWork,
     };
   } catch (error) {
     try {
-      await acquired.release();
+      await releaseRuntimePluginWork(acquired.release, releaseWork);
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],

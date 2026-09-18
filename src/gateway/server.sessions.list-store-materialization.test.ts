@@ -14,6 +14,7 @@ import type { SessionEntry } from "../config/sessions/types.js";
 import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { observeSessionRowBackfill } from "./session-row-backfill.test-support.js";
 import { bindSessionRowProjection } from "./session-row-projection-access.js";
+import { ready as isMaterializedSessionRow } from "./session-row-projection-record.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import type { SessionsListResult } from "./session-utils.types.js";
 import { testState, writeSessionStore } from "./test-helpers.js";
@@ -268,7 +269,7 @@ test("projection startup retains every row beyond the former prewarm limit", asy
   });
   try {
     await projection.ensureMaterialized();
-    expect(projection.select().length).toBe(2_001);
+    expect(projection.selectEntries().filter(isMaterializedSessionRow).length).toBe(2_001);
     expect(projection.snapshot({ agentId: "main", key: "agent:main:large-2000" }).row).toEqual(
       expect.objectContaining({ key: "agent:main:large-2000", sessionId: "large-2000" }),
     );

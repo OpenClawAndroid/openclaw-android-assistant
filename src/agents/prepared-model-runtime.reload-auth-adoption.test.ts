@@ -8,12 +8,16 @@ import {
 import { isDeepStrictEqual } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
+import { getPluginLoaderCacheState } from "../plugins/registry-lifecycle.js";
+import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
 import {
   loadPublishedGatewayReplyDispatchRuntime,
+  prepareModelRuntimeSnapshot,
   refreshPreparedModelRuntimeSnapshots,
   registerPreparedModelRuntimePublicationListener,
 } from "./prepared-model-runtime.js";
@@ -30,6 +34,77 @@ afterEach(async ({ task }) => {
 });
 
 describe("prepared model runtime reload auth adoption", () => {
+  it("releases a rejected replacement's cached registry after the old catalog finishes", async () => {
+    mocks.configuredAgentIds = ["default"];
+    const cache = getPluginLoaderCacheState();
+    const cacheKey = "static-auth-replacement-fixture";
+    mocks.loadAgentRuntimePluginRegistryHandle.mockImplementation(() => {
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+      const registry = createEmptyPluginRegistry();
+      registry.plugins.push(createPluginRecord({ id: "fixture" }));
+      cache.set(cacheKey, registry);
+      return registry;
+    });
+    const initialConfig = {};
+    const replacementConfig = {
+      auth: { profiles: { "fixture:manual": { provider: "fixture", mode: "api_key" as const } } },
+    };
+    const options = { gatewayLifecycle: true, catalogMode: "static" as const };
+    await refreshPreparedModelRuntimeSnapshots(initialConfig, options);
+    const original = await prepareModelRuntimeSnapshot({
+      agentId: "default",
+      agentDir: state.agentDir("default"),
+      config: initialConfig,
+    });
+    if (!original.loadFullModelCatalog) {
+      throw new Error("expected a configured catalog owner");
+    }
+    await original.loadFullModelCatalog();
+    const catalogStarted = createDeferred();
+    const catalogFinished = createDeferred<{ entries: []; routeVariants: [] }>();
+    mocks.runPreparedModelCatalogWorker.mockImplementationOnce(() => {
+      catalogStarted.resolve();
+      return catalogFinished.promise;
+    });
+    const credentialsStarted = createDeferred();
+    const credentialsFinished = createDeferred();
+    mocks.resolveAmbientCredentials.mockImplementationOnce(async () => {
+      credentialsStarted.resolve();
+      await credentialsFinished.promise;
+      return {};
+    });
+    const catalog = original.loadFullModelCatalog({ refresh: true });
+    const obsoleteCatalog = expect(catalog).rejects.toThrow("superseded");
+    void obsoleteCatalog.catch(() => undefined);
+    let reload: ReturnType<typeof refreshPreparedModelRuntimeSnapshots> | undefined;
+    try {
+      await catalogStarted.promise;
+      reload = refreshPreparedModelRuntimeSnapshots(replacementConfig, options);
+      void reload.catch(() => undefined);
+      await credentialsStarted.promise;
+      expect(original.isCurrent()).toBe(false);
+      catalogFinished.resolve({ entries: [], routeVariants: [] });
+      await obsoleteCatalog;
+      expect(cache.get(cacheKey)).toBe(original.pluginRegistry);
+      const failure = new Error("fixture credential preparation failed");
+      credentialsFinished.reject(failure);
+      await expect(reload).rejects.toBe(failure);
+      expect(cache.get(cacheKey)).toBeUndefined();
+      await refreshPreparedModelRuntimeSnapshots(replacementConfig, options);
+      await expect(
+        loadPublishedGatewayReplyDispatchRuntime({ agentId: "default" }),
+      ).resolves.toMatchObject({ config: replacementConfig });
+      expect(original.isCurrent()).toBe(false);
+    } finally {
+      catalogFinished.resolve({ entries: [], routeVariants: [] });
+      credentialsFinished.resolve();
+      await Promise.allSettled([catalog, obsoleteCatalog, reload]);
+    }
+  });
+
   it("adopts remaining auth work after another owner already published", async () => {
     mocks.configuredAgentIds = ["default", "worker", "research"];
     const initialConfig = {};

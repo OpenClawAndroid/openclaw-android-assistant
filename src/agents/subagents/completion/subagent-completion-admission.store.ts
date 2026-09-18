@@ -319,9 +319,9 @@ function prepareBlockedSubagentCompletion(
   database: OpenClawStateDatabase,
   params: BlockSubagentCompletionParams,
   now: number,
+  subagent: SubagentRunRecord | null,
 ): CompletionMutation | undefined {
   const generation = params.subagent.delivery?.generation ?? 1;
-  const subagent = readSubagentRun(database, params.subagent.runId);
   const task = readTaskRecord(database.db, params.taskId);
   if (subagent && !task && !params.taskId && params.suspendedReason === undefined) {
     const endedAt = retiredCancellationEndedAt(subagent, now);
@@ -500,7 +500,12 @@ function commitCompletionMutations(
 
 export function blockSubagentCompletionDelivery(params: BlockSubagentCompletionParams): boolean {
   return runOpenClawStateWriteTransaction((database) => {
-    const mutation = prepareBlockedSubagentCompletion(database, params, Date.now());
+    const mutation = prepareBlockedSubagentCompletion(
+      database,
+      params,
+      Date.now(),
+      readSubagentRun(database, params.subagent.runId),
+    );
     if (!mutation) {
       return false;
     }
@@ -526,6 +531,7 @@ export function settleRequesterCompletionBatch(params: {
       const ids = new Set(entries.map(({ subagent }) => subagent.runId));
       const first = entries[0]?.subagent;
       const cohort = first?.requesterSettleWake?.batchRunIds?.toSorted().join("\0");
+      const checkedOmittedIds = new Set<string>();
       const mutations = entries.map(({ subagent: expected, taskId }): CompletionMutation => {
         const changedOwner = () =>
           new Error("subagent completion owner changed before settlement: " + expected.runId);
@@ -546,7 +552,7 @@ export function settleRequesterCompletionBatch(params: {
         }
         // A caller may omit retired rows, never a surviving member of the same frozen wave.
         for (const id of subagent.requesterSettleWake?.batchRunIds ?? []) {
-          if (!ids.has(id)) {
+          if (!ids.has(id) && !checkedOmittedIds.has(id)) {
             const member = readSubagentRun(database, id);
             if (
               member?.requesterSettleWake &&
@@ -555,6 +561,8 @@ export function settleRequesterCompletionBatch(params: {
             ) {
               throw changedOwner();
             }
+            // Planning performs no writes, so this check holds for the remaining same-wave rows.
+            checkedOmittedIds.add(id);
           }
         }
         let mutation: CompletionMutation = { subagent };
@@ -595,6 +603,7 @@ export function settleRequesterCompletionBatch(params: {
                 disposition: params.outcome.disposition,
               },
               now,
+              subagent,
             );
             if (!blocked) {
               throw changedOwner();

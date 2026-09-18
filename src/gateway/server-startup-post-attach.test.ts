@@ -13,7 +13,8 @@ import { createDeferred } from "../../test/helpers/promise.js";
 import * as configPaths from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { hasRestartSentinel, writeRestartSentinel } from "../infra/restart-sentinel.js";
-import type { PluginHookGatewayContext, PluginHookHandlerMap } from "../plugins/hook-types.js";
+import type { PluginHookGatewayContext } from "../plugins/hook-gateway.types.js";
+import type { PluginHookHandlerMap } from "../plugins/hook-types.js";
 import { createHookRunner } from "../plugins/hooks.js";
 import { createMockPluginRegistry } from "../plugins/hooks.test-fixtures.js";
 import { registerPluginHttpRoute } from "../plugins/http-registry.js";
@@ -21,6 +22,7 @@ import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import type { PluginServiceRegistration } from "../plugins/registry-types.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
+import type { PluginServiceCronHost } from "../plugins/service-cron.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
 import { createServiceRegistration } from "../plugins/services.test-support.js";
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
@@ -4541,13 +4543,7 @@ describe("startGatewayPostAttachRuntime", () => {
       hasHooks: vi.fn((hookName: string) => hookName === "gateway_start"),
       runGatewayStart,
     };
-    const initialCron = {
-      list: vi.fn(),
-      add: vi.fn(),
-      update: vi.fn(),
-      remove: vi.fn(),
-      removeStaleJobFamily: vi.fn(),
-    };
+    const initialCron = createCronHost();
     const params = createPostAttachParams({
       gatewayPluginConfigAtStart: {
         hooks: { internal: { enabled: false } },
@@ -4582,13 +4578,7 @@ describe("startGatewayPostAttachRuntime", () => {
     }
     expect(getCron()).toBe(initialCron);
 
-    const reloadedCron = {
-      list: vi.fn(),
-      add: vi.fn(),
-      update: vi.fn(),
-      remove: vi.fn(),
-      removeStaleJobFamily: vi.fn(),
-    };
+    const reloadedCron = createCronHost();
     params.deps.cron = reloadedCron as never;
     expect(getCron()).toBe(reloadedCron);
   });
@@ -4626,27 +4616,9 @@ describe("startGatewayPostAttachRuntime", () => {
       hasHooks: vi.fn((hookName: string) => hookName === "gateway_start"),
       runGatewayStart,
     };
-    const depsCron = {
-      list: vi.fn(),
-      add: vi.fn(),
-      update: vi.fn(),
-      remove: vi.fn(),
-      removeStaleJobFamily: vi.fn(),
-    };
-    const liveCron = {
-      list: vi.fn(),
-      add: vi.fn(),
-      update: vi.fn(),
-      remove: vi.fn(),
-      removeStaleJobFamily: vi.fn(),
-    };
-    const reloadedCron = {
-      list: vi.fn(),
-      add: vi.fn(),
-      update: vi.fn(),
-      remove: vi.fn(),
-      removeStaleJobFamily: vi.fn(),
-    };
+    const depsCron = createCronHost();
+    const liveCron = createCronHost();
+    const reloadedCron = createCronHost();
     let currentLiveCron = liveCron;
     const params = createPostAttachParams({
       deps: { cron: depsCron } as never,
@@ -4681,6 +4653,25 @@ describe("startGatewayPostAttachRuntime", () => {
     expect(serviceGetter?.()).toBe(reloadedCron);
   });
 });
+
+function createCronHost() {
+  return {
+    status: vi.fn<PluginServiceCronHost["status"]>(async () => ({
+      enabled: true,
+      triggersEnabled: true,
+      storePath: "/synthetic/openclaw.sqlite",
+      storage: "sqlite",
+      sqlitePath: "/synthetic/openclaw.sqlite",
+      jobs: 0,
+      nextWakeAtMs: null,
+    })),
+    list: vi.fn<PluginServiceCronHost["list"]>(),
+    add: vi.fn<PluginServiceCronHost["add"]>(),
+    update: vi.fn<PluginServiceCronHost["update"]>(),
+    remove: vi.fn<PluginServiceCronHost["remove"]>(),
+    removeStaleJobFamily: vi.fn<PluginServiceCronHost["removeStaleJobFamily"]>(),
+  } satisfies PluginServiceCronHost;
+}
 
 function createPostAttachRuntimeDeps(
   overrides: Partial<PostAttachRuntimeDeps> = {},

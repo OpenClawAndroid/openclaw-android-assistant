@@ -388,7 +388,7 @@ it("resolves authorized exact incognito keys without admitting them to discovery
           p: { key: incognitoKey, allowMissing: true },
         }),
       ).toEqual({ ok: true, missing: true });
-      expect(projection.select().length).toBe(0);
+      expect(projection.selectEntries().length).toBe(0);
     } finally {
       projection.dispose();
     }

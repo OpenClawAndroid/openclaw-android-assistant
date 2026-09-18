@@ -140,7 +140,10 @@ export function createSessionListSearchMatcher(params: {
     if (matchesSessionListSearch([identityNames.get(agentId)], search)) {
       return true;
     }
-    const source = expectDefined(target.materialized, "prepared search row").source;
+    const source = expectDefined(
+      target.materialized?.source ?? target.getModelFacts?.(),
+      "prepared search row model facts",
+    );
     if (shouldResolveDerivedSessionModelSearchFields(search)) {
       const subagentRun = context().subagentRuns.getDisplaySubagentRun(storeKey);
       const resolvedModel = resolveSessionModelIdentityRef(

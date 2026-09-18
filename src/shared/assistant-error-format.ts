@@ -101,24 +101,16 @@ export function parseApiErrorPayload(raw?: string): ErrorPayload | null {
   if (!trimmed) {
     return null;
   }
-  const candidates = [trimmed];
-  if (ERROR_PAYLOAD_PREFIX_RE.test(trimmed)) {
-    candidates.push(trimmed.replace(ERROR_PAYLOAD_PREFIX_RE, "").trim());
+  const candidate = trimmed.replace(ERROR_PAYLOAD_PREFIX_RE, "").trim();
+  if (!candidate.startsWith("{") || !candidate.endsWith("}")) {
+    return null;
   }
-  for (const candidate of candidates) {
-    if (!candidate.startsWith("{") || !candidate.endsWith("}")) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (isErrorPayloadObject(parsed)) {
-        return parsed;
-      }
-    } catch {
-      // ignore parse errors
-    }
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    return isErrorPayloadObject(parsed) ? parsed : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function extractHttpStatusMatch(

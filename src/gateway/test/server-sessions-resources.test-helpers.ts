@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach } from "vitest";
+import { afterEach, expect } from "vitest";
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.js";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import {
@@ -11,9 +11,11 @@ import {
 } from "../../config/runtime-snapshot.js";
 import { waitForSessionTranscriptIndexReconcilesInStateDir } from "../../config/sessions/session-transcript-reconcile.js";
 import { isPathInside } from "../../infra/path-guards.js";
+import { getActiveGatewayRootWorkCount } from "../../process/gateway-work-admission.js";
 import {
   collectActiveSessionWorkAdmissions,
   getSessionWorkAdmissionRelease,
+  SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
 } from "../../sessions/session-lifecycle-admission.js";
 import { createLazyRuntimeModule } from "../../shared/lazy-runtime.js";
 import { unregisterOpenClawAgentDatabase } from "../../state/openclaw-agent-db-registry.js";
@@ -33,6 +35,13 @@ const getGatewayServerHarnessModule = createLazyRuntimeModule(
 
 /** Deselect before disposal so topology publication cannot reopen a fixture store. */
 export async function releaseGatewaySessionStoreFixture(dir: string) {
+  // Transcript observers retain RPC work after the session admission releases.
+  // Join them before changing config or a delayed reader can reopen this store.
+  await expect
+    .poll(() => getActiveGatewayRootWorkCount({ excludeCurrent: true }), {
+      timeout: SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
+    })
+    .toBe(0);
   const root = existsSync(dir) ? realpathSync(dir) : path.resolve(dir);
   const ownsPath = (candidate: string) =>
     isPathInside(root, candidate) || isPathInside(path.resolve(dir), candidate);

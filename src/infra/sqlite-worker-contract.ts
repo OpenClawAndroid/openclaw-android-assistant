@@ -1,8 +1,7 @@
 import type { MessagePort } from "node:worker_threads";
 import type { OpenClawStateWorkerErrorPayload } from "../state/openclaw-state-worker-error.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
-
-export type SqliteWorkerTransferHandle = { id: number; kinds: string[] };
+import type { SqliteWorkerTransferHandle } from "./sqlite-worker-transfer.js";
 
 export type SqliteWorkerOperations = Record<string, { input: unknown; output: unknown }>;
 export type SqliteWorkerCommand<Operations extends SqliteWorkerOperations> = {
@@ -68,7 +67,6 @@ export type SqliteWorkerReply = {
 export const SQLITE_WORKER_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 // Larger complete results use bounded frames; this remains the inline reply budget.
 export const SQLITE_WORKER_MAX_RESULT_BYTES = 64 * 1024 * 1024;
-export const SQLITE_WORKER_TRANSFER_FRAME_BYTES = 8 * 1024 * 1024;
 
 // The process-global broker can return errors to a different source/built module copy.
 const retainedWorkerErrorCode = Symbol.for("openclaw.sqliteWorkerErrorCode");

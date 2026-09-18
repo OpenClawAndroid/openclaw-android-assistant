@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { describe, expect, test, vi } from "vitest";
 import type { WebSocket } from "ws";
 import { createDeferred } from "../../test/helpers/promise.js";
@@ -16,6 +17,10 @@ import {
   startSessionTranscriptIndexReconcile,
   waitForSessionTranscriptIndexReconcile,
 } from "../config/sessions/session-transcript-reconcile.js";
+import {
+  retainGatewayRootWorkAdmissionContinuationScope,
+  tryBeginGatewayRootWorkAdmission,
+} from "../process/gateway-work-admission.js";
 import { beginSessionWorkAdmission } from "../sessions/session-lifecycle-admission.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
 import {
@@ -24,6 +29,7 @@ import {
 } from "../state/openclaw-agent-db.js";
 import { listOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.test-support.js";
 import { SQLITE_SESSION_WRITER_QUEUES } from "../state/openclaw-agent-write-admission.js";
+import { releaseSessionTestDirectories } from "./session-test-directories.test-support.js";
 import { createGatewayConfigOverrides } from "./test-helpers.config-runtime.js";
 import {
   installGatewayTestHooks,
@@ -42,35 +48,70 @@ installConnectedControlUiServerSuite((started) => {
   ws = started.ws;
 });
 
-describe("Gateway RPC fixture session writes", () => {
-  test("fixture release joins admitted continuations before deselecting their store", async () => {
-    // openclaw-temp-dir: allow verifies explicit store teardown while a writer owns the directory
-    const dir = await fs.realpath(
-      await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-admitted-writes-")),
+async function retainGatewayEvent() {
+  const root = tryBeginGatewayRootWorkAdmission("test:transcript-event");
+  if (!root) {
+    throw new Error("expected gateway root admission");
+  }
+  try {
+    const continuation = await root.run(async () =>
+      retainGatewayRootWorkAdmissionContinuationScope(),
     );
-    const storePath = path.join(dir, "openclaw-agent.sqlite");
-    testState.sessionStorePath = storePath;
-    const scope = { agentId: "main", sessionKey: "agent:main:main", storePath };
-    await writeSessionStore({ entries: { main: { sessionId: "admitted-write", updatedAt: 1 } } });
-    const admission = await beginSessionWorkAdmission({
-      scope: storePath,
-      identities: [scope.sessionKey, "admitted-write"],
-      assertAllowed: () => {},
-    });
-    const releasing = releaseGatewaySessionStoreFixture(dir);
-    try {
-      expect(testState.sessionStorePath).toBe(storePath);
-      await admission.run(() => updateSessionEntry(scope, () => ({ label: "late continuation" })));
-      expect(loadSessionEntry(scope)?.label).toBe("late continuation");
-    } finally {
-      admission.release();
-      await releasing;
-      await fs.rm(dir, { recursive: true, force: true });
+    if (!continuation) {
+      throw new Error("expected retained gateway event");
     }
-    expect(
-      listOpenClawAgentDatabasesForTest().some((database) => database.path === storePath),
-    ).toBe(false);
-  });
+    return continuation;
+  } finally {
+    root.release();
+  }
+}
+
+describe("Gateway RPC fixture session writes", () => {
+  test.each(["session", "gateway event"] as const)(
+    "%s release joins admitted continuations before deselecting their store",
+    async (owner) => {
+      // openclaw-temp-dir: allow verifies explicit store teardown while a writer owns the directory
+      const dir = await fs.realpath(
+        await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-admitted-writes-")),
+      );
+      const storePath = path.join(dir, "openclaw-agent.sqlite");
+      testState.sessionStorePath = storePath;
+      const scope = { agentId: "main", sessionKey: "agent:main:main", storePath };
+      await writeSessionStore({ entries: { main: { sessionId: "admitted-write", updatedAt: 1 } } });
+      const admission =
+        owner === "session"
+          ? await beginSessionWorkAdmission({
+              scope: storePath,
+              identities: [scope.sessionKey, "admitted-write"],
+              assertAllowed: () => {},
+            })
+          : await retainGatewayEvent();
+      // Resolve this fixture's canonical path before the continuation runs, so the
+      // release must retain its selector across a real event-loop turn.
+      const realpath = vi.spyOn(fs, "realpath").mockResolvedValueOnce(dir);
+      const releasing = releaseSessionTestDirectories([dir]);
+      realpath.mockRestore();
+      try {
+        await yieldToEventLoop();
+        expect(testState.sessionStorePath).toBe(storePath);
+        const selectedStorePath = getMockedRuntimeConfig().session?.store;
+        expect(selectedStorePath).toBe(storePath);
+        await admission.run(() =>
+          updateSessionEntry({ ...scope, storePath: selectedStorePath }, () => ({
+            label: "late continuation",
+          })),
+        );
+        expect(loadSessionEntry(scope)?.label).toBe("late continuation");
+      } finally {
+        admission.release();
+        await releasing;
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+      expect(
+        listOpenClawAgentDatabasesForTest().some((database) => database.path === storePath),
+      ).toBe(false);
+    },
+  );
 
   test.each(["raw WebSocket", "rpcReq", "fixture release"])(
     "%s preserves queued session writes",

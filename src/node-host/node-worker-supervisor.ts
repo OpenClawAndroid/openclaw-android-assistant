@@ -36,13 +36,14 @@ import {
   type NodeWorkerSupervisorIdentity,
 } from "./node-worker-supervisor-contract.js";
 import {
+  createNodeWorkerObservedTerminal,
   nodeWorkerEnvironmentBinding,
   nodeWorkerEnvironmentKey,
   nodeWorkerEnvironmentMatches,
   nodeWorkerReceiptMatchesOwner,
   type NodeWorkerActiveOwnership,
-  type NodeWorkerEnvironmentBinding,
   type NodeWorkerObservedTerminal,
+  type NodeWorkerPendingAdmission,
   type NodeWorkerRunningChild,
   type NodeWorkerStopState,
   type NodeWorkerSupervisorOptions,
@@ -72,16 +73,7 @@ class NodeWorkerSupervisor {
   private readonly bundleRoot: string;
   private readonly store: NodeWorkerLaunchStore;
   private readonly turns: NodeWorkerTurnStore;
-  private readonly admissions = new Map<
-    string,
-    {
-      binding: NodeWorkerEnvironmentBinding;
-      launchId: string;
-      planHash: string;
-      abort: AbortController;
-      done: Promise<NodeWorkerLaunchReceipt>;
-    }
-  >();
+  private readonly admissions = new Map<string, NodeWorkerPendingAdmission>();
   private readonly stoppingEnvironments = new Map<string, number>();
   private readonly workerEnv: NodeJS.ProcessEnv;
   private readonly engineEnv: NodeJS.ProcessEnv;
@@ -92,6 +84,7 @@ class NodeWorkerSupervisor {
   private readonly containerImage?: string;
   private supervisorIdentity?: NodeWorkerProcessIdentity;
   private initializationPromise?: Promise<void>;
+  private initialized = false;
   private closed = false;
   private closePromise?: Promise<void>;
 
@@ -126,6 +119,7 @@ class NodeWorkerSupervisor {
       await this.capacity.initialize(async (receipt) => {
         await this.recoverRunning(receipt, false);
       });
+      this.initialized = true;
     })().catch((error: unknown) => {
       if (this.initializationPromise === initialization) {
         this.initializationPromise = undefined;
@@ -133,6 +127,19 @@ class NodeWorkerSupervisor {
       throw error;
     });
     return (this.initializationPromise = initialization);
+  }
+
+  hasActiveWork(): boolean {
+    // Retained workers can own background commands after their turn completes;
+    // durable claims also cover work owned by another live supervisor.
+    return (
+      !this.initialized ||
+      this.admissions.size > 0 ||
+      this.starting.size > 0 ||
+      this.active.size > 0 ||
+      this.stoppingEnvironments.size > 0 ||
+      this.store.nonterminalCount() > 0
+    );
   }
 
   private requireContainerLifecycle(): NodeWorkerContainerLifecycle {
@@ -664,18 +671,7 @@ class NodeWorkerSupervisor {
     active: NodeWorkerRunningChild,
     outcome: NodeWorkerTerminalOutcome,
   ): void {
-    const observed: NodeWorkerObservedTerminal = {
-      state: "observed",
-      binding: active.binding,
-      gatewayNamespace: active.gatewayNamespace,
-      launchId: active.launchId,
-      planHash: active.planHash,
-      supervisor: active.supervisor,
-      worker: active.worker,
-      ...(active.container ? { container: active.container } : {}),
-      outcome,
-      ...(!active.stopState && active.turn?.cancelled ? { cancelledTurn: active.turn.claim } : {}),
-    };
+    const observed = createNodeWorkerObservedTerminal(active, outcome);
     if (this.active.get(active.launchId) !== active) {
       return;
     }

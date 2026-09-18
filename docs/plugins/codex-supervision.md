@@ -479,15 +479,17 @@ other Codex client or OpenClaw runner is using that thread or its spawned
 descendants. OpenClaw freshly reads the process-local status, proceeds only for
 `idle` or `notLoaded`, calls the native Codex archive operation, and removes the
 session from the non-archived list. Native Codex also attempts to archive the
-thread's spawned descendants.
+thread's spawned descendants and stops archived descendants that were resumed
+through native collaboration.
 
 Archive is unavailable when the fresh read reports the session active or in an
 error state, when it belongs to a paired node, or while a newly created
 supervised Chat still has a pending branch from that source. Send the Chat's
 first message to materialize its canonical branch before archiving the source.
 Archive is also blocked when OpenClaw knows that an active binding owns the
-exact target thread or any non-archived spawned descendant. OpenClaw follows the
-experimental Codex descendant query through every page. An invalid response,
+exact target thread or any spawned descendant, including archived descendants.
+OpenClaw checks both descendant collections for active work and follows the
+experimental Codex descendant query through every page within one shared bound. An invalid response,
 request failure, repeated cursor or thread, or safety-limit exhaustion rejects
 archive.
 

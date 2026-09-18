@@ -89,13 +89,50 @@ describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
     const cell = view.querySelector("openclaw-board-widget-cell")!;
     const frame = cell.querySelector("iframe")!;
     const messages: string[] = [];
+    const fixtureStates = new Set(["ready", "Last 30 days:1", "Last 30 days:2"]);
+    const loggedState = (value: string) => (fixtureStates.has(value) ? value : "unexpected-state");
+    const startedAt = performance.timeOrigin + performance.now();
+    const timeline: {
+      phase: string;
+      elapsedMs: number;
+      visibility: DocumentVisibilityState;
+      state?: string;
+      sourceMatches?: boolean;
+      emittedAtMs?: number;
+    }[] = [];
+    const record = (
+      phase: string,
+      detail: { state?: string; sourceMatches?: boolean; emittedAtMs?: number } = {},
+    ) => {
+      if (timeline.length >= 16) {
+        return;
+      }
+      timeline.push({
+        phase,
+        elapsedMs: performance.timeOrigin + performance.now() - startedAt,
+        visibility: document.visibilityState,
+        ...detail,
+      });
+    };
+    const loaded = () => record("iframe-load");
+    frame.addEventListener("load", loaded);
     const receive = (event: MessageEvent) => {
+      if (typeof event.data?.tabState === "string") {
+        record("message", {
+          state: loggedState(event.data.tabState),
+          sourceMatches: event.source === frame.contentWindow,
+          emittedAtMs:
+            typeof event.data.emittedAt === "number" ? event.data.emittedAt - startedAt : undefined,
+        });
+      }
       if (event.source === frame.contentWindow && typeof event.data?.tabState === "string") {
         messages.push(event.data.tabState);
       }
     };
     window.addEventListener("message", receive);
+    record("listener-registered");
     try {
+      record("assign-srcdoc");
       frame.srcdoc = `<input value="All observations"><script>
         let visits = 0;
         addEventListener("message", ({ data }) => {
@@ -104,7 +141,7 @@ describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
           if (++visits === 1) input.value = "Last 30 days";
           parent.postMessage({ tabState: input.value + ":" + visits }, "*");
         });
-        parent.postMessage({ tabState: "ready" }, "*");
+        parent.postMessage({ tabState: "ready", emittedAt: performance.timeOrigin + performance.now() }, "*");
       </script>`;
       await vi.waitFor(() => expect(messages).toEqual(["ready"]));
       frame.contentWindow!.postMessage("visit", "*");
@@ -135,7 +172,24 @@ describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
       await vi.waitFor(() =>
         expect(messages).toEqual(["ready", "Last 30 days:1", "Last 30 days:2"]),
       );
+    } catch (error) {
+      record("failure");
+      console.error(
+        "Board tab retention diagnostics",
+        JSON.stringify({
+          timeline,
+          messages: messages.map(loggedState),
+          connected: frame.isConnected,
+          active: cell.active,
+          loading: frame.loading,
+          // Read geometry only after failure so diagnostics cannot trigger initial layout.
+          bounds: frame.getBoundingClientRect().toJSON(),
+          viewport: { width: innerWidth, height: innerHeight },
+        }),
+      );
+      throw error;
     } finally {
+      frame.removeEventListener("load", loaded);
       window.removeEventListener("message", receive);
     }
   });

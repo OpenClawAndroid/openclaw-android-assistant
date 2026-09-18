@@ -13,13 +13,13 @@ import {
   SqliteWorkerError,
   type SqliteWorkerReply,
   type SqliteWorkerRequest,
-  type SqliteWorkerTransferHandle,
 } from "./sqlite-worker-contract.js";
 import type { SqliteWorkerOperationSettlement } from "./sqlite-worker-operation-settlement.js";
 import {
   createSqliteWorkerTransferOwner,
   createSqliteWorkerTransferReceiver,
   type SqliteWorkerTransferFrame,
+  type SqliteWorkerTransferHandle,
 } from "./sqlite-worker-transfer.js";
 
 export function dispatchSqliteWorkerJob(worker: Worker, job: Job): void {

@@ -395,11 +395,7 @@ describe("runCodexAppServerAttempt native hook relay retention", () => {
         const result = await run;
         expect(readAttemptTerminal(result)).toMatchObject({ aborted: false, promptError: null });
         expect(result.runtimeContinuationStarted).toBe(hasDeliveryScope ? true : undefined);
-        const continuationHistory = await readCodexMirroredSessionHistoryMessages(
-          params,
-          undefined,
-          "model-context",
-        );
+        const continuationHistory = await readCodexMirroredSessionHistoryMessages(params);
         expect(continuationHistory?.filter((message) => message.role === "custom")).toEqual([
           expect.objectContaining({
             customType: "openclaw.sessions_yield",
@@ -620,11 +616,7 @@ describe("runCodexAppServerAttempt native hook relay retention", () => {
 
       const result = await run;
       expect(readAttemptTerminal(result).promptError).toContain("parent failed after yielding");
-      const continuationHistory = await readCodexMirroredSessionHistoryMessages(
-        params,
-        undefined,
-        "model-context",
-      );
+      const continuationHistory = await readCodexMirroredSessionHistoryMessages(params);
       expect(continuationHistory?.filter((message) => message.role === "custom")).toEqual([]);
       expect(
         nativeHookRelayTesting.getNativeHookRelayRegistrationForTests(relayId),

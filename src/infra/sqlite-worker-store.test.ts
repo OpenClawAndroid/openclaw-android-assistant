@@ -22,7 +22,6 @@ import { tryAcquireExclusiveSqliteCoordinator } from "./sqlite-coordinator.js";
 import { captureCoordinatorDatabase } from "./sqlite-coordinator.test-support.js";
 import {
   SQLITE_WORKER_MAX_RESULT_BYTES,
-  SQLITE_WORKER_TRANSFER_FRAME_BYTES,
   type SqliteWorkerReply,
 } from "./sqlite-worker-contract.js";
 import {
@@ -33,6 +32,7 @@ import {
   type SqliteWorkerStore,
 } from "./sqlite-worker-store.js";
 import type { FixtureOpenInput, FixtureOperations } from "./sqlite-worker-store.test-support.js";
+import { SQLITE_WORKER_TRANSFER_FRAME_BYTES } from "./sqlite-worker-transfer.js";
 import * as coordinatorOwner from "./state-database-coordinator.js";
 
 const stores = new Set<SqliteWorkerStore<FixtureOperations>>();

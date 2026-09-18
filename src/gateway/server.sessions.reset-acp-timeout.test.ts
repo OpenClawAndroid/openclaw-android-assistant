@@ -14,6 +14,8 @@ import { writeSessionStore } from "./test-helpers.js";
 import {
   acpManagerMocks,
   acpRuntimeMocks,
+  beforeResetHookMocks,
+  beforeResetHookState,
   directSessionReq,
   sessionStoreEntry,
   setupGatewaySessionsHandlerTestHarness,
@@ -90,6 +92,77 @@ async function seedAcpSession() {
   });
   return { prepareFreshSession, storePath };
 }
+
+test.each([false, true])(
+  "settles committed reset actions after source cleanup failure (post-commit failure=%s)",
+  async (postCommitFails) => {
+    const { prepareFreshSession, storePath } = await seedAcpSession();
+    const previous = loadSessionEntry({ storePath, sessionKey: "agent:main:main" });
+    const sourceFailure = new Error("project source cleanup failed");
+    const postCommitFailure = new AcpRuntimeError(
+      "ACP_SESSION_INIT_FAILED",
+      "owner repair required",
+      {
+        detailCode: "SESSION_OWNER_MIGRATION_REQUIRED",
+      },
+    );
+    const events: string[] = [];
+    const rollback = vi.fn(async () => {});
+    prepareFreshSession.mockImplementation(async () => {
+      events.push("runtime-preparation");
+      if (postCommitFails) {
+        throw postCommitFailure;
+      }
+    });
+    beforeResetHookState.hasBeforeResetHook = true;
+    if (!postCommitFails) {
+      beforeResetHookMocks.runBeforeReset.mockImplementationOnce(async () => {
+        events.push("before-reset");
+      });
+    }
+    const { performGatewaySessionReset } = await import("./session-reset-service.js");
+
+    const reset = performGatewaySessionReset({
+      key: "main",
+      reason: "reset",
+      commandSource: "gateway:sessions.reset",
+      workerPlacementContext: {},
+      onCommitted: () => events.push("committed"),
+      prepareLifecycle: async () => ({
+        ok: true,
+        value: {
+          rollback,
+          withCommit: async (run) => {
+            await run(() => {});
+            events.push("source-closed");
+            throw sourceFailure;
+          },
+        },
+      }),
+    });
+    if (postCommitFails) {
+      await expect(reset).rejects.toMatchObject({
+        errors: [sourceFailure, postCommitFailure],
+        cause: postCommitFailure,
+      });
+    } else {
+      await expect(reset).rejects.toBe(sourceFailure);
+    }
+
+    expect(events).toEqual([
+      "committed",
+      "source-closed",
+      "runtime-preparation",
+      ...(postCommitFails ? [] : ["before-reset"]),
+    ]);
+    expect(beforeResetHookMocks.runBeforeReset).toHaveBeenCalledTimes(postCommitFails ? 0 : 1);
+    expect(rollback).not.toHaveBeenCalled();
+    const current = loadSessionEntry({ storePath, sessionKey: "agent:main:main" });
+    expect(current?.lifecycleRevision).toEqual(expect.any(String));
+    expect(current?.lifecycleRevision).not.toBe(previous?.lifecycleRevision);
+    expectResetAcpState(readAcpSessionMeta({ sessionKey: "agent:main:main" }));
+  },
+);
 
 test("sessions.reset force-discards ACP runtime ownership after cancel timeout", async () => {
   const { prepareFreshSession, storePath } = await seedAcpSession();

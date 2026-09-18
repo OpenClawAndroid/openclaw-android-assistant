@@ -15,6 +15,10 @@ export class CodexCatalogCurrency {
 
   constructor(private readonly options: CurrencyOptions) {}
 
+  hasActiveWork(): boolean {
+    return this.initial !== undefined || this.running !== undefined;
+  }
+
   start(): void {
     if (this.closed || this.timer) {
       return;
@@ -37,15 +41,19 @@ export class CodexCatalogCurrency {
     if (this.options.local) {
       // Restored snapshots serve immediately; the initial delta scan runs separately.
       this.initial = setTimeout(() => {
+        this.initial = undefined;
         void this.options.reconcileFiles().catch((error: unknown) => this.options.report(error));
       }, 0);
       this.initial.unref();
     }
   }
 
-  close(): void {
+  close(): Promise<void> | undefined {
     this.closed = true;
     clearInterval(this.timer);
+    this.timer = undefined;
     clearTimeout(this.initial);
+    this.initial = undefined;
+    return this.running;
   }
 }

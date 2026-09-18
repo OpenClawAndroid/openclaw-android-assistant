@@ -17,6 +17,10 @@ async function makeLauncherFixture(fixtureRoots: string[]): Promise<string> {
     path.join(fixtureRoot, "openclaw.mjs"),
   );
   await fs.copyFile(
+    path.resolve(process.cwd(), "node-host-launcher.mjs"),
+    path.join(fixtureRoot, "node-host-launcher.mjs"),
+  );
+  await fs.copyFile(
     path.resolve(process.cwd(), "node-version.mjs"),
     path.join(fixtureRoot, "node-version.mjs"),
   );

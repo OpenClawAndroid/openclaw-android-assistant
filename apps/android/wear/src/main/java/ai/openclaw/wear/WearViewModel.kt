@@ -1115,6 +1115,7 @@ internal class WearViewModel(
             it.copy(
               loading = false,
               connected = status.connected,
+              failure = status.failure,
               phoneNodeId = status.phoneNodeId,
               agents = agentList.agents,
               activeAgentId =
@@ -2056,6 +2057,7 @@ internal fun applyWearGatewayControlStatus(
 ): WearUiState =
   state.copy(
     connected = status.connected,
+    failure = status.failure,
     phoneNodeId = status.phoneNodeId,
     activeAgentId = status.activeAgentId ?: state.activeAgentId,
     selectedModelRef =

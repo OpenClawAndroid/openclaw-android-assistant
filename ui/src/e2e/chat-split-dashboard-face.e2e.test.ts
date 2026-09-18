@@ -155,12 +155,15 @@ suite.define(() => {
         await expect
           .poll(() => beta.getAttribute("class"))
           .toContain("chat-pane-cache__pane--active");
-        await page.evaluate(
-          () =>
-            new Promise<void>((resolve) => {
-              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-            }),
-        );
+        await expect
+          .poll(async () => ({
+            pathname: new URL(page.url()).pathname,
+            dashboard: await dashboard(beta).count(),
+          }))
+          .toEqual({
+            pathname: `/${targetFace}/main/face-beta`,
+            dashboard: targetFace === "dashboard" || legacy ? 1 : 0,
+          });
         const after = await observe();
         await page.screenshot({ path: path.join(suite.artifactDir, "after.png") });
         await writeFile(

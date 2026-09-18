@@ -14,6 +14,7 @@ import {
   OPENCLAW_STATE_SCHEMA_VERSION,
   OPENCLAW_STATE_STRICT_SCHEMA_VERSION,
 } from "./openclaw-state-db-contract.js";
+import { assertExistingOpenClawStateRuntimeSchema } from "./openclaw-state-db-existing-schema.js";
 import {
   assertCurrentStateRuntimeSchema,
   assertNoLegacyStateRuntimeRepair,
@@ -31,6 +32,7 @@ import {
   ensureAdditiveStateColumns,
   ensureFirstUseAdditiveStateColumnsForStrictMigration,
 } from "./openclaw-state-db-schema-additive.js";
+import { isExistingOpenClawStateSchema } from "./openclaw-state-db-schema-policy.js";
 import {
   assertCanonicalStateSchemaShape,
   dropLegacyStateTables,
@@ -61,6 +63,11 @@ export function ensureOpenClawStateRuntimeSchema(
   busyTimeoutMs = OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
   initializeNativeOnly = false,
 ): string[] {
+  if (isExistingOpenClawStateSchema(pathname, db)) {
+    assertExistingOpenClawStateRuntimeSchema(db, pathname);
+    assertOpenClawStateWriteAllowed({ database: db, databasePath: pathname, env });
+    return [];
+  }
   try {
     if (isOpenClawStateSchemaFastPathEligible(db, pathname)) {
       // A claim made during validation must not retain a writable handle.

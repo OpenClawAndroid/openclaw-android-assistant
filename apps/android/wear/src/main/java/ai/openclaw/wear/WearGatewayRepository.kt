@@ -25,6 +25,7 @@ internal data class WearProxyStatus(
   val eventSequence: Long?,
   val phoneNodeId: String,
   val eventStreamId: String? = null,
+  val failure: WearConversationFailure? = null,
 )
 
 internal enum class WearAgentPulseTaskState {
@@ -598,6 +599,7 @@ private fun WearRpcResult.toProxyStatus(method: String): WearProxyStatus {
   val result = payload.asObject(method)
   return WearProxyStatus(
     connected = result.boolean("connected") ?: false,
+    failure = wearConversationFailureForConnection(result),
     activeAgentId = result.string("activeAgentId"),
     activeSessionKey = result.string("activeSessionKey"),
     selectedModelRef = result.string("selectedModelRef"),

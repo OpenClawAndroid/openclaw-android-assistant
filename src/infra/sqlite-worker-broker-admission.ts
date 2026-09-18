@@ -88,6 +88,7 @@ export function captureSqliteWorkerOpen(
           stateContext: {
             environment: { ...stateContext.environment },
             coordinatorRuntime: { ...stateContext.coordinatorRuntime },
+            existingSchemaPath: stateContext.existingSchemaPath,
           },
         }
       : {}),
@@ -206,6 +207,23 @@ export async function resolveSqliteWorkerModuleUrl(sourceUrl: URL) {
   return { modulePath, moduleUrl };
 }
 
+export function assertSqliteWorkerActorReusable(
+  actor: Actor,
+  moduleUrl: string,
+  inputHash: string,
+  stateContext: SqliteWorkerStateContext | undefined,
+): void {
+  if (actor.slot.failed) {
+    throw actor.slot.failed;
+  }
+  if (actor.moduleUrl !== moduleUrl || actor.inputHash !== inputHash) {
+    throw new Error("SQLite database already belongs to another worker backend");
+  }
+  if (actor.stateContext?.existingSchemaPath !== stateContext?.existingSchemaPath) {
+    throw new Error("Shared-state worker schema policy changed; close its actor first");
+  }
+}
+
 export function prepareSqliteWorkerActorContext(
   actor: Actor | undefined,
   request: SqliteWorkerRequest,
@@ -216,6 +234,9 @@ export function prepareSqliteWorkerActorContext(
       actor.stateContext?.coordinatorRuntime.directory !== stateContext.coordinatorRuntime.directory
     ) {
       throw new Error("Shared-state worker coordinator scope changed; close its actor first");
+    }
+    if (actor.stateContext?.existingSchemaPath !== stateContext.existingSchemaPath) {
+      throw new Error("Shared-state worker schema policy changed; close its actor first");
     }
     request.stateContext = stateContext;
     if (!actor.cleanupState && !actor.gatewaySchemaFence) {

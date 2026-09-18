@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { isValidBase64 } from "@openclaw/media-core/base64";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { resolveAgentEffectiveModelPrimary } from "../agents/agent-scope.js";
@@ -5,6 +6,7 @@ import { splitTrailingAuthProfile } from "../agents/model-ref-profile.js";
 import { resolveSessionModelRef } from "../agents/session-model-ref.js";
 import { resolveSessionRuntimeOverrideForProvider } from "../agents/session-runtime-compat.js";
 import { resolveUtilityModelRefForAgent } from "../agents/utility-model.js";
+import type { WorktreeSourceStage } from "../agents/worktrees/types.js";
 import { generateConversationLabelWithFallback } from "../auto-reply/reply/conversation-label-generator.js";
 import { stripInboundMetadata } from "../auto-reply/reply/strip-inbound-meta.js";
 import { loadSessionEntry, patchSessionEntryCore } from "../config/sessions/session-accessor.js";
@@ -12,6 +14,8 @@ import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { withTimeout } from "../infra/fs-safe.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
+import { runWithAsyncWorkResources } from "../shared/async-work-resources.js";
+import { AsyncWorkScope, getAsyncWorkSignal } from "../shared/async-work-scope.js";
 import type { ChatAttachment } from "./chat-attachments.js";
 import { deriveGoalSessionTitle } from "./derive-goal-session-title.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
@@ -265,16 +269,22 @@ export async function generateWorktreeSessionTitle(
   } catch (error) {
     params.onError(error);
   }
-  params.commitGuard?.();
-  const current = loadSessionEntry({
-    agentId: params.agentId,
-    sessionKey: resolveStoredSessionKeyForAgentStore(params),
-    storePath: params.storePath,
-  });
-  if (current?.sessionId !== params.sessionId) {
-    throw new Error("Session changed while naming its worktree; retry from the current session.");
-  }
-  return resolveExplicitSessionName(current);
+  const readCurrent = (assertSourceCurrent?: () => void) => {
+    params.commitGuard?.();
+    assertSourceCurrent?.();
+    const current = loadSessionEntry({
+      agentId: params.agentId,
+      sessionKey: resolveStoredSessionKeyForAgentStore(params),
+      storePath: params.storePath,
+    });
+    if (current?.sessionId !== params.sessionId) {
+      throw new Error("Session changed while naming its worktree; retry from the current session.");
+    }
+    return resolveExplicitSessionName(current);
+  };
+  return params.withSource
+    ? await params.withSource((source) => readCurrent(source.assertCurrent))
+    : readCurrent();
 }
 
 export async function maybeGenerateDashboardSessionTitle(params: {
@@ -313,6 +323,7 @@ export async function maybeGenerateSessionTitle(params: {
   userMessage: string;
   worktree?: boolean;
   commitGuard?: () => void;
+  withSource?: WorktreeSourceStage;
 }): Promise<SessionTitleAttempt> {
   const sessionKey = resolveStoredSessionKeyForAgentStore(params);
   const scope = { agentId: params.agentId, sessionKey, storePath: params.storePath };
@@ -349,23 +360,32 @@ export async function maybeGenerateSessionTitle(params: {
     return { kind: "skipped" };
   }
 
-  const request = sessionTitleRequests.run(requestTarget, () =>
-    Promise.resolve().then(async () => {
-      params.commitGuard?.();
-      const generation = generateDashboardSessionTitle({
-        cfg: params.cfg,
-        agentId: params.agentId,
-        entry: params.entry ?? entry,
-        userMessage: sourceText,
-        ...(params.worktree ? { timeoutMs: WORKTREE_SESSION_TITLE_ATTEMPT_TIMEOUT_MS } : {}),
-      });
-      const displayName = await (params.worktree
-        ? withTimeout(generation, WORKTREE_SESSION_TITLE_TIMEOUT_MS, "worktree title generation")
-        : generation);
-      if (!displayName) {
-        return false;
+  const generate = (abortSignal?: AbortSignal) =>
+    generateDashboardSessionTitle({
+      cfg: params.cfg,
+      agentId: params.agentId,
+      entry: params.entry ?? entry,
+      userMessage: sourceText,
+      ...(params.worktree ? { timeoutMs: WORKTREE_SESSION_TITLE_ATTEMPT_TIMEOUT_MS } : {}),
+      ...(abortSignal ? { abortSignal } : {}),
+    });
+  const finish = async (generation: Promise<string | null>) => {
+    const displayName = await (params.worktree
+      ? withTimeout(generation, WORKTREE_SESSION_TITLE_TIMEOUT_MS, "worktree title generation")
+      : generation);
+    if (!displayName) {
+      return false;
+    }
+    const persist = async (assertSourceCurrent?: () => void) => {
+      const assertCommitAllowed = assertSourceCurrent
+        ? () => {
+            params.commitGuard?.();
+            assertSourceCurrent();
+          }
+        : params.commitGuard;
+      if (assertSourceCurrent) {
+        assertCommitAllowed?.();
       }
-
       let persisted = false;
       await patchSessionEntryCore(
         scope,
@@ -378,10 +398,64 @@ export async function maybeGenerateSessionTitle(params: {
         },
         {
           requireWriteSuccess: true,
-          ...(params.commitGuard ? { assertCommitAllowed: params.commitGuard } : {}),
+          ...(assertCommitAllowed ? { assertCommitAllowed } : {}),
         },
       );
       return persisted;
+    };
+    return params.withSource
+      ? await params.withSource((source) => persist(source.assertCurrent))
+      : await persist();
+  };
+
+  const request = sessionTitleRequests.run(requestTarget, () =>
+    Promise.resolve().then(async () => {
+      const withSource = params.withSource;
+      if (!withSource) {
+        params.commitGuard?.();
+        return await finish(generate());
+      }
+      const parentSignal = getAsyncWorkSignal();
+      return await runWithAsyncWorkResources(async (onAcquired) => {
+        const generationWork = new AsyncWorkScope();
+        const runInGenerationContext = generationWork.run(() => AsyncLocalStorage.snapshot());
+        const cancelFromParent = () =>
+          runInGenerationContext(() => generationWork.beginClose(parentSignal?.reason));
+        onAcquired({
+          release: async () => {
+            try {
+              await AsyncWorkScope.runWhenAllIdle(
+                () => [generationWork],
+                () => runInGenerationContext(() => generationWork.drain()),
+              );
+            } finally {
+              parentSignal?.removeEventListener("abort", cancelFromParent);
+            }
+          },
+        });
+        parentSignal?.addEventListener("abort", cancelFromParent, { once: true });
+        if (parentSignal?.aborted) {
+          cancelFromParent();
+        }
+        let pending: { completion: Promise<string | null> };
+        try {
+          pending = await withSource((source) => {
+            params.commitGuard?.();
+            source.assertCurrent();
+            // This is the existing generation-start check, not provider dispatch authority.
+            const completion = runInGenerationContext(() =>
+              generationWork.track(() => generate(generationWork.signal)),
+            );
+            void completion.catch(() => undefined);
+            return { completion };
+          });
+          return await finish(pending.completion);
+        } catch (error) {
+          runInGenerationContext(() => generationWork.beginClose(error));
+          await runInGenerationContext(() => generationWork.drain());
+          throw error;
+        }
+      });
     }),
   );
   return (await request) ? { kind: "persisted" } : { kind: "skipped" };

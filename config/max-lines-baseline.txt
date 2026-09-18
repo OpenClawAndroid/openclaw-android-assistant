@@ -22,7 +22,6 @@ extensions/browser/src/cli/browser-cli-manage.ts
 extensions/codex/doctor-contract-api.test.ts
 extensions/codex/src/app-server/approval-bridge.test.ts
 extensions/codex/src/app-server/approval-bridge.ts
-extensions/codex/src/app-server/attempt-context.ts
 extensions/codex/src/app-server/auth-bridge.test.ts
 extensions/codex/src/app-server/auth-bridge.ts
 extensions/codex/src/app-server/client.ts
@@ -131,7 +130,6 @@ extensions/memory-core/src/cli.test.ts
 extensions/memory-core/src/dreaming-phases.test.ts
 extensions/memory-core/src/dreaming-phases.ts
 extensions/memory-core/src/dreaming.test.ts
-extensions/memory-core/src/dreaming.ts
 extensions/memory-core/src/memory/index.test.ts
 extensions/memory-core/src/memory/manager-embedding-ops.ts
 extensions/memory-core/src/memory/manager-search.test.ts

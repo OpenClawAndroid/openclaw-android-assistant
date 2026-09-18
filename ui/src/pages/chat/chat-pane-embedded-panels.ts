@@ -67,7 +67,6 @@ type SidebarPanelDefinitionParams = {
   companion: ChatSessionCompanionThread;
   companionPresented: boolean;
   companionFocusRequest: (() => boolean) | undefined;
-  canFocusCompanion: () => boolean;
   onCompanionSubmit: (question: string | ChatSessionCompanionTurn) => void;
   onCompanionDraftChange: (draft: string) => void;
   onCompanionVisibilityChange: (visible: boolean) => void;
@@ -178,7 +177,6 @@ export function sidebarPanelDefinitions(
         embedded
         .presented=${params.companionPresented}
         .focusRequest=${params.companionFocusRequest}
-        .canFocus=${params.canFocusCompanion}
         .sessionKey=${state?.sessionKey}
         .digest=${params.digest}
         .running=${Boolean(params.activeRunId)}

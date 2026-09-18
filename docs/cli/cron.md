@@ -100,6 +100,11 @@ flags is valid with exit or stream schedules. See
 [Automation schedules](/automation/cron-jobs/schedules#schedule-types) for stream lifecycle,
 batching limits, and trigger details.
 
+On creation, omit `--command-cwd`, `--on-exit-cwd`, or `--stream-cwd` to use
+the default working directory. An explicitly empty or whitespace-only path is
+an error. When editing a stream job, `--stream-cwd ""` still clears its configured
+working directory.
+
 ## Sessions
 
 `--session` accepts `main`, `isolated`, `current`, or `session:<id>`.

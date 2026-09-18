@@ -8,13 +8,13 @@ import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "../state/openclaw-state-db.js";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import {
   clearDeviceAuthTokenFromDatabase,
   clearOriginDeviceTokenInDatabase,
   createDeviceAuthEntry,
   type DeviceAuthTokenObservation,
   readDeviceAuthTokenObservationFromDatabase,
-  readDeviceAuthTokensFromDatabase,
   readOriginDeviceTokenObservationFromDatabase,
   storeDeviceAuthTokenInDatabase,
   storeOriginDeviceTokenInDatabase,
@@ -83,13 +83,18 @@ export function loadDeviceAuthTokenReadOnly(
   return observation.entry;
 }
 
-export function loadDeviceAuthTokens(params: {
+export async function loadDeviceAuthTokens(params: {
   deviceId: string;
   env?: NodeJS.ProcessEnv;
-}): DeviceAuthEntry[] {
+}): Promise<DeviceAuthEntry[]> {
   assertNoLegacyDeviceAuth(params.env);
-  const { db } = openOpenClawStateDatabase({ env: params.env });
-  return readDeviceAuthTokensFromDatabase(db, params);
+  const context = captureOpenClawStateWorkerContext({ env: params.env });
+  const deviceId = params.deviceId;
+  const { executeOpenClawStateWorker } = await import("../state/openclaw-state-worker-store.js");
+  return executeOpenClawStateWorker(context, {
+    type: "deviceAuth.list",
+    input: { deviceId },
+  });
 }
 
 export function storeDeviceAuthToken(params: DeviceAuthWrite): DeviceAuthEntry | null {

@@ -28,8 +28,8 @@ import { acquireMemoryIndexReadGeneration } from "./manager-index-generation-lea
 import { MemoryKeywordRetrieval, type KeywordSearchHit } from "./manager-keyword-retrieval.js";
 import { runVectorKnnInSubprocess } from "./manager-search-knn-subprocess.js";
 import { resolveMemorySearchPreflight } from "./manager-search-preflight.js";
-import { resolveExactPathSpecificity, searchVector } from "./manager-search.js";
-import { applyProjectRanking } from "./project-ranking.js";
+import { prepareExactPathMatcher, searchVector } from "./manager-search.js";
+import { applyProjectRanking, prepareActiveProjectKeys } from "./project-ranking.js";
 import { applyTemporalDecayToHybridResults } from "./temporal-decay.js";
 
 const SNIPPET_MAX_CHARS = 700;
@@ -482,7 +482,8 @@ export abstract class MemorySearchOrchestration extends MemoryKeywordRetrieval {
           sessionSourceMtimes: this.loadSessionSourceMtimes(vectorResults),
         });
         // Decay and importance can reverse the order returned by vector retrieval.
-        return applyProjectRanking(applyImportanceMultiplier(decayed), opts?.activeProjectKeys)
+        const activeProjects = prepareActiveProjectKeys(opts?.activeProjectKeys);
+        return applyProjectRanking(applyImportanceMultiplier(decayed), activeProjects)
           .filter((entry) => entry.score >= minScore)
           .toSorted(
             (left, right) =>
@@ -591,6 +592,7 @@ export abstract class MemorySearchOrchestration extends MemoryKeywordRetrieval {
     temporalDecay?: { enabled: boolean; halfLifeDays: number };
     activeProjectKeys?: readonly string[];
   }): Promise<HybridSearchResult<MemorySource>[]> {
+    const matchExactPath = prepareExactPathMatcher(params.query);
     return mergeHybridResults({
       vector: params.vector.map((r) => ({
         id: r.id,
@@ -603,7 +605,7 @@ export abstract class MemorySearchOrchestration extends MemoryKeywordRetrieval {
         importance: r.importance,
         triggers: r.triggers,
         projectKey: r.projectKey,
-        exactPathSpecificity: resolveExactPathSpecificity(params.query, r.path),
+        exactPathSpecificity: matchExactPath(r.path),
         ...(r.provenance ? { provenance: r.provenance } : {}),
       })),
       keyword: params.keyword.map((r) => ({

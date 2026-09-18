@@ -12,6 +12,7 @@ import {
   UPDATE_POST_INSTALL_DOCTOR_ADVISORY_EXIT_CODE,
   UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV,
   writeUpdatePostInstallDoctorResult,
+  UpdateDoctorError,
   type UpdateDoctorWriteAuthority,
   type DoctorConfigCapture,
   type UpdatePostInstallDoctorResult,
@@ -308,27 +309,29 @@ async function runDoctorHealthFlowWithResult(
     doctorResult = {
       status: "error",
       failureFacts:
-        error instanceof DoctorStateMigrationRefusalError
-          ? normalizeUpdateFailureFacts(
-              error.stepReceipts.flatMap((receipt) =>
-                receipt.outcome === "refused" && receipt.refusal
-                  ? [
-                      {
-                        check: receipt.id,
-                        code: receipt.refusal.code,
-                        message: receipt.refusal.message,
-                      },
-                    ]
-                  : [],
-              ),
-            )
-          : [
-              createUpdateFailureFact({
-                check: "doctor",
-                code: "doctor-failed",
-                message: error instanceof Error ? error.message : String(error),
-              }),
-            ],
+        error instanceof UpdateDoctorError
+          ? error.failureFacts
+          : error instanceof DoctorStateMigrationRefusalError
+            ? normalizeUpdateFailureFacts(
+                error.stepReceipts.flatMap((receipt) =>
+                  receipt.outcome === "refused" && receipt.refusal
+                    ? [
+                        {
+                          check: receipt.id,
+                          code: receipt.refusal.code,
+                          message: receipt.refusal.message,
+                        },
+                      ]
+                    : [],
+                ),
+              )
+            : [
+                createUpdateFailureFact({
+                  check: "doctor",
+                  code: "doctor-failed",
+                  message: error instanceof Error ? error.message : String(error),
+                }),
+              ],
     };
     if (maintenance) {
       if (!(error instanceof DoctorStateMigrationRefusalError)) {

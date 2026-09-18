@@ -56,6 +56,8 @@ export type AcpxGeneration = {
   ensureQueue: KeyedAsyncQueue;
   retired: boolean;
   activeOperations: number;
+  pendingAdmissions: number;
+  admissionState: "unadmitted" | "failed" | "admitted";
   activeRecordOperations: Map<string, number>;
   closedRecordIds: Set<string>;
   afterReset: boolean;

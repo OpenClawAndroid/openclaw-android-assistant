@@ -1836,9 +1836,9 @@ describe("buildAgentSystemPrompt", () => {
     const minimal = buildPreferPrompt(["sessions_spawn", "sessions_send"], "minimal");
 
     expect(withSend).toContain(
-      "later turns in a kept session do not report back; follow up via `sessions_send`.",
+      "later turns in a kept OpenClaw session do not report back; follow up via `sessions_send`.",
     );
-    expect(withoutSend).toContain("later turns in a kept session do not report back.");
+    expect(withoutSend).toContain("later turns in a kept OpenClaw session do not report back.");
     expect(withoutSend).not.toContain("follow up via `sessions_send`");
     expect(minimal).not.toContain("## Delegation");
   });
