@@ -547,6 +547,12 @@ export class SessionDataController implements ReactiveController, SessionCatalog
     retireStaleChildSessionRows(this, this.lineage.routeKey, revalidating);
   }
 
+  needsChildSessionLoad(parentKey: string): boolean {
+    return (
+      !this.childSessionQueries.has(parentKey) && !this.childSessionErrorsByParent.has(parentKey)
+    );
+  }
+
   async loadChildSessions(parentKey: string, retry = false): Promise<void> {
     const sessions = this.context?.sessions;
     if (

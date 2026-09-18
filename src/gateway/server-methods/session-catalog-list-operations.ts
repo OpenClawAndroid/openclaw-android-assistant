@@ -9,41 +9,39 @@ export type CatalogListEnumeration = {
   instances: SessionCatalogInstances;
 };
 
-type CatalogListCacheEntry = {
+type CatalogListOperation = {
   progress: SessionCatalogListLifetime;
   result: Promise<CatalogListEnumeration>;
 };
 
-type CatalogListCacheState = {
+type CatalogListOperations = {
   registrations: CatalogRegistrationSnapshot;
-  pending: Map<string, CatalogListCacheEntry>;
-  entries: Map<string, CatalogListCacheEntry & { expiresAt: number }>;
+  pending: Map<string, CatalogListOperation>;
+  retirement: AbortController;
 };
 
-const catalogListsByConfig = new WeakMap<OpenClawConfig, CatalogListCacheState>();
+const catalogListsByConfig = new WeakMap<OpenClawConfig, CatalogListOperations>();
 
-export function getSessionCatalogListCache(
+export function getSessionCatalogListOperations(
   config: OpenClawConfig,
   registrations: CatalogRegistrationSnapshot,
-): CatalogListCacheState {
+): CatalogListOperations {
   let state = catalogListsByConfig.get(config);
   if (!state || state.registrations !== registrations) {
-    state = { registrations, pending: new Map(), entries: new Map() };
+    state?.retirement.abort();
+    state = { registrations, pending: new Map(), retirement: new AbortController() };
     catalogListsByConfig.set(config, state);
   }
   return state;
 }
 
 export function retireSessionCatalogLists(config: OpenClawConfig): void {
-  const cache = catalogListsByConfig.get(config);
-  if (!cache) {
+  const operations = catalogListsByConfig.get(config);
+  if (!operations) {
     return;
   }
   // Host publications can outlive the aggregate response and still contain an archived row.
-  for (const entries of [cache.pending, cache.entries]) {
-    for (const entry of entries.values()) {
-      entry.progress.retire();
-    }
-    entries.clear();
-  }
+  operations.retirement.abort();
+  operations.retirement = new AbortController();
+  operations.pending.clear();
 }

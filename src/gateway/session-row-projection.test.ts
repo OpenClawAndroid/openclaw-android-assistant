@@ -22,6 +22,45 @@ import * as rowInputs from "./session-utils-row.js";
 
 afterEach(() => vi.restoreAllMocks());
 
+it("keeps child links ordered after a keyed child refresh", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const cfg = { agents: { list: [{ id: "main", default: true }] } };
+    const parent = "agent:main:parent";
+    const children = ["agent:main:child-a", "agent:main:child-b"] as const;
+    replaceSessionEntrySync(
+      { agentId: "main", sessionKey: parent },
+      { sessionId: "parent", updatedAt: 1 },
+    );
+    for (const [index, key] of children.entries()) {
+      replaceSessionEntrySync(
+        { agentId: "main", sessionKey: key },
+        {
+          sessionId: `child-${index}`,
+          updatedAt: 1,
+          status: "running",
+          ...(index === 0 ? { parentSessionKey: parent } : { spawnedBy: parent }),
+        },
+      );
+    }
+    const projection = await createSessionRowProjection({ cfg });
+    try {
+      await projection.ensureMaterialized();
+      expect(projection.snapshot({ agentId: "main", key: parent }).row?.childSessions).toEqual(
+        children,
+      );
+      sessionChanges.emit({ agentId: "main", sessionKey: children[0] });
+      expect(projection.snapshot({ agentId: "main", key: children[0] }).row?.sessionId).toBe(
+        "child-0",
+      );
+      expect(projection.snapshot({ agentId: "main", key: parent }).row?.childSessions).toEqual(
+        children,
+      );
+    } finally {
+      projection.dispose();
+    }
+  });
+});
+
 it("resolves agent-scoped legacy locators from resident topology for reads and dirty publications", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
     const locator = state.statePath("shared", "sessions.json");

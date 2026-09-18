@@ -257,7 +257,7 @@ describe("gateway chat metadata runtime", () => {
   );
 
   test.each(["resolve", "reject"] as const)(
-    "discards a late projection's %s after a usage-only revision changes",
+    "discards a late projection's %s after cooldown state changes",
     async (settlement) => {
       const harness = createChatMetadataHarness(undefined, { refreshOnRead: false });
       const blocked: AuthProfileStore = {

@@ -98,6 +98,9 @@ commands resolve the target workspace from `--agent <id>`, then the current
 working directory when it is inside a configured agent workspace, then the
 default agent.
 
+Search results add `v` only to numeric version labels, preserving existing prefixes
+and build names. JSON output keeps the registry's original version values.
+
 The skills table renders horizontal tabs as single spaces so descriptions
 stay aligned with the neighboring columns.
 JSON output preserves tabs and line endings in descriptions and paths as escaped

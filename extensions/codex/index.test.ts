@@ -189,6 +189,7 @@ describe("codex plugin", () => {
       await expect(managed.mark({ ...original, rolloutPath: "/later.jsonl" })).resolves.toBe(true);
       await expect(managed.has("home", "managed")).resolves.toBe(true);
       const control: CodexSessionCatalogControl = {
+        initialize: async () => {},
         listPage: async () => ({
           sessions: [
             { threadId: "managed", status: "idle", archived: false },
@@ -298,71 +299,6 @@ describe("codex plugin", () => {
       dangerous: true,
     });
     expect(nodeExecServerPolicy.defaultPlatforms).toBeUndefined();
-  });
-
-  it("proactively monitors an explicitly configured remote websocket app-server", () => {
-    const registerService = vi.fn();
-
-    plugin.register(
-      createTestPluginApi({
-        id: "codex",
-        name: "Codex",
-        source: "test",
-        config: {},
-        pluginConfig: {
-          appServer: {
-            transport: "websocket",
-            url: "ws://127.0.0.1:39175",
-          },
-        },
-        runtime: createCodexTestRuntime(),
-        registerService,
-      }),
-    );
-
-    expect(registerService).toHaveBeenCalledTimes(3);
-    expect(registerService.mock.calls.map(([service]) => service)).toContainEqual(
-      expect.objectContaining({
-        id: "codex-app-server-process-reaper",
-        start: expect.any(Function),
-      }),
-    );
-    expect(registerService.mock.calls.map(([service]) => service)).toContainEqual(
-      expect.objectContaining({
-        id: "codex-app-server-connection-health",
-        start: expect.any(Function),
-        stop: expect.any(Function),
-      }),
-    );
-  });
-
-  it("does not start remote connection monitoring for local Codex transports", () => {
-    for (const appServer of [undefined, { transport: "stdio" }, { transport: "unix" }]) {
-      const registerService = vi.fn();
-
-      plugin.register(
-        createTestPluginApi({
-          id: "codex",
-          name: "Codex",
-          source: "test",
-          config: {},
-          pluginConfig: appServer ? { appServer } : {},
-          runtime: createCodexTestRuntime(),
-          registerService,
-        }),
-      );
-
-      expect(registerService).toHaveBeenCalledTimes(2);
-      expect(mockCallArg(registerService)).toMatchObject({
-        id: "codex-desktop-generation",
-        start: expect.any(Function),
-        stop: expect.any(Function),
-      });
-      expect(mockCallArg(registerService, 1)).toMatchObject({
-        id: "codex-app-server-process-reaper",
-        start: expect.any(Function),
-      });
-    }
   });
 
   it("registers the agent harness, native thread tool, and hosted web search", () => {

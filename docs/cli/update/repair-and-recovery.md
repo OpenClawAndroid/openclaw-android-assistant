@@ -108,7 +108,7 @@ owner. Updating the candidate cannot change the older updater already in memory.
 | `--timeout <seconds>`                            | Override each repair phase deadline in seconds. Defaults vary by phase (see below).                                                                                                                                                                                                              |
 | `--yes`                                          | Skip confirmation prompts.                                                                                                                                                                                                                                                                       |
 | `--accept-capabilities`                          | Accept each plugin's reviewed capability changes while repairing plugin state.                                                                                                                                                                                                                   |
-| `--no-restart`                                   | Accepted for parity; repair does not request update activation. Doctor can restore a Gateway it stopped for maintenance during a verified owning-run continuation.                                                                                                                               |
+| `--no-restart`                                   | Accepted for parity; repair does not request update activation. The repair parent restores a Gateway it stopped for maintenance.                                                                                                                                                                 |
 
 Untouched, identityless 2026.9.2-era update admissions heal automatically after
 more than 24 hours. Gateway startup, `openclaw update status`, and `openclaw status`
@@ -121,7 +121,7 @@ pending recovery remain protected. No explicit repair is needed for this shape.
 `update repair` first inspects stale update history. When the installed Gateway
 generation is healthy and the only remaining problem is an inactive ledger row,
 repair records `failed` / `abandoned` and exits successfully without Doctor,
-maintenance, or a service stop. It also acknowledges a Gateway-reconciled row
+maintenance, or a service stop. `openclaw status` and the Control UI then report the abandoned run as reconciled, without a failure warning or retry prompt; its historical failure record remains intact. It also acknowledges a Gateway-reconciled row
 once within 30 minutes of reconciliation. Later repair invocations use full
 finalization, so historical recovery cannot suppress plugin convergence.
 Explicit recovery does not wait 30 minutes when every recorded updater process
@@ -149,15 +149,14 @@ owns stopping and restarting its Gateway.
 Repair invoked within the owning update can continue when its inherited run ID
 and live process identity match that owner. Standalone repair records the same
 continuation for its new run and passes that run ID to its Doctor children.
-Doctor can then use its normal maintenance lifecycle: stop the owned Gateway,
-repair state, then restore and verify the same service. Doctor only restarts a
-service that it stopped; an already stopped service stays stopped. The owning
-run remains active while its driver is alive. If that driver exits during
-maintenance, Doctor records an activation takeover under abandonment admission
-and restores the service, even if the driver already terminalized its ledger
-row. A restoration failure reports the cause and the commands to inspect and
-restart the Gateway. Normal update finalization without this explicit repair
-continuation still leaves activation to its parent.
+The repair parent uses Doctor's maintenance lifecycle to stop the owned Gateway,
+then releases its database locks before running the Doctor children. The children
+repair state without stopping or restarting the service. The parent restores and
+verifies the same service after convergence, including when a Doctor child fails.
+An already stopped service stays stopped. Service ownership and the invoking
+run are revalidated before every native operation. A restoration failure names
+the cause and the commands to inspect and restart the Gateway. Normal update
+finalization continues to leave activation with its outer updater.
 
 An unrelated update whose driver is live or cannot be inspected still blocks
 repair, even after a long period without activity. Manual `doctor --fix` also
@@ -170,12 +169,12 @@ does not authorize taking over a live updater.
 Explicit channel or capability changes and known incomplete post-core work use
 full finalization. Recorded activation, restart, verification, or finalization steps require
 that convergence even if the Gateway has already reconciled the run. Repair
-checks newer abandoned history as well as active rows; an older stale row cannot
+checks newer failed post-core history as well as active rows, including older
+finalization attempts with an empty failure reason; an older stale row cannot
 hide unfinished work from a newer update. If the bounded history inspection is
-incomplete, repair also uses full finalization. Outside a verified owning-run
-continuation, if that work needs maintenance while the managed service is
-running, stop the service through its owner before retrying. Doctor cannot stop
-or restart the service on an unrelated update parent's behalf.
+incomplete, repair also uses full finalization. The parent parks its owned service
+before Doctor enters maintenance; a Doctor child cannot take service activation
+from an update parent.
 Successful full finalization then reconciles the selected stale rows before
 reporting completion. Failed convergence leaves the selected rows intact. If any
 selected run resumes before reconciliation, the whole selection is preserved.
@@ -189,9 +188,8 @@ refreshes the plugin registry, and writes converged install-record metadata.
 Configured runtime plugins whose versions follow OpenClaw are checked against
 the newly installed core during post-update repair, even when the updater process
 started on the previous version.
-It does not install a new core package or request update activation. Doctor can
-restore a service stopped for maintenance by a verified repair invocation,
-including standalone repair, as described above.
+It does not install a new core package or request update activation. The repair
+parent restores a service it stopped for maintenance, as described above.
 Human output ends with a finalization result that distinguishes completion,
 completion with warnings, and failure.
 
@@ -248,7 +246,11 @@ still overrides each phase and its child commands.
 
 A phase deadline produces exit code 1 and JSON with `status: "failed"`,
 `stuckPhase`, `elapsedMs`, `error`, and the existing `phaseTimings` array. The
-finalizer requests termination of its owned command trees before exiting.
+finalizer cancels the phase, fences further writes, and waits up to the same
+budget for its work to settle. Repair restores and verifies the Gateway it
+stopped before reporting the failure and exiting. Service custody acquisition
+and restoration retain their own native-operation budgets outside phase
+cancellation. The ledger records a warning naming the timed-out phase and budget.
 Preserve the phase diagnostic when reporting a stalled update.
 
 When a fresh Doctor ran in the timed-out phase, `doctorOutput` includes its

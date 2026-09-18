@@ -20,6 +20,7 @@ import {
 } from "./session-list-filters.js";
 import { sortAndLimitSessionEntries, type SessionEntryPair } from "./session-list-order.js";
 import { prepareProjectedSessionPresentation } from "./session-row-presentation.js";
+import type { Query as SessionRowQuery } from "./session-row-projection-record.js";
 import type { SessionRowProjection } from "./session-row-projection.js";
 import type { SessionListRowContext } from "./session-utils-contracts.js";
 import { getSessionDefaults } from "./session-utils-model.js";
@@ -161,7 +162,10 @@ const sentinel = (key: string) => key === "global" || key === "unknown";
 export function prepareSessionRowSelection(
   projection: SessionRowProjection,
   opts: SessionsListParams,
-  prepared?: { now: number; rowContext: SessionListRowContext },
+  prepared?: Pick<SessionRowQuery, "key" | "sessionIdOrKey"> & {
+    now?: number;
+    rowContext?: SessionListRowContext;
+  },
 ) {
   const { cfg, modelCatalog, scope, rowContext: residentContext } = projection.state;
   const selectedScope = scope(opts);
@@ -171,7 +175,12 @@ export function prepareSessionRowSelection(
     subagentRuns: residentContext.subagentRuns.atTime(now),
   };
   const rows = projection
-    .selectEntries({ agentId: selectedScope.agentId, sortBy: opts.sortBy })
+    .selectEntries({
+      agentId: selectedScope.agentId,
+      key: prepared?.key,
+      sessionIdOrKey: prepared?.sessionIdOrKey,
+      sortBy: null,
+    })
     .filter(
       (row) =>
         selectedScope.paths.has(row.storeTarget.storePath) &&

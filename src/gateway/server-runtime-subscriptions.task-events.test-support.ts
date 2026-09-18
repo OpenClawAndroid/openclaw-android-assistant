@@ -3,13 +3,14 @@ import type { CronServiceState } from "../cron/service/state.js";
 import { tryFinishCronTaskRunWithoutHistory } from "../cron/service/task-runs.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
 import type { SubsystemLogger } from "../logging/subsystem.js";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { getTaskRegistryObservers } from "../tasks/task-registry.store.js";
 import {
   createTaskFixture,
   finishTaskFixture,
   markTaskLostById,
   recordTaskProgressByRunId,
-  reloadTaskRegistryFromStore,
+  reloadTaskRegistryFromStoreAsync,
 } from "../tasks/task-registry.test-support.js";
 import type { TaskEventPayload } from "./server-methods/task-summary.js";
 import type { startGatewayEventSubscriptions } from "./server-runtime-subscriptions.js";
@@ -207,7 +208,7 @@ export function registerTaskEventSubscriptionTests(
     const beforeRestore = readTaskUpserts(broadcast);
     expect(beforeRestore).toHaveLength(1);
     broadcast.mockClear();
-    reloadTaskRegistryFromStore();
+    await reloadTaskRegistryFromStoreAsync(captureOpenClawStateWorkerContext());
     expect(broadcast).toHaveBeenCalledWith("task", { action: "restored" }, { dropIfSlow: true });
     recordTaskProgressByRunId({
       runId,

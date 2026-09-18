@@ -321,6 +321,12 @@ plain objects. Error-specific `toJSON` methods are not invoked. This includes
 rejected reasons from `Promise.allSettled(...)`. Handling an error does not fail
 the cell; uncaught errors still produce a failed result.
 
+Returned values and `json(...)` output preserve literal JSON keys such as
+`__proto__`. Number-valued typed arrays preserve their numeric elements in
+indexed JSON objects; use `Array.from(...)` when you want a JSON array. Final
+returned values do not invoke custom `toJSON` methods. Convert special values
+explicitly, such as returning `date.toISOString()` for a date string.
+
 Nested tool data and model-visible output have separate limits. A successful
 bridge reply reaches the guest as its complete normalized JSON value, or its
 promise rejects with a catchable program-data resource error. The transport

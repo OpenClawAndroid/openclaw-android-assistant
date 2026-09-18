@@ -93,6 +93,11 @@ writing.
 OAuth upserts recheck the current local or inherited credential after admission,
 before applying the existing generation-replacement rules.
 
+Gateway model metadata refreshes when credentials, profile ordering or ownership,
+or model availability changes, including cooldown and blocked-state transitions.
+Usage timestamps, success history, and failure counters remain recorded without
+invalidating chat metadata or broadcasting a change to connected clients.
+
 Explicit copy flows, such as `openclaw agents add`, use this portability policy:
 
 - `api_key` and `token` profiles are portable unless `copyToAgents: false`.

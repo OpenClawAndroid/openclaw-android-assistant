@@ -36,6 +36,7 @@ import type {
 } from "./protocol-control-plane.js";
 import type { JsonObject, JsonValue } from "./protocol-json.js";
 import type * as CodexMcpProtocol from "./protocol-mcp.js";
+import type { CodexSessionSource, CodexThreadSourceKind } from "./protocol-session-source.js";
 
 export type {
   CodexConfigReadResponse,
@@ -45,6 +46,14 @@ export type {
   CodexPluginReadResponse,
 } from "./protocol-control-plane.js";
 export type { CodexListMcpServerStatusResponse, CodexMcpServerStatus } from "./protocol-mcp.js";
+export {
+  CODEX_INTERACTIVE_CUSTOM_THREAD_SOURCES,
+  CODEX_INTERACTIVE_THREAD_SOURCE_KINDS,
+} from "./protocol-session-source.js";
+export type {
+  CodexSessionSource,
+  CodexSubAgentThreadSpawnSource,
+} from "./protocol-session-source.js";
 export { isRpcResponse } from "./protocol-json.js";
 export type {
   JsonObject,
@@ -246,20 +255,6 @@ export function assertCodexThreadForkParams(value: unknown): CodexThreadForkPara
 
 export type CodexThreadForkResponse = CodexThreadStartResponse;
 
-export const CODEX_INTERACTIVE_THREAD_SOURCE_KINDS = ["cli", "vscode"] as const;
-export const CODEX_INTERACTIVE_CUSTOM_THREAD_SOURCES = ["atlas", "chatgpt"] as const;
-
-type CodexThreadSourceKind =
-  | (typeof CODEX_INTERACTIVE_THREAD_SOURCE_KINDS)[number]
-  | "exec"
-  | "appServer"
-  | "subAgent"
-  | "subAgentReview"
-  | "subAgentCompact"
-  | "subAgentThreadSpawn"
-  | "subAgentOther"
-  | "unknown";
-
 export type CodexThreadListParams = JsonObject & {
   cursor?: string | null;
   limit?: number | null;
@@ -342,6 +337,7 @@ type CodexThreadUnarchiveResponse = {
 export type CodexThreadResumeResponse = {
   thread: CodexThread;
   model: string;
+  cwd: string;
   modelProvider?: string | null;
   initialTurnsPage?: CodexInitialTurnsPage | null;
 };
@@ -455,6 +451,9 @@ export type CodexTurn = {
 
 export type CodexThread = {
   id: string;
+  ephemeral?: boolean;
+  cliVersion?: string | null;
+  gitInfo?: { sha?: string | null; branch?: string | null; originUrl?: string | null } | null;
   forkedFromId?: string | null;
   parentThreadId?: string | null;
   sessionId?: string;
@@ -487,30 +486,6 @@ export type CodexThreadStatus =
   | { type: "idle" }
   | { type: "systemError" }
   | { type: "active"; activeFlags?: string[] };
-
-export type CodexSubAgentThreadSpawnSource = {
-  parent_thread_id: string;
-  depth?: number;
-  agent_path?: string | null;
-  agent_nickname?: string | null;
-  agent_role?: string | null;
-};
-
-type CodexSubAgentSource =
-  | "review"
-  | "compact"
-  | "memory_consolidation"
-  | { thread_spawn: CodexSubAgentThreadSpawnSource }
-  | { other: string };
-
-export type CodexSessionSource =
-  | "cli"
-  | "vscode"
-  | "exec"
-  | "appServer"
-  | "unknown"
-  | { custom: string }
-  | { subAgent: CodexSubAgentSource };
 
 export type CodexThreadStartedNotification = {
   thread: CodexThread;

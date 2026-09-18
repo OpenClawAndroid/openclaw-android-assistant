@@ -20,7 +20,7 @@ import {
   describeControlFailure,
   type CodexControlMethod,
 } from "./app-server/capabilities.js";
-import type { CodexAppServerClient, CodexCatalogListRequestKey } from "./app-server/client.js";
+import type { CodexAppServerClient } from "./app-server/client.js";
 import {
   resolveCodexAppServerRuntimeOptions,
   resolveCodexSupervisionAppServerRuntimeOptions,
@@ -42,6 +42,7 @@ import {
 } from "./app-server/request.js";
 import { createCodexSessionGenerationSupersededError } from "./app-server/session-binding.js";
 import { resumeCodexAppServerThread } from "./app-server/thread-resume.js";
+import type { CodexCatalogPreviewCache } from "./session-catalog-native-projection.js";
 
 export type SafeValue<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -61,7 +62,9 @@ export type CodexControlRequestOptions = {
   startOptions?: CodexAppServerStartOptions;
   timeoutMs?: number;
   assertCurrent?: () => void;
-  catalogListKey?: CodexCatalogListRequestKey;
+  catalogPreview?: true;
+  catalogPreviewCache?: CodexCatalogPreviewCache;
+  catalogRows?: number;
   controlObservation?: CodexControlRequestObservation;
   beforeRequest?: (
     request: CodexAppServerScopedRequest,
@@ -250,7 +253,13 @@ export async function codexControlRequest(
     sessionId: options.sessionId,
     agentDir: options.agentDir,
     isolated: options.isolated,
-    ...(options.catalogListKey ? { catalogListKey: options.catalogListKey } : {}),
+    ...(options.catalogPreview && method === "thread/list"
+      ? {
+          catalogPreview: true as const,
+          catalogPreviewCache: options.catalogPreviewCache,
+          catalogRows: options.catalogRows,
+        }
+      : {}),
     ...(options.controlObservation ? { controlObservation: options.controlObservation } : {}),
     ...auth.clientOptions,
   };

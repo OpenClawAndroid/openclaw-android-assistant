@@ -562,6 +562,17 @@
   content: "";
 }
 
+@media (hover: hover) {
+  .session-progress-card__summary::before {
+    opacity: 0;
+  }
+
+  .session-progress-card--composer:hover .session-progress-card__summary::before,
+  .session-progress-card__summary:focus-visible::before {
+    opacity: 1;
+  }
+}
+
 .session-progress-card__summary::-webkit-details-marker {
   display: none;
 }

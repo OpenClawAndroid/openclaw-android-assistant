@@ -402,13 +402,14 @@ function createPluginHandler(
         }
       : undefined,
     pinDeliveredMessage: outbound?.pinDeliveredMessage
-      ? async ({ target, messageId, pin, gatewayClientScopes }) =>
+      ? async ({ target, messageId, pin, gatewayClientScopes, assertDirectAdapterHandoff }) =>
           outbound.pinDeliveredMessage!({
             cfg: params.cfg,
             target,
             messageId,
             pin,
             gatewayClientScopes,
+            assertDirectAdapterHandoff,
           })
       : undefined,
     afterDeliverPayload: outbound?.afterDeliverPayload

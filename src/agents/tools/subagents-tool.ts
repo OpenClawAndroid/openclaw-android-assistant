@@ -9,7 +9,7 @@ import { readAcpSessionEntry } from "../../acp/runtime/session-meta.js";
 import { getRuntimeConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createAbortError } from "../../infra/abort-signal.js";
-import { listTaskRecordsUnsorted } from "../../tasks/runtime-internal.js";
+import { listTaskRecordsForOwnerTree } from "../../tasks/runtime-internal.js";
 import { readTaskBackingInstance } from "../../tasks/task-backing-records.js";
 import {
   withTaskCancellationContext,
@@ -71,7 +71,7 @@ type SubagentsToolOptions = {
   callerPolicySessionKey?: string;
   agentId?: string;
   config?: OpenClawConfig;
-  listTasks?: typeof listTaskRecordsUnsorted;
+  listTasks?: () => TaskRecord[];
   cancelTask?: typeof cancelDetachedTaskRunById;
 };
 
@@ -341,7 +341,7 @@ export function createSubagentsTool(opts: SubagentsToolOptions = {}): AnyAgentTo
       throw new Error("Leaf subagents cannot cancel other sessions.");
     }
     const tree = readTaskTree(
-      (opts.listTasks ?? listTaskRecordsUnsorted)(),
+      opts.listTasks?.() ?? listTaskRecordsForOwnerTree(current.allowedOwnerKeys),
       current.allowedOwnerKeys,
       current.controllerAgentId,
       current.cfg,
@@ -374,7 +374,7 @@ export function createSubagentsTool(opts: SubagentsToolOptions = {}): AnyAgentTo
       const readTreeTasks = () => {
         const current = readScope();
         return readTaskTree(
-          (opts.listTasks ?? listTaskRecordsUnsorted)(),
+          opts.listTasks?.() ?? listTaskRecordsForOwnerTree(current.allowedOwnerKeys),
           current.allowedOwnerKeys,
           current.controllerAgentId,
           current.cfg,
@@ -401,7 +401,7 @@ export function createSubagentsTool(opts: SubagentsToolOptions = {}): AnyAgentTo
       }
       const { cfg, controller, controllerAgentId, allowedOwnerKeys } = readScope();
       const treeTasks = readTaskTree(
-        (opts.listTasks ?? listTaskRecordsUnsorted)(),
+        opts.listTasks?.() ?? listTaskRecordsForOwnerTree(allowedOwnerKeys),
         allowedOwnerKeys,
         controllerAgentId,
         cfg,

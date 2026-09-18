@@ -8,7 +8,7 @@ import {
   deleteTaskRecordById,
   listTaskRecordsUnsorted,
   markTaskTerminalById,
-} from "../tasks/runtime-internal.js";
+} from "../tasks/task-registry.js";
 import { configureTaskRegistryRuntime } from "../tasks/task-registry.store.js";
 import { resetTaskRegistryForTests } from "../tasks/task-runtime.test-helpers.js";
 import { createInMemoryTaskRegistryStore } from "../test-utils/task-registry-store.js";

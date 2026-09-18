@@ -6,7 +6,7 @@ import {
   getAgentRunLifecycleGeneration,
   resolveProjectedAgentRunProgressState,
 } from "../infra/agent-run-registry.js";
-import { runWithGatewayIndependentRootWorkContinuation } from "../process/gateway-work-admission.js";
+import { runWithGatewayDetachedWorkContinuation } from "../process/gateway-work-admission.js";
 import { hasAuthoritativeTaskBacking, readTaskBackingInstance } from "./task-backing-authority.js";
 import { getTaskExecutionObservation } from "./task-execution-observation.js";
 import { shouldAutoDeliverTaskStateChange } from "./task-executor-policy.js";
@@ -196,7 +196,7 @@ async function publishProgressBatch(key: string, batch: TaskProgressBatch) {
   batch.publishing = true;
   const revision = batch.revision;
   try {
-    await runWithGatewayIndependentRootWorkContinuation(async () => {
+    await runWithGatewayDetachedWorkContinuation(async () => {
       if (!prepareProgressBatch(key, batch)) {
         return null;
       }

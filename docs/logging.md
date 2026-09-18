@@ -165,6 +165,13 @@ Console logs are **TTY-aware** and formatted for readability:
 - Subsystem prefixes (e.g. `gateway/channels/whatsapp`)
 - Level coloring (info/warn/error)
 - Optional compact or JSON mode
+- Structured fields on `warn`, `error`, and `fatal` records, appended as one
+  compact `key=value ...` tail (nested values as JSON, capped at 2 KiB) so
+  plain-text sinks such as journald keep the diagnostics; `info` and lower
+  console lines stay message-only, and the file log always carries the full record.
+  These fields go through the same redaction as the `json` console style before
+  they are flattened, so a sensitive key such as `apiToken` is masked by name and
+  the length cap can only clip text that is already masked
 
 Console formatting is controlled by `logging.consoleStyle`.
 
@@ -615,7 +622,7 @@ proof that the main event loop was blocked for the whole interval.
 
 The structured warning also includes `pid`, Node's `threadId`, and `isMainThread`
 for the opener emitting it. Inspect each `openclaw logs --json` event's original
-`raw` record; ordinary console text omits structured metadata.
+`raw` record; warn-level console text also carries these fields as `key=value` pairs.
 An opener on the main thread may have awaited an integrity Worker, so these
 fields do not identify the thread performing every phase. `admissionMode` records
 the actual `sync` or `async` open driver. Async admission offloads its initial
@@ -707,8 +714,8 @@ The timing fields separate the elapsed interval into:
 - `completionDelayMs`: time between callback completion and the caller resuming.
 
 These fields are available when the queued callback started and finished;
-`elapsedMs` records the total duration. Inspect the original `raw` record in
-`openclaw logs --json` to see the structured fields.
+`elapsedMs` records the total duration. The warning's console line carries the
+same fields as `key=value` pairs; `openclaw logs --json` shows the original `raw` record.
 
 Use `operation` to locate the owning code path. It does not identify a specific
 SQL statement, measure CPU time or lock contention, or establish that a nearby

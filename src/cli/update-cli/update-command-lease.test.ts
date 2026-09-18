@@ -80,6 +80,7 @@ vi.mock("../../infra/update-triage.js", () => ({
 import { convergeUpdatePlugins } from "./update-command-convergence.js";
 import { updateExecutorNativeEntrypoints } from "./update-command-executor-native-runtime.test-support.js";
 import { updateFinalizeCommand } from "./update-command-finalize.js";
+import { mockRepairManagedService } from "./update-command-lease-service.test-support.js";
 import type { LeaseScenario } from "./update-command-lease.test-support.js";
 import type { ProducedPluginUpdateResult } from "./update-command-plugins-internals.js";
 import { finishUpdate } from "./update-command-post-update.js";
@@ -272,6 +273,52 @@ it("passes standalone repair ownership to both fresh Doctor phases through the p
   ]);
   expect(process.env.OPENCLAW_UPDATE_RUN_ID).toBeUndefined();
 });
+
+it.each([
+  { failDoctor: undefined, restartFails: false },
+  { failDoctor: "pre", restartFails: false },
+  { failDoctor: undefined, restartFails: true },
+] as const)(
+  "the repair parent restores its managed service (Doctor failure=$failDoctor, restart failure=$restartFails)",
+  async ({ failDoctor, restartFails }) => {
+    const recovery = seedInterruptedPostCoreRun();
+    await writeScenario("repair", {
+      verifyRepairOwner: true,
+      verifyServiceCustody: true,
+      failDoctor,
+    });
+    const { serviceState, stop, restart } = await mockRepairManagedService(
+      state,
+      entrypoint,
+      restartFails,
+    );
+
+    await runRegisteredCli({
+      register: registerUpdateCli,
+      argv: ["update", "repair", "--yes", "--json", "--timeout", "15"],
+    });
+
+    expect(stop.mock.calls.filter(([params]) => params.phase !== "inspect")).toHaveLength(1);
+    expect(restart).toHaveBeenCalledOnce();
+    expect(await fs.readFile(serviceState, "utf8")).toBe(restartFails ? "stopped" : "running");
+    if (restartFails) {
+      expect(listUpdateRuns()[0]).toMatchObject({
+        status: "failed",
+        reason: "finalize:targetConfigConvergence",
+      });
+      const diagnostics = vi.mocked(defaultRuntime.error).mock.calls.flat().join("\n");
+      expect(diagnostics).toContain("managed Gateway could not be restored");
+      expect(diagnostics).toContain("openclaw gateway restart");
+      expect(getUpdateRun(recovery.runId)).toEqual(recovery);
+    } else if (failDoctor) {
+      expect(listUpdateRuns()[0]).toMatchObject({ status: "failed", reason: "doctor-failed" });
+      expect(getUpdateRun(recovery.runId)).toEqual(recovery);
+    } else {
+      expectSuccess("repair");
+      expectRecoveredRun(getUpdateRun(recovery.runId));
+    }
+  },
+);
 
 async function events(): Promise<string[]> {
   return (await fs.readFile(state.statePath("events.jsonl"), "utf8"))

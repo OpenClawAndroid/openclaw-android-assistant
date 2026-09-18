@@ -34,10 +34,7 @@ import { normalizeAccountId } from "../../routing/session-key.js";
 import { withChannelReadAuthority } from "../../shared/channel-read-authority.js";
 import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/message-channel.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
-import {
-  attachEmbeddedMessageDeliveryFact,
-  projectEmbeddedMessageDeliveryFact,
-} from "../embedded-agent-message-delivery.js";
+import * as embeddedMessageDelivery from "../embedded-agent-message-delivery.js";
 import { createSandboxBridgeReadFile } from "../sandbox-media-paths.js";
 import type { SandboxFsBridge } from "../sandbox/fs-bridge.js";
 import { type AnyAgentTool, jsonResult, readToolStringParam } from "./common.js";
@@ -698,10 +695,13 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
             (await isDeliveredCurrentSourceReplyAsync(sourceReply));
           // A completed provider write must settle even if its caller was revoked
           // while awaiting the accepted response. Its next request stays fenced.
-          if (!scheduledWrite) {
+          if (!scheduledWrite && !embeddedMessageDelivery.hasAcceptedBroadcastDelivery(result)) {
             assertActionCurrent();
           }
-          const messageDelivery = projectEmbeddedMessageDeliveryFact(result, currentSourceReply);
+          const messageDelivery = embeddedMessageDelivery.projectEmbeddedMessageDeliveryFact(
+            result,
+            currentSourceReply,
+          );
           groupThread.record(result, sourceReply, currentSourceReply, requestedSourceReplyFinal);
           if (
             messageDelivery?.status === "settled" &&
@@ -740,7 +740,7 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
           }
           const response = toolResult ?? jsonResult(result.payload);
           const notice = result.kind === "send" ? result.normalization?.notice : undefined;
-          return attachEmbeddedMessageDeliveryFact(
+          return embeddedMessageDelivery.attachEmbeddedMessageDeliveryFact(
             notice
               ? { ...response, content: [...response.content, { type: "text", text: notice }] }
               : response,

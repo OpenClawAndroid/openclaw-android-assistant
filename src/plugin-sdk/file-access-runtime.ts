@@ -25,6 +25,7 @@ export {
   assertNoSymlinkParents,
   assertNoSymlinkParentsSync,
   readFileHandleBounded,
+  resolvePathPrefixSync,
 } from "../infra/fs-safe-advanced.js";
 export { readFileWindowFully } from "../infra/file-read.js";
 export {

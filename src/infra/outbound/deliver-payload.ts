@@ -206,6 +206,7 @@ export async function maybePinDeliveredMessage(params: {
   target: ChannelOutboundTargetRef;
   messageId?: string;
   gatewayClientScopes?: readonly string[];
+  assertDirectAdapterHandoff?: () => void;
 }): Promise<void> {
   const pin = normalizeDeliveryPin(params.payload);
   if (!pin) {
@@ -232,11 +233,13 @@ export async function maybePinDeliveredMessage(params: {
     return;
   }
   try {
+    params.assertDirectAdapterHandoff?.();
     await params.handler.pinDeliveredMessage({
       target: params.target,
       messageId: params.messageId,
       pin,
       gatewayClientScopes: params.gatewayClientScopes,
+      assertDirectAdapterHandoff: params.assertDirectAdapterHandoff,
     });
   } catch (err) {
     if (pin.required) {

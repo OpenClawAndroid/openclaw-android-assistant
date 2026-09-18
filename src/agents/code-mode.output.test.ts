@@ -226,6 +226,56 @@ describe("Code Mode output provenance", () => {
   );
 
   it.each(["interactive", "headless"])(
+    "preserves JSON keys and typed-array numbers across %s suspension",
+    async (mode) => {
+      const expected: unknown = JSON.parse(`{
+        "keys": {"__proto__": {"kept": true}, "normal": 1},
+        "signed8": {"0": -1},
+        "signed16": {"0": -2},
+        "signed32": {"0": -3},
+        "float32": {"0": 1.5},
+        "float64": {"0": -2.5}
+      }`);
+      const code = `const value = {
+        keys: JSON.parse('{"__proto__":{"kept":true},"normal":1}'),
+        signed8: new Int8Array([-1]),
+        signed16: new Int16Array([-2]),
+        signed32: new Int32Array([-3]),
+        float32: new Float32Array([1.5]),
+        float64: new Float64Array([-2.5]),
+      };
+      json(value);
+      await yield_control();
+      json(value);
+      return value;`;
+      let result;
+      if (mode === "headless") {
+        result = await runCodeModeScriptHeadless({ ctx: createHeadlessCodeModeHarness(), code });
+      } else {
+        const h = createCodeModeHarness();
+        applyCodeModeCatalog({ ...h.ctx, tools: h.tools });
+        const first = resultDetails(await h.tools[0]!.execute("json-values", { code }));
+        expect(first.status).toBe("waiting");
+        const final = await waitUntilCompleted({ details: first, waitTool: h.tools[1]! });
+        result = {
+          ...final,
+          output: [...(first.output as unknown[]), ...(final.output as unknown[])],
+        };
+      }
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: "completed",
+          value: expected,
+          output: [
+            { type: "json", value: expected },
+            { type: "json", value: expected },
+          ],
+        }),
+      );
+    },
+  );
+
+  it.each(["interactive", "headless"])(
     "projects intact bridge data only when emitted through %s",
     async (mode) => {
       const payload = { text: "🦞".repeat(1000) };

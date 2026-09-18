@@ -5,6 +5,7 @@
  */
 import type { AgentToolResult } from "../../agents/runtime/index.js";
 import type { MessageActionAuthorization } from "../../gateway/message-action-turn-capability.js";
+import { assertOutboundHandoffCurrent } from "../../infra/outbound/deliver-handoff.js";
 import {
   prepareMessageActionWriteAuthority,
   withMessageActionWriteAuthority,
@@ -721,7 +722,7 @@ export async function dispatchChannelMessageAction(
       ) {
         return null;
       }
-      authorizedActionContext.assertDirectAdapterHandoff?.();
+      assertOutboundHandoffCurrent(authorizedActionContext.assertDirectAdapterHandoff);
       prepared.assertReadAuthorityCurrent?.();
       if (typeof match === "function") {
         prepared.assertAliasAuthorityCurrent();

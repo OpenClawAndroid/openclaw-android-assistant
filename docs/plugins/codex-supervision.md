@@ -170,16 +170,20 @@ Codex to inspect its full output.
 Open the **Codex** group in the normal sessions sidebar. It lists the same sessions
 grouped by host. **Load more sessions** appends the next page from each host that
 has older rows, and those appended rows survive the sidebar's periodic refresh.
-Each host appears as soon as its own native listing settles. The visible page
+Each host appears as soon as its resident catalog is ready. The visible page
 reconciles after node-connectivity changes, when it regains focus, and at most
 every 30 seconds. A changed result gets a faster follow-up pass. Sessions created
-in Codex Desktop, the CLI, or another native client therefore appear without a
-full page reload. The first page follows Codex's own most-recently-updated order.
-A fresh native fork remains readable by ID but can be absent from these lists
-until its first own user turn.
-Each returned search page scans a bounded number of native pages per host rather
-than sending the query to App Server, because native search can also match
-transcript previews.
+in Codex Desktop, the CLI, or another native client appear after the host's
+background directory reconciliation. Native events update threads driven by that
+Gateway without waiting for the periodic scan. Searches and pagination use the
+resident rows while the home fits in memory. The 20,000-row retained window never
+limits discovery: older pages and scoped searches fall back to native database-only
+paging, with opaque continuations for bounded partial results. An empty partial
+search page can still have a continuation. Exact-thread access also verifies older
+IDs against the authoritative source instead of treating eviction as absence.
+The first page follows recency order, preserving native order within timestamp ties and using a stable
+thread key for pagination. A fresh native fork remains readable by ID but can be absent from
+these lists until its first own user turn. See [catalog hydration and bounds](/plugins/codex-harness).
 
 Host availability and thread status are separate. **Offline** or **Unavailable**
 describes a host refresh. An unavailable host returns no fresh session rows and
@@ -187,13 +191,12 @@ does not change a thread's native status to `offline`. Session rows use Codex
 statuses such as `idle`, `active`, `notLoaded`, or error. A failed host does not
 hide results from healthy hosts.
 
-Concurrent reads of the same local source page share one native request. After
-two consecutive source failures, local catalog refreshes back off for 5 seconds,
-doubling after each failed recovery attempt up to 60 seconds. One recovery probe
-runs per agent and source home; other pages return the previous source error
-without waiting for another timeout. Previously cached pages remain available.
-A successful probe or configuration reload resets backoff. Paired nodes retain
-their separate eight-second foreground response deadline.
+All queries of the same local home share one resident index. Initial native
+hydration uses the existing source failure backoff; completed rows remain in
+memory and in the reconstructible SQLite snapshot. Normal list requests never
+restart discovery after a TTL. Paired nodes retain their separate eight-second
+foreground response deadline; upgrade their catalog reader to obtain resident
+listing on those hosts too.
 
 The sidebar hides the Codex group when it has no visible sessions, including
 when discovery fails. Normal discovery refreshes continue, so the group appears
@@ -630,7 +633,9 @@ budget and do not scan the full catalog. Missing, unreadable, inconsistent, or
 OpenClaw-managed metadata is not accepted. Refresh the catalog, verify the session
 in its native Codex home, and retry. This error does not prove that the thread
 does not exist. Ordinary discovery keeps its existing behavior. Remote sources
-continue to use native catalog verification.
+continue to use fresh native catalog verification, including when the requested ID
+is still resident or was evicted. Neither remote nor paired-node verification stops at a fixed
+catalog page count; the existing request deadline still bounds the operation.
 
 **Archive is disabled:** archive is available for stored/activity-unknown and
 idle Gateway-local rows after no-other-runner confirmation. Active, error,

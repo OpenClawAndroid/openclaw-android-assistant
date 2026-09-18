@@ -3,6 +3,7 @@
  * for native Codex turns.
  */
 import crypto from "node:crypto";
+import { codexAppIdentityKey } from "./app-identity.js";
 import { defaultCodexAppInventoryCache, CodexAppInventoryCache } from "./app-inventory-cache.js";
 import {
   resolveCodexPluginsPolicy,
@@ -112,7 +113,7 @@ type BuildCodexPluginThreadConfigParams = {
 
 // Admission changes must rebuild existing bindings too, or older bindings can
 // bypass updated app approval checks after the gateway has been upgraded.
-const CODEX_PLUGIN_THREAD_CONFIG_INPUT_FINGERPRINT_VERSION = 6;
+const CODEX_PLUGIN_THREAD_CONFIG_INPUT_FINGERPRINT_VERSION = 7;
 const CODEX_PLUGIN_THREAD_CONFIG_FINGERPRINT_VERSION = 2;
 
 /** Returns true when plugin config exists and thread config may need app patches. */
@@ -402,7 +403,7 @@ export async function buildCodexPluginThreadConfig(
     // An explicit plugin policy is more specific than the account-wide policy.
     // Reserve proven ownership even when activation/readiness fails so a broad
     // account policy cannot re-admit an app that the explicit path excluded.
-    if (pluginOwnedAppIds.has(app.id)) {
+    if (pluginOwnedAppIds.has(codexAppIdentityKey(app.id))) {
       continue;
     }
     const admissionConfig = await getAdmissionConfig();

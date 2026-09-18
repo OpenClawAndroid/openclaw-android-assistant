@@ -7,6 +7,8 @@ export type SessionLifecycleEvent = {
   parentSessionKey?: string;
   label?: string;
   displayName?: string;
+  /** The committed change affects model, account, or runtime catalog projection. */
+  catalogChanged?: true;
 } & (
   | { reason: string; swarmGroupId?: never; kind?: never; text?: never }
   | { reason: "swarm-note"; swarmGroupId: string; kind: "phase" | "log"; text: string }

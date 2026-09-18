@@ -33,10 +33,6 @@ import {
 import {
   withTaskRegistryMutation,
   syncFlowFromTaskAfterTaskMutation,
-  addOwnerKeyIndex,
-  addParentFlowIdIndex,
-  addRelatedSessionKeyIndex,
-  addRunIdIndex,
   bumpTaskRegistryRevision,
   emitTaskRegistryObserverEvent,
   ensureTaskRegistryReady,
@@ -44,6 +40,12 @@ import {
   taskDeliveryStates,
   tasks,
 } from "./task-registry-state.js";
+import {
+  addRunIdIndex,
+  addOwnerKeyIndex,
+  addParentFlowIdIndex,
+  addRelatedSessionKeyIndex,
+} from "./task-registry.process-state.js";
 import { tryPersistTaskUpsert } from "./task-registry.store.js";
 import {
   isTerminalTaskStatus,

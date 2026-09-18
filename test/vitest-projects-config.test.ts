@@ -43,6 +43,7 @@ import { createExtensionDatabaseWorkersVitestConfig } from "./vitest/vitest.exte
 import { createExtensionImessageVitestConfig } from "./vitest/vitest.extension-imessage.config.ts";
 import { createExtensionSlackVitestConfig } from "./vitest/vitest.extension-slack.config.ts";
 import { createExtensionsVitestConfig } from "./vitest/vitest.extensions.config.ts";
+import { diagnosticForksPool } from "./vitest/vitest.forks-pool.ts";
 import { createGatewayMethodsIsolatedVitestConfig } from "./vitest/vitest.gateway-methods-isolated.config.ts";
 import { createGatewayMethodsVitestConfig } from "./vitest/vitest.gateway-methods.config.ts";
 import { createGatewayServerIsolatedVitestConfig } from "./vitest/vitest.gateway-server-isolated.config.ts";
@@ -76,6 +77,8 @@ import { createUnitFastVitestConfig } from "./vitest/vitest.unit-fast.config.ts"
 
 const patternFiles = createPatternFileHelper("openclaw-vitest-projects-config-");
 const scopedGatewayMethodsIsolatedTestFiles = [
+  "server-methods/tasks.access.test.ts",
+  "server-methods/tasks.test.ts",
   "server-methods/agent.task-runtime.test.ts",
   "server-methods/agent.test.ts",
   "server-methods/board.runtime-boundaries.test.ts",
@@ -713,7 +716,7 @@ describe("projects vitest config", () => {
 
   it("keeps Slack's real cooldown store in its forked project", () => {
     const project = "test/vitest/vitest.extension-slack.config.ts";
-    expect(requireTestConfig(createExtensionSlackVitestConfig({})).pool).toBe("forks");
+    expect(requireTestConfig(createExtensionSlackVitestConfig({})).pool).toBe(diagnosticForksPool);
     expect(
       buildVitestRunPlans(["extensions/slack/src/monitor/presence-cooldown-store.test.ts"]).map(
         (plan) => plan.config,
@@ -738,7 +741,7 @@ describe("projects vitest config", () => {
       expect(
         fullSuiteVitestShards.find((shard) => shard.name === "extensions")?.projects,
       ).toContain(project);
-      expect(testConfig.pool).toBe("forks");
+      expect(testConfig.pool).toBe(diagnosticForksPool);
       expect(testConfig.isolate).toBe(true);
       expect(testConfig.include).toEqual([
         ...databaseWorkerExtensionTestRoots.map(
@@ -759,7 +762,7 @@ describe("projects vitest config", () => {
       const config = requireTestConfig(createExtensionDatabaseWorkersVitestConfig({}));
       expect(buildVitestRunPlans([file]).map((plan) => plan.config)).toEqual([project]);
       expect(config.include).toContain(file.replace(/^extensions\//u, ""));
-      expect(config.pool).toBe("forks");
+      expect(config.pool).toBe(diagnosticForksPool);
       expect(config.isolate).toBe(true);
     },
   );
@@ -799,7 +802,7 @@ describe("projects vitest config", () => {
       }
       const workerConfig = requireTestConfig(createExtensionDatabaseWorkersVitestConfig({}));
       expect(workerConfig.include).toContain(`imessage/src/${basename}`);
-      expect(workerConfig.pool).toBe("forks");
+      expect(workerConfig.pool).toBe(diagnosticForksPool);
       expect(workerConfig.isolate).toBe(true);
       expect(requireTestConfig(createExtensionImessageVitestConfig({})).exclude).toContain(
         `imessage/src/${basename}`,

@@ -35,6 +35,8 @@ import { MATRIX_IDB_PERSIST_INTERVAL_MS } from "./idb-persistence-lock.js";
 import { LogService, noop } from "./logger.js";
 import { MatrixMessageWireDispatchGuards } from "./message-wire-dispatch.js";
 import { MatrixRecoveryKeyStore } from "./recovery-key-store.js";
+import { captureMatrixSendCurrentness, withoutMatrixSendCurrentness } from "./send-currentness.js";
+import { MatrixSendScheduler } from "./send-scheduler.js";
 import { createMatrixGuardedFetch } from "./transport.js";
 import type { MatrixClientEventMap, MatrixCryptoBootstrapApi, MatrixRawEvent } from "./types.js";
 import type { MatrixVerificationSummary } from "./verification-manager.js";
@@ -135,9 +137,11 @@ export abstract class MatrixClientBase {
 
   private withClientCryptoWork<T>(run: () => T, requestSignal?: AbortSignal): T {
     this.assertClientActive();
-    return this.cryptoRequestOwner.run(
-      { callerAuthority: captureChannelReadAuthority(), requestSignal },
-      run,
+    return withoutMatrixSendCurrentness(() =>
+      this.cryptoRequestOwner.run(
+        { callerAuthority: captureChannelReadAuthority(), requestSignal },
+        run,
+      ),
     );
   }
 
@@ -180,6 +184,7 @@ export abstract class MatrixClientBase {
       ssrfPolicy: opts.ssrfPolicy,
       dispatcherPolicy: opts.dispatcherPolicy,
       captureRequestAuthority: this.captureRequestAuthority,
+      captureSendCurrentness: () => captureMatrixSendCurrentness(this),
       signal: this.requestAbortController.signal,
     });
     this.localTimeoutMs = resolveMatrixLocalTimeoutMs(opts.localTimeoutMs);
@@ -205,6 +210,12 @@ export abstract class MatrixClientBase {
       ssrfPolicy: opts.ssrfPolicy,
       dispatcherPolicy: opts.dispatcherPolicy,
       captureRequestAuthority: this.captureRequestAuthority,
+      captureSendCurrentness: (resource, init) =>
+        this.messageWireDispatchGuards.captureCurrentness(
+          resource,
+          init,
+          captureMatrixSendCurrentness(this),
+        ),
       signal: this.requestAbortController.signal,
       beforeRequest: async (resource, init) => {
         // Complete admitted key persistence before checking live wire authority.
@@ -220,6 +231,9 @@ export abstract class MatrixClientBase {
       logger: createMatrixJsSdkClientLogger("MatrixClient"),
       localTimeoutMs: this.localTimeoutMs,
       fetchFn: guardedFetch,
+      scheduler: new MatrixSendScheduler((event) =>
+        this.messageWireDispatchGuards.wasCurrentnessRejected(event.getTxnId()),
+      ),
       store: this.syncStore,
       cryptoCallbacks: cryptoCallbacks as never,
       verificationMethods: [

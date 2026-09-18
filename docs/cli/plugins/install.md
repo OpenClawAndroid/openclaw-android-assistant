@@ -76,6 +76,8 @@ Default `--limit` is 20, capped at 100. It only reads the remote catalog: no
 local state inspection, config mutation, package install, or plugin runtime
 load. Results include the ClawHub package name, family, channel, version,
 summary, and an install hint such as `openclaw plugins install clawhub:<package>`.
+Human output adds `v` only to numeric version labels, preserving existing prefixes
+and build names. JSON output keeps the original version values.
 
 <Note>
 Default official installs follow the catalog's declared source order.

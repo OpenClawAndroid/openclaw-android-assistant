@@ -36,6 +36,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 const maintenance = vi.hoisted(() => ({
   run: <T>(operation: () => T): T => operation(),
   finish: vi.fn(),
+  releaseState: vi.fn(),
   release: vi.fn(),
 }));
 afterEach(() => vi.restoreAllMocks());

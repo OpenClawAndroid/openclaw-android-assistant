@@ -418,6 +418,7 @@ export async function applySessionModelSelection(
       sessionKey: params.sessionKey,
       agentId: params.agentId,
       reason: "patch",
+      catalogChanged: true,
     });
     triggerSessionPatchHook({
       cfg: params.cfg,

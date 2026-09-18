@@ -73,6 +73,10 @@ function snapshotToken(directory: string, mode: "create" | "read" | "reclaim"): 
         db.exec("BEGIN IMMEDIATE");
       }
       db.exec("PRAGMA user_version=1; COMMIT");
+    } else if (db.isTransaction) {
+      // Bun can retain statements after close_v2; end the transaction now so
+      // a released worker cannot keep its parent's retirement commit locked.
+      db.exec("ROLLBACK");
     }
     db.close();
   };

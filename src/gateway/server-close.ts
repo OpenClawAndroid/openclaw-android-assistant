@@ -481,6 +481,7 @@ export async function completeGatewayClose(
       clearInterval(params.maintenance.worktreeCleanup);
       params.maintenance.skillUsageCleanup();
     }
+    await shutdownStep("telemetry", () => params.maintenance?.stopTelemetryChecks(), warnings);
     await shutdownStep(
       "session-cold-storage",
       () => params.maintenance?.stopSessionColdStorageMaintenance(),

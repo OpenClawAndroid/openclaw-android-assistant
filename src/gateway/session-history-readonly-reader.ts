@@ -30,7 +30,7 @@ import type { GatewaySessionStoreReadSources } from "./session-utils-store.types
 export function createBoundSessionHistorySubagentProjection(
   readSnapshot: <T>(read: (projection: CurrentTranscriptProjection) => T) => T,
   stateDatabase: PreparedSessionHistoryReadTarget["stateDatabase"],
-  sourceDatabases: GatewaySessionStoreReadSources | undefined,
+  readSourceDatabases: () => GatewaySessionStoreReadSources | undefined,
 ): SubagentCoordinationDisplayResolver {
   const sources = new Map<string, boolean>();
   const runs = new Map<
@@ -49,6 +49,7 @@ export function createBoundSessionHistorySubagentProjection(
     // Retired native children retain their canonical key. ACP lineage additionally
     // requires current metadata from its separately bound shared-state owner.
     const sourceAgentId = parseAgentSessionKey(sessionKey)?.agentId;
+    const sourceDatabases = readSourceDatabases();
     const ownSource = { agentId: projection.database.agentId, path: projection.database.path };
     const hasPreparedSource = Boolean(
       sourceAgentId && sourceDatabases && Object.hasOwn(sourceDatabases, sourceAgentId),
@@ -138,6 +139,7 @@ export function createBoundSessionHistorySubagentProjection(
 }
 
 export function createReadonlySessionHistoryReader(target: PreparedSessionHistoryReadTarget) {
+  const sourceDatabases = target.sourceDatabases;
   const readSnapshot = <T>(read: (projection: CurrentTranscriptProjection) => T): T => {
     const result = withScopedOpenClawAgentDatabaseReadOnly(
       (database) =>
@@ -183,7 +185,7 @@ export function createReadonlySessionHistoryReader(target: PreparedSessionHistor
     subagentCoordination: createBoundSessionHistorySubagentProjection(
       readSnapshot,
       target.stateDatabase,
-      target.sourceDatabases,
+      () => sourceDatabases,
     ),
   };
 }

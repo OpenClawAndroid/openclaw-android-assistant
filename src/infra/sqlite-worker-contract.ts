@@ -104,3 +104,18 @@ export function retainSqliteWorkerErrorCode(error: Error, source: unknown): Erro
   }
   return error;
 }
+
+/** Recognize canonical broker errors without admitting cleanup aggregates for retry. */
+export function isSqliteWorkerError(
+  error: unknown,
+  code: SqliteWorkerError["code"],
+): error is SqliteWorkerError {
+  if (!(error instanceof Error) || error instanceof AggregateError) {
+    return false;
+  }
+  try {
+    return Object.getOwnPropertyDescriptor(error, retainedWorkerErrorCode)?.value === code;
+  } catch {
+    return false;
+  }
+}

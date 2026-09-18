@@ -22,6 +22,7 @@ import { withEnvAsync } from "../../test-utils/env.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { createGatewayBroadcaster } from "../server-broadcast.js";
 import { createSessionMessageSubscriberRegistry } from "../server-chat-state.js";
+import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
 import { GatewayClientRegistry } from "../server/client-registry.js";
 import type { GatewayWsClient } from "../server/ws-types.js";
 import { isSessionCreatorProfile, prepareSessionCreatorProfile } from "../session-creator.js";
@@ -610,6 +611,8 @@ describe("creator preparation at synchronous fan-out boundaries", () => {
       setActivePluginRegistry(registry);
       const respond = vi.fn();
       const broadcastToConnIds = vi.fn();
+      const context = createDirectChatContext({ broadcastToConnIds });
+      await initializeSessionReadContext(context);
       profileAliases.readUserProfileAliases(callerId);
       const observer = observeAliasRootProbes(stateDir);
       try {
@@ -617,7 +620,7 @@ describe("creator preparation at synchronous fan-out boundaries", () => {
           params: { progressId: "preparation" },
           respond,
           client: { ...identifiedClient(callerId), connId: "fixture" },
-          context: { getRuntimeConfig: () => ({}), broadcastToConnIds },
+          context,
         } as never);
       } finally {
         setActivePluginRegistry(previousRegistry);

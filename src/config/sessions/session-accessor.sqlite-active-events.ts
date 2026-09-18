@@ -74,6 +74,7 @@ export type SessionTranscriptBoundedMessageTailPage = SessionTranscriptMessageEv
   scannedMessages: number;
   serializedBytes: number;
   snapshot: {
+    boundarySeq?: number;
     generation?: string;
     indexedSeq: number;
   };
@@ -538,10 +539,10 @@ export function readRecentSessionTranscriptMessageEvents(
   });
 }
 
-/** Reads one tail-relative message page with index range predicates, never OFFSET scanning. */
+/** Reads a message page from either end with index range predicates, never OFFSET scanning. */
 export function readSessionTranscriptMessageEventPage(
   scope: SessionTranscriptReadScope,
-  options: { maxMessages: number; offset: number },
+  options: { maxMessages: number; offset: number; offsetFrom?: "start" | "end" },
 ): SessionTranscriptMessageEventPage {
   return withCurrentProjectionSnapshot(scope, (projection) => {
     const visible = resolveVisibleMessagePositions(projection);
@@ -554,8 +555,11 @@ export function readSessionTranscriptMessageEventPage(
       0,
       Math.floor(Number.isFinite(options.maxMessages) ? options.maxMessages : 0),
     );
-    const endExclusive = Math.max(0, totalMessages - offset);
-    const start = Math.max(0, endExclusive - maxMessages);
+    const endExclusive =
+      options.offsetFrom === "start"
+        ? Math.min(totalMessages, offset + maxMessages)
+        : totalMessages - offset;
+    const start = options.offsetFrom === "start" ? offset : Math.max(0, endExclusive - maxMessages);
     return {
       activeLeafEntryId: projection.state.leafEventId,
       events: readVisibleMessageRange(projection, start, endExclusive),
@@ -572,6 +576,7 @@ export function readSessionTranscriptBoundedMessageTailPage(
   return withCurrentProjectionSnapshot(scope, (projection) => {
     const visible = resolveVisibleMessagePositions(projection);
     const snapshot = {
+      boundarySeq: resolveTranscriptBoundaryWindow(projection)?.boundarySeq,
       generation: projection.generation,
       indexedSeq: projection.state.indexedSeq,
     };

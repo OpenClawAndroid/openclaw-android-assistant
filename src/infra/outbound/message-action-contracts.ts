@@ -159,6 +159,7 @@ export type MessageActionResult =
           to: string;
           ok: boolean;
           error?: string;
+          attempted?: false;
           sentBeforeError?: true;
           payload?: unknown;
           result?: MessageSendResult;
@@ -199,9 +200,14 @@ function resolveMessageSendOutcome(
       return {
         ok: false,
         error: `${action} send suppressed: ${sendResult.suppressionReason ?? "unknown reason"}.`,
+        ...(sendResult.sentBeforeError ? { sentBeforeError: true } : {}),
       };
     case "failed":
-      return { ok: false, error: sendResult.error ?? `${action} send failed.` };
+      return {
+        ok: false,
+        error: sendResult.error ?? `${action} send failed.`,
+        ...(sendResult.sentBeforeError ? { sentBeforeError: true } : {}),
+      };
     case "partial_failed":
       return {
         ok: false,

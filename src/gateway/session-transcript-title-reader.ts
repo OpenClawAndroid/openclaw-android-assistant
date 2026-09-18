@@ -2,6 +2,7 @@
 // cache so list rendering never rescans transcripts that have not changed.
 import {
   isSessionTranscriptProjectionUnavailableError,
+  readSessionTranscriptBoundedMessageTailPage,
   readSessionTranscriptMessageEventPage,
   readSessionTranscriptWatermark,
   type SessionTranscriptMessageEvent,
@@ -29,15 +30,20 @@ const EMPTY_SESSION_TITLE_FIELDS: SessionTitleFields = {
 // this many active-path messages from either end, widening only once.
 const SQLITE_TITLE_PROBE_INITIAL_MESSAGES = 20;
 const SQLITE_TITLE_PROBE_MAX_MESSAGES = 100;
-const SQLITE_TITLE_FIELD_CACHE_MAX_ENTRIES = 256;
+const SQLITE_TITLE_TAIL_PROBE_MAX_BYTES = 64 * 1024;
+// Hold a several-thousand-session working set with headroom; entries retain only tokens and bounded text.
+const SQLITE_TITLE_FIELD_CACHE_MAX_ENTRIES = 8192;
 
 type SqliteTitleFieldCacheEntry = ReturnType<typeof readSessionTranscriptWatermark> & {
-  fields: Partial<Record<"default" | "includeInterSession", SessionTitleFields>>;
+  boundarySeq?: number;
+  totalMessages: number;
+  firstUserMessages: Partial<
+    Record<"default" | "includeInterSession", { text: string | null; scannedMessages: number }>
+  >;
+  lastMessagePreview: string | null;
 };
 
-// Appends advance maxSeq while rewind, fork, and compaction rotate generation. Both tokens must
-// match or stale titles can survive transcript replacement. Actively streaming sessions therefore
-// miss by design; bounded probes limit that load while this LRU still serves idle rows.
+// Found titles survive appends only while the rewrite generation and visible reset window stay fixed.
 const sqliteTitleFieldCache = new Map<string, SqliteTitleFieldCacheEntry>();
 
 function sqliteTitleFieldCacheKey(target: SessionTranscriptReadTarget): string {
@@ -63,7 +69,8 @@ function readSqliteTitleProbeRange(
   }
   return readSessionTranscriptMessageEventPage(scope, {
     maxMessages: end - boundedStart,
-    offset: totalMessages - end,
+    offset: boundedStart,
+    offsetFrom: "start",
   }).events;
 }
 
@@ -97,6 +104,36 @@ function findLastMessageText(
   return text;
 }
 
+function readSqliteTitleTailProbe(
+  scope: SessionTranscriptReadScope,
+  maxMessages: number,
+  offset: number,
+) {
+  const page = readSessionTranscriptBoundedMessageTailPage(scope, {
+    maxMessages,
+    maxBytes: SQLITE_TITLE_TAIL_PROBE_MAX_BYTES,
+    offset,
+  });
+  const newest = page.newestContiguousEventCount
+    ? page.events.slice(-page.newestContiguousEventCount)
+    : [];
+  let text = findLastMessageText(newest);
+  if (text === null && page.newestContiguousEventCount < page.scannedMessages) {
+    // An omitted message could own the preview. Preserve the existing message-count bound
+    // when the byte-bounded suffix alone cannot establish the newest visible text.
+    text = findLastMessageText(
+      readSessionTranscriptMessageEventPage(scope, { maxMessages, offset }).events,
+    );
+  }
+  return {
+    text,
+    totalMessages: page.totalMessages,
+    generation: page.snapshot.generation ?? null,
+    maxSeq: page.snapshot.indexedSeq,
+    boundarySeq: page.snapshot.boundarySeq,
+  };
+}
+
 function copySessionTitleText(text: string | null): string | null {
   // V8 slices can pin whole transcript payloads behind a short cached preview.
   // Copy UTF-16 code units so ownership changes without altering lone surrogates.
@@ -115,61 +152,72 @@ function hydrateSqliteTitleFields(
       return { ...EMPTY_SESSION_TITLE_FIELDS };
     }
     const variant = opts?.includeInterSession === true ? "includeInterSession" : "default";
-    const cached = sqliteTitleFieldCache.get(cacheKey);
-    const current =
-      cached?.generation === watermark.generation && cached.maxSeq === watermark.maxSeq;
-    const cachedFields = current ? cached.fields[variant] : undefined;
-    if (cached && cachedFields) {
+    const entry = sqliteTitleFieldCache.get(cacheKey);
+    const cached = entry?.generation === watermark.generation ? entry : undefined;
+    const current = cached?.maxSeq === watermark.maxSeq;
+    const cachedTitle = cached?.firstUserMessages[variant];
+    if (
+      cached &&
+      current &&
+      cachedTitle &&
+      (cachedTitle.text !== null ||
+        cachedTitle.scannedMessages >=
+          Math.min(cached.totalMessages, SQLITE_TITLE_PROBE_MAX_MESSAGES))
+    ) {
       setSqliteTitleFieldCache(cacheKey, cached);
-      return { ...cachedFields };
+      return {
+        firstUserMessage: cachedTitle.text,
+        lastMessagePreview: cached.lastMessagePreview,
+      };
     }
-    const tail = readSessionTranscriptMessageEventPage(scope, {
-      maxMessages: SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
-      offset: 0,
-    });
-    let lastText = findLastMessageText(tail.events);
-    if (!lastText && tail.totalMessages > SQLITE_TITLE_PROBE_INITIAL_MESSAGES) {
-      lastText = findLastMessageText(
-        readSqliteTitleProbeRange(
-          scope,
-          tail.totalMessages,
-          tail.totalMessages - SQLITE_TITLE_PROBE_MAX_MESSAGES,
-          tail.totalMessages - SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
-        ),
-      );
+    const tail = current
+      ? {
+          text: cached.lastMessagePreview,
+          totalMessages: cached.totalMessages,
+          generation: cached.generation,
+          maxSeq: cached.maxSeq,
+          boundarySeq: cached.boundarySeq,
+        }
+      : readSqliteTitleTailProbe(scope, SQLITE_TITLE_PROBE_INITIAL_MESSAGES, 0);
+    let lastText = tail.text;
+    if (!current && !lastText && tail.totalMessages > SQLITE_TITLE_PROBE_INITIAL_MESSAGES) {
+      lastText = readSqliteTitleTailProbe(
+        scope,
+        SQLITE_TITLE_PROBE_MAX_MESSAGES - SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
+        SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
+      ).text;
     }
-    const head =
-      tail.totalMessages <= SQLITE_TITLE_PROBE_INITIAL_MESSAGES
-        ? tail.events
-        : readSqliteTitleProbeRange(
-            scope,
-            tail.totalMessages,
-            0,
-            SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
-          );
-    let firstText = findFirstTitleUserText(head, opts?.includeInterSession === true);
-    if (!firstText && tail.totalMessages > SQLITE_TITLE_PROBE_INITIAL_MESSAGES) {
-      firstText = findFirstTitleUserText(
-        readSqliteTitleProbeRange(
-          scope,
-          tail.totalMessages,
-          SQLITE_TITLE_PROBE_INITIAL_MESSAGES,
-          SQLITE_TITLE_PROBE_MAX_MESSAGES,
-        ),
-        opts?.includeInterSession === true,
-      );
+    const firstUserMessages =
+      cached?.generation === tail.generation && cached.boundarySeq === tail.boundarySeq
+        ? cached.firstUserMessages
+        : {};
+    const head = firstUserMessages[variant];
+    let firstText = head?.text ?? null;
+    let scannedMessages = head?.scannedMessages ?? 0;
+    // A missing title can appear on append. Inspect only new rows within the bounded head.
+    for (const limit of [SQLITE_TITLE_PROBE_INITIAL_MESSAGES, SQLITE_TITLE_PROBE_MAX_MESSAGES]) {
+      const end = Math.min(tail.totalMessages, limit);
+      if (!firstText && scannedMessages < end) {
+        firstText = findFirstTitleUserText(
+          readSqliteTitleProbeRange(scope, tail.totalMessages, scannedMessages, end),
+          opts?.includeInterSession === true,
+        );
+        scannedMessages = end;
+      }
     }
     const fields = {
       firstUserMessage: copySessionTitleText(firstText),
       lastMessagePreview: copySessionTitleText(lastText),
     };
-    const fieldsByVariant = current ? cached.fields : {};
-    fieldsByVariant[variant] = fields;
+    firstUserMessages[variant] = { text: fields.firstUserMessage, scannedMessages };
     // Retain only the watermark and bounded strings, never the probe's transcript payloads.
     setSqliteTitleFieldCache(cacheKey, {
-      generation: watermark.generation,
-      maxSeq: watermark.maxSeq,
-      fields: fieldsByVariant,
+      generation: tail.generation,
+      maxSeq: tail.maxSeq,
+      boundarySeq: tail.boundarySeq,
+      totalMessages: tail.totalMessages,
+      firstUserMessages,
+      lastMessagePreview: fields.lastMessagePreview,
     });
     return { ...fields };
   } catch (error) {

@@ -1,5 +1,7 @@
 import { sliceUtf16Safe, truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { z } from "zod";
+import { LEGACY_UPDATE_RUN_EXPIRED_REASON } from "./update-run-legacy-expiry.js";
+import type { UpdateRunRecoveryState } from "./update-run-recovery-state.js";
 import type { UpdateRunRecordSchema } from "./update-run-schema.js";
 import type { UpdateStepResult } from "./update-runner-types.js";
 
@@ -86,6 +88,27 @@ export function summarizeUpdateStepFailure(
 export type UpdateRunRecord = z.infer<typeof UpdateRunRecordSchema>;
 export type UpdateRunPhase = UpdateRunRecord["phase"];
 export type UpdateRunStep = UpdateRunRecord["steps"][number];
+
+// Record recovery depends on legacy expiry for its reason; both use the leaf recovery-state type.
+export function isAbandonedUpdateRun(
+  record: Pick<UpdateRunRecoveryState, "status" | "reason">,
+): boolean {
+  return (
+    record.status === "failed" &&
+    (record.reason === "abandoned" || record.reason === LEGACY_UPDATE_RUN_EXPIRED_REASON)
+  );
+}
+
+export function isAcknowledgedAbandonedUpdateRun(
+  record: Pick<UpdateRunRecoveryState, "status" | "reason" | "steps">,
+): boolean {
+  return (
+    isAbandonedUpdateRun(record) &&
+    record.steps.some(
+      (step) => step.step === "reconcile:acknowledged" && step.status === "completed",
+    )
+  );
+}
 
 export type FinishUpdateRunResult = {
   status: Exclude<UpdateRunRecord["status"], "running">;

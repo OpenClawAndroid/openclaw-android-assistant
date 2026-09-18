@@ -25,7 +25,6 @@ const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 
 vi.mock("./zca-client.js", () => ({
   createZalo: createZaloMock,
-  TextStyle: { Indent: 9 },
 }));
 
 import { getZalouserRuntime, setZalouserRuntime } from "./runtime.js";

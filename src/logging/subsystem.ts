@@ -14,7 +14,7 @@ import {
 } from "./console.js";
 import { type LogLevel, levelToMinLevel } from "./levels.js";
 import { getChildLogger, isFileLogLevelEnabled } from "./logger.js";
-import { redactSensitiveText } from "./redact.js";
+import { redactLogRecordForTransport, redactSensitiveText } from "./redact.js";
 import { loggingState } from "./state.js";
 
 type LogObj = { date?: Date } & Record<string, unknown>;
@@ -322,6 +322,69 @@ function shouldSuppressProbeConsoleLine(params: {
   return /(sessionId|runId)=probe-/.test(message);
 }
 
+const CONSOLE_META_LEVELS = new Set<LogLevel>(["warn", "error", "fatal"]);
+const CONSOLE_META_MAX_CHARS = 2048;
+
+function formatConsoleMetaValue(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return /\s|=/.test(value) || value.length === 0 ? JSON.stringify(value) : value;
+  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  // Redaction returned parsed JSON, so anything left is a plain array or object.
+  return JSON.stringify(value);
+}
+
+/** Keeps an Error's message, which a JSON round-trip would otherwise reduce to `{}`. */
+function prepareConsoleMetaRecord(meta: Record<string, unknown>): Record<string, unknown> {
+  let prepared: Record<string, unknown> | undefined;
+  for (const [key, value] of Object.entries(meta)) {
+    if (value instanceof Error) {
+      prepared ??= { ...meta };
+      prepared[key] = value.message;
+    }
+  }
+  return prepared ?? meta;
+}
+
+/**
+ * Renders structured fields as one compact `key=value` tail so warn/error/fatal
+ * records keep their diagnostics in plain-text sinks such as journald, which only
+ * see the console line. The JSON console style and the file sink carry the same
+ * fields natively, so only plain styles call this.
+ *
+ * Fields pass through the shared console transport redactor before flattening, so
+ * key-aware protection such as `apiToken` survives the loss of structure and the
+ * length cap can only clip text that is already masked. That redactor also owns
+ * circular references, bigints, and values with no JSON form, and returns parsed
+ * data, so rendering a value here cannot re-enter a stateful `toJSON`.
+ */
+function formatConsoleMeta(meta: Record<string, unknown>): string {
+  let redacted: Record<string, unknown>;
+  try {
+    redacted = redactLogRecordForTransport(prepareConsoleMetaRecord(meta), { format: "console" });
+  } catch {
+    // A record this sink cannot serialize must not cost the console its message.
+    // The file log and `openclaw logs --json` remain the full-fidelity record.
+    return "";
+  }
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(redacted)) {
+    const rendered = formatConsoleMetaValue(value);
+    if (rendered !== undefined) {
+      parts.push(`${key}=${rendered}`);
+    }
+  }
+  const joined = parts.join(" ");
+  return joined.length > CONSOLE_META_MAX_CHARS
+    ? `${joined.slice(0, CONSOLE_META_MAX_CHARS)}...(truncated)`
+    : joined;
+}
+
 function logToFile(
   fileLogger: TsLogger<LogObj>,
   level: LogLevel,
@@ -377,7 +440,18 @@ export function createSubsystemLogger(subsystem: string): SubsystemLogger {
     if (!consoleEnabled) {
       return;
     }
-    const consoleMessage = consoleMessageOverride ?? message;
+    // An explicit consoleMessage is the owner's chosen console text; only default
+    // warn/error/fatal console lines carry the structured fields. The JSON style
+    // serializes the same fields itself, so it must not also flatten them here.
+    const consoleMeta =
+      consoleSettings.style !== "json" &&
+      consoleMessageOverride === undefined &&
+      fileMeta &&
+      CONSOLE_META_LEVELS.has(level)
+        ? formatConsoleMeta(fileMeta)
+        : "";
+    const consoleMessage =
+      consoleMessageOverride ?? (consoleMeta ? `${message} ${consoleMeta}` : message);
     if (
       shouldSuppressProbeConsoleLine({
         level,

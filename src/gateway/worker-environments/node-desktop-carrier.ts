@@ -114,7 +114,7 @@ function launchKey(binding: NodeDesktopBinding, app: WorkerDesktopApp): string {
 /** Carries one durable worker environment's desktop over its private node connection. */
 export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrierOptions) {
   let runtime: WorkerNodeCarrierRuntime | undefined;
-  const claimedEpochs = new Map<string, number>();
+  const ownedEnvironmentIds = new Set<string>();
   const activeStreams = new Set<ActiveNodeDesktopStream>();
   const activeLaunches = new Map<string, ActiveNodeDesktopLaunch>();
 
@@ -199,10 +199,6 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
       }
       throw error;
     }
-    const previousEpoch = claimedEpochs.get(binding.environmentId);
-    if (previousEpoch === undefined || binding.ownerEpoch > previousEpoch) {
-      claimedEpochs.set(binding.environmentId, binding.ownerEpoch);
-    }
     if (!advanced) {
       return;
     }
@@ -244,6 +240,7 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
     assertRequesterCurrent();
     // Publish ownership before discovery can yield so drain/destroy can abort this attempt.
     activeStreams.add(active);
+    ownedEnvironmentIds.add(binding.environmentId);
     try {
       await claimOwner(binding);
       assertRequesterCurrent();
@@ -422,6 +419,7 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
     };
     // Stateful launch is visible to teardown before node discovery or dispatch begins.
     activeLaunches.set(key, entry);
+    ownedEnvironmentIds.add(binding.environmentId);
     void operation
       .finally(() => {
         if (activeLaunches.get(key) === entry) {
@@ -440,9 +438,7 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
   };
 
   const stopAll = async (): Promise<void> => {
-    await Promise.all(
-      [...claimedEpochs].map(([environmentId, ownerEpoch]) => stop(environmentId, ownerEpoch)),
-    );
+    await Promise.all([...ownedEnvironmentIds].map((environmentId) => stop(environmentId)));
   };
 
   return {

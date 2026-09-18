@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_CLIENT_IDS } from "../../../packages/gateway-protocol/src/client-info.js";
+import { createDeferred } from "../../../test/helpers/promise.js";
 import { NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE } from "../../infra/node-runner-inventory.js";
 import type { NodeDesktopStreamBroker } from "../desktop/node-stream-broker.js";
 import * as observeBridge from "../desktop/observe-bridge.js";
@@ -250,6 +251,72 @@ describe("worker node desktop carrier", () => {
     }
   });
 
+  it("joins a retiring epoch when stopAll interrupts its replacement", async () => {
+    const record = support.seedReadyNodeDesktop("worker-desktop-replacement-stop");
+    let current = record;
+    const transport = pendingTransport({
+      proof: nodeProof(record.nodeDeviceId!),
+      isProofCurrent: () => true,
+    });
+    const invocation =
+      createDeferred<Awaited<ReturnType<NodeWorkerSupervisorTransport["invoke"]>>>();
+    const completionOrder: string[] = [];
+    transport.invoke.mockImplementation(async () => {
+      const result = await invocation.promise;
+      completionOrder.push("invocation");
+      return result;
+    });
+    const streamed = fakeBroker();
+    const registry = createDesktopSessionRegistry();
+    await registry.activate({ sourceKey: "host", ownerEpoch: 1 });
+    const closeHost = vi.fn();
+    const hostViewer = registry.attachObserver("host", {
+      ownerEpoch: 1,
+      control: true,
+      close: closeHost,
+    });
+    expect(hostViewer).toBeDefined();
+    const carrier = createWorkerNodeDesktopCarrier({
+      store: { get: () => current },
+      desktopRegistry: registry,
+    });
+    const controller = new AbortController();
+    const requester = {
+      signal: controller.signal,
+      isCurrent: () => !controller.signal.aborted,
+    };
+    const canceledResult = { ok: false, error: { code: "ABORTED", message: "invoke aborted" } };
+    carrier.bindRuntime({ transport: transport.transport, streamBroker: streamed.broker });
+    try {
+      const observing = carrier.observe({ record, control: false, requester });
+      await support.waitForFast(() => expect(transport.invoke).toHaveBeenCalledOnce());
+      const stream = streamed.attachNext();
+      await observing;
+      current = { ...record, ownerEpoch: record.ownerEpoch + 1 };
+      const replacement = carrier.observe({ record: current, control: false, requester }).then(
+        () => true,
+        () => false,
+      );
+      expect(transport.invoke.mock.calls[0]?.[0].signal?.aborted).toBe(true);
+      expect(stream.destroyed).toBe(true);
+      const stopping = carrier.stopAll().then(() => {
+        completionOrder.push("stop");
+      });
+      await setImmediate();
+      invocation.resolve(canceledResult);
+      await stopping;
+      expect(await replacement).toBe(false);
+      expect(transport.invoke).toHaveBeenCalledOnce();
+      expect(completionOrder).toEqual(["invocation", "stop"]);
+      expect(closeHost).not.toHaveBeenCalled();
+    } finally {
+      invocation.resolve(canceledResult);
+      controller.abort();
+      await carrier.stopAll();
+      await registry.stopAll();
+    }
+  });
+
   it("observes an exact durable node desktop without SSH and preauthenticates it", async () => {
     const mint = vi.spyOn(observeBridge, "mintDesktopObserverToken");
     const client = { invalidated: false };
@@ -306,6 +373,42 @@ describe("worker node desktop carrier", () => {
     proofCurrent = false;
     await carrier.stop(record.environmentId, record.ownerEpoch);
     expect(streamed.streams[0]?.destroyed).toBe(true);
+  });
+
+  it("cancels and joins an admitted app launch before its first microtask", async () => {
+    const record = support.seedReadyNodeDesktop("worker-desktop-queued-launch-stop");
+    const transport = pendingTransport({
+      proof: nodeProof(record.nodeDeviceId!),
+      isProofCurrent: () => true,
+    });
+    transport.invoke.mockResolvedValue({ ok: true, payloadJSON: '{"status":"ready"}' });
+    const carrier = createWorkerNodeDesktopCarrier({
+      store: support.testState.store,
+      desktopRegistry: createDesktopSessionRegistry(),
+    });
+    carrier.bindRuntime({ transport: transport.transport, streamBroker: fakeBroker().broker });
+    const completionOrder: string[] = [];
+    const launched = carrier.launchApp({ record, app: support.DESKTOP.apps![0]! }).then(
+      () => {
+        completionOrder.push("launch");
+        return undefined;
+      },
+      (error: unknown) => {
+        completionOrder.push("launch");
+        return error;
+      },
+    );
+    const stopping = carrier.stopAll().then(() => {
+      completionOrder.push("stop");
+    });
+    try {
+      const [error] = await Promise.all([launched, stopping]);
+      expect(error).toMatchObject({ message: "Worker environment node desktop owner stopped" });
+      expect(transport.invoke).not.toHaveBeenCalled();
+      expect(completionOrder).toEqual(["launch", "stop"]);
+    } finally {
+      await carrier.stopAll();
+    }
   });
 
   it.each([

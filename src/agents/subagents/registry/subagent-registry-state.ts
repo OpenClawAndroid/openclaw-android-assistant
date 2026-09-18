@@ -4,7 +4,6 @@ import {
   emitSessionLifecycleEvent,
   type SessionLifecycleEvent,
 } from "../../../sessions/session-lifecycle-events.js";
-import { sessionChanges } from "../../../sessions/session-row-changes.js";
 import { isStateDatabaseReadAdmissionInvalidatedError } from "../../../state/openclaw-state-db-async-lifecycle.js";
 import { captureOpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.js";
 import type { OpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.types.js";
@@ -13,6 +12,7 @@ import {
   projectSubagentRunForSessionList,
 } from "./subagent-delivery-state.js";
 import { subagentRuns } from "./subagent-registry-memory.js";
+import { publishSubagentRunChanges } from "./subagent-registry-publication.js";
 import type { SubagentRunReadRecord } from "./subagent-registry-read.types.js";
 /**
  * Subagent registry state persistence bridge.
@@ -139,14 +139,7 @@ type SubagentRegistryPersistListener = () => void;
 const SUBAGENT_REGISTRY_PERSIST_LISTENERS = new Set<SubagentRegistryPersistListener>();
 
 function emitSubagentRegistryPersisted(keys?: Array<string | undefined>): void {
-  if (!keys?.length) {
-    sessionChanges.emit({ all: true, scope: "subagent-runs" });
-  }
-  for (const sessionKey of new Set(keys)) {
-    if (sessionKey) {
-      sessionChanges.emit({ sessionKey });
-    }
-  }
+  publishSubagentRunChanges(keys);
   for (const listener of SUBAGENT_REGISTRY_PERSIST_LISTENERS) {
     try {
       listener();

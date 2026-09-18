@@ -274,7 +274,6 @@ export function workerProbe(
     import fs from 'node:fs';
     import path from 'node:path';
     import { fileURLToPath } from 'node:url';
-    import { DatabaseSync } from 'node:sqlite';
     import { Worker } from 'node:worker_threads';
     import { it, expect, vi, inject } from 'vitest';
     import {value} from '#fixture-value';
@@ -321,7 +320,7 @@ export function workerProbe(
       }
       const dir = fs.mkdtempSync(${JSON.stringify(path.join(directory, "database-"))});
       const file = path.join(dir, 'probe.sqlite');
-      const db = new DatabaseSync(file);
+      const db = openNodeSqliteDatabase(file);
       db.exec("CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES ('current source');");
       db.close();
       try {

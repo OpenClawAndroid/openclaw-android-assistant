@@ -124,8 +124,8 @@ describe("runIsolatedCompletion", () => {
       mocks.resolveCliRuntimeCanonicalProvider.mockReturnValue(
         provider === "claude-cli" ? "anthropic" : undefined,
       );
-      mocks.resolveEffectiveAgentRuntime.mockReturnValue(
-        provider === "anthropic" ? "claude-cli" : "codex",
+      mocks.resolveCliRuntimeExecutionProvider.mockReturnValue(
+        provider === "anthropic" ? "claude-cli" : undefined,
       );
       mocks.isCliRuntimeAliasForProvider.mockImplementation(
         ({ runtime, provider: modelProvider }) =>

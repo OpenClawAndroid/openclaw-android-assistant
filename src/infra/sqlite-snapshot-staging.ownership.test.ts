@@ -5,12 +5,16 @@ import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { setLoggerOverride } from "../logging/logger.js";
 import { testApi } from "../logging/logger.test-support.js";
-import { requireNodeSqlite } from "./node-sqlite.js";
-import { removeTempDirectory } from "./sqlite-readonly-location-cleanup.js";
+import * as nodeSqlite from "./node-sqlite.js";
+import {
+  releaseSnapshotTempDirectory,
+  removeTempDirectory,
+} from "./sqlite-readonly-location-cleanup.js";
 import {
   createSqliteSnapshotStagingDirectory,
   prepareSqliteReadOnlyLocationSyncInProcess,
 } from "./sqlite-readonly-location.js";
+import { createSqliteSnapshotStagingDirectorySync } from "./sqlite-snapshot-staging.js";
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
   afterEach(async () => {
@@ -39,14 +43,14 @@ function createFixture() {
   const cache = path.join(root, "cache");
   const source = path.join(root, "source.sqlite");
   fs.mkdirSync(cache);
-  const database = new (requireNodeSqlite().DatabaseSync)(source);
+  const database = new (nodeSqlite.requireNodeSqlite().DatabaseSync)(source);
   database.exec("CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES('preserved');");
   database.close();
   return { root, cache, source };
 }
 
 function assertReadable(location: string) {
-  const database = new (requireNodeSqlite().DatabaseSync)(location, { readOnly: true });
+  const database = new (nodeSqlite.requireNodeSqlite().DatabaseSync)(location, { readOnly: true });
   try {
     expect(database.prepare("SELECT value FROM probe").get()).toEqual({ value: "preserved" });
   } finally {
@@ -79,6 +83,42 @@ function runChild(script: string, signal?: NodeJS.Signals) {
   }
   return result.stdout;
 }
+
+it("releases snapshot transactions before deferred native close can block parent retirement", () => {
+  const cache = tempDirs.make("sqlite-staging-deferred-close-");
+  const open = nodeSqlite.openNodeSqliteDatabase;
+  const closeHandles: (() => void)[] = [];
+  vi.spyOn(nodeSqlite, "openNodeSqliteDatabase").mockImplementation((...args) => {
+    const database = open(...args);
+    const close = database.close.bind(database);
+    closeHandles.push(() => {
+      if (database.isOpen) {
+        close();
+      }
+    });
+    // Bun's close_v2 leaves transactions locked while statements await GC.
+    vi.spyOn(database, "close").mockImplementation(() => {
+      if (!database.isTransaction) {
+        close();
+      }
+    });
+    return database;
+  });
+  try {
+    const parent = createSqliteSnapshotStagingDirectorySync(cache);
+    const child = createSqliteSnapshotStagingDirectorySync(parent);
+    fs.writeFileSync(path.join(child, "database.sqlite"), "private snapshot");
+    releaseSnapshotTempDirectory(child);
+    const failures: unknown[] = [];
+    expect(removeTempDirectory(parent, (error) => failures.push(error))).toBe(true);
+    expect(failures).toEqual([]);
+    expect(fs.existsSync(parent)).toBe(false);
+  } finally {
+    for (const close of closeHandles.toReversed()) {
+      close();
+    }
+  }
+});
 
 it("keeps timers responsive while async allocation reclaims a legacy backlog", async () => {
   const { root, cache } = createFixture();

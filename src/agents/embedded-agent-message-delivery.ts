@@ -103,7 +103,24 @@ function visitPluginEnvelope(
 
 const PLUGIN_SIGNALS = {
   dryRun: (record: Record<string, unknown>, status: string | undefined) =>
-    record.dryRun === true || status === "dry_run",
+    record.dryRun === true || status === "dry_run" || normalizeStatus(record.status) === "dry_run",
+  failure: (record: Record<string, unknown>) =>
+    record.ok === false ||
+    record.success === false ||
+    record.isError === true ||
+    record.delivered === false ||
+    record.complete === false ||
+    Boolean(record.error) ||
+    [record.status, record.deliveryStatus].some((value) => {
+      const status = normalizeStatus(value);
+      return (
+        status === "error" ||
+        status === "incomplete" ||
+        status === "partial_failed" ||
+        status === "dry_run" ||
+        (status !== undefined && NON_DELIVERY_STATUSES.has(status))
+      );
+    }),
   partial: (record: Record<string, unknown>, status: string | undefined) =>
     record.sentBeforeError === true ||
     record.visibleReplySent === true ||
@@ -294,8 +311,13 @@ export function projectEmbeddedMessageDeliveryFact(
   }));
   const facts = entries.flatMap(({ fact }) => (fact ? [fact] : []));
   const settled = facts.find((fact) => fact.status === "settled");
-  if (settled || entries.some(({ entry, fact }) => entry.ok && !entry.result && !fact)) {
-    return settled;
+  if (settled) {
+    return entries.some(({ entry }) => !entry.ok) && !settled.partialDelivery
+      ? { ...settled, partialDelivery: true }
+      : settled;
+  }
+  if (entries.some(({ entry, fact }) => entry.ok && !entry.result && !fact)) {
+    return undefined;
   }
   return (
     facts.find((fact) => fact.status === "suppressed") ??
@@ -304,6 +326,14 @@ export function projectEmbeddedMessageDeliveryFact(
       partialDelivery: false,
       createdThreadIds: [],
     }
+  );
+}
+
+export function hasAcceptedBroadcastDelivery(result: MessageActionResult): boolean {
+  return (
+    !result.dryRun &&
+    result.kind === "broadcast" &&
+    result.payload.results.some((entry) => entry.ok || entry.sentBeforeError)
   );
 }
 

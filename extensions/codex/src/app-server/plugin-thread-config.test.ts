@@ -35,6 +35,129 @@ describe("Codex plugin thread config", () => {
     defaultCodexAppInventoryCache.clear();
   });
 
+  it.each([
+    {
+      name: "Apps SDK manifest and legacy runtime",
+      manifestPrefix: "asdk_app_",
+      runtimePrefix: "connector_",
+      denied: undefined,
+      pluginEnabled: true,
+      allowAll: false,
+      accessible: true,
+      expected: true,
+    },
+    {
+      name: "legacy manifest and Apps SDK runtime",
+      manifestPrefix: "connector_",
+      runtimePrefix: "asdk_app_",
+      denied: undefined,
+      pluginEnabled: true,
+      allowAll: false,
+      accessible: true,
+      expected: true,
+    },
+    {
+      name: "explicit manifest ID denial",
+      manifestPrefix: "asdk_app_",
+      runtimePrefix: "connector_",
+      denied: "asdk_app_",
+      pluginEnabled: true,
+      allowAll: false,
+      accessible: true,
+      expected: false,
+    },
+    {
+      name: "explicit runtime ID denial",
+      manifestPrefix: "asdk_app_",
+      runtimePrefix: "connector_",
+      denied: "connector_",
+      pluginEnabled: true,
+      allowAll: false,
+      accessible: true,
+      expected: false,
+    },
+    {
+      name: "disabled plugin under account-wide policy",
+      manifestPrefix: "asdk_app_",
+      runtimePrefix: "connector_",
+      denied: undefined,
+      pluginEnabled: false,
+      allowAll: true,
+      accessible: true,
+      expected: false,
+    },
+    {
+      name: "unavailable account metadata",
+      manifestPrefix: "asdk_app_",
+      runtimePrefix: "connector_",
+      denied: undefined,
+      pluginEnabled: true,
+      allowAll: false,
+      accessible: false,
+      expected: false,
+    },
+  ])("resolves installed app identity for $name", async (testCase) => {
+    const suffix = "0123456789abcdef0123456789abcdef";
+    const manifestId = `${testCase.manifestPrefix}${suffix}`;
+    const runtimeId = `${testCase.runtimePrefix}${suffix}`;
+    const nativeApps = {
+      [runtimeId]: { enabled: true },
+      unrelated: { enabled: true },
+      ...(testCase.denied ? { [`${testCase.denied}${suffix}`]: { enabled: false } } : {}),
+    };
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "plugin/installed") {
+        return pluginInstalled([pluginSummary("sample", { installed: true, enabled: true })]);
+      }
+      if (method === "plugin/read") {
+        return pluginDetail("sample", [appSummary(manifestId)]);
+      }
+      if (method === "app/installed" || method === "app/read") {
+        return codexAppInventoryResponse(
+          method,
+          [appInfo(runtimeId, testCase.accessible)],
+          params as CodexAppServerRequestParams<typeof method>,
+        );
+      }
+      if (method === "config/read") {
+        return {
+          config: { apps: nativeApps },
+          layers: [{ name: { type: "user" }, config: { apps: nativeApps } }],
+        };
+      }
+      throw new Error(`unexpected request ${method}`);
+    });
+    const result = await buildCodexPluginThreadConfig({
+      appCache: new CodexAppInventoryCache(),
+      appCacheKey: "identity-test",
+      request,
+      pluginConfig: {
+        codexPlugins: {
+          enabled: true,
+          allow_all_plugins: testCase.allowAll,
+          plugins: {
+            sample: {
+              enabled: testCase.pluginEnabled,
+              marketplaceName: CODEX_PLUGINS_MARKETPLACE_NAME,
+              pluginName: "sample",
+            },
+          },
+        },
+      },
+    });
+    expect(Object.hasOwn(result.policyContext.apps, runtimeId)).toBe(testCase.expected);
+    expect(Object.hasOwn(result.policyContext.apps, manifestId)).toBe(false);
+    if (testCase.expected) {
+      expect(result.configPatch?.apps).toMatchObject({
+        [runtimeId]: { enabled: true },
+        unrelated: { enabled: false },
+      });
+      expect(result.policyContext.pluginAppIds.sample).toContain(runtimeId);
+      expect(result.provisionalAppIds).toEqual([runtimeId]);
+      expect(request).toHaveBeenCalledWith("app/read", { appIds: [runtimeId], includeTools: true });
+    }
+  });
+
   it("keeps approval checks conservative when tool metadata is absent", () => {
     expect(resolveOwnedAppApprovalOverrideKeys(appInfo("linear", true))).toStrictEqual({});
     expect(

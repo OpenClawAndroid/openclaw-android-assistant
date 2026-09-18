@@ -344,7 +344,7 @@
 
 .chat-group-footer-actions button,
 .chat-group-footer .chat-send-status__action {
-  opacity: var(--chat-footer-action-opacity, var(--chat-footer-disclosure-opacity, 0));
+  opacity: var(--chat-footer-disclosure-opacity, 0);
   pointer-events: var(--chat-footer-disclosure-pointer-events, none);
 }
 
@@ -362,8 +362,15 @@
 }
 
 @media (hover: hover) {
-  .chat-group--latest-assistant {
-    --chat-footer-action-opacity: 0.6;
+  .chat-group:focus-within .chat-group-footer-actions button,
+  .chat-group:focus-within .chat-message-actions-row button {
+    opacity: 0.6;
+    pointer-events: auto;
+  }
+}
+
+@media (hover: none) {
+  .chat-group--latest-assistant > .chat-group-footer {
     --chat-footer-disclosure-opacity: 1;
     --chat-footer-disclosure-pointer-events: auto;
   }

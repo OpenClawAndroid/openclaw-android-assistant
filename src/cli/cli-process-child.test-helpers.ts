@@ -2,19 +2,20 @@
 // deadlock guard each, and failures that always carry the child's own output.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach } from "vitest";
+import {
+  collectNodeDiagnosticReport,
+  NODE_DIAGNOSTIC_REPORT_GRACE_MS as REPORT_GRACE_MS,
+} from "../../scripts/lib/node-diagnostic-report.mts";
 import { resolveVitestNodeArgs } from "../../scripts/lib/vitest-process-env.mts";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { DEFAULT_VITEST_TEST_TIMEOUT_MS } from "../../test/vitest/vitest.timeouts.js";
 
 const OUTPUT_TAIL_CHARS = 8_000;
 const DIAGNOSTIC_GRACE_MS = 200;
-const REPORT_GRACE_MS = 2_000;
 const reportDirs = useAutoCleanupTempDirTracker(afterEach);
 const diagnosticPreload = fileURLToPath(
   new URL("./cli-process-diagnostics.test-support.cjs", import.meta.url),
@@ -22,69 +23,6 @@ const diagnosticPreload = fileURLToPath(
 
 function withoutDiagnosticReadiness(stderr: string): string {
   return stderr.replace(/^\[cli-process-diagnostics\] ready pid=\d+\r?\n/gmu, "");
-}
-
-type CliProcessReport = {
-  threadId?: number;
-  javascriptStack: Record<string, unknown>;
-  nativeStack: unknown[];
-  libuv: unknown[];
-  workers: CliProcessReport[];
-};
-
-function projectDiagnosticReport(report: unknown): CliProcessReport | undefined {
-  if (
-    !isRecord(report) ||
-    !isRecord(report.javascriptStack) ||
-    !Array.isArray(report.nativeStack) ||
-    !Array.isArray(report.libuv)
-  ) {
-    return undefined;
-  }
-  // Reports also contain argv, environment, host, and network metadata; never log those sections.
-  const threadId = isRecord(report.header) ? report.header.threadId : undefined;
-  return {
-    ...(typeof threadId === "number" ? { threadId } : {}),
-    javascriptStack: report.javascriptStack,
-    nativeStack: report.nativeStack,
-    libuv: report.libuv.map((handle) => {
-      if (!isRecord(handle)) {
-        return handle;
-      }
-      // Node's network exclusion flag retains socket and named-pipe endpoints.
-      const { localEndpoint: _local, remoteEndpoint: _remote, ...execution } = handle;
-      return execution;
-    }),
-    workers: Array.isArray(report.workers)
-      ? report.workers.map(projectDiagnosticReport).filter((worker) => worker !== undefined)
-      : [],
-  };
-}
-
-function collectDiagnosticReport(reportPath: string): Promise<string> {
-  const startedAt = performance.now();
-  return new Promise((resolve) => {
-    const finish = (report: string) => {
-      clearInterval(poll);
-      clearTimeout(deadline);
-      resolve(report);
-    };
-    const poll = setInterval(() => {
-      try {
-        const report = projectDiagnosticReport(JSON.parse(fs.readFileSync(reportPath, "utf8")));
-        // Preserve the existing grace for the child's JS diagnostic and trailing pipe output.
-        if (report && performance.now() - startedAt >= DIAGNOSTIC_GRACE_MS) {
-          finish(JSON.stringify(report, null, 2));
-        }
-      } catch {
-        // Node writes directly to the report file; it may not exist or be complete yet.
-      }
-    }, 50);
-    const deadline = setTimeout(
-      () => finish(`No complete Node diagnostic report captured within ${REPORT_GRACE_MS}ms.`),
-      REPORT_GRACE_MS,
-    );
-  });
 }
 
 function releaseCliProcessChild(child: ChildProcessWithoutNullStreams): string[] {
@@ -304,7 +242,11 @@ export async function runCliProcessChild(params: {
           try {
             if (child.kill("SIGUSR2")) {
               diagnosticRequest = `SIGUSR2 requested; report grace<=${REPORT_GRACE_MS}ms`;
-              void collectDiagnosticReport(path.join(reportDir, "diagnostic.json")).then(finish);
+              // Preserve the child's JS diagnostic and trailing pipe output grace.
+              void collectNodeDiagnosticReport(
+                path.join(reportDir, "diagnostic.json"),
+                DIAGNOSTIC_GRACE_MS,
+              ).then(finish);
               return;
             }
           } catch (error) {

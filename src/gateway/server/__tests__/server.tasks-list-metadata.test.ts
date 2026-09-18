@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "vitest";
 import type { TasksListResult } from "../../../../packages/gateway-protocol/src/index.js";
 import { loadSessionEntry } from "../../../config/sessions/session-accessor.js";
-import { listTaskRecordsUnsorted } from "../../../tasks/runtime-internal.js";
+import { listTaskRecordsUnsorted } from "../../../tasks/task-registry.js";
 import { configureTaskRegistryRuntime } from "../../../tasks/task-registry.store.js";
 import type { TaskRecord } from "../../../tasks/task-registry.types.js";
 import { resetTaskRegistryForTests } from "../../../tasks/task-runtime.test-helpers.js";

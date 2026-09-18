@@ -21,6 +21,7 @@ import { ensureProfileForEmail } from "../state/user-profiles.js";
 import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import * as usageFormat from "../utils/usage-format.js";
 import type { GatewayClient } from "./server-methods/types.js";
+import * as sessionOrder from "./session-list-order.js";
 import * as projectionWork from "./session-projection-work.js";
 import { createSessionRowProjection, type SessionRowProjection } from "./session-row-projection.js";
 import { createSessionRowProjectionFixture } from "./session-row-projection.test-support.js";
@@ -47,6 +48,46 @@ import { writeResidentEntries } from "./session-utils.perf.test-support.js";
  * are the actual scaling failure mode we care about.
  */
 describe("session list resolver cache", () => {
+  test("bounds first-page comparisons while preserving the latest-row order", async () => {
+    await withStateDirEnv("openclaw-list-order-work-", async () => {
+      resetPluginRuntimeStateForTest();
+      setActivePluginRegistry(createEmptyPluginRegistry());
+      const cfg: OpenClawConfig = {
+        agents: { entries: { main: {} }, defaults: { thinkingDefault: "off" } },
+      };
+      resetConfigRuntimeState();
+      setRuntimeConfigSnapshot(cfg);
+      const count = 256;
+      const store = Object.fromEntries(
+        Array.from({ length: count }, (_, index) => [
+          `agent:main:ordered-${index}`,
+          { sessionId: `ordered-${index}`, updatedAt: ((index * 71) % count) + 1 },
+        ]),
+      );
+      writeResidentEntries(store);
+      const projection = await createSessionRowProjection({ cfg });
+      try {
+        await projection.ensureMaterialized();
+        const compare = vi.spyOn(sessionOrder, "compareSessionEntryPairs");
+        try {
+          const result = await listProjectedSessions({ projection, opts: { limit: 5 } });
+          expect(result.sessions.map((row) => row.key)).toEqual(
+            Object.entries(store)
+              .toSorted((a, b) => b[1].updatedAt - a[1].updatedAt)
+              .slice(0, 5)
+              .map(([key]) => key),
+          );
+          expect(result.totalCount).toBe(count);
+          expect(compare.mock.calls.length).toBeLessThanOrEqual(count * 4);
+        } finally {
+          compare.mockRestore();
+        }
+      } finally {
+        projection.dispose();
+      }
+    });
+  });
+
   test.each(["entries", "list"] as const)(
     "bounds owner roster traversal for %s and observes the next request's roster",
     (kind) => {

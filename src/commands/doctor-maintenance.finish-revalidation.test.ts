@@ -111,6 +111,7 @@ type StoppedUnitState =
   | "legacy-gateway-lifecycle-contended";
 type Continuation =
   | "own"
+  | "own-child"
   | "manual"
   | "competing"
   | "foreign"
@@ -187,6 +188,13 @@ async function runDoctorFinishForStoppedUnit(
   scenario: StoppedUnitState,
   continuation?: Continuation,
   legacyCatalog?: LegacyCatalog,
+  custody:
+    | "owned"
+    | "copied"
+    | "copied-release"
+    | "consumed"
+    | "released"
+    | "released-during-inspection" = "owned",
 ): Promise<{
   finishError: unknown;
   restartCalls: number;
@@ -194,6 +202,7 @@ async function runDoctorFinishForStoppedUnit(
   takeoverSteps: number;
   runStatus: string | undefined;
   inspectionElapsedMs: number | undefined;
+  unauthorizedRestarts: number;
 }> {
   const home = tempDirs.make("openclaw-doctor-finish-");
   mocks.coordinatorRuntimeDir = home;
@@ -372,6 +381,7 @@ async function runDoctorFinishForStoppedUnit(
       let inspectionClock = 0;
       let competingUpdateStarted = false;
       let otherOwner: ReturnType<typeof tryAcquireExclusiveSqliteCoordinator> | undefined;
+      let releaseDuringInspection: (() => Promise<void>) | undefined;
       const legacyGatewayPid = process.pid + 100_000;
       if (scenario === "legacy-gateway-lifecycle-contended") {
         vi.spyOn(gatewayLock, "readActiveGatewayLockIdentity").mockResolvedValue({
@@ -405,6 +415,7 @@ async function runDoctorFinishForStoppedUnit(
           hasInstalledDefinition: async () => true,
           isLoaded: async () => scenario === "retained" || boundedInspection,
           readCommand: async (_env, opts) => {
+            await releaseDuringInspection?.();
             if (++commandReads === 2) {
               activateCompetingUpdate?.();
               if (continuation === "lost-before-stop" && runId) {
@@ -487,6 +498,12 @@ async function runDoctorFinishForStoppedUnit(
           restart,
         }),
       );
+      const parentOwnsService =
+        continuation === "own" || continuation?.includes("before-") === true;
+      if (parentOwnsService) {
+        vi.stubEnv("OPENCLAW_UPDATE_RUN_ID", undefined);
+        vi.stubEnv("OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION", undefined);
+      }
       const logs: string[] = [];
       const databasePath = path.join(home, ".openclaw", "state", "openclaw.sqlite");
       const coordinator =
@@ -504,6 +521,7 @@ async function runDoctorFinishForStoppedUnit(
         : undefined;
       const maintenance = await beginDoctorMaintenance({
         root: process.cwd(),
+        ...(parentOwnsService ? { runId } : {}),
         options: { repair: true },
         runtime: {
           log: (...args: Array<unknown>) => {
@@ -522,6 +540,25 @@ async function runDoctorFinishForStoppedUnit(
         }
       });
       expect(maintenance).toBeDefined();
+      if (continuation === "own" && !legacyCatalog) {
+        await maintenance?.releaseState();
+        await withEnvAsync(
+          {
+            OPENCLAW_UPDATE_RUN_ID: runId,
+            OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION: "0",
+          },
+          async () => {
+            const child = await beginDoctorMaintenance({
+              root: process.cwd(),
+              options: { repair: true },
+              runtime: { log: () => {}, error: () => {}, exit: () => {} },
+            });
+            await child?.finish({});
+          },
+        );
+        expect(mocks.stops).toBe(1);
+        expect(restart).not.toHaveBeenCalled();
+      }
       if (legacyCatalog) {
         expect(() => maintenance?.run(() => listUpdateRuns())).toThrow();
       }
@@ -554,10 +591,28 @@ async function runDoctorFinishForStoppedUnit(
         );
       }
       let finishError: unknown;
-      try {
+      if (custody === "consumed") {
         await maintenance?.finish({});
+      } else if (custody === "released") {
+        await maintenance?.release();
+        await maintenance?.release();
+      } else if (custody === "released-during-inspection") {
+        releaseDuringInspection = () => maintenance!.release();
+      }
+      const restartsBefore = restart.mock.calls.length;
+      try {
+        const receiver = custody.startsWith("copied") ? { ...maintenance! } : maintenance;
+        if (custody === "copied-release") {
+          await receiver?.release();
+        } else {
+          await receiver?.finish({});
+        }
       } catch (error) {
         finishError = error;
+      }
+      const unauthorizedRestarts = restart.mock.calls.length - restartsBefore;
+      if (custody.startsWith("copied")) {
+        await maintenance?.finish({});
       }
       assertCatalogUnchanged();
       const savedRun = runId && !legacyCatalog ? getUpdateRun(runId) : undefined;
@@ -569,10 +624,26 @@ async function runDoctorFinishForStoppedUnit(
           savedRun?.steps.filter((step) => step.step === "finalize:repair-takeover").length ?? 0,
         runStatus: savedRun?.status,
         inspectionElapsedMs,
+        unauthorizedRestarts,
       };
     },
   );
 }
+
+it.each([
+  "copied",
+  "copied-release",
+  "consumed",
+  "released",
+  "released-during-inspection",
+] as const)("refuses %s maintenance custody without another service mutation", async (custody) => {
+  const result = await runDoctorFinishForStoppedUnit("retained", undefined, undefined, custody);
+  expect(result.finishError).toMatchObject({
+    message: expect.stringContaining("live maintenance owner"),
+  });
+  expect(result.unauthorizedRestarts).toBe(0);
+  expect(result.restartCalls).toBe(custody.startsWith("released") ? 0 : 1);
+});
 
 it("admits exact legacy catalog reads for an owned running service without repairing it", async () => {
   const result = await runDoctorFinishForStoppedUnit("retained", undefined, "exact");
@@ -681,10 +752,17 @@ it.each(["foreign", "unrecorded", "unknown-adopter"] as const)(
         ? "other-host.invalid"
         : continuation === "unknown-adopter"
           ? "unrecorded adopter"
-          : "update parent owns Gateway activation",
+          : "update parent must stop the managed Gateway",
     );
   },
 );
+
+it("never lets the Doctor child stop or restart its parent's running service", async () => {
+  await expect(runDoctorFinishForStoppedUnit("retained", "own-child")).rejects.toThrow(
+    "update parent must stop the managed Gateway",
+  );
+  expect(mocks.stops).toBe(0);
+});
 
 it("rechecks continuation before stopping the service", async () => {
   await expect(runDoctorFinishForStoppedUnit("retained", "lost-before-stop")).rejects.toThrow(

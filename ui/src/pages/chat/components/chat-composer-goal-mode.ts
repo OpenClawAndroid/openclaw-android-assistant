@@ -76,6 +76,21 @@ export function createGoalComposerController(
     requestUpdate();
     focus();
   };
+  // Only incomplete creation commands become forms. Populated commands and
+  // lifecycle actions retain their text-command interpretation.
+  const activateDraft = (draft: string, submitting = false) => {
+    if (current() || !props.connected || !props.canSend || !props.onGoalSubmit) {
+      return false;
+    }
+    const match = /^\s*\/goal(?:\s+(start|set|create))?\s*$/iu.exec(draft);
+    // A separator commits the action word; do not consume prefixes such as
+    // /goal starting while the user is still typing an ordinary objective.
+    if (!match || (!submitting && (!match[1] || !/\s$/u.test(draft)))) {
+      return false;
+    }
+    begin();
+    return true;
+  };
   return {
     get active() {
       return current() !== null;
@@ -88,6 +103,13 @@ export function createGoalComposerController(
       return mode ? t(mode.action === "edit" ? "chat.goals.save" : "chat.goals.start") : undefined;
     },
     begin,
+    activateDraft,
+    // Argument selection commits the draft before requesting command submission.
+    submitCommand: () => {
+      if (!activateDraft(props.getDraft?.() ?? props.draft, true)) {
+        void props.onSend();
+      }
+    },
     activateCommand(command: SlashCommandDef) {
       if (
         command.key !== "goal" ||

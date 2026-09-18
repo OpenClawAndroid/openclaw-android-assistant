@@ -15,6 +15,7 @@ await fs.writeFile(
 );
 const [runtimeProcessEntrypointsJson, scenario, ...args] = process.argv.slice(2);
 const borrowed = scenario?.startsWith("borrowed-");
+const repairDeadline = scenario === "repair-deadline";
 const blockedChildSource = `
 const fs = require('node:fs');
 process.title = 'node fixture-private-argument';
@@ -45,6 +46,7 @@ export async function doctorCommand() {
   if (process.env.OPENCLAW_UPDATE_PARENT_ALLOWS_GATEWAY_ACTIVATION !== '0') {
     throw new Error('Update Doctor unexpectedly allowed gateway activation');
   }
+  ${repairDeadline ? `if ((await fs.readFile(${JSON.stringify(path.join(process.env.OPENCLAW_STATE_DIR!, "managed-service-state"))}, 'utf8')) !== 'stopped') throw new Error('Doctor ran before the parent parked its service');` : ""}
   intro('OpenClaw doctor');
   note('Doctor panel diagnostic', 'Repair');
   if (!process.argv.includes('--no-workspace-suggestions')) note('Doctor workspace diagnostic', 'Workspace');
@@ -175,8 +177,9 @@ export const preparePostCorePluginConfig = async () => ({
     `export const resolveGatewayInstallEntrypoint = async () => ${JSON.stringify(installedEntry)};`,
   ],
 ]);
-const blockedPhase =
-  scenario === "doctor-hang" || scenario === "doctor-progress"
+const blockedPhase = repairDeadline
+  ? "plugins"
+  : scenario === "doctor-hang" || scenario === "doctor-progress"
     ? "doctor"
     : scenario === "phase-hang"
       ? "configSnapshot"
@@ -205,6 +208,11 @@ export async function runInteractiveUpdateFailureAction({ runtime }) {
 }`,
   );
 }
+if (repairDeadline) {
+  const { prepareRepairDeadlineFixture } =
+    await import("./update-finalization-repair.test-support.js");
+  await prepareRepairDeadlineFixture(stubs, sourceUrl, root, installedEntry);
+}
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier.startsWith(".") || specifier.startsWith("file:")) {
@@ -217,6 +225,11 @@ registerHooks({
     return nextResolve(specifier, context);
   },
 });
+
+if (repairDeadline) {
+  const { withPluginLifecycleLease } = await import("../plugins/plugin-lifecycle-lease.js");
+  await withPluginLifecycleLease({}, async () => {});
+}
 
 const { Command } = await import("commander");
 const { registerUpdateCli } = await import("./update-cli.js");

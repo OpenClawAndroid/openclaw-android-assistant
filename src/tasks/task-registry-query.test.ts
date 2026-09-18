@@ -1,14 +1,21 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { createInMemoryTaskRegistryStore } from "../test-utils/task-registry-store.js";
+import { publishTaskRecordAfterAtomicStore } from "./task-registry-publication.js";
 import {
   getTaskById,
+  listTaskRecordsForOwnerTree,
   listTaskRecordPage,
+  deleteTaskRecordById,
   resetTaskRegistryForTests,
 } from "./task-registry-query.js";
 import { markTaskTerminalById } from "./task-registry-record-api.js";
-import { reloadTaskRegistryFromStore, tasks as authoritativeTasks } from "./task-registry-state.js";
+import {
+  reloadTaskRegistryFromStoreAsync,
+  tasks as authoritativeTasks,
+} from "./task-registry-state.js";
 import { configureTaskRegistryRuntime } from "./task-registry.store.js";
 import type { TaskRecord } from "./task-registry.types.js";
 
@@ -20,10 +27,7 @@ afterEach(() => {
 function configureTaskSnapshot(tasks: Iterable<TaskRecord>): void {
   const snapshotTasks = new Map([...tasks].map((task) => [task.taskId, task]));
   configureTaskRegistryRuntime({
-    store: {
-      ...createInMemoryTaskRegistryStore(),
-      loadSnapshot: () => ({ tasks: snapshotTasks, deliveryStates: new Map() }),
-    },
+    store: createInMemoryTaskRegistryStore({ tasks: snapshotTasks, deliveryStates: new Map() }),
   });
 }
 
@@ -35,6 +39,57 @@ async function readTaskPage(params: Parameters<typeof listTaskRecordPage>[0]) {
   }
   return result.value;
 }
+
+describe("listTaskRecordsForOwnerTree", () => {
+  it("preserves insertion order and detached snapshots across owner changes, cycles, and removal", () => {
+    const root = "agent:main:root";
+    const child = "agent:main:child";
+    const record = (taskId: string, ownerKey: string): TaskRecord => ({
+      taskId,
+      runtime: "cli",
+      ownerKey,
+      requesterSessionKey: ownerKey,
+      scopeKind: "session",
+      task: taskId,
+      status: "queued",
+      deliveryStatus: "not_applicable",
+      notifyPolicy: "silent",
+      createdAt: 1,
+    });
+    const descendant = {
+      ...record("descendant", child),
+      childSessionKey: root,
+      detail: { nested: { value: "original" } },
+      executionOwner: { host: "fixture", pid: 1, startIdentity: 1 },
+    };
+    const parent = { ...record("parent", root), childSessionKey: child };
+    const unrelated = record("unrelated", "agent:main:other");
+    configureTaskSnapshot([descendant, unrelated, parent]);
+    const owners = new Set([root]);
+    const before = listTaskRecordsForOwnerTree(owners);
+    expect(before.map((task) => task.taskId)).toEqual(["descendant", "parent"]);
+    expect(owners).toEqual(new Set([root]));
+    const selected = expectDefined(before[0], "descendant snapshot");
+    expect(selected.detail).not.toBe(authoritativeTasks.get("descendant")?.detail);
+    selected.detail = { changed: true };
+    expectDefined(selected.executionOwner, "fixture execution owner").pid = 2;
+    expect(getTaskById("descendant")).toMatchObject({
+      detail: { nested: { value: "original" } },
+      executionOwner: { pid: 1 },
+    });
+    // Atomic publication owns index rebinding; candidate reads must observe its current edges.
+    publishTaskRecordAfterAtomicStore({ ...parent, ownerKey: unrelated.ownerKey });
+    expect(listTaskRecordsForOwnerTree(owners)).toEqual([]);
+    publishTaskRecordAfterAtomicStore(parent);
+    publishTaskRecordAfterAtomicStore({ ...descendant, detail: { changed: "canonical" } });
+    expect(before[0]?.detail).toEqual({ changed: true });
+    expect(listTaskRecordsForOwnerTree(owners)[0]?.detail).toEqual({ changed: "canonical" });
+    deleteTaskRecordById(parent.taskId);
+    expect(listTaskRecordsForOwnerTree(owners)).toEqual([]);
+    publishTaskRecordAfterAtomicStore({ ...parent, scopeKind: "system" });
+    expect(listTaskRecordsForOwnerTree(owners)).toEqual([]);
+  });
+});
 
 describe("listTaskRecordPage", () => {
   it("keeps missing indexed IDs bounded across a yielded registry replacement", async () => {
@@ -64,6 +119,7 @@ describe("listTaskRecordPage", () => {
       return get(id);
     });
     let replaced = false;
+    let replacement: Promise<void> | undefined;
     const preparedAfterReplacement: string[] = [];
     const tick = () => {
       readsPerTurn.push(reads);
@@ -72,7 +128,7 @@ describe("listTaskRecordPage", () => {
         configureTaskSnapshot([
           { ...expectDefined(records[0], "replacement fixture"), taskId: "replacement" },
         ]);
-        reloadTaskRegistryFromStore();
+        replacement = reloadTaskRegistryFromStoreAsync(captureOpenClawStateWorkerContext());
         replaced = true;
       }
       pending = setImmediate(tick);
@@ -96,7 +152,11 @@ describe("listTaskRecordPage", () => {
       expect(Math.max(...readsPerTurn)).toBeLessThanOrEqual(32);
     } finally {
       clearImmediate(pending);
-      spy.mockRestore();
+      try {
+        await replacement;
+      } finally {
+        spy.mockRestore();
+      }
     }
   });
 

@@ -1,13 +1,13 @@
 // Internal task registry facade used by runtime modules without exposing public SDK surface.
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import {
-  ensureTaskFlowRegistryReady,
-  reloadTaskFlowRegistryFromStore,
+  ensureTaskFlowRegistryReadyAsync,
+  reloadTaskFlowRegistryFromStoreAsync,
 } from "./task-flow-runtime-internal.js";
 import {
-  ensureTaskRegistryReady as ensureTaskRegistryReadyInternal,
-  reloadTaskRegistryFromStore as reloadTaskRegistryFromStoreInternal,
-} from "./task-registry.js";
+  ensureTaskRegistryReadyAsync,
+  reloadTaskRegistryFromStoreAsync,
+} from "./task-registry-state.js";
 import type { TaskRecord } from "./task-registry.types.js";
 
 /** Read a task view without creating state or refreshing the synchronous projections. */
@@ -33,14 +33,18 @@ export async function findTaskViewByRunIdAsync(
   return task;
 }
 
-export function ensureTaskRuntimeStateReady(): void {
-  ensureTaskFlowRegistryReady();
-  ensureTaskRegistryReadyInternal();
+export async function ensureTaskRuntimeStateReady(): Promise<void> {
+  const context = captureOpenClawStateWorkerContext();
+  await ensureTaskFlowRegistryReadyAsync(context);
+  context.admission.assertCurrent();
+  await ensureTaskRegistryReadyAsync(context);
 }
 
-export function reloadTaskRuntimeStateFromStore(): void {
-  reloadTaskFlowRegistryFromStore();
-  reloadTaskRegistryFromStoreInternal();
+export async function reloadTaskRuntimeStateFromStore(): Promise<void> {
+  const context = captureOpenClawStateWorkerContext();
+  await reloadTaskFlowRegistryFromStoreAsync(context);
+  context.admission.assertCurrent();
+  await reloadTaskRegistryFromStoreAsync(context);
 }
 
 export {
@@ -56,7 +60,7 @@ export {
   listFreshTasksForOwnerKey,
   listTaskRecordPage,
   listTaskRecords,
-  listTaskRecordsUnsorted,
+  listTaskRecordsForOwnerTree,
   listTasksForFlowId,
   listTasksForOwnerKey,
   linkTaskToFlowById,

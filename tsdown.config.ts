@@ -417,6 +417,8 @@ function buildCoreDistEntries(): Record<string, string> {
     "docker-healthcheck": "src/docker-healthcheck.ts",
     // Ensure this module is bundled as an entry so legacy CLI shims can resolve its exports.
     "cli/daemon-cli": "src/cli/daemon-cli.ts",
+    // Keep recorded post-swap imports of this binding out of the shared updater graph.
+    "cli/update-cli/node-runner": "src/cli/update-cli/node-runner.ts",
     // Keep long-lived lazy runtime boundaries on stable filenames so rebuilt
     // dist/ trees do not strand already-running gateways on stale hashed chunks.
     "agents/agent-bundle-mcp-runtime": "src/agents/agent-bundle-mcp-runtime.ts",

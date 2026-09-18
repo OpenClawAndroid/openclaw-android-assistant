@@ -11,6 +11,11 @@ import { addSafeTimeoutDelayGraceMs } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sliceUtf16Safe, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { parse as parseSemver } from "semver";
+import type { CodexCatalogPreviewCache } from "../session-catalog-native-projection.js";
+import {
+  closeCodexCatalogClientSource,
+  codexCatalogSourceForClient,
+} from "../session-catalog-source.js";
 import { dispatchCodexAppServerResponse } from "./client-response.js";
 import type { CodexAppServerStartOptions } from "./config-contracts.js";
 import { resolveCodexAppServerRuntimeOptions } from "./config-runtime.js";
@@ -56,16 +61,13 @@ const CODEX_APP_SERVER_CLIENT_INSTANCE_IDS = new WeakMap<object, string>();
 const UNPAIRED_SURROGATE_RE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
-export type CodexCatalogListRequestKey = {
-  scope: object;
-  key: string;
-};
-
 type RequestOptions = {
   timeoutMs?: number;
   signal?: AbortSignal;
   assertCurrent?: () => void;
-  catalogListKey?: CodexCatalogListRequestKey;
+  catalogPreview?: true;
+  catalogPreviewCache?: CodexCatalogPreviewCache;
+  catalogRows?: number;
   attemptWaiterFinished?: CodexRequestWaiterFinished;
 };
 
@@ -223,8 +225,10 @@ export class CodexAppServerClient {
   private readonly child: CodexAppServerTransport;
   private readonly lines: ReadlineInterface;
   private readonly pending = new Map<number | string, CodexRequestAttempt>();
-  private readonly catalogResponses = new WeakSet<CodexRequestAttempt>();
-  private readonly catalogListRequests = new WeakMap<object, Map<string, CodexRequestAttempt>>();
+  private readonly catalogResponses = new WeakMap<
+    CodexRequestAttempt,
+    { preview?: CodexCatalogPreviewCache; remainingRows?: number }
+  >();
   private readonly requestHandlers = new Set<CodexServerRequestHandler>();
   private readonly notificationHandlers = new Set<CodexServerNotificationHandler>();
   private readonly pendingStartupWarnings: CodexServerNotification[] = [];
@@ -437,9 +441,6 @@ export class CodexAppServerClient {
     optionsInput?: RequestOptions,
   ): Promise<T> {
     const options = optionsInput ?? {};
-    if (options.catalogListKey && method !== "thread/list") {
-      return Promise.reject(new TypeError("Catalog request sharing only supports thread/list"));
-    }
     if (this.closed) {
       return Promise.reject(this.closeError ?? new Error("codex app-server client is closed"));
     }
@@ -684,29 +685,6 @@ export class CodexAppServerClient {
         ),
       );
     }
-    let sharedRequests: Map<string, CodexRequestAttempt> | undefined;
-    let sharedKey: string | undefined;
-    const sharing = options.catalogListKey;
-    if (sharing) {
-      try {
-        options.assertCurrent?.();
-      } catch (error) {
-        return Promise.reject(toStringifiedError(error));
-      }
-      sharedKey = JSON.stringify([sharing.key, params]);
-      sharedRequests = this.catalogListRequests.get(sharing.scope);
-      const existing = sharedRequests?.get(sharedKey);
-      if (existing) {
-        return existing.wait<T>(
-          { ...options, disposition: "joined", overloadAttemptOrdinal },
-          deadline,
-        );
-      }
-      if (!sharedRequests) {
-        sharedRequests = new Map();
-        this.catalogListRequests.set(sharing.scope, sharedRequests);
-      }
-    }
     const id = this.nextId++;
     if (
       method === "account/login/start" ||
@@ -719,7 +697,7 @@ export class CodexAppServerClient {
     const message: RpcRequest = { id, method, params: params as JsonValue | undefined };
     const attempt = createCodexRequestAttempt({
       method,
-      retainWritten: sharing !== undefined || onResponse !== undefined,
+      retainWritten: onResponse !== undefined,
       ...(method === "thread/list"
         ? { diagnosticIdentity: { clientInstanceId: this.instanceId, rpcId: id } }
         : {}),
@@ -733,9 +711,6 @@ export class CodexAppServerClient {
         if (this.pending.get(id) === attempt) {
           this.pending.delete(id);
         }
-        if (sharedKey !== undefined && sharedRequests?.get(sharedKey) === attempt) {
-          sharedRequests.delete(sharedKey);
-        }
       },
       cancellationError: (reason, written, cause) =>
         new CodexAppServerLocalRequestCancellationError(method, reason, written, cause),
@@ -748,18 +723,17 @@ export class CodexAppServerClient {
           : error,
     });
     this.pending.set(id, attempt);
-    if (sharing) {
-      this.catalogResponses.add(attempt);
+    if (options.catalogPreview && method === "thread/list") {
+      this.catalogResponses.set(attempt, {
+        preview: options.catalogPreviewCache,
+        remainingRows: options.catalogRows,
+      });
     }
-    if (sharedKey !== undefined) {
-      sharedRequests?.set(sharedKey, attempt);
-    }
-    // Stateful ownership assertions remain pre-write checks. A native response
-    // can arrive after authority changed; only catalog waiters revalidate here.
+    // Stateful ownership assertions remain pre-write checks.
     const result = attempt.wait<T>(
       {
         ...options,
-        assertCurrent: sharing ? options.assertCurrent : undefined,
+        assertCurrent: undefined,
         disposition: "new",
         overloadAttemptOrdinal,
       },
@@ -769,11 +743,7 @@ export class CodexAppServerClient {
       return result;
     }
     try {
-      // The sharing lookup already checked its current caller before serializing the key.
-      // Ordinary requests retain the same pre-write guard and dispatcher.
-      if (!sharing) {
-        options.assertCurrent?.();
-      }
+      options.assertCurrent?.();
       if (attempt.pending) {
         this.writeMessage(
           message,
@@ -1017,8 +987,12 @@ export class CodexAppServerClient {
 
   private handleResponse(response: RpcResponse): void {
     this.nativeExecutionObserved =
-      dispatchCodexAppServerResponse(response, this.pending, this.catalogResponses) ||
-      this.nativeExecutionObserved;
+      dispatchCodexAppServerResponse(
+        response,
+        this.pending,
+        this.catalogResponses,
+        codexCatalogSourceForClient(this),
+      ) || this.nativeExecutionObserved;
   }
 
   private async handleServerRequest(
@@ -1170,6 +1144,7 @@ export class CodexAppServerClient {
       return false;
     }
     this.closed = true;
+    closeCodexCatalogClientSource(this);
     this.closeError = error;
     this.lines.close();
     this.rejectPendingRequests(error);

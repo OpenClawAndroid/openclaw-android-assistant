@@ -12,6 +12,7 @@ import {
 import type { CodexAppServerClient, CodexAppServerRuntimeIdentity } from "./client.js";
 import type { CodexAppServerStartOptions } from "./config.js";
 import { resolvePackagedCodexNativeCommand } from "./managed-binary.js";
+import type { CodexAppServerSpawnIdentity } from "./spawn-identity.js";
 import { resolveCodexAppServerSpawnEnv } from "./transport-stdio.js";
 
 const ARTIFACT_ID_PREFIX = "codex-app-server:v1:";
@@ -48,14 +49,6 @@ const SAFE_NODE_OPTIONS_NUMERIC_FLAGS = new Set([
 ]);
 const SAFE_NODE_OPTIONS_DNS_RESULT_ORDERS = new Set(["ipv4first", "ipv6first", "verbatim"]);
 const ARTIFACT_BINDINGS_SYMBOL = Symbol.for("openclaw.codexAppServerRuntimeArtifactBindings");
-
-type CodexRuntimeArtifactSpawnIdentity = Readonly<{
-  command: string;
-  argsFingerprint: string;
-  commandSource?: CodexAppServerStartOptions["commandSource"];
-  managedCommandOrder?: CodexAppServerStartOptions["managedCommandOrder"];
-  nativeCommand?: string;
-}>;
 
 type CodexRuntimeFilesystemDescriptor = Readonly<{
   version: 1;
@@ -546,7 +539,7 @@ function readEffectiveSpawnEnvironmentValue(
 
 async function captureFilesystemDescriptor(params: {
   startOptions: CodexAppServerStartOptions;
-  spawnIdentity: CodexRuntimeArtifactSpawnIdentity;
+  spawnIdentity: Readonly<CodexAppServerSpawnIdentity>;
   signal?: AbortSignal;
 }): Promise<CodexRuntimeFilesystemDescriptor> {
   throwIfAborted(params.signal);
@@ -786,7 +779,7 @@ function fingerprintBinding(
 /** Captures exact candidate bytes immediately before app-server startup. */
 export async function captureCodexAppServerRuntimeArtifactBeforeStart(params: {
   startOptions: CodexAppServerStartOptions;
-  spawnIdentity: CodexRuntimeArtifactSpawnIdentity;
+  spawnIdentity: Readonly<CodexAppServerSpawnIdentity>;
   signal?: AbortSignal;
 }): Promise<CodexAppServerRuntimeArtifactCapture> {
   const descriptor = await captureFilesystemDescriptor(params);
@@ -798,7 +791,7 @@ export async function captureCodexAppServerRuntimeArtifactBeforeStart(params: {
 export async function finalizeCodexAppServerRuntimeArtifact(params: {
   before: CodexAppServerRuntimeArtifactCapture;
   startOptions: CodexAppServerStartOptions;
-  spawnIdentity: CodexRuntimeArtifactSpawnIdentity;
+  spawnIdentity: Readonly<CodexAppServerSpawnIdentity>;
   runtimeIdentity: CodexAppServerRuntimeIdentity | undefined;
   signal?: AbortSignal;
 }): Promise<AgentHarnessRuntimeArtifactBinding> {

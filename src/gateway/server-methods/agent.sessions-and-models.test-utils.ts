@@ -2091,11 +2091,7 @@ describe("gateway agent handler", () => {
 
   it("does not let --agent force the agent main session when --session-id is provided", async () => {
     mocks.resolveExplicitAgentSessionKey.mockReturnValue("agent:main:main");
-    mockMainSessionEntry({ sessionId: "resume-whatsapp-session" });
-    mocks.agentCommand.mockResolvedValue({
-      payloads: [{ text: "ok" }],
-      meta: { durationMs: 100 },
-    });
+    primeMainAgentRun({ sessionId: "resume-whatsapp-session" });
 
     await invokeAgent(
       {
@@ -2119,11 +2115,7 @@ describe("gateway agent handler", () => {
 
   it("treats whitespace sessionId as absent before resolving the agent session key", async () => {
     mocks.resolveExplicitAgentSessionKey.mockReturnValue("agent:main:main");
-    mockMainSessionEntry({ sessionId: "existing-session-id" });
-    mocks.agentCommand.mockResolvedValue({
-      payloads: [{ text: "ok" }],
-      meta: { durationMs: 100 },
-    });
+    primeMainAgentRun();
 
     await invokeAgent(
       {

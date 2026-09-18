@@ -87,6 +87,28 @@ describe("Codex app inventory cache", () => {
     });
   });
 
+  it("refreshes and removes legacy runtime rows targeted by their Apps SDK identity", async () => {
+    const manifestId = "asdk_app_0123456789abcdef0123456789abcdef";
+    const runtimeId = "connector_0123456789abcdef0123456789abcdef";
+    const cache = new CodexAppInventoryCache();
+    let apps = [app(runtimeId), app("unrelated")];
+    const request = vi.fn(async (method, params) =>
+      codexAppInventoryResponse(method, apps, params),
+    );
+    await cache.refreshNow({ key: "runtime", request });
+    cache.invalidate("runtime", "connector changed", Date.now(), [runtimeId]);
+    await cache.refreshNow({ key: "runtime", request, targetAppIds: [manifestId] });
+    expect(cache.read({ key: "runtime", request, suppressRefresh: true })).toMatchObject({
+      state: "fresh",
+      snapshot: { apps },
+    });
+    apps = [app("unrelated")];
+    await cache.refreshNow({ key: "runtime", request, targetAppIds: [manifestId] });
+    expect(cache.read({ key: "runtime", request, suppressRefresh: true }).snapshot?.apps).toEqual(
+      apps,
+    );
+  });
+
   it("upgrades an in-flight targeted refresh before returning the complete account inventory", async () => {
     const cache = new CodexAppInventoryCache({ ttlMs: 100 });
     const apps = [app("google-calendar-app"), app("unrelated-slack-app")];

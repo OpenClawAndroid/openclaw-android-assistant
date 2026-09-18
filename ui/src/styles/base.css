@@ -419,13 +419,13 @@
     corner-shape: superellipse(1.5);
   }
 
-  /* The transcript search bar's bottom corners round with its .card ancestor
+  /* The transcript search bar's bottom corners round with its .chat ancestor
      so the two edges stay optically parallel; only two corners are rounded,
-     and .chat:has(> .agent-chat__search-bar) zeroes .card's own radius while
+     and .chat:has(> .agent-chat__search-bar) zeroes .chat's own radius while
      the search bar is present (see chat/layout.css). corner-shape still
      needs to be set here even though the top two corners are 0 (a 0-radius
      corner draws no curve either way): the bottom two are standing in for
-     .card's own squircle corner at the seam, so they need the same shape,
+     .chat's own squircle corner at the seam, so they need the same shape,
      not just the same radius, to actually match it. */
   .agent-chat__search-bar.agent-chat__search-bar {
     border-radius: 0 0 calc(14px * var(--openclaw-corner-radius-scale))
@@ -1059,17 +1059,6 @@ wa-popover::part(body)::-webkit-scrollbar-thumb:hover {
   to {
     opacity: 1;
     transform: scale(1);
-  }
-}
-
-@keyframes dashboard-enter {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 

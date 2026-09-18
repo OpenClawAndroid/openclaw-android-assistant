@@ -172,8 +172,13 @@ async function fetchWithMatrixGuardedRedirects(params: {
   dispatcherPolicy?: PinnedDispatcherPolicy;
   assertCurrent?: () => void;
   beforeDispatch?: () => Promise<void> | undefined;
+  assertSendCurrent?: () => void;
 }): Promise<{ response: Response; release: () => Promise<void>; finalUrl: string }> {
-  params.assertCurrent?.();
+  const assertDispatchCurrent = () => {
+    params.assertCurrent?.();
+    params.assertSendCurrent?.();
+  };
+  assertDispatchCurrent();
   let currentUrl = new URL(params.url);
   let method = (params.init?.method ?? "GET").toUpperCase();
   let body = params.init?.body;
@@ -191,7 +196,7 @@ async function fetchWithMatrixGuardedRedirects(params: {
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
     let dispatcher: ReturnType<typeof createPinnedDispatcher> | undefined;
     try {
-      params.assertCurrent?.();
+      assertDispatchCurrent();
       signal?.throwIfAborted();
       const pinned = await resolvePinnedHostnameWithPolicy(currentUrl.hostname, {
         policy: params.ssrfPolicy,
@@ -199,12 +204,12 @@ async function fetchWithMatrixGuardedRedirects(params: {
       });
       dispatcher = createPinnedDispatcher(pinned, params.dispatcherPolicy, params.ssrfPolicy);
       // The guard can persist dispatch custody, so reject stale requests before it runs.
-      params.assertCurrent?.();
+      assertDispatchCurrent();
       signal?.throwIfAborted();
       await params.beforeDispatch?.();
       const response = await fetchWithMatrixDispatcher({
         url: currentUrl.toString(),
-        assertCurrent: params.assertCurrent,
+        assertCurrent: assertDispatchCurrent,
         onDispatch: () => {
           dispatched = true;
         },
@@ -310,12 +315,17 @@ export function createMatrixGuardedFetch(params: {
   ssrfPolicy?: SsrFPolicy;
   dispatcherPolicy?: PinnedDispatcherPolicy;
   captureRequestAuthority?: () => (() => void) | undefined;
+  captureSendCurrentness?: (
+    resource: RequestInfo | URL,
+    init?: RequestInit,
+  ) => (() => void) | undefined;
   signal?: AbortSignal;
   captureRequestSignal?: () => AbortSignal | undefined;
   beforeRequest?: (resource: RequestInfo | URL, init?: RequestInit) => Promise<void> | undefined;
 }): typeof fetch {
   return (async (resource: RequestInfo | URL, init?: RequestInit) => {
     const assertCurrent = params.captureRequestAuthority?.() ?? captureChannelReadAuthority();
+    const assertSendCurrent = params.captureSendCurrentness?.(resource, init);
     assertCurrent?.();
     const url = withoutMatrixStateAfterSyncParam(toFetchUrl(resource));
     const { signal, ...requestInit } = init ?? {};
@@ -329,6 +339,7 @@ export function createMatrixGuardedFetch(params: {
       init: requestInit,
       signal: requestSignal,
       assertCurrent,
+      assertSendCurrent,
       ssrfPolicy: params.ssrfPolicy,
       dispatcherPolicy: params.dispatcherPolicy,
       // Redirects belong to the same original timeline operation and task owner.
@@ -379,6 +390,7 @@ export async function performMatrixRequest(params: {
   dispatcherPolicy?: PinnedDispatcherPolicy;
   allowAbsoluteEndpoint?: boolean;
   assertCurrent?: () => void;
+  assertSendCurrent?: () => void;
   signal?: AbortSignal;
 }): Promise<{ response: Response; text: string; buffer: Buffer }> {
   const assertCurrent = params.assertCurrent ?? captureChannelReadAuthority();
@@ -427,6 +439,7 @@ export async function performMatrixRequest(params: {
     ssrfPolicy: params.ssrfPolicy,
     dispatcherPolicy: params.dispatcherPolicy,
     assertCurrent,
+    assertSendCurrent: params.assertSendCurrent,
     signal: params.signal,
   });
 

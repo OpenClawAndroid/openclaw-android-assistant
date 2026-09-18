@@ -316,7 +316,11 @@ describe("registered native catalog access", () => {
       });
       guardedPublication = state.instance.wrap(published);
       const owner = new AbortController();
-      const lifetime = new SessionCatalogListLifetime(() => true, [owner.signal]);
+      const lifetime = new SessionCatalogListLifetime(
+        () => true,
+        [owner.signal],
+        [state.provider.id],
+      );
       const blocker: SessionCatalogProvider = {
         id: "blocking",
         label: "Blocking",

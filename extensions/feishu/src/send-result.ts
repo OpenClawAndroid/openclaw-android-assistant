@@ -2,6 +2,7 @@
 import { createChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
 import {
   createMessageReceiptFromOutboundResults,
+  type ChannelMessageSendResult,
   type MessageReceipt,
   type MessageReceiptPartKind,
 } from "openclaw/plugin-sdk/channel-outbound";
@@ -33,7 +34,7 @@ export function resolveFeishuReceiptKind(msgType?: string): MessageReceiptPartKi
   }
 }
 
-export function createFeishuSendReceipt(params: {
+function createFeishuSendReceipt(params: {
   messageId?: string;
   chatId: string;
   kind?: MessageReceiptPartKind;
@@ -80,5 +81,22 @@ export function toFeishuSendResult(
     messageId,
     chatId,
     receipt: createFeishuSendReceipt({ messageId, chatId, kind, replyToId }),
+  };
+}
+
+export function toFeishuMessageSendResult(
+  result: { messageId?: string; chatId?: string; receipt?: ChannelMessageSendResult["receipt"] },
+  kind: MessageReceiptPartKind,
+): ChannelMessageSendResult {
+  const receipt =
+    result.receipt ??
+    createFeishuSendReceipt({
+      messageId: result.messageId,
+      chatId: result.chatId ?? "",
+      kind,
+    });
+  return {
+    messageId: result.messageId || receipt.primaryPlatformMessageId,
+    receipt,
   };
 }

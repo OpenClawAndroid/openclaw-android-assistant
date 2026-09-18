@@ -358,7 +358,11 @@ describe("sessions.changed coalescing", () => {
 
     await emitAndSettleLeading(context, { reason: "create", sessionKey: "agent:main:chat" });
     mocks.rowLabel = "latest";
-    await emitAndSettleLeading(context, { reason: "update", sessionKey: "agent:main:chat" });
+    await emitAndSettleLeading(context, {
+      reason: "patch",
+      sessionKey: "agent:main:chat",
+      catalogChanged: true,
+    });
     await emitAndSettleLeading(context, { reason: "send", sessionKey: "agent:main:chat" });
 
     expect(context.broadcastToConnIds).toHaveBeenCalledOnce();
@@ -370,9 +374,14 @@ describe("sessions.changed coalescing", () => {
     expect(vi.mocked(context.broadcastToConnIds).mock.calls[1]?.[1]).toMatchObject({
       label: "latest",
       reason: "send",
+      catalogChanged: true,
     });
     expect(readGatewayAccessRevision()).toBe(initialAccessRevision + 3);
     expect(mocks.invalidate).toHaveBeenCalledTimes(3);
+    await emitAndSettleLeading(context, { reason: "patch", sessionKey: "agent:main:chat" });
+    expect(vi.mocked(context.broadcastToConnIds).mock.calls.at(-1)?.[1]).not.toHaveProperty(
+      "catalogChanged",
+    );
   });
 
   it.each([true, false])(

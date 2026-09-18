@@ -35,6 +35,44 @@ function run(patch: Partial<UpdateRunRecord> = {}): UpdateRunRecord {
 afterEach(() => vi.restoreAllMocks());
 
 describe("update run report", () => {
+  it.each(["abandoned", "legacy-driver-expired"])(
+    "shows acknowledged %s recovery without discarding historical failure facts",
+    (reason) => {
+      const record = run({
+        status: "failed",
+        reason,
+        origin: { doctorHint: "Run openclaw doctor --fix", nextAction: "Run openclaw triage" },
+        steps: [
+          { step: "reconcile:abandoned", status: "failed", detail: "inactive-driver-dead" },
+          { step: "reconcile:acknowledged", status: "completed", endedAtMs: 301 },
+        ],
+      });
+      const before = structuredClone(record);
+      const report = renderUpdateRunReport(record);
+
+      expect(report.headline).toBe("ℹ️ OpenClaw abandoned update reconciled.");
+      expect(report.lines).toContain("Failed: reconcile:abandoned — inactive-driver-dead");
+      expect(report.markdown).not.toContain("Run openclaw");
+      expect(report.markdown).not.toContain("to retry");
+      expect(record).toEqual(before);
+    },
+  );
+
+  it.each(["in_progress", "failed"] as const)(
+    "does not report an abandoned update as reconciled after %s acknowledgement",
+    (status) => {
+      const report = renderUpdateRunReport(
+        run({
+          status: "failed",
+          reason: "abandoned",
+          steps: [{ step: "reconcile:acknowledged", status }],
+        }),
+      );
+      expect(report.headline).toBe("⚠️ OpenClaw update failed: abandoned.");
+      expect(report.markdown).toContain("Run openclaw triage");
+    },
+  );
+
   it.each(["private-customer-build", "2026.9.4-private-customer"])(
     "redacts the private current version %s in public reports",
     async (version) => {

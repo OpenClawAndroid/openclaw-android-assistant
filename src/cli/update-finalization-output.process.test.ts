@@ -30,6 +30,7 @@ const doctorDiagnostics = [
   "Doctor complete.",
 ];
 const scenarios = [
+  "repair-deadline",
   "json",
   "inherited-json",
   "doctor-error",
@@ -54,7 +55,7 @@ const finalizeScenarios = [
 describe.each(["repair", "finalize"])("update %s process output", (command) => {
   // Both spellings share the finalization action; one matrix covers its output modes.
   it.each(command === "repair" ? scenarios : finalizeScenarios)(
-    "%s preserves the output and exit contract without restarting",
+    "%s preserves the output and exit contract",
     async (scenario) => {
       const root = tempDirs.make("openclaw-update-json-");
       const state = path.join(root, "state");
@@ -156,10 +157,42 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
       const failure = formatCliProcessFailure({ reason: `${command} ${scenario}`, ...result });
       expect(result.signal, failure).toBeNull();
       expect(result.code, failure).toBe(
-        scenario.endsWith("error") || scenario === "phase-hang" || blockedPhase === "doctor"
+        scenario === "repair-deadline" ||
+          scenario.endsWith("error") ||
+          scenario === "phase-hang" ||
+          blockedPhase === "doctor"
           ? 1
           : 0,
       );
+      if (scenario === "repair-deadline") {
+        const output = JSON.parse(result.stdout);
+        expect(output, failure).toMatchObject({ status: "failed", stuckPhase: "plugins" });
+        expect(await fs.readFile(path.join(state, "managed-service-state"), "utf8"), failure).toBe(
+          "running",
+        );
+        expect(
+          (await fs.readFile(path.join(state, "managed-service-state.events"), "utf8"))
+            .trim()
+            .split("\n"),
+          failure,
+        ).toEqual(["stop", "plugins-entered", "late-write-refused", "restart"]);
+        expect(JSON.parse(await fs.readFile(config, "utf8")).update, failure).toBeUndefined();
+        expect(readRun(), failure).toMatchObject({
+          status: "failed",
+          reason: "finalization-timeout",
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              step: "warning:finalize:plugins:deadline",
+              status: "completed",
+              detail: expect.stringContaining("timed out in plugins after 1000ms"),
+            }),
+          ]),
+        });
+        expect(result.stderr, failure).toContain(
+          "Gateway restarted and verified after Doctor repair.",
+        );
+        return;
+      }
       if (blockedPhase === "doctor") {
         const output = JSON.parse(result.stdout);
         expect(output, failure).toMatchObject({ status: "failed", stuckPhase: "doctor" });

@@ -3,6 +3,7 @@
  * plugin-owned apps can be exposed to a native Codex thread.
  */
 import { embeddedAgentLog } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { findCodexAppById } from "./app-identity.js";
 import type {
   CodexAppInventoryCache,
   CodexAppInventoryCacheRead,
@@ -249,7 +250,7 @@ export async function readCodexPluginInventory(
         (unavailableByMarketplacePolicy || !summary.installed || !summary.enabled),
       authRequired: apps.some((app) => app.needsAuth || !app.accessible),
       appOwnership,
-      ownedAppIds,
+      ownedAppIds: Array.from(new Set([...ownedAppIds, ...apps.map((app) => app.id)])).toSorted(),
       apps,
     });
   }
@@ -508,12 +509,10 @@ function resolveOwnedApps(params: {
     });
     return [];
   }
-  const appInfoById = new Map(
-    (params.appInventory?.snapshot?.apps ?? []).map((app) => [app.id, app] as const),
-  );
+  const appInfos = params.appInventory?.snapshot?.apps ?? [];
   return detailApps
     .map((app) => {
-      const info = appInfoById.get(app.id);
+      const info = findCodexAppById(appInfos, app.id);
       if (!info) {
         return {
           id: app.id,
@@ -525,7 +524,7 @@ function resolveOwnedApps(params: {
       }
       return Object.assign(
         {
-          id: app.id,
+          id: info.id,
           name: app.name,
           accessible: info.isAccessible,
           enabled: info.isEnabled,

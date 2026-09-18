@@ -409,6 +409,7 @@ export function reconcileSessionChangedRow(
   const { key } = info;
   const {
     agentId: _agentId,
+    catalogChanged: _catalogChanged,
     clientRunId: _clientRunId,
     compacted: _compacted,
     key: _key,

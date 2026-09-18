@@ -794,9 +794,14 @@ describe("renderUpdates", () => {
     expect(row("Status").querySelector(".settings-status--danger")).not.toBeNull();
   });
 
-  it.each(["succeeded", "failed", "skipped"] as const)(
-    "renders the durable %s report and only offers recovery for unsuccessful runs",
-    async (status) => {
+  it.each([
+    { status: "succeeded", reconciled: false },
+    { status: "failed", reconciled: false },
+    { status: "skipped", reconciled: false },
+    { status: "failed", reconciled: true },
+  ] as const)(
+    "renders the durable $status report with reconciled=$reconciled and only offers current recovery",
+    async ({ status, reconciled }) => {
       const onUpdateNow = vi.fn();
       const onCheckStatus = vi.fn(async () => true);
       render(
@@ -806,7 +811,7 @@ describe("renderUpdates", () => {
               phase: "finished",
               status,
               finishedAtMs: 10,
-              reason: status === "failed" ? "build-failed" : null,
+              reason: reconciled ? "abandoned" : status === "failed" ? "build-failed" : null,
               after: { version: "2026.9.2" },
               steps: [
                 {
@@ -814,6 +819,9 @@ describe("renderUpdates", () => {
                   status: status === "failed" ? "failed" : "completed",
                   detail: "Build output",
                 },
+                ...(reconciled
+                  ? [{ step: "reconcile:acknowledged", status: "completed" as const }]
+                  : []),
               ],
             }),
             onUpdateNow,
@@ -829,9 +837,13 @@ describe("renderUpdates", () => {
         )!;
         await view.updateComplete;
         expect(view.querySelector(".update-run-view__report")?.textContent).toContain(
-          status === "succeeded" ? "OpenClaw updated to 2026.9.2" : `OpenClaw update ${status}`,
+          reconciled
+            ? "OpenClaw abandoned update reconciled."
+            : status === "succeeded"
+              ? "OpenClaw updated to 2026.9.2"
+              : `OpenClaw update ${status}`,
         );
-        if (status !== "succeeded") {
+        if (status !== "succeeded" && !reconciled) {
           const recovery = row("Recovery");
           recovery.querySelector<HTMLButtonElement>("button")?.click();
           recovery.querySelectorAll<HTMLButtonElement>("button")[1]?.click();
@@ -840,6 +852,16 @@ describe("renderUpdates", () => {
           expect(row("CLI fallback").querySelector("code")?.textContent).toBe("openclaw triage");
         } else {
           expect(container.textContent).not.toContain("Retry update");
+          expect(container.textContent).not.toContain("openclaw triage");
+        }
+        if (reconciled) {
+          expect(view.querySelector(".update-run-view__report--failed")).toBeNull();
+          expect(view.querySelector('[data-step="build"]')?.getAttribute("data-status")).toBe(
+            "failed",
+          );
+          expect(view.querySelector(".update-run-view__details")?.textContent).toContain(
+            "Build output",
+          );
         }
       } finally {
         container.remove();

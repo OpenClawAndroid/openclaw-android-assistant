@@ -31,6 +31,14 @@ its read-only preflight and atomic sorted slug union, preserving the other feed
 fields. Empty notices leave absent databases absent, and already-recorded notices
 do not open a writer. Claim upserts, stored formats, and retention are unchanged.
 
+Update-check telemetry reads its cached response and retained session-creation
+count through the shared-state worker. Successful responses use the existing
+machine-state transaction, which preserves a newer persisted response. The CLI
+awaits preview reads, and Gateway maintenance joins accepted checks through
+persistence before shutdown retires shared state. Consent, payload fields,
+request policy, cache periods, and the bounded in-memory retry state are unchanged.
+Cold CLI plugin-inventory preparation remains with the plugin metadata owner.
+
 Plugin conversation standing approvals load and upsert in the shared-state worker.
 Core publishes an always-allow grant only after durable completion, serializes cache
 fills with grant publication, and joins admitted binding operations before lifecycle

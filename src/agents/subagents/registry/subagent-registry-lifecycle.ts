@@ -1,6 +1,9 @@
 import pLimit from "p-limit";
 import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
-import { runWithGatewayIndependentRootWorkContinuation } from "../../../process/gateway-work-admission.js";
+import {
+  runWithGatewayDetachedWorkContinuation,
+  runWithGatewayIndependentRootWorkContinuation,
+} from "../../../process/gateway-work-admission.js";
 import type { AcceptedSessionSpawn } from "../../accepted-session-spawn.js";
 import {
   ensureCompletionState,
@@ -201,10 +204,10 @@ export class SubagentLifecycleController {
   ): Promise<unknown> => {
     const runCurrent = async () =>
       this.options.runs.get(entry.runId) === entry ? run() : undefined;
-    // Reserve the independent Gateway root before entering the limiter. The
-    // queue wait counts during restart drain, but may outlive this exact row;
-    // validate its ownership only when the execution slot actually opens.
-    return runWithGatewayIndependentRootWorkContinuation(() => {
+    // Retry timers can outlive their original async scope. Reserve a detached
+    // Gateway root before the limiter, then revalidate row ownership when the
+    // execution slot opens; the queued wait still counts during restart drain.
+    return runWithGatewayDetachedWorkContinuation(() => {
       if (!this.restoredRequesterSettleWakeRuns.has(entry.runId)) {
         return runCurrent();
       }

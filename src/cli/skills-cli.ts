@@ -5,7 +5,6 @@ import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
 } from "../../packages/gateway-protocol/src/client-info.js";
-import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import { formatDocsLink } from "../../packages/terminal-core/src/links.js";
 import { theme } from "../../packages/terminal-core/src/theme.js";
 import {
@@ -20,7 +19,6 @@ import { CLAWHUB_TRUST_ERROR_CODE } from "../infra/clawhub-install-trust.js";
 import {
   CLAWHUB_SKILLS_SH_REF_PREFIX,
   CLAWHUB_SKILLS_SH_TRUST_LABEL,
-  CLAWHUB_SKILLS_SH_TRUST_STATE,
   fetchClawHubSkillCard,
   type ClawHubSkillVerificationResponse,
 } from "../infra/clawhub-skills.js";
@@ -33,7 +31,6 @@ import {
   readVerifiedClawHubSkillSourceUrl,
   readTrackedClawHubSkillSlugs,
   resolveClawHubSkillVerificationTarget,
-  searchSkillsFromClawHub,
   updateSkillsFromClawHub,
   verifySkillWithClawHub,
 } from "../skills/lifecycle/clawhub.js";
@@ -73,12 +70,12 @@ import { formatCliJsonFailure } from "./failure-output.js";
 import { canFallbackToImplicitLocalGateway } from "./gateway-rpc.js";
 import { resolveInstallPolicyWarningAcknowledgementCliOptions } from "./install-policy-warning-acknowledgement.js";
 import { exitCliAfterOutput } from "./one-shot-exit.js";
-import { parseStrictPositiveIntOption } from "./program/helpers.js";
 import { setCommandJsonMode } from "./program/json-mode.js";
 import { applyParentDefaultHelpAction } from "./program/parent-default-help.js";
 import { formatSkillInfo, formatSkillsCheck, formatSkillsList } from "./skills-cli.format.js";
 import { registerSkillsLibraryCli } from "./skills-library-cli.js";
 import { isSkillsMachineOutput } from "./skills-output-mode.js";
+import { registerSkillsSearchCli } from "./skills-search-cli.js";
 
 export type {
   SkillInfoOptions,
@@ -94,10 +91,6 @@ type ResolvedClawHubSkillVerificationTarget = Extract<
 
 function formatSkillWarning(message: string): string {
   return message.includes("╭─") ? message : theme.warn(message);
-}
-
-function formatClawHubSearchText(value: string): string {
-  return sanitizeForLog(value.replace(/\s+/gu, " ")).trim();
 }
 
 function isClawHubSkillBlockedCliFailure(result: { code?: string; warning?: string }): boolean {
@@ -580,40 +573,7 @@ export function registerSkillsCli(program: Command) {
   setCommandJsonMode(skills, "output", ({ argv, command }) => isSkillsMachineOutput(argv, command));
   registerSkillsLibraryCli(skills);
 
-  skills
-    .command("search")
-    .description("Search ClawHub skills")
-    .argument("[query...]", "Optional search query")
-    .option("--limit <n>", "Max results", (value) => parseStrictPositiveIntOption(value, "--limit"))
-    .option("--json", "Output as JSON", false)
-    .action(async (queryParts: string[], opts: { limit?: number; json?: boolean }) => {
-      await runCommandWithRuntime(defaultRuntime, async () => {
-        const results = await searchSkillsFromClawHub({
-          query: normalizeOptionalString(queryParts.join(" ")),
-          limit: opts.limit,
-        });
-        if (hasJsonOutput(opts)) {
-          defaultRuntime.writeJson({ results });
-          return;
-        }
-        if (results.length === 0) {
-          defaultRuntime.log("No ClawHub skills found.");
-          return;
-        }
-        for (const entry of results) {
-          const installRef = normalizeOptionalString(entry.installRef);
-          const skillRef = formatClawHubSearchText(installRef ?? entry.slug);
-          const isExternalSource =
-            installRef?.startsWith(CLAWHUB_SKILLS_SH_REF_PREFIX) === true &&
-            entry.trustState === CLAWHUB_SKILLS_SH_TRUST_STATE;
-          const version = entry.version ? ` v${formatClawHubSearchText(entry.version)}` : "";
-          const summary = entry.summary ? `  ${formatClawHubSearchText(entry.summary)}` : "";
-          const displayName = formatClawHubSearchText(entry.displayName);
-          const trust = isExternalSource ? `  ${CLAWHUB_SKILLS_SH_TRUST_LABEL}` : "";
-          defaultRuntime.log(`${skillRef}${version}  ${displayName}${summary}${trust}`);
-        }
-      });
-    });
+  registerSkillsSearchCli(skills);
 
   skills
     .command("install")

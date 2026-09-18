@@ -19,6 +19,7 @@ export type LeaseScenario = {
   writerRecords?: Record<string, PluginInstallRecord>;
   runtimeRoot?: string;
   verifyRepairOwner?: boolean;
+  verifyServiceCustody?: boolean;
 };
 
 // A narrow child substitutes for the CLI, not for its cross-process lease.
@@ -134,6 +135,13 @@ export async function runUpdateLeaseChild(): Promise<void> {
       assert.equal(process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION, scenario.hostVersion);
     }
     await record(`${phase}-attempt`);
+    if (scenario.verifyServiceCustody) {
+      assert.equal(
+        await fs.readFile(path.join(stateDir, "managed-service-state"), "utf8"),
+        "stopped",
+        "The update parent must park the service before its Doctor child runs",
+      );
+    }
     if (scenario.verifyRepairOwner) {
       const runId = process.env.OPENCLAW_UPDATE_RUN_ID;
       assert.ok(runId, "Doctor did not inherit its invoking repair run ID");

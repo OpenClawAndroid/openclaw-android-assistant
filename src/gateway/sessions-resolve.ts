@@ -106,17 +106,25 @@ export async function resolveSessionKeyFromResolveParams(params: {
   const { cfg } = projection.state;
   const { sharing } = prepareProjectedSessionPresentation(projection, client);
   const { entryFilter } = sharing;
-  const prepare = (agentId = p.agentId, configuredAgentsOnly = false) =>
-    prepareSessionRowSelection(projection, {
-      ...resolveSessionVisibilityFilterOptions(p),
-      agentId,
-      configuredAgentsOnly,
-    });
+  const prepare = (
+    agentId = p.agentId,
+    configuredAgentsOnly = false,
+    selector?: Parameters<typeof prepareSessionRowSelection>[2],
+  ) =>
+    prepareSessionRowSelection(
+      projection,
+      {
+        ...resolveSessionVisibilityFilterOptions(p),
+        agentId,
+        configuredAgentsOnly,
+      },
+      selector,
+    );
   const agentCheck = (key: string, entry: SessionEntry | undefined) =>
     validateSessionAgentExists(cfg, key, entry, entry?.acp);
   const sessionIdMatches = (agentId?: string) =>
     filterAndSortSessionEntries({
-      ...prepare(agentId),
+      ...prepare(agentId, false, { sessionIdOrKey: sessionId }),
       entryFilter,
     }).filter(
       ([candidateKey, entry]) => entry.sessionId === sessionId || candidateKey === sessionId,
@@ -166,37 +174,39 @@ export async function resolveSessionKeyFromResolveParams(params: {
     const exactKey = sameAgent
       ? resolveSessionStoreKey({ cfg, sessionKey: referenceKey, storeAgentId: p.agentId })
       : referenceKey;
-    const prepared = prepare(p.agentId, true);
     // URL references are discovery, including exact keys. Keep hidden rows out
     // before choosing a winner; the separate key selector retains its read contract.
-    const entries = filterAndSortSessionEntries({
-      ...prepared,
-      entryFilter,
-      opts: { ...resolveSessionVisibilityFilterOptions(p), archived: "all" },
-    }).filter(([candidateKey, entry]) => agentCheck(candidateKey, entry) === null);
-    const candidate = ([candidateKey, entry]: [string, SessionEntry]) =>
-      sessionResolveCandidate(
-        candidateKey,
-        entry,
-        expectDefined(prepared.getTarget(candidateKey), "reference session agent").agentId,
-      );
-    const exact = entries.find(
-      ([candidateKey]) => normalizeSessionKeyPreservingOpaquePeerIds(candidateKey) === exactKey,
-    );
-    if (exact) {
-      return { ok: true, ...candidate(exact) };
-    }
     const slug = normalizeOptionalString(p.reference.slug);
-    const matches = slug
-      ? entries
-          .filter(
-            ([candidateKey, entry]) =>
-              SESSION_UUID_SUFFIX_RE.test(parseAgentSessionKey(candidateKey)?.rest ?? "") &&
-              controlUiSessionSlug(resolveGatewaySessionDisplayName(candidateKey, entry)) === slug,
-          )
-          .slice(0, 10)
-          .map(candidate)
-      : [];
+    const candidates = (lookupKey?: string) => {
+      const prepared = prepare(p.agentId, true, { key: lookupKey });
+      return filterAndSortSessionEntries({
+        ...prepared,
+        entryFilter,
+        opts: { ...resolveSessionVisibilityFilterOptions(p), archived: "all" },
+      })
+        .filter(
+          ([candidateKey, entry]) =>
+            agentCheck(candidateKey, entry) === null &&
+            (lookupKey !== undefined
+              ? normalizeSessionKeyPreservingOpaquePeerIds(candidateKey) === lookupKey
+              : SESSION_UUID_SUFFIX_RE.test(parseAgentSessionKey(candidateKey)?.rest ?? "") &&
+                controlUiSessionSlug(resolveGatewaySessionDisplayName(candidateKey, entry)) ===
+                  slug),
+        )
+        .slice(0, lookupKey !== undefined ? 1 : 10)
+        .map(([candidateKey, entry]) =>
+          sessionResolveCandidate(
+            candidateKey,
+            entry,
+            expectDefined(prepared.getTarget(candidateKey), "reference session agent").agentId,
+          ),
+        );
+    };
+    const exact = candidates(exactKey)[0];
+    if (exact) {
+      return { ok: true, ...exact };
+    }
+    const matches = slug ? candidates() : [];
     if (matches.length > 1) {
       return { ok: true, ambiguous: true, candidates: matches };
     }

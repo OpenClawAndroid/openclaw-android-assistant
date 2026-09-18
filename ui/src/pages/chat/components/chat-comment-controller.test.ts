@@ -32,7 +32,7 @@ async function mountComments() {
   payloads.add(attachment.id);
   const signalOwner = new AbortController();
   const card = document.createElement("section");
-  card.className = "card chat";
+  card.className = "chat";
   const controller = document.createElement("openclaw-chat-comment-controller") as HTMLElement & {
     props: ChatAttachmentControlsProps;
     sessionKey: string;

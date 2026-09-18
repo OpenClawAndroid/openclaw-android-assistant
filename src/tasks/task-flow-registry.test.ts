@@ -1,5 +1,6 @@
 // Covers managed task-flow creation, lookup, ownership, and state transitions.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createInMemoryTaskFlowRegistryStore } from "../test-utils/task-registry-store.js";
 import {
@@ -10,8 +11,9 @@ import {
   failFlow,
   getTaskFlowById,
   listTaskFlowRecords,
+  listTaskFlowsForOwnerKey,
   requestFlowCancel,
-  reloadTaskFlowRegistryFromStore,
+  reloadTaskFlowRegistryFromStoreAsync,
   resumeFlow,
   setFlowWaiting,
   syncFlowFromTaskResult,
@@ -191,6 +193,48 @@ describe("task-flow-registry", () => {
     });
   });
 
+  it("lists isolated flow copies newest first with normalized owner filtering", async () => {
+    await withFlowRegistryTempDir(async () => {
+      const records = [
+        ["owner-a", 10],
+        ["owner-b", 30],
+        ["owner-a", 20],
+      ] as const;
+      const created = records.map(([ownerKey, createdAt]) =>
+        createManagedTaskFlow({
+          ownerKey,
+          createdAt,
+          controllerId: "tests/listing",
+          goal: "Synthetic listing",
+          stateJson: { count: 1 },
+        }),
+      );
+      const [older, foreign, newer] = created;
+      if (!older || !foreign || !newer) {
+        throw new Error("Expected all three flow fixtures to be created");
+      }
+      expect(listTaskFlowRecords().map((flow) => flow.flowId)).toEqual([
+        foreign.flowId,
+        newer.flowId,
+        older.flowId,
+      ]);
+      const selected = listTaskFlowsForOwnerKey("  owner-a  ");
+      expect(selected.map((flow) => flow.flowId)).toEqual([newer.flowId, older.flowId]);
+      expect(listTaskFlowsForOwnerKey(" ")).toEqual([]);
+      expect(listTaskFlowsForOwnerKey("missing")).toEqual([]);
+      const selectedFlow = selected[0];
+      if (!selectedFlow) {
+        throw new Error("Expected the newest owner flow");
+      }
+      selectedFlow.stateJson = { count: 2 };
+      selectedFlow.goal = "Changed copy";
+      expect(getTaskFlowById(newer.flowId)).toMatchObject({
+        goal: "Synthetic listing",
+        stateJson: { count: 1 },
+      });
+    });
+  });
+
   it("requires a controller for managed flows and rejects clearing it later", async () => {
     await withFlowRegistryTempDir(async () => {
       expect(() =>
@@ -251,7 +295,7 @@ describe("task-flow-registry", () => {
     expect(events[2]?.flowId).toBe(created.flowId);
   });
 
-  it("keeps restore failures sticky until an explicit reload succeeds", () => {
+  it("keeps restore failures sticky until an explicit reload succeeds", async () => {
     const hiddenFlow: TaskFlowRecord = {
       flowId: "hidden-flow",
       syncMode: "managed",
@@ -278,6 +322,7 @@ describe("task-flow-registry", () => {
       store: {
         ...createInMemoryTaskFlowRegistryStore(),
         loadSnapshot,
+        withSnapshotAsync: async (_context, consume) => consume(loadSnapshot()),
         upsertFlow,
         deleteFlow,
       },
@@ -308,7 +353,7 @@ describe("task-flow-registry", () => {
     expect(upsertFlow).not.toHaveBeenCalled();
     expect(deleteFlow).not.toHaveBeenCalled();
 
-    reloadTaskFlowRegistryFromStore();
+    await reloadTaskFlowRegistryFromStoreAsync(captureOpenClawStateWorkerContext());
 
     expect(loadSnapshot).toHaveBeenCalledTimes(2);
     expect(getTaskFlowRegistryRestoreFailure()).toBeNull();

@@ -6,7 +6,7 @@ import { withSystemEventOwner } from "../infra/system-event-ownership.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import {
   isGatewayRestartDraining,
-  runWithGatewayIndependentRootWorkContinuation,
+  runWithGatewayDetachedWorkContinuation,
 } from "../process/gateway-work-admission.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { normalizeDeliveryContext } from "../utils/delivery-context.shared.js";
@@ -167,19 +167,19 @@ function queueBlockedTaskFollowup(task: TaskRecord, owner: TaskDeliveryOwner) {
 }
 
 export async function maybeDeliverTaskTerminalUpdate(taskId: string): Promise<TaskRecord | null> {
-  return await runTaskDeliveryWithIndependentAdmission(taskId, async () =>
+  return await runTaskDeliveryWithDetachedAdmission(taskId, async () =>
     maybeDeliverTaskTerminalUpdateUnderAdmission(taskId),
   );
 }
 
-async function runTaskDeliveryWithIndependentAdmission(
+async function runTaskDeliveryWithDetachedAdmission(
   taskId: string,
   deliver: () => Promise<TaskRecord | null>,
 ): Promise<TaskRecord | null> {
   ensureTaskRegistryReady({ refreshProjection: false });
   let admitted = false;
   try {
-    return await runWithGatewayIndependentRootWorkContinuation(async () => {
+    return await runWithGatewayDetachedWorkContinuation(async () => {
       admitted = true;
       return await deliver();
     }, "tasks:delivery");
@@ -530,7 +530,7 @@ export async function maybeDeliverTaskStateChangeUpdate(
   taskId: string,
   latestEvent?: TaskEventRecord,
 ): Promise<TaskRecord | null> {
-  return await runTaskDeliveryWithIndependentAdmission(taskId, async () =>
+  return await runTaskDeliveryWithDetachedAdmission(taskId, async () =>
     maybeDeliverTaskStateChangeUpdateUnderAdmission(taskId, latestEvent),
   );
 }

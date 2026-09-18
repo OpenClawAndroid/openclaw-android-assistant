@@ -6,6 +6,7 @@ import {
 import { inspectMatrixDirectRooms, persistMatrixDirectRoomMapping } from "../direct-management.js";
 import { isStrictDirectRoom } from "../direct-room.js";
 import type { MatrixClient } from "../sdk.js";
+import { captureMatrixSendCurrentness } from "../sdk/send-currentness.js";
 import { isMatrixQualifiedUserId, normalizeMatrixResolvableTarget } from "../target-ids.js";
 
 function normalizeTarget(raw: string): string {
@@ -75,16 +76,18 @@ async function resolveDirectRoomId(
     remoteUserId: trimmed,
   });
   if (inspection.activeRoomId) {
-    setDirectRoomCached(client, cacheKey, inspection.activeRoomId);
     if (persistDirectMapping && inspection.mappedRoomIds[0] !== inspection.activeRoomId) {
       await persistMatrixDirectRoomMapping({
         client,
         remoteUserId: trimmed,
         roomId: inspection.activeRoomId,
       }).catch(() => {
+        // A canceled repair must not cache a lookup that suppresses the next valid repair.
+        captureMatrixSendCurrentness(client)?.();
         // Ignore persistence errors when send resolution has already found a usable room.
       });
     }
+    setDirectRoomCached(client, cacheKey, inspection.activeRoomId);
     return inspection.activeRoomId;
   }
 

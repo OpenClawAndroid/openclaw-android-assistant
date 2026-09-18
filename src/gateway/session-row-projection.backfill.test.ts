@@ -6,16 +6,174 @@ import {
   persistSessionTranscriptTurn,
   replaceSessionEntrySync,
 } from "../config/sessions/session-accessor.js";
-import { emitSessionIdentityMutation } from "../sessions/session-lifecycle-events.js";
+import {
+  emitSessionIdentityMutation,
+  emitSessionLifecycleEvent,
+} from "../sessions/session-lifecycle-events.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { retainSessionListForegroundWork } from "./session-projection-work.js";
 import { createSessionRowProjectionBackfill } from "./session-row-projection-backfill.js";
 import { create, type Row } from "./session-row-projection-record.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import * as transcriptBackfill from "./session-row-transcript-backfill.js";
 
 afterEach(() => vi.restoreAllMocks());
+
+async function withStreamingProjection(
+  run: (fixture: {
+    projection: Awaited<ReturnType<typeof createSessionRowProjection>>;
+    target: { agentId: string; sessionKey: string; sessionId: string };
+    query: { agentId: string; key: string };
+    append: (content: string) => Promise<void>;
+    release: () => void;
+  }) => Promise<void>,
+) {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const cfg = { agents: { list: [{ id: "main", default: true }] } };
+    setRuntimeConfigSnapshot(cfg);
+    const target = { agentId: "main", sessionKey: "agent:main:stream", sessionId: "stream" };
+    for (const [name, parent] of [["parent"], ["stream", "parent"], ["child", "stream"]] as const) {
+      replaceSessionEntrySync(
+        { agentId: "main", sessionKey: `agent:main:${name}` },
+        {
+          sessionId: name,
+          updatedAt: 1,
+          displayName: name,
+          ...(parent ? { parentSessionKey: `agent:main:${parent}` } : {}),
+        },
+      );
+    }
+    // Hold optional backfill at its real foreground gate to count invalidation work separately.
+    const release = retainSessionListForegroundWork();
+    const projection = await createSessionRowProjection({ cfg });
+    try {
+      await projection.ensureMaterialized();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await run({
+        projection,
+        target,
+        query: { agentId: "main", key: target.sessionKey },
+        async append(content) {
+          await persistSessionTranscriptTurn(target, {
+            messages: [{ message: { role: "assistant", content } }],
+            touchSessionEntry: false,
+          });
+          await projection.ensureMaterialized();
+        },
+        release,
+      });
+    } finally {
+      projection.dispose();
+      release();
+      vi.useRealTimers();
+    }
+  });
+}
+
+it("coalesces streaming transcript refreshes without refreshing parents or children", async () => {
+  await withStreamingProjection(async ({ projection, query, append, release }) => {
+    const before = projection.materializedCount;
+    await append("Update 1");
+    expect(projection.materializedCount - before).toBe(1);
+    for (let index = 2; index <= 10; index++) {
+      await append(`Update ${index}`);
+    }
+    expect(projection.materializedCount - before).toBe(1);
+    await vi.advanceTimersByTimeAsync(999);
+    await projection.ensureMaterialized();
+    expect(projection.materializedCount - before).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await projection.ensureMaterialized();
+    expect(projection.materializedCount - before).toBe(2);
+    await append("Update 11");
+    expect(projection.materializedCount - before).toBe(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await projection.ensureMaterialized();
+    expect(projection.materializedCount - before).toBe(3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(projection.materializedCount - before).toBe(3);
+    release();
+    vi.useRealTimers();
+    await vi.waitFor(() =>
+      expect(projection.snapshot(query, { includeLastMessage: true }).row).toMatchObject({
+        lastMessagePreview: "Update 11",
+      }),
+    );
+  });
+});
+
+it("refreshes committed metadata and lifecycle marks during a transcript window", async () => {
+  await withStreamingProjection(async ({ projection, target, query, append }) => {
+    await append("Leading update");
+    const before = projection.materializedCount;
+    await append("Pending update");
+    expect(projection.materializedCount).toBe(before);
+    replaceSessionEntrySync(target, {
+      sessionId: target.sessionId,
+      updatedAt: 2,
+      displayName: "Renamed immediately",
+      parentSessionKey: "agent:main:parent",
+    });
+    expect(projection.snapshot(query).row?.displayName).toBe("Renamed immediately");
+    await projection.ensureMaterialized();
+    const afterMetadata = projection.materializedCount;
+    emitSessionLifecycleEvent({ ...target, reason: "updated" });
+    await projection.ensureMaterialized();
+    expect(projection.materializedCount).toBeGreaterThan(afterMetadata);
+  });
+});
+
+it("cancels a pending trailing transcript refresh on disposal", async () => {
+  await withStreamingProjection(async ({ projection, append }) => {
+    await append("Leading update");
+    const before = projection.materializedCount;
+    await append("Pending update");
+    expect(projection.materializedCount).toBe(before);
+    expect(vi.getTimerCount()).toBe(1);
+    projection.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await projection.ensureMaterialized();
+    expect(projection.materializedCount).toBe(before);
+    expect(projection.select()).toEqual([]);
+  });
+});
+
+it("does not carry a pending transcript refresh into a replacement session", async () => {
+  await withStreamingProjection(async ({ projection, target, query, append }) => {
+    await append("Leading update");
+    await append("Pending update");
+    expect(vi.getTimerCount()).toBe(1);
+    replaceSessionEntrySync(target, {
+      sessionId: "replacement",
+      updatedAt: 2,
+      displayName: "Replacement",
+      parentSessionKey: "agent:main:parent",
+    });
+    emitSessionIdentityMutation({
+      kind: "reset",
+      agentId: target.agentId,
+      previous: { sessionId: target.sessionId, sessionKeys: [target.sessionKey] },
+      current: { sessionId: "replacement", sessionKeys: [target.sessionKey] },
+    });
+    await projection.ensureMaterialized();
+    expect(projection.snapshot(query).row?.sessionId).toBe("replacement");
+    expect(vi.getTimerCount()).toBe(0);
+    const before = projection.materializedCount;
+    await vi.advanceTimersByTimeAsync(1_000);
+    await projection.ensureMaterialized();
+    expect(projection.materializedCount).toBe(before);
+    await persistSessionTranscriptTurn(
+      { ...target, sessionId: "replacement" },
+      { messages: [{ message: { role: "assistant", content: "New session" } }] },
+    );
+    await projection.ensureMaterialized();
+    expect(projection.materializedCount - before).toBe(1);
+  });
+});
 
 it("eventually fills legacy titles and previews without waiting during startup or changing activity", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {

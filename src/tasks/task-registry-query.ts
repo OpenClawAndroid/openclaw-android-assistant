@@ -8,6 +8,7 @@ import { clearTaskActivity } from "./task-registry-activity.js";
 import { isActiveTaskStatus } from "./task-registry-common.js";
 import type { TaskRegistryControlRuntime } from "./task-registry-control.types.js";
 import { ensureLinkedTaskFlowRegistryReady } from "./task-registry-flow-link.js";
+import { clearTaskFlowSyncRetries } from "./task-registry-flow-sync.js";
 import {
   cloneTaskRecord,
   listTasksFromIndex,
@@ -15,6 +16,7 @@ import {
   normalizeTaskTimestamps,
   compareTasksNewestFirst,
   pickPreferredRunIdTask,
+  snapshotTaskRecords,
 } from "./task-registry-records.js";
 import {
   TASK_REGISTRY_CONTROL_RUNTIME_OVERRIDE_KEY,
@@ -28,25 +30,26 @@ import {
   withTaskRegistryMutation,
   bumpTaskRegistryRevision,
   clearTaskRegistryMemory,
-  deleteOwnerKeyIndex,
-  deleteParentFlowIdIndex,
-  deleteRelatedSessionKeyIndex,
   emitTaskRegistryObserverEvent,
   ensureTaskRegistryReady,
   getTasksByRunId,
   taskRegistryLog,
   readTaskRegistryRevision,
-  rebuildRunIdIndex,
   resetTaskRegistryListenerState,
   resetTaskRegistryRestoreState,
-  snapshotTaskRecords,
   taskDeliveryStates,
   taskIdsByOwnerKey,
   taskIdsByParentFlowId,
   taskIdsByRelatedSessionKey,
   tasks,
 } from "./task-registry-state.js";
-import { getTaskRegistryProcessState } from "./task-registry.process-state.js";
+import {
+  deleteOwnerKeyIndex,
+  deleteParentFlowIdIndex,
+  deleteRelatedSessionKeyIndex,
+  rebuildRunIdIndex,
+  getTaskRegistryProcessState,
+} from "./task-registry.process-state.js";
 import {
   tryPersistTaskDelete,
   getTaskRegistryStore,
@@ -58,6 +61,33 @@ import { resolveTaskSessionAgentId } from "./task-session-identity.js";
 export function listTaskRecordsUnsorted(): TaskRecord[] {
   ensureTaskRegistryReady();
   return snapshotTaskRecords(tasks);
+}
+
+/** Coarse tree candidates; callers still enforce agent identity and current control authority. */
+export function listTaskRecordsForOwnerTree(rootOwnerKeys: ReadonlySet<string>): TaskRecord[] {
+  ensureTaskRegistryReady();
+  const owners = new Set(rootOwnerKeys);
+  const selected = new Set<string>();
+  for (const owner of owners) {
+    const key = normalizeOptionalString(owner);
+    if (!key) {
+      continue;
+    }
+    for (const taskId of taskIdsByOwnerKey.get(key) ?? []) {
+      const task = tasks.get(taskId);
+      if (!task || task.scopeKind !== "session") {
+        continue;
+      }
+      selected.add(taskId);
+      if (task.childSessionKey) {
+        owners.add(task.childSessionKey);
+      }
+    }
+  }
+  // Preserve registry insertion order, including descendants inserted before their parents.
+  return [...tasks.values()]
+    .filter((task) => selected.has(task.taskId))
+    .map((task) => cloneTaskRecord(task));
 }
 
 function taskMatchesRelatedSession(
@@ -467,6 +497,7 @@ export function deleteTaskRecordById(taskId: string): boolean {
 }
 
 export function resetTaskRegistryForTests() {
+  clearTaskFlowSyncRetries();
   getTaskRegistryProcessState().runOwners.clear();
   clearTaskRegistryMemory();
   resetTaskRegistryRestoreState();

@@ -56,6 +56,7 @@ describe("Codex node catalog sources", () => {
     )!;
 
     for (const agentId of ["gatewayOnly", undefined]) {
+      await (await factory.forNode(agentId)).control.initialize();
       expect(
         JSON.parse(await listCommand.handle(JSON.stringify({ agentId, limit: 25 }))),
       ).toMatchObject({
@@ -153,6 +154,7 @@ describe("Codex node catalog sources", () => {
       const read = commands.find(
         (candidate) => candidate.command === CODEX_APP_SERVER_THREAD_TURNS_LIST_COMMAND,
       )!;
+      await (await factory.forNode("beta")).control.initialize();
       expect(
         JSON.parse(await command.handle(JSON.stringify({ agentId: "beta", limit: 25 }))),
       ).toMatchObject({

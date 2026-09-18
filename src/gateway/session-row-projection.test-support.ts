@@ -9,8 +9,8 @@ import {
   normalizeAgentId,
   parseAgentSessionKey,
 } from "../routing/session-key.js";
-import { compareSessionEntryPairs } from "./session-list-order.js";
 import { resolveRequestedSessionAgentId } from "./session-request-agent.js";
+import { sort as sortSessionRows } from "./session-row-projection-record.js";
 import { createSessionRowProjection, type SessionRowProjection } from "./session-row-projection.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
 import type { SessionListRowContext } from "./session-utils-contracts.js";
@@ -120,17 +120,25 @@ export function createSessionRowProjectionFixture(params: {
   }
   const select = (options?: Parameters<SessionRowProjection["select"]>[0]) => {
     const query = options ?? {};
-    return [...rows.values()]
-      .filter(
-        (row) =>
-          (!query.agentId || row.agentId === query.agentId) &&
-          (!query.storePath || row.storeTarget.storePath === query.storePath) &&
-          (!query.key || row.key === query.key) &&
-          (!query.parentSessionKey || row.parents.has(query.parentSessionKey)),
-      )
-      .toSorted((a, b) =>
-        compareSessionEntryPairs([a.key, a.entry], [b.key, b.entry], query.sortBy),
+    const matchingKeys =
+      query.sessionIdOrKey &&
+      new Set(
+        [...rows.values()]
+          .filter(
+            (row) =>
+              row.key === query.sessionIdOrKey || row.entry.sessionId === query.sessionIdOrKey,
+          )
+          .map((row) => row.key),
       );
+    const selected = [...rows.values()].filter(
+      (row) =>
+        (!query.agentId || row.agentId === query.agentId) &&
+        (!query.storePath || row.storeTarget.storePath === query.storePath) &&
+        (!query.key || row.key === query.key) &&
+        (!matchingKeys || matchingKeys.has(row.key)) &&
+        (!query.parentSessionKey || row.parents.has(query.parentSessionKey)),
+    );
+    return sortSessionRows(selected, query.sortBy);
   };
   const projection: SessionRowProjection = {
     capture: describe,

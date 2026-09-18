@@ -61,6 +61,11 @@ import {
   createCodexNodeExecServerInvokePolicy,
 } from "./src/node-exec-server.js";
 import {
+  CODEX_CATALOG_STATE_NAMESPACE,
+  type StoredCodexCatalogEntry,
+} from "./src/session-catalog-index-state.js";
+import { CODEX_CATALOG_MAX_ROWS } from "./src/session-catalog-limits.js";
+import {
   createCodexSessionCatalogControl,
   createCodexSessionCatalogNodeHostCommands,
   createCodexSessionCatalogNodeInvokePolicies,
@@ -188,9 +193,20 @@ export default definePluginEntry({
       config: api.config as OpenClawConfig,
       getPluginConfig: resolveCurrentPluginConfig,
       getRuntimeConfig: resolveCurrentConfig,
+      openResidentState: (homeId) =>
+        api.runtime.state.openKeyedStore<StoredCodexCatalogEntry>({
+          namespace: `${CODEX_CATALOG_STATE_NAMESPACE}.${homeId.replaceAll(":", "-")}`,
+          maxEntries: CODEX_CATALOG_MAX_ROWS + 1,
+          overflowPolicy: "reject-new",
+        }),
     });
     const sessionCatalogEnabled =
       readCodexPluginConfig(resolveCurrentPluginConfig()).sessionCatalog?.enabled !== false;
+    api.registerService({
+      id: "codex-session-catalog",
+      start: () => (sessionCatalogEnabled ? sessionCatalogControlFactory.start() : undefined),
+      stop: () => sessionCatalogControlFactory.stop(),
+    });
     if (sessionCatalogEnabled) {
       codexSessionCatalogRuntime.register({
         api,

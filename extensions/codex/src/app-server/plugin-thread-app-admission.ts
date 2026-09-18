@@ -1,4 +1,5 @@
 import { embeddedAgentLog } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { codexAppIdentityKey } from "./app-identity.js";
 import {
   serializeCodexAppInventoryError,
   type CodexAppInventoryCache,
@@ -100,9 +101,9 @@ export function collectCodexReservedPluginAppIds(params: {
   accountApps: readonly v2.AppInfo[];
 }): Set<string> {
   const reserved = new Set(
-    params.inventory.records.flatMap((record) =>
-      record.appOwnership === "proven" ? record.ownedAppIds : [],
-    ),
+    params.inventory.records
+      .flatMap((record) => (record.appOwnership === "proven" ? record.ownedAppIds : []))
+      .map(codexAppIdentityKey),
   );
   const recordsByConfigKey = new Map(
     params.inventory.records.map((record) => [record.policy.configKey, record] as const),
@@ -122,7 +123,7 @@ export function collectCodexReservedPluginAppIds(params: {
         configuredOwnerNames.has(normalizeCodexPluginOwnerName(name)),
       )
     ) {
-      reserved.add(app.id);
+      reserved.add(codexAppIdentityKey(app.id));
     }
   }
   return reserved;
@@ -293,9 +294,19 @@ export function resolveCodexExplicitAppEnablement(
   // explicitly selected plugin from safely requesting thread-only enablement.
   for (const layer of layersHighestPrecedenceFirst) {
     const apps = layer.apps;
-    const app = isJsonObject(apps) ? apps[appId] : undefined;
-    if (isJsonObject(app) && Object.hasOwn(app, "enabled")) {
-      return app.enabled === true;
+    const values = isJsonObject(apps)
+      ? Object.entries(apps)
+          .filter(
+            ([id, app]) =>
+              codexAppIdentityKey(id) === codexAppIdentityKey(appId) &&
+              isJsonObject(app) &&
+              Object.hasOwn(app, "enabled"),
+          )
+          .map(([, app]) => isJsonObject(app) && app.enabled === true)
+      : [];
+    if (values.length > 0) {
+      // A conflicting alias in the same layer must not undo an explicit denial.
+      return values.every(Boolean);
     }
   }
   return undefined;

@@ -97,7 +97,9 @@ count.
   and activity-summary enrichment enabled. This adds catalog-backed fields such
   as thinking options and replaces legacy model aliases with canonical model IDs
   in event rows. The Control UI applies these rows locally to existing roster
-  members, so their values match the list. Top-level lifecycle and capacity fields
+  members, so their values match the list. A `reason: "patch"` event that commits a
+  model, account, or runtime selection also carries `catalogChanged: true`; clients
+  may treat other patches as session-only and keep cached catalogs. Top-level lifecycle and capacity fields
   remain event receipts, including explicit clearing values. When a nested row
   omits an optional field, honor its top-level clearing tombstone; nested values
   take precedence when present. Merge an existing

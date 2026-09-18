@@ -3,7 +3,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseStrictPositiveInteger } from "@openclaw/normalization-core/number-coercion";
-import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { hasErrnoCode } from "../../infra/errors.js";
 import { resolveRequiredHomeDir } from "../../infra/home-dir.js";
@@ -39,6 +38,9 @@ import { UPDATE_INSTALL_SKIP_GUIDANCE } from "../../shared/update-outcome.js";
 import { pathExists } from "../../utils.js";
 import { COMPLETION_SKIP_PLUGIN_COMMANDS_ENV } from "../completion-runtime.js";
 import { isJsonOutputModeActive } from "../json-output-mode.js";
+import { resolveNodeRunner } from "./node-runner.js";
+
+export { resolveNodeRunner } from "./node-runner.js";
 
 export type UpdateCommandOptions = {
   /** In-process executor only; workers must reacquire authority, never deserialize this. */
@@ -226,15 +228,6 @@ function resolveDefaultGitDir(): string {
     return path.posix.join(home, "openclaw");
   }
   return path.join(home, "openclaw");
-}
-
-/** Prefer the current Node executable, falling back to `node` when run through another shim. */
-export function resolveNodeRunner(): string {
-  const base = normalizeLowercaseStringOrEmpty(path.basename(process.execPath));
-  if (base === "node" || base === "node.exe") {
-    return process.execPath;
-  }
-  return "node";
 }
 
 export function tryResolveInvocationCwd(): string | undefined {

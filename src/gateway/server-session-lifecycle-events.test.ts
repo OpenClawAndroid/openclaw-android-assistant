@@ -288,12 +288,12 @@ describe("createLifecycleEventBroadcastHandler", () => {
       chatAbortControllers: new Map(),
     });
 
-    await handler({ sessionKey: "global", reason: "updated" });
+    await handler({ sessionKey: "global", reason: "patch", catalogChanged: true });
 
     expect(loadGatewaySessionRowMock).not.toHaveBeenCalled();
     expect(broadcastToConnIds).toHaveBeenCalledWith(
       "sessions.changed",
-      expect.objectContaining({ sessionKey: "global", reason: "updated" }),
+      expect.objectContaining({ sessionKey: "global", reason: "patch", catalogChanged: true }),
       new Set(["conn-events"]),
       {
         agentId: "ops",

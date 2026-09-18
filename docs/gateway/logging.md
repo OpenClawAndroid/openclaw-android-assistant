@@ -240,6 +240,16 @@ The latter two distinguish selected rows refreshed during this request from
 selected rows already resident when it began. Dirty counts describe pending
 owner work at the start of the request.
 
+Transcript-only row refreshes use a one-second window per resident session: the
+first notification refreshes promptly, and further notifications collapse into a
+trailing refresh. These pending notifications are not dirty rows until that
+refresh is due. Transcript freshness can therefore lag by up to one window;
+optional previews still wait for idle background backfill. Metadata, lifecycle,
+catalog, and topology publications continue to invalidate immediately.
+Transcript notifications do not invalidate parents or children: relationships,
+inherited model settings, and subagent activity have their own metadata or
+registry publications.
+
 Records report phase totals, synchronous selection/row time, and
 `yieldWaitMs`/`yieldCount` for awaiting shared projection readiness. These waits
 can include coalesced work shared with other callers. Phase totals include their

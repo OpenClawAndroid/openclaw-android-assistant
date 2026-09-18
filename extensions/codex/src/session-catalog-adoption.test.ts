@@ -289,7 +289,6 @@ describe("Codex supervision actions", () => {
     );
     expect(pinnedConnectionMocks.request.mock.calls.map(([request]) => request.method)).toEqual([
       "thread/read",
-      "thread/list",
       "thread/read",
     ]);
   });

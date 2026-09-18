@@ -4,7 +4,6 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import type * as Lark from "@larksuiteoapi/node-sdk";
 import type { MessageReceipt } from "openclaw/plugin-sdk/channel-outbound";
-import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { detectMime, mediaKindFromMime } from "openclaw/plugin-sdk/media-mime";
 import {
   buildOutboundMediaLoadOptions,
@@ -29,6 +28,7 @@ import { requestFeishuApi } from "./comment-shared.js";
 import { normalizeFeishuExternalKey } from "./external-keys.js";
 import { saveMediaStreamWithIdleTimeout } from "./media-chunk-idle.js";
 import { getFeishuRuntime } from "./runtime.js";
+import { runBeforeFeishuMessageDispatch } from "./send-context.js";
 import { resolveFeishuSendTarget } from "./send-target.js";
 import { sendReplyOrFallbackDirect } from "./send.js";
 
@@ -70,22 +70,6 @@ const FEISHU_TRANSCODABLE_AUDIO_EXTS = new Set([
   ".webm",
   ".wma",
 ]);
-
-async function runBeforeFeishuMessageDispatch<T>(operation: () => Promise<T> | T): Promise<T> {
-  try {
-    return await operation();
-  } catch (error: unknown) {
-    if (error instanceof PlatformMessageNotDispatchedError) {
-      throw error;
-    }
-    throw new PlatformMessageNotDispatchedError(
-      `Feishu media preparation failed before message dispatch: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { cause: error },
-    );
-  }
-}
 
 type SaveMessageResourceResult = {
   saved: SavedMedia;

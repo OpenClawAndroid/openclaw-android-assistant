@@ -43,6 +43,7 @@ import {
   DEFAULT_ACCOUNT_ID,
   PAIRING_APPROVED_MESSAGE,
 } from "../runtime-api.js";
+import { resolveActionContent, resolveActionUploadFilePath } from "./action-params.js";
 import {
   extractMSTeamsToolSendResult,
   msteamsContextTargetsMatch,
@@ -56,6 +57,10 @@ import {
 import { resolveMSTeamsAccount, type ResolvedMSTeamsAccount } from "./channel-config.js";
 import { msteamsSetupPlugin } from "./channel.setup.js";
 import { collectMSTeamsMutableAllowlistWarnings } from "./doctor.js";
+import {
+  MSTEAMS_GROUP_MANAGEMENT_ACTIONS,
+  withMSTeamsGraphMutationCurrentness,
+} from "./graph-action-context.js";
 import { resolveMSTeamsGroupToolPolicy } from "./policy.js";
 import { buildMSTeamsPresentationCard, MSTEAMS_PRESENTATION_CAPABILITIES } from "./presentation.js";
 import type { ProbeMSTeamsResult } from "./probe.js";
@@ -84,12 +89,6 @@ const TEAMS_GRAPH_PERMISSION_HINTS: Record<string, string> = {
   "Sites.Read.All": "files (SharePoint)",
   "Files.Read.All": "files (OneDrive)",
 };
-
-const MSTEAMS_GROUP_MANAGEMENT_ACTIONS = new Set<ChannelMessageActionName>([
-  "addParticipant",
-  "removeParticipant",
-  "renameGroup",
-]);
 
 const collectMSTeamsSecurityWarnings = createAllowlistProviderGroupPolicyWarningCollector<{
   cfg: OpenClawConfig;
@@ -241,33 +240,11 @@ function resolveActionQuery(params: Record<string, unknown>): string {
   return normalizeOptionalString(params.query) ?? "";
 }
 
-function resolveActionContent(params: Record<string, unknown>): string {
-  return typeof params.text === "string"
-    ? params.text
-    : typeof params.content === "string"
-      ? params.content
-      : typeof params.message === "string"
-        ? params.message
-        : "";
-}
-
 function readOptionalTrimmedString(
   params: Record<string, unknown>,
   key: string,
 ): string | undefined {
   return normalizeOptionalString(params[key]);
-}
-
-function resolveActionUploadFilePath(params: Record<string, unknown>): string | undefined {
-  for (const key of ["filePath", "path", "media"] as const) {
-    if (typeof params[key] === "string") {
-      const value = params[key];
-      if (value.trim()) {
-        return value;
-      }
-    }
-  }
-  return undefined;
 }
 
 type MSTeamsActionTargetParams = {
@@ -609,7 +586,7 @@ export const msteamsPlugin: ChannelPlugin<ResolvedMSTeamsAccount, ProbeMSTeamsRe
         requiresTrustedRequesterSender: ({ action, toolContext }) =>
           normalizeOptionalString(toolContext?.currentChannelProvider)?.toLowerCase() ===
             "msteams" && MSTEAMS_GROUP_MANAGEMENT_ACTIONS.has(action),
-        handleAction: async (ctx) => {
+        handleAction: withMSTeamsGraphMutationCurrentness(async (ctx) => {
           if (MSTEAMS_GROUP_MANAGEMENT_ACTIONS.has(ctx.action)) {
             const authError = requireMSTeamsGroupManagementAuthorization(ctx);
             if (authError) {
@@ -636,6 +613,8 @@ export const msteamsPlugin: ChannelPlugin<ResolvedMSTeamsAccount, ProbeMSTeamsRe
                   cfg: ctx.cfg,
                   to,
                   card,
+                  assertDirectAdapterHandoff: ctx.assertDirectAdapterHandoff,
+                  onPlatformSendDispatch: ctx.onPlatformSendDispatch,
                 });
                 return jsonActionResultWithDetails(
                   {
@@ -671,6 +650,8 @@ export const msteamsPlugin: ChannelPlugin<ResolvedMSTeamsAccount, ProbeMSTeamsRe
                   mediaAccess: ctx.mediaAccess,
                   mediaLocalRoots: ctx.mediaLocalRoots,
                   mediaReadFile: ctx.mediaReadFile,
+                  assertDirectAdapterHandoff: ctx.assertDirectAdapterHandoff,
+                  onPlatformSendDispatch: ctx.onPlatformSendDispatch,
                 });
                 return jsonActionResultWithDetails(
                   {
@@ -1037,7 +1018,7 @@ export const msteamsPlugin: ChannelPlugin<ResolvedMSTeamsAccount, ProbeMSTeamsRe
 
           // Return null to fall through to default handler
           return null as never;
-        },
+        }),
       },
       status: createComputedAccountStatusAdapter<ResolvedMSTeamsAccount, ProbeMSTeamsResult>({
         defaultRuntime: createDefaultChannelRuntimeState(DEFAULT_ACCOUNT_ID, { port: null }),

@@ -20,12 +20,17 @@ import {
   bindTaskFlowRecord,
   listTaskFlowRecordsForOwnerReadInDatabase,
   readTaskFlowRecord,
+  readTaskFlowRegistrySnapshot,
   listTaskFlowViewRecordsForOwnerInDatabase,
   readTaskFlowViewRecordInDatabase,
   updateTaskFlowRecordInDatabase,
   upsertTaskFlowRowInDatabase,
 } from "./task-flow-registry.store.kernel.js";
 import { isTerminalTaskFlow, type TaskFlowRecord } from "./task-flow-registry.types.js";
+import {
+  restoreTaskRegistryInDatabase,
+  syncTaskMirroredFlowInDatabase,
+} from "./task-registry-restore.worker.js";
 import {
   findTaskRecordByRunIdForViewInDatabase,
   listTaskRecordsForFlowReadInDatabase,
@@ -146,9 +151,17 @@ export function executeTaskRegistryCommand(
     }
   }
   const database = open();
+  if (command.type === "tasks.restore") {
+    return restoreTaskRegistryInDatabase(database);
+  }
+  if (command.type === "flows.syncMirroredTask") {
+    return syncTaskMirroredFlowInDatabase(database, command.input);
+  }
   const { db } = database;
   return runSqliteDeferredTransactionSync(db, () => {
     switch (command.type) {
+      case "flows.snapshot":
+        return readTaskFlowRegistrySnapshot(db);
       case "tasks.mutationSnapshot":
         return readTaskRegistryMutationSnapshotInDatabase(db, command.input);
       case "tasks.get":

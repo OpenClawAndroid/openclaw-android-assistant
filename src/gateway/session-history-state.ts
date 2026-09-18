@@ -160,7 +160,7 @@ export class SessionHistorySseState {
       this.target.storePath &&
       !this.target.sessionEntry?.incognito &&
       !isIncognitoSessionKey(this.target.sessionKey)
-        ? createSessionHistorySubagentProjection(this.target)
+        ? createSessionHistorySubagentProjection(this.target, { deferSources: true })
         : undefined;
     nextMessage = createSubagentCoordinationHistoryProjection(subagentCoordination)([
       nextMessage,

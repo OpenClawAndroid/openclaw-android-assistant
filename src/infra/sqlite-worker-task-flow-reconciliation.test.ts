@@ -12,13 +12,14 @@ import { createDeferredCore } from "../shared/deferred.js";
 import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db-cache.js";
 import type { DB } from "../state/openclaw-state-db.generated.js";
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
+import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { createAcpTaskBackingDetail } from "../tasks/task-backing-records.js";
 import { upsertTaskFlowRegistryRecordToSqlite } from "../tasks/task-flow-registry.store.sqlite.js";
 import { configureTaskFlowRegistryRuntime } from "../tasks/task-flow-registry.store.test-support.js";
 import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
 import {
   deleteTaskFlowRecordById,
-  reloadTaskFlowRegistryFromStore,
+  reloadTaskFlowRegistryFromStoreAsync,
 } from "../tasks/task-flow-runtime-internal.js";
 import {
   cancelTaskById,
@@ -556,7 +557,7 @@ describe("registered task flow reconciliation", () => {
               .set({ revision: 2, goal: "Refreshed canonical flow" })
               .where("flow_id", "=", created.flowId),
           );
-          reloadTaskFlowRegistryFromStore();
+          await reloadTaskFlowRegistryFromStoreAsync(captureOpenClawStateWorkerContext());
         }
         onEvent.mockClear();
         release.resolve();

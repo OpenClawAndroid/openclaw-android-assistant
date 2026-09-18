@@ -178,6 +178,10 @@ This is home isolation, not a filesystem sandbox: explicit absolute paths,
 `os.userInfo()` account lookup, children with stripped or replaced home variables,
 and intentionally real-home live execution remain outside its protection.
 
+Codex app-server fixtures await agent and shared-state SQLite drainage between
+cases. Their file teardown drains the shared disk-budget scan worker, preserving
+reuse during the file and releasing it before isolated fork shutdown.
+
 - `src/test-utils/openclaw-test-state.ts`: use from Vitest when a test needs an isolated `HOME`, `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`, config fixture, workspace, agent dir, or auth-profile store.
 - `pnpm test:env-mutations:report`: non-blocking report of tests/harnesses that mutate `HOME`, `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`, `OPENCLAW_WORKSPACE_DIR`, or related env keys directly. Use it to find migration candidates for the shared test-state helper.
 - `test/helpers/openclaw-test-instance.ts`: process-level E2E tests needing a running Gateway, CLI env, log capture, and cleanup in one place.
@@ -206,6 +210,19 @@ fragments by Node's inspector are redacted as one value.
 Redaction is unconditional and affects diagnostic output, not assertion behavior.
 Test console capture is outside this boundary; tests must still avoid logging
 credentials directly.
+
+Configured extension fork projects use the `openclaw-forks` diagnostic adapter
+around Vitest's native fork transport. If the existing stop deadline fails while
+the child remains alive, the adapter spends at most two additional seconds
+collecting a Node report before native termination and pipe cleanup. The timeout
+remains a test failure. The report distinguishes a missing stop acknowledgement
+from a stall after acknowledgement and includes native stacks, libuv handles, and
+worker-thread reports. Environment variables, command arguments, and socket
+endpoints are omitted. A blocked event loop can prevent signal reporting; that
+case explicitly reports that no complete report was captured.
+
+Successful shutdown remains quiet. An explicit `--pool=forks` selects Vitest's
+built-in pool and bypasses this adapter.
 
 ## JSON reports across native processes
 

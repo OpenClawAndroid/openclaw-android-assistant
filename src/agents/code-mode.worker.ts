@@ -269,10 +269,10 @@ async function createVm(input: CodeModeWorkerPayload, bridge: BridgeState): Prom
 }
 
 function takeOutput(vm: QuickJS): unknown[] {
-  return vm.global.getProp("__openclawTakeOutput").consume((take) =>
+  return vm.global.getProp("__openclawTakeOutputJson").consume((take) =>
     vm.callFunction(take, vm.undefined).consume((output) => {
-      const dumped = vm.dump(output);
-      return Array.isArray(dumped) ? (dumped as unknown[]) : [];
+      const parsed: unknown = JSON.parse(output.toString());
+      return Array.isArray(parsed) ? parsed : [];
     }),
   );
 }
@@ -354,7 +354,7 @@ function workerFailureResult(params: {
 
 async function readCompletedResult(vm: QuickJS, resultHandle: JSValueHandle): Promise<unknown> {
   if (!resultHandle.isPromise) {
-    return serializeCompletedCatalogHandles(vm, resultHandle);
+    return readCompletedJsonValue(vm, resultHandle);
   }
   const settled = await vm.resolvePromise(resultHandle);
   if ("error" in settled) {
@@ -380,14 +380,16 @@ async function readCompletedResult(vm: QuickJS, resultHandle: JSValueHandle): Pr
       throw new Error(text);
     });
   }
-  return settled.value.consume((value) => serializeCompletedCatalogHandles(vm, value));
+  return settled.value.consume((value) => readCompletedJsonValue(vm, value));
 }
 
-function serializeCompletedCatalogHandles(vm: QuickJS, value: JSValueHandle): unknown {
+function readCompletedJsonValue(vm: QuickJS, value: JSValueHandle): unknown {
   return vm.global
-    .getProp("__openclawSerializeCatalogHandles")
+    .getProp("__openclawEncodeFinalValue")
     .consume((serialize) =>
-      vm.callFunction(serialize, vm.undefined, value).consume((serialized) => vm.dump(serialized)),
+      vm
+        .callFunction(serialize, vm.undefined, value)
+        .consume((encoded) => JSON.parse(encoded.toString())),
     );
 }
 

@@ -14,26 +14,216 @@ native compaction, and app-server execution. OpenClaw still owns chat
 channels, session files, model selection, OpenClaw dynamic tools, approvals,
 media delivery, and the visible transcript mirror.
 
-The native session catalog requests at most 64 threads per page and shortens
-previews to 500 characters before delivering them to catalog consumers. An unfiltered
-first list fetches one native page; older pages load on demand. Title search and
-hiding OpenClaw-managed sessions share a 20-page catalog scan budget for each returned
-page. Continuing from its cursor searches the next pages without skipping older matches.
-A single native preview
-can still make its response large because the native API has no preview byte limit.
-Pages use native recency order with tie-safe cursors.
+The native session catalog keeps one resident index per Codex home, shared across
+agents, working-directory filters, searches, and pages. Lists normally filter and page
+bounded display rows in memory. They do not expire or restart native discovery
+on the normal sidebar polling interval. This memory-only boundary is the local
+resident query. The Gateway also reads session entries from its resident session-row
+projection once ready; mutations can require exact-key refreshes before delivery.
+Native adoption bindings still use their storage owner, and paired-node enumeration
+can use network I/O. Previews remain limited to 500 characters;
+native hydration and catalog pages remain limited to 64 rows each. Native `thread/list` has no bounded metadata projection, so wire JSON can still be
+large. Immediately after decoding, catalog responses discard unused native fields
+and detach bounded metadata before the response promise settles. Each native page
+contains at most 64 rows (less than 6 MiB of serialized catalog metadata even at
+all field limits). Unchanged background rows reuse resident previews at this
+boundary without sanitizing them again; new or changed rows retain the prefix-first
+preview selector. Native wire parsing remains a transient allocation cost. Recency, native position within exposed timestamp ties, and thread ID form the
+stable ordering and opaque continuation key. Initial native positions preserve
+the sub-second order that the protocol rounds to seconds. Unchanged rows keep
+their positions across background refreshes, so existing cursors do not repeat
+or skip them. Newly discovered or newly active rows receive fresh positions ahead
+of an existing timestamp tie, preserving native order within each discovery batch.
+An observed turn start also receives a fresh position when its recency falls in
+the same exposed timestamp second as earlier activity.
+If every earlier matching row disappears, backward navigation returns the first
+remaining matching page. An empty known prefix retains forward continuation while
+hydration is incomplete.
 
-Polls reuse the existing 32-second page cache. The plugin remembers bounded display
-rows and an update watermark in memory. An unchanged newest thread can satisfy a
-refresh with a one-row probe; tied timestamps require a page and an overlap read.
-Every tenth refresh rechecks the bounded head page for title, status, or archive
-changes that do not advance the newest timestamp. Refreshes update only the walked
-prefix, and native cursors keep older sessions available after cache eviction.
-Nothing is persisted, and restarting the Gateway starts with an empty cache.
-Within each source's 32 cached pages, up to 20 recent-page entries are favored over
-older discovery pages across all queries. Scanning older sessions therefore does
-not discard the entire recent listing before the next poll. Expiry and native
-pagination remain unchanged.
+The retained window is not a discovery limit. Once a home reaches 20,000 retained
+rows, recent unfiltered pages still use memory. Paging at the retained boundary,
+working-directory queries, and title searches use authoritative native database-only
+pages, including sessions absent from memory. Those requests can be slower. Each
+fallback request retains at most one 64-row native page. Search, exclusion filling,
+and any nested membership, status, or descendant reads share one 20-read budget
+and the existing request deadline, including across scheduler pauses. The request
+returns an opaque continuation when more discovery remains. Continue paging even
+when a partial search page is empty. Native cursors preserve native ordering and
+backward navigation. If a resident-to-native transition loses its anchor to a
+concurrent native mutation, it reports a refresh error instead of silently ending
+discovery. The snapshot remembers that the retained window may be incomplete.
+
+Search and managed-session exclusion filling examine at most 20 resident pages
+per request. If that limit is reached, the result retains an opaque continuation
+cursor so the next request can find later visible matches. Queries served entirely
+from the resident window perform no native reads; overflow discovery is the explicit exception.
+
+Source backoff settles when the whole foreground fallback request completes,
+including a bounded partial result with a continuation. Successful intermediate
+pages do not clear earlier failures. A failed recovery probe advances the existing
+backoff schedule; abandoning a request releases its probe without recording a new
+host failure. Background hydration keeps its separate grouped attempt and can
+walk the home to completion without consuming a foreground request's budget.
+
+Explicit homes hydrate in the background when the plugin activates. An implicit
+process home waits for an authorized catalog request. A home without a valid,
+complete saved snapshot walks native `thread/list` pages once, yielding between
+pages. Its first list waits for a usable native page or confirmed empty inventory,
+within the existing app-server request timeout. That single request budget also
+covers loading saved state and draining earlier cache writes after a configuration
+reload. A timed-out caller leaves the shared write drain running. Partial results carry an opaque continuation cursor;
+a continuation that catches up with discovery waits for the next page within its
+request budget. If discovery is still pending at the deadline, the host reports a
+loading error and asks the caller to retry. The shared hydration continues in the
+background. Partial or invalid saved caches are rebuilt before their rows are
+shown, and initial retries preserve positions already used in continuation cursors.
+The index persists reconstructible display rows and file fingerprints through
+plugin state in the OpenClaw SQLite database. A valid complete snapshot serves a
+recent unfiltered page without a native request, including on remote app-servers.
+Snapshot restoration waits for earlier cache writes, and mutations received during
+restoration fence stale saved rows from publication. Background work then
+reconciles changed files and native metadata. A
+database-only native metadata walk recovers changes made while the Gateway was
+stopped and repeats every 30 seconds, including renames, Git branch and other displayed metadata, and the selected rollout
+path after a native revert. Metadata changes and explicit clears are applied even
+when native activity timestamps do not change. Newer Gateway observations fence
+older background pages. These coalesced background walks reuse previews for
+unchanged rows and do not ask Codex to scan or repair rollouts. Requests over a
+complete snapshot never wait for these refreshes. A local database-only response can omit existing files when
+indexing is incomplete or unavailable, so omission alone does not remove a local
+row; verified file disappearance and explicit lifecycle events own removal.
+Loaded/active status has a separate memory-only lifecycle. For each thread, at most
+64 native connections can support the same current status. Closing one connection
+or receiving its `notLoaded` status withdraws only that connection's observation;
+an unrelated helper cannot clear activity observed by another open connection.
+Status resets to **Stored / activity unknown** after restart or when its final
+observing connection closes, until fresh native events or metadata supply current
+status. Overflow pages use this same source-owned status, and their native reads
+cannot overwrite a newer observation received while the request was pending.
+Late responses from a closed connection cannot restore its active status.
+No native rollouts or transcripts are copied into the state database.
+Live workspace and model-provider settings also stay in memory, with at most
+64 supporting native connections per row. Settings notifications and successful
+resume acknowledgements update this overlay immediately; both cwd filtering and
+display use it, including overflow pages. When live cwd settings are present,
+overflow discovery filters after applying them instead of relying on stored native
+cwd. Native metadata refreshes cannot overwrite the overlay, and closing its
+last supporting connection or receiving that connection's `notLoaded` event
+restores the stored metadata. Resume publication uses
+the response's current cwd, which can differ from the thread's persisted cwd.
+For remote app-servers without local filesystem access, the saved snapshot is
+available immediately and a background native walk reconciles changes made while
+the Gateway was stopped or its app-server connection was unavailable. Every
+30 seconds, a database-only walk reconciles remote membership and metadata.
+Unchanged display rows reuse their bounded previews; only new or changed rows
+need preview projection. Unchanged rows are not rewritten to SQLite.
+
+Native lifecycle notifications update affected threads, and successful catalog
+archives immediately hide their rows. Turn starts and completions coalesce
+single-thread metadata refreshes, so a running turn advances recency before it
+finishes. A 30-second stat-only scan discovers external rollout changes; no
+recursive filesystem watcher retains a directory inventory. The scan streams
+directory entries and retains at most 20,000 file fingerprints while separately
+checking the presence of resident paths. Only changed or
+new files are read: at most 128 KiB each from the head and tail of a plain rollout,
+or a bounded 128 KiB compressed head. A missing first-user preview stays missing
+until a later change makes it discoverable. Native titles are preserved when a
+rollout has no title. A bounded read that cannot reach the first user message
+preserves its previously known preview. Immutable, unmodified rollouts cause no content reads.
+File-only rows remain provisional until native metadata arrives. After native
+publication, changed rollout headers cannot replace the selected workspace or
+native display metadata and `updatedAt`. A changed selected file can refresh its
+bounded first-user preview; a bounded read that misses it retains the known preview.
+Explicit native empty previews clear the stored fallback. Empty/nonempty preview
+transitions remain visible even within one exposed timestamp second. Scans advance
+recency only from parsed turn-start facts. This authority flag survives SQLite restore;
+obsolete cached rows without it are discarded and pruned in the background before
+rehydration. Name, status, and live-settings observations have independent
+ordering, so a newer file update can coexist with a concurrent rename. Older
+native metadata responses cannot overwrite newer file updates or removals.
+Interrupted updates and transient file-read failures remain eligible for the next scan, even when
+file size and modification time stay unchanged.
+Plain and compressed rollouts share the native logical `.jsonl` identity;
+the scanner prefers the plain file when both representations exist.
+Codex owns the selected rollout path. Retained files from an earlier revert
+cannot replace the current session's path or metadata during a filesystem scan.
+
+Each home retains at most 20,000 display rows, 20,000 live-status records,
+20,000 live-settings records, 20,000 name records, and 20,000 scan fingerprints, matching the existing Codex
+managed-thread ceiling; eviction drops the oldest archived rows first, then the
+oldest remaining rows. Row eviction preserves independently bounded live status and
+settings while their supporting native connections remain open. Eviction removes only cached metadata: older sessions remain
+discoverable through native paging/search and readable by ID. Background native walks finish pagination, but rows beyond the
+resident limit are discarded before native-response metadata projection or preview
+sanitization. The native page size stays 64, and pagination continues to completion.
+At most 20,000 detached native cursors are remembered during a walk.
+The same archived-oldest row limit applies when restoring a complete snapshot.
+Incomplete snapshots still cannot establish a pageable native prefix.
+Plugin state also has its shared capacity limit. Persistence failure
+leaves the live resident view available and is logged; a missing complete
+snapshot rebuilds on restart. The derived cache adds no database schema-version
+change. A snapshot read failure invalidates durable completeness for that index
+lifetime; native hydration remains available in memory, and the next successful
+restart enumerates and prunes unread stale keys. The cache does not
+alter native session files, update migrations, or rollback.
+Exact-thread requests use fresh native metadata. Every remote eligibility check,
+including a resident cache hit, verifies authoritative non-archived membership because native `thread/read` can return
+archived threads. These checks use the existing request deadline, without a retained-row
+or page-count cutoff; paired-node exact lookup follows continuations under its existing deadline.
+Gateway aggregation only coalesces concurrent requests, so completed aggregate
+responses cannot delay the next poll's view of resident changes.
+While delivery waits for fresh identity facts, progress keeps the latest update
+for each selected catalog and observed host. It emits separate one-host frames;
+retained progress scales with distinct hosts, not with the number of updates.
+
+The row and bookkeeping limits are independent per home. Thread identifiers are
+limited to 256 UTF-16 code units, paths and working directories to 4,096, display
+metadata and previews to 500, status to 64, and active flags to 16 entries of 128.
+Retained strings are detached from larger native input strings. Preview decoding
+keeps its existing UTF-8 replacement behavior. Event scheduling and concurrent
+single-thread projections each admit at most 20,000 operations; mutations,
+obsolete cleanup keys, and pending persistence writes also have 20,000-entry
+ceilings. Persistence reserves one additional complete-marker operation and one
+in-flight write. Overflow preserves already-admitted writes, invalidates the
+complete marker, and logs a warning; resident queries remain available. Periodic
+reconciliation continues to refresh native metadata after an overflow.
+
+These are payload limits, not a promise about total JavaScript heap or Gateway
+RSS. With every string at its maximum length and two bytes per UTF-16 code unit,
+the following conservative capacities apply. The 490 column assumes 490 occupied
+entries in each named structure; a home with 490 current rows can still have
+20,000 historical field or queue entries.
+With those independent field and scan-path indexes full, settled string payload is
+bounded by 472.164 MiB for 490 current rows, or 936.165 MiB for 20,000 rows. These
+figures exclude active work and object/engine overhead.
+
+| Retained string payload                        | 490 entries | 20,000 entries |
+| ---------------------------------------------- | ----------: | -------------: |
+| Display rows (12,469 code units each)          |  11.654 MiB |    475.655 MiB |
+| Name, status, and settings records together    |   7.454 MiB |    304.260 MiB |
+| One scan-path generation                       |   3.828 MiB |    156.250 MiB |
+| Native thread DTOs pending projection          |  13.569 MiB |    553.856 MiB |
+| Mutation identifiers                           |   0.239 MiB |      9.766 MiB |
+| Cleanup or persistence keys (512-byte ceiling) |   0.479 MiB |     19.531 MiB |
+
+A native walk and file scan can each retain an older row snapshot, adding at most
+two row generations. Pending persistence can retain another row generation plus
+one in-flight row. An active event projection can temporarily hold two bounded native DTO
+generations and one projected row. File currency retains the previous and
+new fingerprint generations plus presence keys; arrays and maps share their
+referenced row/string values. The native cursor set has its own 156.250 MiB
+maximum string capacity even in a home with fewer rows. Status and settings each
+retain at most 64 passive source references per entry (2,560,000 references across
+both full indexes). Object, map, array, promise, allocator, and engine overhead,
+transport buffers, and the separate managed-thread/provenance caches are outside
+these string-payload figures.
+
+The generic plugin-state `entries()` API decodes an entire namespace before the
+catalog can validate or limit its rows. Its 1 MiB generic value limit permits
+19.532 GiB of serialized values for 20,001 entries, before JavaScript expansion.
+The resident limiter bounds the admitted result, not this predecode peak. Normal
+catalog writes contain only the much smaller bounded row shape; resolving the
+generic peak requires a paged state API.
 
 Pasted text saved as a `.txt` attachment is extracted by OpenClaw and included in
 the current turn as untrusted external content, subject to the existing file

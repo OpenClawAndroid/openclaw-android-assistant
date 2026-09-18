@@ -10,7 +10,6 @@ import type {
   CodexThreadItemsListParams,
   CodexThreadItemsListResponse,
 } from "./app-server/protocol.js";
-import type { CodexCatalogPageDiagnostics } from "./session-catalog-diagnostics.js";
 
 export type CodexCatalogHome = {
   /** Revalidate discovery before a new operation captures its source. */
@@ -51,8 +50,6 @@ export type CodexSessionCatalogSession = {
 
 export type CodexSessionCatalogPage = {
   sessions: CodexSessionCatalogSession[];
-  /** Internal logical scan count; one page when omitted. */
-  scannedPages?: number;
   /** Internal provenance filtered before this page reaches the provider catalog. */
   managedThreads?: Array<{ threadId: string; rolloutPath?: string }>;
   nextCursor?: string;
@@ -80,16 +77,9 @@ export type CodexSessionCatalogControl = {
   clientId?: string;
   connectionFingerprint?: string;
   withPinnedConnection<T>(run: (control: CodexSessionCatalogControl) => Promise<T>): Promise<T>;
-  listPage(
-    params: CodexSessionCatalogPageParams,
-    diagnostics?: CodexCatalogPageDiagnostics | null,
-    options?: {
-      /** The caller is filling a page begun at the head, rather than an older discovery cursor. */
-      headWalk?: boolean;
-      /** Remaining logical pages in the caller's combined search and exclusion scan. */
-      maxScanPages?: number;
-    },
-  ): Promise<CodexSessionCatalogPage>;
+  /** Lifecycle hydration; listPage only reads the resident snapshot. */
+  initialize(): Promise<void>;
+  listPage(params: CodexSessionCatalogPageParams): Promise<CodexSessionCatalogPage>;
   requireEligibleThread(threadId: string): Promise<CodexThread>;
   listDescendantPage(params: CodexThreadListParams): Promise<CodexThreadListResponse>;
   listTurnPage(params: CodexThreadTurnsListParams): Promise<CodexThreadTurnsListResponse>;

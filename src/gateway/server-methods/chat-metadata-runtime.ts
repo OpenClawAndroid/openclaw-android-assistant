@@ -1,9 +1,7 @@
 import { withAgentRosterFactsBatch } from "../../agents/agent-scope-config.js";
 import { listAgentIds, resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
-import {
-  getPreparedRuntimeAuthProfileStoreSnapshot,
-  getRuntimeAuthProfileStoreSnapshotRevision,
-} from "../../agents/auth-profiles.js";
+import { getPreparedRuntimeAuthProfileStoreSnapshot } from "../../agents/auth-profiles.js";
+import { getRuntimeAuthProfileStoreMetadataRevision } from "../../agents/auth-profiles/runtime-snapshots.js";
 import { getPublishedPreparedModelCatalogOwnerSnapshot } from "../../agents/prepared-model-catalog.js";
 import { getPreparedModelFullCatalogAuth } from "../../agents/prepared-model-runtime-auth.js";
 import { resolveSwarmConfig } from "../../agents/subagents/swarm/swarm-config.js";
@@ -177,7 +175,7 @@ export function createGatewayChatMetadataRuntime(params: {
     getContext: params.getContext,
     getPreparedOwner: getPublishedPreparedModelCatalogOwnerSnapshot,
     getPreparedAuthStore: getPreparedRuntimeAuthProfileStoreSnapshot,
-    getAuthStoreRevision: getRuntimeAuthProfileStoreSnapshotRevision,
+    getAuthStoreRevision: getRuntimeAuthProfileStoreMetadataRevision,
     getSkillsVersion: getSkillsSnapshotVersion,
     getPluginRegistryVersion: getActivePluginRegistryVersion,
     buildCommands: async ({ cfg, agentId }) => {

@@ -173,7 +173,6 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
   }
 
   override disconnectedCallback(): void {
-    this.launcher.clear();
     window.removeEventListener(DESKTOP_PANEL_TOGGLE_EVENT, this.onToggleRequest);
     if (this.documentMode && this.usesAutomaticSource) {
       this.returnToPicker("pending");
@@ -217,7 +216,12 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
       if (this.available && (!this.embedded || (this.presented && this.refreshOnPresentation))) {
         void this.refreshEnvironments();
       }
-    } else if (this.embedded && changed.has("presented") && this.state !== "disconnected") {
+    } else if (
+      this.embedded &&
+      changed.has("presented") &&
+      changed.get("presented") !== this.presented &&
+      this.state !== "disconnected"
+    ) {
       this.pictureInPicture.close();
       this.mobileKeyboard.reset();
       if (
@@ -311,10 +315,7 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
   }
 
   private returnToPicker(sourceSelection: typeof this.sourceSelection = "picker"): void {
-    this.sessionSource.invalidate();
-    this.loading = false;
     this.disconnectConnection();
-    this.launcher.clear();
     this.state = "picker";
     this.sourceSelection = sourceSelection;
     this.environmentId = null;
@@ -335,6 +336,11 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
     this.pendingConnection = null;
     this.connection.begin(retainViewer);
     this.mobileKeyboard.reset();
+    if (!retainViewer) {
+      this.sessionSource.invalidate();
+      this.loading = false;
+      this.launcher.clear();
+    }
   }
 
   private async refreshEnvironments(
@@ -423,7 +429,6 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
       return;
     }
     if (this.environmentId !== environmentId) {
-      this.launcher.clear();
       this.credentials = undefined;
       this.credentialAuth = undefined;
       this.sizingMode = "fit";
@@ -553,7 +558,6 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
     this.disconnectConnection();
     this.state = "disconnected";
     this.disconnectedReason = formatUiError(error);
-    this.launcher.clear();
   }
 
   private handleCredentialsSubmit(event: SubmitEvent): void {
@@ -582,10 +586,7 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
     environmentId: string | null,
     { code, reason, clean }: desktopTransport.DesktopDisconnectDetail,
   ): void {
-    this.sessionSource.invalidate();
-    this.loading = false;
     this.disconnectConnection();
-    this.launcher.clear();
     if (code === 1008 && this.credentialAuth === "ard-account" && environmentId !== null) {
       this.credentials = this.credentials?.username
         ? { username: this.credentials.username }

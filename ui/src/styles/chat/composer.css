@@ -1281,7 +1281,9 @@
   padding-right: 6px;
 }
 
-.slash-menu__scroll[data-scrollable="true"][data-at-start="true"][data-at-end="false"] {
+.slash-menu__scroll[data-scrollable="true"][data-at-start="true"][data-at-end="false"],
+.session-progress-card--composer
+  .session-progress-card__body[data-scrollable="true"][data-at-end="false"] {
   mask-image: linear-gradient(black calc(100% - 10px), transparent);
 }
 

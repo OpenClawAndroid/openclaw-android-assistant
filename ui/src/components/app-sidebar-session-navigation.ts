@@ -21,6 +21,7 @@ import {
 } from "../lib/sessions/session-key.ts";
 import { projectSidebarAgentSessionRows } from "./app-sidebar-agent-session-rows.ts";
 import { AppSidebarBase } from "./app-sidebar-base.ts";
+import { scheduleSidebarChildSessions } from "./app-sidebar-child-session-data.ts";
 import { excludeSessionCatalogRows } from "./app-sidebar-session-catalog-state.ts";
 import {
   adoptedCatalogSessionKeys,
@@ -262,44 +263,7 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
     if (isSessionRouteId(this.activeRouteId)) {
       void this.sessionData.loadActiveSessionLineage(activeRouteKey);
     }
-    const revalidating = this.childSessionParents();
-    this.sessionData.retireStaleChildSessions(revalidating);
-    const context = this.context;
-    const client = context?.gateway.snapshot.client;
-    const scope = this.sessionData.childSessionScope;
-    if (context && client && revalidating.size > 0) {
-      const isCurrent = () =>
-        this.context === context &&
-        this.sessionData.childSessionScope === scope &&
-        context.gateway.snapshot.client === client &&
-        this.isConnected;
-      let admittedParents: Set<string> | undefined;
-      void context.connectionBootstrap
-        .run(
-          scope,
-          async () => {
-            if (isCurrent()) {
-              // Expansion can change while queued; only the current presentation owns these reads.
-              admittedParents = this.childSessionParents();
-              await Promise.all(
-                [...admittedParents].map((key) => this.sessionData.loadChildSessions(key)),
-              );
-            }
-          },
-          { background: true },
-        )
-        .then(() => {
-          // Completion-driven renders can run before the scheduler releases the batch key.
-          const completed = admittedParents;
-          if (
-            completed &&
-            isCurrent() &&
-            [...this.childSessionParents()].some((key) => !completed.has(key))
-          ) {
-            this.requestUpdate();
-          }
-        });
-    }
+    scheduleSidebarChildSessions(this.sessionData, () => this.childSessionParents());
   }
 
   private childSessionParents(): Set<string> {

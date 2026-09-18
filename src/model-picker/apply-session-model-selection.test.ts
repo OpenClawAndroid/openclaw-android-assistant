@@ -373,7 +373,9 @@ describe("applySessionModelSelection", () => {
       );
 
       expect(result).toMatchObject({ status: "applied", changed: true });
-      expect(lifecycleEvents).toEqual([{ sessionKey, agentId: "main", reason: "patch" }]);
+      expect(lifecycleEvents).toEqual([
+        { sessionKey, agentId: "main", reason: "patch", catalogChanged: true },
+      ]);
       expect(publishedEntry).toMatchObject({
         sessionId: "session-1",
         modelOverride: "gpt-5.6-luna",

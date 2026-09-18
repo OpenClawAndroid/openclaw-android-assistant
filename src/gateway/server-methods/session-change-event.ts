@@ -21,6 +21,7 @@ type SessionChangedPayload = {
   agentId?: string;
   reason: string;
   compacted?: boolean;
+  catalogChanged?: true;
 };
 
 type SessionChangeContext = Pick<
@@ -236,7 +237,10 @@ export function emitSessionsChanged(
   pendingChangesByContext.set(context, byKey);
   const pending = byKey.get(key);
   if (pending) {
-    pending.payload = payload;
+    pending.payload = {
+      ...payload,
+      ...(pending.payload.catalogChanged ? { catalogChanged: true } : {}),
+    };
     pending.scope = scope;
     pending.dirty = true;
     pending.firstDeferredAt ??= Date.now();

@@ -16,7 +16,6 @@ import {
   validateSessionsCatalogReadParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { pruneMapToMaxSize } from "../../infra/map-size.js";
 import {
   capturePluginLifecycleAuthority,
   capturePluginRegistryLifecycleEpoch,
@@ -29,6 +28,7 @@ import type {
 } from "../../plugins/session-catalog.js";
 import { getGatewayRestartDrainSignal } from "../../process/gateway-work-admission.js";
 import { authorizeGatewaySessionCreation } from "../operator-role-policy.js";
+import { getSessionRowProjection } from "../session-row-projection-access.js";
 import { resolveAgentIdOrRespondError } from "./agent-id-shared.js";
 import { authorizeSessionCatalogThread } from "./session-catalog-authorization.js";
 import { continueAuthorizedSessionCatalog } from "./session-catalog-continue.js";
@@ -37,14 +37,14 @@ import {
   type SessionCatalogInstances,
 } from "./session-catalog-entry-snapshot.js";
 import {
-  getSessionCatalogListCache,
-  retireSessionCatalogLists,
-  type CatalogListEnumeration,
-} from "./session-catalog-list-cache.js";
-import {
   SessionCatalogListLifetime,
   type CatalogListProgressSubscriber,
 } from "./session-catalog-list-lifetime.js";
+import {
+  getSessionCatalogListOperations,
+  retireSessionCatalogLists,
+  type CatalogListEnumeration,
+} from "./session-catalog-list-operations.js";
 import {
   allowProcessHomeFallback,
   createSessionCatalogRequestNodeSnapshot,
@@ -66,8 +66,6 @@ import type {
 import { assertValidParams } from "./validation.js";
 
 const SESSION_CATALOG_SEARCH_MAX_UTF16_UNITS = 500;
-const SESSION_CATALOG_SHARE_WINDOW_MS = 3_000;
-const SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES = 128;
 
 function normalizeSessionCatalogSearch(search: string | undefined): string | undefined {
   const normalized = normalizeOptionalString(search);
@@ -336,6 +334,13 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
       selected = catalogRegistrations.providers;
     }
     const providerAudiences = new Map(selected.map((provider) => [provider.id, provider.audience]));
+    const projection = getSessionRowProjection(context);
+    if (!projection) {
+      throw new Error("Session projection is unavailable before Gateway startup completes");
+    }
+    while (projection.needsMaterialization) {
+      await projection.ensureMaterialized();
+    }
     const config = context.getRuntimeConfig();
     const resolvedAgent = resolveAgentIdOrRespondError({
       rawAgentId: request.agentId,
@@ -348,7 +353,7 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
     }
     const search = normalizeSessionCatalogSearch(request.search);
     const allowHomeFallback = allowProcessHomeFallback(context.logGateway);
-    // Cached provider enumeration is not permission. Each synchronous delivery gets current
+    // Shared provider enumeration is not permission. Each synchronous delivery gets current
     // caller facts and one canonical index, never the provider's pre-await planning snapshot.
     const projectResult = (result: CatalogListEnumeration): CatalogListResult => {
       const currentConfig = context.getRuntimeConfig();
@@ -356,6 +361,7 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
       const requestEntries = createSessionCatalogRequestEntrySnapshot({
         cfg: currentConfig,
         fallbackAgentId: resolvedAgent.agentId,
+        projection,
         sessionKeys: result.catalogs
           .flatMap((catalog) => catalog.hosts)
           .flatMap((host) => host.sessions)
@@ -410,6 +416,7 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
                 client.internal.agentRuntimeIdentity,
               ) === true),
           client?.connectionSignal ?? signal,
+          () => (projection.needsMaterialization ? projection.ensureMaterialized() : undefined),
         );
       }
     };
@@ -421,23 +428,17 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
       allowProcessHomeFallback: allowHomeFallback,
       visibilityKey: resolveSessionCatalogVisibility(client, config).cacheKey,
     });
-    const cache = getSessionCatalogListCache(config, catalogRegistrations);
-    const pending = cache.pending.get(listKey);
+    const operations = getSessionCatalogListOperations(config, catalogRegistrations);
+    const pending = operations.pending.get(listKey);
     if (pending) {
       // progressId is connection-owned and excluded from the work key.
       subscribe(pending.progress);
-      respond(true, projectResult(await pending.result));
+      const result = await pending.result;
+      while (projection.needsMaterialization) {
+        await projection.ensureMaterialized();
+      }
+      respond(true, projectResult(result));
       return;
-    }
-    const cached = cache.entries.get(listKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      cache.entries.delete(listKey);
-      cache.entries.set(listKey, cached);
-      respond(true, projectResult(await cached.result));
-      return;
-    }
-    if (cached) {
-      cache.entries.delete(listKey);
     }
     const registry = catalogRegistrations.registry;
     const scopedRuntime = getPluginRuntimeGatewayRequestScope()?.pluginRegistry === registry;
@@ -459,8 +460,10 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
         getGatewayRestartDrainSignal(),
         context.requestEntryLifetime?.signal,
         registrySignal,
+        operations.retirement.signal,
         signal,
       ].filter((candidate): candidate is AbortSignal => candidate !== undefined),
+      selected.map((provider) => provider.id),
     );
     subscribe(progress);
     const operation = (async () => {
@@ -468,6 +471,7 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
         ? createSessionCatalogRequestEntrySnapshot({
             cfg: config,
             fallbackAgentId: resolvedAgent.agentId,
+            projection,
           })
         : undefined;
       requestEntries?.freeze();
@@ -517,28 +521,20 @@ export const sessionCatalogHandlers: GatewayRequestHandlers = {
       return { catalogs: catalogList, instances };
     })();
     const entry = { progress, result: operation };
-    // Retaining completed results must not evict ownership of an active enumeration.
-    cache.pending.set(listKey, entry);
+    // Coalesce only concurrent requests; each subsequent list sees current provider rows.
+    operations.pending.set(listKey, entry);
     try {
       const result = await operation;
-      if (cache.pending.get(listKey) === entry) {
-        cache.pending.delete(listKey);
-        cache.entries.set(
-          listKey,
-          Object.assign(entry, { expiresAt: Date.now() + SESSION_CATALOG_SHARE_WINDOW_MS }),
-        );
-        pruneMapToMaxSize(cache.entries, SESSION_CATALOG_LIST_CACHE_MAX_ENTRIES);
+      while (projection.needsMaterialization) {
+        await projection.ensureMaterialized();
       }
       respond(true, projectResult(result));
     } catch (error) {
       progress.retire(error);
-      if (cache.entries.get(listKey) === entry) {
-        cache.entries.delete(listKey);
-      }
       throw error;
     } finally {
-      if (cache.pending.get(listKey) === entry) {
-        cache.pending.delete(listKey);
+      if (operations.pending.get(listKey) === entry) {
+        operations.pending.delete(listKey);
       }
       progress.finishListing();
     }

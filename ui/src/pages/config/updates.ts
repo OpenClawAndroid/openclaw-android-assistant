@@ -3,7 +3,10 @@
 import { parseDateStringTimestampMs } from "@openclaw/normalization-core/number-coercion";
 import { asNullableRecord as asConfigRecord } from "@openclaw/normalization-core/record-coerce";
 import { html, nothing, type TemplateResult } from "lit";
-import type { UpdateRunRecord } from "../../../../src/infra/update-run-record.ts";
+import {
+  isAcknowledgedAbandonedUpdateRun,
+  type UpdateRunRecord,
+} from "../../../../src/infra/update-run-record.ts";
 import "../../components/update-run-view.ts";
 import type { UpdateAvailable, UpdateScheduleState } from "../../api/types.ts";
 import { deviceSettingsGroupLabelKey } from "../../app-navigation.ts";
@@ -113,7 +116,8 @@ function renderRecordedAttempt(props: UpdatesViewProps) {
     return nothing;
   }
   const failed = run
-    ? run.status === "failed" || run.status === "rolled-back" || run.status === "skipped"
+    ? !isAcknowledgedAbandonedUpdateRun(run) &&
+      (run.status === "failed" || run.status === "rolled-back" || run.status === "skipped")
     : true;
   const canRetry = props.canUpdate && !props.updateBusy && !props.statusChecking;
   return renderSettingsSection({ title: t("updates.page.latestAttempt") }, [

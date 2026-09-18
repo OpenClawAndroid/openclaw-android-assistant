@@ -37,7 +37,7 @@ type ControlUiViteAlias = {
   find: string | RegExp;
   replacement: string;
 };
-const commonJsOptimizeDeps = [
+export const commonJsOptimizeDeps = [
   "highlight.js/lib/core",
   "highlight.js/lib/languages/bash",
   "highlight.js/lib/languages/cpp",

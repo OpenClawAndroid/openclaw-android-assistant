@@ -7,10 +7,33 @@ import {
   readStringValue as readString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { FEISHU_COMMENT_FILE_TYPES, type CommentFileType } from "./comment-target.js";
+import { captureFeishuSendAuthority } from "./send-context.js";
 import {
   getFeishuSendRateLimitCode,
   getFeishuSendRateLimitCodeFromResponse,
 } from "./send-rate-limit.js";
+
+export class FeishuReplyCommentError extends Error {
+  httpStatus?: number;
+  feishuCode?: number | string;
+  feishuMsg?: string;
+  feishuLogId?: string;
+
+  constructor(params: {
+    message: string;
+    httpStatus?: number;
+    feishuCode?: number | string;
+    feishuMsg?: string;
+    feishuLogId?: string;
+  }) {
+    super(params.message);
+    this.name = "FeishuReplyCommentError";
+    this.httpStatus = params.httpStatus;
+    this.feishuCode = params.feishuCode;
+    this.feishuMsg = params.feishuMsg;
+    this.feishuLogId = params.feishuLogId;
+  }
+}
 
 export function encodeQuery(params: Record<string, string | undefined>): string {
   const query = new URLSearchParams();
@@ -99,9 +122,11 @@ export async function requestFeishuApi<T>(
     includeNestedErrorLogId?: boolean;
   } = {},
 ): Promise<T> {
+  const assertSendAuthority = captureFeishuSendAuthority();
   try {
     return await retryAsync(
       async () => {
+        assertSendAuthority?.();
         const result = await request();
         // Feishu SDK may fulfill with a rate-limit body (e.g. { code: 11232, ... })
         // instead of throwing. Rethrow it in the AxiosError response shape so

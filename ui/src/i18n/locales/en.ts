@@ -305,7 +305,6 @@ export const en: TranslationMap & {
   sessionProgressCard: {
     title: "Progress",
     composerTitle: "Task progress",
-    gestureHint: "Drag or scroll up on the header to open; move down to close. Click to toggle.",
     shortCount: "{completed} of {total}",
     noteLabel: "Progress note",
     dismiss: "Dismiss progress card",
