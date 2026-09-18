@@ -288,7 +288,7 @@ export function renderWhereChip(params: {
     update();
   };
   return html`
-    <span class="new-session-page__select">
+    <span class="new-session-page__select new-session-page__select--where">
       <button
         id="new-session-where-trigger"
         type="button"
@@ -310,6 +310,11 @@ export function renderWhereChip(params: {
       >
         <span class="new-session-page__target-icon" aria-hidden="true">${icon}</span>
         <span class="new-session-page__trigger-label">${label}</span>
+        ${
+          configurationSummary
+            ? html`<span class="new-session-page__trigger-summary">· ${configurationSummary}</span>`
+            : nothing
+        }
         <span
           class="new-session-page__trigger-chevron new-session-page__trigger-chevron--desktop"
           aria-hidden="true"

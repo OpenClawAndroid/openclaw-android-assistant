@@ -417,6 +417,7 @@ describe("runCodexSettledTurnFinalization", () => {
     async (type) => {
       mocks.runBounded.mockResolvedValue({
         ...boundedResult(),
+        managedHooksEnabled: true,
         items: [{ id: "item-1", type }],
       });
 
@@ -426,6 +427,53 @@ describe("runCodexSettledTurnFinalization", () => {
           {},
         ),
       ).rejects.toThrow(`unexpected native item: ${type}`);
+      expect(mocks.mirror).not.toHaveBeenCalled();
+    },
+  );
+
+  it("accepts an attested managed Stop-hook continuation before mirroring the revised answer", async () => {
+    const attempt = createAttempt();
+    mocks.runBounded.mockResolvedValue({
+      ...boundedResult(),
+      managedHooksEnabled: true,
+      items: [
+        { id: "draft", type: "agentMessage", text: "An earlier draft." },
+        {
+          id: "hook",
+          type: "hookPrompt",
+          fragments: [{ text: "Revise the answer.", hookRunId: "managed-stop-1" }],
+        },
+        { id: "answer", type: "agentMessage", text: "The update was sent successfully." },
+      ],
+    });
+
+    await expect(
+      runCodexSettledTurnFinalization({ attempt, settledAttempt: createSettledAttempt() }, {}),
+    ).resolves.toMatchObject({ assistantTranscriptOwned: true });
+    expect(mocks.mirror).toHaveBeenCalledOnce();
+  });
+
+  it.each([undefined, false])(
+    "rejects unattested hook continuations before transcript mutation (%s)",
+    async (managedHooksEnabled) => {
+      mocks.runBounded.mockResolvedValue({
+        ...boundedResult(),
+        managedHooksEnabled,
+        items: [
+          {
+            id: "hook",
+            type: "hookPrompt",
+            fragments: [{ text: "Revise the answer.", hookRunId: "hook-1" }],
+          },
+        ],
+      });
+
+      await expect(
+        runCodexSettledTurnFinalization(
+          { attempt: createAttempt(), settledAttempt: createSettledAttempt() },
+          {},
+        ),
+      ).rejects.toThrow("unexpected native item: hookPrompt");
       expect(mocks.mirror).not.toHaveBeenCalled();
     },
   );

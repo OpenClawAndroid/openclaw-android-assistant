@@ -16,7 +16,10 @@ import { VERSION } from "../../version.js";
 import { readPackageVersion, type UpdateCommandOptions } from "./shared.js";
 import { preparePostCorePluginConfig } from "./update-command-config.js";
 import { completePostCorePluginUpdate } from "./update-command-fresh-doctor.js";
-import { collectPostCorePluginFailureFacts } from "./update-command-plugins-internals.js";
+import {
+  collectPostCorePluginAdvisories,
+  collectPostCorePluginFailureFacts,
+} from "./update-command-plugins-internals.js";
 import { updatePluginsAfterCoreUpdate } from "./update-command-plugins.js";
 import {
   continuePostCoreUpdateInFreshProcess,
@@ -278,24 +281,14 @@ export async function convergeUpdatePlugins(params: {
           advisory: { kind: "package-post-install-doctor" as const, message },
         })),
       );
-      const pluginAdvisories = [
-        ...(postCorePluginUpdate?.warnings ?? []).filter(
-          (warning) =>
-            warning.reason === "plugin-target-unavailable" || warning.reason === "doctor-advisory",
-        ),
-        // Committed handoff files can acknowledge success without npm details.
-        ...(postCorePluginUpdate?.npm?.outcomes ?? []).filter(
-          (outcome) => outcome.code === "source-bundled-plugin",
-        ),
-      ];
       resultWithPostUpdate.steps.push(
-        ...pluginAdvisories.map((warning, index) => ({
+        ...collectPostCorePluginAdvisories(postCorePluginUpdate).map((message, index) => ({
           name: `finalize:plugins:${index}`,
           command: "openclaw plugins update",
           cwd: postUpdateRoot,
           durationMs: 0,
           exitCode: 0,
-          advisory: { kind: "recoverable-maintenance" as const, message: warning.message },
+          advisory: { kind: "recoverable-maintenance" as const, message },
         })),
       );
       if (

@@ -14,6 +14,17 @@ native compaction, and app-server execution. OpenClaw still owns chat
 channels, session files, model selection, OpenClaw dynamic tools, approvals,
 media delivery, and the visible transcript mirror.
 
+During `initialize`, OpenClaw uses `capabilities.optOutNotificationMethods` to
+suppress unused app-server notifications before they reach the transport and JSON
+decoder. This includes cumulative turn diffs; file-change items still carry the
+individual changes. The plugin's notification policy owns the exact method list.
+Turn and item lifecycle, transcript, usage, approval, and catalog notifications
+remain enabled. Some events whose payloads are not projected still carry progress:
+MCP progress, streamed patch updates, reasoning section markers, and model metadata
+keep native work from appearing stalled. Terminal interaction also informs process
+cleanup. These notifications remain enabled. Older app-servers that do not recognize
+the optional capability ignore it; the normal minimum-version check still applies.
+
 The native session catalog keeps one resident index per Codex home, shared across
 agents, working-directory filters, searches, and pages. Lists normally filter and page
 bounded display rows in memory. They do not expire or restart native discovery

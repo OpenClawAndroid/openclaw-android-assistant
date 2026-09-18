@@ -1,6 +1,7 @@
 // Webchat reply media path normalizer for display-safe outbound payloads.
 import { isPassThroughRemoteMediaSource } from "@openclaw/media-core/media-source-url";
 import { isAudioFileName } from "@openclaw/media-core/mime";
+import { isCloudWorkerPlacementState } from "../../../packages/gateway-protocol/src/schema/session-placement-state.js";
 import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import {
   copyReplyPayloadMetadata,
@@ -10,8 +11,11 @@ import {
   type ReplyPayload,
 } from "../../auto-reply/reply-payload.js";
 import { createReplyMediaPathNormalizer } from "../../auto-reply/reply/reply-media-paths.runtime.js";
+import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveSendableOutboundReplyParts } from "../../plugin-sdk/reply-payload.js";
+import { resolveSessionWorkerPlacementContext } from "../session-worker-placement-context.js";
+import { resolveSessionWorkspaceRoots } from "../session-workspace-roots.js";
 
 function isDataUrlMedia(mediaUrl: string): boolean {
   return mediaUrl.trim().toLowerCase().startsWith("data:");
@@ -36,14 +40,32 @@ export async function normalizeWebchatReplyMediaPathsForDisplay(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
   agentId: string;
-  workspaceDir?: string;
+  sessionEntry: SessionEntry | undefined;
   accountId?: string;
   payloads: ReplyPayload[];
 }): Promise<ReplyPayload[]> {
-  if (params.payloads.length === 0) {
+  if (
+    params.payloads.every(
+      (payload) => resolveSendableOutboundReplyParts(payload).mediaUrls.length === 0,
+    )
+  ) {
     return params.payloads;
   }
-  const workspaceDir = params.workspaceDir ?? resolveAgentWorkspaceDir(params.cfg, params.agentId);
+  const entry = params.sessionEntry;
+  const placement = entry?.sessionId
+    ? resolveSessionWorkerPlacementContext()
+        .workerSessionPlacementService?.getMany([entry.sessionId])
+        .get(entry.sessionId)
+    : undefined;
+  // Remote workspace paths must never grant access to same-named Gateway directories.
+  const remote =
+    entry?.execNode ||
+    entry?.repositoryWorkspaceId ||
+    isCloudWorkerPlacementState(placement?.state);
+  const workspaceDir =
+    entry && !remote
+      ? (entry.sessionRoot ?? resolveSessionWorkspaceRoots(params.cfg, params.agentId, entry).root)
+      : resolveAgentWorkspaceDir(params.cfg, params.agentId);
   if (!workspaceDir) {
     return params.payloads;
   }

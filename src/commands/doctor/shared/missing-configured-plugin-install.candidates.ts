@@ -17,6 +17,7 @@ import {
   loadInstalledPluginIndexInstallRecords,
   removePluginInstallRecordFromRecords,
 } from "../../../plugins/installed-plugin-index-records.js";
+import { createInstalledPluginOwnershipResolver } from "../../../plugins/installed-plugin-package-ownership.js";
 import { readLegacyNpmPluginDeclaration } from "../../../plugins/legacy-npm-declaration.js";
 import { loadManifestMetadataSnapshot } from "../../../plugins/manifest-contract-eligibility.js";
 import { loadPluginManifestRegistryCore } from "../../../plugins/manifest-registry.js";
@@ -124,6 +125,22 @@ export async function resolveConfiguredPluginInstallContext(params: {
     });
   const records =
     params.baselineRecords ?? (await loadInstalledPluginIndexInstallRecords({ env: params.env }));
+  const operatorManagedPluginIds = new Set<string>();
+  if (params.cfg.plugins?.load?.paths?.length) {
+    const ownership = createInstalledPluginOwnershipResolver(
+      { ...snapshot.index, installRecords: records },
+      params.env,
+    );
+    for (const plugin of snapshot.index.plugins) {
+      const update = ownership.resolveUpdate(plugin.pluginId);
+      if (update.ok && update.value.kind === "operator-managed") {
+        operatorManagedPluginIds.add(plugin.pluginId);
+        if (update.value.shadowedInstallOwner) {
+          operatorManagedPluginIds.add(update.value.shadowedInstallOwner);
+        }
+      }
+    }
+  }
   const currentVersion = params.coreVersion ?? resolveCompatibilityHostVersion(params.env);
   const updateChannel = resolveRegistryUpdateChannel({
     configChannel: normalizeUpdateChannel(params.cfg.update?.channel),
@@ -204,6 +221,7 @@ export async function resolveConfiguredPluginInstallContext(params: {
     configuredChannelOwnerPluginIds,
     bundledPluginsById,
     configuredPluginIdsWithStaleDescriptors,
+    operatorManagedPluginIds,
     stalePathInstallPluginIds,
     records: effectiveRecords,
     persistedRecords: records,

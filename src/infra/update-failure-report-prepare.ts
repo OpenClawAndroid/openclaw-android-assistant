@@ -21,6 +21,7 @@ import {
 } from "./update-failure-facts-format.js";
 import { normalizeUpdateFailureFacts } from "./update-failure-facts.js";
 import { projectPublicUpdateFailureIdentifiers } from "./update-failure-public-identifiers.js";
+import { updatePreflightDetailMessage } from "./update-preflight-details.js";
 import {
   LEGACY_UPDATE_RUN_ADVISORY,
   LEGACY_UPDATE_RUN_EXPIRED_REASON,
@@ -303,7 +304,11 @@ async function renderBoundedDiagnostics(
             ...(await projectPublicUpdateFailureIdentifiers(fact)),
             ...(fact.affectedKey ? { affectedKey: sanitizeFactConfigKey(fact.affectedKey) } : {}),
             ...(fact.message
-              ? { message: redactPublicSupportDiagnosticLine(fact.message, context) }
+              ? {
+                  message:
+                    updatePreflightDetailMessage(fact.code) ??
+                    redactPublicSupportDiagnosticLine(fact.message, context),
+                }
               : {}),
           }),
         ),

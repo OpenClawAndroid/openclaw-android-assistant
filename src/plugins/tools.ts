@@ -1,6 +1,5 @@
 /** Builds agent tools registered by plugins, preserving plugin scope around callbacks and descriptors. */
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { compileGlobPatterns, matchesAnyGlobPattern } from "../agents/glob-pattern.js";
 import { normalizeToolPolicyName } from "../agents/tool-policy.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
@@ -139,31 +138,23 @@ function resolvePluginToolPluginIds(params: {
     if (denylistBlocksPlugin({ pluginId: plugin.id, denylist })) {
       continue;
     }
-    let selectedToolNames = plugin.contracts?.tools ?? [];
-    if (!params.allowlist.allowsPlugin(plugin.id)) {
-      const matched = selectedToolNames.filter((name) =>
-        params.allowlist.allowsTool(plugin.id, name),
-      );
-      if (params.allowlist.includesDefaults) {
-        selectedToolNames = uniqueStrings([
-          ...selectedToolNames.filter((name) => plugin.toolMetadata?.[name]?.optional !== true),
-          ...matched,
-        ]);
-      } else {
-        selectedToolNames = matched;
-      }
-    }
-    selectedToolNames = selectedToolNames.filter(
-      (toolName) => !denylistBlocksName(toolName, denylist),
+    const allowsPlugin = params.allowlist.allowsPlugin(plugin.id);
+    const toolNames = (plugin.contracts?.tools ?? []).filter(
+      (name) =>
+        (allowsPlugin ||
+          (params.allowlist.includesDefaults && plugin.toolMetadata?.[name]?.optional !== true) ||
+          params.allowlist.allowsTool(plugin.id, name)) &&
+        !denylistBlocksName(name, denylist),
     );
-    const toolNames = filterManifestToolNamesForAvailability({
-      plugin,
-      toolNames: selectedToolNames,
-      config: params.availabilityConfig ?? params.config,
-      env: params.env,
-      hasAuthForProvider: params.hasAuthForProvider,
-    });
-    if (toolNames.length > 0) {
+    if (
+      hasManifestToolAvailability({
+        plugin,
+        toolNames,
+        config: params.availabilityConfig ?? params.config,
+        env: params.env,
+        hasAuthForProvider: params.hasAuthForProvider,
+      })
+    ) {
       selected.push(plugin.id);
     }
   }
@@ -279,6 +270,23 @@ type PluginToolResolutionParams = {
 
 type PluginToolLoadState = NonNullable<ReturnType<typeof resolvePluginToolLoadState>>;
 
+function recordToolDiagnostic(
+  registry: PluginRegistry,
+  diagnostic: PluginRegistry["diagnostics"][number],
+): void {
+  if (
+    !registry.diagnostics.some(
+      (entry) =>
+        entry.level === diagnostic.level &&
+        entry.pluginId === diagnostic.pluginId &&
+        entry.source === diagnostic.source &&
+        entry.message === diagnostic.message,
+    )
+  ) {
+    registry.diagnostics.push(diagnostic);
+  }
+}
+
 export type PluginToolRegistryAcquisition = {
   registry?: PluginRegistry;
   resolveTools: () => AnyAgentTool[];
@@ -390,7 +398,7 @@ function resolvePluginToolsFromRegistry(
     const { registry, tools: registrations } = owner;
     const reportError = (entry: PluginToolRegistration, message: string) => {
       context.logger.error(message);
-      registry.diagnostics.push({
+      recordToolDiagnostic(registry, {
         level: "error",
         pluginId: entry.pluginId,
         source: entry.source,
@@ -398,7 +406,7 @@ function resolvePluginToolsFromRegistry(
       });
     };
     if (registrations.length === 0) {
-      registry.diagnostics.push({
+      recordToolDiagnostic(registry, {
         level: "warn",
         pluginId,
         source: "plugin-tools",

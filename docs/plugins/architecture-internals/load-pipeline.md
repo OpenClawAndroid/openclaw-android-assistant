@@ -32,6 +32,10 @@ linking the plugin's asynchronous module graph. This lets CommonJS bundles
 `require()` the same SDK entry during concurrent channel startup without seeing
 an unfinished ESM module. Unused SDK entries remain unloaded.
 
+Bundled channel entries and channel metadata modules use the shared cached module
+loader. It prepares SDK aliases before evaluation and owns native-to-source
+fallback; channel adapters do not retry a failed evaluation through another loader.
+
 Safety gates run **before** runtime execution. Discovery blocks a candidate
 when:
 
@@ -165,6 +169,8 @@ A completed registry is cached under both its original request and its resolved
 manifest selection. Reusing those prepared manifests does not repeat plugin
 registration. Both keys share the existing bounded cache and are removed when
 the registry retires or the load cache is cleared.
+Validation, full registration, and CLI metadata loads have separate cache entries;
+validating a module cannot satisfy a later request for its registrations.
 
 Provider lookup uses an explicit caller workspace first, then the workspace
 recorded by its metadata snapshot, including an explicitly shared-root scope.

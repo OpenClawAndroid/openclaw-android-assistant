@@ -72,6 +72,11 @@ workspace-only filesystem protection, also permits image previews outside that
 workspace. An explicit session permission mode takes precedence over the agent's
 filesystem setting.
 
+Assistant `MEDIA:` attachments in local project chats resolve relative paths
+inside the session workspace, including managed worktrees. Absolute paths in
+that workspace are staged for delivery under the same file-access checks.
+Selecting a project does not grant access to sibling worktrees.
+
 Sessions dispatched to a cloud worker cannot read Gateway-local file paths,
 even with Full Access. Dispatch also revokes pending local previews and downloads.
 Gateway-owned inbound uploads remain available.

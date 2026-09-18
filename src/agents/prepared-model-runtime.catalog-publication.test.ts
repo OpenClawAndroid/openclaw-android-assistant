@@ -26,7 +26,12 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
+import {
+  recordRuntimeAuthMaterialization,
+  revokeRuntimeAuthMaterializations,
+} from "./auth-profiles/runtime-materializations.js";
 import type { ModelCatalogEntry, ModelCatalogSnapshot } from "./model-catalog.types.js";
+import { getPreparedModelRuntimeAuthMaterializations } from "./prepared-model-runtime-auth.js";
 import {
   getPreparedModelRuntimeSnapshot,
   publishPreparedModelRuntimeSnapshot,
@@ -137,6 +142,45 @@ afterEach(async ({ task }) => {
 });
 
 describe("catalog publication session rows", () => {
+  it.each(["bound", "revoked"] as const)(
+    "keeps session rows resident when runtime auth is %s",
+    async (action) => {
+      const { config, rows, list, initial, readCatalog } = await setup(true);
+      const input = { config, agentId: "default", agentDir: state.agentDir("default") };
+      const owner = getPreparedModelRuntimeSnapshot(input)!;
+      const route = {
+        agentDir: input.agentDir,
+        provider: model.provider,
+        modelId: model.id,
+        modelApi: "openai-completions",
+        modelBaseUrl: "https://synthetic.example.test/v1",
+        requestTransportOverrides: "none" as const,
+        authMode: "api-key",
+        runtimeOwnerId: "synthetic",
+      };
+      if (action === "revoked") {
+        expect(recordRuntimeAuthMaterialization(route)).toBe(true);
+        await list();
+      }
+      const before = rows.materializedCount;
+      const catalogReads = readCatalog.mock.calls.length;
+      expect(
+        action === "bound"
+          ? recordRuntimeAuthMaterialization(route)
+          : revokeRuntimeAuthMaterializations(route),
+      ).toBe(true);
+      expect(getPreparedModelRuntimeAuthMaterializations(owner)).toEqual(
+        action === "bound"
+          ? [expect.objectContaining({ provider: model.provider, modelId: model.id })]
+          : [],
+      );
+      expect(rows.dirtyRowCount).toBe(0);
+      expect((await list()).sessions).toEqual(initial.sessions);
+      expect(rows.materializedCount).toBe(before);
+      expect(readCatalog).toHaveBeenCalledTimes(catalogReads);
+    },
+  );
+
   it("publishes settled attempt status without rebuilding unchanged resident rows", async () => {
     const { rows, list, refresh, initial, readCatalog } = await setup();
     const before = rows.materializedCount;

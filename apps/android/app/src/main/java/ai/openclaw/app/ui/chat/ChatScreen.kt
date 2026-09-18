@@ -2460,6 +2460,7 @@ private fun CompletedToolActivity(
   var expanded by rememberSaveable(stableKey) { mutableStateOf(false) }
   var showAll by rememberSaveable(stableKey) { mutableStateOf(false) }
   val summary = completedToolGroupSummary(tools)
+  val hasError = tools.any { it.isError }
   val state = if (expanded) nativeString("Expanded") else nativeString("Collapsed")
   // Remeasure disclosures immediately: nested size springs leave blank space
   // while the reverse-layout transcript readjusts its bottom anchor.
@@ -2488,11 +2489,14 @@ private fun CompletedToolActivity(
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Icon(
-          imageVector = Icons.AutoMirrored.Filled.List,
+          imageVector = if (hasError) Icons.Default.Close else Icons.AutoMirrored.Filled.List,
           contentDescription = null,
           modifier = Modifier.size(16.dp),
-          tint = ClawTheme.colors.textMuted,
+          tint = if (hasError) ClawTheme.colors.danger else ClawTheme.colors.textMuted,
         )
+        if (hasError) {
+          Text(text = nativeString("Tool error"), style = ClawTheme.type.caption, color = ClawTheme.colors.danger)
+        }
         Text(
           text = summary,
           modifier = Modifier.weight(1f, fill = false),
@@ -2614,17 +2618,24 @@ private fun CompletedToolActivityItem(
       ) {
         Icon(
           imageVector =
-            when (kind) {
-              CompletedToolKind.Command -> Icons.Default.Terminal
-              CompletedToolKind.Read -> Icons.Default.Description
-              CompletedToolKind.Edit, CompletedToolKind.Write -> Icons.Default.Edit
-              CompletedToolKind.Search, CompletedToolKind.Fetch -> Icons.Default.Search
-              else -> Icons.AutoMirrored.Filled.List
+            if (tool.isError) {
+              Icons.Default.Close
+            } else {
+              when (kind) {
+                CompletedToolKind.Command -> Icons.Default.Terminal
+                CompletedToolKind.Read -> Icons.Default.Description
+                CompletedToolKind.Edit, CompletedToolKind.Write -> Icons.Default.Edit
+                CompletedToolKind.Search, CompletedToolKind.Fetch -> Icons.Default.Search
+                else -> Icons.AutoMirrored.Filled.List
+              }
             },
           contentDescription = null,
           modifier = Modifier.size(16.dp),
-          tint = ClawTheme.colors.textMuted,
+          tint = if (tool.isError) ClawTheme.colors.danger else ClawTheme.colors.textMuted,
         )
+        resultPresentation.outcome?.let { outcome ->
+          Text(text = outcome, style = ClawTheme.type.caption, color = ClawTheme.colors.danger)
+        }
         Row(
           modifier = Modifier.weight(1f),
           horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2924,7 +2935,7 @@ private fun ChatNotice(
       Box(modifier = Modifier.size(6.dp).background(ClawTheme.colors.warning, CircleShape))
       Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(text = title, style = ClawTheme.type.section, color = ClawTheme.colors.text)
-        Text(text = body, style = ClawTheme.type.caption, color = ClawTheme.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text = body, style = ClawTheme.type.caption, color = ClawTheme.colors.textMuted)
       }
     }
   }

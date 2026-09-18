@@ -8,10 +8,8 @@ import {
   type OpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
 import type { ExactSessionEntry, SessionAccessScope } from "./session-accessor.sqlite-contract.js";
-import {
-  parseReadableSqliteSessionEntryRow,
-  readExactSessionEntryRowValidated,
-} from "./session-accessor.sqlite-entry-store.js";
+import { prepareSqliteSessionEntryRowDecoder } from "./session-accessor.sqlite-entry-read.js";
+import { readExactSessionEntryRowValidated } from "./session-accessor.sqlite-entry-store.js";
 import {
   getSessionKysely,
   resolveSqliteReadScope,
@@ -158,13 +156,17 @@ function readSessionIdentityEvidenceRows(
 
   const rowsBySessionId = new Map<string, SessionIdentityEvidenceRow[]>();
   const readableKeys = new Set<string>();
+  const decodeRow = prepareSqliteSessionEntryRowDecoder(
+    database,
+    [...rowsByKey.values()].filter((row) => row.entry_valid === 1),
+  );
   for (const row of rowsByKey.values()) {
     const rows = rowsBySessionId.get(row.current_session_id) ?? [];
     rows.push(row);
     rowsBySessionId.set(row.current_session_id, rows);
     if (row.entry_valid === 1) {
       try {
-        if (parseReadableSqliteSessionEntryRow(database, row)) {
+        if (decodeRow(row)) {
           readableKeys.add(row.session_key);
         }
       } catch {

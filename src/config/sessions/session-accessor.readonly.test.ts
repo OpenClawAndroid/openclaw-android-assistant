@@ -730,7 +730,7 @@ describe("session accessor readonly listing", () => {
     ]);
   });
 
-  it.each(["identity", "timestamp", "json", "participant"])(
+  it.each(["identity", "timestamp", "json", "participant", "participant-integer"])(
     "rejects stale valid %s evidence without relying on a fallback read",
     async (corruption) => {
       const stateDir = autoTempDirs.make("openclaw-session-readonly-stale-valid-evidence-");
@@ -746,14 +746,20 @@ describe("session accessor readonly listing", () => {
         { sessionId: readableSessionId, updatedAt: 1 },
       );
       const database = openOpenClawAgentDatabase({ agentId, env });
-      if (corruption === "participant") {
+      if (corruption === "participant" || corruption === "participant-integer") {
         recordSessionParticipant(
           { agentId, env, sessionKey },
           { identity: { type: "agent", id: "peer" }, promptedAt: 1 },
         );
-        database.db
-          .prepare("UPDATE session_participants SET identity_namespace = ? WHERE session_key = ?")
-          .run("{}", sessionKey);
+        if (corruption === "participant") {
+          database.db
+            .prepare("UPDATE session_participants SET identity_namespace = ? WHERE session_key = ?")
+            .run("{}", sessionKey);
+        } else {
+          database.db
+            .prepare("UPDATE session_participants SET contribution_count = ? WHERE session_key = ?")
+            .run(9007199254740992n, sessionKey);
+        }
       } else {
         const entryJson =
           corruption === "json"

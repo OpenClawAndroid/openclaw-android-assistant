@@ -3,6 +3,7 @@ import { checkGlobalPackageUpdatePermissions } from "../../infra/package-update-
 import type { UpdateChannel } from "../../infra/update-channels.js";
 import type { DevUpdateTarget } from "../../infra/update-dev-target.js";
 import { canResolveRegistryVersionForPackageTarget } from "../../infra/update-global.js";
+import { createUpdatePreflightFailure } from "../../infra/update-preflight-details.js";
 import { recordUpdateRunPhase } from "../../infra/update-run-ledger.js";
 import { UPDATE_GLOBAL_PERMISSION_REASON } from "../../shared/update-outcome.js";
 import type { OpenClawDatabaseSchemaPreflight } from "../../state/openclaw-database-preflight.js";
@@ -173,10 +174,13 @@ export async function preflightUpdateCommandSchemas(params: {
             })
           : { schemaVersions: packageTargetSchemaVersions };
       if ("metadataUnreadable" in target && target.metadataUnreadable) {
-        throw new UpdatePreMutationError(
-          "target-metadata-preflight",
-          `Could not preview Git target schema support without changing the checkout: ${target.metadataUnreadable}`,
+        const failure = createUpdatePreflightFailure(
+          "target-git-metadata",
+          target.metadataUnreadable,
         );
+        throw new UpdatePreMutationError("target-metadata-preflight", failure.message, {
+          failureFacts: failure.failureFacts,
+        });
       }
       packageSchemaPreflight = await checkTargetDatabaseSchemasForContexts(
         target.schemaVersions,
@@ -239,6 +243,13 @@ export async function preflightUpdateCommandSchemas(params: {
         preflightNotes,
         refuseUpdate,
       );
+      if (error instanceof UpdatePreMutationError && error.reason === "target-metadata-preflight") {
+        preflightFailures.push({
+          reason: error.reason,
+          message: error.message,
+          failureFacts: error.failureFacts,
+        });
+      }
     }
   }
   if (!opts.dryRun && hasSchemaRefusal(packageSchemaPreflight)) {

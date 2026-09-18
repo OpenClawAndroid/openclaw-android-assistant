@@ -255,6 +255,8 @@ Per-capability `attachments` controls which attachments are processed:
 
 When `mode: "all"`, outputs are labeled `[Image 1/2]`, `[Audio 2/2]`, etc.
 
+Local attachments stay within the session's allowed media roots. Directory aliases such as macOS `/tmp` and `/private/tmp` are accepted when the opened file remains inside those roots; they do not grant access to sibling sandbox workspaces.
+
 ### File-attachment extraction
 
 - Every inbound document attachment ends in a model-visible file block. Attachments routed to image, audio, or video understanding are outside this contract; those stages own their outcomes.

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelProviderConfig } from "../config/types.models.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
 import type { ModelCatalogSnapshot } from "./model-catalog.types.js";
@@ -77,39 +78,41 @@ const mocks = vi.hoisted(() => {
     >(() => null),
     loadAgentRuntimePluginRegistryHandle: vi.fn(),
     loadStaticCatalog: vi.fn(async () => []),
-    prepareStaticCatalog: vi.fn(async (..._args: unknown[]) => ({
-      providers: [
-        {
-          id: "openai",
-          label: "OpenAI",
-          auth: [],
-          resolveSyntheticAuth,
-        },
-      ],
-      entries: [
-        {
-          provider: { id: "openai", label: "OpenAI", auth: [] },
-          result: {
-            provider: {
-              baseUrl: "https://api.openai.com/v1",
-              api: "openai-responses",
-              models: [
-                {
-                  id: "gpt-5.5",
-                  name: "GPT-5.5",
-                  reasoning: true,
-                  thinkingLevelMap: { off: null, max: "max" },
-                  input: ["text"],
-                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                  contextWindow: 128_000,
-                  maxTokens: 8_192,
-                },
-              ],
-            },
+    prepareStaticCatalog: vi.fn(async (..._args: unknown[]) => {
+      const providerConfig: ModelProviderConfig = {
+        baseUrl: "https://api.openai.com/v1",
+        api: "openai-responses",
+        models: [
+          {
+            id: "gpt-5.5",
+            name: "GPT-5.5",
+            reasoning: true,
+            thinkingLevelMap: { off: null, max: "max" },
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128_000,
+            maxTokens: 8_192,
           },
-        },
-      ],
-    })),
+        ],
+      };
+      return {
+        providers: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            auth: [],
+            resolveSyntheticAuth,
+          },
+        ],
+        entries: [
+          {
+            provider: { id: "openai", label: "OpenAI", auth: [] },
+            result: { provider: providerConfig },
+            providerConfigs: { openai: providerConfig },
+          },
+        ],
+      };
+    }),
     resolveStaticCatalogModel: vi.fn<StaticCatalogResolver>(() => undefined),
     resolveSyntheticAuth,
     mutationListener: undefined as

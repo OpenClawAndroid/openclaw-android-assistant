@@ -92,9 +92,8 @@ export {
 
 function findConfiguredOwnerCandidates(
   owners: Map<string, PreparedModelRuntimeOwner>,
-  rawInput: PreparedModelRuntimeInput,
+  input: PreparedModelRuntimeInput,
 ): PreparedModelRuntimeOwner[] {
-  const input = normalizePreparedModelRuntimeInput(rawInput);
   const configured = [...owners.values()].filter((owner) => owner.provenance === "configured");
   const identityCandidates =
     input.agentId === undefined
@@ -119,7 +118,8 @@ export function resolveConfiguredOwnerPublication(
   owners: Map<string, PreparedModelRuntimeOwner>,
   rawInput: PreparedModelRuntimeInput,
 ): { matches: boolean; pending?: Promise<PreparedModelRuntimeSnapshot> } {
-  const candidates = findConfiguredOwnerCandidates(owners, rawInput);
+  const input = normalizePreparedModelRuntimeInput(rawInput);
+  const candidates = findConfiguredOwnerCandidates(owners, input);
   return {
     matches: candidates.length > 0,
     pending: candidates.length === 1 ? candidates[0]?.pending : undefined,
@@ -130,15 +130,16 @@ export function resolveConfiguredOwner(
   owners: Map<string, PreparedModelRuntimeOwner>,
   rawInput: PreparedModelRuntimeInput,
 ): PreparedModelRuntimeOwner | undefined {
-  const candidates = findConfiguredOwnerCandidates(owners, rawInput);
+  const input = normalizePreparedModelRuntimeInput(rawInput);
+  const candidates = findConfiguredOwnerCandidates(owners, input);
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 function resolveCommittedConfiguredOwner(
   owners: Map<string, PreparedModelRuntimeOwner>,
-  rawInput: PreparedModelRuntimeInput,
+  input: PreparedModelRuntimeInput,
 ): PreparedModelRuntimeOwner | undefined {
-  const candidates = findConfiguredOwnerCandidates(owners, rawInput).filter(
+  const candidates = findConfiguredOwnerCandidates(owners, input).filter(
     (owner) => owner.snapshot && !owner.needsRefresh && !owner.pending,
   );
   return candidates.length === 1 ? candidates[0] : undefined;
@@ -149,7 +150,7 @@ export function rebindInputToCommittedConfiguredOwner(
   rawInput: PreparedModelRuntimeInput,
 ): PreparedModelRuntimeInput {
   const input = normalizePreparedModelRuntimeInput(rawInput);
-  const owner = resolveCommittedConfiguredOwner(owners, rawInput);
+  const owner = resolveCommittedConfiguredOwner(owners, input);
   if (!owner) {
     throw new PreparedModelRuntimeOwnerNotPublishedError(
       `prepared model runtime owner was not committed after replacement for ${input.agentDir}`,

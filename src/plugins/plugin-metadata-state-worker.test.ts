@@ -408,10 +408,10 @@ it.each(
         diagnostics: [{ level: "warn", message: "captured ledger" }],
       });
       expect(bundledDiscovery.readBundledDiscoveryModeMemoized(env)).toBe("allowlist");
-      // An escaped descendant must resume ordinary memo semantics after snapshot cleanup.
+      // An escaped descendant cannot replace its closed snapshot with live policy.
       writeConfigMachineState("plugins.bundledDiscovery", "compat", { env });
       afterCleanup.resolve();
-      expect(await descendant).toBe("allowlist");
+      await expect(descendant).rejects.toThrow(PluginCacheFactInvalidatedError);
     } finally {
       resume.resolve();
       afterCleanup.resolve();

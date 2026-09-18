@@ -1,10 +1,86 @@
-# Remote outcome outlives the process lock and all disposable prepare artifacts.
+# The local outcome outlives the process lock and all disposable prepare artifacts.
 # These private commits retain the actual head/main/landed objects as parents;
 # textual OIDs in a blob alone would not keep historical proof alive through GC.
 merge_outcome_stop() {
   echo "Merge outcome: $*" >&2
-  echo "No automatic merge retry. Repeated merge-run only reconciles a recorded attempt. Inspect the PR timeline, main history, and $MERGE_OUTCOME_REF; a new attempt requires explicit operator recovery through merge-recover." >&2
+  local ref_state=unavailable ref_status=0 root capture_state=unavailable captures=true
+  if GIT_NO_LAZY_FETCH=1 git symbolic-ref -q "$MERGE_OUTCOME_REF" >/dev/null 2>&1 ||
+    GIT_NO_LAZY_FETCH=1 git show-ref --verify --quiet "$MERGE_OUTCOME_REF" 2>/dev/null; then
+    ref_state=present
+  else
+    ref_status=$?
+    [ "$ref_status" -ne 1 ] || ref_state=absent
+  fi
+  if root=$(repo_root) && [ -d "$root" ]; then
+    local worktree="$root/.worktrees/pr-${MERGE_OUTCOME_REF##*/}"
+    if [ ! -e "$worktree" ] || { [ -r "$worktree/.local" ] && [ -x "$worktree/.local" ]; }; then
+      capture_state=absent
+      if [ -e "$worktree/.local/merge-output.log" ] || [ -L "$worktree/.local/merge-output.log" ]; then
+        capture_state=present
+      fi
+      if ! has_worktree_merge_output "$worktree"; then captures=false; fi
+    fi
+  fi
+  printf 'Local outcome ref %s: %s\nLegacy .local/merge-output.log: %s\n' \
+    "$MERGE_OUTCOME_REF" "$ref_state" "$capture_state" >&2
+  if [ "${MERGE_ADMISSION_ACTIVE:-false}" = true ] && [ "$ref_state" = absent ] &&
+    [ "$capture_state" = absent ] && [ "$captures" = false ]; then
+    echo "Confirmed pre-dispatch abort: no merge request was sent by this attempt. Next: lock-recover, then rerun merge-run (use the exact lock-recover command after verifying no child tools remain)." >&2
+  else
+    echo 'Next: investigate; see scripts/AGENTS.md merge-outcome doctrine and `scripts/pr merge-recover`. No automatic merge retry.' >&2
+  fi
   return 1
+}
+
+# This runs only after rejection. REST and local merge-tree output explain the
+# failure; neither replaces the pinned observation or grants dispatch authority.
+merge_outcome_diagnose() {
+  local pr="$1" observed="$2" expected="${3:-null}" status_expected="${4:-}" mergeable_expected="${5:-}"
+  local head="${PREP_HEAD_SHA:-}" rest main
+  [ -n "$head" ] || head=$(printf '%s\n' "${MERGE_OUTCOME_RECORD:-null}" | jq -r '.head // empty')
+  printf '%s\n' "$observed" | jq -r --arg head "$head" --argjson expected "$expected" \
+    --argjson recovery "${recovery_record:-null}" --arg status "$status_expected" --arg mergeable "$mergeable_expected" '
+    def mismatch($field; $actual; $wanted):
+      if $actual != $wanted then "Merge precondition \($field): observed=\($actual|tojson); expected=\($wanted|tojson)" else empty end;
+    . as $actual |
+    (if $expected == null then {pr:{state:"OPEN",headRefOid:$head,baseRefName:"main",isDraft:false,
+      mergeable:(if .pr.mergeable == "CONFLICTING" then "MERGEABLE|UNKNOWN" else .pr.mergeable end),
+      autoMergeRequest:null,isInMergeQueue:false}} |
+      if $recovery == null then . else .pr.id=$recovery.prId end
+     else $expected end |
+     if $status == "" then . else .pr.mergeStateStatus=$status end |
+     if $mergeable == "" then . else .pr.mergeable=$mergeable end) as $wanted |
+    (if $wanted | has("main") then mismatch("main"; $actual.main; $wanted.main) else empty end),
+    ($wanted.pr | to_entries[] | mismatch(.key; $actual.pr[.key]; .value))
+  ' >&2 || true
+  if rest=$(gh_plain api --hostname "$MERGE_REPO_HOST" "repos/$MERGE_REPO_NAME/pulls/$pr" \
+    --jq '{mergeable,mergeable_state}' 2>/dev/null) &&
+    printf '%s\n' "$rest" | jq -e 'has("mergeable") and (.mergeable == null or (.mergeable|type) == "boolean") and (.mergeable_state|type) == "string"' >/dev/null 2>&1; then
+    printf '%s\n' "$rest" | jq -r --arg pr "$pr" \
+      '"REST pulls/\($pr): mergeable=\(.mergeable|tojson); mergeable_state=\(.mergeable_state|tojson) (diagnostic only)"' >&2
+  else
+    rest=null
+    echo "REST pulls/$pr: mergeable/mergeable_state unavailable (diagnostic only)" >&2
+  fi
+  if printf '%s\n' "$observed" | jq -e --argjson rest "$rest" \
+    '.pr.mergeStateStatus == "DIRTY" or .pr.mergeable == "CONFLICTING" or $rest.mergeable_state == "dirty"' >/dev/null; then
+    main=$(printf '%s\n' "$observed" | jq -r '.main // empty')
+    GIT_NO_LAZY_FETCH=1 node --input-type=module -e '
+      import { spawnSync } from "node:child_process";
+      const [main, head] = process.argv.slice(1);
+      const git = (args) => spawnSync("git", args, { encoding: "utf8", timeout: 5000 });
+      if ([main, head].every((oid) => /^[0-9a-f]{40}$/.test(oid) && git(["cat-file", "-e", `${oid}^{commit}`]).status === 0)) {
+        const result = git(["merge-tree", "--write-tree", "--name-only", "--no-messages", main, head]);
+        const paths = result.status === 1 ? result.stdout.trim().split("\n").slice(1).filter(Boolean) : [];
+        if (paths.length) {
+          for (const path of paths) console.error(`Conflicting path: ${path}`);
+          process.exit(0);
+        }
+      }
+      console.error("Conflicts exist; conflicting paths unavailable from the local main/prepared-head comparison.");
+    ' -- "$main" "$head" || echo "Conflicts exist; local path diagnostics unavailable." >&2
+  fi
+  return 0
 }
 
 merge_outcome_repo_identity() {
@@ -223,14 +299,16 @@ merge_outcome_require_main() {
 
 merge_outcome_observe() {
   MERGE_OBSERVATION=$(merge_outcome_read_remote "$1") || {
-    merge_outcome_stop "authoritative PR/main metadata unavailable or invalid"; return 1;
+    merge_outcome_stop "PR/main metadata: observed=unavailable or invalid; expected=authoritative valid snapshot"; return 1;
   }
   merge_outcome_require_main "$(printf '%s\n' "$MERGE_OBSERVATION" | jq -r .main)"
 }
 
 merge_outcome_stable() {
   local reread main
-  reread=$(merge_outcome_read_remote "$1") || return 1
+  reread=$(merge_outcome_read_remote "$1") || {
+    merge_outcome_stop "observation reread: observed=unavailable or invalid; expected=authoritative PR/main metadata"; return 1;
+  }
   [ "$reread" = "$MERGE_OBSERVATION" ] && return 0
   # Only finish an already-proven MERGED receipt; this never admits a future merge.
   # Keep both snapshots pinned: later forward work cannot restart historical proof.
@@ -243,6 +321,7 @@ merge_outcome_stable() {
   fi
   printf 'Merge stability observation: %s\nMerge stability reread: %s\n' \
     "$MERGE_OBSERVATION" "$reread" >&2
+  merge_outcome_diagnose "$1" "$reread" "$MERGE_OBSERVATION"
   merge_outcome_stop "PR or main changed during observation; rerun for read-only reconciliation if intent exists"
 }
 

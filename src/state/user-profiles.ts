@@ -597,8 +597,7 @@ export function syncGitHubIdentity(
   return runOpenClawStateWriteTransaction(
     ({ db }) => {
       const now = Date.now();
-      const kysely = userProfilesDb(db);
-      const canonicalProfileId = applyVerifiedGitHubIdentity({
+      const binding = applyVerifiedGitHubIdentity({
         db,
         alias,
         identity: params.identity,
@@ -606,21 +605,24 @@ export function syncGitHubIdentity(
         mergeProfiles: (sourceProfileId, targetProfileId) =>
           mergeUserProfiles(db, sourceProfileId, targetProfileId, now),
       });
-      const profile = selectUserProfileListItemById(db, canonicalProfileId);
+      const profile = selectUserProfileListItemById(db, binding.profileId);
       // Only the exact current GitHub login may be upgraded; preserve every other saved name.
       // Read the merge head inside this transaction so edits during lookup remain authoritative.
       const displayName =
         githubDisplayName && profile.displayName === params.identity.login.trim()
           ? githubDisplayName
           : (profile.displayName ?? initialDisplayName);
+      if (!binding.changed && displayName === profile.displayName) {
+        return profile;
+      }
       executeSqliteQuerySync(
         db,
-        kysely
+        userProfilesDb(db)
           .updateTable("user_profiles")
           .set({ display_name: displayName, updated_at: now })
-          .where("id", "=", canonicalProfileId),
+          .where("id", "=", profile.id),
       );
-      publishUserProfilesChange(db, canonicalProfileId);
+      publishUserProfilesChange(db, profile.id);
       return { ...profile, displayName, updatedAt: now };
     },
     options,

@@ -162,11 +162,18 @@ it.each(["converging", "exhausted"] as const)(
       },
     });
     const release = createDeferred();
+    const committed = new Map<string, TaskRecord>();
     const publication = runTaskRegistryWorkerMutation(
-      { scope: { taskId: task.taskId, flowId: flow.flowId }, admission: context.admission },
+      {
+        scope: { taskId: task.taskId, flowId: flow.flowId },
+        admission: context.admission,
+        publicationRecords: () => committed,
+      },
       async () => {
         await release.promise;
-        store.upsertTaskWithDeliveryState({ task: { ...task, notifyPolicy: "state_changes" } });
+        const next: TaskRecord = { ...task, notifyPolicy: "state_changes" };
+        store.upsertTaskWithDeliveryState({ task: next });
+        committed.set(next.taskId, next);
       },
       async () => readRows(),
     );
@@ -268,21 +275,23 @@ it.each(["success", "failure"] as const)(
         return pending;
       });
     const releaseMutations = createDeferred();
-    const mutations = records.map((record) =>
-      runTaskRegistryWorkerMutation(
+    const mutations = records.map((record) => {
+      const committed = new Map<string, TaskRecord>();
+      return runTaskRegistryWorkerMutation(
         {
           scope: { taskId: record.taskId, flowId: flow.flowId },
           admission: context.admission,
+          publicationRecords: () => committed,
         },
         async () => {
-          store.upsertTaskWithDeliveryState({
-            task: { ...record, task: `Stored ${record.taskId}` },
-          });
+          const next = { ...record, task: `Stored ${record.taskId}` };
+          store.upsertTaskWithDeliveryState({ task: next });
+          committed.set(next.taskId, next);
           await releaseMutations.promise;
         },
         () => readSnapshot(context, { taskId: record.taskId, flowId: flow.flowId }),
-      ),
-    );
+      );
+    });
     const revision = readTaskRegistryRevision();
     const live = vi.spyOn(store, "syncLiveTaskFlowAsync");
     const admission = vi.spyOn(gatewayWorkAdmission, "runWithGatewayDetachedWorkContinuation");
@@ -555,7 +564,11 @@ it.each(["current row", "retired store", "retired admission"] as const)(
     const readRows = store.loadSnapshot.bind(store);
     const releasePublication = createDeferred();
     const publication = runTaskRegistryWorkerMutation(
-      { scope: { taskId: task.taskId, flowId: flow.flowId }, admission: context.admission },
+      {
+        scope: { taskId: task.taskId, flowId: flow.flowId },
+        admission: context.admission,
+        publicationRecords: () => new Map(),
+      },
       () => releasePublication.promise,
       async () => readRows(),
     );

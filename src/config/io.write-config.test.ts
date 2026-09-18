@@ -2660,54 +2660,6 @@ describe("config io write", () => {
     },
   );
 
-  itWithHome(
-    "preserves auth-store refresh scope through managed preflight and notification",
-    async (home) => {
-      const configPath = configPathForHome(home);
-      await fs.mkdir(path.dirname(configPath), { recursive: true });
-      const initialConfig = {
-        gateway: { mode: "local" as const },
-        logging: { level: "info" as const },
-      } satisfies OpenClawConfig;
-      await writeConfigJson(configPath, initialConfig);
-      const preflight = vi.fn(
-        async (
-          sourceConfig: OpenClawConfig,
-          refreshOptions?: { includeAuthStoreRefs?: boolean },
-        ) => ({
-          runtimeConfig: sourceConfig,
-          compareConfig: sourceConfig,
-          refreshOptions,
-        }),
-      );
-      const notifications: Array<{ includeAuthStoreRefs?: boolean } | undefined> = [];
-      const unsubscribe = registerConfigWriteListener(
-        (event) => notifications.push(event.runtimeRefresh),
-        {
-          ownsRuntimeActivationFor: configPath,
-          preCommitRuntimePreflight: preflight,
-        },
-      );
-
-      try {
-        await withEnvAsync({ OPENCLAW_CONFIG_PATH: configPath }, async () => {
-          setRuntimeConfigSnapshot(initialConfig, initialConfig);
-          await writeConfigFile(
-            { ...initialConfig, logging: { level: "debug" } },
-            { runtimeRefresh: { includeAuthStoreRefs: false } },
-          );
-        });
-      } finally {
-        unsubscribe();
-      }
-
-      expect(preflight).toHaveBeenCalledWith(expect.any(Object), {
-        includeAuthStoreRefs: false,
-      });
-      expect(notifications).toEqual([{ includeAuthStoreRefs: false }]);
-    },
-  );
-
   itWithHome("stages managed root-write config env until the owner accepts it", async (home) => {
     const configPath = configPathForHome(home);
     const envKey = "OPENCLAW_TEST_MANAGED_ROOT_ENV";

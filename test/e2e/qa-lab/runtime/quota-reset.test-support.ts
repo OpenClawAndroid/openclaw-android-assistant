@@ -353,7 +353,9 @@ export async function startQuotaProvider(source: BlockSource, responseText: stri
           json(200, {
             access_token: syntheticAccessToken(),
             refresh_token: "synthetic-rotated-refresh",
-            expires_in: 3600,
+            // Quota recovery should not introduce the CLI's one-day expiry warning.
+            // Expiry scenarios control the original credential with expiresDuringBlock.
+            expires_in: 2 * 86_400,
           });
         }
       } else if (requestPath === "/catalog/models") {

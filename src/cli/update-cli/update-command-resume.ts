@@ -1,13 +1,18 @@
 import { readConfigFileSnapshot } from "../../config/config.js";
+import { formatErrorMessage } from "../../infra/errors.js";
 import { normalizeUpdateChannel } from "../../infra/update-channels.js";
+import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
 import { hasDeferredUpdateModelRetirement } from "../../infra/update-deferred-model-retirement.js";
 import {
   POST_CORE_UPDATE_REQUESTED_CHANNEL_ENV,
+  POST_CORE_UPDATE_ENV,
   POST_CORE_UPDATE_INSTALL_RECORDS_PATH_ENV,
   POST_CORE_UPDATE_RESULT_PATH_ENV,
   POST_CORE_UPDATE_STARTED_AT_ENV,
   POST_CORE_UPDATE_SOURCE_CONFIG_PATH_ENV,
 } from "../../infra/update-post-core-context.js";
+import { inspectUpdateRepairDriverAdmission } from "../../infra/update-run-activity.js";
+import { getUpdateRun, recordUpdateRunStep } from "../../infra/update-run-ledger.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
 import { readPersistedInstalledPluginIndex } from "../../plugins/installed-plugin-index-store.js";
@@ -26,6 +31,7 @@ import {
   completePostCorePluginUpdate,
   runUpdateFinalizationDoctorInFreshProcess,
 } from "./update-command-fresh-doctor.js";
+import { collectPostCorePluginAdvisories } from "./update-command-plugins-internals.js";
 import {
   updatePluginsAfterCoreUpdate,
   type PostCorePluginUpdateResult,
@@ -230,6 +236,32 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
     throw outcome.error;
   }
   const { pluginUpdate } = outcome;
+  const runId = process.env[UPDATE_RUN_ID_ENV]?.trim();
+  if (process.env[POST_CORE_UPDATE_ENV] === "1" && runId) {
+    try {
+      // Shipped parents do not project plugin notices into history and can stop us on publication.
+      for (const [index, detail] of collectPostCorePluginAdvisories(pluginUpdate).entries()) {
+        const run = getUpdateRun(runId);
+        if (
+          !run ||
+          run.status !== "running" ||
+          inspectUpdateRepairDriverAdmission([run], runId).kind !== "continuation"
+        ) {
+          throw new Error("Cannot verify a live parent for the inherited update history.");
+        }
+        recordUpdateRunStep(runId, {
+          step: `warning:finalize:plugins:${index}`,
+          status: "completed",
+          endedAtMs: Date.now(),
+          detail,
+        });
+      }
+    } catch (error) {
+      defaultRuntime.error(
+        `Plugin update warnings could not be saved to update history: ${formatErrorMessage(error)} Review the plugin warnings above.`,
+      );
+    }
+  }
   if (process.env[POST_CORE_UPDATE_RESULT_PATH_ENV]) {
     await writePostCorePluginUpdateResultFile(
       process.env[POST_CORE_UPDATE_RESULT_PATH_ENV],

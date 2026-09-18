@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { channel as createDiagnosticsChannel } from "node:diagnostics_channel";
 import { availableParallelism } from "node:os";
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import { Worker } from "node:worker_threads";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
@@ -19,7 +19,13 @@ import {
   releaseWorkerNativeSectionsOnExit,
   waitForWorkerNativeSections,
 } from "./worker-task-native-sections.js";
-import type { Slot, Task, WorkerTaskInput, WorkerTaskOptions } from "./worker-task-pool.types.js";
+import type {
+  Slot,
+  Task,
+  WorkerTaskInput,
+  WorkerTaskOptions,
+  WorkerTaskPoolOptions,
+} from "./worker-task-pool.types.js";
 
 export type { WorkerTaskRequestContext, WorkerTaskResponse } from "./worker-task-pool.types.js";
 export type { WorkerTaskControl } from "./worker-task-native-sections.js";
@@ -67,26 +73,7 @@ export class WorkerTaskPool<Input, Output> {
   private readonly setTimeoutFn = setTimeout;
   private readonly clearTimeoutFn = clearTimeout;
 
-  constructor(
-    private readonly options: {
-      workerUrl: URL;
-      workerOptions?: Omit<WorkerOptions, "eval">;
-      /** Shallow per-Worker overrides; returned scratch stays owned until Worker exit. */
-      prepareWorker?: () => {
-        options: Omit<WorkerOptions, "eval">;
-        temporaryDirectory?: string;
-      };
-      maxWorkers?: number;
-      /** Share CPU admission with other stateless compute pools in this isolate. */
-      sharedCompute?: boolean;
-      /** Include queued, preparing, and running tasks until execution has settled. */
-      maxPendingTasks?: number;
-      maxPendingBytes?: number;
-      idleTimeoutMs?: number;
-      restartOnError?: boolean;
-      validateResult?: (value: Output) => void;
-    },
-  ) {
+  constructor(private readonly options: WorkerTaskPoolOptions<Output>) {
     this.maxWorkers = options.maxWorkers ?? availableParallelism();
     this.maxPendingTasks = options.maxPendingTasks ?? DEFAULT_WORKER_PENDING_TASKS;
     this.maxPendingBytes = options.maxPendingBytes ?? DEFAULT_WORKER_PENDING_BYTES;
@@ -473,11 +460,21 @@ export class WorkerTaskPool<Input, Output> {
           yieldSignal: exchange.pressure.signal,
         });
       })
-      .then(async (response) => {
+      .then((response) => {
         if (task.done || slot.task !== task || slot.retiring) {
           // A slow host handler may settle after cancellation. Never feed a successor.
-          await slot.retiring;
-          response.onConsumed?.();
+          const release = () => {
+            try {
+              task.runInContext(() => response.onConsumed?.());
+            } catch {
+              // The closed task retains its original failure, as in the exchange catch below.
+            }
+          };
+          if (this.slots.has(slot)) {
+            (slot.completions ??= []).push(release);
+          } else {
+            release();
+          }
           return;
         }
         exchange.onConsumed = response.onConsumed;
@@ -521,11 +518,11 @@ export class WorkerTaskPool<Input, Output> {
       return;
     }
     if (this.options.restartOnError === false) {
-      void this.close(error);
+      void this.close(error).catch(() => undefined);
     } else if (slot.task) {
       this.finish(slot.task, error, undefined, true);
     } else {
-      void this.retire(slot);
+      void this.retire(slot).catch(() => undefined);
     }
   }
 
@@ -588,7 +585,7 @@ export class WorkerTaskPool<Input, Output> {
       slot.task = undefined;
       this.activeTasks--;
       if (retire) {
-        // Keep the slot reserved and the caller pending until its execution actually stops.
+        // Keep input and capacity custody until execution stops, even if rejection is early.
         (slot.completions ??= []).push(complete);
         void this.retire(slot).catch((failure: unknown) => {
           task.reject(
@@ -626,7 +623,7 @@ export class WorkerTaskPool<Input, Output> {
     const idleMs = this.options.idleTimeoutMs ?? 60_000;
     if (idleMs > 0) {
       slot.idleTimer = runInWorkerPoolContext(() =>
-        this.setTimeoutFn(() => void this.retire(slot), idleMs),
+        this.setTimeoutFn(() => void this.retire(slot).catch(() => undefined), idleMs),
       );
       slot.idleTimer.unref();
     }
@@ -648,6 +645,14 @@ export class WorkerTaskPool<Input, Output> {
           }
           await slot.worker.terminate();
         }
+      })
+      .catch((error: unknown) => {
+        try {
+          void Promise.resolve(this.options.onRetirementFailure?.(error)).catch(() => undefined);
+        } catch {
+          // Observer failures cannot replace the termination failure or its retained custody.
+        }
+        throw error;
       })
       .then(() => {
         const directory = slot.temporaryDirectory;

@@ -243,7 +243,10 @@ export function printResult(
   if (result.runId) {
     activeUpdateProgress.get(result.runId)?.(run);
   }
-  const report = renderUpdateRunReport(run ?? updateRunReportInputFromResult(result), reportHints);
+  const report = renderUpdateRunReport(run ?? updateRunReportInputFromResult(result), {
+    ...reportHints,
+    mode: result.mode === "unknown" ? run?.target.kind : result.mode,
+  });
   defaultRuntime.log("");
   defaultRuntime.log(theme.heading(report.headline));
   for (const line of report.lines) {

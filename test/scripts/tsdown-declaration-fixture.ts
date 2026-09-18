@@ -172,6 +172,7 @@ export function createFixture(
     "src/process/supervisor/service-child-windows-job-native.ts",
     "src/infra/update-managed-service-handoff-runtime-assets.ts",
     "src/infra/update-managed-service-handoff-native-loader.ts",
+    "src/shared/deferred.ts",
     "src/shared/freebsd-process-identity.ts",
     "src/infra/node-runtime-executable.ts",
     "src/infra/runtime-dependency-ownership.ts",

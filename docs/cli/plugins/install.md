@@ -70,6 +70,15 @@ package name matches an official plugin. This exemption does not grant OAuth,
 operating-system, or runtime tool permissions. See
 [capability consent](/plugins/manage-plugins#capability-consent).
 
+Local copies selected through `plugins.load.paths`, including `--link` installs,
+do not inherit official package trust. `--force` does not change that boundary.
+If a channel requires trusted plugin state, such as its durable ingress queue,
+startup records the refusal and leaves the channel blocked without automatic
+retries. Doctor and `openclaw update status` show the running Gateway's recorded
+failure, including the source and remedy. Install the official npm package or
+ClawHub listing and remove the local override from `plugins.load.paths`, then
+restart the channel.
+
 `plugins search` queries ClawHub for installable `code-plugin` and
 `bundle-plugin` packages (not skills; use `openclaw skills search` for those).
 Default `--limit` is 20, capped at 100. It only reads the remote catalog: no

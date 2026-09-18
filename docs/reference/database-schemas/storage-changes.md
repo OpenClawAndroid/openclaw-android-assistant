@@ -181,6 +181,17 @@ Reads use the existing-only worker path and do not create a missing database.
 Public event helpers and exports await durable completion. Cursor eviction,
 namespace-wide append ordering, sibling row budgets, and rollback remain unchanged.
 
+Matrix's live sync cache loads and persists through the shared-state worker. The
+client factory awaits the loaded cursor and clean-shutdown facts before publishing
+the client, so startup's replay decision sees the previous completed shutdown.
+The SDK's synchronous cursor getter stays memory-only. Complete cache reads, writes,
+and deletion serialize by storage root within the process. Chunk writes still publish
+metadata before deleting the previous generation; deletion, flush, and quiescence
+join the same persistence owner. Cache-load failures remain visible on persistence,
+and the existing version, namespaces, digest validation, debounce, and host floor
+are unchanged. Account credentials, storage-root selection and initial metadata
+writes retain their separate owners.
+
 Reef registration binding reads, reservations, finalization, release, and setup-session
 persistence use the shared-state worker. Reservation mutations compare the current
 row before writing; a conflict rereads ownership before retrying. The CLI, setup
@@ -230,6 +241,19 @@ an approved minimum host version guarantees both methods. Available worker failu
 never fall back. Modern domain validation errors surface
 directly, while older hosts retain their native callback error wrapping.
 
+ClickClack discussion generation reservations and pending-open recovery records
+use the shared-state worker. Generation mutations compare the current row and
+serialize through settlement; an old finalizer cannot clear a replacement
+generation. Channel creation awaits durable quarantine and rechecks the live
+account and active session after storage waits. Service stop closes admission
+and joins accepted operations, including work that has not yet reached the
+channel mutation queue; restart awaits that drain. Existing generation JSON,
+namespace limits, retention, and binding/tombstone finalization order are unchanged.
+The declared 2026.9.4 host floor retains uninterrupted native mutations only when
+comparison methods are absent, until the minimum host guarantees them. Worker
+failures never select that compatibility path. Binding storage, revocations,
+and synchronous visibility retain their separate owners.
+
 Use Kysely for ordinary queries and mutations. The current
 `getNodeSqliteKysely` facade compiles queries; `executeSqliteQuerySync` runs them
 on the supplied `node:sqlite` connection. Calling Kysely's asynchronous
@@ -253,6 +277,12 @@ later stage rereads the selected task and revalidates its parent flow and backin
 Run-scoped native transitions retain their initial ordered task selection, reread
 each exact identity, and finish its publication before processing the next sibling.
 Equivalent terminal updates still repair linked flows and publish observations.
+
+Managed-flow worker mutations publish only their acknowledged task records. Canonical
+reads and cache installation share one ordered owner; native writes and transaction
+commits fence delayed snapshots, including changes that return to the same value.
+Flow publication follows the same read-phase rule. A failed refresh leaves its scope
+dirty for the existing refresh owner without replaying the settled mutation.
 
 Routine status reads stream task audit metadata through the same shared worker
 and return fixed-size history aggregates plus candidates for live reconciliation.
@@ -294,6 +324,13 @@ Target resolution, profile and creator catalogs, public-share metadata, projecti
 refreshes, and membership writes retain their existing execution paths. This cut
 moves the member-row query, not every database read performed by these RPCs.
 
+Watched upstream-session discovery runs its existing single-query snapshot and
+row decoding in the shared-state worker. The monitor awaits that snapshot and
+checks its stop signal before using it. Catalog grouping, duplicate-watcher
+suppression, ambiguous-agent filtering, and best-effort failures stay unchanged.
+Single-link reads and their immediately guarded writes retain their synchronous
+owner until their complete freshness and mutation boundary moves together.
+
 Gateway user-preference RPCs and Talk appearance reads resolve merged profile IDs
 and access preferences in the shared-state worker. Preference writes keep profile
 resolution, quota validation, and mutation in one synchronous write transaction;
@@ -301,6 +338,37 @@ Gateway replies and changed events follow completion. Profile merge and consent
 updates retain their connection-bound kernels. Push preference and notification
 callers still use the synchronous facade until their preparation and publication
 owners migrate together.
+
+Fleet registry reads use a separate read-only worker and remain noncreating;
+listing cells does not join Gateway writable lifecycle admission. The existing
+read owner retains inherited snapshot and disposable-source scopes until the
+worker closes. Ordinary fixed reads observe independently committed database
+state, even when an unrelated cached native cursor still sees an older snapshot.
+The cached writer stays open and retained through read settlement; its captured
+physical identity is checked before and after the reader opens and on result
+acceptance. Its read pin exposes no database: ordinary fixed reads do not query,
+back up, join, or end that connection's transaction. Snapshot borrowing keeps its
+native-transaction refusal. Explicitly selected snapshots keep their original private source.
+Artifact-preserving, source-exclusion, and canonical-mutation reads keep their
+existing owner-provided preparation, including native snapshot token work.
+Generic native callbacks and prepared-location cleanup contracts are unchanged;
+this cut does not make those preparation paths free of main-thread SQLite work.
+A copied-state error is returned
+to that reader without becoming a confirmed failure of the live cache; native
+access and transaction owners retain their own version checks, failure latching,
+and corruption eviction. Registry mutations and operation-lease changes run in
+the existing shared-state writer, preserving atomic port reservation and the
+five-minute lease. Fleet callers await checkpoints and drain timer and archive
+probes before releasing their operation lease or reporting completion.
+Cell mutations inside an operation retain its original worker scope and check
+the matching lease owner and expiry in the same transaction as the mutation.
+That scope spans lease acquisition through final renewal and release. Failed
+read cleanup remains registered for canonical retry; source snapshots and pins
+stay owned until worker termination is acknowledged. Maintenance scopes join
+admitted reads before their resource, reference, and handle cleanup phases.
+A cached reader records shared maintenance ownership only after the worker enters
+its schema-validated query callback, including when that query later fails.
+Startup and schema refusals do not transfer ownership.
 
 The host captures the database path, state environment, and current admission
 before awaited work. The shared worker owns its canonical connection and schema
@@ -406,6 +474,19 @@ replacement or switch readers. Direct servers and standalone config readers keep
 their existing execution path unless their host explicitly supplies this operation.
 Missing-file defaults still load plugin metadata only when those defaults need it.
 The operation changes no schema, persisted representation, or publication authority.
+
+Meeting transcript identity, descriptor, notes, summary, and utterance reads use
+the shared-state worker. Typed commands call the existing synchronous query
+kernels, preserve complete stored results and library error fields, and retain
+first-use schema creation. Compound enumeration, matching, and library reads
+use one deferred read snapshot, keeping their queries coherent while capture
+writes still run on the parent connection. Schema creation finishes before the
+read transaction, and domain errors are translated after it settles. Canonical
+close drains these reads before closing their worker connection. Chronological
+list reads still use the parent process because their SQL date function observes
+its current timezone. Streamed reads, export snapshots, and capture writes retain
+their existing owners until their snapshot and write-drainage lifecycles move
+together.
 
 SQLite worker transport preserves complete result values. Results within the
 64 MiB inline reply budget keep their existing reply path; larger results are

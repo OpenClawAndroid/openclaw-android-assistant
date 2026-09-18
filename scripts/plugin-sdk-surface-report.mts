@@ -160,8 +160,7 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   // +1: shared ingress retention defaults projected through the deprecated message barrel.
   // +1: WhatsApp ack-policy bridge counted via channel-message's wildcard re-export.
   // Rendering helpers also flow through this shipped wildcard compatibility barrel.
-  // +1: approved complete-preamble helper inherited through the shipped barrel (#151456).
-  "channel-message": 137,
+  "channel-message": 136,
   // +2: Slack progress-draft render bridge (function + mode type).
   "channel-outbound": 2,
   // +2: WhatsApp ack-policy bridge (function + mode type).

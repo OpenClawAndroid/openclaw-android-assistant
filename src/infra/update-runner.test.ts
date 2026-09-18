@@ -3013,7 +3013,7 @@ describe("runGatewayUpdate", () => {
 
     expect(result).toMatchObject({
       status: "skipped",
-      mode: "unknown",
+      mode: "npm",
       root: pkgRoot,
       reason: "package-update-requires-cli",
       before: { version: "1.0.0" },

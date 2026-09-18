@@ -12,9 +12,9 @@ import type {
 const log = createSubsystemLogger("agents/prepared-model-runtime");
 
 type PreparedModelRuntimePublicationEvent =
-  | { phase: "invalidated" | "published" }
+  | { phase: "invalidated" | "published"; modelFactsChanged?: false }
   | { phase: "failed"; error: Error }
-  // Only the catalog commit owner can prove that model facts stayed unchanged.
+  // Publication owners alone can prove that model facts stayed unchanged.
   | {
       phase: "catalog-published";
       modelFactsChanged?: boolean;

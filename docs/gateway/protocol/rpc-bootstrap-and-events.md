@@ -88,8 +88,7 @@ count.
   The optional `sessionId` and opaque `lifecycleRevision` identify the session
   lifecycle; `lifecycleRevision` can be absent before the first reset. Revisions
   increase across runs within that lifecycle but can restart after a reset.
-  Critical notice history starts fresh when the identity pair changes, including
-  when `/clear` preserves `sessionId` and changes `lifecycleRevision`.
+  `/clear` preserves `sessionId` and changes `lifecycleRevision`.
   Clients show its headline or inspector link only while the digest's exact `runId`
   is present in `activeRunIds`.
 - `sessions.changed`: session index or metadata changed. Keyed changes carry the

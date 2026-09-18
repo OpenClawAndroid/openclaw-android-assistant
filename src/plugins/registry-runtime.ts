@@ -13,7 +13,7 @@ import {
   type OpenKeyedStoreOptions,
 } from "../plugin-state/plugin-state-store.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
-import { formatPluginTrustRefusal } from "./plugin-trust.js";
+import { PluginTrustRefusalError } from "./plugin-trust.js";
 import {
   capturePluginLifecycleAuthority,
   getPluginRecordRegistry,
@@ -200,14 +200,13 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
         | "openChannelIngressDrain",
     ) => {
       if (record.origin !== "bundled" && record.trustedOfficialInstall !== true) {
-        throw new Error(
-          formatPluginTrustRefusal({
-            methodName,
-            pluginId,
-            origin: record.origin,
-            trust: record.trust,
-          }),
-        );
+        throw new PluginTrustRefusalError({
+          methodName,
+          pluginId,
+          source: record.source,
+          origin: record.origin,
+          trust: record.trust,
+        });
       }
     };
     const runtime = new Proxy(registryParams.runtime, {

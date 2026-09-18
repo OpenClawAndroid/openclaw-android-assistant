@@ -162,21 +162,10 @@ export function projectSessionParticipants(
 export function projectSessionPeople(
   entry: SessionEntry,
   identities: Map<string, SessionActorProfileIdentity | undefined>,
-  cfg: OpenClawConfig,
   owner?: SessionOwnerFacetIdentity,
 ): SessionPerson[] {
-  const participants = projectSessionParticipants(entry, identities, cfg);
-  const actors = [
-    owner,
-    projectSessionActor(
-      entry.createdActor,
-      identities,
-      cfg,
-      Boolean(sessionCreatorProfileId(entry.createdActor)),
-    ),
-  ];
   const people = new Map<string, SessionPerson>();
-  for (const participant of [...participants.values(), ...actors]) {
+  const addPerson = (participant: SessionParticipant | SessionOwnerFacetIdentity | undefined) => {
     const identity = participant?.identity;
     if (identity?.type === "profile") {
       people.set(identity.id, {
@@ -186,6 +175,16 @@ export function projectSessionPeople(
         sessionCount: 1,
       });
     }
+  };
+  for (const { identity } of entry.participants ?? []) {
+    if (identity.type === "profile") {
+      addPerson(projectSessionParticipant(identity, identities));
+    }
+  }
+  addPerson(owner);
+  const creatorId = normalizeOptionalString(sessionCreatorProfileId(entry.createdActor));
+  if (creatorId) {
+    addPerson(projectSessionParticipant({ type: "profile", id: creatorId }, identities));
   }
   return [...people.values()];
 }

@@ -10,6 +10,7 @@ import {
   UPDATE_ENVIRONMENT_FAILURE_REASONS,
 } from "../shared/update-outcome.js";
 import type { UpdateFailureFact } from "./update-failure-facts.js";
+import { UPDATE_PREFLIGHT_DETAILS } from "./update-preflight-details.js";
 import { updateRecoverySchema } from "./update-recovery.js";
 
 type PublicFailureIdentifiers = Pick<UpdateFailureFact, "check" | "code" | "pluginId">;
@@ -23,6 +24,7 @@ const NATIVE_CHECKS = new Set<string>([
   "lint",
   "config-write",
   "preflight",
+  "installation-inspection",
   "targetConfigValidation",
   "configSnapshot",
   "targetConfigConvergence",
@@ -53,6 +55,7 @@ const NATIVE_CHECKS = new Set<string>([
 ]);
 
 const PUBLIC_CODES = new Set<string>([
+  ...Object.keys(UPDATE_PREFLIGHT_DETAILS),
   ...Object.keys(SKIPPED_UPDATE_OUTCOMES),
   ...Object.values(PLUGIN_INSTALL_ERROR_CODE),
   ...Object.values(CLAWHUB_INSTALL_ERROR_CODE),

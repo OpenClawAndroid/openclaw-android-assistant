@@ -16,7 +16,6 @@ import {
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const bash = process.platform === "darwin" ? "/bin/bash" : "bash";
 const reviewScript = join(process.cwd(), "scripts/pr-lib/review.sh");
-const reviewArtifactsScript = join(process.cwd(), "scripts/pr-lib/review-artifacts.mjs");
 const mergeScript = join(process.cwd(), "scripts/pr-lib/merge.sh");
 const describePosix = process.platform === "win32" ? describe.skip : describe;
 const testNodeExecPath = resolveTestNodeExecPath();
@@ -517,7 +516,7 @@ describePosix("scripts/pr review artifact validation", () => {
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(
-      'Invalid behavioral sweep status in .local/review.json: "performed" (allowed: pass|needs_work|not_applicable)',
+      'Invalid behavioral sweep status in .local/review.json: behavioralSweep.status="performed" (allowed: pass|needs_work|not_applicable)',
     );
   });
 
@@ -530,24 +529,22 @@ describePosix("scripts/pr review artifact validation", () => {
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(
-      'Invalid behavioral sweep status in .local/review.json: "performed" (allowed: pass|needs_work|not_applicable)',
+      'Invalid behavioral sweep status in .local/review.json: behavioralSweep.status="performed" (allowed: pass|needs_work|not_applicable)',
     );
     expect(result.stdout).toContain(
       "Invalid behavioral sweep in .local/review.json: behavioralSweep.branches must be an array",
     );
     expect(result.stdout).toContain(
-      'Invalid docs status in .local/review.json: "todo" (allowed: up_to_date|missing|not_applicable)',
+      'Invalid docs status in .local/review.json: docs="todo" (allowed: up_to_date|missing|not_applicable)',
     );
     expect(result.stdout).toContain("3 artifact violations");
   });
 
-  it("creates a valid unfinished review without fabricated proof", () => {
-    const result = spawnSync(
-      process.execPath,
-      [reviewArtifactsScript, "template", String(REVIEWED_PR), REVIEWED_HEAD],
-      { encoding: "utf8" },
-    );
-    const template = JSON.parse(result.stdout) as ReturnType<typeof validReview>;
+  it("freshly generated template is structurally valid", () => {
+    const { result, localDir } = runArtifactsInit();
+    const template = JSON.parse(readFileSync(join(localDir, "review.json"), "utf8")) as ReturnType<
+      typeof validReview
+    >;
     expect(result.status).toBe(0);
     expect(template.pr).toEqual({ number: REVIEWED_PR, headSha: REVIEWED_HEAD });
     expect(template.recommendation).toBe("NEEDS WORK");

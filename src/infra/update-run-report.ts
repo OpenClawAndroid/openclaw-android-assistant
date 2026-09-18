@@ -167,6 +167,7 @@ export function renderUpdateRunReport(
     doctorHint?: string | null;
     nextAction?: string;
     currentHealth?: UpdateRunReportHealth;
+    mode?: UpdateRunResult["mode"] | "package";
   } = {},
 ): UpdateRunReport {
   const reconciled = isAcknowledgedAbandonedUpdateRun(run);
@@ -212,6 +213,9 @@ export function renderUpdateRunReport(
   }
   headline = bounded(headline, 500);
   const lines: string[] = [];
+  if (opts.mode && opts.mode !== "unknown") {
+    lines.push(`Update mode: ${opts.mode}`);
+  }
   for (const step of run.steps) {
     if (step.snapshotCapacity) {
       lines.push(formatUpdateSnapshotCapacity(step.snapshotCapacity));
@@ -293,14 +297,13 @@ export function renderUpdateRunReport(
   if (run.downtimeMs != null) {
     lines.push(`Gateway downtime: ${formatDurationPrecise(run.downtimeMs)}.`);
   }
-  const savedAction =
-    opts.nextAction ??
-    run.origin.nextAction ??
-    (run.status === "skipped" &&
+  const skipGuidance =
+    run.status === "skipped" &&
     run.reason &&
     Object.hasOwn(UPDATE_INSTALL_SKIP_GUIDANCE, run.reason)
       ? UPDATE_INSTALL_SKIP_GUIDANCE[run.reason]
-      : undefined);
+      : undefined;
+  const savedAction = opts.nextAction ?? run.origin.nextAction ?? skipGuidance;
   const nextAction =
     savedAction && currentHealth
       ? `${formatUpdateRunCurrentHealth(currentHealth)} ${
@@ -333,7 +336,10 @@ export function renderUpdateRunReport(
         : [
             ...new Set(
               [
-                opts.doctorHint ?? facts.doctorHint ?? run.origin.doctorHint,
+                // Install ownership refusals need the deployment workflow, not Doctor repair.
+                skipGuidance
+                  ? undefined
+                  : (opts.doctorHint ?? facts.doctorHint ?? run.origin.doctorHint),
                 ...recoveryHints(run, nextAction),
                 nextAction,
               ].filter((line): line is string => Boolean(line)),

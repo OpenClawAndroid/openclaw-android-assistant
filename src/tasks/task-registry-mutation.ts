@@ -32,6 +32,7 @@ import {
   addRelatedSessionKeyIndex,
   deleteRelatedSessionKeyIndex,
   rebuildRunIdIndex,
+  recordTaskRegistryProjectionWrite,
 } from "./task-registry.process-state.js";
 import { tryPersistTaskDeliveryStateUpsert, tryPersistTaskUpsert } from "./task-registry.store.js";
 import {
@@ -133,6 +134,7 @@ export function publishTaskRecordUpdate(
   const parentFlowIndexChanged = current.parentFlowId?.trim() !== next.parentFlowId?.trim();
   if (persisted) {
     tasks.set(taskId, next);
+    recordTaskRegistryProjectionWrite("task", taskId);
     bumpTaskRegistryRevision();
     if (becomesTerminal) {
       clearTaskActivity(taskId);
@@ -192,6 +194,7 @@ export function upsertTaskDeliveryState(state: TaskDeliveryState): TaskDeliveryS
           : cloneTaskDeliveryState({ taskId: state.taskId });
       }
       taskDeliveryStates.set(state.taskId, next);
+      recordTaskRegistryProjectionWrite("delivery", state.taskId);
       bumpTaskRegistryRevision();
       return cloneTaskDeliveryState(next);
     },

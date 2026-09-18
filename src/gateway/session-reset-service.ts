@@ -1375,7 +1375,7 @@ export async function performGatewaySessionReset(params: {
       let resetSkipped = false;
       let creationAuthorizationError: ReturnType<typeof errorShape> | undefined;
       let fastModeSelectionError: ReturnType<typeof missingScopeErrorShape> | undefined;
-      let afterLifecycleCommit: (() => Promise<void>) | undefined;
+      const postCommitActions: Array<() => void | Promise<void>> = [];
       const lifecycleRequest: Parameters<typeof resetSessionEntryLifecycle>[0] = {
         commitGuard,
         archivePreviousTranscript: false,
@@ -1579,6 +1579,84 @@ export async function performGatewaySessionReset(params: {
             return;
           }
           lifecyclePreparationCommitted = true;
+          let committedAcpResetState: { sessionKey: string; meta: SessionAcpMeta } | undefined;
+          // Record completion before synchronous publications can fail after the row commits.
+          postCommitActions.push(
+            async () => {
+              if (committedAcpResetState && isResetLifecycleCurrent()) {
+                await tryPrepareFreshManagerRuntimeSession({
+                  deps: { getRuntimeBackend: getAcpRuntimeBackend },
+                  cfg,
+                  meta: committedAcpResetState.meta,
+                  sessionKey: committedAcpResetState.sessionKey,
+                  agentId,
+                  logPrefix: "sessions.session-reset",
+                });
+              }
+              await emitGatewayBeforeResetPluginHook({
+                cfg,
+                key: params.key,
+                messages: beforeResetMessages,
+                target,
+                storePath,
+                entry: mutation.previousEntry,
+                reason: params.reason,
+              });
+            },
+            () => {
+              const resetSessionKey = target.canonicalKey ?? params.key;
+              handleSessionStateSessionReset(resetSessionKey);
+              notifyGatewaySessionReset(resetSessionKey, target.agentId);
+              emitGatewaySessionEndPluginHook({
+                cfg,
+                sessionKey: resetSessionKey,
+                sessionId: mutation.previousSessionId,
+                storePath,
+                sessionFile: mutation.previousSessionFile,
+                agentId: target.agentId,
+                reason: params.reason,
+                archivedTranscripts: [],
+                nextSessionId: mutation.nextEntry.sessionId,
+              });
+              emitGatewaySessionStartPluginHook({
+                cfg,
+                sessionKey: resetSessionKey,
+                sessionId: mutation.nextEntry.sessionId,
+                resumedFrom: mutation.previousSessionId,
+                storePath,
+                sessionFile: resetSessionKey,
+                agentId: target.agentId,
+              });
+            },
+          );
+          if (hadExistingEntry) {
+            postCommitActions.push(() =>
+              emitSessionUnboundLifecycleEvent({
+                targetSessionKey: target.canonicalKey ?? params.key,
+                reason: "session-reset",
+              }),
+            );
+          }
+          if (detachedWorktreeId) {
+            postCommitActions.push(async () => {
+              // Finalize the old checkout before the fence opens to same-key successors.
+              try {
+                if (!(await managedWorktrees.removeIfLossless(detachedWorktreeId))) {
+                  const retained = managedWorktrees.findLiveById(detachedWorktreeId);
+                  if (retained) {
+                    const safePath = truncateUtf16Safe(sanitizeForLog(retained.path), 256);
+                    reportLifecycleCleanupError(
+                      new Error(
+                        `worktree retained: branch=${retained.branch} path=${safePath} outcome=${retained.runEndCleanup?.outcome}`,
+                      ),
+                    );
+                  }
+                }
+              } catch (error) {
+                reportLifecycleCleanupError(error);
+              }
+            });
+          }
           clearBootstrapSnapshotOnSessionBoundary({
             boundaryAppended: resetBoundaryAppended,
             sessionKey: target.canonicalKey ?? params.key,
@@ -1590,9 +1668,8 @@ export async function performGatewaySessionReset(params: {
               entry: mutation.nextEntry,
             });
           }
-          let committedAcpResetState: { sessionKey: string; meta: SessionAcpMeta } | undefined;
           if (deferredAcpResetState) {
-            committedAcpResetState = {
+            const resetState = {
               sessionKey: target.canonicalKey,
               meta: buildPendingAcpMeta(deferredAcpResetState.meta, Date.now()),
             };
@@ -1602,37 +1679,14 @@ export async function performGatewaySessionReset(params: {
               sessionKey: buildAcpDatabaseSessionKey(target.canonicalKey, agentId),
               sessionId: mutation.nextEntry.sessionId,
               lifecycleRevision: mutation.nextEntry.lifecycleRevision,
-              meta: committedAcpResetState.meta,
+              meta: resetState.meta,
             });
+            committedAcpResetState = resetState;
           }
           params.onCommitted?.({
             key: target.canonicalKey,
             sessionId: mutation.nextEntry.sessionId,
           });
-          afterLifecycleCommit = async () => {
-            if (committedAcpResetState && isResetLifecycleCurrent()) {
-              // The helper records skipped/failed preparation instead of silently
-              // resuming the old backend conversation after an apparently
-              // successful reset.
-              await tryPrepareFreshManagerRuntimeSession({
-                deps: { getRuntimeBackend: getAcpRuntimeBackend },
-                cfg,
-                meta: committedAcpResetState.meta,
-                sessionKey: committedAcpResetState.sessionKey,
-                agentId,
-                logPrefix: "sessions.session-reset",
-              });
-            }
-            await emitGatewayBeforeResetPluginHook({
-              cfg,
-              key: params.key,
-              messages: beforeResetMessages,
-              target,
-              storePath,
-              entry: mutation.previousEntry,
-              reason: params.reason,
-            });
-          };
         },
       };
       const resetLifecycle = async (assertSourceCurrent?: () => void) =>
@@ -1648,9 +1702,7 @@ export async function performGatewaySessionReset(params: {
         : resetLifecycle();
       let lifecycle: Awaited<ReturnType<typeof resetSessionEntryLifecycle>>;
       try {
-        lifecycle = await settleGatewaySessionLifecycleCommit(lifecyclePromise, () =>
-          afterLifecycleCommit?.(),
-        );
+        lifecycle = await settleGatewaySessionLifecycleCommit(lifecyclePromise, postCommitActions);
       } catch (error) {
         if (fastModeSelectionError) {
           return { ok: false, error: fastModeSelectionError };
@@ -1659,11 +1711,6 @@ export async function performGatewaySessionReset(params: {
           return { ok: false, error: creationAuthorizationError };
         }
         throw error;
-      }
-      if (!resetSkipped) {
-        const resetSessionKey = target.canonicalKey ?? params.key;
-        handleSessionStateSessionReset(resetSessionKey);
-        notifyGatewaySessionReset(resetSessionKey, target.agentId);
       }
       const next = lifecycle.nextEntry;
       const selectedModel = resolveSessionModelRef(cfg, next, target.agentId);
@@ -1678,57 +1725,6 @@ export async function performGatewaySessionReset(params: {
         modelProvider: resolved.modelProvider,
         model: resolved.model,
       };
-      const oldSessionId = lifecycle.previousSessionId;
-      const oldSessionFile = lifecycle.previousSessionFile;
-
-      const archivedTranscripts = lifecycle.archivedTranscripts;
-      if (!resetSkipped) {
-        emitGatewaySessionEndPluginHook({
-          cfg,
-          sessionKey: target.canonicalKey ?? params.key,
-          sessionId: oldSessionId,
-          storePath,
-          sessionFile: oldSessionFile,
-          agentId: target.agentId,
-          reason: params.reason,
-          archivedTranscripts,
-          nextSessionId: next.sessionId,
-        });
-        emitGatewaySessionStartPluginHook({
-          cfg,
-          sessionKey: target.canonicalKey ?? params.key,
-          sessionId: next.sessionId,
-          resumedFrom: oldSessionId,
-          storePath,
-          sessionFile: target.canonicalKey ?? params.key,
-          agentId: target.agentId,
-        });
-      }
-      if (hadExistingEntry && !resetSkipped) {
-        await emitSessionUnboundLifecycleEvent({
-          targetSessionKey: target.canonicalKey ?? params.key,
-          reason: "session-reset",
-        });
-      }
-      if (!resetSkipped && detachedWorktreeId) {
-        // Preserve reset notifications and unbinding order, but finalize the exact
-        // old checkout before the fence opens to same-key successors.
-        try {
-          if (!(await managedWorktrees.removeIfLossless(detachedWorktreeId))) {
-            const retained = managedWorktrees.findLiveById(detachedWorktreeId);
-            if (retained) {
-              const safePath = truncateUtf16Safe(sanitizeForLog(retained.path), 256);
-              reportLifecycleCleanupError(
-                new Error(
-                  `worktree retained: branch=${retained.branch} path=${safePath} outcome=${retained.runEndCleanup?.outcome}`,
-                ),
-              );
-            }
-          }
-        } catch (error) {
-          reportLifecycleCleanupError(error);
-        }
-      }
       return {
         ok: true,
         key: target.canonicalKey,

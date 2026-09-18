@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { isReportableUpdateRun } from "../shared/update-outcome.js";
 import { prepareUpdateFailureReport } from "./update-failure-report-prepare.js";
 import type { UpdateRunRecord } from "./update-run-record.js";
 import * as reportHealth from "./update-run-report-health.js";
@@ -35,6 +36,28 @@ function run(patch: Partial<UpdateRunRecord> = {}): UpdateRunRecord {
 afterEach(() => vi.restoreAllMocks());
 
 describe("update run report", () => {
+  it.each([
+    ["external-supervisor-update-required", "Use your server or deployment's update workflow"],
+    ["container-image-install", "Pull or build the target Docker/container image"],
+    ["unmanaged-package-install", "Reinstall using the original method"],
+    ["package-update-requires-cli", "through this install's npm, pnpm, or Bun global launcher"],
+  ])("explains %s without treating it as a failed install", (reason, nextAction) => {
+    const record = run({
+      status: "skipped",
+      reason,
+      origin: { doctorHint: "Run openclaw doctor --non-interactive" },
+      after: {},
+      steps: [],
+    });
+
+    const report = renderUpdateRunReport(record);
+    expect(report.markdown).toContain(nextAction);
+    expect(report.markdown).toContain("No package changes or Gateway restart were attempted");
+    expect(report.markdown).not.toContain("openclaw triage");
+    expect(report.markdown).not.toContain("openclaw doctor");
+    expect(isReportableUpdateRun(record)).toBe(false);
+  });
+
   it.each(["abandoned", "legacy-driver-expired"])(
     "shows acknowledged %s recovery without discarding historical failure facts",
     (reason) => {

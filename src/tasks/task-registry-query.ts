@@ -48,6 +48,7 @@ import {
   deleteParentFlowIdIndex,
   deleteRelatedSessionKeyIndex,
   rebuildRunIdIndex,
+  recordTaskRegistryProjectionWrite,
   getTaskRegistryProcessState,
 } from "./task-registry.process-state.js";
 import {
@@ -482,6 +483,7 @@ export function deleteTaskRecordById(taskId: string): boolean {
       deleteParentFlowIdIndex(taskId, current);
       deleteRelatedSessionKeyIndex(taskId, current);
       clearTaskActivity(taskId);
+      recordTaskRegistryProjectionWrite("task", taskId, true);
       tasks.delete(taskId);
       bumpTaskRegistryRevision();
       taskDeliveryStates.delete(taskId);

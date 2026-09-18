@@ -515,7 +515,10 @@ export class MediaAttachmentCache {
     }
     if (!isInboundPathAllowed({ filePath: entry.resolvedPath, roots: this.localPathRoots })) {
       const canonicalRoots = await this.getCanonicalLocalPathRoots();
-      if (!isInboundPathAllowed({ filePath: entry.resolvedPath, roots: canonicalRoots })) {
+      // Roots may already be canonical while macOS attachments still use /tmp or /var aliases.
+      const candidatePath = entry.resolvedPath;
+      const canonicalPath = await fs.realpath(candidatePath).catch(() => candidatePath);
+      if (!isInboundPathAllowed({ filePath: canonicalPath, roots: canonicalRoots })) {
         entry.resolvedPath = undefined;
         if (shouldLogVerbose()) {
           logVerbose(

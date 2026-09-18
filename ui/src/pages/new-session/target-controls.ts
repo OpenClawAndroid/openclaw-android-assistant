@@ -107,7 +107,7 @@ export function renderNewSessionPlaceControls({
     freshWorkspace: place.freshWorkspace,
   });
   const checkoutState = resolveCheckoutChip({
-    destination: place.remotePlacement ? "remote" : "local",
+    destination: place.cloudProfileId ? "cloud" : place.remotePlacement ? "remote" : "local",
     worktree: place.worktree,
     worktreeAvailable: place.worktreeAvailable(),
     headBranch: branches?.headBranch,

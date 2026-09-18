@@ -1,6 +1,11 @@
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
-import type { AgentsListResult, CronJobsListResult, SkillStatusReport } from "../api/types.ts";
+import type {
+  AgentsListResult,
+  CronJobsListResult,
+  GatewaySessionRow,
+  SkillStatusReport,
+} from "../api/types.ts";
 import {
   SETTINGS_SEARCHABLE_SUBPAGE_ROUTES,
   settingsNavigationLabelForRoute,
@@ -41,8 +46,9 @@ type CommandPaletteCatalogItem = {
 };
 
 export type CommandPaletteItem = Omit<CommandPaletteCatalogItem, "routeId" | "category"> & {
-  category: "search" | "navigation" | "chats" | CommandPaletteCatalogCategory;
+  category: "search" | "navigation" | "chats" | "messages" | CommandPaletteCatalogCategory;
   action: string;
+  session?: GatewaySessionRow;
 };
 
 export function commandPaletteCategoryLabel(category: string): string {
@@ -67,6 +73,8 @@ export function commandPaletteCategoryLabel(category: string): string {
       return t("palette.items.settings");
     case "chats":
       return t("sessionsView.title");
+    case "messages":
+      return t("palette.categories.messages");
     default:
       return category;
   }

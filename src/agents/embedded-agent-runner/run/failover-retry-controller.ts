@@ -26,7 +26,6 @@ const MAX_TRANSIENT_RETRY_TIME_MS = 90_000;
 const TRANSIENT_RETRY_BASE_DELAY_MS = 1_000;
 const TRANSIENT_RETRY_MAX_DELAY_MS = 30_000;
 
-/** Resolves jittered exponential backoff without exceeding the turn retry ceiling. */
 function resolveTransientRetryDelayMs(params: {
   retryNumber: number;
   retryAfterMs?: number;
@@ -296,9 +295,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
           rateLimit || retry.reason === "output_limit" ? undefined : nowMs - retryWindowStartMs,
       });
       if (delayMs === undefined) {
-        // The window in resolveTransientRetryDelayMs outranks the attempt budget when
-        // requests are slow, so record the truncation: a configured maxRetries that
-        // never runs must be diagnosable. Replay safety still decides whether failover is eligible.
+        // Explain why recovery stopped before the count limit; replay safety still gates fallback.
         log.warn(
           `transient retry ${retry.retryAfterMs === Infinity ? "floor exceeds representable time" : "window elapsed"} for ${sanitizeForLog(provider)}/${sanitizeForLog(modelId)} after ${transientRetryCount}/${retryBudget} retries; stopping same-model retries`,
         );

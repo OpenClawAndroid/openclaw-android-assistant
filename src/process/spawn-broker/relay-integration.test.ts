@@ -2,6 +2,7 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, expect, it, vi } from "vitest";
 import { spawnProcess } from "../spawn-utils.js";
 import { createServiceChildRelayAdapter } from "../supervisor/service-child-relay-host.js";
+import type { ProcessExtinctionResult } from "../supervisor/types.js";
 import { BrokerChild } from "./child.js";
 
 vi.mock("../spawn-utils.js", () => ({ spawnProcess: vi.fn() }));
@@ -10,7 +11,7 @@ afterEach(() => vi.restoreAllMocks());
 it("publishes retained cleanup before a broker transport fails readiness", async () => {
   const child = new BrokerChild(1, [process.execPath], async () => {});
   vi.mocked(spawnProcess).mockReturnValue(child);
-  const cleanups: Promise<void>[] = [];
+  const cleanups: Promise<ProcessExtinctionResult>[] = [];
   const unhandled = vi.fn();
   process.on("unhandledRejection", unhandled);
   try {

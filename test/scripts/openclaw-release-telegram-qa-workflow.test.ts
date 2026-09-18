@@ -247,6 +247,7 @@ function runCandidateProvenance(
     signature?: "invalid" | "maintainer" | "missing" | "web-flow";
     targetContextRef?: string;
     targetRef?: string;
+    unrelatedOpenPullRequests?: number;
   } = {},
 ) {
   const candidateSha = "a".repeat(40);
@@ -295,6 +296,11 @@ function runCandidateProvenance(
                     },
                   ]
                 : []),
+              ...Array.from({ length: params.unrelatedOpenPullRequests ?? 0 }, (_, index) => ({
+                state: "OPEN",
+                headRefOid: `${index + 1}`.repeat(40),
+                headRepository: { nameWithOwner: "openclaw/openclaw" },
+              })),
               ...(params.mergedPullRequests ?? []).map((pullRequest) => ({
                 state: "MERGED",
                 baseRefName: pullRequest.baseRefName ?? "release/2026.7.1",
@@ -743,7 +749,7 @@ describe("release Telegram QA workflow", () => {
     }
   });
 
-  it("verifies an exact merged PR directly when commit associations are missing", () => {
+  it("verifies an exact merged PR directly when commit associations omit it", () => {
     for (const provenanceBlock of PROVENANCE_BLOCKS) {
       for (const signature of ["web-flow", "missing"] as const) {
         const result = runCandidateProvenance(provenanceBlock, {
@@ -752,10 +758,26 @@ describe("release Telegram QA workflow", () => {
           signature,
           messageHeadline: "fix(release): keep survivor sessions inside retention (#149710)",
           directPullRequest: {},
+          unrelatedOpenPullRequests: 2,
         });
         expect(result.status, result.stderr).toBe(0);
         expect(result.stdout).toContain("Telegram candidate trust reason: release-branch");
       }
+    }
+  });
+
+  it("uses one exact associated merge without consulting the PR hint", () => {
+    for (const provenanceBlock of PROVENANCE_BLOCKS) {
+      const result = runCandidateProvenance(provenanceBlock, {
+        candidateVersion: "2026.7.33",
+        directPullRequest: { state: "OPEN" },
+        mergedPullRequests: [{}],
+        messageHeadline: "fixture (#149710)",
+        signature: "web-flow",
+        targetContextRef: "extended-stable/2026.7.33",
+        unrelatedOpenPullRequests: 2,
+      });
+      expect(result.status, `${provenanceBlock.stepName}: ${result.stderr}`).toBe(0);
     }
   });
 

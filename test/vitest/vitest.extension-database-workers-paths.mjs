@@ -6,6 +6,14 @@ export const databaseWorkerExtensionTestRoots = [
 ];
 
 export const databaseWorkerExtensionTestFiles = [
+  "extensions/google-meet/index.create.test.ts",
+  "extensions/google-meet/index.test.ts",
+  "extensions/teams-meetings/index.test.ts",
+  "extensions/teams-meetings/src/runtime-node.test.ts",
+  "extensions/teams-meetings/src/runtime.test.ts",
+  "extensions/zoom-meetings/index.test.ts",
+  "extensions/zoom-meetings/src/runtime-node.test.ts",
+  "extensions/zoom-meetings/src/runtime.test.ts",
   "extensions/acpx/doctor-contract-api.test.ts",
   "extensions/acpx/src/process-lease.test.ts",
   "extensions/acpx/src/runtime-argv.process.test.ts",
@@ -122,11 +130,13 @@ export const databaseWorkerExtensionTestFiles = [
   "extensions/imessage/src/monitor.plugin-payload.test.ts",
   "extensions/imessage/src/monitor.watch-subscribe-retry.test.ts",
   "extensions/imessage/src/state-migrations.test.ts",
+  "extensions/matrix/doctor-contract-api.account-state.test.ts",
   "extensions/matrix/doctor-contract-api.archive-scan.test.ts",
   "extensions/matrix/doctor-contract-api.capacity.test.ts",
   "extensions/matrix/doctor-contract-api.credentials.test.ts",
   "extensions/matrix/doctor-contract-api.test.ts",
   "extensions/matrix/src/matrix/client/file-sync-store.test.ts",
+  "extensions/matrix/src/matrix/client/file-sync-store.sdk.test.ts",
   "extensions/matrix/src/matrix/client/storage.test.ts",
   "extensions/matrix/src/matrix/credentials.test.ts",
   "extensions/matrix/src/matrix/sdk.test.ts",

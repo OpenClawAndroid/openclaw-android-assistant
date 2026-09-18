@@ -51,7 +51,10 @@ import {
   runUpdateFinalizationDoctorInFreshProcess,
   withPrePluginUpdateDoctorEnv,
 } from "./update-command-fresh-doctor.js";
-import { collectPostCorePluginFailureFacts } from "./update-command-plugins-internals.js";
+import {
+  collectPostCorePluginAdvisories,
+  collectPostCorePluginFailureFacts,
+} from "./update-command-plugins-internals.js";
 import {
   updatePluginsAfterCoreUpdate,
   type PostCorePluginUpdateResult,
@@ -383,15 +386,7 @@ async function updateFinalizeCommandInternal(
       { restore: (result) => restoreMaintenance(result.configSnapshot.config) },
     );
     const pluginUpdate = completedPluginUpdate.pluginUpdate;
-    lifecycle.recordWarnings(
-      (pluginUpdate.warnings ?? [])
-        .filter(
-          (warning) =>
-            warning.reason === "plugin-target-unavailable" || warning.reason === "doctor-advisory",
-        )
-        .map((warning) => warning.message),
-      "plugins",
-    );
+    lifecycle.recordWarnings(collectPostCorePluginAdvisories(pluginUpdate), "plugins");
     configSnapshot = completedPluginUpdate.configSnapshot;
     const completionBudget = lifecycle.budget("completionCache");
     // Leave shutdown time inside the phase deadline so optional cache failures can settle.

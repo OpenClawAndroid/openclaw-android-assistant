@@ -342,13 +342,38 @@ describe("dir_list tool", () => {
       });
       const seen: string[] = [];
       let token: string | undefined = pageToken;
+      let encodedRecords = 0;
+      let recordBudget = 0;
       while (seen.length < entries.length) {
-        const result = await createDirListTool().execute("list", {
-          node: "node-1",
-          path: "/root",
-          pageToken: token,
-          maxEntries: 9000,
-        });
+        const stringify = JSON.stringify;
+        const encoding = vi
+          .spyOn(JSON, "stringify")
+          .mockImplementation((value: unknown, replacer, space) => {
+            if (typeof value === "object" && value !== null) {
+              if ("entries" in value && Array.isArray(value.entries)) {
+                encodedRecords += value.entries.length;
+              } else if (
+                "name" in value &&
+                "isDir" in value &&
+                "size" in value &&
+                Object.keys(value).length === 3
+              ) {
+                encodedRecords += 1;
+              }
+            }
+            return stringify(value, replacer, space);
+          });
+        let result: Awaited<ReturnType<AnyAgentTool["execute"]>>;
+        try {
+          result = await createDirListTool().execute("list", {
+            node: "node-1",
+            path: "/root",
+            pageToken: token,
+            maxEntries: 9000,
+          });
+        } finally {
+          encoding.mockRestore();
+        }
         const listing = readListing(result.content);
         const remaining = entries.slice(seen.length);
         expect(listing.returnedCount).toBe(remaining.length);
@@ -364,6 +389,20 @@ describe("dir_list tool", () => {
           nextPageToken: undefined,
           truncated: false,
         });
+        const limited = listing.displayedCount < remaining.length;
+        expect(listing.text.split("\n").find((line) => line.startsWith("{"))).toBe(
+          JSON.stringify({
+            path: "/root",
+            returnedCount: remaining.length,
+            displayedCount: listing.displayedCount,
+            entries: listing.entries,
+            truncated: limited,
+            nextPageToken: limited
+              ? String(offset + seen.length + listing.displayedCount)
+              : undefined,
+          }),
+        );
+        recordBudget += listing.displayedCount + (limited ? 1 : 0);
         seen.push(...listing.entries.map((entry) => entry.name));
         token = listing.nextPageToken;
         if (!listing.truncated) {
@@ -379,6 +418,8 @@ describe("dir_list tool", () => {
         expect.anything(),
         expect.objectContaining({ params: { path: "/root", pageToken, maxEntries: 5000 } }),
       );
+      expect(encodedRecords).toBeGreaterThan(0);
+      expect(encodedRecords).toBeLessThanOrEqual(recordBudget);
     },
   );
 

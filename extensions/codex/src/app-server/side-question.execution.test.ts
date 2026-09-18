@@ -273,7 +273,17 @@ describe("runCodexAppServerSideQuestion", () => {
       const controller = new AbortController();
       const client = createFakeClient({ completeTurn: false });
       const request = client.request.getMockImplementation()!;
-      const waits = vi.spyOn(CodexEphemeralTurn.prototype, "wait");
+      const turnWaiting = createDeferred<void>();
+      // oxlint-disable-next-line typescript/unbound-method -- apply below preserves the intercepted turn receiver.
+      const originalWait = CodexEphemeralTurn.prototype.wait;
+      const waits = vi.spyOn(CodexEphemeralTurn.prototype, "wait").mockImplementation(function (
+        this: CodexEphemeralTurn,
+        ...args
+      ) {
+        const pending = originalWait.apply(this, args);
+        turnWaiting.resolve();
+        return pending;
+      });
       const terminalCleanup = vi.spyOn(clientCleanup, "terminateCodexBackgroundTerminals");
       const finalize = vi.spyOn(CodexNativeToolLifecycleProjector.prototype, "finalizeActive");
       const projectorError = new Error("side projector finalization failed");
@@ -283,6 +293,7 @@ describe("runCodexAppServerSideQuestion", () => {
         });
       }
       const releaseTermination = createDeferred<void>();
+      const terminationStarted = createDeferred<void>();
       const terminals = new Map([
         ["parent-thread", new Set([10])],
         ["side-thread", new Set([20])],
@@ -294,6 +305,7 @@ describe("runCodexAppServerSideQuestion", () => {
         }
         if (method === "thread/backgroundTerminals/terminate") {
           const { threadId, processId } = requestParams as { threadId: string; processId: number };
+          terminationStarted.resolve();
           await releaseTermination.promise;
           if (!terminationFails) {
             terminals.get(threadId)?.delete(processId);
@@ -311,17 +323,23 @@ describe("runCodexAppServerSideQuestion", () => {
         .finally(() => {
           settled = true;
         });
+      const settledBeforeReady = run.then((result) => {
+        if (result instanceof Error) {
+          throw result;
+        }
+        throw new Error("Side question settled before cancellation cleanup was ready", {
+          cause: result,
+        });
+      });
       try {
-        await vi.waitFor(() =>
-          expect(client.request.mock.calls.some(([method]) => method === "turn/start")).toBe(true),
-        );
+        await Promise.race([turnWaiting.promise, settledBeforeReady]);
+        expect(client.request.mock.calls.some(([method]) => method === "turn/start")).toBe(true);
         controller.abort();
-        await vi.waitFor(() =>
-          expect(client.request).toHaveBeenCalledWith(
-            "thread/backgroundTerminals/terminate",
-            { threadId: "side-thread", processId: 20 },
-            expect.any(Object),
-          ),
+        await Promise.race([terminationStarted.promise, settledBeforeReady]);
+        expect(client.request).toHaveBeenCalledWith(
+          "thread/backgroundTerminals/terminate",
+          { threadId: "side-thread", processId: 20 },
+          expect.any(Object),
         );
         expect(settled).toBe(false);
         expect(client.request.mock.calls.some(([method]) => method === "thread/unsubscribe")).toBe(

@@ -285,14 +285,14 @@ describe("plugin runtime state proxy", () => {
     ).toThrow("openBlobStore is only available for trusted plugins");
   });
 
-  it("names the denied capability, plugin, and origin for channel ingress queues", () => {
+  it("names the denied capability, plugin, source, and origin for channel ingress queues", () => {
     const registry = createTestPluginRegistry();
     const record = createPluginRecord("slack", "config");
     registry.registry.plugins.push(record);
     const api = registry.createApi(record, { config: {} });
 
     expect(() => api.runtime.state.openChannelIngressQueue()).toThrow(
-      /openChannelIngressQueue is only available for trusted plugins in this release\. Plugin "slack" loaded with origin "config"/,
+      /openChannelIngressQueue is only available for trusted plugins in this release\. Plugin "slack" loaded from "\/plugins\/slack\/index\.ts" with origin "config"/,
     );
   });
 

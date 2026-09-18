@@ -233,6 +233,7 @@ async function finalizeChatSendAgentReplyPayloads(
     cfg,
     sessionKey,
     agentId,
+    sessionEntry: loadSessionEntry(sessionKey, sessionLoadOptions).entry,
     accountId,
     payloads: agentRunReplyPayloads,
   });

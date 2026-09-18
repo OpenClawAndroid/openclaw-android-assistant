@@ -209,6 +209,7 @@ export async function finalizeChatSendDispatchedReplies(params: {
     cfg,
     sessionKey,
     agentId,
+    sessionEntry: loadSessionEntry(sessionKey, sessionLoadOptions).entry,
     accountId,
     payloads: rawFinalPayloads,
   });

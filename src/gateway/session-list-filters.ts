@@ -124,7 +124,7 @@ export function* filterSessionEntries(
   if (allowedProfileIds) {
     for (const [, entry] of visibleEntries) {
       const owner = projectSessionOwner(entry, identities, cfg, configuredAgentIds)?.actor;
-      for (const person of projectSessionPeople(entry, identities, cfg, owner)) {
+      for (const person of projectSessionPeople(entry, identities, owner)) {
         allowedProfileIds.add(person.identity.id);
       }
       if (shouldYield?.()) {
@@ -306,7 +306,7 @@ export function* filterSessionEntries(
       continue;
     }
     if (opts.includePeople || opts.involvingProfileId) {
-      const associated = projectSessionPeople(entry, identities, cfg, effectiveOwner);
+      const associated = projectSessionPeople(entry, identities, effectiveOwner);
       peopleSessionCount += 1;
       peopleIncomplete ||=
         (entry.participantCount ?? entry.participants?.length ?? 0) >= MAX_SESSION_PARTICIPANTS ||

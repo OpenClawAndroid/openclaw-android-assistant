@@ -17,10 +17,13 @@ import {
 } from "./storage.js";
 
 const loadMatrixCreateClientRuntimeDeps = createLazyRuntimeModule(() =>
-  Promise.all([import("../sdk.js"), import("./logging.js")]).then(([sdkModule, loggingModule]) => ({
-    MatrixClient: sdkModule.MatrixClient,
-    ensureMatrixSdkLoggingConfigured: loggingModule.ensureMatrixSdkLoggingConfigured,
-  })),
+  Promise.all([import("../sdk.js"), import("./logging.js"), import("./file-sync-store.js")]).then(
+    ([sdkModule, loggingModule, syncStoreModule]) => ({
+      MatrixClient: sdkModule.MatrixClient,
+      SqliteBackedMatrixSyncStore: syncStoreModule.SqliteBackedMatrixSyncStore,
+      ensureMatrixSdkLoggingConfigured: loggingModule.ensureMatrixSdkLoggingConfigured,
+    }),
+  ),
 );
 
 export async function createMatrixClient(params: {
@@ -39,7 +42,7 @@ export async function createMatrixClient(params: {
   ssrfPolicy?: SsrFPolicy;
   dispatcherPolicy?: PinnedDispatcherPolicy;
 }): Promise<MatrixClient> {
-  const { MatrixClient, ensureMatrixSdkLoggingConfigured } =
+  const { MatrixClient, SqliteBackedMatrixSyncStore, ensureMatrixSdkLoggingConfigured } =
     await loadMatrixCreateClientRuntimeDeps();
   ensureMatrixSdkLoggingConfigured();
   const homeserver = await resolveValidatedMatrixHomeserverUrl(params.homeserver, {
@@ -78,6 +81,10 @@ export async function createMatrixClient(params: {
     ? `openclaw-matrix-${storagePaths.accountKey}-${storagePaths.tokenHash}`
     : undefined;
 
+  const syncStore = storagePaths
+    ? await SqliteBackedMatrixSyncStore.create(storagePaths.rootDir)
+    : undefined;
+
   return new MatrixClient(homeserver, params.accessToken, {
     userId: matrixClientUserId,
     password: params.password,
@@ -85,7 +92,7 @@ export async function createMatrixClient(params: {
     encryption: params.encryption,
     localTimeoutMs: params.localTimeoutMs,
     initialSyncLimit: params.initialSyncLimit,
-    storageRootDir: storagePaths?.rootDir,
+    syncStore,
     recoveryKeyPath: storagePaths?.recoveryKeyPath,
     idbSnapshotPath: storagePaths?.idbSnapshotPath,
     cryptoDatabasePrefix,

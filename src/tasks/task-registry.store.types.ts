@@ -39,3 +39,20 @@ export type TaskLiveFlowAuthority = {
   assertCurrent(): void;
   isSelected(selection: TaskLiveFlowSelection): boolean;
 };
+
+type TaskRegistryObserverRecord = Omit<TaskRecord, "detail">;
+
+export type TaskRegistryObserverEvent =
+  | {
+      kind: "restored";
+    }
+  | {
+      kind: "upserted";
+      task: TaskRegistryObserverRecord;
+      previous?: TaskRegistryObserverRecord;
+    }
+  | {
+      kind: "deleted";
+      taskId: string;
+      previous: TaskRegistryObserverRecord;
+    };

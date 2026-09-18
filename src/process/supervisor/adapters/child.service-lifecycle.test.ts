@@ -58,7 +58,7 @@ function createRetainedDescendantFixture() {
       descendant.unref();
     `,
     readPid,
-    releaseAndJoin: async (waitForExtinction: () => Promise<void>) => {
+    releaseAndJoin: async <T>(waitForExtinction: () => Promise<T>) => {
       await writeFile(releasePath, "", "utf8");
       // Read again on failure paths where readiness was not observed before cleanup.
       const pid = await readPid();
@@ -71,7 +71,7 @@ function createRetainedDescendantFixture() {
   };
 }
 
-async function expectPending(promise: Promise<void>) {
+async function expectPending<T>(promise: Promise<T>) {
   const settled = await Promise.race([
     promise.then(() => true),
     new Promise<false>((resolve) => {

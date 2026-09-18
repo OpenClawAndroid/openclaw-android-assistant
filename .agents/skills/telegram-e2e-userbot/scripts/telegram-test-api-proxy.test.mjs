@@ -148,7 +148,7 @@ test("proxy close aborts the in-flight Test Server request", async () => {
   assert.equal(upstreamAborted, true);
 });
 
-test("lease revocation blocks every later Bot API request", async () => {
+test("lease revocation blocks every later Bot API request", async (t) => {
   const leaseError = new Error("lease revoked");
   let healthy = true;
   let revoke;
@@ -175,8 +175,13 @@ test("lease revocation blocks every later Bot API request", async () => {
     },
   });
 
-  const before = await fetch(`${proxy.apiRoot}/bot123:ABC/getMe`);
+  t.after(() => proxy.close());
+  // Revocation destroys existing sockets; the later request needs a fresh connection.
+  const before = await fetch(`${proxy.apiRoot}/bot123:ABC/getMe`, {
+    headers: { connection: "close" },
+  });
   assert.equal(before.status, 200);
+  assert.deepEqual(await before.json(), { ok: true });
   revoke();
   await new Promise((resolve) => setImmediate(resolve));
   const after = await fetch(`${proxy.apiRoot}/bot123:ABC/sendMessage`, {
@@ -185,5 +190,4 @@ test("lease revocation blocks every later Bot API request", async () => {
   });
   assert.equal(after.status, 502);
   assert.equal(upstreamRequests, 1);
-  await proxy.close();
 });

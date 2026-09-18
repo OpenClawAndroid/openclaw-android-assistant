@@ -537,17 +537,23 @@ export async function prepareImplicitProviderStaticCatalog(
         const plugin = params.pluginMetadataSnapshot?.manifestRegistry.plugins.find(
           (candidate) => candidate.id === (entry.provider.pluginId ?? entry.provider.id),
         );
-        const providerEntries = Object.entries(normalizePluginDiscoveryResult(entry));
+        const providerEntries = Object.entries(entry.providerConfigs);
         const eligible = providerEntries.filter(([provider]) =>
           isProviderCatalogSourceAllowed({ provider, config: params.config, plugin }),
         );
-        return eligible.length === providerEntries.length
-          ? entry
-          : { provider: entry.provider, result: { providers: Object.fromEntries(eligible) } };
+        if (eligible.length === providerEntries.length) {
+          return entry;
+        }
+        const providerConfigs = Object.fromEntries(eligible);
+        return {
+          provider: entry.provider,
+          result: { providers: providerConfigs },
+          providerConfigs,
+        };
       }),
       ...providers
         .filter((provider) => provider.staticCatalog && !eligibleProviders.includes(provider))
-        .map((provider) => ({ provider, result: { providers: {} } })),
+        .map((provider) => ({ provider, result: { providers: {} }, providerConfigs: {} })),
     ]),
   });
 }

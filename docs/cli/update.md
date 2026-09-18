@@ -21,6 +21,9 @@ prefix and the installed OpenClaw launcher. A prefix configured in `~/.npmrc`
 does not need a matching `NPM_CONFIG_PREFIX` environment variable. If no owner
 can be identified, the CLI includes the inspected package, prefix, and launcher
 paths and the package-manager probe results in its guidance.
+Installation inspection also reports the root, Git metadata, `node_modules`
+layout, and service unit target (or why it was not inspected). An unrecognized
+root skips target preflight and gives commands to locate the owning installation.
 
 An older updater that stops before staging cannot use this repair. For a known
 npm installation, supply its configured prefix explicitly for that update:
@@ -252,6 +255,12 @@ refresh its owned managed service to a compatible Node. The preview still exits
 successfully and does not install a package or change the service.
 If package metadata cannot be resolved, retry with an exact published `--tag`;
 failed target selection does not initialize the profile with the updater's schema.
+Metadata failures retain the detected update mode and a specific failure fact for
+registry lookup, dist-tag resolution, version mismatch, schema declarations, or
+Git target inspection. The summary and `openclaw update status --json` include
+the reason and next step; the bounded failure report includes the same public
+description without publishing local paths or registry response text. Existing
+updaters cannot gain these diagnostics until the candidate has been installed.
 
 `--dry-run --json` reports the known installed version in `currentVersion` for
 package and Git installs, including a saved dev channel that selects conversion

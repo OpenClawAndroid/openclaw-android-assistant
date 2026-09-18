@@ -4,6 +4,16 @@ import { renderCheckoutChip, resolveCheckoutChip } from "./checkout-chip.ts";
 
 describe("Checkout chip state", () => {
   it.each([
+    ...([false, true] as const).flatMap((repository) =>
+      (["main", "release", ""] as const).map((baseRef) => ({
+        destination: "cloud" as const,
+        repository,
+        worktree: !repository,
+        worktreeAvailable: true,
+        baseRef,
+        label: baseRef ? `From ${baseRef}` : "Starting branch",
+      })),
+    ),
     {
       destination: "remote",
       repository: true,

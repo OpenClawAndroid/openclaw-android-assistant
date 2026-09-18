@@ -44,6 +44,7 @@ export const cliProcessTestFiles = [
   "src/cli/mcp-cli.probe-exit.process.test.ts",
   "src/cli/claws-authoring-state.process.test.ts",
   "src/cli/program/subcli-descriptors.test.ts",
+  "src/cli/program/register.transcripts.test.ts",
   "src/cli/state-dir-gateway-check.process.test.ts",
   "src/cli/state-dir-gateway-check.server.test.ts",
   "src/cli/cron-cli/cron-suppression.gateway.test.ts",

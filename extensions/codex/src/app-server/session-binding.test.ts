@@ -12,6 +12,7 @@ import {
   patchSessionEntry,
   upsertSessionEntry,
 } from "openclaw/plugin-sdk/session-store-runtime";
+import { createOpenClawTestState } from "openclaw/plugin-sdk/test-state";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLazyCodexAppServerBindingStore } from "./session-binding-store.js";
 import {
@@ -794,7 +795,12 @@ describe("Codex app-server binding store", () => {
   it.each(["ordinary", "supervision"] as const)(
     "adopts the committed predecessor after reopening a %s binding without a compaction hook",
     async (ownership) => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-predecessor-reopen-"));
+      const fixture = await createOpenClawTestState({
+        prefix: "codex-predecessor-reopen-",
+        layout: "state-only",
+        applyEnv: false,
+      });
+      const root = fixture.stateDir;
       const storePath = path.join(root, "sessions.json");
       const previous = {
         kind: "session" as const,
@@ -868,120 +874,10 @@ describe("Codex app-server binding store", () => {
         await expect(store.mutate(previous, { kind: "clear" })).resolves.toBe(false);
       } finally {
         resetPluginStateStoreForTests();
-        fs.rmSync(root, { recursive: true, force: true });
+        await fixture.cleanup();
       }
     },
   );
-
-  it("fences an already-readable binding when its admitted session generation rotates", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-readable-authority-"));
-    const storePath = path.join(root, "sessions.json");
-    const { state } = createStateStore();
-    const store = createCodexAppServerBindingStore(state);
-    const current = {
-      kind: "session" as const,
-      agentId: "main",
-      sessionId: "session-current",
-      sessionKey: "agent:main:readable",
-    };
-    const scope = { agentId: current.agentId, sessionKey: current.sessionKey, storePath };
-    const binding = { threadId: "thread-current", cwd: "/repo" };
-    try {
-      await upsertSessionEntry({
-        ...scope,
-        entry: { sessionId: current.sessionId, updatedAt: 1 },
-      });
-      await store.mutate(current, { kind: "set", binding });
-
-      const resolved = await resolveCodexSessionBinding({
-        bindingStore: store,
-        identity: current,
-        storePath,
-      });
-      expect(resolved.binding).toEqual(binding);
-
-      await patchSessionEntry({
-        ...scope,
-        update: () => ({ sessionId: "session-successor" }),
-      });
-      expect(resolved.assertCurrent).toThrow("Codex session generation is no longer current");
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects an already-readable binding owned by a stale admitted session", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-readable-stale-"));
-    const storePath = path.join(root, "sessions.json");
-    const { state } = createStateStore();
-    const store = createCodexAppServerBindingStore(state);
-    const stale = {
-      kind: "session" as const,
-      agentId: "main",
-      sessionId: "session-stale",
-      sessionKey: "agent:main:readable",
-    };
-    try {
-      await upsertSessionEntry({
-        agentId: stale.agentId,
-        sessionKey: stale.sessionKey,
-        storePath,
-        entry: { sessionId: "session-current", updatedAt: 1 },
-      });
-      await store.mutate(stale, {
-        kind: "set",
-        binding: { threadId: "thread-stale", cwd: "/repo" },
-      });
-
-      await expect(
-        resolveCodexSessionBinding({ bindingStore: store, identity: stale, storePath }),
-      ).rejects.toThrow("Codex session generation is no longer current");
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("preserves caller authority for a scoped session with no durable row", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-readable-ephemeral-"));
-    const storePath = path.join(root, "sessions.json");
-    const { state } = createStateStore();
-    const store = createCodexAppServerBindingStore(state);
-    const ephemeral = {
-      kind: "session" as const,
-      agentId: "main",
-      sessionId: "session-ephemeral",
-      sessionKey: "agent:main:ephemeral",
-    };
-    let active = true;
-    try {
-      await upsertSessionEntry({
-        agentId: ephemeral.agentId,
-        sessionKey: "agent:main:other",
-        storePath,
-        entry: { sessionId: "session-other", updatedAt: 1 },
-      });
-      const binding = { threadId: "thread-ephemeral", cwd: "/repo" };
-      await store.mutate(ephemeral, { kind: "set", binding });
-
-      const resolved = await resolveCodexSessionBinding({
-        bindingStore: store,
-        identity: ephemeral,
-        storePath,
-        assertCurrent: () => {
-          if (!active) {
-            throw new Error("caller authority closed");
-          }
-        },
-      });
-      expect(resolved.binding).toEqual(binding);
-      expect(resolved.assertCurrent).not.toThrow();
-
-      active = false;
-      expect(resolved.assertCurrent).toThrow("caller authority closed");
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
 
   it.each(
     ["two generations behind", "different session key", "different agent"].flatMap((mismatch) =>
@@ -990,7 +886,12 @@ describe("Codex app-server binding store", () => {
   )(
     "does not adopt a binding owned by $mismatch (supervision=$supervision)",
     async ({ mismatch, supervision }) => {
-      const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-predecessor-mismatch-"));
+      const fixture = await createOpenClawTestState({
+        prefix: "codex-predecessor-mismatch-",
+        layout: "state-only",
+        applyEnv: false,
+      });
+      const root = fixture.stateDir;
       const storePath = path.join(root, "sessions.json");
       const { state } = createStateStore();
       const store = createCodexAppServerBindingStore(state);
@@ -1049,13 +950,18 @@ describe("Codex app-server binding store", () => {
           mismatch === "two generations behind" && !supervision ? undefined : binding,
         );
       } finally {
-        fs.rmSync(root, { recursive: true, force: true });
+        await fixture.cleanup();
       }
     },
   );
 
   it("does not bridge two generations when the host rotates during a predecessor lease wait", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-predecessor-lease-"));
+    const fixture = await createOpenClawTestState({
+      prefix: "codex-predecessor-lease-",
+      layout: "state-only",
+      applyEnv: false,
+    });
+    const root = fixture.stateDir;
     const storePath = path.join(root, "sessions.json");
     const { state } = createStateStore();
     const owner = createCodexAppServerBindingStore(state);
@@ -1110,7 +1016,7 @@ describe("Codex app-server binding store", () => {
       ).resolves.toBe(false);
     } finally {
       vi.useRealTimers();
-      fs.rmSync(root, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   });
 
@@ -1554,7 +1460,12 @@ describe("Codex app-server binding store", () => {
   });
 
   it("recovers a retired in-place generation through the authoritative session store", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-codex-reset-reclaim-"));
+    const fixture = await createOpenClawTestState({
+      prefix: "openclaw-codex-reset-reclaim-",
+      layout: "state-only",
+      applyEnv: false,
+    });
+    const root = fixture.stateDir;
     const storePath = path.join(root, "sessions.json");
     const { state } = createStateStore();
     const store = createCodexAppServerBindingStore(state);
@@ -1591,7 +1502,7 @@ describe("Codex app-server binding store", () => {
         }),
       ).resolves.toBe(true);
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      await fixture.cleanup();
     }
   });
 

@@ -143,14 +143,6 @@ function pushNonBundledChannelConfigDescriptorDiagnostic(params: {
   });
 }
 
-function pushManifestCompatibilityDiagnostics(params: {
-  record: PluginManifestRecord;
-  diagnostics: PluginDiagnostic[];
-  normalized?: ReturnType<typeof normalizePluginsConfigWithResolver>;
-}): void {
-  pushNonBundledChannelConfigDescriptorDiagnostic(params);
-}
-
 function dedupePluginDiagnostics(
   diagnostics: PluginDiagnostic[],
   discoveryDiagnostics: ReadonlySet<PluginDiagnostic>,
@@ -513,7 +505,6 @@ export function loadPluginManifestRegistryCore(
         // an unexpected order (config > workspace > global > bundled).
         if (PLUGIN_ORIGIN_RANK[candidate.origin] < PLUGIN_ORIGIN_RANK[existing.candidate.origin]) {
           seenIds.set(effectivePluginId, { candidate, record });
-          pushManifestCompatibilityDiagnostics({ record, diagnostics, normalized });
         }
         continue;
       }
@@ -537,7 +528,6 @@ export function loadPluginManifestRegistryCore(
       const overriddenCandidate = candidateWins ? existing.candidate : candidate;
       if (candidateWins) {
         seenIds.set(effectivePluginId, { candidate, record });
-        pushManifestCompatibilityDiagnostics({ record, diagnostics, normalized });
       }
       if (
         isIntentionalInstalledBundledDuplicate({
@@ -567,11 +557,13 @@ export function loadPluginManifestRegistryCore(
     }
 
     seenIds.set(effectivePluginId, { candidate, record });
-    pushManifestCompatibilityDiagnostics({ record, diagnostics, normalized });
   }
 
   const records = [...seenIds.values()].map(({ record }) => record);
   const plugins = rejectCaseFoldedIdCollisions(records, diagnostics);
+  for (const record of plugins) {
+    pushNonBundledChannelConfigDescriptorDiagnostic({ record, diagnostics, normalized });
+  }
   const registry = { plugins, diagnostics: dedupePluginDiagnostics(diagnostics, discovered) };
   return registry;
 }

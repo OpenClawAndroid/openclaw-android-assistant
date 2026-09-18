@@ -14,6 +14,15 @@ import {
 import { loadMutableCronStoreInWorker } from "../cron/store/load.worker.js";
 import { executeCronStoreSaveCommand } from "../cron/store/save.worker.js";
 import {
+  acquireFleetCellOperationInDatabase,
+  assertFleetCellOperationInDatabase,
+  deleteFleetCellInDatabase,
+  heartbeatFleetCellOperationInDatabase,
+  releaseFleetCellOperationInDatabase,
+  reserveFleetCellInDatabase,
+  updateFleetCellImageInDatabase,
+} from "../fleet/registry.kernel.js";
+import {
   readManagedImageRecordInDatabase,
   listManagedImageRecordEntriesInDatabase,
   listManagedImageOriginalMediaIdsInDatabase,
@@ -68,8 +77,11 @@ import {
   pruneSessionStateEventsInDatabase,
   recordSessionStateEventInDatabase,
 } from "../sessions/session-state-events.kernel.js";
+import { listWatchedSessionUpstreamLinksInDatabase } from "../sessions/session-upstream-links.kernel.js";
 import { isTaskRegistryWorkerCommand } from "../tasks/task-registry.worker-contract.js";
 import { executeTaskRegistryCommand } from "../tasks/task-registry.worker.js";
+import { ensureMeetingTranscriptsSchema } from "../transcripts/sqlite-schema.js";
+import { executeTranscriptRead } from "../transcripts/store-worker-read.js";
 import {
   listAgentProvenanceInDatabase,
   readAgentProvenanceBatchInDatabase,
@@ -329,6 +341,29 @@ function createSharedStateWorkerBackend(
       if (command.type === "deviceAuth.list") {
         return readDeviceAuthTokensFromDatabase(database.db, command.input);
       }
+      switch (command.type) {
+        case "transcripts.sessionEntries":
+        case "transcripts.matches":
+        case "transcripts.session":
+        case "transcripts.entry":
+        case "transcripts.latest":
+        case "transcripts.notes":
+        case "transcripts.libraryEntry":
+        case "transcripts.recentStopped":
+        case "transcripts.summaryRevision":
+        case "transcripts.utterances":
+        case "transcripts.summary": {
+          ensureMeetingTranscriptsSchema({
+            database,
+            path: context.databasePath,
+            env: getSqliteWorkerStateContext().environment,
+            readOnly: command.input.readOnly,
+          });
+          return executeTranscriptRead(database.db, command);
+        }
+        default:
+          break;
+      }
       if (command.type === "managedImages.read") {
         return readManagedImageRecordInDatabase(database.db, command.input.attachmentId);
       }
@@ -362,6 +397,9 @@ function createSharedStateWorkerBackend(
           env: getSqliteWorkerStateContext().environment,
         });
       }
+      if (command.type === "sessionUpstream.listWatched") {
+        return listWatchedSessionUpstreamLinksInDatabase(database.db);
+      }
       if (command.type === "cron.loadMutable") {
         return loadMutableCronStoreInWorker(database, command.input.storeKey);
       }
@@ -393,6 +431,50 @@ function createSharedStateWorkerBackend(
         path: context.databasePath,
         env: getSqliteWorkerStateContext().environment,
       };
+      if (
+        command.type === "fleet.cell.reserve" ||
+        command.type === "fleet.cell.updateImage" ||
+        command.type === "fleet.cell.delete" ||
+        command.type === "fleet.operation.acquire" ||
+        command.type === "fleet.operation.heartbeat" ||
+        command.type === "fleet.operation.release"
+      ) {
+        return runOpenClawStateWriteTransaction(({ db }) => {
+          switch (command.type) {
+            case "fleet.cell.reserve":
+              assertFleetCellOperationInDatabase(
+                db,
+                command.input.tenantId,
+                command.input.operationOwner,
+              );
+              return reserveFleetCellInDatabase(db, command.input);
+            case "fleet.cell.updateImage":
+              assertFleetCellOperationInDatabase(
+                db,
+                command.input.tenantId,
+                command.input.operationOwner,
+              );
+              return updateFleetCellImageInDatabase(
+                db,
+                command.input.tenantId,
+                command.input.image,
+              );
+            case "fleet.cell.delete":
+              assertFleetCellOperationInDatabase(
+                db,
+                command.input.tenantId,
+                command.input.operationOwner,
+              );
+              return deleteFleetCellInDatabase(db, command.input.tenantId);
+            case "fleet.operation.acquire":
+              return acquireFleetCellOperationInDatabase(db, command.input);
+            case "fleet.operation.heartbeat":
+              return heartbeatFleetCellOperationInDatabase(db, command.input);
+            case "fleet.operation.release":
+              return releaseFleetCellOperationInDatabase(db, command.input);
+          }
+        }, writeOptions);
+      }
       if (command.type === "agentProvenance.readBatch" || command.type === "agentProvenance.list") {
         ensureAgentProvenanceSchema(writeOptions);
         return command.type === "agentProvenance.readBatch"

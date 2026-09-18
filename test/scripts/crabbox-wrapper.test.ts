@@ -1,4 +1,9 @@
-import { spawn, spawnSync, type SpawnSyncOptionsWithStringEncoding } from "node:child_process";
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type SpawnSyncOptionsWithStringEncoding,
+} from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -16,10 +21,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { build, buildSync, type BuildOptions } from "esbuild";
+import { pathToFileURL } from "node:url";
+import { build, type BuildOptions } from "esbuild";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
@@ -31,6 +37,7 @@ import { resolvePnpmRunner } from "../../scripts/pnpm-runner.mts";
 import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { isProcessAlive } from "../helpers/process-wait.js";
 import { makeTempDir, useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+import { withShimFixture } from "./direct-run-entrypoints.test-support.js";
 
 const tempDirs: string[] = [];
 const invocationLogTempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -103,8 +110,36 @@ function writeFakeCrabbox(binDir: string, helpText: string): string {
   ].join("");
   // Keep the descendant in the fake's process group, and publish readiness only
   // after its signal handlers exist so the wrapper's group cleanup is deterministic.
-  const signalIgnoringDescendantScript =
-    "import fs from 'node:fs'; process.on('SIGHUP', () => {}); process.on('SIGINT', () => {}); process.on('SIGTERM', () => {}); const pidPath = process.env.OPENCLAW_FAKE_CRABBOX_DESCENDANT_PID_PATH; const tmpPath = pidPath + '.tmp.' + process.pid; fs.writeFileSync(tmpPath, String(process.pid)); fs.renameSync(tmpPath, pidPath); setInterval(() => {}, 1000);";
+  const signalIgnoringDescendantScript = String.raw`
+import fs from "node:fs";
+let finishing = false;
+for (const signal of ["SIGHUP", "SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    const artifact = process.env.OPENCLAW_FAKE_CRABBOX_DELAYED_ARTIFACT;
+    if (!artifact || finishing) return;
+    finishing = true;
+    setTimeout(() => {
+      fs.writeFileSync(artifact, "graceful shutdown\n");
+      process.exit(0);
+    }, 150);
+  });
+}
+const pidPath = process.env.OPENCLAW_FAKE_CRABBOX_DESCENDANT_PID_PATH;
+const tmpPath = pidPath + ".tmp." + process.pid;
+fs.writeFileSync(tmpPath, String(process.pid));
+fs.renameSync(tmpPath, pidPath);
+if (process.send) { process.send("ready"); process.disconnect(); }
+const release = process.env.OPENCLAW_FAKE_CRABBOX_ESCAPED_RELEASE_PATH;
+if (release) {
+  setInterval(() => {
+    if (!fs.existsSync(release)) return;
+    fs.writeFileSync(release + ".read", fs.readFileSync("fixture.txt"));
+    process.exit(0);
+  }, 10);
+} else {
+  setInterval(() => {}, 1000);
+}
+`;
   // The two cwd-loss modes distinguish active-child monitoring from the post-exit
   // guard; both must chdir away before deleting the temporary checkout.
   const script = String.raw`
@@ -118,6 +153,13 @@ const optionValue = (name) => {
 async function main() {
   if (process.env.OPENCLAW_FAKE_CRABBOX_INVOCATION_LOG) fs.appendFileSync(process.env.OPENCLAW_FAKE_CRABBOX_INVOCATION_LOG, JSON.stringify(args) + "\n");
   if (args[0] === "sync-plan") {
+    const ready = process.env.OPENCLAW_FAKE_CRABBOX_SYNC_PLAN_READY_PATH;
+    if (ready) {
+      const temporary = ready + ".tmp." + process.pid;
+      fs.writeFileSync(temporary, JSON.stringify({ pid: process.pid, parentPid: process.ppid, cwd: process.cwd() }));
+      fs.renameSync(temporary, ready);
+      await new Promise(() => setInterval(() => {}, 1000));
+    }
     const excluded = new Set(JSON.parse(process.env.OPENCLAW_FAKE_CRABBOX_PRIVACY_PATHS || "[]"));
     const candidates = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
     const topFiles = [...new Set(candidates)].filter((file) => !excluded.has(file) && fs.existsSync(path.dirname(file)) && (() => { try { return !fs.lstatSync(file).isDirectory(); } catch { return false; } })()).map((file) => ({ path: file }));
@@ -158,6 +200,7 @@ async function main() {
     process.exit(ready ? 0 : 1);
   }
   if (args[0] === "run" || args[0] === "warmup") { ${stampClaimScript} }
+  if (args[0] === "run" && process.env.OPENCLAW_FAKE_CRABBOX_RUN_IDENTITY_PATH) fs.writeFileSync(process.env.OPENCLAW_FAKE_CRABBOX_RUN_IDENTITY_PATH, JSON.stringify({ pid: process.pid, parentPid: process.ppid, cwd: process.cwd() }));
   if (args[0] === "run" && process.env.OPENCLAW_FAKE_CRABBOX_ARTIFACT_LINKS) {
     for (const [file, target] of Object.entries(JSON.parse(process.env.OPENCLAW_FAKE_CRABBOX_ARTIFACT_LINKS))) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.symlinkSync(target, file); }
   }
@@ -165,6 +208,7 @@ async function main() {
     for (const [file, bytes] of Object.entries(JSON.parse(process.env.OPENCLAW_FAKE_CRABBOX_ARTIFACTS))) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, Buffer.from(bytes, "base64")); }
   }
   if (args[0] === "run" && process.env.OPENCLAW_FAKE_CRABBOX_ARTIFACT_FIFO) execFileSync("mkfifo", [process.env.OPENCLAW_FAKE_CRABBOX_ARTIFACT_FIFO]);
+  if (args[0] === "run" && process.env.OPENCLAW_FAKE_CRABBOX_CORRUPT_CLAIM === "1") fs.writeFileSync(process.env.OPENCLAW_FAKE_CRABBOX_CLAIM_PATH, "{corrupt claim");
   const runStatus = Number.parseInt(process.env.OPENCLAW_FAKE_CRABBOX_RUN_STATUS || "0", 10); if (args[0] === "run" && runStatus !== 0) { process.stdout.write(JSON.stringify({ args, cwd: process.cwd() }) + "\n"); process.stderr.write("fake run failure\n"); process.exit(runStatus); }
   if (args[0] === "config" && args[1] === "show" && args.includes("--json")) {
     const status = Number.parseInt(process.env.OPENCLAW_FAKE_CRABBOX_CONFIG_STATUS || "0", 10);
@@ -192,8 +236,11 @@ async function main() {
     process.chdir(deletedCwd);
   }
   if (process.env.OPENCLAW_FAKE_CRABBOX_DESCENDANT_PID_PATH) {
-    spawn(process.execPath, ["--input-type=module", "--eval", ${JSON.stringify(signalIgnoringDescendantScript)}], { stdio: "ignore" });
-    setInterval(() => {}, 1000); return;
+    const escaped = Boolean(process.env.OPENCLAW_FAKE_CRABBOX_ESCAPED_RELEASE_PATH);
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", ${JSON.stringify(signalIgnoringDescendantScript)}], { detached: escaped, stdio: escaped ? ["ignore", "ignore", "inherit", "ipc"] : "ignore" });
+    if (escaped) child.once("message", () => process.exit(0));
+    else setInterval(() => {}, 1000);
+    return;
   }
   const bundlePath = ".openclaw-crabbox-changed-gate.bundle";
   if (process.env.OPENCLAW_FAKE_CRABBOX_COPY_CHANGED_GATE_BUNDLE_TO) fs.copyFileSync(bundlePath, process.env.OPENCLAW_FAKE_CRABBOX_COPY_CHANGED_GATE_BUNDLE_TO);
@@ -233,7 +280,7 @@ main().catch((error) => { process.stderr.write(String(error?.stack || error) + "
         '  case "$arg" in --artifact-glob|-artifact-glob|--script|-script) fast_run=0 ;; esac',
         "done",
         'if { [ "$1" = "run" ] || [ "$1" = "warmup" ]; } && [ "$fast_run" -eq 1 ] &&',
-        '  [ -z "${OPENCLAW_FAKE_CRABBOX_CLAIM_PATH:-}${OPENCLAW_FAKE_CRABBOX_EXTRA_CLAIM_PATH:-}${OPENCLAW_FAKE_CRABBOX_TIMING_LEASE_ID:-}${OPENCLAW_FAKE_CRABBOX_RUN_STATUS:-}${OPENCLAW_FAKE_CRABBOX_DELETE_CWD_AND_EXIT:-}${OPENCLAW_FAKE_CRABBOX_DELETE_CWD_ONCE:-}${OPENCLAW_FAKE_CRABBOX_DESCENDANT_PID_PATH:-}${OPENCLAW_FAKE_CRABBOX_COPY_CHANGED_GATE_BUNDLE_TO:-}" ]; then',
+        '  [ -z "${OPENCLAW_FAKE_CRABBOX_CLAIM_PATH:-}${OPENCLAW_FAKE_CRABBOX_EXTRA_CLAIM_PATH:-}${OPENCLAW_FAKE_CRABBOX_TIMING_LEASE_ID:-}${OPENCLAW_FAKE_CRABBOX_RUN_STATUS:-}${OPENCLAW_FAKE_CRABBOX_DELETE_CWD_AND_EXIT:-}${OPENCLAW_FAKE_CRABBOX_DELETE_CWD_ONCE:-}${OPENCLAW_FAKE_CRABBOX_DESCENDANT_PID_PATH:-}${OPENCLAW_FAKE_CRABBOX_RUN_IDENTITY_PATH:-}${OPENCLAW_FAKE_CRABBOX_COPY_CHANGED_GATE_BUNDLE_TO:-}" ]; then',
         `  printf '${fakeCrabboxProtocol}\\000%s\\000' "$#"`,
         "  printf '%s\\000' \"$@\"",
         "  printf '%s\\000\\000' \"$PWD\"",
@@ -433,19 +480,6 @@ type WrapperOptions = {
   timeoutMs?: number;
 };
 
-function spawnWrapper(helpText: string, args: string[], options: WrapperOptions = {}) {
-  const nodeArgs = [
-    ...(options.nodePreload ? ["--require", options.nodePreload] : []),
-    bundledWrapperPath,
-    ...args,
-  ];
-  return spawn(process.execPath, nodeArgs, {
-    cwd: repoRoot,
-    env: wrapperEnv(helpText, options),
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
 function wrapperEnv(helpText: string, options: WrapperOptions): NodeJS.ProcessEnv {
   const binDir = makeFakeCrabbox(helpText);
   const gitResponses = { ...defaultGitResponses, ...options.gitResponses };
@@ -584,58 +618,462 @@ async function waitForCondition(predicate: () => boolean, timeoutMs = 8_000): Pr
   throw new Error("timed out waiting for condition");
 }
 
-async function waitForProcessExit(
-  child: ReturnType<typeof spawnWrapper>,
+async function waitForProcessClose(
+  child: ChildProcess,
   timeoutMs = 12_000,
 ): Promise<{ status: number | null; signal: NodeJS.Signals | null }> {
   return await Promise.race([
     new Promise<{ status: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       child.once("error", reject);
-      child.once("exit", (status, signal) => resolve({ status, signal }));
+      child.once("close", (status, signal) => resolve({ status, signal }));
     }),
     delay(timeoutMs, undefined, { ref: false }).then(() => {
-      throw new Error("timed out waiting for wrapper process exit");
+      throw new Error("timed out waiting for wrapper process close");
     }),
   ]);
 }
 
-async function runSignalCleanupProof(sendSignals: (pid: number) => Promise<void>): Promise<void> {
-  const root = mkdtempSync(path.join(tmpdir(), "openclaw-crabbox-descendant-"));
-  tempDirs.push(root);
-  const descendantPidPath = path.join(root, "descendant.pid");
-  let descendantPid = 0;
-  const runner = spawnWrapper(
-    "provider: hetzner, aws, local-container, blacksmith-testbox, or cloudflare\n",
-    ["run", "--provider", "aws", "--", "echo ok"],
-    {
-      env: {
-        OPENCLAW_FAKE_CRABBOX_DESCENDANT_PID_PATH: descendantPidPath,
-        OPENCLAW_TEST_CRABBOX_CHILD_KILL_GRACE_MS: "100",
-      },
-      nodePreload: testTimingPreload({ clockScale: 20 }),
+type WrapperCleanupProof =
+  | { kind: "signal"; entrypoint: "node" | "pnpm"; repeated: boolean; cooperative?: boolean }
+  | { kind: "preparation"; cleanupFails?: boolean }
+  | { kind: "stdin"; target: "macos" | "capsule" }
+  | { kind: "escaped" }
+  | { kind: "removal"; target: "script" | "source"; exitCode: 0 | 23 };
+
+type WrapperFixtureIdentity = { pid: number; parentPid: number; cwd: string };
+
+async function runWrapperCleanupProof(proof: WrapperCleanupProof): Promise<void> {
+  const entrypoint = proof.kind === "signal" ? proof.entrypoint : "node";
+  const cooperative = proof.kind === "signal" && proof.cooperative;
+  const scriptRemoval = proof.kind === "removal" && proof.target === "script";
+  const preparationCleanupFailure = proof.kind === "preparation" && proof.cleanupFails;
+  const readsStdin = proof.kind === "stdin" || scriptRemoval;
+  const blacksmith = !readsStdin;
+  const hasDescendant = proof.kind === "signal" || proof.kind === "escaped";
+  await withShimFixture(
+    "scripts/crabbox-wrapper.mjs",
+    async ({ checkoutRoot: producer, fixtureRoot, implementationPath, wrapperPath }) => {
+      copyFileSync(realBundledWrapperPath, implementationPath);
+      const syncRoot = path.join(fixtureRoot, "sync");
+      const scriptTmpRoot = path.join(fixtureRoot, "tmp");
+      mkdirSync(scriptTmpRoot);
+      const home = path.join(fixtureRoot, "home");
+      const stateRoot = path.join(home, ".local", "state");
+      const claimPath = path.join(stateRoot, "crabbox", "claims", "tbx_fixture.json");
+      const descendantPidPath = path.join(fixtureRoot, "descendant.pid");
+      const identityPath = path.join(fixtureRoot, "run.json");
+      const preparationPath = path.join(fixtureRoot, "preparation.json");
+      const stdinReadyPath = path.join(fixtureRoot, "stdin.ready");
+      const runSpawnedPath = path.join(fixtureRoot, "run.spawned");
+      const removalFailurePath = path.join(fixtureRoot, "removal.json");
+      const releasePath = path.join(fixtureRoot, "escaped.release");
+      const wrapperPidPath = path.join(fixtureRoot, "wrapper.pid");
+      const wrapperExitPath = path.join(fixtureRoot, "wrapper-exit.json");
+      const ownerPreload = path.join(fixtureRoot, "owner.cjs");
+      writeFileSync(
+        ownerPreload,
+        `
+const fs = require("node:fs");
+const path = require("node:path");
+if (path.resolve(process.argv[1] || ".") === ${JSON.stringify(implementationPath)}) {
+  fs.writeFileSync(${JSON.stringify(wrapperPidPath)}, String(process.pid));
+  process.once("exit", (code) => fs.writeFileSync(${JSON.stringify(wrapperExitPath)}, JSON.stringify({ code })));
+  const childProcess = require("node:child_process");
+  const spawn = childProcess.spawn;
+  childProcess.spawn = (command, args, options) => {
+    if (args?.[0] === "run" && args[1] !== "--help") fs.writeFileSync(${JSON.stringify(runSpawnedPath)}, "spawned");
+    return spawn(command, args, options);
+  };
+  if (${proof.kind === "stdin"}) {
+    const readFile = fs.readFileSync;
+    fs.readFileSync = (input, ...args) => {
+      if (input === 0) fs.writeFileSync(${JSON.stringify(stdinReadyPath)}, "ready");
+      return readFile(input, ...args);
+    };
+    const consumers = require("node:stream/consumers");
+    const consume = consumers.buffer;
+    consumers.buffer = (input) => {
+      const result = consume(input);
+      if (input === process.stdin) fs.writeFileSync(${JSON.stringify(stdinReadyPath)}, "ready");
+      return result;
+    };
+  }
+  if (${proof.kind === "removal" || preparationCleanupFailure}) {
+    const remove = fs.rmSync;
+    fs.rmSync = (file, ...args) => {
+      const target = path.resolve(String(file));
+      const selected = ${Boolean(preparationCleanupFailure)}
+        ? fs.existsSync(${JSON.stringify(preparationPath)}) && target === path.dirname(JSON.parse(fs.readFileSync(${JSON.stringify(preparationPath)}, "utf8")).cwd)
+        : ${scriptRemoval}
+          ? path.dirname(target) === ${JSON.stringify(scriptTmpRoot)} && path.basename(target).startsWith("openclaw-crabbox-source-script-")
+          : path.dirname(target) === ${JSON.stringify(syncRoot)} && path.basename(target).startsWith("openclaw-crabbox-sync-");
+      if (selected) {
+        fs.writeFileSync(${JSON.stringify(removalFailurePath)}, JSON.stringify({ path: target }));
+        throw Object.assign(new Error("fixture removal denied"), { code: "EACCES", path: target });
+      }
+      return remove(file, ...args);
+    };
+  }
+  require("node:module").syncBuiltinESMExports();
+}
+`,
+      );
+      const capturePath = ".crabbox/captures/signal.txt";
+      const captureBytes = Buffer.from("cancellation diagnostic\n");
+      const env = {
+        ...process.env,
+        ...testHomeEnv(home),
+        XDG_STATE_HOME: stateRoot,
+        TMPDIR: scriptTmpRoot,
+        TMP: scriptTmpRoot,
+        TEMP: scriptTmpRoot,
+        // Reuse prepared package-manager binaries while keeping user state isolated.
+        COREPACK_HOME:
+          process.env.COREPACK_HOME ||
+          path.join(
+            process.env.XDG_CACHE_HOME || path.join(homedir(), ".cache"),
+            "node",
+            "corepack",
+          ),
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --require ${JSON.stringify(ownerPreload)}`,
+        PATH: [makeFakeCrabbox(defaultProviderHelp), process.env.PATH ?? ""].join(path.delimiter),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_NAME: "Signal fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+        GIT_COMMITTER_NAME: "Signal fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+        CRABBOX_PROVIDER: "",
+        PNPM_CONFIG_MODULES_DIR: path.join(repoRoot, "node_modules"),
+        OPENCLAW_CRABBOX_WRAPPER_IGNORE_REPO_BINARY: "1",
+        OPENCLAW_CRABBOX_SYNC_TMPDIR: syncRoot,
+        OPENCLAW_CRABBOX_SYNC_MIN_FREE_BYTES: "0",
+        OPENCLAW_FAKE_CRABBOX_CLAIM_PATH: blacksmith ? claimPath : "",
+        OPENCLAW_FAKE_CRABBOX_TIMING_LEASE_ID: blacksmith ? "tbx_fixture" : "",
+        OPENCLAW_FAKE_CRABBOX_DESCENDANT_PID_PATH: hasDescendant ? descendantPidPath : "",
+        OPENCLAW_FAKE_CRABBOX_RUN_IDENTITY_PATH: identityPath,
+        OPENCLAW_FAKE_CRABBOX_SYNC_PLAN_READY_PATH:
+          proof.kind === "preparation" ? preparationPath : "",
+        OPENCLAW_FAKE_CRABBOX_ESCAPED_RELEASE_PATH: proof.kind === "escaped" ? releasePath : "",
+        OPENCLAW_FAKE_CRABBOX_DELAYED_ARTIFACT: cooperative ? ".crabbox/captures/shutdown.txt" : "",
+        OPENCLAW_FAKE_CRABBOX_RUN_STATUS: proof.kind === "removal" ? String(proof.exitCode) : "0",
+        ...(proof.kind === "escaped"
+          ? { VITEST: "true", OPENCLAW_TEST_CRABBOX_CHILD_KILL_GRACE_MS: "100" }
+          : {}),
+        OPENCLAW_FAKE_CRABBOX_ARTIFACTS: JSON.stringify({
+          [capturePath]: captureBytes.toString("base64"),
+        }),
+      };
+      const git = (...args: string[]) => {
+        const result = spawnSync("git", args, { cwd: producer, env, encoding: "utf8" });
+        expect(result.status, result.stderr).toBe(0);
+        return result.stdout;
+      };
+      writeFileSync(
+        path.join(producer, "package.json"),
+        JSON.stringify({
+          type: "module",
+          packageManager: JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"))
+            .packageManager,
+          scripts: { "crabbox:run": "node scripts/crabbox-wrapper.mjs run" },
+        }),
+      );
+      writeFileSync(
+        path.join(producer, ".gitignore"),
+        "scripts/\nnode_modules/\npackage.json\npnpm-lock.yaml\n.crabbox/\n",
+      );
+      writeFileSync(path.join(producer, "fixture.txt"), "original source\n");
+      git("init", "-q", "-b", "main");
+      git("add", ".gitignore", "fixture.txt");
+      git("commit", "-qm", "fixture");
+      git("remote", "add", "origin", producer);
+      git("update-ref", "refs/remotes/origin/main", "HEAD");
+      const sourceIndex = git("ls-files", "--stage", "-z");
+      const args = blacksmith
+        ? ["--provider", "blacksmith-testbox", "--keep", "--timing-json", "--", "echo", "ok"]
+        : [
+            "--provider",
+            "aws",
+            "--target",
+            proof.kind === "stdin" && proof.target === "capsule" ? "linux" : "macos",
+            "--script-stdin",
+            ...(scriptRemoval || (proof.kind === "stdin" && proof.target === "capsule")
+              ? ["--", "node", "scripts/check-changed.mjs"]
+              : []),
+          ];
+      let output = "";
+      let stop: (() => void) | undefined;
+      let forceStop: (() => void) | undefined;
+      let entrypointPid = 0;
+      let identity: WrapperFixtureIdentity | undefined;
+      let preparationIdentity: WrapperFixtureIdentity | undefined;
+      let descendantPid = 0;
+      let failure: Error | undefined;
+      try {
+        let exited: Promise<{ status: number | null; signal: NodeJS.Signals | null }>;
+        if (entrypoint === "pnpm") {
+          const { spawn: spawnPty } = await import("@lydell/node-pty");
+          const command = resolvePnpmRunner({
+            cwd: producer,
+            env,
+            pnpmArgs: ["crabbox:run", "--", ...args],
+          });
+          const terminal = spawnPty(command.command, command.args, { cwd: producer, env });
+          entrypointPid = terminal.pid;
+          terminal.onData((data) => {
+            output += data;
+          });
+          exited = new Promise((resolve) => {
+            terminal.onExit(({ exitCode, signal }) =>
+              resolve({ status: signal ? 128 + signal : exitCode, signal: null }),
+            );
+          });
+          stop = () => terminal.write("\x03");
+          forceStop = () => terminal.kill("SIGKILL");
+        } else {
+          const runner = spawn(process.execPath, [wrapperPath, "run", ...args], {
+            cwd: producer,
+            env,
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          entrypointPid = runner.pid ?? 0;
+          runner.stdout.on("data", (data) => {
+            output += data;
+          });
+          runner.stderr.on("data", (data) => {
+            output += data;
+          });
+          exited = waitForProcessClose(runner, 20_000);
+          stop = () => {
+            runner.kill(proof.kind === "stdin" ? "SIGINT" : "SIGTERM");
+          };
+          forceStop = () => {
+            runner.kill("SIGKILL");
+          };
+          if (scriptRemoval) {
+            runner.stdin.end("#!/usr/bin/env bash\nprintf 'script input\\n'\n");
+          }
+        }
+        if (proof.kind === "preparation") {
+          await waitForCondition(() => existsSync(preparationPath));
+          preparationIdentity = JSON.parse(readFileSync(preparationPath, "utf8"));
+          expect(existsSync(path.join(preparationIdentity!.cwd, "fixture.txt"))).toBe(true);
+          stop();
+        } else if (proof.kind === "stdin") {
+          await waitForCondition(() => existsSync(stdinReadyPath));
+          if (proof.target === "capsule") {
+            expect(readdirSync(syncRoot)).toHaveLength(1);
+          }
+          stop();
+        } else if (hasDescendant) {
+          await waitForCondition(() => existsSync(descendantPidPath)).catch((cause: unknown) => {
+            throw new Error(`wrapper did not publish descendant readiness:\n${output}`, { cause });
+          });
+          descendantPid = Number.parseInt(readFileSync(descendantPidPath, "utf8"), 10);
+          identity = JSON.parse(readFileSync(identityPath, "utf8"));
+          expect(isProcessAlive(descendantPid)).toBe(true);
+          expect(JSON.parse(readFileSync(claimPath, "utf8")).repoRoot).toBe(identity!.cwd);
+          expect(existsSync(identity!.cwd)).toBe(true);
+          if (proof.kind === "signal") {
+            stop();
+            if (proof.repeated) {
+              await delay(20);
+              stop();
+            }
+          }
+        }
+        const result = await exited;
+        const expectedStatus =
+          proof.kind === "escaped"
+            ? 1
+            : proof.kind === "removal"
+              ? proof.exitCode || 1
+              : proof.kind === "stdin" || entrypoint === "pnpm"
+                ? 130
+                : 143;
+        expect(result, output).toEqual({ status: expectedStatus, signal: null });
+        const wrapperPid = Number.parseInt(readFileSync(wrapperPidPath, "utf8"), 10);
+        // A pnpm interruption status is not the implementation's cleanup receipt.
+        await waitForCondition(() => !isProcessAlive(wrapperPid), 12_000);
+        expect(JSON.parse(readFileSync(wrapperExitPath, "utf8")), output).toEqual({
+          code: expectedStatus,
+        });
+        const retained = path.join(producer, ".crabbox", "wrapper-artifacts");
+        if (proof.kind === "preparation" || proof.kind === "stdin") {
+          if (proof.kind === "stdin" && proof.target === "capsule") {
+            expect(output).toContain("syncing from temporary full checkout");
+          }
+          expect(existsSync(runSpawnedPath), output).toBe(false);
+          expect(existsSync(identityPath)).toBe(false);
+          expect(existsSync(claimPath)).toBe(false);
+          if (preparationCleanupFailure) {
+            const allocation = path.dirname(preparationIdentity!.cwd);
+            expect(JSON.parse(readFileSync(removalFailurePath, "utf8"))).toEqual({
+              path: allocation,
+            });
+            expect(readdirSync(syncRoot)).toEqual([path.basename(allocation)]);
+            expect(readFileSync(path.join(preparationIdentity!.cwd, "fixture.txt"), "utf8")).toBe(
+              "original source\n",
+            );
+            expect(output).toContain("fixture removal denied");
+            expect(output).toContain(allocation);
+          } else {
+            expect(existsSync(syncRoot) ? readdirSync(syncRoot) : []).toEqual([]);
+          }
+          expect(
+            readdirSync(scriptTmpRoot).filter((name) => name.startsWith("openclaw-crabbox-")),
+          ).toEqual([]);
+          if (preparationIdentity) {
+            expect(isProcessAlive(preparationIdentity.pid)).toBe(false);
+          }
+        } else if (proof.kind === "escaped") {
+          expect(output).toContain("child cleanup failed");
+          expect(output).toContain("child cleanup is unverified; temporary source retained");
+          expect(output).toContain(identity!.cwd);
+          expect(isProcessAlive(descendantPid)).toBe(true);
+          expect(JSON.parse(readFileSync(claimPath, "utf8")).repoRoot).toBe(identity!.cwd);
+          expect(readFileSync(path.join(identity!.cwd, capturePath))).toEqual(captureBytes);
+          expect(existsSync(retained)).toBe(false);
+          writeFileSync(releasePath, "release");
+          await waitForCondition(() => !isProcessAlive(descendantPid));
+          expect(readFileSync(releasePath + ".read", "utf8")).toBe("original source\n");
+        } else {
+          identity ??= JSON.parse(readFileSync(identityPath, "utf8"));
+          expect(isProcessAlive(identity!.pid), output).toBe(false);
+          if (hasDescendant) {
+            expect(isProcessAlive(descendantPid), output).toBe(false);
+          }
+          if (blacksmith) {
+            expect(JSON.parse(readFileSync(claimPath, "utf8")).repoRoot, output).toBe(producer);
+          }
+          const invocations = readdirSync(retained);
+          expect(invocations).toHaveLength(1);
+          expect(
+            readFileSync(path.join(retained, invocations[0]!, "captures", "signal.txt")),
+          ).toEqual(captureBytes);
+          if (cooperative) {
+            expect(
+              readFileSync(
+                path.join(retained, invocations[0]!, "captures", "shutdown.txt"),
+                "utf8",
+              ),
+              output,
+            ).toBe("graceful shutdown\n");
+          }
+          if (proof.kind === "removal") {
+            const failedPath = (
+              JSON.parse(readFileSync(removalFailurePath, "utf8")) as { path: string }
+            ).path;
+            expect(existsSync(failedPath)).toBe(true);
+            expect(output).toContain("fixture removal denied");
+            if (proof.target === "source") {
+              expect(output).toContain(`temporary checkout cleanup failed at ${identity!.cwd}`);
+              expect(readdirSync(syncRoot)).toEqual([path.basename(failedPath)]);
+              expect(readFileSync(path.join(identity!.cwd, "fixture.txt"), "utf8")).toBe(
+                "original source\n",
+              );
+            } else {
+              expect(output).toContain("remote script cleanup failed");
+              expect(
+                readdirSync(scriptTmpRoot).filter((name) => name.startsWith("openclaw-crabbox-")),
+              ).toEqual([path.basename(failedPath)]);
+              expect(readdirSync(syncRoot)).toEqual([]);
+            }
+          } else {
+            expect(readdirSync(syncRoot), output).toEqual([]);
+          }
+        }
+        expect(readFileSync(path.join(producer, "fixture.txt"), "utf8")).toBe("original source\n");
+        expect(git("ls-files", "--stage", "-z")).toBe(sourceIndex);
+      } catch (error) {
+        failure =
+          error instanceof Error ? error : new Error("signal proof failed", { cause: error });
+      }
+      try {
+        // Release even a late-starting escaped leaf before any fixture disposal.
+        if (proof.kind === "escaped") {
+          writeFileSync(releasePath, "release");
+        }
+        if (entrypointPid !== 0 && (!Number.isSafeInteger(entrypointPid) || entrypointPid <= 1)) {
+          throw new Error("invalid fixture entrypoint PID");
+        }
+        if (entrypointPid && isProcessAlive(entrypointPid)) {
+          try {
+            forceStop?.();
+          } catch (error) {
+            if (isProcessAlive(entrypointPid)) {
+              throw error;
+            }
+          }
+        }
+        const wrapperPid = existsSync(wrapperPidPath)
+          ? Number.parseInt(readFileSync(wrapperPidPath, "utf8"), 10)
+          : 0;
+        identity ??= existsSync(identityPath)
+          ? JSON.parse(readFileSync(identityPath, "utf8"))
+          : undefined;
+        preparationIdentity ??= existsSync(preparationPath)
+          ? JSON.parse(readFileSync(preparationPath, "utf8"))
+          : undefined;
+        descendantPid ||= existsSync(descendantPidPath)
+          ? Number.parseInt(readFileSync(descendantPidPath, "utf8"), 10)
+          : 0;
+        const ownedPids = new Set([
+          entrypointPid,
+          wrapperPid,
+          identity?.pid,
+          preparationIdentity?.pid,
+          descendantPid,
+        ]);
+        for (const pid of ownedPids) {
+          if (pid === undefined || pid === 0) {
+            continue;
+          }
+          if (!Number.isSafeInteger(pid) || pid <= 1) {
+            throw new Error("invalid owned fixture PID");
+          }
+          if (isProcessAlive(pid)) {
+            try {
+              process.kill(-pid, "SIGKILL");
+            } catch {
+              try {
+                process.kill(pid, "SIGKILL");
+              } catch (error) {
+                if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
+                  throw error;
+                }
+              }
+            }
+          }
+        }
+        await waitForCondition(() => [...ownedPids].every((pid) => !pid || !isProcessAlive(pid)));
+        const runReceiptRequired =
+          hasDescendant || proof.kind === "removal" || existsSync(runSpawnedPath);
+        if (
+          failure !== undefined &&
+          (!wrapperPid ||
+            (runReceiptRequired && !identity) ||
+            (hasDescendant && !descendantPid) ||
+            (proof.kind === "preparation" && !preparationIdentity) ||
+            (proof.kind === "stdin" && !existsSync(stdinReadyPath)))
+        ) {
+          throw new Error("fixture ownership receipts are incomplete");
+        }
+      } catch (cause) {
+        throw Object.assign(
+          new AggregateError(
+            failure === undefined ? [cause] : [failure, cause],
+            "fixture writers did not settle",
+            { cause: failure ?? cause },
+          ),
+          { processTreeState: "indeterminate" },
+        );
+      }
+      if (failure !== undefined) {
+        throw failure;
+      }
     },
   );
-
-  try {
-    await waitForCondition(() => existsSync(descendantPidPath));
-    descendantPid = Number.parseInt(readFileSync(descendantPidPath, "utf8"), 10);
-    expect(Number.isInteger(descendantPid)).toBe(true);
-    expect(isProcessAlive(descendantPid)).toBe(true);
-
-    const runnerExit = waitForProcessExit(runner);
-    await sendSignals(runner.pid!);
-    await expect(runnerExit).resolves.toEqual({ status: 143, signal: null });
-    // Check immediately after wrapper exit for executing descendants.
-    // Linux zombies are already terminated even while their PIDs await reaping.
-    expect(isProcessAlive(descendantPid)).toBe(false);
-  } finally {
-    if (runner.pid && isProcessAlive(runner.pid)) {
-      runner.kill("SIGKILL");
-    }
-    if (descendantPid && isProcessAlive(descendantPid)) {
-      process.kill(descendantPid, "SIGKILL");
-    }
-  }
 }
 
 function testCrabboxConfigDir(home: string): string {
@@ -795,12 +1233,25 @@ describe("scripts/crabbox-wrapper", () => {
       logLevel: "silent",
       platform: "node",
       target: "node22",
+      // Keep the Windows worker and native dependency resolution at their source owner.
+      // Relocating this module into a fixture would relocate its import.meta.url too.
+      plugins: [
+        {
+          name: "managed-child-source-owner",
+          setup(builder) {
+            builder.onResolve({ filter: /lib\/managed-child-process\.mts$/ }, (args) => ({
+              path: pathToFileURL(path.resolve(args.resolveDir, args.path)).href,
+              external: true,
+            }));
+          },
+        },
+      ],
       // esbuild needs Node's require for CommonJS SDK dependencies inside ESM output.
       banner: {
         js: 'import { createRequire as createBundleRequire } from "node:module"; const require = createBundleRequire(import.meta.url);',
       },
     } satisfies BuildOptions;
-    buildSync({
+    await build({
       ...bundleOptions,
       outfile: realBundledWrapperPath,
     });
@@ -808,7 +1259,7 @@ describe("scripts/crabbox-wrapper", () => {
       makeTempDir(tempDirs, "openclaw-crabbox-setup-"),
       "openclaw/scripts/crabbox-setup.mjs",
     );
-    buildSync({
+    await build({
       ...bundleOptions,
       entryPoints: [path.join(repoRoot, "scripts/crabbox-setup.mts")],
       outfile: bundledSetupPath,
@@ -836,6 +1287,7 @@ describe("scripts/crabbox-wrapper", () => {
     await build({
       ...bundleOptions,
       plugins: [
+        ...bundleOptions.plugins,
         {
           name: "source-capsule-fixture",
           setup(builder) {
@@ -5313,24 +5765,78 @@ process.on("uncaughtExceptionMonitor", (error) => {
     });
   });
 
-  (process.platform === "win32" ? it.skip : it)(
-    "terminates Crabbox descendants before parent signal exit",
-    async () => {
-      await runSignalCleanupProof(async (runnerPid) => {
-        process.kill(runnerPid, "SIGTERM");
-      });
+  (process.platform === "win32" ? it.skip : it).each(["node", "pnpm"] as const)(
+    "terminates Crabbox descendants before parent signal exit through %s",
+    async (entrypoint) => {
+      await runWrapperCleanupProof({ kind: "signal", entrypoint, repeated: false });
     },
+    25_000,
+  );
+
+  (process.platform === "win32" ? it.skip : it).each(["node", "pnpm"] as const)(
+    "keeps cleanup active after repeated parent signals through %s",
+    async (entrypoint) => {
+      await runWrapperCleanupProof({ kind: "signal", entrypoint, repeated: true });
+    },
+    25_000,
   );
 
   (process.platform === "win32" ? it.skip : it)(
-    "keeps cleanup active after repeated parent signals",
+    "preserves graceful cancellation artifacts through pnpm terminal",
     async () => {
-      await runSignalCleanupProof(async (runnerPid) => {
-        process.kill(runnerPid, "SIGTERM");
-        await delay(20);
-        process.kill(runnerPid, "SIGTERM");
+      await runWrapperCleanupProof({
+        kind: "signal",
+        entrypoint: "pnpm",
+        repeated: false,
+        cooperative: true,
       });
     },
+    25_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "cleans preparation cancellation after staging allocation without starting a run",
+    async () => {
+      await runWrapperCleanupProof({ kind: "preparation" });
+    },
+    25_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "reports capsule cleanup failure during preparation cancellation without starting a run",
+    async () => {
+      await runWrapperCleanupProof({ kind: "preparation", cleanupFails: true });
+    },
+    25_000,
+  );
+
+  it.skipIf(process.platform === "win32").each(["macos", "capsule"] as const)(
+    "cancels blocked wrapper stdin for %s without starting a run",
+    async (target) => {
+      await runWrapperCleanupProof({ kind: "stdin", target });
+    },
+    25_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "retains source, claim and artifacts for escaped stderr until its writer is rescued",
+    async () => {
+      await runWrapperCleanupProof({ kind: "escaped" });
+    },
+    25_000,
+  );
+
+  it.skipIf(process.platform === "win32").each([
+    { target: "script", exitCode: 0 },
+    { target: "script", exitCode: 23 },
+    { target: "source", exitCode: 0 },
+    { target: "source", exitCode: 23 },
+  ] as const)(
+    "reports $target removal failure without skipping independent cleanup (exit=$exitCode)",
+    async ({ target, exitCode }) => {
+      await runWrapperCleanupProof({ kind: "removal", target, exitCode });
+    },
+    25_000,
   );
 
   (process.platform === "win32" ? it.skip : it)(
@@ -5431,6 +5937,12 @@ process.on("uncaughtExceptionMonitor", (error) => {
       artifacts: "both",
       exitCode,
       fault: "destination file",
+    })),
+    ...[0, 23].map((exitCode) => ({
+      mode: "capsule",
+      artifacts: "both",
+      exitCode,
+      fault: "claim restoration",
     })),
     ...(process.platform === "win32"
       ? []
@@ -5562,6 +6074,7 @@ process.on("uncaughtExceptionMonitor", (error) => {
             "run",
             "--provider",
             mode === "capsule" ? "blacksmith-testbox" : "local-container",
+            ...(fault === "claim restoration" ? ["--keep", "--timing-json"] : []),
             "--",
             "false",
           ],
@@ -5570,6 +6083,18 @@ process.on("uncaughtExceptionMonitor", (error) => {
             env: {
               ...env,
               OPENCLAW_FAKE_CRABBOX_ARTIFACT_LINKS: JSON.stringify(artifactLinks),
+              ...(fault === "claim restoration"
+                ? {
+                    OPENCLAW_FAKE_CRABBOX_CLAIM_PATH: path.join(
+                      env.XDG_STATE_HOME,
+                      "crabbox",
+                      "claims",
+                      "tbx_fixture.json",
+                    ),
+                    OPENCLAW_FAKE_CRABBOX_TIMING_LEASE_ID: "tbx_fixture",
+                    OPENCLAW_FAKE_CRABBOX_CORRUPT_CLAIM: "1",
+                  }
+                : {}),
               ...(fault === "nested fifo"
                 ? { OPENCLAW_FAKE_CRABBOX_ARTIFACT_FIFO: ".crabbox/captures/pipe" }
                 : {}),
@@ -5599,18 +6124,32 @@ process.on("uncaughtExceptionMonitor", (error) => {
           expect(result.status, result.stderr).toBe(exitCode || 1);
           expect(result.stderr).toContain("temporary checkout retained");
           expect(result.stderr).toContain(output.cwd);
-          expect(result.stderr).not.toContain("preserved temporary artifacts:");
           expect(existsSync(output.cwd)).toBe(true);
           for (const file of emittedFiles) {
             expect(readFileSync(path.join(output.cwd, file))).toEqual(bytes);
           }
-          if (fault === "destination file") {
+          if (fault === "claim restoration") {
+            expect(result.stderr).toContain("lease ownership restoration failed");
+            expect(result.stderr).toContain("preserved temporary artifacts:");
+            const retained = readdirSync(retainedRoot);
+            expect(retained).toHaveLength(1);
+            for (const file of emittedFiles) {
+              expect(
+                readFileSync(
+                  path.join(retainedRoot, retained[0]!, path.relative(".crabbox", file)),
+                ),
+              ).toEqual(bytes);
+            }
+          } else if (fault === "destination file") {
             expect(readFileSync(retainedRoot, "utf8")).toBe("not a directory\n");
           } else if (fault.startsWith("destination")) {
             expect(readdirSync(outside)).toEqual(["private.txt"]);
             expect(existsSync(missing)).toBe(false);
           } else {
             expect(existsSync(retainedRoot) ? readdirSync(retainedRoot) : []).toEqual([]);
+          }
+          if (fault !== "claim restoration") {
+            expect(result.stderr).not.toContain("preserved temporary artifacts:");
           }
           continue;
         }

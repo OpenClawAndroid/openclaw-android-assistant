@@ -9,6 +9,7 @@ import type {
 } from "../config/io.health-state.types.js";
 import type { CronStoreWorkerOperations } from "../cron/store/load-worker.types.js";
 import type { CronStoreSaveWorkerOperations } from "../cron/store/save-worker.types.js";
+import type { FleetRegistryWriteOperations } from "../fleet/registry.types.js";
 import type {
   ManagedImageRecord,
   ManagedImageRecordEntry,
@@ -36,8 +37,10 @@ import type {
   SessionStateEventInput,
   SessionStateNotice,
 } from "../sessions/session-state-events.kernel.js";
+import type { SessionUpstreamLink } from "../sessions/session-upstream-links.kernel.js";
 import type { DeviceAuthEntry } from "../shared/device-auth.js";
 import type { TaskRegistryWorkerOperations } from "../tasks/task-registry.worker-contract.js";
+import type { TranscriptReadOperations } from "../transcripts/store-worker-contract.js";
 import type { AgentProvenance } from "./agent-provenance.types.js";
 import type { PreparedBackupRunRecord } from "./backup-run-records.kernel.js";
 import type { OpenClawStateLeaseIdentity } from "./openclaw-state-lease-store.js";
@@ -52,8 +55,10 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   UserPreferenceWorkerOperations &
   CronStoreWorkerOperations &
   CronStoreSaveWorkerOperations &
+  FleetRegistryWriteOperations &
   SessionDeliveryWorkerOperations &
   DeliveryQueueWorkerOperations &
+  TranscriptReadOperations &
   TaskRegistryWorkerOperations & {
     "deviceAuth.list": { input: { deviceId: string }; output: DeviceAuthEntry[] };
     "apns.registration.read": { input: string; output: ApnsRegistration | null };
@@ -83,6 +88,7 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
       input: undefined;
       output: ReturnType<typeof readSqliteDatabaseBloat>;
     };
+    "sessionUpstream.listWatched": { input: undefined; output: SessionUpstreamLink[] };
     "backup.recordOutcome": { input: PreparedBackupRunRecord; output: void };
     "projects.findRoot": { input: { repoRoot: string }; output: string | undefined };
     "projects.list": { input: undefined; output: ProjectRegistryRecord[] };

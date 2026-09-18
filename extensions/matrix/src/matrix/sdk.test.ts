@@ -33,6 +33,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getMatrixRuntime } from "../runtime.js";
 import { installMatrixTestRuntime } from "../test-runtime.js";
 import type { CoreConfig } from "../types.js";
+import { SqliteBackedMatrixSyncStore } from "./client/file-sync-store.js";
 import {
   readMatrixIdbSnapshotJson,
   readMatrixRecoveryKeyStateForPathAsync,
@@ -1664,14 +1665,9 @@ describe("MatrixClient request hardening", () => {
     clearMatrixSyncApiForNeverStartedClient();
 
     try {
-      const client = new MatrixClient("https://matrix.example.org", "token", {
-        storageRootDir: tempDir,
-      });
-
-      const store = lastCreateClientOpts?.store as { flush: () => Promise<void> } | undefined;
-      if (!store) {
-        throw new Error("expected Matrix sync store");
-      }
+      const store = await SqliteBackedMatrixSyncStore.create(tempDir);
+      const client = new MatrixClient("https://matrix.example.org", "token", { syncStore: store });
+      expect(lastCreateClientOpts?.store).toBe(store);
       const flushSpy = vi.spyOn(store, "flush").mockResolvedValue();
 
       await client.stopAndPersist();
@@ -1696,7 +1692,7 @@ describe("MatrixClient request hardening", () => {
 
     try {
       const client = new MatrixClient("https://matrix.example.org", "token", {
-        storageRootDir: tempDir,
+        syncStore: await SqliteBackedMatrixSyncStore.create(tempDir),
         idbSnapshotPath: path.join(tempDir, "crypto-idb-snapshot.json"),
       });
 
@@ -1737,7 +1733,7 @@ describe("MatrixClient request hardening", () => {
 
     try {
       const client = new MatrixClient("https://matrix.example.org", "token", {
-        storageRootDir: tempDir,
+        syncStore: await SqliteBackedMatrixSyncStore.create(tempDir),
         idbSnapshotPath: path.join(tempDir, "crypto-idb-snapshot.json"),
       });
 
@@ -1768,7 +1764,7 @@ describe("MatrixClient request hardening", () => {
 
     try {
       const client = new MatrixClient("https://matrix.example.org", "token", {
-        storageRootDir: tempDir,
+        syncStore: await SqliteBackedMatrixSyncStore.create(tempDir),
         idbSnapshotPath: path.join(tempDir, "crypto-idb-snapshot.json"),
       });
       const store = lastCreateClientOpts?.store as
@@ -1866,7 +1862,7 @@ describe("MatrixClient request hardening", () => {
 
     try {
       const client = new MatrixClient("https://matrix.example.org", "token", {
-        storageRootDir: tempDir,
+        syncStore: await SqliteBackedMatrixSyncStore.create(tempDir),
       });
       const store = lastCreateClientOpts?.store as
         | { discardPendingSyncCursorPersistence: () => void }
@@ -2124,7 +2120,7 @@ describe("MatrixClient request hardening", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-matrix-sync-timeout-"));
     try {
       const client = new MatrixClient("https://matrix.example.org", "token", {
-        storageRootDir: tempDir,
+        syncStore: await SqliteBackedMatrixSyncStore.create(tempDir),
       });
       await client.start();
       vi.spyOn(matrixJsClient.syncApi, "getSyncState").mockReturnValue(state);

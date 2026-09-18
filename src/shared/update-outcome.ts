@@ -88,6 +88,8 @@ export function formatUpdateActivationTimeoutGuidance(
 }
 
 export const UPDATE_INSTALL_SKIP_GUIDANCE: Readonly<Record<string, string>> = {
+  "external-supervisor-update-required":
+    "This Gateway is managed by an external supervisor. Use your server or deployment's update workflow to update OpenClaw and restart the Gateway. The Control UI and `openclaw update` cannot update this installation. No package changes or Gateway restart were attempted.",
   "container-image-install":
     "Pull or build the target Docker/container image, then redeploy it with the same state/config mounts. No package changes or Gateway restart were attempted.",
   "unmanaged-package-install":
@@ -106,6 +108,7 @@ export const SKIPPED_UPDATE_OUTCOMES: Readonly<Record<string, "pending" | "noop"
   "container-image-install": "noop",
   "unmanaged-package-install": "noop",
   "package-update-requires-cli": "noop",
+  "external-supervisor-update-required": "noop",
   "update-ledger-busy": "noop",
 };
 

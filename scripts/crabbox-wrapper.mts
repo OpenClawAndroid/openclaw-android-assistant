@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawnSync, type ChildProcess } from "node:child_process";
 import {
   accessSync,
   chmodSync,
@@ -21,7 +21,10 @@ import {
 import type { PathLike } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, extname, isAbsolute, relative, resolve } from "node:path";
+import { addAbortSignal } from "node:stream";
+import { buffer as consumeStream } from "node:stream/consumers";
 import { StringDecoder } from "node:string_decoder";
+import { setImmediate as yieldToSignals } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import {
@@ -40,6 +43,11 @@ import {
   isProviderAdvertised,
   parseProvidersFromHelp,
 } from "./crabbox-wrapper-providers.mts";
+import {
+  finalizeManagedChild,
+  hasUnjoinedWork,
+  loadManagedChildSpawner,
+} from "./lib/managed-child-process.mts";
 import {
   prepareTestboxLeaseFreshness,
   recordTestboxLeaseFreshness,
@@ -1230,7 +1238,7 @@ function restoreTemporaryBlacksmithTestboxClaimPath(claimPath: string) {
 
 function restoreTemporaryBlacksmithTestboxClaim(commandArgs: string[], capturedLeaseId: string) {
   if (childCwd === repoRoot) {
-    return;
+    return true;
   }
 
   const explicitLeaseId = commandArgs[0] === "run" ? optionValue(commandArgs, "--id") : "";
@@ -1254,12 +1262,13 @@ function restoreTemporaryBlacksmithTestboxClaim(commandArgs: string[], capturedL
       console.error(
         `[crabbox] warning: failed to inspect temporary Testbox claims: ${error instanceof Error ? error.message : String(error)}`,
       );
-      return;
+      return false;
     }
   } else {
-    return;
+    return true;
   }
 
+  let restored = true;
   for (const claimPath of claimPaths) {
     if (!pathExists(claimPath)) {
       continue;
@@ -1267,11 +1276,13 @@ function restoreTemporaryBlacksmithTestboxClaim(commandArgs: string[], capturedL
     try {
       restoreTemporaryBlacksmithTestboxClaimPath(claimPath);
     } catch (error) {
+      restored = false;
       console.error(
         `[crabbox] warning: failed to restore temporary Testbox claim: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
+  return restored;
 }
 
 function observeBlacksmithTimingJSONLine(line: string) {
@@ -3107,26 +3118,27 @@ function prepareRemoteWsl2JsBootstrapScript(
   }
 
   const scriptRoot = mkdtempSync(resolve(tmpdir(), "openclaw-crabbox-wsl2-script-"));
-  const scriptPath = resolve(scriptRoot, "script.sh");
-  const originalShellCommand = facts.scopedEnvCommand?.shellCommand ?? renderRunShellCommand(run);
-  const script = `${remoteWsl2JsBootstrap({
-    packageManager: facts.packageManager,
-    sourceBootstrap,
-  })} || exit $?\n{ ${originalShellCommand}\n}\n`;
-  writeFileSync(scriptPath, script, "utf8");
-  chmodSync(scriptPath, 0o700);
+  const cleanup = () => rmSync(scriptRoot, { recursive: true, force: true });
+  try {
+    const scriptPath = resolve(scriptRoot, "script.sh");
+    const originalShellCommand = facts.scopedEnvCommand?.shellCommand ?? renderRunShellCommand(run);
+    const script = `${remoteWsl2JsBootstrap({
+      packageManager: facts.packageManager,
+      sourceBootstrap,
+    })} || exit $?\n{ ${originalShellCommand}\n}\n`;
+    writeFileSync(scriptPath, script, "utf8");
+    chmodSync(scriptPath, 0o700);
 
-  const normalizedArgs = run.args.slice(0, run.optionEnd);
-  if (!run.options.has("no-hydrate")) {
-    normalizedArgs.push("--no-hydrate");
+    const normalizedArgs = run.args.slice(0, run.optionEnd);
+    if (!run.options.has("no-hydrate")) {
+      normalizedArgs.push("--no-hydrate");
+    }
+    normalizedArgs.push("--script", scriptPath);
+    return { args: normalizedArgs, cleanup, prepared: true };
+  } catch (error) {
+    cleanup();
+    throw error;
   }
-  normalizedArgs.push("--script", scriptPath);
-
-  return {
-    args: normalizedArgs,
-    cleanup: () => rmSync(scriptRoot, { recursive: true, force: true }),
-    prepared: true,
-  };
 }
 
 function injectRemoteAwsMacosJsBootstrap(
@@ -3222,23 +3234,25 @@ function replaceRunScript(invocation: CommandInvocation, scriptPath: string) {
   ];
 }
 
-function prepareAwsMacosScriptStdinBootstrap(commandArgs: string[], providerName: string) {
+async function prepareAwsMacosScriptStdinBootstrap(commandArgs: string[], providerName: string) {
   const invocation = parseCommandInvocation(help.text, commandArgs);
   const scriptOption = invocation.script;
   if (!isAwsMacosRemoteTarget(commandArgs, providerName) || scriptOption?.name !== "script-stdin") {
     return { args: commandArgs, cleanup: () => {}, prepared: false };
   }
 
+  const script = await readScriptStdin();
   const scriptRoot = mkdtempSync(resolve(tmpdir(), "openclaw-crabbox-macos-script-"));
-  const scriptPath = resolve(scriptRoot, "script.sh");
-  const script = readFileSync(0, "utf8");
-  writeFileSync(scriptPath, createAwsMacosScriptStdinWrapper(script), "utf8");
-  chmodSync(scriptPath, 0o700);
-  return {
-    args: replaceRunScript(invocation, scriptPath),
-    cleanup: () => rmSync(scriptRoot, { recursive: true, force: true }),
-    prepared: true,
-  };
+  const cleanup = () => rmSync(scriptRoot, { recursive: true, force: true });
+  try {
+    const scriptPath = resolve(scriptRoot, "script.sh");
+    writeFileSync(scriptPath, createAwsMacosScriptStdinWrapper(script), "utf8");
+    chmodSync(scriptPath, 0o700);
+    return { args: replaceRunScript(invocation, scriptPath), cleanup, prepared: true };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 }
 
 function createAwsMacosScriptStdinWrapper(script: string) {
@@ -3425,18 +3439,21 @@ function prepareFullCheckoutForSync() {
   let active = false;
 
   function create() {
-    const add = gitOutput(["worktree", "add", "--detach", dir, "HEAD"]);
-    if (add.status !== 0) {
-      rmSync(dir, { recursive: true, force: true });
-      throw new Error(`git worktree add failed: ${add.text}`);
-    }
+    // Even an interrupted add can have registered this exact owned worktree.
     active = true;
-
-    const disableSparse = gitOutput(["-C", dir, "sparse-checkout", "disable"]);
-    if (disableSparse.status !== 0) {
+    try {
+      const add = gitOutput(["worktree", "add", "--detach", dir, "HEAD"]);
+      if (add.status !== 0) {
+        throw new Error(`git worktree add failed: ${add.text}`);
+      }
+      const disableSparse = gitOutput(["-C", dir, "sparse-checkout", "disable"]);
+      if (disableSparse.status !== 0) {
+        throw new Error(`git sparse-checkout disable failed: ${disableSparse.text}`);
+      }
+    } catch (error) {
       cleanupFullCheckout(dir, active);
       active = false;
-      throw new Error(`git sparse-checkout disable failed: ${disableSparse.text}`);
+      throw error;
     }
   }
 
@@ -3577,7 +3594,7 @@ function injectRemoteTestboxCi(commandArgs: string[], providerName: string) {
   );
 }
 
-function applyRunTransforms(
+async function applyRunTransforms(
   initialInvocation: CommandInvocation,
   initialFacts: RunFacts,
   options: {
@@ -3612,10 +3629,10 @@ function applyRunTransforms(
       invocation = parseCommandInvocation(help.text, transformedArgs);
       const scriptOption = invocation.script;
       if (scriptOption) {
-        const script = readFileSync(
-          scriptOption.name === "script" ? resolve(repoRoot, scriptOption.value) : 0,
-          "utf8",
-        );
+        const script =
+          scriptOption.name === "script"
+            ? readFileSync(resolve(repoRoot, scriptOption.value), "utf8")
+            : await readScriptStdin();
         const scriptRoot = mkdtempSync(resolve(tmpdir(), "openclaw-crabbox-source-script-"));
         const scriptPath = resolve(scriptRoot, "script.sh");
         sourceScriptCleanup = () => rmSync(scriptRoot, { recursive: true, force: true });
@@ -3820,7 +3837,7 @@ if (canonicalProvider === "blacksmith-testbox") {
   enforceCrabboxOwnedBlacksmithLease(normalizedArgs);
 }
 
-let testboxLeaseFreshness;
+let testboxLeaseFreshness: ReturnType<typeof prepareTestboxLeaseFreshness>;
 try {
   testboxLeaseFreshness = prepareTestboxLeaseFreshness({
     args: normalizedArgs,
@@ -3835,17 +3852,71 @@ try {
 
 let childCwd = repoRoot;
 let cleanupChildCwd = () => {};
-let fullCheckout = null;
+let fullCheckout: FullCheckout | null = null;
 let stopFullCheckoutKeepalive = () => {};
 let cleanupSucceeded: boolean | undefined;
 let sourceCapsule: CrabboxSourceCapsule | null = null;
 let remoteChangedGateAlias = "";
 let capturedBlacksmithLeaseId = "";
-const scriptBootstrap = prepareAwsMacosScriptStdinBootstrap(normalizedArgs, provider);
-normalizedArgs = scriptBootstrap.args;
-const scriptStdinPrepared = scriptBootstrap.prepared;
+let scriptBootstrap = { args: normalizedArgs, cleanup: () => {}, prepared: false };
 let wsl2ScriptBootstrap = { args: normalizedArgs, cleanup: () => {}, prepared: false };
+const preparationAbort = new AbortController();
+const childKillGraceMs = resolveChildKillGraceMs(process.env);
+let runningChild: ChildProcess | undefined;
+let childTreeSettled = true;
+let childTreeShutdownStarted = false;
+let childSettlement: Promise<boolean> | undefined;
+let cancellationSignal: Signal | undefined;
+const signalExitCodes = new Map<Signal, number>([
+  ["SIGHUP", 129],
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+]);
+for (const signal of signalExitCodes.keys()) {
+  process.on(signal, () => {
+    cancellationSignal ??= signal;
+    if (runningChild) {
+      void exitAfterChildTreeTermination(
+        runningChild,
+        signal,
+        signalExitCodes.get(cancellationSignal) ?? 1,
+      );
+    } else {
+      preparationAbort.abort();
+    }
+  });
+}
+process.once("exit", cleanupOnce);
+
+async function readScriptStdin() {
+  return (await consumeStream(addAbortSignal(preparationAbort.signal, process.stdin))).toString(
+    "utf8",
+  );
+}
+
+async function preparationCheckpoint(preparationError?: unknown) {
+  // The first immediate can run in the current check phase. Complete another
+  // poll cycle so signals queued during synchronous preparation are delivered.
+  await yieldToSignals();
+  await yieldToSignals();
+  if (cancellationSignal) {
+    if (preparationError !== undefined) {
+      const message =
+        preparationError instanceof Error
+          ? preparationError.message
+          : typeof preparationError === "string"
+            ? preparationError
+            : "unknown preparation error";
+      console.error(`[crabbox] preparation interrupted: ${message}`);
+    }
+    cleanupOnce();
+    process.exit(signalExitCodes.get(cancellationSignal) ?? 1);
+  }
+}
+
 try {
+  scriptBootstrap = await prepareAwsMacosScriptStdinBootstrap(normalizedArgs, provider);
+  normalizedArgs = scriptBootstrap.args;
   if (shouldUseFullCheckoutForRemoteSync(normalizedArgs, provider)) {
     const invocation = parseCommandInvocation(help.text, normalizedArgs);
     const facts = analyzeRemoteCommand(invocation);
@@ -3882,11 +3953,12 @@ try {
         }
       : prepareFullCheckoutForSync();
     fullCheckout = checkout;
+    cleanupChildCwd = () => checkout.cleanup();
+    childCwd = checkout.dir;
     normalizedArgs = injectFullCheckoutLeaseReclaim(normalizedArgs);
     // Crabbox claims Git's physical top-level. Match it so macOS /var aliases
     // restore to the invoking repository instead of the disposable checkout.
     childCwd = realpathSync(checkout.dir);
-    cleanupChildCwd = () => checkout.cleanup();
     remoteChangedGateAlias = changedGate?.remoteAlias ?? "";
     console.error(
       `[crabbox] isolated checkout sync; syncing from temporary full checkout ${checkout.dir}`,
@@ -3898,8 +3970,8 @@ try {
     }
   }
 } catch (error) {
-  scriptBootstrap.cleanup();
-  sourceCapsule?.cleanup();
+  await preparationCheckpoint(error);
+  cleanupOnce();
   throw error;
 }
 
@@ -3908,13 +3980,38 @@ function cleanupOnce() {
     return cleanupSucceeded;
   }
   cleanupSucceeded = false;
-  stopFullCheckoutKeepalive();
-  wsl2ScriptBootstrap.cleanup();
-  scriptBootstrap.cleanup();
+  if (!childTreeSettled) {
+    console.error(
+      childCwd === repoRoot
+        ? "[crabbox] child cleanup is unverified; local inputs remain in place"
+        : `[crabbox] child cleanup is unverified; temporary source retained at ${childCwd}`,
+    );
+    process.exitCode ||= 1;
+    return false;
+  }
+  let succeeded = true;
+  let claimsRestored = true;
+  for (const [label, cleanup] of [
+    ["checkout keepalive", stopFullCheckoutKeepalive],
+    ["remote script", wsl2ScriptBootstrap.cleanup],
+    ["script stdin", scriptBootstrap.cleanup],
+  ] as const) {
+    try {
+      cleanup();
+    } catch (error) {
+      succeeded = false;
+      console.error(
+        `[crabbox] ${label} cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   if (canonicalProvider === "blacksmith-testbox") {
-    // Crabbox stamps claims with its cwd. Delegated runs use a throwaway sync checkout,
-    // so restore the real repo or every later reuse needs --reclaim.
-    restoreTemporaryBlacksmithTestboxClaim(normalizedArgs, capturedBlacksmithLeaseId);
+    // Crabbox stamps claims with its cwd; retained leases belong to the caller.
+    claimsRestored = restoreTemporaryBlacksmithTestboxClaim(
+      normalizedArgs,
+      capturedBlacksmithLeaseId,
+    );
+    succeeded = claimsRestored && succeeded;
   }
   try {
     preserveTemporaryCrabboxArtifacts();
@@ -3925,11 +4022,29 @@ function cleanupOnce() {
     process.exitCode ||= 1;
     return false;
   }
-  cleanupChildCwd();
-  cleanupSucceeded = true;
-  return true;
+  if (!claimsRestored) {
+    console.error(
+      `[crabbox] lease ownership restoration failed; temporary checkout retained at ${childCwd}. Restore the retained lease to ${repoRoot} or stop it before removing this checkout.`,
+    );
+    process.exitCode ||= 1;
+    return false;
+  }
+  try {
+    cleanupChildCwd();
+  } catch (error) {
+    succeeded = false;
+    console.error(
+      `[crabbox] temporary checkout cleanup failed at ${childCwd}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  cleanupSucceeded = succeeded;
+  if (!succeeded) {
+    process.exitCode ||= 1;
+  }
+  return succeeded;
 }
 
+const scriptStdinPrepared = scriptBootstrap.prepared;
 const invocation = parseCommandInvocation(help.text, normalizedArgs);
 const commandFacts = analyzeRemoteCommand(invocation);
 const runtimeEntrypoint = commandFacts.runtimeEntrypoint;
@@ -3993,7 +4108,7 @@ if (
 }
 
 try {
-  const transformed = applyRunTransforms(invocation, commandFacts, {
+  const transformed = await applyRunTransforms(invocation, commandFacts, {
     changedGateAlias: remoteChangedGateAlias,
     capsule: sourceCapsule,
     childCwd,
@@ -4002,6 +4117,7 @@ try {
   wsl2ScriptBootstrap = transformed.wsl2ScriptBootstrap;
   normalizedArgs = transformed.args;
 } catch (error) {
+  await preparationCheckpoint(error);
   cleanupOnce();
   throw error;
 }
@@ -4023,13 +4139,17 @@ const captureBlacksmithTimingJSON =
 const reusedRunLeaseId = normalizedArgs[0] === "run" ? optionValue(normalizedArgs, "--id") : "";
 const childStartedAtMs = Date.now();
 const FAST_FAIL_HINT_WINDOW_MS = 15_000;
-const child = spawn(childInvocation.command, childInvocation.args, {
+const spawnManagedChild = await loadManagedChildSpawner();
+await preparationCheckpoint();
+const child = spawnManagedChild(childInvocation.command, childInvocation.args, {
   cwd: childCwd,
   stdio: ["inherit", "inherit", captureBlacksmithTimingJSON ? "pipe" : "inherit"],
   detached: process.platform !== "win32",
   env: childEnv,
   windowsVerbatimArguments: childInvocation.windowsVerbatimArguments,
 });
+runningChild = child;
+childTreeSettled = false;
 const childStderr = child.stderr;
 if (childStderr) {
   const decoder = new StringDecoder("utf8");
@@ -4073,47 +4193,21 @@ if (childStderr) {
     }
   });
 }
-const childKillGraceMs = resolveChildKillGraceMs(process.env);
-let childForceKillTimer: ReturnType<typeof setTimeout> | undefined;
-let childTreeShutdownStarted = false;
-if (fullCheckout) {
-  try {
-    stopFullCheckoutKeepalive = startFullCheckoutKeepalive(fullCheckout, {
-      intervalMs: fullCheckoutKeepaliveIntervalMsValue,
-      onMissing: () => {
-        void exitAfterChildTreeTermination(child, "SIGTERM", 1);
-      },
-    });
-  } catch (error) {
-    signalChildProcessTree(child, "SIGTERM");
-    cleanupOnce();
-    throw error;
-  }
-}
-
-const signalExitCodes = new Map<Signal, number>([
-  ["SIGHUP", 129],
-  ["SIGINT", 130],
-  ["SIGTERM", 143],
-]);
-for (const signal of signalExitCodes.keys()) {
-  process.on(signal, () => {
-    void exitAfterChildTreeTermination(child, signal, signalExitCodes.get(signal) ?? 1);
-  });
-}
-process.once("exit", cleanupOnce);
 
 child.on("exit", (code, signal) => {
-  clearChildForceKillTimer();
   if (childTreeShutdownStarted) {
     return;
   }
+  childTreeShutdownStarted = true;
+  void finishChildExit(code, signal);
+});
+
+async function finishChildExit(code: number | null, signal: Signal | null) {
+  const settled = await settleChildTree(child, signal ?? undefined);
   let exitCode = code;
-  let fullCheckoutAvailable = true;
-  if (fullCheckout) {
-    fullCheckoutAvailable = assertFullCheckoutAvailableBeforeExit(fullCheckout.dir);
-  }
-  if (!signal && code === 0) {
+  const fullCheckoutAvailable =
+    !fullCheckout || assertFullCheckoutAvailableBeforeExit(fullCheckout.dir);
+  if (settled && !signal && code === 0) {
     try {
       recordTestboxLeaseFreshness(testboxLeaseFreshness);
     } catch (error) {
@@ -4123,12 +4217,11 @@ child.on("exit", (code, signal) => {
       exitCode = 2;
     }
   }
-  const artifactsPreserved = cleanupOnce();
-  if (signal) {
-    process.exit(signalExitCodes.get(signal) ?? 1);
-    return;
+  const cleaned = cleanupOnce();
+  if (cancellationSignal || signal) {
+    process.exit(signalExitCodes.get(cancellationSignal ?? signal!) ?? 1);
   }
-  const finalExitCode = (exitCode ?? 1) || (fullCheckoutAvailable && artifactsPreserved ? 0 : 1);
+  const finalExitCode = (exitCode ?? 1) || (settled && fullCheckoutAvailable && cleaned ? 0 : 1);
   if (
     finalExitCode !== 0 &&
     reusedRunLeaseId &&
@@ -4139,20 +4232,65 @@ child.on("exit", (code, signal) => {
     );
   }
   process.exit(finalExitCode);
-});
+}
 
 child.on("error", (error) => {
-  clearChildForceKillTimer();
   if (childTreeShutdownStarted) {
     return;
   }
-  if (fullCheckout) {
-    assertFullCheckoutAvailableBeforeExit(fullCheckout.dir);
-  }
-  cleanupOnce();
+  childTreeShutdownStarted = true;
   console.error(`[crabbox] failed to execute ${displayBinary}: ${error.message}`);
-  process.exit(2);
+  void (async () => {
+    if (child.pid) {
+      await settleChildTree(child, "SIGTERM");
+    } else {
+      childTreeSettled = true;
+    }
+    cleanupOnce();
+    process.exit(2);
+  })();
 });
+
+if (fullCheckout) {
+  try {
+    stopFullCheckoutKeepalive = startFullCheckoutKeepalive(fullCheckout, {
+      intervalMs: fullCheckoutKeepaliveIntervalMsValue,
+      onMissing: () => {
+        void exitAfterChildTreeTermination(child, "SIGTERM", 1);
+      },
+    });
+  } catch (error) {
+    await settleChildTree(child, "SIGTERM");
+    cleanupOnce();
+    throw error;
+  }
+}
+
+function settleChildTree(childProcess: ChildProcess, signal?: Signal): Promise<boolean> {
+  return (childSettlement ??= finalizeManagedChild(childProcess, signal, {
+    platform: process.platform,
+    runTaskkill: spawnSync,
+    forceKillDelayMs: childKillGraceMs,
+    drainTimeoutMs: childKillGraceMs,
+  }).then(
+    () => {
+      childTreeSettled = true;
+      runningChild = undefined;
+      return true;
+    },
+    (error: unknown) => {
+      childTreeSettled = !hasUnjoinedWork(error);
+      if (childTreeSettled) {
+        runningChild = undefined;
+      }
+      console.error(
+        `[crabbox] child cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exitCode ||= 1;
+      return false;
+    },
+  ));
+}
 
 async function exitAfterChildTreeTermination(
   childProcess: ChildProcess,
@@ -4160,80 +4298,14 @@ async function exitAfterChildTreeTermination(
   exitCode: number,
 ) {
   if (childTreeShutdownStarted) {
-    signalChildProcessTree(childProcess, "SIGKILL");
+    // Package-manager/terminal teardown can follow one interrupt with SIGHUP.
+    // Keep the existing finalizer's grace instead of force-killing its writers.
     return;
   }
   childTreeShutdownStarted = true;
-  signalChildProcessTree(childProcess, signal);
-  await waitForChildTreeExit(childProcess, childKillGraceMs);
-  if (childProcessTreeIsAlive(childProcess)) {
-    signalChildProcessTree(childProcess, "SIGKILL");
-  }
-  await waitForChildTreeExit(childProcess, childKillGraceMs);
+  await settleChildTree(childProcess, signal);
   cleanupOnce();
   process.exit(exitCode);
-}
-
-function signalChildProcessTree(childProcess: ChildProcess, signal: Signal) {
-  if (
-    process.platform === "win32" &&
-    (childProcess.exitCode !== null || childProcess.signalCode !== null)
-  ) {
-    return;
-  }
-  try {
-    if (process.platform !== "win32" && typeof childProcess.pid === "number") {
-      process.kill(-childProcess.pid, signal);
-    } else {
-      childProcess.kill(signal);
-    }
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
-      try {
-        childProcess.kill(signal);
-      } catch {}
-    }
-  }
-  if (signal !== "SIGKILL" && !childForceKillTimer) {
-    childForceKillTimer = setTimeout(() => {
-      childForceKillTimer = undefined;
-      signalChildProcessTree(childProcess, "SIGKILL");
-    }, childKillGraceMs);
-    childForceKillTimer.unref?.();
-  }
-}
-
-function clearChildForceKillTimer() {
-  if (childForceKillTimer) {
-    clearTimeout(childForceKillTimer);
-    childForceKillTimer = undefined;
-  }
-}
-
-function childProcessTreeIsAlive(childProcess: ChildProcess) {
-  if (process.platform === "win32" || typeof childProcess.pid !== "number") {
-    return childProcess.exitCode === null && childProcess.signalCode === null;
-  }
-  try {
-    process.kill(-childProcess.pid, 0);
-    return true;
-  } catch (error) {
-    return error instanceof Error && "code" in error && error.code === "EPERM";
-  }
-}
-
-async function waitForChildTreeExit(childProcess: ChildProcess, timeoutMs: number) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (!childProcessTreeIsAlive(childProcess)) {
-      clearChildForceKillTimer();
-      return true;
-    }
-    await new Promise((done) => {
-      setTimeout(done, 50);
-    });
-  }
-  return !childProcessTreeIsAlive(childProcess);
 }
 
 function resolveChildKillGraceMs(env: ProcessEnv) {

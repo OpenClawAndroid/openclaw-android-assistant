@@ -22,6 +22,7 @@ import { writeConfigMachineState } from "../state/config-machine-state-write.js"
 import { readConfigMachineState } from "../state/config-machine-state.js";
 import { VERSION } from "../version.js";
 import { isTruthyEnvValue } from "./env.js";
+import { extractErrorCode, formatErrorMessage } from "./errors.js";
 import type { GatewayActiveWorkInspectors } from "./gateway-active-work.js";
 import {
   EXTERNAL_SUPERVISOR_UPDATE_REQUIRED_REASON,
@@ -484,6 +485,8 @@ async function runCampaignUpdate(params: {
     before: { version: VERSION },
   });
   params.onUpdateRunCreated?.();
+  const { channel, forced, tag, version } = params;
+  const attempt = { channel, forced, tag, version };
   let terminal: Parameters<typeof finishUpdateRun>[1] | undefined = {
     status: "failed",
     reason: "unexpected-error",
@@ -519,36 +522,30 @@ async function runCampaignUpdate(params: {
         status: "completed",
         endedAtMs: Date.now(),
       });
-    } else {
-      terminal = {
-        status: outcome.result.status === "skipped" ? "skipped" : "failed",
-        reason: outcome.result.reason,
-        after: outcome.result.after,
-      };
-      recordUpdateRunPhase(runId, "requested", {
-        before: outcome.result.before,
-        origin: { nextAction: outcome.message },
-      });
-      for (const step of outcome.result.steps.flatMap(updateRunStepsFromResultStep)) {
-        recordUpdateRunStep(runId, {
-          ...step,
-          endedAtMs: Date.now(),
-        });
+      if (!isCurrent()) {
+        return "failed";
       }
-    }
-    if (!isCurrent()) {
-      return "failed";
-    }
-    if (outcome.status === "handoff") {
       params.log.info("auto-update handoff started", {
-        channel: params.channel,
-        version: params.version,
-        tag: params.tag,
-        forced: params.forced,
+        ...attempt,
         ...(outcome.command ? { command: outcome.command } : {}),
         ...(outcome.logPath ? { logPath: outcome.logPath } : {}),
       });
       return "handoff";
+    }
+    terminal = {
+      status: outcome.result.status === "skipped" ? "skipped" : "failed",
+      reason: outcome.result.reason,
+      after: outcome.result.after,
+    };
+    recordUpdateRunPhase(runId, "requested", {
+      before: outcome.result.before,
+      origin: { nextAction: outcome.message },
+    });
+    for (const step of outcome.result.steps.flatMap(updateRunStepsFromResultStep)) {
+      recordUpdateRunStep(runId, { ...step, endedAtMs: Date.now() });
+    }
+    if (!isCurrent()) {
+      return "failed";
     }
     let triageHint: string | undefined;
     if (classifyUpdateOutcome(outcome.result) === "failed") {
@@ -588,23 +585,27 @@ async function runCampaignUpdate(params: {
     }
     const skipped = classifyUpdateOutcome(outcome.result) === "noop";
     params.log.info(skipped ? "auto-update attempt skipped" : "auto-update attempt failed", {
-      channel: params.channel,
-      version: params.version,
-      tag: params.tag,
-      forced: params.forced,
+      ...attempt,
       reason: outcome.result.reason,
       message: outcome.message,
       ...(triageHint ? { triage: triageHint } : {}),
     });
     if (skipped) {
-      if (terminal) {
-        finishUpdateRun(runId, terminal);
-      }
+      finishUpdateRun(runId, terminal);
       terminal = undefined;
       params.campaign.clear();
-      return "applied";
     }
-    return "failed";
+    return skipped ? "applied" : "failed";
+  } catch (error) {
+    const detail = formatErrorMessage(error);
+    params.log.info(`auto-update attempt failed error=${detail}`, attempt);
+    // A handed-off run belongs to the successor; only finish campaign-owned work.
+    if (terminal) {
+      terminal.status = "failed";
+      terminal.reason = extractErrorCode(error) || "unexpected-error";
+      recordUpdateRunStep(runId, { step: "requested", status: "failed", detail });
+    }
+    throw error;
   } finally {
     if (terminal) {
       finishUpdateRun(runId, terminal);

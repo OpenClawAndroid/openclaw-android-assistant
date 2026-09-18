@@ -360,15 +360,13 @@ function mergeRecord<T>(
   return { ...base, ...override };
 }
 
-function dedupeMergedProfileOrder(profileIds: string[]): string[] {
-  return uniqueStrings(profileIds);
-}
-
 function groupProfileIdsByProvider(profiles: AuthProfileStore["profiles"]): Map<string, string[]> {
   const grouped = new Map<string, string[]>();
   for (const [profileId, credential] of Object.entries(profiles)) {
     const providerKey = normalizeProviderId(credential.provider);
-    grouped.set(providerKey, [...(grouped.get(providerKey) ?? []), profileId]);
+    const profileIds = grouped.get(providerKey) ?? [];
+    profileIds.push(profileId);
+    grouped.set(providerKey, profileIds);
   }
   return grouped;
 }
@@ -416,13 +414,11 @@ function mergeProfileOrderWithOverridePrecedence(params: {
       }
     }
     if (overrideOrderKey) {
-      mergedOrder[mergedOrderKey] = dedupeMergedProfileOrder(
-        params.overrideOrder?.[overrideOrderKey] ?? [],
-      );
+      mergedOrder[mergedOrderKey] = uniqueStrings(params.overrideOrder?.[overrideOrderKey] ?? []);
       continue;
     }
     const baseOrderIds = baseOrderKey ? (params.baseOrder?.[baseOrderKey] ?? []) : [];
-    mergedOrder[mergedOrderKey] = dedupeMergedProfileOrder([
+    mergedOrder[mergedOrderKey] = uniqueStrings([
       ...overrideProfileIds,
       ...baseOrderIds,
       ...(mergedOrder[mergedOrderKey] ?? []),
@@ -560,9 +556,7 @@ function replaceMergedProfileReferences(params: {
     ? Object.fromEntries(
         Object.entries(store.order).map(([provider, profileIds]) => [
           provider,
-          dedupeMergedProfileOrder(
-            profileIds.map((profileId) => replacements.get(profileId) ?? profileId),
-          ),
+          uniqueStrings(profileIds.map((profileId) => replacements.get(profileId) ?? profileId)),
         ]),
       )
     : undefined;
@@ -846,7 +840,7 @@ export function mergePersistedAuthProfileState(
   }
   return removePersonalAuthProfileReferences({
     ...store,
-    ...mergeAuthProfileState(coerceAuthProfileState(raw), coerceAuthProfileState(readState())),
+    ...mergeAuthProfileState(store, coerceAuthProfileState(readState())),
   });
 }
 

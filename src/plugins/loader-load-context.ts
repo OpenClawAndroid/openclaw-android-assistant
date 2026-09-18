@@ -125,7 +125,7 @@ function buildCacheKeys(params: {
   allowProcessHomeSessionCatalogs?: boolean;
   activate?: boolean;
   runtimeSideEffects: boolean;
-  cliMetadata: boolean;
+  mode: NonNullable<PluginLoadOptions["mode"]>;
   expectedSourceDigests?: Readonly<Record<string, string>>;
 }) {
   const { roots, loadPaths, devSourceRoot } = params.discoveryContext;
@@ -184,7 +184,7 @@ function buildCacheKeys(params: {
     coreGatewayMethodNames: params.coreGatewayMethodNames ?? [],
     activate: params.activate !== false,
     runtimeSideEffects: params.runtimeSideEffects,
-    cliMetadata: params.cliMetadata,
+    mode: params.mode,
     expectedSourceDigests: params.expectedSourceDigests
       ? Object.entries(params.expectedSourceDigests).toSorted(([a], [b]) => a.localeCompare(b))
       : undefined,
@@ -394,7 +394,7 @@ export function resolvePluginLoadCacheContext(options: PluginLoadOptions = {}) {
     activate: shouldActivate,
     runtimeSideEffects,
     expectedSourceDigests: options.expectedSourceDigests,
-    cliMetadata: options.mode === "cli-metadata",
+    mode: options.mode ?? "full",
   });
   return {
     cacheState,

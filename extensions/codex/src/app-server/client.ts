@@ -4,7 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
-import { embeddedAgentLog, OPENCLAW_VERSION } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { embeddedAgentLog } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { coerceErrorMessage, toStringifiedError } from "openclaw/plugin-sdk/error-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { sliceUtf16Safe, truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
@@ -14,6 +14,7 @@ import {
   closeCodexCatalogClientSource,
   codexCatalogSourceForClient,
 } from "../session-catalog-source.js";
+import { buildCodexAppServerInitializeParams } from "./client-initialize.js";
 import { CodexAppServerMessageDecoder } from "./client-message-decoder.js";
 import { dispatchCodexAppServerResponse } from "./client-response.js";
 import type { CodexAppServerStartOptions } from "./config-contracts.js";
@@ -22,7 +23,6 @@ import {
   type CodexAppServerRequestMethod,
   type CodexAppServerRequestParams,
   type CodexAppServerRequestResult,
-  type CodexInitializeParams,
   type CodexInitializeResponse,
   isJsonObject,
   isRpcResponse,
@@ -336,23 +336,7 @@ export class CodexAppServerClient {
     }
     // The handshake identifies the exact app-server process we will keep using,
     // which matters when callers override the binary or app-server args.
-    const response = await this.request("initialize", {
-      clientInfo: {
-        name: "openclaw",
-        title: "OpenClaw",
-        version: OPENCLAW_VERSION,
-      },
-      capabilities: {
-        experimentalApi: true,
-        extensions: {
-          "openai/standard-form-input": {},
-          "openai/form": {},
-          "io.modelcontextprotocol/ui": {
-            mimeTypes: ["text/html;profile=mcp-app"],
-          },
-        },
-      },
-    } satisfies CodexInitializeParams);
+    const response = await this.request("initialize", buildCodexAppServerInitializeParams());
     this.serverVersion = assertSupportedCodexAppServerVersion(response);
     this.runtimeIdentity = buildCodexAppServerRuntimeIdentity(response, this.serverVersion);
     this.notify("initialized");

@@ -118,7 +118,11 @@ describe("Control UI retained publication", () => {
         expect(arrivals).toBe(2);
         if (kind === "same") {
           expect(errors).toHaveLength(1);
-          expect(["EEXIST", "ENOTEMPTY"]).toContain(errors[0]);
+          expect(
+            process.platform === "win32"
+              ? ["EEXIST", "ENOTEMPTY", "EPERM"]
+              : ["EEXIST", "ENOTEMPTY"],
+          ).toContain(errors[0]);
         } else {
           expect(errors).toEqual([]);
         }
@@ -158,7 +162,7 @@ describe("Control UI retained publication", () => {
           if (
             typeof file !== "string" ||
             !file.includes(".staging-") ||
-            !file.endsWith(build.assetPath)
+            !file.endsWith(`${path.sep}${path.normalize(build.assetPath)}`)
           ) {
             return handle;
           }
@@ -205,6 +209,10 @@ describe("Control UI retained publication", () => {
     ["ENOTEMPTY", "manifest"],
     ["EEXIST", "symlink"],
     ["ENOTEMPTY", "symlink"],
+    ["EPERM", "valid"],
+    ["EPERM", "digest"],
+    ["EPERM", "manifest"],
+    ["EPERM", "symlink"],
     ["EACCES", "valid"],
   ] as const)("handles %s only when its exact winner is %s", async (code, integrity) => {
     await withRetentionFixture(async ({ root, cache }) => {
@@ -229,7 +237,11 @@ describe("Control UI retained publication", () => {
         throw collision;
       });
       const owner = createControlUiAssetRetention(build.root);
-      if (integrity === "valid" && code !== "EACCES") {
+      if (
+        integrity === "valid" &&
+        code !== "EACCES" &&
+        (code !== "EPERM" || process.platform === "win32")
+      ) {
         await owner.prepare();
         expect(owner.resolveAsset(build.assetPath)?.filePath).toBe(
           path.join(target, build.assetPath),

@@ -337,12 +337,12 @@ export function buildEmbeddedRunPayloads(params: {
     assistantMessageIndex: params.assistantMessageIndex,
   });
   // A conversational NO_REPLY is an authored outcome, not a missing answer.
-  // For example, a rate-limited context read must not turn a reaction to
-  // "thank you" into a synthetic tool-error message. Keep failure reporting
-  // for missing answers, unknown/mutating actions, and scheduled work.
+  // Native shell calls are conservatively classified as mutating even when
+  // they only search files. That replay-safety classification must not replace
+  // a completed answer with a synthetic warning. Missing answers, interrupted
+  // runs, and scheduled work still retain their failure reporting.
   const respectIntentionalSilence =
     hasIntentionalSilentFinal &&
-    params.lastToolError?.mutatingAction === false &&
     !params.isCronTrigger &&
     !params.isHeartbeatTrigger &&
     !params.runAborted;

@@ -29,6 +29,7 @@ import {
   getTaskById,
   listTaskRecords,
 } from "../tasks/task-registry.js";
+import { configureTaskRegistryRuntime } from "../tasks/task-registry.store.js";
 import { upsertTaskWithDeliveryStateToSqlite } from "../tasks/task-registry.store.sqlite.js";
 import type { TaskRecord } from "../tasks/task-registry.types.js";
 import {
@@ -77,17 +78,16 @@ function flow(flowId: string, overrides: Partial<TaskFlowRecord> = {}): TaskFlow
   };
 }
 
-function holdFlowWorkerReply(target: "flows.current" | "flows.updateManaged") {
-  const held = createDeferredCore();
-  const release = createDeferredCore();
+function observeTaskWorkerReplies(observe: (type: PropertyKey) => Promise<void> | undefined) {
   const original = workerStore.runSqliteWorkerStoreOperation;
-  let paused = false;
   vi.spyOn(workerStore, "runSqliteWorkerStoreOperation").mockImplementation(
     <Operations extends SqliteWorkerOperations, T>(
       store: SqliteWorkerStore<Operations>,
       operation: (scope: Pick<SqliteWorkerStore<Operations>, "execute">) => T | Promise<T>,
       stateContext?: Parameters<typeof workerStore.runSqliteWorkerStoreOperation>[2],
       assertCurrent?: Parameters<typeof workerStore.runSqliteWorkerStoreOperation>[3],
+      createAdmission?: Parameters<typeof workerStore.runSqliteWorkerStoreOperation>[4],
+      requireStateLifecycle?: Parameters<typeof workerStore.runSqliteWorkerStoreOperation>[5],
     ) =>
       original(
         store,
@@ -95,18 +95,33 @@ function holdFlowWorkerReply(target: "flows.current" | "flows.updateManaged") {
           operation({
             execute: async (command, options) => {
               const result = await scope.execute(command, options);
-              if (!paused && command.type === target) {
-                paused = true;
-                held.resolve();
-                await release.promise;
+              const pending = observe(command.type);
+              if (pending) {
+                await pending;
               }
               return result;
             },
           }),
         stateContext,
         assertCurrent,
+        createAdmission,
+        requireStateLifecycle,
       ),
   );
+}
+
+function holdFlowWorkerReply(target: "flows.current" | "flows.updateManaged") {
+  const held = createDeferredCore();
+  const release = createDeferredCore();
+  let paused = false;
+  observeTaskWorkerReplies((type) => {
+    if (!paused && type === target) {
+      paused = true;
+      held.resolve();
+      return release.promise;
+    }
+    return undefined;
+  });
   return { held, release };
 }
 
@@ -122,6 +137,103 @@ afterEach(async () => {
 });
 
 describe("registered task flow reconciliation", () => {
+  it("publishes only the managed child whose worker receipt has been acknowledged", async () => {
+    installRuntimeTaskDeliveryMock();
+    upsertTaskFlowRegistryRecordToSqlite(flow("publication-flow"));
+    const managed = createPluginRuntime().tasks.async.managedFlows.bindSession({
+      sessionKey: ownerKey,
+    });
+    const events: Array<{ taskId: string; task: string }> = [];
+    configureTaskRegistryRuntime({
+      observers: {
+        onEvent(event) {
+          if (event.kind === "upserted") {
+            events.push({ taskId: event.task.taskId, task: event.task.task });
+          }
+        },
+      },
+    });
+    const firstRead = createDeferredCore();
+    const releaseFirstRead = createDeferredCore();
+    const secondReceipt = createDeferredCore();
+    const releaseSecondReceipt = createDeferredCore();
+    let mutations = 0;
+    let readHeld = false;
+    observeTaskWorkerReplies((type) => {
+      if (type === "flows.runTask" && ++mutations === 2) {
+        secondReceipt.resolve();
+        return releaseSecondReceipt.promise;
+      }
+      if (type === "tasks.mutationSnapshot" && !readHeld) {
+        readHeld = true;
+        firstRead.resolve();
+        return releaseFirstRead.promise;
+      }
+      return undefined;
+    });
+    const common = {
+      flowId: "publication-flow",
+      runtime: "cli" as const,
+      childSessionKey: "agent:main:publication-child",
+      deliveryStatus: "not_applicable" as const,
+      notifyPolicy: "silent" as const,
+    };
+    const pending: Promise<unknown>[] = [];
+    try {
+      const first = managed.runTask({ ...common, runId: "publication-a", task: "First child" });
+      pending.push(first);
+      await firstRead.promise;
+      const second = managed.runTask({ ...common, runId: "publication-b", task: "Second child" });
+      pending.push(second);
+      await secondReceipt.promise;
+      releaseFirstRead.resolve();
+      const firstResult = await first;
+      if (!firstResult.created) {
+        throw new Error("Expected the first managed child");
+      }
+      expect(events).toEqual([{ taskId: firstResult.task.taskId, task: "First child" }]);
+      releaseSecondReceipt.resolve();
+      const secondResult = await second;
+      if (!secondResult.created) {
+        throw new Error("Expected the second managed child");
+      }
+      const secondTaskId = secondResult.task.taskId;
+      expect(events).toEqual([
+        { taskId: firstResult.task.taskId, task: "First child" },
+        { taskId: secondTaskId, task: "Second child" },
+      ]);
+      events.length = 0;
+      const reused = await managed.runTask({
+        ...common,
+        runId: "publication-b",
+        task: "Second child",
+      });
+      if (!reused.created) {
+        throw new Error("Expected the existing managed child");
+      }
+      expect(reused.task.taskId).toBe(secondTaskId);
+      expect(events).toEqual([]);
+      const updated = await managed.runTask({
+        ...common,
+        runId: "publication-b",
+        task: "Second child",
+        sourceId: "publication-source",
+      });
+      if (!updated.created) {
+        throw new Error("Expected the updated managed child");
+      }
+      expect(updated.task.taskId).toBe(secondTaskId);
+      expect(events).toEqual([{ taskId: secondTaskId, task: "Second child" }]);
+      expect(getTaskById(secondTaskId)).toMatchObject({
+        sourceId: "publication-source",
+      });
+    } finally {
+      releaseFirstRead.resolve();
+      releaseSecondReceipt.resolve();
+      await Promise.allSettled(pending);
+    }
+  });
+
   it.each([4, 16])(
     "keeps ACP creation and managed authority current across %s generations during a worker write",
     async (generations) => {

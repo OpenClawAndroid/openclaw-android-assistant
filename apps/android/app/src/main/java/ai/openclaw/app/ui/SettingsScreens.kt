@@ -1032,7 +1032,7 @@ private fun SettingsWaveformPanel(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(ClawTheme.spacing.xxs),
     ) {
-      Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(ClawTheme.spacing.icon), tint = ClawTheme.colors.text)
+      Icon(imageVector = Icons.Default.PlayArrow, contentDescription = nativeString("Play audio"), modifier = Modifier.size(ClawTheme.spacing.icon), tint = ClawTheme.colors.text)
       // Thinking is the preview phase: no capture runs on this screen, so the
       // synthetic swell demonstrates the animation without touching the mic.
       TalkWaveform(

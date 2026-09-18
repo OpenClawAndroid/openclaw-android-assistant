@@ -151,11 +151,15 @@ export default definePluginEntry({
     // store only when a proxied runtime performs the first binding operation.
     const lazyBindingStateStore: Pick<
       PluginStateSyncKeyedStore<StoredCodexAppServerBinding>,
-      "deleteIf" | "entries" | "lookup" | "registerIfAbsent" | "update"
+      "deleteIf" | "entries" | "lookup" | "lookupMany" | "registerIfAbsent" | "update"
     > = {
       deleteIf: (key, predicate) => openBindingStateStore().deleteIf!(key, predicate),
       entries: () => openBindingStateStore().entries(),
       lookup: (key) => openBindingStateStore().lookup(key),
+      get lookupMany() {
+        const store = openBindingStateStore();
+        return store.lookupMany?.bind(store);
+      },
       registerIfAbsent: (key, value, options) =>
         openBindingStateStore().registerIfAbsent(key, value, options),
       get update() {

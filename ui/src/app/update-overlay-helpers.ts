@@ -56,6 +56,7 @@ const UPDATE_FAILURE_REASON_KEYS: Record<string, string> = {
   "global-install-failed": "updates.failureReasons.globalInstallFailed",
   "restart-disabled": "updates.failureReasons.restartDisabled",
   "restart-unavailable": "updates.failureReasons.restartUnavailable",
+  "external-supervisor-update-required": "updates.failureReasons.externalSupervisorUpdateRequired",
   "restart-unhealthy": "updates.failureReasons.restartUnhealthy",
   "restart-revision-mismatch": "updates.failureReasons.restartRevisionMismatch",
   "restart-revision-unavailable": "updates.failureReasons.restartRevisionUnavailable",

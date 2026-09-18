@@ -373,9 +373,14 @@ describe("check-workflows", () => {
       type: "string",
     });
     expect(workflow.on.workflow_dispatch.inputs.startup_node_version?.default).toBe("26.8.2");
+    expect(workflow.on.workflow_dispatch.inputs.installed_startup_cpu_diagnostic).toMatchObject({
+      default: false,
+      type: "boolean",
+    });
     const validation = probe.steps.find((step) => step.id === "startup_input")!;
     expect(validation.env).toMatchObject({
       STARTUP_PACKAGE: "${{ inputs.installed_startup_package }}",
+      CPU_DIAGNOSTIC: "${{ inputs.installed_startup_cpu_diagnostic }}",
     });
     expect(validation.run).toContain("$producer.run_attempt");
     expect(validation.run).toContain("$artifact.digest");
@@ -392,11 +397,22 @@ describe("check-workflows", () => {
     const measure = probe.steps.find((step) => step.name === "Measure installed startup cohort")!;
     expect(measure.if).toBe("${{ inputs.installed_startup_package != '' }}");
     expect(measure.run).toContain("scripts/bench-gateway-startup.ts --installed-cohort");
+    expect(measure.env).toMatchObject({
+      CPU_DIAGNOSTIC: "${{ inputs.installed_startup_cpu_diagnostic }}",
+    });
+    expect(measure.run).toContain('if ($env:CPU_DIAGNOSTIC -eq "true")');
+    expect(measure.run).toContain('@("--installed-cpu-diagnostic")');
     expect(native.steps).not.toContainEqual(measure);
     const upload = probe.steps.find((step) => step.name === "Upload installed startup evidence")!;
     expect(upload.if).toBe("${{ always() && inputs.installed_startup_package != '' }}");
     expect(upload.with?.path).toBe(
-      ".artifacts/windows-installed-startup/*.json\n.artifacts/windows-installed-startup/*.log\n",
+      [
+        ".artifacts/windows-installed-startup/*.json",
+        ".artifacts/windows-installed-startup/*.log",
+        ".artifacts/windows-installed-startup/results.json.profiles/*.cpuprofile",
+        ".artifacts/windows-installed-startup/results.json.profiles/*.json",
+        "",
+      ].join("\n"),
     );
     expect(upload.with?.["if-no-files-found"]).toBe("error");
   });

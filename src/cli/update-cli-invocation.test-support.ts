@@ -1,5 +1,28 @@
 import { Command } from "commander";
+import { expect } from "vitest";
 import type { UpdateCommandOptions } from "./update-cli/shared.js";
+
+export function expectGitMetadataPreview(result: unknown): void {
+  expect(result).toMatchObject({
+    dryRun: true,
+    mode: "git",
+    notes: expect.arrayContaining([
+      expect.stringMatching(/Git target manifest or revision[\s\S]*retry openclaw update/),
+    ]),
+    failures: expect.arrayContaining([
+      expect.objectContaining({
+        reason: "target-metadata-preflight",
+        message: expect.stringMatching(/Git[\s\S]*openclaw update/),
+        failureFacts: [
+          expect.objectContaining({
+            code: "target-git-metadata",
+            message: expect.stringContaining("a dry-run does not fetch missing objects"),
+          }),
+        ],
+      }),
+    ]),
+  });
+}
 
 export async function invokeUpdateCli(opts: UpdateCommandOptions) {
   const { registerUpdateCli } = await import("./update-cli.js");

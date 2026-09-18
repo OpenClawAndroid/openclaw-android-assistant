@@ -245,7 +245,7 @@ private fun ClawIconTouchTarget(
   )
 }
 
-/** Compact label/value row for health and readiness summaries. */
+/** Health and readiness labels flow above their status when both cannot fit beside each other. */
 @Composable
 internal fun ClawStatusRow(
   title: String,
@@ -253,17 +253,17 @@ internal fun ClawStatusRow(
   healthy: Boolean,
   modifier: Modifier = Modifier,
 ) {
-  Row(
+  FlowRow(
     modifier = modifier.fillMaxWidth().heightIn(min = ClawTheme.spacing.touchTarget).padding(vertical = 6.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(ClawTheme.spacing.xxs),
+    horizontalArrangement = Arrangement.spacedBy(ClawTheme.spacing.xxs, Alignment.End),
+    verticalArrangement = Arrangement.spacedBy(ClawTheme.spacing.xxs),
+    itemVerticalAlignment = Alignment.CenterVertically,
   ) {
     Text(
       text = title,
       style = ClawTheme.type.body,
       color = ClawTheme.colors.text,
       modifier = Modifier.weight(1f),
-      maxLines = 1,
     )
     ClawStatusPill(
       text = value,
@@ -306,7 +306,7 @@ internal fun ClawStatusPill(
             .clip(CircleShape)
             .background(accentColor),
       )
-      Text(text = text, style = ClawTheme.type.caption, color = colors.text, maxLines = 1)
+      Text(text = text, style = ClawTheme.type.caption, color = colors.text)
     }
   }
 }

@@ -149,7 +149,7 @@ describe("matrix doctor contract state migrations", () => {
       warnings: [],
     });
 
-    const store = new SqliteBackedMatrixSyncStore(storageRootDir);
+    const store = await SqliteBackedMatrixSyncStore.create(storageRootDir);
     expect(store.hasSavedSync()).toBe(true);
     expect(store.hasSavedSyncFromCleanShutdown()).toBe(true);
     await expect(store.getSavedSyncToken()).resolves.toBe("legacy-token");

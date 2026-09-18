@@ -32,7 +32,6 @@ import {
 import { formatSqliteSessionFileMarker } from "./legacy-sqlite-marker.js";
 import { resolveSessionArtifactDirectory } from "./paths.js";
 import type {
-  SessionAccessScope,
   SessionTranscriptReadScope,
   SessionTranscriptWriteScope,
   SqliteSessionArtifactPreparationDiagnostics,
@@ -84,12 +83,7 @@ export type ResolvedSqliteScope = {
   sessionKey: string;
 };
 
-export type ResolvedSqliteReadScope = {
-  agentId: string;
-  databaseAgentId?: string;
-  env?: NodeJS.ProcessEnv;
-  ownerStorePath?: string;
-  path?: string;
+export type ResolvedSqliteReadScope = Omit<ResolvedSqliteScope, "sessionKey"> & {
   sessionKey?: string;
 };
 
@@ -300,13 +294,15 @@ export async function runExclusiveSqliteSessionWrite<T>(
   }
 }
 
-export function resolveSqliteScope(
-  scope: Pick<
-    SessionAccessScope,
-    "agentId" | "defaultAgentId" | "env" | "sessionKey" | "storePath"
-  >,
+type SqliteScopeInput = Pick<
+  SessionTranscriptReadScope,
+  "agentId" | "defaultAgentId" | "env" | "sessionKey" | "storePath"
+>;
+
+function resolveSqliteDatabaseScope(
+  scope: SqliteScopeInput,
   targetCache?: SessionSqliteTargetResolutionCache,
-): ResolvedSqliteScope {
+) {
   const parsedAgentId = parseAgentSessionKey(scope.sessionKey)?.agentId;
   const scopedAgentId = scope.agentId ? normalizeAgentId(scope.agentId) : parsedAgentId;
   const incognitoAgentId = isIncognitoSessionKey(scope.sessionKey)
@@ -333,6 +329,20 @@ export function resolveSqliteScope(
     storeAgentId: storeTarget?.agentId,
     storeShared: storeTarget?.shared,
   });
+  return {
+    agentId,
+    ...(storeTarget?.shared && storeTarget.agentId ? { databaseAgentId: storeTarget.agentId } : {}),
+    ...(scope.env ? { env: scope.env } : {}),
+    ...(effectiveStorePath ? { ownerStorePath: effectiveStorePath } : {}),
+    ...(storeTarget ? { path: storeTarget.path } : {}),
+  };
+}
+
+export function resolveSqliteScope(
+  scope: SqliteScopeInput & { sessionKey: string },
+  targetCache?: SessionSqliteTargetResolutionCache,
+): ResolvedSqliteScope {
+  const { agentId, ...database } = resolveSqliteDatabaseScope(scope, targetCache);
   if (!agentId) {
     throw new Error("Cannot resolve SQLite session scope without an agent id");
   }
@@ -344,61 +354,22 @@ export function resolveSqliteScope(
     parseAgentSessionKey(normalizedSessionKey)
       ? normalizedSessionKey
       : toAgentStoreSessionKey({ agentId, requestKey: normalizedSessionKey });
-  return {
-    agentId,
-    ...(storeTarget?.shared && storeTarget.agentId ? { databaseAgentId: storeTarget.agentId } : {}),
-    ...(scope.env ? { env: scope.env } : {}),
-    ...(effectiveStorePath ? { ownerStorePath: effectiveStorePath } : {}),
-    ...(storeTarget ? { path: storeTarget.path } : {}),
-    sessionKey,
-  };
+  return { agentId, ...database, sessionKey };
 }
 
 export function resolveSqliteReadScope(
-  scope: Pick<
-    SessionTranscriptReadScope,
-    "agentId" | "defaultAgentId" | "env" | "sessionKey" | "storePath"
-  >,
+  scope: SqliteScopeInput,
   targetCache?: SessionSqliteTargetResolutionCache,
 ): ResolvedSqliteReadScope {
   const sessionKey = scope.sessionKey ? normalizeSqliteSessionKey(scope.sessionKey) : undefined;
-  const parsedAgentId = parseAgentSessionKey(sessionKey)?.agentId;
-  const scopedAgentId = scope.agentId ? normalizeAgentId(scope.agentId) : parsedAgentId;
-  const incognitoAgentId = isIncognitoSessionKey(sessionKey)
-    ? resolveAgentIdFromSessionKey(sessionKey)
-    : undefined;
-  const effectiveStorePath = incognitoAgentId
-    ? resolveIncognitoOpenClawAgentSqlitePath({ agentId: incognitoAgentId, env: scope.env })
-    : scope.storePath;
-  const effectiveAgentId = incognitoAgentId ?? scopedAgentId;
-  const storeTarget = effectiveStorePath
-    ? resolveCachedSqliteStoreTarget(
-        {
-          agentId: effectiveAgentId,
-          defaultAgentId: scope.defaultAgentId,
-          env: scope.env,
-          storePath: effectiveStorePath,
-        },
-        targetCache,
-      )
-    : undefined;
-  const agentId = resolveSqliteAgentId({
-    scopedAgentId: effectiveAgentId,
-    sessionKey,
-    storeAgentId: storeTarget?.agentId,
-    storeShared: storeTarget?.shared,
-  });
+  const { agentId, ...database } = resolveSqliteDatabaseScope(
+    { ...scope, sessionKey },
+    targetCache,
+  );
   if (!agentId) {
     throw new Error("Cannot resolve SQLite transcript read scope without an agent id");
   }
-  return {
-    agentId,
-    ...(storeTarget?.shared && storeTarget.agentId ? { databaseAgentId: storeTarget.agentId } : {}),
-    ...(scope.env ? { env: scope.env } : {}),
-    ...(effectiveStorePath ? { ownerStorePath: effectiveStorePath } : {}),
-    ...(storeTarget ? { path: storeTarget.path } : {}),
-    ...(sessionKey ? { sessionKey } : {}),
-  };
+  return { agentId, ...database, ...(sessionKey ? { sessionKey } : {}) };
 }
 
 function resolveCachedSqliteStoreTarget(

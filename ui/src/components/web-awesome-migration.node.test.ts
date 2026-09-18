@@ -46,7 +46,7 @@ describe("Web Awesome control ownership", () => {
     // Web Awesome Core has no combobox; its combobox is a paid Pro component.
     // This inventory tracks literal ARIA roles, not Web Awesome elements that own roles internally.
     expect(matchingFiles(/<[a-z][^>]*\srole=["'](?:combobox|listbox|option)["']/u)).toEqual([
-      "components/command-palette.ts",
+      "components/command-palette-view.ts",
       "components/composer-menu.ts",
       "components/multi-select.ts",
       "components/select-picker.ts",

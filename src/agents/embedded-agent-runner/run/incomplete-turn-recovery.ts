@@ -1,4 +1,3 @@
-/** Owns side-effect-sensitive retry and silent-reply recovery policy. */
 import { isResponsesOutputLimitToolCallError } from "@openclaw/ai/diagnostics";
 import { hasOnlyAssistantReasoningContent } from "@openclaw/ai/internal/shared";
 import { MALFORMED_TOOL_CALL_ARGUMENTS_ERROR_CODE } from "../../../llm/types.js";
@@ -83,7 +82,7 @@ export function shouldRetrySilentErrorAssistantTurn(params: {
     return false;
   }
 
-  const content = (assistant as { content?: unknown }).content;
+  const { content } = assistant;
   if (!Array.isArray(content)) {
     return false;
   }

@@ -89,7 +89,10 @@ describe("runCodexAppServerAttempt dynamic tools", () => {
           arguments: process.pollArguments,
         },
       });
-      expect(response).toMatchObject({ success: true });
+      expect(response).toMatchObject({
+        success: true,
+        contentItems: [{ type: "inputText", text: expect.stringContaining("completed output") }],
+      });
       expect(process.pendingNotifications()).toEqual(["unrelated event", "exec completed"]);
       const completed = (turnId: string, result: unknown) => ({
         method: "item/completed",

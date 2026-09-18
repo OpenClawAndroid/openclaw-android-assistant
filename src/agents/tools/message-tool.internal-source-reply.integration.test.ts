@@ -136,20 +136,23 @@ describe("WebChat message tool internal source reply", () => {
     );
   });
 
-  it("stages buffer media before acknowledging the current-source send", async () => {
+  it.each([
+    { filename: "proof.txt", contentType: "text/plain", content: "current-source attachment" },
+    { filename: "proof.html", contentType: "text/html", content: "<!doctype html><h1>Proof</h1>" },
+  ])("stages $filename buffer before acknowledging the current-source send", async (fixture) => {
     await withOpenClawTestState(
       { layout: "state-only", prefix: "message-tool-source-buffer-" },
       async (state) => {
         await fs.mkdir(state.workspaceDir, { recursive: true });
         const tool = createCurrentSourceMessageTool({ workspaceDir: state.workspaceDir });
-        const attachment = Buffer.from("current-source attachment");
+        const attachment = Buffer.from(fixture.content);
 
         const toolResult = await tool.execute("message-buffer-call", {
           action: "send",
           message: "Attached proof.",
           buffer: attachment.toString("base64"),
-          filename: "proof.txt",
-          contentType: "text/plain",
+          filename: fixture.filename,
+          contentType: fixture.contentType,
         });
 
         const sourceReply = extractMessagingToolSourceReplyPayload(toolResult);
@@ -157,14 +160,72 @@ describe("WebChat message tool internal source reply", () => {
         expect(sourceReply?.mediaUrls).toHaveLength(1);
         expect(sourceReply?.attachments).toEqual([
           expect.objectContaining({
-            name: "proof.txt",
-            mimeType: "text/plain",
+            name: fixture.filename,
+            mimeType: fixture.contentType,
             trustedLocalMedia: true,
           }),
         ]);
         const mediaPath = sourceReply?.mediaUrls?.[0];
         expect(mediaPath).toBeTruthy();
         await expect(fs.readFile(mediaPath as string)).resolves.toEqual(attachment);
+      },
+    );
+  });
+
+  it.each([
+    {
+      filename: "report.html",
+      content: "<!doctype html><h1>Report</h1>",
+      reason: "Rejected by the local attachment allowlist. Send a supported file type.",
+    },
+    {
+      filename: "missing.txt",
+      content: undefined,
+      reason: "File not found. Check the path and try again.",
+    },
+  ])("reports the staging reason for workspace $filename", async (fixture) => {
+    await withOpenClawTestState(
+      { layout: "state-only", prefix: "message-tool-source-error-" },
+      async (state) => {
+        await fs.mkdir(state.workspaceDir, { recursive: true });
+        const media = path.join(state.workspaceDir, fixture.filename);
+        if (fixture.content !== undefined) {
+          await fs.writeFile(media, fixture.content);
+        }
+        const tool = createCurrentSourceMessageTool({ workspaceDir: state.workspaceDir });
+
+        await expect(
+          tool.execute("message-path-error", {
+            action: "send",
+            message: "Private draft that must not enter the error.",
+            attachments: [{ media, type: "file", name: fixture.filename }],
+            final: true,
+          }),
+        ).rejects.toThrow(
+          new Error(
+            `Current-source media could not be staged.\n⚠️ ${fixture.filename}: ${fixture.reason}`,
+          ),
+        );
+      },
+    );
+  });
+
+  it.each(["proof.txt", "proof.md"])("stages the supported workspace file %s", async (filename) => {
+    await withOpenClawTestState(
+      { layout: "state-only", prefix: "message-tool-source-document-" },
+      async (state) => {
+        await fs.mkdir(state.workspaceDir, { recursive: true });
+        const media = path.join(state.workspaceDir, filename);
+        const content = "# Attachment proof\n";
+        await fs.writeFile(media, content);
+        const tool = createCurrentSourceMessageTool({ workspaceDir: state.workspaceDir });
+        const result = await tool.execute("message-document", {
+          action: "send",
+          attachments: [{ media, type: "file", name: filename }],
+        });
+        const reply = extractMessagingToolSourceReplyPayload(result);
+        expect(reply?.mediaUrls).toHaveLength(1);
+        await expect(fs.readFile(reply?.mediaUrls?.[0] as string, "utf8")).resolves.toBe(content);
       },
     );
   });

@@ -168,6 +168,27 @@ export function parseReadableSqliteSessionEntryRow(
     : null;
 }
 
+/** Decode supplied rows in caller order while sharing their lazy participant acquisition. */
+export function prepareSqliteSessionEntryRowDecoder(
+  database: Pick<OpenClawAgentDatabase, "db">,
+  rows: readonly ResolvedSessionEntryRow["row"][],
+  projection: "full" | "list" = "full",
+): (row: ResolvedSessionEntryRow["row"]) => SessionEntry | null {
+  const projectParticipants = prepareSqliteSessionParticipantProjection(
+    database.db,
+    rows.filter((row) => row.entry_json !== "{}").map((row) => row.session_key),
+  );
+  return (row) => {
+    const parsed = parseReadableSessionEntryData(database, row, projection);
+    return parsed
+      ? validateDeliveryCanonicalSessionEntry(
+          row.session_key,
+          projectParticipants(row.session_key, parsed),
+        )
+      : null;
+  };
+}
+
 /** Projects one selected row set without repeating participant reads for each entry. */
 export function parseReadableSqliteSessionEntryRows(
   database: Pick<OpenClawAgentDatabase, "db">,
@@ -295,25 +316,15 @@ export function prepareExactSessionEntryRowReads(
     return (sessionKey) => readExactSessionEntryRow(database, sessionKey, projection);
   }
   const byKey = new Map(rows.map((row) => [row.session_key, row]));
-  const projectParticipants = prepareSqliteSessionParticipantProjection(
-    database.db,
-    rows.filter((row) => row.entry_json !== "{}").map((row) => row.session_key),
-  );
+  const decodeRow = prepareSqliteSessionEntryRowDecoder(database, rows, projection);
   return (sessionKey) => {
     // Match node:sqlite parameter binding before looking up the returned row.
     const row = byKey.get(toUSVString(sessionKey));
     if (!row) {
       return undefined;
     }
-    const parsed = parseReadableSessionEntryData(database, row, projection);
-    if (!parsed) {
-      return undefined;
-    }
-    const entry = validateDeliveryCanonicalSessionEntry(
-      row.session_key,
-      projectParticipants(row.session_key, parsed),
-    );
-    return { entry, row };
+    const entry = decodeRow(row);
+    return entry ? { entry, row } : undefined;
   };
 }
 

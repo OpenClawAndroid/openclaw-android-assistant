@@ -648,7 +648,15 @@ export function prepareCrabboxSourceCapsule(options: {
       configPath,
     };
   } catch (error) {
-    cleanup();
+    try {
+      cleanup();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `source capsule cleanup failed; temporary checkout retained at ${temporary}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+        { cause: cleanupError },
+      );
+    }
     throw error;
   }
 }

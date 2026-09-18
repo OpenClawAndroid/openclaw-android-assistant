@@ -115,6 +115,23 @@ export type RuntimeConfigWritePreparedCandidate = {
   reapplyCompareOverlays?: (config: OpenClawConfig) => OpenClawConfig;
 };
 
+export function projectRuntimeConfigWritePreparedCandidates(
+  preparedCandidates: ReadonlyMap<symbol, RuntimeConfigWritePreparedCandidate>,
+  runtimeConfig: OpenClawConfig,
+  sourceConfig: OpenClawConfig,
+): Map<symbol, RuntimeConfigWritePreparedCandidate> {
+  return new Map(
+    [...preparedCandidates].map(([ownerId, candidate]) => [
+      ownerId,
+      {
+        ...candidate,
+        runtimeConfig: candidate.reapplyRuntimeOverlays?.(runtimeConfig) ?? candidate.runtimeConfig,
+        compareConfig: candidate.reapplyCompareOverlays?.(sourceConfig) ?? candidate.compareConfig,
+      },
+    ]),
+  );
+}
+
 export type RuntimeConfigSnapshotMetadata = {
   revision: number;
   fingerprint: string;

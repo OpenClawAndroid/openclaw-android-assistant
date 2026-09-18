@@ -123,11 +123,17 @@ function sameFallbackModelFacts(previous: Row["storedEntry"], current: SessionEn
 }
 
 export function first(candidates: Row[], storePaths: Iterable<string>) {
-  return candidates.length < 2
-    ? candidates[0]
-    : [...storePaths].flatMap((sourcePath) =>
-        candidates.filter((row) => row.storeTarget.storePath === sourcePath),
-      )[0];
+  if (candidates.length < 2) {
+    return candidates[0];
+  }
+  for (const sourcePath of storePaths) {
+    for (const row of candidates) {
+      if (row.storeTarget.storePath === sourcePath) {
+        return row;
+      }
+    }
+  }
+  return undefined;
 }
 
 export function present(
@@ -158,6 +164,28 @@ export function present(
   return row;
 }
 
+function updateIndex(
+  map: Map<string, Set<string>>,
+  key: string | undefined,
+  id: string,
+  deleting: boolean,
+) {
+  if (!key) {
+    return;
+  }
+  const values = map.get(key);
+  if (deleting) {
+    values?.delete(id);
+    if (values?.size === 0) {
+      map.delete(key);
+    }
+  } else if (values) {
+    values.add(id);
+  } else {
+    map.set(key, new Set([id]));
+  }
+}
+
 export function index(
   row: Row,
   indexes: {
@@ -170,27 +198,14 @@ export function index(
 ) {
   const { byStore, byAgent, byKey, byParent } = indexes;
   const id = identity(row);
-  for (const [map, keys] of [
-    [byStore, [row.storeTarget.storePath]],
-    [byAgent, [row.agentId]],
-    [byKey, [`key:${row.key}`, row.entry && `id:${row.entry.sessionId}`, ...references(row)]],
-    [byParent, row.parents],
-  ] satisfies [Map<string, Set<string>>, Iterable<string | undefined>][]) {
-    for (const key of keys) {
-      if (key) {
-        const values = map.get(key) ?? new Set<string>();
-        if (deleting) {
-          values.delete(id);
-        } else {
-          values.add(id);
-        }
-        if (values.size) {
-          map.set(key, values);
-        } else {
-          map.delete(key);
-        }
-      }
-    }
+  updateIndex(byStore, row.storeTarget.storePath, id, deleting);
+  updateIndex(byAgent, row.agentId, id, deleting);
+  updateIndex(byKey, `key:${row.key}`, id, deleting);
+  updateIndex(byKey, row.entry && `id:${row.entry.sessionId}`, id, deleting);
+  updateIndex(byKey, logical(row.agentId, row.key), id, deleting);
+  updateIndex(byKey, physical(row.storeTarget.storePath, row.key), id, deleting);
+  for (const parent of row.parents) {
+    updateIndex(byParent, parent, id, deleting);
   }
 }
 

@@ -571,7 +571,7 @@ export function runtimeForLogger(
       logger.info(value);
     },
     writeJson(value: unknown, space = 2) {
-      logger.info(JSON.stringify(value, null, space > 0 ? space : undefined));
+      logger.info(JSON.stringify(value, undefined, space > 0 ? space : undefined));
     },
     exit,
   };

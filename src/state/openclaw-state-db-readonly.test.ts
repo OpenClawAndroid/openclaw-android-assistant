@@ -16,6 +16,7 @@ import {
   clearOpenClawDatabaseQuarantine,
   recordOpenClawDatabaseQuarantine,
 } from "./openclaw-quarantine-store.js";
+import { StateDatabaseReadAdmissionInvalidatedError } from "./openclaw-state-db-async-lifecycle.js";
 import {
   acquireOpenClawStateDatabaseFileExclusion,
   recordOpenClawStateDatabaseOpenFailure,
@@ -309,7 +310,7 @@ describe.each(["admission", "explicit", "async"] as const)("%s read-only state r
         expect(await read(inner)).not.toBe(inner.path);
         expect(await read(outer)).toBe(outer.path);
         released.resolve();
-        expect(await descendant).not.toBe(inner.path);
+        await expect(descendant).rejects.toBeInstanceOf(StateDatabaseReadAdmissionInvalidatedError);
       });
       expect(await read(outer)).not.toBe(outer.path);
       expect(fs.readFileSync(source.path)).toEqual(sourceBefore);

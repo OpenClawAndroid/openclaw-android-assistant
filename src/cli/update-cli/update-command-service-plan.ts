@@ -543,19 +543,27 @@ export function resolveManagedServiceNodeRunner(
 export async function resolveManagedServicePackageUpdatePlan(params: {
   root: string;
   pkgOwnership?: FreeBsdPkgOwnershipInspection;
-}): Promise<{ rootRedirect: ManagedServiceRootRedirect | null; nodeRunner?: string }> {
+}): Promise<{
+  rootRedirect: ManagedServiceRootRedirect | null;
+  nodeRunner?: string;
+  serviceUnitTarget?: string;
+}> {
   const pkgOwnership =
     params.pkgOwnership ?? createFreeBsdPkgOwnershipInspection(UPDATE_RUNNER_TIMEOUT_MS);
   await pkgOwnership.assertUnowned(params.root);
   if (!isGatewayServiceManagementAllowedForUpdate(process.env)) {
-    return { rootRedirect: null };
+    return {
+      rootRedirect: null,
+      serviceUnitTarget: "not inspected (service management unavailable)",
+    };
   }
   // Root and runtime planning share one effective command; mutation and restart
   // revalidate independently so this snapshot cannot grant later service authority.
   const command = (await readManagedGatewayServiceForUpdate(process.env))?.command ?? null;
   const layout = await summarizeGatewayServiceLayout(command);
+  const serviceUnitTarget = layout?.entrypoint ?? "no service entrypoint found";
   if (!layout?.packageRootReal) {
-    return { rootRedirect: null };
+    return { rootRedirect: null, serviceUnitTarget };
   }
   const serviceRoot = layout?.packageRoot;
   await pkgOwnership.assertUnowned(serviceRoot);
@@ -567,18 +575,20 @@ export async function resolveManagedServicePackageUpdatePlan(params: {
     (await tryRealpathOrResolve(params.root)) !== layout.packageRootReal
   ) {
     return {
+      serviceUnitTarget,
       rootRedirect: { root: serviceRoot, previousRoot: params.root },
       ...(serviceNode ? { nodeRunner: serviceNode } : {}),
     };
   }
   if (!serviceNode) {
-    return { rootRedirect: null };
+    return { rootRedirect: null, serviceUnitTarget };
   }
   const [serviceNodeReal, currentNodeReal] = await Promise.all([
     tryRealpathOrResolve(serviceNode),
     tryRealpathOrResolve(resolveNodeRunner()),
   ]);
   return {
+    serviceUnitTarget,
     rootRedirect: null,
     ...(serviceNodeReal !== currentNodeReal ? { nodeRunner: serviceNode } : {}),
   };

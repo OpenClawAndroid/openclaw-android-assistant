@@ -46,6 +46,8 @@ const confirmGatewayReachable = vi.hoisted(() =>
   vi.fn<typeof import("../daemon-cli/restart-health-probe.js").confirmGatewayReachable>(),
 );
 vi.mock("../daemon-cli/restart-health-probe.js", () => ({ confirmGatewayReachable }));
+const callGateway = vi.hoisted(() => vi.fn());
+vi.mock("../../gateway/call.js", () => ({ callGateway }));
 
 vi.mock("../../daemon/service.js", () => ({
   resolveGatewayService: () => ({ readCommand: service.readCommand }),
@@ -83,6 +85,7 @@ const tempDirs = createTempDirTracker();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  callGateway.mockReset().mockRejectedValue(new Error("Gateway unavailable"));
   service.readCommand.mockResolvedValue(null);
   service.audit.mockResolvedValue({ ok: true, issues: [] });
   const stateDir = tempDirs.make("openclaw-update-status-");
@@ -148,6 +151,40 @@ describe("update status service definition facts", () => {
       });
     },
   );
+});
+
+describe("update status channel failures", () => {
+  it.each([true, false])("shows the Gateway's recorded trust refusal (JSON: %s)", async (json) => {
+    const issue = {
+      channel: "feishu",
+      accountId: "default",
+      kind: "runtime",
+      message:
+        'Plugin "feishu" loaded from "/fixture/plugins-local/feishu/index.js"; installSource="path". Install the official npm package or ClawHub listing.',
+      fix: "resolve the reported channel error, then restart the channel",
+    };
+    callGateway.mockResolvedValue({ statusIssues: [issue] });
+
+    await updateStatusCommand({ json, timeout: "2" });
+
+    expect(callGateway).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        method: "channels.status",
+        params: { probe: false, timeoutMs: 2_000 },
+        timeoutMs: 2_000,
+        sharedStateMode: "read-only",
+      }),
+    );
+    if (json) {
+      expect(runtime.writeJson).toHaveBeenCalledWith(
+        expect.objectContaining({ channelIssues: [issue] }),
+      );
+    } else {
+      const output = runtime.log.mock.calls.flat().join("\n");
+      expect(output).toContain(`Channel feishu default: ${issue.message}`);
+      expect(output).toContain(issue.fix);
+    }
+  });
 });
 
 describe("update status Node runtime findings", () => {

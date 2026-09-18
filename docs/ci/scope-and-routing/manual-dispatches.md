@@ -113,3 +113,14 @@ established readiness and absolute first status/health completion, plus paired
 candidate-minus-baseline differences. Negative differences favor the candidate.
 Fresh samples remain separate. Alternating order reduces time-order bias; it
 does not make the filesystem cold or establish performance on other machines.
+
+For CPU attribution, set `installed_startup_cpu_diagnostic=true` with one package
+binding. This separate mode runs one unprofiled fresh prime, then one native CPU
+profile of an established launch using the same synthetic state. Both launches
+still require readiness, first status/health requests, acknowledged shutdown,
+and descendant settlement. It produces no timing summary or paired comparison.
+The artifact retains raw `.cpuprofile` files, the main process/thread identity
+and clock calibration, startup trace metrics, config hashes, and backup-existence
+facts. Profiling and trace observation add overhead; main-isolate samples do not
+account for unprofiled child or Worker CPU. Ordinary timing cohorts remain
+uninstrumented.

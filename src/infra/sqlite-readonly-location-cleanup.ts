@@ -14,20 +14,40 @@ export const SQLITE_SNAPSHOT_CONTROL_FILES = [
   "owner.sqlite-shm",
 ] as const;
 
-const pendingTempDirectoryCleanup = new Map<string, ((retire: boolean) => void) | undefined>();
+type SnapshotDirectory = {
+  release?: (retire: boolean) => void;
+  readers: Set<symbol>;
+};
+const pendingTempDirectoryCleanup = new Map<string, SnapshotDirectory>();
 let cleanupExitHandlerInstalled = false;
 const activeSnapshotWork = new Map<Promise<unknown>, () => void>();
 let pendingSignalCleanup: Promise<void> | undefined;
 
+function snapshotDirectory(directory: string): SnapshotDirectory {
+  let owner = pendingTempDirectoryCleanup.get(directory);
+  if (!owner) {
+    owner = { readers: new Set() };
+    pendingTempDirectoryCleanup.set(directory, owner);
+  }
+  return owner;
+}
+
 export function cleanupSnapshotOperations(): Promise<void> {
   pendingSignalCleanup ??= (async () => {
-    while (activeSnapshotWork.size > 0) {
-      for (const stop of activeSnapshotWork.values()) {
-        stop();
+    const directories = pendingTempDirectoryCleanup.keys();
+    while (true) {
+      while (activeSnapshotWork.size > 0) {
+        for (const stop of activeSnapshotWork.values()) {
+          stop();
+        }
+        await Promise.allSettled(activeSnapshotWork.keys());
       }
-      await Promise.allSettled(activeSnapshotWork.keys());
-    }
-    for (const directory of pendingTempDirectoryCleanup.keys()) {
+      // Removal yields: join readers admitted during it before selecting more bytes.
+      const next = directories.next();
+      if (next.done) {
+        break;
+      }
+      const directory = next.value;
       await removeTempDirectoryAsync(directory, (error) =>
         emitSnapshotCleanupFailure({
           cleanupRoot: directory,
@@ -55,9 +75,8 @@ export function registerSnapshotTempDirectory(
   directory: string,
   release?: (retire: boolean) => void,
 ): void {
-  if (release || !pendingTempDirectoryCleanup.has(directory)) {
-    pendingTempDirectoryCleanup.set(directory, release);
-  }
+  const owner = snapshotDirectory(directory);
+  owner.release = release ?? owner.release;
   if (!cleanupExitHandlerInstalled) {
     cleanupExitHandlerInstalled = true;
     process.once("exit", () => {
@@ -75,9 +94,20 @@ export function registerSnapshotTempDirectory(
   registerSignalExitFinalizer(cleanupSnapshotOperations);
 }
 
+/** Rejection is not retirement: only the reader's successful close releases custody. */
+export function retainSnapshotTempDirectory(directory: string): () => void {
+  registerSnapshotTempDirectory(directory);
+  const owner = snapshotDirectory(directory);
+  const reader = Symbol("sqlite.snapshot.reader");
+  owner.readers.add(reader);
+  return () => owner.readers.delete(reader);
+}
+
 /** A successful child hands its files to the caller's enclosing staging owner. */
 export function releaseSnapshotTempDirectory(directory: string): void {
-  pendingTempDirectoryCleanup.get(directory)?.(false);
+  const owner = pendingTempDirectoryCleanup.get(directory);
+  assertSnapshotReadersRetired(owner);
+  owner?.release?.(false);
   pendingTempDirectoryCleanup.delete(directory);
 }
 const tempDirectoryRemovalOptions = {
@@ -118,9 +148,19 @@ function emitSnapshotCleanupFailure(
   }
 }
 
+function assertSnapshotReadersRetired(owner: SnapshotDirectory | undefined): void {
+  if (owner?.readers.size) {
+    throw new SqliteSnapshotCleanupError("SQLite snapshot still belongs to an active reader");
+  }
+}
+
 function prepareSnapshotRemoval(directory: string): string[] {
-  pendingTempDirectoryCleanup.get(directory)?.(true);
-  pendingTempDirectoryCleanup.set(directory, undefined);
+  const owner = pendingTempDirectoryCleanup.get(directory);
+  assertSnapshotReadersRetired(owner);
+  owner?.release?.(true);
+  if (owner) {
+    owner.release = undefined;
+  }
   if (!fs.existsSync(path.join(directory, SQLITE_SNAPSHOT_CONTROL_FILES[0]))) {
     return [directory];
   }

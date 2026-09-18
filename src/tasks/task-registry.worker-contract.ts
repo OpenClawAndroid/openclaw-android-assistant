@@ -1,7 +1,9 @@
 import type { SqliteWorkerCommand } from "../infra/sqlite-worker-contract.js";
 import type { TaskFlowView } from "../plugins/runtime/task-domain-types.js";
-import type { ManagedTaskInFlowInput } from "./task-flow-managed-run-task.kernel.js";
-import type { RunTaskInFlowResult } from "./task-flow-managed-run-task.types.js";
+import type {
+  ManagedTaskInFlowInput,
+  ManagedTaskInFlowReceipt,
+} from "./task-flow-managed-run-task.kernel.js";
 import type {
   TaskFlowRegistryStoreSnapshot,
   TaskFlowRegistryUpdate,
@@ -52,7 +54,7 @@ export type TaskRegistryWorkerOperations = {
     input: { now: number; preserveSourceArtifacts: boolean };
     output: TaskRegistryStatusSnapshot | undefined;
   };
-  "flows.runTask": { input: ManagedTaskInFlowInput; output: RunTaskInFlowResult };
+  "flows.runTask": { input: ManagedTaskInFlowInput; output: ManagedTaskInFlowReceipt };
   "tasks.mutationSnapshot": {
     input: TaskRegistryMutationScope | undefined;
     output: TaskRegistryStoreSnapshot;

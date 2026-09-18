@@ -32,25 +32,32 @@ export type PrepareGatewaySessionLifecycle = (target: {
 /** Join recorded commit actions even when the enclosing source scope fails during cleanup. */
 export async function settleGatewaySessionLifecycleCommit<T>(
   commit: Promise<T>,
-  afterCommit: () => void | Promise<void>,
+  afterCommit: readonly (() => void | Promise<void>)[],
 ): Promise<T> {
-  let result: T;
-  try {
-    result = await commit;
-  } catch (error) {
+  const result: Result<T, unknown> = await commit.then(
+    (value) => ({ ok: true, value }),
+    (error: unknown) => ({ ok: false, error }),
+  );
+  const failures: unknown[] = result.ok ? [] : [result.error];
+  for (const action of afterCommit) {
     try {
-      await afterCommit();
-    } catch (postCommitError) {
-      throw new AggregateError(
-        [error, postCommitError],
-        "Session reset source cleanup and post-commit actions failed",
-        { cause: postCommitError },
-      );
+      await action();
+    } catch (error) {
+      failures.push(error);
     }
-    throw error;
   }
-  await afterCommit();
-  return result;
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Session reset commit and post-commit actions failed", {
+      cause: failures.at(-1),
+    });
+  }
+  if (!result.ok) {
+    throw result.error;
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  return result.value;
 }
 
 export async function rollbackGatewaySessionPreparation(params: {

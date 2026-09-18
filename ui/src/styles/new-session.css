@@ -379,6 +379,19 @@ html:is(.openclaw-native-macos, .openclaw-native-desktop) .new-session-page__inc
   white-space: nowrap;
 }
 
+.new-session-page__select--where,
+.new-session-page__select--where > .new-session-page__trigger {
+  max-width: 100%;
+}
+
+.new-session-page__trigger-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .new-session-page__trigger-chevron {
   display: inline-flex;
   color: inherit;
@@ -1278,6 +1291,10 @@ wa-popover.new-session-page__where-popover::part(body) {
 
   .new-session-page__trigger {
     gap: 0;
+  }
+
+  .new-session-page__trigger-summary {
+    margin-inline-start: 6px;
   }
 
   .new-session-page__trigger > .new-session-page__target-icon {

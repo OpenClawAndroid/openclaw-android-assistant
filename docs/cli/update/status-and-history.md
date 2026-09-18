@@ -20,6 +20,12 @@ JSON exposes them as `migrationWarnings`; they clear when the plugin migration
 completes. If migration state cannot be read, `migrationWarningsError` reports
 that failure while availability and run history remain visible.
 
+When the Gateway is reachable, status also reads its recorded channel warnings
+without probing channel services. JSON exposes these as `channelIssues`. This
+includes blocked channel startup after a local plugin requests trusted runtime
+state, with the source and supported installation remedy. An unavailable Gateway
+does not prevent availability or run-history output.
+
 ```bash
 openclaw update status
 openclaw update status --json
@@ -69,6 +75,11 @@ use candidate code before its own history admission completes.
 
 Triage preserves the original update report. Any update launched during repair
 gets a separate `runId`.
+
+Unexpected automatic-update campaign failures retain the error code, when present,
+and a redacted diagnostic in the run history as well as the Gateway log. Status
+and the bounded run report show the cause after the campaign clears. This requires
+the updated Gateway; older runs cannot recover a cause that was never recorded.
 
 An admitted `openclaw update --json` includes `runId` and the `run` record. `openclaw update status --json`
 includes `activeRun` when a run is active and `lastRun` when history exists.

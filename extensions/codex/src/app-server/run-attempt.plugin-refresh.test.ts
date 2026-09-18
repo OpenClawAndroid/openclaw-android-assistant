@@ -3,7 +3,7 @@ import path from "node:path";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { loadUserTurnTranscriptRecorderFactoryForTest } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readAttemptTerminal } from "./attempt-terminal.test-helper.js";
 import { resolveCodexAppServerHomeDir } from "./auth-start-options.js";
 import { CodexAppServerClient } from "./client.js";
@@ -35,6 +35,11 @@ const STEERING_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAS0lEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1a/e8v4/b56NynOi8pyoPCf+EZICAkafP69JAAAAAElFTkSuQmCC";
 
 describe("managed Codex plugin refresh", () => {
+  beforeEach(() => {
+    // Handoff barriers test persistence ordering, independently of host execution time.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  });
+
   it.each([
     "confirmed",
     "exited-terminal",
@@ -372,6 +377,7 @@ describe("managed Codex plugin refresh", () => {
             throw new Error("attempt ended before start");
           }),
         ]);
+        await consumerReady.promise;
         const inputText =
           isJsonObject(turnInput) && Array.isArray(turnInput.input)
             ? turnInput.input
@@ -392,7 +398,6 @@ describe("managed Codex plugin refresh", () => {
         expect(inputText).toContain(params.prompt);
         expect(inputText.length).toBeLessThan(30_000);
         if (acceptedSteering) {
-          await consumerReady.promise;
           expect(
             queueActiveRunMessageForTest(params.sessionId, steerText, {
               debounceMs: 0,
@@ -566,6 +571,7 @@ describe("managed Codex plugin refresh", () => {
           expect(requests.filter((method) => method === "thread/unsubscribe")).toHaveLength(1);
         }
       } finally {
+        vi.useRealTimers();
         releaseSibling.resolve();
         releaseTerminal.resolve();
         if (hasNativeCommand) {

@@ -47,7 +47,7 @@ import {
 import * as records from "./session-row-projection-record.js";
 import { createSessionRowProjectionTranscriptUpdates } from "./session-row-projection-transcript.js";
 import {
-  matchesSessionRowScope,
+  createSessionRowScopeMatcher,
   prepareSessionRowScopes,
   selectMatchingSessionRows,
   selectSessionRowEntries,
@@ -344,6 +344,7 @@ export async function createSessionRowProjection(params: {
         !isInternalSessionEffectsKey(change.sessionKey) &&
         !isIncognitoSessionKey(change.sessionKey)
       ) {
+        const matches = createSessionRowScopeMatcher(change, scope);
         for (const source of stores.values()) {
           const agentId = parseAgentSessionKey(change.sessionKey)?.agentId ?? source.agentId;
           const row = records.create({
@@ -351,10 +352,7 @@ export async function createSessionRowProjection(params: {
             agentId,
             storeTarget: source.target,
           });
-          if (
-            !matchesSessionRowScope(row, change, scope) ||
-            (!change.storePath && agentId !== source.agentId)
-          ) {
+          if (!matches(row) || (!change.storePath && agentId !== source.agentId)) {
             continue;
           }
           const admitted = inOwnerContext(() => acquireEntry(row, readSessionRowEntry(row)));

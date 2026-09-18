@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect } from "vitest";
+import { withTestTimeout } from "../../../test/helpers/promise.js";
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.js";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import {
@@ -24,8 +25,13 @@ import {
   listOpenClawRegisteredAgentDatabases,
   closeOpenClawAgentDatabasesForTest,
 } from "../../state/openclaw-agent-db.js";
+import {
+  closeOpenClawStateDatabaseByPathAsync,
+  registerOpenClawStateDatabaseLifecycleListener,
+} from "../../state/openclaw-state-db.js";
 import { gatewayFixtureLifetime } from "../gateway-fixture-lifetime.test-support.js";
 import type { GatewayServerHarness } from "../server.e2e-ws-harness.js";
+import { removeSessionFixtureDirectory } from "../session-fixture-directory.test-support.js";
 import { testState } from "../test-helpers.runtime-state.js";
 import { installGatewayTestHooks } from "../test-helpers.server.js";
 
@@ -73,6 +79,22 @@ export async function releaseGatewaySessionStoreFixture(dir: string) {
     }
   }
   await closeOpenClawAgentDatabasesAsync(root);
+
+  // Client identity fixtures use shared-state SQLite, even with legacy .json names.
+  // The lifecycle subscription replays the owner's recorded open paths synchronously.
+  const sharedDatabasePaths = new Set<string>();
+  registerOpenClawStateDatabaseLifecycleListener((event) => {
+    if (event.kind === "opened" && ownsPath(event.database.path)) {
+      sharedDatabasePaths.add(event.database.path);
+    }
+  })();
+  for (const databasePath of sharedDatabasePaths) {
+    await withTestTimeout(
+      closeOpenClawStateDatabaseByPathAsync(databasePath),
+      SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
+      `Timed out closing shared-state fixture database ${JSON.stringify(databasePath)} after ${SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS}ms; retaining fixture directory ${JSON.stringify(dir)}`,
+    );
+  }
 }
 
 export type GatewaySessionsSuiteSetup = (makeTempDir: (prefix: string) => string) => Promise<void>;
@@ -122,7 +144,7 @@ export function installGatewaySessionsTestResources(
       return;
     }
     await releaseGatewaySessionStoreFixture(sharedSessionStoreDir);
-    await fs.rm(sharedSessionStoreDir, { recursive: true, force: true });
+    await removeSessionFixtureDirectory(sharedSessionStoreDir);
   });
 
   const requireHarness = () => {

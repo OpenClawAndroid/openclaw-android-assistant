@@ -230,7 +230,7 @@ export function applyVerifiedGitHubIdentity(params: {
   identity: { accountId: number; login: string };
   createProfile: () => string;
   mergeProfiles: (sourceProfileId: string, targetProfileId: string) => void;
-}): string {
+}): { profileId: string; changed: boolean } {
   if (!Number.isSafeInteger(params.identity.accountId) || params.identity.accountId <= 0) {
     throw new TypeError("GitHub account id must be a positive safe integer");
   }
@@ -246,7 +246,8 @@ export function applyVerifiedGitHubIdentity(params: {
     db,
     kysely
       .selectFrom("user_profile_identities")
-      .select("profile_id")
+      .leftJoin("user_profiles", "user_profiles.id", "user_profile_identities.profile_id")
+      .select(["profile_id", "canonical_login", "primary_github_account_id"])
       .where("provider", "=", GITHUB_PROVIDER)
       .where("subject", "=", subject)
       .where("canonical_login", "is not", null),
@@ -318,14 +319,26 @@ export function applyVerifiedGitHubIdentity(params: {
       ? currentIdentity
       : selectStoredGitHubIdentities(db, [targetProfileId]).get(targetProfileId);
   // A secondary sign-in never selects public credit or repairs an ambiguous primary.
-  if (!targetAccounts || targetAccounts.primary) {
+  const primaryAccountId =
+    !targetAccounts || targetAccounts.primary
+      ? (targetAccounts?.primary?.accountId ?? params.identity.accountId)
+      : undefined;
+  if (
+    currentProfileId === targetProfileId &&
+    existing?.profile_id === targetProfileId &&
+    existing.canonical_login === login &&
+    aliasIdentity?.profile_id === targetProfileId &&
+    (primaryAccountId === undefined || existing.primary_github_account_id === primaryAccountId)
+  ) {
+    return { profileId: targetProfileId, changed: false };
+  }
+  if (primaryAccountId !== undefined) {
     executeSqliteQuerySync(
       db,
       kysely
         .updateTable("user_profiles")
         .set({
-          primary_github_account_id:
-            targetAccounts?.primary?.accountId ?? params.identity.accountId,
+          primary_github_account_id: primaryAccountId,
         })
         .where("id", "=", targetProfileId),
     );
@@ -378,5 +391,5 @@ export function applyVerifiedGitHubIdentity(params: {
         ),
     );
   }
-  return targetProfileId;
+  return { profileId: targetProfileId, changed: true };
 }

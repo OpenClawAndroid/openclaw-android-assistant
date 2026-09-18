@@ -5,6 +5,7 @@ import { DEV_BRANCH, type UpdateChannel } from "./update-channels.js";
 import { getUpdateDoctorConfigFailureReason } from "./update-doctor-config.js";
 import { createUpdateErrorFact } from "./update-failure-facts.js";
 import { readBuiltGatewayBuildId, verifyGitUpdateRecovery } from "./update-git-runtime.js";
+import { createUpdatePreflightFailure } from "./update-preflight-details.js";
 import { UpdateRequesterRevokedError } from "./update-requester-authority.js";
 import { runStep } from "./update-runner-command.js";
 import {
@@ -472,6 +473,16 @@ export async function updateGitCheckout(params: {
         : buildError(inspectedTarget.reason, inspectedTarget.status);
     }
     if (!inspectedTarget && opts.publishGitCheckout) {
+      const failure = createUpdatePreflightFailure("target-git-inspection-missing");
+      steps.push({
+        name: "target-metadata-preflight",
+        command: "openclaw update",
+        cwd: gitRoot,
+        durationMs: 0,
+        exitCode: 1,
+        stderrTail: failure.message,
+        failureFacts: failure.failureFacts,
+      });
       return buildError("target-metadata-preflight");
     }
     if (!inspectedTarget) {

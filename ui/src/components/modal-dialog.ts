@@ -258,7 +258,8 @@ export class OpenClawModalDialog extends OpenClawLitElement {
 
   protected override updated(changed: PropertyValues<this>) {
     if (changed.has("open")) {
-      setModalLayer(this, this.open);
+      // Lit can finish an already-queued update after the modal disconnects.
+      setModalLayer(this, this.open && this.isConnected);
       if (this.open && this.isConnected) {
         this.releaseNativeOcclusion ??= acquireNativeOverlayOcclusion();
       }

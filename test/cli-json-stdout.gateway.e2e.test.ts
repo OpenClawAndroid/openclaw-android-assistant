@@ -124,7 +124,8 @@ describe("cli json stdout contract", () => {
         });
 
         expect(result.status, result.stderr).toBe(1);
-        expect(result.stdout, result.stderr).not.toMatch(/[\u001B\u0007]/u);
+        expect(result.stdout, result.stderr).not.toContain("\u001B");
+        expect(result.stdout, result.stderr).not.toContain("\u0007");
         expect(result.stdout).not.toContain(gatewayError);
         expect(result.stderr).not.toContain(gatewayError);
         if ("human" in testCase) {
@@ -287,7 +288,8 @@ describe("cli json stdout contract", () => {
            globalThis.fetch = async () => { throw new Error("AUTOQA_NETWORK_FORBIDDEN"); };`,
         ).toString("base64");
         const result = runBuiltCli(tempHome, testCase.args, {
-          NODE_OPTIONS: `--permission --allow-fs-read=* --import=data:text/javascript;base64,${denyNetwork}`,
+          // Startup probes SQLite in a worker; filesystem writes remain denied in the CLI.
+          NODE_OPTIONS: `--permission --allow-fs-read=* --allow-worker --import=data:text/javascript;base64,${denyNetwork}`,
           NODE_DISABLE_COMPILE_CACHE: "1",
           OPENCLAW_NO_RESPAWN: "1",
           OPENCLAW_LOG_LEVEL: "silent",

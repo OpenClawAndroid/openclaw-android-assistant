@@ -1,8 +1,29 @@
 import type { AsyncLocalStorage } from "node:async_hooks";
-import type { Worker, Transferable } from "node:worker_threads";
+import type { Worker, Transferable, WorkerOptions } from "node:worker_threads";
 import type { Deferred } from "../shared/deferred.js";
 import type { WorkerComputePermit } from "./worker-task-capacity.js";
 import type { WorkerNativeSectionState } from "./worker-task-native-sections.js";
+
+export type WorkerTaskPoolOptions<Output> = {
+  workerUrl: URL;
+  workerOptions?: Omit<WorkerOptions, "eval">;
+  /** Shallow per-Worker overrides; returned scratch stays owned until Worker exit. */
+  prepareWorker?: () => {
+    options: Omit<WorkerOptions, "eval">;
+    temporaryDirectory?: string;
+  };
+  maxWorkers?: number;
+  /** Share CPU admission with other stateless compute pools in this isolate. */
+  sharedCompute?: boolean;
+  /** Include queued, preparing, and running tasks until execution has settled. */
+  maxPendingTasks?: number;
+  maxPendingBytes?: number;
+  idleTimeoutMs?: number;
+  restartOnError?: boolean;
+  validateResult?: (value: Output) => void;
+  /** Reports failed stops synchronously; returned rejections never delay retirement. */
+  onRetirementFailure?: (error: unknown) => void | Promise<void>;
+};
 
 export type WorkerTaskResponse = {
   input: unknown;

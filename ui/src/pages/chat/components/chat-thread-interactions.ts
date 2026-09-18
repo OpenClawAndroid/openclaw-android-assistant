@@ -281,7 +281,22 @@ export function renderTranscriptSearch(
     return nothing;
   }
   return html`
-    <div class="agent-chat__search-bar">
+    <div
+      class="agent-chat__search-bar"
+      @keydown=${(event: KeyboardEvent) => {
+        if (
+          event.key !== "Escape" ||
+          event.defaultPrevented ||
+          event.isComposing ||
+          event.keyCode === 229
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        closeTranscriptSearch(state, requestUpdate);
+      }}
+    >
       ${icons.search}
       <input
         type="text"

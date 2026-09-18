@@ -199,6 +199,22 @@ Retained files use mode `0600` and new directories use `0700` on POSIX systems.
 If preservation fails, recover the outputs from the reported checkout before
 removing it; incomplete destination copies are removed.
 
+On normal completion or a supported POSIX interrupt, the wrapper settles its
+child process tree and output streams before restoring retained lease ownership, preserving
+artifacts, and removing disposable source. Allow the wrapper to finish after
+Ctrl-C; additional signals reuse that shutdown and its bounded escalation.
+A package-manager proxy can return its interruption status before the wrapper
+finishes. That status or remote lease completion alone does not establish that
+local cleanup finished.
+
+Cleanup errors are reported and make an otherwise successful invocation fail;
+an existing nonzero command or cancellation status is preserved. If child
+termination cannot be verified, the wrapper retains its local inputs and reports
+that recovery is needed. A failed retained-lease ownership restore also retains
+the checkout; restore that lease to the original repository or stop it before
+removing the checkout. Stop any remaining owned processes before recovering
+artifacts or removing their temporary inputs.
+
 These are local artifacts, not published or fully sanitized proof. Blacksmith's
 native failure bundle contains captured stdout/stderr and diagnostic metadata;
 it does not automatically include remote UI screenshots or reports. Retrieve

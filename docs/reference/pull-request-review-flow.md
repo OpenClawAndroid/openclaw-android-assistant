@@ -117,6 +117,40 @@ Assigned PRs are marked stale 27 days after opening, regardless of later
 updates, then closed after 7 stale days without activity. If an assigned PR is
 still active, coordinate with the maintainer working on it.
 
+## Maintainer review artifacts
+
+`scripts/pr review-artifacts-init <PR>` writes `.local/review.json` for the
+current reviewed head. Its defaults are structurally valid and explicitly
+unfinished: `NEEDS WORK`, `performed: false`, empty evidence arrays, and
+`tests.result: "not_run"`. Initialization preserves an existing artifact stamped
+for the same PR and head, so it does not rewrite an older or partially filled
+review.
+
+Fill the JSON with review findings and evidence, then run
+`scripts/pr review-validate-artifacts <PR>`. JSON owns the review; validation
+prints its summary, and an existing `.local/review.md` is not authoritative.
+Keep enum values bare, without annotations such as `(allowed: ...)`:
+
+| Field                              | Accepted values                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------------- |
+| `recommendation`                   | `READY FOR /prepare-pr`, `NEEDS WORK`, `NEEDS DISCUSSION`, `NOT USEFUL (CLOSE)` |
+| `findings[].severity`              | `BLOCKER`, `IMPORTANT`, `NIT`                                                   |
+| `nitSweep.status` (optional sweep) | `none`, `has_nits`                                                              |
+| `issueValidation.source`           | `linked_issue`, `pr_body`, `both`                                               |
+| `issueValidation.status`           | `valid`, `unclear`, `invalid`, `already_fixed_on_main`                          |
+| `behavioralSweep.status`           | `pass`, `needs_work`, `not_applicable`                                          |
+| `behavioralSweep.silentDropRisk`   | `none`, `present`, `unknown`                                                    |
+| `tests.result`                     | `pass`, `fail`, `not_run`                                                       |
+| `docs`                             | `up_to_date`, `missing`, `not_applicable`                                       |
+| `changelog`                        | `required`, `not_required`                                                      |
+
+`nitSweep` is optional and omitted from a fresh template. If supplied, it requires
+`performed: true`, a status consistent with the NIT findings, and a non-empty
+summary. Required issue and behavior summaries must also be non-empty, and each
+finding needs a severity. Structural validity does not authorize preparation:
+`READY FOR /prepare-pr` still requires completed issue and behavior review,
+resolved substantive findings, and the applicable runtime proof.
+
 ## When automation stays quiet
 
 Automation may stay quiet when a maintainer is already handling the item, a

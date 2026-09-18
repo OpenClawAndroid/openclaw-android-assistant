@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { setImmediate as nextTurn } from "node:timers/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createConfigIO } from "../config/io.js";
 import type { ModelDefinitionConfig, ModelProviderConfig } from "../config/types.models.js";
@@ -20,6 +20,7 @@ import { AuthStorage } from "./sessions/auth-storage.js";
 import { ModelRegistry } from "./sessions/model-registry.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+afterEach(() => vi.unstubAllEnvs());
 const providerId = "prepared-source-fixture";
 const pluginId = "prepared-source-owner";
 const endpoint = "https://prepared.example.invalid/v1";
@@ -54,7 +55,13 @@ function fixture(mode: "merge" | "replace" = "merge") {
   };
   const preparedStaticProviderCatalog: PreparedProviderStaticCatalog = {
     providers: [provider],
-    entries: [{ provider, result: { provider: staticConfig } }],
+    entries: [
+      {
+        provider,
+        result: { provider: staticConfig },
+        providerConfigs: { [providerId]: staticConfig },
+      },
+    ],
   };
   const generation = {
     pluginMetadataSnapshot: metadata,
@@ -83,6 +90,7 @@ function fixture(mode: "merge" | "replace" = "merge") {
 
 describe("prepared catalog source composition", () => {
   it("retains inherited catalogs and current request settings without custom model rows", async () => {
+    vi.stubEnv("OPENAI_API_KEY", undefined);
     const { facts, staticConfig } = fixture();
     const configPath = path.join(facts.input.agentDir, "openclaw.json");
     fs.writeFileSync(

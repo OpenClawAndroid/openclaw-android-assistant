@@ -13,8 +13,10 @@ import {
 import { withSharedStateWriteCoordinator } from "../state/openclaw-state-db-write-coordination.js";
 import { runOpenClawStateWriteTransaction } from "../state/openclaw-state-db.js";
 import { mapTaskFlowView } from "./task-domain-views.js";
-import { runManagedTaskInFlowInDatabase } from "./task-flow-managed-run-task.kernel.js";
-import type { RunTaskInFlowResult } from "./task-flow-managed-run-task.types.js";
+import {
+  runManagedTaskInFlowInDatabase,
+  type ManagedTaskInFlowReceipt,
+} from "./task-flow-managed-run-task.kernel.js";
 import { assertControllerId, normalizeRestoredFlowRecord } from "./task-flow-registry.records.js";
 import {
   bindTaskFlowRecord,
@@ -67,7 +69,7 @@ export function executeTaskRegistryCommand(
     return command.input.preserveSourceArtifacts ? withArtifactPreservingStateReads(read) : read();
   }
   if (command.type === "flows.runTask") {
-    let committed: RunTaskInFlowResult | undefined;
+    let committed: ManagedTaskInFlowReceipt | undefined;
     try {
       const database = open();
       return withSharedStateWriteCoordinator(

@@ -600,6 +600,7 @@ merge_run() {
   fi
 
   local crabbox_final_main_sha="" route=immediate
+  local MERGE_ADMISSION_ACTIVE=true
   local admission_attempt previous_observation=""
   # Only fresh admission waits for calculation; retained intent reconciles immediately.
   # Pin all other facts and each projection as soon as it becomes known.
@@ -613,6 +614,7 @@ merge_run() {
     ' >/dev/null; then
       printf 'Merge admission rejected (observation %s, prepared head %s): %s\n' \
         "$admission_attempt" "$PREP_HEAD_SHA" "$MERGE_OBSERVATION" >&2
+      merge_outcome_diagnose "$pr" "$MERGE_OBSERVATION"
       merge_outcome_stop "require OPEN, exact prepared head, main base, non-draft, no conflicts, and no existing auto/queue request; inspect current PR state"
       return 1
     fi
@@ -621,6 +623,12 @@ merge_run() {
       ($previous.pr.mergeable == "UNKNOWN" or .pr.mergeable == $previous.pr.mergeable) and
       ($previous.pr.mergeStateStatus == "UNKNOWN" or .pr.mergeStateStatus == $previous.pr.mergeStateStatus)
     ' >/dev/null; then
+      local pinned_observation
+      pinned_observation=$(printf '%s\n' "$previous_observation" | jq -c --argjson current "$MERGE_OBSERVATION" '
+        if .pr.mergeable == "UNKNOWN" then .pr.mergeable=$current.pr.mergeable else . end |
+        if .pr.mergeStateStatus == "UNKNOWN" then .pr.mergeStateStatus=$current.pr.mergeStateStatus else . end
+      ')
+      merge_outcome_diagnose "$pr" "$MERGE_OBSERVATION" "$pinned_observation"
       merge_outcome_stop "PR or main changed while waiting for mergeability; stopped before intent/dispatch"
       return 1
     fi
@@ -628,6 +636,10 @@ merge_run() {
       break
     fi
     if [ "$admission_attempt" -eq 3 ]; then
+      local known_projections
+      known_projections=$(printf '%s\n' "$MERGE_OBSERVATION" | jq -c \
+        '.pr |= with_entries(if (.key == "mergeable" or .key == "mergeStateStatus") and .value == "UNKNOWN" then .value="known (not UNKNOWN)" else . end)')
+      merge_outcome_diagnose "$pr" "$MERGE_OBSERVATION" "$known_projections"
       merge_outcome_stop "mergeability remained UNKNOWN after 3 observations; stopped before intent/dispatch"
       return 1
     fi
@@ -651,7 +663,9 @@ merge_run() {
         route=auto
         merge_args=(--auto "${merge_args[@]}")
         ;;
-      *) merge_outcome_stop "auto-merge admission requires MERGEABLE with CLEAN or BEHIND status"; return 1 ;;
+      *)
+        merge_outcome_diagnose "$pr" "$MERGE_OBSERVATION" null "CLEAN|BEHIND" "MERGEABLE"
+        merge_outcome_stop "auto-merge admission requires MERGEABLE with CLEAN or BEHIND status"; return 1 ;;
     esac
   fi
   if [ -n "$captured_body" ] && [ "$route" = queue ]; then
@@ -668,6 +682,9 @@ merge_run() {
     .pr | .isMergeQueueEnabled == false and
     (.mergeStateStatus == "DIRTY" or ($route == "immediate" and (.mergeStateStatus | IN("BLOCKED", "BEHIND"))))
   ' >/dev/null; then
+    local allowed_status="not DIRTY"
+    [ "$route" != immediate ] || allowed_status="not BLOCKED|BEHIND|DIRTY"
+    merge_outcome_diagnose "$pr" "$MERGE_OBSERVATION" null "$allowed_status"
     merge_outcome_stop "selected merge route is blocked by policy, branch drift, or a dirty merge projection; inspect current PR state"
     return 1
   fi
@@ -738,6 +755,7 @@ merge_run() {
         if $replacement == "" then {} else {replacementHead:$replacement} end)') || return 1
   fi
   mark_pr_operation_side_effects_started
+  MERGE_ADMISSION_ACTIVE=false
   if [ -n "$legacy_directory" ]; then
     merge_outcome_write "$intent" "${legacy_captures[@]}" || return 1
   else

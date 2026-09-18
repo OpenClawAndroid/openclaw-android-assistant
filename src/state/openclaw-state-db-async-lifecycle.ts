@@ -12,7 +12,7 @@ import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 
 const STATE_DATABASE_READ_ADMISSION_INVALIDATED = "STATE_DATABASE_READ_ADMISSION_INVALIDATED";
 
-class StateDatabaseReadAdmissionInvalidatedError extends Error {
+export class StateDatabaseReadAdmissionInvalidatedError extends Error {
   readonly code = STATE_DATABASE_READ_ADMISSION_INVALIDATED;
 }
 
@@ -288,7 +288,10 @@ export function createOpenClawStateDatabaseAsyncLifecycle() {
     const resolvedPath = path.resolve(pathname);
     const cached = known(resolvedPath);
     if (cached && (!preparedIdentity || cached.identity.key === preparedIdentity.key)) {
-      return cached;
+      // Resolve first creation without replacing an established file's admission.
+      return !preparedIdentity && cached.identity.key.startsWith("path:")
+        ? resolve(resolvedPath, readDatabasePathIdentitySync(resolvedPath))
+        : cached;
     }
     const identity = preparedIdentity ?? readDatabasePathIdentitySync(resolvedPath);
     let record = records.get(identity.key);

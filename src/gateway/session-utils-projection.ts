@@ -40,7 +40,7 @@ export function buildSessionListRowMetadataContext(params: {
     subagentRuns,
     subagentRunsByChildSessionKey: subagentRuns.runsByChildSessionKey,
     configuredDefaultModelByAgent: new Map(),
-    thinkingMetadataByModelRef: new Map(),
+    thinkingFactsByModelRef: new Map(),
     findModelCatalogEntry: (catalog, query) => {
       let entries = catalogEntries.get(catalog);
       if (!entries) {

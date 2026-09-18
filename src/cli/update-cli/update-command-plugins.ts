@@ -167,6 +167,15 @@ export async function updatePluginsAfterCoreUpdate(params: {
   const integrityDrifts: PostCorePluginUpdateResult["integrityDrifts"] = [];
   const pluginUpdateOutcomes: PluginUpdateOutcome[] = [];
   const collectPluginOutcome = (outcome: PluginUpdateOutcome) => {
+    if (outcome.status === "skipped" && outcome.code === "plugin-operator-managed") {
+      warnings.push({
+        pluginId: outcome.pluginId,
+        source: outcome.rootDir,
+        reason: outcome.code,
+        message: outcome.message,
+        guidance: outcome.guidance,
+      });
+    }
     if (outcome.status !== "error" && !isActionableSkippedPostUpdateOutcome(outcome)) {
       pluginUpdateOutcomes.push(outcome);
       return;

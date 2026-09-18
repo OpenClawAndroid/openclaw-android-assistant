@@ -1479,7 +1479,7 @@ packages/llm-core/src/validation.ts	2
 packages/markdown-core/src/assistant-transcript.ts	1
 packages/markdown-core/src/format-capabilities.ts	1
 packages/markdown-core/src/frontmatter.ts	1
-packages/markdown-core/src/ir.ts	9
+packages/markdown-core/src/ir.ts	5
 packages/markdown-core/src/reasoning-tag-parser.ts	1
 packages/media-core/src/read-byte-stream-with-limit.ts	1
 packages/media-understanding-common/src/output-extract.ts	1
@@ -1717,7 +1717,7 @@ src/agents/embedded-agent-runner/run/helpers.ts	3
 src/agents/embedded-agent-runner/run/history-image-prune.ts	4
 src/agents/embedded-agent-runner/run/images.ts	7
 src/agents/embedded-agent-runner/run/incomplete-turn-classification.ts	5
-src/agents/embedded-agent-runner/run/incomplete-turn-recovery.ts	3
+src/agents/embedded-agent-runner/run/incomplete-turn-recovery.ts	2
 src/agents/embedded-agent-runner/run/incomplete-turn-resolution.ts	3
 src/agents/embedded-agent-runner/run/llm-idle-timeout.ts	3
 src/agents/embedded-agent-runner/run/message-tool-terminal.ts	1
@@ -3350,7 +3350,6 @@ src/sessions/input-provenance.ts	3
 src/sessions/session-key-utils.ts	1
 src/sessions/session-lifecycle-admission.ts	1
 src/sessions/session-state-events.ts	2
-src/sessions/session-upstream-links.ts	2
 src/sessions/session-upstream-monitor.ts	2
 src/sessions/user-turn-transcript-runtime-context.ts	2
 src/sessions/user-turn-transcript.media-normalize.ts	2
@@ -3574,7 +3573,6 @@ ui/src/components/browser/browser-annotation.ts	1
 ui/src/components/browser/browser-client.ts	1
 ui/src/components/browser/browser-panel-render.ts	4
 ui/src/components/browser/browser-panel.ts	1
-ui/src/components/command-palette.ts	2
 ui/src/components/config-form-collection-draft.ts	5
 ui/src/components/config-form-copy-on-write.ts	1
 ui/src/components/config-form-structured-draft.ts	3

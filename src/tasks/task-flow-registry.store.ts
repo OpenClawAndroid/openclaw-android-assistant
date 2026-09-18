@@ -158,9 +158,11 @@ export function prepareTaskFlowRecordPublication(params: {
   read: () => TaskFlowRecord | undefined;
   write: (flow: TaskFlowRecord | undefined) => void;
   advance: () => void;
+  onCommitted: () => void;
   emit: (createEvent: () => FlowRegistryPublication) => void;
 }): TaskFlowRegistryUpdatePublication {
-  const { flowId, cached, current, previous, applied, read, write, advance, emit } = params;
+  const { flowId, cached, current, previous, applied, read, write, advance, onCommitted, emit } =
+    params;
   const canonical = current ? cloneFlowRecord(current) : undefined;
   const changed =
     applied ||
@@ -177,6 +179,7 @@ export function prepareTaskFlowRecordPublication(params: {
       write(cached);
     },
     commit: () => {
+      onCommitted();
       advance();
       // Capture the final staged entry before any observer can reenter this owner.
       committed = read();

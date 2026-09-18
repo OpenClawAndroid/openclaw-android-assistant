@@ -90,6 +90,7 @@ import {
   notifyRuntimeConfigWriteListeners,
   preflightManagedRuntimeConfigWrite,
   preflightRuntimeSnapshotWrite,
+  projectRuntimeConfigWritePreparedCandidates,
   resolveConfigWriteAfterWrite,
   resolveConfigWriteFollowUp,
   type ConfigWriteAfterWrite,
@@ -1041,19 +1042,10 @@ async function tryWriteIncludeOwnedConfigMutation(params: {
           if (!notificationRuntimeConfig) {
             return;
           }
-          const notificationPreparedCandidates = new Map(
-            [...managedPreparedCandidates].map(([ownerId, candidate]) => [
-              ownerId,
-              {
-                ...candidate,
-                runtimeConfig:
-                  candidate.reapplyRuntimeOverlays?.(refreshedSnapshot.runtimeConfig) ??
-                  candidate.runtimeConfig,
-                compareConfig:
-                  candidate.reapplyCompareOverlays?.(refreshedSnapshot.sourceConfig) ??
-                  candidate.compareConfig,
-              },
-            ]),
+          const notificationPreparedCandidates = projectRuntimeConfigWritePreparedCandidates(
+            managedPreparedCandidates,
+            refreshedSnapshot.runtimeConfig,
+            refreshedSnapshot.sourceConfig,
           );
           notifyRuntimeConfigWriteListeners(
             attachRuntimeConfigWriteApplication(

@@ -3,6 +3,7 @@ import {
   readSessionTranscriptBoundedMessageTailPage,
 } from "../config/sessions/session-accessor.js";
 import { SessionTranscriptColdError } from "../config/sessions/session-cold-storage-state.js";
+import { SessionTranscriptStorageUnavailableError } from "../config/sessions/session-transcript-projection-error.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import { readSessionFallbackModel } from "../status/session-fallback-model.js";
 import { projectSessionDisplayMessage } from "./session-display-projection.js";
@@ -41,6 +42,7 @@ export async function backfillSessionRowTranscriptFields(params: {
       maxMessages: 20,
       maxBytes: 64 * 1024,
       offset: 0,
+      readOnly: true,
     });
     // Older text cannot stand in for an oversized message skipped at the newest edge.
     const events = tail.newestContiguousEventCount
@@ -62,6 +64,7 @@ export async function backfillSessionRowTranscriptFields(params: {
   } catch (error) {
     if (
       isSessionTranscriptProjectionUnavailableError(error) ||
+      error instanceof SessionTranscriptStorageUnavailableError ||
       error instanceof SessionTranscriptColdError
     ) {
       return {};

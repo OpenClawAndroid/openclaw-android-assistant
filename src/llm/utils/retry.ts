@@ -3,7 +3,6 @@ import { isProviderRefusalAssistantError } from "@openclaw/llm-core/diagnostics"
 import { classifyFailoverSignal } from "../../agents/failover/classify.js";
 import {
   extractFailoverHttpStatus,
-  hasTransientRetryEvidence,
   shouldRetryFailoverSignal,
 } from "../../agents/failover/retry-evidence.js";
 import {
@@ -31,7 +30,7 @@ export function isTerminalAssistantError(
   );
 }
 
-/** Classify transient provider/transport failures for outer retry policy. */
+/** Classify transient provider/transport failures for session retries. */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
   if (
     message.stopReason !== "error" ||
@@ -50,6 +49,5 @@ export function isRetryableAssistantError(message: AssistantMessage): boolean {
     ...(status === undefined ? {} : { status }),
   };
   const classification = classifyFailoverSignal(signal);
-  const hasTransientEvidence = hasTransientRetryEvidence(signal);
-  return shouldRetryFailoverSignal({ classification, hasTransientEvidence, signal });
+  return shouldRetryFailoverSignal({ classification, signal });
 }

@@ -373,7 +373,7 @@ describe("matrix client storage paths", () => {
 
     expect(fs.existsSync(storagePaths.storagePath)).toBe(false);
     expect(fs.existsSync(`${storagePaths.storagePath}.migrated`)).toBe(true);
-    const syncStore = new SqliteBackedMatrixSyncStore(storagePaths.rootDir);
+    const syncStore = await SqliteBackedMatrixSyncStore.create(storagePaths.rootDir);
     expect(syncStore.hasSavedSync()).toBe(true);
     await expect(syncStore.getSavedSyncToken()).resolves.toBe("account-token");
   });
@@ -477,7 +477,7 @@ describe("matrix client storage paths", () => {
       expect(fs.existsSync(migrationPath)).toBe(true);
       expect(fs.existsSync(`${migrationPath}.migrated`)).toBe(false);
       await expect(
-        new SqliteBackedMatrixSyncStore(storagePaths.rootDir).getSavedSyncToken(),
+        (await SqliteBackedMatrixSyncStore.create(storagePaths.rootDir)).getSavedSyncToken(),
       ).resolves.toBe("retry-token");
 
       resetPluginStateStoreForTests();
@@ -493,7 +493,7 @@ describe("matrix client storage paths", () => {
         migrationState,
       );
       await expect(
-        new SqliteBackedMatrixSyncStore(storagePaths.rootDir).getSavedSyncToken(),
+        (await SqliteBackedMatrixSyncStore.create(storagePaths.rootDir)).getSavedSyncToken(),
       ).resolves.toBe("retry-token");
     },
   );

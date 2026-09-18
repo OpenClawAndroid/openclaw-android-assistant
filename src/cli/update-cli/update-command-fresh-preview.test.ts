@@ -505,7 +505,16 @@ describe("update command admission with fresh state", () => {
       ).rejects.toMatchObject({ code: 1 });
 
       expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "error", reason: "target-metadata-preflight" }),
+        expect.objectContaining({
+          status: "error",
+          reason: "target-metadata-preflight",
+          mode: "npm",
+          steps: [
+            expect.objectContaining({
+              failureFacts: [expect.objectContaining({ code: "target-registry-dist-tag" })],
+            }),
+          ],
+        }),
       );
       expectFreshStatePreserved();
     },
@@ -752,15 +761,19 @@ it("fresh local artifact reaches compatible target staging without creating pare
   expect(outcome).toBe("artifact-staged");
 });
 
-it.each([16, undefined] as const)(
-  "inspects artifact schema %s before canonical initialization and history",
-  async (schema) => {
+it.each([
+  { schema: 16, version: "2026.9.2", code: undefined },
+  { schema: undefined, version: "2026.9.2", code: "target-schema-metadata" },
+  { schema: 16, version: "invalid", code: "target-version-resolution" },
+])(
+  "inspects artifact version $version and schema $schema before canonical initialization and history",
+  async ({ schema, version, code }) => {
     const candidate = dirs.make("openclaw-artifact-candidate-");
     fs.writeFileSync(
       path.join(candidate, "package.json"),
       JSON.stringify({
         name: "openclaw",
-        version: "2026.9.2",
+        version,
         engines: { node: ">=22" },
         ...(schema === undefined
           ? {}
@@ -809,12 +822,25 @@ it.each([16, undefined] as const)(
     expect(staged.close).toHaveBeenCalledOnce();
     expect(privateState).toBeDefined();
     expect(fs.existsSync(path.dirname(privateState!))).toBe(false);
-    if (schema === undefined) {
+    if (code) {
       expect(doctor).not.toHaveBeenCalled();
       expect(admission).not.toHaveBeenCalled();
       expect(fs.existsSync(fixture.databasePath)).toBe(false);
       expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
-        expect.objectContaining({ reason: "target-metadata-preflight" }),
+        expect.objectContaining({
+          reason: "target-metadata-preflight",
+          mode: "npm",
+          steps: [
+            expect.objectContaining({
+              failureFacts: [
+                expect.objectContaining({
+                  code,
+                  message: expect.stringContaining("openclaw update --tag"),
+                }),
+              ],
+            }),
+          ],
+        }),
       );
     } else {
       expect(outcome).toBe("artifact-admitted");

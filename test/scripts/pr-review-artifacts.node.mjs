@@ -54,6 +54,112 @@ for (const runtime of [false, true]) {
   });
 }
 
+for (const [field, allowed, assign] of [
+  [
+    "recommendation",
+    "READY FOR /prepare-pr|NEEDS WORK|NEEDS DISCUSSION|NOT USEFUL (CLOSE)",
+    (review, value) => {
+      review.recommendation = value;
+    },
+  ],
+  [
+    "findings[0].severity",
+    "BLOCKER|IMPORTANT|NIT",
+    (review, value) => {
+      review.findings = [
+        { id: "F1", severity: value, title: "Regression", area: "input", fix: "Handle input" },
+      ];
+    },
+  ],
+  [
+    "nitSweep.status",
+    "none|has_nits",
+    (review, value) => {
+      review.nitSweep = { performed: true, status: value, summary: "No nits." };
+    },
+  ],
+  [
+    "issueValidation.source",
+    "linked_issue|pr_body|both",
+    (review, value) => {
+      review.issueValidation.source = value;
+    },
+  ],
+  [
+    "issueValidation.status",
+    "valid|unclear|invalid|already_fixed_on_main",
+    (review, value) => {
+      review.issueValidation.status = value;
+    },
+  ],
+  [
+    "behavioralSweep.status",
+    "pass|needs_work|not_applicable",
+    (review, value) => {
+      review.behavioralSweep.status = value;
+    },
+  ],
+  [
+    "behavioralSweep.silentDropRisk",
+    "none|present|unknown",
+    (review, value) => {
+      review.behavioralSweep.silentDropRisk = value;
+    },
+  ],
+  [
+    "tests.result",
+    "pass|fail|not_run",
+    (review, value) => {
+      review.tests.result = value;
+    },
+  ],
+  [
+    "docs",
+    "up_to_date|missing|not_applicable",
+    (review, value) => {
+      review.docs = value;
+    },
+  ],
+  [
+    "changelog",
+    "required|not_required",
+    (review, value) => {
+      review.changelog = value;
+    },
+  ],
+]) {
+  test(`rejects an annotated enum with the exact field and accepted values: ${field}`, (t) => {
+    const f = fixture(t);
+    const annotated = `${allowed.split("|")[0]} (allowed: ${allowed})`;
+    assign(f.review, annotated);
+    const result = f.validate();
+    assert.equal(result.status, 1);
+    assert.ok(
+      result.stdout.includes(`${field}=${JSON.stringify(annotated)} (allowed: ${allowed})`),
+      result.stdout,
+    );
+    assert.match(result.stdout, /1 artifact violations/);
+  });
+}
+
+test("empty required summaries and missing finding severity remain invalid", (t) => {
+  const f = fixture(t);
+  f.review.issueValidation.summary = "";
+  f.review.behavioralSweep.summary = " ";
+  f.review.nitSweep = { performed: true, status: "none", summary: "" };
+  f.review.findings = [{ id: "F1", title: "Regression", area: "input", fix: "Handle input" }];
+  const result = f.validate();
+  assert.equal(result.status, 1);
+  for (const field of ["issueValidation.summary", "behavioralSweep.summary", "nitSweep.summary"]) {
+    assert.ok(result.stdout.includes(`${field} must be a non-empty string`), result.stdout);
+  }
+  assert.ok(
+    result.stdout.includes("findings[0].severity=null (allowed: BLOCKER|IMPORTANT|NIT)"),
+    result.stdout,
+  );
+  assert.match(result.stdout, /4 artifact violations/);
+});
+
 test("JSON owns rendering and optional nit evidence remains validated", (t) => {
   const f = fixture(t);
   f.review.recommendation = "READY FOR /prepare-pr";

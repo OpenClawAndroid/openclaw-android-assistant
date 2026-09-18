@@ -247,6 +247,9 @@ suite.define(() => {
       const checkoutTrigger = page.locator("#new-session-checkout-trigger");
       const checkout = page.locator("wa-popover.new-session-page__checkout-popover");
       await expect.poll(() => checkoutTrigger.getAttribute("data-worktree")).toBe("true");
+      await pollLocatorText(checkoutTrigger.locator(".new-session-page__trigger-label")).toBe(
+        "From main",
+      );
       await checkoutTrigger.click();
       const currentCheckout = checkout.locator('[data-value="checkout"]');
       expect(await currentCheckout.isDisabled()).toBe(true);
@@ -305,6 +308,9 @@ suite.define(() => {
       await expect.poll(() => checkout.getByLabel("From").inputValue()).toBe("main");
       await checkout.getByLabel("From").fill("release");
       await expect.poll(() => checkout.getByLabel("From").inputValue()).toBe("release");
+      await pollLocatorText(checkoutTrigger.locator(".new-session-page__trigger-label")).toBe(
+        "From release",
+      );
       await checkout.getByLabel("From").fill("main");
       await pollLocatorText(checkout.locator(".new-session-page__menu-note").last()).toContain(
         "Syncs target-repo to the selected runner",

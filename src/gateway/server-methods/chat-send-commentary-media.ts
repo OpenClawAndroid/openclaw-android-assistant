@@ -145,6 +145,7 @@ export function observeChatSendCommentaryMedia(params: {
               cfg: session.cfg,
               sessionKey: scope.sessionKey,
               agentId: scope.agentId,
+              sessionEntry: current.entry,
               accountId: params.accountId,
               payloads: mediaUrls.map((url) => ({ mediaUrls: [url] })),
             });

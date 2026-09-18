@@ -21,6 +21,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Looper
+import android.provider.Settings
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.toArgb
@@ -140,6 +141,70 @@ class SettingsScreensContrastTest {
           }
         },
       ).around(composeRule)
+
+  @Test
+  @Config(qualifiers = "fr-rFR-w320dp-h800dp-mdpi")
+  fun healthPhoneNodeStatusKeepsCompleteLocalizedTitleAtLargeFont() {
+    try {
+      val model = offlineTypographyModel()
+      composeRule.setContent {
+        DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
+          ClawDesignTheme {
+            SettingsDetailScreen(model, SettingsRoute.Health, onBack = {})
+          }
+        }
+      }
+      val title = nativeString("Phone Node")
+      composeRule.onNodeWithText(title, useUnmergedTree = true).performScrollTo()
+      captureTypography("health-phone-node-large")
+      composeRule.onNodeWithText(title, useUnmergedTree = true).assertCompleteText(title)
+      composeRule
+        .onNode(hasText(nativeString("Waiting")) and hasAnyAncestor(hasAnyChild(hasText(title))), useUnmergedTree = true)
+        .assertCompleteText(nativeString("Waiting"))
+      assertFalse(model.isNodeConnected.value)
+    } finally {
+      NativeStringResources.setApplicationLocales(LocaleListCompat.getEmptyLocaleList())
+    }
+  }
+
+  @Test
+  @Config(qualifiers = "fr-rFR-w320dp-h800dp-mdpi")
+  fun voiceAudioTestExposesLocalizedPlaybackActionInBothSpeakerStates() {
+    val resolver = RuntimeEnvironment.getApplication().contentResolver
+    val previousScale = Settings.Global.getString(resolver, Settings.Global.ANIMATOR_DURATION_SCALE)
+    try {
+      // The synthetic waveform animation is unrelated to the accessibility action.
+      Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+      val model = offlineTypographyModel()
+      composeRule.setContent {
+        DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
+          ClawDesignTheme {
+            SettingsDetailScreen(model, SettingsRoute.Voice, onBack = {})
+          }
+        }
+      }
+      val label = nativeString("Play audio")
+      assertEquals("Lire l’audio", label)
+      for (speakerEnabled in listOf(true, false)) {
+        composeRule.runOnIdle { model.setSpeakerEnabled(speakerEnabled) }
+        composeRule.onNodeWithText(nativeString(if (speakerEnabled) "Mute speaker" else "Enable speaker"), useUnmergedTree = true).performScrollTo()
+        captureTypography("voice-audio-test-$speakerEnabled")
+        composeRule
+          .onNodeWithContentDescription(label)
+          .performScrollTo()
+          .assertIsDisplayed()
+          .assertIsEnabled()
+          .assertHasClickAction()
+          .performClick()
+        composeRule.runOnIdle {
+          assertEquals("Playing the test tone does not toggle the speaker preference", speakerEnabled, model.speakerEnabled.value)
+        }
+      }
+    } finally {
+      Settings.Global.putString(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, previousScale)
+      NativeStringResources.setApplicationLocales(LocaleListCompat.getEmptyLocaleList())
+    }
+  }
 
   @Test
   @Config(qualifiers = "fr-rFR-w320dp-h800dp-mdpi")

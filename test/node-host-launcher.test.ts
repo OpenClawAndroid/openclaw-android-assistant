@@ -789,10 +789,10 @@ syncBuiltinESMExports();
 
   it("keeps foreground shutdown attached to the runtime process", async () => {
     const f = await fixture(`
+const keepAlive = setInterval(() => {}, 1000);
+process.once('SIGTERM', () => { report('stopped'); clearInterval(keepAlive); });
 await ready();
 report({ pid: process.pid });
-process.once('SIGTERM', () => { report('stopped'); process.exit(0); });
-setInterval(() => {}, 1000);
 `);
     const launched = run(f.base, f.stateDir);
     await expect.poll(() => launched.output(), { timeout: 10_000 }).toContain("pid");

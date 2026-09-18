@@ -34,7 +34,6 @@ import type { TypefaceId } from "../../app/typography.ts";
 import {
   confirmAndStartUpdate,
   createUpdateProgressWatcher,
-  type UpdateProgress,
 } from "../../app/update-confirmation.ts";
 import { canReportUpdateFailure } from "../../app/update-failure-report-controller.ts";
 import { CONTROL_UI_BUILD_INFO } from "../../build-info.ts";
@@ -962,11 +961,6 @@ export class ConfigPage extends OpenClawLightDomElement {
     return update.updateRunning || update.updateReconciliationPending;
   }
 
-  // The update dialog outlives this page and the connection, so it reads live
-  // snapshots rather than the values captured during a render.
-  private readonly watchUpdateProgress = (listener: (progress: UpdateProgress) => void) =>
-    createUpdateProgressWatcher(this.context)(listener);
-
   private isCuratedConfigMutationDisabled(): boolean {
     const runtimeState = this.context.runtimeConfig.state;
     return (
@@ -989,6 +983,7 @@ export class ConfigPage extends OpenClawLightDomElement {
       const overlaySnapshot = this.context.overlays.snapshot;
       const canAdmin = hasOperatorAdminAccess(gatewaySnapshot.hello?.auth ?? null);
       return renderUpdates({
+        update: overlaySnapshot,
         nativeDeviceSettings: this.context.nativeDeviceSettings,
         configObject,
         gatewayVersion:
@@ -998,15 +993,6 @@ export class ConfigPage extends OpenClawLightDomElement {
         controlUiCommit: CONTROL_UI_BUILD_INFO.commit,
         controlUiCommitAt: CONTROL_UI_BUILD_INFO.commitAt,
         controlUiBuiltAt: CONTROL_UI_BUILD_INFO.builtAt,
-        schedule: overlaySnapshot.updateSchedule,
-        heldUpdateCampaignId: overlaySnapshot.heldUpdateCampaignId,
-        updateAvailable: overlaySnapshot.updateAvailable,
-        statusBanner: overlaySnapshot.updateStatusBanner,
-        statusCheckBanner: overlaySnapshot.updateStatusCheckBanner,
-        reportableUpdateFailureId: overlaySnapshot.reportableUpdateFailureId,
-        updateFailureReportBusy: overlaySnapshot.updateFailureReportBusy,
-        updateFailureReportNotice: overlaySnapshot.updateFailureReportNotice,
-        run: overlaySnapshot.updateRun,
         connected: gatewaySnapshot.phase === "connected",
         configBusy: this.isCuratedConfigMutationDisabled(),
         canAdmin,
@@ -1015,7 +1001,6 @@ export class ConfigPage extends OpenClawLightDomElement {
         canHoldUpdate: canCallGatewayMethod(gatewaySnapshot, "update.hold", "operator.admin"),
         canReport: canReportUpdateFailure(gatewaySnapshot),
         updateBusy: this.isUpdateBusy(),
-        statusChecking: overlaySnapshot.updateStatusRefreshing,
         onChannelChange: (channel) => runtimeConfig.patchForm(["update", "channel"], channel),
         onUpdateChecksChange: (enabled) =>
           runtimeConfig.patchForm(["update", "checkOnStart"], enabled),
@@ -1024,7 +1009,8 @@ export class ConfigPage extends OpenClawLightDomElement {
         onUpdateNow: () =>
           void confirmAndStartUpdate({
             startGatewayUpdate: () => void this.context.overlays.runUpdate(),
-            watchUpdateProgress: this.watchUpdateProgress,
+            // The dialog outlives this page, so read live snapshots after each change.
+            watchUpdateProgress: createUpdateProgressWatcher(this.context),
             onCheckStatus: () => this.context.overlays.refreshUpdateStatus(),
             onAcknowledge: () => this.context.overlays.acknowledgeUpdateRun(),
             updateAvailable: overlaySnapshot.updateAvailable,

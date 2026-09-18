@@ -39,11 +39,11 @@ import { resolveCodexNativeHookRelayEvents } from "./native-hook-relay.js";
 import { isCodexAppServerProfilerEnabled } from "./profiler-flag.js";
 import { ensureCodexWorkspaceDirOnce } from "./run-attempt-lifecycle.js";
 import type { CodexRunAttemptInput } from "./run-attempt-types.js";
+import { scopeCodexRunBindingStore } from "./session-binding-scope.js";
 import {
   createCodexSessionGenerationSupersededError,
   resolveCodexSessionBinding,
   resolveCodexRunSessionBindingAuthority,
-  scopeCodexRunBindingStore,
   sessionBindingIdentity,
   type CodexAppServerBindingIdentity,
   type CodexAppServerThreadBinding,

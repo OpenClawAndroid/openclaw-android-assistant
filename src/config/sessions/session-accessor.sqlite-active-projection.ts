@@ -9,7 +9,10 @@ import {
   resolveSqliteTranscriptReadScope,
   toDatabaseOptions,
 } from "./session-accessor.sqlite-scope.js";
-import { SessionTranscriptProjectionUnavailableError } from "./session-transcript-projection-error.js";
+import {
+  SessionTranscriptProjectionUnavailableError,
+  SessionTranscriptStorageUnavailableError,
+} from "./session-transcript-projection-error.js";
 import { startSessionTranscriptIndexReconcile } from "./session-transcript-reconcile.js";
 
 export function withCurrentProjectionSnapshot<T>(
@@ -27,9 +30,7 @@ export function withCurrentProjectionSnapshot<T>(
       })
     : { found: true as const, value: readSnapshot(openOpenClawAgentDatabase(databaseOptions)) };
   if (!result.found) {
-    throw new Error(
-      "Session transcript storage is unavailable; open the source gateway and retry.",
-    );
+    throw new SessionTranscriptStorageUnavailableError();
   }
   if (result.value.kind === "value") {
     return result.value.value;

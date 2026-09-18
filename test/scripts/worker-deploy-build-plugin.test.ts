@@ -107,6 +107,7 @@ describe("worker deploy build plugin", () => {
               if (id === entrySource) {
                 return `${code}
 export { highlight, supportsLanguage } from "../agents/utils/syntax-highlight.js";
+export { createOwnedStdioProcess, closeOwnedStdioProcess } from "../process/owned-stdio.js";
 export { explainShellCommand } from "../infra/command-explainer/extract.js";
 export { planShellAuthorization } from "../infra/exec-authorization-plan.js";
 export { rejectUnsafeExecControlShellCommand } from "../infra/exec-control-command-guard.js";
@@ -231,7 +232,7 @@ console.log("relocated computer observations and image operations passed");
       );
     });
 
-    it("keeps worker bootstrap portable with lazy highlighting and complete shell analysis", async () => {
+    it("keeps worker bootstrap, shell analysis, and Windows child spawning portable", async () => {
       const root = tempDirs.make("openclaw-worker-portable-");
       fs.cpSync(preparedDist, path.join(root, "dist"), { recursive: true });
       const result = await promisify(execFile)(
@@ -249,7 +250,7 @@ for (const dependency of ["highlight.js", "web-tree-sitter", "tree-sitter-bash"]
   assert.throws(() => createRequire(pathToFileURL(entry)).resolve(dependency), { code: "MODULE_NOT_FOUND" });
 }
 process.argv = [process.execPath, entry, "--internal-worker-prewarm"];
-const { highlight, supportsLanguage, explainShellCommand, planShellAuthorization, rejectUnsafeExecControlShellCommand } = await import(pathToFileURL(entry).href);
+const { highlight, supportsLanguage, explainShellCommand, planShellAuthorization, rejectUnsafeExecControlShellCommand, createOwnedStdioProcess, closeOwnedStdioProcess } = await import(pathToFileURL(entry).href);
 const initializations = () => globalThis[Symbol.for("worker-highlight-initializations")] ?? 0;
 assert.equal(initializations(), 0, "headless worker bootstrap must not initialize syntax highlighting");
 assert.equal(supportsLanguage("abnf"), true);
@@ -268,6 +269,25 @@ await assert.rejects(
   () => rejectUnsafeExecControlShellCommand('echo $(/approve synthetic allow-once)'),
   /exec cannot run \\/approve commands/,
 );
+if (process.platform === "win32") {
+  assert.throws(() => createRequire(pathToFileURL(entry)).resolve("koffi"), { code: "MODULE_NOT_FOUND" });
+  const owned = await createOwnedStdioProcess({
+    argv: [process.execPath, "-e", "process.stdin.pipe(process.stdout)"], exactEnv: true,
+  });
+  let output = "";
+  owned.onStdout(chunk => { output += chunk; });
+  owned.onStderr(() => {});
+  owned.stdin.write("portable echo");
+  owned.stdin.end();
+  try {
+    assert.equal((await owned.wait()).code, 0);
+    assert.equal(output, "portable echo");
+    assert.deepEqual(await owned.waitForExtinction(), { status: "uncertain", reason: "job-unavailable" });
+    await closeOwnedStdioProcess(owned);
+  } finally {
+    owned.dispose();
+  }
+}
 console.log("portable worker highlighting and shell analysis passed");
 `,
           path.join(root, "dist/worker/worker.mjs"),

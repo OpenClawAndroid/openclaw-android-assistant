@@ -76,6 +76,33 @@ describe("openclaw-modal-dialog", () => {
     expect(document.openClawModalLayers?.has(modal)).toBe(false);
   });
 
+  it.each(["initial", "reopened"] as const)(
+    "does not restore a disconnected modal layer after its %s update",
+    async (state) => {
+      const modal = document.createElement("openclaw-modal-dialog");
+      if (state === "reopened") {
+        modal.open = false;
+      }
+      container.append(modal);
+      if (state === "reopened") {
+        await modal.updateComplete;
+      }
+      modal.remove();
+      if (state === "reopened") {
+        modal.show();
+      }
+      await modal.updateComplete;
+
+      expect(modal.open).toBe(true);
+      expect(document.openClawModalLayers?.has(modal)).toBe(false);
+
+      container.append(modal);
+      expect(document.openClawModalLayers?.has(modal)).toBe(true);
+      const { dialog } = await getRenderedModalDialog(container);
+      expect(dialog.open).toBe(true);
+    },
+  );
+
   it("occludes native tabs through nested dialogs, closing animations, and removal", async () => {
     const changes = vi.fn();
     const unsubscribe = subscribeNativeOverlayOcclusion(changes, () => null);
