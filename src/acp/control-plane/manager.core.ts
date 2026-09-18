@@ -1,9 +1,5 @@
 /** Main ACP session manager implementation and public control-plane facade. */
-import type {
-  AcpRuntime,
-  AcpRuntimeHandle,
-  AcpRuntimeStatus,
-} from "@openclaw/acp-core/runtime/types";
+import type { AcpRuntime, AcpRuntimeHandle } from "@openclaw/acp-core/runtime/types";
 import { AgentSelectionRequiredError } from "../../agents/agent-scope-config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
@@ -55,6 +51,10 @@ import {
   type SessionAcpMeta,
   type SessionEntry,
   type TurnLatencyStats,
+  type EnsureManagerRuntimeHandle,
+  type ReconcileManagerRuntimeSessionIdentifiers,
+  type SetManagerSessionState,
+  type WriteManagerSessionMeta,
 } from "./manager.types.js";
 import {
   resolveAcpSessionTarget,
@@ -459,14 +459,9 @@ export class AcpSessionManager {
     );
   }
 
-  private async ensureRuntimeHandle(params: {
-    cfg: OpenClawConfig;
-    sessionKey: string;
-    agentId: string;
-    meta: SessionAcpMeta;
-    selectedBackend?: string;
-    isCurrentActor?: () => boolean;
-  }): Promise<{ runtime: AcpRuntime; handle: AcpRuntimeHandle; meta: SessionAcpMeta }> {
+  private async ensureRuntimeHandle(
+    params: Parameters<EnsureManagerRuntimeHandle>[0],
+  ): ReturnType<EnsureManagerRuntimeHandle> {
     return await ensureManagerRuntimeHandle({
       ...params,
       deps: this.deps,
@@ -505,15 +500,9 @@ export class AcpSessionManager {
     this.errorCountsByCode.set(normalized, (this.errorCountsByCode.get(normalized) ?? 0) + 1);
   }
 
-  private async setSessionState(params: {
-    cfg: OpenClawConfig;
-    sessionKey: string;
-    agentId: string;
-    state: SessionAcpMeta["state"];
-    lastError?: string;
-    clearLastError?: boolean;
-    isCurrentActor?: () => boolean;
-  }): Promise<void> {
+  private async setSessionState(
+    params: Parameters<SetManagerSessionState>[0],
+  ): ReturnType<SetManagerSessionState> {
     await this.writeSessionMeta({
       cfg: params.cfg,
       sessionKey: params.sessionKey,
@@ -552,21 +541,9 @@ export class AcpSessionManager {
     });
   }
 
-  private async reconcileRuntimeSessionIdentifiers(params: {
-    cfg: OpenClawConfig;
-    sessionKey: string;
-    agentId: string;
-    runtime: AcpRuntime;
-    handle: AcpRuntimeHandle;
-    meta: SessionAcpMeta;
-    runtimeStatus?: AcpRuntimeStatus;
-    failOnStatusError: boolean;
-    isCurrentActor?: () => boolean;
-  }): Promise<{
-    handle: AcpRuntimeHandle;
-    meta: SessionAcpMeta;
-    runtimeStatus?: AcpRuntimeStatus;
-  }> {
+  private async reconcileRuntimeSessionIdentifiers(
+    params: Parameters<ReconcileManagerRuntimeSessionIdentifiers>[0],
+  ): ReturnType<ReconcileManagerRuntimeSessionIdentifiers> {
     return await reconcileManagerRuntimeSessionIdentifiers({
       ...params,
       setCachedHandle: (target, handle) => {
@@ -579,20 +556,9 @@ export class AcpSessionManager {
     });
   }
 
-  private async writeSessionMeta(params: {
-    assertCommitAllowed?: () => void;
-    cfg: OpenClawConfig;
-    sessionKey: string;
-    agentId: string;
-    mutate: (
-      current: SessionAcpMeta | undefined,
-      entry: SessionEntry | undefined,
-    ) => SessionAcpMeta | null | undefined;
-    isCurrentActor?: () => boolean;
-    failOnError?: boolean;
-    skipMaintenance?: boolean;
-    takeCacheOwnership?: boolean;
-  }): Promise<SessionEntry | null> {
+  private async writeSessionMeta(
+    params: Parameters<WriteManagerSessionMeta>[0],
+  ): ReturnType<WriteManagerSessionMeta> {
     try {
       return await this.deps.upsertSessionMeta({
         cfg: params.cfg,

@@ -112,10 +112,10 @@ export abstract class MemorySearchOrchestration extends MemoryKeywordRetrieval {
       if (!hasIndexedContent) {
         try {
           // A fresh process can receive its first search before background watch/session
-          // syncs have built the index. Force one synchronous bootstrap so the first
-          // lookup after restart does not fail closed with empty results.
+          // syncs have built the index. Await fresh source discovery, but let the
+          // sync owner decide whether the index needs a full rebuild.
           await this.syncAdmitted(
-            { reason: "search", force: true },
+            { reason: "search-bootstrap" },
             { allowEmbeddingBootstrapFallback: true },
           );
         } catch (err) {
@@ -131,7 +131,7 @@ export abstract class MemorySearchOrchestration extends MemoryKeywordRetrieval {
               log.warn(`memory search-bootstrap: failed to retire embedding provider: ${message}`);
             });
             this.markEmbeddingBootstrapFailure(err, { provider: failedProvider });
-            await this.syncAdmitted({ reason: "search", force: true }).catch(
+            await this.syncAdmitted({ reason: "search-bootstrap" }).catch(
               (fallbackErr: unknown) => {
                 if (fallbackErr instanceof WorkerTaskError && fallbackErr.code === "overloaded") {
                   throw fallbackErr;

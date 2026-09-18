@@ -102,6 +102,7 @@ import {
   toAgentStoreSessionKey,
 } from "../routing/session-key.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
+import { runInDetachedAsyncContext } from "../shared/async-work-scope.js";
 import { createDeferredCore, type Deferred } from "../shared/deferred.js";
 import { truncateUtf16WithEllipsis } from "../shared/text-truncate.js";
 import { bumpSkillsSnapshotVersion } from "../skills/runtime/refresh-state.js";
@@ -403,6 +404,8 @@ export function buildGatewayCronService(params: {
   const scheduledGatewayContextResolver = fenceScheduledGatewayContextResolver(
     params.resolveGatewayContext,
   );
+  const runSchedulerOwned = <T>(run: () => Promise<T>) =>
+    runWithScheduledGatewayContext({ resolveGatewayContext: scheduledGatewayContextResolver, run });
   const env = params.env ?? process.env;
   const storePath = resolveCronJobsStorePathFromConfig(params.cfg, env);
   const cronEnabled = env.OPENCLAW_SKIP_CRON !== "1" && params.cfg.cron?.enabled !== false;
@@ -566,14 +569,16 @@ export function buildGatewayCronService(params: {
     };
     // Hook execution is detached from the cron mutation/tick that emitted it.
     // Keep the whole plugin callback visible until its user-state effects settle.
-    void runWithGatewayIndependentRootWorkAdmission(async () => {
-      await hookRunner.runCronChanged(evt, hookCtx);
-    }, "cron:changed-hook").catch((err: unknown) => {
-      cronLogger.warn(
-        { err: formatErrorMessage(err), jobId: evt.jobId },
-        "cron_changed hook failed",
-      );
-    });
+    void runInDetachedAsyncContext(() =>
+      runWithGatewayIndependentRootWorkAdmission(async () => {
+        await runSchedulerOwned(() => hookRunner.runCronChanged(evt, hookCtx));
+      }, "cron:changed-hook").catch((err: unknown) => {
+        cronLogger.warn(
+          { err: formatErrorMessage(err), jobId: evt.jobId },
+          "cron_changed hook failed",
+        );
+      }),
+    );
   };
 
   // Built after cron so watcher exit callbacks can call back into the service.
@@ -810,15 +815,7 @@ export function buildGatewayCronService(params: {
       }
       return resolveCronStoredDeliveryContext({ cfg: runtimeConfig, sessionKey });
     },
-    ...(scheduledGatewayContextResolver
-      ? {
-          runSchedulerOwned: async <T>(run: () => Promise<T>) =>
-            await runWithScheduledGatewayContext({
-              resolveGatewayContext: scheduledGatewayContextResolver,
-              run,
-            }),
-        }
-      : {}),
+    runSchedulerOwned,
     requestHeartbeat: (opts) => requestHeartbeat(resolveCronHeartbeatWake(opts)),
     requestHeartbeatAndWait: (opts, lifecycle) =>
       requestHeartbeatAndWait(resolveCronHeartbeatWake(opts), lifecycle),

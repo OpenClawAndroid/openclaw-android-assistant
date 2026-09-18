@@ -54,7 +54,6 @@ import {
   resolveCodexAppServerRuntimeOptions,
   resolveCodexSupervisionAppServerRuntimeOptions,
 } from "./config.js";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
 import {
   buildDynamicTools,
   shouldEnableCodexAppServerNativeToolSurface,
@@ -63,6 +62,7 @@ import { filterCodexDynamicTools } from "./dynamic-tool-profile.js";
 import { createCodexDynamicToolBridge } from "./dynamic-tools.js";
 import * as elicitationBridge from "./elicitation-bridge.js";
 import { CodexAppServerEventProjector } from "./event-projector.js";
+import { setCodexTestToolFactory } from "./host-capability.test-support.js";
 import { buildCodexRuntimeModelParams } from "./model-runtime.js";
 import {
   buildCodexAppServerConnectionFingerprint,
@@ -175,11 +175,6 @@ const testing = {
   buildDynamicTools,
   filterCodexDynamicTools,
   resolveCodexDynamicToolDirectNames,
-  setOpenClawCodingToolsFactoryForTests(
-    factory: NonNullable<typeof dynamicToolBuildState.openClawCodingToolsFactory>,
-  ): void {
-    dynamicToolBuildState.openClawCodingToolsFactory = factory;
-  },
   shouldEnableCodexAppServerNativeToolSurface,
   withCodexStartupTimeout,
 };
@@ -1026,7 +1021,9 @@ describe("runCodexAppServerAttempt", () => {
       const cleanup = vi.fn(async (_reason: string) => undefined);
       const cleanupOwners: boolean[] = [];
       const preparationError = new Error(`failed during ${outcome}`);
-      testing.setOpenClawCodingToolsFactoryForTests((options) => {
+      const { sessionFile, workspaceDir } = createRunPaths();
+      const params = createParams(sessionFile, workspaceDir);
+      setCodexTestToolFactory(params, (options) => {
         cleanupOwners.push(options?.registerRunCleanup !== undefined);
         options?.registerRunCleanup?.(cleanup);
         if (
@@ -1037,8 +1034,6 @@ describe("runCodexAppServerAttempt", () => {
         }
         return [createRuntimeDynamicTool("message")];
       });
-      const { sessionFile, workspaceDir } = createRunPaths();
-      const params = createParams(sessionFile, workspaceDir);
       params.disableTools = false;
       params.runtimePlan = createCodexRuntimePlanFixture();
       setCodexTestModelSupportsTools(params, true);
@@ -1074,13 +1069,13 @@ describe("runCodexAppServerAttempt", () => {
     const cleanup = vi.fn(async () => {
       throw cleanupError;
     });
-    testing.setOpenClawCodingToolsFactoryForTests((options) => {
+    const { sessionFile, workspaceDir } = createRunPaths();
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, (options) => {
       options?.registerRunCleanup?.(cleanup);
       throw preparationError;
     });
     const warning = vi.spyOn(embeddedAgentLog, "warn");
-    const { sessionFile, workspaceDir } = createRunPaths();
-    const params = createParams(sessionFile, workspaceDir);
     params.oneShotCliRun = true;
     params.disableTools = false;
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -1156,13 +1151,13 @@ describe("runCodexAppServerAttempt", () => {
     expect(authProfileStore.profiles[authProfileId]).toHaveProperty("keyRef");
   });
   it("starts active OpenClaw sandbox threads with Codex native execution disabled", async () => {
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+    const { sessionFile, workspaceDir } = createRunPaths();
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("exec"),
       createRuntimeDynamicTool("process"),
       createRuntimeDynamicTool("message"),
     ]);
-    const { sessionFile, workspaceDir } = createRunPaths();
-    const params = createParams(sessionFile, workspaceDir);
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -1259,14 +1254,14 @@ describe("runCodexAppServerAttempt", () => {
       request,
     };
     try {
-      testing.setOpenClawCodingToolsFactoryForTests(() => [
+      const sessionFile = path.join(tempDir, "session.jsonl");
+      const workspaceDir = path.join(tempDir, "workspace");
+      const params = createParams(sessionFile, workspaceDir);
+      setCodexTestToolFactory(params, () => [
         createRuntimeDynamicTool("exec"),
         createRuntimeDynamicTool("process"),
         createRuntimeDynamicTool("message"),
       ]);
-      const sessionFile = path.join(tempDir, "session.jsonl");
-      const workspaceDir = path.join(tempDir, "workspace");
-      const params = createParams(sessionFile, workspaceDir);
       params.disableTools = false;
       setCodexTestModelSupportsTools(params, true);
       params.runtimePlan = createCodexRuntimePlanFixture();
@@ -2391,12 +2386,6 @@ describe("runCodexAppServerAttempt", () => {
   });
 
   it("keeps the heartbeat schema deferred and stable across normal and heartbeat turns", async () => {
-    testing.setOpenClawCodingToolsFactoryForTests((options) => [
-      createRuntimeDynamicTool("message"),
-      ...(options?.enableHeartbeatTool === true
-        ? [createRuntimeDynamicTool("heartbeat_respond")]
-        : []),
-    ]);
     const { sessionFile, workspaceDir } = createRunPaths();
     const createHeartbeatRunParams = (trigger?: EmbeddedRunAttemptParams["trigger"]) => {
       const params = createParams(sessionFile, workspaceDir);
@@ -2561,13 +2550,6 @@ describe("runCodexAppServerAttempt", () => {
   });
 
   it("keeps the persistent dynamic schema stable across heartbeat-only turns", async () => {
-    testing.setOpenClawCodingToolsFactoryForTests((options) => [
-      createRuntimeDynamicTool("message"),
-      createRuntimeDynamicTool("web_search"),
-      ...(options?.enableHeartbeatTool === true
-        ? [createRuntimeDynamicTool("heartbeat_respond")]
-        : []),
-    ]);
     const { sessionFile, workspaceDir } = createRunPaths();
     const createHeartbeatRunParams = (trigger?: EmbeddedRunAttemptParams["trigger"]) => {
       const params = createParams(sessionFile, workspaceDir);
@@ -2613,11 +2595,11 @@ describe("runCodexAppServerAttempt", () => {
     expect(specNames(nextNormalBridge.specs)).toEqual(specNames(normalBridge.specs));
   });
   it("disables Codex native tool surfaces when runtime toolsAllow is empty", async () => {
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+    const params = createRunParams();
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("message"),
       createRuntimeDynamicTool("web_search"),
     ]);
-    const params = createRunParams();
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -2771,7 +2753,9 @@ describe("runCodexAppServerAttempt", () => {
         details: {},
       };
     });
-    testing.setOpenClawCodingToolsFactoryForTests((options) => {
+
+    const params = createRunParams();
+    setCodexTestToolFactory(params, (options) => {
       const tools = createOpenClawCodingTools(options).filter((tool) =>
         ["read", "write", "edit", "apply_patch", "exec", "process", "progress_card"].includes(
           tool.name,
@@ -2783,7 +2767,6 @@ describe("runCodexAppServerAttempt", () => {
       }
       return tools;
     });
-    const params = createRunParams();
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -3127,8 +3110,8 @@ describe("runCodexAppServerAttempt", () => {
   });
 
   it("fails closed for Codex app defaults when restricted native tools have no plugin config", async () => {
-    testing.setOpenClawCodingToolsFactoryForTests(() => [createRuntimeDynamicTool("message")]);
     const params = createRunParams();
+    setCodexTestToolFactory(params, () => [createRuntimeDynamicTool("message")]);
     params.disableTools = false;
     params.runtimePlan = createCodexRuntimePlanFixture();
     params.toolsAllow = [];
@@ -4523,11 +4506,12 @@ describe("runCodexAppServerAttempt", () => {
     await fs.writeFile(path.join(workspaceDir, "USER.md"), userProfile);
     await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), memorySummary);
     registerMemoryPromptForTest();
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("memory_search"),
       createRuntimeDynamicTool("memory_get"),
     ]);
-    const params = createParams(sessionFile, workspaceDir);
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -4620,11 +4604,12 @@ describe("runCodexAppServerAttempt", () => {
     await fs.mkdir(path.join(workspaceDir, "memory"), { recursive: true });
     await fs.writeFile(path.join(workspaceDir, "memory/2026-06-09.md"), datedMemory);
     registerMemoryPromptForTest();
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("memory_search"),
       createRuntimeDynamicTool("memory_get"),
     ]);
-    const params = createParams(sessionFile, workspaceDir);
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -4648,11 +4633,12 @@ describe("runCodexAppServerAttempt", () => {
     const memorySummary = "User avoids Chase cards while over 5/24.";
     await fs.mkdir(workspaceDir, { recursive: true });
     await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), memorySummary);
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("memory_search"),
       createRuntimeDynamicTool("memory_get"),
     ]);
-    const params = createParams(sessionFile, workspaceDir);
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -4890,8 +4876,9 @@ describe("runCodexAppServerAttempt", () => {
     await fs.mkdir(workspaceDir, { recursive: true });
     await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), memorySummary);
     registerMemoryPromptForTest();
-    testing.setOpenClawCodingToolsFactoryForTests(() => [createRuntimeDynamicTool("memory_get")]);
+
     const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, () => [createRuntimeDynamicTool("memory_get")]);
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -4984,7 +4971,7 @@ describe("runCodexAppServerAttempt", () => {
         },
       },
     } as EmbeddedRunAttemptParams["config"];
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("memory_search"),
       createRuntimeDynamicTool("memory_get"),
     ]);
@@ -5032,11 +5019,12 @@ describe("runCodexAppServerAttempt", () => {
         },
       ];
     });
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("memory_search"),
       createRuntimeDynamicTool("memory_get"),
     ]);
-    const params = createParams(sessionFile, workspaceDir);
     params.disableTools = false;
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
@@ -5071,11 +5059,12 @@ describe("runCodexAppServerAttempt", () => {
     await fs.mkdir(workspaceDir, { recursive: true });
     await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), memorySummary);
     registerMemoryPromptForTest();
-    testing.setOpenClawCodingToolsFactoryForTests(() => [
+
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, () => [
       createRuntimeDynamicTool("memory_search"),
       createRuntimeDynamicTool("memory_get"),
     ]);
-    const params = createParams(sessionFile, workspaceDir);
     params.disableTools = false;
     params.runtimePlan = createCodexRuntimePlanFixture();
     setAgentWorkspaceForTest(params, path.join(tempDir, "memory-workspace"));
@@ -5295,16 +5284,17 @@ describe("runCodexAppServerAttempt", () => {
       content: [{ type: "text" as const, text: "file contents" }],
       details: {},
     }));
-    testing.setOpenClawCodingToolsFactoryForTests((options) => {
+
+    const { sessionFile, workspaceDir } = createRunPaths();
+    const harness = createStartedThreadHarness();
+    const params = createParams(sessionFile, workspaceDir);
+    setCodexTestToolFactory(params, (options) => {
       const tools = createOpenClawCodingTools(options).filter((tool) => tool.name === "read");
       for (const tool of tools) {
         tool.execute = executeRead;
       }
       return tools;
     });
-    const { sessionFile, workspaceDir } = createRunPaths();
-    const harness = createStartedThreadHarness();
-    const params = createParams(sessionFile, workspaceDir);
     setCodexTestModelSupportsTools(params, true);
     params.runtimePlan = createCodexRuntimePlanFixture();
     params.toolsAllow = ["read"];

@@ -11,7 +11,7 @@ import { createSessionDeletions } from "./session-deletions.ts";
 import { createSessionEventSubscriptionOwner } from "./session-event-subscription.ts";
 import { createSessionGitHubPublication } from "./session-github-publication.ts";
 import { createSessionGroupCatalog } from "./session-group-catalog.ts";
-import { normalizeAgentId, parseAgentSessionKey, uiSessionEventMatches } from "./session-key.ts";
+import { normalizeAgentId, parseAgentSessionKey } from "./session-key.ts";
 import { createSessionMutations } from "./session-mutations.ts";
 import { createSessionPermissionProjection } from "./session-permission-projection.ts";
 import { createSessionReconciliation } from "./session-reconciliation.ts";
@@ -247,7 +247,7 @@ export function createSessionCapability(
         if (source) {
           mutations.observePendingFields(
             source.row,
-            source.select(row, ["pinned", "pinnedAt", "unread"]),
+            source.select(row, ["pinned", "pinnedAt", "unread", "category"]),
             agentId,
           );
         }
@@ -568,6 +568,7 @@ export function createSessionCapability(
     if (event.event === "sessions.changed" && payload?.reason === "activity-summary") {
       return;
     }
+    const canApplySnapshot = roster.canApplyPrimarySnapshot(event.payload);
     const eventObservation = roster.captureEvent(event.payload);
     const swarmChanged = swarmActivity.observe(event.payload);
     const { eventInfo, reconciled, claimChanged, notifyManaged } = reconcileChangedEvent(
@@ -583,25 +584,7 @@ export function createSessionCapability(
     const runEnded =
       hasActiveRun === false || (status !== null && status !== undefined && status !== "running");
     const isTerminalMessage = event.event === "session.message" && runEnded;
-    // Snapshot-only lifecycle events preserve membership; mutations still refresh
-    // Gateway-owned filters, ownership ordering, and query facets.
-    const primarySnapshotApplied =
-      reconciled.applied &&
-      eventInfo !== null &&
-      eventInfo.reason === null &&
-      eventInfo.archived !== true &&
-      typeof payload?.session === "object" &&
-      payload.session !== null &&
-      roster.canApplyPrimarySnapshot() &&
-      state.result?.sessions.some(
-        (row) =>
-          row.archived !== true &&
-          uiSessionEventMatches(
-            { ...gateway.snapshot, sessionKey: row.key },
-            eventInfo.key,
-            eventInfo.agentId,
-          ),
-      ) === true;
+    const primarySnapshotApplied = reconciled.applied && canApplySnapshot;
     let primaryPublished = false;
     if (
       claimChanged ||

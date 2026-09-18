@@ -20,7 +20,6 @@ import { resolvePreparedProviderStaticConfigs } from "../plugins/provider-discov
 import type { ProviderRuntimeModel } from "../plugins/provider-runtime-model.types.js";
 import { getPluginRegistryInspectionResources } from "../plugins/registry-inspection-resources.js";
 import { capturePluginLifecycleAuthority } from "../plugins/registry-lifecycle.js";
-import type { PluginRegistry } from "../plugins/registry-types.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { resolveRuntimeSyntheticAuthProviderRefs } from "../plugins/synthetic-auth.runtime.js";
 import { prepareAmbientAgentCredentialsForDiscovery } from "./agent-auth-discovery.js";
@@ -71,7 +70,7 @@ import {
   discardPreparedPluginGeneration,
   retainPreparedPluginRegistry,
 } from "./prepared-model-runtime.plugin-lifetime.js";
-import type { PreparedModelRuntimeBuildResources } from "./prepared-model-runtime.resources.js";
+import { PreparedModelRuntimeBuildResources } from "./prepared-model-runtime.resources.js";
 import {
   listPreparedSyntheticAuthProviderRefs,
   prepareSyntheticAuth,
@@ -83,7 +82,6 @@ import type {
   PreparedModelRuntimeInput,
   PreparedModelRuntimePluginGeneration,
 } from "./prepared-model-runtime.types.js";
-import { releaseRuntimePluginWork, retainRuntimePluginWork } from "./runtime-plugin-work.js";
 import { AuthStorage } from "./sessions/auth-storage.js";
 
 type PreparedConfiguredRegistryGroup = {
@@ -107,6 +105,7 @@ export async function prepareWorkspaceBuildGroup(
     assertCurrent?: (input: PreparedModelRuntimeInput) => void;
     onBeforeAuthCapture?: (input: PreparedModelRuntimeInput) => void;
     registryResources?: PreparedModelRuntimeBuildResources;
+    loadRuntimeRegistry?: PreparedModelRuntimeBuildResources["load"];
     purpose?: RuntimePluginLoadPurpose;
   } = {},
   loadInboundPluginRegistry?: PreparedInboundRegistryLoader,
@@ -160,32 +159,22 @@ export async function prepareWorkspaceBuildGroup(
   const preferBuiltPluginArtifacts =
     reusablePluginGeneration?.preferBuiltPluginArtifacts ??
     options.preferBuiltPluginArtifacts === true;
-  options.registryResources?.retainGeneration(reusablePluginGeneration);
-  const retainedRegistries = new Set<PluginRegistry>();
-  await using registryBorrows = new AsyncDisposableStack();
+  await using localResources = new AsyncDisposableStack();
+  const registryResources =
+    options.registryResources ??
+    localResources.use(new PreparedModelRuntimeBuildResources(retainPreparedPluginRegistry));
+  registryResources.retainGeneration(reusablePluginGeneration);
+  // Borrowing spans the caller's construction; registry acquisition is selected independently.
   const preparingRegistries = prepareWorkspacePluginRegistries(
     input,
     pluginMetadataSnapshot,
-    (registry) => {
-      // Initial run admission can inspect a new selection before its caller holds
-      // a generation lease. Borrow the selected source before that async load.
-      if (!retainedRegistries.has(registry)) {
-        retainedRegistries.add(registry);
-        const release = retainPreparedPluginRegistry(registry);
-        if (release) {
-          let releaseWork = () => {};
-          // Record physical cleanup before replacement admission can refuse this build's work.
-          registryBorrows.defer(() => releaseRuntimePluginWork(release, releaseWork));
-          releaseWork = retainRuntimePluginWork([registry]);
-        }
-      }
-    },
+    (registry) => registryResources.retainRegistry(registry),
     loadInboundPluginRegistry,
     preferBuiltPluginArtifacts,
     reusablePluginGeneration,
     options.getConfiguredHarnessRuntimes,
     options.basePluginIds,
-    options.registryResources,
+    options.loadRuntimeRegistry,
     options.purpose,
   );
   const { inboundPluginRegistry, runtimePluginRegistry, primaryRegistry } =

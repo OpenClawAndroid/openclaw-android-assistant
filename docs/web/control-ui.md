@@ -43,6 +43,12 @@ Hover the row or focus it with the keyboard for a tooltip explaining the exact
 status. Reduced motion keeps the claw still. Tasks without a display title keep
 the generic **Subagent** label. Select a row to open its details.
 
+Dragging a session between sidebar groups updates its placement immediately. A successful
+save keeps that placement even if the subsequent list refresh fails; the UI reports
+the refresh error separately. If a connection failure leaves the save unconfirmed,
+refresh and check the session's group before retrying. Other clients' newer group
+changes still reconcile through session events.
+
 The sidebar keeps unread child failures visible on their ancestors. These warnings
 name the child session that failed, even when its parent has finished or continues
 working. Select the warning to open the child session and acknowledge its failure;

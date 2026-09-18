@@ -8,6 +8,7 @@ import {
   WORKER_RPC_SET_VERSION,
 } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
 import { WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES } from "../../../packages/gateway-protocol/src/schema/worker-inference.js";
+import { formatErrorMessage } from "../../infra/errors.js";
 import { NODE_WORKER_CAPACITY_EXHAUSTED_ERROR_CODE } from "../../infra/node-commands.js";
 import { NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE } from "../../infra/node-runner-inventory.js";
 import {
@@ -610,6 +611,76 @@ describe("node worker launch adapter", () => {
     ]);
   });
 
+  it.each(["launch", "status", "cancel"] as const)(
+    "preserves the node rejection and command when %s fails",
+    async (failedCommand) => {
+      const input = launchInput();
+      const rejection = "INVALID_REQUEST: prepared workspace binding is missing";
+      const cancellationRejection = "INVALID_REQUEST: cancellation identity is invalid";
+      const invoke = vi.fn<NodeWorkerSupervisorTransport["invoke"]>(async (request) => {
+        if (request.command === "worker.cancel.v1") {
+          return failedCommand === "cancel"
+            ? { ok: false, error: { code: "INVALID_REQUEST", message: cancellationRejection } }
+            : wire(receipt(input, "cancelled"));
+        }
+        request.onDispatchReady?.("invoke-1");
+        if (request.command === "worker.launch.v1" && failedCommand === "status") {
+          return wire(receipt(input, "running"));
+        }
+        return { ok: false, error: { code: "INVALID_REQUEST", message: rejection } };
+      });
+      const adapter = createNodeWorkerLaunchAdapter({
+        getTransport: () => transportWith(invoke),
+        sleep: async () => {},
+      });
+
+      const error: unknown = await adapter
+        .launch(launchRequest(input))
+        .catch((failure: unknown) => failure);
+      expect(error).toBeInstanceOf(Error);
+      const diagnostic = formatErrorMessage(error);
+      expect(diagnostic).toContain(rejection);
+      expect(diagnostic).toContain(`worker.${failedCommand}.v1`);
+      if (failedCommand === "cancel") {
+        expect(diagnostic).toContain(cancellationRejection);
+        expect(diagnostic).toContain("cancellation could not be confirmed");
+      }
+      expect(invoke.mock.calls.at(-1)?.[0].command).toBe("worker.cancel.v1");
+    },
+  );
+
+  it("bounds and redacts node rejection details before exposing the launch error", async () => {
+    const input = launchInput();
+    const secret = "synthetic-worker-launch-secret-value";
+    const invoke = vi.fn<NodeWorkerSupervisorTransport["invoke"]>(async (request) => {
+      if (request.command === "worker.cancel.v1") {
+        return wire(receipt(input, "cancelled"));
+      }
+      request.onDispatchReady?.("invoke-1");
+      return {
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: `invalid descriptor token=${secret}\n${"x".repeat(2_048)}; field assignment is invalid`,
+        },
+      };
+    });
+    const adapter = createNodeWorkerLaunchAdapter({ getTransport: () => transportWith(invoke) });
+
+    const error: unknown = await adapter
+      .launch(launchRequest(input))
+      .catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) {
+      throw new Error("expected a launch error");
+    }
+    expect(error.message).toContain("invalid descriptor");
+    expect(error.message).toContain("field assignment is invalid");
+    expect(error.message).not.toContain(secret);
+    expect(error.message).not.toContain("\n");
+    expect(error.message.length).toBeLessThanOrEqual(1_024);
+  });
+
   it("retries a timed-out launch RPC within the overall deadline", async () => {
     const input = launchInput();
     let launchCalls = 0;
@@ -820,9 +891,17 @@ describe("node worker launch adapter", () => {
       },
     });
 
-    await expect(
-      adapter.launch({ ...launchRequest(input), signal: controller.signal }),
-    ).rejects.toThrow("node worker launch failed and cancellation could not be confirmed");
+    const failure: unknown = await adapter
+      .launch({ ...launchRequest(input), signal: controller.signal })
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    const diagnostic = formatErrorMessage(failure);
+    expect(diagnostic).toContain(
+      "node worker launch failed and cancellation could not be confirmed",
+    );
+    expect(diagnostic).toContain(
+      "node worker cancellation did not produce a terminal receipt before its deadline",
+    );
     expect(
       invoke.mock.calls.filter(([request]) => request.command === "worker.cancel.v1"),
     ).toHaveLength(1);

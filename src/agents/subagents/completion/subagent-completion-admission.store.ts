@@ -568,6 +568,8 @@ export function settleRequesterCompletionBatch(params: {
             checkedOmittedIds.add(id);
           }
         }
+        // Decoding restores restart defaults, not the active process's cleanup ownership.
+        subagent.cleanupHandled = expected.cleanupHandled;
         // An exact requester receipt can arrive after expiry transferred this result to its wake.
         const acknowledgeExpiredDelivery =
           params.outcome.delivered &&

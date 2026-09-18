@@ -93,8 +93,8 @@ suite.define(() => {
         key: sessionKey,
         contextWindow: "200k",
       });
-      await gateway.setMethodResponse(
-        "sessions.list",
+      // Patch acknowledgements and history must see the same committed context window.
+      await gateway.setSessionsListResponse(
         chatSessionListResponse([{ ...session, contextWindow: "200k" }]),
       );
       await gateway.resolveDeferred("sessions.patch");

@@ -33,7 +33,10 @@ import { requestHeartbeat, setHeartbeatsEnabled } from "../../infra/heartbeat-wa
 import { getMachineDisplayName } from "../../infra/machine-name.js";
 import { resolveRuntimeOsLabel } from "../../infra/os-summary.js";
 import { readSystemDisks } from "../../infra/system-disks.js";
-import { withSystemEventOwner } from "../../infra/system-event-ownership.js";
+import {
+  resolveSystemEventQueueKey,
+  withSystemEventOwner,
+} from "../../infra/system-event-ownership.js";
 import { enqueueSystemEvent, isSystemEventContextChanged } from "../../infra/system-events.js";
 import { listSystemPresence, updateSystemPresence } from "../../infra/system-presence.js";
 import { normalizeAgentId, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
@@ -293,7 +296,10 @@ export const systemHandlers: GatewayRequestHandlers = {
       const reasonChanged = changed.has("reason") && !ignoreReason;
       const hasChanges = hostChanged || ipChanged || versionChanged || modeChanged || reasonChanged;
       if (hasChanges) {
-        const contextChanged = isSystemEventContextChanged(sessionKey, presenceUpdate.key);
+        const contextChanged = isSystemEventContextChanged(
+          resolveSystemEventQueueKey(sessionKey, eventOwnerAgentId),
+          presenceUpdate.key,
+        );
         const parts: string[] = [];
         // Re-state node identity only when the line would otherwise lose
         // routing context or the host/IP changed.

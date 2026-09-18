@@ -39,6 +39,7 @@ import {
   repairReservedIncognitoSessionKeys,
   type ReservedIncognitoKeyRepairReport,
 } from "./doctor-session-incognito-key-repair.js";
+import { listExistingAgentDatabaseTargets } from "./doctor-session-sqlite-readers.js";
 import { formatSessionSqliteMigrationWarnings } from "./doctor-session-sqlite-warnings.js";
 import {
   repairLegacySessionTitles,
@@ -298,22 +299,27 @@ async function noteSessionSqliteMigrationHealth(params: {
       env: params.env,
     };
     canonicalKeyReport = await repairCanonicalSessionKeys(repairParams);
+    // Import and key repair can create stores; later row repairs share their settled inventory.
+    const rowRepairParams = {
+      ...repairParams,
+      targets: listExistingAgentDatabaseTargets(repairParams.cfg, params.env),
+    };
     // Canonical-key ties compare complete entry JSON, so select their winner before stripping it.
-    resolvedSkillsReport = repairCanonicalSessionResolvedSkills(repairParams);
+    resolvedSkillsReport = repairCanonicalSessionResolvedSkills(rowRepairParams);
     // Import may create the first durable SQLite row for a colliding legacy key.
-    reservedKeyReport = await repairReservedIncognitoSessionKeys(repairParams);
-    deliveryReport = repairCanonicalSessionDeliveryStates(repairParams);
-    repairLegacySessionExecPolicy(repairParams);
+    reservedKeyReport = await repairReservedIncognitoSessionKeys(rowRepairParams);
+    deliveryReport = repairCanonicalSessionDeliveryStates(rowRepairParams);
+    repairLegacySessionExecPolicy(rowRepairParams);
     acpKeyReport = await repairAcpSessionMetaKeysForDoctor({
       ...repairParams,
       authority: maintenanceAuthority,
     });
     titleReport = await repairLegacySessionTitles({
-      ...repairParams,
+      ...rowRepairParams,
       authority: maintenanceAuthority,
     });
     worktreeWorkspaceReport = await repairLegacySessionWorktreeWorkspaces({
-      ...repairParams,
+      ...rowRepairParams,
       // Workspace metadata participates in an unfinished legacy-main source claim.
       apply:
         params.shouldRepair && (!legacyMainSessionResult.armed || legacyMainSessionResult.complete),

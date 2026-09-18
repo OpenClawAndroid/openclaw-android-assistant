@@ -429,6 +429,7 @@ async function gatherDaemonStatusImpl(
       : undefined;
   let daemonProbeAuth: { token?: string; password?: string } | undefined;
   let rpcAuthWarning: string | undefined;
+  let redactedProbeCredential = false;
   let allowRpcConfigCredentials = true;
   let skippedProbeAuthForDisabledExecSecretRef = false;
   if (opts.probe) {
@@ -461,6 +462,7 @@ async function gatherDaemonStatusImpl(
       );
       daemonProbeAuth = probeAuthResolution.auth;
       rpcAuthWarning = probeAuthResolution.warning;
+      redactedProbeCredential = probeAuthResolution.warningCode === "SECRET_REF_REDACTED_VALUE";
     } else {
       allowRpcConfigCredentials = false;
       skippedProbeAuthForDisabledExecSecretRef = true;
@@ -489,7 +491,7 @@ async function gatherDaemonStatusImpl(
         }),
       )
     : undefined;
-  if (rpc?.ok && !skippedProbeAuthForDisabledExecSecretRef) {
+  if (rpc?.ok && !skippedProbeAuthForDisabledExecSecretRef && !redactedProbeCredential) {
     rpcAuthWarning = undefined;
   }
   const health =

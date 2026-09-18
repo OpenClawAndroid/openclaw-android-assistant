@@ -60,7 +60,7 @@ type LocalSkillTiers = {
   collisions: SkillCollision[];
 };
 const skillEntryCache = new Map<string, LocalSkillTiers>();
-const reportedSkillCollisions = new Map<string, Set<string>>();
+const reportedSkillCollisions = new Set<string>();
 
 type WorkspaceSkillLoadOptions = {
   executionWorkspaceDir?: string;
@@ -83,34 +83,32 @@ type WorkspaceSkillLoadOptions = {
   pluginMetadataSnapshot?: PluginMetadataSnapshot;
 };
 
-// Report the whole collision set once, independently of discovery cache invalidation.
-function warnSkillPrecedenceCollisions(workspaceDir: string, collisions: SkillCollision[]): void {
-  if (!collisions.length) {
-    return;
-  }
-  const fingerprint = sha256Hex(
-    JSON.stringify(
-      collisions
-        .map(({ winner, loser }) => [
-          winner.name,
-          winner.source,
-          winner.filePath,
-          loser.source,
-          loser.filePath,
-        ])
-        .toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
-    ),
-  );
-  let reported = reportedSkillCollisions.get(workspaceDir);
-  if (!reported) {
-    reported = new Set();
-    reportedSkillCollisions.set(workspaceDir, reported);
-  }
-  if (reported.has(fingerprint)) {
-    return;
-  }
-  reported.add(fingerprint);
+// Content includes declared frontmatter. Paths identify copies, not new conflicts.
+function warnSkillPrecedenceCollisions(collisions: SkillCollision[]): void {
   for (const { winner, loser } of collisions) {
+    if (
+      winner.contentHash &&
+      winner.contentHash === loser.contentHash &&
+      winner.name === loser.name &&
+      winner.description === loser.description &&
+      winner.disableModelInvocation === loser.disableModelInvocation
+    ) {
+      continue;
+    }
+    const fingerprint = sha256Hex(
+      JSON.stringify(
+        [winner, loser].map((skill) => [
+          skill.name,
+          skill.contentHash ?? skill.filePath,
+          skill.description,
+          skill.disableModelInvocation,
+        ]),
+      ),
+    );
+    if (reportedSkillCollisions.has(fingerprint)) {
+      continue;
+    }
+    reportedSkillCollisions.add(fingerprint);
     warnSkillPrecedenceCollision(winner, loser);
   }
 }
@@ -409,7 +407,7 @@ function loadSkillEntries(workspaceDir: string, opts?: WorkspaceSkillLoadOptions
       }
     }
   }
-  warnSkillPrecedenceCollisions(workspaceDir, collisions);
+  warnSkillPrecedenceCollisions(collisions);
   if (opts?.librarySelections?.length) {
     entries.push(...loadSkillLibrarySelection(opts.librarySelections));
   }

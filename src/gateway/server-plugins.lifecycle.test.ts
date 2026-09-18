@@ -18,16 +18,13 @@ import {
   CHANNEL_BINDING_IDS,
   clearInstanceBindingProbeCoordinators,
   INSTANCE_BINDING_PROBE_METHOD,
-  installInstanceBindingProbeCoordinator,
-  writeChannelBindingProbePlugin,
-  writeInstanceBindingProbePlugin,
   type ChannelBindingMonitor,
   type ChannelBindingProof,
   type InstanceBindingProbeCoordinator,
   type InstanceBindingProbeResult,
 } from "./server-plugins.lifecycle.test-fixtures.js";
 import {
-  installChannelBindingRuntimeLoader,
+  prepareInstanceBindingFixture,
   installInstanceBindingConfigIo,
   patchInstanceBindingTestConfig,
   requireBoundRuntime,
@@ -50,51 +47,15 @@ const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 let restoreChannelRuntimeLoader: (() => void) | undefined;
 
-async function prepareInstanceBindingTest(options?: {
-  serviceStopFailure?: InstanceBindingProbeCoordinator["serviceStopFailure"];
-  channels?: boolean;
-  channelIds?: readonly string[];
-}) {
-  const coordinator = installInstanceBindingProbeCoordinator(options);
-  const bundledRoot = tempDirs.make("openclaw-instance-binding-");
-  await writeInstanceBindingProbePlugin(bundledRoot, coordinator.channelName);
-  if (options?.channels) {
-    await writeChannelBindingProbePlugin(bundledRoot, coordinator.channelName, options.channelIds);
-  }
-  process.env.OPENCLAW_TEST_MINIMAL_GATEWAY = "0";
-  delete process.env.OPENCLAW_DISABLE_BUNDLED_PLUGINS;
-  process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledRoot;
-  process.env.OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR = "1";
-  process.env.OPENCLAW_SKIP_CHANNELS = "1";
-  process.env.OPENCLAW_SKIP_CRON = "1";
-  const configPath = process.env.OPENCLAW_CONFIG_PATH;
-  if (!configPath) {
-    throw new Error("gateway test hooks did not install OPENCLAW_CONFIG_PATH");
-  }
-  const config = {
-    plugins: {
-      enabled: true,
-      allow: [
-        "instance-binding-probe",
-        ...(options?.channels ? ["instance-binding-channels"] : []),
-      ],
-      entries: {
-        "instance-binding-probe": { enabled: true },
-        ...(options?.channels ? { "instance-binding-channels": { enabled: true } } : {}),
-      },
-    },
-  };
-  const { loadPluginLookUpTable } = await import("../plugins/plugin-lookup-table.js");
-  expect(loadPluginLookUpTable({ config, env: process.env }).startup.pluginIds).toContain(
-    "instance-binding-probe",
+async function prepareInstanceBindingTest(
+  options?: Parameters<typeof prepareInstanceBindingFixture>[1],
+) {
+  const fixture = await prepareInstanceBindingFixture(
+    tempDirs.make("openclaw-instance-binding-"),
+    options,
   );
-  await fs.writeFile(configPath, `${JSON.stringify(config)}\n`);
-  if (coordinator.channelProof) {
-    restoreChannelRuntimeLoader = await installChannelBindingRuntimeLoader(
-      coordinator.channelProof,
-    );
-  }
-  return { coordinator, bundledRoot, configPath };
+  restoreChannelRuntimeLoader = fixture.restoreChannelRuntimeLoader;
+  return fixture;
 }
 
 installInstanceBindingConfigIo();
@@ -817,6 +778,13 @@ describe("gateway plugin instance bindings", () => {
       reloadEventIndex = proof.events.length;
       proof.events.push({ event: "channel-owner-reload-request" });
       const registryBeforeChannelReload = getActivePluginRegistry();
+      const channelOwner = registryBeforeChannelReload?.plugins.find(
+        (record) => record.id === "instance-binding-channels",
+      );
+      const channelInstance = channelOwner && getPluginInstance(channelOwner);
+      expect(channelInstance?.hasRetainedConsumers).toBe(true);
+      // Live monitors retain custody, so they cannot refuse replacement admission.
+      expect(() => channelInstance!.reserveReplacement()()).not.toThrow();
       const channelReload = await rpcReq(socket, "plugins.reload", {
         plugins: [{ pluginId: "instance-binding-channels" }],
       });
@@ -957,6 +925,20 @@ describe("gateway plugin instance bindings", () => {
       const initialRegistry = getActivePluginRegistry();
       const initialMetadata = getGatewayPluginMetadataSnapshot();
       const initialRegistrationCount = coordinator.runtimes.length;
+      const initialGatewayRegistrationCount = coordinator.registrationModes.filter(
+        (mode) => mode === "full",
+      ).length;
+      const expectNoGatewayReplacement = () => {
+        expect(coordinator.registrationModes.filter((mode) => mode === "full")).toHaveLength(
+          initialGatewayRegistrationCount,
+        );
+        // Model-runtime rollback may prepare auxiliary registries without activating a Gateway.
+        expect(
+          coordinator.registrationModes
+            .slice(initialRegistrationCount)
+            .filter((mode) => mode !== "discovery"),
+        ).toEqual([]);
+      };
       expect(initialRegistry).toBeDefined();
       expect(initialMetadata).toBeDefined();
       expect(coordinator.serviceStarts).toBe(1);
@@ -1000,7 +982,10 @@ describe("gateway plugin instance bindings", () => {
         expect(coordinator.gatewayStops).toEqual([initialProbe.registryId]);
         expect(getActivePluginRegistry()).not.toBe(initialRegistry);
         const restored = await requireBoundRuntime(
-          coordinator.runtimes.slice(initialRegistrationCount),
+          coordinator.runtimes.filter(
+            (_runtime, index) =>
+              index >= initialRegistrationCount && coordinator.registrationModes[index] === "full",
+          ),
           "restored original",
         );
         const restoredProbe = await requestInstanceBindingProbe(restored.runtime);
@@ -1010,7 +995,7 @@ describe("gateway plugin instance bindings", () => {
           placementId: initialProbe.placementId,
         });
       } else {
-        expect(coordinator.runtimes).toHaveLength(initialRegistrationCount);
+        expectNoGatewayReplacement();
         expect(getActivePluginRegistry()).toBe(initialRegistry);
       }
       await expect(requestInstanceBindingProbe(initialRuntime)).rejects.toThrow(
@@ -1032,7 +1017,10 @@ describe("gateway plugin instance bindings", () => {
         });
         expect(coordinator.serviceStarts).toBe(3);
         const successor = await requireBoundRuntime(
-          coordinator.runtimes.slice(beforeRetryRegistrations),
+          coordinator.runtimes.filter(
+            (_runtime, index) =>
+              index >= beforeRetryRegistrations && coordinator.registrationModes[index] === "full",
+          ),
           "replacement after service stop settled",
         );
         const successorProbe = await requestInstanceBindingProbe(successor.runtime);
@@ -1044,7 +1032,7 @@ describe("gateway plugin instance bindings", () => {
       } else {
         expect(retry.ok).toBe(false);
         expect(retry.error?.message).toContain("instance-binding service cleanup rejected");
-        expect(coordinator.runtimes).toHaveLength(initialRegistrationCount);
+        expectNoGatewayReplacement();
         expect(coordinator.serviceStarts).toBe(1);
       }
       await server.close({ reason: "close after plugin cleanup refusal" });

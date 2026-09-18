@@ -279,6 +279,7 @@ export type SessionsBranchesSwitchResult =
 
 export type SessionsPatchResult = SessionsPatchResultBase<{
   sessionId: string;
+  category?: GatewaySessionRow["category"];
   updatedAt?: number;
   createdAt?: number;
   pinnedAt?: number;

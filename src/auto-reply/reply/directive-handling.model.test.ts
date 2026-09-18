@@ -2235,7 +2235,7 @@ describe("handleDirectiveOnly model persist behavior (fixes #1435)", () => {
 
   function createHandleParams(overrides: Partial<HandleParams>): HandleParams {
     return createDirectiveHandlingParams({
-      sessionKey,
+      sessionKey: `agent:${overrides.agentId ?? "main"}:dm:1`,
       elevatedEnabled: false,
       elevatedAllowed: false,
       allowedModelKeys,

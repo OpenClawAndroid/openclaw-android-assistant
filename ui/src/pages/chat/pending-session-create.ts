@@ -1,7 +1,7 @@
 import { html } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { ApplicationContext } from "../../app/context.ts";
-import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
+import type { ImageLightboxItem } from "../../components/image-lightbox.types.ts";
 import { t } from "../../i18n/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";

@@ -4,9 +4,9 @@ import { createAdmittedHostCapabilityTestFixture } from "openclaw/plugin-sdk/plu
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as clientCleanup from "./attempt-client-cleanup.js";
 import { codexTestTurnIds } from "./codex-app-server.test-fixtures.js";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
 import { CodexEphemeralTurn } from "./ephemeral-turn.js";
 import { CodexNativeToolLifecycleProjector } from "./event-projector-native-tool-lifecycle.js";
+import { createCodexTestBindingStore } from "./session-binding.test-helpers.js";
 import {
   createClientHarness,
   createCodexTestModel,
@@ -14,10 +14,10 @@ import {
 } from "./test-support.js";
 
 const {
-  readCodexAppServerBindingMock,
   getSharedCodexAppServerClientMock,
   retireSharedCodexAppServerClientIfCurrentMock,
   runCodexAppServerSideQuestion,
+  runCodexAppServerSideQuestionImpl,
   createFakeClient,
   threadResult,
   turnStartResult,
@@ -32,7 +32,6 @@ describe("runCodexAppServerSideQuestion", () => {
   useSideQuestionTestSetup();
 
   it("executes inherited Gateway shell tools through the side run's host authority", async () => {
-    dynamicToolBuildState.openClawCodingToolsFactory = undefined;
     const workspaceDir = tempDirs.make("codex-side-gateway-shell-");
     const config = { tools: { exec: { host: "gateway" as const, mode: "full" as const } } };
     const runId = "side-gateway-shell";
@@ -51,8 +50,7 @@ describe("runCodexAppServerSideQuestion", () => {
     const client = createFakeClient({ completeTurn: false, onTurnStart: turnStarted.resolve });
     getSharedCodexAppServerClientMock.mockResolvedValue(client);
     const parent = { threadId: "parent-thread", cwd: workspaceDir, model: "gpt-5.5" };
-    readCodexAppServerBindingMock.mockReturnValue(parent);
-    const run = runCodexAppServerSideQuestion(
+    const run = runCodexAppServerSideQuestionImpl(
       sideParams({
         cfg: config,
         runtimeModel: createCodexTestModel("openai"),
@@ -70,6 +68,7 @@ describe("runCodexAppServerSideQuestion", () => {
         hostCapabilities: host.hostCapabilities,
         opts: { runId },
       }),
+      { bindingStore: { ...createCodexTestBindingStore(), read: () => parent } },
     );
     try {
       await Promise.race([

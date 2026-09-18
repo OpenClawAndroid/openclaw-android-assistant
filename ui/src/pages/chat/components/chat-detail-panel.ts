@@ -9,7 +9,7 @@ import {
   retryStaleChunkReloadWhenReachable,
   scheduleStaleChunkReload,
 } from "../../../app/stale-chunk-reload.ts";
-import type { ImageLightboxItem } from "../../../components/image-lightbox.ts";
+import type { ImageLightboxItem } from "../../../components/image-lightbox.types.ts";
 import type { MarkdownRenderOptions } from "../../../components/markdown-render-options.ts";
 import type { SessionLinkTarget } from "../../../components/markdown-session-links.ts";
 import { t } from "../../../i18n/index.ts";

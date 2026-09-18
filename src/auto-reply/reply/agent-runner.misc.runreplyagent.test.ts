@@ -41,6 +41,7 @@ import {
   type DiagnosticEventPayload,
 } from "../../infra/diagnostic-events.js";
 import { settlePendingFinalDelivery } from "../../infra/outbound/delivery-completion.js";
+import { resolveSystemEventQueueKey } from "../../infra/system-event-ownership.js";
 import { peekSystemEvents, resetSystemEventsForTest } from "../../infra/system-events.js";
 import { flushLogger, setLoggerOverride } from "../../logging/logger.js";
 import {
@@ -1087,13 +1088,13 @@ describe("runReplyAgent auto-compaction token update", () => {
     });
 
     vi.mocked(scheduleFollowupDrain).mockImplementation((key) => {
-      const events = peekSystemEvents(key);
+      const events = peekSystemEvents(resolveSystemEventQueueKey(key, "main"));
       expect(events).toHaveLength(1);
       expect(events[0]).toContain("Read the queued workspace startup file.");
       expect(events[0]).toContain("Never skip startup context after compaction.");
     });
 
-    const baseRun = createBaseRun({
+    await createBaseRun({
       run: {
         agentId: "main",
         agentDir: path.join(rootDir, "agent"),
@@ -1112,9 +1113,7 @@ describe("runReplyAgent auto-compaction token update", () => {
         sessionStore: { [sessionKey]: sessionEntry },
         sessionKey,
       },
-    });
-
-    await baseRun.run();
+    }).run();
 
     expect(scheduleFollowupDrain).toHaveBeenCalledTimes(1);
   });
@@ -1274,7 +1273,7 @@ describe("runReplyAgent auto-compaction token update", () => {
           totalTokens: 40,
           totalTokensFresh: true,
         });
-        expect(peekSystemEvents(sessionKey)).toEqual([]);
+        expect(peekSystemEvents(resolveSystemEventQueueKey(sessionKey, "main"))).toEqual([]);
       } finally {
         releaseFallback();
         replyOperation.complete();
@@ -1439,7 +1438,7 @@ describe("runReplyAgent auto-compaction token update", () => {
           },
         },
       });
-      const events = peekSystemEvents(sessionKey);
+      const events = peekSystemEvents(resolveSystemEventQueueKey(sessionKey, "main"));
       expect(events).toHaveLength(compactionCount);
       if (compactionCount > 0) {
         expect(events[0]).toContain("Post-compaction context refresh");

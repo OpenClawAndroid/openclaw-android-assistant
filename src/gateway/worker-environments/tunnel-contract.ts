@@ -1,4 +1,3 @@
-import type { WorkerTunnelStatus } from "@openclaw/gateway-protocol";
 import { NODE_WORKER_CAPACITY_EXHAUSTED_ERROR_CODE } from "../../infra/node-commands.js";
 import type { SpawnResult } from "../../process/exec.js";
 import type { WorkerLaunchPlan } from "../../worker/launch-descriptor.js";
@@ -9,8 +8,7 @@ import type {
   WorkerWorkspaceApplyResult,
   WorkerWorkspaceReconciliationJournalAdapter,
 } from "./workspace-reconcile.js";
-
-export type { WorkerTunnelStatus };
+export type { WorkerTunnelStatus } from "@openclaw/gateway-protocol";
 
 /** A disconnected node cannot hide an unfinished or failed local sibling cleanup. */
 export async function joinWorkerTunnelStops(operations: readonly (Promise<void> | undefined)[]) {

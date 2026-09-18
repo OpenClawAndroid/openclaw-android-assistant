@@ -37,7 +37,6 @@ import {
   readCodexPluginConfig,
   type CodexPluginConfig,
 } from "./config.js";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
 import {
   filterCodexDynamicTools,
   filterCodexDynamicToolsForDisabledNativeSurface,
@@ -243,7 +242,6 @@ export async function buildDynamicTools(
   const toolBuildStages = createCodexDynamicToolBuildStageTracker();
   const modelHasVision = params.model.input?.includes("image") ?? false;
   const agentDir = params.agentDir ?? resolveAgentDir(params.config ?? {}, input.sessionAgentId);
-  const injectedOpenClawCodingToolsFactory = dynamicToolBuildState.openClawCodingToolsFactory;
   const nativeExecutionPolicy = resolveCodexNativeExecutionPolicyForRun(params, {
     agentId: input.policyAgentId,
     runtimeSessionKey: input.sandboxSessionKey,
@@ -313,7 +311,6 @@ export async function buildDynamicTools(
     ...(params.skillLibraryAuthoring
       ? { skillWorkshop: { libraryAuthoring: params.skillLibraryAuthoring } }
       : {}),
-    githubPublicationAvailable: params.githubPublicationAvailable,
     authProfileStore: params.toolAuthProfileStore ?? params.authProfileStore,
     abortSignal: input.runAbortController.signal,
     emitBeforeToolCallDiagnostics: false,
@@ -369,12 +366,6 @@ export async function buildDynamicTools(
   input.onMessageToolTargetResolved?.(options.requireExplicitMessageTarget === true);
   const buildOpenClawCodingTools = () => {
     const bindingOptions = { cwd: input.effectiveCwd ?? input.effectiveWorkspace };
-    if (injectedOpenClawCodingToolsFactory) {
-      return params.hostCapabilities.bindToolSurface(
-        injectedOpenClawCodingToolsFactory(options),
-        bindingOptions,
-      );
-    }
     const createToolSurface = params.hostCapabilities.createToolSurface;
     if (!createToolSurface) {
       throw new Error("Codex tool construction requires a current host capability");

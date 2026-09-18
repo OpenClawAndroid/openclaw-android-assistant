@@ -40,6 +40,7 @@ import {
 } from "../../test-utils/openclaw-test-state.js";
 import { appendSqliteTrajectoryRuntimeEvents } from "../../trajectory/runtime-store.sqlite.js";
 import type { TrajectoryEvent } from "../../trajectory/types.js";
+import * as diskBudgetModule from "./disk-budget.js";
 import { measureSessionPhysicalDiskUsage } from "./disk-budget.js";
 import {
   appendTranscriptMessage,
@@ -56,6 +57,7 @@ import {
   inspectSqliteSessionHistoryDiskBudget,
   kickSessionHistoryDiskBudgetMaintenance,
 } from "./session-history-eviction.js";
+import { resolveMaintenanceConfigFromInput } from "./store-maintenance.js";
 
 describe("SQLite historical session disk budget", () => {
   let testState: OpenClawTestState;
@@ -785,23 +787,134 @@ describe("SQLite historical session disk budget", () => {
     },
   );
 
+  it("coalesces forced kicks during and after a sweep until the one-minute interval expires", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const measurement = vi
+      .spyOn(diskBudgetModule, "measureSessionPhysicalDiskUsage")
+      .mockResolvedValue({
+        databaseMainBytes: 0,
+        databaseWalBytes: 0,
+        sessionFilesBytes: 0,
+        totalBytes: 0,
+      });
+    const maintenanceConfig = resolveMaintenanceConfigFromInput({
+      mode: "enforce",
+      maxDiskBytes: 1,
+      highWaterBytes: 1,
+    });
+    const kick = () =>
+      kickSessionHistoryDiskBudgetMaintenance({ storePath, force: true, maintenanceConfig });
+    const settle = async () => {
+      await enforceSqliteSessionHistoryDiskBudget({
+        storePath,
+        mode: "warn",
+        maintenance: { maxDiskBytes: null, highWaterBytes: null },
+      });
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+    };
+    kick();
+    for (let index = 0; index < 10; index++) {
+      kick();
+    }
+    await settle();
+    expect(measurement).toHaveBeenCalledOnce();
+
+    clock.mockReturnValue(now + 59_999);
+    kick();
+    await settle();
+    expect(measurement).toHaveBeenCalledOnce();
+
+    clock.mockReturnValue(now + 60_000);
+    kick();
+    await settle();
+    expect(measurement).toHaveBeenCalledTimes(2);
+  });
+
+  it("backs off protected over-budget history and warns once while manual cleanup remains immediate", async () => {
+    await createHistoricalTranscript({
+      content: "protected history",
+      nextSessionId: "protected-live",
+      sessionId: "protected-old",
+      sessionKey: "agent:main:protected-history",
+      updatedAt: 1,
+    });
+    addRouteReference("agent:main:shared-history", "protected-old");
+    const settle = async () => {
+      await enforceSqliteSessionHistoryDiskBudget({
+        storePath,
+        mode: "warn",
+        maintenance: { maxDiskBytes: null, highWaterBytes: null },
+      });
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+    };
+    await settle();
+    evictionWarnSpy.mockClear();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const references = vi.spyOn(sessionLifecycleState, "readReferencedSessionIds");
+    const maintenanceConfig = resolveMaintenanceConfigFromInput({
+      mode: "enforce",
+      maxDiskBytes: 1,
+      highWaterBytes: 1,
+    });
+    const kick = () =>
+      kickSessionHistoryDiskBudgetMaintenance({ storePath, force: true, maintenanceConfig });
+    await expect(
+      enforceSqliteSessionHistoryDiskBudget({
+        storePath,
+        mode: "enforce",
+        maintenance: maintenanceConfig,
+      }),
+    ).resolves.toMatchObject({ overBudget: true, removedEntries: 0 });
+    const firstScans = references.mock.calls.length;
+    expect(firstScans).toBeGreaterThan(0);
+    expect(evictionWarnSpy).toHaveBeenCalledOnce();
+    expect(evictionWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Raise session.maintenance.maxDiskBytes or export and delete"),
+      expect.objectContaining({ storePath, nextCheckAt: now + 30 * 60_000 }),
+    );
+
+    clock.mockReturnValue(now + 60_000);
+    for (let index = 0; index < 10; index++) {
+      kick();
+    }
+    await settle();
+    expect(references).toHaveBeenCalledTimes(firstScans);
+
+    await expect(
+      enforceSqliteSessionHistoryDiskBudget({
+        storePath,
+        mode: "enforce",
+        maintenance: maintenanceConfig,
+      }),
+    ).resolves.toMatchObject({ overBudget: true, removedEntries: 0 });
+    const manualScans = references.mock.calls.length;
+    expect(manualScans).toBeGreaterThan(firstScans);
+
+    clock.mockReturnValue(now + 31 * 60_000);
+    kick();
+    await settle();
+    expect(references.mock.calls.length).toBeGreaterThan(manualScans);
+    expect(evictionWarnSpy).toHaveBeenCalledOnce();
+    expect(sessionExists("protected-old")).toBe(true);
+    expect(sessionExists("protected-live")).toBe(true);
+  });
+
   it("warns when a fire-and-forget budget sweep fails instead of swallowing it", async () => {
     evictionWarnSpy.mockClear();
-    // The kick gate reads maxDiskBytes twice synchronously; the queued sweep
-    // re-reads it asynchronously. Throwing on the later read rejects the
-    // fire-and-forget promise, exercising the catch path deterministically.
-    let maxDiskBytesReads = 0;
-    const maintenanceConfig = {
+    vi.spyOn(diskBudgetModule, "measureSessionPhysicalDiskUsage").mockRejectedValueOnce(
+      new Error("sweep exploded"),
+    );
+    const maintenanceConfig = resolveMaintenanceConfigFromInput({
       mode: "enforce",
+      maxDiskBytes: 1,
       highWaterBytes: 1,
-      get maxDiskBytes() {
-        maxDiskBytesReads += 1;
-        if (maxDiskBytesReads > 1) {
-          throw new Error("sweep exploded");
-        }
-        return 1;
-      },
-    } as never;
+    });
 
     kickSessionHistoryDiskBudgetMaintenance({ storePath, force: true, maintenanceConfig });
     await vi.waitFor(() => {

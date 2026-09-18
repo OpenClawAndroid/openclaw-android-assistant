@@ -5,6 +5,7 @@ import type { GatewayRequestContext } from "../../gateway/server-methods/types.j
 import { resolveWorkerToolAuthority } from "../../gateway/worker-environments/worker-tool-authority.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import { bindGatewayContextResolver } from "../../plugins/runtime/gateway-request-scope.js";
+import { mergeAcceptedSessionSpawnsForRun } from "../accepted-session-spawn.js";
 import {
   prepareSystemAgentRunAdmission,
   type AdmittedRunContext,
@@ -526,13 +527,17 @@ describe("embedded run retry dispatch", () => {
   );
 
   it.each([true, false])(
-    "settles accepted spawns before a late post-compaction abort (yielded: %s)",
+    "retains accepted spawns for the logical owner after a late post-compaction abort (yielded: %s)",
     async (yieldDetected) => {
       const postCompactionAbortError = new Error("post-compaction loop detected");
       const input = makeDispatchInput({}, createEmbeddedRunReplayState());
       input.getPostCompactionAbortError = vi.fn(() => postCompactionAbortError);
       const acceptedSessionSpawns = [
-        { runId: "child-run", childSessionKey: "agent:main:subagent:child" },
+        {
+          runId: "child-run",
+          childSessionKey: "agent:main:subagent:child",
+          expectsCompletionMessage: true,
+        },
       ];
       mocks.runAttempt.mockResolvedValueOnce({
         terminal: { kind: "ok" },
@@ -545,13 +550,10 @@ describe("embedded run retry dispatch", () => {
         postCompactionAbortError,
       );
 
-      expect(mocks.settleRequesterAfterSessionSpawns).toHaveBeenCalledWith({
-        requesterAgentId: "main",
-        requesterSessionKey: "agent:main:session-1",
-        requesterTurnRunId: "run-1",
-        requesterYielded: yieldDetected,
+      expect(mergeAcceptedSessionSpawnsForRun(admittedRunContext.operationalRunInstance)).toEqual(
         acceptedSessionSpawns,
-      });
+      );
+      expect(mocks.settleRequesterAfterSessionSpawns).not.toHaveBeenCalled();
     },
   );
 });

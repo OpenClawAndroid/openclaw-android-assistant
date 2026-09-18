@@ -422,7 +422,7 @@ export type PluginRuntimeCore = {
     }) => Promise<{ ok: true; runId: string } | { ok: false; reason: string }>;
   };
   system: {
-    enqueueSystemEvent: typeof import("../../infra/system-events.js").enqueueSystemEvent;
+    enqueueSystemEvent: typeof import("./system-events.js").enqueueSystemEventFromSdk;
     requestHeartbeat: typeof import("../../infra/heartbeat-wake.js").requestHeartbeat;
     /**
      * @deprecated Use `requestHeartbeat({ source, intent, reason })` so wake producers declare

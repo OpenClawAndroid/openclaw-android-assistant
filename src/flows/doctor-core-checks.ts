@@ -31,15 +31,10 @@ import {
 } from "../commands/doctor/shared/codex-route-warnings.js";
 import { isDefaultInstallIdentity } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { resolveSecretInputRef, type SecretRef } from "../config/types.secrets.js";
 import type { CronListPageResult } from "../cron/service/list-page-types.js";
 import type { CronJob } from "../cron/types.js";
 import { hasAmbiguousGatewayAuthModeConfig } from "../gateway/auth-mode-policy.js";
-import { resolveGatewayAuthToken } from "../gateway/auth-token-resolution.js";
-import { resolveGatewayAuth } from "../gateway/auth.js";
-import { isInvalidGatewaySecret } from "../gateway/known-weak-gateway-secrets.js";
 import type { PluginMetadataSnapshotScopeRunner } from "../plugins/current-plugin-metadata-snapshot.js";
-import { getSkippedExecRefStaticError } from "../secrets/exec-resolution-policy.js";
 import type { SecurityAuditFinding } from "../security/audit.types.js";
 import type { SkillStatusEntry } from "../skills/discovery/status.js";
 import { resolveSkillWorkshopConfig } from "../skills/workshop/config.js";
@@ -49,6 +44,7 @@ import {
   configValidationWarningsToHealthFindings,
   FINAL_CONFIG_VALIDATION_CHECK_ID,
 } from "./doctor-config-validation-findings.js";
+import { detectGatewayAuthHealth } from "./doctor-gateway-auth.js";
 import { hasActiveGatewayExecCredential } from "./doctor-gateway-exec-credential.js";
 import { removedWorkspacesStateCheck } from "./doctor-removed-workspaces-state-check.js";
 import { resolveDoctorWorkspaceSuggestionScopes } from "./doctor-workspace-suggestion-scopes.js";
@@ -85,6 +81,7 @@ export type CoreHealthCheckDeps = {
   readonly detectUnavailableSkills: typeof detectUnavailableSkillsWithRuntime;
   readonly collectSecurityWarnings: (
     cfg: OpenClawConfig,
+    env?: NodeJS.ProcessEnv,
   ) => Promise<readonly SecurityAuditFinding[]>;
   readonly collectWorkspaceSuggestionNotes: (workspaceDir: string) => Promise<readonly string[]>;
   readonly collectRuntimeToolSchemaFindings: (
@@ -112,9 +109,10 @@ async function detectUnavailableSkillsWithRuntime(
 
 async function collectSecurityWarningsWithRuntime(
   cfg: OpenClawConfig,
+  env?: NodeJS.ProcessEnv,
 ): Promise<readonly SecurityAuditFinding[]> {
   const { collectSecurityWarnings } = await import("../commands/doctor-security.js");
-  return collectSecurityWarnings(cfg);
+  return collectSecurityWarnings(cfg, env);
 }
 
 async function collectWorkspaceSuggestionNotesWithRuntime(
@@ -402,104 +400,6 @@ const skillWorkshopRelocationCheck: HealthCheck = {
     ];
   },
 };
-
-function resolveDoctorMode(cfg: OpenClawConfig): "local" | "remote" {
-  return cfg.gateway?.mode === "remote" ? "remote" : "local";
-}
-
-function buildGatewayTokenSecretRefUnavailableMessage(params: {
-  cfg: OpenClawConfig;
-  ref: SecretRef;
-  unresolvedRefReason?: string;
-}): string {
-  if (params.unresolvedRefReason) {
-    return `Gateway token SecretRef could not be resolved: ${params.unresolvedRefReason}`;
-  }
-  if (params.ref.source === "exec") {
-    const staticError = getSkippedExecRefStaticError({ ref: params.ref, config: params.cfg });
-    if (staticError) {
-      return `Gateway token SecretRef could not be verified: ${staticError}`;
-    }
-    return "Gateway token SecretRef uses an exec provider and did not resolve.";
-  }
-  return "Gateway token is managed via SecretRef and is currently unavailable.";
-}
-
-function buildGatewayTokenSecretRefFixHint(ref: SecretRef): string {
-  if (ref.source === "exec") {
-    return "Run `openclaw doctor --allow-exec` to verify exec SecretRefs during doctor, or `openclaw secrets audit --allow-exec` to audit all exec SecretRefs.";
-  }
-  return "Resolve or rotate the external secret source, then rerun doctor.";
-}
-
-/** Shared auth diagnostics keep doctor's read-only and repair paths on the same policy. */
-export async function detectGatewayAuthHealth(
-  ctx: Pick<HealthCheckContext, "cfg" | "env" | "allowExecSecretRefs">,
-): Promise<HealthFinding[]> {
-  if (resolveDoctorMode(ctx.cfg) !== "local") {
-    return [];
-  }
-  const auth = resolveGatewayAuth({
-    authConfig: ctx.cfg.gateway?.auth,
-    tailscaleMode: ctx.cfg.gateway?.tailscale?.mode ?? "off",
-    env: ctx.env,
-  });
-  if (auth.mode !== "token") {
-    return [];
-  }
-  const gatewayTokenRef = resolveSecretInputRef({
-    value: ctx.cfg.gateway?.auth?.token,
-    defaults: ctx.cfg.secrets?.defaults,
-  }).ref;
-  const invalidExecRef =
-    gatewayTokenRef?.source === "exec" &&
-    getSkippedExecRefStaticError({ ref: gatewayTokenRef, config: ctx.cfg });
-  if (gatewayTokenRef?.source === "exec" && ctx.allowExecSecretRefs !== true && !invalidExecRef) {
-    return [];
-  }
-  const resolved: Awaited<ReturnType<typeof resolveGatewayAuthToken>> = invalidExecRef
-    ? { secretRefConfigured: true }
-    : await resolveGatewayAuthToken({
-        cfg: ctx.cfg,
-        env: ctx.env ?? process.env,
-        unresolvedReasonStyle: "detailed",
-        ...(gatewayTokenRef ? { envFallback: "never" as const } : {}),
-      });
-  if (resolved.token && !isInvalidGatewaySecret(resolved.token)) {
-    return [];
-  }
-  if (gatewayTokenRef) {
-    return [
-      {
-        checkId: "core/doctor/gateway-auth",
-        severity: "warning",
-        message: buildGatewayTokenSecretRefUnavailableMessage({
-          cfg: ctx.cfg,
-          ref: gatewayTokenRef,
-          unresolvedRefReason: isInvalidGatewaySecret(resolved.token)
-            ? "the resolved token is blank or the literal string undefined/null"
-            : resolved.unresolvedRefReason,
-        }),
-        path: "gateway.auth.token",
-        fixHint: buildGatewayTokenSecretRefFixHint(gatewayTokenRef),
-      },
-    ];
-  }
-  const invalid =
-    isInvalidGatewaySecret(resolved.token) || isInvalidGatewaySecret(ctx.cfg.gateway?.auth?.token);
-  return [
-    {
-      checkId: "core/doctor/gateway-auth",
-      severity: invalid ? "error" : "warning",
-      message: invalid
-        ? "Gateway token is blank or the literal string undefined/null, not a usable secret."
-        : "Gateway auth is off or missing a token.",
-      path: "gateway.auth.token",
-      fixHint:
-        "Run `openclaw doctor --fix --generate-gateway-token` to generate a token, then restart the Gateway.",
-    },
-  ];
-}
 
 const gatewayAuthCheck: HealthCheck = {
   id: "core/doctor/gateway-auth",
@@ -899,7 +799,7 @@ function createSecurityCheck(deps: CoreHealthCheckDeps): DoctorHealthCheck {
     description: "Security posture checks produce structured findings.",
     source: "doctor",
     async detect(ctx) {
-      const findings = await deps.collectSecurityWarnings(ctx.cfg);
+      const findings = await deps.collectSecurityWarnings(ctx.cfg, ctx.env);
       return findings.map(securityAuditFindingToHealthFinding);
     },
   };

@@ -488,7 +488,7 @@ describe("session state events", () => {
       database,
     )!;
     expect(event.sequence).toBeGreaterThan(0);
-    expect(peekSystemEventEntries("global")).toEqual([]);
+    expect(peekSystemEventEntries("agent:main:global")).toEqual([]);
     const cursorRow = openOpenClawStateDatabase(database)
       .db.prepare("SELECT COUNT(*) AS n FROM session_watch_cursors")
       .get() as { n: number };

@@ -13,6 +13,7 @@ import {
   createPluginStateSyncKeyedStoreForTests,
   resetPluginStateStoreForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClickClackClient } from "../http-client.js";
@@ -40,6 +41,7 @@ function legacyCreateResponse(
 
 describe("ClickClack discussion state persistence", () => {
   it("persists legacy create responses through the production plugin-state store", async () => {
+    await closeOpenClawStateDatabaseAsync();
     resetPluginStateStoreForTests();
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-clickclack-state-"));
     const env = { ...process.env, OPENCLAW_STATE_DIR: stateDir };
@@ -87,6 +89,7 @@ describe("ClickClack discussion state persistence", () => {
       expect(installation?.id).toBe(installationId);
       expect(binding.externalRef).toContain(installationId);
     } finally {
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
@@ -243,6 +246,7 @@ describe("ClickClack pending generation persistence", () => {
       release.resolve();
       await Promise.allSettled([opening, stopping]);
       await f.service.cleanup();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
     }
   });
@@ -254,6 +258,7 @@ describe("ClickClack pending generation persistence", () => {
       expect(f.nativeNamespaces).not.toContain("discussion-binding-generations");
     } finally {
       await f.service.cleanup();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
     }
   });
@@ -268,6 +273,7 @@ describe("ClickClack pending generation persistence", () => {
         expect(f.nativeNamespaces).toContain("discussion-binding-generations");
       } finally {
         await f.service.cleanup();
+        await closeOpenClawStateDatabaseAsync();
         resetPluginStateStoreForTests();
       }
     },
@@ -320,6 +326,7 @@ describe("ClickClack pending generation persistence", () => {
       release.resolve();
       await Promise.allSettled([first, second, stopping, restarting]);
       await f.service.cleanup();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
     }
   });
@@ -354,6 +361,7 @@ describe("ClickClack pending generation persistence", () => {
       release.resolve();
       await Promise.allSettled([opening]);
       await f.service.cleanup();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
     }
   });
@@ -392,6 +400,7 @@ describe("ClickClack pending generation persistence", () => {
         release.resolve();
         await Promise.allSettled([opening]);
         await f.service.cleanup();
+        await closeOpenClawStateDatabaseAsync();
         resetPluginStateStoreForTests();
       }
     },
@@ -410,6 +419,7 @@ describe("ClickClack pending generation persistence", () => {
       expect(f.nativeNamespaces).not.toContain("discussion-binding-generations");
     } finally {
       await f.service.cleanup();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
     }
   });
@@ -423,6 +433,7 @@ describe("ClickClack pending generation persistence", () => {
         "lost create response",
       );
       await f.service.cleanup();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
       recovered = generationFixture({ env: f.env });
       await expect(
@@ -447,6 +458,7 @@ describe("ClickClack pending generation persistence", () => {
     } finally {
       await f.service.cleanup();
       await recovered?.service.cleanup();
+      await closeOpenClawStateDatabaseAsync();
       resetPluginStateStoreForTests();
     }
   });

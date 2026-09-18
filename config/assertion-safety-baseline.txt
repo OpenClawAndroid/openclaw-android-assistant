@@ -621,7 +621,7 @@ extensions/matrix/src/matrix/actions/reactions.ts	1
 extensions/matrix/src/matrix/actions/summary.ts	2
 extensions/matrix/src/matrix/actions/verification.ts	1
 extensions/matrix/src/matrix/client-bootstrap.ts	1
-extensions/matrix/src/matrix/client/config.ts	5
+extensions/matrix/src/matrix/client/config.ts	4
 extensions/matrix/src/matrix/client/logging.ts	3
 extensions/matrix/src/matrix/config-update.ts	4
 extensions/matrix/src/matrix/credentials-state.ts	2
@@ -1827,7 +1827,7 @@ src/agents/provider-model-route.ts	1
 src/agents/provider-request-config.ts	6
 src/agents/provider-secret-egress.ts	3
 src/agents/provider-tool-policy.ts	1
-src/agents/provider-transport-fetch.ts	4
+src/agents/provider-transport-fetch.ts	2
 src/agents/run-termination.ts	3
 src/agents/run-wait.ts	2
 src/agents/runtime-plan/build.ts	4
@@ -2186,7 +2186,7 @@ src/cli/command-secret-targets.ts	2
 src/cli/completion-runtime.ts	4
 src/cli/config-cli-input.ts	2
 src/cli/config-cli-path.ts	5
-src/cli/config-cli-runner.ts	3
+src/cli/config-cli-runner.ts	2
 src/cli/config-cli.ts	8
 src/cli/config-model-validation.ts	7
 src/cli/config-set-input.ts	1
@@ -2556,7 +2556,7 @@ src/cron/session-reaper.ts	1
 src/cron/stagger.ts	1
 src/cron/store/delivery-codec.ts	2
 src/cron/store/quarantine.ts	1
-src/cron/store/row-codec.ts	4
+src/cron/store/row-codec.ts	3
 src/cron/task-run-detail.ts	2
 src/daemon/arg-split.ts	2
 src/daemon/launchd-install.ts	6
@@ -2729,7 +2729,7 @@ src/gateway/server-methods/tools-catalog.ts	2
 src/gateway/server-methods/web.ts	1
 src/gateway/server-methods/wizard.ts	1
 src/gateway/server-methods/workspace-fs.ts	2
-src/gateway/server-node-events.ts	3
+src/gateway/server-node-events.ts	2
 src/gateway/server-plugin-in-process-dispatch.ts	3
 src/gateway/server-plugin-subagent-runtime.ts	1
 src/gateway/server-plugins-node-runtime.ts	1
@@ -3671,7 +3671,6 @@ ui/src/pages/channels/view.detail.ts	1
 ui/src/pages/channels/view.nostr-profile-form.ts	4
 ui/src/pages/channels/view.nostr.ts	5
 ui/src/pages/channels/view.ts	9
-ui/src/pages/chat/attachment-api.ts	1
 ui/src/pages/chat/chat-avatar.ts	4
 ui/src/pages/chat/chat-command-executor.ts	1
 ui/src/pages/chat/chat-composer-capability-host.ts	4

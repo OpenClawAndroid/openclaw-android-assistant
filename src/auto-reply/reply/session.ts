@@ -1099,6 +1099,7 @@ async function initSessionStateAttemptLocked(
     onMaintenanceWarning: (warning) =>
       deliverSessionMaintenanceWarning({
         cfg,
+        agentId,
         sessionKey,
         entry: sessionEntry,
         warning,
@@ -1245,9 +1246,6 @@ async function initSessionStateAttemptLocked(
       storePath,
       previousSessionMemory,
     });
-  }
-
-  if (previousSessionEntry?.sessionId) {
     await retireSessionMcpRuntime({
       sessionId: previousSessionEntry.sessionId,
       reason: "reply-session-rollover",

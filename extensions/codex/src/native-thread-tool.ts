@@ -266,6 +266,7 @@ export function createCodexThreadsTool(options: CodexThreadsToolOptions): AnyAge
           const binding = readBinding();
           const selection = codexBindingConnectionSelection(binding);
           const assertCurrent = () => {
+            options.context.assertInvocationCurrent?.();
             const current = currentSession();
             if (
               runtimeConfig() !== base.config ||
@@ -430,10 +431,14 @@ export function createCodexThreadsTool(options: CodexThreadsToolOptions): AnyAge
             await requestOptions(admissionConfig),
           );
           if (archivedBinding?.threadId === threadId) {
-            await options.bindingStore.mutate(identity, {
-              kind: "clear",
-              threadId,
-            });
+            await options.bindingStore.mutate(
+              identity,
+              {
+                kind: "clear",
+                threadId,
+              },
+              options.context.assertInvocationCurrent,
+            );
           }
           return jsonResult({ action, threadId });
         }
@@ -483,20 +488,24 @@ export function createCodexThreadsTool(options: CodexThreadsToolOptions): AnyAge
           throw new Error("Codex app-server thread/fork response did not include a thread id");
         }
         if (attach && session) {
-          const attached = await options.bindingStore.mutate(currentIdentity(session.sessionId), {
-            kind: "set",
-            binding: {
-              threadId: forkThreadId,
-              cwd:
-                typeof response.thread.cwd === "string"
-                  ? response.thread.cwd
-                  : (options.context.workspaceDir ?? ""),
-              model: typeof response.model === "string" ? response.model : undefined,
-              modelProvider:
-                typeof response.modelProvider === "string" ? response.modelProvider : undefined,
-              historyCoveredThrough: new Date().toISOString(),
+          const attached = await options.bindingStore.mutate(
+            currentIdentity(session.sessionId),
+            {
+              kind: "set",
+              binding: {
+                threadId: forkThreadId,
+                cwd:
+                  typeof response.thread.cwd === "string"
+                    ? response.thread.cwd
+                    : (options.context.workspaceDir ?? ""),
+                model: typeof response.model === "string" ? response.model : undefined,
+                modelProvider:
+                  typeof response.modelProvider === "string" ? response.modelProvider : undefined,
+                historyCoveredThrough: new Date().toISOString(),
+              },
             },
-          });
+            options.context.assertInvocationCurrent,
+          );
           if (!attached) {
             throw new Error("Codex session binding changed before the fork could be attached");
           }

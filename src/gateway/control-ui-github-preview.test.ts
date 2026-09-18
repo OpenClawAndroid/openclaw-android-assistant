@@ -302,35 +302,22 @@ describe("loadControlUiGitHubPreview", () => {
 
   it("resolves co-authors from noreply trailers without a lookup per person", async () => {
     const commits = [
-      {
-        commit: {
-          // A commits page can exceed the shared 256 KiB JSON default.
-          message: `${"x".repeat(300 * 1024)}\n\nCo-authored-by: Ada King <20+ada@users.noreply.github.com>`,
-        },
-      },
+      // A commits page can exceed the shared 256 KiB JSON default.
+      `${"x".repeat(300 * 1024)}\n\nCo-authored-by:\t Ada King \t<20+ada@users.noreply.github.com>\t`,
+      ...["\n", "\r", "\u2028", "\u2029"].map(
+        (separator, index) =>
+          `Co-authored-by: Invalid${separator}continued <${80 + index}+invalid-${index}@users.noreply.github.com>`,
+      ),
       // Repeat plus a different case: the same person must fold into one face.
-      { commit: { message: "fix: two\n\nCo-authored-by: ada <20+ADA@users.noreply.github.com>" } },
-      {
-        commit: { message: "fix: three\n\nCo-authored-by: Mira <7+mira@users.noreply.github.com>" },
-      },
+      "fix: two\n\nCo-authored-by: ada <20+ADA@users.noreply.github.com>",
+      "fix: three\n\nCo-authored-by: Mira <7+mira@users.noreply.github.com>",
       // The PR author is not their own co-author.
-      {
-        commit: {
-          message:
-            "fix: four\n\nCo-authored-by: steipete <58493+steipete@users.noreply.github.com>",
-        },
-      },
+      "fix: four\n\nCo-authored-by: steipete <58493+steipete@users.noreply.github.com>",
       // A plain address carries no account id, so it cannot resolve to a face.
-      { commit: { message: "fix: five\n\nCo-authored-by: Someone <someone@example.com>" } },
-      {
-        commit: { message: "fix: six\n\nCo-authored-by: Alan <31+alan@users.noreply.github.com>" },
-      },
-      {
-        commit: {
-          message: "fix: seven\n\nCo-authored-by: Grace <99+grace@users.noreply.github.com>",
-        },
-      },
-    ];
+      "fix: five\n\nCo-authored-by: Someone <someone@example.com>",
+      "fix: six\n\nCo-authored-by: Alan <31+alan@users.noreply.github.com>",
+      "fix: seven\n\nCo-authored-by: Grace <99+grace@users.noreply.github.com>",
+    ].map((message) => ({ commit: { message } }));
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = requestUrl(input);
       if (url.includes("/commits")) {

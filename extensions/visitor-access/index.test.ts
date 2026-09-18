@@ -99,6 +99,9 @@ describe("visitor-access plugin lifecycle", () => {
       on,
       registerService: (service) => services.push(service),
       registerTool: (registration) => {
+        if (typeof registration !== "function" && "contextVersion" in registration) {
+          throw new Error("expected legacy visitor-access registration");
+        }
         const resolved =
           typeof registration === "function"
             ? registration({ sessionKey: "agent:main:maintainer" })
@@ -262,6 +265,9 @@ describe("visitor-access plugin lifecycle", () => {
     const discovery = createTestPluginApi({
       registrationMode: "tool-discovery",
       registerTool(registration) {
+        if (typeof registration !== "function" && "contextVersion" in registration) {
+          throw new Error("expected legacy visitor-access registration");
+        }
         const tools = typeof registration === "function" ? registration({}) : registration;
         invite =
           (Array.isArray(tools) ? tools : tools ? [tools] : []).find(

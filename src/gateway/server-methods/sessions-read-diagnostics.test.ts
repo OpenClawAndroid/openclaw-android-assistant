@@ -411,6 +411,11 @@ test("attributes concurrent presentation and readiness waits to each request tra
         },
       });
       expect(record?.fields.yieldWaitMs).toBeGreaterThanOrEqual(1_500);
+      expect(record?.fields.phaseDurationsMs).toHaveProperty(
+        "materialize",
+        record?.fields.yieldWaitMs,
+      );
+      expect(record?.fields.phaseDurationsMs).not.toHaveProperty("modelCatalog");
       expect(record?.fields).not.toHaveProperty("workTraceId");
     }
   });

@@ -22,7 +22,7 @@ import {
   runWithCronCreatorAuthorityCapability,
   type CronCreatorAuthorityCapability,
 } from "../../agents/cron-creator-authority-context.js";
-import { withPreparedEmbeddedGatewayTools } from "../../agents/embedded-agent-runner/run/attempt-tool-run-context.js";
+import { withPreparedEmbeddedGatewayTools } from "../../agents/embedded-agent-runner/run/attempt-gateway-tools.js";
 import * as hostFileWrite from "../../agents/host-file-write.js";
 import { makeSettledChild } from "../../agents/subagents/announce/subagent-announce.requester-settle-wake.test-support.js";
 import {

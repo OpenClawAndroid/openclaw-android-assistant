@@ -12,6 +12,10 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveSnakeCaseParamKey } from "../../param-key.js";
 import { parseAgentSessionKey } from "../../routing/session-key.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
+import {
+  mergeAcceptedSessionSpawnsForRun,
+  normalizeAcceptedSessionSpawnResult,
+} from "../accepted-session-spawn.js";
 import { captureAgentToolSourceExecutionGuard } from "../agent-tool-source-execution-guard.js";
 import {
   findAcpUnsupportedInheritedToolAllow,
@@ -105,6 +109,11 @@ function recordAcceptedSessionSpawn(
   result: Record<string, unknown>,
   context: "fork" | "isolated" | undefined,
 ): void {
+  const instance = getGatewayToolCallerIdentity()?.operationalRunInstance;
+  const accepted = normalizeAcceptedSessionSpawnResult({ details: result });
+  if (instance && accepted) {
+    mergeAcceptedSessionSpawnsForRun(instance, [accepted]);
+  }
   const childSessionKey =
     typeof result.childSessionKey === "string" ? result.childSessionKey.trim() : "";
   const targetAgentId = childSessionKey

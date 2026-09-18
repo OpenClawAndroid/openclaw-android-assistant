@@ -657,7 +657,7 @@ function execApprovalTargetConfig(call = execApprovalCall()) {
 
 function systemEventOptions(index = 0) {
   return requireRecord(
-    mockArg(enqueueSystemEventSpy, index, 1, "system event options"),
+    mockArg(enqueueSystemEventSpy, index, 2, "system event options"),
     "system event options",
   );
 }
@@ -6410,13 +6410,13 @@ describe("createTelegramBot", () => {
     expect(firstSystemEventArg(0)).toBe(
       `Telegram reaction added: ${HEART_EMOJI} by Charlie on msg 200`,
     );
-    expect(String(systemEventOptions().sessionKey)).toContain("telegram:group:9999");
     expect(String(systemEventOptions().contextKey)).toContain("telegram:reaction:add:9999:200:11");
     // Verify session key does NOT contain :topic:
     const eventOptions = firstSystemEventArg(1) as {
       sessionKey?: string;
     };
     const sessionKey = eventOptions.sessionKey ?? "";
+    expect(sessionKey).toContain("telegram:group:9999");
     expect(sessionKey).not.toContain(":topic:");
   });
 });

@@ -339,7 +339,15 @@ export async function createOpenClawTestState(
       },
       writeAuthProfiles: async (store, agentId = "main") => {
         const targetAgentDir = agentDir(agentId);
-        const { saveAuthProfileStore } = await import("../agents/auth-profiles/store-runtime.js");
+        // Fixture persistence does not need native plugin discovery.
+        const [{ createAuthProfileStoreRuntime }, { createExternalAuthRuntime }] =
+          await Promise.all([
+            import("../agents/auth-profiles/store.js"),
+            import("../agents/auth-profiles/external-auth.js"),
+          ]);
+        const { saveAuthProfileStore } = createAuthProfileStoreRuntime(
+          createExternalAuthRuntime(() => []),
+        );
         saveAuthProfileStore(store as AuthProfileStore, targetAgentDir, {
           filterExternalAuthProfiles: false,
           syncExternalCli: false,

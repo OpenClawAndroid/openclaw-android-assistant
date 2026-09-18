@@ -6,6 +6,7 @@ import {
   getTaskRelatedSessionIndexKeys,
   cloneTaskRecordForObserver,
   isEquivalentTaskRecord,
+  listTasksFromIndex,
 } from "./task-registry-records.js";
 import type {
   TaskRegistryMutationScope,
@@ -315,4 +316,15 @@ export function recordTaskRegistryPublication(event: TaskRegistryObserverEvent):
       }
     }
   }
+}
+
+export function selectLiveTaskFlowForSync(taskId: string) {
+  const current = indexState.tasks.get(taskId);
+  const flowId = current?.parentFlowId?.trim();
+  return current &&
+    flowId &&
+    listTasksFromIndex(indexState.tasks, indexState.taskIdsByParentFlowId, flowId)[0]?.taskId ===
+      taskId
+    ? { taskId, flowId, createdAt: current.createdAt }
+    : undefined;
 }

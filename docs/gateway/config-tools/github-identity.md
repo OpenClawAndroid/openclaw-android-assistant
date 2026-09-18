@@ -65,6 +65,8 @@ OpenClaw sandboxes, ordinary node-host exec, and Codex `remote-exec` placements 
 
 Gateway-hosted agents check publication availability for ordinary messages and internal continuations, including when a subagent finishes after the requester yields. The check uses the current session workspace and GitHub identity. If publication is unavailable, `github_identity_status` remains available to explain identity setup or reconnection needs, subject to the session's tool policy. Standalone local runs and runs with tools disabled do not expose these managed publication tools.
 
+The built-in, Codex, and Copilot tool surfaces use this same host-prepared availability. Harness options cannot replace the host's decision; tool profiles and Gateway authorization still apply.
+
 Publication stages workspace changes with ordinary Git attribute conversion. It preserves unchanged committed file bytes, including existing CRLF line endings, rather than renormalizing unrelated tracked files.
 
 Local session-owned worktrees can use the same **Publish PR** action in the Control UI. The Gateway derives the managed worktree, repository, branch, base, and head from current session ownership. It never accepts those authority facts from the browser or model. Publication retries use a durable request ID, an exact commit marker, remote branch observation, and pull-request lookup by head branch so a Gateway restart or lost response does not create duplicate commits, pushes, or pull requests.

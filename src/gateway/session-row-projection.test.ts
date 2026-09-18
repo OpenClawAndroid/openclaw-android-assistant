@@ -21,6 +21,7 @@ import {
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { ready } from "./session-row-projection-record.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
+import { listProjectedSessions } from "./session-utils-list.js";
 import * as rowInputs from "./session-utils-row.js";
 
 afterEach(() => vi.restoreAllMocks());
@@ -566,7 +567,7 @@ it.each([false, true])(
               return readInputs(params);
             });
             sessionChanges.emit({ all: true, scope: "catalog" });
-            await projection.ensureMaterialized();
+            await listProjectedSessions({ projection, opts: {} });
           } finally {
             clock.mockRestore();
           }

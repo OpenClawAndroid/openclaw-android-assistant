@@ -1,4 +1,5 @@
 import { createSqliteLifecycleAggregateError } from "../infra/sqlite-coordinator.js";
+import { isSqliteWorkerError } from "../infra/sqlite-worker-contract.js";
 import type { OpenClawStateDatabaseReadAdmission } from "../state/openclaw-state-db-async-lifecycle.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
 
@@ -190,7 +191,8 @@ export function createAsyncRegistryRestore<Snapshot, Store extends SnapshotStore
             secondary.push(admissionError);
           }
         }
-        if (admitted && failCurrent?.()) {
+        // A pre-dispatch capacity refusal leaves preparation available to its bounded retry owner.
+        if (admitted && failCurrent?.() && !isSqliteWorkerError(error, "overloaded")) {
           try {
             owner.fail(error, context.admission);
           } catch (restoreError) {

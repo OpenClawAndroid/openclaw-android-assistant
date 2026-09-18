@@ -165,7 +165,7 @@ export type CronServiceDeps = {
     sessionKey?: string;
     agentId?: string;
   }) => DeliveryContext | undefined;
-  /** Runs timer and startup work inside the owning Gateway's detached scope. */
+  /** Binds the Gateway for complete scheduled operations, including admission and settlement. */
   runSchedulerOwned?: <T>(run: () => Promise<T>) => Promise<T>;
   requestHeartbeat: (opts: HeartbeatWakeRequest) => void;
   /** Waits for the terminal result of a cron-owned coalesced heartbeat wake. */

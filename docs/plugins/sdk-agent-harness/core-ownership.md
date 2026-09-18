@@ -30,6 +30,12 @@ model discovery, auth preparation, or Responses parameters. An explicit
 observation, not a native ownership claim. Bound native sessions use the separate
 ownership contract below.
 
+Use `params.hostCapabilities.createToolSurface(options)` to construct OpenClaw
+tools. The host captures publication availability for the admitted attempt and
+applies it when building the surface; harnesses do not need to forward that fact,
+and plugin-supplied options cannot replace it. Tool profiles still filter the
+catalog, and each executable remains bound to the host's live authority.
+
 ### Native tool-policy enforcement
 
 Set `conversationToolPolicySupport: "exact"` only when `runAttempt` enforces every

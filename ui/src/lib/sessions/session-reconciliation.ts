@@ -86,7 +86,7 @@ type Host = {
 };
 
 export function createSessionReconciliation(host: Host) {
-  const pendingFields = ["pinned", "pinnedAt", "unread"] as const;
+  const pendingFields = ["pinned", "pinnedAt", "unread", "category"] as const;
   const projectRowFields = (
     row: GatewaySessionRow,
     agentId?: string | null,

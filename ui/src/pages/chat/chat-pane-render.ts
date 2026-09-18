@@ -388,7 +388,7 @@ export class ChatPane extends ChatPaneLayoutRender {
         state.chatSending ||
         this.recoveringSession ||
         this.sessionSuggestionAddOperation !== undefined,
-      placementStartup,
+      placementStartup: placementStartup ?? placementComposer.startup,
       onRetrySessionPlacementStartup: placementStartup?.retryable
         ? () => this.context.placementStartup.retry(state.sessionKey)
         : undefined,

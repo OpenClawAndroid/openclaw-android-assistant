@@ -246,7 +246,7 @@ export function ensureTranscriptSessionRoot(
           .set({ entry_valid: -1 })
           .where("session_key", "=", scope.sessionKey),
       );
-      publishSessionEntryCacheInvalidation(database);
+      publishSessionEntryCacheInvalidation(database, { sessionKey: scope.sessionKey });
     }
   }
   executeSqliteQuerySync(

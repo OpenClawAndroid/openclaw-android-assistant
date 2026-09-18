@@ -170,7 +170,7 @@ function importSqliteSessionRowsInTransaction(
     );
     // Doctor imports run outside gateway requests and must finish with a complete projection.
     reconcileSessionTranscriptIndexInTransaction(database.db, params.entry.sessionId);
-    publishSessionEntryCacheInvalidation(database);
+    publishSessionEntryCacheInvalidation(database, { sessionKey: resolved.sessionKey });
   }
   if (params.transcriptMtimeMs !== undefined) {
     advanceTranscriptMutationAtInTransaction(

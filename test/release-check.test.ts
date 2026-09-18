@@ -53,6 +53,9 @@ function withProcessEnv<T>(env: Record<string, string>, callback: () => T): T {
 
 const requiredBundledPluginPackPaths = listBundledPluginPackArtifacts();
 
+// Prepare the public SDK graph through the test runner before the consumer test deadline.
+await import("openclaw/plugin-sdk/channel-outbound");
+
 describe("collectAppcastSparkleVersionErrors", () => {
   it("accepts legacy 9-digit calver builds before lane-floor cutover", () => {
     const xml = `<rss><channel>${makeItem("2026.2.26", "202602260")}</channel></rss>`;

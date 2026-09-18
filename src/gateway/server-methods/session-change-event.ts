@@ -203,9 +203,12 @@ export async function flushPendingSessionsChangedEvents(context?: object): Promi
 export function emitSessionsChanged(
   context: SessionChangeContext,
   payload: SessionChangedPayload,
-  options: { accessChanged?: boolean; preparedPublication?: boolean } = {},
+  options: { accessChanged?: boolean; preparedPublication?: boolean; catalogOnly?: boolean } = {},
 ): void {
-  if (!options.preparedPublication) {
+  // Catalog absorption changes no session facts. Rename/delete callers retain
+  // normal invalidation because their sweeps can have committed member changes.
+  const catalogOnly = options.catalogOnly && payload.reason === "groups" && !payload.sessionKey;
+  if (!options.preparedPublication && !catalogOnly) {
     sessionChanges.emit(
       payload.sessionKey
         ? {
@@ -216,12 +219,14 @@ export function emitSessionsChanged(
     );
   }
   // Only a committed producer may certify unchanged access; unknown changes stay conservative.
-  if (options.accessChanged !== false) {
+  if (!catalogOnly && options.accessChanged !== false) {
     bumpGatewayAccessRevision();
   }
-  invalidateSessionSharingSnapshot(payload.sessionKey);
-  // Inbox subscriptions are independent of session-list subscriptions, including a closed sidebar.
-  context.mentionInbox?.invalidate();
+  if (!catalogOnly) {
+    invalidateSessionSharingSnapshot(payload.sessionKey);
+    // Inbox subscriptions are independent of session-list subscriptions, including a closed sidebar.
+    context.mentionInbox?.invalidate();
+  }
   const connIds = context.getSessionEventSubscriberConnIds();
   if (!hasSessionChangeReceivers(connIds)) {
     return;

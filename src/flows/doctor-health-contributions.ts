@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 // Doctor health contributions preserve the ordered interactive doctor flow while
 // exposing the same checks to structured lint and repair commands.
 import fs from "node:fs";
@@ -34,7 +35,6 @@ import type { HealthCheckContext, HealthFinding } from "./health-checks.js";
 export type { DoctorHealthFlowContext } from "./doctor-health-contribution-types.js";
 
 const loadCommandFormatModule = async () => await import("../cli/command-format.js");
-const loadDoctorCoreChecksModule = async () => await import("./doctor-core-checks.js");
 const loadNoteModule = async () => await import("../../packages/terminal-core/src/note.js");
 const loadOnboardHelpersModule = async () => await import("../commands/onboard-helpers.js");
 const loadSecretTypesModule = async () => await import("../config/types.secrets.js");
@@ -215,24 +215,103 @@ async function runGatewayAuthHealth(ctx: DoctorHealthFlowContext): Promise<void>
   if (!ctx.sourceConfigValid) {
     return;
   }
-  const { detectGatewayAuthHealth } = await loadDoctorCoreChecksModule();
+  const { detectGatewayAuthHealth } = await import("./doctor-gateway-auth.js");
   const [finding] = await detectGatewayAuthHealth({
     cfg: ctx.cfg,
     env: ctx.env,
     allowExecSecretRefs: ctx.options.allowExec,
   });
-  if (!finding) {
-    return;
-  }
   const { resolveSecretInputRef } = await loadSecretTypesModule();
   const { note } = await loadNoteModule();
   const gatewayTokenRef = resolveSecretInputRef({
     value: ctx.cfg.gateway?.auth?.token,
     defaults: ctx.cfg.secrets?.defaults,
   }).ref;
+  if (!finding) {
+    if (gatewayTokenRef && ctx.options.generateGatewayToken === true) {
+      note(
+        `Gateway token generation skipped because gateway.auth.token is managed by SecretRef ${gatewayTokenRef.source}:${gatewayTokenRef.provider}:${gatewayTokenRef.id}. The referenced credential was left unchanged.`,
+        "Gateway auth",
+      );
+    }
+    return;
+  }
   note([finding.message, finding.fixHint].filter(Boolean).join("\n"), "Gateway auth");
+  if (finding.path !== "gateway.auth.token") {
+    recordDoctorHealthWarnings(ctx, [finding]);
+    return;
+  }
   if (gatewayTokenRef) {
-    note("Doctor will not overwrite gateway.auth.token with a plaintext value.", "Gateway auth");
+    if (
+      gatewayTokenRef.source === "store" &&
+      finding.requirement === "SECRET_REF_REDACTED_VALUE" &&
+      (ctx.options.generateGatewayToken === true ||
+        ctx.options.repair === true ||
+        ctx.options.yes === true)
+    ) {
+      const { isRedactedSecretValue } = await import("../config/redact-sentinel.js");
+      const { readSecretStoreValue, writeSecretStoreEntryWithRollback } =
+        await import("../secrets/store/secret-store.js");
+      const { createVerifiedSqliteSnapshot } = await import("../infra/sqlite-snapshot.js");
+      const { resolveOpenClawStateSqlitePath } =
+        await import("../state/openclaw-state-db.paths.js");
+      const { randomToken } = await loadOnboardHelpersModule();
+      const database = { env: ctx.env ?? process.env };
+      const entry = { scope: { kind: "team" as const }, name: gatewayTokenRef.id, database };
+      let rollback: (() => boolean) | undefined;
+      try {
+        const current = readSecretStoreValue(entry);
+        if (!current.ok || !isRedactedSecretValue(current.value)) {
+          note(
+            `Secret store entry "${entry.name}" changed; rerun Doctor to inspect it.`,
+            "Gateway auth",
+          );
+          return;
+        }
+        const databasePath = resolveOpenClawStateSqlitePath(database.env);
+        const backup = await createVerifiedSqliteSnapshot({
+          sourcePath: databasePath,
+          targetPath: `${databasePath}.doctor-gateway-token.${randomUUID()}.bak`,
+          preserveRowIds: true,
+        });
+        const nextToken = randomToken();
+        ({ rollback } = writeSecretStoreEntryWithRollback({
+          ...entry,
+          value: nextToken,
+          expectedValue: current.value,
+          kind: "secret",
+          updatedBy: "doctor",
+        }));
+        const repaired = readSecretStoreValue(entry);
+        if (!repaired.ok || repaired.value !== nextToken) {
+          throw new Error("the replacement token could not be verified");
+        }
+        rollback = undefined;
+        note(
+          `Regenerated Gateway token in secret store entry "${entry.name}"; gateway.auth.token remains a SecretRef. Backup: ${backup.path}\nRestart the Gateway, then reconnect or re-pair devices with the new token.`,
+          "Gateway auth",
+        );
+      } catch (error) {
+        let recovery = "";
+        try {
+          if (rollback) {
+            recovery = rollback()
+              ? " The previous entry was restored."
+              : " The entry changed again and was left untouched.";
+          }
+        } catch (rollbackError) {
+          recovery = ` Rollback failed: ${scrubDoctorErrorMessage(rollbackError)}.`;
+        }
+        const warning = `Could not repair Gateway token in secret store entry "${entry.name}": ${scrubDoctorErrorMessage(error)}.${recovery} Rerun \`openclaw doctor --fix\` after resolving the reported problem.`;
+        note(warning, "Gateway auth");
+        recordDoctorHealthWarnings(ctx, [], [warning]);
+      }
+      return;
+    }
+    note(
+      `${ctx.options.generateGatewayToken === true ? "Gateway token generation skipped because a SecretRef is configured. " : ""}Doctor will not overwrite gateway.auth.token with a plaintext value.`,
+      "Gateway auth",
+    );
     return;
   }
   const shouldSetToken =

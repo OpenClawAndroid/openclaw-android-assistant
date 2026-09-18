@@ -274,7 +274,7 @@ export async function listProjectedSessions(params: {
   const { projection, opts, context, client, diagnostics } = params;
   const dirtyRowCount = projection.dirtyRowCount;
   const materializedBefore = projection.materializedCount;
-  diagnostics?.mark("modelCatalog");
+  diagnostics?.mark("materialize");
   const waitStarted = performance.now();
   let yieldCount = 0;
   do {

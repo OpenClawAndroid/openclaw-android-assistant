@@ -166,7 +166,11 @@ export function ownPreparedPluginGeneration(
     getPluginMetadataSnapshotCache(generation.pluginMetadataSnapshot),
   );
   const releases: Array<() => void | Promise<void>> = [];
-  const retainedRegistries: PluginRegistry[] = [];
+  const selectedRegistries = new Set(
+    [generation.pluginRegistry, generation.inboundPluginRegistry].filter(
+      (registry) => registry !== undefined,
+    ),
+  );
   const acquisitionFailures: unknown[] = [];
   const lifetime = createLifetime(
     async () => {
@@ -182,14 +186,13 @@ export function ownPreparedPluginGeneration(
         );
       }
     },
-    () => retainRuntimePluginWork(retainedRegistries),
+    () => retainRuntimePluginWork(selectedRegistries),
   );
   try {
-    for (const registry of new Set([generation.pluginRegistry, generation.inboundPluginRegistry])) {
-      const release = registry && retainPreparedPluginRegistry(registry);
-      if (registry && release) {
+    for (const registry of selectedRegistries) {
+      const release = retainPreparedPluginRegistry(registry);
+      if (release) {
         releases.push(release);
-        retainedRegistries.push(registry);
       }
     }
   } catch (error) {

@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { DatabaseSync } from "node:sqlite";
+import { classifyQuotaRefreshCaller } from "./quota-reset-diagnostics.mjs";
 
 // Test-only transport routing; provider responses and auth-state mutation remain real.
 const options = new URL(import.meta.url).searchParams;
@@ -102,6 +103,16 @@ globalThis.fetch = (input, init) => {
             : undefined;
   if (!route) {
     return originalFetch(input, init);
+  }
+  const refreshReceipt = options.get("refreshReceipt");
+  if (route === "/oauth/token" && refreshReceipt) {
+    appendFileSync(
+      refreshReceipt,
+      `${JSON.stringify({
+        atMs: realNow(),
+        caller: classifyQuotaRefreshCaller(new Error().stack),
+      })}\n`,
+    );
   }
   const target = new URL(route, fixture);
   const fixtureInit = { ...init };

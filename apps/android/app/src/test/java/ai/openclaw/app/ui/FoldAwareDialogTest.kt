@@ -532,6 +532,7 @@ class FoldAwareDialogTest {
 
       emit(emptyList())
       val setupCode = Base64.getEncoder().encodeToString("""{"url":"wss://gateway.test","bootstrapToken":"synthetic-bootstrap"}""".toByteArray())
+      composeRule.onNodeWithText("Manual Gateway").performScrollTo().performClick()
       composeRule.onNode(hasSetTextAction() and hasText("Setup code")).performScrollTo().performTextReplacement(setupCode)
       composeRule.onNodeWithText("Connect").performScrollTo().performClick()
       val replace = latestDialog()

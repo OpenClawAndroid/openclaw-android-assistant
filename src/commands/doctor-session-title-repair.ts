@@ -18,7 +18,10 @@ import { sqliteMessageEventWithSeq } from "../gateway/session-transcript-entry-m
 import { isIncognitoSessionKey } from "../routing/session-key.js";
 import { hasInterSessionUserProvenance } from "../sessions/input-provenance.js";
 import { runDoctorAgentDatabaseOperation } from "./doctor-agent-database-operation.js";
-import { listExistingAgentDatabaseTargets } from "./doctor-session-sqlite-readers.js";
+import {
+  listExistingAgentDatabaseTargets,
+  type ExistingAgentDatabaseTarget,
+} from "./doctor-session-sqlite-readers.js";
 import type { DoctorSqliteMaintenanceAuthority } from "./doctor-sqlite-maintenance-lock.js";
 
 type SessionTitleRepairScope = {
@@ -83,6 +86,7 @@ export async function repairLegacySessionTitles(params: {
   env: NodeJS.ProcessEnv;
   apply: boolean;
   authority?: DoctorSqliteMaintenanceAuthority;
+  targets?: readonly ExistingAgentDatabaseTarget[];
 }): Promise<SessionTitleRepairReport> {
   const authority = params.authority;
   const assertRepairAuthority = () => {
@@ -100,7 +104,7 @@ export async function repairLegacySessionTitles(params: {
     scannedStores: 0,
     warnings: [],
   };
-  for (const target of listExistingAgentDatabaseTargets(params.cfg, params.env)) {
+  for (const target of params.targets ?? listExistingAgentDatabaseTargets(params.cfg, params.env)) {
     if (params.apply) {
       assertRepairAuthority();
     }

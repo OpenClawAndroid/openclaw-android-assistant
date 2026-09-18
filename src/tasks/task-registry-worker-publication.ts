@@ -144,9 +144,10 @@ export async function reconcileTaskRegistryWorkerSnapshot(params: {
 /** Keep the original baseline registered while observers may synchronously publish other rows. */
 export function publishTaskRegistryWorkerMutation(params: {
   pending: PendingTaskRegistryMutation;
+  forced?: TaskRecord;
   emit: (event: () => TaskRegistryObserverEvent) => void;
 }): void {
-  const { pending, emit } = params;
+  const { pending, forced, emit } = params;
   const publication = pending.publication;
   if (!publication) {
     return;
@@ -161,7 +162,10 @@ export function publishTaskRegistryWorkerMutation(params: {
       continue;
     }
     const previous = pending.published.get(taskId);
-    if (!isDeepStrictEqual(previous, cloneTaskRecordForObserver(next))) {
+    if (
+      !isDeepStrictEqual(previous, cloneTaskRecordForObserver(next)) ||
+      (forced?.taskId === taskId && isEquivalentTaskRecord(forced, next))
+    ) {
       emit(() => ({
         kind: "upserted",
         task: cloneTaskRecordForObserver(next),

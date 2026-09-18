@@ -28,7 +28,6 @@ import {
   getCanonicalGatewayContextResolver,
   getGatewayContextResolver,
   withPluginRuntimePluginScope,
-  withPluginRuntimeRegistryScope,
 } from "./runtime/gateway-request-scope.js";
 import type { PluginRuntime } from "./runtime/types.js";
 
@@ -215,16 +214,16 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
           if (requireActive) {
             assertRuntimeCurrent();
           }
-          return withPluginRuntimeRegistryScope(currentRegistry(), () =>
-            withPluginRuntimePluginScope(
-              {
-                pluginId,
-                pluginSource: record.source,
-                pluginOrigin: record.origin,
-                pluginTrustedOfficialInstall: record.trustedOfficialInstall,
-              },
-              run,
-            ),
+          const scopedRegistry = currentRegistry();
+          return withPluginRuntimePluginScope(
+            {
+              pluginId,
+              pluginSource: record.source,
+              pluginOrigin: record.origin,
+              pluginTrustedOfficialInstall: record.trustedOfficialInstall,
+            },
+            run,
+            scopedRegistry,
           );
         };
         const getRuntimeProperty = () => {

@@ -92,7 +92,7 @@ export async function prepareReplyAgentPayloads(state: {
   const {
     configuredFallbackModel,
     contextTokensUsed,
-    directlySentBlockKeys,
+    hasDirectlySentBlockReply,
     directBlockDeliveries,
     fallbackAttempts,
     fallbackExhausted,
@@ -127,7 +127,7 @@ export async function prepareReplyAgentPayloads(state: {
 
   const successfulSourceReplyDelivery = hasSuccessfulSourceReplyDelivery({
     blockReplyPipeline,
-    directlySentBlockKeys,
+    hasDirectlySentBlockReply,
     messagingToolSentTexts: runResult.messagingToolSentTexts,
     messagingToolSentMediaUrls: runResult.messagingToolSentMediaUrls,
     messagingToolSentTargets: runResult.messagingToolSentTargets,

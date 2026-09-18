@@ -29,7 +29,8 @@ import {
 import { resolveRequestUrl } from "openclaw/plugin-sdk/request-url";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { Agent, fetch as undiciFetch } from "undici";
+// The installed package retains dispatcher composition under Bun.
+import { Agent, fetch as undiciFetch } from "undici/index.js";
 import { normalizeTelegramApiRoot } from "./api-root.js";
 import {
   resolveTelegramAutoSelectFamilyDecision,

@@ -64,7 +64,7 @@ import {
   type NormalizedOutboundPayload,
 } from "./outbound/payloads.js";
 import { buildOutboundSessionContext } from "./outbound/session-context.js";
-import { withSystemEventOwner } from "./system-event-ownership.js";
+import { resolveSystemEventQueueKey, withSystemEventOwner } from "./system-event-ownership.js";
 import { consumeSelectedSystemEventEntries, enqueueSystemEvent } from "./system-events.js";
 
 type HeartbeatDispatch = {
@@ -284,7 +284,10 @@ async function prepareHeartbeatDispatchReply(
       accountId: delivery.accountId,
     });
     if (consume && preflight.shouldInspectPendingEvents) {
-      consumeSelectedSystemEventEntries(sessionKey, prepared.inspectedSystemEventsToConsume);
+      consumeSelectedSystemEventEntries(
+        resolveSystemEventQueueKey(sessionKey, agentId),
+        prepared.inspectedSystemEventsToConsume,
+      );
       if (prepared.hasExecCompletion && prepared.hasCronEvents) {
         // Coalesced waiters share this turn, but exec and cron retain separate prompt/delivery policy.
         requestHeartbeat({

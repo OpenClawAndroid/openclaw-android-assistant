@@ -28,6 +28,9 @@ export function createSessionRowProjectionCatalog(params: {
     get current() {
       return modelCatalog;
     },
+    get isRefreshing() {
+      return !disposed && pending !== undefined;
+    },
     get needsInitialRead() {
       return Boolean(catalogDirty) && modelCatalog === undefined;
     },

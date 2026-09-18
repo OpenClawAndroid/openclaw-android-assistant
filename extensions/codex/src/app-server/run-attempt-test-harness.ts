@@ -2,7 +2,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createOpenClawCodingTools } from "openclaw/plugin-sdk/agent-harness";
 import {
   abortAndDrainAgentHarnessRun,
   nativeHookRelayTesting,
@@ -12,6 +11,7 @@ import {
   type EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { clearRuntimeAuthProfileStoreSnapshots } from "openclaw/plugin-sdk/agent-runtime";
+import { setHostToolFactoryForTest } from "openclaw/plugin-sdk/agent-runtime-test-contracts";
 import { resetDiagnosticEventsForTest } from "openclaw/plugin-sdk/diagnostic-runtime";
 import type { ExecApprovalsFile } from "openclaw/plugin-sdk/exec-approvals-runtime";
 import { clearInternalHooks, resetGlobalHookRunner } from "openclaw/plugin-sdk/hook-runtime";
@@ -39,8 +39,11 @@ import {
   turnStartResult,
 } from "./codex-app-server.test-fixtures.js";
 import * as codexRequirements from "./config-requirements.js";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
 import { createCodexDynamicToolBridge } from "./dynamic-tools.js";
+import {
+  createCodexTestHostCapabilities,
+  getCodexTestToolFactory,
+} from "./host-capability.test-support.js";
 import { setManagedCodexPluginRoot } from "./managed-binary.js";
 import { nativeHookRelayUnregisterQueue } from "./native-hook-relay-state.js";
 import { defaultCodexPluginMetadataCache } from "./plugin-metadata-cache.js";
@@ -75,12 +78,7 @@ const execApprovalsRuntimeMocks = vi.hoisted(() => ({
 function createHarnessHostCapabilities(
   params: EmbeddedRunAttemptParams,
 ): EmbeddedRunAttemptParams["hostCapabilities"] {
-  return Object.freeze({
-    kind: "agent-harness-host-capability",
-    version: 1,
-    assertActive: () => {},
-    bindToolSurface: (tools) => tools,
-    createToolSurface: (options) => createOpenClawCodingTools(options),
+  return createCodexTestHostCapabilities({
     runBeforeToolCall: async ({ nativeOperation: _nativeOperation, approvalMode, ...request }) =>
       await runBeforeToolCallHook({
         ...request,
@@ -102,8 +100,6 @@ function createHarnessHostCapabilities(
           turnSourceThreadId: params.currentThreadTs,
         }),
       }),
-    requestApproval: async () => undefined,
-    waitForApproval: async () => undefined,
   });
 }
 
@@ -350,6 +346,10 @@ export function createNativeRunParams(
 export async function bindProductionHarnessHostCapabilitiesForTest(
   params: EmbeddedRunAttemptParams,
 ): Promise<() => void> {
+  const factory = getCodexTestToolFactory(params);
+  if (factory) {
+    await setHostToolFactoryForTest(params, factory);
+  }
   const { hostCapabilities: _hostCapabilities, ...attempt } = params;
   const host = await createAgentHarnessHostCapabilitiesForTest({ attempt, pluginId: "codex" });
   params.hostCapabilities = host.capabilities;
@@ -729,7 +729,6 @@ export function setupRunAttemptTestHooks(): void {
     resetCodexAppServerClientFactoryForTest();
     setManagedCodexPluginRoot(undefined);
     clearRuntimeAuthProfileStoreSnapshots();
-    dynamicToolBuildState.openClawCodingToolsFactory = undefined;
     codexWorkspaceDirCache.clear();
     await nativeHookRelayUnregisterQueue.clear();
     await nativeHookRelayTesting.clearNativeHookRelaysForTests();

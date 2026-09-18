@@ -39,6 +39,17 @@ Explicit logger-level overrides, such as Baileys verbosity, remain in effect.
 
 Talk, realtime voice, and managed-room code paths use the shared file logger for bounded lifecycle records intended for operational debugging and OTLP log export. Transcript text, audio payloads, turn ids, call ids, and provider item ids are never copied into the log record.
 
+Discord realtime voice keeps session lifecycle transitions at `info`; audio chunks
+and transcript deltas use `debug`. Model-fetch starts and successful responses
+under one second also use `debug`. Non-2xx responses and responses taking at least
+one second remain at `info`; transport failures remain warnings. The existing
+[model transport diagnostic flags](/logging#targeted-model-transport-diagnostics)
+promote transport details to `info` when enabled.
+
+Secret egress request audit records remain at `info`, including successful
+forwarding. Their structured fields record the proxy outcome without request
+payloads or credentials; see [secret egress proxy](/gateway/secrets/secret-store-and-egress#secret-egress-proxy).
+
 The Control UI Logs tab tails this file via the gateway (`logs.tail`). The CLI does the same:
 
 ```bash
@@ -240,11 +251,18 @@ The latter two distinguish selected rows refreshed during this request from
 selected rows already resident when it began. Dirty counts describe pending
 owner work at the start of the request.
 
-The `modelCatalog` phase includes waiting for projection readiness. In-flight
+The `materialize` phase measures the wait for session-row projection readiness. In-flight
 catalog renewals no longer block lists or descriptions once a catalog is loaded:
 reads use the current catalog while its replacement loads in the background, then
 rows refresh with the new catalog. Startup still waits for the first catalog.
 Renewals that retain identical catalog content do not dirty resident rows.
+
+Profile and run-registry publications refresh their derived display facts without
+rereading session entries. Worker environment and placement publications refresh
+only the selected rows' worker facts on their next presentation. Stored session
+writes publish exact keys; broad list notifications do not schedule an all-row
+drain. Config, store topology, and adopted model catalogs still refresh affected
+live rows before lists respond. Archived rows stay cold until selected.
 
 Transcript-only row refreshes use a one-second window per resident session: the
 first notification refreshes promptly, and further notifications collapse into a

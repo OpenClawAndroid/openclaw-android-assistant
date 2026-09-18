@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import {
   createPluginStateKeyedStoreForTests,
   createPluginStateSyncKeyedStoreForTests,
@@ -40,6 +41,7 @@ import {
 import { createCodexSessionCatalogNodeHostCommands } from "./src/session-catalog-listing.js";
 import type { CodexSessionCatalogControl } from "./src/session-catalog-types.js";
 import { CODEX_SUPERVISION_COMPAT_TOOL_NAMES } from "./src/supervision-tools.js";
+import { registeredCodexTools } from "./src/tool-registration.test-support.js";
 
 const runCodexAppServerAttemptMock = vi.hoisted(() => vi.fn());
 const runCodexAppServerSideQuestionMock = vi.hoisted(() => vi.fn());
@@ -309,7 +311,7 @@ describe("codex plugin", () => {
     const registerMediaUnderstandingProvider = vi.fn();
     const registerMigrationProvider = vi.fn();
     const registerProvider = vi.fn();
-    const registerTool = vi.fn();
+    const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
     const registerToolMetadata = vi.fn();
     const registerWebSearchProvider = vi.fn();
     const on = vi.fn();
@@ -387,11 +389,17 @@ describe("codex plugin", () => {
       | undefined;
     expect(migrationRegistration?.id).toBe("codex");
     expect(migrationRegistration?.label).toBe("Codex");
-    expect(registerTool).toHaveBeenCalledWith(expect.any(Function), { name: "codex_threads" });
-    expect(registerTool).toHaveBeenCalledWith(expect.any(Function), { name: "codex_plugins" });
-    expect(registerTool).not.toHaveBeenCalledWith(expect.any(Function), {
-      names: [...CODEX_SUPERVISION_COMPAT_TOOL_NAMES],
-    });
+    expect(registerTool).toHaveBeenCalledWith(
+      expect.objectContaining({ contextVersion: 2, create: expect.any(Function) }),
+      { name: "codex_threads" },
+    );
+    expect(registerTool).toHaveBeenCalledWith(
+      expect.objectContaining({ contextVersion: 2, create: expect.any(Function) }),
+      { name: "codex_plugins" },
+    );
+    expect(registerTool.mock.calls.some(([, options]) => Array.isArray(options?.names))).toBe(
+      false,
+    );
     expect(registerToolMetadata).toHaveBeenCalledWith(
       expect.objectContaining({ toolName: "codex_threads", risk: "high" }),
     );
@@ -481,7 +489,7 @@ describe("codex plugin", () => {
   });
 
   it("registers the five shipped supervision tools only when supervision is enabled", () => {
-    const registerTool = vi.fn();
+    const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
     plugin.register(
       createTestPluginApi({
         id: "codex",
@@ -500,17 +508,13 @@ describe("codex plugin", () => {
       }),
     );
 
-    const registration = registerTool.mock.calls.find(([, options]) =>
-      Array.isArray(options?.names),
-    ) as
-      | [(context: { senderIsOwner?: boolean }) => Array<{ name: string }>, { names: string[] }]
-      | undefined;
-    expect(registration?.[1]).toEqual({ names: [...CODEX_SUPERVISION_COMPAT_TOOL_NAMES] });
-    expect(registration?.[0]({ senderIsOwner: true }).map((tool) => tool.name)).toEqual([
+    const registration = registeredCodexTools(registerTool);
+    expect(registration.options).toEqual({ names: [...CODEX_SUPERVISION_COMPAT_TOOL_NAMES] });
+    expect(registration.create({ senderIsOwner: true }).map((tool) => tool.name)).toEqual([
       ...CODEX_SUPERVISION_COMPAT_TOOL_NAMES,
     ]);
-    expect(registration?.[0]({ senderIsOwner: false })).toEqual([]);
-    expect(registration?.[0]({})).toEqual([]);
+    expect(registration.create({ senderIsOwner: false })).toEqual([]);
+    expect(registration.create()).toEqual([]);
   });
 
   it.each([
@@ -520,7 +524,7 @@ describe("codex plugin", () => {
   ] as const)(
     "keeps live user-home appServer config for an auto-enabled Codex entry when %s",
     (_label, supervision) => {
-      const registerTool = vi.fn();
+      const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
       plugin.register(
         createTestPluginApi({
           id: "codex",
@@ -552,19 +556,15 @@ describe("codex plugin", () => {
         }),
       );
 
-      const registration = registerTool.mock.calls.find(
-        ([, options]) => options?.name === "codex_threads",
-      ) as
-        | [(context: { senderIsOwner?: boolean }) => { name: string } | null, { name: string }]
-        | undefined;
+      const registration = registeredCodexTools(registerTool, "codex_threads");
       // codex_threads exists only while user-home scope or supervision is live,
       // so it proves the plugin config survived the enable-state resolution.
-      expect(registration?.[0]({ senderIsOwner: true })?.name).toBe("codex_threads");
+      expect(registration.create({ senderIsOwner: true })[0]?.name).toBe("codex_threads");
     },
   );
 
   it("drops live plugin config when the Codex entry is explicitly disabled", () => {
-    const registerTool = vi.fn();
+    const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
     plugin.register(
       createTestPluginApi({
         id: "codex",
@@ -592,16 +592,14 @@ describe("codex plugin", () => {
       }),
     );
 
-    const registration = registerTool.mock.calls.find(
-      ([, options]) => options?.name === "codex_threads",
-    ) as
-      | [(context: { senderIsOwner?: boolean }) => { name: string } | null, { name: string }]
-      | undefined;
-    expect(registration?.[0]({ senderIsOwner: true })).toBeNull();
+    const registration = registeredCodexTools(registerTool, "codex_threads");
+    expect(
+      registration.factory.create({ senderIsOwner: true, assertInvocationCurrent: () => {} }),
+    ).toBeNull();
   });
 
   it("activates from live supervision config through a normalized Codex entry id", () => {
-    const registerTool = vi.fn();
+    const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
     plugin.register(
       createTestPluginApi({
         id: "codex",
@@ -687,7 +685,7 @@ describe("codex plugin", () => {
       },
     ],
   ] as const)("revokes supervision live when %s", async (_label, revokedConfig) => {
-    const registerTool = vi.fn();
+    const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
     let liveConfig: unknown = {
       plugins: {
         entries: {
@@ -712,20 +710,10 @@ describe("codex plugin", () => {
         on: vi.fn(),
       }),
     );
-    const registration = registerTool.mock.calls.find(([, options]) =>
-      Array.isArray(options?.names),
-    ) as
-      | [
-          (context: { senderIsOwner?: boolean }) => Array<{
-            name: string;
-            execute(callId: string, params: object): Promise<unknown>;
-          }>,
-          { names: string[] },
-        ]
-      | undefined;
-    const probe = registration?.[0]({ senderIsOwner: true }).find(
-      (tool) => tool.name === "codex_endpoint_probe",
-    );
+    const registration = registeredCodexTools(registerTool);
+    const probe = registration
+      .create({ senderIsOwner: true })
+      .find((tool) => tool.name === "codex_endpoint_probe");
     if (!probe) {
       throw new Error("missing Codex endpoint probe tool");
     }

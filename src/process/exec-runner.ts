@@ -533,7 +533,7 @@ async function runCommandWithOutputEncoding(
   });
   let cleanup = await processCleanup;
   const resolvedSignal = result.signal ?? childExitState?.signal ?? nodeChild.signalCode ?? null;
-  if (cleanup !== "forced" && resolvedSignal) {
+  if (cleanup === "normal" && resolvedSignal) {
     cleanup = "uncertain";
   }
   if (inputAdmissionError) {

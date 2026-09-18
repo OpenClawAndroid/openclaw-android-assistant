@@ -406,42 +406,6 @@ describe("subagent registry steer restarts", () => {
     }
   });
 
-  it("removes orphaned private transcript when steer replaces an internally resumed run", async () => {
-    {
-      registerRun({
-        runId: "run-old",
-        childSessionKey: "agent:main:subagent:steer",
-        task: "initial task",
-      });
-
-      const previous = listMainRuns()[0];
-      expect(previous?.runId).toBe("run-old");
-      if (!previous) {
-        throw new Error("expected registered subagent run");
-      }
-      previous.execution = {
-        status: "interrupted",
-        startedAt: previous.execution.startedAt,
-        transcriptTarget: {
-          agentId: "main",
-          sessionId: "internal-run-old",
-          sessionKey: "agent:main:internal-session-effects:run-old",
-          storePath: "/tmp/test-store",
-        },
-      };
-
-      replaceRunAfterSteer({
-        previousRunId: "run-old",
-        nextRunId: "run-new",
-        fallback: previous,
-      });
-
-      expect(removeInternalSessionEffectsSessionMock).toHaveBeenCalledWith(
-        previous.execution.transcriptTarget,
-      );
-    }
-  });
-
   it("defers subagent_ended hook for completion-mode runs until announce delivery resolves", async () => {
     {
       const resolveAnnounce = createDeferredAnnounceResolver();

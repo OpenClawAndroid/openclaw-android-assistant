@@ -23,6 +23,7 @@ import {
 } from "./doctor-health-contribution-runners.state.js";
 import { runActiveToolSchemaWarningsHealth } from "./doctor-health-contribution-runners.workspace.js";
 import type {
+  DoctorHealthCheckContext,
   DoctorHealthContribution,
   DoctorHealthFlowContext,
 } from "./doctor-health-contribution-types.js";
@@ -72,10 +73,12 @@ export function resolveInitialDoctorHealthContributions(params: {
       label: "Agent database admission",
       healthChecks: {
         description: "Agent databases with mismatched ownership are isolated until repaired.",
-        async detect(ctx) {
+        async detect(ctx: DoctorHealthCheckContext) {
           const { evaluateAgentDatabaseAdmissions } =
             await import("../state/agent-database-admission.js");
-          const refusals = await evaluateAgentDatabaseAdmissions(ctx.cfg, { env: ctx.env });
+          const refusals =
+            ctx.agentDatabaseRefusals ??
+            (await evaluateAgentDatabaseAdmissions(ctx.cfg, { env: ctx.env }));
           return refusals.map((refusal) => ({
             checkId: "core/doctor/agent-database-admission",
             severity: "warning" as const,

@@ -1,6 +1,7 @@
 import type { CronJob } from "../cron/types.js";
 import { markOpenClawExecEnv } from "../infra/openclaw-exec-env.js";
 import type { ManagedRun, ProcessSupervisor } from "../process/supervisor/index.js";
+import { runInDetachedAsyncContext } from "../shared/async-work-scope.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { resolveExitWatchShell } from "./cron-exit-watch-shell.js";
 
@@ -227,124 +228,127 @@ export function createCronExitWatchers(
         `cron-exit: watcher ${phase} failed; retry scheduled`,
       );
     };
-    void (async () => {
-      let run: ManagedRun;
-      try {
-        run = await handlers.getProcessSupervisor().spawn({
-          scopeKey: scopeKey(job.id),
-          replaceExistingScope: true,
-          mode: "child",
-          argv: [shell.command, ...shell.argsFor(command)],
-          ...(cwd ? { cwd } : {}),
-          // Mark the child as an OpenClaw-launched subprocess (loop protection /
-          // detection) and bound its lifetime — consistent with how cron
-          // command-payload jobs run via runCommandWithTimeout.
-          env: markOpenClawExecEnv({ ...process.env }),
-          timeoutMs: ON_EXIT_WATCH_TIMEOUT_MS,
-          captureOutput: true,
-        });
-      } catch (err) {
-        // Keep the slot reserved as the retry placeholder; scheduleRetry re-arms
-        // with backoff so a transient supervisor failure cannot silently drop
-        // the watch (the job would otherwise never fire with no recorded cause).
-        await scheduleRetry(err, "spawn");
-        return;
-      }
-      if (!owns()) {
-        // Cancelled or re-armed (changed command/cwd) while the spawn was in
-        // flight — kill this now-orphaned child instead of leaking it. Wait for
-        // supervisor settlement so suspension cannot snapshot a live child.
-        run.cancel("manual-cancel");
+    // Spawn, retries, and exit settlement belong to the watcher after its creator returns.
+    void runInDetachedAsyncContext(() =>
+      (async () => {
+        let run: ManagedRun;
         try {
-          await run.wait();
-        } catch {
-          // The watcher was already cancelled; settlement, not outcome, matters.
-        }
-        return;
-      }
-      slot.run = run;
-      handlers.logger.info(
-        { jobId: job.id, runId: run.runId, command },
-        "cron-exit: watcher armed",
-      );
-      let exit: Awaited<ReturnType<ManagedRun["wait"]>>;
-      try {
-        exit = await run.wait();
-      } catch (err) {
-        // run.wait() rejected (e.g. supervisor error) rather than resolving with
-        // an exit. FAIL CLOSED: do not fire on an unknown outcome; scheduleRetry
-        // re-arms the watch with backoff instead of dropping it silently.
-        await scheduleRetry(err, "wait");
-        return;
-      }
-      if (!owns()) {
-        return;
-      }
-      if (predecessors.length > 0) {
-        // Keep the exit pending until earlier payloads and their writes settle.
-        await Promise.all(predecessors);
-      }
-      while (owns() && !slot.cancelled) {
-        const owner = handlers;
-        const admission = new AbortController();
-        slot.admission = admission;
-        try {
-          await settleOwnerCallback(
-            owner.fireOnExit(
-              slot.job,
-              {
-                exitCode: exit.exitCode,
-                reason: exit.reason,
-                stdout: exit.stdout,
-                stderr: exit.stderr,
-                timedOut: exit.timedOut,
-                noOutputTimedOut: exit.noOutputTimedOut,
-              },
-              {
-                signal: admission.signal,
-                commitGuard: () => {
-                  if (admission.signal.aborted || (!slot.fired && (!owns() || slot.cancelled))) {
-                    throw new Error("cron on-exit watcher no longer owns this exit");
-                  }
-                },
-                onTerminalWriteStarted: () => {
-                  slot.terminalPersisting = true;
-                },
-                onReserved: () => {
-                  slot.fired = true;
-                  slot.terminalPersisting = true;
-                },
-              },
-            ),
-          );
+          run = await handlers.getProcessSupervisor().spawn({
+            scopeKey: scopeKey(job.id),
+            replaceExistingScope: true,
+            mode: "child",
+            argv: [shell.command, ...shell.argsFor(command)],
+            ...(cwd ? { cwd } : {}),
+            // Mark the child as an OpenClaw-launched subprocess (loop protection /
+            // detection) and bound its lifetime — consistent with how cron
+            // command-payload jobs run via runCommandWithTimeout.
+            env: markOpenClawExecEnv({ ...process.env }),
+            timeoutMs: ON_EXIT_WATCH_TIMEOUT_MS,
+            captureOutput: true,
+          });
         } catch (err) {
-          if (!owns() || slot.cancelled) {
-            return;
-          }
-          if (owner !== handlers && !slot.fired) {
-            continue;
-          }
-          active.delete(job.id);
-          owner.logger.warn(
-            { err: String(err), jobId: job.id },
-            "cron-exit: fireOnExit after exit failed",
-          );
-        } finally {
-          slot.admission = undefined;
-          slot.terminalPersisting = false;
-        }
-        if (owner === handlers || slot.fired) {
+          // Keep the slot reserved as the retry placeholder; scheduleRetry re-arms
+          // with backoff so a transient supervisor failure cannot silently drop
+          // the watch (the job would otherwise never fire with no recorded cause).
+          await scheduleRetry(err, "spawn");
           return;
         }
-      }
-    })().finally(() => {
-      slot.lifecycleSettled = true;
-      settlingCancelledSlots.delete(slot);
-      if (slot.cancelled && active.get(job.id) === slot) {
-        active.delete(job.id);
-      }
-      slot.settlement.resolve(undefined);
-    });
+        if (!owns()) {
+          // Cancelled or re-armed (changed command/cwd) while the spawn was in
+          // flight — kill this now-orphaned child instead of leaking it. Wait for
+          // supervisor settlement so suspension cannot snapshot a live child.
+          run.cancel("manual-cancel");
+          try {
+            await run.wait();
+          } catch {
+            // The watcher was already cancelled; settlement, not outcome, matters.
+          }
+          return;
+        }
+        slot.run = run;
+        handlers.logger.info(
+          { jobId: job.id, runId: run.runId, command },
+          "cron-exit: watcher armed",
+        );
+        let exit: Awaited<ReturnType<ManagedRun["wait"]>>;
+        try {
+          exit = await run.wait();
+        } catch (err) {
+          // run.wait() rejected (e.g. supervisor error) rather than resolving with
+          // an exit. FAIL CLOSED: do not fire on an unknown outcome; scheduleRetry
+          // re-arms the watch with backoff instead of dropping it silently.
+          await scheduleRetry(err, "wait");
+          return;
+        }
+        if (!owns()) {
+          return;
+        }
+        if (predecessors.length > 0) {
+          // Keep the exit pending until earlier payloads and their writes settle.
+          await Promise.all(predecessors);
+        }
+        while (owns() && !slot.cancelled) {
+          const owner = handlers;
+          const admission = new AbortController();
+          slot.admission = admission;
+          try {
+            await settleOwnerCallback(
+              owner.fireOnExit(
+                slot.job,
+                {
+                  exitCode: exit.exitCode,
+                  reason: exit.reason,
+                  stdout: exit.stdout,
+                  stderr: exit.stderr,
+                  timedOut: exit.timedOut,
+                  noOutputTimedOut: exit.noOutputTimedOut,
+                },
+                {
+                  signal: admission.signal,
+                  commitGuard: () => {
+                    if (admission.signal.aborted || (!slot.fired && (!owns() || slot.cancelled))) {
+                      throw new Error("cron on-exit watcher no longer owns this exit");
+                    }
+                  },
+                  onTerminalWriteStarted: () => {
+                    slot.terminalPersisting = true;
+                  },
+                  onReserved: () => {
+                    slot.fired = true;
+                    slot.terminalPersisting = true;
+                  },
+                },
+              ),
+            );
+          } catch (err) {
+            if (!owns() || slot.cancelled) {
+              return;
+            }
+            if (owner !== handlers && !slot.fired) {
+              continue;
+            }
+            active.delete(job.id);
+            owner.logger.warn(
+              { err: String(err), jobId: job.id },
+              "cron-exit: fireOnExit after exit failed",
+            );
+          } finally {
+            slot.admission = undefined;
+            slot.terminalPersisting = false;
+          }
+          if (owner === handlers || slot.fired) {
+            return;
+          }
+        }
+      })().finally(() => {
+        slot.lifecycleSettled = true;
+        settlingCancelledSlots.delete(slot);
+        if (slot.cancelled && active.get(job.id) === slot) {
+          active.delete(job.id);
+        }
+        slot.settlement.resolve(undefined);
+      }),
+    );
   };
 
   const reconcile = (jobs: CronJob[]) => {

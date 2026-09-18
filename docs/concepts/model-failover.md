@@ -50,6 +50,12 @@ policy. OpenClaw does not retry them with thinking disabled.
 
 Fallback execution is turn-local. The reply runner persists only fallback notice state so `/status` and transition notices can distinguish the selected model from the model that answered. It does not persist the fallback as the next turn's model selection.
 
+Sessions placed on an OpenClaw cloud worker keep the OpenClaw runtime when
+automatic model selection advances to a fallback. The configured provider,
+model, and auth-profile fallback rules still apply. Explicit session or
+configured runtime choices remain strict: an incompatible runtime reports a
+placement error and requires a compatible destination before retrying.
+
 When configured fallback stops because the agent run reaches a final timeout or
 the idle-timeout cost-runaway breaker returns a terminal error, the
 `model-fallback/decision` logger records `model_fallback_chain_stopped` with

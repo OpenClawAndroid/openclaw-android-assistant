@@ -1543,6 +1543,9 @@ describe("gateway server chat", () => {
     });
   });
 
+  const contextOverflowCopy =
+    "Context overflow: this conversation is too large for the model. Try /compact, use /new to start a fresh session, or retry the command with a tighter output limit.";
+
   test.each([
     {
       name: "structured context-overflow code",
@@ -1550,7 +1553,7 @@ describe("gateway server chat", () => {
         errorCode: "context_overflow",
         errorMessage: "private upstream body: 203557 tokens sent",
       },
-      overflow: true,
+      expected: contextOverflowCopy,
     },
     {
       name: "provider request-too-large code",
@@ -1558,7 +1561,7 @@ describe("gateway server chat", () => {
         errorCode: "request_too_large",
         errorMessage: "private upstream body: 196607 tokens sent",
       },
-      overflow: true,
+      expected: contextOverflowCopy,
     },
     {
       name: "provider context-window message",
@@ -1566,12 +1569,12 @@ describe("gateway server chat", () => {
         errorType: "invalid_request_error",
         errorMessage: "Request size exceeds model context window: 203557 tokens",
       },
-      overflow: true,
+      expected: contextOverflowCopy,
     },
     {
       name: "embedded context-overflow message",
       fields: { errorMessage: "Unhandled stop reason: context_overflow" },
-      overflow: true,
+      expected: contextOverflowCopy,
     },
     {
       name: "token-per-minute rate limit",
@@ -1579,16 +1582,17 @@ describe("gateway server chat", () => {
         errorCode: "rate_limit_exceeded",
         errorMessage: "413 request too large: 203557 tokens per minute (TPM)",
       },
-      overflow: false,
+      expected:
+        "⚠️ LLM request failed (rate limited, HTTP 413). This is usually temporary — try again shortly.",
     },
     {
       name: "private upstream failure",
       fields: { errorMessage: "private upstream at secret.internal.example failed" },
-      overflow: false,
+      expected: "The agent run failed before producing a reply.",
     },
   ])(
     "chat.history safely displays $name over authenticated WebSocket",
-    async ({ fields, overflow }) => {
+    async ({ fields, expected }) => {
       const historyMessages = await loadChatHistoryWithMessages([
         {
           role: "assistant",
@@ -1599,11 +1603,7 @@ describe("gateway server chat", () => {
         },
       ]);
 
-      expect(collectHistoryTextValues(historyMessages)).toEqual([
-        overflow
-          ? "Context overflow: this conversation is too large for the model. Try /compact, use /new to start a fresh session, or retry the command with a tighter output limit."
-          : "The agent run failed before producing a reply.",
-      ]);
+      expect(collectHistoryTextValues(historyMessages)).toEqual([expected]);
       const wirePayload = JSON.stringify(historyMessages);
       expect(wirePayload).not.toContain("203557");
       expect(wirePayload).not.toContain("196607");

@@ -62,7 +62,7 @@ it("invalidates the run projection on lifecycle rotation and orphan cleanup", ()
     expect(changed.mock.calls).toEqual([[{ all: true, scope: "agent-runs" }]]);
     changed.mockClear();
     registerAgentRunContext("session-id-only", { agentId: "worker", sessionId: "shared-id" });
-    expect(changed.mock.calls).toEqual([[{ all: true, scope: { agentId: "worker" } }]]);
+    expect(changed.mock.calls).toEqual([[{ all: true, scope: "agent-runs" }]]);
   } finally {
     stop();
   }

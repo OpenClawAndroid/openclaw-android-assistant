@@ -170,7 +170,8 @@ warnings, workspace status, gateway auth and health, and supervisors.
 
     - If token mode needs a token and no token source exists, doctor offers to generate one.
     - If `gateway.auth.token` is SecretRef-managed but unavailable, doctor warns and does not overwrite it with plaintext.
-    - `openclaw doctor --generate-gateway-token` forces generation only when no token SecretRef is configured.
+    - `openclaw doctor --generate-gateway-token` reports when a healthy SecretRef makes generation unnecessary.
+    - If a store-backed token resolves to a known redaction placeholder, `--fix` or `--generate-gateway-token` verifies a database backup and regenerates that entry while preserving its SecretRef. Doctor prints the backup path and restart/re-pair guidance. Other external secrets require replacement at their source.
 
   </Accordion>
   <Accordion title="12b. Read-only SecretRef-aware repairs">

@@ -30,6 +30,9 @@ function createFixtureGit(root: string) {
     TMPDIR: root,
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
+    // The source template is copied immediately after commits; a detached
+    // repack must not remove loose objects while that copy is reading them.
+    GIT_CONFIG_PARAMETERS: "'maintenance.auto=false' 'gc.auto=0'",
     GIT_ALLOW_PROTOCOL: "file",
     GIT_TERMINAL_PROMPT: "0",
     XDG_CONFIG_HOME: join(home, ".config"),

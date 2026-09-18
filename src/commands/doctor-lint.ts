@@ -260,6 +260,7 @@ async function executeDoctorLint(
     opts.updateReadiness ? run() : withDoctorLintStateEnv(sourceEnv, run);
   const coreCtx = {
     ...ctx,
+    env: opts.updateReadiness ? stateView.pluginMetadataEnv : sourceEnv,
     deep: opts.deep === true,
     runWithPrivateStateSnapshot,
     runWithSourceState,

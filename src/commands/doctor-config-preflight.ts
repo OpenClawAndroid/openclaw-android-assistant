@@ -562,6 +562,9 @@ async function runDoctorConfigPreflightOperation(
                 log: migrationLog,
                 recoverCorruptTargetStore: options.recoverCorruptTargetStore,
                 doctorOnlyStateMigrations: options.doctorOnlyStateMigrations,
+                ...(options.agentDatabaseMigrationDiscovery
+                  ? { agentDatabaseMigrationDiscovery: options.agentDatabaseMigrationDiscovery }
+                  : {}),
                 beforeWorkspaceStateMigration: options.beforeWorkspaceStateMigration,
                 onStepReceipt: (receipt) => stateMigrationStepReceipts.push(receipt),
                 ...(gatewayStartupCheckpointRequired

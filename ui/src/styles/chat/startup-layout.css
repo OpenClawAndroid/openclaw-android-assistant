@@ -308,6 +308,7 @@
 }
 
 .chat-pane__header-trailing {
+  flex-shrink: 0;
   margin-left: auto;
   justify-self: end;
 }

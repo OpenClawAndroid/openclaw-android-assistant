@@ -55,12 +55,12 @@ function normalizeCooldownHours(value: number | undefined): number {
   return Math.max(0, value);
 }
 
-function resolveStartupVerificationStatePath(params: {
+async function resolveStartupVerificationStatePath(params: {
   auth: MatrixAuth;
   env?: NodeJS.ProcessEnv;
   stateDir?: string;
-}): string {
-  const storagePaths = resolveMatrixStoragePaths({
+}): Promise<string> {
+  const storagePaths = await resolveMatrixStoragePaths({
     homeserver: params.auth.homeserver,
     userId: params.auth.userId,
     accessToken: params.auth.accessToken,
@@ -144,7 +144,7 @@ async function readStartupVerificationState(params: {
       .register(key, legacy)
       .then(async () => {
         if (typeof legacy.deviceId === "string" && legacy.deviceId.trim()) {
-          recordCurrentStorageMetaDeviceId({
+          await recordCurrentStorageMetaDeviceId({
             rootDir: path.dirname(params.legacyFilePath),
             deviceId: legacy.deviceId,
           });
@@ -178,7 +178,7 @@ async function writeStartupVerificationState(params: {
     )
     .catch(() => {});
   if (typeof params.state.deviceId === "string" && params.state.deviceId.trim()) {
-    recordCurrentStorageMetaDeviceId({
+    await recordCurrentStorageMetaDeviceId({
       rootDir: path.dirname(params.legacyFilePath),
       deviceId: params.state.deviceId,
     });
@@ -298,11 +298,11 @@ export async function ensureMatrixStartupVerification(params: {
   const verification = await params.client.getOwnDeviceVerificationStatus();
   const statePath =
     params.stateFilePath ??
-    resolveStartupVerificationStatePath({
+    (await resolveStartupVerificationStatePath({
       auth: params.auth,
       env: params.env,
       stateDir: params.stateDir,
-    });
+    }));
   const stateDir = params.stateDir ?? path.dirname(statePath);
 
   if (verification.verified) {

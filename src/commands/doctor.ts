@@ -2,6 +2,7 @@
 import { exitCliAfterOutput } from "../cli/one-shot-exit.js";
 import { LEGACY_IMPLICIT_AGENT_ID, normalizeAgentId } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv, writeRuntimeJson } from "../runtime.js";
+import type { DoctorDatabasePreflight } from "./doctor-database-preflight.js";
 import type { DoctorOptions } from "./doctor-prompter.js";
 import type { DoctorSessionSqliteReport } from "./doctor-session-sqlite.js";
 import type { DoctorSqliteMaintenanceAuthority } from "./doctor-sqlite-maintenance-lock.js";
@@ -44,7 +45,11 @@ async function resolveExplicitSessionSqliteMaintenancePaths(
 }
 
 /** Runs doctor or the post-upgrade probe submode using the provided runtime. */
-export async function doctorCommand(runtime?: RuntimeEnv, options?: DoctorOptions): Promise<void> {
+export async function doctorCommand(
+  runtime?: RuntimeEnv,
+  options?: DoctorOptions,
+  databasePreflight?: DoctorDatabasePreflight,
+): Promise<void> {
   const outputRuntime = runtime ?? defaultRuntime;
   if (options?.stateSqlite) {
     const { runDoctorStateSqliteCompact } = await import("./doctor-state-sqlite-compact.js");
@@ -162,7 +167,7 @@ export async function doctorCommand(runtime?: RuntimeEnv, options?: DoctorOption
     exitCliAfterOutput(outputRuntime, hasError ? 1 : 0);
   }
   const doctorHealth = await import("../flows/doctor-health.js");
-  await doctorHealth.runDoctorHealthFlow(runtime, options);
+  await doctorHealth.runDoctorHealthFlow(runtime, options, undefined, databasePreflight);
 }
 
 async function maybeCreateSessionSqliteGithubIssue(

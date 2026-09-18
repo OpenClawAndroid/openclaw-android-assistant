@@ -324,6 +324,15 @@ After skipping a history generation or archived session, disk-budget cleanup
 rechecks physical usage before considering another deletion. A measurement
 failure stops the sweep.
 
+Background disk-budget checks run at most every 30 minutes on entry writes.
+Delete and reset operations can request a check sooner, but repeated requests
+coalesce to at most one forced check per minute per store. If cleanup exhausts
+eligible history and the store remains over budget, automatic checks back off
+for 30 minutes and log one warning until the pressure clears or the budget changes.
+The warning recommends raising `session.maintenance.maxDiskBytes` or exporting
+and deleting unneeded sessions. Checks resume on subsequent activity;
+`openclaw sessions cleanup --enforce` remains available immediately.
+
 If you previously used DM isolation and later returned `session.dmScope` to
 `main`, preview stale peer-keyed DM rows with
 `openclaw sessions cleanup --dry-run --fix-dm-scope`. Applying the same flag

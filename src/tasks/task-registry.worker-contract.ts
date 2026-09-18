@@ -10,6 +10,7 @@ import type {
   TaskFlowRegistryUpdateResult,
 } from "./task-flow-registry.store.types.js";
 import type { TaskFlowRecord } from "./task-flow-registry.types.js";
+import type { TaskInitialWorkerOperations } from "./task-initial-worker.types.js";
 import type {
   TaskRegistryRestoreResult,
   TaskMirroredFlowSyncOutcome,
@@ -39,7 +40,7 @@ type TaskFlowReadQuery = {
   token?: string;
 };
 
-export type TaskRegistryWorkerOperations = {
+export type TaskRegistryWorkerOperations = TaskInitialWorkerOperations & {
   "tasks.restore": { input: undefined; output: TaskRegistryRestoreResult };
   "flows.syncMirroredTask": {
     input: { taskId: string; expectedParentFlowId?: string };
@@ -101,6 +102,12 @@ export function isTaskRegistryWorkerCommand(command: {
   input: unknown;
 }): command is SqliteWorkerCommand<TaskRegistryWorkerOperations> {
   switch (command.type) {
+    case "tasks.createRecord":
+    case "tasks.settleUnstarted":
+    case "flows.createForTask":
+    case "tasks.linkInitialFlow":
+    case "flows.deleteUnlinkedForTask":
+    case "flows.finalizeTaskCancellation":
     case "tasks.restore":
     case "flows.syncMirroredTask":
     case "flows.snapshot":

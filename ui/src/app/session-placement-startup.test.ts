@@ -84,6 +84,12 @@ describe("application session placement startup", () => {
 
     startup.start(input);
     expect(startup.get(input.recovery.sessionKey)?.phase).toBe("pending");
+    expect(startup.get(input.recovery.sessionKey)?.initialTurn).toMatchObject({
+      id: input.recovery.messageId,
+      text: input.recovery.message,
+      createdAt: input.createdAt,
+      sendState: "sending",
+    });
     expect(listener).toHaveBeenCalledOnce();
     moduleLoad.resolve({ default: factory });
     await flushStartupMicrotasks();
@@ -155,8 +161,8 @@ describe("application session placement startup", () => {
     await flushStartupMicrotasks();
 
     expect(fake.runtime.start).toHaveBeenCalledTimes(32);
-    expect(fake.runtime.start).not.toHaveBeenCalledWith(replaced);
-    expect(fake.runtime.start).toHaveBeenCalledWith(replacement);
+    expect(fake.runtime.start).not.toHaveBeenCalledWith(expect.objectContaining(replaced));
+    expect(fake.runtime.start).toHaveBeenCalledWith(expect.objectContaining(replacement));
     startup.dispose();
   });
 
@@ -201,7 +207,7 @@ describe("application session placement startup", () => {
 
     expect(loader).toHaveBeenCalledOnce();
     expect(factory).toHaveBeenCalledWith(expect.anything());
-    expect(fake.runtime.start).toHaveBeenCalledWith(input);
+    expect(fake.runtime.start).toHaveBeenCalledWith(expect.objectContaining(input));
     startup.dispose();
   });
 
@@ -252,7 +258,7 @@ describe("application session placement startup", () => {
     await flushStartupMicrotasks();
     expect(loader).toHaveBeenCalledTimes(2);
     expect(factory).toHaveBeenCalledWith(expect.anything());
-    expect(fake.runtime.start).toHaveBeenCalledWith(input);
+    expect(fake.runtime.start).toHaveBeenCalledWith(expect.objectContaining(input));
     startup.dispose();
   });
 
@@ -274,6 +280,11 @@ describe("application session placement startup", () => {
       phase: "failed",
       error: "cloud startup chunk unavailable",
       retryable: true,
+      initialTurn: {
+        text: input.recovery.message,
+        sendState: "failed",
+        sendError: "cloud startup chunk unavailable",
+      },
     });
     expect(listener).toHaveBeenCalledTimes(2);
 
@@ -281,7 +292,7 @@ describe("application session placement startup", () => {
     await flushStartupMicrotasks();
     expect(loader).toHaveBeenCalledTimes(2);
     expect(factory).toHaveBeenCalledWith(expect.anything());
-    expect(fake.runtime.start).toHaveBeenCalledWith(input);
+    expect(fake.runtime.start).toHaveBeenCalledWith(expect.objectContaining(input));
     expect(startup.get(input.recovery.sessionKey)?.phase).toBe("pending");
     expect(listener).toHaveBeenCalledTimes(4);
     startup.dispose();
@@ -623,6 +634,11 @@ describe("application session placement startup", () => {
       input.recovery = { ...input.recovery, target, message, attachments };
       expect(writeSessionPlacementRecovery(input.recovery)).toBe(true);
       startup.start(input);
+      const pendingTurn = startup.get(input.recovery.sessionKey)?.initialTurn;
+      expect(pendingTurn).toMatchObject({
+        text: message,
+        attachments: [{ fileName: "note.txt", dataUrl: "data:text/plain;base64,SGk=" }],
+      });
       await vi.waitFor(() => {
         expect(startup.get(input.recovery.sessionKey)).toMatchObject({
           phase: "failed",
@@ -635,6 +651,9 @@ describe("application session placement startup", () => {
           },
         });
       });
+      expect(startup.get(input.recovery.sessionKey)?.initialTurn?.attachments).toBe(
+        pendingTurn?.attachments,
+      );
       expect(
         readSessionPlacementRecovery(
           input.recovery.gatewayUrl,

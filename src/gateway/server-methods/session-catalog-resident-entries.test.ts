@@ -15,7 +15,10 @@ import { createDeferredCore } from "../../shared/deferred.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
 import { bindSessionRowProjection } from "../session-row-projection-access.js";
-import { createSessionRowProjection } from "../session-row-projection.js";
+import {
+  createSessionRowProjection,
+  type SessionRowProjection,
+} from "../session-row-projection.js";
 import { sessionCatalogHandlers } from "./session-catalog.js";
 
 afterEach(() => vi.restoreAllMocks());
@@ -32,7 +35,9 @@ async function withCatalog(
   run: (fixture: {
     list: () => Promise<ReturnType<typeof vi.fn>>;
     setList: (list: SessionCatalogProvider["list"]) => void;
+    projection: SessionRowProjection;
   }) => Promise<void>,
+  otherEntryCount = 0,
 ) {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
     const cfg: OpenClawConfig = {
@@ -41,6 +46,12 @@ async function withCatalog(
     await state.writeConfig(cfg);
     setRuntimeConfigSnapshot(cfg);
     replaceSessionEntrySync({ agentId: "main", sessionKey: key }, original);
+    for (let index = 0; index < otherEntryCount; index++) {
+      replaceSessionEntrySync(
+        { agentId: "main", sessionKey: `agent:main:unrelated-${index}` },
+        { sessionId: `unrelated-${index}`, updatedAt: 1 },
+      );
+    }
     const context = createDirectChatContext({ getRuntimeConfig: () => cfg });
     const projection = await createSessionRowProjection({ cfg, getConfig: () => cfg, context });
     bindSessionRowProjection(context, () => projection);
@@ -81,6 +92,7 @@ async function withCatalog(
     setActivePluginRegistry(registry);
     try {
       await run({
+        projection,
         setList: (list) => {
           provider.list = list;
         },
@@ -121,6 +133,55 @@ it("reads clean local catalog entries from the resident owner without SQLite", a
       ),
     ).toEqual([]);
   });
+});
+
+it("bounds catalog result delivery to returned adoption keys", async () => {
+  await withCatalog(async ({ list, setList, projection }) => {
+    const selectEntries = projection.selectEntries.bind(projection);
+    let deliveryRowsRead = 0;
+    setList(async ({ sessionEntries }) => {
+      expect(sessionEntries?.entriesForCatalog?.()).toHaveLength(257);
+      vi.spyOn(projection, "selectEntries").mockImplementation((query) => {
+        const rows = selectEntries(query);
+        deliveryRowsRead += rows.length;
+        return rows;
+      });
+      return [
+        {
+          hostId: "gateway:fixture",
+          label: "Fixture",
+          kind: "gateway",
+          connected: true,
+          sessions: [
+            {
+              threadId: "native-thread",
+              sessionKey: key,
+              status: "stored",
+              archived: false,
+              canContinue: true,
+              canArchive: false,
+            },
+            {
+              threadId: "blank-key-thread",
+              sessionKey: " ",
+              status: "stored",
+              archived: false,
+              canContinue: true,
+              canArchive: false,
+            },
+          ],
+        },
+      ];
+    });
+    const respond = await list();
+    const sessions = respond.mock.calls[0]?.[1]?.catalogs[0]?.hosts[0]?.sessions;
+    expect(sessions).toMatchObject([
+      { sessionKey: key, createdActor: original.createdActor },
+      { threadId: "blank-key-thread" },
+    ]);
+    expect(sessions[1]).not.toHaveProperty("sessionKey");
+    expect(deliveryRowsRead).toBeLessThanOrEqual(1);
+  }, 256);
 });
 
 it("does not attach a replacement session identity after provider enumeration yields", async () => {

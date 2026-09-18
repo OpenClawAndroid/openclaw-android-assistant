@@ -5,6 +5,7 @@ import {
   resolveEventSessionRoutingPolicy,
   scopedHeartbeatWakeOptionsForPolicy,
 } from "../../infra/event-session-routing.js";
+import { resolveSystemEventQueueKey } from "../../infra/system-event-ownership.js";
 import { createModelCallStreamProgressReporter } from "../../logging/diagnostic-model-stream-progress.js";
 import { beginDiagnosticBackendActivity } from "../../logging/diagnostic-run-activity.js";
 import type { CliBackendConfig } from "../../plugins/cli-backend.types.js";
@@ -476,7 +477,10 @@ export async function executeCliProcess(params: {
           accountId: runParams.agentAccountId,
         });
         params.deps.enqueueSystemEvent(stallNotice, {
-          sessionKey: resolveEventSessionKeyForPolicy(runParams.sessionKey, routing),
+          sessionKey: resolveSystemEventQueueKey(
+            resolveEventSessionKeyForPolicy(runParams.sessionKey, routing),
+            runParams.agentId,
+          ),
         });
         params.deps.requestHeartbeat(
           scopedHeartbeatWakeOptionsForPolicy(

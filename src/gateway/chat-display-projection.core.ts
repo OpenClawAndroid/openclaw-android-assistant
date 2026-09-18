@@ -1,15 +1,11 @@
 import { STREAM_ERROR_FALLBACK_TEXT } from "@openclaw/ai/internal/shared";
 import { GATEWAY_ASSISTANT_ERROR_FALLBACK_TEXT } from "@openclaw/gateway-protocol/gateway-error-details";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
-  normalizeLowercaseStringOrEmpty as normalizeErrorSignal,
-  normalizeOptionalString,
-} from "@openclaw/normalization-core/string-coerce";
-import {
-  renderAssistantFormatFailureCopy,
   renderAssistantRequestFailureCopy,
+  renderRecordedAssistantFailureCopy,
 } from "../agents/failover/assistant-request-failure-copy.js";
-import { isContextOverflowErrorFromTables } from "../agents/failover/context-overflow-tables.js";
 import { readTranscriptSenderIdentity } from "../chat/sender-identity.js";
 import {
   projectAgentHistoryActivity,
@@ -135,26 +131,6 @@ type ChatDisplayProjectionResult = {
   commentaryFallbacksObserved?: true;
 };
 
-const GATEWAY_ASSISTANT_CONTEXT_OVERFLOW_FALLBACK_TEXT =
-  "Context overflow: this conversation is too large for the model. Try /compact, use /new to start a fresh session, or retry the command with a tighter output limit.";
-
-function isContextOverflowErrorSignal(value: unknown): boolean {
-  if (typeof value !== "string") {
-    return false;
-  }
-  return (
-    normalizeErrorSignal(value) === "context_overflow" || isContextOverflowErrorFromTables(value)
-  );
-}
-
-function isContextOverflowAssistantError(message: Record<string, unknown>): boolean {
-  return (
-    isContextOverflowErrorSignal(message.errorCode) ||
-    isContextOverflowErrorSignal(message.errorType) ||
-    isContextOverflowErrorSignal(message.errorMessage)
-  );
-}
-
 function getAssistantErrorFallbackText(message: Record<string, unknown>): string {
   return (
     formatProviderRefusalText(message) ??
@@ -162,10 +138,8 @@ function getAssistantErrorFallbackText(message: Record<string, unknown>): string
       storageFailure: classifyGatewayStorageFailure(message),
       code: typeof message.errorCode === "string" ? message.errorCode : undefined,
     }) ??
-    renderAssistantFormatFailureCopy(message) ??
-    (isContextOverflowAssistantError(message)
-      ? GATEWAY_ASSISTANT_CONTEXT_OVERFLOW_FALLBACK_TEXT
-      : GATEWAY_ASSISTANT_ERROR_FALLBACK_TEXT)
+    renderRecordedAssistantFailureCopy(message) ??
+    GATEWAY_ASSISTANT_ERROR_FALLBACK_TEXT
   );
 }
 
@@ -212,7 +186,7 @@ function sanitizeAssistantErrorDisplayMessage(
   const terminalCopy =
     renderAssistantRequestFailureCopy({
       code: typeof message.errorCode === "string" ? message.errorCode : undefined,
-    }) ?? renderAssistantFormatFailureCopy(message);
+    }) ?? renderRecordedAssistantFailureCopy(message);
   if (terminalCopy) {
     // Apply the normal visibility rules before adding host-owned failure copy.
     // Put it first in surviving text so phase filtering and display caps retain it.

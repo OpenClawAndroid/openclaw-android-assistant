@@ -10,8 +10,8 @@ it.each(["http", "websocket"] as const)(
     const provider = await startQuotaProvider("codex_rate_limits", MARKER);
     const hold = provider.holdNextCatalog();
     const catalog = fetch(`${provider.baseUrl}/catalog/models`).then((response) => response.json());
-    const request = async (model: string, path = "/v1/responses") => {
-      const body = JSON.stringify({ type: "response.create", model, input: [] });
+    const request = async (model: string, path = "/v1/responses", generate?: boolean) => {
+      const body = JSON.stringify({ type: "response.create", model, input: [], generate });
       if (transport === "http") {
         const response = await fetch(`${provider.baseUrl}${path}`, {
           method: "POST",
@@ -59,6 +59,12 @@ it.each(["http", "websocket"] as const)(
       await request("gpt-5.5", "/quota-backup/responses");
       expect(observed).not.toHaveBeenCalled();
       expect(captured.releasedAt).toBeUndefined();
+
+      if (transport === "websocket") {
+        await request("gpt-5.5", "/v1/responses", false);
+        expect(observed).not.toHaveBeenCalled();
+        expect(captured.releasedAt).toBeUndefined();
+      }
 
       await request("gpt-5.5", "/v1/responses?fixture=primary");
       expect(observed).toHaveBeenCalledTimes(1);

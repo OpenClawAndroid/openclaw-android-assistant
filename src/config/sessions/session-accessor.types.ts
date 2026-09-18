@@ -7,21 +7,7 @@ import type {
   SessionTranscriptTurnMutation,
   SessionTranscriptTurnMutationResult,
 } from "./goals-operations.types.js";
-import type {
-  DeleteSessionEntryLifecycleParams,
-  DeleteSessionEntryLifecycleResult,
-  ResetSessionEntryLifecycleParams,
-  ResetSessionEntryLifecycleResult,
-  DeletedAgentSessionEntryPurgeParams,
-  SessionArchivedTranscriptCleanupRule,
-  SessionEntryLifecycleMutationResult,
-  SessionEntryLifecycleRemoval,
-  SessionEntryLifecycleUpsert,
-  SessionLifecycleArchivedTranscript,
-  SessionLifecycleArtifactCleanupParams,
-  SessionLifecycleArtifactCleanupResult,
-  SessionLifecycleStoreTarget,
-} from "./session-accessor.lifecycle-types.js";
+import type { SessionLifecycleStoreTarget } from "./session-accessor.lifecycle-types.js";
 import type {
   SessionLifecycleRevisionExpectation,
   SessionTranscriptTurnExpectedState,
@@ -618,19 +604,6 @@ export type SessionEntryReplacementUpdate<T> = {
   replacements?: Iterable<SessionEntryReplacement>;
 };
 
-/** File-backed checkpoint transcript fork produced by the checkpoint storage boundary. */
-export type SessionCompactionCheckpointForkedTranscript = {
-  sessionFile: string;
-  sessionId: string;
-  totalTokens?: number;
-};
-
-/** Result of resolving and copying checkpoint transcript content for branch/restore. */
-export type SessionCompactionCheckpointTranscriptForkResult =
-  | { status: "created"; transcript: SessionCompactionCheckpointForkedTranscript }
-  | { status: "missing-boundary" }
-  | { status: "failed" };
-
 /** Decision made before inheriting parent context into a child session. */
 export type SessionParentForkDecision =
   | {
@@ -818,55 +791,6 @@ export type SessionBranchSwitchMutationParams = Omit<
   leafEntryId: string;
 };
 
-export type SessionCompactionCheckpointEntryBuildContext = {
-  /** Checkpoint row selected from the current persisted session entry. */
-  checkpoint: SessionCompactionCheckpoint;
-  /** Persisted entry that owns the selected checkpoint. */
-  currentEntry: SessionEntry;
-  /** Forked transcript identity created from the stored checkpoint boundary. */
-  forkedTranscript: SessionCompactionCheckpointForkedTranscript;
-};
-
-export type SessionCompactionCheckpointTranscriptForker = (
-  checkpoint: SessionCompactionCheckpoint,
-) => Promise<SessionCompactionCheckpointTranscriptForkResult>;
-
-export type SessionCompactionCheckpointEntryBuilder = (
-  context: SessionCompactionCheckpointEntryBuildContext,
-) => Promise<SessionEntry> | SessionEntry;
-
-export type BranchSessionFromCompactionCheckpointParams = {
-  /** Checkpoint id stored on the source session entry. */
-  checkpointId: string;
-  /** Builds the branched session entry from the forked transcript. */
-  buildEntry: SessionCompactionCheckpointEntryBuilder;
-  /** Copies transcript content through the stored checkpoint boundary. */
-  forkTranscriptFromCheckpoint: SessionCompactionCheckpointTranscriptForker;
-  /** Persisted key for the new checkpoint branch. */
-  nextKey: string;
-  /** Canonical key used as the branch parent. */
-  sourceKey: string;
-  /** Actual persisted key to read when a legacy alias still owns the row. */
-  sourceStoreKey?: string;
-  /** Explicit store target for file-backed stores and SQLite migration adapters. */
-  storePath: string;
-};
-
-export type RestoreSessionFromCompactionCheckpointParams = {
-  /** Checkpoint id stored on the current session entry. */
-  checkpointId: string;
-  /** Builds the restored session entry from the forked transcript. */
-  buildEntry: SessionCompactionCheckpointEntryBuilder;
-  /** Copies transcript content through the stored checkpoint boundary. */
-  forkTranscriptFromCheckpoint: SessionCompactionCheckpointTranscriptForker;
-  /** Canonical key to replace with the restored checkpoint state. */
-  sessionKey: string;
-  /** Actual persisted key to read when a legacy alias still owns the row. */
-  sessionStoreKey?: string;
-  /** Explicit store target for file-backed stores and SQLite migration adapters. */
-  storePath: string;
-};
-
 export type SessionEntryCreateWithTranscriptContext = {
   /** Current entry under the requested key before creation, if any. */
   existingEntry?: SessionEntry;
@@ -939,12 +863,9 @@ export type {
   SessionLifecycleArtifactCleanupParams,
   SessionLifecycleArtifactCleanupResult,
   SessionLifecycleStoreTarget,
-};
-
-export type {
   DeletedAgentSessionEntryPurgeParams,
   SessionArchivedTranscriptCleanupRule,
   SessionEntryLifecycleMutationResult,
   SessionEntryLifecycleRemoval,
   SessionEntryLifecycleUpsert,
-};
+} from "./session-accessor.lifecycle-types.js";

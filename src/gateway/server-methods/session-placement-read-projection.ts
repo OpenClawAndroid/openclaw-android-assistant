@@ -21,39 +21,52 @@ type PlacementReadContext = {
   workerEnvironmentService?: Parameters<typeof readWorkerPlacementIdentity>[1];
 };
 
-/** Acquire cold facts only for this dirty physical row; presentation reads live memory. */
+/** Acquire row facts once; selected rows refresh placement facts after owner publications. */
 export function readSessionRowFacts(params: {
   cfg: OpenClawConfig;
   target: Pick<GatewayStoredSessionTarget, "agentId" | "storeTarget"> & { key: string };
   entry: SessionEntry;
   context?: PlacementReadContext;
   placementFactsReader?: Pick<WorkerSessionPlacementStore, "getProjectionFacts">;
+  placementRevision?: () => number;
   activitySummaryEnabled?: boolean;
 }) {
-  const { cfg, entry } = params;
+  const { cfg, entry, placementFactsReader, placementRevision: readPlacementRevision } = params;
   // The board callback shares a closure context with present; never capture a resident row.
   const { key, agentId, storeTarget } = params.target;
   const context = params.context ?? {};
-  const {
-    placement,
-    move,
-    workspaceResultReconciling = false,
-  } = params.placementFactsReader?.getProjectionFacts(entry.sessionId) ?? {};
-  const environment = placement?.environmentId
-    ? context.workerEnvironmentService?.get(placement.environmentId)
-    : undefined;
-  const identity = placement
-    ? readWorkerPlacementIdentity(placement, context.workerEnvironmentService)
-    : undefined;
-  const failedRecoveryAction =
-    placement?.state === "failed"
-      ? isFailedWorkerPlacementEnvironmentGone({
-          environmentService: context.workerEnvironmentService,
-          placement,
-        })
-        ? "restart"
-        : "stop-first"
+  const readPlacementFacts = () => {
+    const {
+      placement,
+      move,
+      workspaceResultReconciling = false,
+    } = placementFactsReader?.getProjectionFacts(entry.sessionId) ?? {};
+    const environment = placement?.environmentId
+      ? context.workerEnvironmentService?.get(placement.environmentId)
       : undefined;
+    const identity = placement
+      ? readWorkerPlacementIdentity(placement, context.workerEnvironmentService)
+      : undefined;
+    const failedRecoveryAction: "restart" | "stop-first" | undefined =
+      placement?.state === "failed"
+        ? isFailedWorkerPlacementEnvironmentGone({
+            environmentService: context.workerEnvironmentService,
+            placement,
+          })
+          ? "restart"
+          : "stop-first"
+        : undefined;
+    return {
+      placement,
+      move,
+      workspaceResultReconciling,
+      environment,
+      identity,
+      failedRecoveryAction,
+    };
+  };
+  let placementRevision = readPlacementRevision?.();
+  let placementFacts = readPlacementFacts();
   const activitySummary = projectSessionActivitySummary({
     key,
     agentId,
@@ -64,23 +77,41 @@ export function readSessionRowFacts(params: {
   });
   return {
     hasBoard: readSessionRowHasBoard({ key, storeTarget }),
-    present: () => ({
-      ...(placement
-        ? {
-            placement: projectWorkerSessionPlacement(
-              placement,
-              context.workerPlacementDiskSpaceReader?.read(placement),
-              context.workerPlacementRunnerAvailabilityReader?.read(placement, environment ?? null),
-              identity,
-              failedRecoveryAction,
-              workspaceResultReconciling,
-            ),
-          }
-        : {}),
-      ...(move ? { placementMove: projectWorkerPlacementMove(move) } : {}),
-      permissionModePending: isSessionPermissionChangePending(entry.sessionId),
-      activitySummary: activitySummary ? { ...activitySummary } : undefined,
-    }),
+    present: () => {
+      const revision = readPlacementRevision?.();
+      if (revision !== placementRevision) {
+        placementFacts = readPlacementFacts();
+        placementRevision = revision;
+      }
+      const {
+        placement,
+        move,
+        workspaceResultReconciling,
+        environment,
+        identity,
+        failedRecoveryAction,
+      } = placementFacts;
+      return {
+        ...(placement
+          ? {
+              placement: projectWorkerSessionPlacement(
+                placement,
+                context.workerPlacementDiskSpaceReader?.read(placement),
+                context.workerPlacementRunnerAvailabilityReader?.read(
+                  placement,
+                  environment ?? null,
+                ),
+                identity,
+                failedRecoveryAction,
+                workspaceResultReconciling,
+              ),
+            }
+          : {}),
+        ...(move ? { placementMove: projectWorkerPlacementMove(move) } : {}),
+        permissionModePending: isSessionPermissionChangePending(entry.sessionId),
+        activitySummary: activitySummary ? { ...activitySummary } : undefined,
+      };
+    },
   };
 }
 

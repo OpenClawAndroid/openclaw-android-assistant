@@ -29,6 +29,7 @@ import {
   runOpenClawAgentWorkerWrite,
   runOpenClawAgentWriteAdmission,
 } from "../../state/openclaw-agent-write-admission.js";
+import { resolveStateDir } from "../paths.js";
 import { formatSqliteSessionFileMarker } from "./legacy-sqlite-marker.js";
 import { resolveSessionArtifactDirectory } from "./paths.js";
 import type {
@@ -485,6 +486,17 @@ export function resolveSqliteTranscriptReadScope(
   return {
     ...resolveSqliteReadScope(scope, targetCache),
     sessionId: scope.sessionId,
+  };
+}
+
+/** Pin the environment and database locator before lifecycle work yields. */
+export function captureLifecycleDatabaseScope<T extends ResolvedSqliteReadScope>(scope: T): T {
+  const env = { ...(scope.env ?? process.env) };
+  env.OPENCLAW_STATE_DIR = resolveStateDir(env);
+  return {
+    ...scope,
+    env,
+    path: resolveOpenClawAgentSqlitePath(toDatabaseOptions({ ...scope, env })),
   };
 }
 

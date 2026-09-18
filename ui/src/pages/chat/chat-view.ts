@@ -15,7 +15,7 @@ import type { ExecApprovalDecision, ExecApprovalRequest } from "../../app/exec-a
 import type { ApplicationGateway } from "../../app/gateway.ts";
 import { renderExecApprovalCard } from "../../components/exec-approval-card.ts";
 import { icons } from "../../components/icons.ts";
-import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
+import type { ImageLightboxItem } from "../../components/image-lightbox.types.ts";
 import { t } from "../../i18n/index.ts";
 import {
   KEYBOARD_SHORTCUT_COMBOS,

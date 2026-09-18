@@ -16,6 +16,8 @@ import {
   publishSessionEntryCacheInvalidation,
   readSessionEntryCache,
 } from "./session-accessor.sqlite-entry-cache.js";
+import { deleteSessionEntryRows } from "./session-accessor.sqlite-entry-store.js";
+import { ensureTranscriptSessionRoot } from "./session-accessor.sqlite-transcript-state.js";
 
 it("publishes row changes after the complete entry transaction and discards rollback", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
@@ -60,10 +62,8 @@ it("publishes row changes after the complete entry transaction and discards roll
         })),
       );
       seen.length = 0;
-      publishSessionEntryCacheInvalidation(database);
-      expect(seen.map(({ change }) => change)).toEqual([
-        { all: true, scope: { agentId: "main", storePath: database.path } },
-      ]);
+      publishSessionEntryCacheInvalidation(database, { sessionKey: scope.sessionKey });
+      expect(seen.map(({ change }) => change)).toEqual([{ ...scope, storePath: database.path }]);
       unsubscribe();
       replaceSessionEntrySync(scope, entry);
       expect(seen).toHaveLength(1);
@@ -72,6 +72,44 @@ it("publishes row changes after the complete entry transaction and discards roll
     }
   });
 });
+
+it.each(["delete", "retain-windows", "first-transcript"] as const)(
+  "publishes only the changed key for a cold %s write after commit",
+  async (operation) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const scope = { agentId: "main", sessionKey: "agent:main:cold-change" };
+      replaceSessionEntrySync(
+        { ...scope, sessionKey: "agent:main:untouched-archive" },
+        { sessionId: "untouched-archive", updatedAt: 1, archivedAt: 1 },
+      );
+      if (operation !== "first-transcript") {
+        replaceSessionEntrySync(scope, {
+          sessionId: "cold-change",
+          updatedAt: 1,
+          archivedAt: 1,
+        });
+      }
+      const database = openOpenClawAgentDatabase({ agentId: scope.agentId });
+      const changes: SessionRowChange[] = [];
+      const unsubscribe = sessionChanges.subscribe((change) => changes.push(change));
+      try {
+        runOpenClawAgentWriteTransaction((writer) => {
+          if (operation === "first-transcript") {
+            ensureTranscriptSessionRoot(writer, { ...scope, sessionId: "cold-change" }, 2);
+          } else {
+            deleteSessionEntryRows(writer, scope.sessionKey, {
+              deleteOwnedWindows: operation === "delete",
+            });
+          }
+          expect(changes).toEqual([]);
+        }, scope);
+        expect(changes).toEqual([{ ...scope, storePath: database.path }]);
+      } finally {
+        unsubscribe();
+      }
+    });
+  },
+);
 
 it("publishes committed registry changes while discarding a rolled-back agent removal", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {

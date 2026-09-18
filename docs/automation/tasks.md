@@ -385,7 +385,11 @@ Task records and delivery state persist in the shared OpenClaw SQLite state data
 
 Set `OPENCLAW_STATE_DIR` to move the whole state root (default `~/.openclaw`) elsewhere; the shared database path moves with it.
 
-The registry loads into memory on first use and persists every write back to SQLite, so records survive gateway restarts. WAL growth stays bounded through SQLite's default autocheckpoint threshold plus periodic `PASSIVE` checkpoints. After a checkpoint completes, the next commit resets the WAL and applies a 64 MiB `journal_size_limit` ceiling, so a reader cannot leave the file parked at a pathological high-water mark until restart. Shutdown and explicit maintenance checkpoints use `TRUNCATE` so normal closes reclaim WAL space without making the background sweeper wait on active readers.
+The registry loads into memory on first use and persists every write back to SQLite, so records survive gateway restarts.
+
+After refreshing an invalidated registry projection, agent events with no matching task skip task-store mutation admission. Streaming activity stays in a transient in-memory overlay, with display updates coalesced to once per second and yielded-subagent progress to 15-second batches. Activity-only durable liveness updates occur at most once per minute; lifecycle transitions, errors, and tool-start counters still persist immediately through the same registry owner. Transient activity is not restored after a restart.
+
+WAL growth stays bounded through SQLite's default autocheckpoint threshold plus periodic `PASSIVE` checkpoints. After a checkpoint completes, the next commit resets the WAL and applies a 64 MiB `journal_size_limit` ceiling, so a reader cannot leave the file parked at a pathological high-water mark until restart. Shutdown and explicit maintenance checkpoints use `TRUNCATE` so normal closes reclaim WAL space without making the background sweeper wait on active readers.
 
 The shared database replaced the `tasks/runs.sqlite` and `flows/registry.sqlite` sidecar stores in `v2026.5.30-beta.1`, stable from `v2026.6.1`. If either sidecar is still present under the state root, `openclaw doctor` imports its rows into the shared database. Installs from `v2026.6.1` onward never create these files.
 

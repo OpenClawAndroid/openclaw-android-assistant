@@ -22,6 +22,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildGatewayReloadPlan } from "../gateway/config-reload-plan.js";
 import { createGatewayReloadHandlers } from "../gateway/server-reload-hot.js";
 import { refreshModelRuntimeAfterHotReload } from "../gateway/server-reload-model-runtime-scope.js";
+import { PluginRuntimeApplicationError } from "../plugins/lifecycle.js";
 import { PluginInstanceUnavailableError } from "../plugins/plugin-instance-error.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import {
@@ -283,7 +284,7 @@ describe("Gateway plugin reload run admission", () => {
     { outcome: "commit", arrival: "before drainage" },
     { outcome: "rollback", arrival: "before drainage" },
   ] as const)(
-    "preserves a run admitted $arrival through plugin $outcome",
+    "preserves a run admitted $arrival and waiting requests through plugin $outcome",
     async ({ outcome, arrival }) => {
       const retained = config(true);
       const committed = config(false);
@@ -293,7 +294,16 @@ describe("Gateway plugin reload run admission", () => {
       const finishCatalog = createDeferred();
       const drainageStarted = createDeferred();
       const finishDrainage = createDeferred();
-      const pluginFailure = new Error("replacement plugin activation failed");
+      const pluginFailure = new PluginRuntimeApplicationError(
+        "plugin synthetic admitted work did not settle within 60s; the previous plugin generation stays active",
+        {
+          operationId: "synthetic-reload",
+          generation: 1,
+          pluginIds: ["synthetic"],
+          phase: "drain",
+          committed: false,
+        },
+      );
       const handler = createPluginReloadHandler(async ({ prepareConfigEffects, commitRuntime }) => {
         const restorePreparedRuntime = prepareConfigEffects({
           pluginIds: new Set(["synthetic"]),
@@ -321,7 +331,9 @@ describe("Gateway plugin reload run admission", () => {
       };
       const input = { ...ownerInput(retained), workspaceDir: state.path("run-workspace") };
       let settled = false;
+      let requestSettled = false;
       let admission: ReturnType<typeof acquireAgentRunPreparedModelRuntime> | undefined;
+      let request: ReturnType<typeof loadPublishedGatewayReplyDispatchRuntime> | undefined;
       let reload: ReturnType<typeof handler.applyHotReload> | undefined;
       const admit = () => {
         admission = acquireAgentRunPreparedModelRuntime(input);
@@ -358,6 +370,15 @@ describe("Gateway plugin reload run admission", () => {
             throw new Error("Plugin reload finished before entering drainage");
           }),
         ]);
+        request = loadPublishedGatewayReplyDispatchRuntime({ agentId: "default" });
+        void request.then(
+          () => {
+            requestSettled = true;
+          },
+          () => {
+            requestSettled = true;
+          },
+        );
         if (arrival === "during drainage") {
           void admit();
         } else {
@@ -365,12 +386,18 @@ describe("Gateway plugin reload run admission", () => {
         }
         await nextTurn();
         expect(settled).toBe(false);
+        expect(requestSettled).toBe(false);
         finishDrainage.resolve();
         if (outcome === "rollback") {
           await expect(reload).rejects.toBe(pluginFailure);
         } else {
           await expect(reload).resolves.toMatchObject({ status: "applied" });
         }
+        // The hot-reload catch rejects its original drain gate after rollback
+        // republishes. Requests waiting on that gate must follow the new owner.
+        await expect(request).resolves.toMatchObject({
+          config: outcome === "commit" ? committed : retained,
+        });
         const lease = await admission!;
         expect(lease.snapshot.config).toEqual(outcome === "commit" ? committed : retained);
         expect(lease.snapshot.workspaceDir).toBe(input.workspaceDir);
@@ -378,7 +405,7 @@ describe("Gateway plugin reload run admission", () => {
       } finally {
         finishCatalog.resolve();
         finishDrainage.resolve();
-        await Promise.allSettled([reload]);
+        await Promise.allSettled([reload, request]);
         await Promise.allSettled([admission?.then((lease) => lease[Symbol.asyncDispose]())]);
         handler.stopRestartRetries();
       }

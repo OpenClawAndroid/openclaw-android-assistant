@@ -443,31 +443,41 @@ module.exports = { id: ${JSON.stringify(id)}, register(api) {
           await vi.waitFor(() => expect(retiredInstance.acceptingCalls).toBe(false));
           await vi.advanceTimersByTimeAsync(5_000);
           expect(failedSettled).toBe(false);
-          await vi.waitFor(() => expect(owner.getReloadStatus()?.phase).toBe("recovering"));
+          expect(owner.getReloadStatus()).toMatchObject({
+            phase: "reloading",
+            deadlineAtMs: expect.any(Number),
+            reason: expect.stringContaining("admitted work"),
+          });
+          expect(retiredInstance.disposing).toBe(false);
+          expect(retiredInstance.lifecycle.signal.aborted).toBe(false);
+          expect(fs.existsSync(resourcePath)).toBe(true);
+          expect(registrations).toEqual([first.instance]);
           const deadlineAtMs = owner.getReloadStatus()?.deadlineAtMs;
           assert.ok(deadlineAtMs);
           await vi.advanceTimersByTimeAsync(deadlineAtMs - Date.now());
           expect(await failed).toMatchObject({
             details: { phase: "drain", committed: false, pluginIds: ["installed-probe"] },
+            message: expect.stringMatching(
+              /plugin installed-probe admitted work.*previous plugin generation stays active/,
+            ),
           });
-          expect(owner.getReloadStatus()).toMatchObject({
-            phase: "failed",
-            pluginIds: ["installed-probe"],
-          });
+          expect(owner.getReloadStatus()).toBeUndefined();
+          expect(retiredInstance.acceptingCalls).toBe(true);
           expect(retiredInstance.disposing).toBe(false);
           expect(retiredInstance.lifecycle.signal.aborted).toBe(false);
           expect(runtime.pluginRuntime.registry).toBe(retiredRegistry);
           expect(registrations).toEqual([first.instance]);
           expect(fs.existsSync(resourcePath)).toBe(true);
           expect(fs.existsSync(effectsPath)).toBe(false);
-          expect(() => retiredInstance.run(() => "still fenced")).toThrow("reloaded or disabled");
+          expect(retiredInstance.run(() => "still serving")).toBe("still serving");
+          expect(await probe("installed-probe")).toEqual(first);
           expect(await probe("sibling")).toEqual(sibling);
 
-          // The bounded recovery window ended before this original write finishes.
+          // The original write retains its resources after the replacement times out.
           release.resolve();
           await call;
           expect(fs.readFileSync(effectsPath, "utf8")).toBe("completed once");
-          expect(() => retiredInstance.run(() => "still fenced")).toThrow("reloaded or disabled");
+          expect(retiredInstance.run(() => "still serving")).toBe("still serving");
           fs.writeFileSync(
             path.join(packageDir, "dist", "helper.cjs"),
             'module.exports = "retry";',
@@ -750,5 +760,5 @@ it.each(["gateway-stop", "pending-disposal", "candidate-disposal", "recovery-dis
 it("recovers a healthy changed plugin from captured code while excluding a previously retired plugin", () =>
   verifyInstalledPackageRetention("empty", "mixed-recovery"));
 
-it("retries after an admitted call outlasts the recovery deadline without restarting its sibling", () =>
+it("retries after an admitted call outlasts the replacement deadline without restarting its sibling", () =>
   verifyInstalledPackageRetention("empty", "active-call"));

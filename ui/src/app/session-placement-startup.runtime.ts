@@ -1,5 +1,5 @@
 import type { GatewaySessionRow } from "../api/types.ts";
-import type { ChatAttachment, ChatQueueItem } from "../lib/chat/chat-types.ts";
+import type { ChatAttachment } from "../lib/chat/chat-types.ts";
 import { formatUiError } from "../lib/format-error.ts";
 import {
   createGatewayConnectionLifecycle,
@@ -22,8 +22,9 @@ import {
   type SessionPlacementDraftAdvanceResult,
 } from "../lib/sessions/session-placement-submit.ts";
 import { generateUUID } from "../lib/uuid.ts";
-import { restoreChatApiAttachments } from "../pages/chat/attachment-api.ts";
+import { restoreChatApiAttachments } from "../pages/chat/attachment-restoration.ts";
 import { buildInitialChatSubmission } from "../pages/chat/user-message-content.ts";
+import { buildPlacementStartupInitialTurn } from "./session-placement-initial-turn.ts";
 import {
   capturePlacementStartupConnection,
   type ApplicationPlacementStartupRuntime,
@@ -66,30 +67,6 @@ type PlacementStartupEntry = {
   readonly scope: GatewayConnectionScope;
   readonly retainsConnection: () => boolean;
 };
-
-function initialTurn(entry: PlacementStartupEntry): ChatQueueItem {
-  const recovery = entry.work.recovery;
-  return {
-    id: recovery.messageId,
-    text: recovery.message,
-    ...(recovery.mentions?.length ? { mentions: recovery.mentions } : {}),
-    attachments: entry.attachments,
-    createdAt: entry.createdAt,
-    sessionKey: recovery.sessionKey,
-    agentId: recovery.agentId,
-    sendRunId: recovery.messageId,
-    sendAttempts: 1,
-    sendState:
-      entry.work.kind === "checking"
-        ? "unconfirmed"
-        : recovery.phase === "paused"
-          ? recovery.reason === "unconfirmed"
-            ? "unconfirmed"
-            : "failed"
-          : "sending",
-    ...(recovery.phase === "paused" ? { sendError: recovery.error } : {}),
-  };
-}
 
 export default function createApplicationPlacementStartupRuntime(
   params: ApplicationPlacementStartupDependencies,
@@ -291,7 +268,8 @@ export default function createApplicationPlacementStartupRuntime(
             },
       owner,
       // Status reads must not rescan payloads or mint new attachment identities.
-      attachments: restoreChatApiAttachments(input.recovery.attachments),
+      attachments:
+        input.displayAttachments ?? restoreChatApiAttachments(input.recovery.attachments),
       persistRecovery: input.persistRecovery,
       createdAt:
         existing?.owner.messageId === owner.messageId ? existing.createdAt : input.createdAt,
@@ -371,7 +349,12 @@ export default function createApplicationPlacementStartupRuntime(
         targetKind: entry.work.recovery.target.kind,
         phase,
         startedAt: entry.createdAt,
-        initialTurn: initialTurn(entry),
+        initialTurn: buildPlacementStartupInitialTurn({
+          recovery: entry.work.recovery,
+          attachments: entry.attachments,
+          createdAt: entry.createdAt,
+          checking: entry.work.kind === "checking",
+        }),
         ...(entry.work.kind !== "running"
           ? {
               ...(entry.work.recovery.phase === "paused"

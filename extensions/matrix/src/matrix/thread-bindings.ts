@@ -51,12 +51,12 @@ type MatrixThreadBindingMigrationMarker = {
   importedAt: number;
 };
 
-function resolveBindingsPath(params: {
+async function resolveBindingsPath(params: {
   auth: MatrixAuth;
   accountId: string;
   env?: NodeJS.ProcessEnv;
   stateDir?: string;
-}): string {
+}): Promise<string> {
   return resolveMatrixStateFilePath({
     auth: params.auth,
     accountId: params.accountId,
@@ -303,7 +303,7 @@ export async function createMatrixThreadBindingManager(params: {
       `Matrix thread binding account mismatch: requested ${params.accountId}, auth resolved ${params.auth.accountId}`,
     );
   }
-  const legacyFilePath = resolveBindingsPath({
+  const legacyFilePath = await resolveBindingsPath({
     auth: params.auth,
     accountId: params.accountId,
     env: params.env,

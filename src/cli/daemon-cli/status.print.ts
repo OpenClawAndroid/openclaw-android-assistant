@@ -333,9 +333,6 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; d
           `${label("Gateway event loop:")} ${warnText(formatProbeEventLoop(rpc.eventLoop))}`,
         );
       }
-      if (rpc.authWarning) {
-        defaultRuntime.error(`${label("Probe auth:")} ${warnText(rpc.authWarning)}`);
-      }
       if (rpc.url) {
         defaultRuntime.error(`${label("Probe target:")} ${rpc.url}`);
       }
@@ -346,6 +343,9 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; d
       if (status.port?.status === "busy" && status.lastError) {
         defaultRuntime.error(`${errorText("Last gateway error:")} ${status.lastError}`);
       }
+    }
+    if (rpc.authWarning) {
+      defaultRuntime.error(`${label("Probe auth:")} ${warnText(rpc.authWarning)}`);
     }
     const capability = rpc.capability ? rpc.capability.replaceAll("_", "-") : null;
     if (capability) {

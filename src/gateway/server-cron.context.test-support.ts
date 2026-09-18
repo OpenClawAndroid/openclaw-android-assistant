@@ -15,6 +15,7 @@ import {
   getPluginRuntimeGatewayRequestScope,
   withPluginRuntimeGatewayRequestScope,
 } from "../plugins/runtime/gateway-request-scope.js";
+import { AsyncWorkScope, trackAsyncWork } from "../shared/async-work-scope.js";
 import type { buildGatewayCronService } from "./server-cron.js";
 
 type CronFixture = ReturnType<typeof buildGatewayCronService>;
@@ -55,7 +56,7 @@ export function registerGatewayCronContextTests({
   runCronIsolatedAgentTurnMock,
   requestHeartbeatAndWaitMock,
 }: GatewayCronContextTestHarness) {
-  it("replaces the expired request and tool authority inherited by a scheduler timer", async () => {
+  it("owns timer execution and settlement after its creator context closes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-21T01:00:00.000Z"));
     const cfg = createCronConfig("server-cron-scheduled-gateway-context");
@@ -64,6 +65,8 @@ export function registerGatewayCronContextTests({
       terminalSessions: {},
       resolveGatewayContext: () => gatewayContext,
     } as never;
+    const creatorContext = new AsyncLocalStorage<string>();
+    const creatorWork = new AsyncWorkScope();
     let requestContextActive = true;
     const retiredRequestContext = {
       terminalSessions: { retired: true },
@@ -72,11 +75,17 @@ export function registerGatewayCronContextTests({
     const retiredRequestClient = { id: "retired-request" } as never;
     let observed: unknown = "never-ran";
     let observedClient: unknown = "never-ran";
+    let observedCreator: unknown = "never-ran";
+    let observedWork: unknown = "never-ran";
+    const settled = createDeferred();
+    let settlementContext: unknown = "never-settled";
     let assertScheduledCaller: ReturnType<typeof captureGatewayToolCallerAssertion>;
     const ran = createDeferred();
     runCronIsolatedAgentTurnMock.mockImplementationOnce(async () => {
       observed = getInProcessGatewayToolContext();
       observedClient = getPluginRuntimeGatewayRequestScope()?.client;
+      observedCreator = creatorContext.getStore();
+      observedWork = await trackAsyncWork(() => "completed").catch((error: unknown) => error);
       assertScheduledCaller = captureGatewayToolCallerAssertion();
       ran.resolve();
       return { status: "ok", text: "done" } as never;
@@ -90,35 +99,52 @@ export function registerGatewayCronContextTests({
         schedule: { kind: "at", at: new Date(Date.now() + 60_000).toISOString() },
       });
       const cronState = getCronState(state);
-      const creatorScope = await withGatewayToolCallerIdentity(
-        {
-          agentId: "main",
-          sessionKey: "agent:main:schedule-creator",
-          operationalRunInstance: { runId: "creator-run", instanceId: "creator-instance" },
-          receiptAuthority: () => requestContextActive,
-        },
-        () =>
-          withPluginRuntimeGatewayRequestScope(
+      const onEvent = cronState.deps.onEvent;
+      cronState.deps.onEvent = (event, context) => {
+        onEvent?.(event, context);
+        if (event.action === "finished") {
+          settlementContext = getInProcessGatewayToolContext();
+          settled.resolve();
+        }
+      };
+      const creatorScope = await creatorWork.run(() =>
+        creatorContext.run("expired creator", () =>
+          withGatewayToolCallerIdentity(
             {
-              context: retiredRequestContext,
-              client: retiredRequestClient,
-              isWebchatConnect: () => false,
-            } as never,
-            () => {
-              armTimer(cronState);
-              return {
-                run: AsyncLocalStorage.snapshot(),
-                assertCurrent: captureGatewayToolCallerAssertion(),
-              };
+              agentId: "main",
+              sessionKey: "agent:main:schedule-creator",
+              operationalRunInstance: { runId: "creator-run", instanceId: "creator-instance" },
+              receiptAuthority: () => requestContextActive,
             },
+            () =>
+              withPluginRuntimeGatewayRequestScope(
+                {
+                  context: retiredRequestContext,
+                  client: retiredRequestClient,
+                  isWebchatConnect: () => false,
+                } as never,
+                () => {
+                  armTimer(cronState);
+                  return {
+                    run: AsyncLocalStorage.snapshot(),
+                    assertCurrent: captureGatewayToolCallerAssertion(),
+                  };
+                },
+              ),
           ),
+        ),
       );
       requestContextActive = false;
+      await creatorWork.drain();
 
       // Fake timers need the context that a native timer captures when armed.
       await creatorScope.run(() => vi.advanceTimersByTimeAsync(60_000));
       await ran.promise;
+      await settled.promise;
 
+      expect(observedCreator).toBeUndefined();
+      expect(observedWork).toBe("completed");
+      expect(settlementContext).toBe(gatewayContext);
       expect(observed).toBe(gatewayContext);
       expect(observedClient).toBeUndefined();
       expect(() => assertScheduledCaller?.("chat.history")).not.toThrow();

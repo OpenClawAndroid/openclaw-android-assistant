@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { normalizeGitPathForFilesystem } from "../../infra/git-exec.js";
+import { normalizeGitPathForFilesystem, type GitCommandOptions } from "../../infra/git-exec.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { WorktreeSourceProfile } from "./checkout-profiles.js";
 import { detectWorktreeFilesystemBackend } from "./filesystem-backend.js";
@@ -44,6 +44,7 @@ type CheckoutOptions = WorktreeFilesystemOptions & {
   rollbackGuard?: () => void;
   /** Restore reuses a warm template, or materializes its snapshot after registration. */
   deferGitCheckout?: boolean;
+  checkoutBudget?: Pick<GitCommandOptions, "timeoutMs" | "killGraceMs">;
   requireSpace: (cloneBytes?: number) => void;
 };
 
@@ -306,6 +307,7 @@ async function prepareTemplate(options: CheckoutOptions) {
       options.requireSpace();
     },
     timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
+    ...options.checkoutBudget,
   });
   assertOwned(options);
   markTemplateReady(options.env, id, options.now(), options.commitGuard);
@@ -379,6 +381,7 @@ export async function addManagedWorktree(input: CheckoutOptions): Promise<Checko
         input.requireSpace(0);
       },
       timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
+      ...input.checkoutBudget,
     },
   );
   if (added.code !== 0) {
@@ -438,6 +441,7 @@ export async function addManagedWorktree(input: CheckoutOptions): Promise<Checko
           options.requireSpace();
         },
         timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
+        ...options.checkoutBudget,
       },
     );
     if (result.code === 0) {
@@ -491,6 +495,7 @@ export async function addManagedWorktree(input: CheckoutOptions): Promise<Checko
             options.requireSpace();
           },
           timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
+          ...options.checkoutBudget,
         },
       );
       const result = await checkout();
@@ -552,6 +557,7 @@ export async function addManagedWorktree(input: CheckoutOptions): Promise<Checko
       await requireGit(options.destination, ["update-index", "--refresh"], {
         ...gitOptions(options),
         timeoutMs: WORKTREE_CHECKOUT_TIMEOUT_MS,
+        ...options.checkoutBudget,
       });
     } catch (error) {
       rollbackGuard();

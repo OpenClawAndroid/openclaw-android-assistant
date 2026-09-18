@@ -4,6 +4,7 @@ import {
   parseTerminalToolCallArguments,
   type ToolArgumentPreviewSchedule,
 } from "@openclaw/ai/internal/runtime";
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { WORKER_PROTOCOL_MAX_IDENTIFIER_LENGTH } from "../../packages/gateway-protocol/src/schema/worker-admission.js";
 import type {
   WorkerInferenceContext,
@@ -236,8 +237,16 @@ function transcriptSafeErrorMessage(
     return message;
   }
   const replacement = emptyAssistantMessage(modelRef);
+  replacement.api = message.api;
+  replacement.provider = message.provider;
+  replacement.model = message.model;
+  replacement.timestamp = message.timestamp;
   replacement.stopReason = message.stopReason === "aborted" ? "aborted" : "error";
-  replacement.errorMessage = "Worker inference result exceeds the transcript message limit.";
+  replacement.errorMessage = truncateUtf16Safe(
+    message.errorMessage ?? "Worker inference result exceeds the transcript message limit.",
+    256,
+  );
+  replacement.usage = structuredClone(message.usage);
   return replacement;
 }
 
@@ -405,6 +414,7 @@ export function createWorkerInferenceStreamAdapter(
             const message = emptyAssistantMessage(adapter.modelRef);
             message.stopReason = "error";
             message.errorMessage = "Worker inference result exceeds the transcript message limit.";
+            message.usage = structuredClone(outcome.message.usage);
             stream.push({ type: "error", reason: "error", error: message });
             stream.end();
             return;

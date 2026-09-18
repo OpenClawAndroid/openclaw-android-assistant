@@ -24,7 +24,6 @@ import {
   OutboundDeliveryError,
   PlatformMessageNotDispatchedError,
 } from "../infra/outbound/deliver-types.js";
-import { resolveSystemEventOwnerAgentId } from "../infra/system-event-ownership.js";
 import {
   beginGatewayRestartSignalAdmission,
   getActiveGatewayRootWorkCount,
@@ -2385,7 +2384,6 @@ describe("buildGatewayCronService", () => {
         "options",
       );
       expect(eventOptions.sessionKey).toBe("agent:main:main");
-      expect(resolveSystemEventOwnerAgentId(eventOptions)).toBe("main");
       const heartbeatRequest = requireRecord(
         callArg(requestHeartbeatMock, 0, 0, "heartbeat request"),
         "request",
@@ -3400,8 +3398,7 @@ describe("buildGatewayCronService", () => {
         callArg(enqueueSystemEventMock, 0, 1, "system event options"),
         "options",
       );
-      expect(eventOptions.sessionKey).toBe("global");
-      expect(resolveSystemEventOwnerAgentId(eventOptions)).toBe("main");
+      expect(eventOptions.sessionKey).toBe("agent:main:global");
       const heartbeatRequest = requireRecord(
         callArg(requestHeartbeatMock, 0, 0, "heartbeat request"),
         "request",
@@ -3431,7 +3428,7 @@ describe("buildGatewayCronService", () => {
         callArg(enqueueSystemEventMock, 0, 1, "system event options"),
         "options",
       );
-      expect(eventOptions.sessionKey).toBe("global");
+      expect(eventOptions.sessionKey).toBe("agent:main:global");
       const heartbeatRun = requireRecord(
         callArg(requestHeartbeatAndWaitMock, 0, 0, "heartbeat run options"),
         "heartbeat run options",

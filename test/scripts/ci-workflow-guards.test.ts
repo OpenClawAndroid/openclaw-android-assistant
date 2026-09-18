@@ -15213,24 +15213,28 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     );
     const proofUpload = uiE2eRealGateway.steps[proofUploadIndex];
     const realGatewayIndex = uiE2eRealGateway.steps.indexOf(realGatewayStep);
-    const realGatewayTimeoutDiagnostics = expectDefined(
+    const realGatewayFailureDiagnostics = expectDefined(
       uiE2eRealGateway.steps.find(
-        (step: WorkflowStep) => step.name === "Upload Control UI real-Gateway timeout diagnostics",
+        (step: WorkflowStep) => step.name === "Upload Control UI real-Gateway failure diagnostics",
       ),
-      "real-Gateway Control UI timeout diagnostic upload",
+      "real-Gateway Control UI failure diagnostic upload",
     );
-    expect(realGatewayTimeoutDiagnostics).toEqual({
-      name: "Upload Control UI real-Gateway timeout diagnostics",
+    expect(realGatewayFailureDiagnostics).toEqual({
+      name: "Upload Control UI real-Gateway failure diagnostics",
       if: "failure()",
       uses: UPLOAD_ARTIFACT_V7,
       with: {
         name: "control-ui-real-gateway-timeout-${{ github.run_attempt }}",
-        path: ".artifacts/control-ui-e2e-timeouts/real-gateway-attempt-${{ github.run_attempt }}/failure-*/failure.public.json",
+        path: [
+          ".artifacts/control-ui-e2e-timeouts/real-gateway-attempt-${{ github.run_attempt }}/failure-*/failure.public.json",
+          ".artifacts/control-ui-e2e/real-gateway/quota-refresh-*/quota.public.json",
+          "",
+        ].join("\n"),
         "if-no-files-found": "ignore",
         "retention-days": 7,
       },
     });
-    expect(uiE2eRealGateway.steps.indexOf(realGatewayTimeoutDiagnostics)).toBeGreaterThan(
+    expect(uiE2eRealGateway.steps.indexOf(realGatewayFailureDiagnostics)).toBeGreaterThan(
       realGatewayIndex,
     );
     // Same-origin admission compares exact build IDs, including the build timestamp.

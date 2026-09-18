@@ -1183,7 +1183,7 @@ describe("chat run error", () => {
     });
     const alert = requireElement(container, ".chat-error", "startup error");
     expect(requireElement(alert, "pre", "startup diagnostic").textContent).toBe(
-      "The session was created, but runner startup failed:  Provisioning failed\n  Final diagnostic line  ",
+      "The session was created, but startup needs attention:  Provisioning failed\n  Final diagnostic line  ",
     );
     expect(alert.textContent).not.toContain("⚠");
     const details = requireElement(alert, "details", "startup disclosure");
@@ -1196,7 +1196,7 @@ describe("chat run error", () => {
     copy?.click();
     await waitForFast(() =>
       expect(writeText).toHaveBeenCalledWith(
-        "The session was created, but runner startup failed: ⚠️ Provisioning failed\n  Final diagnostic line  ",
+        "The session was created, but startup needs attention: ⚠️ Provisioning failed\n  Final diagnostic line  ",
       ),
     );
     expect(details.hasAttribute("open")).toBe(false);

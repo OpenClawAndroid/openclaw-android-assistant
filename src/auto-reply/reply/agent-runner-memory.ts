@@ -1654,6 +1654,7 @@ export async function runMemoryFlushIfNeeded(params: {
       sourceSessionId: activeSessionEntry?.sessionId,
     });
     await runEmbeddedAgentEntry({
+      preparedRunAdmission,
       selection: {
         cfg: selection.cfg,
         provider: selection.provider,
@@ -1691,11 +1692,7 @@ export async function runMemoryFlushIfNeeded(params: {
       sessionOverride: { kind: "preserve" },
       abortSignal: deferredLifecycle.signal,
       runCandidate: async (provider, model, runOptions) => {
-        const sessionRuntimeOverride = resolveSessionRuntimeOverrideForProvider({
-          provider,
-          entry: activeSessionEntry,
-          cfg: params.cfg,
-        });
+        const sessionRuntimeOverride = runOptions.agentHarnessRuntimeOverride;
         const candidateThinkLevel = resolveRunThinkingLevelForFallbackCandidate({
           cfg: params.cfg,
           provider,
@@ -1747,8 +1744,7 @@ export async function runMemoryFlushIfNeeded(params: {
           extraSystemPrompt: flushSystemPrompt,
           isFinalFallbackAttempt: runOptions.isFinalFallbackAttempt,
           bootstrapPromptWarningSignaturesSeen,
-          bootstrapPromptWarningSignature:
-            bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1],
+          bootstrapPromptWarningSignature: bootstrapPromptWarningSignaturesSeen.at(-1),
           abortSignal: deferredLifecycle.signal,
           onDeferredLifecycleOwner: deferredLifecycle.adopt,
           onDeferredLifecycleAbort: deferredLifecycle.abort,

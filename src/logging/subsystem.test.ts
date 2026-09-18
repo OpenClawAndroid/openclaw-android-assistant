@@ -102,6 +102,27 @@ describe("createSubsystemLogger().isEnabled", () => {
     expect(log.isEnabled("info", "console")).toBe(false);
   });
 
+  it("skips metadata reads, serialization, and transport formatting below both sink levels", () => {
+    setLoggerOverride({ level: "info", consoleLevel: "info", consoleStyle: "json" });
+    const consoleLog = installConsoleMethodSpy("log");
+    const format = vi.fn(() => "formatted");
+    const write = vi.fn();
+    getLogger().attachTransport({ format, write });
+    const serialize = vi.fn(() => "metadata");
+    const readField = vi.fn(() => ({ toJSON: serialize }));
+    const meta = Object.defineProperty({}, "field", { enumerable: true, get: readField });
+    const log = createSubsystemLogger("gateway");
+
+    log.trace("filtered trace", meta);
+    log.debug("filtered debug", meta);
+
+    expect(readField).not.toHaveBeenCalled();
+    expect(serialize).not.toHaveBeenCalled();
+    expect(format).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(consoleLog).not.toHaveBeenCalled();
+  });
+
   it("does not apply console subsystem filters to file target", () => {
     setLoggerOverride({ level: "info", consoleLevel: "silent" });
     setConsoleSubsystemFilter(["gateway"]);

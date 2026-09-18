@@ -1,5 +1,5 @@
 import type { nothing, TemplateResult } from "lit";
-import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
+import type { ImageLightboxItem } from "../../components/image-lightbox.types.ts";
 import type { ChatAttachment, HumanMention } from "../../lib/chat/chat-types.ts";
 import type { SessionToolOverrides } from "../../lib/sessions/patch.ts";
 import type { HumanMentionDirectory } from "../chat/components/chat-composer-mention-menu.ts";

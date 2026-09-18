@@ -120,6 +120,7 @@ function createLazyStandingIntentTool(
     toolPromise ??= loadStandingIntentToolModule().then((module: StandingIntentToolModule) =>
       module.createStandingIntentTool({
         agentId,
+        assertCurrent: ctx.assertInvocationCurrent,
         ...(ctx.sessionId ? { sourceSessionId: ctx.sessionId } : {}),
         ...(ctx.nativeChannelId ? { conversationId: ctx.nativeChannelId } : {}),
         ...(provider ? { provider } : {}),
@@ -275,10 +276,13 @@ export default definePluginEntry({
     });
 
     api.registerTool(
-      (ctx) =>
-        createLazyStandingIntentTool(ctx, (reason) => {
-          api.logger.warn(`memory-core: intent tool unavailable: ${reason}`);
-        }),
+      {
+        contextVersion: 2,
+        create: (ctx) =>
+          createLazyStandingIntentTool(ctx, (reason) => {
+            api.logger.warn(`memory-core: intent tool unavailable: ${reason}`);
+          }),
+      },
       { names: ["intent"] },
     );
 

@@ -7,6 +7,7 @@ import type { AssistantMessage } from "../../llm/types.js";
 import { createAssistantMessageEventStream } from "../../llm/utils/event-stream.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../../plugins/runtime.js";
+import { parseApiErrorInfo } from "../../shared/assistant-error-format.js";
 import {
   isWorkerTranscriptMessageFrameSafe,
   WORKER_PROVIDER_REPLAY_LOCAL_RETRY_MESSAGE,
@@ -71,6 +72,92 @@ describe("worker inference provider runtime", () => {
     expect(outcome.message.length).toBeLessThanOrEqual(256);
     expect(validateWorkerInferenceTerminalOutcome(outcome)).toBe(true);
     expect(runtime.stream).not.toHaveBeenCalled();
+    expect(runtime.releaseRuntime).toHaveBeenCalledOnce();
+  });
+
+  it.each(["insufficient_quota", "invalid_api_key", "context_length_exceeded"])(
+    "preserves a streamed provider failure identified only by %s",
+    async (errorCode) => {
+      const runtime = setup();
+      runtime.stream.mockImplementation(() => {
+        const stream = createAssistantMessageEventStream();
+        stream.push({
+          type: "error",
+          reason: "error",
+          error: { ...finalMessage(), stopReason: "error", errorCode },
+        });
+        return stream;
+      });
+
+      const outcome = await runtime.executor(params(request(), vi.fn()));
+
+      expect(outcome).toMatchObject({ type: "error", reason: "provider-error", usage });
+      if (outcome.type !== "error") {
+        throw new Error("expected provider failure");
+      }
+      expect(parseApiErrorInfo(outcome.message)?.code).toBe(errorCode);
+      expect(validateWorkerInferenceTerminalOutcome(outcome)).toBe(true);
+    },
+  );
+
+  it("bounds streamed provider details without losing structured failure facts", async () => {
+    const runtime = setup();
+    const secret = `stream-secret-${"a".repeat(48)}`;
+    runtime.stream.mockImplementation(() => {
+      const stream = createAssistantMessageEventStream();
+      stream.push({
+        type: "error",
+        reason: "error",
+        error: {
+          ...finalMessage(),
+          stopReason: "error",
+          errorMessage: `429: Authorization: Bearer ${secret} ${'diagnostic " \\ '.repeat(80)}`,
+          errorCode: "rate_limit_exceeded",
+          errorType: "rate_limit_error",
+        },
+      });
+      return stream;
+    });
+
+    const outcome = await runtime.executor(params(request(), vi.fn()));
+
+    if (outcome.type !== "error") {
+      throw new Error("expected provider failure");
+    }
+    expect(parseApiErrorInfo(outcome.message)).toMatchObject({
+      httpCode: "429",
+      code: "rate_limit_exceeded",
+      type: "rate_limit_error",
+    });
+    expect(outcome.message).not.toContain(secret);
+    expect(outcome.message.length).toBeLessThanOrEqual(256);
+    expect(validateWorkerInferenceTerminalOutcome(outcome)).toBe(true);
+  });
+
+  it.each([
+    { name: "short body", status: 503, code: "upstream_unavailable", detail: "Unavailable" },
+    { name: "long body", status: 429, code: "insufficient_quota", detail: "x".repeat(520) },
+    { name: "bigint diagnostic", status: 429, code: "insufficient_quota", detail: 1n },
+  ])("preserves a thrown provider HTTP failure ($name)", async ({ status, code, detail }) => {
+    const runtime = setup();
+    runtime.stream.mockImplementation(() => {
+      throw Object.assign(new Error("Request rejected"), {
+        status,
+        body: { error: { detail, code, message: "Provider request rejected" } },
+      });
+    });
+
+    const outcome = await runtime.executor(params(request(), vi.fn()));
+
+    if (outcome.type !== "error") {
+      throw new Error("expected provider failure");
+    }
+    expect(outcome).toMatchObject({ type: "error", reason: "provider-error" });
+    expect(parseApiErrorInfo(outcome.message)).toMatchObject({
+      httpCode: String(status),
+      code,
+    });
+    expect(outcome.message).toContain("Provider request rejected");
     expect(runtime.releaseRuntime).toHaveBeenCalledOnce();
   });
 

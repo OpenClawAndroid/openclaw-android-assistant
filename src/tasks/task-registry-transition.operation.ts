@@ -59,6 +59,7 @@ export type TaskRunTransition =
 export type TaskRecordTransitionInput = TaskRunTransition & {
   taskId: string;
   now: number;
+  expectedTask?: TaskPersistenceReceipt;
   /** Preserve an initial batch match across sibling writes; this is not live authority. */
   selection?: TaskPersistenceReceipt;
 };
@@ -219,6 +220,7 @@ export type TaskRecordTransitionOperations = {
   /** False retains the legacy best-effort failed-row behavior; worker stores throw. */
   upsertTask: (task: TaskRecord) => boolean;
   beforePersist?: (receipt: TaskRecordTransitionReceipt) => void;
+  assertCurrent?: (receipt: TaskRecordTransitionReceipt) => void;
   deferCommit: (publish: () => void) => void;
   onCommitted: (receipt: TaskRecordTransitionReceipt) => void;
 };
@@ -236,6 +238,7 @@ export function runTaskRecordTransitionOperation(
         (!matchesTaskPersistenceReceipt(current, input.selection) ||
           current.runId?.trim() !== input.params.runId.trim() ||
           filterTasksByRunScope([current], input.params).length === 0)) ||
+      (input.expectedTask && !matchesTaskPersistenceReceipt(current, input.expectedTask)) ||
       !operations.hasAuthoritativeBacking(current)
     ) {
       return null;
@@ -243,6 +246,9 @@ export function runTaskRecordTransitionOperation(
     return prepareTaskRecordTransition(current, input);
   };
   return operations.write(() => {
+    if (input.expectedTask && !operations.assertCurrent) {
+      throw new Error("A task persistence receipt requires live owner admission");
+    }
     const prepared = prepareCurrent();
     if (!prepared) {
       return null;
@@ -253,6 +259,7 @@ export function runTaskRecordTransitionOperation(
     if (!receipt) {
       return null;
     }
+    operations.assertCurrent?.(receipt);
     if (receipt.persisted && !operations.upsertTask(receipt.task)) {
       return null;
     }

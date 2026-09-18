@@ -1326,7 +1326,7 @@ async function buildResponsesPayload(
   }
   if (QA_SUBAGENT_SELF_YIELD_WORKER_RE.test(prompt) && canCallSessionsYield) {
     return buildToolCallEventsWithArgs("sessions_yield", {
-      message: "Waiting for the remote job to report back.",
+      waitFor: "message",
     });
   }
   const terminalTurn = options.subagentTurn;

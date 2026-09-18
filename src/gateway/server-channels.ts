@@ -79,6 +79,10 @@ import type {
   StartChannelOptions,
 } from "./server-channel-runtime.types.js";
 import { pauseChannelStarts, type ChannelStartFence } from "./server-channel-start-fence.js";
+import {
+  runChannelAccountMonitor,
+  waitForChannelStartupHandoff,
+} from "./server-channel-startup.js";
 
 const RESTART_POLICY: BackoffPolicy = {
   initialMs: 5_000,
@@ -93,12 +97,6 @@ const CHANNEL_STARTUP_CONCURRENCY = 4;
 // Private context key carried through the generic Plugin SDK registry. This is
 // not a new public capability surface; only the host installs its authority.
 const CHANNEL_APPROVAL_GATEWAY_RUNTIME_CONTEXT_CAPABILITY = "approval.gateway";
-function waitForChannelStartupHandoff(): Promise<void> {
-  return new Promise((resolve) => {
-    const handle = setImmediate(resolve);
-    handle.unref?.();
-  });
-}
 
 type ChannelAccountLifetime = {
   plugin: ChannelPlugin;
@@ -979,7 +977,7 @@ export function createChannelManager(opts: ChannelManagerOptions): ChannelManage
               };
               startAccountTask = withPluginHttpRouteRegistry(
                 registry,
-                runStartAccount,
+                () => runChannelAccountMonitor(registry, registration?.pluginId, runStartAccount),
                 capabilityLease,
               );
             });

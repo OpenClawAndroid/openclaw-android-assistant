@@ -38,7 +38,11 @@ import {
   SECRET_SENTINEL_PATTERN,
   swapSecretSentinelsInText,
 } from "../secrets/sentinel.js";
-import { ProviderHttpError, readResponseTextLimited } from "./provider-http-errors.js";
+import {
+  ProviderHttpError,
+  readResponseTextLimited,
+  summarizeProviderTransportError,
+} from "./provider-http-errors.js";
 import type { ProviderLocalServiceLease } from "./provider-local-service-target.js";
 import { ensureModelProviderLocalService } from "./provider-local-service.js";
 import {
@@ -51,6 +55,7 @@ import {
 import { getProviderTransportDispatcherPool } from "./provider-transport-dispatcher-pool.js";
 
 const DEFAULT_MAX_SDK_RETRY_WAIT_SECONDS = 60;
+const SLOW_MODEL_FETCH_MS = 1_000;
 const OPENAI_SDK_STREAM_CONTENT_SNIFF_BYTES = 2 * 1024;
 const log = createSubsystemLogger("provider-transport-fetch");
 
@@ -787,24 +792,6 @@ export function buildGuardedModelFetch(
   const requestConfig = resolveModelRequestPolicy(model);
   const dispatcherPolicy = buildProviderRequestDispatcherPolicy(requestConfig);
   const requestTimeoutMs = resolveModelRequestTimeoutMs(model, timeoutMs);
-  const summarizeError = (error: unknown): string => {
-    if (!error || typeof error !== "object") {
-      return `type=${typeof error}`;
-    }
-    const record = error as Record<string, unknown>;
-    const cause =
-      record.cause && typeof record.cause === "object"
-        ? (record.cause as Record<string, unknown>)
-        : undefined;
-    const read = (value: unknown) => (typeof value === "string" ? value : typeof value);
-    return [
-      `name=${read(record.name)}`,
-      `code=${read(record.code)}`,
-      `causeName=${read(cause?.name)}`,
-      `causeCode=${read(cause?.code)}`,
-      `message=${error instanceof Error ? error.message : read(record.message)}`,
-    ].join(" ");
-  };
   return async (input, init) => {
     let localServiceLease: ProviderLocalServiceLease | undefined;
     const request = input instanceof Request ? new Request(input, init) : undefined;
@@ -895,19 +882,23 @@ export function buildGuardedModelFetch(
       });
       log.warn(
         `[model-fetch] error provider=${model.provider} api=${model.api} model=${model.id} ` +
-          `elapsedMs=${Date.now() - fetchStartedAt} ${summarizeError(remediatedError)}`,
+          `elapsedMs=${Date.now() - fetchStartedAt} ${summarizeProviderTransportError(remediatedError)}`,
       );
       localServiceLease?.release();
       throw remediatedError;
     }
     let response = result.response;
-    emitModelTransportDebug(
-      log,
+    const elapsedMs = Date.now() - fetchStartedAt;
+    const responseMessage =
       `[model-fetch] response provider=${model.provider} api=${model.api} model=${model.id} ` +
-        `status=${response.status} elapsedMs=${Date.now() - fetchStartedAt} ` +
-        `dispatcher=${result.dispatcherReused ? "reused" : "new"} ` +
-        `contentType=${response.headers.get("content-type") ?? ""}`,
-    );
+      `status=${response.status} elapsedMs=${elapsedMs} ` +
+      `dispatcher=${result.dispatcherReused ? "reused" : "new"} ` +
+      `contentType=${response.headers.get("content-type") ?? ""}`;
+    if (!response.ok || elapsedMs >= SLOW_MODEL_FETCH_MS) {
+      log.info(responseMessage);
+    } else {
+      emitModelTransportDebug(log, responseMessage);
+    }
     if (shouldBypassLongSdkRetry(response)) {
       const headers = new Headers(response.headers);
       headers.set("x-should-retry", "false");

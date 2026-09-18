@@ -85,6 +85,7 @@ let notificationEnded = false;
 let notificationFailure;
 let receivedSignal;
 let escalationTimer;
+let cleanupGraceMs = SIGNAL_GRACE_MS;
 let killDeadline;
 const operationGroup = { pid: undefined };
 let operationGroupGone = false;
@@ -229,8 +230,11 @@ for (const signal of FORWARDED_SIGNALS) {
       return;
     }
     receivedSignal = signal;
+    if (cleanupGraceMs > SIGNAL_GRACE_MS) {
+      console.error("Waiting for PR provisioning cleanup; interrupt again to force termination.");
+    }
     signalProcessGroup(signal);
-    escalationTimer = setTimeout(escalateSignal, SIGNAL_GRACE_MS);
+    escalationTimer = setTimeout(escalateSignal, cleanupGraceMs);
   };
   signalHandlers.set(signal, handler);
   process.on(signal, handler);
@@ -270,6 +274,28 @@ if (killDeadline) {
 function consumeNotificationLine(line) {
   if (operationCompleteReceived) {
     notificationFailure ??= new Error("scripts/pr emitted metadata after operation completion");
+    return;
+  }
+  if (line.startsWith("phase\tcleanup-grace\t")) {
+    const value = line.slice("phase\tcleanup-grace\t".length);
+    const milliseconds = Number(value);
+    if (
+      !locks.size ||
+      !/^(0|[1-9][0-9]*)$/u.test(value) ||
+      !Number.isSafeInteger(milliseconds) ||
+      milliseconds > 0x7fffffff
+    ) {
+      notificationFailure ??= new Error("scripts/pr emitted invalid cleanup-grace metadata");
+      return;
+    }
+    const nextGraceMs = Math.max(SIGNAL_GRACE_MS, milliseconds);
+    // A signal can arrive before its queued provisioning budget. Grant that
+    // cleanup window without shortening an already-admitted cancellation.
+    if (receivedSignal && !killDeadline && nextGraceMs > cleanupGraceMs) {
+      clearTimeout(escalationTimer);
+      escalationTimer = setTimeout(escalateSignal, nextGraceMs);
+    }
+    cleanupGraceMs = nextGraceMs;
     return;
   }
   if (line === "phase\toperation-complete") {
@@ -432,7 +458,7 @@ if (postExitGroupStatus === "indeterminate") {
   lingeringGroupProcesses = processGroupRows(child.pid);
   notificationFailure ??= new Error("scripts/pr process group remained active after wrapper exit");
   signalProcessGroup("SIGTERM");
-  escalationTimer ??= setTimeout(escalateSignal, SIGNAL_GRACE_MS);
+  escalationTimer ??= setTimeout(escalateSignal, cleanupGraceMs);
 } else if (!notificationEnded) {
   // A detached descendant may be the last writer. It cannot be signalled by
   // this group supervisor, so bound the wait and retain the lock on timeout.

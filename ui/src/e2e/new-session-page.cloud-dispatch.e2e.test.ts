@@ -5,6 +5,7 @@ import { expect, it } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { CLOUD_PROFILE_RETRY_DELAYS_MS } from "../pages/new-session/cloud-profile-discovery.ts";
 import { takeControlUiViewportScreenshot } from "../test-helpers/control-ui-e2e-screenshot.ts";
+import { navigateToControlUiSession } from "../test-helpers/control-ui-e2e.ts";
 import { tooltipTitleText } from "./control-ui-e2e-suite.test-support.ts";
 import {
   ONE_PIXEL_PNG_B64,
@@ -93,6 +94,14 @@ suite.define(() => {
       await page.getByRole("button", { name: "Start session" }).click();
       const dispatch = await gateway.waitForRequest("sessions.dispatch");
       expect(dispatch.params).toEqual({ key: sessionKey, agentId: "main", profileId: "machine0" });
+      await pollLocatorText(page.locator(".chat-thread")).toContain(
+        "Use the configured machine size",
+      );
+      await pollLocatorText(
+        page.locator('.chat-thread .chat-working-indicator[role="status"]'),
+      ).toContain("Provisioning environment…");
+      expect(await page.locator(".agent-chat__composer-status-band").count()).toBe(0);
+      await captureUiProof(suite, page, "cloud-provisioning.png");
     });
   });
 
@@ -474,6 +483,7 @@ suite.define(() => {
         gateway,
         sessionKey,
       );
+      await pollLocatorText(page.locator(".chat-thread")).toContain(message);
       runtimeLoad.resolve();
       const dispatch = await gateway.waitForRequest("sessions.dispatch");
       expect(dispatch.params).toMatchObject({
@@ -566,9 +576,7 @@ suite.define(() => {
       );
       expect(childReads.length).toBeGreaterThan(0);
       expect(childReads.length).toBeLessThanOrEqual(expectedParentReads);
-      const neutralRow = page.locator('[data-session-key="agent:cloud:neutral-e2e"] a');
-      await neutralRow.waitFor();
-      await neutralRow.click();
+      await navigateToControlUiSession(page, "agent:cloud:neutral-e2e");
       await expect.poll(() => page.url()).toContain("neutral-e2e");
       await page.evaluate((pathname) => {
         const app = document.querySelector("openclaw-app") as HTMLElement & {

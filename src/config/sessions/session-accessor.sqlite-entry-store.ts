@@ -259,7 +259,7 @@ export function deleteSessionEntryRows(
       database.db,
       db.deleteFrom("session_nodes").where("session_key", "=", sessionKey),
     );
-    publishSessionEntryCacheInvalidation(database);
+    publishSessionEntryCacheInvalidation(database, { sessionKey });
     return;
   }
   const remainingWindow = executeSqliteQueryTakeFirstSync(
@@ -279,14 +279,14 @@ export function deleteSessionEntryRows(
       sessionKey,
       updatedAt: remainingWindow.updated_at,
     });
-    publishSessionEntryCacheInvalidation(database);
+    publishSessionEntryCacheInvalidation(database, { sessionKey });
     return;
   }
   executeSqliteQuerySync(
     database.db,
     db.deleteFrom("session_nodes").where("session_key", "=", sessionKey),
   );
-  publishSessionEntryCacheInvalidation(database);
+  publishSessionEntryCacheInvalidation(database, { sessionKey });
 }
 
 /** Remove the logical entry while retaining its node-owned transcript windows. */
@@ -412,8 +412,9 @@ export function deleteLegacySessionEntryRows(
       database.db,
       db.deleteFrom("session_nodes").where("session_key", "=", legacyKey),
     );
-    publishSessionEntryCacheInvalidation(database);
+    publishSessionEntryCacheInvalidation(database, { sessionKey: legacyKey });
   }
+  publishSessionEntryCacheInvalidation(database, { sessionKey });
 }
 
 /** Move retained generations to the canonical node before removing key aliases. */

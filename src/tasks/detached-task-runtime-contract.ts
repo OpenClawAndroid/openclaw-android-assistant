@@ -102,6 +102,14 @@ export type DetachedTaskTerminalState = Omit<
   "runId" | "taskId" | "runtime" | "sessionKey"
 >;
 
+export type CreatedDetachedTaskRun = {
+  task: TaskRecord;
+  settleUnstarted: (
+    terminal: Pick<DetachedTaskTerminalState, "status" | "endedAt" | "error" | "terminalSummary">,
+    canSettle: (task: TaskRecord) => boolean,
+  ) => Promise<boolean>;
+};
+
 type DetachedTaskDeliveryStatusParams = {
   runId: string;
   runtime?: TaskRuntime;

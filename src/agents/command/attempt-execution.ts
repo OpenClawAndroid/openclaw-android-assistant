@@ -437,8 +437,7 @@ export function runAgentAttempt(params: {
   const bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
     params.sessionEntry?.systemPromptReport,
   );
-  const bootstrapPromptWarningSignature =
-    bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1];
+  const bootstrapPromptWarningSignature = bootstrapPromptWarningSignaturesSeen.at(-1);
   const requestedAgentHarnessId = isRawModelRun ? "openclaw" : undefined;
   const sessionRuntimeOverride = isRawModelRun ? undefined : params.agentHarnessRuntimeOverride;
   const pinnedHarnessId = isRawModelRun
@@ -1002,6 +1001,7 @@ export function runAgentAttempt(params: {
       {
         preparedRunAdmission: params.preparedRunAdmission,
         lifecycleGeneration: params.lifecycleGeneration,
+        isFinalFallbackAttempt: params.isFinalFallbackAttempt,
         abortSignal: params.deferredLifecycle?.signal ?? params.opts.abortSignal,
         trigger: "user",
         inputProvenance: params.opts.inputProvenance,

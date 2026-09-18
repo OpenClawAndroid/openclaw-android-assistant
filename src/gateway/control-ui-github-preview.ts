@@ -28,8 +28,9 @@ const GITHUB_COMMITS_MAX_BYTES = 1024 * 1024;
 const CO_AUTHOR_FACE_LIMIT = 3;
 // GitHub's noreply form is the only trailer that yields a login and an avatar
 // without a lookup per person: `<accountId>+<login>@users.noreply.github.com`.
+// One line-bounded name scan avoids overlapping whitespace backtracking.
 const CO_AUTHOR_TRAILER =
-  /^co-authored-by:\s*[^<]*<(?<id>\d{1,12})\+(?<login>[a-z\d](?:[a-z\d-]{0,38}))@users\.noreply\.github\.com>\s*$/gimu;
+  /^co-authored-by:[^<\r\n\u2028\u2029]*<(?<id>\d{1,12})\+(?<login>[a-z\d](?:[a-z\d-]{0,38}))@users\.noreply\.github\.com>[^\S\r\n\u2028\u2029]*$/gimu;
 const AUTHENTICATED_SUCCESS_CACHE_MS = 5 * 60_000;
 const ANONYMOUS_SUCCESS_CACHE_MS = 60 * 60_000;
 const FAILURE_CACHE_MS = 30_000;

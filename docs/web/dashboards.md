@@ -143,11 +143,18 @@ never needs the agent.
   toolbar, then **Focus** for a dashboard-only view. **Restore split** brings
   the side panel back. A tab with one full-width widget fills the focused
   dashboard edge to edge, without a card border or surrounding padding.
+  Its widget controls move into the task toolbar’s **…** menu, leaving no
+  hover pill or drag and resize handles over the page. Granted permissions
+  remain available in that menu; approval requests and errors stay visible
+  in the widget.
   Restoring the split or adding another widget brings back the normal spacing.
 - **Shared default.** In the task menu’s **Layout** submenu, choose **Use current
   view as default** to save the current fullscreen or split view for this dashboard.
-  The action appears only while Dashboard is shown, you can edit the session, and
-  its current view differs from the shared default. Saving does not rearrange
+  While Dashboard is shown, **This is the default view** confirms that the current
+  fullscreen or split view matches the shared default, including for read-only
+  viewers. When the view differs, **Use current view as default** is available
+  if you can edit the session. Both explain that personal layout choices still
+  apply. Saving does not rearrange
   anyone already viewing the dashboard; the default applies on subsequent opens
   and revisits, including opens from the dashboard gallery.
   Your browser’s deliberate **Focus** / **Restore split** choice takes precedence

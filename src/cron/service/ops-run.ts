@@ -76,27 +76,21 @@ async function finishPreparedManualRun(
   try {
     let coreResult: Awaited<ReturnType<typeof executeJobCoreWithTimeout>>;
     try {
-      const execute = () =>
-        executeJobCoreWithTimeout(state, executionJob, {
-          runId: taskRunId,
-          activeJobMarker: prepared.activeJobMarker,
-          owningCronLaneTaskMarker: prepared.owningCronLaneTaskMarker,
-          streamBatch: prepared.streamBatch,
-          streamScheduleKey: prepared.streamScheduleKey,
-          streamSourceIdentity: prepared.streamSourceIdentity,
+      coreResult = await executeJobCoreWithTimeout(state, executionJob, {
+        runId: taskRunId,
+        activeJobMarker: prepared.activeJobMarker,
+        owningCronLaneTaskMarker: prepared.owningCronLaneTaskMarker,
+        streamBatch: prepared.streamBatch,
+        streamScheduleKey: prepared.streamScheduleKey,
+        streamSourceIdentity: prepared.streamSourceIdentity,
+        runReceipt: prepared.runReceipt,
+        executionIdentity: createCronOwnerExecutionIdentityAdmission({
+          state,
           runReceipt: prepared.runReceipt,
-          executionIdentity: createCronOwnerExecutionIdentityAdmission({
-            state,
-            runReceipt: prepared.runReceipt,
-            taskId: prepared.taskId,
-            flowId: prepared.flowId,
-          }),
-        });
-      coreResult =
-        (prepared.onExit !== undefined || prepared.streamBatch !== undefined) &&
-        state.deps.runSchedulerOwned
-          ? await state.deps.runSchedulerOwned(execute)
-          : await execute();
+          taskId: prepared.taskId,
+          flowId: prepared.flowId,
+        }),
+      });
     } catch (err) {
       if (err instanceof CronRunReceiptRevisionError && err.reason === "owner-unavailable") {
         receiptSettlementDisposition = "owner-unavailable";
@@ -393,45 +387,53 @@ export async function run(
   mode?: CronRunMode,
   opts?: ManualRunOptions,
 ) {
-  const prepared = await prepareManualRun(state, id, mode, opts);
-  if (!prepared.ok || !prepared.ran) {
-    return prepared;
-  }
-  return await executePreparedManualRun(state, prepared, mode);
+  const execute = async () => {
+    const prepared = await prepareManualRun(state, id, mode, opts);
+    if (!prepared.ok || !prepared.ran) {
+      return prepared;
+    }
+    return await executePreparedManualRun(state, prepared, mode);
+  };
+  return await (opts?.streamBatch !== undefined && state.deps.runSchedulerOwned
+    ? state.deps.runSchedulerOwned(execute)
+    : execute());
 }
 
 /** Consumes an observed exit only when its payload owns the durable reservation. */
 export async function runOnExit(state: CronServiceState, id: string, opts: OnExitRunOptions) {
   const generation = state.lifecycleGeneration;
-  const commitGuard = () => {
-    if (opts.signal.aborted || state.stopped || generation !== state.lifecycleGeneration) {
-      throw createAbortError("cron on-exit admission cancelled");
-    }
-    opts.commitGuard();
-  };
-  try {
-    while (await waitForRunSettlement(state, id, opts.signal)) {
-      commitGuard();
-      const prepared = await prepareManualRun(state, id, "force", {
-        onExit: { ...opts, commitGuard },
-        commitGuard,
-      });
-      if (!prepared.ok || !prepared.ran) {
-        if (prepared.ok && prepared.reason === "already-running") {
-          // Another caller won the receipt after our wait. The exit is still
-          // unconsumed, so follow that receipt before attempting admission again.
-          continue;
-        }
-        return prepared;
+  const execute = async () => {
+    const commitGuard = () => {
+      if (opts.signal.aborted || state.stopped || generation !== state.lifecycleGeneration) {
+        throw createAbortError("cron on-exit admission cancelled");
       }
-      return await executePreparedManualRun(state, prepared, "force");
+      opts.commitGuard();
+    };
+    try {
+      while (await waitForRunSettlement(state, id, opts.signal)) {
+        commitGuard();
+        const prepared = await prepareManualRun(state, id, "force", {
+          onExit: { ...opts, commitGuard },
+          commitGuard,
+        });
+        if (!prepared.ok || !prepared.ran) {
+          if (prepared.ok && prepared.reason === "already-running") {
+            // Another caller won the receipt after our wait. The exit is still
+            // unconsumed, so follow that receipt before attempting admission again.
+            continue;
+          }
+          return prepared;
+        }
+        return await executePreparedManualRun(state, prepared, "force");
+      }
+    } catch (error) {
+      if (!isAbortError(error)) {
+        throw error;
+      }
     }
-  } catch (error) {
-    if (!isAbortError(error)) {
-      throw error;
-    }
-  }
-  return { ok: true, ran: false, reason: "stopped" } as const;
+    return { ok: true, ran: false, reason: "stopped" } as const;
+  };
+  return await (state.deps.runSchedulerOwned ? state.deps.runSchedulerOwned(execute) : execute());
 }
 
 async function executePreparedManualRun(

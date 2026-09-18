@@ -7,7 +7,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { beginNativeWindowDragFromTopInset } from "../../app/native-window-drag.ts";
 import { icons } from "../../components/icons.ts";
 import { resolveIdentityAvatarView } from "../../components/identity-avatar-view.ts";
-import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
+import type { ImageLightboxItem } from "../../components/image-lightbox.types.ts";
 import { t } from "../../i18n/index.ts";
 import { resolveMessageDisplayMarkdown } from "../../lib/chat/message-display.ts";
 import { normalizeMessage } from "../../lib/chat/message-normalizer.ts";

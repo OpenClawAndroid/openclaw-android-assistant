@@ -12,7 +12,7 @@ import {
 } from "../../infra/format-time/format-datetime.ts";
 import { isExecCompletionEvent } from "../../infra/heartbeat-events-filter.js";
 // Records system-level session events for restarts, forks, and resets.
-import { selectAgentSystemEvents } from "../../infra/system-event-ownership.js";
+import { resolveSystemEventQueueKey } from "../../infra/system-event-ownership.js";
 import {
   consumeSelectedSystemEventEntries,
   peekSystemEventEntries,
@@ -93,14 +93,14 @@ export async function drainFormattedSystemEvents(params: {
 }): Promise<string | undefined> {
   const summaryLines: string[] = [];
   const systemLines: string[] = [];
+  const queueKey = resolveSystemEventQueueKey(params.sessionKey, params.agentId);
   // Exec completions have a dedicated heartbeat prompt; leave those entries queued
   // so the heartbeat path can consume and deliver them.
   const queued = consumeSelectedSystemEventEntries(
-    params.sessionKey,
-    selectAgentSystemEvents(
-      params.events ?? peekSystemEventEntries(params.sessionKey),
-      params.agentId,
-    ).filter((event) => !isExecCompletionEvent(event.text)),
+    queueKey,
+    (params.events ?? peekSystemEventEntries(queueKey)).filter(
+      (event) => !isExecCompletionEvent(event.text),
+    ),
   );
   const sessionStateTargets = queued
     .map((event) =>

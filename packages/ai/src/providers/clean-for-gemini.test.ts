@@ -4,6 +4,62 @@ import { describe, expect, it } from "vitest";
 import { cleanSchemaForGemini } from "./clean-for-gemini.js";
 
 describe("cleanSchemaForGemini", () => {
+  it("strips serialized optional markers without changing required fields or the input", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        action: { type: "string" },
+        timeout: { type: "number", "~optional": true },
+        options: {
+          type: "array",
+          "~optional": true,
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              label: { type: "string", "~optional": true },
+            },
+            required: ["name"],
+          },
+        },
+      },
+      required: ["action"],
+    };
+    const original = structuredClone(schema);
+
+    expect(cleanSchemaForGemini(schema)).toStrictEqual({
+      type: "object",
+      properties: {
+        action: { type: "string" },
+        timeout: { type: "number" },
+        options: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, label: { type: "string" } },
+            required: ["name"],
+          },
+        },
+      },
+      required: ["action"],
+    });
+    expect(schema).toStrictEqual(original);
+  });
+
+  it("preserves literal property names and defaults matching the optional marker", () => {
+    const schema = {
+      type: "object",
+      properties: { "~optional": { type: "string", "~optional": true } },
+      default: { "~optional": "literal value" },
+    };
+
+    expect(cleanSchemaForGemini(schema)).toStrictEqual({
+      type: "object",
+      properties: { "~optional": { type: "string" } },
+      default: { "~optional": "literal value" },
+    });
+  });
+
   it("coerces null properties to an empty object", () => {
     const cleaned = cleanSchemaForGemini({
       type: "object",

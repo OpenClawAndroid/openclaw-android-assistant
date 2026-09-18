@@ -1,6 +1,5 @@
 import type { EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { vi } from "vitest";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
 import { buildDynamicTools } from "./dynamic-tool-build.js";
 import { createCodexTestHostCapabilities } from "./host-capability.test-support.js";
 import { createCodexTestModel } from "./test-support.js";
@@ -43,16 +42,6 @@ vi.mock("openclaw/plugin-sdk/node-selection-runtime", async (importOriginal) => 
     await importOriginal<typeof import("openclaw/plugin-sdk/node-selection-runtime")>();
   return { ...actual, loadNodeExecAvailability: hoisted.loadNodeExecAvailability };
 });
-
-export function setOpenClawCodingToolsFactoryForTests(
-  factory: NonNullable<typeof dynamicToolBuildState.openClawCodingToolsFactory>,
-): void {
-  dynamicToolBuildState.openClawCodingToolsFactory = factory;
-}
-
-export function resetOpenClawCodingToolsFactoryForTests(): void {
-  dynamicToolBuildState.openClawCodingToolsFactory = undefined;
-}
 
 export function createParams(sessionFile: string, workspaceDir: string): EmbeddedRunAttemptParams {
   return {

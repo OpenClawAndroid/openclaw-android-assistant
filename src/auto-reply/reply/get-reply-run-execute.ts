@@ -604,6 +604,8 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     accountId: replyRoute.accountId,
     senderId: normalizeOptionalString(command.senderId),
   };
+  const isCurrentChannelOwner = () => isConfiguredCommandOwner(getRuntimeConfig(), cronOwner);
+  // Only fresh owner ingress mints this identity. Management-only admissions do not imply it.
   const createdCronCreatorAuthorityCapability =
     !inheritedCronCreatorAuthorityCapability && authorityRunId && messageProvider
       ? createCronCreatorAuthorityCapability(
@@ -611,10 +613,11 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
           { kind: "external", channel: messageProvider },
           {
             source: "channel-owner",
-            isCurrent: () => isConfiguredCommandOwner(getRuntimeConfig(), cronOwner),
+            isCurrent: isCurrentChannelOwner,
           },
           undefined,
           channelRequester,
+          { isCurrent: isCurrentChannelOwner, ...cronOwner },
         )
       : undefined;
   const cronCreatorAuthorityCapability =

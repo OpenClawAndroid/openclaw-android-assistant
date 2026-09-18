@@ -320,7 +320,10 @@ describe("tasks.list Gateway performance", () => {
         await new Promise<void>((resolve) => {
           setImmediate(resolve);
         });
-        expect(taskChurnRevision).toBeGreaterThanOrEqual(3);
+        expect(
+          taskChurnRevision,
+          JSON.stringify([unstableRegistry, accessWork.mock.calls.length]),
+        ).toBeGreaterThanOrEqual(3);
         expect(unstableRegistry).toMatchObject({
           ok: false,
           error: {

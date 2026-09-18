@@ -13,6 +13,7 @@ import {
   clearAgentRunContext,
   registerAgentRunContext,
 } from "../../infra/agent-run-registry.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import type { ChatAbortControllerEntry } from "../chat-abort.js";
 import { readGatewayAccessRevision } from "../gateway-access-revision.js";
 import {
@@ -154,6 +155,34 @@ afterEach(async () => {
 });
 
 describe("sessions.changed coalescing", () => {
+  it("publishes catalog-only changes without invalidating session projections or access", async () => {
+    const context = createContext();
+    const changed = vi.fn();
+    const unsubscribe = sessionChanges.subscribe(changed);
+    onTestFinished(unsubscribe);
+    const initialAccessRevision = readGatewayAccessRevision();
+
+    await emitAndSettleLeading(context, { reason: "groups" }, { catalogOnly: true });
+
+    expect(changed).not.toHaveBeenCalled();
+    expect(mocks.invalidate).not.toHaveBeenCalled();
+    expect(context.mentionInbox?.invalidate).not.toHaveBeenCalled();
+    expect(readGatewayAccessRevision()).toBe(initialAccessRevision);
+    expect(context.broadcastToConnIds).toHaveBeenCalledWith(
+      "sessions.changed",
+      expect.objectContaining({ reason: "groups" }),
+      expect.any(Set),
+      expect.any(Object),
+    );
+
+    // Rename/delete use the same public reason but can change member rows.
+    await emitAndSettleLeading(context, { reason: "groups" });
+    expect(changed).toHaveBeenCalledWith({ all: true, scope: "sessions" });
+    expect(mocks.invalidate).toHaveBeenCalledOnce();
+    expect(context.mentionInbox?.invalidate).toHaveBeenCalledOnce();
+    expect(readGatewayAccessRevision()).toBe(initialAccessRevision + 1);
+  });
+
   it("publishes the latest placement through coalesced unrelated mutations and clears it explicitly", async () => {
     const context = createContext();
     const sessionKey = "agent:main:cloud";

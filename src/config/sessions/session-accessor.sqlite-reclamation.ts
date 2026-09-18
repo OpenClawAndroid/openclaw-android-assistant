@@ -527,7 +527,22 @@ export async function runSqliteSessionReclamation(params: {
                         const completed = await run(refusal);
                         if (completed) {
                           // Publish captured identities after transaction settlement, before releasing the writer.
-                          publishSessionEntryCacheInvalidation(database);
+                          const sessionKeys = new Set([
+                            ...plan.materializedPlans.flatMap(({ snapshot }) =>
+                              snapshot.sessionKey ? [snapshot.sessionKey] : [],
+                            ),
+                            ...(plan.kind === "lifecycle-artifacts"
+                              ? plan.entries.map(({ sessionKey }) => sessionKey)
+                              : plan.kind === "entry" || plan.kind === "historical-generation"
+                                ? [
+                                    plan.deleteParams.target.canonicalKey,
+                                    ...plan.deleteParams.target.storeKeys,
+                                  ]
+                                : []),
+                          ]);
+                          for (const sessionKey of sessionKeys) {
+                            publishSessionEntryCacheInvalidation(database, { sessionKey });
+                          }
                           publishCommitted?.();
                         }
                       },

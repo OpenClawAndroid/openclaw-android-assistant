@@ -24,6 +24,7 @@ import {
   runOpenClawStateWriteTransaction,
 } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import * as sessionReaders from "./doctor-session-sqlite-readers.js";
 import { noteSessionTranscriptHealth } from "./doctor-session-transcripts.js";
 
 const note = vi.hoisted(() => vi.fn());
@@ -31,6 +32,7 @@ vi.mock("../../packages/terminal-core/src/note.js", () => ({ note }));
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(async () => {
+    vi.restoreAllMocks();
     await closeOpenClawAgentDatabasesAsync();
     await closeOpenClawStateDatabaseAsync();
     closeOpenClawAgentDatabasesForTest();
@@ -103,7 +105,10 @@ it("repairs discovered worktree sessions only through Doctor and releases their 
     expect(readEntries()).toEqual(before);
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("openclaw doctor --fix"));
 
+    const targetDiscovery = vi.spyOn(sessionReaders, "listExistingAgentDatabaseTargets");
     await noteSessionTranscriptHealth({ cfg, env, shouldRepair: false });
+    expect(targetDiscovery).toHaveBeenCalledTimes(1);
+    targetDiscovery.mockClear();
     expect(readEntries()).toEqual(before);
     expect(note).toHaveBeenCalledWith(
       expect.stringContaining("Found 2 managed-worktree session(s)"),
@@ -112,6 +117,8 @@ it("repairs discovered worktree sessions only through Doctor and releases their 
     await closeOpenClawAgentDatabasesAsync();
 
     await noteSessionTranscriptHealth({ cfg, env, shouldRepair: true });
+    expect(targetDiscovery).toHaveBeenCalledTimes(1);
+    targetDiscovery.mockRestore();
     for (const [index, scope] of scopes.entries()) {
       const original = before[index]!;
       expect(loadExactSessionEntryReadOnly(scope)?.entry).toEqual({

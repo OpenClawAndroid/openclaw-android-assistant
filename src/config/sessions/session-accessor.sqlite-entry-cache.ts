@@ -478,18 +478,17 @@ function publishSqliteSessionEntryCacheUpsert(
 
 export function publishSessionEntryCacheInvalidation(
   database: SessionEntryCacheDatabase & { path: string },
-  update?: { sessionKey: string; entry?: SessionEntry },
+  update: { sessionKey: string; entry?: SessionEntry },
   writeGeneration?: SqliteSessionEntryCacheWriteGeneration,
 ): void {
-  if (update && writeGeneration) {
+  if (writeGeneration) {
     publishSqliteSessionEntryCacheUpsert(database, update, writeGeneration);
   } else {
     // A cold write has no snapshot to patch; do not hydrate owner/participants or prompt JSON.
     publishTrackedCacheUpdate(database, () => sessionEntryCaches.delete(database.db));
   }
-  const scope = { agentId: database.agentId, storePath: database.path };
   sessionChanges.emit(
-    update ? { ...scope, sessionKey: update.sessionKey } : { all: true, scope },
+    { agentId: database.agentId, storePath: database.path, sessionKey: update.sessionKey },
     database.db,
   );
 }

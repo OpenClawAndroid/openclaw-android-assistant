@@ -16,12 +16,12 @@ import {
   tryBeginGatewayRootWorkAdmission,
 } from "../process/gateway-work-admission.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import { registerGatewayCronStartupTests } from "./server-runtime-services.cron.test-support.js";
 import {
   createLog,
+  createTestCronState,
   createMaintenanceHandles,
   createPostReadyMaintenanceScheduleParams,
-  createTestCronReconciliation,
-  createTestCronState,
   runtimeServiceMocks as hoisted,
   resetRuntimeServiceMocks,
   waitForFast,
@@ -137,117 +137,7 @@ describe("server-runtime-services", () => {
     },
   );
 
-  it("runs cron start, watcher reconciliation, and hook completion in order", async () => {
-    const order: string[] = [];
-    const cron = {
-      start: vi.fn(async () => {
-        order.push("start");
-      }),
-    };
-    const afterStart = vi.fn(async () => {
-      order.push("after-start");
-    });
-    const cronReconciliation = createTestCronReconciliation(async () => {
-      order.push("hook");
-    });
-    const cronState = createTestCronState(cron);
-    const config = { cron: { enabled: true } } as never;
-    const logCron = { error: vi.fn() };
-
-    startGatewayCronWithLogging({
-      cronState,
-      cronReconciliation,
-      reason: "startup",
-      config,
-      afterStart,
-      logCron,
-    });
-
-    await waitForFast(() => expect(order).toEqual(["start", "after-start", "hook"]));
-    expect(cronReconciliation.arm).toHaveBeenCalledWith({
-      reason: "startup",
-      config,
-      cronState,
-    });
-    expect(logCron.error).not.toHaveBeenCalled();
-  });
-
-  it("does not complete cron reconciliation when scheduler startup rejects", async () => {
-    const cron = {
-      start: vi.fn(async () => {
-        throw new Error("store unavailable");
-      }),
-    };
-    const cronReconciliation = createTestCronReconciliation();
-    const logCron = { error: vi.fn() };
-    const onStartError = vi.fn(() => {
-      expect(getActiveGatewayRootWorkCount()).toBe(1);
-    });
-
-    startGatewayCronWithLogging({
-      cronState: createTestCronState(cron),
-      cronReconciliation,
-      reason: "startup",
-      config: {} as never,
-      onStartError,
-      logCron,
-    });
-
-    await waitForFast(() =>
-      expect(logCron.error).toHaveBeenCalledWith("failed to start: Error: store unavailable"),
-    );
-    expect(onStartError).toHaveBeenCalledOnce();
-    expect(cronReconciliation.complete).not.toHaveBeenCalled();
-    expect(getActiveGatewayRootWorkCount()).toBe(0);
-  });
-
-  it("does not complete cron reconciliation when exit-watcher reconciliation rejects", async () => {
-    const cronReconciliation = createTestCronReconciliation();
-    const logCron = { error: vi.fn() };
-
-    startGatewayCronWithLogging({
-      cronState: createTestCronState(),
-      cronReconciliation,
-      reason: "reload",
-      config: {} as never,
-      afterStart: async () => {
-        throw new Error("watcher unavailable");
-      },
-      logCron,
-    });
-
-    await waitForFast(() =>
-      expect(logCron.error).toHaveBeenCalledWith("failed to start: Error: watcher unavailable"),
-    );
-    expect(cronReconciliation.complete).not.toHaveBeenCalled();
-    expect(getActiveGatewayRootWorkCount()).toBe(0);
-  });
-
-  it("keeps one independent root admitted until the reconciliation hook settles", async () => {
-    let releaseHook: (() => void) | undefined;
-    const cronReconciliation = createTestCronReconciliation(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseHook = resolve;
-        }),
-    );
-
-    startGatewayCronWithLogging({
-      cronState: createTestCronState(),
-      cronReconciliation,
-      reason: "startup",
-      config: {} as never,
-      logCron: { error: vi.fn() },
-    });
-
-    await waitForFast(() => expect(cronReconciliation.complete).toHaveBeenCalledTimes(1));
-    expect(getActiveGatewayRootWorkCount()).toBe(1);
-    if (!releaseHook) {
-      throw new Error("Expected cron reconciliation hook to be pending");
-    }
-    releaseHook();
-    await waitForFast(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
-  });
+  registerGatewayCronStartupTests(startGatewayCronWithLogging);
 
   it("activates heartbeat and delivery recovery after sidecars are ready", async () => {
     vi.useFakeTimers();

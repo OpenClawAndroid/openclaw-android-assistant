@@ -661,6 +661,7 @@ export async function maybeSpawnVisibleSession(params: {
       childSessionKey,
       runId,
       mode: "run",
+      expectsCompletionMessage: params.expectsCompletionMessage,
       cleanup: "keep",
       ...(response.placement ? { placement: response.placement } : {}),
       ...(sessionUrl ? { sessionUrl } : {}),

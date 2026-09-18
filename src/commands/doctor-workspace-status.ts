@@ -21,7 +21,6 @@ import {
 } from "../plugins/status.js";
 import { loadTaskFlowRegistryStateFromSqliteReadOnly } from "../tasks/task-flow-registry.store.sqlite.js";
 import { loadTaskRegistryStateFromSqliteReadOnly } from "../tasks/task-registry.store.sqlite.js";
-import type { TaskRecord } from "../tasks/task-registry.types.js";
 
 type NoteWorkspaceStatusOptions = {
   pluginVersionReadiness?: PluginVersionRestartReadiness;
@@ -60,25 +59,21 @@ function collectTaskFlowRecoveryFindings(): TaskFlowRecoveryFinding[] {
   const flows = [...loadTaskFlowRegistryStateFromSqliteReadOnly().flows.values()].toSorted(
     (left, right) => right.createdAt - left.createdAt,
   );
-  const tasksByFlowId = new Map<string, TaskRecord[]>();
-  for (const task of loadTaskRegistryStateFromSqliteReadOnly().tasks.values()) {
+  const tasksById = loadTaskRegistryStateFromSqliteReadOnly().tasks;
+  const flowsWithTasks = new Set<string>();
+  for (const task of tasksById.values()) {
     const flowId = task.parentFlowId?.trim();
     if (flowId) {
-      const linkedTasks = tasksByFlowId.get(flowId);
-      if (linkedTasks) {
-        linkedTasks.push(task);
-      } else {
-        tasksByFlowId.set(flowId, [task]);
-      }
+      flowsWithTasks.add(flowId);
     }
   }
-  return flows.flatMap((flow) => {
-    const linkedTasks = tasksByFlowId.get(flow.flowId) ?? [];
-    const findings: TaskFlowRecoveryFinding[] = [];
+  const findings: TaskFlowRecoveryFinding[] = [];
+  for (const flow of flows) {
+    const hasLinkedTasks = flowsWithTasks.has(flow.flowId);
     if (
       flow.syncMode === "managed" &&
       flow.status === "running" &&
-      linkedTasks.length === 0 &&
+      !hasLinkedTasks &&
       flow.waitJson === undefined
     ) {
       findings.push({
@@ -90,15 +85,15 @@ function collectTaskFlowRecoveryFindings(): TaskFlowRecoveryFinding[] {
       flow.endedAt == null &&
       flow.status === "blocked" &&
       flow.blockedTaskId &&
-      !linkedTasks.some((task) => task.taskId === flow.blockedTaskId)
+      (!hasLinkedTasks || tasksById.get(flow.blockedTaskId)?.parentFlowId?.trim() !== flow.flowId)
     ) {
       findings.push({
         flowId: flow.flowId,
         message: `${flow.flowId}: blocked TaskFlow points at missing task ${flow.blockedTaskId}; inspect before retrying.`,
       });
     }
-    return findings;
-  });
+  }
+  return findings;
 }
 
 function noteFlowRecoveryHints() {

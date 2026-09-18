@@ -529,6 +529,7 @@ export async function spawnAcpDirect(
           ? startAcpSpawnParentStreamRelay({
               runId,
               parentSessionKey,
+              requesterAgentId,
               childSessionKey: sessionKey,
               childSessionId: state.initializedSession.sessionId,
               agentId: targetAgentId,

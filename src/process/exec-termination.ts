@@ -150,7 +150,7 @@ export function createCommandTerminationController(params: {
       try {
         process.kill(-childPid, params.killSignal ?? "SIGTERM");
       } catch (error) {
-        // SAFETY: Node's kill error carries errno; every non-ESRCH result stays uncertain.
+        // SAFETY: Node's kill error carries errno; retain failed sends until group exit is observed.
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
           cleanup = "uncertain";
         }
@@ -159,6 +159,7 @@ export function createCommandTerminationController(params: {
         const deadline = Date.now() + params.killGraceMs;
         const check = () => {
           if (!groupAlive()) {
+            cleanup = "cooperative";
             resolve();
             return;
           }

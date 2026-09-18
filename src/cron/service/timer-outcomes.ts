@@ -21,6 +21,7 @@ import {
   isJobEnabled,
   recordScheduleComputeError,
 } from "./jobs-scheduling.js";
+import { resolveManualOneShotOccurrenceAtMs } from "./one-shot-schedule.js";
 import type { CronServiceState, DeferredCronNotifications } from "./state.js";
 import { tryFinishCronTaskRunWithoutHistory } from "./task-runs.js";
 import {
@@ -190,11 +191,10 @@ export function applyJobResult(
   // An operator force-run borrows a future at-schedule; it cannot consume,
   // disable, or retry that scheduled occurrence. On-exit watchers also use
   // force, but their terminal callback owns and must retire the watched job.
+  const scheduleOwnershipAtMs = opts?.scheduleOwnershipAtMs ?? result.startedAt;
+  const oneShotOccurrenceAtMs = resolveManualOneShotOccurrenceAtMs(job, scheduleOwnershipAtMs);
   const preserveOneShotSchedule =
-    opts?.scheduleMode === "preserve" &&
-    job.schedule.kind === "at" &&
-    previousScheduleState.nextRunAtMs !== undefined &&
-    previousScheduleState.nextRunAtMs > (opts.scheduleOwnershipAtMs ?? result.startedAt);
+    opts?.scheduleMode === "preserve" && oneShotOccurrenceAtMs !== undefined;
   const ownsSchedule = opts?.scheduleOwnership !== "stale";
   const isOneShotSchedule = job.schedule.kind === "at" || job.schedule.kind === "on-exit";
   // Authored completion includes intentional silence and the admitted best-effort policy.
@@ -244,7 +244,7 @@ export function applyJobResult(
     if (preserveOneShotSchedule) {
       job.state.nextRunAtMs = previousScheduleState.nextRunAtMs;
       job.state.pacedNextRunAtMs = previousScheduleState.pacedNextRunAtMs;
-      job.state.forcePreservedNextRunAtMs = previousScheduleState.nextRunAtMs;
+      job.state.forcePreservedNextRunAtMs = oneShotOccurrenceAtMs;
     } else if (opts?.replaySchedule && job.schedule.kind === "at") {
       applyReplaySchedule();
       job.enabled = job.state.nextRunAtMs !== undefined;

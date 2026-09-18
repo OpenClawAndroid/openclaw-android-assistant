@@ -189,8 +189,17 @@ and deletion serialize by storage root within the process. Chunk writes still pu
 metadata before deleting the previous generation; deletion, flush, and quiescence
 join the same persistence owner. Cache-load failures remain visible on persistence,
 and the existing version, namespaces, digest validation, debounce, and host floor
-are unchanged. Account credentials, storage-root selection and initial metadata
-writes retain their separate owners.
+are unchanged. Matrix storage-root selection, initial metadata, crypto-state scoring,
+and startup imports also use worker-backed keyed stores. Selection preserves the
+claimed canonical-root shortcut and same-device token-rotation rules; archived
+roots remain excluded. Metadata comparisons preserve concurrent token claims and
+device updates. Imports finish before archival, and failed archival preserves
+completed imports and unrelated files. Device backfill remains nonblocking at startup;
+monitor retirement cancels and joins it before releasing storage. Hosts without
+data-only comparison support retain the existing native metadata and import decisions
+under the declared plugin API floor. Worker failures never select that fallback.
+Synchronous credential readiness and package auth-presence probes retain their
+separate SDK contracts.
 
 Reef registration binding reads, reservations, finalization, release, and setup-session
 persistence use the shared-state worker. Reservation mutations compare the current
@@ -283,6 +292,34 @@ reads and cache installation share one ordered owner; native writes and transact
 commits fence delayed snapshots, including changes that return to the same value.
 Flow publication follows the same read-phase rule. A failed refresh leaves its scope
 dirty for the existing refresh owner without replaying the settled mutation.
+
+Default Gateway task persistence awaits initial creation in the shared-state worker
+before activating its run. Synchronous duplicate selection keeps process insertion
+order; worker selection uses persisted creation time and task ID. Automatic one-task
+flow creation, linking, and compensation remain separate best-effort stages after
+the task commit; compensation preserves a flow that changed or acquired another
+task reference.
+
+Modern creation captures its database target and selected plugin registry activation
+and registration before waiting. Transaction admission rechecks that owner and the
+original Gateway run. Confirmed task results survive later owner retirement. If
+activation fails, exact receipt cleanup uses the original database owner and refuses
+a task adopted by another run. Successful immediate flow publication precedes task
+observation. A failed projection read or known pre-dispatch cancellation overload
+retains required flow follow-up on the existing retry schedule and budget.
+An unadmitted worker-capacity refusal leaves cold registry preparation retryable;
+it does not become a permanent restore failure.
+Task observation waits for each acknowledged row's required flow effects.
+Acknowledged task mutations are never replayed.
+
+An externally registered legacy runtime preserves synchronous creation before
+Gateway setup and synchronous run-scoped terminal finalization, including command
+failure before execution starts. This operation retains the original live registration;
+retirement or replacement stops it with a warning. Its shipped run-scoped semantics
+do not become an exact-task cleanup guarantee. Worker failures never switch to a
+legacy creator. Coordinator SQL remains on the host. Other detached lifecycle
+callers retain their synchronous paths until their complete admission and settlement
+owners migrate.
 
 Routine status reads stream task audit metadata through the same shared worker
 and return fixed-size history aggregates plus candidates for live reconciliation.

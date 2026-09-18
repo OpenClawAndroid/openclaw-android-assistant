@@ -53,6 +53,7 @@ type ProviderCall = {
 };
 
 type ProviderControls = {
+  beforeEmbedBatch: (() => Promise<void>) | null;
   beforeEmbedQuery: ((options?: EmbeddingProviderCallOptions) => Promise<void>) | null;
   embedQueryCalls: number;
   embeddedQueryTexts: string[];
@@ -116,6 +117,7 @@ export type ManagerIndexFixture = {
 };
 
 const providerState = vi.hoisted(() => ({
+  beforeEmbedBatch: null as ProviderControls["beforeEmbedBatch"],
   beforeEmbedQuery: null as ProviderControls["beforeEmbedQuery"],
   embedQueryCalls: 0,
   embeddedQueryTexts: [] as string[],
@@ -271,6 +273,7 @@ vi.mock("./embeddings.js", async (importOriginal) => {
             return embedText(text);
           },
           embedBatch: async (inputs: EmbeddingInput[]) => {
+            await providerState.beforeEmbedBatch?.();
             if (providerId === "gemini" || providerId === "fallback-provider") {
               const structuredInputs = inputs.filter(
                 (input): input is Exclude<EmbeddingInput, string> =>
@@ -531,6 +534,7 @@ export function createManagerIndexFixture(deps: {
     vi.useRealTimers();
     clearRegistry();
     providerState.beforeEmbedQuery = null;
+    providerState.beforeEmbedBatch = null;
     providerState.embedQueryCalls = 0;
     providerState.embeddedQueryTexts = [];
     providerState.embedBatchCalls = 0;

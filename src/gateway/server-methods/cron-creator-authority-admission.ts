@@ -12,6 +12,7 @@ export type GatewayCronCreatorAuthorityAdmission = Readonly<{
   runId: string;
   callerOrigin: { kind: "local" } | { kind: "unknown" };
   managementEntitlement?: CronCreatorAuthorityCapability["managementEntitlement"];
+  requesterOwner?: CronCreatorAuthorityCapability["requesterOwner"];
   isCurrent?: () => boolean;
   bindRunScope?: (scope: CronCreatorAuthorityCapability) => void;
 }>;

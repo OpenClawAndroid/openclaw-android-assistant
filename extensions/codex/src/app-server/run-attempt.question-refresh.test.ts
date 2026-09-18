@@ -5,7 +5,7 @@ import { loadUserTurnTranscriptRecorderFactoryForTest } from "openclaw/plugin-sd
 import { upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { projectContextEngineAssemblyForCodex } from "./context-engine-projection.js";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
+import { setCodexTestToolFactory } from "./host-capability.test-support.js";
 import type { CodexServerNotification } from "./protocol.js";
 import {
   bindProductionHarnessHostCapabilitiesForTest,
@@ -131,7 +131,7 @@ describe("runCodexAppServerAttempt question refresh", () => {
         pendingRefresh = true;
         return { content: [{ type: "text" as const, text: "generation changed" }], details: {} };
       });
-      dynamicToolBuildState.openClawCodingToolsFactory = () => [reload];
+      setCodexTestToolFactory(params, () => [reload]);
       params.pluginRuntimeRefreshPending = () => pendingRefresh;
       if (!params.sessionKey) {
         throw new Error("Expected the fixture's managed session key");

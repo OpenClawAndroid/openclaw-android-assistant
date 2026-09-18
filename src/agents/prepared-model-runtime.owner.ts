@@ -465,7 +465,7 @@ export async function publishPreparedModelRuntimeOwnerBatch(params: {
       inventoryOwner: owner,
       pluginGeneration: owner.pendingPluginGeneration,
       prepareInboundPluginRegistry: owner.provenance === "configured",
-      ownsRegistryResources:
+      inspectRegistry:
         owner.provenance === "run" || (owner.provenance === "ephemeral" && input.readOnly === true),
       isGenerationCurrent,
       isBuildCurrent: params.isBuildCurrent ?? isCurrent,
@@ -681,7 +681,7 @@ export async function publishModelRuntimeSnapshot(
           }
         },
         prepareInboundPluginRegistry: provenance === "configured",
-        ownsRegistryResources:
+        inspectRegistry:
           provenance === "run" || (provenance === "ephemeral" && input.readOnly === true),
         pluginGeneration: reusablePluginGeneration,
       },

@@ -124,7 +124,10 @@ function decodeCronJobConfig(jobJson: Record<string, unknown>): Record<string, u
   return delivery ? { ...jobJson, delivery } : jobJson;
 }
 
-function rowToCronJob(row: CronJobReadRow, jobJson: Record<string, unknown>): CronStoredJob | null {
+function rowToCronJob(
+  row: Pick<CronJobReadRow, "job_id" | "state_json" | "runtime_updated_at_ms" | "updated_at">,
+  jobJson: Record<string, unknown>,
+): CronStoredJob | null {
   const state = tryParseJsonObject(row.state_json);
   if (!state || getInvalidPersistedCronJobReason(jobJson)) {
     return null;
@@ -178,8 +181,14 @@ export function projectCronJobThroughStorageCodec(job: CronStoredJob): CronStore
   if (!normalized) {
     throw new Error(`cannot project invalid cron job ${job.id}`);
   }
-  const row = bindCronJobRow("config-revision", normalized, 0) as CronJobRow;
-  const projected = rowToCronJob(row, tryParseJsonObject(row.job_json) ?? {});
+  const jobJson = JSON.stringify(stripJobRuntimeFields(normalized));
+  const row = {
+    job_id: normalized.id,
+    updated_at: normalized.updatedAtMs,
+    state_json: serializeCronJobState(normalized.state ?? {}),
+    runtime_updated_at_ms: normalized.updatedAtMs,
+  };
+  const projected = rowToCronJob(row, tryParseJsonObject(jobJson) ?? {});
   if (!projected) {
     throw new Error(`cannot project cron job ${job.id} through storage codecs`);
   }

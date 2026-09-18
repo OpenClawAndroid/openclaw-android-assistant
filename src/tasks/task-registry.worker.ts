@@ -29,6 +29,7 @@ import {
   upsertTaskFlowRowInDatabase,
 } from "./task-flow-registry.store.kernel.js";
 import { isTerminalTaskFlow, type TaskFlowRecord } from "./task-flow-registry.types.js";
+import { executeTaskInitialMutation } from "./task-initial.worker.js";
 import { syncLiveTaskFlowInDatabase } from "./task-registry-live-flow.worker.js";
 import {
   restoreTaskRegistryInDatabase,
@@ -56,6 +57,16 @@ export function executeTaskRegistryCommand(
   options: OpenClawStateDatabaseOptions & { path: string },
   open: () => OpenClawStateDatabase,
 ): TaskRegistryWorkerOperations[keyof TaskRegistryWorkerOperations]["output"] {
+  if (
+    command.type === "tasks.createRecord" ||
+    command.type === "tasks.settleUnstarted" ||
+    command.type === "flows.createForTask" ||
+    command.type === "tasks.linkInitialFlow" ||
+    command.type === "flows.deleteUnlinkedForTask" ||
+    command.type === "flows.finalizeTaskCancellation"
+  ) {
+    return executeTaskInitialMutation(open(), command);
+  }
   const listFlows = (db: OpenClawStateDatabase["db"], ownerKey: string) =>
     listTaskFlowRecordsForOwnerReadInDatabase(db, ownerKey).map(normalizeRestoredFlowRecord);
   const ownedFlow = (flow: ReturnType<typeof readTaskFlowRecord>, ownerKey: string) =>

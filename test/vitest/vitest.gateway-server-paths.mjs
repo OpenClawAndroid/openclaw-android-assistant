@@ -4,6 +4,7 @@ export const gatewayPluginTestFiles = ["test/plugins/codex-model-catalog.gateway
 // This curated cohort retains serial forks and the extended database-worker watchdog,
 // even though ordinary Gateway methods also use forks.
 export const gatewayDatabaseWorkerTestFiles = [
+  "src/gateway/agent-turn/agent-run-dispatch.sqlite.test.ts",
   "src/gateway/chat-display-projection.cron.test.ts",
   "src/gateway/config-reload.activation.integration.test.ts",
   "src/gateway/config-reload.test.ts",
@@ -94,6 +95,8 @@ export const gatewayServerBackedHttpTestFiles = [
 // Gateway methods needing native process state or a private module graph keep
 // the shared methods runner in isolated forks.
 export const gatewayMethodsIsolatedTestFiles = [
+  // Heap scans should not traverse objects from unrelated test files.
+  "src/gateway/server-methods/chat-metadata-runtime.cache.test.ts",
   "src/gateway/server-methods/tasks.access.test.ts",
   "src/gateway/server-methods/tasks.test.ts",
   "src/gateway/server-methods/agent.task-runtime.test.ts",

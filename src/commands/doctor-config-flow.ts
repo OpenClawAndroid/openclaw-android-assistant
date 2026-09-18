@@ -19,6 +19,7 @@ import { CONFIG_PATH } from "../config/paths.js";
 import { inspectShippedPluginInstallConfigRecords } from "../config/plugin-install-config-migration.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { callGateway } from "../gateway/call.js";
+import type { PreparedAgentDatabaseMigrationDiscovery } from "../infra/state-migrations.media-persistence-targets.js";
 import { withoutPluginInstallRecords } from "../plugins/installed-plugin-index-records.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { createPluginCapabilityConsentPrompter } from "../wizard/plugin-capability-consent.js";
@@ -26,6 +27,7 @@ import {
   noteDoctorHookConfigWarnings,
   noteImplicitFallbackClobberWarnings,
   noteMcpOriginWarning,
+  noteMediaCliModelWarnings,
   noteMissingDefaultAgentOwner,
   noteOpencodeProviderOverrides,
   noteSandboxOriginProxyWarning,
@@ -111,6 +113,7 @@ async function refreshGatewayAuthStateAfterAuthProfileRepair(): Promise<void> {
  */
 export async function loadAndMaybeMigrateDoctorConfig(params: {
   options: DoctorOptions;
+  agentDatabaseMigrationDiscovery?: PreparedAgentDatabaseMigrationDiscovery;
   confirm: (p: { message: string; initialValue: boolean }) => Promise<boolean>;
   runtime?: RuntimeEnv;
   prompter?: DoctorPrompter;
@@ -129,6 +132,9 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
         recoverCorruptTargetStore: shouldRepair,
         doctorOnlyStateMigrations: shouldRepair,
         preparePluginMetadataSnapshot: true,
+        ...(params.agentDatabaseMigrationDiscovery
+          ? { agentDatabaseMigrationDiscovery: params.agentDatabaseMigrationDiscovery }
+          : {}),
         beforeWorkspaceStateMigration: createWorkspaceAliasMigrationRepair(
           params.prompter,
           progress.done,
@@ -674,6 +680,7 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
   noteImplicitFallbackClobberWarnings(cfg);
   noteSandboxOriginProxyWarning(cfg);
   noteMcpOriginWarning(cfg);
+  noteMediaCliModelWarnings(cfg);
   noteMissingDefaultAgentOwner(cfg);
 
   const migrationResult = await finalizeMigrationResult({

@@ -144,6 +144,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/fleet/service-upgrade.runtime.test.ts",
   "src/fleet/service-removal.runtime.test.ts",
   "src/flows/doctor-health.dangling-workshop-index.test.ts",
+  "src/flows/doctor-health.test.ts",
   "src/entry.memory-json.test.ts",
   "src/gateway/server-methods/memory-search.test.ts",
   "src/logging/diagnostic-session-context.test.ts",

@@ -24,6 +24,7 @@ import {
 } from "../registry/subagent-registry.store.sqlite.js";
 import {
   blockSubagentCompletionDelivery,
+  settleRequesterCompletionBatch,
   settleSubagentCompletionDelivery,
 } from "./subagent-completion-admission.store.js";
 import {
@@ -88,6 +89,36 @@ describe("persisted subagent requester wakes", () => {
     }
     ensureTaskRegistryReady();
   }
+
+  it.each([true, false])(
+    "keeps active cleanup unless requester delivery is blocked (delivered=%s)",
+    (delivered) => {
+      const input = armRequesterWake(records());
+      input.subagent.cleanupCompletedAt = undefined;
+      persistOwner(input);
+      const driver = requesterWakeDriver([input]);
+      const generation = driver.controller.bumpCleanupGeneration(input.subagent);
+
+      settleRequesterCompletionBatch({
+        entries: [{ subagent: input.subagent, taskId: input.task.taskId }],
+        outcome: {
+          delivered,
+          path: "direct",
+          error: delivered ? undefined : "requester unavailable",
+        },
+        isCurrent: () => true,
+        databaseOptions: { database },
+      });
+
+      expect(
+        driver.controller.isCleanupAttemptCurrent(input.subagent.runId, input.subagent, generation),
+      ).toBe(delivered);
+      expect(input.subagent.requesterSettleWake).toBeUndefined();
+      expect(loadSubagentRegistryFromSqlite().get(input.subagent.runId)?.cleanupHandled).toBe(
+        false,
+      );
+    },
+  );
 
   it("settles a rejected dispatch transition after rollback without another wake", async () => {
     const input = armRequesterWake(records());

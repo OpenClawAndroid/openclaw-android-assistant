@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { afterEach, expect, it, vi } from "vitest";
 import { subagentRuns } from "../agents/subagents/registry/subagent-registry-memory.js";
+import { publishSubagentRunChanges } from "../agents/subagents/registry/subagent-registry-publication.js";
 import * as registryRead from "../agents/subagents/registry/subagent-registry-read.js";
 import { persistSubagentRunsToDiskOrThrow } from "../agents/subagents/registry/subagent-registry-state.js";
 import type { SubagentRunRecord } from "../agents/subagents/registry/subagent-registry.types.js";
@@ -9,6 +10,7 @@ import { replaceSessionEntrySync } from "../config/sessions/session-accessor.js"
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import * as projectionWork from "./session-projection-work.js";
+import * as materialization from "./session-row-projection-materialize.js";
 import { ready } from "./session-row-projection-record.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import { seedSessionRowProjectionTranscriptFixture } from "./session-row-projection.transcript-fixture.test-support.js";
@@ -95,8 +97,8 @@ it("reuses the subagent index across a 2,048-session drain with unrelated writes
 }, 120_000);
 
 it.each(
-  (["ownership", "retirement", "clear", "persistence"] as const).flatMap((publication) =>
-    [false, true].map((archived) => ({ publication, archived })),
+  (["ownership", "broad-ownership", "retirement", "clear", "persistence"] as const).flatMap(
+    (publication) => [false, true].map((archived) => ({ publication, archived })),
   ),
 )(
   "refreshes subagent facts before synchronous $publication observers (archived=$archived)",
@@ -122,6 +124,10 @@ it.each(
           runId: "run",
           childSessionKey: child,
           requesterSessionKey: parent,
+          requesterAgentId: "main",
+          swarmRequesterSessionKey: parent,
+          groupId: "group",
+          collect: true,
           requesterDisplayKey: "parent",
           task: "Synthetic task",
           cleanup: "keep",
@@ -132,6 +138,8 @@ it.each(
         };
         subagentRuns.set(run.runId, run);
         const projection = await createSessionRowProjection({ cfg });
+        await projection.ensureMaterialized();
+        const reads = vi.spyOn(materialization, "readSessionRowEntry");
         const snapshot = () =>
           archived ? undefined : projection.snapshot({ agentId: "main", key: child }).row;
         let observed: ReturnType<typeof snapshot> | undefined;
@@ -144,11 +152,21 @@ it.each(
         });
         try {
           expect(snapshot()?.controlOwnerSessionKey).toBe(archived ? undefined : parent);
-          if (publication === "ownership" || publication === "persistence") {
-            const replacement = { ...run, requesterSessionKey: nextParent };
+          const moved =
+            publication === "ownership" ||
+            publication === "broad-ownership" ||
+            publication === "persistence";
+          if (moved) {
+            const replacement = {
+              ...run,
+              requesterSessionKey: nextParent,
+              swarmRequesterSessionKey: nextParent,
+            };
             subagentRuns.set(run.runId, replacement);
             expect(snapshot()?.controlOwnerSessionKey).toBe(archived ? undefined : parent);
-            if (publication === "ownership") {
+            if (publication === "broad-ownership") {
+              publishSubagentRunChanges();
+            } else if (publication === "ownership") {
               subagentRuns.commitOwnership(replacement);
             } else {
               persistSubagentRunsToDiskOrThrow(subagentRuns, [run.runId]);
@@ -160,7 +178,6 @@ it.each(
           } else {
             subagentRuns.clear();
           }
-          const moved = publication === "ownership" || publication === "persistence";
           expect(observed?.key).toBe(archived ? undefined : child);
           expect(observed?.controlOwnerSessionKey).toBe(
             !archived && moved ? nextParent : undefined,
@@ -178,6 +195,20 @@ it.each(
           expect(
             projection.snapshot({ agentId: "main", key: nextParent }).row?.childSessions,
           ).toEqual(moved ? [child] : undefined);
+          if (publication === "broad-ownership" || publication === "clear") {
+            expect(
+              projection.snapshot({ agentId: "main", key: parent }).row?.swarm,
+            ).toBeUndefined();
+            const swarm = projection.snapshot({ agentId: "main", key: nextParent }).row?.swarm;
+            if (moved) {
+              expect(swarm?.groups).toEqual([
+                expect.objectContaining({ groupId: "group", running: 1 }),
+              ]);
+            } else {
+              expect(swarm).toBeUndefined();
+            }
+            expect(reads).not.toHaveBeenCalled();
+          }
         } finally {
           stop();
           projection.dispose();

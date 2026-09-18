@@ -55,6 +55,16 @@ The runtime config snapshot, durable plugin-scoped storage, system utilities, ev
 
     `requestHeartbeatNow(...)` is tracked as `plugin-runtime-api-compat-aliases` in the [compatibility registry](/plugins/compatibility#current-compatibility-areas) with a `removeAfter` date of 2026-10-01; use `requestHeartbeat({ source, intent, reason })` in new code.
 
+    The `openclaw/plugin-sdk/system-event-runtime` helpers resolve legacy session
+    aliases at the SDK boundary. Pass a resolved `agentId` alongside `sessionKey`
+    to `api.runtime.system.enqueueSystemEvent(...)` to retain the plugin runtime's
+    lifecycle checks. Standalone callers can use
+    `enqueueRoutedSystemEvent(text, { agentId, sessionKey })`. Read the same owner's
+    events with `peekSystemEventEntries(sessionKey, agentId)`; this keeps `global`
+    queues separate for each agent. Calls without an explicit owner retain
+    configured-owner alias resolution and reject ambiguous agent selection.
+    Explicit owners that cannot normalize to an agent ID are rejected.
+
     `runHeartbeatOnce(...)` runs a single heartbeat cycle immediately, bypassing the normal coalesce timer. Delivery defaults to the configured operator DM (`commands.ownerAllowFrom`, then channel `allowFrom`); pass `{ heartbeat: { target: "none" } }` for an internal-only run.
 
     `runCommandWithTimeout(...)` returns captured `stdout` and `stderr`, optional

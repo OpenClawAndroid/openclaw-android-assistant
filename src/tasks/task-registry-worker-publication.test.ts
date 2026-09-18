@@ -147,6 +147,175 @@ describe("worker publication scope", () => {
     },
   );
 
+  it("does not certify read-ahead sibling rows or a reused result through a broad snapshot", async () => {
+    const sibling = { ...task, taskId: "sibling-task", runId: "sibling-run" };
+    const { store, context, events } = await prepare([task, sibling]);
+    const firstRow = { ...task, task: "First ready" };
+    const secondRow = { ...sibling, task: "Sibling pending" };
+    const firstReadStarted = createDeferred();
+    const firstReadRelease = createDeferred();
+    const secondCommitted = createDeferred();
+    const firstEffectsStarted = createDeferred();
+    const secondEffectsStarted = createDeferred();
+    const firstEffectsRelease = createDeferred();
+    const secondEffectsRelease = createDeferred();
+    const scope = { taskId: task.taskId, childSessionKey: task.childSessionKey };
+    const first = runTaskRegistryWorkerMutation(
+      {
+        admission: context.admission,
+        scope,
+        publicationRecords: () => new Map([[task.taskId, firstRow]]),
+        beforeObservers: async () => {
+          firstEffectsStarted.resolve();
+          await firstEffectsRelease.promise;
+        },
+      },
+      async () => store.upsertTaskWithDeliveryState({ task: firstRow }),
+      async () => {
+        firstReadStarted.resolve();
+        await firstReadRelease.promise;
+        return store.loadSnapshot();
+      },
+    );
+    await firstReadStarted.promise;
+    const second = runTaskRegistryWorkerMutation(
+      {
+        admission: context.admission,
+        scope: { ...scope, taskId: sibling.taskId },
+        publicationRecords: () => new Map([[sibling.taskId, secondRow]]),
+        beforeObservers: async () => {
+          secondEffectsStarted.resolve();
+          await secondEffectsRelease.promise;
+        },
+      },
+      async () => {
+        store.upsertTaskWithDeliveryState({ task: secondRow });
+        secondCommitted.resolve();
+      },
+      async () => store.loadSnapshot(),
+    );
+    try {
+      await secondCommitted.promise;
+      firstReadRelease.resolve();
+      await Promise.all([firstEffectsStarted.promise, secondEffectsStarted.promise]);
+      await runTaskRegistryWorkerMutation(
+        { admission: context.admission, scope, publicationRecords: () => new Map() },
+        async () => ({ created: true, task: secondRow }),
+        async () => store.loadSnapshot(),
+      );
+      expect(events).toEqual([]);
+      firstEffectsRelease.resolve();
+      await first;
+      expect(events).toEqual(["upserted:existing-task:original-run"]);
+      secondEffectsRelease.resolve();
+      await second;
+      expect(events).toEqual([
+        "upserted:existing-task:original-run",
+        "upserted:sibling-task:sibling-run",
+      ]);
+    } finally {
+      firstReadRelease.resolve();
+      firstEffectsRelease.resolve();
+      secondEffectsRelease.resolve();
+      await Promise.allSettled([first, second]);
+    }
+  });
+
+  it.each(
+    (["queued", "read", "effects"] as const).flatMap((phase) =>
+      (["none", "no-op refresh", "delivery", "unrelated row", "row ABA"] as const).map(
+        (change) => ({ phase, change }),
+      ),
+    ),
+  )(
+    "keeps receipt readiness correct across $change while $phase waits",
+    async ({ phase, change }) => {
+      const other = { ...task, taskId: "other-task", runId: "other-run" };
+      const { store, context, events } = await prepare([task, other]);
+      const receipt = { ...task, task: "Ready" };
+      const started = createDeferred();
+      const release = createDeferred();
+      const predecessorStarted = createDeferred();
+      const predecessor =
+        phase === "queued"
+          ? runTaskRegistryWorkerMutation(
+              {
+                admission: context.admission,
+                scope: { taskId: other.taskId },
+                publicationRecords: () => new Map(),
+              },
+              async () => {},
+              async () => {
+                const snapshot = store.loadSnapshot();
+                predecessorStarted.resolve();
+                await release.promise;
+                return snapshot;
+              },
+            )
+          : Promise.resolve();
+      if (phase === "queued") {
+        await predecessorStarted.promise;
+      }
+      const pending = runTaskRegistryWorkerMutation(
+        {
+          admission: context.admission,
+          scope: { taskId: task.taskId },
+          publicationRecords: () => {
+            if (phase === "queued") {
+              started.resolve();
+            }
+            return new Map([[task.taskId, receipt]]);
+          },
+          forcePublish: () => receipt,
+          beforeObservers: async () => {
+            if (phase === "effects") {
+              started.resolve();
+              await release.promise;
+            }
+          },
+        },
+        async () => {
+          store.upsertTaskWithDeliveryState({ task: receipt });
+          return receipt;
+        },
+        async () => {
+          const snapshot = store.loadSnapshot();
+          if (phase === "read") {
+            started.resolve();
+            await release.promise;
+          }
+          return snapshot;
+        },
+      );
+      try {
+        await started.promise;
+        if (change === "no-op refresh") {
+          withTaskRegistryMutation(() => {});
+        } else if (change === "delivery") {
+          upsertTaskDeliveryState({ taskId: task.taskId, lastNotifiedEventAt: 42 });
+        } else if (change === "unrelated row") {
+          expect(updateTask(other.taskId, { task: "Other changed" })).not.toBeNull();
+        } else if (change === "row ABA") {
+          expect(updateTask(task.taskId, { task: "Different" })).not.toBeNull();
+          expect(updateTask(task.taskId, { task: "Ready" })).not.toBeNull();
+        }
+        release.resolve();
+        await expect(pending).resolves.toEqual(receipt);
+        expect(tasks.get(task.taskId)).toEqual(receipt);
+        expect(events).toEqual(
+          change === "delivery" || change === "none" || change === "no-op refresh"
+            ? ["upserted:existing-task:original-run"]
+            : change === "unrelated row"
+              ? ["upserted:other-task:other-run", "upserted:existing-task:original-run"]
+              : ["upserted:existing-task:original-run", "upserted:existing-task:original-run"],
+        );
+      } finally {
+        release.resolve();
+        await Promise.all([predecessor, pending]);
+      }
+    },
+  );
+
   it.each(["owner", "requester"] as const)(
     "does not publish a child related only through its %s session",
     async (relation) => {
@@ -371,7 +540,7 @@ describe("worker publication during canonical reads", () => {
     },
   );
 
-  it.each(["unrelated read", "same-task read"] as const)(
+  it.each(["unrelated read", "same-task read", "before observers"] as const)(
     "settles one committed mutation during %s churn without replaying publication effects",
     async (change) => {
       const task: TaskRecord = {
@@ -411,9 +580,16 @@ describe("worker publication during canonical reads", () => {
         store.upsertTaskWithDeliveryState({ task: { ...task, notifyPolicy: "state_changes" } });
         return "committed";
       });
+      const beforeObservers = vi.fn(async () => {
+        if (change === "before observers") {
+          advance();
+        }
+      });
       const readCurrent = vi.fn(async () => {
         const snapshot = store.loadSnapshot();
-        advance();
+        if (change !== "before observers") {
+          advance();
+        }
         return snapshot;
       });
 
@@ -422,6 +598,7 @@ describe("worker publication during canonical reads", () => {
           {
             admission: context.admission,
             scope: { taskId: task.taskId },
+            beforeObservers,
             publicationRecords: () =>
               new Map([[task.taskId, { ...task, notifyPolicy: "state_changes" }]]),
           },
@@ -432,6 +609,7 @@ describe("worker publication during canonical reads", () => {
 
       expect(mutate).toHaveBeenCalledTimes(1);
       expect(readCurrent).toHaveBeenCalledTimes(1);
+      expect(beforeObservers).toHaveBeenCalledTimes(1);
       expect(published).toEqual(["state_changes"]);
       expect(authoritativeTasks.get(task.taskId)).toMatchObject({
         notifyPolicy: "state_changes",

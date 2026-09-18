@@ -15,7 +15,7 @@ import {
   upsertTaskWithDeliveryStateInDatabase,
 } from "./task-registry.store.kernel.js";
 
-export type { TaskCreateResult } from "./task-registry-create.operation.js";
+export type { TaskCreateInput, TaskCreateResult } from "./task-registry-create.operation.js";
 
 type TaskCreateOptions = Pick<TaskCreateOperations, "onCommitted" | "assertCurrent">;
 

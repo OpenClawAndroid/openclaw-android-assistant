@@ -1,4 +1,5 @@
 import { nativeHookRelayTesting } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { setHostToolFactoryForTest } from "openclaw/plugin-sdk/agent-runtime-test-contracts";
 import { resetDiagnosticEventsForTest } from "openclaw/plugin-sdk/diagnostic-runtime";
 import { resetGlobalHookRunner } from "openclaw/plugin-sdk/hook-runtime";
 import { afterEach, beforeEach, expect, vi } from "vitest";
@@ -6,7 +7,11 @@ import {
   codexTestTurnIds,
   createFakeCodexAppServerClient,
 } from "./codex-app-server.test-fixtures.js";
-import { dynamicToolBuildState } from "./dynamic-tool-build-state.js";
+import {
+  createCodexTestHostCapabilities,
+  getCodexTestToolFactory,
+  setCodexTestToolFactory,
+} from "./host-capability.test-support.js";
 import { isJsonObject, type CodexServerNotification, type JsonObject } from "./protocol.js";
 import {
   createCodexTestBindingStore,
@@ -77,10 +82,16 @@ const bindingStore: CodexAppServerBindingStore = {
   read: (...args) => readCodexAppServerBindingMock(...args),
 };
 
-function runCodexAppServerSideQuestion(
+async function runCodexAppServerSideQuestion(
   params: Parameters<typeof runCodexAppServerSideQuestionImpl>[0],
   options: Omit<Parameters<typeof runCodexAppServerSideQuestionImpl>[1], "bindingStore"> = {},
 ) {
+  const runId = params.opts?.runId;
+  if (runId && !getCodexTestToolFactory(params)) {
+    await setHostToolFactoryForTest({ runId }, (toolOptions) =>
+      createOpenClawCodingToolsMock(toolOptions),
+    );
+  }
   return runCodexAppServerSideQuestionImpl(params, { ...options, bindingStore });
 }
 
@@ -269,6 +280,11 @@ const TEST_HOST_CAPABILITIES: SideQuestionParams["hostCapabilities"] = Object.fr
 });
 
 function sideParams(overrides: Partial<SideQuestionParams> = {}): SideQuestionParams {
+  let hostCapabilities = overrides.hostCapabilities ?? TEST_HOST_CAPABILITIES;
+  if (!hostCapabilities.createToolSurface) {
+    hostCapabilities = createCodexTestHostCapabilities(hostCapabilities);
+    setCodexTestToolFactory({ hostCapabilities }, createOpenClawCodingToolsMock);
+  }
   const authProfileId = Object.hasOwn(overrides, "authProfileId")
     ? overrides.authProfileId
     : "openai:work";
@@ -330,7 +346,7 @@ function sideParams(overrides: Partial<SideQuestionParams> = {}): SideQuestionPa
       modelRegistry: {} as never,
     },
     ...overrides,
-    hostCapabilities: overrides.hostCapabilities ?? TEST_HOST_CAPABILITIES,
+    hostCapabilities,
   };
 }
 
@@ -342,8 +358,6 @@ export function useSideQuestionTestSetup() {
     getSharedCodexAppServerClientMock.mockReset();
     retireSharedCodexAppServerClientIfCurrentMock.mockReset();
     createOpenClawCodingToolsMock.mockReset();
-    dynamicToolBuildState.openClawCodingToolsFactory = (...args) =>
-      createOpenClawCodingToolsMock(...args);
     toolExecuteMock.mockReset();
     handleCodexAppServerApprovalRequestMock.mockReset();
     resolveCodexProviderWebSearchSupportForClientMock.mockReset();
@@ -393,7 +407,6 @@ export function useSideQuestionTestSetup() {
   });
 
   afterEach(async () => {
-    dynamicToolBuildState.openClawCodingToolsFactory = undefined;
     await nativeHookRelayTesting.clearNativeHookRelaysForTests();
     resetDiagnosticEventsForTest();
     resetGlobalHookRunner();

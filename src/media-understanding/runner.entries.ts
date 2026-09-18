@@ -54,11 +54,7 @@ import { assertSecretOwnerAvailable } from "../secrets/runtime-degraded-state.js
 import { assertRuntimeMediaRequestSecretOwnerAvailable } from "../secrets/runtime-media-secret-owner.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { MediaAttachmentCache } from "./attachments.js";
-import {
-  CLI_OUTPUT_MAX_BUFFER,
-  DEFAULT_TIMEOUT_SECONDS,
-  MIN_AUDIO_FILE_BYTES,
-} from "./defaults.constants.js";
+import { CLI_OUTPUT_MAX_BUFFER, MIN_AUDIO_FILE_BYTES } from "./defaults.constants.js";
 import {
   normalizeImageDescriptionInput,
   optimizeImageDescriptionInput,
@@ -70,7 +66,7 @@ import {
 } from "./local-audio.js";
 import { resolveOpenAiAudioAuthModelApi } from "./openai-audio-api.js";
 import { getMediaUnderstandingProvider, normalizeMediaProviderId } from "./provider-registry.js";
-import { resolveMaxBytes, resolveMaxChars, resolvePrompt, resolveTimeoutMs } from "./resolve.js";
+import { resolveCliModelEntry, resolveEntryRunOptions } from "./resolve.js";
 import type {
   AudioTranscriptionResult,
   MediaAttachment,
@@ -404,39 +400,6 @@ export function buildModelDecision(params: {
     model: params.entry.model,
     outcome: params.outcome,
     reason: params.reason,
-  };
-}
-
-function resolveEntryRunOptions(params: {
-  capability: MediaUnderstandingCapability;
-  entry: MediaUnderstandingModelConfig;
-  cfg: OpenClawConfig;
-  config?: MediaUnderstandingConfig;
-}): {
-  maxBytes: number;
-  maxChars?: number;
-  timeoutMs: number;
-  prompt: string;
-  hasConfiguredPrompt: boolean;
-} {
-  const { capability, entry, cfg } = params;
-  const maxBytes = resolveMaxBytes({ capability, entry, cfg, config: params.config });
-  const maxChars = resolveMaxChars({ capability, entry, cfg, config: params.config });
-  const timeoutMs = resolveTimeoutMs(
-    entry.timeoutSeconds ??
-      params.config?.timeoutSeconds ??
-      cfg.tools?.media?.[capability]?.timeoutSeconds,
-    DEFAULT_TIMEOUT_SECONDS[capability],
-  );
-  const configuredPrompt =
-    entry.prompt ?? params.config?.prompt ?? cfg.tools?.media?.[capability]?.prompt;
-  const prompt = resolvePrompt(capability, configuredPrompt, maxChars);
-  return {
-    maxBytes,
-    maxChars,
-    timeoutMs,
-    prompt,
-    hasConfiguredPrompt: Boolean(configuredPrompt?.trim()),
   };
 }
 
@@ -1051,11 +1014,11 @@ export async function runCliEntry(params: {
 }): Promise<MediaUnderstandingOutput | null> {
   const { entry, capability, cfg, ctx } = params;
   const attachmentIndex = params.attachment.index;
-  const command = entry.command?.trim();
-  const args = entry.args ?? [];
-  if (!command) {
-    throw new Error(`CLI entry missing command for ${capability}`);
+  const cli = resolveCliModelEntry(entry);
+  if (!cli.ok) {
+    throw cli.error;
   }
+  const { command, args } = cli.value;
   const requestOverrides = resolveMediaRequestOverrides(params.config);
   const language = requestOverrides.language ?? entry.language ?? params.config?.language;
   const { maxBytes, maxChars, timeoutMs, prompt } = resolveEntryRunOptions({

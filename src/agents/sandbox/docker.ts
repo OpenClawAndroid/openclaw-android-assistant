@@ -199,10 +199,6 @@ async function inspectContainerImage(
   throw new Error(`Failed to inspect sandbox image with ${engine.displayName}: ${stderr}`);
 }
 
-export async function ensureDockerImage(image: string) {
-  await ensureContainerImage(DOCKER_SANDBOX_ENGINE, image);
-}
-
 export async function ensureContainerImage(engine: SandboxContainerEngine, image: string) {
   const imageState = await inspectContainerImage(engine, image);
   if (imageState === "exists") {

@@ -288,6 +288,7 @@ src/commands/doctor/shared/legacy-config-migrations.runtime.skills.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.system-agent.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.tier-eval.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.tool-names.ts
+src/commands/doctor/shared/legacy-config-migrations.runtime.tool-policy-conflicts.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.tts.ts
 src/commands/doctor/shared/legacy-config-migrations.ts
@@ -298,6 +299,7 @@ src/commands/doctor/shared/legacy-models-add-metadata.ts
 src/commands/doctor/shared/legacy-runtime-model-policy.ts
 src/commands/doctor/shared/legacy-runtime-model-providers.ts
 src/commands/doctor/shared/legacy-tool-name-migration.ts
+src/commands/doctor/shared/legacy-tool-policy-scopes.ts
 src/commands/doctor/shared/legacy-web-tools-migrate.ts
 src/compat/legacy-names.ts
 src/config/agent-dirs.ts
@@ -399,6 +401,7 @@ src/config/plugins-allowlist.ts
 src/config/provider-policy.ts
 src/config/recovery-policy.ts
 src/config/redact-argv.ts
+src/config/redact-sentinel.ts
 src/config/redact-snapshot.raw.ts
 src/config/redact-snapshot.secret-ref.ts
 src/config/redact-snapshot.ts

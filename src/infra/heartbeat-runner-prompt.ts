@@ -32,7 +32,7 @@ import {
   type HeartbeatScheduledTask,
   type HeartbeatWakeSource,
 } from "./heartbeat-wake.js";
-import { selectAgentSystemEvents } from "./system-event-ownership.js";
+import { resolveSystemEventQueueKey } from "./system-event-ownership.js";
 import {
   peekSystemEventEntries,
   resolveSystemEventDeliveryContext,
@@ -99,9 +99,8 @@ export async function resolveHeartbeatPreflight(params: {
     params.heartbeat,
     params.sessionKey,
   );
-  const pendingEventEntries = selectAgentSystemEvents(
-    peekSystemEventEntries(session.sessionKey),
-    params.agentId,
+  const pendingEventEntries = peekSystemEventEntries(
+    resolveSystemEventQueueKey(session.sessionKey, params.agentId),
   ).filter((event) => !isHeartbeatDeliveryAwarenessEvent(event));
   const turnSourceDeliveryContext = resolveSystemEventDeliveryContext(pendingEventEntries);
   const hasTaggedCronEvents = pendingEventEntries.some((event) =>

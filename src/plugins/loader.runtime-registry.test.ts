@@ -234,7 +234,7 @@ it.each(["cjs", "ts"])(
           const system = runtime.system;
           expect(system.requestHeartbeat).toBe(requestHeartbeat);
           expect(system.runCommandWithTimeout).toBe(runCommandWithTimeout);
-          expect(drainSystemEvents("prepared-runtime-system")).toEqual(["registration"]);
+          expect(drainSystemEvents("agent:main:prepared-runtime-system")).toEqual(["registration"]);
           await vi.waitFor(() =>
             expect(heartbeat).toHaveBeenCalledWith(
               expect.objectContaining({ reason: "registration" }),
@@ -303,7 +303,7 @@ it.each(["cjs", "ts"])(
           expect(runtime.system.formatNativeDependencyHint({ packageName: "fixture" })).toBe(
             "retained method",
           );
-          expect(drainSystemEvents("prepared-runtime-system")).toEqual(["materialized"]);
+          expect(drainSystemEvents("agent:main:prepared-runtime-system")).toEqual(["materialized"]);
           await vi.waitFor(() =>
             expect(heartbeat).toHaveBeenCalledWith(
               expect.objectContaining({ reason: "materialized" }),
@@ -412,7 +412,7 @@ it.each(["cjs", "ts"])(
           expect(resolveRuntime).toHaveBeenCalledTimes(1);
         } finally {
           disposeHeartbeat();
-          drainSystemEvents("prepared-runtime-system");
+          drainSystemEvents("agent:main:prepared-runtime-system");
         }
       },
     );

@@ -1,6 +1,5 @@
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
-import { cache } from "lit/directives/cache.js";
 import { keyed } from "lit/directives/keyed.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { icons } from "../../../components/icons.ts";
@@ -75,7 +74,15 @@ class ChatTextAttachment extends OpenClawLightDomContentsElement {
     }
     if (changed.has("src") || changed.has("sourceIdentity") || changed.has("sizeBytes")) {
       this.cancelLoad();
-      this.text = null;
+      // Ticket refreshes must not detach a focused reader of the same attachment.
+      if (
+        !this.src ||
+        !this.sourceIdentity ||
+        changed.has("sourceIdentity") ||
+        changed.has("sizeBytes")
+      ) {
+        this.text = null;
+      }
       this.failed = false;
       if (this.src) {
         void this.loadText();
@@ -100,6 +107,7 @@ class ChatTextAttachment extends OpenClawLightDomContentsElement {
       }
     } catch {
       if (version === this.loadVersion && this.isConnected) {
+        this.text = null;
         this.failed = true;
       }
     } finally {
@@ -116,7 +124,6 @@ class ChatTextAttachment extends OpenClawLightDomContentsElement {
       mimeType === "text/markdown" ||
       mimeType === "text/x-markdown" ||
       /\.(?:md|markdown)$/i.test(this.label);
-    // Cache detaches the reader before identity or validated-text changes replace it.
     const reader =
       this.text === null
         ? renderAttachmentPreviewSkeleton()
@@ -206,7 +213,7 @@ ${this.text}</pre>`,
       ${
         this.failed
           ? html`<p class="muted" role="status">${t("chat.attachments.textPreviewUnavailable")}</p>`
-          : cache(reader)
+          : reader
       }
     `;
   }

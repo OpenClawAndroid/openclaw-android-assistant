@@ -1851,7 +1851,7 @@ describe("initSessionState RawBody", () => {
       },
     });
     enqueueSystemEvent("stale session-key event", { sessionKey });
-    enqueueSystemEvent("stale session-id event", { sessionKey: existingSessionId });
+    enqueueSystemEvent("stale session-id event", { sessionKey: `agent:main:${existingSessionId}` });
 
     const cfg = {
       session: {
@@ -1881,7 +1881,7 @@ describe("initSessionState RawBody", () => {
         isNewSession: true,
       }),
     ).resolves.toBeUndefined();
-    expect(peekSystemEvents(existingSessionId)).toStrictEqual([]);
+    expect(peekSystemEvents(`agent:main:${existingSessionId}`)).toStrictEqual([]);
   });
 
   it("preserves a user model override across an implicit daily stale rollover (#90119)", async () => {
@@ -2980,7 +2980,7 @@ describe("initSessionState reset policy", () => {
     });
     enqueueSystemEvent("stale idle rollover event", { sessionKey });
     enqueueSystemEvent("stale idle rollover session-id event", {
-      sessionKey: existingSessionId,
+      sessionKey: `agent:main:${existingSessionId}`,
     });
 
     const cfg = {
@@ -3006,7 +3006,7 @@ describe("initSessionState reset policy", () => {
         isNewSession: true,
       }),
     ).resolves.toBeUndefined();
-    expect(peekSystemEvents(existingSessionId)).toStrictEqual([]);
+    expect(peekSystemEvents(`agent:main:${existingSessionId}`)).toStrictEqual([]);
   });
 
   it("reuses completed run entries while the session is still fresh", async () => {

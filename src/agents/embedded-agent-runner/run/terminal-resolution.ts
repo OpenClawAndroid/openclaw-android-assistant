@@ -569,10 +569,12 @@ async function completeEmbeddedRun(
     });
     input.runParams.onSuccessfulAuthProfile?.(input.authProfileId);
   }
-  const acceptedSessionSpawnContinuation = shouldContinueInteractiveAcceptedSessionSpawns({
-    attempt: input.attempt,
-    run: input.runParams,
-  });
+  const acceptedSessionSpawnContinuation =
+    !error &&
+    shouldContinueInteractiveAcceptedSessionSpawns({
+      attempt: input.attempt,
+      run: input.runParams,
+    });
   // A subagent's blank success is delivery evidence; nonblank classified silence stays silent.
   // The lifecycle owner needs that distinction to close only intentional non-delivery.
   const keepEmptyReplySilent =

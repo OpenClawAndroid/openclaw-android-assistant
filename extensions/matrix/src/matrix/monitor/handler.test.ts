@@ -16,6 +16,10 @@ import {
   sessionDeliveryOrigin,
   upsertSessionEntry,
 } from "openclaw/plugin-sdk/session-store-runtime";
+import {
+  peekSystemEventEntries,
+  resetSystemEventsForTest,
+} from "openclaw/plugin-sdk/system-event-runtime";
 // Matrix tests cover handler plugin behavior.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -153,6 +157,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSystemEventsForTest();
+  sessionBindingTesting.resetSessionBindingAdaptersForTests();
   vi.useRealTimers();
 });
 
@@ -682,7 +688,7 @@ describe("matrix monitor handler pairing account scope", () => {
       queuedFinal: true,
       counts: { final: 1, block: 0, tool: 0 },
     }));
-    const { handler, enqueueSystemEvent } = createMatrixHandlerTestHarness({
+    const { handler } = createMatrixHandlerTestHarness({
       dispatchInboundMessage,
       isDirectMessage: true,
       getMemberDisplayName: async () => "sender",
@@ -698,7 +704,7 @@ describe("matrix monitor handler pairing account scope", () => {
     );
 
     expect(dispatchInboundMessage).toHaveBeenCalled();
-    expect(enqueueSystemEvent).not.toHaveBeenCalled();
+    expect(peekSystemEventEntries("agent:ops:main")).toEqual([]);
   });
 
   it("accepts room messages from configured Matrix bot accounts when allowBots is true", async () => {
@@ -1889,9 +1895,7 @@ describe("matrix monitor handler pairing account scope", () => {
   });
 
   it("does not enqueue system events for delivered text replies", async () => {
-    const enqueueSystemEvent = vi.fn();
     const { handler } = createMatrixHandlerTestHarness({
-      enqueueSystemEvent,
       isDirectMessage: false,
       dispatchInboundMessage: async () => ({
         queuedFinal: true,
@@ -1909,11 +1913,11 @@ describe("matrix monitor handler pairing account scope", () => {
       }),
     );
 
-    expect(enqueueSystemEvent).not.toHaveBeenCalled();
+    expect(peekSystemEventEntries("agent:ops:main")).toEqual([]);
   });
 
   it("enqueues system events for reactions on bot-authored messages", async () => {
-    const { handler, enqueueSystemEvent, resolveAgentRoute } = createReactionHarness();
+    const { handler, resolveAgentRoute } = createReactionHarness();
 
     await handler(
       "!room:example.org",
@@ -1925,13 +1929,12 @@ describe("matrix monitor handler pairing account scope", () => {
     );
 
     expectMockCallWithFields(resolveAgentRoute, { channel: "matrix", accountId: "ops" });
-    expect(enqueueSystemEvent).toHaveBeenCalledWith(
-      "Matrix reaction added: 👍 by sender on msg $msg1",
-      {
-        sessionKey: "agent:ops:main",
+    expect(peekSystemEventEntries("agent:ops:main")).toEqual([
+      expect.objectContaining({
+        text: "Matrix reaction added: 👍 by sender on msg $msg1",
         contextKey: "matrix:reaction:add:!room:example.org:$msg1:@user:example.org:👍",
-      },
-    );
+      }),
+    ]);
   });
 
   it("routes reaction notifications for bound thread messages to the bound session", async () => {
@@ -1961,7 +1964,7 @@ describe("matrix monitor handler pairing account scope", () => {
       touch: vi.fn(),
     });
 
-    const { handler, enqueueSystemEvent } = createMatrixHandlerTestHarness({
+    const { handler } = createMatrixHandlerTestHarness({
       client: {
         getEvent: async () =>
           createMatrixTextMessageEvent({
@@ -1987,17 +1990,16 @@ describe("matrix monitor handler pairing account scope", () => {
       }),
     );
 
-    expect(enqueueSystemEvent).toHaveBeenCalledWith(
-      "Matrix reaction added: 🎯 by sender on msg $reply1",
-      {
-        sessionKey: "agent:bound:session-1",
+    expect(peekSystemEventEntries("agent:bound:session-1")).toEqual([
+      expect.objectContaining({
+        text: "Matrix reaction added: 🎯 by sender on msg $reply1",
         contextKey: "matrix:reaction:add:!room:example.org:$reply1:@user:example.org:🎯",
-      },
-    );
+      }),
+    ]);
   });
 
   it("keeps threaded DM reaction notifications on the flat session when dm threadReplies is off", async () => {
-    const { handler, enqueueSystemEvent } = createReactionHarness({
+    const { handler } = createReactionHarness({
       cfg: {
         channels: {
           matrix: {
@@ -2031,17 +2033,16 @@ describe("matrix monitor handler pairing account scope", () => {
       }),
     );
 
-    expect(enqueueSystemEvent).toHaveBeenCalledWith(
-      "Matrix reaction added: 🎯 by sender on msg $reply1",
-      {
-        sessionKey: "agent:ops:main",
+    expect(peekSystemEventEntries("agent:ops:main")).toEqual([
+      expect.objectContaining({
+        text: "Matrix reaction added: 🎯 by sender on msg $reply1",
         contextKey: "matrix:reaction:add:!dm:example.org:$reply1:@user:example.org:🎯",
-      },
-    );
+      }),
+    ]);
   });
 
   it("routes thread-root reaction notifications to the thread session when threadReplies is always", async () => {
-    const { handler, enqueueSystemEvent } = createReactionHarness({
+    const { handler } = createReactionHarness({
       cfg: {
         channels: {
           matrix: {
@@ -2069,17 +2070,16 @@ describe("matrix monitor handler pairing account scope", () => {
       }),
     );
 
-    expect(enqueueSystemEvent).toHaveBeenCalledWith(
-      "Matrix reaction added: 🧵 by sender on msg $root",
-      {
-        sessionKey: "agent:ops:main:thread:$root",
+    expect(peekSystemEventEntries("agent:ops:main:thread:$root")).toEqual([
+      expect.objectContaining({
+        text: "Matrix reaction added: 🧵 by sender on msg $root",
         contextKey: "matrix:reaction:add:!room:example.org:$root:@user:example.org:🧵",
-      },
-    );
+      }),
+    ]);
   });
 
   it("ignores reactions that do not target bot-authored messages", async () => {
-    const { handler, enqueueSystemEvent, resolveAgentRoute } = createReactionHarness({
+    const { handler, resolveAgentRoute } = createReactionHarness({
       targetSender: "@other:example.org",
     });
 
@@ -2092,12 +2092,12 @@ describe("matrix monitor handler pairing account scope", () => {
       }),
     );
 
-    expect(enqueueSystemEvent).not.toHaveBeenCalled();
+    expect(peekSystemEventEntries("agent:ops:main")).toEqual([]);
     expect(resolveAgentRoute).not.toHaveBeenCalled();
   });
 
   it("does not create pairing requests for unauthorized dm reactions", async () => {
-    const { handler, enqueueSystemEvent, upsertPairingRequest } = createReactionHarness({
+    const { handler, upsertPairingRequest } = createReactionHarness({
       dmPolicy: "pairing",
     });
 
@@ -2111,11 +2111,11 @@ describe("matrix monitor handler pairing account scope", () => {
     );
 
     expect(upsertPairingRequest).not.toHaveBeenCalled();
-    expect(enqueueSystemEvent).not.toHaveBeenCalled();
+    expect(peekSystemEventEntries("agent:ops:main")).toEqual([]);
   });
 
   it("honors account-scoped reaction notification overrides", async () => {
-    const { handler, enqueueSystemEvent } = createReactionHarness({
+    const { handler } = createReactionHarness({
       cfg: {
         channels: {
           matrix: {
@@ -2139,7 +2139,7 @@ describe("matrix monitor handler pairing account scope", () => {
       }),
     );
 
-    expect(enqueueSystemEvent).not.toHaveBeenCalled();
+    expect(peekSystemEventEntries("agent:ops:main")).toEqual([]);
   });
 
   it("drops pre-startup dm messages on cold start", async () => {

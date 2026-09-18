@@ -464,6 +464,7 @@ describe("registerMaintenanceCommands doctor action", () => {
     expect(doctorCommand).toHaveBeenCalledWith(
       runtime,
       expect.objectContaining({ postUpgrade: true, json: true }),
+      undefined,
     );
     expect(runDoctorLintCli).not.toHaveBeenCalled();
     expect(runtime.exit).toHaveBeenCalledWith(0);

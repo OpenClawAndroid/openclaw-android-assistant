@@ -52,7 +52,7 @@ export async function createMatrixClient(params: {
   const userId = matrixClientUserId ?? "unknown";
   const persistStorage = params.persistStorage !== false;
   const storagePaths = persistStorage
-    ? resolveMatrixStoragePaths({
+    ? await resolveMatrixStoragePaths({
         homeserver,
         userId,
         accessToken: params.accessToken,
@@ -68,7 +68,7 @@ export async function createMatrixClient(params: {
       env: process.env,
     });
     fs.mkdirSync(storagePaths.rootDir, { recursive: true });
-    writeStorageMeta({
+    await writeStorageMeta({
       storagePaths,
       homeserver,
       userId,

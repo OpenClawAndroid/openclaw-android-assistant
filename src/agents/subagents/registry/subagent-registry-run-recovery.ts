@@ -13,6 +13,7 @@ import {
   bindGatewayContextResolver,
   getGatewayContextResolver,
 } from "../../../plugins/runtime/gateway-request-scope.js";
+import { runWithGatewayDetachedWorkContinuation } from "../../../process/gateway-work-admission.js";
 import { prepareCanonicalTaskActivation } from "../../../tasks/task-backing-authority-write.js";
 import { createSubagentTaskBackingDetail } from "../../../tasks/task-backing-authority.js";
 import { removeInternalSessionEffectsSession } from "../../internal-session-effects.js";
@@ -356,7 +357,19 @@ export class SubagentRecoveryManager extends SubagentWaitManager {
         source.execution.transcriptTarget &&
         source.execution.transcriptTarget !== replaceParams.transcriptTarget
       ) {
-        void removeInternalSessionEffectsSession(source.execution.transcriptTarget);
+        const retiredTarget = source.execution.transcriptTarget;
+        // The committed replacement owns cleanup beyond its caller's lifetime,
+        // including when restart closes admission before this tail settles.
+        void runWithGatewayDetachedWorkContinuation(
+          () => removeInternalSessionEffectsSession(retiredTarget),
+          "subagents:replacement-cleanup",
+        ).catch((error: unknown) => {
+          log.warn("failed to remove replaced subagent internal session effects", {
+            previousRunId,
+            nextRunId,
+            error,
+          });
+        });
       }
     }
     this.options.ensureListener();

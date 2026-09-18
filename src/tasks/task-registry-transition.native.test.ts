@@ -56,6 +56,25 @@ vi.mock("./task-registry-delivery.js", () => ({
   maybeDeliverTaskTerminalUpdate: async () => {},
 }));
 
+vi.mock("./task-registry.store.kernel.js", () => ({
+  readTaskRecord: (_db: unknown, taskId: string) => memory.tasks.get(taskId),
+  bindTaskRecord: (task: TaskRecord) => task,
+  upsertTaskRunRowInDatabase: (_database: unknown, task: TaskRecord) => {
+    memory.writes.push(task.taskId);
+    memory.tasks.set(task.taskId, structuredClone(task));
+  },
+}));
+vi.mock("./task-flow-registry.store.kernel.js", () => ({ readTaskFlowRecord: () => undefined }));
+vi.mock("../infra/sqlite-post-commit.js", () => ({
+  deferSqlitePostCommitPublication: (_db: unknown, publish: () => void) => {
+    publish();
+    return true;
+  },
+}));
+
+import { createProjectionTransactionDatabase } from "./task-registry-projection.test-support.js";
+import { captureTaskPersistenceReceipt } from "./task-registry-records.js";
+import { transitionTaskRecordInDatabase } from "./task-registry-transition.kernel.js";
 import { transitionTaskRecordsByRunNative } from "./task-registry-transition.native.js";
 
 const session = "agent:requester:main";
@@ -202,4 +221,46 @@ describe("native run transition selection", () => {
       expect(memory.writes).toEqual(["first"]);
     },
   );
+});
+
+describe("worker row transition selection", () => {
+  it("settles an exact childless receipt despite a sibling child-session match", () => {
+    const { db } = createProjectionTransactionDatabase();
+    const task = record("first");
+    const sibling = { ...record("second"), childSessionKey: session };
+    memory.tasks.set(sibling.taskId, sibling);
+    const assertCurrent = vi.fn(() => {
+      expect(memory.writes).toEqual([]);
+    });
+    const onCommitted = vi.fn();
+
+    const receipt = transitionTaskRecordInDatabase(
+      db,
+      {
+        kind: "state",
+        taskId: task.taskId,
+        expectedTask: captureTaskPersistenceReceipt(task),
+        now: 200,
+        params: {
+          runId: "shared-run",
+          runtime: task.runtime,
+          sessionKey: task.ownerKey,
+          status: "succeeded",
+          endedAt: 200,
+        },
+      },
+      (operation) => operation(),
+      { assertCurrent, onCommitted },
+    );
+
+    expect(receipt).toMatchObject({
+      task: { taskId: task.taskId, status: "succeeded", endedAt: 200 },
+      persisted: true,
+    });
+    expect(memory.tasks.get(task.taskId)).toMatchObject({ status: "succeeded", endedAt: 200 });
+    expect(memory.tasks.get(sibling.taskId)).toEqual(sibling);
+    expect(memory.writes).toEqual([task.taskId]);
+    expect(assertCurrent).toHaveBeenCalledOnce();
+    expect(onCommitted).toHaveBeenCalledExactlyOnceWith(receipt);
+  });
 });

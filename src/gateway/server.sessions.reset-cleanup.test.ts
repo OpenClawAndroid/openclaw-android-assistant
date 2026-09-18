@@ -11,7 +11,8 @@ import { listRegisteredAgentHarnesses, registerAgentHarness } from "../agents/ha
 import { restoreRegisteredAgentHarnesses } from "../agents/harness/registry.test-support.js";
 import { loadSessionEntry } from "../config/sessions/session-accessor.js";
 import type { InternalSessionEntry, SessionAcpMeta } from "../config/sessions/types.js";
-import { enqueueSystemEvent, peekSystemEvents } from "../infra/system-events.js";
+import { peekSystemEvents } from "../infra/system-events.js";
+import { enqueueSystemEvent } from "../plugin-sdk/system-event-runtime.js";
 import {
   beginSessionWorkAdmission,
   runExclusiveSessionLifecycleMutation,
@@ -182,9 +183,8 @@ test("sessions.reset aborts active runs and clears queues", async () => {
     "sess-main",
     "main",
   );
-  expect(peekSystemEvents("main")).toStrictEqual([]);
   expect(peekSystemEvents("agent:main:main")).toStrictEqual([]);
-  expect(peekSystemEvents("sess-main")).toStrictEqual([]);
+  expect(peekSystemEvents("agent:main:sess-main")).toStrictEqual([]);
   expect(bundleMcpRuntimeMocks.retireSessionMcpRuntime).toHaveBeenNthCalledWith(1, {
     sessionId: "sess-main",
     reason: "gateway-session-cleanup",

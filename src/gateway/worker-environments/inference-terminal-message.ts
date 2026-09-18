@@ -1,5 +1,5 @@
 import type { WorkerInferenceTerminalOutcome } from "../../../packages/gateway-protocol/src/schema/worker-inference.js";
-import type { AssistantMessage } from "../../llm/types.js";
+import type { AssistantMessage, Usage } from "../../llm/types.js";
 import {
   projectWorkerProviderReplay,
   type WorkerMessageProjection,
@@ -10,6 +10,31 @@ export type WorkerInferenceModelIdentity = {
   provider: string;
   model: string;
 };
+
+export const ERROR_MESSAGES = {
+  "model-not-approved": "Model is not approved for this agent.",
+  "invalid-context": "Inference context is invalid.",
+  "epoch-mismatch": "Worker run epoch does not match.",
+  "session-not-attached": "Worker session is not attached.",
+  "provider-error": "Model provider request failed.",
+  cancelled: "Inference request was cancelled.",
+} as const satisfies Record<
+  Extract<WorkerInferenceTerminalOutcome, { type: "error" }>["reason"],
+  string
+>;
+
+export function inferenceError(
+  reason: Extract<WorkerInferenceTerminalOutcome, { type: "error" }>["reason"],
+  usage?: Usage,
+  message: string = ERROR_MESSAGES[reason],
+): WorkerInferenceTerminalOutcome {
+  return {
+    type: "error",
+    reason,
+    message,
+    ...(usage ? { usage: structuredClone(usage) } : {}),
+  };
+}
 
 export function projectWorkerInferenceTerminalMessage(params: {
   message: AssistantMessage;

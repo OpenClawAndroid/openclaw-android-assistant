@@ -5,6 +5,7 @@ import { sessionChanges } from "../sessions/session-row-changes.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { retainSessionListForegroundWork } from "./session-projection-work.js";
+import * as materialization from "./session-row-projection-materialize.js";
 import { ready } from "./session-row-projection-record.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import * as transcriptBackfill from "./session-row-transcript-backfill.js";
@@ -34,12 +35,15 @@ it("keeps archived rows cold at hydration and across broad refreshes", async () 
       expect(projection.materializedCount).toBe(live);
       expect(projection.selectEntries().filter(ready)).toHaveLength(live);
       expect(projection.selectEntries()).toHaveLength(live + archived);
-      for (const scope of ["catalog", "config", "stores"] as const) {
+      const reads = vi.spyOn(materialization, "readSessionRowEntry");
+      for (const scope of ["catalog", "config", "stores", { agentId: "main" }] as const) {
         const before = projection.materializedCount;
         sessionChanges.emit({ all: true, scope });
         expect(projection.dirtyRowCount).toBe(live);
         await projection.ensureMaterialized();
         expect(projection.materializedCount - before).toBe(live);
+        expect(reads.mock.calls.some(([row]) => row.entry?.archivedAt !== undefined)).toBe(false);
+        reads.mockClear();
       }
     } finally {
       projection.dispose();
@@ -187,17 +191,13 @@ it("backfills only requested archives and discards enrichment after demotion", a
   });
 });
 
-it("refreshes cold metadata and promotes unarchived rows on a broad store publication", async () => {
+it("refreshes cold metadata and promotes unarchived rows through committed keyed publications", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
     const cfg = { agents: { list: [{ id: "main", default: true }] } };
     const target = { agentId: "main", sessionKey: "agent:main:broad-archive" };
     replaceSessionEntrySync(target, { sessionId: "before", updatedAt: 1, archivedAt: 1 });
     const release = retainSessionListForegroundWork();
     const projection = await createSessionRowProjection({ cfg, modelCatalog: [] });
-    const emit = sessionChanges.emit.bind(sessionChanges);
-    vi.spyOn(sessionChanges, "emit").mockImplementation((change, database) => {
-      emit("all" in change ? change : { all: true, scope: { agentId: "main" } }, database);
-    });
     try {
       replaceSessionEntrySync(target, { sessionId: "after", updatedAt: 2, archivedAt: 1 });
       await projection.ensureMaterialized();

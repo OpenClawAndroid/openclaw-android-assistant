@@ -21,6 +21,7 @@ import {
 } from "../subagents/swarm/swarm-code-mode.js";
 import { createAgentsWaitTool } from "./agents-wait-tool.js";
 import { withGatewayToolCallerIdentity } from "./gateway-caller-context.js";
+import { registerSessionsSpawnCompletionTests } from "./sessions-spawn-tool.completion.test-support.js";
 
 const hoisted = vi.hoisted(() => {
   const spawnSubagentDirectMock = vi.fn();
@@ -188,6 +189,13 @@ describe("sessions_spawn tool", () => {
     }
     return requireRecord(call[argIndex], `${label} call ${callIndex + 1} arg ${argIndex + 1}`);
   }
+
+  registerSessionsSpawnCompletionTests({
+    createTool: (options) => createSessionsSpawnTool(options),
+    registerAcpBackendForTest,
+    mocks: hoisted,
+    mockCallArg,
+  });
 
   it("advertises the private completion contract and passes it to native spawn", async () => {
     const tool = createSessionsSpawnTool();
@@ -482,68 +490,6 @@ describe("sessions_spawn tool", () => {
       enforcement: { coverageState: "attribution-only" },
     });
   });
-
-  it.each([
-    { name: "default", input: {}, expected: true },
-    { name: "announcing", input: { expectsCompletionMessage: true }, expected: true },
-    { name: "quiet", input: { expectsCompletionMessage: false }, expected: false },
-  ])(
-    "declares completion policy and forwards $name to hidden, ACP, and visible spawns",
-    async ({ input, expected }) => {
-      registerAcpBackendForTest();
-      await withTestDir({ prefix: "openclaw-spawn-completion-" }, async (dir) => {
-        const callGateway = vi.fn(async () => ({
-          key: "agent:main:dashboard:child",
-          runStarted: true,
-          runId: "run-visible",
-        }));
-        const registerRun = vi.fn();
-        const tool = createSessionsSpawnTool({
-          agentSessionKey: "agent:main:main",
-          config: { session: { store: path.join(dir, "sessions.json") } },
-          callGateway: callGateway as never,
-          registerRun,
-          countActiveRuns: () => 0,
-        });
-        const schema = tool.parameters as {
-          properties?: Record<string, { type?: string } | undefined>;
-        };
-        expect(schema.properties?.expectsCompletionMessage).toMatchObject({ type: "boolean" });
-
-        await tool.execute("hidden", { task: "hidden child", ...input });
-        expect(
-          mockCallArg(hoisted.spawnSubagentDirectMock, 0, 0, "spawnSubagentDirect")
-            .expectsCompletionMessage,
-        ).toBe(expected);
-        expect(
-          mockCallArg(hoisted.spawnSubagentDirectMock, 0, 0, "spawnSubagentDirect")
-            .completionTarget,
-        ).toBeUndefined();
-
-        await tool.execute("acp", {
-          task: "ACP child",
-          runtime: "acp",
-          ...input,
-        });
-        expect(
-          mockCallArg(hoisted.spawnAcpDirectMock, 0, 0, "spawnAcpDirect").expectsCompletionMessage,
-        ).toBe(expected);
-        expect(
-          mockCallArg(hoisted.spawnAcpDirectMock, 0, 0, "spawnAcpDirect").completionTarget,
-        ).toBeUndefined();
-
-        await tool.execute("visible", {
-          task: "visible child",
-          visible: true,
-          ...input,
-        });
-        expect(registerRun).toHaveBeenCalledWith(
-          expect.objectContaining({ expectsCompletionMessage: expected }),
-        );
-        expect(mockCallArg(registerRun, 0, 0, "registerRun").completionTarget).toBeUndefined();
-      });
-    },
-  );
 
   it("forwards collector parameters and requesting identity when native waiting is available", async () => {
     const tool = createSessionsSpawnTool({

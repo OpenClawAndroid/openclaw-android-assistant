@@ -12,12 +12,14 @@ import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
 import { restoreTaskExecutionSnapshot } from "./task-execution-owner.js";
+import { getTaskFlowRegistryStore } from "./task-flow-registry.store.js";
 import { reconcileTaskFlowWorkerReceipts } from "./task-flow-runtime-internal.js";
 import {
   clearTaskFlowSyncRetries,
   receiveTaskRegistryRestoreResult,
   retainTaskRegistryRestoreFlowObligations,
   syncTaskFlowWithLiveRetry,
+  syncTaskFlowWithLiveRetryAsync,
 } from "./task-registry-flow-sync.js";
 import {
   listTasksFromIndex,
@@ -48,6 +50,7 @@ import {
   matchesScope,
   recordTaskRegistryPublication,
   recordTaskRegistryProjectionWrite,
+  selectLiveTaskFlowForSync,
   clearTaskProgressBatches,
 } from "./task-registry.process-state.js";
 import {
@@ -223,24 +226,43 @@ function getTaskRegistryRestoreState(admission: OpenClawStateDatabaseReadAdmissi
   return taskRegistryRestoreState;
 }
 
-export function syncFlowFromTaskAfterTaskMutation(task: TaskRecord, operation: string): void {
-  const taskId = task.taskId;
-  syncTaskFlowWithLiveRetry(task, operation, {
+export function taskFlowSyncOwner(
+  taskId: string,
+  flowStore?: ReturnType<typeof getTaskFlowRegistryStore>,
+) {
+  return {
     prepare: prepareTaskRegistryProjectionAsync,
-    assertCurrent: assertTaskRegistryOwnerCurrent,
-    selectCurrent() {
-      const current = tasks.get(taskId);
-      const flowId = current?.parentFlowId?.trim();
-      return current &&
-        flowId &&
-        listTasksFromIndex(tasks, taskIdsByParentFlowId, flowId)[0]?.taskId === taskId
-        ? { taskId, flowId, createdAt: current.createdAt }
-        : undefined;
+    assertCurrent(context: OpenClawStateWorkerContext, store: TaskRegistryStore) {
+      assertTaskRegistryOwnerCurrent(context, store);
+      if (flowStore !== undefined && getTaskFlowRegistryStore() !== flowStore) {
+        throw new Error("Task flow registry owner is no longer current.");
+      }
     },
-  });
+    selectCurrent: () => selectLiveTaskFlowForSync(taskId),
+  };
 }
 
-export function restoreTaskRegistryOnce() {
+export function syncFlowFromTaskAfterTaskMutation(task: TaskRecord, operation: string): void {
+  syncTaskFlowWithLiveRetry(task, operation, taskFlowSyncOwner(task.taskId));
+}
+
+export function syncFlowFromTaskAfterTaskMutationAsync(
+  context: OpenClawStateWorkerContext,
+  store: TaskRegistryStore,
+  task: TaskRecord,
+  operation: string,
+  flowStore: ReturnType<typeof getTaskFlowRegistryStore>,
+): Promise<void> {
+  return syncTaskFlowWithLiveRetryAsync(
+    context,
+    store,
+    task,
+    operation,
+    taskFlowSyncOwner(task.taskId, flowStore),
+  );
+}
+
+function restoreTaskRegistryOnce() {
   const databasePath = resolveOpenClawStateSqlitePath();
   const admission = captureOpenClawStateDatabaseReadAdmission(databasePath);
   const state = getTaskRegistryRestoreState(admission);
@@ -396,7 +418,7 @@ export const ensureTaskRegistryReadyAsync = createAsyncRegistryRestore<
   fail: failTaskRegistryRestore,
 });
 
-function assertTaskRegistryOwnerCurrent(
+export function assertTaskRegistryOwnerCurrent(
   context: OpenClawStateWorkerContext,
   store: TaskRegistryStore,
 ): void {
@@ -671,6 +693,8 @@ export async function runTaskRegistryWorkerMutation<T>(
     scope: TaskRegistryMutationScope;
     admission: OpenClawStateDatabaseReadAdmission;
     publicationRecords: () => ReadonlyMap<string, TaskRecord>;
+    beforeObservers?: () => Promise<void>;
+    forcePublish?: () => TaskRecord | undefined;
   },
   mutate: () => Promise<T>,
   readCurrent: () => Promise<TaskRegistryStoreSnapshot>,
@@ -703,8 +727,11 @@ export async function runTaskRegistryWorkerMutation<T>(
         install: (current) => installSnapshot(current, scope, false),
       });
       assertOwner();
+      await context.beforeObservers?.();
+      assertOwner();
       publishTaskRegistryWorkerMutation({
         pending,
+        forced: context.forcePublish?.(),
         emit: emitTaskRegistryObserverEvent,
       });
       if (!conflicted) {

@@ -1,6 +1,7 @@
 import { createSqliteLifecycleAggregateError } from "../infra/sqlite-coordinator.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
+import type { TaskInitialWorkerOperations } from "./task-initial-worker.types.js";
 import type {
   TaskRegistryRestoreResult,
   TaskMirroredFlowSyncOutcome,
@@ -30,6 +31,11 @@ import type { TaskDeliveryState, TaskRecord } from "./task-registry.types.js";
 export type { TaskRegistryStoreSnapshot } from "./task-registry.store.types.js";
 
 export type TaskRegistryStore = TaskExecutionRestoreStore & {
+  runInitialMutationAsync<Key extends keyof TaskInitialWorkerOperations>(
+    context: OpenClawStateWorkerContext,
+    command: { type: Key; input: TaskInitialWorkerOperations[Key]["input"] },
+    assertCurrent: () => void,
+  ): Promise<TaskInitialWorkerOperations[Key]["output"]>;
   syncLiveTaskFlowAsync(
     context: OpenClawStateWorkerContext,
     params: { taskId: string; flowId: string },
@@ -60,6 +66,10 @@ type TaskRegistryObservers = {
 };
 
 const defaultTaskRegistryStore: TaskRegistryStore = {
+  async runInitialMutationAsync(context, command, assertCurrent) {
+    const { runTaskInitialWorkerOperation } = await import("./task-initial-worker-operation.js");
+    return runTaskInitialWorkerOperation(context, command, assertCurrent);
+  },
   async syncLiveTaskFlowAsync(context, params, authority) {
     const { syncLiveTaskFlowWithWorker } = await import("./task-registry-live-flow-sync.js");
     return syncLiveTaskFlowWithWorker(context, params, authority);

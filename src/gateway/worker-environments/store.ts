@@ -96,7 +96,7 @@ type WorkerDb = Pick<
   | "worker_transcript_commit_heads"
 >;
 type Row = Selectable<WorkerEnvironments>;
-type RowWithFallbackPort = Row & { ssh_fallback_port: number | null };
+type RowWithFallbackPorts = Row & { ssh_fallback_ports_json: string };
 type RowUpdate = Updateable<WorkerEnvironments>;
 type SshFallbackPortInsert = Insertable<WorkerEnvironmentSshFallbackPorts>;
 type CredentialRow = Selectable<WorkerEnvironmentCredentials>;
@@ -467,37 +467,30 @@ const query = (db: DatabaseSync) => getNodeSqliteKysely<WorkerDb>(db);
 function environmentRows(db: DatabaseSync) {
   return query(db)
     .selectFrom("worker_environments")
-    .leftJoin(
-      "worker_environment_ssh_fallback_ports",
-      "worker_environment_ssh_fallback_ports.environment_id",
-      "worker_environments.environment_id",
-    )
     .selectAll("worker_environments")
-    .select("worker_environment_ssh_fallback_ports.port as ssh_fallback_port");
+    .select((eb) =>
+      eb
+        .selectFrom("worker_environment_ssh_fallback_ports")
+        .select(({ fn }) =>
+          fn.agg<string>("json_group_array", ["port"]).orderBy("position").as("ports"),
+        )
+        .whereRef(
+          "worker_environment_ssh_fallback_ports.environment_id",
+          "=",
+          "worker_environments.environment_id",
+        )
+        .$asScalar()
+        .as("ssh_fallback_ports_json"),
+    );
 }
-function recordsFromRows(rows: readonly RowWithFallbackPort[]): WorkerEnvironmentRecord[] {
-  const grouped = new Map<string, { ports: number[]; row: Row }>();
-  for (const row of rows) {
-    const current = grouped.get(row.environment_id);
-    if (current) {
-      if (row.ssh_fallback_port !== null) {
-        current.ports.push(row.ssh_fallback_port);
-      }
-      continue;
-    }
-    grouped.set(row.environment_id, {
-      ports: row.ssh_fallback_port === null ? [] : [row.ssh_fallback_port],
-      row,
-    });
-  }
-  return Array.from(grouped.values(), ({ row, ports }) => fromRow(row, ports));
+function recordsFromRows(rows: readonly RowWithFallbackPorts[]): WorkerEnvironmentRecord[] {
+  // SAFETY: SQLite aggregates the numeric port column; endpointFrom validates the decoded ports.
+  return rows.map((row) => fromRow(row, JSON.parse(row.ssh_fallback_ports_json) as number[]));
 }
 function find(db: DatabaseSync, environmentId: string) {
   const rows = executeSqliteQuerySync(
     db,
-    environmentRows(db)
-      .where("worker_environments.environment_id", "=", environmentId)
-      .orderBy("worker_environment_ssh_fallback_ports.position"),
+    environmentRows(db).where("worker_environments.environment_id", "=", environmentId),
   ).rows;
   return recordsFromRows(rows)[0];
 }
@@ -674,8 +667,7 @@ function listRows(db: DatabaseSync, reconcile: boolean): WorkerEnvironmentRecord
     db,
     ordered
       .orderBy("worker_environments.created_at_ms")
-      .orderBy("worker_environments.environment_id")
-      .orderBy("worker_environment_ssh_fallback_ports.position"),
+      .orderBy("worker_environments.environment_id"),
   ).rows;
   return recordsFromRows(rows);
 }

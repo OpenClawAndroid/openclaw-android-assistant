@@ -5,7 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { convertPathToPattern } from "tinyglobby";
 import { expect, it, vi, type TestContext } from "vitest";
 import type { VitestWorkerManifest } from "../../scripts/lib/vitest-worker-artifacts.mts";
-import type { VitestWorkerRun } from "../../scripts/lib/vitest-worker-run.mts";
+import {
+  createVitestWorkerRun,
+  type VitestWorkerRun,
+} from "../../scripts/lib/vitest-worker-run.mts";
 import { resolveVitestSpawnParams, spawnWatchedVitestProcess } from "../../scripts/run-vitest.mts";
 import { createVitestProcessCompletion } from "../../scripts/vitest-process-group.mts";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
@@ -15,6 +18,8 @@ import { fixturePreloadEnv } from "./fixtures/ci-fixture-runtime.cjs";
 const root = process.cwd();
 const artifacts = path.join(root, ".artifacts");
 const artifactsModule = "scripts/lib/vitest-worker-artifacts.mts";
+type CompilerEnv = (env: NodeJS.ProcessEnv, runtime: "node" | "bun") => NodeJS.ProcessEnv;
+const currentRuntime = process.versions.bun ? "bun" : "node";
 export const preparationClient = `
   import {requestVitestWorkerArtifacts} from ${JSON.stringify(pathToFileURL(path.join(root, artifactsModule)).href)};
   try {await requestVitestWorkerArtifacts();}
@@ -22,10 +27,10 @@ export const preparationClient = `
   finally {process.disconnect();}
 `;
 
-function createWorkerArtifactFixtures({
-  signal,
-  onTestFinished,
-}: Pick<TestContext, "signal" | "onTestFinished">) {
+function createWorkerArtifactFixtures(
+  { signal, onTestFinished }: Pick<TestContext, "signal" | "onTestFinished">,
+  compilerEnv: CompilerEnv,
+) {
   const fixtureLifetime = createFixtureLifetime();
   function fixtureDirectory() {
     fs.mkdirSync(artifacts, { recursive: true });
@@ -60,7 +65,7 @@ function createWorkerArtifactFixtures({
 
     function node(args: string[], cwd = root, env = process.env) {
       const completion = fixtureLifetime.track(
-        runNodeScript(args, env, undefined, {
+        runNodeScript(args, compilerEnv(env, "node"), undefined, {
           cwd,
           signal: commandSignal,
           maxBuffer: 2 * 1024 * 1024,
@@ -73,7 +78,7 @@ function createWorkerArtifactFixtures({
 
     function runtime(args: string[], cwd = root, env = process.env) {
       const completion = fixtureLifetime.track(
-        runNodeScript(args, env, undefined, {
+        runNodeScript(args, compilerEnv(env, currentRuntime), undefined, {
           cwd,
           signal: commandSignal,
           maxBuffer: 2 * 1024 * 1024,
@@ -150,13 +155,18 @@ function createWorkerArtifactFixtures({
     return { node, runtime, startBorrower, prepareWorkers, observeChild };
   }
 
-  return { fixtureLifetime, fixtureDirectory, createFixtureCommands };
+  return {
+    fixtureLifetime,
+    fixtureDirectory,
+    createFixtureCommands,
+    createWorkerRun: () => createVitestWorkerRun(compilerEnv(process.env, currentRuntime)),
+  };
 }
 
-export function createWorkerArtifactTest() {
+export function createWorkerArtifactTest(compilerEnv: CompilerEnv = (env) => env) {
   const test = it.extend<{ workerArtifacts: ReturnType<typeof createWorkerArtifactFixtures> }>({
     workerArtifacts: async ({ signal, onTestFinished }, use) => {
-      await use(createWorkerArtifactFixtures({ signal, onTestFinished }));
+      await use(createWorkerArtifactFixtures({ signal, onTestFinished }, compilerEnv));
     },
   });
   // Resolve the case's lifetime before runTest so cleanup follows onTestFinished.

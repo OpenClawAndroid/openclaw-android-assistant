@@ -94,6 +94,25 @@ the Gateway. For a SecretRef, rotate the external secret source instead; doctor
 preserves its reference and leaves password, `none`, and trusted-proxy auth modes
 unchanged. An absent token still uses the normal startup token generation flow.
 
+Known redaction placeholders, including `__OPENCLAW_REDACTED__`, are also invalid
+credentials. Doctor and `gateway status --deep` name the affected reference even
+if an older Gateway process still works with its previous in-memory token.
+For a store-backed Gateway token, run `openclaw doctor --fix` (or
+`openclaw doctor --generate-gateway-token`). Doctor verifies a database backup,
+regenerates the referenced value, preserves the SecretRef and the entry's current
+`secret`/`env` kind and allowed hosts, and prints the backup path. A credential
+changed during backup is preserved. Restart the Gateway,
+then reconnect or re-pair devices with the new token.
+
+Explicit token generation reports when it skips a healthy SecretRef. Other
+placeholder secrets require a real replacement from their provider; Doctor
+reports them without deleting their stored values.
+
+In trusted-proxy mode, a redacted inline or environment-supplied optional password
+does not block proxy authentication. Startup, Doctor, and status warn that local
+password fallback is unavailable. Replace or remove the optional password and
+restart; Doctor preserves trusted-proxy mode instead of generating a token.
+
 ## macOS: `launchctl` env overrides
 
 If you previously ran `launchctl setenv OPENCLAW_GATEWAY_TOKEN ...` (or `...PASSWORD`), that value supplies fallback credentials when local configuration does not supply one. A configured inline credential or active SecretRef takes precedence over its matching environment fallback. A stale fallback can cause persistent "unauthorized" errors when it is selected.

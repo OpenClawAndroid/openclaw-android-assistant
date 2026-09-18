@@ -5,7 +5,7 @@ import { ref } from "lit/directives/ref.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { CHAT_PENDING_INPUT_MESSAGE_PREFIX } from "../../../../../packages/gateway-protocol/src/schema/chat-history-constants.js";
 import { icons } from "../../../components/icons.ts";
-import type { ImageLightboxItem } from "../../../components/image-lightbox.ts";
+import type { ImageLightboxItem } from "../../../components/image-lightbox.types.ts";
 import type { MarkdownRenderOptions } from "../../../components/markdown-render-options.ts";
 import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
 import { t } from "../../../i18n/index.ts";
@@ -319,6 +319,7 @@ export function renderGroupedMessage(
       (item) => item.attachment.kind === "document" && !isSentCommentAttachment(item),
     );
   const imageRenderOptions = {
+    galleryImages: images,
     sessionKey: opts.sessionKey,
     agentId: opts.agentId,
     policyKey: opts.mediaPolicyKey,

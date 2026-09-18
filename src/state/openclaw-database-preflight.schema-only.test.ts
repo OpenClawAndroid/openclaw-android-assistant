@@ -70,6 +70,14 @@ describe("schema-only agent preflight", () => {
         await expect(ready("gateway-restart")).resolves.toBeUndefined();
         await expect(ready("gateway-startup")).resolves.toBeUndefined();
         expect(await inspect()).toEqual({ incompatible: [], indeterminate: [] });
+        writer.exec("BEGIN IMMEDIATE; PRAGMA user_version=999;");
+        try {
+          await expect(ready("doctor")).resolves.toBeUndefined();
+          expect(writer.isTransaction).toBe(true);
+          expect(writer.prepare("PRAGMA user_version").get()).toEqual({ user_version: 999 });
+        } finally {
+          writer.exec("ROLLBACK;");
+        }
         writer.exec(`PRAGMA user_version=${OPENCLAW_AGENT_SCHEMA_VERSION + 1};`);
         expect(await inspect()).toMatchObject({
           incompatible: [

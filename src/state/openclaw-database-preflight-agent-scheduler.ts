@@ -1,5 +1,8 @@
+import { availableParallelism } from "node:os";
 import {
+  isSqliteInspectionDeadlineOwnedByCaller,
   readSqliteInspectionBudget,
+  resolveSqliteInspectionSignal,
   withSqliteReadOnlyWorkerScope,
 } from "../infra/sqlite-readonly-worker.js";
 import { createDeferredCore } from "../shared/deferred.js";
@@ -63,11 +66,19 @@ export async function preflightAgentDatabasesBounded<T>(
   }
   const deferred = new Set<number>();
   const active = new Set<number>();
-  const concurrency = Math.min(AGENT_DATABASE_PREFLIGHT_CONCURRENCY, targets.length);
+  const concurrency = Math.min(
+    AGENT_DATABASE_PREFLIGHT_CONCURRENCY,
+    availableParallelism(),
+    targets.length,
+  );
   let deferredReason = "";
   let deferredRefusals: AgentDatabaseAdmissionRefusal[] = [];
-  const inspectionSignal =
-    startup && signal ? AbortSignal.any([startup.signal, signal]) : (startup?.signal ?? signal);
+  const inspectionSignal = startup
+    ? signal
+      ? AbortSignal.any([startup.signal, signal])
+      : startup.signal
+    : resolveSqliteInspectionSignal(signal);
+  const deadlineOwnedByCaller = startup !== undefined || isSqliteInspectionDeadlineOwnedByCaller();
   const settleForeground = () => {
     if (!startup || deferred.size === 0 || deferredRefusals.length > 0 || failures.size > 0) {
       return;
@@ -156,12 +167,10 @@ export async function preflightAgentDatabasesBounded<T>(
         length: concurrency,
       },
       () =>
-        startup
-          ? withSqliteReadOnlyWorkerScope(worker, {
-              signal: inspectionSignal ?? startup.signal,
-              deadlineOwnedByCaller: true,
-            })
-          : worker(),
+        withSqliteReadOnlyWorkerScope(worker, {
+          signal: inspectionSignal ?? new AbortController().signal,
+          deadlineOwnedByCaller,
+        }),
     ),
   ).finally(() => {
     for (let index = 0; index < targets.length; index += 1) {

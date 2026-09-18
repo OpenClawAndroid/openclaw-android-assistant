@@ -5,7 +5,6 @@ import type {
   WorkerInferenceContext,
   WorkerInferenceEventParams,
   WorkerInferenceStartParams,
-  WorkerInferenceTerminalOutcome,
 } from "../../../packages/gateway-protocol/src/schema/worker-inference.js";
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import { resolveSessionAuthSelection } from "../../agents/auth-profiles/session-override.js";
@@ -62,12 +61,14 @@ import { withPluginRuntimeGenerationScope } from "../../plugins/runtime/generati
 import { estimateUsageCost, resolveModelCostConfig } from "../../utils/usage-format.js";
 import { WORKER_PROVIDER_REPLAY_LOCAL_RETRY_MESSAGE } from "../../worker/transcript-message.js";
 import {
+  ERROR_MESSAGES,
+  inferenceError,
   projectWorkerInferenceTerminalMessage,
   type WorkerInferenceModelIdentity,
 } from "./inference-terminal-message.js";
 import { createWorkerToolCallStream } from "./inference-tool-call-stream.js";
 import { resolveWorkerSessionTarget, type ResolvedWorkerSessionTarget } from "./session-target.js";
-import { boundedWorkerError } from "./worker-error.js";
+import { boundedWorkerError, formatWorkerInferenceError } from "./worker-error.js";
 
 type WorkerInferenceStreamEvent = WorkerInferenceEventParams["event"];
 export type WorkerInferenceExecutor = import("./inference.js").WorkerInferenceExecutor;
@@ -106,31 +107,6 @@ type WorkerInferenceRuntimeDependencies = {
   createTrace: typeof createDiagnosticTraceContextFromActiveScope;
   recordUsage: (params: WorkerInferenceUsageParams) => void;
 };
-
-const ERROR_MESSAGES = {
-  "model-not-approved": "Model is not approved for this agent.",
-  "invalid-context": "Inference context is invalid.",
-  "epoch-mismatch": "Worker run epoch does not match.",
-  "session-not-attached": "Worker session is not attached.",
-  "provider-error": "Model provider request failed.",
-  cancelled: "Inference request was cancelled.",
-} as const satisfies Record<
-  Extract<WorkerInferenceTerminalOutcome, { type: "error" }>["reason"],
-  string
->;
-
-function inferenceError(
-  reason: Extract<WorkerInferenceTerminalOutcome, { type: "error" }>["reason"],
-  usage?: Usage,
-  message: string = ERROR_MESSAGES[reason],
-): WorkerInferenceTerminalOutcome {
-  return {
-    type: "error",
-    reason,
-    message,
-    ...(usage ? { usage: structuredClone(usage) } : {}),
-  };
-}
 
 function copyTool(tool: NonNullable<WorkerInferenceContext["tools"]>[number]): Tool | undefined {
   if (!isRecord(tool.parameters) || tool.parameters.type !== "object") {
@@ -731,6 +707,14 @@ export function createWorkerInferenceExecutor(
             return inferenceError(
               event.reason === "aborted" ? "cancelled" : "provider-error",
               event.error.usage,
+              event.reason === "aborted"
+                ? undefined
+                : formatWorkerInferenceError({
+                    message: event.error.errorMessage ?? ERROR_MESSAGES["provider-error"],
+                    errorCode: event.error.errorCode,
+                    errorType: event.error.errorType,
+                    errorBody: event.error.errorBody,
+                  }),
             );
           }
           if (signal.aborted || !params.isCurrent()) {
@@ -768,8 +752,12 @@ export function createWorkerInferenceExecutor(
           }
         }
         return inferenceError(signal.aborted ? "cancelled" : "provider-error");
-      } catch {
-        return inferenceError(signal.aborted ? "cancelled" : "provider-error");
+      } catch (error) {
+        return inferenceError(
+          signal.aborted ? "cancelled" : "provider-error",
+          undefined,
+          signal.aborted ? undefined : formatWorkerInferenceError(error),
+        );
       } finally {
         providerAbort.abort();
       }

@@ -762,8 +762,10 @@ the total number of operating-system file watches.
     keys, sources, precedence winners, and `SKILL.md` content
     keep the same snapshot version and do not notify chat metadata consumers.
     Idle worktree watcher cleanup does not invalidate other workspaces.
-    Precedence collision warnings appear once per distinct collision set in each
-    workspace during a Gateway process.
+    Copies with identical `SKILL.md` content and declared metadata do not produce
+    precedence collision warnings. Different content warns once per ordered
+    winner/loser content pair during a Gateway process, across workspaces and
+    rebuilds. Editing either copy can produce a new warning; precedence stays the same.
 
     Use `allowSymlinkTargets`
     for intentional symlinked layouts where a skill

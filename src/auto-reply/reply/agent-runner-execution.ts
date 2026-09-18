@@ -127,8 +127,7 @@ async function executeAgentTurnInternalLoop(
   compaction: AgentTurnCompaction,
 ): Promise<AgentTurnInternalResult> {
   const heartbeatState = { didLogStrip: false };
-  // Track payloads sent directly (not via pipeline) during tool flush to avoid duplicates.
-  const directlySentBlockKeys = new Set<string>();
+  // Direct delivery receipts retain settlement facts across fallback candidates.
   const directBlockDeliveries: DirectBlockDelivery[] = [];
   const runnableRun = resolveRunAfterAutoFallbackPrimaryProbeRecheck({
     run: params.followupRun.run,
@@ -340,7 +339,6 @@ async function executeAgentTurnInternalLoop(
       const presentation = createAgentTurnPresentation({
         turn: params,
         replyMediaContext,
-        directlySentBlockKeys,
         directBlockDeliveries,
         heartbeatState,
       });
@@ -355,7 +353,6 @@ async function executeAgentTurnInternalLoop(
         currentTurnImages,
         state: fallbackCycleState,
         presentation,
-        directlySentBlockKeys,
         directBlockDeliveries,
         notifyAgentRunStart,
         signalExecutionPhaseForTyping,
@@ -518,7 +515,9 @@ async function executeAgentTurnInternalLoop(
     fallbackAttempts,
     didLogHeartbeatStrip: heartbeatState.didLogStrip,
     autoCompactionCount: compaction.count,
-    directlySentBlockKeys: directlySentBlockKeys.size > 0 ? directlySentBlockKeys : undefined,
+    hasDirectlySentBlockReply:
+      directBlockDeliveries.some((delivery) => delivery.terminalDeliveryConfirmed === true) ||
+      undefined,
     directBlockDeliveries,
     ...(terminalFailurePayload ? { terminalFailurePayload } : {}),
     ...(terminalRunFailed && fallbackCycleState.postCompactionModelAttempted
@@ -695,7 +694,7 @@ async function executeAgentTurnOutcome(params: AgentTurnParams): Promise<AgentTu
         autoCompactionCount: internal.autoCompactionCount,
         ...completedCompaction(),
         didLogHeartbeatStrip: internal.didLogHeartbeatStrip,
-        directlySentBlockKeys: internal.directlySentBlockKeys,
+        hasDirectlySentBlockReply: internal.hasDirectlySentBlockReply,
         directBlockDeliveries: internal.directBlockDeliveries,
       },
     };

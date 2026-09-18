@@ -1,6 +1,6 @@
 import type { SessionCreateParams } from "../../lib/sessions/create.ts";
 import type { SessionPlacementRecovery } from "../../lib/sessions/session-placement-recovery.ts";
-import { restoreChatApiAttachments } from "../chat/attachment-api.ts";
+import { restoreChatApiAttachments } from "../chat/attachment-restoration.ts";
 import type { NewSessionVisibility } from "./create-params.ts";
 import type { PendingSessionPlacementRecoveryState } from "./session-placement-recovery-state.ts";
 

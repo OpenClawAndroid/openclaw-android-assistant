@@ -381,9 +381,7 @@ function maybeNotifyOnExit(session: ProcessSession, status: "completed" | "faile
   };
   const remove = enqueueSystemEventWithReceipt(
     eventText,
-    eventSessionKey === "global" && session.agentId
-      ? withSystemEventOwner(eventOptions, session.agentId)
-      : eventOptions,
+    session.agentId ? withSystemEventOwner(eventOptions, session.agentId) : eventOptions,
     { allowDuplicate: true },
   );
   if (remove) {

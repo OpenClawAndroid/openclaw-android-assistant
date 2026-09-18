@@ -1,4 +1,4 @@
-import type { ImageLightboxItem } from "../../../components/image-lightbox.ts";
+import type { ImageLightboxItem } from "../../../components/image-lightbox.types.ts";
 import type { ChatAttachment } from "../../../lib/chat/chat-types.ts";
 
 export type ChatAttachmentControlsProps = {

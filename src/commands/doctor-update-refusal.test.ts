@@ -195,11 +195,6 @@ async function withFixture(
           refreshDefinition: false,
         },
       });
-      setLoggerOverride({
-        level: "warn",
-        consoleLevel: "silent",
-        file: state.path("warnings.log"),
-      });
       const schemas: OpenClawDatabaseSchemaPreflight = {
         incompatible: [],
         indeterminate: [],
@@ -219,6 +214,12 @@ async function withFixture(
         before: { version: "2026.9.2" },
       });
       closeOpenClawStateDatabaseForTest();
+      await flushLogger();
+      setLoggerOverride({
+        level: "warn",
+        consoleLevel: "silent",
+        file: state.path("warnings.log"),
+      });
       try {
         await run({ state, root, schemas, ...commits });
       } finally {
