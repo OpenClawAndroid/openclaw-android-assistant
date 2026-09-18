@@ -43,6 +43,7 @@ export type ChatAttachment = {
   dataUrl?: string;
   previewUrl?: string;
   mimeType: string;
+  origin?: "paste" | "file";
   fileName?: string;
   sizeBytes?: number;
   /** UI-local context that must remain coupled to its annotated screenshot. */
@@ -54,6 +55,7 @@ export type ChatAttachment = {
 export type DurableComposerDraftAttachment = {
   blob: Blob;
   mimeType: string;
+  origin?: "paste" | "file";
   fileName?: string;
   sizeBytes?: number;
   browserAnnotation?: BrowserAnnotationAttachment;
@@ -336,6 +338,7 @@ export type MessageContentItem =
         kind: Exclude<MediaKind, "sticker" | "unknown">;
         label: string;
         mimeType?: string;
+        origin?: "paste" | "file";
         isVoiceNote?: boolean;
         artifactId?: string;
         playback?: "native" | "transcode";

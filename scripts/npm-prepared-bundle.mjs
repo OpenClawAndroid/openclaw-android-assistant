@@ -22,6 +22,7 @@ import {
   inspectActionsArtifactZipWithPolicy,
   readBoundedRegularFile,
 } from "./lib/actions-artifact-archive.mjs";
+import { assertNpmShrinkwrapDependencies } from "./lib/npm-shrinkwrap-dependencies.mjs";
 import { isRecord } from "./lib/record-shared.mjs";
 import { resolveReleaseTagPackageIdentity } from "./lib/release-version.mjs";
 import { runReleaseToolingGh } from "./release-tooling-identity.mjs";
@@ -749,6 +750,21 @@ export function prepareNpmPackageBundle({
     );
     if (manifest.name !== packageName || manifest.version !== root.version) {
       throw new Error(`Packed identity mismatch for ${packageName}.`);
+    }
+    if (packageName === "openclaw") {
+      const entries = execFileSync("tar", ["-tzf", path], {
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+      }).split("\n");
+      if (entries.includes("package/npm-shrinkwrap.json")) {
+        const shrinkwrap = JSON.parse(
+          execFileSync("tar", ["-xOf", path, "package/npm-shrinkwrap.json"], {
+            encoding: "utf8",
+            maxBuffer: MAX_MANIFEST_BYTES,
+          }),
+        );
+        assertNpmShrinkwrapDependencies(manifest, shrinkwrap);
+      }
     }
     return {
       packageName,

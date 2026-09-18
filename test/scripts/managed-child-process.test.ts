@@ -27,6 +27,7 @@ import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { waitForChildClose, waitForDead, waitForPidFile } from "../helpers/process-wait.js";
 import { startProcessWatchdogFixture } from "../helpers/process-watchdog.js";
 import { runQaGatewayFixture } from "../helpers/qa-gateway-cleanup.js";
+import { exitedDescendantReaper } from "./exited-descendant-reaper.test-support.js";
 import { createScriptTestHarness } from "./test-helpers.js";
 
 const testNodeExecPath = resolveTestNodeExecPath();
@@ -135,31 +136,10 @@ process.exitCode = await runManagedCommand({
       );
       // Linux may reap orphaned tool services after the leader's close. Adopt
       // them here and defer reaping until the real supervisor has settled.
-      const reaper = `
-import ctypes, os, subprocess, sys
-if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
-    raise OSError(ctypes.get_errno(), "PR_SET_CHILD_SUBREAPER failed")
-try:
-    result = subprocess.run(sys.argv[1:])
-finally:
-    reaped = 0
-    while True:
-        try:
-            pid, code = os.waitpid(-1, os.WNOHANG)
-        except ChildProcessError:
-            break
-        if pid == 0 or code != 0:
-            raise RuntimeError("tool descendant did not exit successfully")
-        reaped += 1
-    print("successfully reaped:", reaped)
-    if reaped == 0:
-        raise RuntimeError("fixture did not retain an exited descendant")
-sys.exit(result.returncode)
-`;
       let output = "";
       const code = await runManagedCommand({
         bin: "python3",
-        args: ["-c", reaper, process.execPath, runnerPath],
+        args: ["-c", exitedDescendantReaper, process.execPath, runnerPath],
         stdio: ["ignore", "pipe", "pipe"],
         timeoutMs: 10_000,
         onReady(child) {

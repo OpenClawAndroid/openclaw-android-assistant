@@ -16,6 +16,7 @@ import type { DeviceAuthEntry } from "../shared/device-auth.js";
 import { captureEnv, deleteTestEnvValue, setTestEnvValue } from "../test-utils/env.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import type { GatewayClientOptions, GatewayClientRequestOptions } from "./client.js";
+import { waitForFast } from "./client.test-support.js";
 import {
   pickPrimaryLanIPv4Mock as pickPrimaryLanIPv4,
   pickPrimaryTailnetIPv4Mock as pickPrimaryTailnetIPv4,
@@ -37,13 +38,6 @@ const gatewayConfigMocks = vi.hoisted(() => ({
 }));
 const getRuntimeConfig = gatewayConfigMocks.getRuntimeConfig;
 const resolveGatewayPort = gatewayConfigMocks.resolveGatewayPort;
-
-function waitForFast<T>(
-  callback: () => T | Promise<T>,
-  options: { timeout?: number; interval?: number } = {},
-) {
-  return vi.waitFor(callback, { interval: 1, ...options });
-}
 
 const deviceIdentityState = vi.hoisted(() => ({
   value: {
@@ -267,6 +261,7 @@ let gatewayClientStart = startStubGatewayClient;
 let gatewayClientStopAndWait = async () => {};
 
 vi.mock("./client.js", () => ({
+  prepareGatewayClientDeviceAuth: vi.fn(async () => {}),
   isGatewayConnectAssemblyError: (value: unknown) => connectAssemblyErrorState.has(value),
   GatewayClient: class {
     constructor(opts: GatewayClientOptions) {

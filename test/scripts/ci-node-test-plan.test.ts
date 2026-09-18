@@ -2439,11 +2439,24 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       ...doctorRuntimeTargets,
       "src/commands/doctor-plugin-install-config.process.test.ts",
       "src/gateway/gateway-active-memory.test.ts",
+      "src/gateway/gateway-auth-recovery.test.ts",
       "src/gateway/gateway-concurrent-streams.test.ts",
       "src/gateway/gateway-cron-process-identity.windows.test.ts",
       "src/gateway/gateway-route-model-reuse.test.ts",
+      "src/gateway/gateway-ssh-upload-signal.test.ts",
       "src/gateway/server.config-patch.test.ts",
     ];
+    const databaseWorkerFiles = new Set(
+      listMatchedTestFiles(createGatewayDatabaseWorkersVitestConfig({})),
+    );
+    const ownsRuntimeTarget = (
+      group: { configs: string[]; includePatterns?: string[] },
+      file: string,
+    ) =>
+      group.includePatterns
+        ? group.includePatterns.includes(file)
+        : group.configs.includes("test/vitest/vitest.gateway-database-workers.config.ts") &&
+          databaseWorkerFiles.has(file);
     const full = defaultShards;
     const compact = createNodeTestShardBundles({ compact: true, compactMode: "pull-request" });
     for (const shards of [full, compact]) {
@@ -2456,7 +2469,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         const owner = expectDefined(
           shards.find((shard) =>
             ("configs" in shard ? [shard] : shard.groups).some((group) =>
-              group.includePatterns?.includes(runtimeTarget),
+              ownsRuntimeTarget(group, runtimeTarget),
             ),
           ),
           `runtime owner for ${runtimeTarget}`,
@@ -2469,7 +2482,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         expect(owner.pretestBuildMode, runtimeTarget).toBe(
           containsPrivateQa ? "private-qa" : "runtime",
         );
-        const group = groups.find((entry) => entry.includePatterns?.includes(runtimeTarget));
+        const group = groups.find((entry) => ownsRuntimeTarget(entry, runtimeTarget));
         expect(group?.pretestBuildMode, runtimeTarget).toBe(
           group?.includePatterns?.includes(PRIVATE_QA_TOOLING_TEST) ? "private-qa" : "runtime",
         );
@@ -3722,11 +3735,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         configs: gatewayCoreConfigs,
         includePatterns: [
           "src/gateway/gateway-active-memory.test.ts",
-          "src/gateway/gateway-auth-recovery.test.ts",
           "src/gateway/gateway-concurrent-streams.test.ts",
-          "src/gateway/gateway-cron-process-identity.windows.test.ts",
-          "src/gateway/gateway-route-model-reuse.test.ts",
-          "src/gateway/gateway-ssh-upload-signal.test.ts",
         ],
         pretestBuildMode: "runtime",
         requiresDist: false,

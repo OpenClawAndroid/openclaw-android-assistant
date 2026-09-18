@@ -11,6 +11,7 @@ import {
 } from "../../state/openclaw-state-db.js";
 import { createTranscriptsAutoStartService } from "../../transcripts/auto-start.js";
 import { activeSessions, createTranscriptSessionId } from "../../transcripts/capture.js";
+import { clearTranscriptCapturesForTest } from "../../transcripts/capture.test-support.js";
 import { readConfiguredTranscriptStarts } from "../../transcripts/configured-start-status.js";
 import type {
   TranscriptOccupancyWatchRequest,
@@ -22,7 +23,7 @@ import { createTranscriptsTool } from "./transcripts-tool.js";
 
 const tempDirs = createTempDirTracker();
 afterEach(async () => {
-  activeSessions.clear();
+  await clearTranscriptCapturesForTest();
   vi.useRealTimers();
   await closeOpenClawStateDatabaseAsync();
   closeOpenClawStateDatabaseForTest();

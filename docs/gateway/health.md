@@ -32,7 +32,9 @@ Per-agent session counts and recent activity include only that agent's sessions,
 even when agents share a SQLite session store. Status counts each physical store
 once in its aggregate. The top-level health session summary represents the
 default agent, or the first configured agent when there is no default; it is not
-a fleet total.
+a fleet total. A running Gateway serves clean health and status session summaries
+from its resident session-row projection. Store hydration and exact dirty-row
+refreshes retain the existing read-only SQLite fallback.
 
 ## Deep diagnostics
 

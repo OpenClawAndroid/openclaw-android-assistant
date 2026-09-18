@@ -22,6 +22,7 @@ import {
 import { createChannelTestPluginBase } from "../test-utils/channel-plugins.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { activeSessions } from "../transcripts/capture.js";
+import { clearTranscriptCapturesForTest } from "../transcripts/capture.test-support.js";
 import type { TranscriptStartRequest } from "../transcripts/provider-types.js";
 import { TranscriptsStore } from "../transcripts/store.js";
 import { buildGatewayReloadPlan } from "./config-reload-plan.js";
@@ -122,7 +123,7 @@ afterEach(async () => {
     }
     await clearActivePluginRegistry();
   } finally {
-    activeSessions.clear();
+    await clearTranscriptCapturesForTest();
     await closeOpenClawStateDatabaseAsync();
     closeOpenClawStateDatabaseForTest();
     clearRuntimeConfigSnapshot();

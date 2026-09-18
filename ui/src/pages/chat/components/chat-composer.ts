@@ -18,7 +18,6 @@ import { detectTextDirection } from "../../../lib/text-direction.ts";
 import { ComposerDictationController, insertComposerDictation } from "../composer-dictation.ts";
 import { normalizeChatComposerDraft } from "../composer-draft.ts";
 import { ComposerMicrophonePicker } from "../composer-microphone-picker.ts";
-import { isLargePastedTextAttachment } from "./chat-attachments.ts";
 import { renderContextNotice } from "./chat-composer-context.ts";
 import { renderMicrophonePicker, type ChatRunControlsProps } from "./chat-composer-controls.ts";
 import {
@@ -60,6 +59,7 @@ import {
 } from "./chat-composer-state.ts";
 import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { renderChatComposerView } from "./chat-composer-view.ts";
+import { isPastedTextAttachment } from "./chat-pasted-text.ts";
 import { renderChatPermissionPicker } from "./chat-permission-picker.ts";
 
 export { isChatRunWorking, resetChatComposerState } from "./chat-composer-state.ts";
@@ -121,7 +121,7 @@ export function renderChatComposer(props: ChatComposerProps) {
     scheduleTextareaHeightAdjustment(state.composerTextarea);
   }
   const hasVisualAttachments = (props.attachments ?? []).some(
-    (attachment) => !isLargePastedTextAttachment(attachment),
+    (attachment) => !isPastedTextAttachment(attachment),
   );
   const contextNotice = renderContextNotice(
     props.selectedSession,

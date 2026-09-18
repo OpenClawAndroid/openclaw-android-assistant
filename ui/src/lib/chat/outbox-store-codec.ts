@@ -63,6 +63,9 @@ function normalizeChatAttachment(value: unknown): ChatAttachment | null {
     return null;
   }
   const restored: ChatAttachment = { id, mimeType };
+  if (entry.origin === "paste" || entry.origin === "file") {
+    restored.origin = entry.origin;
+  }
   const selectionAnnotation = readChatSelectionAnnotation(entry.selectionAnnotation);
   if (selectionAnnotation) {
     restored.selectionAnnotation = selectionAnnotation;

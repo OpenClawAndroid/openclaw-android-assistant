@@ -4,13 +4,17 @@ import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
 } from "../../infra/kysely-sync.js";
+import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
+import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import {
+  getOpenClawAgentDatabaseIfOpen,
   openOpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
   type OpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
 import { ensureSessionTranscriptArchiveSchema } from "../../state/openclaw-agent-session-transcript-archive-schema.js";
 import {
+  hasPendingSessionTranscriptArchives,
   prepareSessionTranscriptArchivePublishPlans,
   recordSessionTranscriptArchivePublishResults,
   transcriptArchiveIdentityKey,
@@ -112,10 +116,28 @@ export async function publishSessionStateArchives(
     const plans = await runExclusiveSqliteSessionWrite(
       scope,
       async () => {
-        const database = openOpenClawAgentDatabase(toDatabaseOptions(scope));
+        const databaseOptions = toDatabaseOptions(scope);
+        const requestedForPass = includeRequested ? requestedArchives : [];
+        if (requestedForPass.length === 0 && !getOpenClawAgentDatabaseIfOpen(databaseOptions)) {
+          try {
+            const pending = withOpenClawAgentDatabaseReadOnly(
+              (database) =>
+                runSqliteDeferredTransactionSync(database.db, () =>
+                  hasPendingSessionTranscriptArchives(database),
+                ),
+              databaseOptions,
+            );
+            if (pending.found ? !pending.value : pending.reason !== "table-missing") {
+              return [];
+            }
+          } catch {
+            // Pending or uncertain publication still uses the canonical writable planner.
+          }
+        }
+        const database = openOpenClawAgentDatabase(databaseOptions);
         return prepareSessionTranscriptArchivePublishPlans(database, {
           archiveDirectory: resolveSqliteTranscriptArchiveDirectory(scope),
-          requested: includeRequested ? requestedArchives : [],
+          requested: requestedForPass,
         });
       },
       "session.archive.publish-prepare",

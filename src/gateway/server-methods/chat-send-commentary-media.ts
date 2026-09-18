@@ -10,7 +10,6 @@ import {
   runWithOwnedSessionTranscriptWrite,
   SessionTranscriptWriterClaimReboundError,
 } from "../../config/sessions/transcript-write-context.js";
-import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
 import { splitMediaFromOutput } from "../../media/parse.js";
 import {
   onInternalSessionTranscriptUpdate,
@@ -27,7 +26,10 @@ import {
 import { loadSessionEntry } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import type { AssistantDisplayContentBlock } from "./chat-assistant-content.js";
-import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
+import {
+  getWebchatReplyMediaLocalRoots,
+  normalizeWebchatReplyMediaPathsForDisplay,
+} from "./chat-reply-media.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
 import { publishAssistantTranscriptRewrite } from "./chat-transcript-persistence.js";
 import type { GatewayRequestContext } from "./types.js";
@@ -156,7 +158,11 @@ export function observeChatSendCommentaryMedia(params: {
                 agentId: scope.agentId,
                 messageId,
                 items: prepareOutgoingMediaFromReplyPayload(payload),
-                localRoots: getAgentScopedMediaLocalRoots(session.cfg, scope.agentId),
+                localRoots: getWebchatReplyMediaLocalRoots({
+                  cfg: session.cfg,
+                  agentId: scope.agentId,
+                  sessionEntry: current.entry,
+                }),
                 continueOnPrepareError: true,
                 assertCurrent,
                 abortSignal: params.abortSignal,

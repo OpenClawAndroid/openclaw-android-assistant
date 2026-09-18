@@ -89,6 +89,10 @@ describe("prepared auth profile row reads", () => {
           () => undefined,
           (error: unknown) => error,
         );
+        expect(child.read).toHaveBeenCalledWith(
+          "/fixture/private/auth.sqlite",
+          expect.objectContaining({ source: "snapshot" }),
+        );
         const cleanupFailure = expect.objectContaining({
           message: "SQLite read-only worker snapshot cleanup failed: /fixture/private",
         });
@@ -162,6 +166,7 @@ describe("prepared auth profile row reads", () => {
         "/fixture/auth.sqlite",
         expect.objectContaining({
           mode: "auth-profile-rows",
+          source: "canonical",
           expectedIdentity: "file:original",
           env: { OPENCLAW_STATE_DIR: "/fixture/original" },
         }),

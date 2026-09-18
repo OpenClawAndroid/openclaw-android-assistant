@@ -352,6 +352,7 @@ src/config/io.plugin-metadata.ts
 src/config/io.read-helpers.ts
 src/config/io.recovery.ts
 src/config/io.runtime.ts
+src/config/io.snapshot-preparation-scope.ts
 src/config/io.snapshot-preparation.ts
 src/config/io.snapshot-preparation.types.ts
 src/config/io.snapshot-shared.ts
@@ -437,6 +438,7 @@ src/config/validation-issues.ts
 src/config/validation-plugin-config.ts
 src/config/validation-plugin-registry.ts
 src/config/validation-plugin-rules.ts
+src/config/validation-prepared.ts
 src/config/validation.ts
 src/config/validation.types.ts
 src/config/version.ts
@@ -655,9 +657,11 @@ src/infra/sqlite-file-generation.ts
 src/infra/sqlite-files.ts
 src/infra/sqlite-index-schema.ts
 src/infra/sqlite-integrity.ts
+src/infra/sqlite-live-snapshot.ts
 src/infra/sqlite-number.ts
 src/infra/sqlite-post-commit.ts
 src/infra/sqlite-private-directory.ts
+src/infra/sqlite-reader-lifecycle.ts
 src/infra/sqlite-readonly-auth-transfer.ts
 src/infra/sqlite-readonly-location-cleanup.ts
 src/infra/sqlite-readonly-location.ts
@@ -671,6 +675,8 @@ src/infra/sqlite-schema-contract.ts
 src/infra/sqlite-schema-header.ts
 src/infra/sqlite-schema-issues.ts
 src/infra/sqlite-schema-sql.ts
+src/infra/sqlite-snapshot-policy.ts
+src/infra/sqlite-snapshot-single-flight.ts
 src/infra/sqlite-snapshot-source.ts
 src/infra/sqlite-snapshot-staging.ts
 src/infra/sqlite-source-handle.ts
@@ -694,6 +700,7 @@ src/infra/stale-lock-file.ts
 src/infra/startup-maintenance-required.ts
 src/infra/startup-migration-checkpoint.ts
 src/infra/state-database-coordinator-delegate.ts
+src/infra/state-database-coordinator-errors.ts
 src/infra/state-database-coordinator-paths.ts
 src/infra/state-database-coordinator.ts
 src/infra/state-lease-process-owner.ts
@@ -904,6 +911,7 @@ src/plugins/plugin-metadata-env.ts
 src/plugins/plugin-metadata-lifecycle.ts
 src/plugins/plugin-metadata-provider-facts.ts
 src/plugins/plugin-metadata-readers.runtime.ts
+src/plugins/plugin-metadata-snapshot-input.ts
 src/plugins/plugin-metadata-snapshot-readers.ts
 src/plugins/plugin-metadata-snapshot-required.ts
 src/plugins/plugin-metadata-snapshot.runtime.ts
@@ -975,12 +983,16 @@ src/process/exec.ts
 src/process/kill-tree.ts
 src/process/scoped-child-reaper.ts
 src/process/spawn-broker/child.ts
+src/process/spawn-broker/cleanup.ts
 src/process/spawn-broker/context.ts
 src/process/spawn-broker/execa-client.ts
 src/process/spawn-broker/execa-message.ts
 src/process/spawn-broker/execa-protocol.ts
+src/process/spawn-broker/host.ts
+src/process/spawn-broker/ipc.ts
 src/process/spawn-broker/pipe.ts
 src/process/spawn-broker/protocol.ts
+src/process/supervisor/cancellation-policy.ts
 src/process/supervisor/service-child-windows-job-native.ts
 src/process/windows-command.ts
 src/proxy-capture/env.ts
@@ -1090,6 +1102,7 @@ src/state/openclaw-state-db-schema-v12-foldin.ts
 src/state/openclaw-state-db-schema-v13-widerow.ts
 src/state/openclaw-state-db-schema-version.ts
 src/state/openclaw-state-db-session-watch-migration.ts
+src/state/openclaw-state-db-snapshot-owner.ts
 src/state/openclaw-state-db-startup-checkpoint.ts
 src/state/openclaw-state-db-table-retirements.ts
 src/state/openclaw-state-db-task-delivery-recovery.ts

@@ -26,6 +26,8 @@ export type SessionStoreEntry = {
 
 type GatewayAgentRequestParams = {
   sessionKey?: string;
+  idempotencyKey?: string;
+  message?: string;
   inputProvenance?: {
     sourceSessionKey?: string;
   };

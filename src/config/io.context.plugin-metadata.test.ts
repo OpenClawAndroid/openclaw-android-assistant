@@ -11,12 +11,12 @@ import { restorePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapsh
 import { buildDeclaredProviderOwnerIndex } from "../plugins/provider-owner-index.js";
 
 const mocks = vi.hoisted(() => ({
-  resolvePluginMetadataSnapshot: vi.fn(),
+  resolvePluginMetadataSnapshotInput: vi.fn(),
 }));
 
 vi.mock("../plugins/plugin-metadata-snapshot.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../plugins/plugin-metadata-snapshot.js")>()),
-  resolvePluginMetadataSnapshot: mocks.resolvePluginMetadataSnapshot,
+  resolvePluginMetadataSnapshotInput: mocks.resolvePluginMetadataSnapshotInput,
 }));
 
 const { resolveReadOnlyChannelPluginsForConfig } = await import("../channels/plugins/read-only.js");
@@ -134,7 +134,7 @@ function workspaceSnapshot(
 describe("config IO plugin metadata snapshots", () => {
   beforeEach(() => {
     clearPluginMetadataLifecycleCaches();
-    mocks.resolvePluginMetadataSnapshot.mockReset();
+    mocks.resolvePluginMetadataSnapshotInput.mockReset();
   });
 
   it("shares first-access inventory across config reads and alternating plugin selections", () => {
@@ -144,7 +144,7 @@ describe("config IO plugin metadata snapshots", () => {
       ["/srv/ops", workspaceSnapshot("/srv/ops", [primary])],
       ["/srv/research", workspaceSnapshot("/srv/research", [secondary])],
     ]);
-    mocks.resolvePluginMetadataSnapshot.mockImplementation(
+    mocks.resolvePluginMetadataSnapshotInput.mockImplementation(
       ({ workspaceDir }: { workspaceDir: string }) => snapshots.get(workspaceDir),
     );
     const config = { agents };
@@ -169,7 +169,7 @@ describe("config IO plugin metadata snapshots", () => {
         }).plugins.map((plugin) => plugin.id),
       ).toEqual([pluginId]);
     }
-    expect(mocks.resolvePluginMetadataSnapshot).toHaveBeenCalledTimes(2);
+    expect(mocks.resolvePluginMetadataSnapshotInput).toHaveBeenCalledTimes(2);
   });
 
   it("feeds merged workspace plugins to snapshot-backed read-only discovery", () => {
@@ -180,11 +180,22 @@ describe("config IO plugin metadata snapshots", () => {
       channels: ["research-chat"],
     });
     const mergedRegistry = { plugins: [primary, secondary], diagnostics: [] };
+    const secondaryDiagnostic = {
+      level: "warn" as const,
+      code: "persisted-registry-stale-source" as const,
+      message: "Retained secondary registry metadata",
+    };
     const snapshots = new Map([
       ["/srv/ops", workspaceSnapshot("/srv/ops", [primary], ["primary"])],
-      ["/srv/research", workspaceSnapshot("/srv/research", [secondary])],
+      [
+        "/srv/research",
+        {
+          ...workspaceSnapshot("/srv/research", [secondary]),
+          registryDiagnostics: [secondaryDiagnostic],
+        },
+      ],
     ]);
-    mocks.resolvePluginMetadataSnapshot.mockImplementation(
+    mocks.resolvePluginMetadataSnapshotInput.mockImplementation(
       ({ workspaceDir }: { workspaceDir: string }) => snapshots.get(workspaceDir),
     );
     const cfg = {
@@ -209,6 +220,7 @@ describe("config IO plugin metadata snapshots", () => {
     ]);
     expect(snapshot?.registryIndex).toEqual(snapshots.get("/srv/ops")?.registryIndex);
     expect(snapshot?.registryIndex.plugins.map((plugin) => plugin.pluginId)).toEqual(["primary"]);
+    expect(snapshot?.registryDiagnostics).toEqual([secondaryDiagnostic]);
     expect(snapshot?.plugins).toEqual(mergedRegistry.plugins);
     expect(structuredClone(snapshot?.manifestRegistry)).toEqual(mergedRegistry);
     expect(snapshot?.index.plugins.find((plugin) => plugin.pluginId === "primary")?.enabled).toBe(
@@ -256,7 +268,7 @@ describe("config IO plugin metadata snapshots", () => {
         ]),
       ],
     ]);
-    mocks.resolvePluginMetadataSnapshot.mockImplementation(
+    mocks.resolvePluginMetadataSnapshotInput.mockImplementation(
       ({ workspaceDir }: { workspaceDir: string }) => snapshots.get(workspaceDir),
     );
 

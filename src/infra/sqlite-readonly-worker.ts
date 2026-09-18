@@ -5,6 +5,7 @@ import path from "node:path";
 import { formatByteSize } from "@openclaw/normalization-core";
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { getSpawnBroker } from "../process/spawn-broker/context.js";
 import { hasErrnoCode } from "./errno.js";
 import { resolveNodeCompileCacheEnv } from "./node-compile-cache-env.js";
 import {
@@ -185,9 +186,16 @@ function sqliteReadOnlyWorkerArgv(pathname: string, options: SqliteReadOnlyWorke
   ];
 }
 
-function createScopedSqliteReadOnlyWorker(env?: NodeJS.ProcessEnv) {
+function createScopedSqliteReadOnlyWorker(
+  env?: NodeJS.ProcessEnv,
+  source?: SqliteAuthProfileReadOptions["source"],
+) {
   const workerUrl = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sqliteReadOnly);
   return createSqliteReadOnlyWorkerSession({
+    // Snapshot cleanup requires a native close; a broker proxy can close before
+    // failed transport cleanup proves the child dead. Canonical reads retain
+    // their own source lease in the child, including after broker loss.
+    spawnBroker: source === "canonical" ? getSpawnBroker() : undefined,
     env: resolveNodeCompileCacheEnv(env),
     currentEnv: resolveNodeCompileCacheEnv,
     argv: [...resolveRuntimeWorkerArgv(workerUrl), SQLITE_READONLY_CHILD_ARG, "session"],
@@ -272,15 +280,45 @@ function runSqliteReadOnlyWorkerOnce(
   options: SqliteReadOnlyWorkerOptions,
 ): Promise<SqliteReadOnlyWorkerValue> {
   if (options.mode === "auth-profile-rows") {
-    const worker = createScopedSqliteReadOnlyWorker(options.env);
     return (async () => {
-      try {
-        const value = await worker.run(pathname, options);
+      options.signal?.throwIfAborted();
+      let worker = createScopedSqliteReadOnlyWorker(options.env, options.source);
+      while (true) {
+        let outcome: { value: SqliteReadOnlyWorkerValue } | { error: unknown };
+        try {
+          const value = await worker.run(pathname, options);
+          options.signal?.throwIfAborted();
+          outcome = { value };
+        } catch (error) {
+          outcome = { error };
+        }
+        let cleanupFailure: { error: unknown } | undefined;
+        try {
+          await worker.close();
+        } catch (error) {
+          cleanupFailure = { error };
+        }
+        if (cleanupFailure) {
+          if ("error" in outcome) {
+            throw new AggregateError(
+              [outcome.error, cleanupFailure.error],
+              "Auth read and child cleanup failed",
+              { cause: outcome.error },
+            );
+          }
+          throw cleanupFailure.error;
+        }
+        if ("error" in outcome) {
+          if (worker.notStarted && hasErrnoCode(outcome.error, "ERR_SPAWN_BROKER_UNAVAILABLE")) {
+            options.signal?.throwIfAborted();
+            // A confirmed refusal has no child to replay. Preserve the captured launch context.
+            worker = worker.createNativeReplacement();
+            continue;
+          }
+          throw outcome.error;
+        }
         options.signal?.throwIfAborted();
-        return value;
-      } finally {
-        await worker.close();
-        options.signal?.throwIfAborted();
+        return outcome.value;
       }
     })();
   }
@@ -369,11 +407,15 @@ function runSqliteReadOnlyWorkerOnce(
   });
 }
 
-export function runSqliteReadOnlyWorkerSync(pathname: string, stagingRoot: string): string {
+export function runSqliteReadOnlyWorkerSync(
+  pathname: string,
+  stagingRoot: string,
+  mode: "sync" | "sync-fallback" = "sync",
+): string {
   const { timeoutMs, size } = readSqliteInspectionBudget("read-only snapshot", pathname);
   const result = spawnSync(
     process.execPath,
-    sqliteReadOnlyWorkerArgv(pathname, { mode: "sync", stagingRoot }),
+    sqliteReadOnlyWorkerArgv(pathname, { mode, stagingRoot }),
     {
       encoding: "utf8",
       env: resolveNodeCompileCacheEnv(),
@@ -395,6 +437,6 @@ export function runSqliteReadOnlyWorkerSync(pathname: string, stagingRoot: strin
       stderr: result.stderr,
       stdout: result.stdout,
     },
-    "sync",
+    mode,
   );
 }

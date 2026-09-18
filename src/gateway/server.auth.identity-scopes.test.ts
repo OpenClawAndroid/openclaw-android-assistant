@@ -568,7 +568,7 @@ describe("gateway identity scope grants", () => {
         expect(await waitForWsClose(initialWs, 1_000)).toBe(true);
       }
 
-      const cached = loadOriginDeviceToken(cacheKey);
+      const cached = await loadOriginDeviceToken(cacheKey);
       if (!cached) {
         throw new Error("expected the first connection's cached device token");
       }

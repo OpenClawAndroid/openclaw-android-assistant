@@ -654,6 +654,22 @@ export async function finishGatewayStartup(params: {
         errorMessage: "retained npm generation cleanup failed",
       }),
     );
+    registerGatewayLifetimeSidecars(
+      gatewayRuntimeServices.scheduleGatewayIdleTask({
+        delayMs: RETAINED_PLUGIN_CLEANUP_DELAY_MS,
+        retryDelayMs: RETAINED_PLUGIN_CLEANUP_DELAY_MS,
+        isClosing: () => lifecycle.closePreludeStarted,
+        isBusy: () => getActiveGatewayRootWorkCount({ excludeCurrent: true }) > 0,
+        repeatDelayMs: 15 * 60_000,
+        run: async () => {
+          const { reclaimAbandonedSqliteSnapshotsAsync } =
+            await import("../infra/sqlite-snapshot-staging.js");
+          await reclaimAbandonedSqliteSnapshotsAsync();
+        },
+        log,
+        errorMessage: "SQLite snapshot staging cleanup failed",
+      }),
+    );
   } else {
     startupTrace.detail("memory.post-ready", collectGatewayProcessMemoryUsageMb());
   }

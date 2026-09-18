@@ -140,8 +140,12 @@ class LockTests(unittest.TestCase):
         self.env.pop('OPENCLAW_PR_DEDICATED_PROCESS_GROUP', None)
         self.repo = self.root/'repo'; self.repo.mkdir()
         self.git('init', '-q', '-b', 'main')
-        self.sources = self.root/'source';self.sources.mkdir()
-        for file in (LOCK, RUNNER, PROVIDER):shutil.copyfile(file,self.sources/file.name)
+        self.sources = self.root/'source'/'pr-lib';self.sources.mkdir(parents=True)
+        for file in (LOCK, RUNNER, PROVIDER, LOCK.with_name('host-tools.sh'), LOCK.with_name('github.sh'), LOCK.with_name('github.mjs')):
+            shutil.copyfile(file,self.sources/file.name)
+        library = self.sources.parent/'lib';library.mkdir()
+        for name in ('plain-gh.mjs', 'direct-run.mjs'):
+            shutil.copyfile(ROOT/'scripts'/'lib'/name,library/name)
         self.ref = 'refs/openclaw/pr-operation-locks/42'
 
     def git(self, *args, **kwargs):

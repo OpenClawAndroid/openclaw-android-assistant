@@ -392,6 +392,16 @@ exec ${shellQuote(realGit)} "$@"
     prelude +
       `
 event({ kind: 'gh', args });
+if (args[0] === 'browse' && args[1] === '--no-browser') {
+  console.log('https://github.com/fixture/repo');
+  process.exit(0);
+}
+const repositoryLocatorRequest = JSON.stringify(args) === JSON.stringify(['api', '--hostname', 'github.com', 'repos/fixture/repo']);
+if (repositoryLocatorRequest) {
+  // Locator metadata cannot satisfy the separate fresh repository-ID binding.
+  console.log(JSON.stringify({ full_name: 'fixture/repo', html_url: 'https://github.com/fixture/repo' }));
+  process.exit(0);
+}
 if (args[0] === 'api' && args.includes('repos/fixture/repo') &&
     JSON.stringify(args) !== JSON.stringify(['api', '--hostname', 'github.com', 'repos/fixture/repo', '-H', 'Cache-Control: max-age=0'])) {
   throw new Error('Unexpected authoritative repository request');
@@ -443,8 +453,13 @@ if (args[0] === 'pr' && args[1] === 'view') {
   value = [];
 } else if (args[0] === 'api') {
   const endpoint = args.find((arg, index) => index > 0 &&
-    (arg === 'graphql' || arg === 'users/fixture' || arg.startsWith('repos/')));
-  if (endpoint === 'graphql') {
+    (arg === 'graphql' || arg === 'rate_limit' || arg === 'users/fixture' || arg.startsWith('repos/')));
+  if (endpoint === 'rate_limit') {
+    value = { resources: {
+      graphql: { remaining: 0, limit: 5000, reset: 1893456000 },
+      core: { remaining: 4999, limit: 5000, reset: 1893459600 },
+    } };
+  } else if (endpoint === 'graphql') {
     if (control.failAuth) process.exit(1);
     if (args.some(arg => arg.includes('viewer { login }'))) {
       if (control.viewerRateLimited) {
@@ -470,9 +485,6 @@ if (args[0] === 'pr' && args[1] === 'view') {
       throw new Error('Unexpected GraphQL request');
     }
   } else if (endpoint === 'repos/fixture/repo') {
-    if (JSON.stringify(args) !== JSON.stringify([
-      'api', '--hostname', 'github.com', 'repos/fixture/repo', '-H', 'Cache-Control: max-age=0',
-    ])) throw new Error('Unexpected repository identity request');
     value = {
       id: 123, node_id: 'fixture-repo', full_name: 'fixture/repo',
       html_url: 'https://github.com/fixture/repo',
@@ -482,6 +494,10 @@ if (args[0] === 'pr' && args[1] === 'view') {
     value = { commit: { author: { name, email } }, author: { ...control.metadata.author, type: 'User' } };
   } else if (endpoint === 'users/fixture') {
     value = { id: 123 };
+  } else if (endpoint?.includes('/commits/') && endpoint.includes('/check-runs?')) {
+    value = [{ check_runs: [] }];
+  } else if (endpoint?.includes('/commits/') && endpoint.includes('/status?')) {
+    value = [{ statuses: [] }];
   } else if (new RegExp('^repos/fixture/repo/commits/[0-9a-f]{40}$').test(endpoint)) {
     const [name, email] = runGit(['-C', origin, 'show', '-s', '--format=%an%n%ae',
       endpoint.split('/').at(-1) + '^{commit}']).split('\\n');
@@ -505,17 +521,43 @@ if (args[0] === 'pr' && args[1] === 'view') {
       event({ kind: 'review-comments' });
       value = [control.reviewComments];
     }
-  } else if (endpoint === 'repos/fixture/repo/pulls/42') {
+  } else if (endpoint === 'repos/fixture/repo/pulls/' + control.metadata.number + '/files?per_page=100') {
+    value = [control.metadata.files.map(file => ({
+      filename: file.path, additions: file.additions, deletions: file.deletions,
+      status: file.changeType === 'DELETED' ? 'removed' : file.changeType.toLowerCase(),
+    }))];
+  } else if (endpoint === 'repos/fixture/repo/pulls/' + control.metadata.number) {
     let baseSha = control.metadata.baseRefOid;
-    if (control.remoteOnlyBase) {
+    // The hosted verifier's explicit GET follows the two preparation snapshots.
+    const hostedGateRead = JSON.stringify(args) === JSON.stringify(['api', endpoint, '--method', 'GET']);
+    if (control.remoteOnlyBase && hostedGateRead) {
       baseSha = control.remoteOnlyBase;
       runGit(['-C', origin, 'update-ref', 'refs/heads/main', baseSha]);
       const localObject = spawnSync(git, ['-C', canonical, 'cat-file', '-e', baseSha]);
       event({ kind: 'remote-only-base', sha: baseSha, localObject: localObject.status === 0 });
     }
     value = {
-      head: { sha: control.metadata.headRefOid, ref: 'topic', repo: { full_name: 'fixture/repo' } },
-      base: { sha: baseSha },
+      number: control.metadata.number,
+      title: control.metadata.title,
+      state: control.metadata.state === 'OPEN' ? 'open' : 'closed',
+      merged_at: control.metadata.state === 'MERGED' ? '2026-01-01T00:00:00Z' : null,
+      draft: control.metadata.isDraft,
+      user: control.metadata.author,
+      html_url: control.metadata.url,
+      body: control.metadata.body,
+      labels: control.metadata.labels,
+      assignees: control.metadata.assignees,
+      changed_files: control.metadata.changedFiles,
+      additions: control.metadata.additions,
+      deletions: control.metadata.deletions,
+      mergeable: control.metadata.mergeable === 'MERGEABLE' ? true : control.metadata.mergeable === 'CONFLICTING' ? false : null,
+      mergeable_state: control.metadata.mergeStateStatus.toLowerCase(),
+      head: { sha: control.metadata.headRefOid, ref: control.metadata.headRefName, repo: {
+        id: 123, full_name: control.metadata.headRepository.nameWithOwner,
+        name: control.metadata.headRepository.name, html_url: control.metadata.headRepository.url,
+        owner: control.metadata.headRepositoryOwner,
+      } },
+      base: { ref: control.metadata.baseRefName, sha: baseSha, repo: { id: control.metadata.isCrossRepository ? 456 : 123 } },
     };
   } else if (endpoint.endsWith('/actions/workflows/ci.yml/runs')) {
     event({ kind: 'ci-watched' });
@@ -596,6 +638,7 @@ exec grep "$@"
   }
   env.PATH = `${bin}${delimiter}${env.PATH ?? ""}`;
   env.OPENCLAW_GH_BIN = join(bin, "gh");
+  env.GH_REPO = "fixture/repo";
   env.OPENCLAW_TESTBOX = "1";
   // Advance only the real watcher's polling clock, so a stuck CI fixture
   // reaches its normal deadline without an hour-long regression test.

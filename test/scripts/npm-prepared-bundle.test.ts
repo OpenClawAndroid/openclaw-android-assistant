@@ -81,6 +81,12 @@ function packageSourceFixture(
     const staging = tempDirs.make("npm-package-staging-");
     mkdirSync(join(staging, "package"));
     copyFileSync(join(directory, "package.json"), join(staging, "package/package.json"));
+    if (existsSync(join(directory, "npm-shrinkwrap.json"))) {
+      copyFileSync(
+        join(directory, "npm-shrinkwrap.json"),
+        join(staging, "package/npm-shrinkwrap.json"),
+      );
+    }
     return execFileSync("tar", [
       "-czf",
       join(destination, `openclaw-${packageVersion}.tgz`),
@@ -516,6 +522,48 @@ describe("prepared npm bundle", () => {
       }),
     ).toThrow(/producer|attempt evidence/);
   });
+
+  it.each([false, true])(
+    "checks packed legacy runtime dependencies before sealing (complete=%s)",
+    (complete) => {
+      const fixture = packageSourceFixture("2026.7.33");
+      // Use a non-workspace runtime: coverage must protect every declared dependency,
+      // not just the AI package whose omission broke 2026.7.33.
+      writeFileSync(
+        join(fixture.sourceDir, "package.json"),
+        JSON.stringify({
+          name: "openclaw",
+          version: "2026.7.33",
+          files: ["npm-shrinkwrap.json"],
+          dependencies: { "runtime-fixture": "1.0.0" },
+        }),
+      );
+      writeFileSync(
+        join(fixture.sourceDir, "npm-shrinkwrap.json"),
+        JSON.stringify({
+          name: "openclaw",
+          version: "2026.7.33",
+          lockfileVersion: 3,
+          packages: complete
+            ? {
+                "": { dependencies: { "runtime-fixture": "1.0.0" } },
+                "node_modules/runtime-fixture": { version: "1.0.0" },
+              }
+            : { "": {} },
+        }),
+      );
+      if (complete) {
+        const bundle = prepareNpmPackageBundle(fixture);
+        expect(bundle.packageVersion).toBe("2026.7.33");
+        expect(existsSync(join(fixture.outputDir, "package-bundle.json"))).toBe(true);
+      } else {
+        expect(() => prepareNpmPackageBundle(fixture)).toThrow(
+          "npm-shrinkwrap.json is missing declared dependency runtime-fixture",
+        );
+        expect(existsSync(join(fixture.outputDir, "package-bundle.json"))).toBe(false);
+      }
+    },
+  );
 
   it.each([
     ["2026.8.1", "v2026.8.1-2", "same-source"],

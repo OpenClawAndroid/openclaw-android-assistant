@@ -6,6 +6,10 @@ import { noteStaleUpdateRuns } from "./doctor-update-run.js";
 
 vi.mock("../../packages/terminal-core/src/note.js", () => ({ note: vi.fn() }));
 vi.mock("../infra/update-run-reader.js", () => ({ listUpdateRunsAsync: vi.fn() }));
+vi.mock("../infra/update-run-interruption.js", async (original) => ({
+  ...(await original<typeof import("../infra/update-run-interruption.js")>()),
+  reconcileInterruptedUpdateRuns: async () => [],
+}));
 
 afterEach(() => vi.resetAllMocks());
 

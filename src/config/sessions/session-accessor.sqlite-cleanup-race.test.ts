@@ -14,7 +14,6 @@ import {
   replaceSessionEntry,
   replaceSessionEntrySync,
 } from "./session-accessor.js";
-import { planSessionLifecycleArtifactCleanup } from "./session-accessor.sqlite-lifecycle-artifacts.js";
 import { replaceTranscriptEvents } from "./session-accessor.sqlite-transcript-write.js";
 import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
 import { runByteLimitedArchiveCleanupFixture } from "./test-helpers.js";
@@ -395,17 +394,6 @@ describe("SQLite lifecycle cleanup races", () => {
     }
     const database = openOpenClawAgentDatabase({ agentId: "main", path: databasePath });
     const cleanupNow = Date.now() + 60_000;
-    const planned = planSessionLifecycleArtifactCleanup(database, {
-      archiveRemovedEntryTranscripts: true,
-      archiveDirectory: path.dirname(storePath),
-      sessionKeySegmentPrefix: "cleanup-race",
-      transcriptContentMarker: "cleanup-race-marker",
-      orphanTranscriptMinAgeMs: 0,
-      nowMs: cleanupNow,
-    });
-    expect(planned.entries).toHaveLength(1);
-    expect(planned.deletePlans).toHaveLength(1);
-
     const refreshedEntry = { label: "refreshed", sessionId, updatedAt: now + 1 };
     let refreshed = false;
     archiveMaterializationHook.afterMaterialize = () => {

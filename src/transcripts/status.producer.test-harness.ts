@@ -14,7 +14,8 @@ import {
   closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
 } from "../state/openclaw-state-db.js";
-import { activeSessions, startTranscripts } from "./capture.js";
+import { startTranscripts } from "./capture.js";
+import { clearTranscriptCapturesForTest } from "./capture.test-support.js";
 import * as providerRegistry from "./provider-registry.js";
 import type { TranscriptSourceProvider } from "./provider-types.js";
 import { readTranscriptLibraryStatus } from "./status.js";
@@ -34,7 +35,7 @@ export function useTranscriptStatusFixture() {
     previousRegistry = captureActivePluginRegistrySnapshot();
   });
   afterEach(async () => {
-    activeSessions.clear();
+    await clearTranscriptCapturesForTest();
     resetConfigRuntimeState();
     vi.useRealTimers();
     await closeOpenClawStateDatabaseAsync();

@@ -238,7 +238,9 @@ describe.runIf(browserMode)("Markdown attachment controls", () => {
         const retainsPendingReader = change !== "identity" && change !== "oversized metadata";
         await expect.poll(() => reader.checkVisibility()).toBe(retainsPendingReader);
         expect(isObserved(viewport)).toBe(retainsPendingReader);
-        expect(panel.querySelector('[role="status"]') === null).toBe(retainsPendingReader);
+        expect(panel.querySelector('[role="status"]:not([hidden])') === null).toBe(
+          retainsPendingReader,
+        );
 
         const nextResponse = new Response(nextText);
         if (change === "failed refresh") {

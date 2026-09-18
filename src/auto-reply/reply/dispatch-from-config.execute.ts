@@ -105,6 +105,7 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
                 sessionPromptSourceReplyDeliveryMode: state.sessionStableSourceReplyDeliveryMode,
                 ...state.sourceReplyDeliveryRuntimeOptions,
                 ...({
+                  mediaNormalizationOwner: state.isInternalWebchatTurn ? "gateway" : undefined,
                   onDeliberateSilentTerminalReply: () => {
                     deliberateSilentTerminalReply = true;
                   },

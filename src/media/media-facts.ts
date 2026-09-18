@@ -20,6 +20,8 @@ export type MediaFact = {
   contentType?: string;
   kind?: MediaKind;
   fileName?: string;
+  /** Composer attachment provenance for display; never part of model input. */
+  origin?: "paste" | "file";
   sizeBytes?: number;
   durationMs?: number;
   width?: number;
@@ -233,6 +235,7 @@ export function canonicalizePersistedUserMessageMedia<T extends object>(
       ...(fact.contentType && !bareLegacyKind ? { contentType: fact.contentType } : {}),
       ...(explicitKind ? { kind: explicitKind } : {}),
       ...(fact.fileName ? { fileName: fact.fileName } : {}),
+      ...(fact.origin ? { origin: fact.origin } : {}),
       ...(fact.sizeBytes !== undefined ? { sizeBytes: fact.sizeBytes } : {}),
       ...(fact.durationMs ? { durationMs: fact.durationMs } : {}),
       ...(fact.width ? { width: fact.width } : {}),
@@ -394,6 +397,7 @@ function normalizeMediaFact<TInput extends MediaFactInput>(
       defaults.kind ??
       (isGenericBinaryMediaContentType(contentType) ? undefined : kindFromMime(contentType)),
     fileName: normalizeOptionalString(input.fileName),
+    ...(input.origin === "paste" || input.origin === "file" ? { origin: input.origin } : {}),
     sizeBytes: normalizeNonNegativeNumber(input.sizeBytes),
     ...(durationMs ? { durationMs } : {}),
     ...(width ? { width } : {}),
@@ -479,6 +483,7 @@ function resolveMediaFactsWithPrecedence(
           : (fact?.contentType ?? legacyContentType),
         kind: fact?.kind,
         fileName: fact?.fileName,
+        origin: fact?.origin,
         sizeBytes: fact?.sizeBytes,
         durationMs: fact?.durationMs,
         width: fact?.width,

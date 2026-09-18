@@ -226,7 +226,7 @@ describe("sessions.abort agent scope", () => {
   beforeEach(() => {
     chatAbortMock.mockReset();
     resolveSessionKeyForRunMock.mockReset();
-    loadSessionEntryMock.mockClear();
+    loadSessionEntryMock.mockReset();
     isEmbeddedAgentRunInProgressMock.mockReset();
     isEmbeddedAgentRunInProgressMock.mockReturnValue(false);
     abortEmbeddedAgentRunMock.mockReset();
@@ -411,6 +411,11 @@ describe("sessions.abort agent scope", () => {
         removeChatRun: vi.fn(),
       },
     });
+
+    loadSessionEntryMock.mockImplementation((sessionKey: string) => ({
+      cfg: context.getRuntimeConfig(),
+      canonicalKey: sessionKey,
+    }));
 
     const respond = await callSessions(
       "sessions.abort",

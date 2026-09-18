@@ -9,7 +9,7 @@ import { stopChatRealtimeTalk } from "./chat-realtime.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { invalidateImageLightbox } from "./chat-state-page.ts";
 import { cancelChatStreamRenderFrame } from "./chat-state-render.ts";
-import { ChatAttachmentReadLifecycle } from "./components/chat-attachments.ts";
+import { ChatAttachmentReadLifecycle } from "./components/chat-attachment-reads.ts";
 import { releaseChatMediaResourceSubscriber } from "./components/chat-message-media.ts";
 import { clearSessionWorkspacePreviews } from "./components/chat-session-workspace-state.ts";
 import { clearSessionWorkspaceTimers } from "./components/chat-session-workspace.ts";
@@ -63,6 +63,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
     const reads = this.attachmentReads;
     const readSignal = reads.readSignal;
     return {
+      attachmentReads: reads,
       attachments: state.chatAttachments,
       attachmentLimits: state.hello?.policy?.attachments,
       getAttachments: () => state.chatAttachments,

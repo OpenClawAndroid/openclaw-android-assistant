@@ -15,7 +15,9 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
+import * as inlineProviderModels from "./embedded-agent-runner/model.inline-provider.js";
 import * as legacyAuth from "./legacy-inherited-auth-dir.js";
+import * as configuredModels from "./model-selection-shared.js";
 import {
   advancePreparedModelRuntimeConfig,
   getPreparedModelRuntimeSnapshot,
@@ -331,37 +333,127 @@ describe("prepared fleet batches", () => {
     expect(lateLoads).toBe(0);
   });
 
-  it("captures one immutable config per fleet without freezing the caller or reusing a stale capture", async () => {
+  it("prepares shared configured model facts once per immutable fleet publication", async () => {
     const config: OpenClawConfig = {
       agents: { defaults: { model: "fixture/first" } },
+      models: {
+        providers: {
+          fixture: {
+            api: "openai-completions",
+            baseUrl: "https://fixture.invalid/v1",
+            models: ["first", "second"].map((id) => ({
+              id,
+              name: id,
+              reasoning: false,
+              input: ["text"],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 32_000,
+              maxTokens: 4096,
+            })),
+          },
+        },
+      },
     };
+    const inlineProjection = vi.spyOn(inlineProviderModels, "buildInlineProviderModels");
+    const configuredProjection = vi.spyOn(configuredModels, "buildConfiguredModelCatalog");
     const captures: OpenClawConfig[] = [];
     mocks.prepareStaticCatalog.mockImplementation(async (options) => {
       captures.push((options as { config: OpenClawConfig }).config);
       return { entries: [] };
     });
-
-    await refreshPreparedModelRuntimeSnapshots(config, {
-      gatewayLifecycle: true,
-      catalogMode: "static",
+    mocks.createStaticCatalogResolver.mockImplementation((options) => {
+      const workspace = options?.workspaceDir?.split("/").at(-1);
+      return ({ provider, modelId }) => {
+        const model = options?.cfg?.models?.providers?.[provider]?.models.find(
+          (candidate) => candidate.id === modelId,
+        );
+        return model
+          ? {
+              id: model.id,
+              name: model.name,
+              provider,
+              api: "openai-responses",
+              baseUrl: `https://${workspace}.fixture.invalid/v1`,
+              reasoning: false,
+              input: ["text"],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 32_000,
+              maxTokens: 4096,
+            }
+          : undefined;
+      };
     });
-    expect(captures).toHaveLength(3);
-    expect(new Set(captures).size).toBe(1);
-    const first = captures[0]!;
-    expect(first).not.toBe(config);
-    expect(Object.isFrozen(first.agents?.defaults)).toBe(true);
-    expect(Object.isFrozen(config.agents?.defaults)).toBe(false);
+    const readSnapshots = () =>
+      mocks.configuredAgentIds.map((agentId) =>
+        getPreparedModelRuntimeSnapshot({ config, agentId, agentDir: state.agentDir(agentId) }),
+      );
+    try {
+      await refreshPreparedModelRuntimeSnapshots(config, {
+        gatewayLifecycle: true,
+        catalogMode: "static",
+      });
+      expect(captures).toHaveLength(3);
+      expect(new Set(captures).size).toBe(1);
+      const first = captures[0]!;
+      expect(first).not.toBe(config);
+      expect(Object.isFrozen(first.agents?.defaults)).toBe(true);
+      expect(Object.isFrozen(config.agents?.defaults)).toBe(false);
+      const firstSnapshots = readSnapshots();
+      for (const [index, snapshot] of firstSnapshots.entries()) {
+        expect(snapshot).toMatchObject({
+          agentId: mocks.configuredAgentIds[index],
+          workspaceDir: `/tmp/workspace-${mocks.configuredAgentIds[index]}`,
+          inlineProviderModels: [
+            { id: "first", name: "first" },
+            { id: "second", name: "second" },
+          ],
+          modelCatalog: {
+            entries: [
+              {
+                id: "first",
+                api: "openai-responses",
+                baseUrl: `https://workspace-${mocks.configuredAgentIds[index]}.fixture.invalid/v1`,
+              },
+              {
+                id: "second",
+                api: "openai-completions",
+                baseUrl: "https://fixture.invalid/v1",
+              },
+            ],
+          },
+        });
+      }
+      expect(inlineProjection).toHaveBeenCalledOnce();
+      expect(configuredProjection.mock.calls.filter(([params]) => !params.catalog)).toHaveLength(1);
 
-    config.agents!.defaults!.model = "fixture/second";
-    expect(first.agents?.defaults?.model).toBe("fixture/first");
-    captures.length = 0;
-    await refreshPreparedModelRuntimeSnapshots(config, {
-      gatewayLifecycle: true,
-      catalogMode: "static",
-    });
-    expect(new Set(captures).size).toBe(1);
-    expect(captures[0]).not.toBe(first);
-    expect(captures[0]?.agents?.defaults?.model).toBe("fixture/second");
+      config.agents!.defaults!.model = "fixture/second";
+      config.models!.providers!.fixture!.models[1]!.name = "updated";
+      expect(first.agents?.defaults?.model).toBe("fixture/first");
+      captures.length = 0;
+      await refreshPreparedModelRuntimeSnapshots(config, {
+        gatewayLifecycle: true,
+        catalogMode: "static",
+      });
+      expect(captures).toHaveLength(3);
+      expect(new Set(captures).size).toBe(1);
+      expect(captures[0]).not.toBe(first);
+      expect(captures[0]?.agents?.defaults?.model).toBe("fixture/second");
+      expect(inlineProjection).toHaveBeenCalledTimes(2);
+      expect(configuredProjection.mock.calls.filter(([params]) => !params.catalog)).toHaveLength(2);
+      for (const [index, snapshot] of readSnapshots().entries()) {
+        expect(snapshot?.inlineProviderModels[1]?.name).toBe("updated");
+        expect(snapshot?.modelCatalog.entries.find(({ id }) => id === "second")).toMatchObject({
+          api: "openai-responses",
+          baseUrl: `https://workspace-${mocks.configuredAgentIds[index]}.fixture.invalid/v1`,
+        });
+      }
+      for (const snapshot of firstSnapshots) {
+        expect(snapshot?.inlineProviderModels[1]?.name).toBe("second");
+      }
+    } finally {
+      inlineProjection.mockRestore();
+      configuredProjection.mockRestore();
+    }
   });
 
   it("replays an auth change once the first owner starts capturing credentials", async () => {

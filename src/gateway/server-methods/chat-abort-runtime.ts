@@ -60,6 +60,7 @@ export async function abortControlledSubagents(params: {
   sessionKey: string;
   agentId?: string;
   requesterTurnRunId?: string;
+  assertCurrent?: () => void;
   beforeKill?: Parameters<typeof killAllControlledSubagentRuns>[0]["beforeKill"];
 }) {
   const controller = resolveSubagentController({
@@ -84,6 +85,7 @@ export async function abortControlledSubagents(params: {
     controller,
     runs,
     suppressTaskDelivery: true,
+    assertCurrent: params.assertCurrent,
     beforeKill: params.beforeKill,
   });
 }
@@ -113,7 +115,7 @@ export function abortQueuedCollectorSession(
   ) {
     return undefined;
   }
-  const cfg = params.context.getRuntimeConfig();
+  const cfg = params.session?.ok ? params.session.value.cfg : params.context.getRuntimeConfig();
   const parentRunId = entry.requesterTurnRunId;
   const parentRun = parentRunId ? params.context.chatAbortControllers.get(parentRunId) : undefined;
   const parentKey = entry.controllerSessionKey?.trim() || entry.requesterSessionKey;
@@ -545,6 +547,7 @@ function prepareChatSessionAbort(params: ChatSessionAbortParams, selectedRunId?:
   const canCancelWorkerSession = !isLifecycleAbort || !hasProtectedLifecycleRuns;
   let snapshots: AbortedPartialSnapshot[] = [];
   const abortAuthorizedRuns = () => {
+    params.assertCurrent?.();
     params.onControllerTargets?.(authorizedRuns);
     if (!hasAuthorizedGatewayRuns) {
       // The injected lifecycle callback must not turn a persisted session id into
@@ -690,22 +693,41 @@ export async function abortChatRunsForSessionKeyWithPartials(
   const plan = prepareChatSessionAbort(params);
   let result: ChatSessionAbortResult = { aborted: false, runIds: [], unauthorized: false };
   let descendants: Awaited<ReturnType<typeof abortControlledSubagents>>;
-  if (params.cascadeDescendants && plan.canCascade) {
-    descendants = await abortControlledSubagents({
-      cfg: params.context.getRuntimeConfig(),
-      sessionKey: params.sessionKey,
-      agentId: params.agentId,
-      beforeKill: () => {
-        result = plan.abort();
-        return true;
-      },
-    });
-  } else {
-    result = plan.abort();
+  let failure: { error: unknown } | undefined;
+  try {
+    if (params.cascadeDescendants && plan.canCascade) {
+      descendants = await abortControlledSubagents({
+        cfg: params.session?.ok ? params.session.value.cfg : params.context.getRuntimeConfig(),
+        sessionKey: params.sessionKey,
+        agentId: params.agentId,
+        assertCurrent: params.assertCurrent,
+        beforeKill: () => {
+          result = plan.abort();
+          return true;
+        },
+      });
+    } else {
+      result = plan.abort();
+    }
+    if (!result.unauthorized && !result.error) {
+      params.onCancellationStarted?.();
+    }
+  } catch (error) {
+    failure = { error };
   }
-  if (!result.unauthorized && !result.error) {
-    params.onCancellationStarted?.();
+  // Cancellation consumed these buffers before awaited descendant work could fail.
+  try {
+    await plan.finish(result);
+  } catch (error) {
+    if (!failure) {
+      throw error;
+    }
+    params.context.logGateway.warn(
+      "chat.abort could not persist captured output after cancellation was rejected",
+    );
   }
-  await plan.finish(result);
+  if (failure) {
+    throw failure.error;
+  }
   return { ...result, aborted: result.aborted || Boolean(descendants?.killed), descendants };
 }

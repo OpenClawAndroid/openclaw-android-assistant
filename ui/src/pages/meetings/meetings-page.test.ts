@@ -56,11 +56,165 @@ function button(page: Element, text: string) {
 
 afterEach(() => {
   document.body.replaceChildren();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("meeting transcript library", () => {
+  it("opens Summary by default and refreshes an explicitly selected Transcript through completion", async () => {
+    vi.useFakeTimers();
+    let detail = {
+      ...meetingPage,
+      session: { ...meetingEntry, active: true, hasSummary: false, utteranceCount: 0 },
+      summary: undefined as typeof meetingPage.summary | undefined,
+      utterances: [] as typeof meetingPage.utterances,
+      nextCursor: null,
+    };
+    const pending = deferred();
+    let hold = false;
+    const request = vi.fn(async (method: string) => {
+      if (hold) {
+        await pending.promise;
+      }
+      return method === "transcripts.list"
+        ? { sessions: [detail.session], nextCursor: null }
+        : detail;
+    });
+    const { page } = mount(request, "?selector=meeting");
+    await vi.waitFor(() => expect(page.querySelector(".transcripts-summary")).not.toBeNull());
+    expect(page.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+      "Summary",
+    );
+    const transcriptTab = page.querySelector<HTMLElement>("#transcript-reader-tab-text")!;
+    transcriptTab.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await page.updateComplete;
+    expect(page.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+      "Transcript",
+    );
+    await vi.waitFor(() =>
+      expect(page.querySelector(".transcripts-reader")?.textContent).toContain(
+        "Waiting for speech",
+      ),
+    );
+    const filter = page.querySelector<HTMLInputElement>('input[name="query"]')!;
+    filter.value = "unsubmitted filter";
+    filter.dispatchEvent(new Event("input"));
+    const selectedRow = page.querySelector(".transcripts-list__entry");
+    hold = true;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(page.querySelector(".transcripts-list__entry")).toBe(selectedRow);
+    expect(page.querySelector(".meetings-loading")).toBeNull();
+    expect(page.querySelector(".transcripts-reader")?.textContent).toContain("Waiting for speech");
+    const pendingCount = request.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(request).toHaveBeenCalledTimes(pendingCount);
+    hold = false;
+    pending.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    detail = {
+      ...detail,
+      session: { ...detail.session, utteranceCount: 1 },
+      utterances: meetingPage.utterances,
+    };
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(page.textContent).toContain("Keep the reader quiet and readable.");
+    expect(page.querySelectorAll(".transcripts-utterances li")).toHaveLength(1);
+    expect(filter.value).toBe("unsubmitted filter");
+    expect(page.querySelector(".transcripts-reader__header")?.textContent).toContain(
+      "1 saved utterances",
+    );
+    detail = { ...detail, session: { ...detail.session, active: false } };
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(page.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+      "Transcript",
+    );
+    page
+      .querySelector<HTMLElement>("#transcript-reader-tab-summary")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await page.updateComplete;
+    detail = {
+      ...detail,
+      session: { ...detail.session, hasSummary: true },
+      summary: meetingPage.summary,
+    };
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(page.querySelector(".transcripts-summary")?.textContent).toContain(
+      "Reader layout discussed.",
+    );
+  });
+
+  it("refreshes the last loaded speech page without duplicating or dropping earlier pages", async () => {
+    vi.useFakeTimers();
+    let appended = false;
+    const request = vi.fn(async (method: string, params: { cursor?: string }) => {
+      if (method === "transcripts.list") {
+        return { sessions: [], nextCursor: null };
+      }
+      return {
+        ...meetingPage,
+        session: { ...meetingEntry, active: true },
+        utterances: params.cursor
+          ? [
+              { sequence: 1, text: "Second page" },
+              ...(appended ? [{ sequence: 2, text: "New speech" }] : []),
+            ]
+          : [{ sequence: 0, text: "First page" }],
+        nextCursor: params.cursor ? null : "more",
+      };
+    });
+    const { page } = mount(request, "?selector=meeting&tab=transcript");
+    await vi.waitFor(() => expect(page.textContent).toContain("First page"));
+    button(page, "Load more").click();
+    await vi.waitFor(() => expect(page.textContent).toContain("Second page"));
+    appended = true;
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(
+      [...page.querySelectorAll(".transcripts-utterances p")].map((el) => el.textContent),
+    ).toEqual(["First page", "Second page", "New speech"]);
+    expect(request).toHaveBeenLastCalledWith(
+      "transcripts.get",
+      expect.objectContaining({ cursor: "more" }),
+      expect.anything(),
+    );
+  });
+
+  it("pauses background reads when hidden, catches up on return, and stops on archive denial", async () => {
+    vi.useFakeTimers();
+    let denied = false;
+    const request = vi.fn(async (method: string) => {
+      if (denied) {
+        throw new GatewayRequestError({ code: "FORBIDDEN", message: "Restricted" });
+      }
+      return method === "transcripts.list"
+        ? { sessions: [meetingEntry], nextCursor: null }
+        : { ...meetingPage, session: { ...meetingEntry, active: true } };
+    });
+    const { page } = mount(request, "?selector=meeting&tab=summary");
+    await vi.waitFor(() => expect(page.textContent).toContain("Reader layout discussed."));
+    expect(page.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+      "Summary",
+    );
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const initialCount = request.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(request).toHaveBeenCalledTimes(initialCount);
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(request.mock.calls.length).toBeGreaterThan(initialCount);
+    denied = true;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(page.textContent).toContain("Transcript access is restricted");
+    expect(page.textContent).not.toContain("Reader layout discussed.");
+    const deniedCount = request.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(request).toHaveBeenCalledTimes(deniedCount);
+    page.remove();
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(request).toHaveBeenCalledTimes(deniedCount);
+  });
+
   it("renders complete large saved Markdown notes and exports them when a transcript page exceeds its budget", async () => {
     const markdown = [
       "# Design review",

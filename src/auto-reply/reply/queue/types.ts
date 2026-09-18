@@ -195,6 +195,8 @@ export type FollowupRun = {
     sessionKey?: string;
     runtimePolicySessionKey?: string;
     messageProvider?: string;
+    /** Prepared source delivery ownership; a lost source must not restore host media reads. */
+    mediaNormalizationOwner?: "gateway";
     clientCaps?: string[];
     gatewayUiCommandTarget?: GatewayUiCommandTarget;
     toolBindings?: Readonly<Record<string, unknown>>;

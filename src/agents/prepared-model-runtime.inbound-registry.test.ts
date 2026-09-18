@@ -598,7 +598,7 @@ describe("prepared reply dispatch runtime", () => {
     unregister();
 
     expect(mocks.discoverAuthStorage.mock.calls.length - authStorageCallsBeforeAuth).toBe(2);
-    expect(mocks.discoverModels.mock.calls.length - modelCallsBeforeAuth).toBe(2);
+    expect(mocks.discoverModels.mock.calls.length - modelCallsBeforeAuth).toBe(1);
     expect(mocks.prepareStaticCatalog.mock.calls.length - staticCatalogCallsBeforeAuth).toBe(0);
     const configuredRuntimeAfter = await loadPublishedGatewayReplyDispatchRuntime({
       agentId: "default",

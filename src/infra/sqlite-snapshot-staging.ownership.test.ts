@@ -14,7 +14,11 @@ import {
   createSqliteSnapshotStagingDirectory,
   prepareSqliteReadOnlyLocationSyncInProcess,
 } from "./sqlite-readonly-location.js";
-import { createSqliteSnapshotStagingDirectorySync } from "./sqlite-snapshot-staging.js";
+import {
+  createSqliteSnapshotStagingDirectorySync,
+  reclaimAbandonedSqliteSnapshots,
+  reclaimAbandonedSqliteSnapshotsAsync,
+} from "./sqlite-snapshot-staging.js";
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
   afterEach(async () => {
@@ -58,12 +62,12 @@ function assertReadable(location: string) {
   }
 }
 
-function ageSnapshotTree(directory: string): void {
-  const stale = new Date(Date.now() - 25 * 60 * 60 * 1000);
+function ageSnapshotTree(directory: string, ageMs = 25 * 60 * 60 * 1000): void {
+  const stale = new Date(Date.now() - ageMs);
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const location = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      ageSnapshotTree(location);
+      ageSnapshotTree(location, ageMs);
     } else {
       fs.utimesSync(location, stale, stale);
     }
@@ -142,9 +146,8 @@ it("keeps timers responsive while async allocation reclaims a legacy backlog", a
     previous = now;
   };
   const timer = setInterval(measure, 1);
-  let allocated: string | undefined;
   try {
-    allocated = await createSqliteSnapshotStagingDirectory(cache);
+    await reclaimAbandonedSqliteSnapshotsAsync(cache);
     await new Promise<void>((resolve) => {
       setTimeout(() => {
         measure();
@@ -153,9 +156,6 @@ it("keeps timers responsive while async allocation reclaims a legacy backlog", a
     });
   } finally {
     clearInterval(timer);
-    if (allocated) {
-      removeTempDirectory(allocated);
-    }
   }
   console.log(JSON.stringify({ backlogDirectories: 429, longestGapMs }));
   expect(longestGapMs).toBeLessThan(100);
@@ -177,8 +177,7 @@ it("reclaims released-worker cache layouts only after 24 hours", async () => {
     }
     const log = path.join(root, "cleanup.log");
     setLoggerOverride({ level: "warn", file: log });
-    const own = prepareSqliteReadOnlyLocationSyncInProcess(source, cache);
-    own.cleanup();
+    await reclaimAbandonedSqliteSnapshotsAsync(cache);
     expect(fs.existsSync(parent)).toBe(fresh);
     await testApi.flushFileLogQueueForTests();
     if (fresh) {
@@ -192,12 +191,75 @@ it("reclaims released-worker cache layouts only after 24 hours", async () => {
   }
 });
 
+it.each(["sync", "async"] as const)(
+  "revisits expired current snapshots in the same %s owner",
+  async (mode) => {
+    const { cache } = createFixture();
+    const abandoned = createSqliteSnapshotStagingDirectorySync(cache);
+    fs.writeFileSync(path.join(abandoned, "database.sqlite"), "recent private snapshot");
+    releaseSnapshotTempDirectory(abandoned);
+
+    const allocated = createSqliteSnapshotStagingDirectorySync(cache);
+    try {
+      const reclaim = async () => {
+        if (mode === "async") {
+          await reclaimAbandonedSqliteSnapshotsAsync(cache);
+        } else {
+          for (const _ of reclaimAbandonedSqliteSnapshots(cache)) {
+            // Exercise cleanup independently of allocation.
+          }
+        }
+      };
+      await reclaim();
+      expect(fs.existsSync(abandoned)).toBe(true);
+      ageSnapshotTree(abandoned, 30 * 60 * 1000);
+      await reclaim();
+      expect(fs.existsSync(abandoned)).toBe(false);
+      expect(fs.existsSync(allocated)).toBe(true);
+    } finally {
+      removeTempDirectory(allocated);
+      removeTempDirectory(abandoned);
+    }
+  },
+);
+
+it("stops reclamation before exceeding its copied-byte budget", () => {
+  const { cache } = createFixture();
+  const abandoned = createSqliteSnapshotStagingDirectorySync(cache);
+  const payload = path.join(abandoned, "database.sqlite");
+  fs.closeSync(fs.openSync(payload, "w", 0o600));
+  fs.truncateSync(payload, 512 * 1024 * 1024 + 1);
+  releaseSnapshotTempDirectory(abandoned);
+  ageSnapshotTree(abandoned);
+  const reports: Array<{ error?: unknown; message: string }> = [];
+  try {
+    for (const _ of reclaimAbandonedSqliteSnapshots(cache, (message, error) => {
+      reports.push({ message, error });
+    })) {
+      // Drain the bounded reclamation pass.
+    }
+    expect(fs.existsSync(payload)).toBe(true);
+    expect(fs.statSync(payload).size).toBe(512 * 1024 * 1024 + 1);
+    expect(reports).toEqual([
+      {
+        message: "Skipped SQLite snapshot reclamation: owner live, recent, or unverified.",
+        error: expect.objectContaining({
+          message: "Snapshot reclamation byte budget exhausted",
+        }),
+      },
+    ]);
+  } finally {
+    removeTempDirectory(abandoned);
+  }
+});
+
 it("preserves a live snapshot when its owner PID is invisible", () => {
   const { root, cache, source } = createFixture();
   const held = prepareSqliteReadOnlyLocationSyncInProcess(source, cache);
   try {
     runChild(`
       import { prepareSqliteReadOnlyLocationSyncInProcess } from ${JSON.stringify(snapshotModule)};
+      import { reclaimAbandonedSqliteSnapshots } from ${JSON.stringify(stagingModule)};
       import { setLoggerOverride } from ${JSON.stringify(loggerModule)};
       setLoggerOverride({ level: 'silent', file: ${JSON.stringify(path.join(root, "child.log"))} });
       const kill = process.kill.bind(process);
@@ -205,8 +267,8 @@ it("preserves a live snapshot when its owner PID is invisible", () => {
         if (signal === 0) throw Object.assign(new Error('owner is outside this PID namespace'), { code: 'ESRCH' });
         return kill(pid, signal);
       };
-      const own = prepareSqliteReadOnlyLocationSyncInProcess(${JSON.stringify(source)}, ${JSON.stringify(cache)});
-      own.cleanup();
+      for (const _ of reclaimAbandonedSqliteSnapshots(${JSON.stringify(cache)})) {}
+
     `);
     expect(fs.existsSync(held.location)).toBe(true);
     assertReadable(held.location);
@@ -231,7 +293,7 @@ it.skipIf(process.platform === "win32")(
       import fs from 'node:fs';
       import path from 'node:path';
       import { prepareSqliteReadOnlyLocationSyncInProcess } from ${JSON.stringify(snapshotModule)};
-      import { createSqliteSnapshotStagingDirectorySync } from ${JSON.stringify(stagingModule)};
+      import { createSqliteSnapshotStagingDirectorySync, reclaimAbandonedSqliteSnapshots } from ${JSON.stringify(stagingModule)};
       import { setLoggerOverride } from ${JSON.stringify(loggerModule)};
       setLoggerOverride({ level: 'silent', file: ${JSON.stringify(path.join(root, "child.log"))} });
     `;
@@ -286,6 +348,9 @@ it.skipIf(process.platform === "win32")(
         await once(worker, 'message');
         parent.kill('SIGKILL');
         await parentClosed;
+        const stale = new Date(Date.now() - 25 * 60 * 60 * 1000);
+        if (fs.existsSync(path.join(directory, 'openclaw'))) fs.utimesSync(path.join(directory, 'openclaw'), stale, stale);
+        fs.utimesSync(directory, stale, stale);
         const readDirectory = fs.readdirSync;
         const rename = fs.renameSync;
         const startWorker = (pathname) => {
@@ -310,10 +375,10 @@ it.skipIf(process.platform === "win32")(
           if (${JSON.stringify(stage)} === 'retirement') startWorker(args[0]);
           return rename(...args);
         };
-        const own = prepareSqliteReadOnlyLocationSyncInProcess(${JSON.stringify(source)}, ${JSON.stringify(cache)});
+        for (const _ of reclaimAbandonedSqliteSnapshots(${JSON.stringify(cache)})) {}
         fs.readdirSync = readDirectory;
         fs.renameSync = rename;
-        own.cleanup();
+
         process.stdout.write(JSON.stringify({
           inspected, outcome,
           workerAlive: worker.exitCode === null && worker.signalCode === null,
@@ -347,7 +412,7 @@ it.skipIf(process.platform === "win32")(
 );
 
 it("reclaims only legacy snapshots older than 24 hours", async () => {
-  const { root, cache, source } = createFixture();
+  const { root, cache } = createFixture();
   const old = path.join(cache, "openclaw-sqlite-readonly-12345-Older1");
   const young = path.join(cache, "openclaw-sqlite-readonly-12345-Young1");
   const stale = new Date(Date.now() - 25 * 60 * 60 * 1000);
@@ -373,8 +438,7 @@ it("reclaims only legacy snapshots older than 24 hours", async () => {
     }
     return kill(pid, signal);
   });
-  const own = prepareSqliteReadOnlyLocationSyncInProcess(source, cache);
-  own.cleanup();
+  await reclaimAbandonedSqliteSnapshotsAsync(cache);
   expect(fs.existsSync(old)).toBe(false);
   expect(fs.readFileSync(path.join(young, "first"), "utf8")).toBe("recently active legacy copy");
   expect(fs.statSync(young).mtimeMs).toBe(youngDirectoryMtime);
@@ -387,9 +451,11 @@ it.skipIf(process.platform === "win32")(
   "reclaims abandoned mixed-generation snapshots while preserving live or recent children",
   async () => {
     for (const fixture of [
-      { legacyParent: true, recentChild: false },
-      { legacyParent: false, recentChild: false },
-      { legacyParent: false, recentChild: true },
+      { legacyParent: true, childAgeHours: 25 },
+      { legacyParent: false, childAgeHours: 25 },
+      { legacyParent: false, childAgeHours: 0 },
+      { legacyParent: false, childAgeHours: 1 },
+      { legacyParent: false, childAgeHours: 23 },
     ]) {
       const { root, cache, source } = createFixture();
       const output = runChild(
@@ -418,17 +484,15 @@ it.skipIf(process.platform === "win32")(
       );
       const { outer, location } = JSON.parse(output) as { outer: string; location: string };
       ageSnapshotTree(outer);
-      if (fixture.recentChild) {
-        const now = new Date();
-        fs.utimesSync(location, now, now);
-      }
+      const childTime = new Date(Date.now() - fixture.childAgeHours * 60 * 60 * 1000);
+      fs.utimesSync(location, childTime, childTime);
+      const recentChild = fixture.childAgeHours < 24;
       const log = path.join(root, "cleanup.log");
       setLoggerOverride({ level: "warn", file: log });
-      const own = prepareSqliteReadOnlyLocationSyncInProcess(source, cache);
-      own.cleanup();
-      expect(fs.existsSync(outer), JSON.stringify(fixture)).toBe(fixture.recentChild);
+      await reclaimAbandonedSqliteSnapshotsAsync(cache);
+      expect(fs.existsSync(outer), JSON.stringify(fixture)).toBe(recentChild);
       await testApi.flushFileLogQueueForTests();
-      if (fixture.recentChild) {
+      if (recentChild) {
         assertReadable(location);
         expect(fs.readFileSync(log, "utf8")).toContain("Skipped SQLite snapshot reclamation");
       } else {
@@ -445,11 +509,12 @@ it.skipIf(process.platform === "win32")(
     ageSnapshotTree(outer);
     try {
       runChild(`
-        import { prepareSqliteReadOnlyLocationSyncInProcess } from ${JSON.stringify(snapshotModule)};
+        import { reclaimAbandonedSqliteSnapshots } from ${JSON.stringify(stagingModule)};
+
         import { setLoggerOverride } from ${JSON.stringify(loggerModule)};
         setLoggerOverride({ level: 'silent', file: ${JSON.stringify(path.join(root, "child.log"))} });
-        const own = prepareSqliteReadOnlyLocationSyncInProcess(${JSON.stringify(source)}, ${JSON.stringify(cache)});
-        own.cleanup();
+        for (const _ of reclaimAbandonedSqliteSnapshots(${JSON.stringify(cache)})) {}
+
       `);
       assertReadable(held.location);
     } finally {

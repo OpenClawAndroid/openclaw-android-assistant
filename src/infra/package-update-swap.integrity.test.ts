@@ -405,6 +405,8 @@ describe("retained npm package integrity", () => {
         const rollback = await transaction.rollback(() => {});
         expect(rollback).toMatchObject({ exitCode: 1, activePackageRoot: fixture.packageRoot });
         expect(rollback.stderrTail).toContain("retained package");
+        expect(rollback.stderrTail).toContain(`changed at ${transaction.backupRoot}`);
+        expect(rollback.stderrTail).toContain("before retrying recovery");
         await expectCandidateIntact(fixture.packageRoot, fixture.launcher);
         expect(await fs.readFile(path.join(fixture.checkout, "operator.txt"), "utf8")).toBe(
           "operator-owned checkout\n",
@@ -565,6 +567,10 @@ describe("retained npm package integrity", () => {
       }
       const result = await transaction.rollback(() => {});
       expect(result).toMatchObject({ exitCode: 1, activePackageRoot: packageRoot });
+      if (change !== "launcher") {
+        expect(result.stderrTail).toContain(`retained package tree changed at ${backup}`);
+        expect(result.stderrTail).toContain("before retrying recovery");
+      }
       await expectCandidateIntact(packageRoot, launcher);
       expect(await transaction.complete({ activationVerified: false }, () => {})).toMatchObject({
         exitCode: 1,
@@ -642,7 +648,9 @@ describe("retained npm package integrity", () => {
           }
           return rename(...args);
         });
-        expect(await transaction.rollback(() => {})).toMatchObject({ exitCode: 1 });
+        const rollback = await transaction.rollback(() => {});
+        expect(rollback).toMatchObject({ exitCode: 1 });
+        expect(rollback.stderrTail).toContain(`restored package tree changed at ${packageRoot}`);
         expect(wrote).toBe(true);
         // Observation is not exclusion: the same-principal fd survives rename.
         // Never call this result verified or discard the retained candidate.

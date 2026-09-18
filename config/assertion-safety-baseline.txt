@@ -1983,7 +1983,7 @@ src/agents/utils/frontmatter.ts	2
 src/agents/utils/tools-manager.ts	2
 src/agents/workspace-legacy-state.ts	2
 src/agents/workspace-state-store.ts	1
-src/agents/workspace.ts	6
+src/agents/workspace.ts	5
 src/agents/worktrees/git.ts	2
 src/agents/worktrees/registry.ts	11
 src/agents/worktrees/run-lease.ts	1
@@ -2344,7 +2344,6 @@ src/commands/doctor/cron/legacy-repair.ts	5
 src/commands/doctor/cron/legacy-store-migration.ts	12
 src/commands/doctor/cron/store-migration.ts	9
 src/commands/doctor/cron/warnings.ts	1
-src/commands/doctor/shared/active-tool-schema-warnings.ts	1
 src/commands/doctor/shared/allowfrom-fallback-migration.ts	1
 src/commands/doctor/shared/allowlist-policy-repair.ts	3
 src/commands/doctor/shared/channel-doctor.ts	4
@@ -2579,8 +2578,8 @@ src/fleet/service-support.runtime.ts	1
 src/flows/channel-setup.prompts.ts	2
 src/flows/channel-setup.status.ts	2
 src/flows/channel-setup.ts	7
-src/flows/doctor-core-checks.runtime.ts	5
-src/flows/doctor-core-checks.ts	4
+src/flows/doctor-core-checks.runtime.ts	3
+src/flows/doctor-core-checks.ts	3
 src/flows/doctor-health-contributions-final.ts	1
 src/flows/doctor-health-contributions.ts	1
 src/flows/doctor-removed-workspaces-state-check.ts	2
@@ -3026,7 +3025,7 @@ src/logging/log-file-shared.ts	1
 src/logging/logger.ts	11
 src/logging/parse-log-line.ts	1
 src/logging/redact-internal-state.ts	1
-src/logging/redact.ts	3
+src/logging/redact.ts	2
 src/logging/secret-redaction-registry.ts	1
 src/logging/state.ts	6
 src/logging/subsystem.ts	4

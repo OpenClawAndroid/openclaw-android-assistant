@@ -1,6 +1,9 @@
 import { hasSubagentSessionRecoveryOwner } from "../agents/subagents/registry/subagent-session-reconciliation.js";
 import { patchSessionEntryCore } from "../config/sessions/session-accessor.js";
-import { readSessionEntriesByStatus } from "../config/sessions/session-accessor.sqlite-status.js";
+import {
+  hasSessionEntriesByStatus,
+  readSessionEntriesByStatus,
+} from "../config/sessions/session-accessor.sqlite-status.js";
 import {
   runSessionStartupMigration,
   type SessionStartupMigrationLogger,
@@ -15,6 +18,7 @@ import {
   isIncognitoSessionKey,
   resolveAgentIdFromSessionKey,
 } from "../routing/session-key.js";
+import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
 import {
   openOpenClawAgentDatabase,
   type OpenClawAgentDatabaseOptions,
@@ -59,6 +63,17 @@ async function reconcileStartupOrphans(
   const statePath = resolveOpenClawStateSqlitePath(env);
   if (!hasGatewayLifecycleCoordinator({ databasePath: statePath })) {
     return;
+  }
+  try {
+    const running = withOpenClawAgentDatabaseReadOnly(
+      (connection) => hasSessionEntriesByStatus(connection, ["running"]),
+      database,
+    );
+    if (running.found && !running.value) {
+      return;
+    }
+  } catch {
+    // The writable owner retains schema repair and integrity diagnosis for uncertain reads.
   }
   const lock = await readActiveGatewayLockIdentity({ env, requireInspection: true });
   if (lock?.pid !== process.pid || !lock.ownerId) {

@@ -32,6 +32,7 @@ import {
   loadTranscriptEventsSync,
 } from "../../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { getAgentRunContext } from "../../infra/agent-run-registry.js";
 import {
   loadOrCreateDeviceIdentity,
   publicKeyRawBase64UrlFromPem,
@@ -522,16 +523,36 @@ describe("Gateway pinned manual library read", () => {
               console.info("Prepared compaction normal-read R1 instruction proof", instructions);
               return;
             }
+            await rpc(alice, "sessions.subscribe", {});
             const started = (await rpc(alice, "chat.send", {
               sessionKey,
               message: `/skill ${saved.entry.name} Read the pinned instructions and supporting files.`,
               idempotencyKey: randomUUID(),
             })) as { runId: string; status: string };
             expect(started.status).toBe("started");
+            // Session settlement publishes after releasing the live run context. A completed
+            // run must remain visible to its current session owner, but not another profile.
+            const settled = getAgentRunContext(started.runId)
+              ? waitForFrame(
+                  alice,
+                  (frame) =>
+                    frame.event === "sessions.changed" &&
+                    getAgentRunContext(started.runId) === undefined,
+                )
+              : Promise.resolve();
+            const [immediate, settlement] = await Promise.allSettled([
+              rpc(alice, "agent.wait", { runId: started.runId, timeoutMs: 40_000 }),
+              settled,
+            ]);
+            expect(settlement.status).toBe("fulfilled");
             const completed = await rpc(alice, "agent.wait", {
               runId: started.runId,
               timeoutMs: 40_000,
             });
+            expect(immediate).toEqual({ status: "fulfilled", value: completed });
+            await expect(
+              rpc(bob, "agent.wait", { runId: started.runId, timeoutMs: 40_000 }),
+            ).rejects.toThrow(/agent run was not found/);
             expect(
               completed,
               JSON.stringify({

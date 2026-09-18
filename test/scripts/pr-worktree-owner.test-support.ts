@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect } from "vitest";
+import { exitedDescendantReaper } from "./exited-descendant-reaper.test-support.js";
 
 export function createProvisionOwnerFixture(
   directory: string,
@@ -88,23 +89,27 @@ fi
     env,
     main,
     git,
-    run(action = "entry", owner = "") {
-      return spawnSync(
-        process.execPath,
-        [
-          resolve(source, "scripts/pr-lib/process-group-runner.mjs"),
-          canonical,
-          process.platform === "darwin" ? "/bin/bash" : "bash",
-          "-c",
-          script,
-          "provision-owner-fixture",
-          canonical,
-          source,
-          action,
-          owner,
-        ],
-        { cwd: canonical, env, encoding: "utf8" },
-      );
+    run(action = "entry", owner = "", options: { holdExitedDescendants?: boolean } = {}) {
+      const args = [
+        resolve(source, "scripts/pr-lib/process-group-runner.mjs"),
+        canonical,
+        process.platform === "darwin" ? "/bin/bash" : "bash",
+        "-c",
+        script,
+        "provision-owner-fixture",
+        canonical,
+        source,
+        action,
+        owner,
+      ];
+      if (options.holdExitedDescendants) {
+        args.unshift("-c", exitedDescendantReaper, process.execPath);
+      }
+      return spawnSync(options.holdExitedDescendants ? "python3" : process.execPath, args, {
+        cwd: canonical,
+        env,
+        encoding: "utf8",
+      });
     },
   };
 }

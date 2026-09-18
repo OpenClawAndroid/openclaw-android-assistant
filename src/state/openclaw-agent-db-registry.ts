@@ -19,7 +19,10 @@ import {
 import type { OpenClawStateDatabase } from "./openclaw-state-db-contract.js";
 import type { DB as OpenClawStateKyselyDatabase } from "./openclaw-state-db.generated.js";
 import { runOpenClawStateWriteTransaction } from "./openclaw-state-db.js";
-import { resolveOpenClawAgentDatabaseStoredPath } from "./openclaw-state-db.paths.js";
+import {
+  resolveOpenClawAgentDatabaseStoredPath,
+  resolveOpenClawRegisteredAgentDatabasePath,
+} from "./openclaw-state-db.paths.js";
 
 export {
   inspectOpenClawRegisteredAgentDatabases,
@@ -672,14 +675,17 @@ export function unregisterOpenClawAgentDatabases(params: {
     env: params.env,
     ...(params.database ? { database: params.database, path: params.database.path } : {}),
   };
-  runOpenClawStateWriteTransaction((database) => {
+  const removedPaths = runOpenClawStateWriteTransaction((database) => {
     const db = getNodeSqliteKysely<OpenClawAgentRegistryDatabase>(database.db);
-    executeSqliteQuerySync(
+    const removed = executeSqliteQuerySync(
       database.db,
-      db.deleteFrom("agent_databases").where("agent_id", "=", params.agentId),
+      db.deleteFrom("agent_databases").where("agent_id", "=", params.agentId).returning("path"),
     );
     invalidateRegisteredAgentDatabasesMemo(options);
     sessionChanges.emit({ all: true, scope: "stores" }, database.db);
+    return removed.rows.map((row) =>
+      resolveOpenClawRegisteredAgentDatabasePath(database.path, row.path),
+    );
   }, options);
-  invalidateOpenClawAgentDatabaseValidationsForAgent(params.agentId);
+  invalidateOpenClawAgentDatabaseValidationsForAgent(params.agentId, removedPaths);
 }

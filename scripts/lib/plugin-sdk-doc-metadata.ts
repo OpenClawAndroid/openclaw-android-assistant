@@ -102,6 +102,9 @@ export const pluginSdkDocMetadata = {
   "agent-harness-runtime": {
     category: "runtime",
   },
+  "agent-workspace-runtime": {
+    category: "runtime",
+  },
   "speech-settings": {
     category: "provider",
   },

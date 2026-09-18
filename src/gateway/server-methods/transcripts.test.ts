@@ -19,6 +19,7 @@ import {
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
 import { activeSessions, startTranscripts } from "../../transcripts/capture.js";
+import { clearTranscriptCapturesForTest } from "../../transcripts/capture.test-support.js";
 import { resolveTranscriptsConfig } from "../../transcripts/config.js";
 import * as transcriptProviders from "../../transcripts/provider-registry.js";
 import { meetingTranscriptDb } from "../../transcripts/store-sqlite.js";
@@ -173,7 +174,7 @@ describe("transcript Gateway read authorization and errors", () => {
         );
       } finally {
         provider.mockRestore();
-        activeSessions.clear();
+        await clearTranscriptCapturesForTest();
       }
     });
   });
@@ -469,7 +470,7 @@ describe("meeting transcript RPC", () => {
     await store.writeSession(session);
   });
   afterEach(async () => {
-    activeSessions.clear();
+    await clearTranscriptCapturesForTest();
     vi.restoreAllMocks();
     await closeOpenClawStateDatabaseAsync();
     closeOpenClawStateDatabaseForTest();

@@ -43,8 +43,10 @@ type OperationOptions = {
   createAdmission?: SqliteWorkerAdmissionFactory;
 };
 const log = createSubsystemLogger("state/worker");
+const SHARED_STATE_WORKER_IDLE_RETIRE_MS = 60_000;
 
 function createSharedStateWorkerOwner() {
+  type IdleTimer = ReturnType<typeof setTimeout> & { unref?: () => void };
   type Entry = {
     context: OpenClawStateWorkerContext;
     opening: Promise<Store | undefined>;
@@ -52,6 +54,8 @@ function createSharedStateWorkerOwner() {
     store?: Store;
     bound?: boolean;
     cleanup?: SqliteWorkerAdmissionCleanup;
+    activeOperations: number;
+    idleTimer?: IdleTimer;
   };
   const stores = new Set<Entry>();
   const retiring = new Map<Entry, { pending?: Promise<void> }>();
@@ -60,11 +64,18 @@ function createSharedStateWorkerOwner() {
   const forget = (entry: Entry) => {
     stores.delete(entry);
   };
+  const clearIdleRetirement = (entry: Entry) => {
+    if (entry.idleTimer) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = undefined;
+    }
+  };
   const hasPendingCleanup = (entry: Entry) =>
     entry.context.maintenanceScope
       ? entry.cleanup?.pending === true
       : hasUnclaimedSharedStateSqliteCleanup(entry.context.admission.databasePath);
   const retire = (entry: Entry) => {
+    clearIdleRetirement(entry);
     forget(entry);
     let attempt = retiring.get(entry);
     if (!attempt) {
@@ -90,6 +101,50 @@ function createSharedStateWorkerOwner() {
     };
     void pending.then(settled, settled);
     return pending;
+  };
+  const scheduleIdleRetirement = (entry: Entry) => {
+    if (
+      entry.activeOperations !== 0 ||
+      entry.idleTimer ||
+      entry.context.maintenanceScope ||
+      !entry.store ||
+      !stores.has(entry)
+    ) {
+      return;
+    }
+    const timer: IdleTimer = setTimeout(() => {
+      if (entry.idleTimer !== timer) {
+        return;
+      }
+      entry.idleTimer = undefined;
+      if (entry.activeOperations === 0 && stores.has(entry)) {
+        void retire(entry).catch((error: unknown) => {
+          log.warn("Idle shared-state worker retirement failed", {
+            path: entry.context.admission.databasePath,
+            error,
+          });
+        });
+      }
+    }, SHARED_STATE_WORKER_IDLE_RETIRE_MS);
+    entry.idleTimer = timer;
+    timer.unref?.();
+  };
+  const retainOperation = (store: Store) => {
+    const entry = [...stores].find((candidate) => candidate.store === store);
+    if (!entry) {
+      throw new Error("Shared-state worker operation lost its actor owner");
+    }
+    clearIdleRetirement(entry);
+    entry.activeOperations += 1;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      entry.activeOperations -= 1;
+      scheduleIdleRetirement(entry);
+    };
   };
   async function close(identity?: DatabasePathIdentity): Promise<void> {
     for (const entry of stores.values()) {
@@ -125,6 +180,7 @@ function createSharedStateWorkerOwner() {
     async retireFailedStore(store: Store): Promise<void> {
       await Promise.all([...stores.values()].filter((entry) => entry.store === store).map(retire));
     },
+    retainOperation,
     async open(
       context: OpenClawStateWorkerContext,
       existingOnly = false,
@@ -167,6 +223,7 @@ function createSharedStateWorkerOwner() {
         const admitted: Entry = {
           context,
           existingOnly,
+          activeOperations: 0,
           opening: openSharedStateSqliteWorkerStore<StoreOperations>(
             {
               moduleUrl: resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sharedStateStore),
@@ -194,12 +251,26 @@ function createSharedStateWorkerOwner() {
         });
       }
       const store = await entry.opening;
-      admission.assertCurrent();
+      try {
+        admission.assertCurrent();
+      } catch (error) {
+        try {
+          await retire(entry);
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "Shared-state worker admission and cleanup failed",
+            { cause: cleanupError },
+          );
+        }
+        throw error;
+      }
       if (!store) {
         forget(entry);
         return !existingOnly && entry.existingOnly ? this.open(context) : undefined;
       }
       entry.store = store;
+      clearIdleRetirement(entry);
       try {
         if (!entry.bound) {
           publishOpenClawStateDatabaseWorkerAdmission(entry.context.admission);
@@ -294,15 +365,22 @@ async function runAdmittedOpenClawStateWorkerOperation<T>(
       }
       throw new Error("Canonical shared-state worker did not open its database");
     }
-    options?.assertCurrent?.();
-    return await runWithOpenClawStateWorkerStore(
-      store,
-      context,
-      operation,
-      options?.assertCurrent,
-      options?.createAdmission,
-      options?.requireStateLifecycle,
-    );
+    const releaseOperation = owner().retainOperation(store);
+    try {
+      context.admission.assertCurrent();
+      options?.assertCurrent?.();
+      return await runWithOpenClawStateWorkerStore(
+        store,
+        context,
+        operation,
+        options?.assertCurrent,
+        options?.createAdmission,
+        // Host-held lifecycle custody keeps native writers from blocking the worker's grant handler.
+        options?.requireStateLifecycle === true || options?.createAdmission !== undefined,
+      );
+    } finally {
+      releaseOperation();
+    }
   } catch (error) {
     if (error instanceof Error) {
       throw hydrateOpenClawStateWorkerError(error);
@@ -337,12 +415,18 @@ async function inspectAdmittedOpenClawStateDatabase(
     if (!store) {
       return undefined;
     }
-    return await runWithOpenClawStateWorkerStore(store, context, (scope) =>
-      scope.execute({
-        type: "database.generationMatches",
-        input: command.input,
-      }),
-    );
+    const releaseOperation = owner().retainOperation(store);
+    try {
+      context.admission.assertCurrent();
+      return await runWithOpenClawStateWorkerStore(store, context, (scope) =>
+        scope.execute({
+          type: "database.generationMatches",
+          input: command.input,
+        }),
+      );
+    } finally {
+      releaseOperation();
+    }
   } catch (error) {
     if (error instanceof Error) {
       throw hydrateOpenClawStateWorkerError(error);

@@ -41,6 +41,8 @@ type InternalReplySessionOptions = {
   /** Invocation-owned conversation facts; never execution or sender authority. */
   replyConversation?: PreparedReplyConversation;
   prepareAssistantTranscriptMessage?: PrepareAssistantTranscriptMessage;
+  /** Internal delivery owner that stages reply media using current Gateway session policy. */
+  mediaNormalizationOwner?: "gateway";
   /** Exact authority-bearing settings captured by Gateway chat admission. */
   admittedSessionSettings?: Readonly<Pick<SessionEntry, "permissionMode" | "toolOverrides">>;
   /** Host-stamped exact-run capability for late Codex creator-authority capture. */

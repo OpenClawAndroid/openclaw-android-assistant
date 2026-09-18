@@ -43,6 +43,7 @@ import {
 import { addSessionMember, removeSessionMember } from "../config/sessions/session-sharing-store.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import type { GatewayOperatorRoleDefinition } from "../config/types.gateway.js";
+import { peekSystemEvents } from "../infra/system-events.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import {
@@ -80,10 +81,6 @@ import {
 } from "../test-utils/openclaw-test-state.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import type { ChatAbortControllerEntry } from "./chat-abort.js";
-import {
-  attachGatewayLocalUserIngress,
-  prepareGatewayLocalUserIngress,
-} from "./local-user-ingress.js";
 import { createMentionInbox } from "./mention-inbox.js";
 import { sessionLog } from "./server-methods/sessions-shared.js";
 import { identifiedClient, soloClient } from "./server-methods/sessions-sharing.test-support.js";
@@ -1335,6 +1332,7 @@ test("sessions.create keeps incognito rows process-local through list, spawn, re
     expect(created.ok).toBe(true);
     const key = requireNonEmptyString(created.payload?.key, "incognito session key");
     expect(key).toMatch(/^agent:main:dashboard:incognito-/u);
+    expect(peekSystemEvents("agent:main:main")).toEqual([]);
     const entry = created.payload?.entry;
     expect(entry?.incognito).toBe(true);
     expect(entry?.parentSessionKey).toBeUndefined();
@@ -2168,6 +2166,7 @@ test("sessions.create persists draft visibility in the initial session entry", a
 
   expect(created.ok).toBe(true);
   expect(created.payload?.entry.visibility).toBe("draft");
+  expect(peekSystemEvents("agent:main:main")).toEqual([]);
   const key = requireNonEmptyString(created.payload?.key, "created session key");
   expect(loadSessionEntry({ agentId: "main", sessionKey: key, storePath })?.visibility).toBe(
     "draft",
@@ -5893,110 +5892,6 @@ test("sessions.create model change clears a selection the new model does not sup
   const stored = loadSessionEntry({ sessionKey: existingKey, storePath });
   expect(stored?.modelOverride).toBe("gpt-test-b");
   expect(stored?.contextWindow).toBeUndefined();
-});
-
-test("sessions.create stamps trusted operator provenance and records created", async () => {
-  const { storePath } = await createSessionStoreDir();
-  const profileId = "profile-session-creator";
-  const client = {
-    connect: { scopes: ["operator.write"] },
-    authenticatedUserProfile: {
-      profileId,
-      displayName: "Test Operator",
-      hasAvatar: false,
-      updatedAt: 1,
-    },
-  };
-  attachGatewayLocalUserIngress(
-    client,
-    prepareGatewayLocalUserIngress({
-      authenticatedUserExpected: true,
-      profile: { profileId, displayName: "Test Operator" },
-      isLocalClient: false,
-    }),
-  );
-  const created = await directSessionReq<{
-    key?: string;
-    entry?: {
-      createdVia?: string;
-      createdActor?: { type: string; id?: string };
-      createdAt?: number;
-    };
-  }>("sessions.create", { agentId: "main" }, { client: client as never });
-
-  expect(created.ok).toBe(true);
-  expect(created.payload?.entry).toMatchObject({
-    createdVia: "operator",
-    createdActor: { type: "human", source: "profile", id: profileId },
-    createdAt: expect.any(Number),
-  });
-  expect(created.payload?.entry).not.toHaveProperty("createdActor.label");
-  const key = requireNonEmptyString(created.payload?.key, "created session key");
-  expect(loadSessionEntry({ sessionKey: key, storePath })).not.toHaveProperty("createdActor.label");
-  expect(listSessionStateEventsSince(key, "main", 0, 20).events).toContainEqual(
-    expect.objectContaining({
-      kind: "created",
-      actorType: "human",
-      actorId: profileId,
-      summary: "session created",
-    }),
-  );
-
-  const synthetic = await directSessionReq<{
-    entry?: { createdVia?: string; createdActor?: unknown; createdAt?: number };
-  }>(
-    "sessions.create",
-    { agentId: "main" },
-    {
-      client: {
-        connect: { scopes: ["operator.write"] },
-        internal: { syntheticClient: true },
-      } as never,
-    },
-  );
-  expect(synthetic.payload?.entry).toMatchObject({
-    createdVia: "operator",
-    createdAt: expect.any(Number),
-  });
-  expect(synthetic.payload?.entry?.createdActor).toBeUndefined();
-
-  for (const { actor, sandbox } of [
-    { actor: { type: "agent", id: "main" }, sandbox: undefined },
-    {
-      actor: { type: "human", source: "profile", id: "profile-delegated-creator" },
-      sandbox: "required",
-    },
-  ] as const) {
-    // The required parent's creation policy survives removal of gateway.roles.
-    const hinted = await directSessionReq<{
-      key?: string;
-      entry?: { createdVia?: string; createdActor?: unknown; sandbox?: "required" };
-    }>(
-      "sessions.create",
-      { agentId: "main" },
-      {
-        client: {
-          connect: { scopes: ["operator.write"] },
-          internal: {
-            syntheticClient: true,
-            sessionCreation: {
-              via: "spawn",
-              actor,
-              sandbox,
-              requesterSessionKey: "agent:main:main",
-            },
-          },
-        } as never,
-      },
-    );
-    expect(hinted.ok, JSON.stringify(hinted.error)).toBe(true);
-    expect(hinted.payload?.entry).toMatchObject({ createdVia: "spawn", createdActor: actor });
-    expect(hinted.payload?.entry?.sandbox).toBe(sandbox);
-    const hintedKey = requireNonEmptyString(hinted.payload?.key, "delegated session key");
-    const stored = loadSessionEntry({ sessionKey: hintedKey, storePath });
-    expect(stored).toMatchObject({ createdVia: "spawn", createdActor: actor });
-    expect(stored?.sandbox).toBe(sandbox);
-  }
 });
 
 test("sessions.create reset-in-place preserves the node creation stamp", async () => {

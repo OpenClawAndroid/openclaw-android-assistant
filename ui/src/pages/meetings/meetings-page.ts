@@ -15,6 +15,7 @@ import { formatUiError } from "../../lib/format-error.ts";
 import { isArchiveAccessDeniedError } from "../../lib/gateway-errors.ts";
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
+import { PollController } from "../../lit/poll-controller.ts";
 import {
   transcriptListParams,
   transcriptRouteSearch,
@@ -43,6 +44,9 @@ class MeetingsPage extends OpenClawLightDomElement {
   @state() private readerDenial: unknown = null;
   private accessGeneration = 0;
   @state() private readerCursor: string | null = null;
+  private loadedReaderCursor: string | null = null;
+  private lastReaderRefresh = 0;
+  @state() private now = Date.now();
   @state() private summary: TranscriptsGetResult | null = null;
   @state() private readerPages: TranscriptsGetResult[] = [];
   @state() private trimmed = false;
@@ -55,6 +59,7 @@ class MeetingsPage extends OpenClawLightDomElement {
   private readonly gateway = new GatewayPageController(this, {
     getGateway: () => this.context?.gateway,
     invalidateRequests: () => this.resetConnection(),
+    onPageActivation: () => this.refreshLive(true),
     onSnapshot: ({ snapshot: { hello } }) => {
       // A new handshake or authorization can replace a still-connected client.
       if (hello !== this.connectionHello || hello?.auth !== this.connectionAuth) {
@@ -65,6 +70,12 @@ class MeetingsPage extends OpenClawLightDomElement {
       this.connectionAuth = hello?.auth;
     },
   });
+  private readonly polling = new PollController(this, 3_000, () => this.refreshLive());
+
+  constructor() {
+    super();
+    void this.polling;
+  }
 
   private requestClient() {
     const snapshot = this.context?.gateway.snapshot;
@@ -85,10 +96,10 @@ class MeetingsPage extends OpenClawLightDomElement {
 
   private get readerTab(): "text" | "summary" {
     const params = new URLSearchParams(this.routeSearch);
-    return params.get("tab") === "transcript" ||
-      (!params.has("tab") && Boolean(this.selection.query))
-      ? "text"
-      : "summary";
+    if (params.has("tab")) {
+      return params.get("tab") === "transcript" ? "text" : "summary";
+    }
+    return this.selection.query ? "text" : "summary";
   }
 
   private async readArchive<Method extends keyof ArchiveReadResults>(request: {
@@ -225,7 +236,16 @@ class MeetingsPage extends OpenClawLightDomElement {
           this.readerCursor === cursor,
         accept: (result) => {
           this.readerDenial = null;
-          const pages = cursor ? [...this.readerPages, result] : [result];
+          // A background read replaces the current page; only forward paging appends.
+          const pages = cursor
+            ? [
+                ...(cursor === this.loadedReaderCursor
+                  ? this.readerPages.slice(0, -1)
+                  : this.readerPages),
+                result,
+              ]
+            : [result];
+          this.loadedReaderCursor = cursor;
           this.trimmed ||= pages.length > READER_WINDOW_PAGES;
           this.readerPages = pages.slice(-READER_WINDOW_PAGES);
         },
@@ -239,6 +259,13 @@ class MeetingsPage extends OpenClawLightDomElement {
       const next = new URLSearchParams(this.routeSearch);
       if (previous.get("selector") !== next.get("selector")) {
         this.summary = null;
+        this.lastReaderRefresh = 0;
+      }
+      if (
+        JSON.stringify(transcriptListParams(String(changed.get("routeSearch") ?? ""))) !==
+        JSON.stringify(transcriptListParams(this.routeSearch))
+      ) {
+        this.list = null;
       }
       // Only route-owned changes replace drafts; async reader/list work does not.
       for (const key of [...TRANSCRIPT_FILTER_KEYS, "find"]) {
@@ -279,6 +306,7 @@ class MeetingsPage extends OpenClawLightDomElement {
     this.listDenial = null;
     this.readerDenial = null;
     this.summary = null;
+    this.lastReaderRefresh = 0;
     this.listTask.abort();
     this.summaryTask.abort();
     this.readerTask.abort();
@@ -288,6 +316,7 @@ class MeetingsPage extends OpenClawLightDomElement {
 
   private resetReader() {
     this.readerCursor = null;
+    this.loadedReaderCursor = null;
     this.readerPages = [];
     this.trimmed = false;
   }
@@ -321,6 +350,42 @@ class MeetingsPage extends OpenClawLightDomElement {
     }
     void this.summaryTask.run();
     void this.readerTask.run();
+  }
+
+  private refreshLive(foreground = false) {
+    if (
+      !this.requestClient() ||
+      document.visibilityState === "hidden" ||
+      this.listDenial ||
+      this.readerDenial
+    ) {
+      return;
+    }
+    this.now = Date.now();
+    if (this.listTask.status !== TaskStatus.PENDING) {
+      void this.listTask.run();
+    }
+    if (!this.selection.selector) {
+      return;
+    }
+    const session = this.summary?.session ?? this.readerPages.at(-1)?.session;
+    const summary = this.summary?.summary;
+    const interimSummary =
+      session?.stoppedAt &&
+      summary?.generatedAt &&
+      Date.parse(summary.generatedAt) < Date.parse(session.stoppedAt);
+    // Interim notes remain visible while the final summary is being generated.
+    const interval = session?.active || !summary || interimSummary ? 3_000 : 15_000;
+    if (!foreground && this.now - this.lastReaderRefresh < interval) {
+      return;
+    }
+    this.lastReaderRefresh = this.now;
+    if (this.summaryTask.status !== TaskStatus.PENDING) {
+      void this.summaryTask.run();
+    }
+    if (this.readerTask.status !== TaskStatus.PENDING) {
+      void this.readerTask.run();
+    }
   }
 
   private async download(format: TranscriptsExportParams["format"]) {
@@ -382,6 +447,7 @@ class MeetingsPage extends OpenClawLightDomElement {
     };
     return renderTranscripts({
       basePath: this.context.basePath,
+      now: this.now,
       search: this.routeSearch,
       drafts: this.drafts,
       onDraft: (key, value) => {
@@ -389,7 +455,7 @@ class MeetingsPage extends OpenClawLightDomElement {
       },
       connected: snapshot.phase === "connected",
       allowed: hasOperatorReadAccess(snapshot.hello?.auth ?? null),
-      list: client && this.listTask.status === TaskStatus.COMPLETE ? this.list : null,
+      list: client ? this.list : null,
       listLoading: !this.listDenial && this.listTask.status === TaskStatus.PENDING,
       listError:
         this.listDenial ?? (this.listTask.status === TaskStatus.ERROR ? this.listTask.error : null),

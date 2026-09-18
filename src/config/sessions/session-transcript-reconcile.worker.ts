@@ -1,5 +1,9 @@
 /** Worker entrypoint for transcript parsing and active-branch resolution only. */
 import { MessagePort } from "node:worker_threads";
+import {
+  attachStateLifecycleDelegate,
+  withStateDatabaseCoordinatorRuntimeDirectory,
+} from "../../infra/state-database-coordinator.js";
 import { serveWorkerTasks } from "../../infra/worker-task-pool.js";
 import {
   claimOpenClawAgentDatabaseLease,
@@ -7,6 +11,8 @@ import {
 } from "../../state/openclaw-agent-db-lease.js";
 import { openOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly-open.js";
 import { closeOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
+import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
+import type { SqliteMutationWorkerCoordination } from "./session-accessor.sqlite-worker-coordination.js";
 import { listSessionsNeedingTranscriptIndexReconcile } from "./session-transcript-index.js";
 import {
   prepareSessionTranscriptProjection,
@@ -41,6 +47,7 @@ export type SessionTranscriptReconcileWorkerInput =
 export type SessionTranscriptReconcileWorkerTask = {
   input: SessionTranscriptReconcileWorkerInput;
   port: MessagePort;
+  coordination?: SqliteMutationWorkerCoordination;
 };
 
 export type EncodedTranscriptFtsChunk = {
@@ -339,10 +346,11 @@ async function run(input: SessionTranscriptReconcileWorkerInput, port: MessagePo
             reject(new Error("session transcript reconcile worker expected lease release"));
             return;
           }
-          releaseLease(reconcileInput, port);
           resolve();
         });
       });
+      // Port callbacks do not inherit the delegate's runtime and live custody.
+      releaseLease(reconcileInput, port);
     }
   } finally {
     if (reconcileInput.mode === "memory") {
@@ -359,8 +367,34 @@ serveWorkerTasks(async (value) => {
   if (!input || !(value.port instanceof MessagePort)) {
     throw new Error("session transcript reconcile worker requires valid task data");
   }
+  const port = value.port;
   try {
-    await run(input, value.port);
+    if (input.mode === "memory") {
+      await run(input, port);
+    } else {
+      // SAFETY: The pool owns this private task and transfers its live delegate.
+      const { coordination } = value as SessionTranscriptReconcileWorkerTask;
+      if (
+        !coordination?.stateLifecycle ||
+        coordination.actorId !== `transcript:${input.mode}:${input.leaseId}` ||
+        coordination.databasePath !== resolveOpenClawStateSqlitePath(resolveLeaseEnvironment(input))
+      ) {
+        throw new Error("Transcript worker shared-state owner changed");
+      }
+      const delegate = await attachStateLifecycleDelegate(coordination.stateLifecycle, {
+        actorId: coordination.actorId,
+        databasePath: coordination.databasePath,
+        runtimeDirectory: coordination.stateContext.coordinatorRuntime.directory,
+      });
+      try {
+        await withStateDatabaseCoordinatorRuntimeDirectory(
+          coordination.stateContext.coordinatorRuntime,
+          () => delegate.run(() => run(input, port)),
+        );
+      } finally {
+        delegate.close();
+      }
+    }
   } catch {
     // An uncertain native close must end this isolate before lease recovery or slot reuse.
     process.exit(1);

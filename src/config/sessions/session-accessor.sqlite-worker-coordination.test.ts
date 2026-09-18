@@ -20,6 +20,63 @@ function createWaitingWorker() {
 }
 
 describe("SQLite mutation worker coordinator custody", () => {
+  it("admits another agent lease while a sibling worker retains lifecycle custody", async () => {
+    await withOpenClawTestState(
+      { scenario: "external-service", label: "mutation-worker-parallel-leases" },
+      async (state) => {
+        openOpenClawStateDatabase();
+        const context = captureOpenClawStateWorkerContext();
+        const release = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+        const createWorker = (operation: "hold" | "lease") =>
+          new Worker(
+            new URL(
+              "./session-accessor.sqlite-worker-coordination.worker.test-support.mjs",
+              import.meta.url,
+            ),
+            {
+              execArgv: [],
+              workerData: {
+                operation,
+                release: release.buffer,
+                agentPath: state.path(operation, "openclaw-agent.sqlite"),
+                sourceLoaderUrl: import.meta.resolve("tsx/esm/api"),
+              },
+            },
+          );
+        const holder = createWorker("hold");
+        const claimant = createWorker("lease");
+        const workers = [holder, claimant];
+        const dispatch = (worker: Worker, result: "held" | "claimed") =>
+          withSqliteMutationWorkerCoordination(context, worker, 1, async (coordination) => {
+            const completed = Promise.all([once(worker, "message"), once(worker, "exit")]);
+            worker.postMessage(
+              coordination,
+              coordination.stateLifecycle ? [coordination.stateLifecycle] : [],
+            );
+            const [response, exited] = await completed;
+            expect(response).toEqual([result]);
+            expect(exited).toEqual([0]);
+          });
+        const held = once(holder, "message");
+        const holding = dispatch(holder, "held");
+        try {
+          expect(await held).toEqual(["held"]);
+          await dispatch(claimant, "claimed");
+          expect(
+            openOpenClawStateDatabase()
+              .db.prepare("SELECT count(*) AS count FROM agent_database_leases")
+              .get(),
+          ).toEqual({ count: 0 });
+        } finally {
+          Atomics.store(release, 0, 1);
+          Atomics.notify(release, 0);
+          await holding;
+          await Promise.all(workers.map((worker) => worker.terminate()));
+        }
+      },
+    );
+  });
+
   it("joins native worker exit before rejecting delegate preparation", async () => {
     await withOpenClawTestState(
       { scenario: "external-service", label: "mutation-worker-preparation" },

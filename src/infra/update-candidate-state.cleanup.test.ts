@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { waitForDead, waitForPidFile } from "../../test/helpers/process-wait.js";
 import * as commands from "../process/exec.js";
-import { runCommandBuffered } from "../process/exec.js";
+import { runCommandBuffered, runUtf8CommandWithTimeout } from "../process/exec.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { runtimeProcessEntrypoints } from "./runtime-process-entrypoints.js";
@@ -281,10 +281,10 @@ it.each([false, true])(
 function inspectionResult(
   value: unknown,
   error?: string,
-): Awaited<ReturnType<typeof runCommandBuffered>> {
+): Awaited<ReturnType<typeof runUtf8CommandWithTimeout>> {
   return {
-    stdout: Buffer.from(error ? "" : JSON.stringify(value)),
-    stderr: Buffer.from(error ?? ""),
+    stdout: error ? "" : JSON.stringify(value),
+    stderr: error ?? "",
     code: error ? 1 : 0,
     signal: null,
     killed: false,
@@ -316,16 +316,20 @@ it.each([false, true].flatMap((legacy) => [false, true].map((expires) => ({ lega
       ],
       sharedVersion,
     };
-    const calls: Array<Parameters<typeof runCommandBuffered>> = [];
+    const calls: Array<[string[], commands.CommandOptions]> = [];
     const inspecting = createDeferredCore<AbortSignal>();
     const release = createDeferredCore();
-    const run = commands.runCommandBuffered;
-    vi.spyOn(commands, "runCommandBuffered").mockImplementation(async (argv, options) => {
+    const run = commands.runUtf8CommandWithTimeout;
+    vi.spyOn(commands, "runUtf8CommandWithTimeout").mockImplementation(async (argv, options) => {
       if (argv.includes("--eval")) {
         return run(argv, options);
       }
+      if (typeof options === "number") {
+        throw new Error("Schema inspection has no owned command options");
+      }
       calls.push([argv, options]);
       if (legacy && calls.length === 1) {
+        options.onOutputChunk?.(Buffer.from("Unknown update state inspection mode"), "stderr");
         return inspectionResult(null, "Unknown update state inspection mode");
       }
       if (legacy && calls.length === 2) {
@@ -398,20 +402,69 @@ it.each([false, true].flatMap((legacy) => [false, true].map((expires) => ({ lega
   },
 );
 
-it("rejects a versions array as a discovery response", async () => {
-  const run = commands.runCommandBuffered;
-  const worker = vi
-    .spyOn(commands, "runCommandBuffered")
-    .mockImplementation((argv, options) =>
-      argv.includes("--eval") ? run(argv, options) : Promise.resolve(inspectionResult([])),
-    );
-  await expect(
-    readUpdateStateSchemaVersions({
-      stateDir: path.join(root, "invalid-discovery"),
-      config: {},
-    }),
-  ).rejects.toThrow();
-  expect(worker.mock.calls.filter(([argv]) => !argv.includes("--eval"))).toHaveLength(1);
+it.each(["versions array", "output limit", "non-exit"] as const)(
+  "rejects %s as completed discovery",
+  async (failure) => {
+    const run = commands.runUtf8CommandWithTimeout;
+    const worker = vi
+      .spyOn(commands, "runUtf8CommandWithTimeout")
+      .mockImplementation((argv, options) => {
+        if (argv.includes("--eval")) {
+          return run(argv, options);
+        }
+        const result = inspectionResult(
+          failure === "versions array"
+            ? []
+            : { files: [], sharedVersion: { path: "shared.sqlite", userVersion: null } },
+        );
+        return Promise.resolve({
+          ...result,
+          ...(failure === "output limit" ? { outputLimitExceeded: true } : {}),
+          ...(failure === "non-exit" ? { termination: "signal" as const } : {}),
+        });
+      });
+    await expect(
+      readUpdateStateSchemaVersions({
+        stateDir: path.join(root, "invalid-discovery"),
+        config: {},
+      }),
+    ).rejects.toThrow();
+    expect(worker.mock.calls.filter(([argv]) => !argv.includes("--eval"))).toHaveLength(1);
+  },
+);
+
+it("keeps fleet progress below a released parent's stderr limit", async () => {
+  const entries = Object.fromEntries(
+    Array.from(
+      { length: 100 },
+      (_, index) =>
+        [
+          `agent-${index}`,
+          { agentDir: path.join(root, `external-${index}-${"x".repeat(100)}`) },
+        ] as const,
+    ),
+  );
+  const result = await runCommandBuffered(
+    [
+      process.execPath,
+      ...resolveRuntimeWorkerArgv(
+        resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.updateCandidateState),
+      ),
+    ],
+    {
+      input: JSON.stringify({ mode: "versions", stateDir: root, config: { agents: { entries } } }),
+      timeoutMs: 30_000,
+      killGraceMs: 500,
+      maxOutputBytes: { stdout: 1024 * 1024, stderr: 20_000 },
+    },
+  );
+  expect(result.code, result.stderr.toString()).toBe(0);
+  expect(result.stderr.byteLength).toBeLessThan(20_000);
+  expect(result.stderr.toString()).toContain("detailed progress omitted");
+  expect(JSON.parse(result.stdout.toString())).toContainEqual({
+    path: path.join(entries["agent-99"]!.agentDir, "openclaw-agent.sqlite"),
+    userVersion: null,
+  });
 });
 
 it.runIf(process.platform !== "win32")(

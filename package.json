@@ -887,6 +887,10 @@
       "types": "./dist/plugin-sdk/agent-harness-runtime.d.ts",
       "default": "./dist/plugin-sdk/agent-harness-runtime.js"
     },
+    "./plugin-sdk/agent-workspace-runtime": {
+      "types": "./dist/plugin-sdk/agent-workspace-runtime.d.ts",
+      "default": "./dist/plugin-sdk/agent-workspace-runtime.js"
+    },
     "./plugin-sdk/agent-harness-tool-runtime": {
       "default": "./dist/plugin-sdk/agent-harness-tool-runtime.js"
     },

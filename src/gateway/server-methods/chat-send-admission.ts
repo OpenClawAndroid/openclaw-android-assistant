@@ -26,7 +26,7 @@ import {
   interruptSessionWorkAdmissions,
   isCompetingSessionWorkAdmissionActive,
 } from "../../sessions/session-lifecycle-admission.js";
-import { setGatewayDedupeEntry } from "../agent-turn/agent-job.js";
+import { captureAgentJobSession, setGatewayDedupeEntry } from "../agent-turn/agent-job.js";
 import {
   isChatAbortControllerEntryAbortable,
   registerChatAbortController,
@@ -648,6 +648,7 @@ export async function admitChatSend(params: {
     setGatewayDedupeEntry({
       dedupe: context.dedupe,
       key: `chat:${clientRunId}`,
+      session: captureAgentJobSession(sessionBinding),
       entry: { ts: endedAt, ok: true, payload },
     });
     cleanupAdmittedRun();

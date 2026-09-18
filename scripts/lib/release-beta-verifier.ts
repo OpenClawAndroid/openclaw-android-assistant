@@ -19,6 +19,7 @@ import { normalizeOptionalString } from "../../packages/normalization-core/src/s
 import { readPublicationArtifactArchive, sha256Digest } from "./actions-artifact-archive.mjs";
 import { readBoundedResponseText } from "./bounded-response.mjs";
 import { resolveNpmJsonEntries } from "./npm-json-output.mts";
+import { npmRegistryReadbackDeadline } from "./npm-publish-plan.mjs";
 import { collectClawHubPublishablePluginPackages } from "./plugin-clawhub-release.ts";
 import {
   collectPublishablePluginPackages,
@@ -101,10 +102,6 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/u;
 const SHA512_INTEGRITY_PATTERN = /^sha512-[A-Za-z0-9+/]+={0,2}$/u;
 const TRUSTED_TOOLING_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-// Trusted publish can finish before npm registry metadata converges. Keep the
-// verifier on the same release train instead of forcing a republish/correction.
-const NPM_VIEW_ATTEMPTS = 30;
-const NPM_VIEW_RETRY_MAX_DELAY_MS = 10_000;
 const RELEASE_COMMAND_TIMEOUT_MS = 120_000;
 const RELEASE_COMMAND_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
@@ -756,14 +753,20 @@ export async function runNpmViewWithRetry(
     run?: (args: string[]) => string;
   } = {},
 ): Promise<string> {
-  const attempts = options.attempts ?? NPM_VIEW_ATTEMPTS;
+  const deadlineMs = npmRegistryReadbackDeadline();
+  const attempts = options.attempts ?? Infinity;
   const delay =
     options.delay ??
     ((delayMs: number) =>
       new Promise((resolveDelay) => {
         setTimeout(resolveDelay, delayMs);
       }));
-  const run = options.run ?? ((npmArgs: string[]) => runReleaseVerifierCommand("npm", npmArgs));
+  const run =
+    options.run ??
+    ((npmArgs: string[]) =>
+      runReleaseVerifierCommand("npm", npmArgs, {
+        timeoutMs: Math.min(RELEASE_COMMAND_TIMEOUT_MS, Math.max(1, deadlineMs - Date.now())),
+      }));
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -776,10 +779,20 @@ export async function runNpmViewWithRetry(
       lastError = error;
     }
     if (attempt < attempts) {
-      await delay(Math.min(attempt * 1000, NPM_VIEW_RETRY_MAX_DELAY_MS));
+      const remainingMs = deadlineMs - Date.now();
+      if (remainingMs <= 0) {
+        break;
+      }
+      await delay(Math.min(10_000, remainingMs));
+      if (Date.now() >= deadlineMs) {
+        break;
+      }
     }
   }
 
+  if (lastError instanceof Error) {
+    lastError.message += "; verification pending. Retry readback, not publication.";
+  }
   throw lastError;
 }
 

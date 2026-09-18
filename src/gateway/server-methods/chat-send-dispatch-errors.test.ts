@@ -35,6 +35,12 @@ describe("handleChatSendSetupError", () => {
 
     await handleChatSendSetupError({
       admission: {
+        sessionBinding: {
+          sessionId: "sess-main",
+          sessionKey: "agent:main:main",
+          agentId: "main",
+          lifecycleGeneration: "test-generation",
+        },
         cleanupAdmittedRun,
         lifecycleGeneration: "test-generation",
         restartSafeAdmission: undefined,
@@ -125,6 +131,12 @@ describe("createChatSendDispatchErrorLifecycle", () => {
         const previewGroup = chatRunState.runs.get(runId)?.liveTextGroup;
         const lifecycle = createChatSendDispatchErrorLifecycle({
           admission: {
+            sessionBinding: {
+              sessionId: target.sessionId,
+              sessionKey: target.sessionKey,
+              agentId: target.agentId,
+              lifecycleGeneration: "test-generation",
+            },
             activeRunAbort: {
               cleanup: vi.fn(),
               controller: new AbortController(),
@@ -286,6 +298,12 @@ describe("createChatSendDispatchErrorLifecycle", () => {
     const dedupe = new Map();
     const lifecycle = createChatSendDispatchErrorLifecycle({
       admission: {
+        sessionBinding: {
+          sessionId: "run-1",
+          sessionKey: "agent:main:main",
+          agentId: "main",
+          lifecycleGeneration: "test-generation",
+        },
         activeRunAbort: {
           cleanup: vi.fn(),
           controller: new AbortController(),
@@ -390,6 +408,12 @@ describe("createChatSendDispatchErrorLifecycle", () => {
 
       const lifecycle = createChatSendDispatchErrorLifecycle({
         admission: {
+          sessionBinding: {
+            sessionId: "sess-main",
+            sessionKey: "agent:main:main",
+            agentId: "main",
+            lifecycleGeneration: "test-generation",
+          },
           activeRunAbort: registration,
           cleanupAdmittedRun: registration.cleanup,
           lifecycleGeneration: "test-generation",
@@ -453,6 +477,12 @@ describe("createChatSendDispatchErrorLifecycle", () => {
     const broadcast = vi.fn();
     const lifecycle = createChatSendDispatchErrorLifecycle({
       admission: {
+        sessionBinding: {
+          sessionId: "sess-main",
+          sessionKey: "agent:main:main",
+          agentId: "main",
+          lifecycleGeneration: "test-generation",
+        },
         activeRunAbort: {
           cleanup: vi.fn(),
           controller,
@@ -529,6 +559,12 @@ describe("createChatSendDispatchErrorLifecycle", () => {
     chatRunState.getOrCreate(runId).buffer = "Native-owned output";
     const lifecycle = createChatSendDispatchErrorLifecycle({
       admission: {
+        sessionBinding: {
+          sessionId: "sess-main",
+          sessionKey: "agent:main:main",
+          agentId: "main",
+          lifecycleGeneration: "test-generation",
+        },
         activeRunAbort: registration,
         cleanupAdmittedRun: registration.cleanup,
         lifecycleGeneration: "test-generation",
@@ -608,6 +644,12 @@ describe("createChatSendDispatchErrorLifecycle", () => {
     try {
       const lifecycle = createChatSendDispatchErrorLifecycle({
         admission: {
+          sessionBinding: {
+            sessionId: "sess-ops",
+            sessionKey: "agent:ops:main",
+            agentId: "ops",
+            lifecycleGeneration: "test-generation",
+          },
           activeRunAbort: {
             cleanup: activeRunCleanup,
             controller: new AbortController(),

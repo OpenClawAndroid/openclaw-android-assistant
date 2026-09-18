@@ -43,7 +43,8 @@ it.each([undefined, 600_000])(
     const stat = fs.statSync;
     fs.statSync = function(file, ...args) {
       if (file === ${JSON.stringify(file)}) {
-        fs.writeFileSync(${JSON.stringify(ready)}, "ready");
+        fs.writeFileSync(${JSON.stringify(`${ready}.tmp`)}, JSON.stringify({ pid: process.pid }));
+        fs.renameSync(${JSON.stringify(`${ready}.tmp`)}, ${JSON.stringify(ready)});
         while (!fs.existsSync(${JSON.stringify(release)})) {
           Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
         }
@@ -52,7 +53,7 @@ it.each([undefined, 600_000])(
     };
   `,
     );
-    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const timers = vi.spyOn(globalThis, "setTimeout");
     const controller = new AbortController();
     const operation = readUpdateStateDatabaseSizes([file], {
       nodeRunner: process.execPath,
@@ -66,29 +67,57 @@ it.each([undefined, 600_000])(
     );
     try {
       await waitForFile(ready);
-      await vi.advanceTimersByTimeAsync(400_000);
-      await new Promise<void>((resolve) => {
-        realSetTimeout(resolve, 20);
-      });
+      const { pid } = JSON.parse(await fs.readFile(ready, "utf8")) as { pid: number };
+      const deadlines = timers.mock.calls.flatMap(([callback, delay, ...args], index) =>
+        delay !== undefined && delay >= 30_000 ? [{ callback, delay, args, index }] : [],
+      );
+      expect(deadlines).toHaveLength(1);
+      // Advance only the inspection allowance. Native signal delivery and
+      // process-group cleanup must retain their real clock and grace periods.
+      for (const deadline of deadlines) {
+        if (deadline.delay > 400_000) {
+          continue;
+        }
+        const timer = timers.mock.results[deadline.index];
+        if (timer?.type !== "return") {
+          throw new Error("Inspection deadline was not scheduled");
+        }
+        clearTimeout(timer.value);
+        deadline.callback(...deadline.args);
+      }
+      if (timeoutMs !== undefined) {
+        expect(() => process.kill(pid, 0)).not.toThrow();
+      }
       await fs.writeFile(release, "continue");
-      await vi.advanceTimersByTimeAsync(1_000);
-      vi.useRealTimers();
       if (timeoutMs === undefined) {
         expect(await operation).toMatchObject({
           error: expect.objectContaining({
             message: expect.stringContaining("inventory failed (timeout"),
           }),
         });
+        expect.soft(await operation).toMatchObject({
+          error: {
+            message: expect.stringContaining(file),
+          },
+        });
+        expect.soft(await operation).toMatchObject({
+          error: {
+            message: expect.stringMatching(/after \d+(?:\.\d+)? seconds during metadata inventory/),
+          },
+        });
+        expect.soft(await operation).toMatchObject({
+          error: {
+            message: expect.stringContaining("then retry the update"),
+          },
+        });
       } else {
         expect(await operation).toEqual({ sizes: [{ path: file, sizeBytes: 8n }] });
       }
+      expect(() => process.kill(pid, 0)).toThrow();
+      expect(await fs.readFile(file, "utf8")).toBe("database");
     } finally {
       await fs.writeFile(release, "continue");
       controller.abort();
-      if (vi.isFakeTimers()) {
-        await vi.advanceTimersByTimeAsync(1_000);
-      }
-      vi.useRealTimers();
       await operation;
     }
   },
@@ -113,9 +142,24 @@ it.each([
   { name: "stalled worker", bytes: 4096, waits: [400_000], completes: false },
   { name: "caller allowance", bytes: 4096, waits: [400_000], completes: true, timeoutMs: 600_000 },
   { name: "configured cache", bytes: 4096, waits: [0], completes: true, configuredCache: true },
+  {
+    name: "large diagnostic output",
+    bytes: 4096,
+    waits: [0],
+    completes: true,
+    diagnosticBytes: 40_000,
+  },
 ])(
   "budgets schema inspection for $name",
-  async ({ bytes, discoveredBytes, waits, completes, configuredCache, timeoutMs }) => {
+  async ({
+    bytes,
+    discoveredBytes,
+    waits,
+    completes,
+    configuredCache,
+    timeoutMs,
+    diagnosticBytes,
+  }) => {
     const root = tempDirs.make("openclaw-state-budget-");
     const stateDir = path.join(root, "source");
     const database = path.join(stateDir, "agents", "main", "agent", "openclaw-agent.sqlite");
@@ -151,16 +195,17 @@ it.each([
         }));
       } else {
       if (request.mode !== "versions") throw new Error("Unexpected worker operation");
+      process.stderr.write("x".repeat(${diagnosticBytes ?? 0}));
       const scratch = process.env.XDG_CACHE_HOME || ${JSON.stringify(path.join(root, "scratch"))};
       await fs.mkdir(scratch, { recursive: true });
       const copy = path.join(scratch, "database.sqlite");
       await fs.writeFile(copy, "copy");
       if (${discoveredBytes ?? 0}) await fs.truncate(copy, ${discoveredBytes ?? 0});
       // Existence signals readiness, so publish the complete scratch path together.
-      await fs.writeFile(${JSON.stringify(`${ready}.tmp`)}, scratch);
+      await fs.writeFile(${JSON.stringify(`${ready}.tmp`)}, await fs.realpath(scratch));
       await fs.rename(${JSON.stringify(`${ready}.tmp`)}, ${JSON.stringify(ready)});
       let last = "";
-      while (!(await fs.stat(${JSON.stringify(release)}).catch(() => undefined))) {
+      while (${waits.some((milliseconds) => milliseconds > 0)} && !(await fs.stat(${JSON.stringify(release)}).catch(() => undefined))) {
         const next = await fs.readFile(${JSON.stringify(progress)}, "utf8").catch(() => "");
         if (next && next !== last) {
           await fs.appendFile(copy, next);
@@ -193,24 +238,36 @@ it.each([
       },
     );
     try {
-      await waitForFile(ready);
+      if (waits.some((milliseconds) => milliseconds > 0)) {
+        await waitForFile(ready).catch(async (error: unknown) => {
+          if (failed) {
+            const outcome = await result;
+            if ("error" in outcome) {
+              throw outcome.error;
+            }
+          }
+          throw error;
+        });
+        await waitForObservation(discoveredBytes ?? 4);
+        for (const [index, milliseconds] of waits.entries()) {
+          elapsed += milliseconds;
+          if (failed) {
+            break;
+          }
+          if (index < waits.length - 1) {
+            await fs.writeFile(progress, String(index + 1));
+            await waitForFile(`${progress}.${index + 1}`);
+            await waitForObservation(4 + index + 1);
+          }
+        }
+      } else {
+        await result;
+      }
       if (configuredCache) {
-        const actual = await fs.realpath(await fs.readFile(ready, "utf8"));
+        const actual = await fs.readFile(ready, "utf8");
         const relative = path.relative(await fs.realpath(cache), actual);
         expect(path.isAbsolute(relative)).toBe(false);
         expect(relative.split(path.sep)[0]).not.toBe("..");
-      }
-      await waitForObservation(discoveredBytes ?? 4);
-      for (const [index, milliseconds] of waits.entries()) {
-        elapsed += milliseconds;
-        if (failed) {
-          break;
-        }
-        if (index < waits.length - 1) {
-          await fs.writeFile(progress, String(index + 1));
-          await waitForFile(`${progress}.${index + 1}`);
-          await waitForObservation(4 + index + 1);
-        }
       }
     } finally {
       await fs.writeFile(release, "done");

@@ -843,6 +843,7 @@ suite.define(() => {
         {
           content: attachmentBase64,
           fileName: attachmentName,
+          origin: "file",
           mimeType: attachmentMimeType,
           type: "file",
         },

@@ -98,6 +98,8 @@ async function emitLifecycleAssistantReply(params: {
     sessionId?: string;
     sessionKey?: string;
     runId?: string;
+    agentId?: string;
+    lifecycleGeneration?: string;
     extraSystemPrompt?: string;
   };
   const sessionId = commandParams.sessionId ?? params.defaultSessionId;
@@ -106,9 +108,16 @@ async function emitLifecycleAssistantReply(params: {
     throw new Error("expected session key for lifecycle reply");
   }
 
+  const routing = {
+    runId,
+    sessionKey: commandParams.sessionKey,
+    sessionId,
+    agentId: commandParams.agentId,
+    lifecycleGeneration: commandParams.lifecycleGeneration,
+  };
   const startedAt = Date.now();
   emitAgentEvent({
-    runId,
+    ...routing,
     stream: "lifecycle",
     data: { phase: "start", startedAt },
   });
@@ -133,7 +142,7 @@ async function emitLifecycleAssistantReply(params: {
   );
 
   emitAgentEvent({
-    runId,
+    ...routing,
     stream: "lifecycle",
     data: {
       phase: "end",

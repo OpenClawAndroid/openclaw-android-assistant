@@ -1,6 +1,11 @@
 import type { Worker } from "node:worker_threads";
 import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import {
+  acquireStateDatabaseCoordinator,
+  captureStateDatabaseCoordinatorRuntime,
+  withStateDatabaseCoordinatorRuntimeDirectory,
+} from "../../infra/state-database-coordinator.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { drainGlobalSingletonLifecycleState } from "../../shared/global-singleton.js";
 import {
@@ -38,6 +43,60 @@ function countAgentDatabaseLeases(pathname: string, env: NodeJS.ProcessEnv): num
     .db.prepare("SELECT lease_id FROM agent_database_leases WHERE owner_pid = ? AND path = ?")
     .all(process.pid, pathname).length;
 }
+
+it.each([false, true])(
+  "reconciles a dirty projection while the parent retains lifecycle custody (custom runtime: %s)",
+  async (customRuntime) => {
+    const stateDir = tempDirs.make("openclaw-reconcile-parent-custody-");
+    const env = { ...process.env, OPENCLAW_STATE_DIR: stateDir };
+    const options = { agentId: "main", env };
+    const defaultRuntime = captureStateDatabaseCoordinatorRuntime();
+    await withStateDatabaseCoordinatorRuntimeDirectory(
+      customRuntime ? `${stateDir}/runtime` : defaultRuntime,
+      async () => {
+        let lifecycle: ReturnType<typeof acquireStateDatabaseCoordinator> | undefined;
+        let defaultExclusion: ReturnType<typeof acquireStateDatabaseCoordinator> | undefined;
+        try {
+          await persistSessionTranscriptTurn(
+            { ...options, sessionId: "parent-custody", sessionKey: "agent:main:parent-custody" },
+            {
+              messages: [
+                { eventId: "seed", message: { role: "user", content: "synthetic custody" } },
+              ],
+              touchSessionEntry: false,
+            },
+          );
+          await waitForSessionTranscriptIndexReconcile(options);
+          const database = openOpenClawAgentDatabase(options);
+          database.db.prepare("UPDATE session_transcript_index_state SET needs_rebuild = 1").run();
+          const databasePath = openOpenClawStateDatabase({ env }).path;
+          lifecycle = acquireStateDatabaseCoordinator({ databasePath });
+          if (customRuntime) {
+            // A dropped custom runtime must not silently acquire the default coordinator.
+            defaultExclusion = acquireStateDatabaseCoordinator({
+              databasePath,
+              runtimeDirectory: defaultRuntime.directory,
+            });
+          }
+          await expect(reconcileSessionTranscriptIndexes(options)).resolves.toEqual({
+            reconciledSessions: 1,
+          });
+          expect(countAgentDatabaseLeases(database.path, env)).toBe(1);
+          expect(
+            database.db.prepare("SELECT message_id, text FROM session_transcript_fts").all(),
+          ).toEqual([{ message_id: "seed", text: "synthetic custody" }]);
+        } finally {
+          lifecycle?.release();
+          defaultExclusion?.release();
+          await closeSessionTranscriptReconcileWorkerPool();
+          await closeOpenClawAgentDatabasesAsync(stateDir);
+          closeOpenClawStateDatabaseForTest();
+        }
+      },
+    );
+  },
+  30_000,
+);
 
 it.each(["complete", "native-exit"] as const)(
   "drains active and queued reconciliation through %s before retiring its lifecycle",

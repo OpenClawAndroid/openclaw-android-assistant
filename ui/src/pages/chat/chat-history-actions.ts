@@ -11,7 +11,7 @@ import type { ChatHistoryResult } from "./chat-history-snapshot.ts";
 import { resetChatHistoryProjection, setChatError } from "./chat-history-state.ts";
 import { loadChatHistory } from "./chat-history.ts";
 import type { ChatHistoryHost, ChatState } from "./chat-state-contract.ts";
-import type { ChatAttachmentReadLifecycle } from "./components/chat-attachments.ts";
+import type { ChatAttachmentReadLifecycle } from "./components/chat-attachment-reads.ts";
 import {
   captureChatComposerReplacement,
   loadChatComposerCommittedDraftRevision,

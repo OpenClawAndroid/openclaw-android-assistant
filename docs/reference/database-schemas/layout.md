@@ -283,6 +283,19 @@ metadata alone exceeds a hard limit, the write fails without changing the row.
 The CLI and Gateway share WAL-backed transactions, including while the Gateway
 is stopped. The first terminal outcome wins; subsequent verification can enrich
 its observed facts without rewriting success, failure, skip, or rollback status.
+Interrupted completion has one narrowly verified exception: a candidate records
+its installed version and build ID in the retained `finalize:installed-candidate`
+step before returning post-core completion to the installed updater. The Gateway
+watcher and Doctor share one ledger reconciliation owner, which may finish the
+latest interrupted verification or correct its `abandoned` result to `succeeded`
+only after all recorded drivers are positively dead and fresh installed-build,
+serving-build, readiness, and generation checks agree. Recovery descriptors and
+recorded repair, failure, or rollback evidence prevent that correction. The transaction
+rechecks the complete row and latest-run identity after probing, then records the
+verification, outcome, and an explanatory warning together. Older rows without
+the target identity remain unchanged, and Doctor explains the missing evidence.
+This uses existing step and verification fields; schemas and rollback readers
+remain unchanged.
 Explicit `update repair` can correct the older package-owner refusal
 misclassification to `skipped` once the installed version satisfies its resolved
 target. This exception requires the latest run to contain only the untouched

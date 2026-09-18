@@ -75,8 +75,7 @@ update marker enables the five-minute startup watchdog after the managed process
 is observed running. This lets an older updater complete a slow first-hop startup
 without passing a new option. The watchdog includes migration, listener, and health
 phases; phase changes cannot extend its cap. Explicit readiness budgets supplied
-by newer update callers take precedence. Ordinary standalone restarts keep their
-existing deadlines. See [Restart recovery](/gateway/restart-recovery).
+by newer update callers take precedence. Ordinary standalone restarts wait beyond the standard readiness budget only while the same running Gateway advances startup phases or acquires, renews, or completes an observed same-process migration, up to five minutes, then report `still-starting` (exit 2) with the last phase and `openclaw gateway status --deep` as the next step; startup without progress still fails at the standard budget (exit 1), while a newly observed migration lease gets one heartbeat interval plus polling grace before it is considered stalled, and its observed completion earns one fresh readiness window within the same cap. See [Restart recovery](/gateway/restart-recovery).
 
 On Windows, a plain restart launched from a Gateway service process, including an agent's shell command, automatically uses the safe restart path. The running Gateway owns the deferred Scheduled Task handoff, so stopping its process tree cannot kill the caller before relaunch. This requires a reachable Gateway; the command acknowledges the restart request, not successor health. Use `openclaw gateway status` afterward to verify recovery.
 

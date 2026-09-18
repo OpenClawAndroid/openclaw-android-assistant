@@ -1,10 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { getReplyPayloadMetadata, type ReplyPayload } from "../../auto-reply/reply-payload.js";
 import { applyAssistantDeliveryDirectives } from "../../config/sessions/transcript-assistant-delivery.js";
-import {
-  appendLocalMediaParentRoots,
-  getAgentScopedMediaLocalRoots,
-} from "../../media/local-roots.js";
 import { appendChatCanvasBlocksToMessage } from "../chat-display-projection.canvas.js";
 import { attachManagedOutgoingMediaToMessage } from "../managed-image-attachments.js";
 import { loadSessionEntry } from "../session-utils.js";
@@ -23,7 +19,10 @@ import {
   broadcastSideResult,
   isBtwReplyPayload,
 } from "./chat-broadcast.js";
-import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
+import {
+  getWebchatReplyMediaLocalRoots,
+  normalizeWebchatReplyMediaPathsForDisplay,
+} from "./chat-reply-media.js";
 import { selectChatSendFinalReplyPayloads } from "./chat-send-command-replies.js";
 import { isChatSendReplyDeliveryAuthorized } from "./chat-send-delivery-authority.js";
 import { buildTranscriptReplyText } from "./chat-send-reply-dispatch.js";
@@ -213,6 +212,7 @@ export async function finalizeChatSendDispatchedReplies(params: {
     accountId,
     payloads: rawFinalPayloads,
   });
+  const sourceSession = loadSessionEntry(sessionKey, sessionLoadOptions);
   const requestedTranscriptSession = transcriptMirrorOwner
     ? loadSessionEntry(transcriptMirrorOwner.sessionKey, {
         ...sessionLoadOptions,
@@ -255,13 +255,16 @@ export async function finalizeChatSendDispatchedReplies(params: {
   const resolvedTranscriptSession =
     useTranscriptMirrorOwner && requestedTranscriptSession
       ? requestedTranscriptSession
-      : loadSessionEntry(sessionKey, sessionLoadOptions);
+      : sourceSession;
   const { storePath: latestStorePath, entry: latestEntry } = resolvedTranscriptSession;
   const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
-  const mediaLocalRoots = appendLocalMediaParentRoots(
-    getAgentScopedMediaLocalRoots(cfg, transcriptAgentId),
-    latestStorePath ? [latestStorePath] : undefined,
-  );
+  // Transcript mirroring changes persistence ownership, never the file-read origin.
+  const mediaLocalRoots = getWebchatReplyMediaLocalRoots({
+    cfg: sourceSession.cfg,
+    agentId,
+    sessionEntry: sourceSession.entry,
+    storePath: sourceSession.storePath,
+  });
   let managedMediaPrepareFailed = false;
   const mediaMessage = await buildWebchatAssistantMessageFromReplyPayloads(finalPayloads, {
     localRoots: mediaLocalRoots,

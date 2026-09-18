@@ -12,6 +12,7 @@ import {
   type OpenClawStateDatabase,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
+import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { withOpenClawStateLease } from "../state/openclaw-state-lease.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import type { OpenClawStateWorkerOperations } from "../state/openclaw-state-worker-contract.js";
@@ -33,6 +34,7 @@ import {
   transcriptSessionSelector,
   writeTranscriptArtifact,
 } from "./store-artifacts.js";
+import { TranscriptsSummaryChangedError } from "./store-errors.js";
 import { transcriptJsonlDigest, writeTranscriptJsonlArtifact } from "./store-export-jsonl.js";
 import {
   assertTranscriptExportPathAvailable,
@@ -55,6 +57,8 @@ import {
   meetingTranscriptDb,
   meetingTranscriptSessionQuery,
   sessionFromRow,
+  transcriptSummaryInputRevisionFromRow,
+  readStoredTranscriptSummaryRevision,
 } from "./store-sqlite.js";
 import type * as StoreTypes from "./store-types.js";
 import type { TranscriptReadRequests } from "./store-worker-contract.js";
@@ -308,6 +312,52 @@ export class TranscriptsStore {
         session: { sessionId: session.sessionId, startedAt: session.startedAt },
       },
     });
+  }
+
+  summaryScope(session: TranscriptSessionDescriptor): string {
+    return JSON.stringify([
+      path.resolve(
+        this.databaseOptions.path ?? resolveOpenClawStateSqlitePath(this.databaseOptions.env),
+      ),
+      session.sessionId,
+      session.startedAt,
+    ]);
+  }
+
+  async readSummarySnapshot(
+    session: TranscriptSessionDescriptor,
+    maxUtterances: number,
+  ): Promise<StoreTypes.TranscriptSummarySnapshot | undefined> {
+    return this.readWorker("transcripts.summarySnapshot", {
+      params: {
+        session: { sessionId: session.sessionId, startedAt: session.startedAt },
+        maxUtterances,
+      },
+    });
+  }
+
+  assertSummarySnapshotCurrent(
+    session: TranscriptSessionDescriptor,
+    snapshot: StoreTypes.TranscriptSummarySnapshot,
+    allowAppends: boolean,
+  ): void {
+    const { db } = this.database();
+    const row = executeSqliteQueryTakeFirstSync(
+      db,
+      meetingTranscriptSessionQuery(db, session).selectAll(),
+    );
+    if (
+      !row ||
+      (allowAppends && row.stopped_at !== null) ||
+      row.next_utterance_seq < snapshot.nextSequence ||
+      transcriptSummaryInputRevisionFromRow({
+        ...row,
+        ...(allowAppends ? { next_utterance_seq: snapshot.nextSequence } : {}),
+      }) !== snapshot.inputRevision ||
+      (readStoredTranscriptSummaryRevision(db, session) ?? "") !== snapshot.summaryRevision
+    ) {
+      throw new TranscriptsSummaryChangedError();
+    }
   }
 
   async listReadEntries(options: read.TranscriptReadOptions) {

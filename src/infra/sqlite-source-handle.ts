@@ -70,3 +70,9 @@ export async function withSqliteSourceHandleAsync<T>(
   lease.release();
   return result;
 }
+
+/** Revalidate every caller before it can join process-global snapshot work. */
+export function assertSqliteSourceReadAllowed(pathname: string): void {
+  const lease = acquireStateDatabaseHandleLease({ databasePath: pathname, busyTimeoutMs: 0 });
+  lease.release();
+}

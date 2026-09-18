@@ -49,6 +49,7 @@ function healthSnapshotCallArg(index = 0) {
         probe?: boolean;
         runtimeSnapshot?: unknown;
         configReloadHotReloadStatus?: unknown;
+        sessionRowProjection?: unknown;
       }
     | undefined;
 }
@@ -433,6 +434,18 @@ describe("refreshGatewayHealthSnapshot", () => {
     expect(Object.hasOwn(healthSnapshotCallArg(1) ?? {}, "configReloadHotReloadStatus")).toBe(
       false,
     );
+  });
+
+  it("passes the current resident session-row projection to health collection", async () => {
+    const healthState = await loadHealthState();
+    const projection = {};
+
+    await healthState.refreshGatewayHealthSnapshot({
+      probe: false,
+      getSessionRowProjection: () => projection as never,
+    });
+
+    expect(healthSnapshotCallArg()?.sessionRowProjection).toBe(projection);
   });
 
   it("captures runtime snapshots for completed refreshes and guards snapshot failures", async () => {

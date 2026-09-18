@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import type { MessagePort } from "node:worker_threads";
 import { clearNodeSqliteKyselyCacheForDatabase } from "../../infra/kysely-sync-cache-state.js";
+import { recordOpenClawAgentCanonicalValidation } from "../../state/openclaw-agent-canonical-validation-receipt.js";
 import {
   createOpenClawAgentDatabaseClaim,
   type OpenClawAgentDatabaseClaim,
@@ -15,7 +16,6 @@ import { readOpenClawAgentDatabaseWorkerLeaseReceipt } from "../../state/opencla
 import { withFreshOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly-open.js";
 import {
   getOpenClawAgentDatabaseValidation,
-  hasOpenClawAgentCanonicalValidation,
   type OpenClawAgentDatabaseValidation,
 } from "../../state/openclaw-agent-db-validation-cache.js";
 import {
@@ -368,17 +368,18 @@ export async function runReclamationWorkerPort(
                               throw new Error("Canonical validation lost its prepared batch");
                             }
                             if (request.initializeCanonicalValidation) {
-                              if (!hasOpenClawAgentCanonicalValidation(transactionDatabase)) {
-                                canonical.seedCanonicalSessionValidation(transactionDatabase);
-                              }
+                              // The parent may have revoked proof this fresh worker still sees on disk.
+                              canonical.seedCanonicalSessionValidation(transactionDatabase);
+                              const hasMore =
+                                canonical.hasPendingCanonicalSessionValidation(transactionDatabase);
                               authorizeCommit();
+                              if (!hasMore) {
+                                recordOpenClawAgentCanonicalValidation(transactionDatabase);
+                              }
                               return {
                                 validatedRows: 0,
                                 certifiedRows: 0,
-                                hasMore:
-                                  canonical.hasPendingCanonicalSessionValidation(
-                                    transactionDatabase,
-                                  ),
+                                hasMore,
                                 oversizedRows: 0,
                               } satisfies CanonicalSessionValidationResult;
                             }
@@ -391,12 +392,16 @@ export async function runReclamationWorkerPort(
                                 transactionDatabase,
                                 batch,
                               );
+                            const hasMore =
+                              canonical.hasPendingCanonicalSessionValidation(transactionDatabase);
                             authorizeCommit();
+                            if (!hasMore) {
+                              recordOpenClawAgentCanonicalValidation(transactionDatabase);
+                            }
                             return {
                               validatedRows: batch.rows.length,
                               certifiedRows,
-                              hasMore:
-                                canonical.hasPendingCanonicalSessionValidation(transactionDatabase),
+                              hasMore,
                               oversizedRows: batch.oversizedRows,
                             } satisfies CanonicalSessionValidationResult;
                           },

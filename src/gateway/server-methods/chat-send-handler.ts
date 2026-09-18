@@ -16,10 +16,8 @@ import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import { clearAgentRunContext } from "../../infra/agent-run-registry.js";
 import { emitDiagnosticsTimelineEvent } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import {
-  recordSessionCreated,
-  recordSessionGoalChanged,
-} from "../../sessions/session-state-events.js";
+import { recordSessionCreated } from "../../sessions/session-created.js";
+import { recordSessionGoalChanged } from "../../sessions/session-state-events.js";
 import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
@@ -404,7 +402,7 @@ async function handleChatSendWithOptions(
           throw new Error("Goal and its input were not durably admitted.");
         }
         if (admitted.value.initialSessionEntry) {
-          recordSessionCreated({
+          recordSessionCreated(preparedSession.value.cfg, {
             sessionKey,
             agentId: preparedSession.value.agentId,
             entry: persistedUserTurn.sessionEntry,

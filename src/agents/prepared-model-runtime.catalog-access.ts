@@ -263,7 +263,7 @@ export function createFullModelCatalogAccess(params: {
     fullCatalog = retainPreparedModelCatalogPublication(fullCatalog, published.catalog);
     published = capturePublication();
     params.inventoryOwner.catalogInventory = inventory;
-    return { previous, current: published };
+    return { previous, current: published, staticCatalog };
   };
   const refreshExpiredCatalog = () => {
     if (pending || !inventory) {

@@ -131,10 +131,14 @@ import ai.openclaw.app.wear.WearProxyGatewayException
 import ai.openclaw.app.wear.WearRealtimeAttemptOwner
 import ai.openclaw.app.wear.WearRealtimeTalkController
 import ai.openclaw.app.wear.projectWearAgentPulse
+import ai.openclaw.app.wear.projectWearFullReply
 import ai.openclaw.app.wear.wearConnectionFailure
 import ai.openclaw.wear.shared.WearMessage
 import ai.openclaw.wear.shared.WearRealtimeTalkCodec
 import ai.openclaw.wear.shared.WearRealtimeTalkSnapshot
+import ai.openclaw.wear.shared.WearReplyText
+import ai.openclaw.wear.shared.WearReplyTextPage
+import ai.openclaw.wear.shared.WearReplyTextStatus
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -154,6 +158,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1837,6 +1842,10 @@ class NodeRuntime private constructor(
       connectGateway = { refreshGatewayConnection() },
       disconnectGateway = { disconnect() },
       loadAgentPulse = ::loadWearAgentPulse,
+      readChatReply = ::readWearChatReply,
+      readTalkReply = { nodeId, sessionKey, attemptId, entryId, offset, revision ->
+        wearRealtimeTalkController.readReply(nodeId, sessionKey, attemptId, entryId, offset, revision)
+      },
       startRealtimeTalk = { nodeId, sessionKey, attemptId, language, attemptScopedAudio ->
         if (startWearRealtimeTalk(nodeId, sessionKey, attemptId, language, attemptScopedAudio)) wearRealtimeTalkSnapshot.value else null
       },
@@ -1844,6 +1853,49 @@ class NodeRuntime private constructor(
         if (stopWearRealtimeTalk(nodeId, attemptId)) wearRealtimeTalkSnapshot.value else null
       },
     )
+  }
+
+  private suspend fun readWearChatReply(
+    sessionKey: String,
+    agentId: String,
+    entryId: String,
+    offset: Int,
+    revision: String?,
+  ): WearReplyTextPage {
+    val scope = captureGatewayDataScope() ?: return WearReplyTextPage(WearReplyTextStatus.Unavailable)
+    val methods = captureGatewayMethods()
+    val lease = operatorSession.captureRequestLease(scope.stableId) ?: return WearReplyTextPage(WearReplyTextStatus.Unavailable)
+    if (!lease.supportsMethod("chat.message.get")) return WearReplyTextPage(WearReplyTextStatus.Unsupported)
+    val selectedAgent = currentWearAgentId()
+    val caller = currentCoroutineContext()
+    caller.ensureActive()
+
+    fun current() = isGatewayDataScopeCurrent(scope) && isGatewayMethodsSnapshotCurrent(methods) && currentWearAgentId() == selectedAgent
+    val params =
+      buildJsonObject {
+        put("sessionKey", JsonPrimitive(sessionKey))
+        put("agentId", JsonPrimitive(agentId))
+        put("messageId", JsonPrimitive(entryId))
+        put("maxChars", JsonPrimitive(WearReplyText.MAX_TEXT_LENGTH))
+      }
+    val payload =
+      lease.request("chat.message.get", params.toString()) { enqueue ->
+        if (!current()) throw GatewayRequestNotEnqueued("Wear reply read retired")
+        caller.ensureActive()
+        enqueue()
+      }
+    val page =
+      projectWearFullReply(
+        json.parseToJsonElement(payload),
+        entryId,
+        "\u0000".let { separator -> listOf(scope.stableId, scope.generation.toString(), methods.epoch.toString(), agentId, sessionKey, entryId).joinToString(separator) },
+        offset,
+        revision,
+      )
+    caller.ensureActive()
+    var accepted = false
+    lease.commitIfCurrent { accepted = current() }
+    return if (accepted) page else WearReplyTextPage(WearReplyTextStatus.Changed)
   }
 
   private fun currentWearAgentId(): String? = resolveAgentIdFromMainSessionKey(mainSessionKey.value) ?: gatewayDefaultAgentId.value

@@ -437,6 +437,7 @@ export async function runReplyAgent(
     agentId: followupRun.run.agentId,
     sessionKey,
     workspaceDir: followupRun.run.workspaceDir,
+    mediaNormalizationOwner: followupRun.run.mediaNormalizationOwner,
     messageProvider: followupRun.run.messageProvider,
     accountId: followupRun.originatingAccountId ?? followupRun.run.agentAccountId,
     groupId: followupRun.run.groupId,

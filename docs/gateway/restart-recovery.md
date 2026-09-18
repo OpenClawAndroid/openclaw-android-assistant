@@ -283,8 +283,7 @@ candidate recognizes the existing update marker and, once the managed process is
 running, uses the five-minute startup watchdog instead of the standalone
 60-second deadline. Migration, listener, and health transitions do not reset this
 bound. The old updater's subprocess timeout also remains in force. An exhausted
-wait reports the last observed startup phase. Standalone restart deadlines are
-unchanged.
+wait reports the last observed startup phase. Standalone restarts use the [progress-gated readiness wait](/cli/gateway/restart-and-supervision#restart-the-gateway).
 Verification facts and measured downtime are retained in the
 [update run report](/cli/update#run-history-and-reports).
 

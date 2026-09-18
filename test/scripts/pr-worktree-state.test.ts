@@ -12,6 +12,20 @@ const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const describePosix = process.platform === "win32" ? describe.skip : describe;
 
 describePosix("repository-owned PR provisioning state", () => {
+  it.runIf(process.platform === "linux")(
+    "releases its completed operation after exited loader descendants await reaping",
+    () => {
+      const f = createProvisionOwnerFixture(tempDirs.make("openclaw-pr-exited-loaders-"));
+      delete f.env.OPENCLAW_CONFIG_PATH;
+      const result = f.run("entry", "", { holdExitedDescendants: true });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(result.stdout).toMatch(/successfully reaped: [1-9]/u);
+      expectProvisionSeed(f);
+      expectProvisionLeaseReleased(f);
+      expect(f.git(f.canonical, "for-each-ref", "refs/openclaw/pr-operation-locks")).toBe("");
+      expect(existsSync(join(f.home, ".openclaw"))).toBe(false);
+    },
+  );
   it.each([
     { mode: "native", override: false },
     { mode: "native", override: true },

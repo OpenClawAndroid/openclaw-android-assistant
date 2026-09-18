@@ -211,6 +211,7 @@ async function executeAgentTurnInternalLoop(
           agentId: params.followupRun.run.agentId,
           sessionKey: params.sessionKey,
           workspaceDir: params.followupRun.run.workspaceDir,
+          mediaNormalizationOwner: params.followupRun.run.mediaNormalizationOwner,
           messageProvider: params.followupRun.run.messageProvider,
           accountId:
             params.followupRun.originatingAccountId ?? params.followupRun.run.agentAccountId,

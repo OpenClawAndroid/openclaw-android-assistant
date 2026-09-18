@@ -52,6 +52,8 @@ export type CronCreatorAuthorityRunScope = {
     channel?: string;
     accountId?: string;
   }>;
+  /** Fresh admission only; never transferred with a management continuation. */
+  readonly callerScopedCreation?: true;
   /** @deprecated Read managementEntitlement. Harness source compatibility lasts through 2026-10-12. */
   readonly controlUiAdmin?: true;
   readonly isCurrent?: () => boolean;
@@ -91,6 +93,7 @@ export function createCronCreatorAuthorityRunScope(
   isCurrent?: () => boolean,
   channelRequester?: CronAuthenticatedChannelRequester,
   requesterOwner?: CronCreatorAuthorityRunScope["requesterOwner"],
+  callerScopedCreation?: true,
 ): CronCreatorAuthorityRunScope {
   const abortController = new AbortController();
   const requester = normalizeCronAuthenticatedChannelRequester(channelRequester);
@@ -101,6 +104,7 @@ export function createCronCreatorAuthorityRunScope(
     grantTokens: new Set(),
     ...(managementEntitlement ? { managementEntitlement } : {}),
     ...(requesterOwner ? { requesterOwner } : {}),
+    ...(callerScopedCreation ? { callerScopedCreation } : {}),
     get controlUiAdmin(): true | undefined {
       return managementEntitlement?.source === "control-ui-admin" ? true : undefined;
     },
@@ -120,7 +124,11 @@ export function hasCronChannelRequester(scope: CronCreatorAuthorityRunScope): bo
 }
 
 function hasCronAuthenticatedRequester(scope: CronCreatorAuthorityRunScope): boolean {
-  return scope.callerOrigin.kind === "local" || hasCronChannelRequester(scope);
+  return (
+    scope.callerOrigin.kind === "local" ||
+    hasCronChannelRequester(scope) ||
+    scope.callerScopedCreation === true
+  );
 }
 
 export function mintCronCreatorAuthorityGrant(
@@ -142,7 +150,13 @@ export function mintCronCreatorAuthorityGrant(
   ) {
     throw management ? expiredManagementError() : expiredAuthorityError();
   }
-  if (!management && scope.managementEntitlement && scope.callerOrigin.kind === "unknown") {
+  // Remote admission can prove the requester, never materialize fresh runtime authority.
+  if (
+    !management &&
+    scope.managementEntitlement &&
+    scope.callerOrigin.kind === "unknown" &&
+    !(capture === "requester" && scope.callerScopedCreation)
+  ) {
     throw new TypeError(
       "Automation creation is not granted to this turn. Use the Automations page to create an automation.",
     );

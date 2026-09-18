@@ -9,6 +9,10 @@ import {
   type AgentHarnessToolSurfaceRuntime as CoreAgentHarnessToolSurfaceRuntime,
 } from "../agents/harness/tool-surface-bridge.js";
 
+export {
+  normalizeAcceptedSessionSpawnResult,
+  type AcceptedSessionSpawn,
+} from "../agents/accepted-session-spawn.js";
 export { getCoreTtsToolResultMediaUrls } from "../agents/tools/tts-tool-result-provenance.js";
 export { consumeTrustedToolNoStartError } from "../agents/tool-result-error.js";
 export {

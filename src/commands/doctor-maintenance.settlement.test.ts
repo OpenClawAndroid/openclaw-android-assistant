@@ -95,9 +95,10 @@ vi.mock("../daemon/service-operation-lock.js", () => ({
 vi.mock("../cli/update-cli/update-command-service-plan.js", () => ({
   resolveUpdatedGatewayRestartPort: async () => 18789,
 }));
-vi.mock("../cli/daemon-cli/restart-health.js", () => ({
+vi.mock("../cli/daemon-cli/restart-health.js", async () => ({
   waitForGatewayHealthyRestart: boundary.health,
-  renderRestartDiagnostics: () => [],
+  renderRestartDiagnostics: (await import("../cli/daemon-cli/restart-health-diagnostics.js"))
+    .renderRestartDiagnostics,
 }));
 
 const root = "/synthetic/doctor-install";
@@ -167,6 +168,32 @@ function begin() {
     runtime: { log: boundary.log, error: vi.fn(), exit: vi.fn() },
   });
 }
+
+it("leaves a progressing Gateway running and warns after the readiness cap", async () => {
+  boundary.health.mockResolvedValue({
+    healthy: false,
+    staleGatewayPids: [],
+    runtime: { status: "running", pid: 4242 },
+    portUsage: { port: 18789, status: "free", listeners: [], hints: [] },
+    waitOutcome: "still-starting",
+    elapsedMs: 300_000,
+    startupPhase: "startup migration",
+  });
+  const maintenance = await begin();
+  expect(maintenance).toBeDefined();
+
+  await expect(maintenance!.finish({})).resolves.toBeUndefined();
+
+  const warning = expect.stringMatching(
+    /still starting after 300s.*startup migration.*openclaw gateway status --deep/,
+  );
+  expect(maintenance!.warnings).toContainEqual(warning);
+  expect(boundary.log).toHaveBeenCalledWith(warning);
+  expect(boundary.log).not.toHaveBeenCalledWith(
+    "Gateway restarted and verified after Doctor repair.",
+  );
+  expect(boundary.restart).toHaveBeenCalledOnce();
+});
 
 function cleanupBarrier() {
   const cleanup = createDeferredCore<"forced" | "uncertain">();

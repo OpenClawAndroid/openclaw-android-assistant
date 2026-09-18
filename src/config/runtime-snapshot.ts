@@ -8,6 +8,7 @@ import {
   resetPublishedConfigRuntimeEnv,
   type PreparedConfigRuntimeEnv,
 } from "./config-env-vars.js";
+import { getScopedConfigSnapshotPreparation } from "./io.snapshot-preparation-scope.js";
 import type {
   CapturedConfigSnapshotPreparation,
   ConfigSnapshotPreparation,
@@ -17,7 +18,11 @@ import {
   getConfigResolutionFacts,
   serializeConfigResolutionFacts,
 } from "./resolution-facts.js";
-import { getRuntimeConfigCapture } from "./runtime-config-capture-state.js";
+import {
+  captureRuntimeConfigRead,
+  type CapturedRuntimeConfigRead,
+  getRuntimeConfigCapture,
+} from "./runtime-config-capture-state.js";
 import type { OpenClawConfig } from "./types.js";
 
 export type RuntimeConfigSnapshotRefreshOptions = {
@@ -521,15 +526,19 @@ export function registerManagedRuntimeConfigWriteOwner(
 export function captureManagedConfigSnapshotPreparation(
   configPath: string,
 ): CapturedConfigSnapshotPreparation | null {
+  const scoped = getScopedConfigSnapshotPreparation(configPath);
   const owner = [...(managedRuntimeConfigWriteOwners.get(configPath) ?? [])].find(
     (candidate) => candidate.prepareSnapshot,
   );
-  const prepare = owner?.prepareSnapshot;
-  if (!owner || !prepare) {
+  const prepare = scoped?.prepare ?? owner?.prepareSnapshot;
+  if (!prepare) {
     return null;
   }
+  const isCurrent =
+    scoped?.isCurrent ??
+    (() => Boolean(owner && managedRuntimeConfigWriteOwners.get(configPath)?.has(owner)));
   const assertCurrent = () => {
-    if (!managedRuntimeConfigWriteOwners.get(configPath)?.has(owner)) {
+    if (!isCurrent()) {
       throw new Error("Gateway config snapshot preparation owner has closed");
     }
   };
@@ -592,17 +601,30 @@ export function loadPinnedRuntimeConfig(loadFresh: () => OpenClawConfig): OpenCl
   return getRuntimeConfigSnapshot() ?? config;
 }
 
-/** Pin a strict cold load only while its original publication owner is still current. */
+type RuntimeConfigAsyncLoader = (assertCurrent: () => void) => Promise<{
+  config: OpenClawConfig;
+  runtimeEnv?: PreparedConfigRuntimeEnv;
+}>;
+/** Pin a strict cold load, optionally capturing its source and env before yielding. */
+export function loadPinnedRuntimeConfigAsync(
+  loadFresh: RuntimeConfigAsyncLoader,
+  options: { assertCurrent?: () => void; capture: true },
+): Promise<CapturedRuntimeConfigRead>;
+export function loadPinnedRuntimeConfigAsync(
+  loadFresh: RuntimeConfigAsyncLoader,
+  options?: { assertCurrent?: () => void; capture?: false },
+): Promise<OpenClawConfig>;
 export async function loadPinnedRuntimeConfigAsync(
-  loadFresh: (assertCurrent: () => void) => Promise<{
-    config: OpenClawConfig;
-    runtimeEnv?: PreparedConfigRuntimeEnv;
-  }>,
-  options: { assertCurrent?: () => void } = {},
-): Promise<OpenClawConfig> {
+  loadFresh: RuntimeConfigAsyncLoader,
+  options: { assertCurrent?: () => void; capture?: boolean } = {},
+): Promise<OpenClawConfig | CapturedRuntimeConfigRead> {
+  const result = (config: OpenClawConfig) =>
+    options.capture
+      ? captureRuntimeConfigRead(config, runtimeConfigSourceSnapshot ?? config)
+      : config;
   options.assertCurrent?.();
   if (runtimeConfigSnapshot) {
-    return runtimeConfigSnapshot;
+    return result(runtimeConfigSnapshot);
   }
   const generation = runtimeConfigSnapshotGeneration;
   const assertCurrent = () => {
@@ -615,7 +637,7 @@ export async function loadPinnedRuntimeConfigAsync(
     const { config, runtimeEnv } = await loadFresh(assertCurrent);
     options.assertCurrent?.();
     if (runtimeConfigSnapshot) {
-      return runtimeConfigSnapshot;
+      return result(runtimeConfigSnapshot);
     }
     assertCurrent();
     const commit = await prepareRuntimeConfigSnapshot(
@@ -625,7 +647,7 @@ export async function loadPinnedRuntimeConfigAsync(
     );
     options.assertCurrent?.();
     if (runtimeConfigSnapshot) {
-      return runtimeConfigSnapshot;
+      return result(runtimeConfigSnapshot);
     }
     assertCurrent();
     const publication = runtimeEnv?.publish();
@@ -639,11 +661,11 @@ export async function loadPinnedRuntimeConfigAsync(
       publication?.();
       throw error;
     }
-    return getRuntimeConfigSnapshot() ?? config;
+    return result(getRuntimeConfigSnapshot() ?? config);
   } catch (error) {
     options.assertCurrent?.();
     if (runtimeConfigSnapshot) {
-      return runtimeConfigSnapshot;
+      return result(runtimeConfigSnapshot);
     }
     throw error;
   }

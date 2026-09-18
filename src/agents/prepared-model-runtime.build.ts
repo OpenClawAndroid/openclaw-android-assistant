@@ -23,8 +23,10 @@ import {
 } from "./prepared-model-runtime.errors.js";
 import {
   fingerprintPreparedRuntimeFacts,
+  prepareConfiguredModelFacts,
   prepareConfiguredRuntimeFactsBatch,
   prepareWorkspaceBuildGroup,
+  type PreparedConfiguredModelRegistries,
 } from "./prepared-model-runtime.facts.js";
 import {
   createPreparedModelRuntimeSnapshot,
@@ -184,9 +186,30 @@ async function buildSnapshotBatch(
       return prepared;
     };
     const loadInboundPluginRegistry = createPreparedInboundRegistryLoader();
+    const configuredModelRegistries: PreparedConfiguredModelRegistries = new Map();
     // Config objects can change between publications. Share this projection only
     // inside the current build batch so every later publication reads fresh config.
     const configuredHarnessRuntimesByConfig = new Map<OpenClawConfig, readonly string[]>();
+    const configuredModelFactsByConfig = new Map<
+      OpenClawConfig,
+      Map<
+        PreparedModelRuntimePluginGeneration["pluginMetadataSnapshot"],
+        ReturnType<typeof prepareConfiguredModelFacts>
+      >
+    >();
+    const getConfiguredModelFacts: typeof prepareConfiguredModelFacts = (config, metadata) => {
+      let factsByMetadata = configuredModelFactsByConfig.get(config);
+      if (!factsByMetadata) {
+        factsByMetadata = new Map();
+        configuredModelFactsByConfig.set(config, factsByMetadata);
+      }
+      let facts = factsByMetadata.get(metadata);
+      if (!facts) {
+        facts = prepareConfiguredModelFacts(config, metadata);
+        factsByMetadata.set(metadata, facts);
+      }
+      return facts;
+    };
     let runtimePluginMs = 0;
     let pluginMetadataMs = 0;
     let staticProviderCatalogMs = 0;
@@ -226,6 +249,7 @@ async function buildSnapshotBatch(
           preferBuiltPluginArtifacts,
           includeCredentialProviders,
           getConfiguredHarnessRuntimes,
+          getConfiguredModelFacts,
           assertCurrent: assertBuildCurrent,
           onBeforeAuthCapture: (input) => candidateByInput.get(input)!.onBeforeAuthCapture?.(),
           onStage,
@@ -259,6 +283,7 @@ async function buildSnapshotBatch(
           agentFacts: prepared.agentFacts,
           pluginGeneration: prepared.pluginGeneration,
           assertCurrent: assertBuildCurrent,
+          registries: configuredModelRegistries,
         });
         runtimeRegistryCount += batch.registryCount;
         registryMs += performance.now() - startedAt;

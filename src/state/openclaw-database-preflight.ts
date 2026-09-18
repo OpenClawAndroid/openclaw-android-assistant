@@ -318,6 +318,8 @@ export async function preflightOpenClawDatabaseSchemas(options: {
   supportedVersions?: OpenClawSchemaVersions;
   verifyCurrentSchemaShape?: boolean;
   requireStartupMigrationReadiness?: boolean;
+  /** Consume this startup owner's unchanged compatibility headers once, never readiness proof. */
+  reuseStartupSchemaPreparation?: boolean;
   configuredAgentDatabaseTargets?:
     | readonly { agentId: string; path: string }[]
     | ((
@@ -338,6 +340,14 @@ export async function preflightOpenClawDatabaseSchemas(options: {
   const startup = options.requireStartupMigrationReadiness
     ? getAgentDatabaseStartupAdmission()
     : undefined;
+  const prepareSchemaHeader = startup?.prepareSchemaHeaders(options.env);
+  const readPreparedSchemaHeader =
+    options.reuseStartupSchemaPreparation &&
+    !options.requireStartupMigrationReadiness &&
+    !options.verifyCurrentSchemaShape &&
+    !options.agentAdmissionConfig
+      ? getAgentDatabaseStartupAdmission()?.takePreparedSchemaHeaders(options.env)
+      : undefined;
   const priorRefusals = startup?.captureRefusals(options.env);
   const statePath = path.resolve(resolveOpenClawStateSqlitePath(options.env));
   let registeredDatabases: ReturnType<typeof readAgentDatabasePreflightTargets> = [];
@@ -571,7 +581,9 @@ export async function preflightOpenClawDatabaseSchemas(options: {
         if (!claimAgentTarget(realAgentPath, row.agentId)) {
           return;
         }
-        let schemaInspection: AgentSchemaInspection | null = null;
+        let schemaInspection: AgentSchemaInspection | null =
+          readPreparedSchemaHeader?.(realAgentPath, supportedVersions.agent) ?? null;
+        const recordPreparedSchemaHeader = prepareSchemaHeader?.(realAgentPath);
         const inspectOwnership =
           row.agentId !== undefined && admittedAgentIds?.has(row.agentId) === true;
         const schemaInput = {
@@ -582,8 +594,9 @@ export async function preflightOpenClawDatabaseSchemas(options: {
           verifyCurrentSchemaShape: options.verifyCurrentSchemaShape,
           requireStartupMigrationReadiness: options.requireStartupMigrationReadiness,
         };
-        // Every agent uses the slot's reader, including header-only Doctor checks.
+        // Unprepared agents use the slot's reader, including header-only Doctor checks.
         if (
+          !schemaInspection &&
           !hasStateDatabaseSourceExclusion(realAgentPath) &&
           !prepareStateDatabaseCanonicalMutation(realAgentPath)
         ) {
@@ -652,6 +665,7 @@ export async function preflightOpenClawDatabaseSchemas(options: {
             ...(writerAppVersion ? { writerAppVersion } : {}),
           });
         }
+        recordPreparedSchemaHeader?.(agentVersion);
       } catch (error) {
         if (options.signal?.aborted) {
           throw error;

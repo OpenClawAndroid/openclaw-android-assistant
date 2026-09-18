@@ -65,6 +65,7 @@ import {
 import { closeOpenClawStateDatabaseByPath } from "../../state/openclaw-state-db-cache.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { withEnvAsync } from "../../test-utils/env.js";
+import { withTempDir } from "../../test-utils/temp-dir.js";
 import { normalizeSessionDeliveryState } from "../../utils/delivery-context.shared.js";
 import { consumeCronCreatorAuthorityGrant } from "../cron-creator-authority-grant.js";
 import { createChatRunState } from "../server-chat-state.js";
@@ -4796,37 +4797,37 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     },
   );
 
-  it("keeps visible text on non-agent TTS final media because no model transcript exists", async () => {
-    const transcriptDir = await createTranscriptFixture("openclaw-chat-send-command-tts-final-");
-    const audioPath = path.join(transcriptDir, "tts.mp3");
-    fs.writeFileSync(audioPath, createPlaybackMediaFixture("mp3"));
-    mockState.config = {
-      agents: {
-        defaults: {
-          workspace: transcriptDir,
-        },
-      },
-    };
-    mockState.finalPayload = {
-      text: "Command result with TTS.",
-      spokenText: "Command result with TTS.",
-      mediaUrl: audioPath,
-      mediaUrls: [audioPath],
-      trustedLocalMedia: true,
-      audioAsVoice: true,
-    };
-    const payload = await createChatRequestFixture().send({
-      idempotencyKey: "idem-command-tts",
-    });
+  it("keeps visible text and trusted worktree audio on non-agent TTS final media", async () => {
+    await withTempDir("openclaw-command-tts-worktree-", async (worktree) => {
+      const transcriptDir = await createTranscriptFixture("openclaw-chat-send-command-tts-final-");
+      const audioPath = path.join(worktree, "tts.mp3");
+      const audio = Buffer.alloc(6 * 1024 * 1024);
+      createPlaybackMediaFixture("mp3").copy(audio);
+      fs.writeFileSync(audioPath, audio);
+      mockState.config = {
+        agents: { defaults: { workspace: transcriptDir } },
+        tools: { fs: { workspaceOnly: true } },
+      };
+      mockState.sessionEntry = { sessionRoot: worktree, spawnedCwd: worktree };
+      mockState.finalPayload = createSlashCommandMediaReply("final", [audioPath], {
+        text: "Command result with TTS.",
+        spokenText: "Command result with TTS.",
+        mediaUrl: audioPath,
+        audioAsVoice: true,
+      }).payload;
+      const payload = await createChatRequestFixture().send({
+        idempotencyKey: "idem-command-tts",
+      });
 
-    const content = getMessageContent(payload);
-    expect(getMessage(payload)?.role).toBe("assistant");
-    expect(content[0]).toEqual({ type: "text", text: "Command result with TTS." });
-    expectManagedAudioBlock(content[1], "tts.mp3", true);
-    expect(JSON.stringify(content[1])).not.toContain(fs.realpathSync(audioPath));
-    const assistantUpdates = findAssistantTranscriptUpdates();
-    expect(assistantUpdates).toHaveLength(1);
-    expect(JSON.stringify(assistantUpdates[0]?.message)).toContain("Command result with TTS.");
+      const content = getMessageContent(payload);
+      expect(getMessage(payload)?.role).toBe("assistant");
+      expect(content[0]).toEqual({ type: "text", text: "Command result with TTS." });
+      expectManagedAudioBlock(content[1], "tts.mp3", true);
+      expect(JSON.stringify(content[1])).not.toContain(fs.realpathSync(audioPath));
+      const assistantUpdates = findAssistantTranscriptUpdates();
+      expect(assistantUpdates).toHaveLength(1);
+      expect(JSON.stringify(assistantUpdates[0]?.message)).toContain("Command result with TTS.");
+    });
   });
 
   it("folds block-only non-agent command replies into the final WebChat message", async () => {
@@ -4889,16 +4890,11 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
         kind: "block",
         payload: { text: "Trajectory exports can include prompts." },
       },
-      {
-        kind: "final",
-        payload: {
-          mediaUrl: audioPath,
-          mediaUrls: [audioPath],
-          trustedLocalMedia: true,
-          audioAsVoice: true,
-          replyToCurrent: true,
-        },
-      },
+      createSlashCommandMediaReply("final", [audioPath], {
+        mediaUrl: audioPath,
+        audioAsVoice: true,
+        replyToCurrent: true,
+      }),
     ];
     const payload = await createChatRequestFixture().send({
       idempotencyKey: "idem-command-block-media",

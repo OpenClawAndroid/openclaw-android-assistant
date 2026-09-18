@@ -24,6 +24,20 @@ and publishes the result. Avoid exposing a generic SQL callback to application
 code or adding an asynchronous wrapper around an existing asynchronous facade.
 The plugin KV API already has asynchronous methods over its SQLite owner.
 
+Shared-state operations that request host transaction or commit admission retain
+lifecycle coordinator custody before worker dispatch. Native host writers can
+then borrow that same owner while servicing the worker's grants, avoiding a
+coordinator wait that blocks the grant handler. A foreign coordinator owner is
+waited out asynchronously before dispatch, within the existing SQLite lock budget.
+Grant services reuse the physical worker owner's admitted path aliases, so native
+handles opened through symlinked directories reach the same service without new
+filesystem lookups.
+The waiting job retains its FIFO position and capacity reservation; cancellation
+or worker exit wakes the wait without replaying a dispatched write. Source
+authority and persisted transaction checks remain unchanged. Coordinator acquisition
+and release still perform control SQL on the host; this does not complete the migration of native
+state writers. Database schemas, retention, and update behavior are unchanged.
+
 Managed outgoing image metadata lookups and cleanup inventories read through the
 shared-state worker, retaining their writable, creating database-open behavior.
 Typed columns, ordering, cleanup claims, and original-media references are unchanged.
@@ -249,6 +263,18 @@ Hosts without both comparison methods retain the atomic native callback path unt
 an approved minimum host version guarantees both methods. Available worker failures
 never fall back. Modern domain validation errors surface
 directly, while older hosts retain their native callback error wrapping.
+
+Gateway client device-token reads, writes, and clearing run in the shared-state
+worker, including origin-bound tokens. Callers capture the state environment,
+input, and admission before waiting. The token owner keeps its existing codecs,
+comparison fences, and transactions. Read-only clients retain artifact-preserving
+reads and never create missing state. Reconnect waits for accepted persistence,
+and client shutdown drains it before returning; supplied cancellation and owner
+guards are checked again at worker admission. Device identity creation and the
+compound pairing recovery transaction retain their existing owners. Host admission
+still uses the synchronous lifecycle coordinator; token-data SQL runs in the worker.
+One-shot calls initialize that actor during request preparation, before starting
+the RPC timeout, without reading or caching token facts.
 
 ClickClack discussion generation reservations and pending-open recovery records
 use the shared-state worker. Generation mutations compare the current row and
@@ -807,6 +833,14 @@ keeps PID liveness checks on the host, then compares each complete candidate wit
 the authoritative row in the worker transaction before deletion. Reads retain
 existing-only admission, and all stages of a prune use the captured database
 context. The cold hook CLI retains its separate read-only locator worker.
+
+Browser board-change and deleted-session events discover retained dashboard tabs
+and Stop intents through the shared-state worker. Discovery reads the existing
+`browser.session-tabs` namespace without creating missing state. Browser service
+shutdown joins accepted board-event discovery and reconciliation; replaced
+runtimes discard late discovery results. Registration's alias bootstrap, tab
+mutations, and the final synchronous ownership check before closing a browser
+target retain their existing owners.
 
 ### Preserve the data and concurrency contracts
 

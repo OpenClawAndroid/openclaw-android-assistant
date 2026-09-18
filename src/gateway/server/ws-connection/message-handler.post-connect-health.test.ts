@@ -2642,15 +2642,15 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
           isOneShotModelRun: false,
           isRestartRecoveryResumeRun: false,
         });
-        expect(admission).toEqual(
-          allowed
-            ? {
-                runId: "control-ui-admin-run",
-                callerOrigin: { kind: "unknown" },
-                managementEntitlement: { source: "control-ui-admin" },
-              }
-            : undefined,
-        );
+        const expected = allowed
+          ? {
+              runId: "control-ui-admin-run",
+              callerOrigin: { kind: "unknown" },
+              callerScopedCreation: true,
+              managementEntitlement: { source: "control-ui-admin" },
+            }
+          : undefined;
+        expect(admission).toEqual(expected);
       });
     },
   );

@@ -54,6 +54,7 @@ import {
 import { closeTrackedStateDatabase } from "./openclaw-state-db-handle.js";
 import { createOpenClawStateDatabaseRuntimeFailureOwner } from "./openclaw-state-db-runtime-failure.js";
 import { assertExistingOpenClawStateSchemaCacheAdmission } from "./openclaw-state-db-schema-policy.js";
+import { openClawStateSnapshotOwners } from "./openclaw-state-db-snapshot-owner.js";
 import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
 import type { OpenClawStateWorkerContext } from "./openclaw-state-worker-context.types.js";
 
@@ -73,29 +74,7 @@ const stateDatabaseLifecycle = resolveGlobalSingleton<StateDatabaseLifecycle>(
     borrowers: new WeakMap<DatabaseSync, StateDatabaseBorrowers>(),
     databaseLifecycleListeners: new Set<(event: OpenClawStateDatabaseLifecycleEvent) => void>(),
     terminalOpenLatch: createSqliteTerminalOpenLatch({
-      closeByPath: (pathname, error) => {
-        asyncResources.invalidate(pathname);
-        const cached = cachedDatabases.get(pathname);
-        const errors: unknown[] = [];
-        try {
-          if (cached) {
-            evictCachedOpenClawStateDatabase(cached);
-          }
-        } catch (cleanupError) {
-          errors.push(cleanupError);
-        }
-        try {
-          notifyOpenClawStateDatabaseLifecycle({
-            kind: "terminal-failure",
-            path: pathname,
-            error,
-            identity: asyncResources.knownIdentity(pathname),
-          });
-        } catch (notificationError) {
-          errors.push(notificationError);
-        }
-        throwSqliteLifecycleErrors(errors, "Terminal shared-state failure cleanup failed");
-      },
+      closeByPath: (pathname, error) => runtimeFailures.closeTerminalFailure(pathname, error),
     }),
     asyncResources: createOpenClawStateDatabaseAsyncLifecycle(),
   }),
@@ -145,6 +124,14 @@ const runtimeFailures = createOpenClawStateDatabaseRuntimeFailureOwner({
   dataVersions: cachedDataVersions,
   latch: terminalOpenLatch,
   evict: evictCachedOpenClawStateDatabase,
+  invalidate: (pathname) => asyncResources.invalidate(pathname),
+  notifyTerminalFailure: (pathname, error) =>
+    notifyOpenClawStateDatabaseLifecycle({
+      kind: "terminal-failure",
+      path: pathname,
+      error,
+      identity: asyncResources.knownIdentity(pathname),
+    }),
   recordSchemaFailure: (pathname, error) => {
     terminalOpenLatch.record(pathname, error);
     notifyOpenClawStateDatabaseLifecycle({ kind: "open-error", path: pathname, error });
@@ -237,6 +224,7 @@ function closeOpenClawStateDatabaseHandle(
     return [error];
   }
   const errors: unknown[] = [];
+  openClawStateSnapshotOwners.release(database.db);
   try {
     database.walMaintenance?.close(options);
   } catch (error) {
@@ -307,6 +295,7 @@ function publishOpenClawStateDatabase(database: OpenClawStateDatabase): OpenClaw
   databaseIdentities.set(db, identity);
   runtimeFailures.recordPublishedVersion(database);
   cachedDatabases.set(pathname, database);
+  openClawStateSnapshotOwners.register(database, () => cachedDatabases.get(pathname));
   ownMaintenanceStateDatabaseHandle(database);
   notifyOpenClawStateDatabaseLifecycle({ kind: "opened", database, identity });
   registerNodeSqliteKyselyQueryErrorHandler(db, (error) => {

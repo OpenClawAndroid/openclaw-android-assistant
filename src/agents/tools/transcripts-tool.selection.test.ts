@@ -8,6 +8,7 @@ import {
 } from "../../state/openclaw-state-db.js";
 import { createTranscriptsAutoStartService } from "../../transcripts/auto-start.js";
 import { activeSessions } from "../../transcripts/capture.js";
+import { clearTranscriptCapturesForTest } from "../../transcripts/capture.test-support.js";
 import type {
   TranscriptSourceProvider,
   TranscriptStartRequest,
@@ -22,7 +23,7 @@ vi.mock("../../transcripts/provider-registry.js", () => ({
 }));
 const tempDirs = createTempDirTracker();
 afterEach(async () => {
-  activeSessions.clear();
+  await clearTranscriptCapturesForTest();
   vi.restoreAllMocks();
   vi.useRealTimers();
   await closeOpenClawStateDatabaseAsync();

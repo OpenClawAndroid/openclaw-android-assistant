@@ -7,6 +7,7 @@ import { setLoggerOverride } from "../logging/logger.js";
 import { testApi } from "../logging/logger.test-support.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import { prepareSqliteReadOnlyLocationSyncInProcess } from "./sqlite-readonly-location.js";
+import { reclaimAbandonedSqliteSnapshots } from "./sqlite-snapshot-staging.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 afterEach(() => {
@@ -19,7 +20,7 @@ it.skipIf(process.platform === "win32").each([
   { signal: "SIGKILL", relocated: false },
   { signal: "SIGTERM", relocated: true },
 ])(
-  "reclaims a $signal-interrupted copy on the next inspection (Doctor layout: $relocated)",
+  "reclaims a $signal-interrupted copy during idle cleanup (Doctor layout: $relocated)",
   async ({ signal, relocated }) => {
     const root = tempDirs.make("sqlite-interrupted-owner-");
     const cache = path.join(root, "cache");
@@ -67,8 +68,20 @@ it.skipIf(process.platform === "win32").each([
         0,
       );
     expect(retainedBytes).toBeGreaterThan(0);
+    const aged = new Date(Date.now() - 16 * 60_000);
+    for (const directory of abandoned) {
+      for (const entry of fs.readdirSync(directory, { recursive: true, withFileTypes: true })) {
+        fs.utimesSync(path.join(entry.parentPath, entry.name), aged, aged);
+      }
+      fs.utimesSync(directory, aged, aged);
+    }
     const prepared = prepareSqliteReadOnlyLocationSyncInProcess(source, cache);
     try {
+      // Inspection no longer reclaims inline; the idle owner performs that work.
+      expect(abandoned.every((directory) => fs.existsSync(directory))).toBe(true);
+      for (const _ of reclaimAbandonedSqliteSnapshots(cache)) {
+        // Drain the same bounded reclamation pass used by the idle worker.
+      }
       expect(abandoned.every((directory) => !fs.existsSync(directory))).toBe(true);
       const reader = new (requireNodeSqlite().DatabaseSync)(prepared.location, { readOnly: true });
       try {
@@ -116,6 +129,9 @@ it.skipIf(process.platform === "win32")(
     });
     const prepared = prepareSqliteReadOnlyLocationSyncInProcess(source, cache);
     prepared.cleanup();
+    for (const _ of reclaimAbandonedSqliteSnapshots(cache)) {
+      // Unknown entries must remain untouched even during explicit reclamation.
+    }
     expect(fs.readdirSync(cache).toSorted()).toEqual(
       directories.map((directory) => path.basename(directory)).toSorted(),
     );

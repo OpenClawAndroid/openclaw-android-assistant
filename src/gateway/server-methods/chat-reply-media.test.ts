@@ -17,7 +17,7 @@ import {
   type MockInstance,
 } from "vitest";
 import { consumePendingToolMediaIntoReply } from "../../agents/embedded-agent-subscribe.handlers.messages.replies.js";
-import type { SessionEntry } from "../../config/sessions/types.js";
+import { setReplyPayloadMetadata } from "../../auto-reply/reply-payload.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
 import {
@@ -31,7 +31,6 @@ import {
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
 import { createManagedOutgoingMediaBlocks as createManagedOutgoingImageBlocks } from "../managed-image-attachments.js";
-import { createWorkerSessionPlacementStore } from "../worker-environments/placement-store.js";
 import { buildAssistantReplyContent } from "./chat-assistant-content.js";
 import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
 import { buildWebchatAssistantMessageFromReplyPayloads } from "./chat-webchat-media.js";
@@ -221,44 +220,30 @@ describe("normalizeWebchatReplyMediaPathsForDisplay", () => {
     );
   });
 
-  it.each(["inherited", "exec-node", "repository", "cloud"] as const)(
-    "respects the %s workspace ownership when staging local attachments",
-    async (ownership) => {
-      const { cfg } = createMediaTestContext({ allowRead: false });
-      const worktree = testState.statePath("worktrees", "project");
-      const sourcePath = path.join(worktree, "chart.png");
-      await fs.mkdir(path.join(worktree, "nested"), { recursive: true });
-      await fs.writeFile(sourcePath, PNG_BYTES);
-      const sessionEntry: SessionEntry = {
-        sessionId: "workspace-media-session",
-        updatedAt: 1,
-        spawnedBy: "agent:main:main",
-        spawnedWorkspaceDir: worktree,
-        spawnedCwd: path.join(worktree, "nested"),
-        ...(ownership === "exec-node" ? { execNode: "remote-node" } : {}),
-        ...(ownership === "repository" ? { repositoryWorkspaceId: "remote-repository" } : {}),
-      };
-      if (ownership === "cloud") {
-        createWorkerSessionPlacementStore().startDispatch({
-          sessionId: sessionEntry.sessionId,
-          sessionKey: TEST_SESSION_KEY,
-          agentId: "main",
-        });
-      }
-      const [payload] = await normalizeWebchatReplyMediaPathsForDisplay({
+  it.each(["file://attacker/share/probe.mp3", "file:///outside/secret.png"])(
+    "keeps deferred tool media rejection visible for %s",
+    async (mediaUrl) => {
+      const { cfg, stateDir } = createMediaTestContext({ allowRead: true });
+      const payload = await normalizeReplyMedia({
         cfg,
-        agentId: "main",
-        sessionKey: TEST_SESSION_KEY,
-        sessionEntry,
-        payloads: [{ mediaUrls: [ownership === "inherited" ? "./chart.png" : sourcePath] }],
+        payloads: [{ text: "NO_REPLY", mediaUrls: [mediaUrl] }],
       });
-      if (ownership === "inherited") {
-        const stagedPath = requireString(payload?.mediaUrls?.[0], "staged workspace image");
-        expect(await fs.readFile(stagedPath)).toEqual(PNG_BYTES);
-      } else {
-        expect(payload?.mediaUrls).toBeUndefined();
-        expect(payload?.text).toBe("⚠️ chart.png: Delivery failed. Try sending this file again.");
-      }
+      const { assistantContent } = await buildAssistantReplyContent({
+        sessionKey: TEST_SESSION_KEY,
+        agentId: "main",
+        payloads: payload ? [payload] : [],
+        managedMediaLocalRoots: getAgentScopedMediaLocalRoots(cfg, "main"),
+      });
+      expect(assistantContent).toEqual([
+        expect.objectContaining({
+          type: "attachment_error",
+          attachment: expect.objectContaining({
+            code: "delivery-failed",
+            label: path.basename(new URL(mediaUrl).pathname),
+          }),
+        }),
+      ]);
+      await expectOutboundMediaMissing(stateDir);
     },
   );
 
@@ -734,6 +719,57 @@ describe("normalizeWebchatReplyMediaPathsForDisplay", () => {
     const blocks = await createManagedImageBlocks({ cfg, mediaUrls: payload?.mediaUrls });
 
     expect(blocks).toHaveLength(2);
+  });
+
+  it("retains earlier and newly observed failures beside an inline image", async () => {
+    const { cfg, workspaceDir } = createMediaTestContext({ allowRead: false });
+    const payload = await normalizeReplyMedia({
+      cfg,
+      payloads: [
+        setReplyPayloadMetadata(
+          {
+            mediaUrls: [dataImageUrl(), path.join(workspaceDir, "missing.png")],
+          },
+          {
+            assistantMediaFailures: [
+              {
+                code: "file-not-found",
+                kind: "document",
+                label: "earlier.pdf",
+                mimeType: "application/pdf",
+              },
+            ],
+          },
+        ),
+      ],
+    });
+    const { assistantContent } = await buildAssistantReplyContent({
+      sessionKey: TEST_SESSION_KEY,
+      agentId: "main",
+      payloads: payload ? [payload] : [],
+      managedMediaLocalRoots: getAgentScopedMediaLocalRoots(cfg, "main"),
+    });
+    expect(assistantContent?.filter((block) => block.type === "attachment_error")).toEqual([
+      {
+        type: "attachment_error",
+        attachment: {
+          code: "file-not-found",
+          kind: "document",
+          label: "earlier.pdf",
+          mimeType: "application/pdf",
+        },
+      },
+      {
+        type: "attachment_error",
+        attachment: {
+          code: "file-not-found",
+          kind: "image",
+          label: "missing.png",
+          mimeType: "image/png",
+        },
+      },
+    ]);
+    expect(assistantContent?.filter((block) => block.type === "image")).toHaveLength(1);
   });
 
   it.each([

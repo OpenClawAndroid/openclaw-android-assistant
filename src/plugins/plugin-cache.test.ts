@@ -53,11 +53,26 @@ describe("plugin package facts", () => {
       path.relative(process.cwd(), packageDir),
       ...(process.platform === "win32" ? [packageDir.toUpperCase()] : []),
     ];
+    const nativeRealpath = vi.spyOn(fs.realpathSync, "native");
     for (const targetPath of paths) {
       const expected = fs.realpathSync(targetPath);
-      withPluginCache(createPluginCache(), () => {
-        expect(pluginCacheRealpathSync(targetPath)).toBe(expected);
-      });
+      const nativeExpected = fs.realpathSync.native(targetPath);
+      for (const nativeFirst of [false, true]) {
+        nativeRealpath.mockClear();
+        const cache = createPluginCache();
+        withPluginCache(cache, () => {
+          if (nativeFirst) {
+            expect(pluginCacheRealpathSync(targetPath, true)).toBe(nativeExpected);
+          }
+          expect(pluginCacheRealpathSync(targetPath)).toBe(expected);
+          expect(pluginCacheRealpathSync(targetPath, true)).toBe(nativeExpected);
+          expect(nativeRealpath).toHaveBeenCalledTimes(1);
+          invalidatePluginCacheMetadata(cache);
+          expect(pluginCacheRealpathSync(targetPath)).toBe(expected);
+          expect(pluginCacheRealpathSync(targetPath, true)).toBe(nativeExpected);
+          expect(nativeRealpath).toHaveBeenCalledTimes(2);
+        });
+      }
     }
   });
 

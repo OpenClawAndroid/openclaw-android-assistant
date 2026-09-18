@@ -319,7 +319,7 @@ describe("runNodeHost", () => {
       vi.stubEnv("OPENCLAW_GATEWAY_TOKEN", undefined);
       vi.stubEnv("OPENCLAW_GATEWAY_PASSWORD", undefined);
       mocks.loadNodeHostConfig.mockResolvedValue({ version: 1, nodeId: "node-test", gateway });
-      mocks.loadDeviceAuthTokenReadOnly.mockImplementation(({ role }) =>
+      mocks.loadDeviceAuthTokenReadOnly.mockImplementation(async ({ role }) =>
         role === "node" ? { role, token: "paired-node-token", scopes: [], updatedAtMs: 1 } : null,
       );
       mocks.getRuntimeConfig.mockReturnValue({
@@ -405,7 +405,7 @@ describe("runNodeHost", () => {
         if (missing === "no saved endpoint") {
           mocks.loadNodeHostConfig.mockResolvedValue(null);
         } else {
-          mocks.loadDeviceAuthTokenReadOnly.mockImplementation(({ role }) =>
+          mocks.loadDeviceAuthTokenReadOnly.mockImplementation(async ({ role }) =>
             missing === "operator token only" && role === "operator"
               ? { role, token: "operator-token", scopes: [], updatedAtMs: 1 }
               : null,

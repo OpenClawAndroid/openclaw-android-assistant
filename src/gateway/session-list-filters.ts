@@ -271,16 +271,15 @@ export function* filterSessionEntries(
         continue;
       }
     }
-    const participants =
-      involvingActorId || profileRelation?.relationship === "involving"
-        ? projectSessionParticipants(entry, identities, cfg)
-        : undefined;
+    let participants: ReturnType<typeof projectSessionParticipants> | undefined;
     if (
       profileRelation?.relationship === "involving" &&
       !(
         (effectiveOwner?.identity?.type === "profile" &&
           effectiveOwner.identity.id === profileRelation.profileId) ||
-        participants?.has(JSON.stringify({ type: "profile", id: profileRelation.profileId }))
+        (participants ??= projectSessionParticipants(entry, identities, cfg)).has(
+          JSON.stringify({ type: "profile", id: profileRelation.profileId }),
+        )
       )
     ) {
       continue;
@@ -300,7 +299,9 @@ export function* filterSessionEntries(
       !(
         (effectiveOwner?.identity?.type === "profile" &&
           effectiveOwner.identity.id === involvingActorId) ||
-        participants?.has(JSON.stringify({ type: "profile", id: involvingActorId }))
+        (participants ??= projectSessionParticipants(entry, identities, cfg)).has(
+          JSON.stringify({ type: "profile", id: involvingActorId }),
+        )
       )
     ) {
       continue;

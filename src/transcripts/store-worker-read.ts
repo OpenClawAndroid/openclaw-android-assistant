@@ -13,6 +13,7 @@ import {
   readTranscriptSessionMatches,
   readStoredTranscriptSummary,
   readTranscriptUtterances,
+  readTranscriptSummarySnapshot,
 } from "./store-sqlite-read.js";
 import {
   readRecentStoppedTranscriptSession,
@@ -27,6 +28,17 @@ export function executeTranscriptRead(
 ): TranscriptReadOperations[keyof TranscriptReadOperations]["output"] {
   try {
     switch (command.type) {
+      case "transcripts.summarySnapshot":
+        return {
+          ok: true,
+          value: runSqliteDeferredTransactionSync(database, () =>
+            readTranscriptSummarySnapshot(
+              database,
+              command.input.params.session,
+              command.input.params.maxUtterances,
+            ),
+          ),
+        };
       case "transcripts.sessionEntries":
         return {
           ok: true,

@@ -109,6 +109,11 @@ session work, clears its queues, and cancels its active child tree. Session-wide
 requires `clearQueued: true`. Ordinary `chat.abort` without a `runId` does not
 cascade to children. These operations retain their normal authorization checks.
 
+A typed `/stop` sent through `chat.send` honors `expectedLeafEntryId` and, when
+that branch check is present, `sessionId`. If the check fails during descendant
+cancellation, the Gateway refuses further cancellation and reports
+`active-leaf-changed`. Cancellation already accepted by a child still settles.
+
 Incomplete cancellation is reported as an error, not a clean success. `/stop`
 reports actual stopped and failed child counts. Inspect the remaining
 [background tasks](/automation/tasks#control-ui) and retry their cancellation;

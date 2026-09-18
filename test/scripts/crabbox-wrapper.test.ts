@@ -25,6 +25,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
+import { getSystemErrorMap } from "node:util";
 import { build, type BuildOptions } from "esbuild";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -34,6 +35,7 @@ import {
 } from "../../scripts/crabbox-wrapper-providers.mts";
 import { pnpmLockfileDocuments } from "../../scripts/lib/pnpm-lockfile-documents.mjs";
 import { resolvePnpmRunner } from "../../scripts/pnpm-runner.mts";
+import { spawnTerminalPty } from "../../src/process/terminal-pty.js";
 import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { isProcessAlive } from "../helpers/process-wait.js";
 import { makeTempDir, useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
@@ -723,6 +725,7 @@ if (path.resolve(process.argv[1] || ".") === ${JSON.stringify(implementationPath
       );
       const capturePath = ".crabbox/captures/signal.txt";
       const captureBytes = Buffer.from("cancellation diagnostic\n");
+      const nodeExecPath = resolveTestNodeExecPath();
       const env = {
         ...process.env,
         ...testHomeEnv(home),
@@ -739,7 +742,11 @@ if (path.resolve(process.argv[1] || ".") === ${JSON.stringify(implementationPath
             "corepack",
           ),
         NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --require ${JSON.stringify(ownerPreload)}`,
-        PATH: [makeFakeCrabbox(defaultProviderHelp), process.env.PATH ?? ""].join(path.delimiter),
+        PATH: [
+          makeFakeCrabbox(defaultProviderHelp),
+          path.dirname(nodeExecPath),
+          process.env.PATH ?? "",
+        ].join(path.delimiter),
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_AUTHOR_NAME: "Signal fixture",
@@ -815,13 +822,23 @@ if (path.resolve(process.argv[1] || ".") === ${JSON.stringify(implementationPath
       try {
         let exited: Promise<{ status: number | null; signal: NodeJS.Signals | null }>;
         if (entrypoint === "pnpm") {
-          const { spawn: spawnPty } = await import("@lydell/node-pty");
           const command = resolvePnpmRunner({
             cwd: producer,
             env,
             pnpmArgs: ["crabbox:run", "--", ...args],
           });
-          const terminal = spawnPty(command.command, command.args, { cwd: producer, env });
+          const terminal = await spawnTerminalPty({
+            file: command.command,
+            args: command.args,
+            cwd: producer,
+            env: Object.fromEntries(
+              Object.entries(env).filter(
+                (entry): entry is [string, string] => entry[1] !== undefined,
+              ),
+            ),
+            cols: 80,
+            rows: 24,
+          });
           entrypointPid = terminal.pid;
           terminal.onData((data) => {
             output += data;
@@ -4116,11 +4133,10 @@ process.on("uncaughtExceptionMonitor", (error) => {
       writeFileSync(path.join(deletionReferent, "canary.txt"), "private referent\n");
       const fakeBin = makeFakeCrabbox(defaultProviderHelp);
       const home = path.join(root, "home");
+      const nodeExecPath = resolveTestNodeExecPath();
       const env = {
         ...testHomeEnv(home),
-        PATH: [fakeBin, path.dirname(process.execPath), process.env.PATH ?? ""].join(
-          path.delimiter,
-        ),
+        PATH: [fakeBin, path.dirname(nodeExecPath), process.env.PATH ?? ""].join(path.delimiter),
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_OPTIONAL_LOCKS: "0",
@@ -5141,6 +5157,90 @@ process.on("uncaughtExceptionMonitor", (error) => {
       // Shared receiver failure paths need one full real-Git fixture; provider/history
       // variants above retain independent successful source identity checks.
       if (provider === "blacksmith-testbox" && !shallow) {
+        const errnoFor = (code: string) =>
+          [...getSystemErrorMap()].find(([, [name]]) => name === code)?.[0];
+        const gitText = {
+          ref: "fatal: couldn't find remote ref fixture\n",
+          object: "fatal: pack has bad object at offset 12\n",
+          dns: "fatal: unable to access 'https://private.invalid/repo': Could not resolve host: private.invalid\n",
+          connection:
+            "fatal: unable to access 'https://private.invalid/repo': Failed to connect to private.invalid port 443\n",
+          auth: "fatal: Authentication failed for 'https://private.invalid/repo'\n",
+          nearAuth: "warning: authentication failed later PRIVATE_SENTINEL\n",
+          nearRef: "fatal: couldn't find remote reference PRIVATE_SENTINEL\n",
+        };
+        const fetchFailures = [
+          ["base-fetch", "no-space", "ENOSPC"],
+          ["capsule-fetch", "permission-denied", "EACCES"],
+          ["base-fetch", "permission-denied", "EPERM"],
+          ["capsule-fetch", "command-unavailable", "ENOENT"],
+          ["base-fetch", "output-limit", "ENOBUFS"],
+          ["capsule-fetch", "terminated", undefined, "SIGTERM"],
+          ["base-fetch", "remote-ref-missing", undefined, undefined, gitText.ref],
+          ["capsule-fetch", "invalid-object-data", undefined, undefined, gitText.object],
+          ["base-fetch", "dns", undefined, undefined, gitText.dns],
+          ["capsule-fetch", "connection", undefined, undefined, gitText.connection],
+          ["base-fetch", "auth", undefined, undefined, gitText.auth],
+          ["capsule-fetch", "unknown", undefined, undefined, gitText.nearAuth],
+          ["base-fetch", "unknown", undefined, undefined, gitText.nearRef],
+        ] as const;
+        for (const [index, [phase, cause, code, signal, stderr]] of fetchFailures.entries()) {
+          const preload = path.join(root, `fetch-failure-${index}.cjs`);
+          const errno = code ? errnoFor(code) : undefined;
+          writeFileSync(
+            preload,
+            `const cp = require("node:child_process");
+const original = cp.spawnSync;
+const fault = ${JSON.stringify({ phase, code, errno, signal, stderr })};
+cp.spawnSync = (command, args, options) => {
+  const fetchIndex = args.indexOf("fetch");
+  if (command !== "git" || fetchIndex < 0 || args.slice(fetchIndex + 1).includes("origin") !== (fault.phase === "base-fetch"))
+    return original(command, args, options);
+  return { status: fault.code || fault.signal ? null : 128, signal: fault.signal ?? null,
+    stdout: Buffer.alloc(0), stderr: Buffer.from(fault.stderr ?? "PRIVATE_SENTINEL\\n"),
+    error: fault.code ? Object.assign(new Error("PRIVATE_ERROR_MESSAGE"), { code: fault.code, errno: fault.errno }) : undefined };
+};\n`,
+          );
+          const argvPath = path.join(root, `fetch-failure-${index}.json`);
+          let priorIndex: Buffer | undefined;
+          const rejected = receive(
+            `fetch-failure-${index}`,
+            candidate.remoteCommand,
+            candidate.bundle,
+            origin,
+            { NODE_OPTIONS: `--require=${preload}`, TRANSPORT_FIXTURE_ARGV: argvPath },
+            true,
+            [],
+            (receiver) => {
+              priorIndex = readFileSync(path.join(receiver, ".git", "index"));
+            },
+          );
+          const prefix = "[crabbox] source verification failed: source Git operation failed: ";
+          const line = rejected.result.stderr.split("\n").find((entry) => entry.startsWith(prefix));
+          expect(line, failureDetail(rejected.result)).toBeDefined();
+          expect(JSON.parse(line!.slice(prefix.length))).toEqual({
+            phase,
+            baseSha: base,
+            status: code || signal ? null : 128,
+            signal: signal ?? null,
+            spawnError: Boolean(code),
+            code: code ?? null,
+            errno: errno ?? null,
+            cause,
+          });
+          expect(rejected.result.status, failureDetail(rejected.result)).toBe(2);
+          expect(rejected.result.stdout).toBe("");
+          expect(rejected.result.stderr).not.toMatch(/PRIVATE_|private\.invalid/u);
+          expect(existsSync(argvPath)).toBe(false);
+          expect(git(rejected.receiver, ["rev-parse", "HEAD"])).toBe(base);
+          expect(readFileSync(path.join(rejected.receiver, ".git", "index"))).toEqual(priorIndex);
+          expect(readFileSync(path.join(rejected.receiver, "owner.txt"), "utf8")).toBe(
+            "native stale bytes\n",
+          );
+          expect(
+            readdirSync(rejected.receiver).filter((file) => file.startsWith(".openclaw-source-")),
+          ).toEqual([]);
+        }
         for (const [fault, file, message] of [
           ["bytes", "newer-source.txt", "source bytes mismatch"],
           ["mode", "newer-source.txt", "source mode mismatch"],

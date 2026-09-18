@@ -6,15 +6,19 @@ const PACKAGE = /^@openclaw\/[a-z0-9][a-z0-9._-]*$/u;
 export function createStablePluginNpmBootstrapApproval(input) {
   const version = typeof input.releaseTag === "string" ? input.releaseTag.slice(1) : "";
   const parsed = parseReleaseVersion(version);
+  const stableSoakWaiver = typeof input.stableSoakWaiver === "string" ? input.stableSoakWaiver : "";
   if (
     input.releaseTag !== `v${version}` ||
     parsed?.channel !== "stable" ||
     parsed.patch >= 33 ||
     input.publishTag !== "latest" ||
-    !["stable", "full"].includes(input.releaseProfile)
+    !(
+      ["stable", "full"].includes(input.releaseProfile) ||
+      (input.releaseProfile === "beta" && stableSoakWaiver.trim())
+    )
   ) {
     throw new Error(
-      "Stable npm bootstrap requires a regular stable tag, latest, and stable/full validation.",
+      "Stable npm bootstrap requires a regular stable tag, latest, and stable/full validation or beta validation with an operator soak waiver.",
     );
   }
   if (
@@ -57,6 +61,7 @@ export function createStablePluginNpmBootstrapApproval(input) {
     targetSha: input.targetSha,
     publishTag: input.publishTag,
     releaseProfile: input.releaseProfile,
+    stableSoakWaiver,
     validationRunId: input.validationRunId,
     validationRunAttempt: input.validationRunAttempt,
     packages: input.packages.toSorted(),

@@ -133,8 +133,6 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
   if (!assertFinalizationActive) {
     throw new Error("admitted run authority is no longer active");
   }
-  const settledFailureSignal = prepared.failureSignal;
-  const settledTerminalToolFailure = prepared.terminalToolFailure;
   const committedSessionTarget = resolveCommittedSessionTarget({
     preparedAttempt: input.finalization.preparedAttempt,
     sessionTarget: input.finalization.sessionTarget,
@@ -319,7 +317,7 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
       setReplyPayloadMetadata(payload, { sessionWriterDeliveryAuthority });
     }
   });
-  // A failure-honest final answer cannot turn a settled cron denial into success.
+  // Tool-free finalization cannot resolve failures from the settled tools.
   prepared = {
     ...finalizedPrepared,
     // Do not offer the private diagnostic to stranded-reply recovery as an
@@ -328,8 +326,9 @@ export async function prepareTerminalWithSettledTurnFinalization(input: {
     runParams.sourceReplyDeliveryMode === "message_tool_only"
       ? { finalAssistantVisibleText: "", finalAssistantRawText: "" }
       : {}),
-    failureSignal: settledFailureSignal,
-    terminalToolFailure: settledTerminalToolFailure,
+    attemptToolSummary: prepared.attemptToolSummary,
+    failureSignal: prepared.failureSignal,
+    terminalToolFailure: prepared.terminalToolFailure,
   };
   return {
     ...completion,

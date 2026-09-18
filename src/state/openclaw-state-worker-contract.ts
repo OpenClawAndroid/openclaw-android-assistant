@@ -16,6 +16,7 @@ import type {
 } from "../gateway/managed-image-record-store.types.js";
 import type { DeferredPluginMigration } from "../infra/deferred-plugin-migrations.js";
 import type { DeliveryQueueWorkerOperations } from "../infra/delivery-queue.worker-contract.js";
+import type * as deviceAuth from "../infra/device-auth-store.kernel.js";
 import type { PreparedPromotionClaim } from "../infra/promotions-feed.kernel.js";
 import type { ApnsRegistration } from "../infra/push-apns-store.types.js";
 import type { WebPushWorkerOperations } from "../infra/push-web-store.worker-contract.js";
@@ -62,6 +63,35 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   TranscriptReadOperations &
   TaskRegistryWorkerOperations & {
     "deviceAuth.list": { input: { deviceId: string }; output: DeviceAuthEntry[] };
+    "deviceAuth.read": {
+      input: Parameters<typeof deviceAuth.readDeviceAuthTokenObservationFromDatabase>[1] & {
+        readOnly: boolean;
+      };
+      output: ReturnType<typeof deviceAuth.readDeviceAuthTokenObservationFromDatabase>;
+    };
+    "deviceAuth.readOrigin": {
+      input: Parameters<typeof deviceAuth.readOriginDeviceTokenObservationFromDatabase>[1] & {
+        readOnly: boolean;
+      };
+      output: ReturnType<typeof deviceAuth.readOriginDeviceTokenObservationFromDatabase>;
+    };
+    "deviceAuth.store": {
+      input: Parameters<typeof deviceAuth.storeDeviceAuthTokenInDatabase>[1];
+      output: ReturnType<typeof deviceAuth.storeDeviceAuthTokenInDatabase>;
+    };
+    "deviceAuth.storeOrigin": {
+      input: Parameters<typeof deviceAuth.storeOriginDeviceTokenInDatabase>[1];
+      output: ReturnType<typeof deviceAuth.storeOriginDeviceTokenInDatabase>;
+    };
+    "deviceAuth.clear": {
+      input: Parameters<typeof deviceAuth.clearDeviceAuthTokenFromDatabase>[1];
+      output: ReturnType<typeof deviceAuth.clearDeviceAuthTokenFromDatabase>;
+    };
+    "deviceAuth.clearOrigin": {
+      input: Parameters<typeof deviceAuth.clearOriginDeviceTokenInDatabase>[1];
+      output: ReturnType<typeof deviceAuth.clearOriginDeviceTokenInDatabase>;
+    };
+
     "apns.registration.read": { input: string; output: ApnsRegistration | null };
     "apns.registrations.read": { input: readonly string[]; output: Map<string, ApnsRegistration> };
     "authProfiles.read": { input: { artifactPreserving: boolean }; output: AuthProfileRowRead };

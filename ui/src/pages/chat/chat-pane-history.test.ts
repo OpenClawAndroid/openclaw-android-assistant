@@ -286,6 +286,7 @@ describe("chat pane native history pagination", () => {
     expect(request).toHaveBeenCalledWith("chat.history", {
       sessionKey: state.sessionKey,
       limit: 1000,
+      maxBytes: 512 * 1024,
       offset: 2,
     });
     expect(state.chatMessages.map(nativeHistorySeq)).toEqual([1, 2, 3, 4]);
@@ -560,6 +561,7 @@ describe("chat pane native history pagination", () => {
       expect(request).toHaveBeenCalledWith("chat.history", {
         sessionKey: state.sessionKey,
         limit: 1000,
+        maxBytes: 512 * 1024,
         offset: 2,
       });
       expect(observedRootMargin).toBe("1200px 0px 0px");
@@ -579,6 +581,7 @@ describe("chat pane native history pagination", () => {
     expect(request).toHaveBeenNthCalledWith(2, "chat.history", {
       sessionKey: state.sessionKey,
       limit: 1000,
+      maxBytes: 512 * 1024,
       offset: 4,
     });
     await vi.waitFor(() => expect(pane.stagedOlderPage).not.toBeNull());
@@ -596,6 +599,7 @@ describe("chat pane native history pagination", () => {
     expect(request).toHaveBeenNthCalledWith(3, "chat.history", {
       sessionKey: state.sessionKey,
       limit: 1000,
+      maxBytes: 512 * 1024,
       offset: 6,
     });
   });
@@ -643,6 +647,7 @@ describe("chat pane native history pagination", () => {
     expect(request).toHaveBeenLastCalledWith("chat.history", {
       sessionKey: state.sessionKey,
       limit: 1000,
+      maxBytes: 512 * 1024,
       offset: 5,
     });
     expect(state.chatMessages.map(nativeHistorySeq)).toEqual([31, 32, 5, 6, 7, 8]);
@@ -891,6 +896,7 @@ describe("chat pane native history pagination", () => {
     expect(request).toHaveBeenCalledWith("chat.history", {
       sessionKey: state.sessionKey,
       limit: 1000,
+      maxBytes: 512 * 1024,
       offset: 2,
     });
     expect(state.chatMessages.map(nativeHistorySeq)).toEqual([1, 2, 3, 4]);
@@ -951,6 +957,7 @@ describe("chat pane native history pagination", () => {
     expect(request).toHaveBeenNthCalledWith(1, "chat.history", {
       sessionKey: state.sessionKey,
       limit: 1000,
+      maxBytes: 512 * 1024,
       offset: 2,
     });
     expect(request).toHaveBeenNthCalledWith(

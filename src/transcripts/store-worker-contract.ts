@@ -14,6 +14,7 @@ import type {
   readTranscriptSessionMatches,
   readStoredTranscriptSummary,
   readTranscriptUtterances,
+  readTranscriptSummarySnapshot,
 } from "./store-sqlite-read.js";
 import type {
   readRecentStoppedTranscriptSession,
@@ -23,6 +24,10 @@ import type {
 type SessionIdentity = Pick<TranscriptSessionDescriptor, "sessionId" | "startedAt">;
 
 export type TranscriptReadRequests = {
+  "transcripts.summarySnapshot": {
+    input: { session: SessionIdentity; maxUtterances: number };
+    output: ReturnType<typeof readTranscriptSummarySnapshot>;
+  };
   "transcripts.sessionEntries": {
     input: undefined;
     output: ReturnType<typeof readTranscriptSessionEntries>;

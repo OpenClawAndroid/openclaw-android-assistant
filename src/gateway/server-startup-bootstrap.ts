@@ -150,6 +150,9 @@ export async function prepareGatewayServerBootstrap(input: {
       preflightOpenClawDatabaseSchemas({
         signal,
         env: process.env,
+        reuseStartupSchemaPreparation: true,
+        onAgentInspection: (stats) =>
+          startupTrace.detail("state.schema-preflight", Object.entries(stats)),
       });
     const databaseSchemas = await startupTrace.measure("state.schema-preflight", () =>
       opts.startupOperation

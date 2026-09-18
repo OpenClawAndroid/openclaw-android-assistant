@@ -230,6 +230,7 @@ export function prepareAgentAuthProfileRowsRead(options: {
           const rows = await withSqliteSourceHandleAsync(sourcePath, () =>
             runSqliteReadOnlyWorker(sourcePath, {
               mode: "auth-profile-rows",
+              source: snapshot ? "snapshot" : "canonical",
               expectedIdentity: sourceIdentity.key,
               env,
               coordinatorRuntime: root.coordinatorRuntime,

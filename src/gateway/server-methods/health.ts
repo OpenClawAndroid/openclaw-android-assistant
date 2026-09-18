@@ -13,6 +13,7 @@ import { HEALTH_REFRESH_INTERVAL_MS } from "../server-constants.js";
 import { formatError } from "../server-utils.js";
 import { shouldScheduleBackgroundHealthRefresh } from "../server/health-refresh-admission.js";
 import { readGatewayProcessVitals, readGatewayWorkerPoolFacts } from "../server/process-vitals.js";
+import { getSessionRowProjection } from "../session-row-projection-access.js";
 import { respondUnavailableOnThrow } from "./response.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
@@ -170,6 +171,7 @@ export const healthHandlers: GatewayRequestHandlers = {
       includeSensitive: scopes.includes(ADMIN_SCOPE),
       includeChannelSummary: params.includeChannelSummary !== false,
       includeCliProjection: params.includeCliProjection === true,
+      sessionRowProjection: getSessionRowProjection(context),
       ...(hostDesktopStatus ? { hostDesktopStatus } : {}),
     });
     respond(

@@ -137,6 +137,8 @@ export function createWhatsAppIngressMonitor(params: {
       failedMaxEntries: 450,
     },
     drain: {
+      // Debounce candidates share a reply lane, but retain separate durable claims.
+      deferredLaneOccupancy: "release",
       resolveNonRetryableFailure: resolveWhatsAppIngressNonRetryableFailure,
       deriveLaneKey: (record) => {
         try {

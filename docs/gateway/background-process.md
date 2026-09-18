@@ -131,6 +131,12 @@ service relays also retain their own parent-loss cleanup.
 A detached child can survive a broker crash before its PID is reported, matching
 the existing residual for directly spawned children when the Gateway crashes.
 
+Canonical credential readers also use the broker. If it confirms that a reader
+never started, the read falls back once to a local process with the original
+environment and working directory. Cancellation, timeouts, uncertain launches, and
+cleanup failures do not trigger a retry. Snapshot-backed credential readers keep
+their local process transport.
+
 A supervised command's timeout also covers startup, including blocked private-input
 delivery. The timeout result can return while cleanup continues. Scope retirement
 and Gateway shutdown wait for the cleanup owner separately; when that owner reports

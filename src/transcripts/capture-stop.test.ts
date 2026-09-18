@@ -1,5 +1,6 @@
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../test/helpers/promise.js";
 import { createTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createTranscriptsTool } from "../agents/tools/transcripts-tool.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
@@ -34,6 +35,7 @@ describe("transcript provider cleanup custody", () => {
     async ({ owner, failure, registryChange }) => {
       const stateDir = tempDirs.make("transcript-stop-custody-");
       const requests: TranscriptStartRequest[] = [];
+      const registered = createDeferred();
       let subscribed = false;
       let failing = true;
       const stop = vi.fn<NonNullable<TranscriptSourceProvider["stop"]>>(async ({ sessionId }) => {
@@ -53,6 +55,7 @@ describe("transcript provider cleanup custody", () => {
         start: async (request) => {
           requests.push(request);
           subscribed = true;
+          registered.resolve();
           return { ok: true, session: request.session };
         },
         stop,
@@ -82,6 +85,7 @@ describe("transcript provider cleanup custody", () => {
         try {
           if (owner !== "tool") {
             service.start();
+            await registered.promise;
             await vi.waitFor(async () =>
               expect(await tool.execute("status", { action: "status" })).toMatchObject({
                 details: { active: [{ sessionId: "notes" }] },

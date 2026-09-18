@@ -1296,14 +1296,14 @@ describe("GatewayClient connect auth payload", () => {
 
   it.each(protocolCompatibilityCases)(
     "advertises the protocol compatibility range for $name",
-    ({ options, expectedMinProtocol, expectedMaxProtocol }) => {
+    async ({ options, expectedMinProtocol, expectedMaxProtocol }) => {
       const client = new GatewayClient({
         url: "ws://127.0.0.1:18789",
         deviceIdentity: null,
         ...options,
       });
 
-      const { connect } = startClientAndConnect({ client });
+      const { connect } = await startClientAndConnect({ client });
 
       expect(connect.params?.minProtocol).toBe(expectedMinProtocol);
       expect(connect.params?.maxProtocol).toBe(expectedMaxProtocol);
@@ -1331,7 +1331,7 @@ describe("GatewayClient connect auth payload", () => {
       ...options,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     await expectNoReconnectAfterConnectFailure({
       client,
       firstWs: ws,
@@ -1350,7 +1350,7 @@ describe("GatewayClient connect auth payload", () => {
     });
   });
 
-  it("signs device proof with the emitted node client mode", () => {
+  it("signs device proof with the emitted node client mode", async () => {
     const signDevicePayload = vi.fn((_privateKeyPem: string, _payload: string) => "signature");
     const client = createClientWithIdentity("device-node-mode", vi.fn(), {
       role: "node",
@@ -1358,7 +1358,7 @@ describe("GatewayClient connect auth payload", () => {
       hostDeps: { signDevicePayload },
     });
 
-    const { connect } = startClientAndConnect({ client });
+    const { connect } = await startClientAndConnect({ client });
     const signedPayload = signDevicePayload.mock.calls[0]?.[1];
 
     expect(connect.params?.client?.mode).toBe(GATEWAY_CLIENT_MODES.NODE);
@@ -1395,7 +1395,7 @@ describe("GatewayClient connect auth payload", () => {
         ...protocolBounds,
       });
 
-      const { ws: currentWs, connect: currentConnect } = startClientAndConnect({ client });
+      const { ws: currentWs, connect: currentConnect } = await startClientAndConnect({ client });
       expect(currentConnect.params).toMatchObject({
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
@@ -1431,7 +1431,7 @@ describe("GatewayClient connect auth payload", () => {
 
   it.each(["macos", "windows"])(
     "keeps canonical %s platform metadata for v4-only nodes",
-    (platform) => {
+    async (platform) => {
       const client = createClientWithIdentity(`device-v4-${platform}`, vi.fn(), {
         role: "node",
         mode: GATEWAY_CLIENT_MODES.NODE,
@@ -1441,7 +1441,7 @@ describe("GatewayClient connect auth payload", () => {
         deviceFamily: platform === "macos" ? "Mac" : "Windows",
       });
 
-      const { connect } = startClientAndConnect({ client });
+      const { connect } = await startClientAndConnect({ client });
       expect(connect.params?.client?.platform).toBe(platform);
       client.stop();
     },
@@ -1458,7 +1458,7 @@ describe("GatewayClient connect auth payload", () => {
       onHelloOk,
     });
 
-    const { ws: currentWs, connect: currentConnect } = startClientAndConnect({ client });
+    const { ws: currentWs, connect: currentConnect } = await startClientAndConnect({ client });
     emitConnectFailure(
       currentWs,
       currentConnect.id,
@@ -1537,7 +1537,7 @@ describe("GatewayClient connect auth payload", () => {
       onHelloOk,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     expect(connect.params).toMatchObject({
       minProtocol: MIN_NODE_PROTOCOL_VERSION,
       maxProtocol: MIN_NODE_PROTOCOL_VERSION,
@@ -1560,7 +1560,7 @@ describe("GatewayClient connect auth payload", () => {
       onHelloOk,
     });
 
-    const { ws: initialWs, connect: initialConnect } = startClientAndConnect({ client });
+    const { ws: initialWs, connect: initialConnect } = await startClientAndConnect({ client });
     emitConnectFailure(
       initialWs,
       initialConnect.id,
@@ -1617,7 +1617,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws: currentWs, connect: currentConnect } = startClientAndConnect({ client });
+    const { ws: currentWs, connect: currentConnect } = await startClientAndConnect({ client });
     emitConnectFailure(currentWs, currentConnect.id, {
       code: "PROTOCOL_MISMATCH",
       expectedProtocol: MIN_NODE_PROTOCOL_VERSION,
@@ -1654,7 +1654,7 @@ describe("GatewayClient connect auth payload", () => {
     { platform: "macos", deviceFamily: "Mac" },
     { platform: "win32", deviceFamily: undefined },
     { platform: "custom-os", deviceFamily: "Workstation" },
-  ])("preserves explicit caller metadata: %j", ({ platform, deviceFamily }) => {
+  ])("preserves explicit caller metadata: %j", async ({ platform, deviceFamily }) => {
     const client = createClientWithIdentity("device-third-party-node", vi.fn(), {
       role: "node",
       mode: GATEWAY_CLIENT_MODES.NODE,
@@ -1663,7 +1663,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceFamily,
     });
 
-    const { connect } = startClientAndConnect({ client });
+    const { connect } = await startClientAndConnect({ client });
     expect(connect.params?.client).toMatchObject({
       platform,
       ...(deviceFamily ? { deviceFamily } : {}),
@@ -1676,7 +1676,7 @@ describe("GatewayClient connect auth payload", () => {
 
   it.each([undefined, "Workstation"])(
     "uses canonical Windows metadata and preserves explicit family %s",
-    (deviceFamily) => {
+    async (deviceFamily) => {
       const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
       const client = createClientWithIdentity("device-default-windows", vi.fn(), {
         clientName: GATEWAY_CLIENT_NAMES.CLI,
@@ -1685,7 +1685,7 @@ describe("GatewayClient connect auth payload", () => {
       });
 
       try {
-        const { connect } = startClientAndConnect({ client });
+        const { connect } = await startClientAndConnect({ client });
         expect(connect.params?.client).toMatchObject({
           platform: "windows",
           deviceFamily: deviceFamily ?? "Windows",
@@ -1697,7 +1697,7 @@ describe("GatewayClient connect auth payload", () => {
     },
   );
 
-  it("preserves runtime metadata defaults for platforms without canonical aliases", () => {
+  it("preserves runtime metadata defaults for platforms without canonical aliases", async () => {
     const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("freebsd");
     const client = createClientWithIdentity("device-freebsd", vi.fn(), {
       clientName: GATEWAY_CLIENT_NAMES.TEST,
@@ -1705,7 +1705,7 @@ describe("GatewayClient connect auth payload", () => {
     });
 
     try {
-      const { connect } = startClientAndConnect({ client });
+      const { connect } = await startClientAndConnect({ client });
       expect(connect.params?.client).toMatchObject({ platform: "freebsd" });
       expect(connect.params?.client).not.toHaveProperty("deviceFamily");
     } finally {
@@ -1714,13 +1714,13 @@ describe("GatewayClient connect auth payload", () => {
     }
   });
 
-  it("does not advertise node plugin tools in the initial connect frame", () => {
+  it("does not advertise node plugin tools in the initial connect frame", async () => {
     const client = new GatewayClient({
       url: "ws://127.0.0.1:18789",
       deviceIdentity: null,
     });
 
-    const { connect } = startClientAndConnect({ client });
+    const { connect } = await startClientAndConnect({ client });
 
     expect(connect.params).not.toHaveProperty("nodePluginTools");
     client.stop();
@@ -1803,11 +1803,12 @@ describe("GatewayClient connect auth payload", () => {
     );
   }
 
-  function startClientAndConnect(params: { client: GatewayClientInstance; nonce?: string }) {
+  async function startClientAndConnect(params: { client: GatewayClientInstance; nonce?: string }) {
     params.client.start();
     const ws = getLatestWs();
     ws.emitOpen();
     emitConnectChallenge(ws, params.nonce);
+    await vi.advanceTimersByTimeAsync(0);
     return { ws, connect: connectRequestFrom(ws) };
   }
 
@@ -1905,7 +1906,7 @@ describe("GatewayClient connect auth payload", () => {
     });
 
     try {
-      const { ws, connect } = startClientAndConnect({ client });
+      const { ws, connect } = await startClientAndConnect({ client });
 
       expect(() => emitHelloOk(ws, connect.id)).not.toThrow();
       await waitForFast(() => {
@@ -2023,7 +2024,7 @@ describe("GatewayClient connect auth payload", () => {
     client.stop();
   });
 
-  it("binds stored device auth to the exact gateway origin", () => {
+  it("binds stored device auth to the exact gateway origin", async () => {
     loadOriginDeviceTokenMock.mockImplementation(({ gatewayScope }: { gatewayScope: string }) =>
       gatewayScope === "wss://one.example/rpc"
         ? { token: "origin-one-token", scopes: ["operator.read"] }
@@ -2033,10 +2034,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceAuthScope: "wss://one.example/rpc",
     });
 
-    first.start();
-    const firstWs = getLatestWs();
-    firstWs.emitOpen();
-    emitConnectChallenge(firstWs);
+    const { ws: firstWs } = await startClientAndConnect({ client: first });
     expect(connectFrameFrom(firstWs)).toEqual({
       deviceToken: "origin-one-token",
     });
@@ -2045,10 +2043,7 @@ describe("GatewayClient connect auth payload", () => {
     const second = createClientWithIdentity("device-1", () => {}, {
       deviceAuthScope: "wss://two.example/rpc",
     });
-    second.start();
-    const secondWs = getLatestWs();
-    secondWs.emitOpen();
-    emitConnectChallenge(secondWs);
+    const { ws: secondWs } = await startClientAndConnect({ client: second });
     expect(connectFrameFrom(secondWs).token).toBeUndefined();
     expect(connectFrameFrom(secondWs).deviceToken).toBeUndefined();
     expect(loadDeviceAuthTokenMock).not.toHaveBeenCalled();
@@ -2115,7 +2110,7 @@ describe("GatewayClient connect auth payload", () => {
         ...(deviceAuthScope ? { deviceAuthScope } : {}),
       });
 
-      const { ws, connect } = startClientAndConnect({ client });
+      const { ws, connect } = await startClientAndConnect({ client });
       durableToken = "rotated-device-token";
       if (completion === "clear") {
         emitConnectFailure(ws, connect.id, { code: "AUTH_DEVICE_TOKEN_MISMATCH" });
@@ -2154,7 +2149,7 @@ describe("GatewayClient connect auth payload", () => {
       sharedStateMode: "read-only",
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     expect(connectFrameFrom(ws)).toEqual({
       deviceToken: "stored-origin-token",
     });
@@ -2298,7 +2293,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
 
     expect(connectFrameFrom(ws)).toMatchObject({ token: "explicit-token" });
     expect(connectFrameFrom(ws).deviceToken).toBeUndefined();
@@ -2325,7 +2320,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceAuthScope: "wss://one.example/rpc",
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     ws.emitMessage(
       JSON.stringify({
         type: "res",
@@ -2361,7 +2356,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceAuthScope: "wss://one.example/rpc",
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     ws.emitMessage(
       JSON.stringify({
         type: "res",
@@ -2401,7 +2396,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceIdentity: null,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     expectRecordFields(
       firstConnect.params?.auth ?? {},
       {
@@ -2439,7 +2434,7 @@ describe("GatewayClient connect auth payload", () => {
       onConnectError,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     expectRecordFields(
       connect.params?.auth ?? {},
       {
@@ -2482,7 +2477,7 @@ describe("GatewayClient connect auth payload", () => {
     client.stop();
   });
 
-  it("reports a transport close while the connect request is pending", () => {
+  it("reports a transport close while the connect request is pending", async () => {
     const onConnectError = vi.fn();
     const client = new GatewayClient({
       url: "ws://127.0.0.1:18789",
@@ -2490,7 +2485,7 @@ describe("GatewayClient connect auth payload", () => {
       onConnectError,
     });
 
-    const { ws } = startClientAndConnect({ client });
+    const { ws } = await startClientAndConnect({ client });
     ws.emitClose(1006, "socket lost");
 
     expect(firstMockArg(onConnectError, "connect error")).toMatchObject({
@@ -2507,7 +2502,7 @@ describe("GatewayClient connect auth payload", () => {
       onConnectError,
     });
 
-    const { ws } = startClientAndConnect({ client });
+    const { ws } = await startClientAndConnect({ client });
     ws.autoCloseOnClose = false;
     client.stop();
 
@@ -2531,7 +2526,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceIdentity: null,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     emitConnectFailure(
       ws,
       connect.id,
@@ -2557,7 +2552,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceIdentity: null,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     emitConnectFailure(
       ws,
       connect.id,
@@ -2583,7 +2578,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceIdentity: null,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     emitConnectFailure(
       ws,
       connect.id,
@@ -2608,7 +2603,7 @@ describe("GatewayClient connect auth payload", () => {
       deviceIdentity: null,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     emitConnectFailure(
       ws,
       connect.id,
@@ -2764,7 +2759,7 @@ describe("GatewayClient connect auth payload", () => {
     client.stop();
   });
 
-  it("emits only the signed bootstrap credential in a preferred node-host connect frame", () => {
+  it("emits only the signed bootstrap credential in a preferred node-host connect frame", async () => {
     loadDeviceAuthTokenMock.mockReturnValue({ token: "stale-device-token" });
     const signDevicePayload = vi.fn((_privateKeyPem: string, _payload: string) => "signature");
     const client = createClientWithIdentity("device-pairing-bootstrap", vi.fn(), {
@@ -2779,7 +2774,7 @@ describe("GatewayClient connect auth payload", () => {
       hostDeps: { signDevicePayload },
     });
 
-    const { connect } = startClientAndConnect({ client });
+    const { connect } = await startClientAndConnect({ client });
 
     expect(connect.params?.client).toMatchObject({
       id: GATEWAY_CLIENT_NAMES.NODE_HOST,
@@ -2802,7 +2797,7 @@ describe("GatewayClient connect auth payload", () => {
       onHelloOk,
     });
 
-    const { ws, connect } = startClientAndConnect({ client });
+    const { ws, connect } = await startClientAndConnect({ client });
     expect(connectFrameFrom(ws)).toMatchObject({ bootstrapToken: "bootstrap-token" });
     expect(connectFrameFrom(ws).token).toBeUndefined();
     expect(connectFrameFrom(ws).deviceToken).toBeUndefined();
@@ -2879,7 +2874,7 @@ describe("GatewayClient connect auth payload", () => {
       token: "shared-token",
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     expect(firstConnect.params?.auth?.token).toBe("shared-token");
     expect(firstConnect.params?.auth?.deviceToken).toBeUndefined();
 
@@ -2904,7 +2899,7 @@ describe("GatewayClient connect auth payload", () => {
       token: "shared-token",
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     const retriedAuth = await expectRetriedConnectAuth({
       firstWs: ws1,
       connectId: firstConnect.id,
@@ -2925,7 +2920,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     await expectNoReconnectAfterConnectFailure({
       client,
       firstWs: ws1,
@@ -2949,7 +2944,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     await expectNoReconnectAfterConnectFailure({
       client,
       firstWs: ws1,
@@ -2996,7 +2991,7 @@ describe("GatewayClient connect auth payload", () => {
       onClose,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     await expectNoReconnectAfterConnectFailure({
       client,
       firstWs: ws1,
@@ -3035,7 +3030,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     await expectNoReconnectAfterConnectFailure({
       client,
       firstWs: ws1,
@@ -3063,7 +3058,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     await expectNoReconnectAfterConnectFailure({
       client,
       firstWs: ws1,
@@ -3089,7 +3084,7 @@ describe("GatewayClient connect auth payload", () => {
     });
 
     try {
-      const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+      const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
       emitConnectFailure(ws1, firstConnect.id, {
         code: "PAIRING_REQUIRED",
         reason: "not-paired",
@@ -3119,7 +3114,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     expect(firstConnect.params?.auth).toEqual({ deviceToken: "stored-device-token" });
     await expectNoReconnectAfterConnectFailure({
       client,
@@ -3151,7 +3146,7 @@ describe("GatewayClient connect auth payload", () => {
       env,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     expect(firstConnect.params?.auth).toEqual({ deviceToken: "stored-device-token" });
     await expectNoReconnectAfterConnectFailure({
       client,
@@ -3183,7 +3178,7 @@ describe("GatewayClient connect auth payload", () => {
       onReconnectPaused,
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     expect(firstConnect.params?.auth).toEqual({ deviceToken: "stored-device-token" });
     await expectNoReconnectAfterConnectFailure({
       client,
@@ -3206,7 +3201,7 @@ describe("GatewayClient connect auth payload", () => {
       token: "shared-token",
     });
 
-    const { ws: ws1, connect: firstConnect } = startClientAndConnect({ client });
+    const { ws: ws1, connect: firstConnect } = await startClientAndConnect({ client });
     await expectNoReconnectAfterConnectFailure({
       client,
       firstWs: ws1,

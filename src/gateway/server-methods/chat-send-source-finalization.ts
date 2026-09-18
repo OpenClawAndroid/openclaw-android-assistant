@@ -5,10 +5,6 @@ import {
 } from "../../auto-reply/reply-payload.js";
 import type { QueuedFollowupReplyBatch } from "../../auto-reply/reply/queue/types.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import {
-  appendLocalMediaParentRoots,
-  getAgentScopedMediaLocalRoots,
-} from "../../media/local-roots.js";
 import { appendChatCanvasBlocksToMessage } from "../chat-display-projection.canvas.js";
 import { attachManagedOutgoingMediaToMessage } from "../managed-image-attachments.js";
 import { loadSessionEntry } from "../session-utils.js";
@@ -28,7 +24,10 @@ import {
   broadcastChatTerminal,
   isSourceReplyTranscriptMirrorPayload,
 } from "./chat-broadcast.js";
-import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
+import {
+  getWebchatReplyMediaLocalRoots,
+  normalizeWebchatReplyMediaPathsForDisplay,
+} from "./chat-reply-media.js";
 import { isChatSendReplyDeliveryAuthorized } from "./chat-send-delivery-authority.js";
 import { buildTranscriptReplyText } from "./chat-send-reply-dispatch.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
@@ -242,10 +241,12 @@ async function finalizeChatSendAgentReplyPayloads(
     sessionLoadOptions,
   );
   const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
-  const mediaLocalRoots = appendLocalMediaParentRoots(
-    getAgentScopedMediaLocalRoots(cfg, agentId),
-    latestStorePath ? [latestStorePath] : undefined,
-  );
+  const mediaLocalRoots = getWebchatReplyMediaLocalRoots({
+    cfg,
+    agentId,
+    sessionEntry: latestEntry,
+    storePath: latestStorePath,
+  });
   const buildReplyContent = async (payloads: typeof finalPayloads) => {
     const mediaMessage = await buildWebchatAssistantMessageFromReplyPayloads(payloads, {
       localRoots: mediaLocalRoots,

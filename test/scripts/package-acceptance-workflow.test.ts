@@ -4108,6 +4108,7 @@ function writePreflightConsumerTooling(toolingDir: string) {
     "release-tooling-identity.mjs",
     "lib/actions-artifact-archive.mjs",
     "lib/npm-core-release-packages.json",
+    "lib/npm-shrinkwrap-dependencies.mjs",
     "lib/record-shared.mjs",
     "lib/release-version.mjs",
   ]) {

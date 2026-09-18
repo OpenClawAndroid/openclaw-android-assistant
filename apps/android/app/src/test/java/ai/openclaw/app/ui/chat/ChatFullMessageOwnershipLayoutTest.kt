@@ -11,6 +11,10 @@ import ai.openclaw.app.closeNodeRuntimeTestFixture
 import ai.openclaw.app.gateway.GatewayEndpoint
 import ai.openclaw.app.gateway.GatewaySession
 import ai.openclaw.app.ui.design.ClawDesignTheme
+import ai.openclaw.wear.shared.WearMessage
+import ai.openclaw.wear.shared.WearReplyText
+import ai.openclaw.wear.shared.WearReplyTextStatus
+import ai.openclaw.wear.shared.WearRpcMethod
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Point
@@ -180,6 +184,57 @@ class ChatFullMessageOwnershipLayoutTest {
     }
     selectChat(FULL_MESSAGE_FIRST_CHAT)
   }
+
+  @Test
+  fun wearFullReadUsesItsOwnSelectionThroughThePhysicalGatewayLease() =
+    runBlocking {
+      val session = "agent:main:watch-independent"
+      var offset = 0
+      var revision: String? = null
+      val text = StringBuilder()
+      do {
+        val response = runtime.handleWearProxyRequest("fixture-watch", wearReplyRequest(session, offset, revision))
+        assertTrue(response.ok)
+        val page = WearReplyText.decode(checkNotNull(response.result))
+        assertEquals(WearReplyTextStatus.Ready, page.status)
+        text.append(page.text)
+        revision = page.revision
+        offset = page.nextOffset ?: break
+      } while (true)
+      assertEquals(gateway.fullText(session), text.toString())
+      assertTrue(gateway.fullReads.all { it.sessionKey == session })
+      assertEquals(FULL_MESSAGE_FIRST_CHAT, runtime.chatSessionKey.value)
+    }
+
+  @Test
+  fun wearFullReadDiscardsAReplyAfterPhysicalGatewayRetirement() =
+    runBlocking {
+      gateway.holdFullResponses = true
+      val pending = async(Dispatchers.IO) { runtime.handleWearProxyRequest("fixture-watch", wearReplyRequest(FULL_MESSAGE_FIRST_CHAT, 0, null)) }
+      withTimeout(FULL_MESSAGE_READY_TIMEOUT_MS) { gateway.heldResponses.first { it.isNotEmpty() } }
+      runtime.disconnect()
+      gateway.releaseFullResponses()
+      val response = pending.await()
+      assertTrue(!response.ok || WearReplyText.decode(checkNotNull(response.result)).status != WearReplyTextStatus.Ready)
+    }
+
+  private fun wearReplyRequest(
+    session: String,
+    offset: Int,
+    revision: String?,
+  ) = WearMessage.Request(
+    requestId = "wear-page-$offset",
+    method = WearRpcMethod.ReplyText,
+    params =
+      buildJsonObject {
+        put("source", JsonPrimitive("chat"))
+        put("sessionKey", JsonPrimitive(session))
+        put("agentId", JsonPrimitive("main"))
+        put("entryId", JsonPrimitive(FULL_MESSAGE_ENTRY))
+        put("offset", JsonPrimitive(offset))
+        revision?.let { put("revision", JsonPrimitive(it)) }
+      },
+  )
 
   fun tearDown() {
     try {

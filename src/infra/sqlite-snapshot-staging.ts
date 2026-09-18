@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { extractErrorCode } from "@openclaw/normalization-core/error-coercion";
 import { getChildLogger } from "../logging/logger.js";
-import { racePromiseWithAbortSignal } from "./abort-signal.js";
 import { openNodeSqliteDatabase, resolveExistingSqliteFileUri } from "./node-sqlite.js";
 import {
   createPrivateSqliteTempDirectorySync,
@@ -20,10 +19,11 @@ const suffix = "(?:[A-Za-z0-9]{6}|[\\da-f]{8}-[\\da-f]{4}-[\\da-f]{4}-[\\da-f]{4
 const legacyMarker = new RegExp(`^openclaw-sqlite-readonly-[1-9]\\d*-${suffix}`, "u");
 const tokenMarker = new RegExp(`^${prefix}${suffix}`, "u");
 const tokenName = SQLITE_SNAPSHOT_CONTROL_FILES[0];
-const scannedRoots = new Set<string>();
-type ReclamationPass = { controller: AbortController; callers: number; done: Promise<void> };
+type ReclamationPass = { controller: AbortController; done: Promise<void> };
 const pendingReclamations = new Map<string, ReclamationPass>();
 const legacyAgeMs = 24 * 60 * 60 * 1000;
+const currentAgeMs = 15 * 60 * 1000;
+const reclamationByteBudget = 512 * 1024 * 1024;
 const isStagingName = (name: string) => legacyMarker.test(name) || tokenMarker.test(name);
 type SnapshotToken = (retiring?: boolean) => void;
 
@@ -101,7 +101,7 @@ function snapshotToken(directory: string, mode: "create" | "read" | "reclaim"): 
 function inspectSnapshot(
   directory: string,
   tokens: SnapshotToken[] | undefined,
-  cutoff: number,
+  inheritedCutoff: number,
   layout = "",
 ): { bytes: number; newest: number } {
   const stat = fs.lstatSync(directory);
@@ -109,6 +109,8 @@ function inspectSnapshot(
     throw new Error("Snapshot directory ownership is unknown");
   }
   const legacy = !layout && legacyMarker.test(path.basename(directory));
+  // A current parent never shortens the compatibility grace of a legacy child.
+  const cutoff = legacy ? Math.min(inheritedCutoff, Date.now() - legacyAgeMs) : inheritedCutoff;
   // Check all legacy activity without creating tokens, then repeat under locks.
   // Even creating an empty token would otherwise postpone a recent copy's expiry.
   if (legacy && tokens) {
@@ -158,18 +160,24 @@ function inspectSnapshot(
       throw new Error("Unrecognized snapshot artifact");
     }
   }
-  // Also protects old selected workers nested below a current-generation parent.
-  if (legacy && newest >= cutoff) {
-    throw new Error("Legacy snapshot contains activity newer than 24 hours");
+  // Token ownership proves abandonment; age still gives terminating owners and
+  // slow filesystems a bounded grace period before copied bytes are reclaimed.
+  if (newest >= cutoff) {
+    throw new Error(
+      legacy
+        ? "Legacy snapshot contains activity newer than 24 hours"
+        : "Snapshot contains activity within the reclamation grace period",
+    );
   }
   return { bytes, newest };
 }
 
 export function* reclaimAbandonedSqliteSnapshots(root: string, report = warn): Generator<void> {
-  if (stagingParent(root) || scannedRoots.has(root)) {
+  if (stagingParent(root)) {
     return;
   }
   try {
+    let reclaimedBytes = 0;
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       const legacy = legacyMarker.test(entry.name);
       if (!entry.isDirectory() || !isStagingName(entry.name)) {
@@ -178,7 +186,14 @@ export function* reclaimAbandonedSqliteSnapshots(root: string, report = warn): G
       const directory = path.join(root, entry.name);
       const tokens: SnapshotToken[] = [];
       try {
-        const { bytes } = inspectSnapshot(directory, tokens, Date.now() - legacyAgeMs);
+        const { bytes } = inspectSnapshot(
+          directory,
+          tokens,
+          Date.now() - (legacy ? legacyAgeMs : currentAgeMs),
+        );
+        if (bytes > reclamationByteBudget - reclaimedBytes) {
+          throw new Error("Snapshot reclamation byte budget exhausted");
+        }
         for (const token of tokens) {
           token(true);
         }
@@ -190,6 +205,7 @@ export function* reclaimAbandonedSqliteSnapshots(root: string, report = warn): G
         if (!removeTempDirectory(claimed)) {
           throw new Error("Snapshot removal failed; check private cache permissions");
         }
+        reclaimedBytes += bytes;
         report(`Reclaimed ${bytes} bytes of interrupted SQLite snapshot data.`);
       } catch (error) {
         report("Skipped SQLite snapshot reclamation: owner live, recent, or unverified.", error);
@@ -204,7 +220,37 @@ export function* reclaimAbandonedSqliteSnapshots(root: string, report = warn): G
   } catch (error) {
     report("SQLite snapshot reclamation failed; check private cache permissions.", error);
   }
-  scannedRoots.add(root);
+}
+
+export function reclaimAbandonedSqliteSnapshotsAsync(
+  root = resolvePrivateSqliteSnapshotStagingRoot(),
+): Promise<void> {
+  if (stagingParent(root) || pendingReclamations.has(root)) {
+    return pendingReclamations.get(root)?.done ?? Promise.resolve();
+  }
+  const controller = new AbortController();
+  const pass: ReclamationPass = {
+    controller,
+    done: (async () => {
+      try {
+        const { runSqliteReadOnlyWorker } = await import("./sqlite-readonly-worker.js");
+        if (!controller.signal.aborted) {
+          for (const message of await runSqliteReadOnlyWorker(root, {
+            mode: "reclaim",
+            signal: controller.signal,
+          })) {
+            warn(message);
+          }
+        }
+      } catch (error) {
+        warn("SQLite snapshot reclamation worker failed; continuing without cache cleanup.", error);
+      } finally {
+        pendingReclamations.delete(root);
+      }
+    })(),
+  };
+  pendingReclamations.set(root, pass);
+  return pass.done;
 }
 
 export async function allocateSqliteSnapshotStagingDirectory(
@@ -213,60 +259,6 @@ export async function allocateSqliteSnapshotStagingDirectory(
   signal?: AbortSignal,
 ): Promise<string> {
   signal?.throwIfAborted();
-  if (!stagingParent(root)) {
-    while (!scannedRoots.has(root)) {
-      signal?.throwIfAborted();
-      let pass = pendingReclamations.get(root);
-      if (!pass) {
-        const controller = new AbortController();
-        pass = {
-          controller,
-          callers: 0,
-          done: (async () => {
-            try {
-              const { runSqliteReadOnlyWorker } = await import("./sqlite-readonly-worker.js");
-              if (!controller.signal.aborted) {
-                for (const message of await runSqliteReadOnlyWorker(root, {
-                  mode: "reclaim",
-                  signal: controller.signal,
-                })) {
-                  warn(message);
-                }
-              }
-            } catch (error) {
-              warn(
-                "SQLite snapshot reclamation worker failed; continuing without cache cleanup.",
-                error,
-              );
-            } finally {
-              // Cancellation leaves unvisited directories for the next allocation.
-              // Other failures remain best effort, without a blocking sync fallback.
-              if (!controller.signal.aborted) {
-                scannedRoots.add(root);
-              }
-              pendingReclamations.delete(root);
-            }
-          })(),
-        };
-        pendingReclamations.set(root, pass);
-      }
-      // A stopping pass cannot accept new callers; wait for its directory to
-      // settle, then start a fresh pass. Both waits remain caller-cancellable.
-      const joined = !pass.controller.signal.aborted;
-      if (joined) {
-        pass.callers++;
-      }
-      try {
-        await racePromiseWithAbortSignal(pass.done, signal);
-      } finally {
-        if (joined && --pass.callers === 0 && signal?.aborted) {
-          pass.controller.abort();
-        }
-      }
-    }
-  }
-  signal?.throwIfAborted();
-  // Allocation and token registration stay atomic after the shared scan settles.
   return createSqliteSnapshotStagingDirectorySync(root, allowLegacyWorker);
 }
 
@@ -280,11 +272,6 @@ export function createSqliteSnapshotStagingDirectorySync(
   const parent = parentDirectory ? snapshotToken(parentDirectory, "read") : undefined;
   let directory: string | undefined;
   try {
-    if (!parent) {
-      for (const _ of reclaimAbandonedSqliteSnapshots(root)) {
-        // Synchronous callers drain the same directory-boundary iterator.
-      }
-    }
     // A selected installation may launch a worker without token admission.
     directory = createPrivateSqliteTempDirectorySync(
       root,

@@ -22,6 +22,7 @@ import {
   prepareSqliteQuerySync,
   prepareSqliteQueryTakeFirstSync,
 } from "../kysely-sync.js";
+import { currentConversationBindingRow } from "./current-conversation-binding-row.js";
 import {
   buildChannelAccountKey,
   normalizeConversationRef,
@@ -249,30 +250,6 @@ function readCurrentConversationBindingRow(
     const record = bindingRowsToRecords([candidate])[0];
     return record !== undefined && buildConversationKey(record.conversation) === bindingKey;
   });
-}
-
-function currentConversationBindingRow(
-  record: SessionBindingRecord,
-  conversation: ConversationRef,
-  bindingKey: string,
-) {
-  return {
-    binding_key: bindingKey,
-    binding_id: record.bindingId,
-    target_session_key: record.targetSessionKey,
-    channel: conversation.channel,
-    account_id: conversation.accountId,
-    conversation_kind: CURRENT_BINDING_CONVERSATION_KIND,
-    parent_conversation_id: conversation.parentConversationId ?? null,
-    conversation_id: conversation.conversationId,
-    target_kind: record.targetKind,
-    status: record.status,
-    bound_at: record.boundAt,
-    expires_at: record.expiresAt ?? null,
-    metadata_json: record.metadata ? JSON.stringify(record.metadata) : null,
-    record_json: JSON.stringify(record),
-    updated_at: Date.now(),
-  };
 }
 
 function deleteCurrentConversationBindingRow(db: DatabaseSync, bindingKey: string): void {

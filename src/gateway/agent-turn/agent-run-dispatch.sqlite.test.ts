@@ -122,6 +122,7 @@ it("creates a durable Gateway task before provider entry and settles its exact u
           },
           runId,
           dedupeKeys: [`agent:${runId}`],
+          admittedRunEntry: entry,
           abortController: entry.controller,
           cleanupAbortController() {
             if (context.chatAbortControllers.get(runId) === entry) {

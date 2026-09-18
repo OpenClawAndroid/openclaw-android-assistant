@@ -85,7 +85,7 @@ export async function verifyNpmRootRecovery(
         : !fromBackup && (await reader.exists(root))
     ) {
       throw new Error(
-        `Package rollback verification failed: retained package ${previousRoot?.kind === "link" ? "link" : "tree"} changed`,
+        `Package rollback verification failed: ${fromBackup ? "retained" : "restored"} package ${previousRoot?.kind === "link" ? "link" : "tree"} changed at ${root}. Inspect this ${fromBackup ? "backup" : "installation"} and resolve the changes before retrying recovery.`,
       );
     }
     for (const shim of shims) {

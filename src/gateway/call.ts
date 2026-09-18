@@ -31,12 +31,6 @@ import { getRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createAbortError } from "../infra/abort-signal.js";
 import {
-  loadDeviceAuthToken,
-  loadDeviceAuthTokenReadOnly,
-  loadOriginDeviceToken,
-  loadOriginDeviceTokenReadOnly,
-} from "../infra/device-auth-store.js";
-import {
   loadDeviceIdentityIfPresent,
   loadOrCreateDeviceIdentity,
   type DeviceIdentity,
@@ -48,6 +42,7 @@ import { roleScopesAllow } from "../shared/operator-scope-compat.js";
 import { resolveSafeTimeoutDelayMs } from "../utils/timer-delay.js";
 import { VERSION } from "../version.js";
 import { resolveGatewayAuth } from "./auth-resolve.js";
+import { loadStoredOperatorDeviceAuthToken } from "./call-device-auth.js";
 import {
   ensureExplicitGatewayAuth,
   GatewayExplicitAuthRequiredError,
@@ -57,6 +52,7 @@ import {
 import {
   GatewayClient,
   isGatewayConnectAssemblyError,
+  prepareGatewayClientDeviceAuth,
   type GatewayClientCloseInfo,
   type GatewayClientOptions,
   type GatewayClientRequestOptions,
@@ -507,37 +503,6 @@ export function resolveDeviceIdentityForGatewayCall(
   }
 }
 
-function loadStoredOperatorDeviceAuthToken(
-  deviceIdentity: DeviceIdentity | null,
-  deviceAuthScope?: string,
-  sharedStateMode?: "read-only",
-): DeviceAuthEntry | null {
-  if (!deviceIdentity) {
-    return null;
-  }
-  try {
-    if (deviceAuthScope) {
-      const loadToken =
-        sharedStateMode === "read-only" ? loadOriginDeviceTokenReadOnly : loadOriginDeviceToken;
-      return loadToken({
-        gatewayScope: deviceAuthScope,
-        deviceId: deviceIdentity.deviceId,
-        role: "operator",
-        env: process.env,
-      });
-    }
-    const loadToken =
-      sharedStateMode === "read-only" ? loadDeviceAuthTokenReadOnly : loadDeviceAuthToken;
-    return loadToken({
-      deviceId: deviceIdentity.deviceId,
-      role: "operator",
-      env: process.env,
-    });
-  } catch {
-    return null;
-  }
-}
-
 function resolveGatewayCallAuth(config: OpenClawConfig) {
   return resolveGatewayAuth({
     authConfig: config.gateway?.auth,
@@ -546,7 +511,7 @@ function resolveGatewayCallAuth(config: OpenClawConfig) {
   });
 }
 
-function ensureGatewayCallCanAuthenticate(params: {
+async function ensureGatewayCallCanAuthenticate(params: {
   opts: CallGatewayBaseOptions;
   context: ResolvedGatewayCallContext;
   token?: string;
@@ -554,7 +519,7 @@ function ensureGatewayCallCanAuthenticate(params: {
   deviceIdentity: DeviceIdentity | null;
   deviceAuthScope?: string;
   storedAuth?: DeviceAuthEntry | null;
-}): void {
+}): Promise<void> {
   const resolvedAuth = resolveGatewayCallAuth(params.context.config);
   const authMode = resolvedAuth.mode;
   if (authMode !== "token" && authMode !== "password") {
@@ -566,17 +531,15 @@ function ensureGatewayCallCanAuthenticate(params: {
   if (resolvedAuth.allowTailscale) {
     return;
   }
-  const hasStoredAuth =
-    params.storedAuth !== undefined
-      ? Boolean(params.storedAuth?.token)
-      : Boolean(
-          loadStoredOperatorDeviceAuthToken(
-            params.deviceIdentity,
-            params.deviceAuthScope,
-            params.opts.sharedStateMode,
-          )?.token,
-        );
-  if (hasStoredAuth) {
+  const storedAuth =
+    params.storedAuth === undefined
+      ? await loadStoredOperatorDeviceAuthToken(
+          params.deviceIdentity,
+          params.deviceAuthScope,
+          params.opts.sharedStateMode,
+        )
+      : params.storedAuth;
+  if (storedAuth?.token) {
     return;
   }
   throw new GatewayCredentialsRequiredError({
@@ -1187,7 +1150,7 @@ async function callGatewayWithScopes<T = Record<string, unknown>>(
       : opts.deviceIdentity;
   let storedAuth: DeviceAuthEntry | null | undefined;
   if (useStoredDeviceAuth) {
-    storedAuth = loadStoredOperatorDeviceAuthToken(
+    storedAuth = await loadStoredOperatorDeviceAuthToken(
       deviceIdentity,
       deviceAuthScope,
       opts.sharedStateMode,
@@ -1231,7 +1194,7 @@ async function callGatewayWithScopes<T = Record<string, unknown>>(
       );
     }
   }
-  ensureGatewayCallCanAuthenticate({
+  await ensureGatewayCallCanAuthenticate({
     opts,
     context,
     token,
@@ -1240,6 +1203,29 @@ async function callGatewayWithScopes<T = Record<string, unknown>>(
     deviceAuthScope,
     storedAuth,
   });
+  try {
+    await prepareGatewayClientDeviceAuth(
+      {
+        url,
+        token,
+        password,
+        edgeAuthHeaders,
+        tlsFingerprint,
+        deviceIdentity,
+        deviceAuthScope,
+        sharedStateMode: opts.sharedStateMode,
+        preparedDeviceAuth: storedAuth ?? undefined,
+        approvalRuntimeToken: opts.approvalRuntimeToken,
+        agentRuntimeIdentityToken: opts.agentRuntimeIdentityToken,
+      },
+      opts.signal,
+    );
+  } catch (error) {
+    if (opts.signal?.aborted) {
+      throw createGatewayRequestAbortError(opts.method);
+    }
+    throw error;
+  }
   const effectiveScopes =
     requestedStoredDeviceAuth && hasExplicitAuth && opts.requiredStoredDeviceAuthScopes
       ? opts.requiredStoredDeviceAuthScopes

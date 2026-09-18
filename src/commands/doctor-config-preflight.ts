@@ -192,7 +192,7 @@ async function runDoctorConfigPreflightOperation(
             ? error
             : new Error("OpenClaw startup migration lease heartbeat failed.");
       }
-    }, 60_000);
+    }, migrationCheckpoint.STARTUP_MIGRATION_HEARTBEAT_INTERVAL_MS);
     startupMigrationHeartbeat.unref?.();
     // Another process may have completed the same work between our pre-lease read and acquisition.
     // Refresh every checkpoint input under the lease so only work still missing from state runs.

@@ -59,6 +59,18 @@
   grid-row: 1;
 }
 
+/* Preview chips are shorter than avatars; keep the avatar from enlarging the message row. */
+.chat-group.user.chat-group--with-footer:has(
+    > .chat-group-messages > .chat-bubble--preview-chips-only
+  ) {
+  position: relative;
+
+  > :is(.chat-avatar, .chat-avatar-slot) {
+    position: absolute;
+    align-self: start;
+  }
+}
+
 .chat-group.chat-group--with-footer > .chat-group-messages {
   grid-column: var(--chat-group-content-column);
   grid-row: 1;

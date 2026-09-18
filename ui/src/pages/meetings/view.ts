@@ -9,6 +9,7 @@ import { html, nothing } from "lit";
 import { live } from "lit/directives/live.js";
 import { repeat } from "lit/directives/repeat.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
+import MarkdownIt from "markdown-it";
 import { pathForRoute } from "../../app-route-paths.ts";
 import { renderHubTabs } from "../../components/hub-tabs.ts";
 import { icons } from "../../components/icons.ts";
@@ -31,6 +32,40 @@ import {
 registerTranscriptsEnglish();
 registerMeetingsEnglish();
 
+const summaryParser = new MarkdownIt("commonmark");
+
+function summaryNotesMarkdown(markdown: string): string {
+  const lines = markdown.split(/\r\n?|\n/);
+  const tokens = summaryParser.parse(markdown, {});
+  const notes: string[] = [];
+  let keptFrom = 0;
+  let transcript = false;
+  for (const [index, token] of tokens.entries()) {
+    if (
+      token.type !== "heading_open" ||
+      token.level !== 0 ||
+      (token.tag !== "h1" && token.tag !== "h2") ||
+      !token.map
+    ) {
+      continue;
+    }
+    const line = token.map[0];
+    if (transcript) {
+      keptFrom = line;
+      transcript = false;
+    }
+    // Preserve historical Markdown-only notes and fenced heading examples.
+    if (token.tag === "h2" && tokens[index + 1]?.content.trim() === "Transcript") {
+      notes.push(lines.slice(keptFrom, line).join("\n"));
+      transcript = true;
+    }
+  }
+  if (!transcript) {
+    notes.push(lines.slice(keptFrom).join("\n"));
+  }
+  return notes.join("\n");
+}
+
 export type TranscriptReadState = {
   summary: TranscriptsGetResult | null;
   pages: TranscriptsGetResult[];
@@ -41,6 +76,7 @@ export type TranscriptReadState = {
 
 type TranscriptsViewProps = {
   basePath: string;
+  now: number;
   search: string;
   drafts: Readonly<Record<string, string>>;
   onDraft: (key: string, value: string) => void;
@@ -162,7 +198,7 @@ function renderFilters(props: TranscriptsViewProps) {
 
 function renderMeetingRow(entry: TranscriptSessionSummary, props: TranscriptsViewProps) {
   const selected = new URLSearchParams(props.search).get("selector");
-  const silent = entry.utteranceCount === 0;
+  const silent = !entry.active && entry.utteranceCount === 0;
   const participants = entry.participants.slice(0, 3).join(", ");
   const extra = entry.participants.length - 3;
   const duration = entry.stoppedAt
@@ -198,10 +234,10 @@ function renderMeetingRow(entry: TranscriptSessionSummary, props: TranscriptsVie
       >
       <span class="meetings-row__overview"
         >${
-          silent
-            ? t("meetings.noSpeech")
+          entry.utteranceCount === 0
+            ? t(entry.active ? "meetings.waitingForSpeech" : "meetings.noSpeech")
             : entry.overview ||
-              t(entry.active ? "meetings.summaryAfterMeeting" : "meetings.summaryUnavailable")
+              t(entry.active ? "meetings.summaryPending" : "meetings.summaryUnavailable")
         }</span
       >
     </a>
@@ -212,7 +248,7 @@ function renderLibrary(props: TranscriptsViewProps) {
   if (props.listError) {
     return renderReadError(props.listError, props.onRefresh);
   }
-  if (props.listLoading || !props.list) {
+  if (!props.list) {
     return renderLoading(t("meetings.loadingMeetings"));
   }
   const days = new Map<string, TranscriptSessionSummary[]>();
@@ -283,15 +319,18 @@ function renderSummary(page: TranscriptsGetResult) {
   const summary = page.summary;
   const titleLine = `# ${page.session.title || page.session.sessionId}\n`;
   // The reader header already renders the stored summary's leading title.
-  const markdown = summary
-    ? summary.markdown.startsWith(titleLine)
-      ? summary.markdown.slice(titleLine.length)
-      : summary.markdown
-    : "";
+  const markdown = summaryNotesMarkdown(
+    summary
+      ? summary.markdown.startsWith(titleLine)
+        ? summary.markdown.slice(titleLine.length)
+        : summary.markdown
+      : "",
+  );
   return html`<section class="transcripts-summary">
     ${
       summary
-        ? html`<p class="transcripts-caption">
+        ? html`${page.session.active ? html`<p class="transcripts-caption" role="status">${t("meetings.liveSummaryHint")}</p>` : nothing}
+            <p class="transcripts-caption">
               ${summary.source ? html`${t(summary.source === "model" ? "transcripts.modelNotes" : "transcripts.heuristicNotes")}${summary.model ? ` · ${summary.model}` : nothing} · ` : nothing}
               ${t("transcripts.generatedAt", { time: transcriptTime(summary.generatedAt) })}
             </p>
@@ -299,8 +338,9 @@ function renderSummary(page: TranscriptsGetResult) {
               ${unsafeHTML(toSanitizedMarkdownHtml(markdown, { mode: "document", remoteImages: false }))}
             </div>
             <p class="transcripts-caption">${t("transcripts.summaryHint")}</p>`
-        : html`<p role="status">${t("transcripts.noSummary")}</p>
-            ${page.session.active ? html`<p>${t("meetings.activeNotes")}</p>` : nothing}`
+        : html`<p role="status">
+            ${t(page.session.active ? "meetings.activeNotes" : "transcripts.noSummary")}
+          </p>`
     }
   </section>`;
 }
@@ -308,7 +348,8 @@ function renderSummary(page: TranscriptsGetResult) {
 function renderReader(props: TranscriptsViewProps) {
   const params = new URLSearchParams(props.search);
   const transcriptPage = props.reader.pages.at(-1);
-  const page = transcriptPage ?? props.reader.summary;
+  const page = props.reader.summary ?? transcriptPage;
+  const tabPage = props.readerTab === "summary" ? props.reader.summary : transcriptPage;
   return html`<article
     class="transcripts-reader"
     aria-label=${t("transcripts.reader")}
@@ -330,7 +371,7 @@ function renderReader(props: TranscriptsViewProps) {
       >${icons.arrowLeft}${t("transcripts.back")}</a
     >
     ${props.reader.error ? renderReadError(props.reader.error, props.onReaderRetry) : nothing}
-    ${props.reader.loading ? renderLoading(t(props.readerTab === "summary" ? "meetings.loadingSummary" : "meetings.loadingTranscript")) : nothing}
+    ${props.reader.loading && !tabPage ? renderLoading(t(props.readerTab === "summary" ? "meetings.loadingSummary" : "meetings.loadingTranscript")) : nothing}
     ${
       page
         ? html`
@@ -342,8 +383,22 @@ function renderReader(props: TranscriptsViewProps) {
                   >${transcriptTime(page.session.startedAt)}</time
                 >
                 · ${t("transcripts.savedCount", { count: String(page.session.utteranceCount) })}
-                ${page.session.active ? html`<span class="meetings-live">${t("meetings.inProgress")}</span>` : nothing}
               </p>
+              ${
+                page.session.active
+                  ? html`<div class="meetings-live-status" role="status">
+                      <div class="meetings-live-status__heading">
+                        <span class="meetings-live">${t("meetings.liveCapture")}</span>
+                        <span class="meetings-live-status__elapsed" role="timer" aria-live="off"
+                          >${formatDurationCompact(Math.max(0, props.now - Date.parse(page.session.startedAt)))}</span
+                        >
+                      </div>
+                      <p>
+                        ${t(props.reader.error ? "meetings.liveRetrying" : "meetings.liveHint")}
+                      </p>
+                    </div>`
+                  : nothing
+              }
               <details class="transcripts-source-details">
                 <summary>${t("transcripts.sourceDetails")}</summary>
                 <p class="transcripts-caption">${transcriptSourceLabel(page.session.source)}</p>
@@ -489,14 +544,15 @@ function renderReader(props: TranscriptsViewProps) {
                       </ol>
                       ${
                         transcriptPage &&
-                        !props.reader.loading &&
                         !props.reader.error &&
                         !props.reader.pages.some((result) => result.utterances?.length)
                           ? html`<p role="status">
                               ${t(
                                 params.get("find")
                                   ? "transcripts.noMatches"
-                                  : "transcripts.noUtterances",
+                                  : page.session.active
+                                    ? "meetings.waitingForSpeech"
+                                    : "transcripts.noUtterances",
                               )}
                             </p>`
                           : nothing

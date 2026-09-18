@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
+import { retainSqliteReader, withSqliteReaderOwner } from "./sqlite-reader-lifecycle.js";
 import { configureSqliteWalMaintenance } from "./sqlite-wal.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -104,4 +105,55 @@ describe("SQLite WAL checkpoint observations", () => {
       }
     },
   );
+
+  it("reports the process-local reader owner blocking a checkpoint", () => {
+    const databasePath = path.join(tempDirs.make("openclaw-sqlite-reader-owner-"), "state.sqlite");
+    const { DatabaseSync } = requireNodeSqlite();
+    const writer = new DatabaseSync(databasePath);
+    const reader = new DatabaseSync(databasePath);
+    let releaseReader: (() => void) | undefined;
+    const maintenance = configureSqliteWalMaintenance(writer, {
+      checkpointIntervalMs: 0,
+      checkpointMode: "PASSIVE",
+      databasePath,
+    });
+    try {
+      writer.exec(`
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE events (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO events (value) VALUES ('before-reader');
+        PRAGMA wal_checkpoint(TRUNCATE);
+      `);
+      reader.exec("BEGIN");
+      reader.prepare("SELECT COUNT(*) FROM events").get();
+      releaseReader = withSqliteReaderOwner(
+        { operation: "fixture.blocked-read", ownerKind: "worker", actorId: 9 },
+        () => {
+          const retained = retainSqliteReader(reader, "fixture reader");
+          return () => retained.release();
+        },
+      );
+      writer.prepare("INSERT INTO events (value) VALUES (?)").run("after-reader");
+
+      expect(maintenance.checkpoint()).toBe(false);
+      expect(maintenance.health).toMatchObject({
+        state: "blocked",
+        activeReaders: [
+          expect.objectContaining({
+            operation: "fixture.blocked-read",
+            ownerKind: "worker",
+            actorId: 9,
+          }),
+        ],
+      });
+    } finally {
+      releaseReader?.();
+      if (reader.isTransaction) {
+        reader.exec("ROLLBACK");
+      }
+      maintenance.close();
+      reader.close();
+      writer.close();
+    }
+  });
 });

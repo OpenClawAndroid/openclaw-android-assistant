@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildWidgetDocument } from "../../../../src/canvas/wrap.js";
+import { createDeferred } from "../../../../test/helpers/promise.js";
 import { BOARD_GRID_GAP, BOARD_GRID_ROW_HEIGHT } from "../../lib/board/grid.ts";
 import type { BoardSnapshot } from "../../lib/board/types.ts";
 import "../../styles/base.css";
@@ -577,7 +578,14 @@ describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
       const frame = cell.querySelector("iframe")!;
       const initialHeight = frame.getBoundingClientRect().height;
       const reports: number[] = [];
+      const ready = createDeferred();
       const recordSize = (event: MessageEvent) => {
+        if (
+          event.source === frame.contentWindow &&
+          event.data?.type === "openclaw:widget-bridge-ready"
+        ) {
+          ready.resolve();
+        }
         if (event.source === frame.contentWindow && event.data?.type === "openclaw:widget-size") {
           reports.push(event.data.height);
         }
@@ -588,6 +596,9 @@ describe.skipIf(!hasBrowserLayout)("openclaw-board-view browser layout", () => {
           "Viewport-sized dashboard",
           "<style>body{min-height:100vh}</style><main>Dashboard content</main>",
         );
+        // Start the size-report check after this document's bridge is running;
+        // assigning srcdoc does not mean Chromium has started the navigation.
+        await ready.promise;
         await vi.waitFor(() => expect(reports.length).toBeGreaterThan(0));
         for (const expanded of focused ? [true, false, true] : [false]) {
           if (focused) {

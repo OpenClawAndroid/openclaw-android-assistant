@@ -263,6 +263,12 @@ export async function beginDoctorMaintenance(params: {
             : {}),
         }),
       );
+      if (health.waitOutcome === "still-starting") {
+        const warning = renderRestartDiagnostics(health).join(" ");
+        warnings.push(warning);
+        params.runtime.log(warning);
+        return;
+      }
       if (!health.healthy) {
         throw doctorGatewayMaintenanceError({
           env,

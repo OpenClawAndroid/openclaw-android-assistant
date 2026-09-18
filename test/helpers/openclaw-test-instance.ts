@@ -87,7 +87,7 @@ export type OpenClawTestInstance = {
   entrypoint: () => Promise<string[]>;
   cli: (
     args: string[],
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; execPath?: string },
   ) => Promise<OpenClawTestInstanceCommandResult>;
   startGateway: () => Promise<void>;
   stopGateway: () => Promise<void>;
@@ -948,7 +948,7 @@ export async function createOpenClawTestInstance(
         const commandEntrypoint = await entrypoint();
         signal?.throwIfAborted();
         return await runCommand({
-          args: ["node", ...commandEntrypoint, ...args],
+          args: [commandOptions.execPath ?? "node", ...commandEntrypoint, ...args],
           cwd,
           env,
           timeoutMs: commandOptions.timeoutMs ?? COMMAND_TIMEOUT_MS,

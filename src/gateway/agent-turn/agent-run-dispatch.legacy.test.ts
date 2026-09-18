@@ -71,11 +71,13 @@ vi.mock("../../tasks/task-run-owner.js", () => ({
   },
   getTaskRunOwner: () => undefined,
 }));
-vi.mock("../../infra/agent-run-registry.js", () => ({
+vi.mock(import("../../infra/agent-run-registry.js"), async (importOriginal) => ({
+  ...(await importOriginal()),
   clearAgentRunContext: vi.fn(),
   validateAgentRunDelegatedAuthority: () => true,
 }));
-vi.mock("../../infra/agent-events.js", () => ({
+vi.mock(import("../../infra/agent-events.js"), async (importOriginal) => ({
+  ...(await importOriginal()),
   isAgentEventLifecycleGenerationCurrent: () => true,
 }));
 vi.mock("../../agents/cron-creator-authority-context.js", () => ({
@@ -202,6 +204,7 @@ function dispatch(
     },
     runId: fixture.runId,
     dedupeKeys: [],
+    admittedRunEntry: fixture.entry,
     abortController: fixture.entry.controller,
     cleanupAbortController: vi.fn(),
     io: { emitAcceptance: vi.fn(), emitFinal },

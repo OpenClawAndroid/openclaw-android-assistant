@@ -22,6 +22,7 @@ OpenClaw appends a typed event to the shared state database (`session_state_even
 
 | Kind                   | Recorded when                                            | Notifies watchers |
 | ---------------------- | -------------------------------------------------------- | ----------------- |
+| `created`              | A new session has trusted creation attribution           | No (log only)     |
 | `human_direct_message` | A human sends a turn directly to a watched session       | Yes               |
 | `upstream_missing`     | An adopted session's upstream source disappears          | Yes               |
 | `goal_changed`         | The session's goal state is created, updated, or cleared | Yes               |
@@ -36,6 +37,12 @@ Each event names its actor (`human`, `agent`, or `system`). Cancelled and timed-
 A session's **state version** is simply the highest sequence number in its log, tracked in a durable per-session head that survives pruning. `sessions_list` rows include `stateVersion` when a session has logged changes. `session_status` always reports it.
 
 Log-only kinds exist for reconciliation history, not notification: ordinary child-run completion delivery stays owned by [sub-agent announcements](/tools/subagents), and the signal log never duplicates it.
+
+Session creation separately queues a one-time Home notice by default, controlled
+by `session.notifyOnCreate`. It does not register a watcher or wake Home. Unlike
+durable watcher notices, it uses only the bounded, in-memory system-event queue.
+See [new-session awareness](/concepts/main-session#what-flows-into-the-main-session)
+for visibility exclusions.
 
 ## Watchers
 

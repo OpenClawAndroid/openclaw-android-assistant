@@ -35,10 +35,10 @@ export const CHAT_HISTORY_REQUEST_LIMIT = 80;
 const CHAT_HISTORY_REQUEST_MAX_BYTES = 256 * 1024;
 const CHAT_HISTORY_PREFETCH_BUDGET = { limit: 20, maxBytes: 64 * 1024 };
 
-// Back-scroll pages are larger than the startup tail: session open stays cheap
-// while older-history reads amortize round trips and prepend/re-anchor cycles.
-// The gateway independently bounds each response (entry cap + byte budget).
+// Older pages amortize backscroll round trips, but automatic viewport filling and
+// prefetch should not inherit the Gateway's multi-megabyte default byte budget.
 const CHAT_HISTORY_OLDER_PAGE_LIMIT = 1000;
+const CHAT_HISTORY_OLDER_PAGE_MAX_BYTES = 512 * 1024;
 
 const CHAT_HISTORY_STARTUP_RETRY_TIMEOUT_MS = 60_000;
 
@@ -322,6 +322,7 @@ async function requestOlderChatHistoryPage(
       sessionKey,
       ...(requestAgentId ? { agentId: requestAgentId } : {}),
       limit: CHAT_HISTORY_OLDER_PAGE_LIMIT,
+      maxBytes: CHAT_HISTORY_OLDER_PAGE_MAX_BYTES,
       offset,
     }),
   );

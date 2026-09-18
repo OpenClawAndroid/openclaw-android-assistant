@@ -129,6 +129,7 @@
   "agent-harness-exec-review-runtime",
   "agent-harness-registration",
   "agent-harness-runtime",
+  "agent-workspace-runtime",
   "agent-harness-tool-runtime",
   "hook-runtime",
   "html-entity-runtime",

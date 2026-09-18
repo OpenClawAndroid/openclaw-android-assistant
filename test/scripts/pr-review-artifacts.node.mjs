@@ -255,7 +255,7 @@ repo_root() { printf '%s\\n' "$canonical_repo_root"; }
 source "$2/pr-lib/common.sh"
 source "$2/pr-lib/review.sh"
 review_guard() { echo FRESH_GUARD; return 42; }
-gh_plain() { echo UNEXPECTED_AUTH; return 43; }
+pr_gh_plain() { echo UNEXPECTED_AUTH; return 43; }
 ${invocation}
 `,
           "fixture",

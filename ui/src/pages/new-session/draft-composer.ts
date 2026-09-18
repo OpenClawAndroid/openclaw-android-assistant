@@ -14,6 +14,7 @@ import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import type { SessionToolOverrides } from "../../lib/sessions/patch.ts";
 import { refreshSlashCommands } from "../chat/chat-commands.ts";
 import type { CapabilityMenuProps } from "../chat/components/chat-composer-types.ts";
+import type { SidebarContent } from "../chat/components/chat-sidebar-content-types.ts";
 import type { NewSessionAttachmentDraft } from "./attachment-draft.ts";
 import { NewSessionComposerTextareaController } from "./composer-controller.ts";
 import { renderNewSessionComposer } from "./composer.ts";
@@ -100,6 +101,7 @@ export function renderNewSessionDraftComposer(options: {
   messageLocked?: boolean;
   onInput: (message: string, mentions?: readonly HumanMention[]) => void;
   onOpenImage?: (item: ImageLightboxItem) => void;
+  onOpenSidebar?: (content: SidebarContent) => void;
   onVisibilityChange?: (visibility: NewSessionVisibility) => void;
   onSubmit: () => void;
   onBackgroundSubmit?: () => void;
@@ -151,7 +153,9 @@ export function renderNewSessionDraftComposer(options: {
     attachments: options.attachmentDraft.attachments,
     canSubmit: options.canSubmit,
     getAttachments: () => options.attachmentDraft.attachments,
-    message: options.message,
+    get message() {
+      return options.message;
+    },
     mentions: options.mentions,
     getMentions: options.getMentions,
     mentionDirectory,
@@ -169,6 +173,7 @@ export function renderNewSessionDraftComposer(options: {
         }),
     permissionControl: options.permissionControl,
     pendingAttachmentReads: options.attachmentDraft.pendingReads,
+    attachmentReads: options.attachmentDraft.reads,
     readSignal,
     requiresModifier: options.requiresModifier,
     requestUpdate: options.requestUpdate,
@@ -187,15 +192,21 @@ export function renderNewSessionDraftComposer(options: {
       : undefined,
     submitDisabledReason: options.submitDisabledReason,
     blockedSubmitNotice: options.blockedSubmitNotice,
-    dictationActive: options.dictationActive,
+    get dictationActive() {
+      return options.dictationActive;
+    },
     dictationPreview: options.dictationPreview,
     dictationStatus: options.dictationStatus,
     nativeTerminal: options.nativeTerminal,
     onUnsupportedAttachment: options.onUnsupportedAttachment,
-    submitting: options.submitting,
+    get submitting() {
+      return options.submitting;
+    },
     textareaController: options.textareaController,
     voiceControl: options.voiceControl,
-    messageLocked: options.messageLocked,
+    get messageLocked() {
+      return options.messageLocked;
+    },
     onAttachmentsChange: (attachments) => {
       if (!options.submitting && !options.messageLocked) {
         options.attachmentDraft.replace(attachments);
@@ -204,6 +215,7 @@ export function renderNewSessionDraftComposer(options: {
     onPendingReadsChange: (delta) => options.attachmentDraft.updatePending(readSignal, delta),
     onInput: options.onInput,
     onOpenImage: options.onOpenImage,
+    onOpenSidebar: options.onOpenSidebar,
     onVisibilityChange: options.onVisibilityChange,
     onSubmit: options.onSubmit,
     onBackgroundSubmit: options.onBackgroundSubmit,

@@ -217,7 +217,7 @@ if (path.basename(process.argv[1]) === "npm" && args[0] === "view") {
     // Keep the production retry budget; only the isolated fixture's clock advances.
     writeFileSync(
       timers,
-      `const delay = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => delay(fn, 0, ...args);\n${preload}`,
+      `let now = Date.now(); Date.now = () => now; const delay = globalThis.setTimeout; globalThis.setTimeout = (fn, ms, ...args) => { now += ms; return delay(fn, 0, ...args); };\n${preload}`,
     );
     return spawnSync(
       testNodeExecPath,
@@ -279,7 +279,7 @@ if (path.basename(process.argv[1]) === "npm" && args[0] === "view") {
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line));
-      expect(commands).toHaveLength(30);
+      expect(commands).toHaveLength(90);
       expect(commands.every((args) => args[0] === "npm" && args[1] === "view")).toBe(true);
     },
   );
@@ -1335,7 +1335,39 @@ describe("runNpmViewWithRetry", () => {
 
     expect(calls).toHaveLength(3);
     expect(calls.every((args) => args.at(-1) === "--prefer-online")).toBe(true);
-    expect(delays).toEqual([1000, 2000]);
+    expect(delays).toEqual([10000, 10000]);
+  });
+
+  it("waits beyond the previous attempt budget for core registry propagation", async () => {
+    vi.useFakeTimers();
+    const started = Date.now();
+    let reads = 0;
+    const result = runNpmViewWithRetry(["view", "openclaw@2026.5.10", "version"], {
+      run: () => {
+        reads += 1;
+        if (Date.now() - started < 600_000) {
+          throw Object.assign(new Error("not visible"), { code: "E404" });
+        }
+        return "2026.5.10";
+      },
+    });
+    const verified = expect(result).resolves.toBe("2026.5.10");
+    await vi.advanceTimersByTimeAsync(600_000);
+    await verified;
+    expect(reads).toBe(61);
+  });
+
+  it("honors the shared timeout without retrying publication", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("OPENCLAW_NPM_READBACK_TIMEOUT_MS", "25000");
+    const run = vi.fn(() => {
+      throw Object.assign(new Error("not visible"), { code: "E404" });
+    });
+    const result = runNpmViewWithRetry(["view", "openclaw@2026.5.10", "version"], { run });
+    const rejected = expect(result).rejects.toThrow("Retry readback, not publication.");
+    await vi.advanceTimersByTimeAsync(25_000);
+    await rejected;
+    expect(run).toHaveBeenCalledTimes(3);
   });
 
   it("fails a timed-out npm read after one attempt and reaps the child", async () => {

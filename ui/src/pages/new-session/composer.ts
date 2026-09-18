@@ -255,9 +255,14 @@ export function renderNewSessionComposer(options: NewSessionComposerOptions) {
     emojiMenu.close();
   }
   const attachmentProps = {
+    attachmentReads: options.attachmentReads,
     attachmentLimits: options.attachmentLimits,
     attachments: options.attachments,
-    disabled: composerLocked,
+    get disabled() {
+      return (
+        options.submitting || options.messageLocked === true || options.dictationActive === true
+      );
+    },
     getAttachments: options.getAttachments,
     draft: options.message,
     getDraft: () => options.message,
@@ -265,6 +270,7 @@ export function renderNewSessionComposer(options: NewSessionComposerOptions) {
     onDraftChange: options.onInput,
     onPendingReadsChange: options.onPendingReadsChange,
     onOpenImage: options.onOpenImage,
+    onOpenSidebar: options.onOpenSidebar,
     readSignal: options.readSignal,
   };
   const attachmentDropHandlers = createChatAttachmentDropHandlers({

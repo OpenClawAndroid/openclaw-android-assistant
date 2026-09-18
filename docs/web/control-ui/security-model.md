@@ -79,6 +79,10 @@ inside the session workspace, including managed worktrees. Absolute paths in
 that workspace are staged for delivery under the same file-access checks.
 Selecting a project does not grant access to sibling worktrees.
 
+Trusted audio attachments use the same session workspace boundary during playback.
+Mixed replies retain a separate failure card for each rejected attachment alongside
+successfully delivered media.
+
 Sessions dispatched to a cloud worker cannot read Gateway-local file paths,
 even with Full Access. Dispatch also revokes pending local previews and downloads.
 Gateway-owned inbound uploads remain available.

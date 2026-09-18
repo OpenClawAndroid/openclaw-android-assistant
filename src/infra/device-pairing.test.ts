@@ -1322,7 +1322,7 @@ describe("device pairing tokens", () => {
     expect(readCachedToken({ deviceId: "device-1", role: "operator", env })).toEqual(operator);
     expect(readCachedToken({ deviceId: "device-2", role: "node", env })).toEqual(otherDevice);
     expect(
-      loadOriginDeviceToken({ gatewayScope, deviceId: "device-1", role: "node", env }),
+      await loadOriginDeviceToken({ gatewayScope, deviceId: "device-1", role: "node", env }),
     ).toEqual(origin);
     expect(readCachedToken({ deviceId: "device-1", role: "node", env: otherEnv })).toEqual(
       otherProfile,

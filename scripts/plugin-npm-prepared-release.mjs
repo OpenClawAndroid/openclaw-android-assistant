@@ -3,7 +3,6 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import {
   downloadActionsArtifactArchive,
@@ -15,6 +14,7 @@ import {
 import {
   fetchNpmRegistryPackumentWithRetry,
   fetchNpmRegistryTarballWithRetry,
+  npmRegistryReadbackDeadline,
   resolveNpmPublishPlan,
 } from "./lib/npm-publish-plan.mjs";
 import { collectExtensionPackageJsonCandidates } from "./lib/plugin-publication-candidates.ts";
@@ -411,46 +411,57 @@ export async function verifyPreparedNpmRegistry(params) {
     PACKAGE.test(params.packageName) && ROUTES.has(params.route),
     "Invalid prepared npm publication request.",
   );
-  const registry = await fetchNpmRegistryPackumentWithRetry({
-    packageName: params.packageName,
-    packageUrl: `https://registry.npmjs.org/${encodeURIComponent(params.packageName)}`,
-    fetchImpl: params.fetchImpl,
-  });
-  requireValue(
-    registry.status === 404 || registry.ok,
-    `npm registry returned HTTP ${registry.status}.`,
-  );
-  if (registry.ok) {
-    requireValue(
-      registry.packument?.name === params.packageName &&
-        registry.packument.versions &&
-        typeof registry.packument.versions === "object" &&
-        !Array.isArray(registry.packument.versions) &&
-        registry.packument["dist-tags"] &&
-        typeof registry.packument["dist-tags"] === "object" &&
-        !Array.isArray(registry.packument["dist-tags"]),
-      "npm registry response is not an authoritative package inventory.",
-    );
-  }
-  const version = registry.packument?.versions?.[params.version];
-  if (!version) {
-    if (params.allowMissing !== true && (params.remainingReadbacks ?? 5) > 0) {
-      // npm replication can lag an accepted publish; conflicts never enter this retry.
-      await delay(5_000);
-      return verifyPreparedNpmRegistry({
-        ...params,
-        remainingReadbacks: (params.remainingReadbacks ?? 5) - 1,
+  const deadlineMs = params.allowMissing === true ? undefined : npmRegistryReadbackDeadline();
+  const pendingMessage = `${params.packageName}@${params.version}: exact version is not visible yet; verification pending. Retry readback, not publication.`;
+  let registry;
+  let version;
+  for (;;) {
+    try {
+      registry = await fetchNpmRegistryPackumentWithRetry({
+        packageName: params.packageName,
+        packageUrl: `https://registry.npmjs.org/${encodeURIComponent(params.packageName)}`,
+        fetchImpl: params.fetchImpl,
+        deadlineMs,
       });
+    } catch (error) {
+      requireValue(deadlineMs === undefined || Date.now() < deadlineMs, pendingMessage);
+      throw error;
     }
     requireValue(
-      params.allowMissing === true && params.route !== "npm-readback",
-      `${params.packageName}@${params.version}: exact version is not visible yet; verification pending. Retry readback, not publication.`,
+      registry.status === 404 || registry.ok,
+      `npm registry returned HTTP ${registry.status}.`,
     );
-    requireValue(
-      registry.status !== 404 || params.route === "npm-token-bootstrap",
-      "Prepared OIDC package no longer exists; obtain an explicitly approved bootstrap.",
-    );
-    return { alreadyPublished: false };
+    if (registry.ok) {
+      requireValue(
+        registry.packument?.name === params.packageName &&
+          registry.packument.versions &&
+          typeof registry.packument.versions === "object" &&
+          !Array.isArray(registry.packument.versions) &&
+          registry.packument["dist-tags"] &&
+          typeof registry.packument["dist-tags"] === "object" &&
+          !Array.isArray(registry.packument["dist-tags"]),
+        "npm registry response is not an authoritative package inventory.",
+      );
+    }
+    version = registry.packument?.versions?.[params.version];
+    if (version) {
+      break;
+    }
+    if (params.allowMissing === true) {
+      requireValue(params.route !== "npm-readback", pendingMessage);
+      requireValue(
+        registry.status !== 404 || params.route === "npm-token-bootstrap",
+        "Prepared OIDC package no longer exists; obtain an explicitly approved bootstrap.",
+      );
+      return { alreadyPublished: false };
+    }
+    const remainingMs = deadlineMs - Date.now();
+    requireValue(remainingMs > 0, pendingMessage);
+    console.error(pendingMessage);
+    await new Promise((resolveDelay) => {
+      setTimeout(resolveDelay, Math.min(10_000, remainingMs));
+    });
+    requireValue(Date.now() < deadlineMs, pendingMessage);
   }
   requireValue(
     version.name === params.packageName && version.version === params.version,
@@ -469,6 +480,7 @@ export async function verifyPreparedNpmRegistry(params) {
     packageName: params.packageName,
     packageUrl: url.href,
     maxBytes: tarball.length,
+    deadlineMs,
     fetchImpl: params.fetchImpl,
   });
   requireValue(

@@ -13,10 +13,6 @@ import {
   recordAssistantManagedMediaUrls,
   type PrepareAssistantTranscriptMessage,
 } from "../../config/sessions/transcript-assistant-delivery.js";
-import {
-  appendLocalMediaParentRoots,
-  getAgentScopedMediaLocalRoots,
-} from "../../media/local-roots.js";
 import { splitMediaFromOutput } from "../../media/parse.js";
 import { createChannelMessageReplyPipeline } from "../../plugin-sdk/channel-outbound.js";
 import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
@@ -39,7 +35,10 @@ import {
   sanitizeAssistantDisplayText,
 } from "./chat-assistant-content.js";
 import { isBtwReplyPayload, isSourceReplyTranscriptMirrorPayload } from "./chat-broadcast.js";
-import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
+import {
+  getWebchatReplyMediaLocalRoots,
+  normalizeWebchatReplyMediaPathsForDisplay,
+} from "./chat-reply-media.js";
 import { observeChatSendCommentaryMedia } from "./chat-send-commentary-media.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
 import {
@@ -229,10 +228,12 @@ export function createChatSendReplyDispatch(params: {
       ...(agentId ? { agentId } : {}),
     });
     const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
-    const mediaLocalRoots = appendLocalMediaParentRoots(
-      getAgentScopedMediaLocalRoots(cfg, agentId),
-      latestStorePath ? [latestStorePath] : undefined,
-    );
+    const mediaLocalRoots = getWebchatReplyMediaLocalRoots({
+      cfg,
+      agentId,
+      sessionEntry: latestEntry,
+      storePath: latestStorePath,
+    });
     const mediaMessage = await buildWebchatAssistantMessageFromReplyPayloads([transcriptPayload], {
       localRoots: mediaLocalRoots,
       onLocalAudioAccessDenied: (err) => {

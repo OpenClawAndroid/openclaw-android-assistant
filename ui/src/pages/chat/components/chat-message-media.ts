@@ -579,6 +579,7 @@ export function projectMessageMedia(
     path: mediaPath,
     mediaType,
     fileName,
+    origin,
     sizeBytes,
     durationMs,
     width,
@@ -610,6 +611,7 @@ export function projectMessageMedia(
                 ? "video"
                 : "document",
           label: fileName?.trim() || labelForMediaPath(mediaPath),
+          ...(origin ? { origin } : {}),
           ...(typeof mediaType === "string" ? { mimeType: mediaType } : {}),
           ...(sizeBytes !== undefined ? { sizeBytes } : {}),
           ...(durationMs !== undefined ? { durationMs } : {}),

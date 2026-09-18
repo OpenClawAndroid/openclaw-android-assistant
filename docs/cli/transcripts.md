@@ -307,6 +307,12 @@ when it will not repeat on the same date.
 
 ## Missing summaries
 
+Active captures save updated notes about every five minutes when new speech has
+arrived. Each update summarizes a saved transcript snapshot; speech arriving during
+generation remains available for the next update. Quiet captures do not repeatedly
+call the model. Stopping capture saves a final summary after received speech drains.
+The Control UI **Summary** tab shows the latest saved notes and their generation time.
+
 Meeting notes use the owning agent's utility model first, then its primary model
 when needed. If no model is available, a request times out, or the model returns
 invalid output, OpenClaw saves deterministic heuristic notes instead. Model

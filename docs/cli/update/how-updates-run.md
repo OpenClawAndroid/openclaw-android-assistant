@@ -68,6 +68,10 @@ A baseline scan timeout alone does not fail the update or rollback; detected
 changes to the retained copy still refuse restoration. Once a complete baseline
 fingerprint is available, recovery checks must match it. These checks use the
 caller's per-step allowance without a separate thirty-second scan cap.
+If a retained or restored package changes, the failure names the exact package
+path to inspect before retrying recovery. Sibling `.openclaw.update-stage-*`
+directories are outside that package fingerprint; do not remove stages that
+another updater may still be using.
 
 Interrupting a fresh local update before activation records a failed,
 `interrupted` history entry while its installation owner is still held.
@@ -135,6 +139,12 @@ Their request and recovery watchdogs do not become update validation deadlines.
 Startup and readiness responses share that validation deadline, including reading
 the response body.
 
+These deadlines belong to the invoking updater. The published 2026.9.3 updater
+caps its complete rehearsal at five minutes, including the snapshot, and its
+later schema inspection at thirty seconds, even with `--timeout 900`. Installing
+a newer candidate cannot enlarge those parent-process deadlines on that first
+update. Subsequent updates use the newer updater's allowances described above.
+
 Before copying, the updater measures the shared and agent SQLite database
 families and the installed plugin payloads and dependency trees that the
 update checks need. Admission includes space for temporary copies and the new version’s
@@ -181,6 +191,10 @@ store. Metadata checks remain cancellable. Copy progress renews the watchdog,
 and larger caller allowances are preserved. Workers stop before their private
 staging is removed; cleanup failures preserve the original error. If compatibility
 cannot be verified, rollback is refused.
+Inspection failures report the database or known scope, inspection phase, elapsed
+time, and the next action. Check access to the named path, concurrent writers,
+and storage performance before retrying. Older candidate workers that cannot
+report their current database identify the known scope instead.
 
 Before stopping the previous Gateway, the updater waits for affirmative readiness.
 Its observation window uses the canary's measured startup time with headroom for

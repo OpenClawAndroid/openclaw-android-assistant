@@ -16,6 +16,7 @@ import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
 } from "../state/openclaw-state-db.js";
+import { recordSessionCreated } from "./session-created.js";
 import {
   acknowledgeSessionStateNotices,
   classifySessionStateActor,
@@ -25,7 +26,6 @@ import {
   listAmbientGroupWatchTargets,
   listSessionStateEventsSince,
   recordSessionCompacted,
-  recordSessionCreated,
   recordSessionGoalChanged,
   recordSessionHumanDirectMessage,
   recordSessionStateEvent,
@@ -848,7 +848,7 @@ describe("session state events", () => {
 
   it("projects spawn, terminal, goal, and compaction producer helpers", async () => {
     const database = createDatabaseOptions();
-    recordSessionCreated({
+    recordSessionCreated(cfg, {
       sessionKey: child,
       agentId: "main",
       entry: {

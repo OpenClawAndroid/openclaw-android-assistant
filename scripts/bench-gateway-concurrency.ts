@@ -1392,7 +1392,7 @@ async function runTurn(
   const rpcTimeoutMs = Math.max(1, Math.ceil(remaining));
   const runId = started.runId ?? requestedRunId;
   const completed = await rpc<
-    Awaited<ReturnType<ReturnType<typeof createAgentTurnService>["waitForTurn"]>>
+    Awaited<ReturnType<ReturnType<typeof createAgentTurnService>["waitForTurn"]>>["result"]
   >(
     "agent.wait",
     {

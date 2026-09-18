@@ -11,8 +11,7 @@ import {
   POST_CORE_UPDATE_STARTED_AT_ENV,
   POST_CORE_UPDATE_SOURCE_CONFIG_PATH_ENV,
 } from "../../infra/update-post-core-context.js";
-import { inspectUpdateRepairDriverAdmission } from "../../infra/update-run-activity.js";
-import { getUpdateRun, recordUpdateRunStep } from "../../infra/update-run-ledger.js";
+import { recordPostCoreUpdateEvidence } from "../../infra/update-run-interruption.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
 import { readPersistedInstalledPluginIndex } from "../../plugins/installed-plugin-index-store.js";
@@ -31,6 +30,7 @@ import {
   completePostCorePluginUpdate,
   runUpdateFinalizationDoctorInFreshProcess,
 } from "./update-command-fresh-doctor.js";
+import { readPackageUpdateIdentity } from "./update-command-package.js";
 import { collectPostCorePluginAdvisories } from "./update-command-plugins-internals.js";
 import {
   updatePluginsAfterCoreUpdate,
@@ -239,26 +239,16 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
   const runId = process.env[UPDATE_RUN_ID_ENV]?.trim();
   if (process.env[POST_CORE_UPDATE_ENV] === "1" && runId) {
     try {
-      // Shipped parents do not project plugin notices into history and can stop us on publication.
-      for (const [index, detail] of collectPostCorePluginAdvisories(pluginUpdate).entries()) {
-        const run = getUpdateRun(runId);
-        if (
-          !run ||
-          run.status !== "running" ||
-          inspectUpdateRepairDriverAdmission([run], runId).kind !== "continuation"
-        ) {
-          throw new Error("Cannot verify a live parent for the inherited update history.");
-        }
-        recordUpdateRunStep(runId, {
-          step: `warning:finalize:plugins:${index}`,
-          status: "completed",
-          endedAtMs: Date.now(),
-          detail,
-        });
-      }
+      recordPostCoreUpdateEvidence(runId, {
+        candidate:
+          pluginUpdate.status !== "error"
+            ? await readPackageUpdateIdentity(params.root)
+            : undefined,
+        warnings: collectPostCorePluginAdvisories(pluginUpdate),
+      });
     } catch (error) {
       defaultRuntime.error(
-        `Plugin update warnings could not be saved to update history: ${formatErrorMessage(error)} Review the plugin warnings above.`,
+        `Post-core update evidence could not be saved to update history: ${formatErrorMessage(error)} Update completion may require Doctor verification.`,
       );
     }
   }

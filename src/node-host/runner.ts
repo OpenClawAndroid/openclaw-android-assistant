@@ -132,7 +132,7 @@ async function resolveNodeHostGatewayCredentials(params: {
     params.gatewayCandidates.every(
       (candidate) => gatewayOriginScope(formatGatewayCandidateUrl(candidate)) === savedGatewayScope,
     ) &&
-    loadDeviceAuthTokenReadOnly({ deviceId: params.deviceId, role: "node", env })?.token
+    (await loadDeviceAuthTokenReadOnly({ deviceId: params.deviceId, role: "node", env }))?.token
   ) {
     // A co-located Gateway's shared password must not displace the paired node
     // credential. GatewayClient rereads the current token when connecting.

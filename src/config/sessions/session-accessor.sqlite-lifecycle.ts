@@ -41,7 +41,7 @@ import {
   writeSessionEntry,
 } from "./session-accessor.sqlite-entry-store.js";
 import { emitArchivedTranscriptUpdates } from "./session-accessor.sqlite-events.js";
-import { planSessionLifecycleArtifactCleanup } from "./session-accessor.sqlite-lifecycle-artifacts.js";
+import { prepareSessionLifecycleArtifactCleanup } from "./session-accessor.sqlite-lifecycle-artifacts.js";
 import {
   collectSessionStateIdsForEntry,
   planSessionStateDeleteIfUnreferenced,
@@ -127,31 +127,21 @@ export async function cleanupSessionLifecycleArtifactsCore(
     }),
   );
   const databaseOptions = toDatabaseOptions(resolved);
-  // Maintenance must not turn a read-only startup probe into a newly materialized agent store.
-  if (!withOpenClawAgentDatabaseReadOnly(() => true, databaseOptions).found) {
-    return { removedEntries: 0, archivedTranscriptArtifacts: 0 };
-  }
   const artifactPreparation: SqliteSessionArtifactPreparationDiagnostics = {};
   const cleanupPlan = await runExclusiveSqliteSessionWrite(
     resolved,
     async () =>
-      withSqliteSessionDatabase(
-        databaseOptions,
-        (database) =>
-          planSessionLifecycleArtifactCleanup(database, {
-            ...(params.agentId !== undefined ? { agentId: resolved.agentId } : {}),
-            archiveRemovedEntryTranscripts: params.archiveRemovedEntryTranscripts !== false,
-            archiveDirectory: resolveSqliteTranscriptArchiveDirectory(resolved),
-            ...(pluginOwnerId ? { pluginOwnerId } : {}),
-            sessionKeySegmentPrefix,
-            transcriptContentMarker,
-            orphanTranscriptMinAgeMs: params.orphanTranscriptMinAgeMs,
-            nowMs: params.nowMs ?? Date.now(),
-            diagnostics: artifactPreparation,
-          }),
-        undefined,
-        artifactPreparation,
-      ),
+      prepareSessionLifecycleArtifactCleanup(databaseOptions, {
+        ...(params.agentId !== undefined ? { agentId: resolved.agentId } : {}),
+        archiveRemovedEntryTranscripts: params.archiveRemovedEntryTranscripts !== false,
+        archiveDirectory: resolveSqliteTranscriptArchiveDirectory(resolved),
+        ...(pluginOwnerId ? { pluginOwnerId } : {}),
+        sessionKeySegmentPrefix,
+        transcriptContentMarker,
+        orphanTranscriptMinAgeMs: params.orphanTranscriptMinAgeMs,
+        nowMs: params.nowMs ?? Date.now(),
+        diagnostics: artifactPreparation,
+      }),
     "session.lifecycle.artifacts-prepare",
     { artifactPreparation },
   );

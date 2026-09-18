@@ -125,6 +125,10 @@ suite.define(() => {
         await capabilities.waitFor({ state: "visible" });
         expect(await capabilities.textContent()).toContain("Tool: health");
         await menu.locator('[value="board-widget:resize:xl"]').waitFor();
+        const itemFonts = await menu
+          .locator("wa-dropdown-item")
+          .evaluateAll((items) => items.map((item) => getComputedStyle(item).font));
+        expect(new Set(itemFonts).size).toBe(1);
         await page.screenshot({ path: path.join(suite.artifactDir, "candidate-header-menu.png") });
         const resized = { ...board, revision: 2 };
         await gateway.setMethodResponse("board.update", resized);

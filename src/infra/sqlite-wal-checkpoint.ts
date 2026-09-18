@@ -3,6 +3,10 @@ import type { SQLOutputValue } from "node:sqlite";
 import { hasErrnoCode } from "./errno.js";
 import { formatErrorMessage } from "./errors.js";
 import { normalizeSqliteNumber } from "./sqlite-number.js";
+import {
+  readActiveSqliteReadersForPath,
+  type SqliteReaderDiagnostic,
+} from "./sqlite-reader-lifecycle.js";
 
 export type SqliteWalCheckpointMode = "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE";
 
@@ -23,6 +27,7 @@ export type SqliteWalHealth = {
   consecutiveBlocked: number;
   warning: boolean;
   error?: string;
+  activeReaders?: SqliteReaderDiagnostic[];
 };
 
 function sqliteFileBytes(pathname: string): number {
@@ -110,6 +115,14 @@ export function createSqliteWalCheckpoint(
           (observation.walBytes !== null &&
             observation.databaseBytes !== null &&
             observation.walBytes > Math.max(2 * observation.databaseBytes, journalSizeLimitBytes)));
+      if (observation.state === "blocked") {
+        const readers = options.databasePath
+          ? readActiveSqliteReadersForPath(options.databasePath)
+          : [];
+        if (readers.length) {
+          observation.activeReaders = readers;
+        }
+      }
       health = observation;
     } catch (error) {
       recordCheckpointError(error, observation);
@@ -133,7 +146,14 @@ export function createSqliteWalCheckpoint(
     record: recordCheckpoint,
     recordError: recordCheckpointError,
     get health() {
-      return health ? { ...health } : undefined;
+      return health
+        ? {
+            ...health,
+            ...(health.activeReaders
+              ? { activeReaders: health.activeReaders.map((reader) => Object.assign({}, reader)) }
+              : {}),
+          }
+        : undefined;
     },
   };
 }

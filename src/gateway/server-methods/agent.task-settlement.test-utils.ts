@@ -15,6 +15,7 @@ import { AsyncWorkScope } from "../../shared/async-work-scope.js";
 import { findTaskByRunId } from "../../tasks/task-registry.js";
 import { withTestDir } from "../../test-helpers/temp-dir.js";
 import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
+import { waitForAgentJob } from "../agent-turn/agent-job.js";
 import { observeCronContinuationLifetime } from "./agent.cron-continuation-lifetime.test-support.js";
 import {
   cronContinuationGatewayClient,
@@ -31,6 +32,7 @@ import {
   waitForAgentCommandCallAfter,
   waitForAssertion,
 } from "./agent.test-harness.js";
+import type { AgentCommandCall } from "./agent.test-harness.js";
 import { flushPendingSessionsChangedEvents } from "./session-change-event.js";
 
 const mocks = getAgentTestMocks();
@@ -243,6 +245,44 @@ export function registerCronContinuationRecoveryCase() {
           vi.useRealTimers();
         }
       }
+    });
+  });
+}
+
+export function registerCompactionSessionSettlementCase() {
+  it("updates tracked agent session identity after compaction rotation", async () => {
+    primeMainAgentRun();
+    const context = makeContext();
+    let trackedSessionId: string | undefined;
+    mocks.agentCommand.mockImplementation(async (call: AgentCommandCall) => {
+      const onSessionIdChanged = call.onSessionIdChanged;
+      if (typeof onSessionIdChanged !== "function") {
+        throw new Error("expected session id change callback");
+      }
+      onSessionIdChanged("rotated-session-id");
+      trackedSessionId = context.chatAbortControllers.get("agent-session-rotation")?.sessionId;
+      return {
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 100 },
+      };
+    });
+
+    await invokeAgent(
+      {
+        message: "rotate session",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        idempotencyKey: "agent-session-rotation",
+      },
+      {
+        reqId: "agent-session-rotation",
+        context,
+      },
+    );
+
+    expect(trackedSessionId).toBe("rotated-session-id");
+    expect(await waitForAgentJob({ runId: "agent-session-rotation", timeoutMs: 0 })).toMatchObject({
+      session: { sessionId: "rotated-session-id" },
     });
   });
 }

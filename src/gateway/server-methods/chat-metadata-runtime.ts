@@ -2,7 +2,10 @@ import { withAgentRosterFactsBatch } from "../../agents/agent-scope-config.js";
 import { listAgentIds, resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import { getPreparedRuntimeAuthProfileStoreSnapshot } from "../../agents/auth-profiles.js";
 import { getRuntimeAuthProfileStoreMetadataRevision } from "../../agents/auth-profiles/runtime-snapshots.js";
-import { getPublishedPreparedModelCatalogOwnerSnapshot } from "../../agents/prepared-model-catalog.js";
+import {
+  getPublishedPreparedModelCatalogOwnerSnapshot,
+  withPreparedModelRuntimeReadBatch,
+} from "../../agents/prepared-model-catalog.js";
 import { getPreparedModelFullCatalogAuth } from "../../agents/prepared-model-runtime-auth.js";
 import { getPreparedModelRuntimeStartupStatus } from "../../agents/prepared-model-runtime.startup-status.js";
 import { resolveSwarmConfig } from "../../agents/subagents/swarm/swarm-config.js";
@@ -104,49 +107,51 @@ export class ChatMetadataSnapshotUnavailableError extends Error {
 
 function captureGenerationFacts(deps: ChatMetadataRuntimeDeps): PreparedGenerationFacts {
   const config = deps.getConfig();
-  const agents = withAgentRosterFactsBatch(config, () =>
-    listAgentIds(config)
-      .filter((agentId) => !readAgentDatabaseAdmissionRefusal(agentId))
-      .flatMap((rawAgentId): PreparedAgentFacts[] => {
-        const agentId = normalizeAgentId(rawAgentId);
-        // Metadata follows the published lifecycle owner while its replacement gate owns turnover;
-        // display-only config publications must not make that still-current owner disappear.
-        const owner = deps.getPreparedOwner({ agentId, config });
-        if (!owner) {
-          if (getPreparedModelRuntimeStartupStatus()?.degraded) {
-            return [];
+  const agents = withPreparedModelRuntimeReadBatch(() =>
+    withAgentRosterFactsBatch(config, () =>
+      listAgentIds(config)
+        .filter((agentId) => !readAgentDatabaseAdmissionRefusal(agentId))
+        .flatMap((rawAgentId): PreparedAgentFacts[] => {
+          const agentId = normalizeAgentId(rawAgentId);
+          // Metadata follows the published lifecycle owner while its replacement gate owns turnover;
+          // display-only config publications must not make that still-current owner disappear.
+          const owner = deps.getPreparedOwner({ agentId, config });
+          if (!owner) {
+            if (getPreparedModelRuntimeStartupStatus()?.degraded) {
+              return [];
+            }
+            throw new ChatMetadataSnapshotUnavailableError(
+              `prepared chat metadata owner is unavailable for agent "${agentId}"`,
+            );
           }
-          throw new ChatMetadataSnapshotUnavailableError(
-            `prepared chat metadata owner is unavailable for agent "${agentId}"`,
-          );
-        }
-        const workspaceDir = owner.workspaceDir ?? resolveAgentWorkspaceDir(config, agentId);
-        const fullModelCatalog = owner.readFullModelCatalog?.();
-        const fullCatalogAuth = fullModelCatalog
-          ? getPreparedModelFullCatalogAuth(fullModelCatalog)
-          : undefined;
-        if (fullModelCatalog && !fullCatalogAuth) {
-          throw new Error("prepared full model catalog omitted its auth generation");
-        }
-        const catalog = fullModelCatalog ?? owner.modelCatalog;
-        return [
-          {
-            agentId,
-            owner,
-            authStore: fullCatalogAuth?.authStore ??
-              deps.getPreparedAuthStore(owner.agentDir, owner.inheritedAuthDir) ?? {
-                version: 1,
-                profiles: {},
-              },
-            authModes: fullCatalogAuth?.authModes ?? owner.authModes,
-            authStoreRevision: `${deps.getAuthStoreRevision(owner.agentDir)}:${deps.getAuthStoreRevision(owner.inheritedAuthDir)}`,
-            modelCatalog: catalog,
-            // Failure is visible metadata; in-flight discovery does not invalidate usable rows.
-            catalogRefreshFailed: catalog.refreshFailed === true,
-            skillsVersion: deps.getSkillsVersion(workspaceDir),
-          },
-        ];
-      }),
+          const workspaceDir = owner.workspaceDir ?? resolveAgentWorkspaceDir(config, agentId);
+          const fullModelCatalog = owner.readFullModelCatalog?.();
+          const fullCatalogAuth = fullModelCatalog
+            ? getPreparedModelFullCatalogAuth(fullModelCatalog)
+            : undefined;
+          if (fullModelCatalog && !fullCatalogAuth) {
+            throw new Error("prepared full model catalog omitted its auth generation");
+          }
+          const catalog = fullModelCatalog ?? owner.modelCatalog;
+          return [
+            {
+              agentId,
+              owner,
+              authStore: fullCatalogAuth?.authStore ??
+                deps.getPreparedAuthStore(owner.agentDir, owner.inheritedAuthDir) ?? {
+                  version: 1,
+                  profiles: {},
+                },
+              authModes: fullCatalogAuth?.authModes ?? owner.authModes,
+              authStoreRevision: `${deps.getAuthStoreRevision(owner.agentDir)}:${deps.getAuthStoreRevision(owner.inheritedAuthDir)}`,
+              modelCatalog: catalog,
+              // Failure is visible metadata; in-flight discovery does not invalidate usable rows.
+              catalogRefreshFailed: catalog.refreshFailed === true,
+              skillsVersion: deps.getSkillsVersion(workspaceDir),
+            },
+          ];
+        }),
+    ),
   );
   return {
     config,

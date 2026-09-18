@@ -162,6 +162,8 @@ export type ToolSummaryTrace = {
   calls: number;
   tools: string[];
   failures?: number;
+  /** Latest tool failure not cleared by same-tool success, independent of reply presentation. */
+  unresolvedError?: { toolName: string };
   totalToolTimeMs?: number;
 };
 

@@ -9,6 +9,16 @@ import {
   parseReleaseVersion,
 } from "./release-version.mjs";
 
+// npm may accept a publish before its exact version becomes readable. Publication
+// callers keep their one-shot probes; only postpublish readback uses this budget.
+export function npmRegistryReadbackDeadline() {
+  const timeoutMs = Number(process.env.OPENCLAW_NPM_READBACK_TIMEOUT_MS ?? 15 * 60_000);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+    throw new Error("OPENCLAW_NPM_READBACK_TIMEOUT_MS must be a positive integer <= 2147483647.");
+  }
+  return Date.now() + timeoutMs;
+}
+
 /**
  * @typedef {object} NpmPublishPlan
  * @property {"stable" | "alpha" | "beta"} channel

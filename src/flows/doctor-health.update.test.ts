@@ -116,9 +116,13 @@ describe("runDoctorHealthFlow update outcomes", () => {
     mocks.stateMigrationReceipts = [];
   });
 
-  it.each([false, true])(
-    "carries migration advisories into update IPC only when Doctor succeeds (refused=%s)",
-    async (refused) => {
+  it.each([
+    { refused: false, noisy: false },
+    { refused: false, noisy: true },
+    { refused: true, noisy: false },
+  ])(
+    "retains deferred inspection warnings in update IPC (refused=$refused, noisy=$noisy)",
+    async ({ refused, noisy }) => {
       await withOpenClawTestState({ scenario: "minimal" }, async () => {
         const resultPath = createUpdatePostInstallDoctorResultPath();
         vi.stubEnv(UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV, resultPath);
@@ -138,9 +142,37 @@ describe("runDoctorHealthFlow update outcomes", () => {
         });
         mocks.stateMigrationReceipts.push(receipt("preflight cleanup", "warning"));
         mocks.stateMigrationReceipts.push(receipt("skipped audit recovery", "skipped"));
+        if (noisy) {
+          mocks.stateMigrationReceipts.push(
+            ...Array.from({ length: 30 }, (_, index) =>
+              receipt(`prior migration ${index}`, "warning"),
+            ),
+          );
+        }
         const deferred = receipt("deferred cleanup", refused ? "refused" : "warning");
         const refusal = new DoctorStateMigrationRefusalError([deferred]);
+        const inspectionWarning =
+          "core/doctor/auth-profiles [update-inspection-deferred]: Run openclaw doctor after activation.";
         mocks.runContributions.mockImplementation(async (ctx) => {
+          ctx.updateWarnings = [inspectionWarning];
+          ctx.updateBudget = {
+            agentCount: 480,
+            inspectionDeadlineMs: Date.now(),
+            phase: "activation",
+            source: "activation-policy",
+            deferred: new Map([
+              [
+                "core/doctor/auth-profiles",
+                {
+                  checkId: "core/doctor/auth-profiles",
+                  severity: "warning",
+                  errorCode: "update-inspection-deferred",
+                  requirement: "update-validation-budget",
+                  message: "Run openclaw doctor after activation.",
+                },
+              ],
+            ]),
+          };
           ctx.configResult.stateMigrationStepReceipts?.push(deferred);
           if (refused) {
             throw refusal;
@@ -164,15 +196,19 @@ describe("runDoctorHealthFlow update outcomes", () => {
           }
           const result = await consumeUpdatePostInstallDoctorResult(resultPath);
           expect(result?.status).toBe(refused ? "error" : "ok");
-          expect(result?.warnings).toEqual(
-            refused
-              ? undefined
-              : [
-                  "preflight cleanup: run openclaw doctor --fix",
+          expect(result?.warnings).toHaveLength(refused ? 1 : noisy ? 32 : 4);
+          expect(result?.warnings).toContain(inspectionWarning);
+          if (!refused) {
+            expect(result?.warnings).toContain("preflight cleanup: run openclaw doctor --fix");
+            if (!noisy) {
+              expect(result?.warnings).toEqual(
+                expect.arrayContaining([
                   "skipped audit recovery: run openclaw doctor --fix",
                   "deferred cleanup: run openclaw doctor --fix",
-                ],
-          );
+                ]),
+              );
+            }
+          }
         } finally {
           await consumeUpdatePostInstallDoctorResult(resultPath);
         }

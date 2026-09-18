@@ -683,14 +683,14 @@ describe("prepared model runtime owner selection", () => {
     expect(mocks.prepareStaticCatalog).toHaveBeenCalledTimes(2);
     expect(mocks.resolveStaticCatalogModel).toHaveBeenCalledTimes(2);
     expect(mocks.buildPreparedModelCatalogSnapshot).not.toHaveBeenCalled();
-    expect(mocks.discoverModels).toHaveBeenCalledTimes(2);
+    expect(mocks.discoverModels).toHaveBeenCalledOnce();
     expect(stats).toMatchObject({
       agentCount: 4,
       workspaceGroupCount: 2,
       configuredFactsGroupCount: 2,
       catalogSourceCount: 0,
       catalogGroupCount: 0,
-      runtimeRegistryCount: 2,
+      runtimeRegistryCount: 1,
       fullCatalogConcurrencyLimit: 1,
     });
   });
@@ -801,56 +801,61 @@ describe("prepared model runtime owner selection", () => {
     ).toEqual(expect.arrayContaining([sharedCatalog, expect.stringContaining("distinct-model")]));
   });
 
-  it("keeps registry parsing isolated across OAuth provider generations", async () => {
-    mocks.configuredAgentIds = ["agent-a", "agent-b", "agent-c"];
-    const sharedCatalog = JSON.stringify({
-      providers: {
-        custom: {
-          api: "openai-completions",
-          baseUrl: "https://models.example/v1",
-          models: [{ id: "shared-model" }],
+  it.each([true, false])(
+    "keeps registry parsing isolated across OAuth provider generations (shared workspace: %s)",
+    async (sharedWorkspace) => {
+      mocks.configuredAgentIds = ["agent-a", "agent-b", "agent-c"];
+      const sharedCatalog = JSON.stringify({
+        providers: {
+          custom: {
+            api: "openai-completions",
+            baseUrl: "https://models.example/v1",
+            models: [{ id: "shared-model" }],
+          },
         },
-      },
-    });
-    const sharedProvider = {
-      id: "custom",
-      name: "OAuth A",
-      login: vi.fn(),
-      refreshToken: vi.fn(),
-      getApiKey: vi.fn(),
-    };
-    const distinctProvider = { ...sharedProvider, name: "OAuth B", modifyModels: vi.fn() };
-    const oauthProviders = new Map([
-      [state.agentDir("agent-a"), sharedProvider],
-      [state.agentDir("agent-b"), { ...sharedProvider }],
-      [state.agentDir("agent-c"), distinctProvider],
-    ]);
-    for (const agentId of mocks.configuredAgentIds) {
-      const agentDir = state.agentDir(agentId);
-      await state.writeText(`agents/${agentId}/agent/models.json`, sharedCatalog);
-      mocks.configuredAgentDirs.set(agentId, agentDir);
-      mocks.configuredWorkspaces.set(agentId, "/tmp/shared-prepared-runtime-workspace");
-    }
-    mocks.discoverAuthStorage.mockImplementation((agentDir: unknown) => ({
-      getAll: () => ({ custom: { type: "api_key" as const, key: "shared-key" } }),
-      getOAuthProviders: () => [oauthProviders.get(String(agentDir))!],
-    }));
-    let runtimeRegistryCount = 0;
+      });
+      const sharedProvider = {
+        id: "custom",
+        name: "OAuth A",
+        login: vi.fn(),
+        refreshToken: vi.fn(),
+        getApiKey: vi.fn(),
+      };
+      const distinctProvider = { ...sharedProvider, name: "OAuth B", modifyModels: vi.fn() };
+      const oauthProviders = new Map([
+        [state.agentDir("agent-a"), sharedProvider],
+        [state.agentDir("agent-b"), { ...sharedProvider }],
+        [state.agentDir("agent-c"), distinctProvider],
+      ]);
+      for (const agentId of mocks.configuredAgentIds) {
+        const agentDir = state.agentDir(agentId);
+        await state.writeText(`agents/${agentId}/agent/models.json`, sharedCatalog);
+        mocks.configuredAgentDirs.set(agentId, agentDir);
+        if (sharedWorkspace) {
+          mocks.configuredWorkspaces.set(agentId, "/tmp/shared-prepared-runtime-workspace");
+        }
+      }
+      mocks.discoverAuthStorage.mockImplementation((agentDir: unknown) => ({
+        getAll: () => ({ custom: { type: "api_key" as const, key: "shared-key" } }),
+        getOAuthProviders: () => [oauthProviders.get(String(agentDir))!],
+      }));
+      let runtimeRegistryCount = 0;
 
-    await refreshPreparedModelRuntimeSnapshots(
-      { agents: { defaults: { model: "openai/gpt-5.5" } } },
-      {
-        gatewayLifecycle: true,
-        catalogMode: "static",
-        onBuildStats: (stats) => {
-          runtimeRegistryCount = stats.runtimeRegistryCount;
+      await refreshPreparedModelRuntimeSnapshots(
+        { agents: { defaults: { model: "openai/gpt-5.5" } } },
+        {
+          gatewayLifecycle: true,
+          catalogMode: "static",
+          onBuildStats: (stats) => {
+            runtimeRegistryCount = stats.runtimeRegistryCount;
+          },
         },
-      },
-    );
+      );
 
-    expect(mocks.discoverModels).toHaveBeenCalledTimes(2);
-    expect(runtimeRegistryCount).toBe(2);
-  });
+      expect(mocks.discoverModels).toHaveBeenCalledTimes(2);
+      expect(runtimeRegistryCount).toBe(2);
+    },
+  );
 
   it("serializes on-demand full catalogs across prepared owners", async () => {
     mocks.configuredAgentIds = ["agent-a", "agent-b"];

@@ -53,7 +53,10 @@ when the session is known locally. Unknown or ambiguous session references remai
 navigable without a card; links to other origins keep normal browser behavior.
 Document-relative hrefs are never session links; file references such as
 `src/utils/foo.ts` and `qa-café/index.md` retain workspace file handling, including
-Unicode names and percent-encoded Markdown link destinations.
+Unicode names and percent-encoded Markdown link destinations. Explicit Markdown
+file links also support spaces, emoji, and punctuation in filenames; for example,
+`[Read notes](notes/caf%C3%A9%20note.md)` opens the workspace file. Plain-text and
+inline-code file detection stays conservative to avoid turning prose into links.
 
 While composing text with an input method in model search, Enter, Escape, and arrow keys stay with the input method. They do not select a model, clear the search, or move the highlighted model until composition finishes.
 
@@ -181,7 +184,7 @@ Chat error banners, including cloud runner failures, show short messages in full
 <AccordionGroup>
   <Accordion title="Send and history semantics">
     - `chat.send` is **non-blocking**: it acknowledges admission with `{ runId, status: "started" }` and the response streams via `chat` events. An optional `messageSeq` identifies an already committed transcript position; it is omitted when input remains only in accepted custody. Trusted Control UI clients may also receive optional ACK timing metadata for local diagnostics.
-    - Chat uploads accept images plus non-video files. Images keep the native image path; other files are stored as managed media and shown in history as attachment links. Before sending, use **Remove attachment** at the corner of a staged attachment; the control supports touch and keyboard input in both Chat and New Session.
+    - Chat uploads accept images plus non-video files. Images keep the native image path; other files are stored as managed media and shown in history as attachment links. Files appear in their final composer slots as soon as preparation starts, with a per-file progress fill and an in-place error icon if reading fails. Before sending, use **Remove attachment** at the corner of a staged attachment, including one still being prepared; the control supports touch and keyboard input in both Chat and New Session.
     - Opening a Markdown attachment (`.md`, `.markdown`, or a Markdown MIME type) in the side panel shows formatted headings, lists, tables, and code blocks. HTML attachments open a sandboxed page with a **Source** switch; other text attachments stay literal. Previews keep the 256 KiB UTF-8 limit and the original download link; Markdown does not execute embedded HTML or automatically load remote images.
     - Staged attachments scroll horizontally when they no longer fit. Faded edges show where more attachments remain, including after adding files or resizing the composer.
     - Re-sending with the same `idempotencyKey` returns `{ status: "in_flight" }` while running, and `{ status: "ok" }` after completion.
@@ -306,9 +309,21 @@ an explanation in chat.
 
 ### Source previews and copying code
 
-Select **Open** on a text attachment to read it directly in the **Files** side
-panel. Plain-text attachments, including pasted `.txt` files, CSV, and JSON,
-preserve line breaks and indentation. Markdown attachments render as documents
+Long clipboard text appears as a compact chip in the composer and transcript.
+Its label shows the first 30 characters of a plain-text excerpt, with HTML and
+Markdown formatting removed. Empty or unavailable excerpts show **Pasted text**.
+In the transcript, chips sit above the text bubble alongside other attachments;
+multiple chips share a row and wrap when needed. Click a chip or press Enter to
+open the existing attachment side panel and copy the original text, preserving
+markup, line breaks, and indentation. The composer panel also offers **Show in
+text field** and removal. Messages containing only comment or pasted-text chips
+use a transparent shell.
+Newly uploaded text files remain file cards, even when their names resemble
+pasted-text attachments. Older history without origin metadata recognizes
+`text/plain` attachments named `pasted-text-<digits>.txt` as pasted text.
+
+Select **Open** on an uploaded text attachment to read it directly in the **Files** side
+panel. Plain-text attachments, CSV, and JSON preserve line breaks and indentation. Markdown attachments render as documents
 with interactive code blocks. When an open attachment refreshes with unchanged
 text, its code blocks keep your expansion and wrapping choices after loading.
 A different attachment or changed text starts with fresh controls. Long previews
@@ -502,6 +517,8 @@ Press Escape, select **Close image preview**, or click outside the image to clos
 and return focus to the tile you opened.
 
 Images attached to assistant progress messages appear inline while the task continues and remain visible after reloading the conversation. Remote attachment URLs do not need a filename extension: the Gateway detects the media type and serves the preview through the same authenticated media path used for final replies. Documents keep their file cards.
+
+In automatic visible-reply mode, this includes standalone `MEDIA:` lines in model-authored commentary committed to the transcript, not just final replies. Only references captured before transcript hooks and retained in that commentary are eligible; hook-added references remain text, and normal media access and live run/session checks still apply. Message-tool-only delivery uses `message(action=send)` with structured attachment fields instead. Tool/plugin output and streamed block payloads must also use structured fields. See [WebChat commentary compatibility](/reference/rich-output-protocol#webchat-commentary-compatibility).
 
 Messages forwarded by `sessions_send` render as left-aligned speech bubbles with a **From** attribution row above the message. Known senders, including the current agent, retain their agent identity. Unknown or unlisted senders show no avatar beside the bubble or in the attribution row, and no empty inline avatar space remains. The message column stays aligned with neighboring messages. Select a linked source to open its session; hover it to see session progress. Each source session has a stable bubble tint. Forwarded messages without a known source session show the source agent when available, or a generic forwarded-message label. The receiving agent's own replies remain flat text.
 

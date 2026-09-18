@@ -7,7 +7,11 @@ import {
   waitForSignalExitBarriers,
 } from "../cli/signal-exit-barrier.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import { adoptPreparedLocation } from "./sqlite-readonly-location-cleanup.js";
+import {
+  adoptPreparedLocation,
+  cleanupSnapshotOperations,
+} from "./sqlite-readonly-location-cleanup.js";
+import { prepareSingleFlightSqliteSnapshot } from "./sqlite-snapshot-single-flight.js";
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
   afterEach(() => {
@@ -29,6 +33,46 @@ function fixture(strict: boolean) {
 }
 
 describe("prepared SQLite snapshot cleanup", () => {
+  it.each([false, true])(
+    "retains cancelled orphan cleanup for retry (strict: %s)",
+    async (strict) => {
+      const { ownedRoot, sibling, prepared } = fixture(strict);
+      const produced = createDeferredCore();
+      const tracked: Promise<unknown>[] = [];
+      const controller = new AbortController();
+      const pending = prepareSingleFlightSqliteSnapshot(
+        path.join(ownedRoot, "source.sqlite"),
+        "orphan-retry",
+        async () => {
+          await produced.promise;
+          return prepared;
+        },
+        controller.signal,
+        { trackProducer: (producer) => tracked.push(producer) },
+      );
+      controller.abort(new Error("cancelled before publication"));
+      await expect(pending).rejects.toThrow("cancelled before publication");
+      const remove = fs.promises.rm;
+      const failedRemoval = vi
+        .spyOn(fs.promises, "rm")
+        .mockImplementation(async (target, options) => {
+          if (String(target) === ownedRoot) {
+            throw Object.assign(new Error("snapshot busy"), { code: "EBUSY" });
+          }
+          return remove(target, options);
+        });
+      try {
+        produced.resolve();
+        await expect(tracked[0]).rejects.toThrow(/cleanup/);
+        expect(fs.existsSync(prepared.location)).toBe(true);
+      } finally {
+        failedRemoval.mockRestore();
+        await cleanupSnapshotOperations();
+      }
+      expect(fs.existsSync(ownedRoot)).toBe(false);
+      expect(fs.readFileSync(sibling, "utf8")).toBe("not owned by snapshot");
+    },
+  );
   it.each([false, true])(
     "retains all snapshot tokens when data removal fails (async: %s)",
     async (asynchronous) => {

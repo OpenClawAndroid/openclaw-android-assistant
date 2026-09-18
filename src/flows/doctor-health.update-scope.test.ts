@@ -48,12 +48,6 @@ vi.mock("../gateway/control-ui-github-api.js", () => ({
     return false;
   },
 }));
-vi.mock("../commands/doctor/shared/active-tool-schema-warnings.js", () => ({
-  collectActiveToolSchemaProjectionWarnings: async () => {
-    obs.events.push("active-tool-schema");
-    return ["synthetic advisory"];
-  },
-}));
 vi.mock("../commands/doctor-state-integrity.js", () => ({
   collectWorkspaceBackupTip: () => undefined,
 }));
@@ -100,7 +94,6 @@ describe("update Doctor diagnostic scope", () => {
       const ids = new Set([
         "doctor:project-clone-shape",
         "doctor:db-bloat",
-        "doctor:active-tool-schema-warnings",
         "doctor:workspace-suggestions",
         "doctor:github-projects",
         "doctor:bootstrap-size",
@@ -119,7 +112,6 @@ describe("update Doctor diagnostic scope", () => {
       expect(obs.events).toEqual(
         mode === "standalone"
           ? [
-              "active-tool-schema",
               "project-git",
               "project-git",
               "project-git",
@@ -132,7 +124,6 @@ describe("update Doctor diagnostic scope", () => {
       );
       expect(snapshot).toHaveBeenCalledTimes(mode === "standalone" ? ids.size : 0);
       if (mode === "standalone") {
-        expect(obs.note).toHaveBeenCalledWith("synthetic advisory", "Doctor warnings");
         expect(obs.note).not.toHaveBeenCalledWith(expect.anything(), "Update Doctor scope");
       } else {
         expect(obs.note).toHaveBeenCalledExactlyOnceWith(

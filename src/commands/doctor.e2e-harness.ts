@@ -470,10 +470,6 @@ vi.mock("../flows/doctor-core-checks.runtime.js", async (importOriginal) => ({
   collectProviderCatalogProjectionFindings: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock("./doctor/shared/active-tool-schema-warnings.js", () => ({
-  collectActiveToolSchemaProjectionWarnings: vi.fn().mockResolvedValue([]),
-}));
-
 vi.mock("./doctor-browser.js", () => ({
   detectLegacyClawdBrowserProfileResidue: vi.fn().mockResolvedValue(null),
   maybeArchiveLegacyClawdBrowserProfileResidue: vi.fn().mockResolvedValue({

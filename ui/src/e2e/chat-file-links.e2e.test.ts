@@ -211,18 +211,26 @@ describeControlUiE2e("Control UI chat file links", () => {
     },
   );
 
-  it("keeps root-distinct file labels and targets through click and keyboard", async () => {
+  it("keeps authored and root-distinct file targets through click and keyboard", async () => {
     const files = [
       {
         requestPath: "/workspace/src/file.ts",
         workspacePath: "src/file.ts",
+        name: "file.ts",
         marker: "export const absoluteTarget = true;",
       },
       {
         requestPath: "workspace/src/file.ts",
         workspacePath: "workspace/src/file.ts",
+        name: "file.ts",
         marker: "export const relativeTarget = true;",
       },
+      ...["café note.md", "emoji-🌱.md", "100% ready.txt", "日本語.txt"].map((name, index) => ({
+        requestPath: `qa241-unicode/${name}`,
+        workspacePath: `qa241-unicode/${name}`,
+        name,
+        marker: `WORKSPACE_CONTENT_${index}`,
+      })),
     ];
     const context = await browser.newContext({
       recordVideo: { dir: artifactDir, size: { height: 900, width: 1280 } },
@@ -239,7 +247,13 @@ describeControlUiE2e("Control UI chat file links", () => {
             content: [
               {
                 type: "text",
-                text: "Compare /workspace/src/file.ts:7 and `workspace/src/file.ts:7`; see docs/README.md.",
+                text: [
+                  "Compare /workspace/src/file.ts:7 and `workspace/src/file.ts:7`.",
+                  ...files
+                    .slice(2)
+                    .map((file) => `[${file.name}](${encodeURI(file.requestPath)}:7)`),
+                  "See docs/README.md.",
+                ].join("\n"),
               },
             ],
             timestamp: 1,
@@ -257,7 +271,7 @@ describeControlUiE2e("Control UI chat file links", () => {
                   contentEncoding: "utf8",
                   kind: "read",
                   missing: false,
-                  name: "file.ts",
+                  name: file.name,
                   path: file.workspacePath,
                   previewKind: "text",
                   workspacePath: file.workspacePath,
@@ -269,7 +283,8 @@ describeControlUiE2e("Control UI chat file links", () => {
       });
       const response = await page.goto(`${server.baseUrl}chat`);
       const links = page.locator(".chat-thread a.markdown-file-link");
-      await links.nth(2).waitFor({ state: "visible" });
+      await links.nth(files.length).waitFor({ state: "visible" });
+      const chatUrl = page.url();
       const labels = await links.evaluateAll((anchors) =>
         anchors.map((anchor) => ({
           path: anchor.getAttribute("data-file-path"),
@@ -283,11 +298,11 @@ describeControlUiE2e("Control UI chat file links", () => {
       for (const [index, file] of files.entries()) {
         const before = (await gateway.getRequests("sessions.files.get")).length;
         const target = page.locator(`.chat-thread a[data-file-path="${file.requestPath}"]`);
-        if (index === 0) {
+        if (index % 2 === 0) {
           await target.click();
         } else {
           await target.focus();
-          await page.keyboard.press("Enter");
+          await page.keyboard.press(index === 3 ? "Space" : "Enter");
         }
         await gateway.waitForRequest("sessions.files.get", { after: before });
         const fileView = page.locator(".sidebar-file-view");
@@ -306,7 +321,8 @@ describeControlUiE2e("Control UI chat file links", () => {
         await page.screenshot({
           path: path.join(artifactDir, `root-identity-file-${index + 1}.png`),
         });
-        await page.getByRole("button", { name: "Close tab: file.ts", exact: true }).click();
+        expect(page.url()).toBe(chatUrl);
+        await page.getByRole("button", { name: `Close tab: ${file.name}`, exact: true }).click();
         await fileView.waitFor({ state: "detached" });
       }
       const requests = await gateway.getRequests("sessions.files.get");
@@ -331,15 +347,28 @@ describeControlUiE2e("Control UI chat file links", () => {
       expect(labels.map(({ path: targetPath, line }) => ({ path: targetPath, line }))).toEqual([
         { path: "/workspace/src/file.ts", line: "7" },
         { path: "workspace/src/file.ts", line: "7" },
+        { path: "qa241-unicode/café note.md", line: "7" },
+        { path: "qa241-unicode/emoji-🌱.md", line: "7" },
+        { path: "qa241-unicode/100% ready.txt", line: "7" },
+        { path: "qa241-unicode/日本語.txt", line: "7" },
         { path: "docs/README.md", line: null },
       ]);
       expect(requests.map((request) => request.params)).toEqual([
         { agentId: "main", path: "/workspace/src/file.ts", sessionKey: "agent:main:main" },
         { agentId: "main", path: "workspace/src/file.ts", sessionKey: "agent:main:main" },
+        ...files.slice(2).map((file) => ({
+          agentId: "main",
+          path: file.requestPath,
+          sessionKey: "agent:main:main",
+        })),
       ]);
       expect(labels.map((label) => label.text)).toEqual([
         "/workspace/src/file.ts:7",
         "workspace/src/file.ts:7",
+        "café note.md",
+        "emoji-🌱.md",
+        "100% ready.txt",
+        "日本語.txt",
         "README.md",
       ]);
     } finally {

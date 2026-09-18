@@ -8,7 +8,7 @@ import { makeAssistantMessageFixture } from "../../test-helpers/assistant-messag
 import { getCoreTtsAttemptResultMediaUrls } from "../../tools/tts-tool-result-provenance.js";
 import { completeEmbeddedAttemptResult, createAttemptCarryover } from "./attempt-result.js";
 import { buildPayloads } from "./payloads.test-helpers.js";
-import { buildTraceToolSummary, normalizeEmbeddedRunAttemptResult } from "./run-attempt-result.js";
+import { normalizeEmbeddedRunAttemptResult } from "./run-attempt-result.js";
 import type { EmbeddedRunAttemptResult, EmbeddedRunAttemptTrajectoryRecorder } from "./types.js";
 
 const TEST_OPERATIONAL_RUN_INSTANCE = { runId: "run-1" };
@@ -527,19 +527,6 @@ describe("attempt result projection", () => {
       yieldDetected: true,
       yieldAcknowledgment: "Research started; results will follow.",
     });
-  });
-
-  it("counts each failed tool call in the trace summary", () => {
-    expect(
-      buildTraceToolSummary({
-        toolMetas: [
-          { toolName: "bash", meta: "exit=1", isError: true },
-          { toolName: "bash", meta: "exit=2", isError: true },
-          { toolName: "bash", meta: "exit=0" },
-        ],
-        fallbackHadFailure: false,
-      }),
-    ).toEqual({ calls: 3, tools: ["bash"], failures: 2 });
   });
 
   it("defaults missing replay metadata to replay-unsafe", () => {

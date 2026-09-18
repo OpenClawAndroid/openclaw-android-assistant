@@ -436,6 +436,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
       sessionKey,
       runtimePolicySessionKey,
       messageProvider,
+      mediaNormalizationOwner: opts?.mediaNormalizationOwner,
       clientCaps: ctx.GatewayClientCaps,
       gatewayUiCommandTarget: ctx.GatewayUiCommandTarget,
       toolBindings: ctx.GatewayRunToolBindings,

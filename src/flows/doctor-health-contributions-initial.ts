@@ -21,7 +21,6 @@ import {
   runSessionTranscriptsHealth,
   runStateIntegrityHealth,
 } from "./doctor-health-contribution-runners.state.js";
-import { runActiveToolSchemaWarningsHealth } from "./doctor-health-contribution-runners.workspace.js";
 import type {
   DoctorHealthCheckContext,
   DoctorHealthContribution,
@@ -57,6 +56,7 @@ async function runTelegramGeneralTopicConversationHealth(
 export function resolveInitialDoctorHealthContributions(params: {
   runStructuredHealthRepairs: (ctx: DoctorHealthFlowContext) => Promise<void>;
   runGatewayConfigHealth: (ctx: DoctorHealthFlowContext) => Promise<void>;
+  runAuthProfileMigration: (ctx: DoctorHealthFlowContext) => Promise<void>;
   runAuthProfileHealth: (ctx: DoctorHealthFlowContext) => Promise<void>;
   runGatewayAuthHealth: (ctx: DoctorHealthFlowContext) => Promise<void>;
   runLegacyStateHealth: (ctx: DoctorHealthFlowContext) => Promise<void>;
@@ -106,8 +106,15 @@ export function resolveInitialDoctorHealthContributions(params: {
       run: params.runGatewayConfigHealth,
     }),
     createDoctorHealthContribution({
+      id: "doctor:auth-profile-migration",
+      label: "Auth profile migration",
+      updateWork: { kind: "startup" },
+      run: params.runAuthProfileMigration,
+    }),
+    createDoctorHealthContribution({
       id: "doctor:auth-profiles",
       label: "Auth profiles",
+      updateWork: { kind: "inspection", scope: "agent" },
       healthChecks: {
         description: "Auth profile cooldown, expiry, missing credential, and legacy override state",
         defaultEnabled: false,
@@ -121,6 +128,7 @@ export function resolveInitialDoctorHealthContributions(params: {
     createDoctorHealthContribution({
       id: "doctor:claude-cli",
       label: "Claude CLI",
+      updateWork: { kind: "inspection", scope: "agent" },
       healthCheckIds: ["core/doctor/claude-cli"],
       run: runClaudeCliHealth,
     }),
@@ -145,12 +153,14 @@ export function resolveInitialDoctorHealthContributions(params: {
     createDoctorHealthContribution({
       id: "doctor:command-owner",
       label: "Command owner",
+      updateWork: { kind: "inspection", scope: "run" },
       healthCheckIds: ["core/doctor/command-owner"],
       run: runCommandOwnerHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:structured-health-repairs",
-      label: "Structured health repairs",
+      label: "Plugin health inspection and repair",
+      updateWork: { kind: "inspection", scope: "agent" },
       run: params.runStructuredHealthRepairs,
     }),
     createDoctorHealthContribution({
@@ -300,14 +310,6 @@ export function resolveInitialDoctorHealthContributions(params: {
       },
       run: runPluginRegistryHealth,
     }),
-    // Runtime tool discovery must follow plugin metadata repair; running it earlier
-    // scans each workspace again after the authoritative generation changes.
-    createDoctorHealthContribution({
-      id: "doctor:active-tool-schema-warnings",
-      label: "Active tool schema warnings",
-      updatePolicy: "standalone",
-      run: runActiveToolSchemaWarningsHealth,
-    }),
     createDoctorHealthContribution({
       id: "doctor:ui-protocol-freshness",
       label: "UI protocol freshness",
@@ -339,7 +341,7 @@ export function resolveInitialDoctorHealthContributions(params: {
     createDoctorHealthContribution({
       id: "doctor:project-clone-shape",
       label: "Project clones",
-      updatePolicy: "standalone",
+      updateWork: { kind: "standalone" },
       healthChecks: {
         description: "Partial and shallow registry-owned project clones need manual repair.",
         defaultEnabled: false,
@@ -357,12 +359,13 @@ export function resolveInitialDoctorHealthContributions(params: {
     createDoctorHealthContribution({
       id: "doctor:db-bloat",
       label: "SQLite database size",
-      updatePolicy: "standalone",
+      updateWork: { kind: "standalone" },
       run: runDatabaseBloatHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:channel-ingress-dead-letters",
       label: "Channel ingress dead letters",
+      updateWork: { kind: "inspection", scope: "run" },
       run: runChannelIngressDeadLettersHealth,
     }),
     createDoctorHealthContribution({
@@ -415,6 +418,7 @@ export function resolveInitialDoctorHealthContributions(params: {
     createDoctorHealthContribution({
       id: "doctor:session-snapshots",
       label: "Session snapshots",
+      updateWork: { kind: "inspection", scope: "agent" },
       healthChecks: {
         description: "Stale cached session snapshot paths are represented as findings.",
         defaultEnabled: false,

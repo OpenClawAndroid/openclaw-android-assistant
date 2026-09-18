@@ -7,13 +7,14 @@ import {
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { GatewayClient } from "./server-methods/types.js";
+import * as sessionIdentity from "./session-identity-projection.js";
 import { listSessionFixture } from "./session-list.test-support.js";
 import { createSessionListEntryFilter } from "./session-sharing.js";
 
 vi.mock("../state/user-profile-list.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../state/user-profile-list.js")>()),
   getUserProfileDisplay: vi.fn((id: string) => ({
-    id,
+    id: id === "profile-merged-ada" ? "profile-ada" : id,
     displayName: id,
     hasAvatar: false,
     avatarRevision: "1",
@@ -158,6 +159,48 @@ it("preserves visible owner facets for the authenticated involvingMe filter", as
   });
   expect(explicitRelation.owners?.map((owner) => owner.id)).toEqual(["profile-ada"]);
 });
+
+it.each(["viewer", "relation", "both"] as const)(
+  "does not project extra participants when canonical owners satisfy the %s filter",
+  async (filter) => {
+    const participants = vi.spyOn(sessionIdentity, "projectSessionParticipants");
+    const store = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => [
+        `agent:main:owned-${index}`,
+        entry({
+          sessionId: `owned-${index}`,
+          updatedAt: index + 1,
+          createdActor: { type: "human", source: "profile", id: "profile-merged-ada" },
+          participants: [{ identity: { type: "profile", id: "profile-bob" } }],
+        }),
+      ]),
+    );
+    const query = { cfg, storePath, store, opts: { limit: 1 } };
+    const all = await listSessionFixture(query);
+    const unfilteredWork = participants.mock.calls.length;
+    participants.mockClear();
+
+    const filtered = await listSessionFixture({
+      ...query,
+      opts: {
+        ...query.opts,
+        ...(filter !== "viewer"
+          ? { profileRelation: { profileId: "profile-ada", relationship: "involving" as const } }
+          : {}),
+      },
+      ...(filter !== "relation" ? { involvingActorId: "profile-ada" } : {}),
+    });
+
+    expect(filtered.sessions.map((row) => row.key)).toEqual(all.sessions.map((row) => row.key));
+    expect(filtered.owners).toEqual(all.owners);
+    expect(filtered.totalCount).toBe(32);
+    expect(filtered.sessions[0]?.owner?.actor.identity).toEqual({
+      type: "profile",
+      id: "profile-ada",
+    });
+    expect(participants.mock.calls.length).toBeLessThanOrEqual(unfilteredWork);
+  },
+);
 
 it.each([true, false])("filters canonical pin state before pagination: %s", async (pinned) => {
   const result = await listSessionFixture({

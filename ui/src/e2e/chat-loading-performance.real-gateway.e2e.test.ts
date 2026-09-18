@@ -518,11 +518,40 @@ suite.define(() => {
         };
 
         const thread = selectedPane.locator(".chat-thread");
+        const loadedMessageCount = () =>
+          selectedPane.evaluate(
+            (element) =>
+              (element as HTMLElement & { state: { chatMessages: unknown[] } }).state.chatMessages
+                .length,
+          );
+        // Prefetched pages can commit before the preceding wheel gesture settles.
+        const waitForHistoryGesture = () =>
+          expect
+            .poll(() =>
+              selectedPane.evaluate((element) => {
+                const pane = element as HTMLElement & {
+                  loadingOlder: boolean;
+                  historyIntentConsumed: boolean;
+                };
+                return {
+                  loadingOlder: pane.loadingOlder,
+                  historyIntentConsumed: pane.historyIntentConsumed,
+                };
+              }),
+            )
+            .toEqual({ loadingOlder: false, historyIntentConsumed: false });
         await thread.hover();
-        await thread.evaluate((element) => {
-          element.scrollTop = 0;
-        });
-        await page.mouse.wheel(0, -500);
+        let loadedMessages = await loadedMessageCount();
+        while (loadedMessages < transcriptLength) {
+          await waitForHistoryGesture();
+          await thread.evaluate((element) => {
+            element.scrollTop = 0;
+          });
+          await page.mouse.wheel(0, -500);
+          await expect.poll(loadedMessageCount).toBeGreaterThan(loadedMessages);
+          loadedMessages = await loadedMessageCount();
+          expect(loadedMessages).toBeLessThanOrEqual(transcriptLength);
+        }
         await expect
           .poll(() =>
             rpc.some(
@@ -534,16 +563,20 @@ suite.define(() => {
             ),
           )
           .toBe(true);
-        await expect
-          .poll(() =>
-            selectedPane.evaluate(
-              (element) =>
-                (element as HTMLElement & { state: { chatMessages: unknown[] } }).state.chatMessages
-                  .length,
+        expect(loadedMessages).toBe(transcriptLength);
+        expect(
+          await selectedPane.evaluate((element) =>
+            (
+              element as HTMLElement & { state: { chatMessages: unknown[] } }
+            ).state.chatMessages.map((message) =>
+              Number(
+                JSON.stringify(message).match(/Synthetic loading proof message (\d+)\./u)?.[1],
+              ),
             ),
-          )
-          .toBe(transcriptLength);
-        // The prepend preserves the reader's anchor; a second gesture reaches the new start.
+          ),
+        ).toEqual(Array.from({ length: transcriptLength }, (_, index) => index + 1));
+        // Each prepend preserves the reader's anchor; another gesture reaches the new start.
+        await waitForHistoryGesture();
         await page.mouse.wheel(0, -1_000_000);
         await selectedPane
           .locator(".chat-thread", {
@@ -554,6 +587,17 @@ suite.define(() => {
           await page.screenshot({ path: path.join(artifactDir, "03-older-history-loaded.png") });
         }
         const paginationMetrics = structuredClone(rpc.slice(startupMetrics.length));
+        const olderPages = paginationMetrics.filter(
+          (metric) =>
+            metric.method === "chat.history" &&
+            metric.sessionKey === selectedKey &&
+            (metric.offset ?? 0) > 0,
+        );
+        expect(olderPages.length).toBeGreaterThan(1);
+        for (const metric of olderPages) {
+          expect(metric).toMatchObject({ limit: 1000, maxBytes: 512 * 1024 });
+          expect(metric.historyBytes).toBeLessThanOrEqual(512 * 1024);
+        }
         const captureNarrowReload = async (stage: string, homeOpen: boolean) => {
           await page.setViewportSize({ width: 1050, height: 900 });
           const requestStart = rpc.length;

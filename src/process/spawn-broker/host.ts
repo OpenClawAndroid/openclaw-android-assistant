@@ -21,6 +21,9 @@ import {
   type BrokerSpawnOptions,
 } from "./protocol.js";
 
+const spawnBrokerWorkerUrl = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.spawnBroker);
+export const spawnBrokerEntryPath = fileURLToPath(spawnBrokerWorkerUrl);
+
 const MAX_REQUESTS = 256;
 const RESTART_DELAYS = [100, 250, 500, 1000, 2000];
 
@@ -202,8 +205,7 @@ export class SpawnBrokerHost {
       return;
     }
     const generation = this.generation++;
-    const worker = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.spawnBroker);
-    const child = spawn(process.execPath, resolveRuntimeWorkerArgv(worker), {
+    const child = spawn(process.execPath, resolveRuntimeWorkerArgv(spawnBrokerWorkerUrl), {
       stdio: ["inherit", "ignore", "ignore", "ipc"],
       detached: true,
       serialization: "advanced",

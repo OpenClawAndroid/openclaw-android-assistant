@@ -248,9 +248,9 @@ for the activation Doctor step. These phases record their start and completion;
 the recorded driver identity protects the running update while its last-activity
 timestamp stays unchanged.
 The Gateway checks for
-abandoned runs at startup and while following active updates. After more than
-30 minutes without step or heartbeat activity, verifiably dead recorded drivers
-allow the Gateway to finish the run as `failed` with reason `abandoned` and a
+abandoned runs at startup and while following active updates. When verified
+completion cannot be recovered, more than 30 minutes without step or heartbeat
+activity and verifiably dead recorded drivers allow the Gateway to finish the run as `failed` with reason `abandoned` and a
 `reconcile:abandoned` step naming the rule. A live, unreadable, or foreign-host
 driver prevents reconciliation. Each helper or finalization child records its
 own identity and retains earlier drivers, because detached children can outlive
@@ -259,6 +259,20 @@ with one warning and the run requires explicit recovery. Known parent identities
 remain protected, and automatic reconciliation stays disabled for that run.
 Heartbeat write errors warn once per driver run and do not interrupt a running
 build, install, or finalization phase.
+
+An updated candidate records its installed version and build identity after
+post-core work finishes, before handing completion back to the installed updater.
+If the updater exits during restart verification, the Gateway or Doctor can
+finish the run as `succeeded` after fresh checks confirm that the installed and
+serving builds match that recorded target and the Gateway is ready. This also
+allows a matching `abandoned` outcome to be corrected, with the reconciliation
+recorded in history. Live or unobservable drivers, retained recovery work, and
+recorded repair, failure, or rollback evidence remain protected.
+
+Older interrupted runs may lack the target build identity needed for that check.
+Doctor names the abandoned run and explains why it cannot settle it; a matching
+version number alone is insufficient. Inspect the run's recorded steps and use
+[`openclaw update repair`](/cli/update/repair-and-recovery) when recovery is needed.
 
 Historical identityless rows outside the legacy-expiry shape require explicit
 `update repair` or a new operator-started `openclaw update`.

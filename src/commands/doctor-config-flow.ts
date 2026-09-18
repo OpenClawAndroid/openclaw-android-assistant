@@ -587,7 +587,6 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
         env: process.env,
         allowExec: params.options.allowExec === true,
         blockedCodexProviderPlan,
-        runWithPluginMetadataSnapshot,
       });
     const previewNotes = await runWithCurrentPluginMetadata(state.candidate, collectPreviewNotes);
     emitDoctorNotes({

@@ -37,8 +37,8 @@ import {
   commitMainSessionRecovery,
   type MainSessionRecoveryStoreTarget,
 } from "./main-session-recovery-store.js";
+import { dispatchRestartRecoveryWithinCapacity } from "./main-session-restart-dispatch-capacity.js";
 import {
-  dispatchRestartRecoveryUntilStarted,
   normalizeRestartRecoveryTerminalStatus,
   probeRestartRecoveryTerminalStatus,
   type RestartRecoveryTerminalStatus,
@@ -298,6 +298,7 @@ export async function resumeMainSession(params: {
   lifecycleGeneration?: string;
   shouldContinue?: () => boolean;
   gatewayRuntime: GatewayRecoveryRuntime;
+  recoveryCapacity?: Parameters<typeof dispatchRestartRecoveryWithinCapacity>[0]["capacity"];
 }): Promise<MainSessionResumeResult> {
   if (params.shouldContinue?.() === false) {
     return "skipped";
@@ -533,14 +534,21 @@ export async function resumeMainSession(params: {
     dispatchStarted = true;
     let dispatchSettled = false;
     let stopTyping: (() => void) | undefined;
-    const dispatchOutcome = await dispatchRestartRecoveryUntilStarted({
+    const dispatchOutcome = await dispatchRestartRecoveryWithinCapacity({
       agentParams,
+      capacity: params.recoveryCapacity,
       gatewayRuntime: params.gatewayRuntime,
       onSettled: () => {
         dispatchSettled = true;
         stopTyping?.();
       },
+      shouldContinue: () => params.shouldContinue?.() !== false,
     });
+    if (!dispatchOutcome) {
+      dispatchStarted = false;
+      await rollbackReservation("cancel_reservation");
+      return "skipped";
+    }
     ({ dispatchAccepted, executionStarted, preStartAbortAttempted, preStartAbortConfirmed } =
       dispatchOutcome.observation);
     if (dispatchOutcome.kind === "failed") {

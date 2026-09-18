@@ -4545,6 +4545,8 @@ export const en: TranslationMap & {
       browserAnnotationUndoUnavailable:
         "Undo is unavailable because the browser annotation limit has been reached.",
       preparingAttachments: "Preparing attachments…",
+      preparingAttachmentCount: "Preparing {count} attachment",
+      preparingAttachmentsCount: "Preparing {count} attachments",
       removeAttachment: "Remove attachment",
       removeNamedAttachment: "Remove {name}",
       removeBrowserAnnotation: "Remove browser annotation: {name}",
@@ -4697,6 +4699,7 @@ export const en: TranslationMap & {
       readFailed: "Could not attach: {names}{more}",
       tooLarge: "Too large to send: {names}{more}",
       showInTextField: "Show in text field",
+      pastedText: "Pasted text",
       outsideAllowedFolders: "Outside allowed folders",
       unavailable: "Unavailable",
       failureDeliveryFailed: "Delivery failed. Try sending this file again.",

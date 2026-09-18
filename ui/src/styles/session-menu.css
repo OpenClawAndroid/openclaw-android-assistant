@@ -6,6 +6,12 @@ wa-dropdown.session-menu::part(menu) {
   box-shadow: var(--overlay-shadow);
 }
 
+/* Contributed dropdown rows share the menu typography without renderer-specific classes. */
+:is(.session-menu wa-dropdown-item, .session-menu__item, .sidebar-session-sort-menu__item) {
+  font: inherit;
+  font-size: calc(13px * var(--control-ui-text-scale));
+}
+
 .session-menu__item,
 .sidebar-session-sort-menu__item {
   box-sizing: border-box;
@@ -19,8 +25,6 @@ wa-dropdown.session-menu::part(menu) {
   border-radius: var(--menu-item-radius);
   background: transparent;
   color: var(--text);
-  font: inherit;
-  font-size: calc(13px * var(--control-ui-text-scale));
   text-align: left;
 }
 

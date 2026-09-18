@@ -7,6 +7,7 @@ export const SQLITE_READONLY_WORKER_MAX_BUFFER = 1024 * 1024;
 
 export type SqliteReadOnlyWorkerMode =
   | "sync"
+  | "sync-fallback"
   | "async"
   | "consolidated"
   | "reclaim"
@@ -19,6 +20,7 @@ export type SqliteReadOnlyWorkerResult =
 export type SqliteAuthProfileRows = { store: unknown; state: unknown };
 export type SqliteAuthProfileReadOptions = {
   mode: "auth-profile-rows";
+  source: "canonical" | "snapshot";
   expectedIdentity: string;
   env: NodeJS.ProcessEnv;
   coordinatorRuntime: StateDatabaseCoordinatorRuntime;
@@ -82,7 +84,7 @@ function parseSqliteReadOnlyWorkerResult(
 
 export function readSqliteReadOnlyWorkerValue(
   params: SqliteReadOnlyWorkerOutput,
-  mode: "sync" | "async" | "consolidated",
+  mode: "sync" | "sync-fallback" | "async" | "consolidated",
 ): string;
 export function readSqliteReadOnlyWorkerValue(
   params: SqliteReadOnlyWorkerOutput,
@@ -111,7 +113,10 @@ export function readSqliteReadOnlyWorkerValue(
       params.stderr,
     );
   }
-  if ((mode === "sync" || mode === "async" || mode === "consolidated") && "location" in result) {
+  if (
+    (mode === "sync" || mode === "sync-fallback" || mode === "async" || mode === "consolidated") &&
+    "location" in result
+  ) {
     return result.location;
   }
   if (mode === "reclaim" && "warnings" in result) {

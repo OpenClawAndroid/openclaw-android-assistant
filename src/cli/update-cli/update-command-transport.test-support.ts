@@ -1,8 +1,10 @@
 import { once } from "node:events";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { expect, vi } from "vitest";
-import type { runCommandWithTimeout } from "../../process/exec.js";
+import type { runCommandWithTimeout, runUtf8CommandWithTimeout } from "../../process/exec.js";
+import { createCommandResult as commandResult } from "../../test-utils/npm-spec-install-test-helpers.js";
 
 // Native effects/results remain fixture-owned. Preserve real child admission,
 // PID binding and settlement instead of bypassing the update executor.
@@ -61,5 +63,42 @@ export async function createUpdateCommandTransportFixture(transport: {
       const [code] = await closed;
       expect(code).toBe(0);
     }
+  };
+}
+
+export async function createUpdateUtf8CommandTransportFixture(
+  transport: { hostCwd: string; hostEnv: NodeJS.ProcessEnv },
+  run: typeof runUtf8CommandWithTimeout,
+): Promise<typeof runUtf8CommandWithTimeout> {
+  const { spawnSync: spawnMetadata } =
+    await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  return async (argv, options) => {
+    if (argv.includes("--eval") && typeof options !== "number" && options.input) {
+      const input: unknown = JSON.parse(String(options.input));
+      if (isRecord(input) && Array.isArray(input.files)) {
+        // Inspect real fixture metadata using the host transport even while
+        // the CLI simulates another service platform or installer environment.
+        const metadata = spawnMetadata(
+          expectDefined(argv[0], "metadata executable"),
+          argv.slice(1),
+          {
+            input: options.input,
+            timeout: options.timeoutMs,
+            cwd: transport.hostCwd,
+            env: transport.hostEnv,
+            encoding: "utf8",
+          },
+        );
+        if (metadata.error) {
+          throw metadata.error;
+        }
+        return commandResult({
+          code: metadata.status,
+          stdout: metadata.stdout,
+          stderr: metadata.stderr,
+        });
+      }
+    }
+    return run(argv, options);
   };
 }

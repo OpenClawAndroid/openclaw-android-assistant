@@ -23,6 +23,7 @@ import type {
 import type { AuthenticatedUser } from "../app/user-profile.ts";
 import { normalizeControlUiBuildInfo } from "../build-info-normalizers.ts";
 import type { ControlUiBuildInfo } from "../build-info.ts";
+import { createControlUiAttachmentFacts } from "./control-ui-attachment-fixtures.ts";
 import { createControlUiE2eBuildPublication } from "./control-ui-e2e-build-publication.ts";
 import {
   captureControlUiE2eFailureDiagnostics,
@@ -1163,7 +1164,7 @@ export function createControlUiMockGatewayInitScript(
     protocolVersion: PROTOCOL_VERSION,
     scenario: normalizeScenario(scenario),
   };
-  return `${json5BrowserSource}\n;(() => { const __name = (target) => target; (${installControlUiMockGateway.toString()})(${JSON.stringify(input)}, globalThis.JSON5.parse, ${createControlUiSessionFixtures.toString()}); })();`;
+  return `${json5BrowserSource}\n;(() => { const __name = (target) => target; (${installControlUiMockGateway.toString()})(${JSON.stringify(input)}, globalThis.JSON5.parse, ${createControlUiSessionFixtures.toString()}, ${createControlUiAttachmentFacts.toString()}); })();`;
 }
 
 export type ControlUiMockRequestHandler = (request: {
@@ -1213,6 +1214,7 @@ function installControlUiMockGateway(
   },
   parseJson5: (raw: string) => unknown,
   createSessions: typeof createControlUiSessionFixtures,
+  createAttachmentFacts: typeof createControlUiAttachmentFacts,
 ) {
   const NativeWebSocket = window.WebSocket;
   type BrowserFrame = {
@@ -1663,17 +1665,7 @@ function installControlUiMockGateway(
           .filter((source) => source.sessionId === row.sessionId)
           .map((source) => source.message["__openclaw"].seq),
       ) + 1;
-    const media = Array.isArray(params.attachments)
-      ? params.attachments.filter(isRecord).map((attachment) => ({
-          kind:
-            typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("image/")
-              ? "image"
-              : "file",
-          contentType: attachment.mimeType,
-          fileName: attachment.fileName,
-          url: `data:${typeof attachment.mimeType === "string" ? attachment.mimeType : "application/octet-stream"};base64,${typeof attachment.content === "string" ? attachment.content : ""}`,
-        }))
-      : [];
+    const media = createAttachmentFacts(params.attachments);
     const source: CommittedChatInput = {
       sessionId: String(row.sessionId),
       runId: params.idempotencyKey,

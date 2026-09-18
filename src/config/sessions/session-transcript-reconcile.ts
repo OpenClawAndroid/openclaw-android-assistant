@@ -10,6 +10,7 @@ import { computeBackoffSchedule } from "../../../packages/retry/src/index.js";
 import { isGatewayExternallySupervised } from "../../infra/gateway-supervision.js";
 import { executeSqliteQueryTakeFirstSync } from "../../infra/kysely-sync.js";
 import { isPathInside } from "../../infra/path-guards.js";
+import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
@@ -35,6 +36,8 @@ import {
 import type { SqliteSessionWriteOperation } from "./session-accessor.sqlite-write-operation.js";
 import {
   deleteOrphanedTranscriptIndexRowsInTransaction,
+  hasOrphanedTranscriptIndexRows,
+  hasSessionsNeedingTranscriptIndexReconcile,
   listSessionsNeedingTranscriptIndexReconcile,
   sessionTranscriptIndexNeedsReconcile,
 } from "./session-transcript-index.js";
@@ -299,8 +302,35 @@ async function reconcilePreparedTranscriptIndexes(
   const memorySource = captureMemorySource(databaseOptions);
   let memorySessionIds: string[] = [];
   try {
-    // The SQLite owner can cheaply prove a clean projection before paying for a
-    // Worker. Keep the post-worker sweep too, because request-time writers may race.
+    if (!memorySource) {
+      const clean = await runExclusiveSqliteSessionWrite(
+        databaseOptions,
+        async () => {
+          try {
+            const pending = withOpenClawAgentDatabaseReadOnly(
+              ({ db }) =>
+                runSqliteDeferredTransactionSync(
+                  db,
+                  () =>
+                    hasSessionsNeedingTranscriptIndexReconcile(db) ||
+                    hasOrphanedTranscriptIndexRows(db),
+                ),
+              databaseOptions,
+            );
+            return pending.found && !pending.value;
+          } catch {
+            // Preserve the writable owner's repair and integrity refusal for uncertain reads.
+            return false;
+          }
+        },
+        "sessions.transcript-index.preflight",
+      );
+      if (clean) {
+        return { reconciledSessions: 0 };
+      }
+    }
+    // Recheck under write admission: a request may commit after the read-only probe.
+    // Keep the post-worker orphan sweep for writers racing projection publication.
     await runProjectionWrite(
       databaseOptions,
       "sessions.transcript-index.preflight",
