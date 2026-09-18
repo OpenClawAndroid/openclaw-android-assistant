@@ -30,7 +30,11 @@ type HostProjection = {
   durableSeen: Set<string>;
   retryable: Set<string>;
 };
-type LiveProjection = { item: ChatQueueItem; owner: Host };
+type LiveProjection = {
+  item: ChatQueueItem;
+  owner: Host;
+  expectedDurableVersion?: ChatQueueItem;
+};
 const LIVE_VERSION_KEYS = ["sendRunId", "sendAttempts", "sendState", "sendError"] as const;
 const storageIds = new WeakMap<Storage, number>();
 let nextStorageId = 0;
@@ -101,6 +105,24 @@ class ChatOutboxGatewayOwner {
     }
     return projected;
   }
+  private readLive(key: string, id: string, durable?: ChatQueueItem): LiveProjection | undefined {
+    const entries = this.live.get(key);
+    if (!entries) {
+      return undefined;
+    }
+    const live = entries.get(id);
+    if (
+      live?.expectedDurableVersion &&
+      (!durable || !sameQueuedDeliveryVersion(live.expectedDurableVersion, durable))
+    ) {
+      entries.delete(id);
+      if (!entries.size) {
+        this.live.delete(key);
+      }
+      return undefined;
+    }
+    return live;
+  }
   snapshot(
     host: Host,
     scope: Scope,
@@ -113,7 +135,7 @@ class ChatOutboxGatewayOwner {
     const visible = durable.map((item) => {
       state.durableSeen.add(item.id);
       const pending = localById.get(item.id);
-      const live = this.live.get(key)?.get(item.id)?.item;
+      const live = this.readLive(key, item.id, item)?.item;
       return pending?.pendingRunId || pending?.sendState === "waiting-model"
         ? pending
         : live && live.sendRunId === item.sendRunId
@@ -385,14 +407,45 @@ class ChatOutboxGatewayOwner {
     return false;
   }
   mayRemove(host: Host, scope: Scope, id: string): boolean {
-    const live = this.live.get(storedChatOutboxScopeKey(scope))?.get(id);
     const local = host.chatQueue.find((item) => item.id === id);
     const durable = this.outbox(host, scope)?.queue.find((item) => item.id === id);
+    const live = this.readLive(storedChatOutboxScopeKey(scope), id, durable);
     return Boolean(
       !live ||
       live.owner === host ||
       (local && durable && LIVE_VERSION_KEYS.every((key) => local[key] === durable[key])),
     );
+  }
+  beginSubmission(host: Host, id: string): { release(): void } | undefined {
+    const located = this.locate(host, id);
+    if (
+      !located?.durable ||
+      located.item.sendState !== "waiting-idle" ||
+      located.durable.sendState !== "waiting-idle" ||
+      !located.item.sendRunId ||
+      (located.item.sendAttempts ?? 0) !== 0 ||
+      located.item.sendRequestStartedAtMs !== undefined
+    ) {
+      return undefined;
+    }
+    const key = storedChatOutboxScopeKey(located.scope);
+    const entries = this.live.get(key) ?? new Map<string, LiveProjection>();
+    const projection: LiveProjection = {
+      item: { ...located.item, sendState: "submitting" },
+      owner: host,
+      expectedDurableVersion: located.durable,
+    };
+    entries.set(id, projection);
+    this.live.set(key, entries);
+    this.publish(host);
+    return {
+      release: () => {
+        if (this.live.get(key)?.get(id) !== projection) {
+          return;
+        }
+        this.projectLive(host, located.scope, id);
+      },
+    };
   }
   projectLive(host: Host, scope: Scope, id: string, item?: ChatQueueItem): void {
     const key = storedChatOutboxScopeKey(scope);

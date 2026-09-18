@@ -126,7 +126,7 @@ model value into a different embedding model. See [llama.cpp](/plugins/llama-cpp
 
 <AccordionGroup>
   <Accordion title="0. Optional update (git installs)">
-    If this is a git checkout and doctor is running interactively, it offers to update (fetch/rebase/build) before running doctor.
+    If this is a git checkout and Doctor is running interactively, it offers to update before running its checks. Accepting uses the normal `openclaw update` lifecycle for that checkout, including validation, recovery, and Gateway restart. The source update keeps your saved update channel unchanged. Externally managed installs continue Doctor without offering self-update; update them through their deployment owner.
   </Accordion>
   <Accordion title="1. Config normalization">
     GitHub Copilot now requires explicit provider config, a saved Copilot auth profile, or `COPILOT_GITHUB_TOKEN`. Generic `GH_TOKEN` and `GITHUB_TOKEN` no longer activate it. Doctor reports this change once when only a generic GitHub token is present. The retired `plugins.entries.github-copilot.config.discovery.enabled` setting is ignored during config loading, including malformed values, and removed when Doctor saves the config.

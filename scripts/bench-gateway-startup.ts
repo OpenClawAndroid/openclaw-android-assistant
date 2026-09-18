@@ -108,6 +108,8 @@ type CliOptions = {
   cpuProfDir?: string;
   entry: string;
   heapProfDir?: string;
+  installedCohort?: string;
+  installedChild: boolean;
   json: boolean;
   output?: string;
   runs: number;
@@ -121,12 +123,13 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_ENTRY = "dist/entry.js";
 const INCIDENT_COMBINED_HEALTHZ_P95_MAX_MS = 30_000;
 const INCIDENT_COMBINED_READYZ_P95_MAX_MS = 60_000;
-const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json"]);
+const BOOLEAN_FLAGS = new Set(["--help", "-h", "--json", "--installed-child"]);
 const VALUE_FLAGS = new Set([
   "--case",
   "--cpu-prof-dir",
   "--entry",
   "--heap-prof-dir",
+  "--installed-cohort",
   "--output",
   "--runs",
   "--timeout-ms",
@@ -360,11 +363,36 @@ function resolveCases(caseIds: string[]): GatewayBenchCase[] {
 
 function parseOptions(argv: string[] = process.argv.slice(2)): CliOptions {
   validateCliArgs(argv);
+  const installedCohort = parseFlagValue(argv, "--installed-cohort");
+  const installedChild = hasFlag(argv, "--installed-child");
+  if (installedChild && !installedCohort) {
+    throw new CliArgumentError("--installed-child requires --installed-cohort");
+  }
+  if (installedCohort) {
+    for (const flag of [
+      "--case",
+      "--entry",
+      "--runs",
+      "--warmup",
+      "--cpu-prof-dir",
+      "--heap-prof-dir",
+      "--timeout-ms",
+    ]) {
+      if (argv.includes(flag)) {
+        throw new CliArgumentError(`${flag} is not supported with --installed-cohort`);
+      }
+    }
+    if (!parseFlagValue(argv, "--output")) {
+      throw new CliArgumentError("--installed-cohort requires --output");
+    }
+  }
   return {
-    cases: resolveCases(parseRepeatableFlag(argv, "--case")),
+    cases: installedCohort ? [] : resolveCases(parseRepeatableFlag(argv, "--case")),
     cpuProfDir: parseFlagValue(argv, "--cpu-prof-dir"),
     entry: resolveEntry(parseFlagValue(argv, "--entry")),
     heapProfDir: parseFlagValue(argv, "--heap-prof-dir"),
+    installedCohort,
+    installedChild,
     json: hasFlag(argv, "--json"),
     output: resolveOutputPath(parseFlagValue(argv, "--output")),
     runs: parsePositiveInt(parseFlagValue(argv, "--runs"), DEFAULT_RUNS, "--runs"),
@@ -392,6 +420,7 @@ Options:
   --timeout-ms <ms>    Per-run timeout (default: ${DEFAULT_TIMEOUT_MS})
   --cpu-prof-dir <dir> Write one V8 CPU profile per run
   --heap-prof-dir <dir> Write one V8 heap profile per run
+  --installed-cohort <path> Measure one fresh installed startup and eight retained-state restarts
   --output <path>      Write machine-readable JSON to a file
   --json               Emit machine-readable JSON
   --help, -h           Show this text
@@ -1048,6 +1077,16 @@ async function main() {
   }
 
   const options = parseOptions(argv);
+  if (options.installedCohort) {
+    const { runInstalledGatewayBenchmark } = await import("./lib/gateway-bench-installed.ts");
+    process.exitCode = await runInstalledGatewayBenchmark({
+      inputPath: options.installedCohort,
+      outputPath: options.output!,
+      child: options.installedChild,
+      argv,
+    });
+    return;
+  }
   if (options.cpuProfDir) {
     mkdirSync(options.cpuProfDir, { recursive: true });
   }

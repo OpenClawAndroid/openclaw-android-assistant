@@ -293,6 +293,18 @@
   background: color-mix(in srgb, var(--bg-muted) 45%, var(--bg));
 }
 
+.chat-image-frame--compact {
+  container-type: inline-size;
+  overflow: visible;
+  background: transparent;
+}
+
+.chat-image-frame--managed:not(.chat-image-frame--image) {
+  min-width: min(100%, var(--chat-image-min-width));
+  /* Intrinsic previews still need room for 28px actions and both 8px insets. */
+  min-height: 44px;
+}
+
 .chat-image-skeleton.skeleton {
   --skeleton-base: transparent;
   --skeleton-highlight: color-mix(in srgb, var(--bg-hover) 45%, transparent);
@@ -316,26 +328,6 @@
   height: 100%;
   max-width: none;
   max-height: none;
-}
-
-.chat-image-frame--image > .chat-assistant-attachment-card {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
-}
-
-.chat-image-status {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  color: var(--muted);
-  font-size: var(--control-ui-text-sm);
-  text-align: center;
 }
 
 .chat-image-frame--managed::after {
@@ -592,8 +584,16 @@
     .chat-message-images--gallery:not(.chat-message-images--two-column)
     .chat-image-frame {
     height: auto;
-    aspect-ratio: 1;
+
+    &:not(.chat-image-frame--compact) {
+      aspect-ratio: 1;
+    }
   }
+}
+
+.chat-group.user .chat-message-images--gallery > .chat-image-frame--compact {
+  height: auto;
+  align-self: start;
 }
 
 .chat-assistant-attachments {
@@ -785,6 +785,59 @@
     overflow: visible;
     text-overflow: clip;
     white-space: normal;
+  }
+}
+
+.chat-image-frame--compact > .chat-assistant-attachment-card {
+  align-self: start;
+
+  .chat-assistant-attachment-card__status-meta {
+    display: inline-flex;
+    gap: 0.5em;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .chat-assistant-attachment-card__status-separator {
+    display: inline;
+  }
+
+  .chat-assistant-attachment-card__status-reason {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@container (max-width: 240px) {
+  .chat-image-frame--compact > .chat-assistant-attachment-card {
+    .chat-assistant-attachment-card__header {
+      height: 72px;
+      box-sizing: border-box;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+      padding: 4px;
+    }
+
+    .chat-attachment-file-icon {
+      display: none;
+    }
+
+    .chat-assistant-attachment-card__identity {
+      flex: none;
+    }
+
+    .chat-assistant-attachment-card__details {
+      width: 100%;
+      gap: 0;
+    }
+
+    .chat-assistant-attachment-card__action {
+      height: 26px;
+      padding: 0;
+      font-size: clamp(8px, 14cqi, 12px);
+    }
   }
 }
 

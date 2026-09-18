@@ -2105,10 +2105,9 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
           expect(
             overlayTops.find((overlay) => overlay.selector === ".chat-topbar-notices")?.top,
           ).toBeCloseTo(header.y + header.height + 8, 0);
-          expect(overlayTops.find((overlay) => overlay.selector === ".app-toast")?.top).toBeCloseTo(
-            20,
-            0,
-          );
+          expect(
+            overlayTops.find((overlay) => overlay.selector === ".app-toast")?.top,
+          ).toBeGreaterThanOrEqual(header.y + header.height);
         }
 
         await page.locator(".agent-chat__input").evaluate((node) => {

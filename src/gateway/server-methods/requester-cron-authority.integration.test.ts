@@ -22,7 +22,7 @@ import {
   runWithCronCreatorAuthorityCapability,
   type CronCreatorAuthorityCapability,
 } from "../../agents/cron-creator-authority-context.js";
-import { createEmbeddedGatewayToolCallerIdentity } from "../../agents/embedded-agent-runner/run/attempt-tool-run-context.js";
+import { withPreparedEmbeddedGatewayTools } from "../../agents/embedded-agent-runner/run/attempt-tool-run-context.js";
 import * as hostFileWrite from "../../agents/host-file-write.js";
 import { makeSettledChild } from "../../agents/subagents/announce/subagent-announce.requester-settle-wake.test-support.js";
 import {
@@ -40,7 +40,10 @@ import {
   type CronCreatorToolAllowlistEntry,
   type CronToolsAllowCaptureRef,
 } from "../../agents/tools/cron-tool.js";
-import { withGatewayToolCallerIdentity } from "../../agents/tools/gateway-caller-context.js";
+import {
+  getGatewayToolCallerIdentity,
+  withGatewayToolCallerIdentity,
+} from "../../agents/tools/gateway-caller-context.js";
 import { isConfiguredCommandOwner } from "../../auto-reply/command-auth.js";
 import {
   clearRuntimeConfigSnapshot,
@@ -494,12 +497,19 @@ async function createCreatorTransportTools(params: {
   }
 
   const callerIdentity = expectDefined(
-    createEmbeddedGatewayToolCallerIdentity({
-      run: { cronCreatorAuthorityCapability: creator, agentAccountId: "default" },
-      admittedRunContext: admitted,
-      agentId: "main",
-      sessionKey: SESSION,
-    }),
+    await withPreparedEmbeddedGatewayTools(
+      {
+        cronCreatorAuthorityCapability: creator,
+        agentAccountId: "default",
+        admittedRunContext: admitted,
+        agentId: "main",
+        sessionKey: SESSION,
+        sessionId: SESSION_ID,
+        agentHarnessId: "openclaw",
+      },
+      () => getAdmittedRunDelegatedAuthority(admitted) !== undefined,
+      async () => getGatewayToolCallerIdentity(),
+    ),
     "embedded Gateway caller",
   );
   const creatorTools: CronCreatorToolAllowlistEntry[] = [];

@@ -1,5 +1,5 @@
-import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { Box, visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, it, vi } from "vitest";
 import { iterateAnsiSegments } from "../../../packages/terminal-core/src/ansi-sequences.js";
 import { normalizeTestText } from "../../../test/helpers/normalize-text.js";
 import { ToolExecutionComponent } from "./tool-execution.js";
@@ -100,6 +100,34 @@ describe("ToolExecutionComponent", () => {
       expect(rendered).toContain("emphasis");
       expect(rendered).not.toContain("# Heading");
       expect(rendered).not.toContain("**emphasis**");
+    },
+  );
+
+  it.each(["blocked", undefined] as const)(
+    "keeps prepared %s outcomes neutral after a raw success",
+    (status) => {
+      const background = vi.spyOn(Box.prototype, "setBgFn");
+      try {
+        const component = new ToolExecutionComponent("exec", {});
+        component.setActivity({
+          itemId: "tool:exec",
+          kind: "tool",
+          phase: "end",
+          title: "Command",
+          ...(status ? { status } : {}),
+        });
+        expect(component.isActive).toBe(false);
+        expect(normalizeTestText(component.render(80).join("\n"))).not.toContain("…");
+        component.setResult(
+          { content: [{ type: "text", text: "raw result" }] },
+          { isError: false },
+        );
+        expect(background).toHaveBeenLastCalledWith(undefined);
+        expect(component.isActive).toBe(false);
+        expect(normalizeTestText(component.render(80).join("\n"))).toContain("raw result");
+      } finally {
+        background.mockRestore();
+      }
     },
   );
 

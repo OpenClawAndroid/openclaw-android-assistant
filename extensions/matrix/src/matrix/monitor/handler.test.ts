@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { projectAgentToolActivity } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { createChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { MAX_DATE_TIMESTAMP_MS } from "openclaw/plugin-sdk/number-runtime";
@@ -20,6 +21,7 @@ import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMatrixMonitorTestRuntime } from "../../test-runtime.js";
 import { MATRIX_OPENCLAW_FINALIZED_PREVIEW_KEY } from "../send/types.js";
+import { registerMatrixProgressCompletionTests } from "./handler.progress-completion.test-support.js";
 import {
   createMatrixHandlerTestHarness,
   createMatrixReactionEvent,
@@ -3100,15 +3102,7 @@ describe("matrix monitor handler draft streaming", () => {
       steps?: Array<{ step: string; status: "pending" | "in_progress" | "completed" }>;
     }) => Promise<void>;
     onApprovalEvent?: (payload: { phase?: string; command?: string }) => Promise<void>;
-    onCommandOutput?: (payload: {
-      itemId?: string;
-      toolCallId?: string;
-      phase?: string;
-      name?: string;
-      exitCode?: number;
-      status?: string;
-      title?: string;
-    }) => Promise<void>;
+    onCommandOutput?: import("openclaw/plugin-sdk/reply-runtime").GetReplyOptions["onCommandOutput"];
     onPatchSummary?: (payload: {
       itemId?: string;
       toolCallId?: string;
@@ -3389,12 +3383,15 @@ describe("matrix monitor handler draft streaming", () => {
     const { deliver, opts, finish } = await dispatch();
 
     expect(opts.suppressDefaultToolProgressMessages).toBe(true);
-    await opts.onToolStart?.({ name: "read_file" });
+    await opts.onItemEvent?.(
+      projectAgentToolActivity({ toolCallId: "read-1", name: "read_file", phase: "start" }),
+    );
+    await opts.onToolStart?.({ toolCallId: "read-1", name: "read_file", phase: "start" });
 
     await waitForMatrixState(() => {
       expect(sendSingleTextMessageMatrixMock).toHaveBeenCalledTimes(1);
     });
-    expect(singleTextMessageBody()).toMatch(/\n`🧩 Read File`$/);
+    expect(singleTextMessageBody()).toMatch(/\n`🧩 Read File: running`$/);
 
     await deliver({ text: "Done" }, { kind: "final" });
 
@@ -3469,6 +3466,9 @@ describe("matrix monitor handler draft streaming", () => {
           status: "blocked",
         });
         opts.onAssistantMessageStart?.();
+        await opts.onItemEvent?.(
+          projectAgentToolActivity({ toolCallId: "exec-1", name: "exec", phase: "start" }),
+        );
         await opts.onToolStart?.({ toolCallId: "exec-1", name: "exec", phase: "start" });
         await vi.advanceTimersByTimeAsync(1_000);
         const withActivity = lastCallArg(editMessageMatrixMock, 2, "Matrix plan with activity");
@@ -3572,169 +3572,13 @@ describe("matrix monitor handler draft streaming", () => {
     vi.useRealTimers();
   });
 
-  it("replaces recovered Matrix command progress instead of leaving stale failed text", async () => {
-    vi.useFakeTimers();
-    const { dispatch } = createStreamingHarness({
-      streaming: "progress",
-      previewToolProgressEnabled: true,
-      accountConfig: {
-        streaming: { mode: "progress", progress: { toolProgress: true, label: "Working" } },
-      } as never,
-    });
-    const { opts, finish } = await dispatch();
-
-    await opts.onItemEvent?.({
-      itemId: "command-1",
-      kind: "command",
-      name: "exec",
-      phase: "end",
-      status: "failed",
-      progressText: "run openclaw cron -> run jq (agent) failed",
-    });
-    await opts.onItemEvent?.({
-      itemId: "command-1",
-      kind: "command",
-      name: "exec",
-      phase: "end",
-      status: "failed",
-      progressText: "run openclaw cron -> run jq (agent) failed",
-    });
-    expect(sendSingleTextMessageMatrixMock).toHaveBeenCalledTimes(1);
-    expect(singleTextMessageBody()).toContain("failed");
-
-    await opts.onCommandOutput?.({
-      itemId: "command-1",
-      toolCallId: "call-1",
-      phase: "end",
-      name: "exec",
-      status: "completed",
-      exitCode: 0,
-    });
-
-    await finish();
-    expect(editMessageMatrixMock).toHaveBeenCalledWith(
-      "!room:example.org",
-      "$draft1",
-      expect.stringContaining("Exec"),
-      expect.any(Object),
-    );
-    const recoveredEdit = mockCalls(editMessageMatrixMock, "editMessageMatrix").find(
-      ([, eventId, body]) => eventId === "$draft1" && typeof body === "string",
-    );
-    expect(recoveredEdit?.[2]).not.toContain("completed");
-    expect(recoveredEdit?.[2]).not.toContain("failed");
-    expect(recoveredEdit?.[2]).not.toContain("run openclaw cron -> run jq");
-    vi.useRealTimers();
-  });
-
-  it("keeps Matrix tool progress free of terminal status text", async () => {
-    vi.useFakeTimers();
-    const { dispatch } = createStreamingHarness({
-      streaming: "progress",
-      previewToolProgressEnabled: true,
-      accountConfig: {
-        streaming: { mode: "progress", progress: { toolProgress: true, label: "Working" } },
-      } as never,
-    });
-    const { opts, finish } = await dispatch();
-
-    await opts.onToolStart?.({
-      itemId: "fc-call-2",
-      toolCallId: "call-2",
-      name: "exec",
-      phase: "start",
-      args: { command: "npm install" },
-    });
-    await opts.onToolStart?.({
-      itemId: "fc-call-2",
-      toolCallId: "call-2",
-      name: "exec",
-      phase: "update",
-      args: { command: "npm install" },
-    });
-    expect(sendSingleTextMessageMatrixMock).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(5_000);
-
-    expect(sendSingleTextMessageMatrixMock).toHaveBeenCalledTimes(1);
-    expect(singleTextMessageBody()).toContain("Exec");
-
-    await opts.onItemEvent?.({
-      itemId: "fc-call-2",
-      toolCallId: "call-2",
-      kind: "command",
-      name: "exec",
-      phase: "update",
-      progressText: "install dependencies",
-    });
-
-    await opts.onCommandOutput?.({
-      itemId: "fc-call-2-output",
-      toolCallId: "call-2",
-      phase: "end",
-      name: "exec",
-      status: "completed",
-      exitCode: 0,
-    });
-
-    await finish();
-    const completedEdit = mockCalls(editMessageMatrixMock, "editMessageMatrix").find(
-      ([, eventId, body]) =>
-        eventId === "$draft1" && typeof body === "string" && body.includes("completed"),
-    );
-    expect(completedEdit).toBeUndefined();
-    expect(singleTextMessageBody()).toContain("Exec");
-    vi.useRealTimers();
-  });
-
-  it("replaces Matrix patch progress when the patch summary completes", async () => {
-    vi.useFakeTimers();
-    const { dispatch } = createStreamingHarness({
-      streaming: "progress",
-      previewToolProgressEnabled: true,
-      accountConfig: {
-        streaming: { mode: "progress", progress: { toolProgress: true, label: "Working" } },
-      } as never,
-    });
-    const { opts, finish } = await dispatch();
-
-    await opts.onItemEvent?.({
-      itemId: "patch:call-3",
-      toolCallId: "call-3",
-      kind: "patch",
-      name: "apply_patch",
-      phase: "update",
-      progressText: "updating Matrix progress handling",
-    });
-    await opts.onItemEvent?.({
-      itemId: "patch:call-3",
-      toolCallId: "call-3",
-      kind: "patch",
-      name: "apply_patch",
-      phase: "update",
-      progressText: "updating Matrix progress handling",
-    });
-    expect(sendSingleTextMessageMatrixMock).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(5_000);
-
-    expect(sendSingleTextMessageMatrixMock).toHaveBeenCalledTimes(1);
-    expect(singleTextMessageBody()).toContain("updating Matrix progress handling");
-
-    await opts.onPatchSummary?.({
-      itemId: "patch:call-3",
-      toolCallId: "call-3",
-      phase: "end",
-      name: "apply_patch",
-      modified: ["extensions/matrix/src/matrix/monitor/handler.ts"],
-      summary: "1 file modified",
-    });
-
-    await finish();
-    const patchEdit = mockCalls(editMessageMatrixMock, "editMessageMatrix").find(
-      ([, eventId, body]) =>
-        eventId === "$draft1" && typeof body === "string" && body.includes("1 file modified"),
-    );
-    expect(patchEdit?.[2]).not.toContain("updating Matrix progress handling");
-    vi.useRealTimers();
+  registerMatrixProgressCompletionTests({
+    createStreamingHarness,
+    sendSingleTextMessageMatrixMock,
+    editMessageMatrixMock,
+    singleTextMessageBody,
+    mockCalls,
+    lastCallArg,
   });
 
   it("keeps Matrix tool progress mentions inside code formatting", async () => {
@@ -3787,7 +3631,10 @@ describe("matrix monitor handler draft streaming", () => {
         finish = streaming.finish;
 
         expect(opts.suppressDefaultToolProgressMessages).toBe(true);
-        await opts.onToolStart?.({ name: "read_file" });
+        await opts.onItemEvent?.(
+          projectAgentToolActivity({ toolCallId: "read-1", name: "read_file", phase: "start" }),
+        );
+        await opts.onToolStart?.({ toolCallId: "read-1", name: "read_file", phase: "start" });
         expect(sendSingleTextMessageMatrixMock).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(1_500);
         expect(singleTextMessageBody()).toBe("Working");
@@ -3808,6 +3655,15 @@ describe("matrix monitor handler draft streaming", () => {
         );
 
         await opts.onCommandOutput?.({ phase: "end", name: "exec", exitCode: 1 });
+        await opts.onItemEvent?.(
+          projectAgentToolActivity({
+            toolCallId: "exec-failed",
+            name: "exec",
+            phase: "result",
+            status: "failed",
+            result: { details: { status: "completed", exitCode: 1 } },
+          }),
+        );
         await vi.advanceTimersByTimeAsync(1_000);
         const quietProgress = lastCallArg(editMessageMatrixMock, 2, "Matrix quiet progress body");
         expect(quietProgress).toContain("Working");
@@ -4638,7 +4494,10 @@ describe("matrix monitor handler draft streaming", () => {
       });
       const { deliver, opts, finish } = await dispatch();
 
-      await opts.onToolStart?.({ name: "read_file" });
+      await opts.onItemEvent?.(
+        projectAgentToolActivity({ toolCallId: "read-1", name: "read_file", phase: "start" }),
+      );
+      await opts.onToolStart?.({ toolCallId: "read-1", name: "read_file", phase: "start" });
       await vi.advanceTimersByTimeAsync(5_000);
       expect(sendSingleTextMessageMatrixMock).toHaveBeenCalledTimes(1);
 
@@ -4648,7 +4507,10 @@ describe("matrix monitor handler draft streaming", () => {
       sendSingleTextMessageMatrixMock.mockResolvedValue({ messageId: "$draft2", roomId: "!room" });
 
       await opts.onQueuedFollowupAdmitted?.();
-      await opts.onToolStart?.({ name: "exec" });
+      await opts.onItemEvent?.(
+        projectAgentToolActivity({ toolCallId: "exec-followup", name: "exec", phase: "start" }),
+      );
+      await opts.onToolStart?.({ toolCallId: "exec-followup", name: "exec", phase: "start" });
       // Mirrors DEFAULT_PROGRESS_DRAFT_INITIAL_DELAY_MS: the followup draft must
       // wait out a fresh gate instead of inheriting the primary turn's timer.
       await vi.advanceTimersByTimeAsync(PROGRESS_DRAFT_START_DELAY_MS - 1);
@@ -4656,7 +4518,7 @@ describe("matrix monitor handler draft streaming", () => {
 
       await vi.advanceTimersByTimeAsync(1);
       expect(sendSingleTextMessageMatrixMock).toHaveBeenCalledTimes(1);
-      expect(singleTextMessageBody()).toMatch(/`🛠️ Exec`$/);
+      expect(singleTextMessageBody()).toMatch(/`🛠️ Exec: running`$/);
       await finish();
     } finally {
       vi.useRealTimers();

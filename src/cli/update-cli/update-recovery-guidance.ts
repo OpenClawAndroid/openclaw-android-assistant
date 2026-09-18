@@ -18,7 +18,7 @@ type UnsafeUpdateRecovery = Extract<
   { serviceRestartSafe: false }
 >;
 
-export function resolveUnsafeUpdateRecoveryGuidance(
+function resolveUnsafeUpdateRecoveryGuidance(
   reason?: UnsafeUpdateRecovery["reason"],
   env: NodeJS.ProcessEnv = process.env,
 ): string {

@@ -30,6 +30,8 @@ export type ChannelProgressDraftCompositorParams = {
   /** @deprecated v2026.9.1 SDK presentation; retain until a breaking SDK release. */
   presentation?: "summary";
   entry: StreamingCompatEntry | null | undefined;
+  /** Prepared items own display; raw callbacks retain diagnostic bookkeeping only. */
+  preparedItems?: boolean;
   mode: StreamingMode;
   active: boolean;
   seed: string;

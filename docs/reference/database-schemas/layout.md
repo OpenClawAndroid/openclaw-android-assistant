@@ -85,17 +85,21 @@ persisted text field, plus 32 bytes per row. Session totals include their events
 This is a retained-content estimate, not a limit on SQLite file, page, or WAL size.
 
 Older releases counted characters inconsistently, undercounting Unicode and
-allowing unchanged metadata writes to drift. The existing app-version upgrade
-repair and explicit shared-state schema repair rebuild all derived totals
+allowing unchanged metadata writes to drift. Explicit Doctor shared-state
+repair rebuilds all derived totals
 atomically, preserving event JSON text, identifiers, timestamps, and sequence.
 Repair does not prune history. The next ordinary session write applies the
 existing caps and eviction order, so corrected Unicode history may trim sooner
 and use transcript fallback when loaded.
 
-A current-app-version reopen skips this repair. Replacing code without changing
-the app version does not repair an already-open or current-version database;
-explicit schema repair remains the repair owner for that case. Accounting repair
-cannot recover history already evicted by an older writer. See [ACP CLI](/cli/acp).
+Normal runtime opens and automatic startup schema preparation leave existing
+accounting columns unchanged, including after the application version changes. If
+the supported older shape lacks accounting columns, adding them also initializes
+their totals in the same transaction. Run
+`openclaw doctor --fix` during update maintenance to repair historical accounting.
+Supported older-schema upgrades still perform the content transformations needed
+to preserve data while changing its schema. Accounting repair cannot recover
+history already evicted by an older writer. See [ACP CLI](/cli/acp).
 
 ### Meeting transcript tables
 

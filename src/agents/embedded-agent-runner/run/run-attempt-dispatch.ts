@@ -11,7 +11,7 @@ import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js
 import type { ToolOutcomeObserver } from "../../agent-tools.before-tool-call.js";
 import { resolveDelegationCapability } from "../../delegation-capability.js";
 import { resolveSessionGitCoauthorPrompt } from "../../git-coauthor-prompt.js";
-import { agentHarnessBuildsOpenClawTools } from "../../harness/selection.js";
+import { agentHarnessBuildsOpenClawTools } from "../../harness/tool-surface.js";
 import { appendIncognitoSystemPrompt } from "../../incognito-system-prompt.js";
 import { applyAuthHeaderOverride, applyLocalNoAuthHeaderOverride } from "../../model-auth.js";
 import { recordAdmittedModelRoutingDecision } from "../../model-routing-decision.js";
@@ -22,7 +22,6 @@ import { resolveSessionPermissionExecMode } from "../../session-permission-exec-
 import { resolveSessionPlacementSandbox } from "../../session-placement-admission.js";
 import { resolveSessionSkillResourceSnapshot } from "../../session-placement-skill-resources.js";
 import { createToolTerminalObserver } from "../../tool-terminal-outcome.js";
-import { withGatewayToolCallerIdentity } from "../../tools/gateway-caller-context.js";
 import { resolveAttemptWorkspaceSandbox } from "../../workspace-sandbox.js";
 import type { EmbeddedRunReplayState } from "../replay-state.js";
 import { remapSkillReferencePaths } from "../sandbox-skills.js";
@@ -31,7 +30,7 @@ import { mapThinkingLevelForProvider } from "../utils.js";
 import { prepareExecApprovalContinuationForAttempt } from "./attempt-exec-approval-continuation.js";
 import { applyResolvedToolPromptFinalizer } from "./attempt-prompt-support.js";
 import { EMBEDDED_RUN_ATTEMPT_DISPATCH_STAGE } from "./attempt-stage-timing.js";
-import { createEmbeddedGatewayToolCallerIdentity } from "./attempt-tool-run-context.js";
+import { withPreparedEmbeddedGatewayTools } from "./attempt-tool-run-context.js";
 import { resolveAttemptDispatchApiKey } from "./auth-store.js";
 import { runEmbeddedAttemptWithBackend } from "./backend.js";
 import type { PreparedEmbeddedRunInput } from "./execution-context.js";
@@ -387,7 +386,11 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     },
   });
   const pluginRefresh = captureAgentPluginRuntimeRefresh();
-  const attemptParams: EmbeddedRunAttemptInternalParams = {
+  const attemptParams: EmbeddedRunAttemptInternalParams & {
+    agentId: string;
+    sessionKey: string;
+    agentHarnessId: string;
+  } = {
     pluginRuntimeRefreshPending: pluginRefresh.isPending,
     registerPluginRuntimeRefreshConsumer: (isCurrent) => {
       if (attemptControls.isCurrent()) {
@@ -415,8 +418,6 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     gatewayUiCommandTarget: params.gatewayUiCommandTarget,
     pinnedWidgetAuthoring: params.pinnedWidgetAuthoring,
     toolBindings: params.toolBindings,
-    // Preserve the Gateway's tri-state capability; undefined hides both GitHub tools.
-    githubPublicationAvailable: params.githubPublicationAvailable,
     chatType: params.chatType,
     agentAccountId: params.agentAccountId,
     conversationRoutePeerId: params.conversationRoutePeerId,
@@ -673,14 +674,10 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     },
     prepareAssistantTranscriptMessage: params.prepareAssistantTranscriptMessage,
   };
-  const callerIdentity = createEmbeddedGatewayToolCallerIdentity({
-    run: params,
-    admittedRunContext: attemptParams.admittedRunContext,
-    agentId: workspaceResolution.agentId,
-    sessionKey: resolvedSessionKey,
-  });
-  const rawAttempt = await withGatewayToolCallerIdentity(callerIdentity, () =>
-    runEmbeddedAttemptWithBackend(attemptParams, nativeSessionRuntime),
+  const rawAttempt = await withPreparedEmbeddedGatewayTools(
+    attemptParams,
+    attemptControls.isCurrent,
+    () => runEmbeddedAttemptWithBackend(attemptParams, nativeSessionRuntime),
   )
     .catch((err: unknown): never => {
       throw input.getPostCompactionAbortError() ?? err;

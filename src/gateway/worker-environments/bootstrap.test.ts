@@ -247,7 +247,7 @@ describe("bootstrapWorker", () => {
     expect(runner.calls[2]?.options.input).toContain('ln -s "$lock_identity" "$lock"');
     expect(runner.calls[2]?.options.input).toContain("worker bundle archive digest mismatch");
     expect(runner.calls[2]?.options.input).toContain(
-      'const artifactPaths = ["github-exec-launcher.mjs","worker.mjs","workspace-rsync-receiver.mjs"]',
+      'const artifactPaths = ["github-exec-launcher.mjs","image-processor.worker.mjs","worker.mjs","workspace-rsync-receiver.mjs"]',
     );
     expect(runner.calls[2]?.options.input).not.toContain('npm install --prefix "$staging"');
     expect(runner.calls[2]?.options.input).toContain("worker install content does not match");
@@ -688,6 +688,7 @@ describe("bootstrapWorker", () => {
         );
         for (const artifact of [
           "github-exec-launcher.mjs",
+          "image-processor.worker.mjs",
           "worker.mjs",
           "workspace-rsync-receiver.mjs",
         ]) {
@@ -940,6 +941,7 @@ describe("bootstrapWorker", () => {
         );
         const artifacts = [
           "github-exec-launcher.mjs",
+          "image-processor.worker.mjs",
           "worker.mjs",
           "workspace-rsync-receiver.mjs",
         ];

@@ -39,6 +39,8 @@ const WS_DYNAMIC_IMPORT =
   'pathToFileURL(path.join(path.dirname(require.resolve("ws/package.json")), "wrapper.mjs")).href';
 const TREE_SITTER_INIT = "TreeSitter.Parser.init()";
 const TREE_SITTER_BASH_WASM = 'require.resolve("tree-sitter-bash/tree-sitter-bash.wasm")';
+const PHOTON_WASM_INIT = `const path = require('path').join(__dirname, 'photon_rs_bg.wasm');
+const bytes = require('fs').readFileSync(path);`;
 
 function resolveOptionalBuildSource(source: string): string {
   const resolved = path.resolve(source);
@@ -52,6 +54,9 @@ export function resolveWorkerDeployGeneratorInputs(rootDir = process.cwd()) {
     path.join(playwrightRoot, "browsers.json"),
     fs.realpathSync(path.resolve(rootDir, "node_modules/web-tree-sitter/web-tree-sitter.wasm")),
     fs.realpathSync(path.resolve(rootDir, "node_modules/tree-sitter-bash/tree-sitter-bash.wasm")),
+    fs.realpathSync(
+      path.resolve(rootDir, "node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm"),
+    ),
   ] as const;
 }
 
@@ -72,6 +77,9 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
     ).href;
   const playwrightRoot = fs.realpathSync(path.resolve(rootDir, "node_modules/playwright-core"));
   const coreBundlePath = fs.realpathSync(path.join(playwrightRoot, "lib/coreBundle.js"));
+  const photonRuntimePath = fs.realpathSync(
+    path.resolve(rootDir, "node_modules/@silvia-odwyer/photon-node/photon_rs.js"),
+  );
   const browserRuntimeBridgePath = fs.realpathSync(
     path.resolve("src/worker/worker-deploy-browser-runtime.ts"),
   );
@@ -93,7 +101,7 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
       "src/realtime-transcription/websocket-session.ts",
     ].map(resolveOptionalBuildSource),
   );
-  const [packageJsonPath, browsersJsonPath, treeSitterWasmPath, bashWasmPath] =
+  const [packageJsonPath, browsersJsonPath, treeSitterWasmPath, bashWasmPath, photonWasmPath] =
     resolveWorkerDeployGeneratorInputs(rootDir);
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
     name: string;
@@ -139,6 +147,15 @@ export function createWorkerDeployBuildPlugin(rootDir = process.cwd()) {
       }
       if (resolvedId === playwrightRuntimePath) {
         return WORKER_PLAYWRIGHT_RUNTIME;
+      }
+      if (resolvedId === photonRuntimePath) {
+        if (!code.includes(PHOTON_WASM_INIT)) {
+          this.error("Photon WASM bootstrap changed; update the worker deploy transform");
+        }
+        return code.replace(
+          PHOTON_WASM_INIT,
+          `const bytes = Buffer.from(${JSON.stringify(fs.readFileSync(photonWasmPath).toString("base64"))}, "base64");`,
+        );
       }
       if (resolvedId === treeSitterRuntimePath) {
         if (!code.includes(TREE_SITTER_INIT) || !code.includes(TREE_SITTER_BASH_WASM)) {

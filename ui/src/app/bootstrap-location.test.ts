@@ -189,6 +189,30 @@ describe("resolveInitialApplicationLocation", () => {
     expect(subscribe).not.toHaveBeenCalled();
   });
 
+  it("preserves the UUID when rewriting a released session query", async () => {
+    const resolved = await resolveInitialApplicationLocation({
+      location: {
+        pathname: "/chat",
+        search:
+          "?session=agent%3Aresearch%3Athread%3A12345678-aaaa-4000-8000-000000000001&draft=continue",
+        hash: "",
+      },
+      basePath: "",
+      sessionKey: "agent:main:main",
+      gateway: {
+        snapshot: { phase: "connected", client: {}, hello: null },
+        subscribe: vi.fn(() => () => undefined),
+      } as unknown as ApplicationContext<RouteId>["gateway"],
+      agentsList: () => ({ defaultId: "main", mainKey: "main", scope: "global", agents: [] }),
+      signal: new AbortController().signal,
+    });
+    expect(resolved).toEqual({
+      pathname: "/chat/research/12345678aaaa40008000000000000001",
+      search: "?draft=continue",
+      hash: "",
+    });
+  });
+
   it("does not consume Sessions list row-expansion state", async () => {
     const location = { pathname: "/sessions", search: "?session=agent%3Amain%3Amain", hash: "" };
     const subscribe = vi.fn(() => () => undefined);

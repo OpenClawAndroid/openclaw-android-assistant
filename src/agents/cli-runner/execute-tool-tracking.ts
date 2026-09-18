@@ -558,6 +558,7 @@ export function createCliToolTracking(context: PreparedCliRunContext) {
         isError: event.isError,
       });
     }
+    return activeTool?.loopbackAmbiguous ? undefined : activeTool?.loopbackCall?.current.args;
   };
   const resolveCliLoopbackTerminalOutcome = (toolCallId: string) => {
     const activeTool = activeCliTools.get(toolCallId);

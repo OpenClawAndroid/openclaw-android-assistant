@@ -167,8 +167,14 @@ occur.
 
 For a registry-admitted publish parent, continuation authenticates the original
 attempt-one plan and its successful guarded upload before any rerun or dispatch.
+The retry restores cached bytes against the digest recorded after the original
+guarded upload, then re-uploads the same plan and admission for its consumers.
 It does not recollect public registry state, restamp admission time, or replace
-the original artifact. Historical parents keep their exact frozen contract;
+the observation artifact descriptor embedded in the admission. Historical
+registry-admitted parents without the digest-witness contract cannot continue;
+the controller refuses before rerunning children or the parent. Their surviving
+artifacts remain readable for strict verification. Updating the local controller
+cannot retrofit their frozen workflow. Historical parents keep their exact frozen contract;
 nonpublish parents carry no publication admission. Existing refusals for
 parent-owned artifacts and incomplete child identities still apply.
 

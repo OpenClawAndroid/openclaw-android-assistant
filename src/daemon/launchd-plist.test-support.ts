@@ -1,7 +1,16 @@
 // Fixture adapter for native plutil output on non-macOS test hosts. Only the
 // generated XML fixture subset is supported; native validation is tested separately.
-export function decodeLaunchAgentPlistFixture(input: string | Uint8Array) {
+export function decodeLaunchAgentPlistFixture(
+  input: string | Uint8Array,
+  format: string | undefined,
+) {
   const xml = typeof input === "string" ? input : Buffer.from(input).toString("utf8");
+  if (format === "xml1") {
+    return { stdout: xml, stderr: "" };
+  }
+  if (format !== "json") {
+    throw new Error(`Unsupported plist fixture format: ${format}`);
+  }
   const decode = (value: string) =>
     value
       .replaceAll("&apos;", "'")
@@ -10,9 +19,11 @@ export function decodeLaunchAgentPlistFixture(input: string | Uint8Array) {
       .replaceAll("&lt;", "<")
       .replaceAll("&amp;", "&");
   const args = xml.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1];
+  const label = xml.match(/<key>Label<\/key>\s*<string>([\s\S]*?)<\/string>/)?.[1];
   const environment = xml.match(/<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/)?.[1];
   return {
     stdout: JSON.stringify({
+      Label: label === undefined ? undefined : decode(label),
       ProgramArguments:
         args === undefined
           ? undefined

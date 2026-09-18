@@ -69,8 +69,7 @@ function moveSchemaSql(): string {
   return OPENCLAW_STATE_SCHEMA_SQL.slice(start, endMarkerStart + MOVE_SCHEMA_END.length);
 }
 
-// Single-slot per-handle memo: getPlacementMoves feeds the sessions read
-// projection, so the DDL/PRAGMA ensure must not run per read.
+// Placement reads feed the resident session projection; do not repeat DDL/PRAGMA per row.
 const ensuredMoveSchemaHandles = new WeakSet<DatabaseSync>();
 
 function ensureWorkerPlacementMoveSchema(db: DatabaseSync): void {
@@ -281,6 +280,14 @@ function findMoveRowBySession(db: DatabaseSync, sessionId: string): MoveRow | un
   );
 }
 
+export function readWorkerPlacementMove(
+  db: DatabaseSync,
+  sessionId: string,
+): WorkerPlacementMoveIntent | undefined {
+  const row = findMoveRowBySession(db, sessionId);
+  return row ? fromRow(row) : undefined;
+}
+
 function findMoveRowByOperation(db: DatabaseSync, operationId: string): MoveRow | undefined {
   if (!ensureExistingWorkerPlacementMoveSchema(db)) {
     return undefined;
@@ -373,8 +380,7 @@ export function createPlacementMoveOps(runtime: PlacementStoreRuntime) {
   const { read, write, now } = runtime;
   return {
     getPlacementMove(sessionId: string): WorkerPlacementMoveIntent | undefined {
-      const row = findMoveRowBySession(read(), required(sessionId, "move session id"));
-      return row ? fromRow(row) : undefined;
+      return readWorkerPlacementMove(read(), required(sessionId, "move session id"));
     },
 
     getPlacementMoves(

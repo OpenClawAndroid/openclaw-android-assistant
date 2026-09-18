@@ -489,8 +489,8 @@ function executeLaunchctlMock(file: string, args: string[]) {
 vi.mock("../process/exec.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../process/exec.js")>()),
   runExec: vi.fn(
-    async (_command: string, _args: string[], options: { input: string | Uint8Array }) =>
-      decodeLaunchAgentPlistFixture(options.input),
+    async (_command: string, args: string[], options: { input: string | Uint8Array }) =>
+      decodeLaunchAgentPlistFixture(options.input, args[1]),
   ),
 }));
 

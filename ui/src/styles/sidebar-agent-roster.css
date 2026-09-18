@@ -9,8 +9,6 @@ openclaw-sidebar-agent-roster {
 }
 .sidebar-workspace-header .sidebar-agent-card__name-text {
   padding-inline-end: 0;
-  mask-image: none;
-  text-overflow: ellipsis;
 }
 
 .sidebar-agent-roster__header {

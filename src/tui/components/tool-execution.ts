@@ -2,6 +2,7 @@
 import { Box, Container, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { asOptionalObjectRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
+import type { AgentActivityItem as AgentItemEventData } from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
 import { formatToolDetail, resolveToolDisplay } from "../../agents/tool-display.js";
 import { markdownTheme, tuiTheme as theme } from "../theme/theme.js";
 import * as tuiFormatters from "../tui-formatters.js";
@@ -144,7 +145,11 @@ export class ToolExecutionComponent extends Container {
   private toolName: string;
   private title = "";
   private isPartial = true;
+  private isError = false;
+  private result?: ToolResult;
   private images: MessageImages;
+  private activity?: AgentItemEventData | null;
+  private expanded = false;
 
   constructor(toolName: string, args: unknown, imageRenderer?: TuiImageRenderer) {
     super();
@@ -177,7 +182,29 @@ export class ToolExecutionComponent extends Container {
 
   /** Toggles preview/full output rendering for long tool results. */
   setExpanded(expanded: boolean) {
+    this.expanded = expanded;
     this.output.setExpanded(expanded);
+  }
+
+  get isActive() {
+    return this.activity ? this.activity.phase !== "end" : this.isPartial;
+  }
+
+  setActivity(activity: AgentItemEventData | null) {
+    this.activity = activity;
+    this.refreshResult();
+  }
+
+  override render(width: number): string[] {
+    if (
+      !this.expanded &&
+      (this.activity === null ||
+        this.activity?.hideFromChannelProgress ||
+        this.activity?.suppressChannelProgress)
+    ) {
+      return [];
+    }
+    return super.render(width);
   }
 
   /** Marks the tool call complete and renders final output. */
@@ -196,25 +223,42 @@ export class ToolExecutionComponent extends Container {
 
   private refreshTitle() {
     const title = tuiFormatters.sanitizeRenderableLine(
-      `${this.title}${this.isPartial ? " (running)" : ""}`,
+      this.activity
+        ? `${this.activity.title}${this.activity.status ? ` (${this.activity.status})` : ""}`
+        : `${this.title}${this.isPartial ? " (running)" : ""}`,
     );
     this.header.setText(theme.toolTitle(theme.bold(title)));
   }
 
   private updateResult(result: ToolResult | undefined, isPartial: boolean, isError = false) {
-    if (this.isPartial !== isPartial) {
-      this.isPartial = isPartial;
-      this.refreshTitle();
-    }
+    this.result = result;
+    this.isPartial = isPartial;
+    this.isError = isError;
+    this.refreshResult();
+    this.images.setImages(extractTuiImageSources(result));
+  }
+
+  private refreshResult() {
+    this.refreshTitle();
+    const status = this.activity?.status;
     this.box.setBgFn(
-      isPartial ? theme.toolPendingBg : isError ? theme.toolErrorBg : theme.toolSuccessBg,
+      this.isActive
+        ? theme.toolPendingBg
+        : this.activity
+          ? status === "failed"
+            ? theme.toolErrorBg
+            : status === "completed"
+              ? theme.toolSuccessBg
+              : undefined
+          : this.isError
+            ? theme.toolErrorBg
+            : theme.toolSuccessBg,
     );
-    const raw = extractText(result);
+    const raw = extractText(this.result);
     // Code Mode JSON is literal data; prose normalization can change values and escapes.
     this.output.setText(
-      raw.trim() ? raw : isPartial ? "…" : "",
-      isCodeModeResult(this.toolName, result),
+      raw.trim() ? raw : this.isActive ? "…" : "",
+      isCodeModeResult(this.toolName, this.result),
     );
-    this.images.setImages(extractTuiImageSources(result));
   }
 }

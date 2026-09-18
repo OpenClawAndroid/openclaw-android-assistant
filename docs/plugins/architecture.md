@@ -227,6 +227,49 @@ Runtime and setup retirement remove captured artifacts asynchronously and wait
 for removal to finish. Plugin callback deadlines do not end custody of those
 files; synchronous source inspection and failed capture still clean up before returning.
 
+Default source captures live under
+`<stateDir>/tmp/plugin-captures/<instanceId>/captures/`, with a random instance ID
+and an empty SQLite coordinator held for that instance's lifetime. Gateway
+metadata and its source captures retain the same process-local instance; a
+concurrent CLI process owns a separate instance. Releasing one capture cannot
+retire another capture or a still-running metadata owner.
+The shared cleanup timer does not retain the first command's invocation context.
+The managed `tmp/plugin-captures` subtree is excluded from source snapshots when
+the state directory is inside a plugin's source directory. Recovery can still
+load a preserved source package from within that subtree.
+
+This follows the native lifetime-token pattern used for
+[interrupted SQLite snapshots](/reference/database-schemas/integrity-and-recovery).
+Executable CLI commands release captures through their existing invocation
+resource scope; Gateway captures remain with metadata retirement. Snapshot
+cleanup owns SQLite staging files, while plugin cleanup owns this capture subtree.
+Neither adds a second process-shutdown owner. Reclamation removes captured
+payload before its coordinator so a partial deletion remains retryable.
+
+Startup and hourly cleanup inspect only this owned subtree. An instance becomes
+eligible after one hour, but age alone never authorizes removal: cleanup must
+also acquire its native coordinator, proving that no producer retains custody.
+Process exit releases the native lock even after a forced termination. PID
+names, process probes, and PID-reuse guesses are not used; a numeric PID cannot
+identify a producer across containers sharing a temporary directory. Contention,
+unreadable entries, symlinks, and entries without a coordinator preserve files.
+Removal remains asynchronous and advisory. This subtree is excluded from state
+backups because its captured package bytes are reconstructible.
+
+Metadata retention does not create directories until a source capture is needed.
+If the state directory cannot accept captures, loading falls back to an isolated
+system-temporary instance and reports a warning. Normal disposal still removes
+that instance; automatic cleanup does not scan unrelated system-temporary roots.
+There is no total disk quota, and an active instance may legitimately exceed the
+one-hour cleanup grace period.
+
+Older `openclaw-plugin-build-*` directories in the system temporary directory
+have no coordinator proving whether their producer is still alive. Startup,
+Doctor (including `--fix`), and update finalization preserve them. Neither age
+nor a lock for one state directory establishes ownership of captures from other
+profiles or containers sharing that temporary directory. No legacy files are
+moved or adopted by the new runtime.
+
 Configured Gateway agents share one model-catalog worker per plugin-inventory
 lifetime. Agent and authentication facts belong to each task; plugin registrations
 and captured source remain with the shared inventory. Standalone hosts that supply

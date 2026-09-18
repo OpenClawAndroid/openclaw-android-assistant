@@ -279,7 +279,7 @@ describe("server-owned pending input display", () => {
     }
     await loadChatHistory(host);
     expect(host.chatMessages).toHaveLength(1);
-    expect(host.request).toHaveBeenLastCalledWith(
+    expect(host.request.mock.calls.findLast(([method]) => method === "chat.history")).toEqual([
       "chat.history",
       expect.objectContaining({
         inputRunIds: Array.from(
@@ -288,14 +288,14 @@ describe("server-owned pending input display", () => {
         ),
       }),
       { signal: expect.any(AbortSignal) },
-    );
+    ]);
     await loadChatHistory(host);
     expect(host.chatMessages).toEqual([]);
-    expect(host.request).toHaveBeenLastCalledWith(
+    expect(host.request.mock.calls.findLast(([method]) => method === "chat.history")).toEqual([
       "chat.history",
       expect.objectContaining({ inputRunIds: ["source-50"] }),
       { signal: expect.any(AbortSignal) },
-    );
+    ]);
   });
 
   it.each(["page", "delta"])(

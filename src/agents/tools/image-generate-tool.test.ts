@@ -346,7 +346,7 @@ describe("createImageGenerateTool", () => {
       );
       return {
         ...actual,
-        getProviderEnvVars: (providerId: string) => {
+        getProviderEnvVarsCore: (providerId: string) => {
           if (providerId === "google") {
             return ["GEMINI_API_KEY", "GOOGLE_API_KEY"];
           }

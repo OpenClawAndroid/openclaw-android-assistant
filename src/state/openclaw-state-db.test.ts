@@ -4421,26 +4421,6 @@ describe("openclaw state database", () => {
     }
   });
 
-  it("drops unreleased transient verification history on open", () => {
-    const stateDir = createTempStateDir();
-    const options = { env: { OPENCLAW_STATE_DIR: stateDir } };
-    const databasePath = materializeCurrentStateDatabase(stateDir);
-
-    const transientHistoryTable = ["database", "verifications"].join("_");
-    const { DatabaseSync } = requireNodeSqlite();
-    const legacy = new DatabaseSync(databasePath);
-    legacy.exec(`CREATE TABLE ${transientHistoryTable} (path TEXT PRIMARY KEY) STRICT;`);
-    markStateDatabaseAsPreviousAppVersion(legacy);
-    legacy.close();
-
-    const reopened = openOpenClawStateDatabase(options);
-    expect(
-      reopened.db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-        .get(transientHistoryTable),
-    ).toBeUndefined();
-  });
-
   it("adopts a canonical device identity seed database without losing the identity", () => {
     const stateDir = createTempStateDir();
     const databasePath = path.join(stateDir, "state", "openclaw.sqlite");
@@ -7647,7 +7627,7 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
     });
   });
 
-  it("normalizes obsolete task delivery statuses in existing state databases", async () => {
+  it("leaves obsolete task delivery statuses unchanged until Doctor repairs them", async () => {
     await withOpenClawTestState(
       { layout: "state-only", prefix: "openclaw-state-task-delivery-status-" },
       async ({ stateDir }) => {
@@ -7689,6 +7669,15 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
           { task_id: "pending", delivery_status: "pending" },
         ];
 
+        expect(readStatuses()).toEqual([
+          { task_id: "canonical", delivery_status: "not_applicable" },
+          { task_id: "obsolete", delivery_status: "not-requested" },
+          { task_id: "pending", delivery_status: "pending" },
+        ]);
+        closeOpenClawStateDatabaseForTest();
+        expect(
+          repairOpenClawStateDatabaseSchema({ env: { OPENCLAW_STATE_DIR: stateDir } }).warnings,
+        ).toEqual([]);
         expect(readStatuses()).toEqual(expectedStatuses);
         expect(
           [...loadTaskRegistryStateFromSqlite().tasks.values()].map((task) => ({
@@ -8548,31 +8537,30 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
     });
   });
 
-  it("repairs null schema metadata once before using the current-schema fast path", () => {
+  it("leaves optional writer metadata unchanged when the current schema needs no migration", () => {
     const stateDir = createTempStateDir();
     const options = { env: { OPENCLAW_STATE_DIR: stateDir } };
     const databasePath = openOpenClawStateDatabase(options).path;
     closeOpenClawStateDatabaseForTest();
 
     const { DatabaseSync } = requireNodeSqlite();
-    const corrupt = new DatabaseSync(databasePath);
-    corrupt
+    const fixture = new DatabaseSync(databasePath);
+    fixture
       .prepare(
         "UPDATE schema_meta SET app_version = NULL, updated_at = 1 WHERE meta_key = 'primary'",
       )
       .run();
-    corrupt.close();
+    fixture.close();
 
     openOpenClawStateDatabase(options);
     closeOpenClawStateDatabaseForTest();
 
-    const afterRepair = new DatabaseSync(databasePath, { readOnly: true });
-    const repaired = afterRepair
+    const afterOpen = new DatabaseSync(databasePath, { readOnly: true });
+    const metadata = afterOpen
       .prepare("SELECT app_version, updated_at FROM schema_meta WHERE meta_key = 'primary'")
-      .get() as { app_version: string; updated_at: number };
-    afterRepair.close();
-    expect(repaired.app_version).toBe(VERSION);
-    expect(repaired.updated_at).toBeGreaterThan(1);
+      .get();
+    afterOpen.close();
+    expect(metadata).toEqual({ app_version: null, updated_at: 1 });
 
     openOpenClawStateDatabase(options);
     closeOpenClawStateDatabaseForTest();
@@ -8583,7 +8571,7 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
         afterReopen
           .prepare("SELECT app_version, updated_at FROM schema_meta WHERE meta_key = 'primary'")
           .get(),
-      ).toEqual(repaired);
+      ).toEqual(metadata);
     } finally {
       afterReopen.close();
     }

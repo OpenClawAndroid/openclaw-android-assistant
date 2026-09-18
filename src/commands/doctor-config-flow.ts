@@ -286,6 +286,18 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
       explicitSetPaths.push(["agents", "ownership"]);
     }
   }
+  const { prepareSessionStoreOwnerRecovery } = await import("./doctor-session-store-owner.js");
+  const sessionStoreOwnerRecovery = await prepareSessionStoreOwnerRecovery({
+    config: state.candidate,
+    snapshot,
+    prompter: params.prompter,
+  });
+  applyConfigMutation(sessionStoreOwnerRecovery, {
+    fixHint: `Run "${doctorFixCommand}" to review session-store ownership recovery.`,
+    sanitize: true,
+    emitWarnings: true,
+  });
+
   const { collectBlockedLegacyOpenAICodexProviderPlan } =
     await import("./doctor/shared/legacy-config-migrations.runtime.models.js");
   const blockedCodexProviderPlan = collectBlockedLegacyOpenAICodexProviderPlan(state.candidate);
@@ -678,6 +690,14 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
 
   return {
     ...finalized,
+    ...(shouldWriteConfig && sessionStoreOwnerRecovery.changes.length > 0
+      ? {
+          confirmedConfigSource: {
+            path: snapshot.path,
+            hash: snapshot.hash ?? hashConfigRaw(snapshot.raw),
+          },
+        }
+      : {}),
     sourceConfigForWrite: snapshot.sourceConfig,
     ...(pluginInstallConfigImport ? { pluginInstallConfigImport } : {}),
     path: snapshot.path ?? CONFIG_PATH,

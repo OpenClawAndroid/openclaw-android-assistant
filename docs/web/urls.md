@@ -64,6 +64,12 @@ start of the key's trailing UUID, with UUID dashes omitted. Longer prefixes up
 to all 32 hexadecimal characters are accepted. The row's rotating `sessionId`
 is not part of the URL identity.
 
+The Control UI generates links with all 32 UUID characters by default, so a
+selected session keeps its identity even when another session shares its prefix
+and display name. Existing shorter links still resolve, and the disambiguation
+view can offer the shortest unique prefix. Resolving a literal or display-name
+link to a UUID session also keeps the full UUID in its canonical URL.
+
 Every other key uses the literal-key form. Each colon-delimited segment after
 `agent:<agentId>:` becomes one URL-encoded path segment. For example,
 `agent:main:telegram:12345` becomes `/chat/main/telegram/12345`, and

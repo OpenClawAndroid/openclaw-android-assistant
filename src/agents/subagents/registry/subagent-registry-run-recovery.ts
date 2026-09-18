@@ -294,7 +294,9 @@ export class SubagentRecoveryManager extends SubagentWaitManager {
       return (
         session?.sessionId === acceptedReceipt.sessionId &&
         (acceptedReceipt.sessionLifecycleRevision === undefined ||
-          session.lifecycleRevision === acceptedReceipt.sessionLifecycleRevision)
+          session.lifecycleRevision === acceptedReceipt.sessionLifecycleRevision) &&
+        (acceptedReceipt.sessionLifecycleRunId === undefined ||
+          session.lifecycleRunId === acceptedReceipt.sessionLifecycleRunId)
       );
     };
     try {
@@ -372,6 +374,7 @@ export class SubagentRecoveryManager extends SubagentWaitManager {
     sessionId: string;
     sessionMarker: string;
     sessionLifecycleRevision?: string;
+    sessionLifecycleRunId?: string;
     idempotencyKey: string;
   }): string | undefined => {
     const runId = reserveParams.runId.trim();
@@ -394,7 +397,10 @@ export class SubagentRecoveryManager extends SubagentWaitManager {
     }
     const existing = entry.execution.restartRecovery;
     if (existing?.sessionMarker === sessionMarker && existing.idempotencyKey.trim().length > 0) {
-      return existing.idempotencyKey;
+      return existing.sessionLifecycleRunId === undefined ||
+        existing.sessionLifecycleRunId === reserveParams.sessionLifecycleRunId
+        ? existing.idempotencyKey
+        : undefined;
     }
     const previousLease = existing;
     const previousCollectorLaunch = {
@@ -405,6 +411,7 @@ export class SubagentRecoveryManager extends SubagentWaitManager {
       sessionId,
       sessionMarker,
       sessionLifecycleRevision: reserveParams.sessionLifecycleRevision,
+      sessionLifecycleRunId: reserveParams.sessionLifecycleRunId,
       idempotencyKey,
       phase: "reserved",
     };
@@ -670,6 +677,7 @@ export class SubagentRecoveryManager extends SubagentWaitManager {
       sessionId: receipt.sessionId,
       sessionMarker: receipt.sessionMarker,
       sessionLifecycleRevision: receipt.sessionLifecycleRevision,
+      sessionLifecycleRunId: receipt.sessionLifecycleRunId,
       idempotencyKey: receipt.idempotencyKey,
       phase: "reserved" as const,
     };

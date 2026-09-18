@@ -74,9 +74,7 @@ async function handleSessionsList(params: Record<string, unknown>) {
 
 async function handleSessionsResolve(params: Record<string, unknown>) {
   const rt = await getRuntime();
-  const cfg = rt.getRuntimeConfig();
-  const resolved = await rt.resolveSessionKeyFromResolveParams({
-    cfg,
+  const resolved = rt.resolveSessionKeyFromResolveParams({
     projection: await borrowSessionRowProjection(),
     client: null,
     p: params as SessionsResolveParams,

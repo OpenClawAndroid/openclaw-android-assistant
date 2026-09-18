@@ -131,6 +131,7 @@ describe("selected route thinking metadata at runtime preparation", () => {
       allowGatewaySubagentBinding: false,
       modelCatalog: { entries: [], routeVariants: [] },
       configuredRuntimeModels: [],
+      findConfiguredRuntimeModel: () => undefined,
       inlineProviderModels: [],
       createStores: createEmptyAgentDiscoveryStores,
     };

@@ -70,6 +70,30 @@ suite.define(() => {
       expect(await gateway.getRequests("chat.send")).toHaveLength(0);
       await expect.poll(() => welcome.count()).toBe(0);
       await expect.poll(() => setupAction.count()).toBe(1);
+      await expect
+        .poll(() =>
+          page.locator(".agent-chat__composer-shell").evaluate((shell) => {
+            const banner = shell.querySelector(".agent-chat__disabled-banner");
+            const input = shell.querySelector(".agent-chat__input");
+            if (!banner || !input) {
+              throw new Error("expected setup notice above the composer");
+            }
+            const bannerStyle = getComputedStyle(banner);
+            const inputStyle = getComputedStyle(input);
+            const bannerBox = banner.getBoundingClientRect();
+            const inputBox = input.getBoundingClientRect();
+            return {
+              radiusMatches: bannerStyle.borderRadius === inputStyle.borderRadius,
+              shapeMatches:
+                bannerStyle.getPropertyValue("corner-shape") ===
+                inputStyle.getPropertyValue("corner-shape"),
+              edgesMatch:
+                Math.abs(bannerBox.left - inputBox.left) <= 1 &&
+                Math.abs(bannerBox.right - inputBox.right) <= 1,
+            };
+          }),
+        )
+        .toEqual({ radiusMatches: true, shapeMatches: true, edgesMatch: true });
       await captureProof(page, "chat-help-desktop.png");
       await setupAction.click();
       await expect.poll(() => new URL(page.url()).pathname).toBe("/settings/model-setup");

@@ -17,7 +17,9 @@ Sub-agents use a dedicated in-process queue lane:
 Retained blocked completions also protect the gateway from unbounded fan-out.
 OpenClaw warns when the delivery backlog reaches 25 and blocks new subagent
 spawns at 50 until operators retry or dismiss enough retained deliveries. It
-does not prune results to make room.
+does not prune results to make room. Within a Gateway process, unchanged backlog
+counts do not repeat the warning every sweep. A count change at or above 25, or
+a return to that threshold after recovery, produces a new warning.
 
 ## Liveness and recovery
 
@@ -33,12 +35,14 @@ status summaries, descendant completion gating, and per-session concurrency
 checks; they are not proof that an executor is live.
 
 After a Gateway restart, fresh interrupted sub-agents resume automatically
-from their existing child transcript. Recovery handles both sessions marked
+from their latest execution transcript, including progress made during an earlier
+recovery. Recovery handles both sessions marked
 `abortedLastRun: true` and hard kills that prevented the shutdown marker from
 being written. For a hard kill, the child session must still identify the exact
 running sub-agent from the retired Gateway process, with no newer run or admitted
 work owning that session. Stale interrupted runs and other stale unended restored
-runs are finalized without a resume. Orphaned runs settle their background task
+runs are finalized without a resume; detecting a hard kill preserves the last
+observed activity timestamp. Orphaned runs settle their background task
 before cleanup, so retained child sessions do not leave phantom running activity.
 If the task update fails, completion remains available for retry.
 

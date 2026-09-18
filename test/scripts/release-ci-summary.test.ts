@@ -192,11 +192,46 @@ describe("original publication admission reader", () => {
     "wrong-route",
     "continuation",
     "continuation-mutated",
+    "continuation-unsupported",
+    "continuation-diagnostic-unsupported",
+    "continuation-diagnostic-missing-witness",
   ])("authenticates B in the complete strict summary: %s", async (fault) => {
     const fixture = publicationRestoreFixture(
       true,
       fault === "core-prepared" ? "prepared" : "normal",
     );
+    const continuation = fault.startsWith("continuation");
+    const restoreContract = continuation && !fault.endsWith("unsupported");
+    if (fault.includes("diagnostic")) {
+      const {
+        repository,
+        candidateSha,
+        targetContextRef,
+        tooling,
+        workflow,
+        runId,
+        runAttempt,
+        coverage,
+      } = fixture.source;
+      fixture.source = createPublicationSourceFact(
+        {
+          repository,
+          candidateSha,
+          targetContextRef,
+          tooling,
+          workflow,
+          runId,
+          runAttempt,
+          coverage,
+          validationPurpose: "diagnostic",
+          publicationSelection: null,
+        },
+        null,
+        null,
+      );
+      Object.assign(fixture.plan, { sourceAdmission: fixture.source, publicationAdmission: null });
+      fixture.plan.sha256 = releaseExecutionPlanSha256(fixture.plan);
+    }
     Object.assign(fixture.manifest, {
       sourceAdmissionContract: "1",
       sourceAdmission: fixture.source,
@@ -224,6 +259,7 @@ describe("original publication admission reader", () => {
         steps: [{ name: "Finalize publication admission", conclusion: "success" }],
       },
       {
+        id: 902,
         name: "Seal release execution plan",
         run_attempt: 1,
         status: "completed",
@@ -245,6 +281,18 @@ describe("original publication admission reader", () => {
             started_at: "2026-08-28T12:01:01.000Z",
             completed_at: "2026-08-28T12:01:03.000Z",
           },
+          ...(restoreContract
+            ? [
+                {
+                  name: "Record immutable release execution plan digest",
+                  number: 7,
+                  status: "completed",
+                  conclusion: fault.endsWith("missing-witness") ? "skipped" : "success",
+                  started_at: "2026-08-28T12:01:03.000Z",
+                  completed_at: "2026-08-28T12:01:03.000Z",
+                },
+              ]
+            : []),
         ],
       },
     ];
@@ -257,12 +305,16 @@ describe("original publication admission reader", () => {
     };
     const client = {
       ...fixture.client,
-      getJobLog: async (id: number) => fixture.client.getJobLog(id),
+      getJobLog: async (id: number) =>
+        id === 902
+          ? `2026-08-28T12:01:03.750Z FRV_EXECUTION_PLAN_SHA256=${releaseExecutionPlanSha256(fixture.plan)}\n`
+          : fixture.client.getJobLog(id),
       getRun: async (id: string) => fixture.client.getRun(id),
       getParentJobs: async (id: string) => fixture.client.getParentJobs(id),
       getWorkflowSource: vi.fn(
         () =>
-          'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n',
+          'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n' +
+          (restoreContract ? '  FULL_RELEASE_EXECUTION_PLAN_RESTORE_CONTRACT: "1"\n' : ""),
       ),
       getRunAttempt: vi.fn((runId: string, attempt: number) => {
         expect(attempt).toBe(1);
@@ -306,9 +358,12 @@ describe("original publication admission reader", () => {
         admission.binding.observationsDigest = `sha256:${createHash("sha256").update(publicationObservationJson(admission.observations)).digest("hex")}`;
         observed.sha256 = releaseExecutionPlanSha256(observed);
       }
-      const result = preflightContinuation(observed, fixture.runId, {
+      const continuationClient = {
         getReleaseEvidenceClient: () => client,
         getRun: client.getRun,
+        getAttemptJobs: vi.fn(async () => {
+          throw new Error("unsupported parent must not read child attempts");
+        }),
         getParentJobs: async () => [
           ...originalJobs,
           ...fixture.client.getParentJobs(fixture.runId),
@@ -319,15 +374,30 @@ describe("original publication admission reader", () => {
           id === 901
             ? `RERUN_GROUP: all\nFAIL_FAST: false\nTARGET_SHA: ${fixture.targetSha}`
             : fixture.client.getJobLog(id),
-      });
+        rerunFailed: vi.fn(),
+        rerunParent: vi.fn(),
+      };
+      const unsupported = fault.endsWith("unsupported") || fault.endsWith("missing-witness");
+      const result = unsupported
+        ? continueFailed(observed, fixture.runId, continuationClient)
+        : preflightContinuation(observed, fixture.runId, continuationClient);
       if (fault === "continuation") {
         await expect(result).resolves.toBeDefined();
+      } else if (unsupported) {
+        await expect(result).rejects.toThrow(
+          fault.endsWith("unsupported")
+            ? "frozen workflow cannot restore publication admission"
+            : "publication original plan digest witness did not succeed",
+        );
+        expect(continuationClient.rerunFailed).not.toHaveBeenCalled();
+        expect(continuationClient.rerunParent).not.toHaveBeenCalled();
+        expect(continuationClient.getAttemptJobs).not.toHaveBeenCalled();
       } else {
         await expect(result).rejects.toThrow(
           "continuation differs from the authenticated original publication plan",
         );
       }
-      expect(client.loadExecutionPlanEvidence).toHaveBeenCalledTimes(1);
+      expect(client.loadExecutionPlanEvidence).toHaveBeenCalledTimes(unsupported ? 0 : 1);
       return;
     }
     const result = consumerCase
@@ -379,6 +449,19 @@ describe("original publication admission reader", () => {
     "workflow-plan-restore",
     "workflow-plan-mutated",
     "workflow-plan-prewrite",
+    "workflow-restore-cached",
+    "workflow-plan-cached",
+    "cached-plan-mutated",
+    "cached-plan-missing-witness",
+    "cached-plan-duplicate-witness",
+    "cached-plan-outside-witness",
+    "cached-plan-wrong-witness-step",
+    "cached-plan-duplicate-witness-step",
+    "cached-plan-failed-witness",
+    "cached-plan-failed-upload",
+    "cached-plan-historical",
+    "reuploaded-plan",
+    "reuploaded-plan-mutated",
     "interrupted-sealer",
     "missing-sealer",
     "duplicate-sealer",
@@ -404,6 +487,19 @@ describe("original publication admission reader", () => {
     "changed-selection",
   ])("authenticates retained attempt one before any new observations: %s", (fault) => {
     const fixture = publicationRestoreFixture();
+    const cachedRestore = fault.includes("cached");
+    const witnessContract =
+      (cachedRestore && fault !== "cached-plan-historical") || fault.startsWith("reuploaded-plan");
+    const originalPlanDigest = releaseExecutionPlanSha256(fixture.plan);
+    if (fault === "cached-plan-mutated" || fault === "reuploaded-plan-mutated") {
+      const row = expectDefined(fixture.admission.observations.npm[0], "root observation");
+      if (row.outcome !== "observed") {
+        throw new Error("fixture root observation unavailable");
+      }
+      row.state.latestVersion = "2026.8.27";
+      fixture.admission.binding.observationsDigest = `sha256:${createHash("sha256").update(publicationObservationJson(fixture.admission.observations)).digest("hex")}`;
+      fixture.plan.sha256 = releaseExecutionPlanSha256(fixture.plan);
+    }
     const root = tempDirs.make("publication-original-reader-");
     const request = join(root, "request.json");
     const fixturesPath = join(root, "fixtures.json");
@@ -415,7 +511,8 @@ describe("original publication admission reader", () => {
       'env:\n  FULL_RELEASE_SOURCE_ADMISSION_CONTRACT: "1"\n' +
         (fault === "deleted-capability"
           ? ""
-          : '  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n'),
+          : '  FULL_RELEASE_PUBLICATION_ADMISSION_CONTRACT: "1"\n') +
+        (witnessContract ? '  FULL_RELEASE_EXECUTION_PLAN_RESTORE_CONTRACT: "1"\n' : ""),
     );
     if (fault === "deleted-admission") {
       Reflect.deleteProperty(fixture.plan, "publicationAdmissionContract");
@@ -579,7 +676,9 @@ try {
       digest: `sha256:${fault === "wrong-archive-digest" ? "a".repeat(64) : createHash("sha256").update(archive).digest("hex")}`,
       expired: false,
       created_at:
-        fault === "late-artifact" ? "2026-08-29T12:01:02.000Z" : "2026-08-28T12:01:02.000Z",
+        fault === "late-artifact" || fault.startsWith("reuploaded-plan")
+          ? "2026-08-29T12:01:02.000Z"
+          : "2026-08-28T12:01:02.000Z",
       workflow_run: {
         id: Number(fixture.runId),
         head_branch: "main",
@@ -587,7 +686,7 @@ try {
       },
     };
     const artifacts =
-      fault === "missing-plan"
+      fault === "missing-plan" || cachedRestore
         ? []
         : fault === "duplicate-plan"
           ? [artifact, { ...artifact, id: 457 }]
@@ -654,7 +753,7 @@ try {
                     number: fault === "upload-before-seal" ? 4 : 6,
                     status: "completed",
                     conclusion:
-                      fault === "failed-upload"
+                      fault === "failed-upload" || fault === "cached-plan-failed-upload"
                         ? "failure"
                         : fault === "skipped-upload"
                           ? "skipped"
@@ -662,12 +761,35 @@ try {
                     started_at: "2026-08-28T12:01:01.000Z",
                     completed_at: "2026-08-28T12:01:03.000Z",
                   },
+                  ...(witnessContract
+                    ? Array.from(
+                        { length: fault === "cached-plan-duplicate-witness-step" ? 2 : 1 },
+                        (_witness, witnessIndex) => ({
+                          name:
+                            fault === "cached-plan-wrong-witness-step"
+                              ? "Unrelated successful step"
+                              : "Record immutable release execution plan digest",
+                          number: 7 + witnessIndex,
+                          status: "completed",
+                          conclusion:
+                            fault === "cached-plan-failed-witness" ? "failure" : "success",
+                          started_at: "2026-08-28T12:01:03.000Z",
+                          completed_at: "2026-08-28T12:01:03.000Z",
+                        }),
+                      )
+                    : []),
                 ],
               }))),
         ],
       },
       listing: { total_count: fault === "incomplete-list" ? 2 : artifacts.length, artifacts },
       artifact,
+      log:
+        fault === "cached-plan-missing-witness"
+          ? "2026-08-28T12:01:03.750Z unrelated output\n"
+          : `${fault === "cached-plan-outside-witness" ? "2026-08-28T12:01:02.750Z" : "2026-08-28T12:01:03.750Z"} FRV_EXECUTION_PLAN_SHA256=${originalPlanDigest}\n`.repeat(
+              fault === "cached-plan-duplicate-witness" ? 2 : 1,
+            ),
     };
     writeFileSync(request, JSON.stringify(fixture.request));
     writeFileSync(fixturesPath, JSON.stringify(fixtures));
@@ -685,6 +807,9 @@ if (endpoint === "repos/openclaw/openclaw/actions/runs/${fixture.runId}/attempts
 else if (endpoint.startsWith("repos/openclaw/openclaw/actions/runs/${fixture.runId}/attempts/1/jobs?")) value = fixture.jobs;
 else if (endpoint === "repos/openclaw/openclaw/contents/${workflowPath}?ref=${fixture.workflowSha}") value = fixture.workflow;
 else if (endpoint.startsWith("repos/openclaw/openclaw/actions/runs/${fixture.runId}/artifacts?")) value = fixture.listing;
+else if (endpoint === "repos/openclaw/openclaw/actions/jobs/1000/logs") {
+  process.stdout.write(fixture.log); process.exit(0);
+}
 else if (endpoint === "repos/openclaw/openclaw/actions/artifacts/456") value = fixture.artifact;
 else if (endpoint === "repos/openclaw/openclaw/actions/artifacts/456/zip") {
   process.stdout.write(fs.readFileSync(${JSON.stringify(archivePath)})); process.exit(0);
@@ -695,9 +820,14 @@ process.stdout.write(JSON.stringify(value));
     );
     const workflowRestore = fault.startsWith("workflow-restore");
     const planRestore = fault.startsWith("workflow-plan");
-    const cachedPlanPath = join(root, "cached-plan.json");
+    const cachedPlanPath = join(
+      root,
+      "full-release-execution-plan",
+      "full-release-execution-plan.json",
+    );
     const originalPlanBytes = JSON.stringify(fixture.plan) + "\n";
-    if (planRestore) {
+    if (planRestore || cachedRestore) {
+      mkdirSync(dirname(cachedPlanPath), { recursive: true });
       const cached = structuredClone(fixture.plan);
       if (fault === "workflow-plan-mutated") {
         // A self-consistent cache is still not authority over the authenticated original.
@@ -738,7 +868,7 @@ process.stdout.write(JSON.stringify(value));
 import { readFileSync } from "node:fs";
 import { restoreOriginalPublicationAdmission } from ${JSON.stringify(pathToFileURL(resolve(SCRIPT)).href)};
 const request = JSON.parse(readFileSync(${JSON.stringify(request)}, "utf8"));
-const restored = await restoreOriginalPublicationAdmission({ request });
+const restored = await restoreOriginalPublicationAdmission({ request${cachedRestore ? `, cachedPlan: JSON.parse(readFileSync(${JSON.stringify(cachedPlanPath)}, "utf8"))` : ""} });
 process.stdout.write(JSON.stringify(restored));
 `,
             ],
@@ -748,8 +878,10 @@ process.stdout.write(JSON.stringify(restored));
           PATH: `${root}:${process.env.PATH ?? ""}`,
           OPENCLAW_GH_BIN: gh,
           GH_TOKEN: "synthetic-evidence-token",
-          GITHUB_RUN_ATTEMPT: fault === "workflow-plan-prewrite" ? "1" : "2",
+          GITHUB_RUN_ATTEMPT:
+            fault === "workflow-plan-prewrite" ? "1" : fault === "workflow-plan-cached" ? "3" : "2",
           RUNNER_TEMP: root,
+          FULL_RELEASE_EXECUTION_PLAN_PATH: cachedPlanPath,
           GITHUB_OUTPUT: join(root, "outputs"),
           PUBLICATION_REQUIRED: "true",
           // A new observation path cannot run without this unavailable target.
@@ -784,13 +916,17 @@ process.stdout.write(JSON.stringify(restored));
     expect(calls).not.toContain("clawhub.ai");
     expect(calls).not.toContain("auth");
     expect(calls).not.toContain("/444");
-    if (fault === "workflow-plan-restore") {
+    if (fault === "workflow-plan-restore" || fault === "workflow-plan-cached") {
       expect(result.status, result.stderr).toBe(0);
       expect(readFileSync(cachedPlanPath, "utf8")).toBe(originalPlanBytes);
-      expect(calls.trim().split("\n")).toHaveLength(6);
+      if (cachedRestore) {
+        expect(calls).not.toContain("/artifacts");
+      }
     } else if (
       fault === "complete" ||
       fault === "workflow-restore" ||
+      fault === "workflow-restore-cached" ||
+      fault === "reuploaded-plan" ||
       fault === "interrupted-sealer"
     ) {
       expect(result.status, result.stderr).toBe(0);
@@ -807,7 +943,9 @@ process.stdout.write(JSON.stringify(restored));
       expect(restored.source).toEqual(fixture.source);
       expect(restored.admission).toEqual(fixture.admission);
       expect(restored.plan.sha256).toBe(fixture.plan.sha256);
-      expect(calls.trim().split("\n")).toHaveLength(6);
+      if (cachedRestore) {
+        expect(calls).not.toContain("/artifacts");
+      }
       expect(existsSync(join(root, "publication-observations.json"))).toBe(false);
     } else {
       expect(result.status, result.stderr).not.toBe(0);
@@ -817,7 +955,7 @@ process.stdout.write(JSON.stringify(restored));
         expect(result.stderr).toContain("differs from its authenticated original");
       }
     }
-    if (planRestore) {
+    if (planRestore && !cachedRestore) {
       const workflow = parse(readFileSync(".github/workflows/full-release-validation.yml", "utf8"));
       const upload = workflow.jobs.release_execution_plan.steps.find(
         (step: { name: string }) => step.name === "Upload immutable release execution plan",

@@ -55,6 +55,7 @@ export function subscribeEmbeddedAgentSession(params: SubscribeEmbeddedAgentSess
     getUsageTotals,
     getLastAssistantUsage,
     getCurrentAttemptAssistant,
+    hasSuccessfulModelResponse,
   } = createEmbeddedModelState(params, log);
   let compactionCount = 0;
   const assistantTexts = state.assistantTexts;
@@ -450,6 +451,7 @@ export function subscribeEmbeddedAgentSession(params: SubscribeEmbeddedAgentSess
     assistantTexts,
     answerSegments: state.answerSegments,
     getCurrentAttemptAssistant,
+    hasSuccessfulModelResponse,
     getLastAssistantTextMessageIndex: () =>
       state.lastAssistantTextMessageIndex >= 0 ? state.lastAssistantTextMessageIndex : undefined,
     toolMetas,

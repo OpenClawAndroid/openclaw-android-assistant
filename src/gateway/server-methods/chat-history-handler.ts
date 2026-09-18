@@ -53,6 +53,8 @@ import { prepareSessionWorkspaceIcon } from "../workspace-icon-http.js";
 import {
   CHAT_HISTORY_MAX_SINGLE_MESSAGE_BYTES,
   createChatHistoryByteCounter,
+  createChatHistoryActivityProjection,
+  chatHistoryActivityBytes,
   replaceOversizedChatHistoryMessages,
   reportOmittedChatHistory,
   trimChatHistoryActivity,
@@ -384,7 +386,8 @@ export async function handleChatHistoryRequest({
     : maxHistoryBytes;
   // A smaller page budget must not replace otherwise readable messages. The
   // tail cap keeps one whole message; the server's single-message cap still applies.
-  const byteCounter = createChatHistoryByteCounter();
+  const activity = createChatHistoryActivityProjection(normalized, historyPage.activity);
+  const byteCounter = createChatHistoryByteCounter(activity);
   const replaced = replaceOversizedChatHistoryMessages({
     byteCounter,
     messages: normalized,
@@ -408,10 +411,14 @@ export async function handleChatHistoryRequest({
         messages: prioritized,
         messageId,
         // A nonempty JSON array costs one framing byte plus each message and its separator.
-        maxCost: responseHistoryBytes - 1,
+        maxCost: responseHistoryBytes - 1 - byteCounter.framingBytes(prioritized),
         messageCost: (message) => byteCounter.messageBytes(message) + 1,
       })
-    : capArrayByJsonBytes(prioritized, responseHistoryBytes, byteCounter.messageBytes).items;
+    : capArrayByJsonBytes(
+        prioritized,
+        responseHistoryBytes - byteCounter.framingBytes(prioritized),
+        byteCounter.messageBytes,
+      ).items;
   const historyBudgetPreserved =
     replaced.replacedCount === 0 &&
     capped.length === normalized.length &&
@@ -658,11 +665,12 @@ export async function handleChatHistoryRequest({
     const boundedInFlightRun = boundInFlightRunSnapshotForChatHistory({
       snapshot: inFlightRun,
       messages: delta.messages,
-      maxBytes: maxHistoryBytes,
+      maxBytes: maxHistoryBytes - chatHistoryActivityBytes(delta.activity),
     });
     respond(true, {
       kind: "delta",
       messages: delta.messages,
+      ...(delta.activity.length > 0 ? { activity: delta.activity } : {}),
       deltaCursor: delta.deltaCursor,
       pendingInputs,
       ...(inputReceipts ? { inputReceipts, inputConsumptions } : {}),
@@ -682,6 +690,9 @@ export async function handleChatHistoryRequest({
     sessionKey,
     sessionId,
     messages: composeTranscriptDisplay(capped),
+    ...(capped.some((message) => activity.has(message))
+      ? { activity: capped.flatMap((message) => activity.get(message) ?? []) }
+      : {}),
     pendingInputs,
     ...(inputReceipts ? { inputReceipts, inputConsumptions } : {}),
     ...(historyPage.deltaCursor ? { deltaCursor: historyPage.deltaCursor } : {}),

@@ -1,8 +1,7 @@
 import { isResponsesOutputLimitToolCallError } from "@openclaw/ai/diagnostics";
-import { isProviderRefusalAssistantError } from "@openclaw/llm-core/diagnostics";
 import { emitAgentEvent } from "../../../infra/agent-events.js";
 import { formatErrorMessage, toErrorObject } from "../../../infra/errors.js";
-import { isRetryableAssistantError } from "../../../llm/utils/retry.js";
+import { isRetryableAssistantError, isTerminalAssistantError } from "../../../llm/utils/retry.js";
 import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../../defaults.js";
 import type { FailoverReason } from "../../embedded-agent-helpers.js";
@@ -350,7 +349,7 @@ export async function recoverEmbeddedRunAttempt(input: {
     !attempt.codexAppServerFailure &&
     !findCliTerminalStopError(promptError) &&
     (!promptError || promptErrorSource === "prompt") &&
-    !isProviderRefusalAssistantError(attemptAssistant) &&
+    !isTerminalAssistantError(attemptAssistant) &&
     (!outputLimitFailure || canContinueOutputLimit) &&
     recoveryReason &&
     (await failoverRetryController.maybeRetryTransient({

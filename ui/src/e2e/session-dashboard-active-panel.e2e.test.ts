@@ -4,6 +4,7 @@ import {
   controlUiSessionUrl,
   installMockGateway,
 } from "../test-helpers/control-ui-e2e.ts";
+import { openChatSidePanelType } from "./chat-side-panel.test-support.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 
 const suite = createControlUiE2eSuite({
@@ -20,6 +21,55 @@ const boardSnapshot = {
 };
 
 suite.define(() => {
+  it("keeps the selected Side chat and its transcript after reloading a dashboard", async () => {
+    await suite.withPage({ viewport: { height: 900, width: 1440 } }, async ({ page }) => {
+      await installMockGateway(page, {
+        sessionKey,
+        sessions: [
+          {
+            key: sessionKey,
+            agentId: "main",
+            sessionId: "dashboard-active-panel",
+            kind: "direct",
+            updatedAt: 1,
+            boardFace: "dashboard",
+            boardPresentation: "split",
+          },
+        ],
+        featureMethods: ["board.get", "chat.metadata", "chat.startup"],
+        methodResponses: {
+          "board.get": boardSnapshot,
+          "sessions.companion.state": {
+            exchanges: [
+              {
+                question: "What should I check?",
+                answer: "Keep this side conversation visible.",
+                ts: 1_000,
+              },
+            ],
+          },
+        },
+      });
+      await page.goto(controlUiSessionUrl(suite.server.baseUrl, sessionKey, "dashboard"));
+      await page.locator(".board-session-surface").waitFor();
+      await page.locator(".chat-panel-swap").click();
+      const dashboardMain = page.locator('[data-panel-slot="dashboard"][data-region="main"]');
+      await dashboardMain.waitFor();
+      await openChatSidePanelType(page, "Side chat");
+      const sideChat = page.getByRole("tab", { name: "Side chat", exact: true });
+      const answer = page
+        .locator("openclaw-chat-session-rail")
+        .getByText("Keep this side conversation visible.", { exact: true });
+      await expect.poll(() => sideChat.getAttribute("aria-selected")).toBe("true");
+      await answer.waitFor();
+
+      await page.reload();
+      await dashboardMain.waitFor();
+      await expect.poll(() => sideChat.getAttribute("aria-selected")).toBe("true");
+      await answer.waitFor();
+    });
+  });
+
   it("restores the saved main and side selection on ordinary dashboard revisits", async () => {
     await suite.withPage({ viewport: { height: 900, width: 1280 } }, async ({ page }) => {
       const settingsKey = controlUiBundledSettingsStorageKey(suite.server.baseUrl);

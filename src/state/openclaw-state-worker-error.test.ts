@@ -304,6 +304,18 @@ describe("shared-state worker error transport", () => {
       },
     },
     {
+      error: new OpenClawStateDatabaseSchemaMigrationRequiredError(
+        "legacy-cron-run-logs",
+        "/fixture/state.sqlite",
+      ),
+      constructor: OpenClawStateDatabaseSchemaMigrationRequiredError,
+      fields: {
+        kind: "legacy-cron-run-logs",
+        pathname: "/fixture/state.sqlite",
+        reason: "cron run history migration",
+      },
+    },
+    {
       error: new OpenClawAgentDatabaseMediaMigrationRequiredError("/fixture/agent.sqlite", 11),
       constructor: OpenClawAgentDatabaseMediaMigrationRequiredError,
       fields: {

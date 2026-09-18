@@ -345,6 +345,7 @@ describe("check-cli-bootstrap-imports", () => {
       'import fs from "node:fs";\nexport const launcher = Boolean(fs);\n',
     );
 
+    writeFixture(root, "dist/worker/image-processor.worker.mjs", "export {};\n");
     expect(collectWorkerDeployArtifactErrors({ rootDir: root })).toEqual([]);
   });
 
@@ -382,6 +383,7 @@ describe("check-cli-bootstrap-imports", () => {
     );
     writeFixture(root, "dist/worker/workspace-rsync-receiver.mjs", "export {};\n");
     writeFixture(root, "dist/worker/github-exec-launcher.mjs", 'import "yaml";\n');
+    writeFixture(root, "dist/worker/image-processor.worker.mjs", "export {};\n");
     writeFixture(root, "dist/worker/lazy.mjs", "export {};\n");
     writeFixture(
       root,

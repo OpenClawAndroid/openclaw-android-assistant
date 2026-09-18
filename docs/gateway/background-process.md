@@ -119,7 +119,8 @@ before loading its main runtime.
 If initial broker startup fails, the Gateway logs the failure reason and runtime
 entry path, then uses in-process spawning for the rest of that Gateway process.
 A new Gateway process tries the broker again.
-When the broker is ready, exec commands and command helpers spawn from it, so Linux does not copy
+When the broker is ready, exec commands, shell-snapshot capture and validation,
+and helpers using the shared command runner spawn from it, so Linux does not copy
 the Gateway's page tables for each command. The existing process supervisors and
 service relays still own cancellation, output, and cleanup. After the broker first
 becomes ready, broker loss fails affected commands rather than rerunning them; later commands use the restarted

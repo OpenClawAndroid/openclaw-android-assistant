@@ -3,13 +3,15 @@
 import { html, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageClientSource } from "../../../../../src/chat/message-client-source.js";
+import { projectAgentToolActivity } from "../../../../../src/infra/agent-activity-events.js";
 import * as markdown from "../../../components/markdown.ts";
 import type { MessageGroup } from "../../../lib/chat/chat-types.ts";
 import { setAvatarGatewayOrigin } from "../../../lib/identity-avatar-context.ts";
 import * as localStorageModule from "../../../local-storage.ts";
+import { prepareChatHistoryFixture } from "../../../test-helpers/chat-activity-fixtures.ts";
 import * as chatAvatar from "../chat-avatar.ts";
+import { attachHistoryActivity } from "../chat-history-request.ts";
 import { chatStartupStatusLabel } from "../chat-run-startup.ts";
-import { groupMessages } from "../chat-thread-grouping.ts";
 import { buildCachedChatItems } from "../chat-thread.ts";
 import { agentEvent, createHost } from "../tool-stream.test-helpers.ts";
 import { handleAgentEvent } from "../tool-stream.ts";
@@ -18,6 +20,26 @@ import {
   getChatMediaRenderVersion,
   releaseChatMediaResourceSubscriber,
 } from "./chat-message-media.ts";
+import {
+  createAssistantMessage,
+  createCanvasPreview,
+  createAssistantCanvasBlock,
+  createUserMessage,
+  createToolCall,
+  createToolResultBlock,
+  createToolResultMessage,
+  prepareHistoryGroups,
+  prepareMessageGroup,
+  createMediaBlock,
+  createAssistantImageMessage,
+  createAssistantAudioMessage,
+  createAttachmentBlock,
+  createMessageGroup,
+  createMessageEntry,
+  createToolGroup,
+  type TestMessage,
+  type TestMessageEntry,
+} from "./chat-message.test-support.ts";
 import {
   dismissConfirmedActionPopovers,
   renderActivityGroup,
@@ -96,97 +118,6 @@ beforeEach(() => {
 });
 
 type RenderMessageGroupOptions = Parameters<typeof renderMessageGroup>[1];
-type TestMessage = Record<string, unknown>;
-type TestMessageEntry = Omit<MessageGroup["messages"][number], "hasVisibleContent">;
-type TestMessageGroupOverrides = Omit<Partial<MessageGroup>, "messages"> & {
-  messages?: TestMessageEntry[];
-};
-
-function messageTimestamp(message: unknown): number {
-  return typeof message === "object" &&
-    message !== null &&
-    typeof (message as { timestamp?: unknown }).timestamp === "number"
-    ? (message as { timestamp: number }).timestamp
-    : Date.now();
-}
-
-function createAssistantMessage(content: unknown, overrides: TestMessage = {}): TestMessage {
-  const timestamp = typeof overrides.timestamp === "number" ? overrides.timestamp : Date.now();
-  return { role: "assistant", content, timestamp, ...overrides };
-}
-
-function createUserMessage(content: unknown, overrides: TestMessage = {}): TestMessage {
-  const timestamp = typeof overrides.timestamp === "number" ? overrides.timestamp : Date.now();
-  return { role: "user", content, timestamp, ...overrides };
-}
-
-function createToolCall(id: string, name: string, args: unknown, overrides: TestMessage = {}) {
-  return { type: "toolcall", id, name, arguments: args, ...overrides };
-}
-
-function createToolResultBlock(
-  id: string,
-  name: string,
-  text: string,
-  overrides: TestMessage = {},
-) {
-  return { type: "tool_result", id, name, text, ...overrides };
-}
-
-function createToolResultMessage(
-  toolCallId: string,
-  toolName: string,
-  content: unknown,
-  overrides: TestMessage = {},
-): TestMessage {
-  const timestamp = typeof overrides.timestamp === "number" ? overrides.timestamp : Date.now();
-  return {
-    role: "toolResult",
-    toolCallId,
-    toolName,
-    content,
-    timestamp,
-    ...overrides,
-  };
-}
-
-function createMediaBlock(overrides: TestMessage) {
-  return { type: "image", ...overrides };
-}
-
-function createAssistantImageMessage(
-  url: string,
-  alt: string,
-  imageOverrides: TestMessage = {},
-  messageOverrides: TestMessage = {},
-) {
-  return createAssistantMessage(
-    [createMediaBlock({ url, alt, ...imageOverrides })],
-    messageOverrides,
-  );
-}
-
-function createAssistantAudioMessage(
-  url: string,
-  audioOverrides: TestMessage = {},
-  messageOverrides: TestMessage = {},
-) {
-  return createAssistantMessage([{ type: "audio", url, ...audioOverrides }], messageOverrides);
-}
-
-function createAttachmentBlock(
-  url: string,
-  kind: "audio" | "video" | "document",
-  label: string,
-  mimeType: string,
-  attachmentOverrides: TestMessage = {},
-) {
-  return {
-    type: "attachment",
-    attachment: { url, kind, label, mimeType, ...attachmentOverrides },
-  };
-}
-
 function expectElement<T extends Element>(
   container: Element,
   selector: string,
@@ -297,55 +228,6 @@ function renderGroupedMessage(
   render(renderTestMessageGroup(group, opts), container);
 }
 
-function createMessageGroup(
-  message: unknown,
-  role: string,
-  overrides: TestMessageGroupOverrides = {},
-): MessageGroup {
-  const timestamp = overrides.timestamp ?? messageTimestamp(message);
-  const {
-    messages: sourceMessages = [{ key: `${role}:${timestamp}:message`, message }],
-    ...groupOverrides
-  } = overrides;
-  const groups = sourceMessages.map(prepareMessageGroup);
-  const messages = groups.flatMap((group) => group.messages);
-  const visibleContent = groups.some((group) => group.visibleContent === "non-text")
-    ? "non-text"
-    : groups.some((group) => group.visibleContent === "text")
-      ? "text"
-      : "none";
-  return {
-    kind: "group",
-    key: `${role}:${timestamp}`,
-    role,
-    messages,
-    visibleContent,
-    timestamp,
-    isStreaming: false,
-    ...groupOverrides,
-  };
-}
-
-function prepareMessageGroup(entry: TestMessageEntry): MessageGroup {
-  const [group] = groupMessages([{ kind: "message", ...entry }]);
-  if (group?.kind !== "group" || !group.messages[0]) {
-    throw new Error("expected a prepared message entry");
-  }
-  return group;
-}
-
-function createMessageEntry(key: string, message: unknown): MessageGroup["messages"][number] {
-  return prepareMessageGroup({ key, message }).messages[0]!;
-}
-
-function createToolGroup(
-  key: string,
-  messages: TestMessageEntry[],
-  overrides: TestMessageGroupOverrides = {},
-): MessageGroup {
-  return createMessageGroup(messages[0]?.message, "tool", { key, messages, ...overrides });
-}
-
 describe("cloud workspace conflict transcript messages", () => {
   it("renders the custom event as a bounded structured status card", () => {
     const container = document.createElement("div");
@@ -405,51 +287,6 @@ describe("cloud workspace conflict transcript messages", () => {
     expect(container.textContent).toContain("refs/openclaw/worker-results/claim-control");
   });
 });
-
-function createCanvasPreview(params: {
-  viewId: string;
-  title?: string;
-  url?: string;
-  preferredHeight?: number;
-}) {
-  return {
-    kind: "canvas",
-    surface: "assistant_message",
-    render: "url",
-    viewId: params.viewId,
-    title: params.title ?? "Inline demo",
-    url: params.url ?? `/__openclaw__/canvas/documents/${params.viewId}/index.html`,
-    preferredHeight: params.preferredHeight ?? 360,
-  };
-}
-
-function createAssistantCanvasBlock(params: {
-  suffix: string;
-  title?: string;
-  url?: string;
-  preferredHeight?: number;
-  presentationTarget?: "assistant_message" | "tool_card";
-}) {
-  const viewId = `cv_inline_${params.suffix}`;
-  const preview = createCanvasPreview({ ...params, viewId });
-  return {
-    type: "canvas",
-    preview,
-    rawText: JSON.stringify({
-      kind: "canvas",
-      view: {
-        backend: "canvas",
-        id: viewId,
-        url: preview.url,
-        title: preview.title,
-        preferred_height: preview.preferredHeight,
-      },
-      presentation: {
-        target: params.presentationTarget ?? "assistant_message",
-      },
-    }),
-  };
-}
 
 function renderMessageGroups(
   container: HTMLElement,
@@ -2810,23 +2647,27 @@ describe("grouped chat rendering", () => {
     const group = createToolGroup("tool-group", [
       createMessageEntry(
         "tool-message-1",
-        createToolResultMessage("call-1", "read_file", "File one", { timestamp: 1000 }),
+        createToolResultMessage("call-1", "read_file", "File one", {
+          timestamp: 1000,
+          isError: false,
+        }),
       ),
       createMessageEntry(
         "tool-message-2",
         createToolResultMessage("call-2", "run_command", "Command output", {
           timestamp: 1001,
+          isError: false,
         }),
       ),
     ]);
 
-    renderMessageGroups(container, [group], {
+    renderMessageGroups(container, prepareHistoryGroups([group]), {
       isToolMessageExpanded: (id) => (id === "activity:tool-group" ? false : undefined),
     });
 
     const activity = expectElement(container, ".chat-activity-group__summary", HTMLButtonElement);
-    // Aggregate summary from summarizeToolGroup replaces the old "Activity: N tools" label.
-    expect(activity.textContent).toContain("Ran a command, read a file");
+    // The Gateway prepares compact labels; raw tool names stay in the disclosure.
+    expect(activity.textContent).toContain("Read File, Run Command");
     expect(activity.querySelector(".chat-activity-group__preview")).toBeNull();
     expect(activity.textContent).not.toContain("read_file");
     expect(activity.textContent).not.toContain("run_command");
@@ -2839,21 +2680,26 @@ describe("grouped chat rendering", () => {
     const toolMessages: TestMessage[] = [];
     for (const [index, name] of ["exec", "wait"].entries()) {
       const toolCallId = `call-${name}`;
+      const activity = [
+        projectAgentToolActivity({ toolCallId, name, phase: "result", isError: false }),
+      ];
       const args = name === "exec" ? { command: "echo ready" } : { runId: "cell-1" };
       const call = { type: "toolcall", name, id: toolCallId, arguments: args };
       const result = { type: "toolresult", name, id: toolCallId, text: `${name} finished` };
       messages.push(
-        createAssistantMessage([call], { runId: "run-count", timestamp: index * 10 + 1 }),
+        createAssistantMessage([call], { runId: "run-count", timestamp: index * 10 + 1, activity }),
       );
       messages.push(
         createToolResultMessage(toolCallId, name, `${name} finished`, {
           runId: "run-count",
+          activity,
           timestamp: index * 10 + 2,
         }),
       );
       toolMessages.push(
         createAssistantMessage([call, result], {
           runId: "run-count",
+          activity,
           toolCallId,
           timestamp: index * 10 + 1,
           __openclawToolStreamLive: true,
@@ -2865,6 +2711,14 @@ describe("grouped chat rendering", () => {
       createToolResultMessage("call-wait", "wait", "wait finished", {
         runId: "run-count",
         timestamp: 30,
+        activity: [
+          projectAgentToolActivity({
+            toolCallId: "call-wait",
+            name: "wait",
+            phase: "result",
+            isError: false,
+          }),
+        ],
       }),
     );
     const items = buildCachedChatItems({
@@ -2885,9 +2739,69 @@ describe("grouped chat rendering", () => {
       container,
     );
     expect(container.querySelector(".chat-activity-group__label")?.textContent?.trim()).toBe(
-      "Ran a command, used Wait",
+      "Exec, Wait",
     );
     expect(container.querySelectorAll(".chat-tool-row")).toHaveLength(2);
+  });
+
+  it("renders a persisted call with an unknown outcome until its matching result arrives", () => {
+    const container = document.createElement("div");
+    const call = createAssistantMessage(
+      [createToolCall("orphan", "exec", { command: "check-workspace" })],
+      { __openclaw: { id: "orphan-call", runId: "historic-run" } },
+    );
+    const renderHistory = (messages: TestMessage[]) => {
+      const history = attachHistoryActivity(prepareChatHistoryFixture(messages));
+      const items = buildCachedChatItems({
+        paneId: "unknown-historic-outcome",
+        sessionKey: "main",
+        runId: null,
+        messages: history.messages,
+        toolMessages: [],
+        streamSegments: [],
+        stream: null,
+        streamStartedAt: null,
+        showToolCalls: true,
+      });
+      render(
+        renderActivityGroup(
+          items.filter((item) => item.kind === "group"),
+          {
+            showReasoning: false,
+            runActive: false,
+            isToolMessageExpanded: () => true,
+            isToolExpanded: () => true,
+          },
+        ),
+        container,
+      );
+      return history;
+    };
+    const unknown = renderHistory([call]);
+    expect(unknown.activity[0]?.items[0]).toMatchObject({
+      phase: "end",
+      summary: "Outcome unknown",
+    });
+    expect(unknown.activity[0]?.items[0]).not.toHaveProperty("status");
+    expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe(
+      "Exec — outcome unknown",
+    );
+    expect(container.querySelector(".chat-tool-row--running")).toBeNull();
+    expect(container.textContent).toContain("check-workspace");
+
+    const completed = renderHistory([
+      call,
+      createToolResultMessage("orphan", "exec", "Workspace checked.", {
+        isError: false,
+        __openclaw: { id: "orphan-result", runId: "historic-run" },
+      }),
+    ]);
+    expect(completed.activity[0]?.items[0]).toMatchObject({ phase: "end", status: "completed" });
+    expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe("Exec");
+    expect(container.textContent).not.toContain("outcome unknown");
+    expect(container.textContent).toContain("Workspace checked.");
+    expect(container.querySelectorAll(".chat-tool-row")).toHaveLength(1);
+    expect(container.querySelector(".chat-tool-row--running")).toBeNull();
   });
 
   it("keeps a persisted tool review icon-only until its command activity expands", () => {
@@ -2973,23 +2887,23 @@ describe("grouped chat rendering", () => {
           [
             createToolCall("call-a", "read", { path: "/repo/a.ts" }, { type: "toolCall" }),
             createToolCall("call-b", "read", { path: "/repo/b.ts" }, { type: "toolCall" }),
-            createToolResultBlock("call-a", "read", "File A"),
-            createToolResultBlock("call-b", "read", "File B"),
+            createToolResultBlock("call-a", "read", "File A", { isError: false }),
+            createToolResultBlock("call-b", "read", "File B", { isError: false }),
           ],
           { timestamp: 1000 },
         ),
       ),
     ]);
 
-    renderMessageGroups(container, [group], {
+    renderMessageGroups(container, prepareHistoryGroups([group]), {
       isToolMessageExpanded: (id) => (id === "activity:parallel-tool-group" ? false : undefined),
     });
 
     const activity = expectElement(container, ".chat-activity-group__summary", HTMLButtonElement);
-    expect(activity.textContent).toContain("Read 2 files");
+    expect(activity.textContent).toContain("Read ×2");
     expect(
       expectElement(activity, ".chat-activity-group__label", HTMLElement).getAttribute("title"),
-    ).toBe("Read 2 files");
+    ).toBe("Read ×2");
     expect(container.querySelectorAll(".chat-activity-group")).toHaveLength(1);
     expect(container.querySelector(".chat-tool-msg-body")).toBeNull();
   });
@@ -3000,20 +2914,23 @@ describe("grouped chat rendering", () => {
       createToolGroup("tool-group-1", [
         createMessageEntry(
           "tool-message-1",
-          createToolResultMessage("call-1", "run_command", "one"),
+          createToolResultMessage("call-1", "run_command", "one", { isError: false }),
         ),
-        createMessageEntry("tool-message-2", createToolResultMessage("call-2", "read_file", "two")),
+        createMessageEntry(
+          "tool-message-2",
+          createToolResultMessage("call-2", "read_file", "two", { isError: false }),
+        ),
       ]),
       createToolGroup("tool-group-2", [
         createMessageEntry(
           "tool-message-3",
-          createToolResultMessage("call-3", "write_file", "three"),
+          createToolResultMessage("call-3", "write_file", "three", { isError: false }),
         ),
       ]),
     ];
 
     render(
-      renderActivityGroup(groups, {
+      renderActivityGroup(prepareHistoryGroups(groups), {
         showReasoning: true,
         showToolCalls: true,
         assistantName: "OpenClaw",
@@ -3025,7 +2942,7 @@ describe("grouped chat rendering", () => {
     expect(container.querySelectorAll(".chat-activity-group")).toHaveLength(1);
     expect(container.querySelectorAll(".chat-activity-group__summary")).toHaveLength(1);
     expect(container.querySelector(".chat-activity-group__label")?.textContent).toContain(
-      "Ran a command, read a file, created a file",
+      "Run Command, Read File, Write File",
     );
     expect(container.querySelectorAll(".chat-activity-group__body > .chat-bubble")).toHaveLength(3);
     expect(
@@ -3087,6 +3004,14 @@ describe("grouped chat rendering", () => {
           "failed-read",
           createToolResultMessage("call-read", "read", JSON.stringify({ error: "failed" }), {
             isError: true,
+            activity: [
+              projectAgentToolActivity({
+                toolCallId: "call-read",
+                name: "read",
+                phase: "result",
+                isError: true,
+              }),
+            ],
           }),
         ),
       ]),
@@ -3095,6 +3020,14 @@ describe("grouped chat rendering", () => {
         [
           createMessageEntry("running-edit", {
             role: "assistant",
+            activity: [
+              projectAgentToolActivity({
+                toolCallId: "call-edit",
+                name: "edit",
+                phase: "start",
+                args: { path: "/repo/src/a.ts" },
+              }),
+            ],
             __openclawToolStreamLive: true,
             __openclawToolStreamResultReceived: false,
             content: [
@@ -3123,12 +3056,12 @@ describe("grouped chat rendering", () => {
     expect(activitySummary.getAttribute("aria-label")).toBeNull();
     expect(activitySummary.classList.contains("chat-activity-group__summary--error")).toBe(false);
     expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe(
-      "Editing a.ts…",
+      "Edit in /repo/src/a.ts…",
     );
 
     render(renderActivityGroup(groups, { ...opts, runActive: false }), container);
     expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe(
-      "Read a file, edited a file",
+      "Read (failed), Edit in /repo/src/a.ts",
     );
   });
 
@@ -3203,7 +3136,7 @@ describe("grouped chat rendering", () => {
     expect(failedSummary.getAttribute("aria-label")).toBeNull();
   });
 
-  it("uses the running mutation verb in an active group summary", () => {
+  it("uses the prepared running mutation title in an active group summary", () => {
     const container = document.createElement("div");
     const group = createToolGroup(
       "running-tool-group",
@@ -3212,10 +3145,26 @@ describe("grouped chat rendering", () => {
           role: "toolResult",
           toolCallId: "call-read",
           toolName: "read",
+          activity: [
+            projectAgentToolActivity({
+              toolCallId: "call-read",
+              name: "read",
+              phase: "result",
+              isError: false,
+            }),
+          ],
           content: "done",
         }),
         createMessageEntry("running-edit", {
           role: "assistant",
+          activity: [
+            projectAgentToolActivity({
+              toolCallId: "call-edit",
+              name: "edit",
+              phase: "start",
+              args: { path: "/repo/src/a.ts" },
+            }),
+          ],
           __openclawToolStreamLive: true,
           __openclawToolStreamResultReceived: false,
           content: [
@@ -3234,7 +3183,7 @@ describe("grouped chat rendering", () => {
     renderMessageGroups(container, [group], { runActive: true });
 
     expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe(
-      "Editing a.ts…",
+      "Edit in /repo/src/a.ts…",
     );
   });
 
@@ -3254,11 +3203,18 @@ describe("grouped chat rendering", () => {
         "tool-message-2",
         createToolResultMessage("call-2", "run_command", "Command output", {
           timestamp: 1001,
+          isError: false,
         }),
       ),
     ]);
 
     renderMessageGroups(container, [group], { onToggleToolMessageExpanded });
+    expect(container.querySelector(".chat-activity-group__label")?.textContent).toBe("Raw details");
+    expect(container.querySelector(".chat-activity-group__summary")?.textContent).not.toContain(
+      "1 failed",
+    );
+
+    renderMessageGroups(container, prepareHistoryGroups([group]), { onToggleToolMessageExpanded });
 
     expect(container.querySelector(".chat-activity-group.is-open")).toBeNull();
     const activitySummary = expectElement(
@@ -4623,7 +4579,7 @@ describe("grouped chat rendering", () => {
 
     renderMessage();
     expect(container.querySelector(".chat-image-frame")?.getAttribute("aria-busy")).toBe("true");
-    expect(container.querySelector(".chat-assistant-attachment-card")).toBeNull();
+    expect(container.querySelector(".chat-message-image")).toBeNull();
     await flushAssistantAttachmentAvailabilityChecks();
 
     const expectedMetaUrl = `/openclaw/__openclaw__/assistant-media?source=${encodeURIComponent(source).replaceAll("%20", "+")}&meta=1`;
@@ -4632,7 +4588,7 @@ describe("grouped chat rendering", () => {
     expect(
       container.querySelector<HTMLImageElement>(".chat-message-image")?.getAttribute("src"),
     ).toBe(expectedMetaUrl.replace("&meta=1", "&mediaTicket=ticket-local"));
-    expect(container.querySelector(".chat-assistant-attachment-card__action-skeleton")).toBeNull();
+    expect(container.querySelector(".chat-assistant-attachment-card")).toBeNull();
   });
 
   it("stops checking when local assistant attachment metadata fetch stalls", async () => {

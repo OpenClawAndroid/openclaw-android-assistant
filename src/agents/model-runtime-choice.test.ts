@@ -5,6 +5,7 @@ import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { withTestDir } from "../test-helpers/temp-dir.js";
 import { buildInlineProviderModels } from "./embedded-agent-runner/model.inline-provider.js";
+import { createPreparedConfiguredRuntimeModelLookup } from "./embedded-agent-runner/model.static-id.js";
 import { prepareModelChoice, preparePublishedModelRuntimeChoice } from "./model-runtime-choice.js";
 import {
   getPreparedModelRuntimeAuthStore,
@@ -57,6 +58,8 @@ function publish(
   > = {},
 ) {
   const entry = { provider: "fixture", id: "model", name: "Model" };
+  const configuredRuntimeModels = facts.configuredRuntimeModels ?? [];
+  const metadataSnapshot = facts.metadataSnapshot ?? createPluginMetadataSnapshotFixture();
   const owner: PreparedModelRuntimeSnapshot = {
     config,
     observationConfig: config,
@@ -66,11 +69,15 @@ function publish(
     workspaceDir: "/tmp/runtime-choice",
     activeProjectKeys: [],
     authModes: {},
-    metadataSnapshot: createPluginMetadataSnapshotFixture(),
+    metadataSnapshot,
     isCurrent,
     allowGatewaySubagentBinding: false,
     modelCatalog: { entries: [entry], routeVariants: [entry] },
-    configuredRuntimeModels: [],
+    configuredRuntimeModels,
+    findConfiguredRuntimeModel: createPreparedConfiguredRuntimeModelLookup(
+      configuredRuntimeModels,
+      metadataSnapshot,
+    ),
     inlineProviderModels: buildInlineProviderModels(config.models?.providers ?? {}, {
       providerMetadataOwners: facts.metadataSnapshot?.owners,
     }),

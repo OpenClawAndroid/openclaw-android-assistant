@@ -126,7 +126,7 @@ export async function resolveUpdateCommandTarget(
       }
 
       const channel =
-        requestedChannel ??
+        (opts.sourceUpdate ? DEFAULT_GIT_CHANNEL : requestedChannel) ??
         storedChannel ??
         (installKind === "git"
           ? DEFAULT_GIT_CHANNEL
@@ -149,7 +149,7 @@ export async function resolveUpdateCommandTarget(
       const switchToPackage =
         requestedChannel !== null && requestedChannel !== "dev" && installKind === "git";
       updateInstallKind = switchToGit ? "git" : switchToPackage ? "package" : installKind;
-      if (channel === "dev" && requestedChannel !== "dev") {
+      if (channel === "dev" && requestedChannel !== "dev" && !opts.sourceUpdate) {
         try {
           devTarget = readDevUpdateTarget();
         } catch (error) {

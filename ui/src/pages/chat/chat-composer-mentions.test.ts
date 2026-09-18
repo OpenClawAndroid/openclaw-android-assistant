@@ -1,6 +1,6 @@
 import type { UsersMentionableResult } from "@openclaw/gateway-protocol";
 import { nothing, render } from "lit";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { HumanMention } from "../../lib/chat/chat-types.ts";
 import { updateHumanMentions } from "../../lib/chat/human-mentions.ts";
@@ -13,6 +13,7 @@ import {
   resetComposerFixture,
 } from "./chat-composer.test-support.ts";
 import { renderChatComposer } from "./components/chat-composer.ts";
+import { installChatComposerPickerDismissal } from "./components/chat-picker-overlay.ts";
 
 const people: UsersMentionableResult = {
   users: [
@@ -35,6 +36,7 @@ function composerFixture(
   submitDisabledReason?: string,
 ) {
   vi.useFakeTimers();
+  onTestFinished(installChatComposerPickerDismissal(document));
   const container = document.createElement("div");
   document.body.append(container);
   const client = new GatewayBrowserClient({ url: "ws://gateway.test" });

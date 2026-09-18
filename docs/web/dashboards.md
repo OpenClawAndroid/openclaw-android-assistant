@@ -153,8 +153,10 @@ never needs the agent.
   Your browser’s deliberate **Focus** / **Restore split** choice takes precedence
   over the shared default. Choosing the shared view again clears that personal
   override. Applying a shared default does not create a personal override.
-  Dock position, dimensions, and other panels remain local. Existing browser
-  layouts without presentation provenance retain their complete saved layout
+  Dock position, dimensions, and other panels remain local. Reopening or reloading
+  an unchanged dashboard view preserves the selected side-panel tab, including
+  Side chat. Existing browser layouts without presentation provenance retain
+  their complete saved layout
   until you deliberately choose a presentation; OpenClaw does not guess whether
   an older expansion was automatic. Local layout retention remains 500 sessions.
   An explicit `?dashboard=expanded` link requests fullscreen for that visit only.

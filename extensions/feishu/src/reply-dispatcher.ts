@@ -8,7 +8,6 @@ import {
 import {
   createChannelMessageReplyPipeline,
   formatChannelProgressDraftLineForEntry,
-  isChannelProgressDraftWorkToolName,
   resolveChannelPreviewStreamMode,
   resolveChannelStreamingBlockEnabled,
 } from "openclaw/plugin-sdk/channel-outbound";
@@ -20,6 +19,7 @@ import {
   resolveTextChunksWithFallback,
   sendMediaWithLeadingCaption,
 } from "openclaw/plugin-sdk/reply-payload";
+import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import { stripReasoningTagsFromText } from "openclaw/plugin-sdk/text-chunking";
 import type { ClawdbotConfig, OutboundIdentity, ReplyPayload, RuntimeEnv } from "../runtime-api.js";
 import { resolveFeishuRuntimeAccount } from "./accounts.js";
@@ -1679,28 +1679,21 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           }
         : undefined,
       onReasoningEnd: reasoningPreviewEnabled ? () => false : undefined,
-      onToolStart: previewStreamingEnabled
-        ? (payload: {
-            name?: string;
-            phase?: string;
-            args?: Record<string, unknown>;
-            detailMode?: "explain" | "raw";
-          }) => {
-            if (!isChannelProgressDraftWorkToolName(payload.name)) {
+      onItemEvent: previewStreamingEnabled
+        ? (payload: Parameters<NonNullable<GetReplyOptions["onItemEvent"]>>[0]) => {
+            if (
+              payload.kind === "preamble" ||
+              payload.hideFromChannelProgress ||
+              payload.suppressChannelProgress
+            ) {
               return false;
             }
-            const statusLineLocal = formatChannelProgressDraftLineForEntry(
-              account.config,
-              {
-                event: "tool",
-                name: payload.name,
-                phase: payload.phase,
-                args: payload.args,
-              },
-              {
-                detailMode: payload.detailMode,
-              },
-            );
+            const { kind: itemKind, ...item } = payload;
+            const statusLineLocal = formatChannelProgressDraftLineForEntry(account.config, {
+              event: "item",
+              itemKind,
+              ...item,
+            });
             if (statusLineLocal) {
               return updateStreamingStatusLine(statusLineLocal);
             }

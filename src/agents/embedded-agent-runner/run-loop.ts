@@ -406,9 +406,7 @@ export async function runPreparedEmbeddedLoop(
       }
       startupStagesEmitted = dispatch.startupStagesEmitted;
       const { dispatchedAttempt, runtimePlan } = dispatch;
-      failoverRetryController.setTransientRetryBudget(
-        dispatchedAttempt.rawAttempt.providerRetryMaxRetries,
-      );
+      failoverRetryController.observeAttempt(dispatchedAttempt.rawAttempt);
       attemptCarryover.apply(refresh.applyDeliveryState(dispatchedAttempt.rawAttempt));
       const normalization = {
         runInput: admittedRunInput,

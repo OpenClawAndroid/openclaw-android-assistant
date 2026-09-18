@@ -229,7 +229,7 @@ describe("chat pane task suggestion lifecycle", () => {
     expect(state.chatError).toBe("Couldn't copy the prompt to the clipboard");
   });
 
-  it("keeps accept ownership when the resolved event arrives before the response", async () => {
+  it("keeps accept ownership and selection when the resolved event arrives before the response", async () => {
     const accepted = createDeferred<TaskSuggestionsAcceptResult>();
     const request = createGatewayRequestMock((method) =>
       method === "taskSuggestions.accept"
@@ -259,7 +259,7 @@ describe("chat pane task suggestion lifecycle", () => {
     accepted.resolve({ taskId: suggestion.id, key: "agent:main:task" });
 
     await pending;
-    expect(navigate).toHaveBeenCalledWith("single", "agent:main:task");
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("drops an accept response after a same-client reconnect", async () => {
@@ -269,15 +269,13 @@ describe("chat pane task suggestion lifecycle", () => {
     } as unknown as GatewayBrowserClient;
     const sessions = {} as SessionCapability;
     const { pane } = createTestChatPane({ client, sessions });
-    const navigate = vi.fn();
-    pane.onPaneSessionChange = navigate;
-
+    pane.taskSuggestions = [suggestion];
     const pending = pane.acceptTaskSuggestion(suggestion);
     pane.connectionGeneration += 1;
     accepted.resolve({ taskId: suggestion.id, key: "agent:main:stale" });
 
     await pending;
-    expect(navigate).not.toHaveBeenCalled();
+    expect(pane.taskSuggestions).toEqual([suggestion]);
   });
 
   it("drops a list response after a same-client reconnect", async () => {

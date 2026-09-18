@@ -372,10 +372,11 @@ let linuxWorkflowBash: string | undefined;
 
 function runWorkflowShellScript(
   script: string,
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; linuxWorkflow?: boolean },
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; linuxWorkflow?: boolean; tempDir?: string },
 ) {
-  const { linuxWorkflow, ...spawnOptions } = options;
+  const { linuxWorkflow, tempDir, ...spawnOptions } = options;
   const root = mkdtempSync(path.join(tmpdir(), "openclaw-workflow-shell-"));
+  const childTempDir = tempDir ?? root;
   const modulePaths: string[] = [];
   try {
     let moduleIndex = 0;
@@ -413,7 +414,12 @@ function runWorkflowShellScript(
       encoding: "utf8",
       // Child caches and temporary artifacts share the fixture's cleanup owner.
       // Inheriting a huge host tsx cache makes startup depend on unrelated runs.
-      env: { ...(options.env ?? process.env), TMPDIR: root, TMP: root, TEMP: root },
+      env: {
+        ...(options.env ?? process.env),
+        TMPDIR: childTempDir,
+        TMP: childTempDir,
+        TEMP: childTempDir,
+      },
     });
   } finally {
     for (const modulePath of modulePaths) {
@@ -7410,7 +7416,12 @@ setImmediate(() => {
     }
 
     const callers: Array<{ file: string; mode: unknown; step: WorkflowStep }> = [];
-    const directCaches: Array<{ file: string; step: WorkflowStep }> = [];
+    const directCaches: Array<{
+      file: string;
+      step: WorkflowStep;
+      jobId?: string;
+      jobCondition?: string;
+    }> = [];
     const rubySetups: Array<{ file: string; step: WorkflowStep }> = [];
     for (const file of [
       ...findYamlFiles(".github/workflows"),
@@ -7418,25 +7429,32 @@ setImmediate(() => {
     ]) {
       const parsed = parse(readFileSync(file, "utf8"));
       const stepLists = [
-        ...Object.values(parsed?.jobs ?? {}).map(
-          (job) => (job as { steps?: WorkflowStep[] }).steps ?? [],
-        ),
-        (parsed?.runs?.steps ?? []) as WorkflowStep[],
+        ...Object.entries(parsed?.jobs ?? {}).map(([jobId, job]) => {
+          const owner = job as { steps?: WorkflowStep[]; if?: string };
+          return { jobId, jobCondition: owner.if, steps: owner.steps ?? [] };
+        }),
+        {
+          jobId: undefined,
+          jobCondition: undefined,
+          steps: (parsed?.runs?.steps ?? []) as WorkflowStep[],
+        },
       ];
-      for (const step of stepLists.flat()) {
-        if (step.uses?.startsWith("actions/cache")) {
-          directCaches.push({ file, step });
-        }
-        if (step.uses?.startsWith("ruby/setup-ruby@")) {
-          rubySetups.push({ file, step });
-        }
-        if (
-          step.uses === "./.github/actions/setup-node-env" ||
-          step.uses?.endsWith("/.github/actions/setup-node-env") ||
-          step.uses === "./.github/actions/setup-pnpm-store-cache" ||
-          step.uses?.endsWith("/.github/actions/setup-pnpm-store-cache")
-        ) {
-          callers.push({ file, mode: step.with?.["cache-mode"], step });
+      for (const { jobId, jobCondition, steps } of stepLists) {
+        for (const step of steps) {
+          if (step.uses?.startsWith("actions/cache")) {
+            directCaches.push({ file, step, jobId, jobCondition });
+          }
+          if (step.uses?.startsWith("ruby/setup-ruby@")) {
+            rubySetups.push({ file, step });
+          }
+          if (
+            step.uses === "./.github/actions/setup-node-env" ||
+            step.uses?.endsWith("/.github/actions/setup-node-env") ||
+            step.uses === "./.github/actions/setup-pnpm-store-cache" ||
+            step.uses?.endsWith("/.github/actions/setup-pnpm-store-cache")
+          ) {
+            callers.push({ file, mode: step.with?.["cache-mode"], step });
+          }
         }
       }
     }
@@ -7491,20 +7509,26 @@ setImmediate(() => {
 
     const nodeCachePathPattern =
       /(?:^|\n)\s*(?:\.artifacts\/build-all-cache|dist\/|dist-runtime\/|packages\/\*\/dist\/|extensions\/\*\/dist\/|~\/\.cache\/ms-playwright|~\/\.local\/share\/pnpm|~\/\.cache\/pnpm|node_modules)(?:\n|$)/u;
-    for (const { file, step } of directCaches) {
+    for (const { file, step, jobId, jobCondition } of directCaches) {
       if (step.uses?.startsWith("actions/cache/save@")) {
+        if (step.with?.path === "full-release-execution-plan") {
+          expect(file).toBe(".github/workflows/full-release-validation.yml");
+          expect(jobId).toBe("release_execution_plan");
+          expect(step.with).toEqual({
+            path: "full-release-execution-plan",
+            key: "full-release-execution-plan-v2-${{ github.run_id }}",
+          });
+          expect(step.if).toBe(
+            "${{ always() && github.run_attempt == 1 && steps.plan_witness.outcome == 'success' }}",
+          );
+          continue;
+        }
         if (step.with?.path === ".cache/openclaw-cross-os-npm-cache/_cacache") {
           expect([
             ".github/workflows/openclaw-cross-os-release-checks-reusable.yml",
             ".github/workflows/release-npm-cache-warm.yml",
           ]).toContain(file);
-          const workflow = parse(readFileSync(file, "utf8"));
-          const owner = Object.values(workflow.jobs).find((candidate) =>
-            (candidate as { steps?: WorkflowStep[] }).steps?.some(
-              (entry) => entry.name === step.name,
-            ),
-          ) as { if?: string } | undefined;
-          const authority = `${owner?.if ?? ""} ${step.if ?? ""}`;
+          const authority = `${jobCondition ?? ""} ${step.if ?? ""}`;
           expect(authority).toContain("github.repository == 'openclaw/openclaw'");
           expect(authority).toContain("github.event_name == 'workflow_dispatch'");
           continue;
@@ -18496,6 +18520,8 @@ fi
       const producerScript = expectDefined(producerStep?.run, "QA evidence producer script");
       const consumerScript = expectDefined(consumerStep?.run, "QA evidence consumer script");
       const root = tempDirs.make("openclaw-qa-profile-artifact-");
+      const shellTempDir = path.join(root, "shell-temp");
+      mkdirSync(shellTempDir);
       const selectedRoot = path.join(root, "selected");
       writeWorkflowEvidenceApi(selectedRoot, false);
       mkdirSync(path.join(selectedRoot, "extensions/qa-lab/src"), { recursive: true });
@@ -18588,6 +18614,7 @@ fi
       };
       const runProducer = (qaExitCode: string) =>
         runWorkflowShellScript(producerScript, {
+          tempDir: shellTempDir,
           env: {
             ...process.env,
             ALLOW_FAILURES: "true",
@@ -18605,6 +18632,7 @@ fi
         });
       const runConsumer = () =>
         runWorkflowShellScript(consumerScript, {
+          tempDir: shellTempDir,
           cwd: selectedRoot,
           env: {
             ...process.env,

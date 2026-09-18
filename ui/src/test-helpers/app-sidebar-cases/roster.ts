@@ -324,43 +324,50 @@ describe("AppSidebar agent roster", () => {
     expect(loadSettings("ws://gateway.test").sidebarCollapsedAgentIds).toEqual(["working"]);
   });
 
-  it.each(["outside the window", "archived", "archived child", "child of main"])(
-    "keeps a directly opened session visible when %s",
-    async (variant) => {
-      const key = "agent:working:older";
-      const parentKey = variant === "child of main" ? "agent:main:main" : "agent:main:parent";
-      const current = session("working", 1, {
-        key,
-        isMain: false,
-        label: "Opened conversation",
-        archived: variant === "archived" || variant === "archived child",
-        ...(["archived child", "child of main"].includes(variant) ? { spawnedBy: parentKey } : {}),
-      });
-      const parent = session("main", 0, {
-        key: parentKey,
-        isMain: variant === "child of main",
-        archived: variant !== "child of main",
-        childSessions: [key],
-      });
-      const bounded = [
-        session("main", 10, { key: "agent:main:recent", isMain: false }),
-        ...(variant === "outside the window" ? [] : [current, parent]),
-      ];
-      const { sidebar, context } = await mountRoster(roster, bounded, undefined, [current, parent]);
-      sidebar.sidebarAgentsMode = "roster";
-      sidebar.activeRouteId = "chat";
-      sidebar.sessionKey = key;
-      context.agentSelection.set("working");
-      await vi.waitFor(() => {
-        const rows = sidebar.querySelectorAll(`[data-session-key="${key}"]`);
-        expect(rows).toHaveLength(1);
-        expect(rows[0]?.classList.contains("sidebar-recent-session--active")).toBe(true);
-      });
-      expect(sidebar.querySelector(`[data-session-key="${parentKey}"]`) !== null).toBe(
-        variant === "child of main",
-      );
-    },
-  );
+  it.each([
+    "outside the window",
+    "archived",
+    "archived child",
+    "child of main",
+    "child of main outside the window",
+  ])("keeps a directly opened session visible when %s", async (variant) => {
+    const childOutsideWindow = variant === "child of main outside the window";
+    const mainParent = variant === "child of main" || childOutsideWindow;
+    const key = "agent:working:older";
+    const parentKey = mainParent ? "agent:main:main" : "agent:main:parent";
+    const current = session("working", 1, {
+      key,
+      isMain: false,
+      label: "Opened conversation",
+      archived: variant === "archived" || variant === "archived child",
+      ...(variant === "archived child" || mainParent ? { spawnedBy: parentKey } : {}),
+    });
+    const parent = session("main", 0, {
+      key: parentKey,
+      isMain: mainParent,
+      archived: !mainParent,
+      childSessions: [key],
+    });
+    const bounded = [
+      session("main", 10, { key: "agent:main:recent", isMain: false }),
+      ...(variant === "outside the window"
+        ? []
+        : childOutsideWindow
+          ? [current]
+          : [current, parent]),
+    ];
+    const { sidebar, context } = await mountRoster(roster, bounded, undefined, [current, parent]);
+    sidebar.sidebarAgentsMode = "roster";
+    sidebar.activeRouteId = "chat";
+    sidebar.sessionKey = key;
+    context.agentSelection.set("working");
+    await vi.waitFor(() => {
+      const rows = sidebar.querySelectorAll(`[data-session-key="${key}"]`);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.classList.contains("sidebar-recent-session--active")).toBe(true);
+    });
+    expect(sidebar.querySelector(`[data-session-key="${parentKey}"]`) !== null).toBe(mainParent);
+  });
 
   it("shows every agent beyond six with the global filter in the header", async () => {
     const agents: AgentsListResult = {

@@ -69,6 +69,7 @@ export async function prepareGatewayKernelRequestRuntime(params: {
           listAgentIds(getRuntimeConfig()),
         ),
       context: gatewayRequestContext,
+      placementFactsReader: runtime.workerEnvironmentStartup?.placementStore,
     });
   });
   const projectionLifetime: { closing: boolean; detach?: () => void } = { closing: false };

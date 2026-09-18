@@ -73,11 +73,14 @@ async function reapRegisteredCodexAppServerOrphans(): Promise<void> {
       try {
         command = await readCodexAppServerProcessCommand(child, deadline);
       } catch (error) {
-        // Only a successful inspection may revoke the fingerprint obligation.
+        // A matching live process still needs its command verified before containment.
         const current = (
           await readCodexAppServerProcessSnapshot(deadline, [registration.child.pid])
         ).find((row) => row.pid === registration.child.pid);
-        if (current?.startedAt === registration.child.startedAt) {
+        if (
+          current?.startedAt === registration.child.startedAt &&
+          !isDeadProcessState(current.state)
+        ) {
           throw error;
         }
       }

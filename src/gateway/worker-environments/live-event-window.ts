@@ -15,6 +15,7 @@ export type OwnedLiveRun = {
   emissionMode: "exclusive" | "shared";
   lifecycleGeneration: string;
   trajectoryRecorder: WorkerLiveTrajectoryRecorder;
+  toolArgsByCallId: Map<string, unknown>;
 };
 
 export type WorkerLiveCredentialRotation = Readonly<

@@ -55,9 +55,9 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   TaskRegistryWorkerOperations & {
     "apns.registration.read": { input: string; output: ApnsRegistration | null };
     "apns.registrations.read": { input: readonly string[]; output: Map<string, ApnsRegistration> };
-    "agentProvenance.read": {
-      input: { agentId: string };
-      output: AgentProvenance | undefined;
+    "agentProvenance.readBatch": {
+      input: { agentIds: readonly string[] };
+      output: AgentProvenance[];
     };
     "agentProvenance.list": { input: undefined; output: AgentProvenance[] };
     "promotions.markNotified": { input: { slugs: string[]; now: number }; output: true };

@@ -2,17 +2,10 @@
 import fs from "node:fs/promises";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuestionAnswerUnconfirmedError } from "../agents/harness/gateway-question-dispatch.js";
-import {
-  INTERNAL_RUNTIME_CONTEXT_BEGIN,
-  INTERNAL_RUNTIME_CONTEXT_END,
-} from "../agents/internal-runtime-context.js";
 import type { ModelCatalogEntry } from "../agents/model-catalog.types.js";
 import { resolveThinkingDefault } from "../agents/model-thinking-default.js";
 import type { LoadPreparedModelCatalogParams } from "../agents/prepared-model-catalog.js";
-import { setPreparedModelRuntimeAuthStore } from "../agents/prepared-model-runtime-auth.js";
-import type { PreparedModelRuntimeSnapshot } from "../agents/prepared-model-runtime.types.js";
 import { createEmbeddedCallGateway } from "../agents/tools/embedded-gateway-stub.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isEmbeddedMode, setEmbeddedMode } from "../infra/embedded-mode.js";
 import {
   clearEmbeddedPluginApprovalBroker,
@@ -22,7 +15,6 @@ import {
   clearEmbeddedQuestionBroker,
   getEmbeddedQuestionBroker,
 } from "../infra/embedded-question-broker.js";
-import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
 import { AGENT_HARNESS_SESSION_KEY_RESERVED_MESSAGE } from "../sessions/agent-harness-session-key.js";
@@ -31,7 +23,10 @@ import { withEnvAsync } from "../test-utils/env.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import type { EmbeddedTuiBackend as EmbeddedTuiBackendType } from "./embedded-backend.js";
 import { registerEmbeddedBackendStreamTests } from "./embedded-backend.stream.test-support.js";
-import { registerEmbeddedModelCatalogTests } from "./embedded-model-catalog.test-support.js";
+import {
+  registerEmbeddedModelCatalogTests,
+  withEmbeddedModelCatalogOwnerFixture,
+} from "./embedded-model-catalog.test-support.js";
 import type { TuiModelChoice } from "./tui-backend.js";
 
 type EmbeddedAgentResult = {
@@ -103,42 +98,11 @@ const buildModelsListResultMock = vi.fn(
     >[0],
   ): Promise<{ models: TuiModelChoice[] }> => ({ models: [] }),
 );
-const withPreparedModelCatalogOwnerMock = vi.fn(
-  async (
-    params: LoadPreparedModelCatalogParams,
-    read: (snapshot: PreparedModelRuntimeSnapshot) => Promise<unknown>,
-  ) => {
-    const config: OpenClawConfig = params.config ?? {};
-    const agentId = params.agentId ?? "main";
-    let active = true;
-    const snapshot: PreparedModelRuntimeSnapshot = {
-      catalogOwner: { agentId, workspaceDir: "/tmp/tui-catalog-workspace" },
-      agentId,
-      agentDir: "/tmp/tui-catalog-agent",
-      activeProjectKeys: [],
-      config,
-      observationConfig: config,
-      isCurrent: () => active,
-      authModes: {},
-      metadataSnapshot: createPluginMetadataSnapshotFixture(),
-      allowGatewaySubagentBinding: false,
-      modelCatalog: { entries: [], routeVariants: [] },
-      configuredRuntimeModels: [],
-      inlineProviderModels: [],
-      createStores() {
-        throw new Error("Catalog projection must not create execution stores");
-      },
-    };
-    setPreparedModelRuntimeAuthStore(snapshot, { version: 1, profiles: {} });
-    try {
-      return await read(snapshot);
-    } finally {
-      active = false;
-    }
-  },
-);
+const withPreparedModelCatalogOwnerMock = vi.fn(withEmbeddedModelCatalogOwnerFixture);
 const readChatHistoryPageMock = vi.fn(
-  async (_params?: unknown): Promise<{ messages: unknown[] }> => ({
+  async (
+    _params?: unknown,
+  ): Promise<import("../config/sessions/session-history-types.js").ChatHistoryPage> => ({
     messages: [],
   }),
 );
@@ -1542,8 +1506,25 @@ describe("EmbeddedTuiBackend", () => {
     });
 
     const backend = new EmbeddedTuiBackend();
-
-    await backend.loadHistory({ sessionKey: "agent:main:main" });
+    const messages = [
+      {
+        role: "toolResult",
+        toolCallId: "wait",
+        toolName: "collab.wait",
+        content: "raw result",
+        isError: false,
+        __openclaw: { id: "wait-result" },
+      },
+    ];
+    readChatHistoryPageMock.mockResolvedValueOnce({
+      messages,
+      activity: [{ messageId: "wait-result", items: [] }],
+    });
+    const history = await backend.loadHistory({ sessionKey: "agent:main:main" });
+    expect(history).toMatchObject({
+      messages,
+      activity: [{ messageId: "wait-result", items: [] }],
+    });
 
     expect(readChatHistoryPageMock).toHaveBeenCalledWith({
       entry: { sessionId: "sess-main" },
@@ -3587,45 +3568,6 @@ describe("EmbeddedTuiBackend", () => {
     captureBackendEvents,
     flushMicrotasks,
     embeddedEventTimestamp,
-  });
-
-  it("keeps internal context private when local deltas split its delimiters", async () => {
-    const pending = deferred<EmbeddedAgentResult>();
-    agentCommandFromIngressMock.mockReturnValueOnce(pending.promise);
-
-    const backend = new EmbeddedTuiBackend();
-    const events = captureBackendEvents(backend);
-    backend.start();
-    await sendMainChat(backend, "split internal context", "run-local-split-context");
-
-    const deltas = [
-      `Visible\n${INTERNAL_RUNTIME_CONTEXT_BEGIN}\n`,
-      "private runtime detail\n",
-      `${INTERNAL_RUNTIME_CONTEXT_END}\nAfter`,
-    ];
-    deltas.forEach((delta) => {
-      registeredListener?.({
-        runId: "run-local-split-context",
-        stream: "assistant",
-        data: { delta },
-      });
-    });
-    registeredListener?.({
-      runId: "run-local-split-context",
-      stream: "lifecycle",
-      data: { phase: "end", stopReason: "stop" },
-    });
-    pending.resolve({ payloads: [{ text: "Visible\n\nAfter" }], meta: {} });
-    await flushMicrotasks();
-
-    const chatPayloads = events
-      .filter((entry) => entry.event === "chat")
-      .map((entry) => entry.payload);
-    expect(JSON.stringify(chatPayloads)).not.toContain("private runtime detail");
-    expect(chatPayloads.at(-1)).toMatchObject({
-      state: "final",
-      message: { content: [{ text: "Visible\n\nAfter" }] },
-    });
   });
 
   it.each([

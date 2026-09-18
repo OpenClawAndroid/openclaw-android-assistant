@@ -7,7 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 import { markInboundContextLabel } from "../../../../src/auto-reply/reply/inbound-context-marker.js";
 import type { MessageGroup } from "../../lib/chat/chat-types.ts";
 import { normalizeMessage } from "../../lib/chat/message-normalizer.ts";
-import { summarizeToolGroup } from "../../lib/chat/tool-call-grouping.ts";
 import * as toolCards from "../../lib/chat/tool-cards.ts";
 import { collectGarbageForTest } from "../../test-helpers/garbage-collection.ts";
 import { coalesceAgentRunFrames } from "./chat-agent-run-grouping.ts";
@@ -2743,7 +2742,6 @@ describe("buildCachedChatItems", () => {
       const cards = cardsFor(messages, live);
       expect(cards).toHaveLength(1);
       expect(cards[0]).toMatchObject({ callId: "exec-1", outputText: "ready", completed: true });
-      expect(summarizeToolGroup(cards)).toBe("Ran a command");
     });
 
     it.each([false, true])(

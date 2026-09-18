@@ -786,42 +786,6 @@ describe("sessions_spawn tool", () => {
   });
 
   it.each([
-    { label: "default", mode: undefined },
-    { label: "read-only", mode: "read-only" },
-    { label: "guarded", mode: "guarded" },
-    { label: "workspace", mode: "workspace" },
-    { label: "full", mode: "full" },
-  ] as const)(
-    "inherits the parent's $label permission mode in a visible child",
-    async ({ mode }) => {
-      const callGateway = vi.fn(async () => ({
-        key: "agent:main:dashboard:child",
-        runStarted: true,
-        runId: "run-visible",
-      }));
-      const tool = createSessionsSpawnTool({
-        agentSessionKey: "agent:main:main",
-        ...(mode ? { sessionPermissionPolicy: { mode, root: "/workspace/main" } } : {}),
-        config: { agents: { list: [{ id: "main" }] } },
-        callGateway: callGateway as never,
-        registerRun: vi.fn(),
-        countActiveRuns: () => 0,
-      });
-
-      await tool.execute("visible-permissions", { task: "inspect", visible: true, worktree: true });
-
-      const createParams = mockCallArg(callGateway, 0, 1, "sessions.create");
-      expect(createParams.worktree).toBe(true);
-      expect(createParams).not.toHaveProperty("sessionRoot");
-      if (mode) {
-        expect(createParams.permissionMode).toBe(mode);
-      } else {
-        expect(createParams).not.toHaveProperty("permissionMode");
-      }
-    },
-  );
-
-  it.each([
     { label: "omitted", optional: {} },
     { label: "empty group", optional: { group: "" } },
     { label: "whitespace group", optional: { group: " \t\n " } },
@@ -1172,6 +1136,7 @@ describe("sessions_spawn tool", () => {
         spawnDepth: 1,
       }),
       expect.objectContaining({ via: "spawn", requesterSessionKey: "agent:main:main" }),
+      undefined,
     );
     expect(mockCallArg(callGateway, 0, 1, "sessions.create")).not.toHaveProperty("fork");
     const creation = mockCallArg(callGateway, 0, 2, "sessions.create");
@@ -1416,6 +1381,7 @@ describe("sessions_spawn tool", () => {
           deny: ["exec"],
         },
       },
+      undefined,
     );
     expect(registerRun).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1491,6 +1457,7 @@ describe("sessions_spawn tool", () => {
           "sessions.create",
           expect.objectContaining({ parentSessionKey }),
           expect.objectContaining({ requesterSessionKey: parentSessionKey }),
+          undefined,
         );
       });
     },

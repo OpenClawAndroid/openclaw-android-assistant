@@ -240,7 +240,7 @@ describe("buildWorkspaceSkillsPrompt", () => {
 
     bumpSkillsSnapshotVersion({ workspaceDir: agentWorkspaceDir, reason: "watch" });
     loadWorkspaceSkills(agentWorkspaceDir, loadOptions);
-    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledOnce();
   });
 
   it("does not report execution-directory collisions for the same canonical skill file", async () => {

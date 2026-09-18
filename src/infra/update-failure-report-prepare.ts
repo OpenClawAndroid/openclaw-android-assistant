@@ -214,8 +214,22 @@ function resolveRecoveryOutcome(
 ): string {
   const { result } = input;
   if (result.recovery?.serviceRestartSafe === true) {
+    const version = redactPublicSupportVersion(result.recovery.version);
+    const restored = result.recovery.packageRollbackVerified === true;
+    if (result.recovery.service === "healthy") {
+      return `${restored ? "package rollback verified; " : ""}Gateway serving ${version}; health verified`;
+    }
+    const packageOutcome = restored
+      ? `package rollback verified (${version})`
+      : "runtime files verified";
+    const reason = sanitizeReportField(result.recovery.reason ?? "not-recorded", context, 96);
+    const nextCommand =
+      "Run `openclaw gateway status --deep` to check the serving version and readiness.";
     if (result.recovery.service === "failed") {
-      return "runtime files verified; Gateway restart failed. Run `openclaw gateway status --deep` before restarting manually.";
+      return `${packageOutcome}; Gateway health failed (${reason}). ${nextCommand}`;
+    }
+    if (restored) {
+      return `${packageOutcome}; Gateway health unverified (${reason}). ${nextCommand}`;
     }
     return "verified safe to restart";
   }

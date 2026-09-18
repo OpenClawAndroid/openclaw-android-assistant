@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import * as nodeRuntime from "../../commands/node-runtime-diagnostics.js";
 import * as container from "../../infra/container-environment.js";
 import * as updateCheck from "../../infra/update-check.js";
 import { prepareUpdateFailureReport } from "../../infra/update-failure-report-prepare.js";
@@ -20,6 +21,7 @@ import {
 } from "../../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import * as shared from "./shared.js";
+import { updateStatusCommand } from "./status.js";
 import * as finalization from "./update-command-finalize.js";
 import { updateCommand } from "./update-command.js";
 import { updateRepairCommand } from "./update-repair-command.js";
@@ -182,3 +184,76 @@ it("keeps the Git runner's untouched container result out of failure reports", a
     prepareUpdateFailureReport({ attemptId: "untouched-container", result }),
   ).rejects.toThrow("Only a final failed update");
 });
+
+it.skipIf(process.platform === "win32").each([false, true])(
+  "reports Homebrew guidance across output and existing history (database: %s)",
+  async (existingDatabase) => {
+    if (existingDatabase) {
+      openOpenClawStateDatabase();
+    }
+    const prefix = dirs.make("brew-cellar-");
+    vi.stubEnv("HOMEBREW_PREFIX", prefix);
+    const brewRoot = path.join(
+      prefix,
+      "Cellar",
+      "openclaw-cli",
+      "2026.9.4",
+      "libexec",
+      "lib",
+      "node_modules",
+      "openclaw",
+    );
+    await fs.mkdir(path.join(brewRoot, "dist"), { recursive: true });
+    await fs.writeFile(
+      path.join(brewRoot, "package.json"),
+      '{"name":"openclaw","version":"2026.9.4"}',
+    );
+    vi.spyOn(shared, "resolveUpdateRoot").mockResolvedValue(brewRoot);
+    vi.spyOn(process, "cwd").mockReturnValue(brewRoot);
+
+    await expect(updateCommand({ json: true, yes: true })).rejects.toMatchObject({ code: 0 });
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatchObject({
+      status: "skipped",
+      reason: "unmanaged-package-install",
+      before: { version: "2026.9.4" },
+      steps: [],
+    });
+    expect(lines.join("\n")).toContain("brew upgrade openclaw-cli");
+    if (existingDatabase) {
+      const run = listUpdateRuns({ limit: 1 })[0]!;
+      expect(run).toMatchObject({
+        status: "skipped",
+        origin: { nextAction: expect.stringContaining("brew upgrade openclaw-cli") },
+      });
+      expect(output[0]).toMatchObject({ runId: run.runId, run: { origin: run.origin } });
+      const report = renderUpdateRunReport(run).markdown;
+      expect(report).toContain("brew upgrade openclaw-cli");
+      expect(report).toContain("openclaw gateway restart");
+      expect(report.length).toBeLessThanOrEqual(1500);
+      expect(isReportableUpdateRun(run)).toBe(false);
+      vi.spyOn(nodeRuntime, "collectNodeRuntimeFindings").mockResolvedValue([]);
+      vi.spyOn(updateCheck, "checkUpdateStatus").mockResolvedValue({
+        root: brewRoot,
+        installKind: "package",
+        packageManager: "unknown",
+      });
+      await updateStatusCommand({ json: true });
+      expect(output[1]).toMatchObject({
+        lastRun: { runId: run.runId, status: "skipped", origin: run.origin },
+      });
+    } else {
+      expect(output[0]).not.toHaveProperty("runId");
+      await expect(fs.stat(resolveOpenClawStateSqlitePath(process.env))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    }
+
+    lines = [];
+    await expect(updateCommand({ yes: true })).rejects.toMatchObject({ code: 0 });
+    expect(lines.join("\n")).toContain("OpenClaw update skipped: unmanaged-package-install");
+    expect(lines.join("\n")).toContain("brew upgrade openclaw-cli");
+    expect(lines.join("\n")).toContain("openclaw gateway restart");
+    expect(triage).not.toHaveBeenCalled();
+  },
+);

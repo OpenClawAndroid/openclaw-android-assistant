@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
+import { executeSqliteQuerySync, prepareSqliteQuerySync } from "../../infra/kysely-sync.js";
 import {
   openOpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
@@ -175,13 +175,9 @@ function assertConversationDeliveryInput(
   }
 }
 
-function selectOperation(
-  database: ReturnType<typeof openOpenClawAgentDatabase>,
-  operationId: string,
-): ConversationDeliveryRecord | undefined {
-  const db = getSessionKysely(database.db);
-  const row = executeSqliteQuerySync(
-    database.db,
+function createOperationQuery(database: ReturnType<typeof openOpenClawAgentDatabase>["db"]) {
+  const db = getSessionKysely(database);
+  return prepareSqliteQuerySync<string>(database, (parameter) =>
     // Session pruning removes only session_conversations. The canonical
     // conversation row owns this delivery by foreign key and retains channel
     // identity even when no local session remains linked.
@@ -194,8 +190,29 @@ function selectOperation(
       )
       .selectAll("delivery")
       .select("conversation.channel as channel")
-      .where("delivery.operation_id", "=", operationId),
-  ).rows[0] as ConversationDeliveryRow | undefined;
+      .where(
+        "delivery.operation_id",
+        "=",
+        parameter((operationId) => operationId),
+      ),
+  );
+}
+
+const operationQueryByDatabase = new WeakMap<
+  ReturnType<typeof openOpenClawAgentDatabase>["db"],
+  ReturnType<typeof createOperationQuery>
+>();
+
+function selectOperation(
+  database: ReturnType<typeof openOpenClawAgentDatabase>,
+  operationId: string,
+): ConversationDeliveryRecord | undefined {
+  let query = operationQueryByDatabase.get(database.db);
+  if (!query) {
+    query = createOperationQuery(database.db);
+    operationQueryByDatabase.set(database.db, query);
+  }
+  const row = query(operationId).rows[0] as ConversationDeliveryRow | undefined;
   return row ? mapRow(row) : undefined;
 }
 

@@ -150,6 +150,7 @@ type PreparedWorkspacePluginRegistries = {
 export function prepareWorkspacePluginRegistries(
   input: PreparedModelRuntimeInput,
   metadataSnapshot: PluginMetadataSnapshot,
+  retainRegistry: (registry: PluginRegistry) => void,
   loadInboundRegistry?: PreparedInboundRegistryLoader,
   preferBuiltPluginArtifacts = false,
   reusableGeneration?: PreparedModelRuntimePluginGeneration,
@@ -182,6 +183,11 @@ export function prepareWorkspacePluginRegistries(
           },
         ));
   const baseRegistry = reusableGeneration?.pluginRegistry ?? inboundPluginRegistry;
+  for (const registry of new Set([inboundPluginRegistry, baseRegistry])) {
+    if (registry) {
+      retainRegistry(registry);
+    }
+  }
   primaryRegistry ??= reusableGeneration?.mediaCapabilityProviderSource?.registry ?? baseRegistry;
   let loadedPrimaryRegistry: PluginRegistry | undefined;
   const loadRuntimeRegistry = registryResources
@@ -221,14 +227,19 @@ export function prepareWorkspacePluginRegistries(
           },
         )
       : baseRegistry;
-  const prepared = (registry: PluginRegistry | undefined): PreparedWorkspacePluginRegistries => ({
-    runtimePluginRegistry: registry,
-    primaryRegistry:
-      registry === baseRegistry
-        ? (primaryRegistry ?? registry)
-        : (loadedPrimaryRegistry ?? registry),
-    ...(inboundPluginRegistry ? { inboundPluginRegistry } : {}),
-  });
+  const prepared = (registry: PluginRegistry | undefined): PreparedWorkspacePluginRegistries => {
+    if (registry) {
+      retainRegistry(registry);
+    }
+    return {
+      runtimePluginRegistry: registry,
+      primaryRegistry:
+        registry === baseRegistry
+          ? (primaryRegistry ?? registry)
+          : (loadedPrimaryRegistry ?? registry),
+      ...(inboundPluginRegistry ? { inboundPluginRegistry } : {}),
+    };
+  };
   return runtimePluginRegistry instanceof Promise
     ? runtimePluginRegistry.then(prepared)
     : prepared(runtimePluginRegistry);

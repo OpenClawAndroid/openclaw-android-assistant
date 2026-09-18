@@ -219,6 +219,7 @@ describe("tsdown config", () => {
     const executableGraphs = new Set([
       unifiedGraph,
       expectDefined(workerGraph, "deploy worker graph"),
+      requireStandaloneRuntimeGraph("worker/image-processor.worker"),
       expectDefined(handoffGraph, "managed handoff graph"),
       requireNativeHookRelayGraph(),
       requireStandaloneRuntimeGraph("infra/sqlite-readonly-location.worker"),

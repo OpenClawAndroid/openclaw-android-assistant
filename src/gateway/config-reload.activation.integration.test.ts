@@ -1,6 +1,7 @@
 // Keep provider/model dependencies controlled while exercising the real config reloader.
 // oxfmt-ignore
 import { cleanupPreparedModelRuntimeHarness, getPreparedModelRuntimeMocks, resetPreparedModelRuntimeHarness } from "../agents/prepared-model-runtime.test-harness.js";
+import fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { resolveApiKeyForProfile } from "../agents/auth-profiles/oauth.js";
@@ -33,7 +34,10 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
-import { startGatewayConfigReloader } from "./config-reload.js";
+import {
+  startGatewayConfigReloader,
+  type GatewayConfigReloadTransactionOwnership,
+} from "./config-reload.js";
 let state: OpenClawTestState;
 beforeEach(async () => {
   state = await createOpenClawTestState({ label: "activation-reloader" });
@@ -46,9 +50,11 @@ afterEach(async ({ task }) => {
   await cleanupPreparedModelRuntimeHarness(state, task.result?.state === "fail");
 });
 describe("setup activation reload ownership", () => {
-  it.each(["superseded", "runtime-failed"] as const)(
+  it.each(["superseded", "runtime-failed", "same-source-echo", "changed-source-echo"] as const)(
     "the real reloader preserves the current connection after %s activation",
-    async (outcome) => {
+    async (scenario) => {
+      const outcome = scenario === "runtime-failed" ? "runtime-failed" : "superseded";
+      const controlledEcho = scenario === "same-source-echo" || scenario === "changed-source-echo";
       const previous: OpenClawConfig = {
         gateway: { mode: "local" },
         plugins: { slots: { memory: "none" } },
@@ -112,6 +118,26 @@ describe("setup activation reload ownership", () => {
       await refreshPreparedModelRuntimeSnapshots(previous);
       const initial = await readConfigFileSnapshot();
       const reloadError = vi.fn();
+      const watcherReady = createDeferred();
+      const captureEntered = createDeferred();
+      const releaseCapture = createDeferred();
+      const observedDuringCapture = createDeferred();
+      const successorApplied = createDeferred();
+      let captureHeld = false;
+      let currentOwnership: GatewayConfigReloadTransactionOwnership | undefined;
+      const applyRuntime: Parameters<typeof startGatewayConfigReloader>[0]["onHotReload"] = async (
+        plan,
+        config,
+        ownership,
+      ) => {
+        currentOwnership = ownership;
+        // Match the managed publisher: commit before the model-rebuild tail.
+        await ownership.checkpoint();
+        ownership.publishRuntimeEnv();
+        ownership.markRuntimeCommitted(config, plan);
+        await refreshPreparedModelRuntimeSnapshots(config);
+        return "applied";
+      };
       const reloader = startGatewayConfigReloader({
         initialConfig: initial.config,
         initialCompareConfig: initial.sourceConfig,
@@ -120,6 +146,19 @@ describe("setup activation reload ownership", () => {
         initialSnapshotValid: initial.valid,
         initialSnapshotIssues: initial.issues,
         testDebounceMs: 0,
+        onWatcherReady: watcherReady.resolve,
+        onConfigCandidateObserved: () => {
+          if (captureHeld) {
+            observedDuringCapture.resolve();
+          }
+        },
+        onConfigApplied: (_plan, config) => {
+          if (
+            resolveAgentModelPrimaryValue(config.agents?.defaults?.model) === "openai/fixture-newer"
+          ) {
+            successorApplied.resolve();
+          }
+        },
         readSnapshot: () => readConfigFileSnapshot(),
         watchPath: state.configPath,
         readPluginInstallRecords: async () => ({}),
@@ -148,18 +187,8 @@ describe("setup activation reload ownership", () => {
           }
           return { runtimeConfig, compareConfig: sourceConfig };
         },
-        onHotReload: async (plan, config, ownership) => {
-          await refreshPreparedModelRuntimeSnapshots(config, {
-            isPublicationCurrent: ownership.isCurrent,
-          });
-          ownership.markRuntimeCommitted(config, plan);
-          return "applied";
-        },
-        onNoopConfigCommit: async (_plan, config, ownership) => {
-          await refreshPreparedModelRuntimeSnapshots(config, {
-            isPublicationCurrent: ownership.isCurrent,
-          });
-        },
+        onHotReload: applyRuntime,
+        onNoopConfigCommit: applyRuntime,
         onRestart: () => {
           throw new Error("fixture route must hot reload");
         },
@@ -168,6 +197,19 @@ describe("setup activation reload ownership", () => {
       const completion = createDeferred<() => Promise<boolean>>();
       const applied = createDeferred<ReturnType<typeof createRuntimeConfigWriteApplication>>();
       try {
+        if (controlledEcho) {
+          await reloader.ready;
+          await watcherReady.promise;
+          getPreparedModelRuntimeMocks().resolveAmbientCredentials.mockImplementationOnce(
+            async () => {
+              captureHeld = true;
+              captureEntered.resolve();
+              await releaseCapture.promise;
+              captureHeld = false;
+              return {};
+            },
+          );
+        }
         const configTarget: SetupInferenceConfigTarget = {
           read: async () => ({
             config: (await readConfigFileSnapshot()).sourceConfig,
@@ -205,6 +247,51 @@ describe("setup activation reload ownership", () => {
           configTarget,
           config: candidate,
         });
+        if (controlledEcho) {
+          await Promise.race([
+            captureEntered.promise,
+            applied.promise.then((application) =>
+              application.result.then((status) => {
+                throw new Error(`Activation settled before capture barrier: ${status}`);
+              }),
+            ),
+          ]);
+          const raw = await fs.readFile(state.configPath, "utf8");
+          const nextRaw =
+            scenario === "same-source-echo"
+              ? raw
+              : raw.replace('"openai/fixture-verified"', '"openai/fixture-newer"');
+          if (scenario === "changed-source-echo") {
+            expect(nextRaw).not.toBe(raw);
+          }
+          await fs.writeFile(state.configPath, nextRaw);
+          await observedDuringCapture.promise;
+          expect(currentOwnership?.isCurrent()).toBe(false);
+          expect(await fs.readFile(state.configPath, "utf8")).toBe(nextRaw);
+          releaseCapture.resolve();
+        }
+        if (scenario === "changed-source-echo") {
+          const result = await (await applied.promise).result;
+          expect(result, JSON.stringify(reloadError.mock.calls)).toBe("superseded");
+          await successorApplied.promise;
+          await expect((await completion.promise)()).rejects.toThrow("superseded");
+          const successor = await prepareModelRuntimeSnapshot({
+            agentId: "default",
+            agentDir: state.agentDir("default"),
+            inheritedAuthDir: state.agentDir("default"),
+            workspaceDir: state.workspaceDir,
+            config: candidate,
+          });
+          expect(resolveAgentModelPrimaryValue(successor.config.agents?.defaults?.model)).toBe(
+            "openai/fixture-newer",
+          );
+          expect(
+            resolveAgentModelPrimaryValue(
+              (await readConfigFileSnapshot()).sourceConfig.agents?.defaults?.model,
+            ),
+          ).toBe("openai/fixture-newer");
+          return;
+        }
         if (outcome === "runtime-failed") {
           await expect((await applied.promise).result).resolves.toBe("failed");
           expect(
@@ -270,6 +357,7 @@ describe("setup activation reload ownership", () => {
           ),
         ).toBe("openai/fixture-newer");
       } finally {
+        releaseCapture.resolve();
         await reloader.stop();
       }
     },

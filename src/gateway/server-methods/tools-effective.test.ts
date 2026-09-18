@@ -824,6 +824,35 @@ describe("tools.effective handler", () => {
     expectPayloadNotice(respond, "unsupported-tool-schema:reproProbe__probe_tool");
   });
 
+  it("keeps usable MCP tools and ordered quarantine notices without changing the cached base", async () => {
+    const base = {
+      ...makeCoreInventory(),
+      notices: [{ id: "base-notice", severity: "info", message: "Keep the base notice" }],
+    };
+    const originalBase = structuredClone(base);
+    Object.freeze(base.groups);
+    Object.freeze(base.notices);
+    Object.freeze(base);
+    runtimeMocks.resolveEffectiveToolInventory.mockReturnValueOnce(base);
+    mockMcpConfigSummary();
+    mockWarmMcpRuntime(makeMcpCatalog());
+    const invalid = makeMcpTool({ type: "array", items: { type: "string" } });
+    invalid.name = "reproProbe__invalid";
+    runtimeMocks.buildBundleMcpToolsFromCatalog.mockReturnValueOnce([makeMcpTool(), invalid]);
+
+    const { respond, invoke } = createInvokeParams({ sessionKey: "main:abc" });
+    await invoke();
+
+    expectPayloadGroupIds(respond, ["core", "mcp"]);
+    const payload = firstRespondCall(respond)?.[1] as ToolsEffectivePayload;
+    expect(payload.groups?.[1]?.tools?.map((tool) => tool.id)).toEqual(["reproProbe__probe_tool"]);
+    expect(payload.notices?.map((notice) => notice.id)).toEqual([
+      "base-notice",
+      "unsupported-tool-schema:reproProbe__invalid",
+    ]);
+    expect(base).toEqual(originalBase);
+  });
+
   it("does not project stale MCP catalogs after config changes", async () => {
     mockMcpConfigSummary({ fingerprint: "mcp:2:test" });
     mockWarmMcpRuntime(makeMcpCatalog(), {

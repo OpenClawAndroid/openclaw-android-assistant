@@ -1,6 +1,6 @@
 import { isIncognitoSessionKey } from "../routing/session-key.js";
-import { createVisibleActiveSessionRunProjector } from "./server-methods/session-active-runs.js";
-import type { GatewayClient, GatewayRequestContext } from "./server-methods/types.js";
+import type { createVisibleActiveSessionRunProjector } from "./server-methods/session-active-runs.js";
+import type { GatewayClient } from "./server-methods/types.js";
 import { tryResolveSessionCompatibilityOwnerAgentId } from "./session-request-agent.js";
 import type { SessionRowReadView } from "./session-row-prepared-read.js";
 import type * as records from "./session-row-projection-record.js";
@@ -31,13 +31,10 @@ export function prepareProjectedSessionPresentation(
   projection: SessionRowReadView,
   client?: GatewayClient | null,
   now = Date.now(),
-  context?: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,
+  projectRun?: ReturnType<typeof createVisibleActiveSessionRunProjector>,
 ) {
   const { cfg, rowContext } = projection.state;
   const subagentRuns = rowContext.subagentRuns.atTime(now);
-  const projectRun = context
-    ? createVisibleActiveSessionRunProjector(context, rowContext.projectedAgentRuns)
-    : undefined;
   const active = (key: string, entry: records.MaterializedRow["entry"], agentId: string) =>
     projectRun?.({
       requestedKey: key,

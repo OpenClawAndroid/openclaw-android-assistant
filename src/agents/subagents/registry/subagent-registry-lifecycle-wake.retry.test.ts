@@ -35,6 +35,7 @@ vi.mock("./subagent-registry-lifecycle-delivery.js", () => ({
 }));
 vi.mock("../completion/subagent-completion-admission.store.js", () => ({
   blockSubagentCompletionDelivery: vi.fn(),
+  settleRequesterCompletionBatch: vi.fn(),
 }));
 vi.mock("../../agent-bundle-mcp-tools.js", () => ({
   retireSessionMcpRuntimeForSessionKey: vi.fn(),

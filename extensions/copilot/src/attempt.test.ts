@@ -725,6 +725,7 @@ describe("runCopilotAttempt", () => {
     const createToolBridge = vi.fn(async (input: CopilotToolBridgeInput) => {
       await input.onToolCompleted?.({
         args: { path: "README.md" },
+        isError: false,
         result: { content: [{ text: "read result", type: "text" }] },
         startedAt: Date.now(),
         toolCallId: "tool-call-1",
@@ -1885,40 +1886,30 @@ describe("runCopilotAttempt", () => {
   it("F7: preserves an accepted session spawn when the tool bridge yields the attempt", async () => {
     const sdk = makeFakeSdk();
     const pool = makeFakePool(sdk);
-    const createToolBridge = vi.fn(
-      async (input: {
-        onToolCompleted?: (completion: {
-          args: Record<string, unknown>;
-          result: unknown;
-          startedAt: number;
-          toolCallId: string;
-          toolName: string;
-        }) => void | Promise<void>;
-        onYieldDetected?: (message?: string, acknowledgment?: string) => void;
-      }) => {
-        await input.onToolCompleted?.({
-          args: { task: "review" },
-          result: {
-            details: {
-              status: "accepted",
-              runId: "run-copilot-child",
-              childSessionKey: "agent:main:subagent:copilot-child",
-              expectsCompletionMessage: true,
-            },
+    const createToolBridge = vi.fn(async (input: CopilotToolBridgeInput) => {
+      await input.onToolCompleted?.({
+        args: { task: "review" },
+        isError: false,
+        result: {
+          details: {
+            status: "accepted",
+            runId: "run-copilot-child",
+            childSessionKey: "agent:main:subagent:copilot-child",
+            expectsCompletionMessage: true,
           },
-          startedAt: Date.now(),
-          toolCallId: "spawn-1",
-          toolName: "sessions_spawn",
-        });
-        // Simulate a wrapped tool invoking sessions_yield before the
-        // attempt settles. The bridge is responsible for notifying the
-        // caller via onYieldDetected so the final result can carry the
-        // flag (parent runner uses it to mark liveness paused /
-        // stop_reason end_turn). Mirrors PI/codex parity.
-        input.onYieldDetected?.("private continuation", "Research started; results will follow.");
-        return createStubToolBridge();
-      },
-    );
+        },
+        startedAt: Date.now(),
+        toolCallId: "spawn-1",
+        toolName: "sessions_spawn",
+      });
+      // Simulate a wrapped tool invoking sessions_yield before the
+      // attempt settles. The bridge is responsible for notifying the
+      // caller via onYieldDetected so the final result can carry the
+      // flag (parent runner uses it to mark liveness paused /
+      // stop_reason end_turn). Mirrors PI/codex parity.
+      input.onYieldDetected?.("private continuation", "Research started; results will follow.");
+      return createStubToolBridge();
+    });
 
     const result = await runCopilotAttempt(makeParams(), {
       createToolBridge,

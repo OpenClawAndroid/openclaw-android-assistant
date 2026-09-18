@@ -356,8 +356,15 @@ async function launch(
 }
 
 process.once("disconnect", shutdown);
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+const onSupervisorSignal = () => {
+  // A cgroup stop can reach the broker before the Gateway finishes child cleanup.
+  // Keep its transport alive until the parent relinquishes ownership through IPC.
+  if (!process.connected) {
+    shutdown();
+  }
+};
+process.on("SIGTERM", onSupervisorSignal);
+process.on("SIGINT", onSupervisorSignal);
 process.on("message", (raw: unknown, handle: SendHandle) => {
   // Only the version-matched parent can write this private IPC channel.
   let decoded: unknown;

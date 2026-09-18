@@ -519,6 +519,8 @@ openclaw system event --text "Check for urgent follow-ups" --mode now
 
 If no `--session-key` is given and multiple agents have `heartbeat` configured, `--mode now` runs each of those agent heartbeats immediately.
 
+Broadcast completion reports an agent failure even if another agent succeeded or was quietly skipped. Busy retries and guarded deferrals keep their existing retry behavior.
+
 Related heartbeat controls in the same CLI group:
 
 ```bash

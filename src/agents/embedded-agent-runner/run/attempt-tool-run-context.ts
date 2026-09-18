@@ -1,11 +1,16 @@
 import type { ThinkLevel } from "../../../auto-reply/thinking.js";
 import type { GroupToolPolicyConfig } from "../../../config/types.tools.js";
+import { prepareGitHubPublicationAvailability } from "../../../gateway/github-publication-availability.js";
 import {
   freezeDiagnosticTraceContext,
   type DiagnosticTraceContext,
 } from "../../../infra/diagnostic-trace-context.js";
-import type { AdmittedRunContext } from "../../admitted-run-context.js";
-import { createAdmittedGatewayToolCallerIdentity } from "../../tools/gateway-caller-context.js";
+import { getGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
+import { agentHarnessExposesOpenClawTools } from "../../harness/tool-surface.js";
+import {
+  createAdmittedGatewayToolCallerIdentity,
+  withGatewayToolCallerIdentity,
+} from "../../tools/gateway-caller-context.js";
 import { mergeForcedEmbeddedAttemptToolsAllow } from "./attempt-tool-construction-plan.js";
 import type { EmbeddedRunTrigger, RunEmbeddedAgentParams } from "./params.js";
 import type { EmbeddedRunAttemptParams } from "./types.js";
@@ -126,10 +131,11 @@ export function buildEmbeddedAttemptToolRunContext(
   };
 }
 
-/** Project the original turn's source and current caller into its admitted Gateway tools. */
-export function createEmbeddedGatewayToolCallerIdentity(params: {
-  run: Pick<
-    RunEmbeddedAgentParams,
+/** Prepare Gateway tools once at the shared dispatch boundary, including internal continuations. */
+export async function withPreparedEmbeddedGatewayTools<T>(
+  attempt: Pick<
+    EmbeddedRunAttemptParams,
+    | "admittedRunContext"
     | "cronCreatorAuthorityCapability"
     | "messageChannel"
     | "messageProvider"
@@ -137,26 +143,53 @@ export function createEmbeddedGatewayToolCallerIdentity(params: {
     | "currentChannelId"
     | "agentAccountId"
     | "currentThreadTs"
-  >;
-  admittedRunContext: AdmittedRunContext;
-  agentId: string;
-  sessionKey: string;
-}) {
-  const { run } = params;
-  return createAdmittedGatewayToolCallerIdentity({
-    admittedRunContext: params.admittedRunContext,
-    cronAuthorityCheck: run.cronCreatorAuthorityCapability?.isCurrent,
-    agentId: params.agentId,
-    sessionKey: params.sessionKey,
-    turnSourceChannel: run.messageChannel ?? run.messageProvider,
+    | "sessionId"
+    | "disableTools"
+    | "sessionPersistence"
+    | "githubPublicationAvailable"
+  > & { agentId: string; sessionKey: string; agentHarnessId: string },
+  isAttemptCurrent: () => boolean,
+  run: () => Promise<T>,
+): Promise<T> {
+  const callerIdentity = createAdmittedGatewayToolCallerIdentity({
+    admittedRunContext: attempt.admittedRunContext,
+    cronAuthorityCheck: attempt.cronCreatorAuthorityCapability?.isCurrent,
+    agentId: attempt.agentId,
+    sessionKey: attempt.sessionKey,
+    turnSourceChannel: attempt.messageChannel ?? attempt.messageProvider,
     turnSourceLocal:
-      !run.messageChannel &&
-      !run.messageProvider &&
-      run.cronCreatorAuthorityCapability?.callerOrigin.kind === "local"
+      !attempt.messageChannel &&
+      !attempt.messageProvider &&
+      attempt.cronCreatorAuthorityCapability?.callerOrigin.kind === "local"
         ? true
         : undefined,
-    turnSourceTo: run.currentMessagingTarget ?? run.currentChannelId,
-    turnSourceAccountId: run.agentAccountId,
-    turnSourceThreadId: run.currentThreadTs,
+    turnSourceTo: attempt.currentMessagingTarget ?? attempt.currentChannelId,
+    turnSourceAccountId: attempt.agentAccountId,
+    turnSourceThreadId: attempt.currentThreadTs,
+  });
+  return withGatewayToolCallerIdentity(callerIdentity, async () => {
+    const resolveGatewayContext = getGatewayContextResolver(attempt.admittedRunContext);
+    const gateway = resolveGatewayContext?.();
+    if (
+      !attempt.disableTools &&
+      attempt.sessionPersistence !== "detached" &&
+      agentHarnessExposesOpenClawTools(attempt.agentHarnessId) &&
+      gateway &&
+      !gateway.localEmbedded
+    ) {
+      // Yield, compaction, and retries recheck the current session and exact live host;
+      // an earlier attempt's availability must not determine its successor's tool catalog.
+      const isCurrent = () => isAttemptCurrent() && resolveGatewayContext?.() === gateway;
+      attempt.githubPublicationAvailable = await prepareGitHubPublicationAvailability({
+        sessionId: attempt.sessionId,
+        sessionKey: attempt.sessionKey,
+        agentId: attempt.agentId,
+        assertCurrent: isCurrent,
+      });
+      if (!isCurrent()) {
+        throw new Error("GitHub tool preparation outlived its admitted Gateway run");
+      }
+    }
+    return run();
   });
 }

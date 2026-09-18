@@ -270,8 +270,8 @@ export function chunkByParagraph(
   };
 
   for (const [index, part] of parts.entries()) {
-    const paragraph = part.replace(/\s+$/g, "");
-    if (!paragraph.trim()) {
+    const paragraph = part.trimEnd();
+    if (!paragraph) {
       continue;
     }
     pushParagraph(paragraph, separators[index - 1]);
@@ -539,13 +539,20 @@ function pickSafeBreakIndex(
     }
   }
   let fence = fenceIndex < spans.length ? spans[fenceIndex] : undefined;
-  const { lastNewline, lastWhitespace } = scanParenAwareBreakpoints(text, start, end, (index) => {
-    while (fence && fence.end <= index) {
-      fenceIndex += 1;
-      fence = fenceIndex < spans.length ? spans[fenceIndex] : undefined;
-    }
-    return fence && index > fence.start ? fence.end : undefined;
-  });
+  const { lastNewline, lastWhitespace } = scanParenAwareBreakpoints(
+    text,
+    start,
+    end,
+    spans.length > 0
+      ? (index) => {
+          while (fence && fence.end <= index) {
+            fenceIndex += 1;
+            fence = fenceIndex < spans.length ? spans[fenceIndex] : undefined;
+          }
+          return fence && index > fence.start ? fence.end : undefined;
+        }
+      : undefined,
+  );
 
   if (lastNewline > start) {
     return lastNewline;
@@ -564,6 +571,17 @@ function scanParenAwareBreakpoints(
 ): { lastNewline: number; lastWhitespace: number } {
   let lastNewline = -1;
   let lastWhitespace = -1;
+  if (!skipTo) {
+    const window = text.slice(start, end);
+    if (!window.includes("(")) {
+      const newline = window.lastIndexOf("\n");
+      lastNewline = newline < 0 ? -1 : start + newline;
+      // The suffix excludes non-LF whitespace, selecting the final eligible separator.
+      const whitespace = window.search(/[^\S\n][\S\n]*$/);
+      lastWhitespace = whitespace < 0 ? -1 : start + whitespace;
+      return { lastNewline, lastWhitespace };
+    }
+  }
   let depth = 0;
 
   for (let i = start; i < end; i++) {

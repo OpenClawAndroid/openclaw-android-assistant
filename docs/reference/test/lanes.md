@@ -108,6 +108,12 @@ match only `failure-*/failure.public.json`; raw reports and screenshots remain
 private. Older frozen targets without the public summary produce no matching
 upload and never fall back to raw captures.
 
+The shared failure collector gives renderer evaluation and screenshot capture one
+five-second budget. If the renderer stalls, it records incomplete diagnostics and
+returns so the caller can rethrow the original failure. A late browser response
+cannot publish a screenshot after that budget expires; test action deadlines and
+caller-owned browser cleanup remain unchanged.
+
 The private JSON report's `ci.shardIndex` and `ci.vitestShardCount` fields record
 `VITEST_SHARD_INDEX` and `VITEST_SHARD_COUNT`, respectively, as supplied by normal CI.
 Missing values remain `null`; manual and separate release E2E invocations do not

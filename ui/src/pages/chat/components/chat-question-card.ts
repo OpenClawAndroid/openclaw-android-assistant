@@ -157,9 +157,12 @@ export function renderChatQuestionSummary(prompt: QuestionPrompt) {
     <div class="chat-question-summary" aria-label=${t("chat.questions.summaryLabel")}>
       ${prompt.questions.map(
         (question) => html`
-          <div class="chat-question-summary__line">
-            <strong>${question.header}:</strong>
-            <span>${terminalAnswer(prompt, question)}</span>
+          <div class="chat-question-summary__item">
+            <div class="chat-question-summary__prompt">${question.question}</div>
+            <div class="chat-question-summary__line">
+              <strong>${question.header}:</strong>
+              <span>${terminalAnswer(prompt, question)}</span>
+            </div>
           </div>
         `,
       )}

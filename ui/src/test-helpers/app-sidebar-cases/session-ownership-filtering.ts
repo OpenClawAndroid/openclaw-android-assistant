@@ -521,7 +521,7 @@ describe("AppSidebar session ownership filtering", () => {
     const gateway = createGateway({} as GatewayBrowserClient);
     const navigationParentKey = "agent:main:dashboard:navigation-parent";
     const controlParentKey = "agent:main:main";
-    const childKey = "agent:main:subagent:controlled-child";
+    const childKey = "agent:main:dashboard:controlled-child";
     const child = {
       key: childKey,
       kind: "direct" as const,

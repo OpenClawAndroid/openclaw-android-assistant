@@ -144,7 +144,6 @@ describe("native picker acquisition failures", () => {
 
     const inventoryOwner = resolvePreparedModelRuntimeOwnerBySnapshot(owner);
     for (const provider of ["provider-a", "provider-b"]) {
-      const beforeRenewal = owner.readFullModelCatalog!();
       const facts = inventoryOwner?.catalogInventory?.providers.get(provider);
       if (!facts) {
         throw new Error(`Missing published inventory for ${provider}`);
@@ -155,7 +154,9 @@ describe("native picker acquisition failures", () => {
       await vi.waitFor(() => {
         expect(mocks.runPreparedModelCatalogWorker).toHaveBeenCalledTimes(providerCalls + 1);
         const published = owner.readFullModelCatalog!();
-        expect(published).not.toBe(beforeRenewal);
+        expect(
+          inventoryOwner?.catalogInventory?.providers.get(provider)?.expiresAt,
+        ).toBeUndefined();
         expect(published?.pendingProviders).toBeUndefined();
       });
       const renewed = owner.readFullModelCatalog!()!;

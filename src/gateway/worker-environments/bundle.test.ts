@@ -42,6 +42,11 @@ async function writeFixture(
     mode: 0o755,
   });
   await fs.writeFile(
+    path.join(packageRoot, "dist", "worker", "image-processor.worker.mjs"),
+    "export const imageProcessor = true;\n",
+    { encoding: "utf8", mode: 0o755 },
+  );
+  await fs.writeFile(
     path.join(packageRoot, "dist", "worker", "github-exec-launcher.mjs"),
     "export const launcher = true;\n",
     { encoding: "utf8", mode: 0o755 },
@@ -133,6 +138,7 @@ describe("worker bundle producer", () => {
       expect(second.bundleHash).toBe(first.bundleHash);
       await expect(listTarball(first.tarballPath)).resolves.toEqual([
         "github-exec-launcher.mjs",
+        "image-processor.worker.mjs",
         "worker.mjs",
         "workspace-rsync-receiver.mjs",
       ]);
@@ -184,6 +190,12 @@ describe("worker bundle producer", () => {
       );
       const launcherChanged = await createWorkerBundleProducer({ packageRoot, cacheDir }).prepare();
       expect(launcherChanged.bundleHash).not.toBe(receiverChanged.bundleHash);
+      await fs.writeFile(
+        path.join(packageRoot, "dist", "worker", "image-processor.worker.mjs"),
+        "export const imageProcessor = false;\n",
+      );
+      const imageChanged = await createWorkerBundleProducer({ packageRoot, cacheDir }).prepare();
+      expect(imageChanged.bundleHash).not.toBe(launcherChanged.bundleHash);
     });
   });
 
@@ -579,6 +591,7 @@ describe("worker bundle producer", () => {
       expect(repaired.bundleHash).toBe(first.bundleHash);
       await expect(listTarball(repaired.tarballPath)).resolves.toEqual([
         "github-exec-launcher.mjs",
+        "image-processor.worker.mjs",
         "worker.mjs",
         "workspace-rsync-receiver.mjs",
       ]);
@@ -588,6 +601,7 @@ describe("worker bundle producer", () => {
   it.skipIf(process.platform === "win32")("rejects symlinked deploy artifacts", async () => {
     for (const artifactName of [
       "github-exec-launcher.mjs",
+      "image-processor.worker.mjs",
       "worker.mjs",
       "workspace-rsync-receiver.mjs",
     ]) {

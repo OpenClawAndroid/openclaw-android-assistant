@@ -13,6 +13,7 @@ import { isImmutableGitCommitRef, parseGitPluginSpec } from "../../plugins/git-i
 import type { InstallSafetyOverrides } from "../../plugins/install-security-scan.types.js";
 import { resolveUserPath } from "../../utils.js";
 import { parseSkillFrontmatter } from "../loading/frontmatter.js";
+import { SKILL_SOURCE_ORIGIN_RELATIVE_PATH } from "../loading/skill-entry-metadata-path.js";
 import { installExtractedSkillRoot, validateRequestedSkillSlug } from "./archive-install.js";
 import { untrackClawHubSkill } from "./clawhub.js";
 
@@ -44,8 +45,6 @@ type SkillSourceInstallResult =
       git?: SkillSourceOrigin["git"];
     }
   | { ok: false; error: string };
-
-const SKILL_SOURCE_ORIGIN_RELATIVE_PATH = path.join(".openclaw", "source-origin.json");
 
 function createGitCommandEnv(): NodeJS.ProcessEnv {
   return sanitizeHostExecEnv({

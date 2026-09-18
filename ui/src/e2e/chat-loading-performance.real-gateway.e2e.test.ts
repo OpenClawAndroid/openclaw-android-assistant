@@ -13,7 +13,6 @@ import {
 } from "../../../test/helpers/openclaw-test-instance.ts";
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
-import { controlUiSessionPath } from "../test-helpers/control-ui-e2e.ts";
 import { installChatLoadingReadinessObserver } from "./chat-loading-readiness.test-support.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 
@@ -248,7 +247,7 @@ suite.define(() => {
       );
     }
     const handoff = await cliJson(["dashboard", "--json"]);
-    const url = new URL(controlUiSessionPath(selectedKey), suite.server.baseUrl);
+    const url = new URL("/chat/main/12345678", suite.server.baseUrl);
     url.hash = new URL(String(handoff.browserUrl)).hash;
     const artifactDir = suite.artifactDir;
     const rpc: RpcMetric[] = [];

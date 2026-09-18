@@ -9,6 +9,7 @@ import { assertSqliteIntegrity, assertSqliteTableIntegrity } from "../infra/sqli
 import { assertSqliteSchemaTablesPresent } from "../infra/sqlite-schema-contract.js";
 import { migrateSqliteSchemaToStrictInTransaction } from "../infra/sqlite-strict.js";
 import { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
+import { migrateLegacyCronRunLogsToTaskRuns } from "../infra/state-migrations.cron-run-logs.js";
 import { clearOpenClawDatabaseQuarantine } from "./openclaw-quarantine-store.js";
 import { repairAuditEventsSchema } from "./openclaw-state-db-audit-migration.js";
 import { clearOpenClawStateDatabaseOpenFailure } from "./openclaw-state-db-cache.js";
@@ -43,9 +44,9 @@ import {
   repairAgentDatabasesCompositePrimaryKey,
   repairLegacyGatewayRestartHandoffsForStrictMigration,
 } from "./openclaw-state-db-schema-repair.js";
+import { ensureOpenClawStateRuntimeSchema } from "./openclaw-state-db-schema-runtime.js";
 import { migrateSingletonStateFoldInV12 } from "./openclaw-state-db-schema-v12-foldin.js";
 import {
-  assertSupportedStateSchemaVersion,
   readStateSchemaContentVersion,
   readStateSchemaMigrationVersion,
 } from "./openclaw-state-db-schema-version.js";
@@ -53,10 +54,7 @@ import * as sessionWatchMigration from "./openclaw-state-db-session-watch-migrat
 import * as retirements from "./openclaw-state-db-table-retirements.js";
 import { recoverOrphanTaskDeliveryRows } from "./openclaw-state-db-task-delivery-recovery.js";
 import { describeAgentPathMigration } from "./openclaw-state-db.paths.js";
-import {
-  assertOpenClawStateWriteAllowed,
-  OpenClawStateOwnershipError,
-} from "./openclaw-state-ownership.js";
+import { OpenClawStateOwnershipError } from "./openclaw-state-ownership.js";
 import { getOpenClawStateRuntimeSchema } from "./openclaw-state-schema-compatibility.js";
 import { OPENCLAW_STATE_SCHEMA_SQL } from "./openclaw-state-schema.js";
 import { UpdateSchemaRefusalError } from "./openclaw-update-schema-refusal.js";
@@ -76,11 +74,11 @@ export function repairStateSchema(
   let ownershipRefused = false;
   try {
     setSqliteBusyTimeout(db, OPENCLAW_SQLITE_BUSY_TIMEOUT_MS);
-    const repairAdmittedSchema =
-      scope === "automatic" ? undefined : prepareStateDatabaseSchemaRepair(db, pathname, env);
-    if (!repairAdmittedSchema) {
-      assertSupportedStateSchemaVersion(db, pathname);
-    } else if (scope === "readability") {
+    if (scope === "automatic") {
+      return { changes: ensureOpenClawStateRuntimeSchema(db, pathname, env), warnings: [] };
+    }
+    const repairAdmittedSchema = prepareStateDatabaseSchemaRepair(db, pathname, env);
+    if (scope === "readability") {
       return {
         changes: runSqliteImmediateTransactionSync(
           db,
@@ -106,9 +104,6 @@ export function repairStateSchema(
       db,
       pathname,
       () => {
-        if (!repairAdmittedSchema) {
-          assertOpenClawStateWriteAllowed({ database: db, databasePath: pathname, env });
-        }
         applied.push(...recoverOrphanTaskDeliveryRows(db, pathname));
         const previousVersion = readStateSchemaMigrationVersion(db);
         const preAuditSchema = previousVersion === 1 && !tableExists(db, "audit_events");
@@ -165,7 +160,7 @@ export function repairStateSchema(
         // Recognized schema-1 stores predate audit; Doctor must finish their schema
         // before its later read-only workspace and agent readers can consume it.
         if (preAuditSchema || tableExists(db, "audit_events")) {
-          ensureAdditiveStateColumns(db);
+          ensureAdditiveStateColumns(db, "repair");
           for (const migration of versionedStateMigrations) {
             if (migration.migrate(db, previousVersion)) {
               applied.push(migration.applied);
@@ -174,6 +169,7 @@ export function repairStateSchema(
           executeCanonicalStateSchema(db, {
             includeVersionLazyAdditiveTables: previousVersion !== OPENCLAW_STATE_SCHEMA_VERSION,
           });
+          migrateLegacyCronRunLogsToTaskRuns(db);
           if (previousVersion < OPENCLAW_STATE_STRICT_SCHEMA_VERSION) {
             repairLegacyGatewayRestartHandoffsForStrictMigration(db);
             ensureFirstUseAdditiveStateColumnsForStrictMigration(db);
@@ -213,7 +209,7 @@ export function repairStateSchema(
         operationLabel: "state.schema.repair",
       },
       () => {
-        applied.push(...(repairAdmittedSchema?.() ?? []));
+        applied.push(...repairAdmittedSchema());
       },
     );
     const quarantineCleared = clearOpenClawDatabaseQuarantine(pathname, { env });
@@ -236,10 +232,13 @@ export function repairStateSchema(
     }
     // Reaching this catch inside doctor means repair itself refused or failed,
     // so the runtime asserts' "run openclaw doctor --fix" advice is circular here.
-    const reason = String(err).replace(
-      /has a legacy ([a-z ]+) schema; run openclaw doctor --fix to migrate it\./u,
-      "has a legacy $1 schema; automatic repair refused the unrecognized schema shape.",
-    );
+    const reason =
+      scope === "automatic"
+        ? String(err)
+        : String(err).replace(
+            /has a legacy ([a-z ]+) schema; run openclaw doctor --fix to migrate it\./u,
+            "has a legacy $1 schema; automatic repair refused the unrecognized schema shape.",
+          );
     return {
       changes: [],
       warnings: [`Failed migrating shared state database schema at ${pathname}: ${reason}`],

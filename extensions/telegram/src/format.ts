@@ -16,22 +16,21 @@ import {
   protectTelegramAssistantTranscriptRoleHeaders,
   TELEGRAM_ASSISTANT_TRANSCRIPT_PREFIX,
 } from "./format-assistant-transcript.js";
-import { decodeTelegramHtmlEntities, findTelegramHtmlEntityEnd } from "./format-html.js";
+import {
+  decodeTelegramHtmlEntities,
+  escapeTelegramHtml,
+  escapeTelegramHtmlAttr,
+  findTelegramHtmlEntityEnd,
+} from "./format-html.js";
 import { renderTelegramMarkdownIR } from "./format-render.js";
 import { renderTelegramMonospaceGrid } from "./text-width.js";
+
+export { escapeTelegramHtml } from "./format-html.js";
 
 export type TelegramFormattedChunk = {
   html: string;
   text: string;
 };
-
-export function escapeTelegramHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function escapeHtmlAttr(text: string): string {
-  return escapeTelegramHtml(text).replace(/"/g, "&quot;");
-}
 
 function isTelegramRichLinkHref(href: string): boolean {
   return /^(?:https?:\/\/|tg:\/\/|mailto:|tel:|#)/i.test(href);
@@ -70,7 +69,7 @@ function buildTelegramLink(
   if (context.origin === "linkify" && isAutoLinkedFileRef(href, label)) {
     return null;
   }
-  const safeHref = escapeHtmlAttr(href);
+  const safeHref = escapeTelegramHtmlAttr(href);
   return {
     start: link.start,
     end: link.end,
@@ -83,7 +82,7 @@ function buildTelegramCodeBlockOpen(span: { language?: string }): string {
   if (!span.language) {
     return "<pre><code>";
   }
-  return `<pre><code class="language-${escapeHtmlAttr(span.language)}">`;
+  return `<pre><code class="language-${escapeTelegramHtmlAttr(span.language)}">`;
 }
 
 function renderTelegramHtml(ir: MarkdownIR): string {
@@ -235,14 +234,12 @@ function popLastTagName(tags: string[], name: string): boolean {
   return false;
 }
 
-function isSupportedTelegramHtmlTag(rawTag: string, support: TelegramHtmlTagSupport): boolean {
-  const match = HTML_MODE_TAG_PATTERN.exec(rawTag);
-  if (!match) {
-    return false;
-  }
-  const closing = match[1] === "/";
-  const name = normalizeLowercaseStringOrEmpty(match[2]);
-  const attrs = match[3] ?? "";
+function isSupportedTelegramHtmlTag(
+  closing: boolean,
+  name: string,
+  attrs: string,
+  support: TelegramHtmlTagSupport,
+): boolean {
   if (closing) {
     return attrs.trim() === "" && (support.simpleTags.has(name) || support.attrPatterns.has(name));
   }
@@ -279,7 +276,7 @@ function preserveTelegramHtmlTag(
     }
     return "<code>";
   }
-  if (!isSupportedTelegramHtmlTag(rawTag, support)) {
+  if (!isSupportedTelegramHtmlTag(closing, tagName, attrs, support)) {
     return escapeTag(rawTag);
   }
   if (closing) {

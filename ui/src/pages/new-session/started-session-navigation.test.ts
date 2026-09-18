@@ -24,10 +24,13 @@ describe("confirmed session navigation", () => {
       }),
     );
     vi.mocked(context.navigateAndWait).mockImplementation(async (_routeId, options) => {
-      expect(options?.pathname).toBe("/chat/main/0f403cb8");
-      expect(consumeSessionNavigationHandoff(context.gateway, "/chat/main/0f403cb8")).toBe(
-        sessionKey,
-      );
+      expect(options?.pathname).toBe("/chat/main/0f403cb839204cf18eb779f2f00ce488");
+      expect(
+        consumeSessionNavigationHandoff(
+          context.gateway,
+          "/chat/main/0f403cb839204cf18eb779f2f00ce488",
+        ),
+      ).toBe(sessionKey);
       queueMicrotask(() => document.dispatchEvent(new Event(CHAT_ROUTE_READY_EVENT)));
     });
     flow.setMessage("start this task");
@@ -124,7 +127,10 @@ describe("confirmed session navigation", () => {
       await flow.submit();
 
       expect(
-        consumeSessionNavigationHandoff(context.gateway, "/chat/main/0f403cb8"),
+        consumeSessionNavigationHandoff(
+          context.gateway,
+          "/chat/main/0f403cb839204cf18eb779f2f00ce488",
+        ),
       ).toBeUndefined();
       expect(context.navigateAndWait).not.toHaveBeenCalled();
       expect(context.sessions.createResult).toHaveBeenCalledOnce();

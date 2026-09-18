@@ -8,8 +8,6 @@ import { startGatewayClientWhenEventLoopReady } from "../../packages/gateway-cli
 import {
   GATEWAY_CLIENT_MODES,
   GATEWAY_CLIENT_NAMES,
-  type GatewayClientMode,
-  type GatewayClientName,
 } from "../../packages/gateway-protocol/src/client-info.js";
 import {
   ConnectErrorDetailCodes,
@@ -114,7 +112,7 @@ export type GatewayRequestFunction = <T = Record<string, unknown>>(
   opts?: GatewayClientRequestOptions,
 ) => Promise<T>;
 
-type CallGatewayBaseOptions = {
+type CallGatewayBaseOptions = Pick<GatewayClientOptions, "caps" | "clientName" | "mode"> & {
   url?: string;
   /** Require this resolved endpoint without overriding target selection or authentication. */
   expectUrl?: string;
@@ -131,11 +129,9 @@ type CallGatewayBaseOptions = {
   assertDispatchCurrent?: () => void;
   onAccepted?: GatewayClientRequestOptions["onAccepted"];
   onSignalAbort?: (request: GatewayRequestFunction) => Promise<void> | void;
-  clientName?: GatewayClientName;
   clientDisplayName?: string;
   clientVersion?: string;
   platform?: string;
-  mode?: GatewayClientMode;
   approvalRuntimeToken?: string;
   agentRuntimeIdentityToken?: string;
   useStoredDeviceAuth?: boolean;
@@ -961,6 +957,7 @@ async function executeGatewayRequestWithScopes<T>(params: {
       clientName: opts.clientName ?? GATEWAY_CLIENT_NAMES.CLI,
       clientDisplayName: resolveGatewayClientDisplayName(opts),
       clientVersion: opts.clientVersion ?? VERSION,
+      caps: opts.caps,
       platform: opts.platform,
       mode: opts.mode ?? GATEWAY_CLIENT_MODES.CLI,
       ...(opts.approvalRuntimeToken ? { approvalRuntimeToken: opts.approvalRuntimeToken } : {}),

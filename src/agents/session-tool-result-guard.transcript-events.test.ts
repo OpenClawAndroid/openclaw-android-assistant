@@ -51,7 +51,7 @@ const listeners: Array<() => void> = [];
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 let fixtureId = 0;
 
-async function openPersistedSessionManager() {
+async function openPersistedSessionManager(lifecycleRevision?: string) {
   const root = tempDirs.make("openclaw-transcript-events-");
   const sessionId = `session-${fixtureId++}`;
   const target = {
@@ -60,7 +60,7 @@ async function openPersistedSessionManager() {
     sessionKey: `agent:main:${sessionId}`,
     storePath: path.join(root, "agents", "main", "agent", "openclaw-agent.sqlite"),
   };
-  const sessionEntry = { sessionId, updatedAt: Date.now() };
+  const sessionEntry = { sessionId, updatedAt: Date.now(), lifecycleRevision };
   await upsertSessionEntry({
     ...target,
     entry: sessionEntry,
@@ -472,44 +472,52 @@ describe("guardSessionManager transcript updates", () => {
     }
   });
 
-  it("broadcasts the SQLite target for appended non-tool-result messages", async () => {
-    const updates: InternalSessionTranscriptUpdate[] = [];
-    listeners.push(onInternalSessionTranscriptUpdate((update) => updates.push(update)));
+  it.each([
+    { name: "legacy", lifecycleRevision: undefined, rebind: false },
+    { name: "owned", lifecycleRevision: "original-lifecycle", rebind: false },
+    { name: "rebound callback", lifecycleRevision: "original-lifecycle", rebind: true },
+  ])(
+    "broadcasts the committed SQLite owner for $name messages",
+    async ({ lifecycleRevision, rebind }) => {
+      const updates: InternalSessionTranscriptUpdate[] = [];
+      listeners.push(onInternalSessionTranscriptUpdate((update) => updates.push(update)));
 
-    const { sessionManager: sm, target } = await openPersistedSessionManager();
+      const { sessionManager: sm, target } = await openPersistedSessionManager(lifecycleRevision);
+      const replacement = rebind
+        ? await openPersistedSessionManager("replacement-lifecycle")
+        : undefined;
 
-    const guarded = guardSessionManager(sm, {
-      agentId: target.agentId,
-      sessionKey: target.sessionKey,
-    });
-    const appendMessage = guarded.appendMessage.bind(guarded) as unknown as (
-      message: AgentMessage,
-    ) => void;
-
-    const timestamp = Date.now();
-    appendMessage({
-      role: "assistant",
-      content: [{ type: "text", text: "hello from subagent" }],
-      timestamp,
-    } as AgentMessage);
-
-    expect(updates).toStrictEqual([
-      {
-        agentId: "main",
-        message: {
-          content: [{ text: "hello from subagent", type: "text" }],
-          role: "assistant",
-          timestamp,
-        },
-        messageId: expect.any(String),
-        messageSeq: 1,
-        sessionId: target.sessionId,
+      const guarded = guardSessionManager(sm, {
+        agentId: target.agentId,
         sessionKey: target.sessionKey,
-        target,
-      },
-    ]);
-    expect(updates[0]?.messageId).not.toBe("");
-  });
+        onMessagePersisted: () => {
+          if (replacement) {
+            sm.setSessionTarget(replacement.target);
+          }
+        },
+      });
+      const timestamp = Date.now();
+      const message = makeAgentAssistantMessage({
+        content: [{ type: "text", text: "hello from subagent" }],
+        timestamp,
+      });
+      guarded.appendMessage(message);
+
+      expect(updates).toStrictEqual([
+        {
+          agentId: "main",
+          ...(lifecycleRevision ? { lifecycleRevision } : {}),
+          message,
+          messageId: expect.any(String),
+          messageSeq: 1,
+          sessionId: target.sessionId,
+          sessionKey: target.sessionKey,
+          target,
+        },
+      ]);
+      expect(updates[0]?.messageId).not.toBe("");
+    },
+  );
 
   it("does not resolve transcript sequence for an in-memory session", () => {
     const sm = SessionManager.inMemory();

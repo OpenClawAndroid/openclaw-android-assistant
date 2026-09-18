@@ -124,6 +124,9 @@ function resolveTelegramLinkAction(
 function collectTelegramLinkActions(
   ir: MarkdownIR,
 ): Array<{ start: number; end: number; action: TelegramLinkAction }> {
+  if (ir.links.length === 0) {
+    return [];
+  }
   const links: Array<{ start: number; end: number; action: TelegramLinkAction }> = [];
   renderMarkdownWithMarkers(
     ir,

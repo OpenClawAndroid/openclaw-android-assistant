@@ -107,7 +107,10 @@ function createLifetime(dispose: () => Promise<unknown>) {
   return lifetime;
 }
 
-function retainRegistry(registryView: PluginRegistry): (() => void | Promise<void>) | undefined {
+export function retainPreparedPluginRegistry(
+  registryView: PluginRegistry,
+): (() => void | Promise<void>) | undefined {
+  registerPreparedPluginLifetime();
   const prepared = retainPreparedModelRuntimeSnapshotResources({ pluginRegistry: registryView });
   if (prepared) {
     return prepared.release;
@@ -173,7 +176,7 @@ export function ownPreparedPluginGeneration(
   });
   try {
     for (const registry of new Set([generation.pluginRegistry, generation.inboundPluginRegistry])) {
-      const release = registry && retainRegistry(registry);
+      const release = registry && retainPreparedPluginRegistry(registry);
       if (release) {
         releases.push(release);
       }

@@ -914,6 +914,9 @@ src/plugins/plugin-scope.ts
 src/plugins/plugin-sdk-native-resolver.ts
 src/plugins/plugin-setup-module.ts
 src/plugins/plugin-source-build.ts
+src/plugins/plugin-source-capture-context.ts
+src/plugins/plugin-source-capture-directory.ts
+src/plugins/plugin-source-capture-path.ts
 src/plugins/plugin-source-references.ts
 src/plugins/portable-icon-paths.ts
 src/plugins/provider-config-owner.ts
@@ -1066,6 +1069,7 @@ src/state/openclaw-state-db-schema-additive.ts
 src/state/openclaw-state-db-schema-helpers.ts
 src/state/openclaw-state-db-schema-migration-required.ts
 src/state/openclaw-state-db-schema-repair.ts
+src/state/openclaw-state-db-schema-runtime.ts
 src/state/openclaw-state-db-schema-v12-foldin.ts
 src/state/openclaw-state-db-schema-v13-widerow.ts
 src/state/openclaw-state-db-schema-version.ts

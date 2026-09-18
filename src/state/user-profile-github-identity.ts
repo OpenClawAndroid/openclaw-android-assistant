@@ -299,9 +299,10 @@ export function applyVerifiedGitHubIdentity(params: {
   ) {
     throw new UserProfileOwnerError("merge");
   }
-  const currentIdentity = selectStoredGitHubIdentities(db, [currentProfileId]).get(
-    currentProfileId,
-  );
+  const currentIdentity =
+    currentProfileId === aliasProfileId
+      ? aliasGitHubIdentity
+      : selectStoredGitHubIdentities(db, [currentProfileId]).get(currentProfileId);
   if (
     targetProfileId === currentProfileId &&
     !currentIdentity?.accounts.some((account) => account.accountId === params.identity.accountId)
@@ -312,7 +313,10 @@ export function applyVerifiedGitHubIdentity(params: {
   if (currentProfileId !== targetProfileId) {
     params.mergeProfiles(currentProfileId, targetProfileId);
   }
-  const targetAccounts = selectStoredGitHubIdentities(db, [targetProfileId]).get(targetProfileId);
+  const targetAccounts =
+    currentProfileId === targetProfileId
+      ? currentIdentity
+      : selectStoredGitHubIdentities(db, [targetProfileId]).get(targetProfileId);
   // A secondary sign-in never selects public credit or repairs an ambiguous primary.
   if (!targetAccounts || targetAccounts.primary) {
     executeSqliteQuerySync(

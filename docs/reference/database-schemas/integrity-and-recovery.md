@@ -32,6 +32,17 @@ operations, the daily verifier, or explicit maintenance instead of a full scan
 on each reopen. Schema, ownership, and current write authority are never borrowed
 from the integrity result.
 
+Shared-state runtime opens and automatic startup preparation converge supported
+schema additions and preserve atomic upgrades from older schema versions. A
+newly added supported column receives its required content transformation in the
+same transaction. Opens do not rerun historical row backfills for columns already
+present when the application version changes. Run
+`openclaw doctor --fix` during update maintenance to repair historical accounting
+or legacy payload fields. A current-schema database that still contains the
+retired `cron_run_logs` table requires Doctor before runtime can open it; Doctor
+imports its retained history into task runs atomically before removing the table.
+Shared-state integrity, schema, version, and ownership checks remain in place.
+
 Schema compatibility preflight can read agent schema headers without a full integrity scan. For ordinary rollback-mode agent databases and complete WAL families, a read-only child reads the schema version and optional writer build in one fresh SQLite transaction, including committed WAL changes, without copying unrelated database contents. Its source-reader lease stays held through native close; cancellation and timeout wait for child closure. Parent-side diagnostics do not open or close the live agent file, preserving the parent's SQLite locks. As with the previous online-backup reader, native SQLite may update SHM read marks or rebuild existing SHM after a quiescent family reopens; the database and WAL contents remain unchanged. These headers are not cached compatibility or integrity proof: full readiness and writable admission retain their existing validation and fresh authority checks.
 
 Private snapshots remain necessary inside owner-held source-exclusion or canonical-mutation scopes, for incomplete WAL families whose inspection would create source sidecars, and for rollback journals requiring private recovery. Those cases use the existing snapshot owner and deadline; ordinary inspection errors do not trigger a full-copy fallback. Shared-state preflight is unchanged. `openclaw database preflight` performs the release-local shape comparison for an explicit copied file. The background verifier also scans already-open databases about once daily.

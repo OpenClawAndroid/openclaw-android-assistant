@@ -135,7 +135,7 @@ suite.define(() => {
                 return;
               }
               const params = requireRecord(frame.params);
-              if (params.agentId === "main" && params.limitPerHost === 1 && !params.catalogId) {
+              if (params.agentId === "main" && params.metadataOnly === true && !params.catalogId) {
                 latestDiscovery = { socket, id: frame.id, complete: false };
               }
             });

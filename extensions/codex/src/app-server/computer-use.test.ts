@@ -651,31 +651,34 @@ describe("Codex Computer Use setup", () => {
     ]);
   });
 
-  it("fails fast when the named MCP server exposes no tools", async () => {
-    const request = createComputerUseRequest({ installed: true, mcpToolsAvailable: false });
+  it.each([false, true])(
+    "fails fast when MCP exposes no tools (strict: %s)",
+    async (strictReadiness) => {
+      const request = createComputerUseRequest({ installed: true, mcpToolsAvailable: false });
 
-    await expectSetupErrorStatus(
-      ensureCodexComputerUse({
-        pluginConfig: {
-          computerUse: {
-            enabled: true,
-            strictReadiness: true,
-            marketplaceName: "desktop-tools",
+      await expectSetupErrorStatus(
+        ensureCodexComputerUse({
+          pluginConfig: {
+            computerUse: {
+              enabled: true,
+              strictReadiness,
+              marketplaceName: "desktop-tools",
+            },
           },
+          request,
+        }),
+        {
+          ready: false,
+          reason: "mcp_missing",
+          mcpServerAvailable: false,
+          tools: [],
+          message: "Computer Use is installed, but the computer-use MCP server exposes no tools.",
         },
-        request,
-      }),
-      {
-        ready: false,
-        reason: "mcp_missing",
-        mcpServerAvailable: false,
-        tools: [],
-        message: "Computer Use is installed, but the computer-use MCP server exposes no tools.",
-      },
-    );
-    expectRequestMethodNotCalled(request, "thread/start");
-    expectRequestMethodNotCalled(request, "mcpServer/tool/call");
-  });
+      );
+      expectRequestMethodNotCalled(request, "thread/start");
+      expectRequestMethodNotCalled(request, "mcpServer/tool/call");
+    },
+  );
 
   it("reloads empty MCP exposure once during install before failing closed", async () => {
     const request = createComputerUseRequest({ installed: true, mcpToolsAvailable: false });
@@ -765,67 +768,37 @@ describe("Codex Computer Use setup", () => {
     ).toHaveLength(1);
   });
 
-  it("keeps startup compatible by default when the live test fails", async () => {
-    const request = createComputerUseRequest({ installed: true, liveTestFailures: 2 });
-
-    const status = await ensureCodexComputerUse({
-      pluginConfig: {
-        computerUse: {
-          enabled: true,
-          marketplaceName: "desktop-tools",
+  it.each([false, true])(
+    "skips live probes for non-strict startup (autoInstall: %s)",
+    async (autoInstall) => {
+      const request = createComputerUseRequest({ installed: !autoInstall, liveTestFailures: 2 });
+      const status = await ensureCodexComputerUse({
+        pluginConfig: {
+          computerUse: { enabled: true, autoInstall, marketplaceName: "desktop-tools" },
         },
-      },
-      request,
-    });
+        request,
+      });
 
-    expectStatusFields(status, {
-      ready: false,
-      reason: "live_test_failed",
-      installed: true,
-      pluginEnabled: true,
-      mcpServerAvailable: true,
-    });
-    expect(status.liveTest).toMatchObject({ status: "failed", ok: false });
-    expect(status.warnings).toContain(
-      "Computer Use live test failed, but compatibility startup remains enabled; set computerUse.strictReadiness to true to fail closed.",
-    );
-    expect(status.message).toContain(
-      "Startup is allowed because computerUse.strictReadiness is false.",
-    );
-  });
-
-  it("keeps auto-install startup compatible when installation succeeds but the live test fails", async () => {
-    const request = createComputerUseRequest({ installed: false, liveTestFailures: 2 });
-
-    const status = await ensureCodexComputerUse({
-      pluginConfig: {
-        computerUse: {
-          enabled: true,
-          autoInstall: true,
-          marketplaceName: "desktop-tools",
-        },
-      },
-      request,
-    });
-
-    expectStatusFields(status, {
-      ready: false,
-      reason: "live_test_failed",
-      installed: true,
-      pluginEnabled: true,
-      mcpServerAvailable: true,
-    });
-    expect(status.warnings).toContain(
-      "Computer Use live test failed, but compatibility startup remains enabled; set computerUse.strictReadiness to true to fail closed.",
-    );
-    expect(status.message).toContain(
-      "Startup is allowed because computerUse.strictReadiness is false.",
-    );
-    expect(request).toHaveBeenCalledWith("plugin/install", {
-      marketplacePath: "/marketplaces/desktop-tools/.agents/plugins/marketplace.json",
-      pluginName: "computer-use",
-    });
-  });
+      expectStatusFields(status, {
+        ready: true,
+        reason: "ready",
+        installed: true,
+        pluginEnabled: true,
+        mcpServerAvailable: true,
+      });
+      expect(status.liveTest).toMatchObject({ status: "skipped", ok: false, attempted: false });
+      expectRequestMethodNotCalled(request, "thread/start");
+      expectRequestMethodNotCalled(request, "mcpServer/tool/call");
+      if (autoInstall) {
+        expect(request).toHaveBeenCalledWith("plugin/install", {
+          marketplacePath: "/marketplaces/desktop-tools/.agents/plugins/marketplace.json",
+          pluginName: "computer-use",
+        });
+      } else {
+        expectRequestMethodNotCalled(request, "plugin/install");
+      }
+    },
+  );
 
   it("fails startup closed when strictReadiness is enabled", async () => {
     const request = createComputerUseRequest({ installed: true, liveTestFailures: 2 });

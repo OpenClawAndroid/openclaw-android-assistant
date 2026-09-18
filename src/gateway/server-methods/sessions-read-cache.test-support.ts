@@ -47,12 +47,27 @@ export function initializeSessionReadContext(context: GatewayRequestContext) {
   }
   let pending = initializing.get(context);
   if (!pending) {
+    const placements = context.workerSessionPlacementService;
     pending = createSessionRowProjection({
       cfg: context.getRuntimeConfig(),
       getConfig: context.getRuntimeConfig,
       getModelCatalog: () =>
         readPreparedServerMethodModelCatalogs(context, listAgentIds(context.getRuntimeConfig())),
       context,
+      placementFactsReader: placements
+        ? {
+            getProjectionFacts(sessionId) {
+              return {
+                placement: placements.getMany([sessionId]).get(sessionId),
+                move: placements.getPlacementMoves?.([sessionId]).get(sessionId),
+                workspaceResultReconciling:
+                  placements
+                    .getWorkspaceResultReconcilingSessionIds?.([sessionId])
+                    .has(sessionId) ?? false,
+              };
+            },
+          }
+        : undefined,
     }).then((projection) => {
       projections.add(projection);
       bindSessionRowProjection(context, () => projection);

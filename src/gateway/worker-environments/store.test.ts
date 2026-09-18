@@ -584,8 +584,8 @@ describe("worker environment store", () => {
   });
 
   it("idempotently ensures desktop_json on an existing state database", () => {
-    ensureAdditiveStateColumns(database.db);
-    ensureAdditiveStateColumns(database.db);
+    ensureAdditiveStateColumns(database.db, "runtime");
+    ensureAdditiveStateColumns(database.db, "runtime");
     const columns = database.db.prepare("PRAGMA table_info(worker_environments)").all() as Array<{
       name: string;
     }>;

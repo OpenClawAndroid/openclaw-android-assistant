@@ -9,6 +9,7 @@ import { writePersistedAuthProfileStoreRaw } from "../../auth-profiles/sqlite.js
 import { resolveModelCandidateChain } from "../../model-fallback-candidates.js";
 import type { PreparedModelRuntimeSnapshot } from "../../prepared-model-runtime.js";
 import { createEmptyAgentDiscoveryStores } from "../model.js";
+import { createPreparedConfiguredRuntimeModelLookup } from "../model.static-id.js";
 import { prepareEmbeddedRunAuthPlan } from "./auth-plan.js";
 import type { RunEmbeddedAgentInternalParams } from "./internal-params.js";
 import { resolveEmbeddedRunModelSetup } from "./model-setup.js";
@@ -144,6 +145,14 @@ describe.each(["registry", "prepared static"] as const)("initial model setup usi
             models: otherModels,
           });
         }
+        const configuredRuntimeModels =
+          tier === "prepared static"
+            ? [...models, ...otherModels].map((model) => ({
+                provider: model.provider,
+                modelId: model.id,
+                model,
+              }))
+            : [];
         const snapshot: PreparedModelRuntimeSnapshot = {
           catalogOwner: undefined,
           agentId: "main",
@@ -159,14 +168,11 @@ describe.each(["registry", "prepared static"] as const)("initial model setup usi
           allowGatewaySubagentBinding: false,
           modelCatalog: { entries: [], routeVariants: [] },
           inlineProviderModels: [],
-          configuredRuntimeModels:
-            tier === "prepared static"
-              ? [...models, ...otherModels].map((model) => ({
-                  provider: model.provider,
-                  modelId: model.id,
-                  model,
-                }))
-              : [],
+          configuredRuntimeModels,
+          findConfiguredRuntimeModel: createPreparedConfiguredRuntimeModelLookup(
+            configuredRuntimeModels,
+            metadataSnapshot,
+          ),
           createStores: () => stores,
         };
         await withPluginRuntimeGenerationScope(snapshot, async () => {

@@ -307,16 +307,16 @@ describe("sidebar navigation lineage ownership", () => {
     key: "agent:main:dashboard:navigation-parent",
     kind: "direct",
     updatedAt: 1,
-    childSessions: ["agent:main:subagent:child"],
+    childSessions: ["agent:main:dashboard:child"],
   };
   const controlParent: GatewaySessionRow = {
     key: "agent:main:main",
     kind: "direct",
     updatedAt: 2,
-    childSessions: ["agent:main:subagent:child"],
+    childSessions: ["agent:main:dashboard:child"],
   };
   const child: GatewaySessionRow = {
-    key: "agent:main:subagent:child",
+    key: "agent:main:dashboard:child",
     kind: "direct",
     updatedAt: 3,
     parentSessionKey: navigationParent.key,

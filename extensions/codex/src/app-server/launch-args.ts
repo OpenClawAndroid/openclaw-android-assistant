@@ -20,6 +20,7 @@ const CODEX_VALUE_OPTIONS = new Set([
   "--enable",
   "--disable",
   "--listen",
+  "--sock",
   "--code-mode-host",
   "--ws-auth",
   "--ws-token-file",

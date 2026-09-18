@@ -377,6 +377,7 @@ async function mirror(params: {
     async (transcript) => {
       assertWritable();
       const nextAppendedUpdates: Array<{
+        lifecycleRevision?: string;
         messageId: string;
         message: AgentMessage;
         messageSeq?: number;
@@ -522,7 +523,11 @@ async function mirror(params: {
           message: messageToAppend,
         });
         assertWritable();
-        const { messageSeq, result: appended } = await transcript.appendMessageWithMessageSequence({
+        const {
+          lifecycleRevision,
+          messageSeq,
+          result: appended,
+        } = await transcript.appendMessageWithMessageSequence({
           message: messageToAppend,
           ...(params.assertCurrent || params.assertWriteCurrent
             ? {
@@ -563,6 +568,7 @@ async function mirror(params: {
         }
         if (appended.appended) {
           nextAppendedUpdates.push({
+            lifecycleRevision,
             messageId,
             message: appendedMessage,
             ...(messageSeq !== undefined ? { messageSeq } : {}),
@@ -600,6 +606,7 @@ async function mirror(params: {
       await publishSessionTranscriptUpdateByIdentity({
         ...transcriptTarget,
         update: {
+          lifecycleRevision: update.lifecycleRevision,
           ...(params.agentId ? { agentId: params.agentId } : {}),
           message: update.message,
           messageId: update.messageId,

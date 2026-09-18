@@ -248,6 +248,7 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
     !item ||
     item.pendingRunId ||
     item.sendState === "executing-command" ||
+    item.sendState === "submitting" ||
     item.sendState === "sending" ||
     item.sendState === "waiting-model"
   ) {

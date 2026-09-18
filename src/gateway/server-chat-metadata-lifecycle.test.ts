@@ -1,10 +1,20 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { setImmediate as nextEventLoopTurn } from "node:timers/promises";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { RuntimeAuthProfileStore } from "../agents/auth-profiles/types.js";
 import type { PreparedModelRuntimeSnapshot } from "../agents/prepared-model-runtime.js";
 import { createPluginMetadataSnapshot } from "../config/plugin-auto-enable.test-helpers.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  bumpSkillsSnapshotVersion,
+  getSkillsSnapshotVersion,
+  registerSkillsChangeListener,
+  resetSkillsRefreshStateForTest,
+} from "../skills/runtime/refresh-state.js";
+import { writeSkill } from "../skills/test-support/e2e-test-helpers.js";
 import { createChatMetadataOwner } from "./server-methods/chat-metadata-runtime.test-support.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import { createGatewaySidecarStopOwner } from "./server-sidecar-owners.js";
@@ -53,6 +63,7 @@ const authSnapshots = await vi.importActual<
 
 const config = {} as OpenClawConfig;
 const context = {} as GatewayRequestContext;
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) {
@@ -85,7 +96,12 @@ function createLifecycle(minimalTestGateway: boolean, warn = vi.fn()) {
 }
 
 async function createRealMetadataLifecycle(
-  options: { attach?: boolean; ownerAvailable?: boolean; authStore?: RuntimeAuthProfileStore } = {},
+  options: {
+    attach?: boolean;
+    ownerAvailable?: boolean;
+    authStore?: RuntimeAuthProfileStore;
+    skillsWorkspaceDir?: string;
+  } = {},
 ) {
   const actual = await vi.importActual<typeof import("./server-methods/chat-metadata-runtime.js")>(
     "./server-methods/chat-metadata-runtime.js",
@@ -97,6 +113,10 @@ async function createRealMetadataLifecycle(
   const refresh = vi.fn<() => Promise<void>>();
   const buildCommands = vi.fn(async () => ({ commands: [] }));
   const broadcast = vi.fn();
+  if (options.skillsWorkspaceDir) {
+    owner = { ...owner, workspaceDir: options.skillsWorkspaceDir };
+    mocks.registerSkillsListener.mockImplementation(registerSkillsChangeListener);
+  }
   if (options.authStore) {
     authSnapshots.setRuntimeAuthProfileStoreSnapshot(options.authStore, owner.agentDir);
     mocks.registerAuthListener.mockImplementation(
@@ -115,7 +135,7 @@ async function createRealMetadataLifecycle(
                 getPreparedAuthStore: () => ({ version: 1, profiles: {} }),
                 getAuthStoreRevision: () => revision,
               }),
-          getSkillsVersion: () => 0,
+          getSkillsVersion: options.skillsWorkspaceDir ? getSkillsSnapshotVersion : () => 0,
           getPluginRegistryVersion: () => 0,
           buildCommands,
           buildProjection: async ({ facts }) => ({
@@ -142,7 +162,7 @@ async function createRealMetadataLifecycle(
   if (options.attach !== false) {
     await attach();
   }
-  const modelEvent = (event: { phase: string; error?: Error }) =>
+  const modelEvent = (event: { phase: string; error?: Error; modelFactsChanged?: boolean }) =>
     mocks.registerModelListener.mock.calls[0]![0](event);
   const authEvent = () => mocks.registerAuthListener.mock.calls[0]![0]();
   return {
@@ -205,6 +225,47 @@ async function createRealMetadataLifecycle(
 }
 
 describe("gateway chat metadata lifecycle", () => {
+  it("does not refresh metadata for identical skills rebuilds but publishes instruction changes", async () => {
+    const { loadWorkspaceSkills } = await import("../skills/loading/workspace-skill-loader.js");
+    resetSkillsRefreshStateForTest();
+    const workspaceDir = tempDirs.make("chat-metadata-skills-");
+    const skillDir = path.join(workspaceDir, "skills", "demo");
+    await writeSkill({ dir: skillDir, name: "demo", description: "Demo", body: "Original body" });
+    const loadOptions = { workspaceOnly: true };
+    const entries = loadWorkspaceSkills(workspaceDir, loadOptions);
+    const version = getSkillsSnapshotVersion(workspaceDir);
+    const harness = await createRealMetadataLifecycle({ skillsWorkspaceDir: workspaceDir });
+    try {
+      const before = await harness.lifecycle.read({ agentId: "main" });
+      harness.refresh.mockClear();
+      harness.broadcast.mockClear();
+      for (let count = 0; count < 3; count += 1) {
+        bumpSkillsSnapshotVersion({ workspaceDir, reason: "watch" });
+        expect(loadWorkspaceSkills(workspaceDir, loadOptions)).toEqual(entries);
+        expect(getSkillsSnapshotVersion(workspaceDir)).toBe(version);
+        expect(await harness.lifecycle.read({ agentId: "main" })).toEqual(before);
+      }
+      expect(harness.refresh).not.toHaveBeenCalled();
+      expect(harness.broadcast).not.toHaveBeenCalled();
+      expect(harness.buildCommands).toHaveBeenCalledOnce();
+
+      await fs.appendFile(path.join(skillDir, "SKILL.md"), "\nChanged instructions\n");
+      bumpSkillsSnapshotVersion({ workspaceDir, reason: "watch" });
+      await harness.lifecycle.read({ agentId: "main" });
+      expect(getSkillsSnapshotVersion(workspaceDir)).toBeGreaterThan(version);
+      expect(harness.refresh).toHaveBeenCalledOnce();
+      expect(harness.buildCommands).toHaveBeenCalledTimes(2);
+      expect(harness.broadcast).toHaveBeenCalledExactlyOnceWith(
+        "chat.metadata.changed",
+        {},
+        { dropIfSlow: true },
+      );
+    } finally {
+      await harness.stop();
+      resetSkillsRefreshStateForTest();
+    }
+  });
+
   it.each([false, true])(
     "keeps bookkeeping from refreshing or broadcasting metadata (inherited: %s)",
     async (inherited) => {
@@ -496,6 +557,7 @@ describe("gateway chat metadata lifecycle", () => {
         routeVariants: [],
       },
       configuredRuntimeModels: [],
+      findConfiguredRuntimeModel: () => undefined,
       inlineProviderModels: [],
       createStores: () => {
         throw new Error("metadata must not create live model stores");
@@ -809,7 +871,11 @@ describe("gateway chat metadata lifecycle", () => {
     const harness = await createRealMetadataLifecycle();
     try {
       const before = await harness.lifecycle.read({ agentId: "main" });
-      harness.modelEvent({ phase: "catalog-failed", error: new Error("catalog attempt failed") });
+      harness.modelEvent({
+        phase: "catalog-failed",
+        error: new Error("catalog attempt failed"),
+        modelFactsChanged: false,
+      });
       const after = await harness.lifecycle.read({ agentId: "main" });
       expect(after).toEqual(before);
       expect(harness.warn).not.toHaveBeenCalled();
@@ -819,9 +885,14 @@ describe("gateway chat metadata lifecycle", () => {
     }
   });
 
-  it.each([true, false, undefined])(
-    "refreshes catalog status even when model facts changed is %s",
-    async (modelFactsChanged) => {
+  it.each([
+    { modelFactsChanged: true, refreshStatusChanged: false, refreshes: true },
+    { modelFactsChanged: false, refreshStatusChanged: false, refreshes: false },
+    { modelFactsChanged: undefined, refreshStatusChanged: false, refreshes: true },
+    { modelFactsChanged: false, refreshStatusChanged: true, refreshes: true },
+  ])(
+    "refreshes catalog metadata only for a change (%j)",
+    async ({ modelFactsChanged, refreshStatusChanged, refreshes }) => {
       const { lifecycle: pendingLifecycle, sidecarOwner } = createLifecycle(false);
       const lifecycle = await pendingLifecycle;
 
@@ -831,10 +902,10 @@ describe("gateway chat metadata lifecycle", () => {
       await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(2));
       mocks.invalidate.mockClear();
 
-      modelListener({ phase: "catalog-published", modelFactsChanged });
+      modelListener({ phase: "catalog-published", modelFactsChanged, refreshStatusChanged });
 
       expect(mocks.invalidate).not.toHaveBeenCalled();
-      await vi.waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(3));
+      expect(mocks.refresh).toHaveBeenCalledTimes(refreshes ? 3 : 2);
     },
   );
 

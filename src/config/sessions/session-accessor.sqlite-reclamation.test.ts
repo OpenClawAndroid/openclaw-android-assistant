@@ -583,7 +583,16 @@ test("one reclamation pass leaves a large freelist for bounded later maintenance
       });
     }
   });
-  await Promise.all([reclaimSqliteFreePages(databaseOptions), duringDrain]);
+  // Production retains writer admission across every yielded pass. In particular,
+  // retiring the old handle must queue its Worker checkpoint behind this drain.
+  await Promise.all([
+    runExclusiveSqliteSessionWrite(
+      databaseOptions,
+      () => reclaimSqliteFreePages(databaseOptions),
+      "session.history.free-pages",
+    ),
+    duringDrain,
+  ]);
   const reopened = openOpenClawAgentDatabase(databaseOptions);
   expect(Number(reopened.db.prepare("PRAGMA freelist_count").get()?.freelist_count)).toBe(0);
 });

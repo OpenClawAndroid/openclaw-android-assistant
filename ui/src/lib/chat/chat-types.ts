@@ -4,6 +4,7 @@ import type { MediaKind } from "@openclaw/media-core/constants";
  * Chat message types for the UI layer.
  */
 import type {
+  AgentActivityItem,
   ChatSendIntent,
   QueueMode,
 } from "../../../../packages/gateway-protocol/src/schema/logs-chat.js";
@@ -136,6 +137,8 @@ export type ChatQueueItem = {
   sessionId?: string;
   expectedLeafEntryId?: string | null;
   sendState?:
+    // Process-local submission handoff; durable custody remains waiting-idle.
+    | "submitting"
     | "waiting-model"
     | "waiting-idle"
     | "executing-command"
@@ -397,6 +400,8 @@ export type ToolCard = {
   /** Producer-reported process exit code, when the result supplies one. */
   exitCode?: number;
   isError?: boolean;
+  /** Prepared presentation facts; never replace the raw execution fields above. */
+  activity?: AgentActivityItem;
   /** True when the card comes from the live tool stream of the current run. */
   live?: boolean;
   /** True once a result landed, including historical results with empty output. */
@@ -431,4 +436,10 @@ export type ToolCard = {
     | (BrowserTabTarget & { kind: "browser-tab"; url?: string; title?: string });
 };
 
-export type ToolCardOutcome = "running" | "succeeded" | "failed" | "skipped" | "unknown";
+export type ToolCardOutcome =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "blocked"
+  | "skipped"
+  | "unknown";

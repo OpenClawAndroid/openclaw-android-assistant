@@ -374,7 +374,7 @@ internal fun ChatScreen(
   val thinkingLevel by viewModel.chatThinkingLevel.collectAsState()
   val thinkingLevelSelection by viewModel.chatThinkingLevelSelection.collectAsState()
   val streamingAssistantText by viewModel.chatStreamingAssistantText.collectAsState()
-  val pendingToolCalls by viewModel.chatPendingToolCalls.collectAsState()
+  val pendingToolCalls by viewModel.chatToolActivities.collectAsState()
   val subagentActivities by viewModel.chatSubagentActivities.collectAsState()
   val questions by viewModel.chatQuestions.collectAsState()
   val progressCard by viewModel.chatProgressCard.collectAsState()
@@ -2417,17 +2417,27 @@ private fun ChatText(
 private fun ToolBubble(toolCalls: List<ChatPendingToolCall>) {
   ClawPanel {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      ClawStatusPill(text = nativeString("Tools running"), status = ClawStatus.Warning)
-      toolCalls.take(4).forEach { tool ->
+      ClawStatusPill(text = nativeString("Tool activity"), status = ClawStatus.Warning)
+      toolCalls.filter { it.activity?.isVisible != false }.forEach { tool ->
         ClawListItem(
-          title = tool.name,
-          subtitle = nativeString("OpenClaw is working"),
+          title = tool.activity?.title ?: tool.name,
+          subtitle =
+            when (tool.activity?.status) {
+              "running" -> nativeString("OpenClaw is working")
+              "completed" -> nativeString("Finished")
+              "failed" -> nativeString("Failed")
+              "blocked" -> nativeString("Blocked")
+              else -> if (tool.activity == null && !tool.isComplete) nativeString("OpenClaw is working") else nativeString("No result")
+            },
           trailing = { tool.liveDiff?.let { DiffStatChips(it) } },
         )
       }
-      if (toolCalls.size > 4) {
-        Text(text = nativeString("+\${toolCalls.size - 4} more", toolCalls.size - 4), style = ClawTheme.type.caption, color = ClawTheme.colors.textSubtle)
-      }
+      CompletedToolActivity(
+        toolCalls.filter { it.activity?.isVisible == false }.map {
+          ChatToolActivity(it.toolCallId, it.name, null, null, it.isError == true, it.args, it.activity, true)
+        },
+        stableKey = "pending-tool-details",
+      )
     }
   }
 }
@@ -2438,19 +2448,13 @@ private fun CompletedToolActivity(
   stableKey: String,
 ) {
   if (tools.isEmpty()) return
-  if (tools.size == 1) {
+  if (tools.size == 1 && !tools.single().activityPrepared && tools.single().activity == null) {
     val tool = tools.single()
     CompletedToolActivityItem(
       tool = tool,
       saveableKey = tool.toolCallId ?: "${tool.name}:${tool.detail.orEmpty().hashCode()}",
       parentStableKey = stableKey,
     )
-    return
-  }
-  if (tools.all { completedToolKind(it.name) == CompletedToolKind.Progress }) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      tools.forEach { ProgressToolReceipt(it) }
-    }
     return
   }
   var expanded by rememberSaveable(stableKey) { mutableStateOf(false) }

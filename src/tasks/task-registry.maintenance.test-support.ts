@@ -10,6 +10,35 @@ type TaskRegistryMaintenanceRuntime = Parameters<
   typeof setTaskRegistryMaintenanceRuntimeForTests
 >[0];
 
+export function createAcpSessionStoreEntry(params: {
+  sessionKey: string;
+  parentSessionKey: string;
+  mode: "persistent" | "oneshot";
+}): AcpSessionStoreEntry {
+  const acp = {
+    backend: "acpx",
+    agent: "claude",
+    runtimeSessionName: `${params.sessionKey}:runtime`,
+    mode: params.mode,
+    state: "idle",
+    lastActivityAt: Date.now(),
+  } as const;
+  return {
+    cfg: {},
+    storePath: "/tmp/openclaw-test-sessions.json",
+    sessionKey: params.sessionKey,
+    storeSessionKey: params.sessionKey,
+    entry: {
+      sessionId: `${params.sessionKey}:session`,
+      updatedAt: Date.now(),
+      spawnedBy: params.parentSessionKey,
+      acp,
+    },
+    acp,
+    storeReadFailed: false,
+  };
+}
+
 export function createTaskRegistryMaintenanceHarness(params: {
   tasks: TaskRecord[];
   sessionStore?: Record<string, SessionEntry>;
@@ -91,6 +120,7 @@ export function createTaskRegistryMaintenanceHarness(params: {
     deleteTaskRecordById: (taskId: string) => currentTasks.delete(taskId),
     ensureTaskRegistryReady: () => {},
     getTaskById: (taskId: string) => currentTasks.get(taskId),
+    getTaskRegistryMaintenanceTask: (taskId: string) => currentTasks.get(taskId),
     listTaskRecords: () => Array.from(currentTasks.values()),
     getTaskRegistryMaintenanceSnapshot: () => {
       const snapshotTasks = Array.from(currentTasks.values());
@@ -223,6 +253,7 @@ export function configureTaskRegistryMaintenanceRuntimeForTest(params: {
     deleteTaskRecordById: (taskId: string) => params.currentTasks.delete(taskId),
     ensureTaskRegistryReady: () => {},
     getTaskById: (taskId: string) => params.currentTasks.get(taskId),
+    getTaskRegistryMaintenanceTask: (taskId: string) => params.currentTasks.get(taskId),
     listTaskRecords: listSnapshotTasks,
     getTaskRegistryMaintenanceSnapshot: () => {
       const snapshotTasks = listSnapshotTasks();

@@ -432,6 +432,7 @@ async function applyWorkerTranscriptCommit(params: {
     }
     const runId = resolveTerminalAssistantTranscriptRunId(message.message, params.runId);
     await publishTranscriptUpdate(params.target, {
+      lifecycleRevision: expectedState.lifecycleRevision,
       message: message.message,
       messageId: message.messageId,
       messageSeq: message.messageSeq,

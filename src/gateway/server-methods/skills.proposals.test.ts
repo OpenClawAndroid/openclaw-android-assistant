@@ -7,12 +7,12 @@ import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveWorkshopSkillsDir } from "../../skills/workshop/skills-root.js";
 import { readSkillProposalEvents } from "../../skills/workshop/store-evaluation.js";
-import { writeConfigMachineState } from "../../state/config-machine-state-write.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
 import { createTrackedTempDirs } from "../../test-utils/tracked-temp-dirs.js";
+import { registerSkillCuratorHandlerSuite } from "./skills.curator.test-support.js";
 import { callGatewayHandler } from "./skills.test-helpers.js";
 
 const tempDirs = createTrackedTempDirs();
@@ -149,6 +149,12 @@ describe("skills proposal gateway handlers", () => {
   afterEach(async () => {
     await testState.cleanup();
     await tempDirs.cleanup();
+  });
+
+  registerSkillCuratorHandlerSuite({
+    callHandler,
+    getTestState: () => testState,
+    getWorkspaceDir: () => mocks.workspaceDir,
   });
 
   it("creates, lists, inspects, and applies a proposal", async () => {
@@ -377,47 +383,6 @@ describe("skills proposal gateway handlers", () => {
       ),
     ).resolves.toMatchObject({ ok: false });
   });
-
-  it("returns the stored review outcomes from curator status", async () => {
-    writeConfigMachineState(
-      "skills.curatorState",
-      {
-        lastAttemptAtMs: 100,
-        lastSuccessAtMs: 100,
-        lastError: null,
-        lastResult: {
-          collectionReviews: { workspace: { attemptedAtMs: 100, succeededAtMs: 101 } },
-          experienceReviews: { workspace: { attemptedAtMs: 102, outcome: "nothing" } },
-        },
-      },
-      { env: testState.env },
-    );
-
-    await expect(callHandler("skills.curator.status", {})).resolves.toMatchObject({
-      ok: true,
-      response: {
-        collectionReview: { workspace: { attemptedAtMs: 100, succeededAtMs: 101 } },
-        experienceReview: { workspace: { attemptedAtMs: 102, outcome: "nothing" } },
-      },
-    });
-  });
-
-  it.each(["pin", "unpin", "restore"])(
-    "returns an explicit retirement error for the registered curator %s method",
-    async (action) => {
-      await expect(
-        callHandler(`skills.curator.${action}`, { skill: "daily-brief" }),
-      ).resolves.toEqual(
-        expect.objectContaining({
-          ok: false,
-          error: expect.objectContaining({
-            code: "INVALID_REQUEST",
-            message: expect.stringContaining("Skill lifecycle curation is retired"),
-          }),
-        }),
-      );
-    },
-  );
 
   it("marks manually created create targets stale before list and inspect responses", async () => {
     const create = await callHandler("skills.proposals.create", {

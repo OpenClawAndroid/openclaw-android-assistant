@@ -6,7 +6,10 @@ import { compareLineCapViolations, main } from "../../scripts/check-line-cap-rat
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 function git(root: string, ...args: string[]) {
   return execFileSync(
@@ -28,12 +31,13 @@ function source(lines: number) {
   );
 }
 
-function fixture(lines = 5, severity = "warn") {
+function fixture(lines = 5, severity = "warn", ignorePatterns: string[] = []) {
   const root = tempDirs.make("openclaw-line-cap-test-");
   fs.mkdirSync(path.join(root, "src"));
   fs.writeFileSync(
     path.join(root, ".oxlintrc.json"),
     JSON.stringify({
+      ignorePatterns,
       overrides: [
         {
           files: ["src/**/*.ts"],
@@ -53,6 +57,32 @@ function fixture(lines = 5, severity = "warn") {
 }
 
 describe("line-cap growth ratchet", () => {
+  it("measures ignored repository-contained scratch while preserving explicit exclusions", () => {
+    const root = fixture(5, "warn", ["src/ignored/**"]);
+    fs.writeFileSync(path.join(root, ".gitignore"), ".artifacts/\n");
+    const scratch = path.join(root, ".artifacts", "scratch");
+    fs.mkdirSync(scratch, { recursive: true });
+    vi.stubEnv("TMPDIR", scratch);
+    vi.stubEnv("TMP", scratch);
+    vi.stubEnv("TEMP", scratch);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const target = path.join(root, "src/file.ts");
+    fs.writeFileSync(target, source(6));
+    expect(main(root, ["--base", "HEAD"])).toBe(1);
+    expect(errors).toHaveBeenCalledWith(
+      expect.stringContaining("src/file.ts: 5 -> 6 counted lines (cap 3)"),
+    );
+    fs.writeFileSync(target, source(4));
+    for (const directory of ["ignored", "generated"]) {
+      fs.mkdirSync(path.join(root, "src", directory));
+      fs.writeFileSync(path.join(root, "src", directory, "excluded.ts"), source(8));
+    }
+    errors.mockClear();
+    expect(main(root, ["--base", "HEAD"])).toBe(0);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
   it.each([
     { label: "over-cap shrinking", before: 705, after: 703, fails: false },
     { label: "over-cap growing", before: 705, after: 706, fails: true },

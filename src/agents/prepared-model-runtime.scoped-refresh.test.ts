@@ -681,8 +681,11 @@ describe("prepared model runtime scoped refresh", () => {
         const catalog = retainedReader.readFullModelCatalog!();
         expect(retained.readFullModelCatalog!()).toBe(catalog);
         expect(retainedReader.readFullModelCatalog!()).toBe(catalog);
+        const learned = { provider: "custom", id: ask, name: ask };
+        serveCatalog({ entries: [learned], routeVariants: [learned] });
         const refreshed = await retained.loadFullModelCatalog!({ refresh: true });
         expect(refreshed).not.toBe(catalog);
+        expect(refreshed.entries).toContainEqual(expect.objectContaining(learned));
         expect(retainedReader.readFullModelCatalog!()).toBe(refreshed);
         expect(() => previousPro.readFullModelCatalog!()).toThrow("superseded");
         await expect(previousPro.loadFullModelCatalog!()).rejects.toThrow("superseded");

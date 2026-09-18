@@ -141,8 +141,8 @@ function captureGenerationFacts(deps: ChatMetadataRuntimeDeps): PreparedGenerati
             authModes: fullCatalogAuth?.authModes ?? owner.authModes,
             authStoreRevision: `${deps.getAuthStoreRevision(owner.agentDir)}:${deps.getAuthStoreRevision(owner.inheritedAuthDir)}`,
             modelCatalog: catalog,
-            // Catalog inventory is immutable; attempt progress and failure are live getters.
-            catalogStatusKey: JSON.stringify([catalog.pendingProviders, catalog.refreshFailed]),
+            // Failure is visible metadata; in-flight discovery does not invalidate usable rows.
+            catalogRefreshFailed: catalog.refreshFailed === true,
             skillsVersion: deps.getSkillsVersion(workspaceDir),
           },
         ];

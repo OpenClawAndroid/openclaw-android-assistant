@@ -25,7 +25,7 @@ function catalogDiscoveryRequests(
       params !== null &&
       typeof params === "object" &&
       !Array.isArray(params) &&
-      (params as { limitPerHost?: unknown }).limitPerHost === 1,
+      (params as { metadataOnly?: unknown }).metadataOnly === true,
   );
 }
 
@@ -691,7 +691,7 @@ suite.define(() => {
         message: "CLI-agent catalog is warming",
       },
     };
-    const discoveryMatch = { agentId: "main", limitPerHost: 1 };
+    const discoveryMatch = { agentId: "main", metadataOnly: true };
     const gateway = await installMockGateway(page, {
       cliAgentsEnabled: true,
       featureMethods: [

@@ -802,7 +802,6 @@ extensions/msteams/src/probe.ts	1
 extensions/msteams/src/qa/adapter.runtime.ts	2
 extensions/msteams/src/qa/bot-framework-server.ts	3
 extensions/msteams/src/qa/private-runtime.ts	3
-extensions/msteams/src/reply-dispatcher.ts	3
 extensions/msteams/src/reply-stream-controller.ts	1
 extensions/msteams/src/sdk-proactive.ts	7
 extensions/msteams/src/sdk.ts	10
@@ -1384,7 +1383,7 @@ packages/acp-core/src/types.ts	2
 packages/agent-core/src/agent-loop.ts	3
 packages/agent-core/src/harness/compaction/branch-summarization.ts	1
 packages/agent-core/src/harness/compaction/compaction.ts	2
-packages/agent-core/src/harness/session/tool-result-pairing.ts	17
+packages/agent-core/src/harness/session/tool-result-pairing.ts	14
 packages/agent-core/src/harness/session/uuid.ts	1
 packages/agent-core/src/harness/utils/truncate.ts	1
 packages/agent-core/src/turn-interruption.ts	1
@@ -2567,7 +2566,6 @@ src/daemon/launchd-install.ts	6
 src/daemon/launchd-lifecycle.ts	4
 src/daemon/launchd-service-files.ts	1
 src/daemon/launchd-stop.ts	2
-src/daemon/launchd-system.ts	2
 src/daemon/schtasks-control.ts	5
 src/daemon/schtasks-install.ts	2
 src/daemon/schtasks-process.ts	2
@@ -2606,7 +2604,7 @@ src/gateway/chat-display-projection.canvas.ts	13
 src/gateway/chat-display-projection.core.ts	5
 src/gateway/chat-display-projection.helpers.ts	10
 src/gateway/chat-display-projection.history.ts	1
-src/gateway/chat-display-projection.sanitize.ts	15
+src/gateway/chat-display-projection.sanitize.ts	13
 src/gateway/chat-sanitize.ts	3
 src/gateway/cli-session-history.claude-activity.ts	1
 src/gateway/cli-session-history.claude.ts	15
@@ -3391,7 +3389,6 @@ src/skills/loading/config.ts	1
 src/skills/loading/frontmatter.ts	1
 src/skills/loading/source.ts	1
 src/skills/loading/workspace-skill-sync.runtime.ts	1
-src/skills/runtime/refresh.ts	2
 src/skills/runtime/remote-probe-utils.ts	2
 src/skills/runtime/remote-skills.ts	1
 src/skills/security/clawhub-verdicts.ts	2
@@ -3487,13 +3484,13 @@ src/tts/tts-settings.ts	4
 src/tts/tts-telephony.ts	1
 src/tts/voice-models.ts	4
 src/tui/components/chat-log.ts	2
-src/tui/embedded-backend.ts	5
+src/tui/embedded-backend.ts	4
 src/tui/gateway-chat.ts	2
 src/tui/tui-autocomplete.ts	1
 src/tui/tui-command-handlers.ts	5
 src/tui/tui-event-handlers.ts	5
 src/tui/tui-formatters.ts	4
-src/tui/tui-session-actions.ts	5
+src/tui/tui-session-actions.ts	3
 src/tui/tui-session-events.ts	1
 src/tui/tui-session-projection.ts	2
 src/tui/tui-session-run-coordinator.ts	1

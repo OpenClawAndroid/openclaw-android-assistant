@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import {
   captureChatOutboxRecoveryDestination,
   readChatOutboxRecovery,
@@ -12,6 +13,7 @@ import {
 } from "../../lib/chat/outbox-store.ts";
 import { resolveUiConversationIdentity } from "../../lib/sessions/session-key.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
+import { chatOutboxOwner } from "./chat-outbox-owner.ts";
 import { readQueuedMessageById, removeQueuedMessage, updateQueuedMessage } from "./chat-queue.ts";
 import {
   admitStoredChatComposerQueueItem,
@@ -34,6 +36,90 @@ const state = {
 
 beforeEach(() => vi.stubGlobal("sessionStorage", createStorageMock()));
 afterEach(() => vi.unstubAllGlobals());
+
+describe("outbox submission handoff", () => {
+  function admittedSubmission() {
+    const host = { ...state, hello: null, chatQueue: new Array<ChatQueueItem>() };
+    expect(
+      admitStoredChatComposerQueueItem(host, captureChatOutboxAdmission(host, host.sessionKey), {
+        id: "submitted",
+        text: "@Alex review this",
+        mentions: [{ profileId: "first-recipient", start: 0, end: 5 }],
+        createdAt: 1,
+        sendRunId: "submitted-run",
+        sendAttempts: 0,
+        sendState: "waiting-idle",
+      }),
+    ).toBe(true);
+    const stored = listStoredChatOutboxes(host)[0]!.queue[0]!;
+    const owner = chatOutboxOwner(host);
+    const submission = owner.beginSubmission(host, stored.id);
+    expect(submission).toBeDefined();
+    return { host, stored, owner, submission: submission! };
+  }
+
+  it("retains unsent durable custody and preserves delivery that advances before release", () => {
+    const { host, stored, submission } = admittedSubmission();
+    expect(readQueuedMessageById(host, stored.id)?.sendState).toBe("submitting");
+    expect(listStoredChatOutboxes(host)[0]?.queue).toEqual([stored]);
+    expect(
+      updateQueuedMessage(host, stored.id, (item) => ({
+        ...item,
+        sendState: "sending",
+        sendAttempts: 1,
+      })),
+    ).toMatchObject({ sendState: "sending", sendAttempts: 1 });
+    submission.release();
+    expect(readQueuedMessageById(host, stored.id)).toMatchObject({
+      sendState: "sending",
+      sendAttempts: 1,
+    });
+    expect(listStoredChatOutboxes(host)[0]?.queue[0]).toMatchObject({
+      sendState: "waiting-reconnect",
+      sendAttempts: 1,
+    });
+  });
+
+  it.each(["recipient", "position"] as const)(
+    "exposes a canonical %s replacement and lets a peer remove it",
+    (change) => {
+      const { host, stored, owner, submission } = admittedSubmission();
+      const peer = { ...host, chatQueue: [...host.chatQueue] };
+      const replacement = {
+        ...stored,
+        ...(change === "recipient"
+          ? { mentions: [{ profileId: "new-recipient", start: 0, end: 5 }] }
+          : { orderKey: 2 }),
+      };
+      expect(
+        updateStoredChatComposerQueueItem(
+          host,
+          host.sessionKey,
+          stored,
+          replacement,
+          stored.agentId,
+        ),
+      ).toBe(true);
+      expect(
+        owner.mayRemove(peer, { sessionKey: host.sessionKey, agentId: stored.agentId }, stored.id),
+      ).toBe(true);
+      expect(readQueuedMessageById(peer, stored.id)).toEqual(replacement);
+      expect(removeQueuedMessage(peer, stored.id)).toBe("removed");
+      submission.release();
+      expect(readQueuedMessageById(host, stored.id)).toBeNull();
+    },
+  );
+
+  it("releases the captured session after navigation without claiming a transport attempt", () => {
+    const { host, stored, submission } = admittedSubmission();
+    host.sessionKey = "agent:default:other";
+    submission.release();
+    expect(host.chatQueue).toEqual([]);
+    expect(listStoredChatOutboxes(host)[0]?.queue).toEqual([stored]);
+    host.sessionKey = stored.sessionKey!;
+    expect(readQueuedMessageById(host, stored.id)).toEqual(stored);
+  });
+});
 
 describe("outbox destination identity", () => {
   it.each([

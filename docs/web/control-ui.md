@@ -33,7 +33,9 @@ Hidden retained chats defer command and model metadata refreshes until you retur
 
 Provider authentication status is shared across views and refreshes after account changes and near credential warning or expiry deadlines. Credentials without an expiry do not need periodic refreshes. Hidden tabs defer deadline refreshes until visible again.
 
-Subagent activity rows lead with the child task's display title, using its configured
+Subagent runs appear in inline transcript activity rows, the chat **Tasks** tab,
+and the [Tasks page](/automation/tasks#control-ui), outside sidebar navigation.
+Their activity rows lead with the child task's display title, using its configured
 `label` when present, followed by the latest activity. The leading claw moves only
 while running; queued and cancelled tasks stay still, and completion briefly turns
 the claw green. Failed tasks have a warning badge and timed-out tasks a clock badge.
@@ -43,7 +45,8 @@ the generic **Subagent** label. Select a row to open its details.
 
 The sidebar keeps unread child failures visible on their ancestors. These warnings
 name the child session that failed, even when its parent has finished or continues
-working. Open the child session to inspect and acknowledge its failure.
+working. Select the warning to open the child session and acknowledge its failure;
+a subagent chat opens without adding a sidebar row.
 
 Choose **New agent** in the sidebar or Agents home to open the custodian chat.
 It recommends a chief of staff, researcher, writer, reviewer, or a small team

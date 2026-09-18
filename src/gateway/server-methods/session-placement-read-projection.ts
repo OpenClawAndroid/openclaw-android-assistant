@@ -9,14 +9,13 @@ import {
   projectWorkerPlacementMove,
   projectWorkerSessionPlacement,
   readWorkerPlacementIdentity,
-  type WorkerSessionPlacementReader,
   type WorkerPlacementDiskSpaceReader,
   type WorkerPlacementRunnerAvailabilityReader,
 } from "../worker-environments/placement-projector.js";
+import type { WorkerSessionPlacementStore } from "../worker-environments/placement-store.js";
 import { isFailedWorkerPlacementEnvironmentGone } from "../worker-environments/session-placement-lifecycle.js";
 
 type PlacementReadContext = {
-  workerSessionPlacementService?: WorkerSessionPlacementReader;
   workerPlacementDiskSpaceReader?: WorkerPlacementDiskSpaceReader;
   workerPlacementRunnerAvailabilityReader?: WorkerPlacementRunnerAvailabilityReader;
   workerEnvironmentService?: Parameters<typeof readWorkerPlacementIdentity>[1];
@@ -28,17 +27,18 @@ export function readSessionRowFacts(params: {
   target: Pick<GatewayStoredSessionTarget, "agentId" | "storeTarget"> & { key: string };
   entry: SessionEntry;
   context?: PlacementReadContext;
+  placementFactsReader?: Pick<WorkerSessionPlacementStore, "getProjectionFacts">;
+  activitySummaryEnabled?: boolean;
 }) {
   const { cfg, entry } = params;
   // The board callback shares a closure context with present; never capture a resident row.
   const { key, agentId, storeTarget } = params.target;
   const context = params.context ?? {};
-  const placements = context.workerSessionPlacementService;
-  const placement = placements?.getMany([entry.sessionId]).get(entry.sessionId);
-  const move = placements?.getPlacementMoves?.([entry.sessionId]).get(entry.sessionId);
-  const workspaceResultReconciling =
-    placements?.getWorkspaceResultReconcilingSessionIds?.([entry.sessionId]).has(entry.sessionId) ??
-    false;
+  const {
+    placement,
+    move,
+    workspaceResultReconciling = false,
+  } = params.placementFactsReader?.getProjectionFacts(entry.sessionId) ?? {};
   const environment = placement?.environmentId
     ? context.workerEnvironmentService?.get(placement.environmentId)
     : undefined;
@@ -54,7 +54,14 @@ export function readSessionRowFacts(params: {
         ? "restart"
         : "stop-first"
       : undefined;
-  const activitySummary = projectSessionActivitySummary({ key, agentId, storeTarget, cfg, entry });
+  const activitySummary = projectSessionActivitySummary({
+    key,
+    agentId,
+    storeTarget,
+    cfg,
+    entry,
+    enabled: params.activitySummaryEnabled,
+  });
   const board = withOpenClawAgentDatabaseReadOnly(
     (database) => readBoardSessionKeys(database, key).length > 0,
     { agentId: storeTarget.agentId, path: storeTarget.storePath },

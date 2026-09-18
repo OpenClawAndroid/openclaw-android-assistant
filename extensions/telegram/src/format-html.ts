@@ -1,3 +1,14 @@
+export function escapeTelegramHtml(text: string): string {
+  if (!/[&<>]/.test(text)) {
+    return text;
+  }
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export function escapeTelegramHtmlAttr(text: string): string {
+  return escapeTelegramHtml(text).replace(/"/g, "&quot;");
+}
+
 const TELEGRAM_HTML_ENTITY_PATTERN = /&(#[xX][0-9A-Fa-f]+|#\d+|amp|lt|gt|quot|apos);/g;
 
 // Structural tags that force a line boundary when projecting HTML to plain text

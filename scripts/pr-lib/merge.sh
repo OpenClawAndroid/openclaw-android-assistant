@@ -611,6 +611,8 @@ merge_run() {
       .pr.autoMergeRequest == null and .pr.isInMergeQueue == false and
       ($recovery == null or .pr.id == $recovery.prId)
     ' >/dev/null; then
+      printf 'Merge admission rejected (observation %s, prepared head %s): %s\n' \
+        "$admission_attempt" "$PREP_HEAD_SHA" "$MERGE_OBSERVATION" >&2
       merge_outcome_stop "require OPEN, exact prepared head, main base, non-draft, no conflicts, and no existing auto/queue request; inspect current PR state"
       return 1
     fi

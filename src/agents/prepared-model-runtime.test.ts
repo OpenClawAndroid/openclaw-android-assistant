@@ -205,6 +205,7 @@ describe("prepared model runtime snapshots", () => {
             loadRuntimePlugins: true,
           },
           mocks.pluginMetadataSnapshot as never,
+          vi.fn(),
         )
       ).runtimePluginRegistry,
     ).toBe(pluginRegistry);

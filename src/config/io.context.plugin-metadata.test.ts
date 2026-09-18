@@ -6,6 +6,7 @@ import {
 import type { InstalledPluginIndex } from "../plugins/installed-plugin-index-types.js";
 import type { PluginManifestRecord } from "../plugins/manifest-registry.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
+import { buildPluginMetadataProviderFacts } from "../plugins/plugin-metadata-provider-facts.js";
 import { restorePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { buildDeclaredProviderOwnerIndex } from "../plugins/provider-owner-index.js";
 
@@ -100,6 +101,8 @@ function workspaceSnapshot(
       setupProviders: new Map(),
       commandAliases: new Map(),
       contracts: new Map(),
+      providerAuthContributions:
+        buildPluginMetadataProviderFacts(plugins).providerAuthContributions,
       modelIdNormalizationPolicies: new Map(),
     },
     metrics: {

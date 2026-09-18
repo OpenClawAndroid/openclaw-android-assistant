@@ -241,6 +241,8 @@ merge_outcome_stable() {
     merge_outcome_require_main "$main" || return 1
     git merge-base --is-ancestor "$(printf '%s\n' "$MERGE_OBSERVATION" | jq -r .main)" "$main" && return 0
   fi
+  printf 'Merge stability observation: %s\nMerge stability reread: %s\n' \
+    "$MERGE_OBSERVATION" "$reread" >&2
   merge_outcome_stop "PR or main changed during observation; rerun for read-only reconciliation if intent exists"
 }
 

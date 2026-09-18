@@ -12,6 +12,7 @@ import type { DB as OpenClawStateKyselyDatabase } from "../../../state/openclaw-
 import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
+  repairOpenClawStateDatabaseSchema,
 } from "../../../state/openclaw-state-db.js";
 import { withEnvAsync } from "../../../test-utils/env.js";
 import {
@@ -573,7 +574,7 @@ describe("subagent registry sqlite store", () => {
     });
   });
 
-  it("promotes legacy retained results into canonical completion state once", async () => {
+  it("preserves legacy retained results until Doctor promotes canonical completion state", async () => {
     await withTempStateEnv(async () => {
       const run = createRun({
         completion: { required: true, resultText: "NO_REPLY" },
@@ -598,10 +599,21 @@ describe("subagent registry sqlite store", () => {
         },
       });
       saveSubagentRegistryToSqlite(new Map([[run.runId, run]]));
+      const before = openOpenClawStateDatabase()
+        .db.prepare("SELECT payload_json FROM subagent_runs WHERE run_id = ?")
+        .get(run.runId);
       openOpenClawStateDatabase()
         .db.prepare("UPDATE schema_meta SET app_version = ? WHERE meta_key = 'primary'")
         .run("2026.7.0");
       closeOpenClawStateDatabaseForTest();
+
+      expect(
+        openOpenClawStateDatabase()
+          .db.prepare("SELECT payload_json FROM subagent_runs WHERE run_id = ?")
+          .get(run.runId),
+      ).toEqual(before);
+      closeOpenClawStateDatabaseForTest();
+      expect(repairOpenClawStateDatabaseSchema().warnings).toEqual([]);
 
       const restored = loadSubagentRegistryFromSqlite().get(run.runId);
       expect(restored?.completion).toMatchObject({

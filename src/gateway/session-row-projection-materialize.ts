@@ -1,3 +1,4 @@
+import { resolveUtilityModelRefForAgent } from "../agents/utility-model.js";
 import { readCommittedSessionEntryCache } from "../config/sessions/session-accessor.sqlite-entry-cache.js";
 import { readExactSessionEntryRow } from "../config/sessions/session-accessor.sqlite-entry-read.js";
 import { listSessionMembers } from "../config/sessions/session-sharing-store.js";
@@ -14,18 +15,28 @@ import {
   resolveGatewaySessionStoreTargetWithStore,
 } from "./session-utils-store-lookup.js";
 
+/** One synchronous refresh slice shares agent policy; each later slice starts fresh. */
+export function createSessionRowMaterializationBatch(): typeof readResidentSessionRow {
+  const activitySummaryEnabledByAgent = new Map<string, boolean>();
+  return (params) => readResidentSessionRow(params, activitySummaryEnabledByAgent);
+}
+
 /** Resident rows consume committed metadata; optional transcript work has a separate budget. */
-export function readResidentSessionRow(params: {
-  row: records.Row & { entry: NonNullable<records.Row["entry"]> };
-  cfg: records.Inputs["cfg"];
-  modelCatalog: records.Inputs["modelCatalog"];
-  configuredAgentIds: ReadonlySet<string>;
-  context: SessionListRowContext;
-  subagentInputs: SessionListRowContext["subagentRuns"]["inputs"];
-  gatewayContext: Parameters<typeof readSessionRowFacts>[0]["context"];
-  links: SessionChildLink[];
-  readSourceEntry: (key: string) => records.Row["storedEntry"];
-}) {
+export function readResidentSessionRow(
+  params: {
+    row: records.Row & { entry: NonNullable<records.Row["entry"]> };
+    cfg: records.Inputs["cfg"];
+    modelCatalog: records.Inputs["modelCatalog"];
+    configuredAgentIds: ReadonlySet<string>;
+    context: SessionListRowContext;
+    subagentInputs: SessionListRowContext["subagentRuns"]["inputs"];
+    gatewayContext: Parameters<typeof readSessionRowFacts>[0]["context"];
+    placementFactsReader?: Parameters<typeof readSessionRowFacts>[0]["placementFactsReader"];
+    links: SessionChildLink[];
+    readSourceEntry: (key: string) => records.Row["storedEntry"];
+  },
+  activitySummaryEnabledByAgent?: Map<string, boolean>,
+) {
   const { row, cfg, context } = params;
   const source = isIncognitoSessionKey(row.key)
     ? resolveGatewaySessionStoreTargetWithStore({
@@ -67,14 +78,28 @@ export function readResidentSessionRow(params: {
     inputs.lastMessagePreview = row.lastMessagePreview;
   }
   inputs.subagentRunInputs = params.subagentInputs;
+  const materialized = materializeSessionRow(inputs);
+  // Row preparation may populate the metadata used by automatic utility policy.
+  let activitySummaryEnabled: boolean | undefined;
+  if (activitySummaryEnabledByAgent && row.entry.sessionId && !row.entry.initializationPending) {
+    activitySummaryEnabled = activitySummaryEnabledByAgent.get(row.agentId);
+    if (activitySummaryEnabled === undefined) {
+      activitySummaryEnabled = Boolean(
+        resolveUtilityModelRefForAgent({ cfg, agentId: row.agentId }),
+      );
+      activitySummaryEnabledByAgent.set(row.agentId, activitySummaryEnabled);
+    }
+  }
   return {
-    materialized: materializeSessionRow(inputs),
+    materialized,
     fallbackModel: presentation.activeModel,
     facts: readSessionRowFacts({
       cfg,
       target: row,
       entry: row.entry,
       context: params.gatewayContext,
+      placementFactsReader: params.placementFactsReader,
+      activitySummaryEnabled,
     }),
     membership: new Set(
       listSessionMembers({ ...row.storeTarget, sessionKey: row.key }).map(

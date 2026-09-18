@@ -62,6 +62,7 @@ import { inspectActivatedUpdateState } from "./update-command-migrated.js";
 import * as packageModule from "./update-command-package.js";
 import { rollbackFailedUpdate } from "./update-command-rollback.js";
 import {
+  expectActiveRollbackIdentity,
   expectDoctorRollback,
   writeWithRefreshFailure,
 } from "./update-command-rollback.test-support.js";
@@ -324,6 +325,11 @@ describe("verified package rollback", () => {
         });
         expect(enabled).toBe(true);
         expect(outcome.rolledBack).toBe(healthy);
+        expect(outcome.result.recovery).toMatchObject({
+          packageRollbackVerified: true,
+          version: "2026.9.1",
+          service: healthy ? "healthy" : "failed",
+        });
         const retained = outcome.stoppedForRollback?.windowsTaskAutoStartRecovery;
         expect(retained).toBe(activated ? fresh : original);
         await retained?.complete(healthy);
@@ -918,79 +924,15 @@ describe("verified package rollback", () => {
     "restart-unhealthy",
     "restart-refused",
     "restart-threw",
+    "restart-timeout",
+    "restart-verified",
   ] as const)("retains active installation identity after %s", async (failure) => {
-    const restoredPackage = failure !== "source-failed" && failure !== "partial-restore";
-    const rollbackSucceeded = failure.startsWith("restart-");
-    const activePackageRoot =
-      failure === "partial-restore" ? null : restoredPackage ? previousRoot : candidateRoot;
-    const stateDir = dirs.make("rollback-source-failed-");
-    const env = { OPENCLAW_STATE_DIR: stateDir };
-    const configSnapshot = await readPreviousConfig(env);
-    const config = configSnapshot.sourceConfigBeforeMigrations ?? configSnapshot.sourceConfig;
-    const schemaVersions = await readUpdateStateSchemaVersions({ stateDir, config, env });
-    const result: UpdateRunResult = {
-      status: "error",
-      mode: "npm",
-      root: candidateRoot,
-      reason: "readyz-unhealthy",
-      steps: [],
-      durationMs: 1,
-      before: { version: "2026.9.1" },
-      after: { version: "2026.9.3" },
-    };
-    if (failure === "restart-threw") {
-      mocks.restart.mockRejectedValueOnce(new Error("Service restart transport failed"));
-    } else {
-      mocks.restart.mockResolvedValueOnce(
-        failure === "restart-unhealthy" ? "restart-health-failed" : "failed",
-      );
-    }
-    const outcome = await rollbackFailedUpdate({
-      result,
+    await expectActiveRollbackIdentity({
+      failure,
+      candidateRoot,
       previousRoot,
-      configSnapshot,
-      opts: { json: true },
-      timeoutMs: 1_000,
-      schemaVersions,
-      previousVerified: true,
-      preManagedServiceStop: {
-        stopped: true,
-        inspected: true,
-        runtimeInspected: true,
-        running: true,
-        serviceEnv: env,
-      },
-      packageTransaction: {
-        backupRoot: "/backup",
-        complete: vi.fn(async () => {}),
-        rollback: vi.fn(async () => ({
-          name: "rollback",
-          activePackageRoot,
-          command: "restore",
-          cwd: previousRoot,
-          exitCode: rollbackSucceeded ? 0 : 1,
-          durationMs: 1,
-        })),
-      },
+      stateDir: dirs.make("rollback-source-failed-"),
+      restart: mocks.restart,
     });
-    expect(outcome.result).toMatchObject({
-      root: activePackageRoot ?? undefined,
-      after:
-        activePackageRoot === null ? undefined : restoredPackage ? result.before : result.after,
-      reason: rollbackSucceeded ? result.reason : "source-rollback-failed",
-      steps: [
-        expect.objectContaining({
-          name: "rollback",
-          exitCode: rollbackSucceeded ? 0 : 1,
-        }),
-      ],
-      ...(!rollbackSucceeded
-        ? {}
-        : {
-            recovery: { serviceRestartSafe: true, packageRollbackVerified: true },
-          }),
-    });
-    expect(outcome.rolledBack).toBe(false);
-    expect(mocks.restart).toHaveBeenCalledTimes(rollbackSucceeded ? 1 : 0);
   });
 });

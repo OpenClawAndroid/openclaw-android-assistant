@@ -248,7 +248,9 @@ const rootEntries = [
   "src/entry.ts!",
   // Built as the official image's Docker HEALTHCHECK entrypoint.
   "src/docker-healthcheck.ts!",
-  // Uploaded in the worker bundle and launched by rsync; no static host import exists.
+  // Deployed in the worker archive and launched by path, without a static host import.
+  "src/worker/worker-deploy-entry.ts!",
+  "src/worker/worker-deploy-image-processor.ts!",
   "src/worker/workspace-rsync-receiver.ts!",
   // v2026.9.1 Gateways lazy-import this stable dist entry after an in-place update.
   "src/gateway/plugin-channel-reload-targets.ts!",

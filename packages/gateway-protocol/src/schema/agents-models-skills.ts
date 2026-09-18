@@ -1058,79 +1058,14 @@ export const SkillsProposalApplyResultSchema = closedObject({
 /** Proposal record result returned after non-apply proposal actions. */
 export const SkillsProposalRecordResultSchema = SkillProposalRecordSchema;
 
-const SkillLifecycleStateSchema = Type.Union([
-  Type.Literal("active"),
-  Type.Literal("stale"),
-  Type.Literal("archived"),
-]);
-
-const SkillCuratorEntrySchema = closedObject({
-  skillFile: NonEmptyString,
-  skillKey: NonEmptyString,
-  skillName: NonEmptyString,
-  state: SkillLifecycleStateSchema,
-  pinned: Type.Boolean(),
-  createdAtMs: Type.Number(),
-  stateChangedAtMs: Type.Number(),
-  lastUsedAtMs: Type.Union([Type.Number(), Type.Null()]),
-  useCount: Type.Number(),
-  archivedReason: Type.Union([Type.String(), Type.Null()]),
-});
-
-const SkillOverlapCandidateSchema = closedObject({
-  left: NonEmptyString,
-  right: NonEmptyString,
-  score: Type.Number(),
-});
-
-const SkillCollectionReviewStatusSchema = closedObject({
-  attemptedAtMs: Type.Number(),
-  succeededAtMs: Type.Optional(Type.Number()),
-  error: Type.Optional(Type.String()),
-});
-
-const SkillExperienceReviewStatusSchema = closedObject({
-  attemptedAtMs: Type.Number(),
-  outcome: Type.Union([
-    Type.Literal("completed"),
-    Type.Literal("applied"),
-    Type.Literal("proposed"),
-    Type.Literal("nothing"),
-    Type.Literal("failed"),
-  ]),
-  proposalId: Type.Optional(Type.String()),
-  error: Type.Optional(Type.String()),
-  usage: Type.Optional(
-    closedObject({
-      inputTokens: Type.Number(),
-      cachedInputTokens: Type.Number(),
-      outputTokens: Type.Number(),
-    }),
-  ),
-});
-
-/** Reads persisted skill usage and collection review state. */
-export const SkillsCuratorStatusParamsSchema = closedObject({});
-
-export const SkillsCuratorStatusResultSchema = closedObject({
-  lastAttemptAtMs: Type.Union([Type.Number(), Type.Null()]),
-  lastSuccessAtMs: Type.Union([Type.Number(), Type.Null()]),
-  lastError: Type.Union([Type.String(), Type.Null()]),
-  collectionReview: Type.Optional(Type.Record(NonEmptyString, SkillCollectionReviewStatusSchema)),
-  experienceReview: Type.Optional(Type.Record(NonEmptyString, SkillExperienceReviewStatusSchema)),
-  counts: closedObject({
-    active: Type.Number(),
-    stale: Type.Number(),
-    archived: Type.Number(),
-  }),
-  skills: Type.Array(SkillCuratorEntrySchema),
-  overlaps: Type.Array(SkillOverlapCandidateSchema),
-});
-
-/** Preserves retired curator action methods so clients receive an actionable error. */
-export const SkillsCuratorActionParamsSchema = closedObject({ skill: NonEmptyString });
-
-export const SkillsCuratorActionResultSchema = SkillCuratorEntrySchema;
+export {
+  SkillsCuratorStatusParamsSchema,
+  SkillsCuratorStatusResultSchema,
+  SkillsCuratorActionParamsSchema,
+  SkillsCuratorActionResultSchema,
+  SkillCuratorLiveEntrySchema,
+  SkillsCuratorLiveStatusResultSchema,
+} from "./skill-curator.js";
 
 export const GitHubIdentityScopeSchema = Type.Union([
   Type.Literal("system"),
@@ -1505,10 +1440,14 @@ export type SkillsProposalEventsListParams = Static<typeof SkillsProposalEventsL
 export type SkillsProposalEventsListResult = Static<typeof SkillsProposalEventsListResultSchema>;
 export type SkillsProposalApplyResult = Static<typeof SkillsProposalApplyResultSchema>;
 export type SkillsProposalRecordResult = Static<typeof SkillsProposalRecordResultSchema>;
-export type SkillsCuratorStatusParams = Static<typeof SkillsCuratorStatusParamsSchema>;
-export type SkillsCuratorStatusResult = Static<typeof SkillsCuratorStatusResultSchema>;
-export type SkillsCuratorActionParams = Static<typeof SkillsCuratorActionParamsSchema>;
-export type SkillsCuratorActionResult = Static<typeof SkillsCuratorActionResultSchema>;
+export type {
+  SkillsCuratorStatusParams,
+  SkillsCuratorStatusResult,
+  SkillsCuratorLiveStatusResult,
+  SkillsCuratorCompatibleStatusResult,
+  SkillsCuratorActionParams,
+  SkillsCuratorActionResult,
+} from "./skill-curator.js";
 export type SkillsSecurityVerdictsParams = Static<typeof SkillsSecurityVerdictsParamsSchema>;
 export type SkillsSecurityVerdictsResult = Static<typeof SkillsSecurityVerdictsResultSchema>;
 export type SkillsSkillCardParams = Static<typeof SkillsSkillCardParamsSchema>;

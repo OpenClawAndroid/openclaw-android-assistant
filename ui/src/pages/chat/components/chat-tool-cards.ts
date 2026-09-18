@@ -367,14 +367,7 @@ function resolveCollapsedToolSummaryParts(params: {
   };
 }
 
-export function isRunningToolCard(card: ToolCard, runActive: boolean | undefined): boolean {
-  // Only live tool-stream cards can be running; historical transcript calls
-  // without results (aborted runs) must stay inert during later runs. The
-  // result event ends the running state — partial streamed output does not.
-  return resolveToolCardOutcome(card, runActive) === "running";
-}
-
-export function resolveToolRowText(card: ToolCard, runActive?: boolean): string {
+function resolveToolRowText(card: ToolCard, runActive?: boolean): string {
   const view = resolveToolCallView({ name: card.name, args: card.args, details: card.details });
   if (view.title) {
     return view.title;
@@ -465,7 +458,9 @@ export function renderToolCard(
   const view = resolveToolCallView({ name: card.name, args: card.args, details: card.details });
   const display = resolveToolDisplay({ name: card.name, args: card.args, detailMode: "explain" });
   const activityCards = opts.activityCards ?? [card];
-  const isRunning = activityCards.some((item) => isRunningToolCard(item, opts.runActive));
+  const isRunning = activityCards.some(
+    (item) => resolveToolCardOutcome(item, opts.runActive) === "running",
+  );
   const expanded = opts.expanded;
   const icon = TOOL_ROW_ICONS[view.kind] ?? display.icon;
   const workspaceFilePath = toolWorkspacePath(card, view);

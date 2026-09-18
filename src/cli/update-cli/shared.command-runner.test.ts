@@ -155,6 +155,51 @@ describe("update CLI shared helpers", () => {
     });
   });
 
+  it.skipIf(process.platform === "win32")(
+    "guides Homebrew-managed installations to use brew upgrade",
+    async () => {
+      await expect(
+        resolveGlobalManager({
+          root: "/opt/homebrew/Cellar/openclaw-cli/2026.9.2/libexec/lib/node_modules/openclaw",
+          installKind: "package",
+          timeoutMs: 1_000,
+        }),
+      ).rejects.toMatchObject({
+        name: "UpdatePreMutationError",
+        reason: "unmanaged-package-install",
+        message:
+          "This OpenClaw installation is managed by Homebrew. To update OpenClaw, run:\n\n  brew upgrade openclaw-cli\n\nThen restart the gateway:\n\n  openclaw gateway restart",
+      });
+    },
+  );
+
+  it("does not treat global npm packages under HOMEBREW_PREFIX as Homebrew formula installs", async () => {
+    const originalPrefix = process.env.HOMEBREW_PREFIX;
+    process.env.HOMEBREW_PREFIX = "/opt/homebrew-custom";
+    runCommandWithTimeout.mockResolvedValue({
+      ...successfulCommandResult,
+      code: 1,
+      stderr: "not owned",
+    });
+
+    try {
+      await expect(
+        resolveGlobalManager({
+          root: "/opt/homebrew-custom/lib/node_modules/openclaw",
+          installKind: "package",
+          timeoutMs: 1_000,
+        }),
+      ).rejects.toMatchObject({
+        name: "UpdatePreMutationError",
+        message: expect.stringMatching(
+          /No package changes or Gateway restart were attempted\.[\s\S]*Inspected:[\s\S]*\/opt\/homebrew-custom\/lib\/node_modules\/openclaw/,
+        ),
+      });
+    } finally {
+      process.env.HOMEBREW_PREFIX = originalPrefix;
+    }
+  });
+
   it("publishes a successful fresh clone only after the clone completes", async () => {
     await withTestDir({ prefix: "openclaw-update-clone-success-" }, async (base) => {
       const checkoutDir = path.join(base, "nested", "openclaw");

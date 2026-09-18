@@ -1,6 +1,8 @@
 // Builds CLI runtime dispatch inputs for agent runner executions.
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { Value } from "typebox/value";
+import { AgentActivityItemSchema } from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
 import { runCliAgent } from "../../agents/cli-runner.js";
 import type { RunCliAgentParams } from "../../agents/cli-runner/types.js";
 import type { MediaImageLayout } from "../../agents/embedded-agent-runner/run/prompt-image-metadata.js";
@@ -411,6 +413,7 @@ type RunCliAgentWithLifecycleParams = {
   onCompactionStart?: GetReplyOptions["onCompactionStart"];
   onCompactionEnd?: GetReplyOptions["onCompactionEnd"];
   onToolEvent?: (payload: CliToolEventPayload) => Promise<void>;
+  onItemEvent?: GetReplyOptions["onItemEvent"];
   onCommentaryText?: (payload: CommentaryTextPayload) => Promise<void>;
   onPlanUpdate?: GetReplyOptions["onPlanUpdate"];
   onFastModeAutoProgress?: (payload: ReplyPayload) => Promise<void>;
@@ -585,6 +588,22 @@ async function runCliAgentWithLifecycleInternal(
     deliver: params.onCommentaryText,
     startOrder: progressStartOrder,
   });
+  const itemBridge = createAgentEventBridge({
+    runId: params.runId,
+    suppressed: params.suppressAssistantBridge,
+    startOrder: progressStartOrder,
+    read: (evt) =>
+      evt.stream === "item" &&
+      evt.data.kind !== "preamble" &&
+      Value.Check(AgentActivityItemSchema, evt.data)
+        ? evt.data
+        : undefined,
+    deliver: params.onItemEvent
+      ? async (item) => {
+          await params.onItemEvent?.(item);
+        }
+      : undefined,
+  });
   const planBridge = createPlanUpdateBridge({
     runId: params.runId,
     suppressed: params.suppressAssistantBridge,
@@ -604,6 +623,7 @@ async function runCliAgentWithLifecycleInternal(
     compactionBridge,
     toolBridge,
     commentaryBridge,
+    itemBridge,
     planBridge,
     toolBoundaryBridge,
   ].filter((bridge): bridge is AgentEventBridge => bridge !== undefined);

@@ -2069,7 +2069,7 @@ describe("talk.session unified handlers", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.resolveSessionKeyFromResolveParams.mockImplementation(async ({ p }) => {
+    mocks.resolveSessionKeyFromResolveParams.mockImplementation(({ p }) => {
       const key = (p as { key?: unknown }).key;
       return {
         ok: true,
@@ -2878,7 +2878,6 @@ describe("talk.session unified handlers", () => {
       brain: "agent-consult",
     });
     expect(mocks.resolveSessionKeyFromResolveParams).toHaveBeenCalledWith({
-      cfg: config,
       projection: {},
       client: { connId: "conn-1", connect: { scopes: ["operator.write"] } },
       p: {

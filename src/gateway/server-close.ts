@@ -22,6 +22,7 @@ import { getCanonicalGatewayContextResolver } from "../plugins/runtime/gateway-r
 import type { PluginServicesHandle } from "../plugins/services.js";
 import { AsyncWorkScope } from "../shared/async-work-scope.js";
 import { drainGlobalSingletonLifecycleState } from "../shared/global-singleton.js";
+import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db-lifecycle.js";
 import {
   collectGatewayProcessMemoryUsageMb,
   markGatewayRestartTrace,
@@ -655,6 +656,8 @@ export async function completeGatewayClose(
           await closePreparedModelRuntimeSnapshots();
           await closeSessionTranscriptReconcileWorkerPool();
           await retire();
+          // Releasing agent leases still writes shared state; keep its owner alive until then.
+          await closeOpenClawAgentDatabasesAsync();
           if (mediaCleanupStopResult !== undefined) {
             await closePluginStateDatabaseAsync();
           }

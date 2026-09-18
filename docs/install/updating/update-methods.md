@@ -164,6 +164,26 @@ Pin the recovery to a specific version or dist-tag with `--version`:
 curl -fsSL https://openclaw.ai/install.sh | bash -s -- --install-method npm --version <version-or-dist-tag>
 ```
 
+## Homebrew formula installs
+
+For `brew install openclaw-cli`, update through Homebrew:
+
+```bash
+brew upgrade openclaw-cli
+openclaw gateway restart
+```
+
+`openclaw update` leaves the formula unchanged and prints these commands. Existing
+profiles retain that skipped outcome and guidance in `openclaw update status --json`
+and the update report. Stop a running Gateway before a manual upgrade to avoid
+loading files from a removed keg; back up first and run `openclaw doctor --fix`
+before restarting.
+
+New or refreshed service definitions use Homebrew's stable `opt/openclaw-cli`
+path. To repair a service still pointing at a versioned `Cellar` path, run
+`openclaw gateway install --force` from the upgraded CLI. Global npm packages
+under the Homebrew prefix continue to use npm.
+
 ## Alternative: manual npm, pnpm, or bun
 
 The npm command below is for npm 12 or npm 11.16+. On npm 11.15 and earlier,

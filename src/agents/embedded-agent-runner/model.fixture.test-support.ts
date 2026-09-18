@@ -2,6 +2,7 @@ import { expect, vi } from "vitest";
 import { isPathInside } from "../../infra/path-guards.js";
 import * as pluginDiscovery from "../../plugins/discovery.js";
 import * as authProfileStore from "../auth-profiles/store-runtime.js";
+import type { PreparedModelRuntimeSnapshot } from "../prepared-model-runtime.types.js";
 
 export function guardModelFixtureAuth(root: string) {
   const violations: Array<string | undefined> = [];
@@ -36,4 +37,25 @@ export function guardModelFixtureWorkspace(root: string) {
     return discoverOpenClawPlugins(params);
   });
   return { spy, verify: () => expect(violations).toEqual([]) };
+}
+
+export function createEmptyPreparedModelRuntimeFixture(
+  input: Pick<
+    PreparedModelRuntimeSnapshot,
+    "agentDir" | "config" | "metadataSnapshot" | "createStores"
+  >,
+): PreparedModelRuntimeSnapshot {
+  return {
+    catalogOwner: undefined,
+    ...input,
+    activeProjectKeys: [],
+    allowGatewaySubagentBinding: false,
+    observationConfig: input.config,
+    isCurrent: () => true,
+    authModes: {},
+    modelCatalog: { entries: [], routeVariants: [] },
+    configuredRuntimeModels: [],
+    findConfiguredRuntimeModel: () => undefined,
+    inlineProviderModels: [],
+  };
 }

@@ -64,7 +64,14 @@ import {
 import { readTaskBackingInstance } from "./task-backing-authority.js";
 import { runTaskFlowRegistryMaintenance } from "./task-flow-registry.maintenance.js";
 import { loadTaskAcpSessionCloser, type CloseAcpSession } from "./task-registry-acp-cleanup.js";
-import { getTaskRegistryMaintenanceSnapshot } from "./task-registry-maintenance-snapshot.js";
+import {
+  applyTaskRegistryMaintenanceRetention,
+  shouldStampCleanupAfter,
+} from "./task-registry-maintenance-retention.js";
+import {
+  getTaskRegistryMaintenanceSnapshot,
+  getTaskRegistryMaintenanceTask,
+} from "./task-registry-maintenance-snapshot.js";
 import { withTaskRegistryMutation } from "./task-registry-state.js";
 import {
   configureTaskAuditTaskProvider,
@@ -123,6 +130,7 @@ type TaskRegistryMaintenanceRuntime = {
   deleteTaskRecordById: typeof deleteTaskRecordById;
   ensureTaskRegistryReady: typeof ensureTaskRegistryReady;
   getTaskById: typeof getTaskById;
+  getTaskRegistryMaintenanceTask: typeof getTaskRegistryMaintenanceTask;
   getTaskRegistryMaintenanceSnapshot: typeof getTaskRegistryMaintenanceSnapshot;
   listTaskRecords: typeof listTaskRecords;
   markTaskLostById: typeof markTaskLostById;
@@ -155,6 +163,7 @@ const defaultTaskRegistryMaintenanceRuntime: TaskRegistryMaintenanceRuntime = {
   deleteTaskRecordById,
   ensureTaskRegistryReady,
   getTaskById,
+  getTaskRegistryMaintenanceTask,
   getTaskRegistryMaintenanceSnapshot,
   listTaskRecords,
   markTaskLostById,
@@ -304,10 +313,6 @@ function findTaskSessionEntry(
 
 function isActiveTask(task: TaskRecord): boolean {
   return task.status === "queued" || task.status === "running";
-}
-
-function isTerminalTask(task: TaskRecord): boolean {
-  return !isActiveTask(task);
 }
 
 function hasLostGraceExpired(task: TaskRecord, now: number): boolean {
@@ -546,10 +551,6 @@ function hasTaskLostDecisionInputChanged(before: TaskRecord, after: TaskRecord):
 
 function hasDetachedTaskRecoveryHook(): boolean {
   return Boolean(getDetachedTaskLifecycleRuntime().tryRecoverTaskBeforeMarkLost);
-}
-
-function shouldStampCleanupAfter(task: TaskRecord): boolean {
-  return isTerminalTask(task) && typeof task.cleanupAfter !== "number";
 }
 
 function taskReferenceAt(task: TaskRecord): number {
@@ -1178,9 +1179,15 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
   const cronRecoveryContext = createCronRecoveryContext();
   const backingSessionContext = createBackingSessionLookupContext();
   const recoveryHookRegistered = hasDetachedTaskRecoveryHook();
-  let processed = 0;
-  for (const taskId of taskIds) {
-    const current = taskRegistryMaintenanceRuntime.getTaskById(taskId);
+  for (const [index, taskId] of taskIds.entries()) {
+    if (index > 0 && index % SWEEP_YIELD_BATCH_SIZE === 0) {
+      await yieldToEventLoop();
+    }
+    const current = taskRegistryMaintenanceRuntime.getTaskRegistryMaintenanceTask(
+      taskId,
+      now,
+      cronHistoryOverflowTaskIds,
+    );
     if (!current) {
       continue;
     }
@@ -1189,10 +1196,6 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
       const next = markTaskRecovered(current, cronRecovery);
       if (next.status !== current.status) {
         recovered += 1;
-      }
-      processed += 1;
-      if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
-        await yieldToEventLoop();
       }
       continue;
     }
@@ -1229,37 +1232,24 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
         },
         () => undefined,
       );
-      processed += 1;
-      if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
-        await yieldToEventLoop();
-      }
       continue;
     }
     await cleanupTerminalAcpSession(current, closeAcpSession);
     if (
-      shouldPruneTerminalTask(current, now, cronHistoryOverflowTaskIds) &&
-      taskRegistryMaintenanceRuntime.deleteTaskRecordById(current.taskId)
+      shouldPruneTerminalTask(current, now, cronHistoryOverflowTaskIds) ||
+      shouldStampCleanupAfter(current)
     ) {
-      pruned += 1;
-      processed += 1;
-      if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
-        await yieldToEventLoop();
-      }
-      continue;
-    }
-    if (shouldStampCleanupAfter(current)) {
-      if (
-        taskRegistryMaintenanceRuntime.setTaskCleanupAfterById({
-          taskId: current.taskId,
-          cleanupAfter: resolveTaskCleanupAfter(current),
-        })
-      ) {
+      const result = applyTaskRegistryMaintenanceRetention(
+        current.taskId,
+        now,
+        cronHistoryOverflowTaskIds,
+        taskRegistryMaintenanceRuntime,
+      );
+      if (result === "pruned") {
+        pruned += 1;
+      } else if (result === "stamped") {
         cleanupStamped += 1;
       }
-    }
-    processed += 1;
-    if (processed % SWEEP_YIELD_BATCH_SIZE === 0) {
-      await yieldToEventLoop();
     }
   }
   await cleanupOrphanedParentOwnedAcpSessions(closeAcpSession);

@@ -318,7 +318,10 @@ export type LlmCompleteResult = {
 type RuntimeRunEmbeddedAgentParams = Omit<
   import("../../agents/embedded-agent-runner/run/params.js").RunEmbeddedAgentParams,
   "admittedRunContext" | "preparedRunAdmission"
->;
+> & {
+  /** @deprecated Ignored; the host derives availability. Retained until the next Plugin SDK major. */
+  githubPublicationAvailable?: boolean;
+};
 
 type RuntimeRunEmbeddedAgent = (
   params: RuntimeRunEmbeddedAgentParams,

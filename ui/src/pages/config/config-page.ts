@@ -420,7 +420,7 @@ export class ConfigPage extends OpenClawLightDomElement {
           "sessions.catalog.list",
           {
             ...(agentId ? { agentId } : {}),
-            limitPerHost: 1,
+            metadataOnly: true,
           },
           { signal },
         );

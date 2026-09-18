@@ -15,6 +15,7 @@ export function createSubscriptionMock(): SubscriptionMock {
     assistantTexts: [] as string[],
     answerSegments: [] as SubscriptionMock["answerSegments"],
     getCurrentAttemptAssistant: () => undefined,
+    hasSuccessfulModelResponse: () => false,
     getLastAssistantTextMessageIndex: () => undefined,
     getLatestMcpAppChannelView: () => undefined,
     getLatestMcpConnectAction: () => undefined,

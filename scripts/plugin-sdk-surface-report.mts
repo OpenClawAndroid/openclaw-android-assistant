@@ -376,7 +376,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +13: runtime-neutral WebSocket client/server, stream, data, and option contracts.
       // +2: approved process-diagnostics predicate and lightweight subsystem logger.
       // +1: approved shared native-command argument-menu applicability predicate.
-      4482,
+      // +4: shared activity projectors and complete-preamble admission, including the shipped barrel.
+      4486,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -516,7 +517,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +4: runtime-neutral WebSocket client/server and stream constructors.
       // +2: approved process-diagnostics predicate and lightweight subsystem logger.
       // +1: approved shared native-command argument-menu applicability predicate.
-      2646,
+      // +4: shared activity projectors and complete-preamble admission, including the shipped barrel.
+      2650,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

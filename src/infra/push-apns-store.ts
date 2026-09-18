@@ -12,7 +12,6 @@ import {
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
-import { executeOpenClawStateWorker } from "../state/openclaw-state-worker-store.js";
 import { loadPairedDevicePairingStoreRecordFromDatabase } from "./device-pairing-store.js";
 import { resolveNodePairingGeneration } from "./device-pairing.js";
 import {
@@ -522,6 +521,7 @@ export async function loadApnsRegistration(
     return null;
   }
   const context = captureOpenClawStateWorkerContext(apnsStateDatabaseOptions(baseDir));
+  const { executeOpenClawStateWorker } = await import("../state/openclaw-state-worker-store.js");
   return executeOpenClawStateWorker(context, {
     type: "apns.registration.read",
     input: normalizedNodeId,
@@ -563,6 +563,7 @@ export async function loadApnsRegistrations(
     return [];
   }
   const context = captureOpenClawStateWorkerContext(apnsStateDatabaseOptions(baseDir));
+  const { executeOpenClawStateWorker } = await import("../state/openclaw-state-worker-store.js");
   const registrations = await executeOpenClawStateWorker(context, {
     type: "apns.registrations.read",
     input: uniqueNodeIds,

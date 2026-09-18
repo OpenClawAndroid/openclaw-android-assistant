@@ -1,7 +1,14 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { setImmediate } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { retainSqliteWorkerErrorCode, SqliteWorkerError } from "../infra/sqlite-worker-contract.js";
-import { getActiveGatewayRootWorkCount } from "../process/gateway-work-admission.js";
+import {
+  getActiveGatewayRootWorkCount,
+  tryBeginGatewayRootWorkAdmission,
+  tryBeginGatewaySuspendAdmission,
+} from "../process/gateway-work-admission.js";
+import { AsyncWorkScope, getAsyncWorkSignal, trackAsyncWork } from "../shared/async-work-scope.js";
 import { serializeAgentSchemaInspectionError } from "../state/openclaw-agent-schema-inspection-response.js";
 import { createOpenClawDatabaseMaintenanceScope } from "../state/openclaw-state-db-async-lifecycle.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
@@ -14,7 +21,9 @@ import {
   createInMemoryTaskRegistryStore,
   createInMemoryTaskFlowRegistryStore,
 } from "../test-utils/task-registry-store.js";
+import { ensureTaskFlowRegistryReadyAsync } from "./task-flow-registry.js";
 import type { TaskFlowRecord } from "./task-flow-registry.types.js";
+import { markTaskTerminalById } from "./task-registry-record-api.js";
 import type { TaskRegistryRestoreResult } from "./task-registry-restore.worker.js";
 import {
   ensureTaskRegistryReadyAsync,
@@ -315,3 +324,143 @@ describe("restored task flow synchronization", () => {
     }
   });
 });
+
+it.each(["live", "restored"] as const)(
+  "detaches the %s retry from its closed origin and retains descendant cleanup after suspension",
+  async (kind) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const current = { ...flow, syncMode: "task_mirrored" as const };
+    const restoredTask: TaskRecord = {
+      ...task,
+      parentFlowId: flow.flowId,
+      status: "succeeded",
+      endedAt: 20,
+    };
+    const flows = createInMemoryTaskFlowRegistryStore({
+      flows: new Map([[flow.flowId, current]]),
+    });
+    const store = createInMemoryTaskRegistryStore(
+      { tasks: new Map([[task.taskId, restoredTask]]), deliveryStates: new Map() },
+      flows,
+    );
+    if (kind === "restored") {
+      vi.spyOn(store, "withSnapshotAsync").mockImplementation(async (_context, consume) =>
+        consume({
+          ...taskRestoreResult(store.loadSnapshot()),
+          flowSyncs: [
+            {
+              taskId: task.taskId,
+              flowId: flow.flowId,
+              kind: "result",
+              result: { ok: false, reason: "persist_failed", current },
+            },
+          ],
+        }),
+      );
+    }
+    let published: TaskFlowRecord | undefined;
+    configureTaskFlowRegistryRuntime({
+      store: flows,
+      observers: {
+        onEvent(event) {
+          if (event.kind === "upserted" && event.flow.flowId === flow.flowId) {
+            published = event.flow;
+          }
+        },
+      },
+    });
+    configureTaskRegistryRuntime({ store });
+    const context = captureOpenClawStateWorkerContext();
+    await ensureTaskFlowRegistryReadyAsync(context);
+    const foreground = new AsyncWorkScope();
+    const parent = tryBeginGatewayRootWorkAdmission("test:retry-origin");
+    if (!parent) {
+      throw new Error("Expected an admitted retry fixture parent");
+    }
+    const releaseCleanup = createDeferred();
+    let cleanup: Promise<void> | undefined;
+    let cleanupError: unknown;
+    let cleanupFinished = false;
+    let retrySignal: AbortSignal | undefined;
+    const enter = vi.fn(() => {
+      retrySignal = getAsyncWorkSignal();
+      cleanup = trackAsyncWork(async () => {
+        await releaseCleanup.promise;
+        await trackAsyncWork(() => {
+          cleanupFinished = true;
+        });
+      });
+      void cleanup.catch((error: unknown) => {
+        cleanupError = error;
+      });
+    });
+    if (kind === "live") {
+      const sync = store.syncLiveTaskFlowAsync.bind(store);
+      vi.spyOn(store, "syncLiveTaskFlowAsync").mockImplementation((...args) => {
+        enter();
+        return sync(...args);
+      });
+    } else {
+      const sync = store.syncTaskFlowAsync.bind(store);
+      vi.spyOn(store, "syncTaskFlowAsync").mockImplementation((...args) => {
+        enter();
+        return sync(...args);
+      });
+    }
+    let suspension: ReturnType<typeof tryBeginGatewaySuspendAdmission> | undefined;
+    try {
+      const advanceRetry = await parent.run(() =>
+        foreground.run(async () => {
+          await ensureTaskRegistryReadyAsync(context);
+          if (kind === "live") {
+            vi.spyOn(flows, "upsertFlow").mockImplementationOnce(() => {
+              throw new Error("Controlled initial flow refusal");
+            });
+            expect(
+              markTaskTerminalById({
+                taskId: task.taskId,
+                status: "succeeded",
+                endedAt: 20,
+              }),
+            ).not.toBeNull();
+          }
+          // Fake timers do not retain the scheduling callback's native async context.
+          return AsyncLocalStorage.bind(() => vi.advanceTimersByTimeAsync(1_000));
+        }),
+      );
+      parent.release();
+      await foreground.drain();
+      expect(foreground.signal.aborted).toBe(true);
+      suspension = tryBeginGatewaySuspendAdmission(() => {});
+      expect(suspension?.commit()).toBe(true);
+      await advanceRetry();
+      expect(enter).not.toHaveBeenCalled();
+      expect(getActiveGatewayRootWorkCount()).toBe(0);
+      expect(flows.loadSnapshot().flows.get(flow.flowId)?.revision).toBe(0);
+
+      suspension?.release();
+      await setImmediate();
+      expect(enter).toHaveBeenCalledOnce();
+      expect(published).toMatchObject({ revision: 1, status: "succeeded" });
+      expect.soft(retrySignal).toBeDefined();
+      expect.soft(retrySignal).not.toBe(foreground.signal);
+      expect.soft(retrySignal?.aborted).toBe(false);
+      expect.soft(getActiveGatewayRootWorkCount()).toBe(1);
+      expect(cleanupFinished).toBe(false);
+      releaseCleanup.resolve();
+      await Promise.allSettled(cleanup ? [cleanup] : []);
+      await vi.waitFor(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
+      expect(cleanupError).toBeUndefined();
+      expect(cleanupFinished).toBe(true);
+      expect(retrySignal?.aborted).toBe(true);
+    } finally {
+      parent.release();
+      suspension?.release();
+      releaseCleanup.resolve();
+      await Promise.allSettled(cleanup ? [cleanup] : []);
+      await foreground.drain();
+      await vi.waitFor(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
+      vi.useRealTimers();
+    }
+  },
+);

@@ -12,7 +12,7 @@ import { prepareSecretInputStdio } from "../spawn-secret-input.js";
 import { createManagedChildStdin } from "./adapters/child-stdin.js";
 import { toStringEnv } from "./adapters/env.js";
 import { createProcessAdapterEvents } from "./adapters/process-events.js";
-import { GRACEFUL_CANCEL_TIMEOUT_MS } from "./cancellation-policy.js";
+import { createServiceChildCleanupDeadline } from "./service-child-cleanup-deadline.js";
 import { readServiceChildControl } from "./service-child-control-reader.js";
 import { createOutputRelay } from "./service-child-output-relay.js";
 import {
@@ -187,12 +187,10 @@ export async function createServiceChildRelayAdapter(
   const constructionAbort = createDeferredCore<never>();
   void constructionAbort.promise.catch(() => {});
   let startupErrorAckDelivery: Promise<void> | undefined;
-  let cleanupDeadline: number | undefined;
-  let cleanupTimer: NodeJS.Timeout | undefined;
   let completionSettled = false;
   void Promise.allSettled([resultCompletion.promise, cleanup.outcome]).then(() => {
     completionSettled = true;
-    clearTimeout(cleanupTimer);
+    cleanupDeadline.clear();
   });
 
   const settleWait = () => {
@@ -278,17 +276,11 @@ export async function createServiceChildRelayAdapter(
       child.stderr?.destroy();
     }
   };
-  const beginCleanupDeadline = () => {
-    if (useWindowsJobAnchor || completionSettled || cleanupDeadline !== undefined) {
-      return;
-    }
-    // One owner budget spans cancellation, ACK, native joins and output drain.
-    // Repeated KILL, a later receipt or control EOF must not renew it.
-    cleanupDeadline = performance.now() + GRACEFUL_CANCEL_TIMEOUT_MS;
-    // A busy host can resume with native completion queued behind this timer.
-    // Let the next I/O poll deliver those facts before rejecting pending joins.
-    cleanupTimer = setTimeout(() => setImmediate(expireCleanup), GRACEFUL_CANCEL_TIMEOUT_MS);
-  };
+  const cleanupDeadline = createServiceChildCleanupDeadline({
+    enabled: () => !useWindowsJobAnchor && !completionSettled,
+    expire: expireCleanup,
+    force: () => kill("SIGKILL"),
+  });
 
   const sendChildMessage = (
     message: ServiceChildStart | ServiceChildControlMessage,
@@ -330,7 +322,7 @@ export async function createServiceChildRelayAdapter(
     child,
     generation,
     nextSequence: () => ++outboundSequence,
-    startedAt: () => cleanupDeadline! - GRACEFUL_CANCEL_TIMEOUT_MS,
+    startedAt: () => cleanupDeadline.startedAt!,
     anchorGone: () => {
       if (anchorPid === undefined) {
         return false;
@@ -348,7 +340,7 @@ export async function createServiceChildRelayAdapter(
       lineage?.readableEnded === true &&
       stdoutRelay.ended &&
       stderrRelay.ended &&
-      performance.now() < cleanupDeadline!,
+      performance.now() < cleanupDeadline.at!,
   });
 
   lineage?.once("end", () => {
@@ -400,6 +392,11 @@ export async function createServiceChildRelayAdapter(
     }
     settleWait();
     cleanup.completion.resolve();
+    if (retirement.result) {
+      cleanupDeadline.budget?.warn(
+        "service child relay required forced retirement; cleanup completed",
+      );
+    }
   };
 
   const finishPosixAuthority = async () => {
@@ -417,7 +414,7 @@ export async function createServiceChildRelayAdapter(
     }
     // Closure requires lineage EOF outside the group as well as kernel group
     // disappearance; an escaped writer survives the anchor's group-wide KILL.
-    beginCleanupDeadline();
+    cleanupDeadline.begin();
     if (!lineage?.readableEnded) {
       await Promise.race([lineageEnd.promise, cleanup.completion.promise]);
     }
@@ -443,7 +440,7 @@ export async function createServiceChildRelayAdapter(
           // EPERM proves presence, not lost ownership. Keep observing within the same deadline.
         }
       }
-      const remainingMs = cleanupDeadline! - performance.now();
+      const remainingMs = cleanupDeadline.at! - performance.now();
       if (remainingMs <= 0 && childExited) {
         expireCleanup();
         return;
@@ -498,7 +495,7 @@ export async function createServiceChildRelayAdapter(
       }
       closingReceipt = true;
       state = "closing";
-      beginCleanupDeadline();
+      cleanupDeadline.begin();
       retirement.reconcile();
       if (control) {
         // Retire cancellation before acknowledging this exact POSIX receipt.
@@ -692,8 +689,8 @@ export async function createServiceChildRelayAdapter(
 
   function kill(signal: NodeJS.Signals = "SIGKILL") {
     const normalized = signal === "SIGTERM" ? "SIGTERM" : "SIGKILL";
+    cleanupDeadline.cancel(normalized);
     if (normalized === "SIGKILL") {
-      beginCleanupDeadline();
       retirement.request();
     }
     // A closing receipt retires group cancellation, not the retained relay handle.

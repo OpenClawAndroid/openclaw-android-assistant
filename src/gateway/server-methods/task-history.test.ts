@@ -97,10 +97,15 @@ describe("tasks.history", () => {
   it("reads and pages a registered harness transcript without a child session", async () => {
     await withHistoryState(async () => {
       const older = { role: "user", content: "Inspect the files" };
-      const latest = { role: "assistant", content: "The files are consistent" };
+      const latest = {
+        role: "toolResult",
+        messageId: "latest",
+        content: "The files are consistent",
+      };
+      const activity = [{ messageId: "latest", items: [] }];
       const read = vi.fn<ReadTaskHistory>(async ({ cursor }) =>
         cursor === undefined
-          ? { messages: [latest], nextCursor: "older-page" }
+          ? { messages: [latest], activity, nextCursor: "older-page" }
           : { messages: [older] },
       );
       registerHistoryReader(read);
@@ -111,6 +116,7 @@ describe("tasks.history", () => {
       const first = await runTaskHandler("tasks.history", { taskId: task.taskId, limit: 1 });
       expect(first.calls[0]?.[0]).toBe(true);
       expect(first.payload?.messages).toEqual([latest]);
+      expect(first.payload?.activity).toEqual(activity);
       const cursor = expectDefined(first.payload?.nextCursor, "older task history cursor");
       const second = await runTaskHandler("tasks.history", {
         taskId: task.taskId,
@@ -145,7 +151,24 @@ describe("tasks.history", () => {
         "Second child message",
         "Latest child message",
       ]) {
-        await appendTranscriptMessage(scope, { message: { role: "assistant", content } });
+        await appendTranscriptMessage(scope, {
+          message:
+            content === "Latest child message"
+              ? {
+                  role: "toolResult",
+                  toolCallId: "poll",
+                  toolName: "process",
+                  isError: false,
+                  content,
+                  details: {
+                    status: "completed",
+                    sessionId: "job",
+                    aggregated: "done",
+                    exitCode: 0,
+                  },
+                }
+              : { role: "assistant", content },
+        });
       }
       const task = createTaskFixture("subagent", {
         requesterSessionKey,
@@ -167,6 +190,7 @@ describe("tasks.history", () => {
         { content: "Second child message" },
         { content: "Latest child message" },
       ]);
+      expect(first.payload?.activity).toEqual([{ messageId: expect.any(String), items: [] }]);
       const cursor = expectDefined(first.payload?.nextCursor, "older child transcript cursor");
       const second = await runTaskHandler(
         "tasks.history",

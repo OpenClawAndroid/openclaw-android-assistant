@@ -127,6 +127,10 @@ On Linux, the systemd unit must use `KillMode=mixed` so the initial stop signal
 reaches only the Gateway. Systemd still kills remaining child processes when the
 Gateway exits or its stop deadline expires. Older `KillMode=control-group` units
 signal child runtimes immediately, which can interrupt a turn before drain finishes.
+The spawn broker stays available while its Gateway connection is alive, even if
+it receives the stop signal too, so cleanup can still launch commands and observe
+child exits. This does not protect other child runtimes; `KillMode=mixed` remains
+required.
 After upgrading, run `openclaw gateway install --force` for the same profile to
 rewrite and restart the managed unit. Ordinary updates leave existing Linux
 service definitions unchanged. Doctor reports incompatible effective settings.
@@ -143,6 +147,14 @@ and another 5 seconds before systemd's deadline. A unit with the default
 90-second stop timeout therefore gets a 75-second drain and an 85-second Gateway
 shutdown deadline. A shorter supervisor timeout also caps requested restart waits.
 The drained work, ordering, and interruption behavior stay the same.
+
+Service-child cleanup uses the remaining Gateway shutdown budget, leaving time
+for final exit bookkeeping. A forced restart skips active-work drain but retains
+the 10-second cleanup reserve; it does not start a fresh 85-second wait. Ordinary
+cancellation keeps its five-second grace before forced termination. During
+shutdown, a relay that needs forced termination after its owned processes are
+confirmed gone produces a warning. Completed cleanup leaves the Gateway's exit
+status at zero; an unconfirmed process cleanup boundary still reports failure.
 
 The process's cgroup selects the system or user manager, independently of the
 account running the Gateway or its restart owner. This also covers hand-written

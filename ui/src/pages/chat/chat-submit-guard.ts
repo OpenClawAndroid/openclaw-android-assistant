@@ -1,9 +1,17 @@
+import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
+import { sameQueuedDeliveryVersion } from "../../lib/chat/outbox-store-codec.ts";
+import { visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { generateUUID } from "../../lib/uuid.ts";
+import { isInitialChatHistoryUnavailable } from "./chat-history-state.ts";
+import type { QueuedChatSendResult } from "./chat-outbox-drain.ts";
+import { chatOutboxOwner } from "./chat-outbox-owner.ts";
+import { readQueuedMessageById } from "./chat-queue.ts";
 import type { ChatHost } from "./chat-send-contract.ts";
+import { hasDirectSessionRun, isChatBusy } from "./run-lifecycle.ts";
 
 const submissionActionIds = new WeakMap<Event, string>();
 
-export function yieldChatSubmitToInput(): Promise<void> {
+function yieldChatSubmitToInput(): Promise<void> {
   return new Promise<void>((resolve) => {
     const channel = new MessageChannel();
     channel.port1.addEventListener(
@@ -18,6 +26,64 @@ export function yieldChatSubmitToInput(): Promise<void> {
     channel.port1.start();
     channel.port2.postMessage(undefined);
   });
+}
+
+export async function withChatSubmitHandoff(
+  host: ChatHost,
+  queued: ChatQueueItem,
+  options: {
+    yieldToInput: boolean;
+    isCurrent: () => boolean;
+    allowActiveRunSend: boolean;
+    pendingSettings?: Promise<boolean>;
+  },
+  deliver: (item: ChatQueueItem) => Promise<QueuedChatSendResult>,
+): Promise<QueuedChatSendResult> {
+  const yieldsToInput = options.yieldToInput && typeof MessageChannel !== "undefined";
+  const startsImmediately =
+    yieldsToInput &&
+    options.isCurrent() &&
+    host.connected &&
+    host.client &&
+    !host.chatLoading &&
+    !isInitialChatHistoryUnavailable(host) &&
+    !options.pendingSettings &&
+    queued.sendState === "waiting-idle" &&
+    (queued.queueMode ||
+      ((options.allowActiveRunSend || (!isChatBusy(host) && !hasDirectSessionRun(host))) &&
+        host.chatQueue.find((item) => item.sendState !== "failed" || item.localCommandName)?.id ===
+          queued.id));
+  // Admission is durable, but delivery has not made a transport attempt yet.
+  // Present that handoff inline without flashing the waiting-message tray.
+  const submission = startsImmediately
+    ? chatOutboxOwner(host).beginSubmission(host, queued.id)
+    : undefined;
+  try {
+    let current = queued;
+    if (yieldsToInput) {
+      // Durable custody lets the browser accept the next input before delivery.
+      await yieldChatSubmitToInput();
+      const pending =
+        options.isCurrent() && visibleSessionMatches(host, queued.sessionKey!, queued.agentId)
+          ? readQueuedMessageById(host, queued.id)
+          : null;
+      // Only position changes preserve the handoff; the drain owns ordering/edit holds.
+      if (
+        !pending ||
+        !sameQueuedDeliveryVersion(queued, {
+          ...pending,
+          sendState: pending.sendState === "submitting" ? "waiting-idle" : pending.sendState,
+          orderKey: queued.orderKey,
+        })
+      ) {
+        return "pending";
+      }
+      current = pending;
+    }
+    return await deliver(current);
+  } finally {
+    submission?.release();
+  }
 }
 
 export async function withChatSubmitGuard<T>(

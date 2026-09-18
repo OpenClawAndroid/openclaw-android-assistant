@@ -410,11 +410,7 @@
     corner-shape: superellipse(1.5);
   }
 
-  /* The composer's resting shape is the multiline one; its single-line pill
-     opts back out to a circular corner in chat/layout.css, because the
-     superellipse flattens a fully rounded end. */
-  .option-card.option-card,
-  .agent-chat__input.agent-chat__input {
+  .option-card.option-card {
     border-radius: calc(20px * var(--openclaw-corner-radius-scale));
     corner-shape: superellipse(1.5);
   }
@@ -1101,8 +1097,7 @@ wa-popover::part(body)::-webkit-scrollbar-thumb:hover {
     transparent 75%
   );
   content: "";
-  /* Rest offscreen: with reduced motion the animation collapses to one instant
-     iteration, and without this the highlight band would settle over the block. */
+  /* Keep the highlight offscreen when reduced motion disables the sweep. */
   transform: translateX(-100%);
   animation: shimmer var(--skeleton-duration, 1.5s) ease-in-out infinite;
   will-change: transform;
@@ -1139,6 +1134,7 @@ wa-popover::part(body)::-webkit-scrollbar-thumb:hover {
     --hide-duration: 0ms;
   }
 
+  .skeleton::after,
   .chat-controls__inline-select[open] > wa-popup::part(popup) {
     animation: none !important;
   }

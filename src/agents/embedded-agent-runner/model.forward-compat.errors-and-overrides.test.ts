@@ -117,6 +117,7 @@ vi.mock("../prepared-model-runtime.js", async () => {
       }),
       modelCatalog: { entries: [], routeVariants: [] },
       configuredRuntimeModels: [],
+      findConfiguredRuntimeModel: () => undefined,
       inlineProviderModels: buildInlineProviderModels(config.models?.providers ?? {}),
       createStores: () => {
         const authStorage = discovery.discoverAuthStorage(input.agentDir);

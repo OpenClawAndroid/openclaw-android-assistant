@@ -40,7 +40,6 @@ import {
   resolveBundledProviderStaticCatalogModel,
   resolveBundledStaticCatalogModel,
 } from "./model.static-catalog.js";
-import { staticModelIdMatches } from "./model.static-id.js";
 
 export { resolveModelWithRegistry } from "./model.registry-resolution.js";
 
@@ -182,20 +181,10 @@ export async function resolveModelAsync(
       if (!staticCatalogResolved) {
         staticCatalogResolved = true;
         staticCatalogModel =
-          preparedModelRuntime?.configuredRuntimeModels?.find(
-            ({ modelId: candidateId, provider: rowProvider }) =>
-              candidateId === normalizedRef.model &&
-              normalizeProviderId(rowProvider) === normalizeProviderId(normalizedRef.provider),
-          )?.model ??
-          preparedModelRuntime?.configuredRuntimeModels?.find(
-            ({ modelId: candidateId, provider: rowProvider }) =>
-              staticModelIdMatches({
-                candidateId,
-                rowProvider,
-                provider: normalizedRef.provider,
-                modelId: normalizedRef.model,
-              }),
-          )?.model ??
+          preparedModelRuntime?.findConfiguredRuntimeModel(
+            normalizedRef.provider,
+            normalizedRef.model,
+          ) ??
           resolveBundledStaticCatalogModel({
             provider: normalizedRef.provider,
             modelId: normalizedRef.model,

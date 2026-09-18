@@ -4,8 +4,8 @@ import type { QuestionPrompt } from "../../../app/question-prompt.ts";
 import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
 import type { ChatItem, MessageGroup } from "../../../lib/chat/chat-types.ts";
-import { summarizeToolGroup } from "../../../lib/chat/tool-call-grouping.ts";
-import { extractToolCardsCached, isToolCardError } from "../../../lib/chat/tool-cards.ts";
+import { readPreparedActivity, summarizeToolGroup } from "../../../lib/chat/tool-call-grouping.ts";
+import { extractToolCardsCached } from "../../../lib/chat/tool-cards.ts";
 import { formatDurationCompact } from "../../../lib/format-duration.ts";
 import { renderChatAvatar } from "../chat-avatar.ts";
 import { renderGroupedMessage } from "./chat-message-bubble.ts";
@@ -170,7 +170,11 @@ export function renderWorkGroupSummary(
     group.messages.flatMap(({ message }) => extractToolCardsCached(message)),
   );
   const label = cards.length
-    ? summarizeToolGroup(cards.map((card) => ({ ...card, isError: isToolCardError(card) })))
+    ? summarizeToolGroup(
+        item.groups.flatMap((group) =>
+          group.messages.flatMap(({ message }) => readPreparedActivity(message)),
+        ),
+      )
     : duration
       ? t("chat.workRun.workedFor", { duration })
       : t("chat.workRun.worked");

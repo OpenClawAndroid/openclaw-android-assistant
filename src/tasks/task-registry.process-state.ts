@@ -209,3 +209,17 @@ export function rebuildRunIdIndex() {
     addRunIdIndex(taskId, task.runId);
   }
 }
+
+export function removeTaskIndexes(task: TaskRecord): void {
+  deleteRunIdIndex(task.taskId, task.runId);
+  deleteOwnerKeyIndex(task.taskId, task);
+  deleteParentFlowIdIndex(task.taskId, task);
+  deleteRelatedSessionKeyIndex(task.taskId, task);
+}
+
+export function addTaskIndexes(task: TaskRecord): void {
+  addRunIdIndex(task.taskId, task.runId);
+  addOwnerKeyIndex(task.taskId, task);
+  addParentFlowIdIndex(task.taskId, task);
+  addRelatedSessionKeyIndex(task.taskId, task);
+}

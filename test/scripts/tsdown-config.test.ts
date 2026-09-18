@@ -51,6 +51,11 @@ const isWorkerGitHubExecLauncherConfig = (config: TsdownConfig) =>
   hasWorkerEntry(config, "worker/github-exec-launcher", "src/agents/github-exec-launcher.ts");
 const isWorkerBuildConfig = (config: TsdownConfig) =>
   isWorkerDeployConfig(config) ||
+  hasWorkerEntry(
+    config,
+    "worker/image-processor.worker",
+    "src/worker/worker-deploy-image-processor.ts",
+  ) ||
   isWorkerRsyncReceiverConfig(config) ||
   isWorkerGitHubExecLauncherConfig(config);
 

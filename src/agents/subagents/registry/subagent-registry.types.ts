@@ -50,6 +50,7 @@ export type SubagentRestartRecoveryReceipt = {
   sessionId: string;
   sessionMarker: string;
   sessionLifecycleRevision?: string;
+  sessionLifecycleRunId?: string;
   idempotencyKey: string;
   phase: "reserved" | "attempted" | "consumed" | "accepted" | "abandoned";
   lifecycleGeneration?: string;

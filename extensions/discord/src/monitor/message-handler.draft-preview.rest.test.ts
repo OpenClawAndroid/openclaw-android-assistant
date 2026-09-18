@@ -1,3 +1,4 @@
+import { projectAgentToolActivity } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { describe, expect, it } from "vitest";
 import { RequestClient } from "../internal/discord.js";
@@ -72,6 +73,9 @@ describe("Discord draft preview REST lifecycle", () => {
         meta: '<progress aria-label="private detail"></progress>',
       });
       controller.handleAssistantMessageBoundary();
+      await controller.pushItemEvent(
+        projectAgentToolActivity({ toolCallId: "exec-1", name: "exec", phase: "start" }),
+      );
       await controller.pushToolEvent({ toolCallId: "exec-1", name: "exec", phase: "start" });
       await controller.flush();
       expect(visible.size).toBe(1);

@@ -442,6 +442,22 @@ openclaw-chat-async-question {
   line-height: 1.4;
 }
 
+.chat-question-summary__item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-question-summary__item + .chat-question-summary__item {
+  margin-top: 8px;
+}
+
+.chat-question-summary__prompt {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .chat-question-summary__line {
   display: flex;
   gap: 5px;

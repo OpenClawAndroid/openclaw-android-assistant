@@ -16,7 +16,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import type { CronRunLogEntry } from "../cron/run-log-types.js";
 import type { CronJob } from "../cron/types.js";
 import type { Message } from "../llm/types.js";
-import { listKnownProviderAuthEnvVarNames } from "../secrets/provider-env-vars.js";
+import { listKnownProviderAuthEnvVarNamesCore } from "../secrets/provider-env-vars.js";
 
 const describeLive =
   isLiveTestEnabled() && process.env.OPENAI_API_KEY?.trim() ? describe : describe.skip;
@@ -41,7 +41,7 @@ describeLive("cron tool allowlists through live harnesses", () => {
         name: `cron-tools-${runtime}`,
         env: {
           ...Object.fromEntries(
-            listKnownProviderAuthEnvVarNames().map((name) => [name, undefined]),
+            listKnownProviderAuthEnvVarNamesCore().map((name) => [name, undefined]),
           ),
           OPENAI_API_KEY: process.env.OPENAI_API_KEY,
           OPENAI_BASE_URL: undefined,

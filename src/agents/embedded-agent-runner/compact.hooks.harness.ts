@@ -9,17 +9,16 @@ import type { AuthProfileStore } from "../auth-profiles/types.js";
 import { clearAgentHarnesses } from "../harness/registry.js";
 import type { AgentHarness } from "../harness/types.js";
 import type { ModelAuthMode } from "../model-auth.js";
-import type {
-  PreparedModelRuntimeInput,
-  PreparedModelRuntimeLeaseOptions,
-} from "../prepared-model-runtime.types.js";
 import type { AgentRuntimePlan, BuildAgentRuntimePlanParams } from "../runtime-plan/types.js";
 import {
   agentSessionAutomaticCompaction,
   agentSessionSetContextReplacementHook,
 } from "../sessions/agent-session-compaction.js";
 import type { SessionManager } from "../sessions/session-manager.js";
-import { emptyPluginMetadataSnapshot } from "./compact.hooks.metadata.test-support.js";
+import {
+  acquireCompactHooksPreparedModelRuntime,
+  emptyPluginMetadataSnapshot,
+} from "./compact.hooks.metadata.test-support.js";
 import { createMockToolDefinitions } from "./compact.hooks.tools.test-support.js";
 import type { resolveModelAsync } from "./model.js";
 import type { attemptServerEndpointCompaction } from "./server-endpoint-compaction.js";
@@ -423,20 +422,7 @@ export const buildAgentRuntimePlanMock = vi.fn((params: BuildAgentRuntimePlanPar
 );
 
 export const acquireAgentRunPreparedModelRuntimeMock = vi.fn(
-  async (input: PreparedModelRuntimeInput, _options?: PreparedModelRuntimeLeaseOptions) => ({
-    snapshot: {
-      isCurrent: () => true,
-      agentId: input.agentId,
-      agentDir: input.agentDir,
-      config: input.config,
-      workspaceDir: input.workspaceDir,
-      metadataSnapshot: { ...emptyPluginMetadataSnapshot, workspaceDir: input.workspaceDir },
-      configuredRuntimeModels: [],
-      inlineProviderModels: [],
-      createStores: () => ({ authStorage: {}, modelRegistry: {} }),
-    },
-    [Symbol.asyncDispose]: vi.fn(async () => {}),
-  }),
+  acquireCompactHooksPreparedModelRuntime,
 );
 const getCurrentPluginMetadataSnapshotMock: Mock<
   typeof import("../../plugins/current-plugin-metadata-snapshot.js").getCurrentPluginMetadataSnapshot

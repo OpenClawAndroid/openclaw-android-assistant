@@ -2,7 +2,7 @@
 
 import { expectDefined } from "@openclaw/normalization-core";
 import { html, render, type LitElement } from "lit";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type {
@@ -50,6 +50,8 @@ import {
   createChatProps,
   createPasteEvent,
   createTestTranscript,
+  renderChatInto,
+  renderChatView,
   stubAnimationFrames,
 } from "./chat-view.test-helpers.ts";
 import { renderChat } from "./chat-view.ts";
@@ -58,6 +60,7 @@ import { resetChatComposerState } from "./components/chat-composer.ts";
 import * as chatMessage from "./components/chat-message.ts";
 import { renderChatModelAccountControl } from "./components/chat-model-account-control.ts";
 import { renderChatModelControls } from "./components/chat-model-controls.ts";
+import { installChatComposerPickerDismissal } from "./components/chat-picker-overlay.ts";
 import {
   resetThreadPresentation,
   resetTranscriptSession,
@@ -327,6 +330,7 @@ function renderWorkGroupSummaryMock(
 }
 
 beforeEach(() => {
+  onTestFinished(installChatComposerPickerDismissal(document));
   installTranscriptDomMocks();
   vi.spyOn(chatThread, "buildCachedChatItems").mockImplementation(buildChatItemsMock);
   vi.spyOn(chatThread, "getExpandedToolCards").mockReturnValue(new Map<string, boolean>());
@@ -692,16 +696,6 @@ function createDragEvent(type: string, types = ["Files"]): Event {
 
 function itemAt<T>(items: ArrayLike<T>, index: number, label: string): T {
   return expectDefined(items[index], `${label} ${index}`);
-}
-
-function renderChatView(overrides: Partial<ChatProps> = {}) {
-  const container = document.createElement("div");
-  render(renderChat(createChatProps(overrides)), container);
-  return container;
-}
-
-function renderChatInto(container: HTMLElement, overrides: Partial<ChatProps> = {}) {
-  render(renderChat(createChatProps(overrides)), container);
 }
 
 describe("chat typing status", () => {

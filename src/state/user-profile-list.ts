@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { toUSVString } from "node:util";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import { GATEWAY_OWNER_PROFILE_ID } from "../../packages/gateway-protocol/src/schema/users.js";
 import { executeSqliteQuerySync } from "../infra/kysely-sync.js";
@@ -321,6 +322,10 @@ export function getUserProfileDisplay(
   if (!profile) {
     throw new UserProfileNotFoundError(profileId);
   }
+  return projectUserProfileDisplay(profile);
+}
+
+function projectUserProfileDisplay(profile: Omit<ProfileDisplayRow, "role">) {
   const avatarMime = normalizeUserProfileAvatarMime(profile.avatar_mime);
   return {
     id: profile.id,
@@ -331,6 +336,69 @@ export function getUserProfileDisplay(
         : String(profile.updated_at),
     hasAvatar: profile.has_avatar === 1,
   };
+}
+
+/** Read a bounded display cohort and its one-hop merge targets without initializing storage. */
+export function getUserProfileDisplays(
+  profileIds: readonly string[],
+  options: OpenClawStateDatabaseOptions = {},
+): Map<string, ReturnType<typeof getUserProfileDisplay>> {
+  const ids = [...new Set(profileIds)];
+  if (ids.length === 0) {
+    return new Map();
+  }
+  const project = (resolve: (id: string) => Omit<ProfileDisplayRow, "role"> | undefined) =>
+    new Map(
+      ids.flatMap((id) => {
+        const profile = resolve(id);
+        return profile ? [[id, projectUserProfileDisplay(profile)] as const] : [];
+      }),
+    );
+  return (
+    readProfileCatalog(
+      options,
+      (resident) => project((id) => resolveCatalogProfile(resident, id)),
+      (db) => {
+        const profiles = userProfilesDb(db).selectFrom("user_profiles");
+        const rows = executeSqliteQuerySync(
+          db,
+          profiles
+            .select(userProfileDisplaySelection)
+            .where((eb) =>
+              eb.or([
+                eb("id", "in", ids),
+                eb(
+                  "id",
+                  "in",
+                  profiles
+                    .select("merged_into")
+                    .where("id", "in", ids)
+                    .where("merged_into", "!=", ""),
+                ),
+              ]),
+            ),
+        ).rows;
+        if (
+          rows.some(
+            (row) =>
+              typeof row.id !== "string" ||
+              (row.merged_into !== null && typeof row.merged_into !== "string"),
+          )
+        ) {
+          // Native BLOB keys compare by value in SQLite, not by Map object identity.
+          return project((id) =>
+            selectResolvedUserProfile(db, id, profiles.select(userProfileDisplaySelection)),
+          );
+        }
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        return project((id) => {
+          // Match native text binding before indexing the returned SQLite rows.
+          const raw = byId.get(toUSVString(id));
+          return raw?.merged_into ? (byId.get(raw.merged_into) ?? raw) : raw;
+        });
+      },
+    ) ?? new Map()
+  );
 }
 
 /** Activity references are display navigation, never authentication identifiers. */

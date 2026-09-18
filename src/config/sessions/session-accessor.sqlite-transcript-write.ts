@@ -79,6 +79,7 @@ class SqliteTranscriptMutationConflictError extends Error {
 
 export type TranscriptWriteSnapshot<T> = {
   result: T;
+  lifecycleRevision?: string;
   before: SessionTranscriptContextVersion;
   after: SessionTranscriptContextVersion;
 };
@@ -94,6 +95,7 @@ type SqliteTranscriptWriteLockContext = {
   appendMessageWithMessageSequence: <TMessage>(
     options: TranscriptMessageAppendOptions<TMessage>,
   ) => Promise<{
+    lifecycleRevision?: string;
     messageSeq?: number;
     result: TranscriptMessageAppendResult<TMessage> | undefined;
   }>;
@@ -437,10 +439,12 @@ function runTranscriptWriteSnapshotSync<T>(
     if (expectedMutationAt !== undefined && before.updatedAt !== expectedMutationAt) {
       throw new SqliteTranscriptMutationConflictError(resolved.sessionId);
     }
+    const lifecycleRevision = fresh?.entry.lifecycleRevision;
     const value = operation(database, resolved);
     assertOwnedTranscriptWriteCommit(fencedScope);
     return ok({
       result: value,
+      lifecycleRevision,
       before,
       after: readTranscriptContextVersionInTransaction(database, resolved.sessionId),
     });
@@ -584,9 +588,14 @@ export async function withTranscriptWriteLock<T>(
         },
         appendMessageWithMessageSequence: async (options) => {
           let result: TranscriptMessageAppendResult<unknown> | undefined;
+          let lifecycleRevision: string | undefined;
           let messageSeq: number | undefined;
           runOpenClawAgentWriteTransaction((writeDatabase) => {
-            assertLockedTranscriptWriteAllowed(writeDatabase, resolved, fencedScope);
+            lifecycleRevision = assertLockedTranscriptWriteAllowed(
+              writeDatabase,
+              resolved,
+              fencedScope,
+            )?.lifecycleRevision;
             result = appendTranscriptMessageInTransaction(writeDatabase, resolved, options);
             if (result) {
               rememberCommittedTranscriptMessageSequencesInTransaction(
@@ -599,6 +608,7 @@ export async function withTranscriptWriteLock<T>(
             assertLockedTranscriptWriteAllowed(writeDatabase, resolved, fencedScope);
           }, databaseOptions);
           return {
+            lifecycleRevision,
             ...(messageSeq !== undefined ? { messageSeq } : {}),
             result: result as TranscriptMessageAppendResult<typeof options.message> | undefined,
           };

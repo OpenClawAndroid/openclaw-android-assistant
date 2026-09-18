@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GATEWAY_CLIENT_CAPS } from "../../packages/gateway-protocol/src/client-info.js";
 import type { HelloOk } from "../../packages/gateway-protocol/src/schema/frames.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../config/config.js";
@@ -1512,18 +1513,8 @@ describe("callGateway url resolution", () => {
   it("waits for event-loop readiness before starting CLI pairing requests", async () => {
     setLocalLoopbackGatewayConfig();
 
-    let resolveReady:
-      | ((result: {
-          ready: boolean;
-          elapsedMs: number;
-          maxDriftMs: number;
-          checks: number;
-          aborted: boolean;
-        }) => void)
-      | undefined;
-    eventLoopReadyState.promise = new Promise((resolve) => {
-      resolveReady = resolve;
-    });
+    const ready = createDeferred<typeof eventLoopReadyState.result>();
+    eventLoopReadyState.promise = ready.promise;
 
     const promise = callGateway({
       method: "device.pair.list",
@@ -1538,13 +1529,20 @@ describe("callGateway url resolution", () => {
     expect(lastClientOptions?.clientName).toBe(GATEWAY_CLIENT_NAMES.CLI);
     expect(startCalls).toBe(0);
 
-    if (!resolveReady) {
-      throw new Error("Expected gateway event-loop readiness resolver to be initialized");
-    }
-    resolveReady({ ready: true, elapsedMs: 0, maxDriftMs: 0, checks: 2, aborted: false });
+    ready.resolve({ ready: true, elapsedMs: 0, maxDriftMs: 0, checks: 2, aborted: false });
     await promise;
 
     expect(startCalls).toBe(1);
+  });
+
+  it("forwards optional inventory capabilities to the GatewayClient constructor", async () => {
+    setLocalLoopbackGatewayConfig();
+    const caps = [GATEWAY_CLIENT_CAPS.SKILL_CURATOR_LIVE_INVENTORY];
+    await callGateway({ method: "skills.curator.status", params: {}, caps });
+    expect(lastClientOptions?.caps).toEqual(caps);
+    expect(lastRequestOptions).toMatchObject({ method: "skills.curator.status", params: {} });
+    await callGateway({ method: "skills.curator.status", params: {} });
+    expect(lastClientOptions?.caps).toBeUndefined();
   });
 });
 

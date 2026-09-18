@@ -31,6 +31,7 @@ import {
   readStableSqliteFileGeneration,
   sameSqliteFileGeneration,
 } from "../infra/sqlite-file-generation.js";
+import { assertTransactionUsable } from "../infra/sqlite-transaction.js";
 import type { SqliteWorkerBackend } from "../infra/sqlite-worker-contract.js";
 import { getSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import {
@@ -67,7 +68,7 @@ import { isTaskRegistryWorkerCommand } from "../tasks/task-registry.worker-contr
 import { executeTaskRegistryCommand } from "../tasks/task-registry.worker.js";
 import {
   listAgentProvenanceInDatabase,
-  readAgentProvenanceInDatabase,
+  readAgentProvenanceBatchInDatabase,
 } from "./agent-provenance.kernel.js";
 import { ensureAgentProvenanceSchema } from "./agent-provenance.schema.js";
 import { recordBackupRunInDatabase } from "./backup-run-records.kernel.js";
@@ -359,10 +360,10 @@ function createSharedStateWorkerBackend(
         path: context.databasePath,
         env: getSqliteWorkerStateContext().environment,
       };
-      if (command.type === "agentProvenance.read" || command.type === "agentProvenance.list") {
+      if (command.type === "agentProvenance.readBatch" || command.type === "agentProvenance.list") {
         ensureAgentProvenanceSchema(writeOptions);
-        return command.type === "agentProvenance.read"
-          ? readAgentProvenanceInDatabase(database.db, command.input.agentId)
+        return command.type === "agentProvenance.readBatch"
+          ? readAgentProvenanceBatchInDatabase(database.db, command.input.agentIds)
           : listAgentProvenanceInDatabase(database.db);
       }
       if (command.type === "telemetry.persistSuccess") {
@@ -472,6 +473,14 @@ function createSharedStateWorkerBackend(
         }, writeOptions);
       }
       throw new Error("Unknown shared-state SQLite command");
+    },
+    assertSettled() {
+      if (nativeDatabase) {
+        assertTransactionUsable(nativeDatabase.db);
+        if (nativeDatabase.db.isOpen && nativeDatabase.db.isTransaction) {
+          throw new Error("Shared-state worker retained an unsettled transaction");
+        }
+      }
     },
     close() {
       closed = true;

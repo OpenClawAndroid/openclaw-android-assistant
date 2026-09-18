@@ -252,6 +252,7 @@ export async function publishHeartbeatSessionReply(params: {
           scope,
           receipt.appended
             ? {
+                lifecycleRevision: expected.expectedLifecycleRevision ?? undefined,
                 message: receipt.message,
                 messageId: receipt.messageId,
                 ...(messageSeq !== undefined ? { messageSeq } : {}),

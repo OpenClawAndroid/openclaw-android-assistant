@@ -2059,6 +2059,17 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
     }
     if (finalRead) {
       expect(run.output).toContain("PR or main changed during observation");
+      for (const [label, expected] of [
+        ["observation", { main: f.base, pr: next.pr }],
+        ["reread", { main: step.main ?? f.base, pr: { ...next.pr, ...step.pr } }],
+      ] as const) {
+        const prefix = `Merge stability ${label}: `;
+        const snapshots = run.stderr
+          .split("\n")
+          .filter((line) => line.startsWith(prefix))
+          .map((line) => JSON.parse(line.slice(prefix.length)));
+        expect(snapshots, run.output).toEqual([expected]);
+      }
     }
     if (projectionDrift) {
       expect(run.output).toContain("PR or main changed while waiting for mergeability");
@@ -2067,6 +2078,14 @@ describePosix("native merge outcome with real Git and supervised lock recovery",
       expect(run.output).toContain(
         "auto-merge admission requires MERGEABLE with CLEAN or BEHIND status",
       );
+    }
+    if (fault === "conflicting") {
+      const prefix = `Merge admission rejected (observation 2, prepared head ${f.head}): `;
+      const rejected = run.stderr
+        .split("\n")
+        .filter((line) => line.startsWith(prefix))
+        .map((line) => JSON.parse(line.slice(prefix.length)));
+      expect(rejected, run.output).toEqual([{ main: f.base, pr: { ...next.pr, ...step.pr } }]);
     }
   });
   it.each(["OPEN", "MERGED"])(

@@ -15,7 +15,7 @@ import {
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { readSessionTitleFieldsFromTranscript } from "../../gateway/session-transcript-title-reader.js";
-import { deriveSessionTitle } from "../../gateway/session-utils.js";
+import { deriveSessionTitle, prepareSessionTitleRead } from "../../gateway/session-utils-core.js";
 import { classifySessionKeyShape, isIncognitoSessionKey } from "../../routing/session-key.js";
 import { getSessionStateVersions } from "../../sessions/session-state-events.js";
 import { resolveSessionAgentIds } from "../agent-scope.js";
@@ -542,17 +542,30 @@ export function createSessionsListTool(opts?: {
       }
 
       for (const target of titleTargets) {
-        const fields = readSessionTitleFieldsFromTranscript({
-          agentId: target.agentId,
-          sessionEntry: target.titleEntry,
-          sessionId: target.sessionId,
-          sessionKey: target.sessionKey,
-          storePath,
+        // Admission still counts the first 100 eligible sessions, including named
+        // rows. Existing Gateway titles remain authoritative even when whitespace.
+        const titleRead = prepareSessionTitleRead(target.titleEntry, undefined, {
+          includeDerivedTitles: includeDerivedTitles && !target.row.derivedTitle,
+          includeLastMessage,
         });
-        if (includeDerivedTitles && !target.row.derivedTitle) {
-          target.row.derivedTitle = deriveSessionTitle(target.titleEntry, fields.firstUserMessage);
+        if (!titleRead) {
+          continue;
         }
-        if (includeLastMessage && fields.lastMessagePreview) {
+        const fields = titleRead.needsTranscript
+          ? readSessionTitleFieldsFromTranscript({
+              agentId: target.agentId,
+              sessionEntry: target.titleEntry,
+              sessionId: target.sessionId,
+              sessionKey: target.sessionKey,
+              storePath,
+            })
+          : undefined;
+        if (includeDerivedTitles && !target.row.derivedTitle) {
+          target.row.derivedTitle =
+            titleRead.derivedTitle ??
+            deriveSessionTitle(target.titleEntry, fields?.firstUserMessage);
+        }
+        if (includeLastMessage && fields?.lastMessagePreview) {
           target.row.lastMessagePreview = fields.lastMessagePreview;
         }
       }

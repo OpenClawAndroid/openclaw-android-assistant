@@ -1,4 +1,5 @@
 // Cleans session-related shared state after tests.
+import { closeAuthProfileReadPool } from "../agents/auth-profiles/sqlite-read-pool.js";
 import { waitForSessionTranscriptIndexReconcilesInStateDir } from "../config/sessions/session-transcript-reconcile.js";
 import {
   clearSessionStoreCacheForTest,
@@ -30,4 +31,5 @@ export async function cleanupSessionStateForTest(
   await closeOpenClawStateDatabaseByPathAsync(
     resolveOpenClawStateSqlitePath({ ...process.env, OPENCLAW_STATE_DIR: options.stateDir }),
   );
+  closeAuthProfileReadPool({ kind: "root", rootPath: options.stateDir });
 }

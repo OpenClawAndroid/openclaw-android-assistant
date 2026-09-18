@@ -190,8 +190,8 @@ vi.mock("../../process/exec.js", async (importOriginal) => {
       return mocks.child(...args);
     },
     runExec: vi.fn(
-      async (_command: string, _args: string[], options: { input: string | Uint8Array }) =>
-        decodeLaunchAgentPlistFixture(options.input),
+      async (_command: string, args: string[], options: { input: string | Uint8Array }) =>
+        decodeLaunchAgentPlistFixture(options.input, args[1]),
     ),
   };
 });

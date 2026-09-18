@@ -9,7 +9,7 @@ import {
   type OpenClawStateDatabase,
 } from "../../state/openclaw-state-db.js";
 import { drainWorkerSessionPlacement } from "./placement-drain.js";
-import { createPlacementMoveOps } from "./placement-move-intent.js";
+import { createPlacementMoveOps, readWorkerPlacementMove } from "./placement-move-intent.js";
 import { createPlacementPendingFailureOps } from "./placement-pending-failure.js";
 import {
   isCurrentPlacementTurnClaim,
@@ -175,6 +175,16 @@ export function createWorkerSessionPlacementStore(
 
     get(sessionId: string): WorkerSessionPlacementRecord | undefined {
       return withWorkspaceResultConflict(find(read(), required(sessionId, "session id")));
+    },
+
+    getProjectionFacts(sessionId: string) {
+      const id = required(sessionId, "session id");
+      const db = read();
+      return {
+        placement: withWorkspaceResultConflict(find(db, id)),
+        move: readWorkerPlacementMove(db, id),
+        workspaceResultReconciling: readWorkerWorkspaceReconcilingSessionIds(db, [id]).has(id),
+      };
     },
 
     getMany(sessionIds: readonly string[]): ReadonlyMap<string, WorkerSessionPlacementRecord> {

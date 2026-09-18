@@ -419,14 +419,11 @@ async function updateCommandInternal(
     targetVersion,
     downgradeRisk,
     packageInstallSpec,
-    packageInstallEnv,
     packageInstallTarget,
     packageAlreadyCurrent,
-    packageTargetSchemaVersions,
     packageRuntimeTarget,
     managedServiceRootRedirect,
     managedServiceNodeRunner,
-    devTarget,
   } = target;
   let { packageUpdateNodeRunner } = target;
   const reportContext = {
@@ -610,30 +607,18 @@ async function updateCommandInternal(
   };
 
   const execution = await executeMutableUpdate({
-    legacyConfigPlan,
-    root,
+    ...target,
     installKind,
-    updateInstallKind,
-    switchToGit,
     timeoutMs,
     updateStepTimeoutMs,
     startedAt,
     progress,
     stop: presentation.stop,
-    channel,
-    tag,
     opts,
     shouldRestart,
-    devTarget,
-    packageInstallSpec,
-    packageInstallEnv,
-    packageInstallTarget,
     stagedPackage: initialization?.stagedPackage,
-    packageTargetSchemaVersions,
     packageTargetVersion: targetVersion ?? undefined,
     packageUpdateNodeRunner,
-    managedServiceNodeRunner,
-    managedServiceRootRedirect,
     invocationCwd,
     recoveryState,
     prepareMutableUpdate,
@@ -709,6 +694,7 @@ async function updateCommandInternal(
       progress.pendingSteps,
     );
     recoveryState.ledgerHandoffCompleted = true;
+    opts.onResult?.(continued.result);
     if (continued.exitCode !== 0) {
       throw new UpdateCommandFailure(continued.result, continued.exitCode, undefined, {
         automaticTriage: continued.automaticTriage,

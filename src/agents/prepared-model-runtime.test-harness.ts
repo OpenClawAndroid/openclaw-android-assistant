@@ -35,6 +35,7 @@ const preparedModelRuntimeMocks = vi.hoisted(() => ({
       setupProviders: new Map(),
       commandAliases: new Map(),
       contracts: new Map(),
+      providerAuthContributions: [],
       modelIdNormalizationPolicies: new Map(),
     },
   },
@@ -125,9 +126,9 @@ vi.mock("./prepared-model-catalog-worker.js", () => ({
     preparedModelRuntimeMocks.createPreparedModelCatalogWorker(...factoryArgs);
     return {
       loadCatalog: async (
-        ...args: Parameters<typeof preparedModelRuntimeMocks.runPreparedModelCatalogWorker>
+        providerIds: Parameters<typeof preparedModelRuntimeMocks.runPreparedModelCatalogWorker>[0],
       ) => {
-        const catalog = await preparedModelRuntimeMocks.runPreparedModelCatalogWorker(...args);
+        const catalog = await preparedModelRuntimeMocks.runPreparedModelCatalogWorker(providerIds);
         // Real worker replies always pair inventory with the observed auth generation.
         setPreparedModelFullCatalogAuth(
           catalog,

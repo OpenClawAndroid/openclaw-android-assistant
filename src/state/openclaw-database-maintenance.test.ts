@@ -296,7 +296,7 @@ CREATE INDEX IF NOT EXISTS idx_web_push_approval_deliveries_subscription
         database.exec(`ALTER TABLE "${tableName}" DROP COLUMN "${columnName}";`);
       }
 
-      ensureAdditiveStateColumns(database);
+      ensureAdditiveStateColumns(database, "runtime");
       expect(() =>
         assertOpenClawStateDatabaseForMaintenance(database, {
           pathname: "global.sqlite",

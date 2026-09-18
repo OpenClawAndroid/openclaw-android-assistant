@@ -124,6 +124,7 @@ type CatalogPool = WorkerTaskPool<CatalogPoolInput, PreparedModelWorkerResult>;
 type CatalogPoolBorrower = {
   agentDir: string;
   isCurrent: () => boolean;
+  notifyRecovery: (error: Error) => void;
   stop: (error: Error) => Promise<void>;
 };
 type GatewayCatalogPool = {
@@ -194,6 +195,11 @@ async function getGatewayCatalogPool(
       recover: (error) =>
         (current.recovery ??= (async () => {
           const borrowers = [...current.borrowers];
+          if (!signal.aborted) {
+            for (const borrower of borrowers) {
+              borrower.notifyRecovery(error);
+            }
+          }
           // Fence every old catalog before releasing the native slot. Recovery publishes new
           // prepared owners; it never replays a failed request under its former source generation.
           const stopping = borrowers.map((borrower) => borrower.stop(error));
@@ -391,7 +397,10 @@ type PreparedModelCatalogWorker = Readonly<{
   loadAuth: (
     scope: PreparedModelRuntimeAuthScope,
   ) => Promise<PreparedModelRuntimeAuth & { credentials: Readonly<AuthStorageData> }>;
-  loadCatalog: (providerIds?: readonly string[]) => Promise<
+  loadCatalog: (
+    providerIds?: readonly string[],
+    onRecovery?: (error: Error) => void,
+  ) => Promise<
     Pick<PreparedModelRuntimeCatalogFacts, "modelCatalog" | "configuredRuntimeModels"> & {
       runtimeModels: Map<string, Model[]>;
       providerExpiries: Map<string, number>;
@@ -418,7 +427,10 @@ export function createPreparedModelCatalogWorker(
   let releaseProcessLifetime: (() => void) | undefined;
   let expectedFingerprint: string | undefined;
   const captures = new Map<AbortController, Promise<PreparedSyntheticAuthFacts>>();
-  const tasks = new Set<Promise<PreparedModelWorkerResult>>();
+  const tasks = new Map<
+    Promise<PreparedModelWorkerResult>,
+    { onRecovery?: (error: Error) => void }
+  >();
   const assertCurrent = () => {
     if (stoppedError) {
       throw stoppedError;
@@ -491,7 +503,7 @@ export function createPreparedModelCatalogWorker(
     // Native probes live in the parent; drain them before retiring the compute worker.
     await Promise.allSettled(captures.values());
     if (gatewayOwned) {
-      await Promise.allSettled(tasks);
+      await Promise.allSettled(tasks.keys());
     } else {
       await pool?.close(stoppedError);
     }
@@ -502,13 +514,24 @@ export function createPreparedModelCatalogWorker(
   const borrower: CatalogPoolBorrower = {
     agentDir: workerInput.input.agentDir,
     isCurrent: params.isCurrent,
+    notifyRecovery: (error) => {
+      if (stoppedError || !params.isCurrent()) {
+        return;
+      }
+      for (const task of tasks.values()) {
+        task.onRecovery?.(error);
+      }
+    },
     stop,
   };
   const request = async (
     command: PreparedModelWorkerCommand,
+    onRecovery?: (error: Error) => void,
   ): Promise<Extract<PreparedModelWorkerResult, { status: "ok" }>> => {
     let message: PreparedModelWorkerResult;
     let requestPool: typeof pool;
+    let pending: Promise<PreparedModelWorkerResult> | undefined;
+    const task: { onRecovery?: (error: Error) => void } = {};
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(new WorkerTaskError("worker task timed out", "timeout")),
@@ -566,9 +589,10 @@ export function createPreparedModelCatalogWorker(
         shared.borrowers.add(borrower);
       }
       requestPool = pool = shared?.pool ?? pool ?? createPool();
-      const pending = requestPool.run(
+      pending = requestPool.run(
         () => {
           assertCurrent();
+          task.onRecovery = onRecovery;
           expectedFingerprint = fingerprintPreparedModelWorkerRequest(workerInput, value);
           if (shared) {
             shared.validate = validate;
@@ -577,12 +601,8 @@ export function createPreparedModelCatalogWorker(
         },
         { timeoutMs: PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS, signal: controller.signal },
       );
-      tasks.add(pending);
-      try {
-        message = await pending;
-      } finally {
-        tasks.delete(pending);
-      }
+      tasks.set(pending, task);
+      message = await pending;
       assertCurrent();
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
@@ -617,6 +637,10 @@ export function createPreparedModelCatalogWorker(
       await stop(failure);
       throw error;
     } finally {
+      task.onRecovery = undefined;
+      if (pending) {
+        tasks.delete(pending);
+      }
       clearTimeout(timeout);
     }
     if (message.status === "failed") {
@@ -630,8 +654,11 @@ export function createPreparedModelCatalogWorker(
   };
 
   return {
-    loadCatalog: async (providerIds) => {
-      const message = await request({ kind: "catalog", ...(providerIds ? { providerIds } : {}) });
+    loadCatalog: async (providerIds, onRecovery) => {
+      const message = await request(
+        { kind: "catalog", ...(providerIds ? { providerIds } : {}) },
+        onRecovery,
+      );
       if (message.kind !== "catalog") {
         throw new Error("prepared model catalog worker returned an auth refresh result");
       }

@@ -82,11 +82,39 @@ suite.define(() => {
           const marks = page.locator(".chat-position-rail__marks");
           const composer = page.locator(".agent-chat__composer-shell");
           await track.waitFor();
+          const markers = marks.locator(".chat-position-rail__marker");
+          // Wait for the rail to reflect the visible reader before recording its anchor.
+          await expect
+            .poll(() =>
+              marks.evaluate((element) => {
+                const thread = element.closest(".chat-thread")!;
+                const current = element.querySelector('[aria-current="true"]');
+                const message = current
+                  ? thread.querySelector(
+                      `.chat-bubble[data-entry-id="${current.getAttribute("data-position-marker-id")}"]`,
+                    )
+                  : null;
+                if (!current?.hasAttribute("data-visible") || !message) {
+                  return false;
+                }
+                const marker = current.getBoundingClientRect();
+                const viewport = element.getBoundingClientRect();
+                const reader = thread.getBoundingClientRect();
+                const bubble = message.getBoundingClientRect();
+                return (
+                  Math.abs(thread.scrollHeight - thread.clientHeight - thread.scrollTop) <= 1 &&
+                  bubble.bottom > reader.top &&
+                  bubble.top < reader.bottom &&
+                  marker.top >= viewport.top &&
+                  marker.bottom <= viewport.top + element.clientHeight
+                );
+              }),
+            )
+            .toBe(true);
           const bounds = () =>
             track.evaluate((element) => element.getBoundingClientRect().toJSON());
           const collapsed = await bounds();
           const collapsedComposer = (await composer.boundingBox())!;
-          const markers = marks.locator(".chat-position-rail__marker");
           if (count === 80 && direction === "ltr") {
             const transcript = page.locator(".chat-thread");
             await transcript.hover();

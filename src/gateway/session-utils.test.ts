@@ -2905,16 +2905,26 @@ describe("gateway session utils", () => {
     expect(titledRow.displayName).toBe("Release Planning");
   });
 
-  test("buildGatewaySessionRow prefers generated titles over Android node stamps", () => {
+  test.each<[string, Partial<SessionEntry>, string]>([
+    ["generated title", {}, "Release Planning"],
+    [
+      "explicit rename",
+      { label: "  OpenClaw App · Release planning · 1234567890ab  " },
+      "OpenClaw App · Release planning · 1234567890ab",
+    ],
+    ["blank explicit label", { label: "  " }, "Release Planning"],
+    ["empty stored name", { displayName: "" }, ""],
+    ["empty automatic name", { displayName: undefined, autoLabel: "" }, ""],
+  ])("buildGatewaySessionRow preserves title precedence for %s", (_name, overrides, expected) => {
     const cfg = { agents: { list: [{ id: "main", default: true }] } } as OpenClawConfig;
     const key = "agent:main:node-1234567890ab";
-    const stamp = "OpenClaw App · Pixel · 1234567890ab";
-    const entry = {
+    const entry: SessionEntry = {
       sessionId: "node-1",
       updatedAt: 1,
-      autoLabel: stamp,
+      autoLabel: "OpenClaw App · Pixel · 1234567890ab",
       displayName: "Release Planning",
-    } as SessionEntry;
+      ...overrides,
+    };
     const row = buildGatewaySessionRow({
       cfg,
       storePath: "",
@@ -2922,22 +2932,9 @@ describe("gateway session utils", () => {
       key,
       entry,
     });
-    expect(row.autoLabel).toBe(stamp);
-    expect(row.label).toBeUndefined();
-    expect(row.displayName).toBe("Release Planning");
-
-    const manualPrefix = {
-      ...entry,
-      label: "OpenClaw App · Release planning · 1234567890ab",
-    } as SessionEntry;
-    const manualRow = buildGatewaySessionRow({
-      cfg,
-      storePath: "",
-      store: { [key]: manualPrefix },
-      key,
-      entry: manualPrefix,
-    });
-    expect(manualRow.displayName).toBe("OpenClaw App · Release planning · 1234567890ab");
+    expect(row.autoLabel).toBe(entry.autoLabel);
+    expect(row.label).toBe(entry.label);
+    expect(row.displayName).toBe(expected);
   });
 
   test("buildGatewaySessionRow displayName prefers the human chat title for group sessions", () => {

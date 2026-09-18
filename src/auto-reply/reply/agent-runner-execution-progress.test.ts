@@ -156,7 +156,7 @@ describe("executeAgentTurn: lifecycle progress", () => {
     });
   });
 
-  it("skips channel item progress when a matching tool event carries the progress", async () => {
+  it("forwards suppression facts alongside the matching raw tool event", async () => {
     const onItemEvent = vi.fn();
     const onToolStart = vi.fn();
     state.runEmbeddedAgentMock.mockImplementationOnce(async (params: EmbeddedAgentParams) => {
@@ -191,7 +191,9 @@ describe("executeAgentTurn: lifecycle progress", () => {
     });
 
     expect(result.kind).toBe("success");
-    expect(onItemEvent).not.toHaveBeenCalled();
+    expect(onItemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: "cmd-1", suppressChannelProgress: true }),
+    );
     expect(onToolStart).toHaveBeenCalledWith({
       itemId: "cmd-1",
       toolCallId: "cmd-1",
@@ -247,7 +249,7 @@ describe("executeAgentTurn: lifecycle progress", () => {
     });
   });
 
-  it("hides internal lifecycle events while preserving visible tool progress", async () => {
+  it("forwards quiet item facts while keeping hidden raw tool starts private", async () => {
     const onItemEvent = vi.fn();
     const onToolStart = vi.fn();
     state.runEmbeddedAgentMock.mockImplementationOnce(async (params: EmbeddedAgentParams) => {
@@ -314,9 +316,12 @@ describe("executeAgentTurn: lifecycle progress", () => {
     expect(onToolStart).toHaveBeenCalledWith(
       expect.objectContaining({ name: "wait", phase: "start" }),
     );
-    expect(onItemEvent).toHaveBeenCalledTimes(1);
+    expect(onItemEvent).toHaveBeenCalledTimes(2);
     expect(onItemEvent).toHaveBeenCalledWith(
       expect.objectContaining({ name: "exec", phase: "start" }),
+    );
+    expect(onItemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "wait", hideFromChannelProgress: true }),
     );
   });
 

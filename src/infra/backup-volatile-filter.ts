@@ -134,6 +134,11 @@ export function isVolatileBackupPath(absolutePath: string, plan: VolatileFilterP
         return true;
       }
 
+      const pluginCaptureRoot = path.posix.join(stateDirPosix, "tmp", "plugin-captures");
+      if (isUnder(filePosix, pluginCaptureRoot)) {
+        return true;
+      }
+
       const sessionsRoot = path.posix.join(stateDirPosix, "sessions");
       if (isUnder(filePosix, sessionsRoot) && hasExtension(filePosix, [".jsonl", ".log"])) {
         return true;

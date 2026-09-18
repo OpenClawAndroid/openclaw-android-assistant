@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type Static, type TSchema, Type } from "typebox";
 import { Compile } from "typebox/compile";
+import { lazyCompile } from "../../packages/gateway-protocol/src/protocol-validator.js";
 import type {
   OpenClawPluginNodeHostCommand,
   OpenClawPluginNodeHostCommandAvailabilityContext,
@@ -465,13 +466,11 @@ export function compileComputerUseValidator<const Schema extends TSchema>(
   return (value: unknown): value is Static<Schema> => validator.Check(value);
 }
 
-const validateComputerActParams = compileComputerUseValidator(ComputerActParamsSchema);
-const validateComputerActResult = compileComputerUseValidator(ComputerActResultSchema);
-const validateComputerUseCapabilityDescriptor = compileComputerUseValidator(
-  ComputerUseCapabilityDescriptorSchema,
-);
-const validateScreenSnapshotParams = compileComputerUseValidator(ScreenSnapshotParamsSchema);
-const validateScreenSnapshotResult = compileComputerUseValidator(ScreenSnapshotResultSchema);
+const validateComputerActParams = lazyCompile(ComputerActParamsSchema);
+const validateComputerActResult = lazyCompile(ComputerActResultSchema);
+const validateComputerUseCapabilityDescriptor = lazyCompile(ComputerUseCapabilityDescriptorSchema);
+const validateScreenSnapshotParams = lazyCompile(ScreenSnapshotParamsSchema);
+const validateScreenSnapshotResult = lazyCompile(ScreenSnapshotResultSchema);
 
 function parseParamsJSON<Value>(
   paramsJSON: string | null | undefined,

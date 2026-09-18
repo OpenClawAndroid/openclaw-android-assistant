@@ -37,12 +37,14 @@ import {
   type GatewayShutdownTrigger,
   runOutsideGatewayRootWorkAdmission,
 } from "../../process/gateway-work-admission.js";
+import { runWithProcessCleanupBudget } from "../../process/supervisor/cleanup-budget.js";
 import type { RuntimeEnv } from "../../runtime.js";
 import { drainGlobalSingletonLifecycleState } from "../../shared/global-singleton.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { createGatewayHostLifecycle } from "./host-lifecycle.js";
 import { flushGatewayLogsBeforeExit } from "./run-loop-log-flush.js";
 import { resolveGatewayShutdownBudget } from "./run-loop-shutdown-budget.js";
+import { formatDrainCounts, formatShutdownReason } from "./run-loop-shutdown-format.js";
 import { createGatewayStartupOperations } from "./run-loop-startup.js";
 import {
   armShutdownHardExitWatchdog,
@@ -65,15 +67,6 @@ type GatewayRunSignalRequest = {
   hostedStop?: ReturnType<typeof createGatewayHostLifecycle>;
 };
 
-function formatShutdownReason(request: GatewayRunSignalRequest): GatewayDrainReason {
-  const { action, signal, restartReason } = request;
-  const trigger =
-    restartReason && restartReason !== signal
-      ? (`${signal}: ${truncateUtf16Safe(restartReason.replaceAll(/\s+/g, " "), 200)}` as const)
-      : signal;
-  return `${action === "stop" ? "stop" : "restart"} (${trigger})`;
-}
-
 type GatewayLifecycleRuntimeModule = typeof import("./lifecycle.runtime.js");
 type ShutdownFailure = { step: string; error: unknown };
 
@@ -86,14 +79,6 @@ const gatewayLifecycleRuntimeLoader = createLazyImportLoader<GatewayLifecycleRun
 );
 
 const loadGatewayLifecycleRuntimeModule = () => gatewayLifecycleRuntimeLoader.load();
-
-// Blocker descriptions can contain task identities and request origins.
-function formatDrainCounts(snapshot: GatewayActiveWorkSnapshot): string {
-  return Object.entries(snapshot.counts)
-    .filter(([name, count]) => name !== "totalActive" && count > 0)
-    .map(([name, count]) => `${name}=${count}`)
-    .join(" ");
-}
 
 async function waitForGatewayPortReady(host: string, port: number): Promise<boolean> {
   return await new Promise<boolean>((resolve) => {
@@ -579,6 +564,7 @@ export async function runGatewayLoop(params: {
     nativeStopBudget,
     timeoutMs: acceptedShutdownTimeoutMs,
     reserveMs: RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS,
+    cleanupDeadline,
     log: logShutdownBudget,
   } = await resolveGatewayShutdownBudget(supervisorMode, gatewayLog);
   logShutdownBudget("startup");
@@ -696,6 +682,7 @@ export async function runGatewayLoop(params: {
       startGatewayRestartTrace("stop.signal.received", [["signal", acceptedRequest.signal]]);
     }
     let forceExitTimer: ReturnType<typeof setTimeout> | null = null;
+    let shutdownDeadline: number | undefined;
     let hardExitWatchdog: ShutdownHardExitWatchdog | null = null;
     let lastDrainCounts = "not observed";
     let shutdownFailure: ShutdownFailure | undefined;
@@ -703,6 +690,7 @@ export async function runGatewayLoop(params: {
       if (forceExitTimer) {
         return;
       }
+      shutdownDeadline = performance.now() + forceExitMs;
       forceExitTimer = setTimeout(() => {
         const cleanExit = nativeStopBudget && !shutdownFailure;
         gatewayLog.warn(
@@ -728,6 +716,7 @@ export async function runGatewayLoop(params: {
     const clearForceExitTimer = () => {
       clearTimeout(forceExitTimer ?? undefined);
       forceExitTimer = null;
+      shutdownDeadline = undefined;
       hardExitWatchdog?.cancel();
       hardExitWatchdog = null;
     };
@@ -950,11 +939,18 @@ export async function runGatewayLoop(params: {
           await acceptedStartupOperations.drain();
         }
         shutdownStep = "gateway-server-close";
-        await server?.close({
-          reason: isRestart ? "gateway restarting" : "gateway stopping",
-          restartExpectedMs: isRestart ? 1500 : null,
-          ...(closeDrainTimeoutMs !== null ? { drainTimeoutMs: closeDrainTimeoutMs } : {}),
-        });
+        await runWithProcessCleanupBudget(
+          {
+            deadline: cleanupDeadline(shutdownDeadline!, HARD_EXIT_WATCHDOG_GRACE_MS),
+            warn: (message) => gatewayLog.warn(message),
+          },
+          () =>
+            server?.close({
+              reason: isRestart ? "gateway restarting" : "gateway stopping",
+              restartExpectedMs: isRestart ? 1500 : null,
+              ...(closeDrainTimeoutMs !== null ? { drainTimeoutMs: closeDrainTimeoutMs } : {}),
+            }),
+        );
       } catch (err) {
         shutdownFailure = { step: shutdownStep, error: err };
         gatewayLog.error(

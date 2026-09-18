@@ -5,7 +5,7 @@ import { isRootFileMissingFailure, openRootFileSync } from "../infra/boundary-fi
 import { tempFile } from "../infra/fs-safe-advanced.js";
 import { replaceFileAtomicSync } from "../infra/replace-file.js";
 
-const CONFIG_BACKUP_COUNT = 5;
+export const CONFIG_BACKUP_COUNT = 5;
 
 /** Prepare backup bytes without blocking unrelated Gateway requests. */
 export async function prepareConfigFileWrite(params: {

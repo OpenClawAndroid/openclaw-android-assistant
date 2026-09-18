@@ -277,7 +277,7 @@ export const sessionReadHandlers: GatewayRequestHandlers = {
 
     respond(true, { ts: Date.now(), previews } satisfies SessionsPreviewResult, undefined);
   },
-  "sessions.resolve": async ({ params, respond, context, client }) => {
+  "sessions.resolve": ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateSessionsResolveParams, "sessions.resolve", respond)) {
       return;
     }
@@ -285,8 +285,7 @@ export const sessionReadHandlers: GatewayRequestHandlers = {
     if (!projection) {
       throw new Error("Session projection is unavailable before Gateway startup completes");
     }
-    const resolved = await resolveSessionKeyFromResolveParams({
-      cfg: context.getRuntimeConfig(),
+    const resolved = resolveSessionKeyFromResolveParams({
       projection,
       client,
       p: params,

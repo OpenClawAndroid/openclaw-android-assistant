@@ -15,6 +15,7 @@ import {
   sessionNavigationTarget,
 } from "../lib/sessions/route-navigation.ts";
 import {
+  isSubagentSessionKey,
   normalizeAgentId,
   resolveUiDefaultAgentId,
   resolveUiSessionRowAgentId,
@@ -22,6 +23,7 @@ import {
 import { projectSidebarAgentSessionRows } from "./app-sidebar-agent-session-rows.ts";
 import { AppSidebarBase } from "./app-sidebar-base.ts";
 import { scheduleSidebarChildSessions } from "./app-sidebar-child-session-data.ts";
+import { projectSidebarArchiveVisibility } from "./app-sidebar-session-archive-visibility.ts";
 import { excludeSessionCatalogRows } from "./app-sidebar-session-catalog-state.ts";
 import {
   adoptedCatalogSessionKeys,
@@ -40,6 +42,7 @@ import {
   createSidebarSessionRowsComparator,
   collectKnownSidebarSessionCatalogIds,
   collectKnownSidebarSessionGroups,
+  collectSidebarSessionRowsByKey,
   extendSidebarSessionSelection,
   findSidebarMainSessionRow,
   findProjectedSidebarSession,
@@ -56,6 +59,7 @@ import {
   SidebarSessionProjection,
   type SidebarVisibleSections,
 } from "./app-sidebar-session-projection.ts";
+import { projectSessionTree } from "./app-sidebar-session-tree.ts";
 import {
   loadStoredHiddenSessionCatalogIds,
   loadStoredSidebarSessionSortMode,
@@ -279,11 +283,13 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
         session.childSessionKeys.length > 0 &&
         (session.visuallyActive || this.isSessionChildrenExpanded(session))
       ) {
-        revalidating.add(session.key);
+        for (const key of session.childLoadParentKeys ?? [session.key]) {
+          revalidating.add(key);
+        }
       }
     }
     const mainRow = this.mainSessionRow();
-    if (mainRow && (mainRow.childSessions?.length ?? 0) > 0) {
+    if (mainRow?.childSessions?.some((key) => !isSubagentSessionKey(key))) {
       revalidating.add(mainRow.key);
     }
     return revalidating;
@@ -714,6 +720,32 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
     return resolveSidebarHomeAttention(this.attention, sessionKey, row);
   }
 
+  projectHomeSession(row: GatewaySessionRow, agentId: string): SidebarRecentSession {
+    const { rows, childSessionRowsByParent } = projectSidebarArchiveVisibility({
+      sessionData: this.sessionData,
+      selectedAgentId: agentId,
+      statusFilter: this.sessionsStatusFilter,
+      deletionState: (key, owner) => this.context?.sessions.deletionState(key, owner),
+      archiveVisibility: (key) => this.context?.sessions.archiveVisibility(key),
+    });
+    const navigation = this.getSessionNavigationState();
+    // Home consumes the same descendant fold without adding a second main row.
+    return projectSessionTree({
+      roots: [row],
+      mainSessionKeys: new Set([row.key, this.selectedAgentMainSessionKey(agentId)]),
+      rowsByKey: collectSidebarSessionRowsByKey({
+        rows,
+        childRowsByParent: childSessionRowsByParent,
+      }),
+      loadingChildKeys: this.sessionData.loadingChildSessionKeys,
+      knownSessionAttention: this.attention.knownSessionAttention(),
+      toSidebarSession: (session, isChild) => ({
+        ...navigation.toSidebarSession(session, isChild),
+        ...(!isChild ? { attention: this.resolveHomeSessionAttention(row.key, row) } : {}),
+      }),
+    })[0]!;
+  }
+
   /** Gateway row backing the identity card (unread/running state), if loaded. */
   mainSessionRow(agentId?: string): GatewaySessionRow | null {
     const normalized = normalizeAgentId(agentId ?? this.expandedAgentId());
@@ -746,10 +778,13 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
   }
 
   toggleSessionChildren(session: SidebarRecentSession) {
-    if (!this.sessionProjection.toggleChildren(session).expanded) {
-      this.sessionData.discardEmptyChildSessionSnapshot(session.key);
-    } else {
-      this.sessionData.retryChildSessions(session.key);
+    const { expanded } = this.sessionProjection.toggleChildren(session);
+    for (const key of session.childLoadParentKeys ?? [session.key]) {
+      if (expanded) {
+        this.sessionData.retryChildSessions(key);
+      } else {
+        this.sessionData.discardEmptyChildSessionSnapshot(key);
+      }
     }
     this.requestUpdate();
   }

@@ -76,7 +76,10 @@ export function renderChatComposer(props: ChatComposerProps) {
   );
   const hasSubmittedProgress = props.queue.some(
     (item) =>
-      !item.pendingRunId && (item.sendState === "sending" || item.sendState === "waiting-model"),
+      !item.pendingRunId &&
+      (item.sendState === "submitting" ||
+        item.sendState === "sending" ||
+        item.sendState === "waiting-model"),
   );
   const sendingForCurrentSession =
     props.sending && (!hasSubmittedProgress || submittedProgress !== undefined);

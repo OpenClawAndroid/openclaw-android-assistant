@@ -57,7 +57,7 @@ export class SessionManagerEntries extends SessionManagerPersistence {
   protected appendEntry<T extends SessionEntry>(
     entry: T,
     options?: AppendPersistenceOptions,
-  ): { entry: T; anchor?: TranscriptEntryAnchor; appended: boolean } {
+  ): { entry: T; anchor?: TranscriptEntryAnchor; lifecycleRevision?: string; appended: boolean } {
     // oxlint-disable-next-line unicorn/prefer-structured-clone -- Match the persisted JSON/toJSON shape exactly.
     const canonicalEntry = JSON.parse(JSON.stringify(entry)) as T;
     if (!isIndexedSessionEntry(canonicalEntry)) {
@@ -224,6 +224,7 @@ export class SessionManagerEntries extends SessionManagerPersistence {
     return {
       entry: canonicalEntry,
       anchor: persistenceResult?.anchor,
+      lifecycleRevision: persistenceResult?.lifecycleRevision,
       // Detached managers append locally; only the storage owner supplies a durable anchor.
       appended: persistenceResult?.appended ?? true,
     };
@@ -306,6 +307,7 @@ export class SessionManagerEntries extends SessionManagerPersistence {
     entryId: string;
     message: SessionMessageEntry["message"];
     anchor?: TranscriptEntryAnchor;
+    lifecycleRevision?: string;
     appended: boolean;
   } {
     if (message.role === "assistant") {
@@ -347,11 +349,17 @@ export class SessionManagerEntries extends SessionManagerPersistence {
       timestamp: new Date().toISOString(),
       message,
     };
-    const { entry: persisted, anchor, appended } = this.appendEntry(entry, options);
+    const {
+      entry: persisted,
+      anchor,
+      lifecycleRevision,
+      appended,
+    } = this.appendEntry(entry, options);
     return {
       entryId: persisted.id,
       message: persisted.message,
       ...(anchor ? { anchor } : {}),
+      lifecycleRevision,
       appended,
     };
   }

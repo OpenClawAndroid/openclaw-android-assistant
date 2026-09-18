@@ -3037,7 +3037,7 @@ export async function prepareLegacyStateDatabaseSchema(
     createStateSchemaMigrationStep({
       stateDir: resolveStateDir(env),
       env,
-      mode: "automatic",
+      mode: "doctor",
       requiredness: "conditional",
     }),
   ]);

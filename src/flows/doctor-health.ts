@@ -137,7 +137,6 @@ async function runDoctorHealthFlowWithResult(
         await assertDoctorDatabaseSchemasCompatible("state");
         const { maybeOfferUpdateBeforeDoctor } = await import("../commands/doctor-update.js");
         const offeredUpdate = await maybeOfferUpdateBeforeDoctor({
-          runtime: effectiveRuntime,
           options,
           root,
           confirm: (p) => prompter.confirm(p),

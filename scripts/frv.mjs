@@ -31,6 +31,7 @@ import {
 import { execPlainGh, plainGhAuthenticatedEnv, resolvePlainGhBin } from "./lib/plain-gh.mjs";
 import {
   createReleaseEvidenceClient,
+  releaseExecutionPlanRestoreContract,
   restoreOriginalPublicationAdmission,
 } from "./release-ci-summary.mjs";
 
@@ -507,7 +508,12 @@ export async function preflightContinuation(
     targetSha: plan.targetSha,
   });
   validatePublicationAdmissionBinding(plan, { publicationAdmissionContract: registryContract });
-  if (registryContract && sourceAdmission.validationPurpose === "publish") {
+  if (registryContract) {
+    if (!releaseExecutionPlanRestoreContract(workflow)) {
+      throw new Error(
+        "frozen workflow cannot restore publication admission after a parent rerun; use a fresh parent",
+      );
+    }
     const original = await restoreOriginalPublicationAdmission({
       request: sourceAdmission,
       client: {

@@ -56,10 +56,11 @@ function mergeModelUsage(
   map: Map<string, SessionModelUsage>,
   key: string,
   entry: SessionModelUsage,
+  model: SessionModelUsage["model"],
 ): void {
   const existing = map.get(key) ?? {
     provider: entry.provider,
-    model: entry.model,
+    model,
     count: 0,
     totals: createEmptyCostUsageTotals(),
   };
@@ -139,8 +140,8 @@ export function createUsageAggregateAccumulator() {
       tools.set(tool.name, (tools.get(tool.name) ?? 0) + tool.count);
     }
     for (const entry of usage.modelUsage ?? []) {
-      mergeModelUsage(models, usageModelIdentity(entry.provider, entry.model), entry);
-      mergeModelUsage(providers, entry.provider ?? "unknown", { ...entry, model: undefined });
+      mergeModelUsage(models, usageModelIdentity(entry.provider, entry.model), entry, entry.model);
+      mergeModelUsage(providers, entry.provider ?? "unknown", entry, undefined);
     }
     mergeGroupedTotals(agents, agentId, usage);
     mergeGroupedTotals(channels, channel, usage);

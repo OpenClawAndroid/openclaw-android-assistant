@@ -16,7 +16,7 @@ import {
 import { readSessionMessagesAsync } from "../gateway/session-transcript-readers.js";
 import { loadGatewaySessionEntryReadOnly } from "../gateway/session-utils.js";
 import { extractPayloadText } from "../gateway/test-helpers.agent-results.js";
-import { listKnownProviderAuthEnvVarNames } from "../secrets/provider-env-vars.js";
+import { listKnownProviderAuthEnvVarNamesCore } from "../secrets/provider-env-vars.js";
 
 const enabled = isLiveTestEnabled() && process.env.OPENCLAW_LIVE_SESSION_EVENT_WAKE === "1";
 const describeLive = enabled ? describe : describe.skip;
@@ -46,7 +46,9 @@ describeLive("session event wake through a live Gateway", () => {
     const instance = await createOpenClawTestInstance({
       name: "live-session-event-wake",
       env: {
-        ...Object.fromEntries(listKnownProviderAuthEnvVarNames().map((name) => [name, undefined])),
+        ...Object.fromEntries(
+          listKnownProviderAuthEnvVarNamesCore().map((name) => [name, undefined]),
+        ),
         OPENAI_API_KEY: process.env.OPENAI_API_KEY,
         OPENCLAW_AGENT_RUNTIME: "openclaw",
         OPENCLAW_ALLOW_SLOW_REPLY_TESTS: "1",

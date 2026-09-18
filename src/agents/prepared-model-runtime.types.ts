@@ -106,6 +106,11 @@ export type PreparedModelRuntimeSnapshot = Readonly<{
   ) => Promise<ModelCatalogSnapshot>;
   /** Full static models for configured refs, resolved once at the lifecycle boundary. */
   configuredRuntimeModels: readonly PreparedConfiguredRuntimeModel[];
+  /** Exact logical IDs precede static equivalence within this policy generation. */
+  findConfiguredRuntimeModel: (
+    provider: string,
+    modelId: string,
+  ) => ProviderRuntimeModel | undefined;
   /** Supported aliases for this immutable turn generation, separate from catalog metadata. */
   configuredModelAliases?: readonly Readonly<{ alias: string; provider: string; model: string }>[];
   /** Inline provider projection prepared once for all resolutions owned by this snapshot. */

@@ -29,6 +29,7 @@ import type { DB as OpenClawAgentKyselyDatabase } from "../state/openclaw-agent-
 import { runOpenClawAgentWriteTransaction } from "../state/openclaw-agent-db.js";
 import { ensureProfileForEmail, setAvatar, setDisplayName } from "../state/user-profiles.js";
 import { resolveCurrentUserProfileDisplay } from "./current-user-profile-display.js";
+import { readSseEvent } from "./session-history-fixtures.test-support.js";
 import * as sessionHistoryState from "./session-history-state.js";
 import { SessionHistorySseState } from "./session-history-state.js";
 import { testState } from "./test-helpers.runtime-state.js";
@@ -331,39 +332,6 @@ function currentProfileAvatarUrl(profileId: string): string {
     throw new Error("expected a resolved current profile display");
   }
   return display.avatarUrl;
-}
-
-async function readSseEvent(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  state: { buffer: string },
-): Promise<{ event: string; data: unknown }> {
-  const decoder = new TextDecoder();
-  while (true) {
-    const boundary = state.buffer.indexOf("\n\n");
-    if (boundary >= 0) {
-      const rawEvent = state.buffer.slice(0, boundary);
-      state.buffer = state.buffer.slice(boundary + 2);
-      const lines = rawEvent.split("\n");
-      const event =
-        lines
-          .find((line) => line.startsWith("event:"))
-          ?.slice("event:".length)
-          .trim() ?? "message";
-      const data = lines
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice("data:".length).trim())
-        .join("\n");
-      if (!data) {
-        continue;
-      }
-      return { event, data: JSON.parse(data) };
-    }
-    const chunk = await reader.read();
-    if (chunk.done) {
-      throw new Error("SSE stream ended before next event");
-    }
-    state.buffer += decoder.decode(chunk.value, { stream: true });
-  }
 }
 
 type SessionHistorySseStream = {
@@ -1512,6 +1480,7 @@ describe("session history HTTP endpoints", () => {
     { mode: "limited", query: "?limit=2" },
     { mode: "cursor", query: "?limit=2&cursor=3" },
     { mode: "transcript-only", query: undefined },
+    { mode: "weak-inline", query: undefined },
   ])("coalesces $mode updates committed during an SSE refresh", async ({ mode, query }) => {
     const sessionKey = "agent:main:main";
     const seeds = ["seed-1", "seed-2", "seed-3", "seed-4"];
@@ -1550,13 +1519,35 @@ describe("session history HTTP endpoints", () => {
           );
           return read;
         });
-        const append = (text: string) =>
-          appendTranscriptMessage({
+        let messageSeq = seeds.length;
+        const append = async (text: string) => {
+          const message = makeTranscriptAssistantMessage({ text });
+          if (mode !== "weak-inline") {
+            return appendTranscriptMessage({
+              sessionKey,
+              storePath,
+              message,
+              emitInlineMessage: mode !== "transcript-only",
+            });
+          }
+          const appended = await appendExactAssistantMessageToSessionTranscript({
             sessionKey,
             storePath,
-            message: makeTranscriptAssistantMessage({ text }),
-            emitInlineMessage: mode !== "transcript-only",
+            message,
+            updateMode: "none",
           });
+          expect(appended.ok).toBe(true);
+          if (!appended.ok) {
+            throw new Error(appended.reason);
+          }
+          emitSessionTranscriptUpdate({
+            target: { agentId: AGENT_ID, sessionId: "sess-main", sessionKey },
+            message,
+            messageId: appended.messageId,
+            messageSeq: ++messageSeq,
+          });
+          return appended.messageId;
+        };
         const burst = Array.from({ length: 12 }, (_, index) => `burst-${index + 1}`);
         await append("burst-1");
         await firstRead.promise;
@@ -1885,31 +1876,34 @@ describe("session history HTTP endpoints", () => {
     }
   });
 
-  test("streams identity-only transcript updates over SSE", async () => {
-    await seedSession({ text: "first message" });
+  test("refetches durable history for weak identity-only notifications", async () => {
+    const { storePath } = await seedSession({ text: "first message" });
 
     await withGatewayHarness(async (harness) => {
       const stream = await openSessionHistorySse(harness.port, "agent:main:main");
-      await expectHistoryEventTexts(stream, ["first message"]);
-
-      emitSessionTranscriptUpdate({
-        target: {
-          agentId: "main",
-          sessionId: "sess-main",
+      try {
+        await expectHistoryEventTexts(stream, ["first message"]);
+        const appended = await appendExactAssistantMessageToSessionTranscript({
           sessionKey: "agent:main:main",
-        },
-        message: makeTranscriptAssistantMessage({ text: "identity second message" }),
-        messageId: "msg-identity-second",
-        messageSeq: 3,
-      });
-
-      await expectMessageEventMatch(stream, {
-        text: "identity second message",
-        seq: 3,
-        id: "msg-identity-second",
-      });
-
-      await stream.reader.cancel();
+          storePath,
+          message: makeTranscriptAssistantMessage({ text: "committed second message" }),
+          updateMode: "none",
+        });
+        expect(appended.ok).toBe(true);
+        emitSessionTranscriptUpdate({
+          target: {
+            agentId: "main",
+            sessionId: "sess-main",
+            sessionKey: "agent:main:main",
+          },
+          message: makeTranscriptAssistantMessage({ text: "unwritten carried payload" }),
+          messageId: "unproven-message",
+          messageSeq: 99,
+        });
+        await expectHistoryEventTexts(stream, ["first message", "committed second message"]);
+      } finally {
+        await stream.reader.cancel();
+      }
     });
   });
 

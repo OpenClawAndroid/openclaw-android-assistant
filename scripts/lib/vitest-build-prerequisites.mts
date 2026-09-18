@@ -142,6 +142,15 @@ const runtimeConsumers = [
     mode: "runtime",
     dir: "src/gateway",
   },
+  {
+    file: "src/gateway/server-methods/models-list.worker-recovery.integration.test.ts",
+    configs: [
+      "test/vitest/vitest.gateway-database-workers.config.ts",
+      "test/vitest/vitest.gateway.config.ts",
+    ],
+    mode: "runtime",
+    dir: "",
+  },
   ...["src/config/config-startup-corpus.test.ts", "src/config/state-startup-corpus.test.ts"].map(
     (file) => ({
       file,

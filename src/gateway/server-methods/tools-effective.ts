@@ -270,25 +270,6 @@ function resolveRequestedAgentIdOrRespondError(params: {
   return requestedAgentId;
 }
 
-function appendMcpInventoryGroups(params: {
-  base: EffectiveToolInventoryResult;
-  mcpInventory: ReturnType<typeof buildRuntimeCompatibleMcpToolInventory>;
-}): EffectiveToolInventoryResult {
-  // MCP notices apply even when no tools are projectable; only source=mcp
-  // entries become new groups beside the base runtime inventory.
-  const mcpEntries = params.mcpInventory.entries.filter((entry) => entry.source === "mcp");
-  const notices = [...(params.base.notices ?? []), ...params.mcpInventory.notices];
-  const base = notices.length > 0 ? { ...params.base, notices } : params.base;
-  if (mcpEntries.length === 0) {
-    return base;
-  }
-  const mcpGroups = buildEffectiveToolInventoryGroups(mcpEntries);
-  return {
-    ...base,
-    groups: [...base.groups, ...mcpGroups],
-  };
-}
-
 function appendToolInventoryNotice(
   base: EffectiveToolInventoryResult,
   notice: EffectiveToolInventoryNotice,
@@ -536,7 +517,15 @@ async function projectMcpCatalog(params: {
         modelApi: runtimeModelContext.modelApi,
         runtimeModel: runtimeModelContext.runtimeModel,
       });
-      return appendMcpInventoryGroups({ base: params.base, mcpInventory });
+      const notices = [...(params.base.notices ?? []), ...mcpInventory.notices];
+      if (mcpInventory.entries.length === 0) {
+        return notices.length > 0 ? { ...params.base, notices } : params.base;
+      }
+      return {
+        ...params.base,
+        ...(notices.length > 0 ? { notices } : {}),
+        groups: [...params.base.groups, ...buildEffectiveToolInventoryGroups(mcpInventory.entries)],
+      };
     });
   } finally {
     await acquired[Symbol.asyncDispose]();

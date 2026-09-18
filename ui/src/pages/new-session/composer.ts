@@ -33,7 +33,6 @@ import {
   type SlashMenuHost,
   updateSlashMenu,
 } from "../chat/components/chat-composer-slash-menu.ts";
-import { ensureChatComposerPickerDismissal } from "../chat/components/chat-picker-overlay.ts";
 import {
   renderNewSessionDraftVisibility,
   renderNewSessionPlusMenu,
@@ -299,9 +298,6 @@ export function renderNewSessionComposer(options: NewSessionComposerOptions) {
     mentionMenu,
     emojiMenu,
   );
-  if (mentionMenu.open || emojiMenu.open) {
-    ensureChatComposerPickerDismissal();
-  }
   const menuAnnouncementId = paneDomId(skillMenuHost.paneId, "active-menu-announcement");
   const ordinaryShortcut = options.requiresModifier ? "Control+Enter Meta+Enter" : "Enter";
   const backgroundShortcut = options.requiresModifier

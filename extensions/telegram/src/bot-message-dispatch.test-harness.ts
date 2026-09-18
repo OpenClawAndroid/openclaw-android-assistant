@@ -1,6 +1,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 // Telegram tests cover bot message dispatch plugin behavior.
 import type { Bot } from "grammy";
+import { projectAgentToolActivity } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { afterEach, beforeAll, beforeEach, describe, expect, vi } from "vitest";
 import { resolveAutoTopicLabelConfig as resolveAutoTopicLabelConfigRuntime } from "./auto-topic-label-config.js";
@@ -19,6 +20,22 @@ import {
 export type DispatchReplyWithBufferedBlockDispatcherArgs = Parameters<
   TelegramBotDeps["dispatchReplyWithBufferedBlockDispatcher"]
 >[0];
+
+type ReplyOptions = DispatchReplyWithBufferedBlockDispatcherArgs["replyOptions"];
+type ToolStart = Parameters<NonNullable<NonNullable<ReplyOptions>["onToolStart"]>>[0] & {
+  name: string;
+  toolCallId: string;
+};
+
+/** Emit the producer's prepared item before the independent raw tool callback. */
+export async function emitToolStart(options: ReplyOptions, payload: ToolStart) {
+  const item = projectAgentToolActivity({
+    ...payload,
+    phase: payload.phase === "update" ? "update" : "start",
+  });
+  await options?.onItemEvent?.(item);
+  return await options?.onToolStart?.(payload);
+}
 
 export function requireInvocationOrder(
   mock: { mock: { invocationCallOrder: number[] } },

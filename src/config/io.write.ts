@@ -160,6 +160,7 @@ export async function writeConfigFileFromContext(
 
   const {
     nextConfig,
+    clearedSessionStoreOwner,
     explicitSetPaths,
     explicitSetValueSource,
     persistCanonicalAgentRoster,
@@ -613,6 +614,11 @@ export async function writeConfigFileFromContext(
     });
     if (!options.skipPluginValidation) {
       logConfigWarningsOnce({ configPath, warnings: validated.warnings, logger: deps.logger });
+    }
+    if (clearedSessionStoreOwner && !options.skipOutputLogs) {
+      deps.logger.warn(
+        "Cleared agents.defaults.sessionStore.agentId because session.store changed. Set that owner path explicitly to assign the destination store's owner.",
+      );
     }
     setDeferredPluginMigrationConfigFacts(sourceConfigForPreflight, deferredPluginMigrations);
     return {

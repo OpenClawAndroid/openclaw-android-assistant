@@ -348,6 +348,7 @@ export function createSlackProgressRuntime(runtimeParams: {
   };
 
   const progressDraft = createChannelProgressDraftCompositor({
+    preparedItems: true,
     entry: account.config,
     mode: slackStreaming.mode,
     active: progressDraftActive,

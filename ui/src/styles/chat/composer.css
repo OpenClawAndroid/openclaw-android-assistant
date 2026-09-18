@@ -477,7 +477,6 @@
 }
 
 .agent-chat__composer-errors--standalone {
-  border-radius: calc(20px * var(--openclaw-corner-radius-scale));
   overflow: hidden;
 }
 

@@ -4,8 +4,10 @@ import type {
   WorkerLiveEventParams,
   WorkerLiveEventResult,
 } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
+import { normalizeToolPolicyName } from "../../agents/tool-policy.js";
 import { onSessionIdentityMutation } from "../../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { projectAgentToolActivity } from "../../infra/agent-activity-events.js";
 import {
   emitAgentEventIfCurrent,
   emitAgentEventForOwner,
@@ -492,6 +494,7 @@ export function createWorkerLiveEventReceiver(options: WorkerLiveEventReceiverOp
       emissionMode,
       lifecycleGeneration,
       trajectoryRecorder: createWorkerLiveTrajectoryRecorder({ runId, target: window.target }),
+      toolArgsByCallId: new Map<string, unknown>(),
     };
     window.activeRuns.set(runId, claimed);
     return claimed;
@@ -518,15 +521,50 @@ export function createWorkerLiveEventReceiver(options: WorkerLiveEventReceiverOp
       stream: request.event.kind,
       data: prepareWorkerLiveEventData(request.event),
     };
-    if (owned.emissionMode === "shared") {
-      if (!emitAgentEventIfCurrent(event)) {
-        if (definitiveTerminal) {
-          window.terminalRuns.delete(request.runId);
-        }
+    let activity;
+    if (request.event.kind === "tool") {
+      const tool = request.event.payload;
+      if (tool.phase === "start") {
+        owned.toolArgsByCallId.set(tool.toolCallId, tool.args);
+      }
+      activity = projectAgentToolActivity({
+        ...tool,
+        name: normalizeToolPolicyName(tool.name),
+        args: owned.toolArgsByCallId.get(tool.toolCallId),
+      });
+      if (tool.phase === "result") {
+        owned.toolArgsByCallId.delete(tool.toolCallId);
+      }
+    }
+    const itemEvent = activity
+      ? { runId: request.runId, stream: "item", data: activity }
+      : undefined;
+    const emissions = itemEvent
+      ? activity?.phase === "start"
+        ? [itemEvent, event]
+        : [event, itemEvent]
+      : [event];
+    const ownsPublication = () =>
+      window.activeRuns.get(request.runId) === owned &&
+      getAgentRunContextOwnerStatus(request.runId, owned.claimId, owned.lifecycleGeneration) ===
+        "active";
+    for (const emission of emissions) {
+      if (!ownsPublication()) {
         return invalidEvent();
       }
-    } else {
-      emitAgentEventForOwner(event, owned.claimId);
+      if (owned.emissionMode === "shared") {
+        if (!emitAgentEventIfCurrent(emission)) {
+          if (definitiveTerminal) {
+            window.terminalRuns.delete(request.runId);
+          }
+          return invalidEvent();
+        }
+      } else {
+        emitAgentEventForOwner(emission, owned.claimId);
+      }
+    }
+    if (activity && !ownsPublication()) {
+      return invalidEvent();
     }
     const write = recordWorkerLiveTrajectoryEvent(owned.trajectoryRecorder, request.event);
     if (write) {

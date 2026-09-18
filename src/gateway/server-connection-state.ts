@@ -14,6 +14,7 @@ import {
 } from "./server-chat-state.js";
 import { GatewayConnectionWork } from "./server-connection-work.js";
 import { WEBSOCKET_OPEN_READY_STATE } from "./server-constants.js";
+import { resolveVisibleActiveSessionRunState } from "./server-methods/session-active-runs.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 import { buildGatewaySessionSnapshot } from "./session-event-payload.js";
 import { resolveSessionEventAgentScope } from "./session-request-agent.js";
@@ -129,9 +130,14 @@ export function createGatewayConnectionState(params: {
         if (!projection.isCurrent(record)) {
           return undefined;
         }
-        const { row } = prepareProjectedSessionPresentation(projection, client, now, {
-          chatAbortControllers,
-        }).snapshot(query, { includeDerivedTitles: true, includeLastMessage: true });
+        const { projectedAgentRuns } = projection.state.rowContext;
+        const { row } = prepareProjectedSessionPresentation(projection, client, now, (selection) =>
+          resolveVisibleActiveSessionRunState({
+            ...selection,
+            context: { chatAbortControllers },
+            projectedAgentRunIndex: projectedAgentRuns,
+          }),
+        ).snapshot(query, { includeDerivedTitles: true, includeLastMessage: true });
         if (!row) {
           return undefined;
         }

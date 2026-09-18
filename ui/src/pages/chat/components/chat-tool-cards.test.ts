@@ -349,6 +349,9 @@ describe("tool-cards", () => {
     expect(onOpenWorkspaceFile).toHaveBeenCalledWith({ path: "src/new.ts" });
     expect(onToggleExpanded).not.toHaveBeenCalled();
 
+    expect(container.querySelector(".chat-tool-row__toggle")?.getAttribute("aria-label")).toBe(
+      "Created new.ts",
+    );
     container.querySelector<HTMLButtonElement>(".chat-tool-row__toggle")?.click();
     expect(onToggleExpanded).toHaveBeenCalledWith("msg:patch:add");
     expect(onOpenWorkspaceFile).toHaveBeenCalledOnce();

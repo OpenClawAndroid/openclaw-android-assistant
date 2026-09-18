@@ -1,15 +1,23 @@
 // Stores managed task-flow records and delivers registry observer snapshots.
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
-import { cloneFlowRecord, snapshotFlowRecords } from "./task-flow-registry.records.js";
+import {
+  cloneFlowRecord,
+  areTaskFlowRecordsEqual,
+  normalizeRestoredFlowRecord,
+  snapshotFlowRecords,
+  type TaskFlowSyncInput,
+} from "./task-flow-registry.records.js";
 import {
   closeTaskFlowRegistryDatabase,
   deleteTaskFlowRegistryRecordFromSqlite,
   loadTaskFlowRegistryStateFromSqlite,
+  syncTaskMirroredFlowInSqlite,
   updateTaskFlowRegistryRecordInSqlite,
   upsertTaskFlowRegistryRecordToSqlite,
 } from "./task-flow-registry.store.sqlite.js";
 import type {
+  TaskFlowRegistryMirroredSync,
   TaskFlowRegistryObservedUpdate,
   TaskFlowRegistryStoreSnapshot,
   TaskFlowRegistryUpdate,
@@ -29,6 +37,10 @@ type TaskFlowRegistryStore = {
   ): Promise<TaskFlowRecord | undefined>;
   loadSnapshot: () => TaskFlowRegistryStoreSnapshot;
   upsertFlow: (flow: TaskFlowRecord) => void;
+  syncMirroredTask: (
+    task: TaskFlowSyncInput,
+    preparePublication: (result: TaskFlowRegistryMirroredSync) => TaskFlowRegistryUpdatePublication,
+  ) => TaskFlowRegistryMirroredSync;
   updateFlow: (
     params: TaskFlowRegistryUpdate,
     preparePublication: (
@@ -82,6 +94,7 @@ const defaultFlowRegistryStore: TaskFlowRegistryStore = {
   },
   loadSnapshot: loadTaskFlowRegistryStateFromSqlite,
   upsertFlow: upsertTaskFlowRegistryRecordToSqlite,
+  syncMirroredTask: syncTaskMirroredFlowInSqlite,
   updateFlow: updateTaskFlowRegistryRecordInSqlite,
   deleteFlow: deleteTaskFlowRegistryRecordFromSqlite,
   close: closeTaskFlowRegistryDatabase,
@@ -134,6 +147,59 @@ export function deliverTaskFlowRegistryObserverEvent(
   } else {
     observers.onEvent({ ...event, previous: cloneFlowRecord(event.previous) });
   }
+}
+
+export function prepareTaskFlowRecordPublication(params: {
+  flowId: string;
+  cached: TaskFlowRecord | undefined;
+  current: TaskFlowRecord | undefined;
+  previous: TaskFlowRecord | undefined;
+  applied: boolean;
+  read: () => TaskFlowRecord | undefined;
+  write: (flow: TaskFlowRecord | undefined) => void;
+  advance: () => void;
+  emit: (createEvent: () => FlowRegistryPublication) => void;
+}): TaskFlowRegistryUpdatePublication {
+  const { flowId, cached, current, previous, applied, read, write, advance, emit } = params;
+  const canonical = current ? cloneFlowRecord(current) : undefined;
+  const changed =
+    applied ||
+    !areTaskFlowRecordsEqual(cached ? normalizeRestoredFlowRecord(cached) : undefined, canonical);
+  const next = changed ? canonical : cached;
+  let committed: TaskFlowRecord | undefined;
+  return {
+    stage: () => {
+      advance();
+      write(next);
+    },
+    rollback: () => {
+      advance();
+      write(cached);
+    },
+    commit: () => {
+      advance();
+      // Capture the final staged entry before any observer can reenter this owner.
+      committed = read();
+    },
+    publish: () => {
+      if (!changed || read() !== committed) {
+        return;
+      }
+      if (next) {
+        emit(() => ({
+          kind: "upserted",
+          flow: next,
+          ...(previous ? { previous } : {}),
+        }));
+      } else if (previous) {
+        emit(() => ({
+          kind: "deleted",
+          flowId,
+          previous,
+        }));
+      }
+    },
+  };
 }
 
 export function tryPersistFlowUpsert(flow: TaskFlowRecord, operation: string): boolean {

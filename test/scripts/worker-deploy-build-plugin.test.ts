@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { encodePngRgba } from "rastermill";
+import * as tar from "tar";
 import { build } from "tsdown";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
@@ -12,6 +14,7 @@ import {
   createWorkerDeployBuildPlugin,
   WORKER_DEPLOY_OPTIONAL_NATIVE_MODULE_ID,
 } from "../../scripts/lib/worker-deploy-build-plugin.mts";
+import { createWorkerBundleProducer } from "../../src/gateway/worker-environments/bundle.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 vi.mock("tsdown", async (importOriginal) => {
@@ -51,6 +54,7 @@ describe("worker deploy build plugin", () => {
   describe("portable output", () => {
     const fixtureDirs = useAutoCleanupTempDirTracker(afterAll);
     let preparedDist: string;
+    let preparedArchive: string;
 
     beforeAll(async () => {
       const { default: configs } = await import("../../tsdown.config.ts");
@@ -69,10 +73,30 @@ describe("worker deploy build plugin", () => {
       const highlightSource = fs.realpathSync(
         path.resolve("node_modules/highlight.js/lib/index.js"),
       );
+      for (const sibling of configs.filter(
+        (candidate) =>
+          candidate !== config &&
+          typeof candidate.entry === "object" &&
+          !Array.isArray(candidate.entry) &&
+          Object.keys(candidate.entry).some((entry) => entry.startsWith("worker/")),
+      )) {
+        const { bundles } = await build({
+          ...sibling,
+          config: false,
+          outDir: preparedDist,
+          clean: false,
+          dts: false,
+          logLevel: "silent",
+        });
+        for (const bundle of bundles) {
+          await bundle[Symbol.asyncDispose]();
+        }
+      }
       const { bundles } = await build({
         ...config,
         config: false,
         outDir: path.join(root, "dist"),
+        clean: false,
         dts: false,
         logLevel: "silent",
         plugins: [
@@ -87,6 +111,8 @@ export { explainShellCommand } from "../infra/command-explainer/extract.js";
 export { planShellAuthorization } from "../infra/exec-authorization-plan.js";
 export { rejectUnsafeExecControlShellCommand } from "../infra/exec-control-command-guard.js";
 export { WebSocket } from "../../packages/gateway-client/src/websocket.js";
+export { projectComputerActResult } from "../agents/tools/computer-tool-result.js";
+export { createImageProcessor, convertBmpToPngWithWorker } from "../media/image-processor.js";
 export { createRealtimeTranscriptionWebSocketSession } from "../realtime-transcription/websocket-session.js";
 export { runDesktopWebSocketRuntimeProbe } from "../gateway/desktop/websocket-runtime.test-support.js";`;
               }
@@ -108,14 +134,101 @@ export { runDesktopWebSocketRuntimeProbe } from "../gateway/desktop/websocket-ru
         expect(
           collectWorkerDeployArtifactErrors({
             rootDir: root,
-            workerDeployEntrypoints: ["dist/worker/worker.mjs"],
           }),
         ).toEqual([]);
+        preparedArchive = (
+          await createWorkerBundleProducer({
+            packageRoot: root,
+            cacheDir: path.join(root, "cache"),
+          }).prepare()
+        ).tarballPath;
       } finally {
         for (const bundle of bundles) {
           await bundle[Symbol.asyncDispose]();
         }
       }
+    });
+
+    it("delivers resized computer observations and image operations from a relocated archive", async () => {
+      const root = tempDirs.make("openclaw-worker-images-");
+      const relocated = path.join(root, "bundle");
+      fs.mkdirSync(relocated);
+      await tar.extract({ file: preparedArchive, cwd: relocated });
+      fs.writeFileSync(
+        path.join(root, "window.png"),
+        encodePngRgba(new Uint8Array(1500 * 934 * 4).fill(255), 1500, 934, 1),
+      );
+      const result = await promisify(execFile)(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+const [entry, imagePath] = process.argv.slice(1);
+for (const dependency of ["rastermill", "@silvia-odwyer/photon-node"]) {
+  assert.throws(() => createRequire(pathToFileURL(entry)).resolve(dependency), { code: "MODULE_NOT_FOUND" });
+}
+process.argv = [process.execPath, entry, "--internal-worker-prewarm"];
+const { projectComputerActResult, createImageProcessor, convertBmpToPngWithWorker } = await import(pathToFileURL(entry).href);
+const input = fs.readFileSync(imagePath);
+try {
+for (let index = 0; index < 3; index++) {
+  const projected = await projectComputerActResult({
+    action: "get_window_state",
+    target: { host: "node", nodeId: "synthetic-node", screenIndex: 0 },
+    referenceWidth: 1200,
+    result: {
+      ok: true,
+      details: { coordinateSpace: "image-pixels" },
+      observation: { kind: "window", base64: input.toString("base64"), format: "png", width: 1500, height: 934 },
+    },
+  });
+  const images = projected.result.content.filter(block => block.type === "image");
+  assert.equal(images.length, 1, JSON.stringify(projected.result.content));
+  const observation = JSON.parse(projected.result.content[0].text).observation;
+  assert.equal(observation.width, 1200);
+  assert.equal(observation.height, 747);
+  assert.equal(observation.base64, "[image]");
+  assert.deepEqual(projected.imageCoordinates, { kind: "available", scaleX: 1.25, scaleY: 934 / 747 });
+}
+assert.deepEqual(await createImageProcessor().transparency(input), { hasAlphaChannel: true, hasTransparentPixels: false });
+const bmp = Buffer.from("424d3e0000000000000036000000280000000200000001000000010018000000000008000000000000000000000000000000000000000000ff00ff000000", "hex");
+const png = await convertBmpToPngWithWorker(bmp);
+const metadata = await createImageProcessor().probe(png);
+assert.equal(metadata.width, 2);
+assert.equal(metadata.height, 1);
+assert.equal(metadata.format, "png");
+console.log("relocated computer observations and image operations passed");
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+}
+`,
+          path.join(relocated, "worker.mjs"),
+          path.join(root, "window.png"),
+        ],
+        {
+          cwd: relocated,
+          timeout: 30_000,
+          env: {
+            PATH: process.env.PATH,
+            SystemRoot: process.env.SystemRoot,
+            WINDIR: process.env.WINDIR,
+            HOME: root,
+            USERPROFILE: root,
+            TMPDIR: root,
+            TMP: root,
+            TEMP: root,
+          },
+        },
+      );
+      expect(result.stdout).toContain(
+        "relocated computer observations and image operations passed",
+      );
     });
 
     it("keeps worker bootstrap portable with lazy highlighting and complete shell analysis", async () => {
@@ -424,7 +537,13 @@ export async function createAttachedBrowserToolRuntime(params) {
     const source = fs.readFileSync(path.join(sourceRoot, "lib/coreBundle.js"), "utf8");
     const tempRoot = tempDirs.make("openclaw-worker-build-plugin-");
     fs.mkdirSync(path.join(tempRoot, "node_modules"));
-    for (const name of ["playwright-core", "web-tree-sitter", "tree-sitter-bash"]) {
+    for (const name of [
+      "playwright-core",
+      "web-tree-sitter",
+      "tree-sitter-bash",
+      "@silvia-odwyer/photon-node",
+    ]) {
+      fs.mkdirSync(path.join(tempRoot, "node_modules", path.dirname(name)), { recursive: true });
       fs.symlinkSync(
         path.resolve("node_modules", name),
         path.join(tempRoot, "node_modules", name),

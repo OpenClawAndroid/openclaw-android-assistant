@@ -195,6 +195,8 @@ export function normalizeStoredQueueItem(value: unknown): ChatQueueItem | null {
   }
   if (entry.sendState === "steering" || entry.sendState === "executing-command") {
     item.sendState = "unconfirmed";
+  } else if (entry.sendState === "submitting") {
+    item.sendState = "waiting-idle";
   } else if (entry.sendState === "sending") {
     item.sendState = "waiting-reconnect";
   } else if (

@@ -1,6 +1,5 @@
 /** Tests text chunking helpers used by auto-reply delivery. */
 
-import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import * as fences from "../../packages/markdown-core/src/fences.js";
 import { hasBalancedFences } from "../test-utils/chunk-test-helpers.js";
@@ -235,7 +234,19 @@ describe("chunkText", () => {
   });
 
   runChunkCases(chunkText, [
-    expectDefined(parentheticalCases[0], "parentheticalCases[0] test invariant"),
+    ...parentheticalCases,
+    {
+      name: "uses later whitespace when the only newline is at index zero",
+      text: "\na bcd",
+      limit: 5,
+      expected: ["\na", "bcd"],
+    },
+    {
+      name: "selects Unicode whitespace as a chunk boundary",
+      text: "ab\u00a0cdef",
+      limit: 5,
+      expected: ["ab", "cdef"],
+    },
   ]);
 });
 
@@ -490,7 +501,15 @@ describe("chunkMarkdownText", () => {
     expectChunkSpecialCase(run);
   });
 
-  runChunkCases(chunkMarkdownText, parentheticalCases);
+  runChunkCases(chunkMarkdownText, [
+    ...parentheticalCases,
+    {
+      name: "preserves newline and whitespace boundaries after the first chunk",
+      text: "aa bb\ncc dd\nee ff gg hh",
+      limit: 6,
+      expected: ["aa bb", "cc dd", "ee ff", "gg hh"],
+    },
+  ]);
 
   it.each([
     {

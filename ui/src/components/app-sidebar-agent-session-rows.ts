@@ -113,17 +113,7 @@ export function projectSidebarAgentSessionRows({
     rows,
     childRowsByParent: childSessionRowsByParent,
   });
-  const subagentParentKeys = new Set(
-    [...sessionRowsByKey.values()]
-      .filter((row) => isSubagentSessionKey(row.key))
-      .map((row) =>
-        normalizeDefaultMainSessionAliasForUi(resolveUiSessionNavigationParentKey(row)),
-      ),
-  );
-  const ownsSubagents = (row: GatewaySessionRow) =>
-    row.childSessions?.some(isSubagentSessionKey) ||
-    subagentParentKeys.has(normalizeDefaultMainSessionAliasForUi(row.key));
-  // Home replaces an ordinary main row, but subagents need an expandable parent.
+  // Home owns the main conversation in chip mode; its subagents remain in Tasks.
   const canonicalMainKeys = agentIds.map((agentId) => host.selectedAgentMainSessionKey(agentId));
   const isMainSession = (key: string) =>
     canonicalMainKeys.some((mainKey) => areUiSessionKeysEquivalent(key, mainKey));
@@ -134,13 +124,12 @@ export function projectSidebarAgentSessionRows({
           return row ? [row] : [];
         })
       : filterVisibleSessionRows(rows.filter(inScope), visibilityOptions).toSorted(compareSessions);
-  if (grouped || rows.some((row) => isMainSession(row.key) && ownsSubagents(row))) {
+  if (grouped) {
     // The generic chat filter excludes global streams; their canonical main
     // conversation still belongs to its agent in team mode.
     for (const row of rows) {
       if (
         row.kind === "global" &&
-        (grouped || ownsSubagents(row)) &&
         inScope(row) &&
         isMainSession(row.key) &&
         sessionMatchesArchivedFilter(row, host.sessionsStatusFilter) &&
@@ -168,7 +157,7 @@ export function projectSidebarAgentSessionRows({
   const scopedRootRows = rootRows.filter((row) => {
     if (isMainSession(row.key)) {
       mainSessionKeys.add(row.key);
-      return grouped || ownsSubagents(row);
+      return grouped;
     }
     return true;
   });
@@ -184,9 +173,7 @@ export function projectSidebarAgentSessionRows({
       ? inScope(lineageRoot)
       : lineageAgentId === selected || lineageRouteAgentId === selected) &&
     !adopted.has(lineageRoot.key) &&
-    (!isMainSession(lineageRoot.key) ||
-      ownsSubagents(lineageRoot) ||
-      (grouped && navigationState.toSidebarSession(lineageRoot).visuallyActive)) &&
+    (!isMainSession(lineageRoot.key) || grouped) &&
     !scopedRootRows.some((row) => row.key === lineageRoot.key)
   ) {
     scopedRootRows.push(lineageRoot);

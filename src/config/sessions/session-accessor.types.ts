@@ -1,4 +1,7 @@
-import type { SessionTranscriptUpdate } from "../../sessions/transcript-events.js";
+import type {
+  InternalSessionTranscriptUpdate,
+  SessionTranscriptUpdate,
+} from "../../sessions/transcript-events.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
 import type {
   SessionTranscriptTurnMutation,
@@ -348,7 +351,8 @@ export type TranscriptMessageAppendResult<TMessage> = {
 };
 
 /** Transcript update fields supplied by callers; the target is resolved here. */
-export type TranscriptUpdatePayload = Partial<SessionTranscriptUpdate>;
+export type TranscriptUpdatePayload = Partial<SessionTranscriptUpdate> &
+  Pick<InternalSessionTranscriptUpdate, "lifecycleRevision">;
 
 export type LatestTranscriptAssistantText = {
   id?: string;
@@ -364,6 +368,8 @@ export type SessionTranscriptWriteLockAccessorContext = {
   appendMessageWithMessageSequence: <TMessage>(
     options: TranscriptMessageAppendOptions<TMessage>,
   ) => Promise<{
+    /** Unfenced imports omit ownership and retain canonical-history refresh. */
+    lifecycleRevision?: string;
     messageSeq?: number;
     result: TranscriptMessageAppendResult<TMessage> | undefined;
   }>;

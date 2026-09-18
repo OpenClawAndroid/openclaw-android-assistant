@@ -2780,6 +2780,7 @@ openclaw-chat-ci-details {
   > :is(
     .chat-composer-neighbor-card,
     .agent-chat__composer-errors,
+    .agent-chat__talk-status.callout,
     .agent-chat__composer-underlaps
   ) {
   width: 100%;
@@ -2808,8 +2809,6 @@ openclaw-chat-ci-details {
   position: relative;
   z-index: 1;
   border: 1px solid var(--chat-composer-hairline, var(--border));
-  border-radius: calc(20px * var(--openclaw-corner-radius-scale));
-  corner-shape: superellipse(1.5);
   background: var(--chat-composer-surface, var(--popover));
   box-shadow: none;
   color: var(--text);

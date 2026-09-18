@@ -112,6 +112,7 @@ export function createFixture(
   for (const name of [
     ".bin",
     "@openclaw/fs-safe",
+    "@silvia-odwyer/photon-node",
     "koffi",
     "playwright-core",
     "web-tree-sitter",

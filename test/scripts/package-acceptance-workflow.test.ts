@@ -8601,10 +8601,12 @@ test "$package_manager" = "pnpm@12.1.0"
     expect(planStep.run).toContain("candidateRequestInput: $candidateRequestInput");
     expect(planStep.run).not.toContain("candidateRequestInput: {");
     expect(planStep.run).toContain('--argjson trustedWorkflow "$TRUSTED_WORKFLOW_JSON"');
-    expect(planCache.uses).toBe(ACTIONS_CACHE_V6);
+    expect(planCache.uses).toBe(
+      ACTIONS_CACHE_V6.replace("actions/cache@", "actions/cache/restore@"),
+    );
     expect(planCache["continue-on-error"]).toBe(true);
     expect(planCache.with).toMatchObject({
-      key: "full-release-execution-plan-v1-${{ github.run_id }}",
+      key: "full-release-execution-plan-v2-${{ github.run_id }}",
     });
     expect(planCache.with).not.toHaveProperty("fail-on-cache-miss");
     expect(planRestore.if).toBe(
@@ -8691,7 +8693,7 @@ test "$package_manager" = "pnpm@12.1.0"
       [
         "Restore immutable release execution plan artifact",
         "full-release-execution-plan-${{ github.run_id }}",
-        "${{ runner.temp }}/full-release-execution-plan",
+        "${{ github.workspace }}/full-release-execution-plan",
       ],
       [
         "Download immutable publication admission",

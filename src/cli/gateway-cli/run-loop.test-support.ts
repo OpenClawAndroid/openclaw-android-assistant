@@ -104,3 +104,70 @@ export function setPlatform(platform: string) {
     value: platform,
   });
 }
+
+const LOOP_SIGNALS = ["SIGTERM", "SIGINT", "SIGUSR1"] as const;
+type LoopSignal = (typeof LOOP_SIGNALS)[number];
+
+function removeNewSignalListeners(signal: LoopSignal, existing: Set<(...args: unknown[]) => void>) {
+  for (const listener of process.listeners(signal)) {
+    const fn = listener as (...args: unknown[]) => void;
+    if (!existing.has(fn)) {
+      process.removeListener(signal, fn);
+    }
+  }
+}
+
+function addedSignalListener(
+  signal: LoopSignal,
+  existing: Set<(...args: unknown[]) => void>,
+): (() => void) | null {
+  const listeners = process.listeners(signal) as Array<(...args: unknown[]) => void>;
+  for (let i = listeners.length - 1; i >= 0; i -= 1) {
+    const listener = listeners[i];
+    if (listener && !existing.has(listener)) {
+      return listener as () => void;
+    }
+  }
+  return null;
+}
+
+export async function withIsolatedSignals(
+  run: (helpers: { captureSignal: (signal: LoopSignal) => () => void }) => Promise<void>,
+) {
+  const existingListeners = Object.fromEntries(
+    LOOP_SIGNALS.map((signal) => [
+      signal,
+      new Set(process.listeners(signal) as Array<(...args: unknown[]) => void>),
+    ]),
+  ) as Record<LoopSignal, Set<(...args: unknown[]) => void>>;
+  const captureSignal = (signal: LoopSignal) => {
+    const listener = addedSignalListener(signal, existingListeners[signal]);
+    if (!listener) {
+      throw new Error(`expected new ${signal} listener`);
+    }
+    return () => listener();
+  };
+  try {
+    await run({ captureSignal });
+  } finally {
+    for (const signal of LOOP_SIGNALS) {
+      removeNewSignalListeners(signal, existingListeners[signal]);
+    }
+  }
+}
+
+export function createRuntimeWithExitSignal(exitCallOrder?: string[]) {
+  let resolveExit: (code: number) => void = () => {};
+  const exited = new Promise<number>((resolve) => {
+    resolveExit = resolve;
+  });
+  const runtime = {
+    log: vi.fn(),
+    error: vi.fn(),
+    exit: vi.fn((code: number) => {
+      exitCallOrder?.push("exit");
+      resolveExit(code);
+    }),
+  };
+  return { runtime, exited };
+}

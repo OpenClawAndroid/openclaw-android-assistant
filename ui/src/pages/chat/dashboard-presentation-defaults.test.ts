@@ -32,6 +32,7 @@ import {
   promoteSidebarPanel,
   setSidebarDock,
   sidebarMainPanel,
+  sidebarActivePanel,
   type SidebarLayout,
 } from "./sidebar-layout.ts";
 
@@ -288,7 +289,9 @@ describe("dashboard default activation and personal layout persistence", () => {
     expect(h.saved()?.dashboardPresentationOverride).toBe("split");
     expect(h.state.sidebarLayout.dashboardPresentationOverride).toBe("split");
     h.revisit();
-    expectPresentation(h.state.sidebarLayout, false);
+    expect(sidebarMainPanel(h.state.sidebarLayout)?.slot).toBe("dashboard");
+    expect(h.state.sidebarLayout.expanded).toBe(false);
+    expect(isSidebarSlotVisible(h.state.sidebarLayout, "workspace")).toBe(true);
   });
 
   it.each([
@@ -596,6 +599,37 @@ describe("dashboard default activation and personal layout persistence", () => {
     expectPresentation(reopenedAgain.state.sidebarLayout, true);
     expect(reopenedAgain.saved()?.dashboardPresentationOverride).toBe("expanded");
   });
+
+  it.each([null, "split"] as const)(
+    "restores Side chat on a dashboard revisit and page recreation with override %s",
+    (dashboardPresentationOverride) => {
+      const savedLayout = normalizeSidebarLayout({
+        ...setSidebarDock(
+          openSlot(
+            promoteSidebarPanel(openDashboardPresentation({ columns: [] }, "split"), "dashboard"),
+            "companion",
+          ),
+          "left",
+        ),
+        dashboardPresentationOverride,
+      });
+      const row = session({
+        boardPresentation: dashboardPresentationOverride === null ? "split" : "expanded",
+      });
+      const h = createDashboardHarness({ savedLayout, row });
+      h.sync();
+      expect(sidebarMainPanel(h.state.sidebarLayout)?.slot).toBe("dashboard");
+      expect(sidebarActivePanel(h.state.sidebarLayout)?.slot).toBe("companion");
+      h.revisit();
+      expect(h.state.sidebarLayout).toEqual(savedLayout);
+      expect(h.saved()).toEqual(savedLayout);
+
+      const reopened = createDashboardHarness({ savedLayout: h.saved(), row });
+      reopened.sync();
+      expect(reopened.state.sidebarLayout).toEqual(savedLayout);
+      expect(reopened.saved()).toEqual(savedLayout);
+    },
+  );
 
   it("opens a marked personal layout without waiting for shared metadata", () => {
     const savedLayout = {

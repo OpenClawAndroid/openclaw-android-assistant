@@ -176,7 +176,7 @@ class MessageImageResourceDirective extends AsyncDirective {
             ? t("chat.imageLightbox.loadFailed")
             : undefined;
       if (reason === undefined) {
-        return this.present(this.renderImagePlaceholder(image));
+        return this.present(this.renderImageFrame(image, nothing, "checking"));
       }
       return this.present(
         this.renderImageFrame(
@@ -195,6 +195,7 @@ class MessageImageResourceDirective extends AsyncDirective {
                 ? () => retryAssistantAttachmentAvailability(image.url, subscriptionOptions)
                 : undefined,
           }),
+          "unavailable",
         ),
       );
     }
@@ -288,29 +289,39 @@ class MessageImageResourceDirective extends AsyncDirective {
   private renderImageFrame(
     img: ImageBlock,
     content: TemplateResult | typeof nothing,
-    loading = false,
+    state?: "checking" | "loading" | "unavailable",
   ) {
     const sized =
       Number.isFinite(img.width) &&
       img.width! > 0 &&
       Number.isFinite(img.height) &&
       img.height! > 0;
-    const ratio = sized ? img.width! / img.height! : 3 / 2;
-    const width = sized
+    const ratio = sized ? img.width! / img.height! : undefined;
+    const pending = state === "checking" || state === "loading";
+    const compact = state === "unavailable" || state === "checking" || (!sized && pending);
+    const previewWidth = ratio
       ? img.width! < MIN_CHAT_IMAGE_PREVIEW_WIDTH
         ? MIN_CHAT_IMAGE_PREVIEW_WIDTH
         : Math.min(img.width!, 400, 360 * ratio)
       : 400;
-    const height = Math.min(360, width / ratio);
-    // Frame geometry survives metadata, fetch, and IMG decode. CSS gallery
-    // dimensions still override these single-image presentation values.
+    const width = compact ? Math.max(MIN_CHAT_IMAGE_PREVIEW_WIDTH, previewWidth) : previewWidth;
+    const height = ratio ? Math.min(360, width / ratio) : undefined;
+    // Only loadable images with known dimensions reserve preview geometry.
+    // Unknown images use their intrinsic size; gallery tiles keep their own layout.
     return html`<span
-      class="chat-image-frame chat-image-frame--image ${this.managed ? "chat-image-frame--managed" : ""}"
-      style=${`--chat-image-width: ${width}px; --chat-image-ratio: ${width} / ${height}`}
-      aria-busy=${loading ? "true" : "false"}
-      role=${loading ? "status" : nothing}
-      aria-label=${loading ? t("common.loading") : nothing}
-      >${content}</span
+      class="chat-image-frame ${sized || compact ? "chat-image-frame--image" : ""} ${this.managed && !compact ? "chat-image-frame--managed" : ""} ${compact ? "chat-image-frame--compact" : ""}"
+      style=${`--chat-image-width: ${width}px; --chat-image-min-width: ${MIN_CHAT_IMAGE_PREVIEW_WIDTH}px; --chat-image-ratio: ${!compact && height ? `${width} / ${height}` : "auto"}`}
+      aria-busy=${pending ? "true" : "false"}
+      role=${pending ? "status" : nothing}
+      aria-label=${pending ? t("common.loading") : nothing}
+      >${
+        compact && pending
+          ? renderAssistantAttachmentStatusCard({
+              label: img.fileName ?? img.alt ?? t("chat.imageLightbox.untitled"),
+              badge: t("common.loading"),
+            })
+          : content
+      }</span
     >`;
   }
 
@@ -319,36 +330,31 @@ class MessageImageResourceDirective extends AsyncDirective {
       return this.renderImageFrame(
         image,
         html`<span class="chat-image-skeleton skeleton" aria-hidden="true"></span>`,
-        true,
+        "loading",
       );
     }
     return this.renderImageFrame(
       image,
-      html`<span class="chat-image-status" role="status">
-        <span>${reason}</span>
-        ${
-          this.managed
-            ? html`<button
-                type="button"
-                class="btn btn--sm"
-                @click=${() => {
-                  resolveManagedOutgoingImageResource(
-                    image.url,
-                    this.options?.onRequestUpdate
-                      ? { ...this.options, onRequestUpdate: this.refreshImage }
-                      : this.options,
-                    image.artifactId,
-                    "thumbnail",
-                    true,
-                  );
-                  this.refreshImage();
-                }}
-              >
-                ${t("common.retry")}
-              </button>`
-            : nothing
-        }
-      </span>`,
+      renderAssistantAttachmentStatusCard({
+        label: image.fileName ?? image.alt ?? t("chat.imageLightbox.untitled"),
+        badge: t("chat.attachments.unavailable"),
+        reason,
+        onRetry: this.managed
+          ? () => {
+              resolveManagedOutgoingImageResource(
+                image.url,
+                this.options?.onRequestUpdate
+                  ? { ...this.options, onRequestUpdate: this.refreshImage }
+                  : this.options,
+                image.artifactId,
+                "thumbnail",
+                true,
+              );
+              this.refreshImage();
+            }
+          : undefined,
+      }),
+      "unavailable",
     );
   }
 

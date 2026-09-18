@@ -29,6 +29,8 @@ import { createAsyncRegistryRestore, createSyncRegistryReader } from "./task-reg
 import type { TaskRegistryRestoreResult } from "./task-registry-restore.worker.js";
 import {
   addRunIdIndex,
+  addTaskIndexes,
+  removeTaskIndexes,
   deleteRunIdIndex,
   addOwnerKeyIndex,
   deleteOwnerKeyIndex,
@@ -43,6 +45,7 @@ import {
 import {
   deliverTaskRegistryObserverEvent,
   getTaskRegistryStore,
+  loadTaskRegistryMutationSnapshots,
   type TaskRegistryObserverEvent,
   type TaskRegistryStore,
 } from "./task-registry.store.js";
@@ -176,7 +179,7 @@ function installRestoredTaskRegistrySnapshot(snapshot: TaskRegistryStoreSnapshot
   taskIdsByRelatedSessionKey.clear();
   for (const [id, task] of snapshot.tasks) {
     tasks.set(id, task);
-    addIndexes(task);
+    addTaskIndexes(task);
   }
   for (const [id, delivery] of snapshot.deliveryStates) {
     taskDeliveryStates.set(id, delivery);
@@ -211,20 +214,19 @@ function getTaskRegistryRestoreState(admission: OpenClawStateDatabaseReadAdmissi
 }
 
 export function syncFlowFromTaskAfterTaskMutation(task: TaskRecord, operation: string): void {
-  syncTaskFlowWithLiveRetry(task, operation, (admission) => {
-    if (!isCurrentTaskRegistryDatabase(admission)) {
-      return undefined;
-    }
-    const current = tasks.get(task.taskId);
-    if (!current) {
-      return undefined;
-    }
-    ensureTaskRegistryReady();
-    const flowId = current.parentFlowId?.trim();
-    return flowId &&
-      listTasksFromIndex(tasks, taskIdsByParentFlowId, flowId)[0]?.taskId === task.taskId
-      ? current
-      : undefined;
+  const taskId = task.taskId;
+  syncTaskFlowWithLiveRetry(task, operation, {
+    prepare: prepareTaskRegistryProjectionAsync,
+    assertCurrent: assertTaskRegistryOwnerCurrent,
+    selectCurrent() {
+      const current = tasks.get(taskId);
+      const flowId = current?.parentFlowId?.trim();
+      return current &&
+        flowId &&
+        listTasksFromIndex(tasks, taskIdsByParentFlowId, flowId)[0]?.taskId === taskId
+        ? { taskId, flowId, createdAt: current.createdAt }
+        : undefined;
+    },
   });
 }
 
@@ -384,6 +386,46 @@ export const ensureTaskRegistryReadyAsync = createAsyncRegistryRestore<
   fail: failTaskRegistryRestore,
 });
 
+function assertTaskRegistryOwnerCurrent(
+  context: OpenClawStateWorkerContext,
+  store: TaskRegistryStore,
+): void {
+  context.admission.assertCurrent();
+  if (getTaskRegistryStore() !== store || !isCurrentTaskRegistryDatabase(context.admission)) {
+    throw new Error("Task registry read owner is no longer current.");
+  }
+}
+
+async function prepareTaskRegistryProjectionAsync(
+  context: OpenClawStateWorkerContext,
+  store: TaskRegistryStore,
+  maxAttempts = Number.POSITIVE_INFINITY,
+): Promise<boolean> {
+  assertTaskRegistryOwnerCurrent(context, store);
+  await ensureTaskRegistryReadyAsync(context);
+  assertTaskRegistryOwnerCurrent(context, store);
+  let attempts = 0;
+  while (projection.mutationDepth === 0 && (projection.dirty || dirtyScopes.size > 0)) {
+    if (attempts++ >= maxAttempts) {
+      return false;
+    }
+    const epoch = projection.epoch;
+    const scopes = projection.dirty ? [undefined] : [...dirtyScopes];
+    const snapshots = await loadTaskRegistryMutationSnapshots(context, store, scopes);
+    assertTaskRegistryOwnerCurrent(context, store);
+    if (epoch !== projection.epoch) {
+      continue;
+    }
+    for (const { snapshot, scope } of snapshots) {
+      installSnapshot(snapshot, scope);
+    }
+    // In-flight mutations retain their publication obligations after this read.
+    markTaskRegistryProjectionRestored();
+    return true;
+  }
+  return true;
+}
+
 function failTaskRegistryRestore(
   error: unknown,
   admission: OpenClawStateDatabaseReadAdmission,
@@ -462,20 +504,6 @@ function markTaskRegistryProjectionRestored(): void {
   }
 }
 
-function removeIndexes(task: TaskRecord): void {
-  deleteRunIdIndex(task.taskId, task.runId);
-  deleteOwnerKeyIndex(task.taskId, task);
-  deleteParentFlowIdIndex(task.taskId, task);
-  deleteRelatedSessionKeyIndex(task.taskId, task);
-}
-
-function addIndexes(task: TaskRecord): void {
-  addRunIdIndex(task.taskId, task.runId);
-  addOwnerKeyIndex(task.taskId, task);
-  addParentFlowIdIndex(task.taskId, task);
-  addRelatedSessionKeyIndex(task.taskId, task);
-}
-
 function installSnapshot(
   snapshot: TaskRegistryStoreSnapshot,
   scope?: TaskRegistryMutationScope,
@@ -484,7 +512,7 @@ function installSnapshot(
   for (const taskId of taskIdsInScope(scope)) {
     const current = tasks.get(taskId);
     if (current && (!scope || matchesScope(current, scope)) && !snapshot.tasks.has(taskId)) {
-      removeIndexes(current);
+      removeTaskIndexes(current);
       tasks.delete(taskId);
       taskDeliveryStates.delete(taskId);
     }
@@ -498,7 +526,7 @@ function installSnapshot(
     if (!isDeepStrictEqual(current, next)) {
       tasks.set(taskId, next);
       if (!current) {
-        addIndexes(next);
+        addTaskIndexes(next);
       } else {
         if (current.runId !== next.runId) {
           deleteRunIdIndex(taskId, current.runId);
@@ -574,11 +602,11 @@ function refreshUnderCustody(): void {
         // Restore insertion order too; legacy synchronous duplicate selection uses it.
         tasks.clear();
         for (const [taskId, task] of previous.tasks) {
-          removeIndexes(task);
+          removeTaskIndexes(task);
           tasks.set(taskId, task);
         }
         for (const task of tasks.values()) {
-          addIndexes(task);
+          addTaskIndexes(task);
         }
       }
       projection.dirty = true;

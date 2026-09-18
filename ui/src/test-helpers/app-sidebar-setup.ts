@@ -9,12 +9,12 @@ export function setupSidebarTest() {
   let layoutGlobals: Array<[string, PropertyDescriptor | undefined]>;
 
   beforeEach(() => {
-    layoutGlobals = ["matchMedia", "ResizeObserver"].map((name) => [
+    layoutGlobals = ["matchMedia", "ResizeObserver", "IntersectionObserver"].map((name) => [
       name,
       Object.getOwnPropertyDescriptor(globalThis, name),
     ]);
     // JSDOM has no media queries or layout observation. Real browser tests keep
-    // their native implementations and own the motion and resize assertions.
+    // their native implementations and own the layout and motion assertions.
     if (typeof matchMedia === "undefined") {
       Object.defineProperty(globalThis, "matchMedia", {
         configurable: true,
@@ -32,8 +32,11 @@ export function setupSidebarTest() {
       });
     }
 
-    if (typeof ResizeObserver === "undefined") {
-      Object.defineProperty(globalThis, "ResizeObserver", {
+    for (const name of ["ResizeObserver", "IntersectionObserver"] as const) {
+      if (globalThis[name] !== undefined) {
+        continue;
+      }
+      Object.defineProperty(globalThis, name, {
         configurable: true,
         writable: true,
         value: class {

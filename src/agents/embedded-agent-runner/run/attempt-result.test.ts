@@ -16,6 +16,7 @@ const TEST_OPERATIONAL_RUN_INSTANCE = { runId: "run-1" };
 function createResultFixture(params?: {
   terminal?: EmbeddedRunAttemptResult["terminal"];
   currentAttemptCompletedAssistant?: EmbeddedRunAttemptResult["currentAttemptCompletedAssistant"];
+  hasSuccessfulModelResponse?: boolean;
   heartbeatToolResponse?: EmbeddedRunAttemptResult["heartbeatToolResponse"];
   replyOptional?: boolean;
   trajectoryRecorder?: EmbeddedRunAttemptTrajectoryRecorder;
@@ -104,6 +105,7 @@ function createResultFixture(params?: {
     getSuccessfulCronAdds: () => 0,
     getVisibleBlockReplyCount: () => 0,
     hasToolMediaBlockReply: () => false,
+    hasSuccessfulModelResponse: () => params?.hasSuccessfulModelResponse ?? false,
     setTerminalLifecycleMeta: () => {},
     toolMetas: params?.toolMetas ?? [],
   };
@@ -173,7 +175,10 @@ function settledToolMessages(): EmbeddedRunAttemptResult["messagesSnapshot"] {
 describe("attempt result projection", () => {
   it("keeps the settled result snapshot when an output hook replaces live state", () => {
     const assistant = makeAssistantMessageFixture({ content: [{ type: "text", text: "settled" }] });
-    const fixture = createResultFixture({ currentAttemptCompletedAssistant: assistant });
+    const fixture = createResultFixture({
+      currentAttemptCompletedAssistant: assistant,
+      hasSuccessfulModelResponse: true,
+    });
     fixture.settled.lastAssistant = assistant;
     fixture.prompt.finalPromptText = "settled prompt";
     const messages = fixture.prompt.messagesSnapshot;
@@ -182,6 +187,8 @@ describe("attempt result projection", () => {
       fixture.state.terminal = { kind: "failed", source: "prompt", error: new Error("later") };
       fixture.settled.lastAssistant = undefined;
       fixture.settled.currentAttemptCompletedAssistant = undefined;
+      fixture.input.preparedStreamRuntime.stream.subscription.hasSuccessfulModelResponse = () =>
+        false;
       fixture.settled.attemptUsage = { input: 100, output: 200 };
       fixture.prompt.finalPromptText = "later prompt";
       fixture.prompt.messagesSnapshot = [{ role: "user", content: "later", timestamp: 2 }];
@@ -202,6 +209,7 @@ describe("attempt result projection", () => {
     expect(result.terminal).toEqual({ kind: "ok" });
     expect(result.lastAssistant).toBe(assistant);
     expect(result.currentAttemptCompletedAssistant).toBe(assistant);
+    expect(result.hasSuccessfulModelResponse).toBe(true);
     expect(result.messagesSnapshot).toBe(messages);
     expect(result.finalPromptText).toBe("settled prompt");
     expect(result.attemptUsage).toBeUndefined();
@@ -209,6 +217,22 @@ describe("attempt result projection", () => {
     expect(result).toHaveProperty("yieldAcknowledgment", undefined);
     expect(result).not.toHaveProperty("beforeAgentFinalizeRevisionReason");
   });
+
+  it.each([false, true])(
+    "preserves attempt progress=%s after a later failure without inferring progress from history",
+    (hasSuccessfulModelResponse) => {
+      const result = completeResult({
+        hasSuccessfulModelResponse,
+        terminal: { kind: "failed", source: "prompt", error: new Error("request timed out") },
+        messagesSnapshot: [
+          makeAssistantMessageFixture({ stopReason: "stop", errorMessage: undefined }),
+        ],
+        currentAttemptCompletedAssistant: makeAssistantMessageFixture(),
+      });
+
+      expect(result.hasSuccessfulModelResponse).toBe(hasSuccessfulModelResponse);
+    },
+  );
 
   it("keeps current tool replay evidence separate from cumulative replay state", () => {
     const result = completeResult({ toolMetas: [{ toolName: "cron", replaySafe: false }] });

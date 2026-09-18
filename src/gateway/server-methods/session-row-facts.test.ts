@@ -6,10 +6,13 @@ import {
   persistSessionTranscriptTurn,
   replaceSessionEntrySync,
 } from "../../config/sessions/session-accessor.js";
+import { sessionChanges } from "../../sessions/session-row-changes.js";
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
+import * as stateDatabase from "../../state/openclaw-state-db.js";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { beginSessionPermissionChange } from "../session-permission-change.js";
+import { createSessionRowProjection } from "../session-row-projection.js";
 import { DEVICE_WORKER_PROVIDER_ID } from "../worker-environments/device-provider-identity.js";
 import { createWorkerPlacementRunnerAvailabilityReader } from "../worker-environments/placement-projector.js";
 import { createWorkerSessionPlacementStore } from "../worker-environments/placement-store.js";
@@ -18,6 +21,64 @@ import { createWorkerEnvironmentStore } from "../worker-environments/store.js";
 import { readSessionRowFacts } from "./session-placement-read-projection.js";
 
 afterEach(() => vi.restoreAllMocks());
+
+it("refreshes current placement facts through one store admission per resident row", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const identity = {
+      agentId: "main",
+      sessionKey: "agent:main:placement-read",
+      sessionId: "placement-read",
+    };
+    replaceSessionEntrySync(identity, { sessionId: identity.sessionId, updatedAt: 1 });
+    const placements = createWorkerSessionPlacementStore();
+    placements.startDispatch(identity);
+    const options = {
+      cfg: {
+        agents: {
+          list: [{ id: "main", default: true }],
+          defaults: { model: "unit-test/model", utilityModel: "" },
+        },
+      },
+      modelCatalog: [],
+      placementFactsReader: placements,
+    };
+    const projection = await createSessionRowProjection(options);
+    const refresh = async () => {
+      const reads = vi.spyOn(stateDatabase, "openOpenClawStateDatabase");
+      try {
+        sessionChanges.emit({ agentId: identity.agentId, sessionKey: identity.sessionKey });
+        await projection.ensureMaterialized();
+        const result = projection.snapshot({ agentId: identity.agentId, key: identity.sessionKey });
+        expect(reads).toHaveBeenCalledTimes(1);
+        return result.row?.placement;
+      } finally {
+        reads.mockRestore();
+      }
+    };
+    try {
+      await projection.ensureMaterialized();
+      expect(await refresh()).toMatchObject({ state: "requested" });
+      placements.fail({ sessionId: identity.sessionId, recoveryError: "Current failure" });
+      expect(await refresh()).toMatchObject({ state: "failed" });
+      const refused = vi
+        .spyOn(stateDatabase, "openOpenClawStateDatabase")
+        .mockImplementation(() => {
+          throw new Error("Placement store admission refused");
+        });
+      try {
+        sessionChanges.emit({ agentId: identity.agentId, sessionKey: identity.sessionKey });
+        await expect(projection.ensureMaterialized()).rejects.toThrow(
+          "Placement store admission refused",
+        );
+      } finally {
+        refused.mockRestore();
+      }
+      expect(await refresh()).toMatchObject({ state: "failed" });
+    } finally {
+      projection.dispose();
+    }
+  });
+});
 
 it("retains exact placement/environment facts while presenting live disk and runner observations without SQLite", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
@@ -100,6 +161,7 @@ it("retains exact placement/environment facts while presenting live disk and run
       },
       entry: loadSessionEntryReadOnly(identity)!,
       context,
+      placementFactsReader: placements,
     });
     const reads = (["all", "get", "iterate"] as const).map((method) =>
       vi.spyOn(StatementSync.prototype, method),

@@ -646,6 +646,38 @@ describe("packed install verification", () => {
 });
 
 describe("createPackedPluginSdkTypescriptSmokeProject", () => {
+  it("preserves the unchanged released progress consumer behavior", async () => {
+    await import("../scripts/fixtures/packed-plugin-sdk-progress-consumer.js");
+  });
+
+  it("creates a focused strict-declaration progress consumer without source aliases", () => {
+    const consumerDir = mkdtempSync(join(tmpdir(), "release-check-progress-consumer-"));
+    try {
+      createPackedPluginSdkTypescriptSmokeProject({
+        consumerDir,
+        packageSpec: "2026.9.4",
+        progressConsumerOnly: true,
+      });
+      expect(JSON.parse(readFileSync(join(consumerDir, "tsconfig.json"), "utf8"))).toEqual({
+        compilerOptions: {
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          noEmit: true,
+          strict: true,
+          skipLibCheck: false,
+          types: ["node"],
+          target: "ES2022",
+        },
+        include: ["src/packed-plugin-sdk-progress-consumer.ts"],
+      });
+      expect(
+        readFileSync(join(consumerDir, "src/packed-plugin-sdk-progress-consumer.ts"), "utf8"),
+      ).toBe(readFileSync("scripts/fixtures/packed-plugin-sdk-progress-consumer.ts", "utf8"));
+    } finally {
+      rmSync(consumerDir, { recursive: true, force: true });
+    }
+  });
+
   it("limits setupSurface omission to the recorded frozen target", async () => {
     const { packedPluginSdkMayOmitSetupSurface } = await import("../scripts/release-check.js");
     expect(packedPluginSdkMayOmitSetupSurface("2026.7.33")).toBe(true);

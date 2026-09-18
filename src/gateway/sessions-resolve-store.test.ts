@@ -24,7 +24,10 @@ type ResolveParams = Parameters<typeof resolveSessionKeyFromResolveParamsWithCli
 
 const projections = new Map<OpenClawConfig, Promise<SessionRowProjection>>();
 const resolveSessionKeyFromResolveParams = async (
-  params: Omit<ResolveParams, "client" | "projection"> & { client?: ResolveParams["client"] },
+  params: Omit<ResolveParams, "client" | "projection"> & {
+    cfg: OpenClawConfig;
+    client?: ResolveParams["client"];
+  },
 ) => {
   let pending = projections.get(params.cfg);
   if (!pending) {
@@ -32,8 +35,8 @@ const resolveSessionKeyFromResolveParams = async (
     projections.set(params.cfg, pending);
   }
   return resolveSessionKeyFromResolveParamsWithClient({
-    client: null,
-    ...params,
+    client: params.client ?? null,
+    p: params.p,
     projection: await pending,
   });
 };

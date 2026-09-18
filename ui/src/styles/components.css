@@ -303,7 +303,6 @@ openclaw-session-owner-chip .viewer-avatar__initials {
   justify-content: center;
   width: 16px;
   height: 16px;
-  transition: transform var(--duration-fast) ease;
 }
 
 .channel-avatar {
@@ -335,20 +334,11 @@ openclaw-session-owner-chip .viewer-avatar__initials {
   color: inherit;
 }
 
-/* The ring is a circle, so square artwork (page icons, thumbnails, arbitrary
-   SVGs) must shrink to keep its corners inside it. A 16px square scaled below
-   0.75 clears its 21px inner circle; 20px circular avatars fill their lead. */
-.session-glyph--running .session-glyph__content {
-  transform: scale(0.72);
-}
-
-.session-glyph--circular.session-glyph--running .session-glyph__content {
-  transform: none;
-}
-
+/* Keep artwork at its resting size inside a consistent 25px circular ring.
+   Owner pairs retain their fitted trace below rather than shrinking their faces. */
 .session-glyph__ring {
   position: absolute;
-  inset: -2px;
+  inset: -2.5px;
   box-sizing: border-box;
   border: 1.5px solid color-mix(in srgb, var(--accent) 28%, transparent);
   border-top-color: var(--accent);
@@ -1313,14 +1303,24 @@ openclaw-session-owner-chip .viewer-avatar__initials {
   z-index: var(--z-toast);
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  max-width: min(520px, calc(100vw - 32px));
-  padding: 10px 12px 10px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  gap: 8px;
+  width: max-content;
+  max-width: min(370px, calc(100vw - 32px));
+  padding: 7px 7px 7px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--popover);
   color: var(--popover-foreground);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.shell--chat {
+  --app-toast-shell-top: calc(var(--safe-area-top) + var(--rail-header-height) + 12px);
+}
+
+openclaw-toast-host[data-toast-placement="shell"]
+  .app-toast:not(.app-toast--anchored, .app-toast--bottom) {
+  top: var(--app-toast-shell-top, calc(20px + var(--safe-area-top)));
 }
 
 /* Settings outcomes can use the lower corner without covering chat controls.
@@ -1328,9 +1328,6 @@ openclaw-session-owner-chip .viewer-avatar__initials {
 .app-toast--bottom {
   top: auto;
   bottom: calc(20px + var(--safe-area-bottom));
-  width: min(380px, calc(100vw - 32px));
-  padding: 8px 8px 8px 16px;
-  border-radius: var(--radius-lg);
   transition:
     opacity 180ms ease-out,
     translate 180ms ease-out;
@@ -1348,12 +1345,7 @@ openclaw-session-owner-chip .viewer-avatar__initials {
   left: var(--app-toast-anchor-center);
   top: var(--app-toast-anchor-top);
   transform: translateX(-50%);
-  gap: var(--space-2);
-  max-width: min(520px, calc(var(--app-toast-anchor-width) - 24px));
-  padding: 8px 12px;
-  border-color: color-mix(in srgb, var(--info) 12%, transparent);
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--info) 12%, var(--popover));
+  max-width: min(370px, calc(var(--app-toast-anchor-width) - 24px));
   transition-property: translate, scale, opacity;
 }
 
@@ -1396,8 +1388,62 @@ openclaw-session-owner-chip .viewer-avatar__initials {
   height: 16px;
 }
 
-/* A corner toast degenerates at phone widths, where it would span nearly the
- * whole viewport anyway. Use the full-width top idiom instead. */
+/* Recovery copy and rich links remain readable at narrow widths and enlarged
+ * text sizes. Do not clamp away the instruction the operator needs next. */
+.app-toast__message {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: min(240px, 40dvh);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: calc(13px * var(--control-ui-text-scale));
+  line-height: 1.5;
+}
+
+.app-toast__action,
+.app-toast__dismiss {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+}
+
+.app-toast__action {
+  min-height: 32px;
+  max-width: 35%;
+  padding: 5px 10px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: var(--control-ui-text-sm);
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.app-toast__dismiss {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  background: transparent;
+  color: var(--muted);
+}
+
+.app-toast__dismiss svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-toast__action:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.app-toast__dismiss:hover {
+  background: var(--bg-muted);
+}
+
+/* A corner toast spans nearly the whole phone viewport. Keep the owning shell's
+ * chrome offset and safe areas, with full-size touch targets in every variant. */
 @media (max-width: 768px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
   .shell--chat {
     --app-toast-shell-top: calc(
@@ -1406,117 +1452,29 @@ openclaw-session-owner-chip .viewer-avatar__initials {
     );
   }
 
-  /* The unanchored chat toast shares the viewport with shell and pane chrome.
-     Anchored permission toasts already carry a measured pane-header offset. */
-  openclaw-toast-host[data-toast-placement="shell"]
-    .app-toast:not(.app-toast--anchored, .app-toast--bottom) {
-    top: var(--app-toast-shell-top, calc(20px + var(--safe-area-top)));
-  }
-
   .app-toast {
     left: max(12px, var(--safe-area-left));
     right: max(12px, var(--safe-area-right));
-    max-width: none;
-  }
-
-  .app-toast--bottom {
     width: auto;
+    max-width: none;
   }
 
   .app-toast--anchored {
     left: var(--app-toast-anchor-center);
     right: auto;
+    width: max-content;
     max-width: calc(var(--app-toast-anchor-width) - 24px);
   }
 
-  .app-toast:not(.app-toast--anchored) .app-toast__message {
-    flex: 1 1 auto;
+  .app-toast__action {
+    min-height: 44px;
+    min-width: 44px;
   }
-}
 
-/* Toasts carry recovery instructions ("Undo", where to re-enable), so a message
- * that outgrows one line wraps instead of ellipsing the instruction away, with
- * even line lengths because the wrapped text is a sentence to read rather than a
- * label to scan. The clamp still bounds a pathological string. */
-.app-toast__message {
-  min-width: 0;
-  overflow: hidden;
-  font-size: var(--control-ui-text-md);
-  text-wrap: balance;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
-
-.app-toast--anchored .app-toast__message {
-  display: block;
-  white-space: nowrap;
-  font-size: var(--control-ui-text-sm);
-}
-
-.app-toast--anchored .app-toast__dismiss {
-  width: 24px;
-  height: 24px;
-  margin-left: 2px;
-  border-radius: var(--radius-full);
-  color: var(--muted);
-}
-
-.app-toast--anchored .app-toast__dismiss svg {
-  width: 16px;
-  height: 16px;
-}
-
-.app-toast__action,
-.app-toast__dismiss {
-  flex: 0 0 auto;
-  border: 0;
-  background: transparent;
-  color: inherit;
-}
-
-.app-toast__action {
-  color: var(--accent);
-  font-size: var(--control-ui-text-sm);
-  font-weight: 700;
-}
-
-.app-toast__dismiss {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: 20px;
-  line-height: 1;
-}
-
-.app-toast--bottom .app-toast__icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-full);
-  background: var(--bg-muted);
-  color: var(--text-strong);
-}
-
-.app-toast--bottom .app-toast__message {
-  flex: 1 1 auto;
-  line-height: 1.5;
-  text-wrap: pretty;
-}
-
-.app-toast--bottom .app-toast__dismiss {
-  width: 44px;
-  height: 44px;
-}
-
-.app-toast--bottom .app-toast__dismiss svg {
-  width: 16px;
-  height: 16px;
+  .app-toast__dismiss {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5866,7 +5824,76 @@ td.data-table-key-col {
   transition-timing-function: linear;
 }
 
+.hover-marquee--loop {
+  --hover-marquee-fade-width: 20px;
+}
+
+.hover-marquee--loop > .hover-marquee__text {
+  transition: none;
+}
+
+.hover-marquee--loop.hover-marquee--scrolling {
+  animation: hover-marquee-loop-fade var(--hover-marquee-duration) linear infinite;
+}
+
+.hover-marquee--loop.hover-marquee--scrolling > .hover-marquee__text {
+  animation: hover-marquee-loop var(--hover-marquee-duration) linear infinite;
+}
+
+@keyframes hover-marquee-loop {
+  0%,
+  90%,
+  100% {
+    transform: translateX(0);
+  }
+
+  40%,
+  50% {
+    transform: translateX(var(--hover-marquee-shift));
+  }
+}
+
+/* Fade only the clipped edge during endpoint pauses, including RTL names. */
+@keyframes hover-marquee-loop-fade {
+  0%,
+  90%,
+  100% {
+    mask-image: linear-gradient(
+      var(--hover-marquee-fade-direction),
+      black calc(100% - var(--hover-marquee-fade-width)),
+      transparent
+    );
+  }
+
+  1%,
+  39%,
+  51%,
+  89% {
+    mask-image: linear-gradient(
+      var(--hover-marquee-fade-direction),
+      transparent,
+      black var(--hover-marquee-fade-width),
+      black calc(100% - var(--hover-marquee-fade-width)),
+      transparent
+    );
+  }
+
+  40%,
+  50% {
+    mask-image: linear-gradient(
+      var(--hover-marquee-fade-direction),
+      transparent,
+      black var(--hover-marquee-fade-width)
+    );
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .hover-marquee--loop.hover-marquee--scrolling,
+  .hover-marquee--loop.hover-marquee--scrolling > .hover-marquee__text {
+    animation: none;
+  }
+
   .hover-marquee > .hover-marquee__text {
     transform: none;
     transition: none;

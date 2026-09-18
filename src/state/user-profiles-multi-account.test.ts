@@ -168,6 +168,11 @@ describe("multi-account people", () => {
       "person",
       "person-work",
     ]);
+    const signInAlias = ensureProfileForTailscaleIdentity(
+      { login: `${secondary.canonicalLogin}@github` },
+      options,
+    );
+    expect(signInAlias.id).not.toBe(person.id);
     expect(
       syncTailscaleGitHubProfile(
         {
@@ -176,8 +181,9 @@ describe("multi-account people", () => {
           login: secondary.canonicalLogin,
         },
         options,
-      ).id,
-    ).toBe(person.id);
+      ),
+    ).toMatchObject({ id: person.id, githubIdentity: { login: primary.canonicalLogin } });
+    expect(getUserProfileDisplay(signInAlias.id, options).id).toBe(person.id);
     expect(
       resolveCachedGitHubIdentity({ accountId: 73, email: primary.email }, options),
     ).toBeUndefined();

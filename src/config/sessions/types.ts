@@ -249,6 +249,8 @@ type SubagentRecoveryState = {
   lastAttemptAt?: number;
   /** Registry run id that triggered the latest automatic orphan-recovery resume. */
   lastRunId?: string;
+  /** Visible execution retained while the recovered run uses an internal transcript. */
+  sessionLifecycleRunId?: string;
   /** Timestamp (ms) when automatic recovery was tombstoned for this session. */
   wedgedAt?: number;
   /** Human-readable reason automatic recovery was tombstoned. */

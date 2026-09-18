@@ -1,3 +1,4 @@
+import { createSqliteLifecycleAggregateError } from "../infra/sqlite-coordinator.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
 import type {
@@ -18,6 +19,8 @@ import {
 } from "./task-registry.store.sqlite.js";
 import type {
   TaskExecutionRestoreStore,
+  TaskLiveFlowAuthority,
+  TaskLiveFlowSyncOutcome,
   TaskRegistryMutationScope,
   TaskRegistryStoreSnapshot,
 } from "./task-registry.store.types.js";
@@ -26,6 +29,11 @@ import type { TaskDeliveryState, TaskRecord } from "./task-registry.types.js";
 export type { TaskRegistryStoreSnapshot } from "./task-registry.store.types.js";
 
 export type TaskRegistryStore = TaskExecutionRestoreStore & {
+  syncLiveTaskFlowAsync(
+    context: OpenClawStateWorkerContext,
+    params: { taskId: string; flowId: string },
+    authority: TaskLiveFlowAuthority,
+  ): Promise<TaskLiveFlowSyncOutcome>;
   withSnapshotAsync<T>(
     context: OpenClawStateWorkerContext,
     consume: (snapshot: TaskRegistryRestoreResult) => T,
@@ -34,6 +42,10 @@ export type TaskRegistryStore = TaskExecutionRestoreStore & {
     context: OpenClawStateWorkerContext,
     params: { taskId: string; expectedParentFlowId?: string },
   ) => Promise<TaskMirroredFlowSyncOutcome>;
+  loadMutationSnapshotAsync: (
+    context: OpenClawStateWorkerContext,
+    scope?: TaskRegistryMutationScope,
+  ) => Promise<TaskRegistryStoreSnapshot>;
   loadMutationSnapshot?: (scope: TaskRegistryMutationScope) => TaskRegistryStoreSnapshot;
   listTasksForOwnerKey?: (ownerKey: string) => Promise<TaskRecord[]>;
   deleteTaskWithDeliveryState: (taskId: string) => void;
@@ -64,6 +76,10 @@ type TaskRegistryObservers = {
 };
 
 const defaultTaskRegistryStore: TaskRegistryStore = {
+  async syncLiveTaskFlowAsync(context, params, authority) {
+    const { syncLiveTaskFlowWithWorker } = await import("./task-registry-live-flow-sync.js");
+    return syncLiveTaskFlowWithWorker(context, params, authority);
+  },
   async withSnapshotAsync(context, consume) {
     const { runOpenClawStateWorkerOperation } =
       await import("../state/openclaw-state-worker-store.js");
@@ -81,6 +97,10 @@ const defaultTaskRegistryStore: TaskRegistryStore = {
     );
   },
   loadSnapshot: loadTaskRegistryStateFromSqlite,
+  async loadMutationSnapshotAsync(context, scope) {
+    const { executeOpenClawStateWorker } = await import("../state/openclaw-state-worker-store.js");
+    return executeOpenClawStateWorker(context, { type: "tasks.mutationSnapshot", input: scope });
+  },
   loadMutationSnapshot: loadTaskRegistryMutationStateFromSqlite,
   withMutation: withTaskRegistrySqliteMutation,
   listTasksForOwnerKey: listTaskRegistryRecordsByOwnerKeyFromSqlite,
@@ -92,6 +112,34 @@ const defaultTaskRegistryStore: TaskRegistryStore = {
 
 let configuredTaskRegistryStore: TaskRegistryStore = defaultTaskRegistryStore;
 let configuredTaskRegistryObservers: TaskRegistryObservers | null = null;
+
+export async function loadTaskRegistryMutationSnapshots(
+  context: OpenClawStateWorkerContext,
+  store: TaskRegistryStore,
+  scopes: ReadonlyArray<TaskRegistryMutationScope | undefined>,
+): Promise<
+  Array<{ scope: TaskRegistryMutationScope | undefined; snapshot: TaskRegistryStoreSnapshot }>
+> {
+  const snapshotReads = scopes.map(async (scope) => ({
+    scope,
+    snapshot: await store.loadMutationSnapshotAsync(context, scope),
+  }));
+  return Promise.all(snapshotReads).catch(async (error: unknown) => {
+    // Each read owns a worker scope; join its siblings before releasing this owner.
+    const settled = await Promise.allSettled(snapshotReads);
+    const errors = settled.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (errors.length > 1) {
+      throw createSqliteLifecycleAggregateError(
+        errors,
+        "Task registry projection reads failed",
+        error,
+      );
+    }
+    throw error;
+  });
+}
 
 export function getTaskRegistryStore(): TaskRegistryStore {
   return configuredTaskRegistryStore;

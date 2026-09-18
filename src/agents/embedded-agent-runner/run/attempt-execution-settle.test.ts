@@ -85,6 +85,7 @@ function createFixture() {
     getUsageTotals: vi.fn(() => ({ input: 1, output: 2, total: 3 })),
     getVisibleBlockReplyCount: vi.fn(() => 0),
     hasToolMediaBlockReply: vi.fn(() => false),
+    hasSuccessfulModelResponse: vi.fn(() => false),
     isCompactionInFlight: vi.fn(() => false),
     setTerminalLifecycleMeta: vi.fn(),
     toolMetas: [{ toolName: "exec", isError: false }],

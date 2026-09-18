@@ -12,6 +12,7 @@ import {
 import { onUserProfilesChanged } from "./user-profile-events.js";
 import {
   getUserProfileDisplay,
+  getUserProfileDisplays,
   readUserProfileAliases,
   readUserProfileIdentity,
   resolveUserProfileReference,
@@ -93,6 +94,7 @@ describe("resident profile display and reference catalog", () => {
       if (!head.ok || !head.value) {
         throw new Error("missing merge head");
       }
+      const headProfileId = head.value;
       setDisplayName(first.id, "Current person", options);
       setUserProfileRole(first.id, "reader", options);
       expect(setAvatar(first.id, new Uint8Array([1, 2]), "image/png", options).ok).toBe(true);
@@ -112,9 +114,68 @@ describe("resident profile display and reference catalog", () => {
         expect(resolveUserProfileReference(id.replaceAll("-", ""), options)).toEqual(head);
         expect(readUserProfileAliases(id, options)).toContain(first.id);
       }
+      expect([
+        ...getUserProfileDisplays([first.id, second.id, head.value, "missing"], options).values(),
+      ]).toEqual(Array.from({ length: 3 }, () => getUserProfileDisplay(headProfileId, options)));
       expect(native).not.toHaveBeenCalled();
     },
   );
+
+  it("reads only display columns for one-hop aliases and native text keys without creating missing storage", () => {
+    const options = fixture();
+    expect(getUserProfileDisplays(["missing"], options).size).toBe(0);
+    expect(fs.existsSync(options.path)).toBe(false);
+    const target = ensureProfileForEmail("target@example.test", options);
+    const alias = ensureProfileForEmail("alias@example.test", options);
+    linkEmail("alias@example.test", target.id, options);
+    const dangling = ensureProfileForEmail("dangling@example.test", options);
+    const { db } = openOpenClawStateDatabase(options);
+    db.prepare("UPDATE user_profiles SET merged_into = ? WHERE id = ?").run("missing", dangling.id);
+    db.prepare("UPDATE user_profiles SET created_at = ? WHERE id = ?").run(
+      9223372036854775807n,
+      target.id,
+    );
+    const boundId = "text-\ufffd\0suffix";
+    const requestedId = "text-\ud800\0suffix";
+    db.prepare(
+      "INSERT INTO user_profiles (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    ).run(boundId, "Native text", 1, 1);
+    const ids = [alias.id, dangling.id, requestedId, "missing"];
+    const displays = getUserProfileDisplays(ids, options);
+    expect(displays.size).toBe(3);
+    for (const id of ids.slice(0, -1)) {
+      expect(displays.get(id)).toEqual(getUserProfileDisplay(id, options));
+    }
+    expect(displays.get(alias.id)?.id).toBe(target.id);
+    expect(displays.get(dangling.id)?.id).toBe(dangling.id);
+    expect(displays.get(requestedId)?.id).toBe(boundId);
+
+    const nonStrictOptions = fixture();
+    const nonStrictDb = openOpenClawStateDatabase(nonStrictOptions).db;
+    nonStrictDb.exec(`
+      CREATE TABLE user_profiles (
+        id TEXT PRIMARY KEY, display_name TEXT, avatar BLOB, avatar_mime TEXT,
+        avatar_sha256 TEXT, merged_into TEXT, updated_at INTEGER
+      );
+    `);
+    const blobId = new Uint8Array([1, 2, 3]);
+    nonStrictDb
+      .prepare(
+        "INSERT INTO user_profiles (id, display_name, merged_into, updated_at) VALUES (?, ?, ?, 1)",
+      )
+      .run(blobId, "Native BLOB target", null);
+    nonStrictDb
+      .prepare(
+        "INSERT INTO user_profiles (id, display_name, merged_into, updated_at) VALUES (?, ?, ?, 1)",
+      )
+      .run("blob-alias", "Alias", blobId);
+    expect(getUserProfileDisplays(["blob-alias"], nonStrictOptions).get("blob-alias")).toEqual(
+      getUserProfileDisplay("blob-alias", nonStrictOptions),
+    );
+    expect(getUserProfileDisplay("blob-alias", nonStrictOptions).displayName).toBe(
+      "Native BLOB target",
+    );
+  });
 
   it("keeps dormant ambiguity and exact-ID precedence inside the allowed visibility scope", () => {
     const options = fixture();

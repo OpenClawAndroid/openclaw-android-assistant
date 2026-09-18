@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS } from "../../daemon/launchd-plist.js";
 import {
   GATEWAY_SERVICE_STOP_TIMEOUT_MS,
@@ -32,6 +33,9 @@ export async function resolveGatewayShutdownBudget(
     nativeStopBudget: systemdStop !== null || supervisor === "launchd",
     timeoutMs,
     reserveMs,
+    // Let cleanup failures reach the run loop before its native exit timer wins.
+    cleanupDeadline: (deadline: number, hardExitGraceMs: number) =>
+      deadline - Math.min(hardExitGraceMs / 2, Math.max(0, deadline - performance.now()) / 2),
     log: (phase: "startup" | "shutdown") => {
       logger.info(
         `shutdown budget at ${phase}: drain=${Math.max(0, timeoutMs - GATEWAY_SHUTDOWN_RESERVE_MS)}ms shutdown=${timeoutMs}ms reserve=${reserveMs}ms exitMargin=${GATEWAY_SUPERVISOR_EXIT_MARGIN_MS}ms; source=${stop.source}=${stop.timeoutMs}ms`,

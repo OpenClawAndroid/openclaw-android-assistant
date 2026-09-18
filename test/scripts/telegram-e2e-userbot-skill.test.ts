@@ -14,7 +14,7 @@ function requireSuccess(command: string, args: string[]) {
     encoding: "utf8",
     timeout: 120_000,
   });
-  expect(result.error).toBeUndefined();
+  expect(result.error, `${result.stdout}${result.stderr}`).toBeUndefined();
   expect(`${result.stdout}${result.stderr}`).not.toContain("not ok");
   expect(result.status, `${command} ${args.join(" ")}\n${result.stdout}${result.stderr}`).toBe(0);
 }

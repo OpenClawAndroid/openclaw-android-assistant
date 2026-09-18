@@ -319,6 +319,7 @@ export async function main(
     if (needsArtifacts) {
       const code = await runManagedCommand({
         bin: process.execPath,
+        shell: false,
         args: distArtifactEntryArgs(
           path.resolve("scripts/prepare-extension-package-boundary-artifacts.mts"),
           ["--mode=package-boundary"],

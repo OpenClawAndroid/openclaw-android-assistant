@@ -98,12 +98,11 @@ function sessionResolveCandidate(
   };
 }
 
-export async function resolveSessionKeyFromResolveParams(params: {
-  cfg: OpenClawConfig;
+export function resolveSessionKeyFromResolveParams(params: {
   client: GatewayClient | null;
   projection: SessionRowProjection;
   p: SessionsResolveParams;
-}): Promise<SessionsResolveResult> {
+}): SessionsResolveResult {
   const { client, p, projection } = params;
   const { cfg } = projection.state;
   const { sharing } = prepareProjectedSessionPresentation(projection, client);

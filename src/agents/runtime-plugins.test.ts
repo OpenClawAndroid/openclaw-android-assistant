@@ -353,6 +353,7 @@ describe("agent runtime plugin registries", () => {
         workspaceDir,
       },
       metadataSnapshot as never,
+      vi.fn(),
       createPreparedInboundRegistryLoader(),
       true,
     );

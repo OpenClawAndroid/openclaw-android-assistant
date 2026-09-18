@@ -202,16 +202,29 @@ export function planTargetedDockerLaneGroups({
 const isMain = process.argv[1] ? fileURLToPath(import.meta.url) === process.argv[1] : false;
 
 if (isMain) {
-  process.stdout.write(
-    JSON.stringify(
-      planTargetedDockerLaneGroups({
-        groupSize: process.env.GROUP_SIZE,
-        lanes: process.env.LANES,
-        upgradeSurvivorBaseline: process.env.OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC,
-        upgradeSurvivorBaselineScope: process.env.OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SCOPE,
-        upgradeSurvivorBaselines: process.env.OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPECS,
-        upgradeSurvivorScenarios: process.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS,
-      }),
-    ),
-  );
+  const options = {
+    groupSize: process.env.GROUP_SIZE,
+    lanes: process.env.LANES,
+    upgradeSurvivorBaseline: process.env.OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPEC,
+    upgradeSurvivorBaselineScope: process.env.OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SCOPE,
+    upgradeSurvivorBaselines: process.env.OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPECS,
+    upgradeSurvivorScenarios: process.env.OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS,
+  };
+  let groups = planTargetedDockerLaneGroups(options);
+  if (process.argv.length > 2) {
+    if (process.argv[2] !== "--check-baselines" || !process.argv[3] || process.argv.length !== 4) {
+      throw new Error(
+        "Usage: plan-targeted-docker-lane-groups.mjs [--check-baselines <evidence-dir>]",
+      );
+    }
+    const { checkUpgradeSurvivorBaselines } =
+      await import("./lib/upgrade-survivor-baseline-check.mjs");
+    groups = checkUpgradeSurvivorBaselines(groups, {
+      evidenceDir: process.argv[3],
+      baseline: options.upgradeSurvivorBaseline,
+      baselines: options.upgradeSurvivorBaselines,
+      scenarios: options.upgradeSurvivorScenarios,
+    });
+  }
+  process.stdout.write(JSON.stringify(groups));
 }

@@ -52,6 +52,7 @@
    where --text-strong is dark rather than near-white. */
 .agent-chat__composer-shell,
 .agent-chat__input {
+  --chat-composer-radius: calc(20px * var(--openclaw-corner-radius-scale));
   --chat-composer-surface: var(--popover);
   --chat-composer-light-outline: rgb(0 0 0 / 6%);
   --composer-attached-surface: color-mix(
@@ -60,6 +61,18 @@
     var(--background, var(--bg))
   );
   --chat-composer-hairline: color-mix(in srgb, var(--text-strong) 16%, transparent);
+}
+
+.agent-chat__input,
+.agent-chat__disabled-banner.callout,
+.agent-chat__composer-overlay
+  > :is(
+    .chat-composer-neighbor-card,
+    .agent-chat__composer-errors--standalone,
+    .agent-chat__talk-status.callout
+  ) {
+  border-radius: var(--chat-composer-radius);
+  corner-shape: superellipse(1.5);
 }
 
 .agent-chat__input {
@@ -150,7 +163,6 @@
   padding: 0;
   background: var(--chat-composer-surface);
   border: 1px solid var(--chat-composer-hairline);
-  border-radius: calc(20px * var(--openclaw-corner-radius-scale));
   /* Deliberately lighter than --shadow-sm: with the border and the luminance
      step already doing the separating, a heavier drop reads as a second frame. */
   box-shadow: 0 4px 16px rgb(0 0 0 / 5%);

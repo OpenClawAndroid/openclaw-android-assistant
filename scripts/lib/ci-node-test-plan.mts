@@ -142,6 +142,16 @@ type PolicyTestWatch = {
 // discover from imports alone.
 const policyTestWatches = [
   {
+    testFile: "test/scripts/tsgo-core-test-shards.test.ts",
+    watchGlobs: [
+      "src/{auto-reply,infra/outbound}/**/*.test.{ts,tsx}",
+      "tsconfig.json",
+      "test/tsconfig/tsconfig.test.json",
+      "test/tsconfig/tsconfig.core.test*.json",
+      "test/tsconfig/tsconfig.test.packages.json",
+    ],
+  },
+  {
     testFile: "src/infra/fs-safe-import-boundary.test.ts",
     watchGlobs: ["src/test-utils/**/*.ts"],
   },

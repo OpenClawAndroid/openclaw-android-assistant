@@ -4,7 +4,7 @@ import { vi } from "vitest";
 import { withTempHome } from "../config/test-helpers.js";
 import { withStateDatabaseCoordinatorRuntimeDirectory } from "../infra/state-database-coordinator.js";
 import * as temporaryState from "../infra/tmp-openclaw-dir.js";
-import { listKnownProviderAuthEnvVarNames } from "../secrets/provider-env-vars.js";
+import { listKnownProviderAuthEnvVarNamesCore } from "../secrets/provider-env-vars.js";
 import { withEnvAsync } from "../test-utils/env.js";
 
 /** Keep real preflight fixtures from provisioning plugins for the developer's credentials. */
@@ -18,7 +18,7 @@ export async function withDoctorConfigPreflightHome<T>(
       .spyOn(temporaryState, "resolvePreferredOpenClawTmpDir")
       .mockReturnValue(control);
     const providerEnv = Object.fromEntries(
-      listKnownProviderAuthEnvVarNames({ config: {}, env: process.env }).map((key) => [
+      listKnownProviderAuthEnvVarNamesCore({ config: {}, env: process.env }).map((key) => [
         key,
         undefined,
       ]),

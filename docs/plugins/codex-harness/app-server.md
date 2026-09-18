@@ -18,7 +18,8 @@ different executable. Verified setup accepts a native Codex executable or the
 official `@openai/codex` npm entrypoint, including its installed symlink or
 Windows npm launcher. Arbitrary wrapper scripts cannot be verified because
 their native target is unknown; select the native executable or official npm
-launcher instead. Codex classifies WebSocket transport as experimental
+launcher instead. An `app-server proxy` also cannot supply verified setup because
+its local executable only forwards requests to a separate daemon. Codex classifies WebSocket transport as experimental
 and unsupported; use it only for non-production testing against an app-server
 already running elsewhere:
 

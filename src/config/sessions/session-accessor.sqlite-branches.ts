@@ -22,7 +22,7 @@ import {
 import {
   readSessionTranscriptHotWatermark,
   type SessionTranscriptWatermark,
-} from "./session-accessor.sqlite-transcript-watermark.js";
+} from "./session-accessor.sqlite-transcript-watermark-read.js";
 import type {
   SessionBranchListParams,
   SessionBranchListResult,

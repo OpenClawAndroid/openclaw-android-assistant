@@ -11,6 +11,7 @@ import {
   prepareGatewayRecipientProfile,
 } from "./expected-profile.js";
 import { createGatewayConnectionState } from "./server-connection-state.js";
+import { createVisibleActiveSessionRunProjector } from "./server-methods/session-active-runs.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 import { prepareProjectedSessionPresentation } from "./session-row-presentation.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
@@ -119,13 +120,18 @@ it("presents current recipient roles without SQLite while rejecting source overr
           expect(socket.send.mock.calls).toHaveLength(1);
           const frame = JSON.parse(String(socket.send.mock.calls[0]?.[0]));
           const expectedWire = JSON.stringify(
-            prepareProjectedSessionPresentation(projection, client, Date.now(), connection).present(
-              captured,
-              {
-                includeDerivedTitles: true,
-                includeLastMessage: true,
-              },
-            ),
+            prepareProjectedSessionPresentation(
+              projection,
+              client,
+              Date.now(),
+              createVisibleActiveSessionRunProjector(
+                connection,
+                projection.state.rowContext.projectedAgentRuns,
+              ),
+            ).present(captured, {
+              includeDerivedTitles: true,
+              includeLastMessage: true,
+            }),
           );
           expect(frame.payload.session).toEqual(JSON.parse(expectedWire));
           expect(frame.payload.session).not.toMatchObject({ status: "completed", label: null });
@@ -139,6 +145,44 @@ it("presents current recipient roles without SQLite while rejecting source overr
           key: "agent:main:dashboard:incognito-private",
         }),
       ).toMatchObject({ code: "INVALID_REQUEST" });
+      const activeRun = {
+        controller: new AbortController(),
+        sessionKey: query.key,
+        sessionId: entry.sessionId,
+        agentId: query.agentId,
+        startedAtMs: Date.now(),
+        expiresAtMs: Date.now() + 60_000,
+      };
+      connection.chatAbortControllers.set("old-run", activeRun);
+      for (const client of clients) {
+        vi.mocked(client.socket).send.mockClear();
+      }
+      vi.mocked(clients[0]!.socket).send.mockImplementationOnce(() => {
+        connection.chatAbortControllers.delete("old-run");
+        connection.chatAbortControllers.set("replacement-run", {
+          ...activeRun,
+          sessionKey: "agent:main:adopted-source",
+          sessionId: ` ${entry.sessionId} `,
+        });
+      });
+      connection.broadcastToConnIds(
+        "sessions.changed",
+        { sessionKey: query.key, agentId: query.agentId },
+        new Set(clients.map((client) => client.connId)),
+      );
+      for (const [index, runId] of [
+        [0, "old-run"],
+        [1, "replacement-run"],
+      ] as const) {
+        const sends = vi.mocked(clients[index]!.socket).send.mock.calls;
+        expect(sends).toHaveLength(1);
+        expect(JSON.parse(String(sends[0]?.[0])).payload.session).toMatchObject({
+          hasActiveRun: true,
+          activeRunIds: [runId],
+        });
+      }
+      expect(vi.mocked(clients[2]!.socket).send.mock.calls).toHaveLength(0);
+      connection.chatAbortControllers.clear();
       expect(prepares).not.toHaveBeenCalled();
       expect(exec).not.toHaveBeenCalled();
       prepares.mockRestore();

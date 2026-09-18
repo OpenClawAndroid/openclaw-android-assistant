@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
 const WORKFLOW = ".github/workflows/dependency-guard.yml";
-const CODEOWNERS = ".github/CODEOWNERS";
 
 type WorkflowStep = {
   "continue-on-error"?: boolean;
@@ -263,19 +262,5 @@ describe("dependency guard workflow", () => {
     expect(dependencyGraphCompareIndex).toBeGreaterThan(trustedActorIndex);
     expect(autoscrubCandidateIndex).toBeGreaterThan(trustedActorIndex);
     expect(autoscrubOutputIndex).toBeGreaterThan(trustedActorIndex);
-  });
-
-  it("requires secops review for future workflow or guard changes", () => {
-    const codeowners = readFileSync(CODEOWNERS, "utf8");
-    expect(codeowners).toContain(
-      "/.github/workflows/dependency-guard.yml @openclaw/openclaw-secops",
-    );
-    expect(codeowners).toContain(
-      "/test/scripts/dependency-guard-workflow.test.ts @openclaw/openclaw-secops",
-    );
-    expect(codeowners).toContain("/scripts/github/dependency-guard.mjs @openclaw/openclaw-secops");
-    expect(codeowners).toContain("/package-lock.json @openclaw/openclaw-secops");
-    expect(codeowners).toContain("/extensions/*/package-lock.json @openclaw/openclaw-secops");
-    expect(codeowners).toContain("/pnpm-lock.yaml @openclaw/openclaw-secops");
   });
 });

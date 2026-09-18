@@ -121,6 +121,10 @@ const PACKED_PLUGIN_SDK_SETUP_CONSUMER_FIXTURE = new URL(
   "./fixtures/packed-plugin-sdk-setup-consumer.ts",
   import.meta.url,
 );
+const PACKED_PLUGIN_SDK_PROGRESS_CONSUMER_FIXTURE = new URL(
+  "./fixtures/packed-plugin-sdk-progress-consumer.ts",
+  import.meta.url,
+);
 const PACKED_PLUGIN_SDK_SETUP_SURFACE_OMISSION_VERSIONS = new Set(["2026.7.33"]);
 
 export function packedPluginSdkMayOmitSetupSurface(packageVersion: string): boolean {
@@ -704,6 +708,7 @@ export function createPackedPluginSdkTypescriptSmokeProject(params: {
   consumerDir: string;
   packageSpec: string;
   aiPackageSpec?: string;
+  progressConsumerOnly?: boolean;
 }): void {
   const dependencies: Record<string, string> = {
     openclaw: params.packageSpec,
@@ -743,7 +748,9 @@ export function createPackedPluginSdkTypescriptSmokeProject(params: {
           types: ["node"],
           target: "ES2022",
         },
-        include: ["src/index.ts"],
+        include: params.progressConsumerOnly
+          ? ["src/packed-plugin-sdk-progress-consumer.ts"]
+          : ["src/index.ts"],
       },
       null,
       2,
@@ -758,6 +765,12 @@ export function createPackedPluginSdkTypescriptSmokeProject(params: {
     PACKED_PLUGIN_SDK_SETUP_CONSUMER_FIXTURE,
     join(params.consumerDir, "src", "packed-plugin-sdk-setup-consumer.ts"),
   );
+  if (params.progressConsumerOnly) {
+    copyFileSync(
+      PACKED_PLUGIN_SDK_PROGRESS_CONSUMER_FIXTURE,
+      join(params.consumerDir, "src", "packed-plugin-sdk-progress-consumer.ts"),
+    );
+  }
 }
 
 function runPackedPluginSdkTypescriptSmoke(

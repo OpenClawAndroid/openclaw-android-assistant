@@ -2,7 +2,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { performance } from "node:perf_hooks";
 import { isDeepStrictEqual } from "node:util";
 import { listAgentIds, withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
-import { registerPreparedModelRuntimePublicationListener } from "../agents/prepared-model-runtime.publication-events.js";
 import { resolveSessionParentSessionKey } from "../channels/plugins/session-conversation.js";
 import {
   loadCombinedSessionStoreForGatewayCore,
@@ -34,14 +33,20 @@ import { readSessionRowFacts } from "./server-methods/session-placement-read-pro
 import { yieldSessionListWork } from "./session-projection-work.js";
 import { withPreparedSessionRows, type SessionRowReadView } from "./session-row-prepared-read.js";
 import { createSessionRowProjectionBackfill } from "./session-row-projection-backfill.js";
+import { createSessionRowProjectionCatalog } from "./session-row-projection-catalog.js";
 import { createSessionRowProjectionContext } from "./session-row-projection-context.js";
 import {
+  createSessionRowMaterializationBatch,
   readResidentSessionRow,
   readSessionRowEntry,
 } from "./session-row-projection-materialize.js";
 import * as records from "./session-row-projection-record.js";
 import { createSessionRowProjectionTranscriptUpdates } from "./session-row-projection-transcript.js";
-import { prepareSessionRowScopes } from "./session-row-scope.js";
+import {
+  matchesSessionRowScope,
+  prepareSessionRowScopes,
+  selectMatchingSessionRows,
+} from "./session-row-scope.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
 
 /** Committed publications own invalidation; each admitted physical store is hydrated once. */
@@ -51,11 +56,11 @@ export async function createSessionRowProjection(params: {
   modelCatalog?: records.Inputs["modelCatalog"];
   getModelCatalog?: () => Promise<records.Inputs["modelCatalog"]>;
   context?: Parameters<typeof readSessionRowFacts>[0]["context"];
+  placementFactsReader?: Parameters<typeof readSessionRowFacts>[0]["placementFactsReader"];
 }) {
   // Publications may borrow startup admission; projection work retains its own authority.
   const inOwnerContext = AsyncLocalStorage.snapshot();
   let cfg = params.cfg;
-  let modelCatalog = params.modelCatalog;
   const rows = new Map<string, records.Row>();
   let stores = new Map<
     string,
@@ -68,12 +73,26 @@ export async function createSessionRowProjection(params: {
   const indexes = { byStore, byAgent, byParent, byKey };
   const dirty = new Set<string>();
   let topologyDirty = true,
-    catalogDirty = params.getModelCatalog ? Symbol("catalog") : undefined,
     disposed = false;
   let epoch = 0;
   let materializedCount = 0;
   let scope: ReturnType<typeof prepareSessionRowScopes>;
   let pending: Promise<void> | undefined;
+  const catalog = createSessionRowProjectionCatalog({
+    modelCatalog: params.modelCatalog,
+    getModelCatalog: params.getModelCatalog,
+    onInvalidated: () => mark({ all: true, scope: "catalog" }),
+    onRefreshed(adopted) {
+      if (adopted) {
+        // Rows served during renewal used the previous catalog and must be presented again.
+        epoch++;
+        for (const id of rows.keys()) {
+          dirty.add(id);
+        }
+      }
+      void ensureMaterialized().catch(() => {});
+    },
+  });
   const metadata = createSessionRowProjectionContext();
   const backfill = createSessionRowProjectionBackfill({
     ready: ensureMaterialized,
@@ -165,32 +184,8 @@ export async function createSessionRowProjection(params: {
     }
     return next;
   }
-  function inScope(row: records.Row, query: records.Query, logicalOwnerOnly = false) {
-    return (
-      (!query.agentId ||
-        row.agentId === query.agentId ||
-        (!logicalOwnerOnly && row.storeTarget.agentId === query.agentId)) &&
-      (!query.storePath ||
-        (scope?.physicalPaths(query.storePath, query.agentId) ?? [query.storePath]).includes(
-          row.storeTarget.storePath,
-        ))
-    );
-  }
   function matching(query: records.Query, kind = "key") {
-    const candidates = query.key
-      ? byKey.get(`${kind}:${query.key}`)
-      : query.storePath
-        ? new Set(
-            (scope?.physicalPaths(query.storePath, query.agentId) ?? [query.storePath]).flatMap(
-              (path) => Array.from(byStore.get(path) ?? []),
-            ),
-          )
-        : query.agentId
-          ? byAgent.get(query.agentId)
-          : rows.keys();
-    return [...(candidates ?? [])]
-      .map((id) => rows.get(id))
-      .filter((row): row is records.Row => row !== undefined && inScope(row, query));
+    return selectMatchingSessionRows({ rows, indexes, scope }, query, kind);
   }
   function lookup(query: records.Lookup) {
     if (disposed) {
@@ -311,8 +306,8 @@ export async function createSessionRowProjection(params: {
     metadata.invalidate(change);
     if ("all" in change) {
       topologyDirty ||= change.scope === "stores" || change.scope === "config";
-      if (params.getModelCatalog && (change.scope === "catalog" || change.scope === "config")) {
-        catalogDirty = Symbol("catalog");
+      if (change.scope === "catalog" || change.scope === "config") {
+        catalog.invalidate();
       }
       for (const row of typeof change.scope === "string" ? rows.values() : matching(change.scope)) {
         dirty.add(records.identity(row));
@@ -350,7 +345,10 @@ export async function createSessionRowProjection(params: {
             agentId,
             storeTarget: source.target,
           });
-          if (!inScope(row, change) || (!change.storePath && agentId !== source.agentId)) {
+          if (
+            !matchesSessionRowScope(row, change, scope) ||
+            (!change.storePath && agentId !== source.agentId)
+          ) {
             continue;
           }
           put(row);
@@ -362,11 +360,14 @@ export async function createSessionRowProjection(params: {
         }
       }
     }
-    void ensureMaterialized().catch(() => {
-      /* Dirty keys retain failed background work for the next reader. */
-    });
+    // Dirty keys retain failed background work for the next reader.
+    void ensureMaterialized().catch(() => {});
   }
-  function materialize(row: records.Row, configuredAgentIds = new Set(listAgentIds(cfg))) {
+  function materialize(
+    row: records.Row,
+    configuredAgentIds = new Set(listAgentIds(cfg)),
+    readRow = readResidentSessionRow,
+  ) {
     if (!row.entry) {
       return false;
     }
@@ -381,14 +382,15 @@ export async function createSessionRowProjection(params: {
     });
     // Keyed child refreshes reorder the parent index; presentation must stay stable.
     links.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-    const prepared = readResidentSessionRow({
+    const prepared = readRow({
       row: { ...row, entry: row.entry },
       cfg,
-      modelCatalog,
+      modelCatalog: catalog.current,
       configuredAgentIds,
       context: metadata.current,
       subagentInputs: metadata.subagentInputs,
       gatewayContext: params.context,
+      placementFactsReader: params.placementFactsReader,
       links,
       readSourceEntry: (key) => {
         const source = referenced(
@@ -413,6 +415,7 @@ export async function createSessionRowProjection(params: {
     const started = performance.now();
     metadata.prepare(epoch);
     const configuredAgentIds = new Set(listAgentIds(cfg));
+    const readRow = createSessionRowMaterializationBatch();
     for (const [offset, id] of ids.entries()) {
       if (offset > 0 && performance.now() - started >= 12) {
         break;
@@ -420,8 +423,11 @@ export async function createSessionRowProjection(params: {
       const current = rows.get(id),
         revision = epoch;
       const row = current && acquireEntry(current, readSessionRowEntry(current));
-      if (row && materialize(row, configuredAgentIds) && epoch === revision && !catalogDirty) {
+      if (row && materialize(row, configuredAgentIds, readRow) && epoch === revision) {
         dirty.delete(id);
+      }
+      if (epoch !== revision) {
+        break;
       }
     }
   }
@@ -429,22 +435,26 @@ export async function createSessionRowProjection(params: {
     if (topologyDirty) {
       topology();
     }
-    if (catalogDirty) {
-      const revision = catalogDirty;
-      const next = await params.getModelCatalog?.();
-      if (disposed || catalogDirty !== revision) {
-        return;
-      }
-      modelCatalog = next;
-      catalogDirty = undefined;
+    if (catalog.needsInitialRead) {
+      await catalog.refresh();
     }
-    withAgentRosterFactsBatch(cfg, () => refresh([...dirty].slice(0, 64)));
+    withAgentRosterFactsBatch(cfg, () => {
+      // Refresh can change dirty membership; snapshot only the next batch before consuming it.
+      const ids: string[] = [];
+      for (const id of dirty) {
+        ids.push(id);
+        if (ids.length === 64) {
+          break;
+        }
+      }
+      refresh(ids);
+    });
+  }
+  function needsMaterialization() {
+    return !disposed && (topologyDirty || catalog.needsInitialRead || dirty.size > 0);
   }
   async function drain() {
-    for (;;) {
-      if (disposed || (!topologyDirty && !catalogDirty && !dirty.size)) {
-        return;
-      }
+    while (needsMaterialization()) {
       await refreshBatch();
       if (dirty.size || topologyDirty) {
         await yieldSessionListWork();
@@ -452,7 +462,10 @@ export async function createSessionRowProjection(params: {
     }
   }
   function ensureMaterialized(): Promise<void> {
-    if (disposed || (!topologyDirty && !catalogDirty && !dirty.size)) {
+    if (!disposed && !catalog.needsInitialRead) {
+      void inOwnerContext(() => catalog.refresh());
+    }
+    if (!needsMaterialization()) {
       return pending ?? Promise.resolve();
     }
     return (pending ??= yieldSessionListWork()
@@ -460,7 +473,7 @@ export async function createSessionRowProjection(params: {
       .then(
         () => {
           pending = undefined;
-          if (!disposed && (topologyDirty || catalogDirty || dirty.size)) {
+          if (needsMaterialization()) {
             return ensureMaterialized();
           }
           return undefined;
@@ -486,18 +499,6 @@ export async function createSessionRowProjection(params: {
     retainUserProfileCatalog(),
     sessionChanges.subscribe(mark),
     onSessionLifecycleEvent(mark),
-    registerPreparedModelRuntimePublicationListener((event) => {
-      // An incomplete catalog read still needs the next publication to recover its rows.
-      if (
-        (event.phase === "catalog-published" || event.phase === "catalog-failed") &&
-        event.modelFactsChanged === false &&
-        modelCatalog !== undefined &&
-        (!(modelCatalog instanceof Map) || ![...modelCatalog.values()].includes(undefined))
-      ) {
-        return;
-      }
-      mark({ all: true, scope: "catalog" });
-    }),
     onSessionIdentityMutation((mutation) => {
       for (const key of mutation.previous.sessionKeys) {
         for (const row of matching({ key, agentId: mutation.agentId })) {
@@ -561,6 +562,7 @@ export async function createSessionRowProjection(params: {
     });
   function dispose() {
     disposed = true;
+    catalog.dispose();
     transcriptUpdates.dispose();
     backfill.dispose();
     for (const unsubscribe of stop) {
@@ -602,7 +604,7 @@ export async function createSessionRowProjection(params: {
           // Broad publications can change IDs before the resident index has caught up.
           for (const id of dirty) {
             const row = rows.get(id);
-            if (row && inScope(row, query, true)) {
+            if (row && matchesSessionRowScope(row, query, scope, true)) {
               acquireEntry(row, readSessionRowEntry(row));
             }
           }
@@ -622,7 +624,7 @@ export async function createSessionRowProjection(params: {
               : row,
           )
           .filter(records.hasEntry)
-          .filter((row) => inScope(row, query, true));
+          .filter((row) => matchesSessionRowScope(row, query, scope, true));
         return records.sort(selected, query.sortBy);
       });
     });
@@ -672,7 +674,7 @@ export async function createSessionRowProjection(params: {
       return dirty.size;
     },
     get needsMaterialization() {
-      return !disposed && (topologyDirty || Boolean(catalogDirty) || dirty.size > 0);
+      return needsMaterialization();
     },
     get state() {
       if (!disposed && topologyDirty) {
@@ -681,7 +683,12 @@ export async function createSessionRowProjection(params: {
       if (!disposed) {
         metadata.prepare(epoch);
       }
-      return { cfg, modelCatalog, rowContext: metadata.current, scope: scope.select };
+      return {
+        cfg,
+        modelCatalog: catalog.current,
+        rowContext: metadata.current,
+        scope: scope.select,
+      };
     },
     isCurrent,
     selectEntries,

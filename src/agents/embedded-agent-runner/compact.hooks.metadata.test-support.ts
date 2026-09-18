@@ -1,4 +1,9 @@
+import { vi } from "vitest";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
+import type {
+  PreparedModelRuntimeInput,
+  PreparedModelRuntimeLeaseOptions,
+} from "../prepared-model-runtime.types.js";
 
 const emptyPluginIndex: PluginMetadataSnapshot["index"] = {
   version: 1,
@@ -31,6 +36,7 @@ export const emptyPluginMetadataSnapshot: PluginMetadataSnapshot = {
     setupProviders: new Map(),
     commandAliases: new Map(),
     contracts: new Map(),
+    providerAuthContributions: [],
     modelIdNormalizationPolicies: new Map(),
   },
   metrics: {
@@ -42,3 +48,40 @@ export const emptyPluginMetadataSnapshot: PluginMetadataSnapshot = {
     manifestPluginCount: 0,
   },
 };
+
+export async function acquireCompactHooksPreparedModelRuntime(
+  input: PreparedModelRuntimeInput,
+  _options?: PreparedModelRuntimeLeaseOptions,
+) {
+  return {
+    snapshot: {
+      isCurrent: () => true,
+      agentId: input.agentId,
+      agentDir: input.agentDir,
+      config: input.config,
+      workspaceDir: input.workspaceDir,
+      metadataSnapshot: { ...emptyPluginMetadataSnapshot, workspaceDir: input.workspaceDir },
+      configuredRuntimeModels: [],
+      findConfiguredRuntimeModel: () => undefined,
+      inlineProviderModels: [],
+      createStores: () => ({ authStorage: {}, modelRegistry: {} }),
+    },
+    [Symbol.asyncDispose]: vi.fn(async () => {}),
+  };
+}
+
+export function createCompactHooksPreparedModelRuntime(input: {
+  agentId: string;
+  agentDir: string;
+  config: PreparedModelRuntimeInput["config"];
+  workspaceDir: string;
+  metadataSnapshot: PluginMetadataSnapshot;
+}) {
+  return {
+    ...input,
+    configuredRuntimeModels: [],
+    findConfiguredRuntimeModel: () => undefined,
+    inlineProviderModels: [],
+    createStores: () => ({ authStorage: {}, modelRegistry: {} }),
+  };
+}

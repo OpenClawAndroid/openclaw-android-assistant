@@ -14,6 +14,22 @@ export function getTaskExecutionObservation(
   task: TaskRecord,
 ): NonNullable<TaskSummary["execution"]> {
   const activity = getTaskActivitySnapshot(task.taskId);
+  const fixedState =
+    task.status === "lost"
+      ? "unknown"
+      : isTerminalTaskStatus(task.status)
+        ? "finished"
+        : task.status === "queued"
+          ? "queued"
+          : undefined;
+  if (fixedState) {
+    return {
+      state: fixedState,
+      ...(activity?.lastActivityAt !== undefined
+        ? { lastActivityAt: activity.lastActivityAt }
+        : {}),
+    };
+  }
   const backing = readTaskBackingInstance(task.detail);
   const registeredExecution =
     task.runtime === "subagent" && task.runId && task.childSessionKey
@@ -34,17 +50,10 @@ export function getTaskExecutionObservation(
     (registeredExecution && activity?.executionRunId !== registeredExecution.executionRunId)
       ? undefined
       : activity;
-  const execution: NonNullable<TaskSummary["execution"]> =
-    task.status === "lost"
-      ? { state: "unknown" }
-      : isTerminalTaskStatus(task.status)
-        ? { state: "finished" }
-        : task.status === "queued"
-          ? { state: "queued" }
-          : (nativeExecution ?? {
-              state: currentActivity?.executionState ?? "unknown",
-              ...(currentActivity?.executionWait ? { wait: currentActivity.executionWait } : {}),
-            });
+  const execution: NonNullable<TaskSummary["execution"]> = nativeExecution ?? {
+    state: currentActivity?.executionState ?? "unknown",
+    ...(currentActivity?.executionWait ? { wait: currentActivity.executionWait } : {}),
+  };
   if (execution.state === "running" && currentActivity?.executionWait) {
     execution.state = currentActivity.executionState ?? "waiting";
     execution.wait = currentActivity.executionWait;

@@ -443,6 +443,10 @@ suite.define(() => {
           const inputBox = input.getBoundingClientRect();
           return {
             composerBorder: getComputedStyle(input).borderTopWidth,
+            composerTopCorners: [
+              getComputedStyle(input).borderTopLeftRadius,
+              getComputedStyle(input).borderTopRightRadius,
+            ],
             joined: Math.abs(panelBox.bottom - inputBox.top) <= 1,
             panelBorder: getComputedStyle(collapsedPanel).borderTopWidth,
             rowHeight: Math.round(panelBox.height),
@@ -456,6 +460,7 @@ suite.define(() => {
         }),
       ).toEqual({
         composerBorder: "0px",
+        composerTopCorners: ["0px", "0px"],
         joined: true,
         panelBorder: "0px",
         rowHeight: 48,
@@ -590,7 +595,11 @@ suite.define(() => {
     await expect
       .poll(() => composer.evaluate((element) => document.activeElement === element))
       .toBe(true);
+    await summary.scrollIntoViewIfNeeded();
     await screenshot(page, "02-question-answered.png");
+    expect(
+      await summary.getByText(request.questions[0]!.question, { exact: true }).isVisible(),
+    ).toBe(true);
   });
 
   it("masks a store-bound secret and resolves it with edited hosts without echoing the value", async () => {

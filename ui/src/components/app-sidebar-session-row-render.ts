@@ -619,7 +619,7 @@ export function renderSessionTree(params: {
                   </button>`
                 : nothing
             }
-            ${renderChildSessionLoadError(host, session.key)}
+            ${(session.childLoadParentKeys ?? [session.key]).map((key) => renderChildSessionLoadError(host, key))}
             ${
               session.loadingChildren && session.children.length === 0
                 ? html`<span

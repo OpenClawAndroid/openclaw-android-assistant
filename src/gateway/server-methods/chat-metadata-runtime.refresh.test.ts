@@ -206,7 +206,7 @@ describe("gateway chat metadata runtime", () => {
     },
   );
 
-  test("publishes mutable catalog progress and failure changes once each", async () => {
+  test("ignores catalog progress and publishes failure transitions once each", async () => {
     const onChanged = vi.fn();
     const harness = createChatMetadataHarness(undefined, { onChanged });
     const catalog = harness.getPreparedOwner()!.modelCatalog;
@@ -216,20 +216,20 @@ describe("gateway chat metadata runtime", () => {
 
       catalog.pendingProviders = ["test"];
       await harness.runtime.refresh();
-      expect(onChanged).toHaveBeenCalledTimes(2);
+      expect(onChanged).toHaveBeenCalledOnce();
       catalog.pendingProviders = ["test"];
       await harness.runtime.refresh();
-      expect(onChanged).toHaveBeenCalledTimes(2);
+      expect(onChanged).toHaveBeenCalledOnce();
 
       catalog.pendingProviders = undefined;
       catalog.refreshFailed = true;
       await harness.runtime.refresh();
-      expect(onChanged).toHaveBeenCalledTimes(3);
+      expect(onChanged).toHaveBeenCalledTimes(2);
 
       catalog.refreshFailed = undefined;
       await harness.runtime.refresh();
       await harness.runtime.refresh();
-      expect(onChanged).toHaveBeenCalledTimes(4);
+      expect(onChanged).toHaveBeenCalledTimes(3);
     } finally {
       await harness.runtime.stop();
     }

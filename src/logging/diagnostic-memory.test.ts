@@ -441,34 +441,26 @@ describe("diagnostic memory", () => {
     },
   );
 
-  it("emits pressure when RSS grows quickly", () => {
+  it("emits pressure when RSS growth persists across windows", () => {
     const events: DiagnosticEventPayload[] = [];
     const stop = onDiagnosticEvent((event) => events.push(event));
 
-    emitDiagnosticMemorySample({
-      now: 1000,
-      memoryUsage: memoryUsage({ rss: 1000 }),
-      thresholds: {
-        rssWarningBytes: 10_000,
-        heapUsedWarningBytes: 10_000,
-        rssGrowthWarningBytes: 500,
-        growthWindowMs: 10_000,
-      },
-    });
-    emitDiagnosticMemorySample({
-      now: 2000,
-      memoryUsage: memoryUsage({ rss: 1700 }),
-      thresholds: {
-        rssWarningBytes: 10_000,
-        heapUsedWarningBytes: 10_000,
-        rssGrowthWarningBytes: 500,
-        growthWindowMs: 10_000,
-      },
-    });
+    for (const [index, rss] of [1000, 1350, 1700, 1700].entries()) {
+      emitDiagnosticMemorySample({
+        now: 1000 + index * 5000,
+        memoryUsage: memoryUsage({ rss }),
+        thresholds: {
+          rssWarningBytes: 10_000,
+          heapUsedWarningBytes: 10_000,
+          rssGrowthWarningBytes: 500,
+          growthWindowMs: 10_000,
+        },
+      });
+    }
     stop();
 
     expect(events.at(-1)).toEqual({
-      seq: 3,
+      seq: 5,
       ts: 1_776_859_200_000,
       trace: undefined,
       type: "diagnostic.memory.pressure",
@@ -476,7 +468,7 @@ describe("diagnostic memory", () => {
       reason: "rss_growth",
       thresholdBytes: 500,
       rssGrowthBytes: 700,
-      windowMs: 1000,
+      windowMs: 10_000,
       memory: {
         arrayBuffersBytes: 5,
         externalBytes: 10,
