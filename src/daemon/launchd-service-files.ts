@@ -207,9 +207,20 @@ async function ensureLaunchAgentPlistReadable(plistPath: string): Promise<void> 
   await fs.chmod(plistPath, LAUNCH_AGENT_PLIST_MODE).catch(() => undefined);
 }
 
-export async function readExistingLaunchAgentPlist(plistPath: string): Promise<Buffer | null> {
+export type LaunchAgentFileSnapshot = { contents: Buffer; mode: number };
+
+export async function readExistingLaunchAgentPlist(
+  plistPath: string,
+): Promise<LaunchAgentFileSnapshot | null> {
   try {
-    return await fs.readFile(plistPath);
+    const handle = await fs.open(plistPath, "r");
+    try {
+      const contents = await handle.readFile();
+      const metadata = await handle.stat();
+      return { contents, mode: metadata.mode & 0o7777 };
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;
@@ -221,17 +232,21 @@ export async function readExistingLaunchAgentPlist(plistPath: string): Promise<B
 export async function publishLaunchAgentPlist(params: {
   label: string;
   plistPath: string;
-  contents: string;
+  contents: string | Uint8Array;
+  mode?: number;
 }): Promise<void> {
-  const previousContents = await readExistingLaunchAgentPlist(params.plistPath);
+  const previous = await readExistingLaunchAgentPlist(params.plistPath);
   const temporaryPath = `${params.plistPath}.openclaw-${randomUUID()}.tmp`;
   assertGatewayServiceUpdateCurrent();
   await fs.writeFile(temporaryPath, params.contents, {
-    encoding: "utf8",
     flag: "wx",
-    mode: LAUNCH_AGENT_PLIST_MODE,
+    mode: params.mode ?? LAUNCH_AGENT_PLIST_MODE,
   });
   try {
+    if (params.mode !== undefined) {
+      assertGatewayServiceUpdateCurrent();
+      await fs.chmod(temporaryPath, params.mode);
+    }
     // The temporary filename does not end in .plist, so launchd cannot discover
     // it before the final ownership check and atomic publication.
     await assertNoSystemLaunchDaemonOwnership(params.label);
@@ -241,17 +256,19 @@ export async function publishLaunchAgentPlist(params: {
       await assertNoSystemLaunchDaemonOwnership(params.label);
     } catch (ownershipError) {
       try {
-        if (previousContents === null) {
+        if (previous === null) {
           assertGatewayServiceUpdateCurrent();
           await fs.unlink(params.plistPath);
         } else {
           const rollbackPath = `${params.plistPath}.openclaw-${randomUUID()}.rollback`;
           try {
             assertGatewayServiceUpdateCurrent();
-            await fs.writeFile(rollbackPath, previousContents, {
+            await fs.writeFile(rollbackPath, previous.contents, {
               flag: "wx",
-              mode: LAUNCH_AGENT_PLIST_MODE,
+              mode: previous.mode,
             });
+            assertGatewayServiceUpdateCurrent();
+            await fs.chmod(rollbackPath, previous.mode);
             assertGatewayServiceUpdateCurrent();
             await fs.rename(rollbackPath, params.plistPath);
           } finally {
@@ -271,7 +288,9 @@ export async function publishLaunchAgentPlist(params: {
   } finally {
     await fs.unlink(temporaryPath).catch(() => undefined);
   }
-  await ensureLaunchAgentPlistReadable(params.plistPath);
+  if (params.mode === undefined) {
+    await ensureLaunchAgentPlistReadable(params.plistPath);
+  }
 }
 
 async function ensureSecureDirectory(

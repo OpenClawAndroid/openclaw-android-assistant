@@ -15227,7 +15227,6 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
         name: "control-ui-real-gateway-timeout-${{ github.run_attempt }}",
         path: [
           ".artifacts/control-ui-e2e-timeouts/real-gateway-attempt-${{ github.run_attempt }}/failure-*/failure.public.json",
-          ".artifacts/control-ui-e2e/real-gateway/quota-refresh-*/quota.public.json",
           "",
         ].join("\n"),
         "if-no-files-found": "ignore",
@@ -15237,6 +15236,24 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(uiE2eRealGateway.steps.indexOf(realGatewayFailureDiagnostics)).toBeGreaterThan(
       realGatewayIndex,
     );
+    const quotaDiagnostics = expectDefined(
+      uiE2eRealGateway.steps.find(
+        (step: WorkflowStep) => step.name === "Upload quota auth and transport diagnostics",
+      ),
+      "quota diagnostics retained on success and failure",
+    );
+    expect(quotaDiagnostics).toEqual({
+      name: "Upload quota auth and transport diagnostics",
+      if: "always()",
+      uses: UPLOAD_ARTIFACT_V7,
+      with: {
+        name: "control-ui-quota-diagnostics-${{ github.run_attempt }}",
+        path: ".artifacts/control-ui-e2e/real-gateway/quota-refresh-*/quota.public.json",
+        "if-no-files-found": "ignore",
+        "retention-days": 7,
+      },
+    });
+    expect(uiE2eRealGateway.steps.indexOf(quotaDiagnostics)).toBeGreaterThan(realGatewayIndex);
     // Same-origin admission compares exact build IDs, including the build timestamp.
     // Include private QA so media bootstrap cannot rebuild runtime behind the UI.
     const realGatewayBuild = expectDefined(

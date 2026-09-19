@@ -54,12 +54,17 @@ async function fixture(
   };
   const homeId = await codexCatalogResidentHomeKey({ startOptions });
   const harness = createClientHarness();
-  const readNative = vi.fn(async (_params: CodexThreadListParams) =>
-    projectCodexCatalogPage(
-      { data: structuredClone(threads) },
+  const readNative = vi.fn(async (params: CodexThreadListParams) => {
+    const offset = Number(params.cursor ?? 0);
+    const limit = params.limit ?? 64;
+    return projectCodexCatalogPage(
+      {
+        data: structuredClone(threads.slice(offset, offset + limit)),
+        nextCursor: offset + limit < threads.length ? String(offset + limit) : null,
+      },
       { sanitize: sanitizeTerminalText, source: codexCatalogSourceForClient(harness.client) },
-    ),
-  );
+    );
+  });
   const index = new CodexCatalogIndex({
     homeId,
     readNative,
@@ -111,6 +116,73 @@ afterEach(async () => {
 });
 
 describe("resident Codex catalog notifications", () => {
+  it("leaves an unchanged home idle until the 15-minute native safety walk", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    const inventory = Array.from({ length: 192 }, (_, i) =>
+      thread({ id: `idle-${i}`, recencyAt: 1_000 - i }),
+    );
+    const { index, readNative } = await fixture(inventory);
+    expect(readNative).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => expect(index.hasActiveWork()).toBe(false));
+    expect(readNative).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    expect(readNative).toHaveBeenCalledTimes(3);
+    inventory.pop();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => expect(index.hasActiveWork()).toBe(false));
+    expect(readNative).toHaveBeenCalledTimes(6);
+    expect(index.get("idle-191")).toBeUndefined();
+  });
+
+  it("coalesces thread starts into a prefix walk and retains the unvisited tail", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    const inventory = Array.from({ length: 192 }, (_, i) =>
+      thread({ id: `stored-${i}`, recencyAt: 1_000 - i }),
+    );
+    const { index, harness, readNative } = await fixture(inventory);
+    const newer = thread({ id: "newer", recencyAt: 2_000 });
+    inventory.unshift(newer);
+    harness.send({ method: "thread/started", params: { thread: newer } });
+    await vi.waitFor(() => expect(index.get(newer.id)).toBeDefined());
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => expect(index.hasActiveWork()).toBe(false));
+    // The started row is already current, so its page establishes the known prefix.
+    expect(readNative).toHaveBeenCalledTimes(4);
+    expect((await index.list({})).sessions[0]?.threadId).toBe("newer");
+    expect(index.get("stored-191")).toBeDefined();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(readNative).toHaveBeenCalledTimes(4);
+  });
+
+  it("reads changed pages through an unchanged page, then repairs silent tail changes at the bound", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    const inventory = Array.from({ length: 256 }, (_, i) =>
+      thread({ id: `stored-${i}`, recencyAt: 1_000 - i }),
+    );
+    const { index, harness, readNative } = await fixture(inventory);
+    inventory[64]!.name = "Renamed without new activity";
+    inventory[220]!.name = "Silent tail rename";
+    inventory.pop();
+    inventory.unshift(thread({ id: "missed-start", recencyAt: 1_999 }));
+    const newer = thread({ id: "notified-start", recencyAt: 2_000 });
+    inventory.unshift(newer);
+    harness.send({ method: "thread/started", params: { thread: newer } });
+    await vi.waitFor(() => expect(index.get(newer.id)).toBeDefined());
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => expect(index.hasActiveWork()).toBe(false));
+    expect(readNative).toHaveBeenCalledTimes(7);
+    expect(index.get("missed-start")).toBeDefined();
+    expect(index.get("stored-64")?.page.sessions[0]?.name).toBe("Renamed without new activity");
+    expect(index.get("stored-220")?.page.sessions[0]?.name).toBeNull();
+    expect(index.get("stored-255")).toBeDefined();
+    await vi.advanceTimersByTimeAsync(14 * 60_000 + 30_000);
+    await vi.waitFor(() => expect(index.hasActiveWork()).toBe(false));
+    expect(readNative).toHaveBeenCalledTimes(12);
+    expect(index.get("stored-220")?.page.sessions[0]?.name).toBe("Silent tail rename");
+    expect(index.get("stored-255")).toBeUndefined();
+  });
+
   it.each([
     { repeatFirst: false, expected: ["second", "first"] },
     { repeatFirst: "queued", expected: ["first", "second"] },
@@ -187,7 +259,7 @@ describe("resident Codex catalog notifications", () => {
   ])(
     "keeps an existing tied-row cursor valid after $change",
     async ({ initial, refreshed, limit }) => {
-      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
       const nativeRows = (ids: string[]) =>
         ids.map((id) =>
           thread({
@@ -203,7 +275,7 @@ describe("resident Codex catalog notifications", () => {
       expect(first.nextCursor).toBeDefined();
       inventory.splice(0, inventory.length, ...nativeRows(refreshed));
 
-      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
       await vi.waitFor(async () => {
         expect((await index.list({})).sessions.map((session) => session.threadId)).toEqual(
           refreshed,
@@ -218,7 +290,7 @@ describe("resident Codex catalog notifications", () => {
   );
 
   it("reconciles silent remote membership changes on its DB-only background interval", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     const kept = thread({ id: "kept" });
     const inventory = [thread({ id: "removed" }), kept];
     const { index, readNative } = await fixture(inventory);
@@ -230,7 +302,7 @@ describe("resident Codex catalog notifications", () => {
     ]);
     expect(readNative).toHaveBeenCalledOnce();
 
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
     await vi.waitFor(async () => {
       expect((await index.list({})).sessions.map((session) => session.threadId).toSorted()).toEqual(
         ["added", "kept"],

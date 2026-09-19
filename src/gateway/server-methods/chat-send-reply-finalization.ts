@@ -6,7 +6,6 @@ import { attachManagedOutgoingMediaToMessage } from "../managed-image-attachment
 import { loadSessionEntry } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import {
-  buildAssistantReplyContent,
   combineNonStreamingReplyParts,
   extractAssistantDisplayText,
   hasAssistantDisplayMediaContent,
@@ -20,8 +19,9 @@ import {
   isBtwReplyPayload,
 } from "./chat-broadcast.js";
 import {
-  getWebchatReplyMediaLocalRoots,
-  normalizeWebchatReplyMediaPathsForDisplay,
+  captureWebchatReplyMediaScope,
+  prepareWebchatReplyMediaForDisplay,
+  type WebchatReplyMediaRequesterContext,
 } from "./chat-reply-media.js";
 import { selectChatSendFinalReplyPayloads } from "./chat-send-command-replies.js";
 import { isChatSendReplyDeliveryAuthorized } from "./chat-send-delivery-authority.js";
@@ -30,7 +30,6 @@ import type { PreparedChatSendSession } from "./chat-send-session.js";
 import type { GatewayInjectedTtsSupplementMarker } from "./chat-transcript-inject.js";
 import { appendAssistantTranscriptMessage } from "./chat-transcript-persistence.js";
 import { buildMediaOnlyTtsSupplementTranscriptMarker } from "./chat-tts-markers.js";
-import { buildWebchatAssistantMessageFromReplyPayloads } from "./chat-webchat-media.js";
 import type { GatewayRequestContext } from "./types.js";
 
 type DeliveredReply = {
@@ -134,6 +133,8 @@ function buildChatSendBtwSideResult(deliveredReplies: readonly DeliveredReply[])
 
 /** Finalize settled reply payloads, retaining the runtime's transcript ownership and outcome. */
 export async function finalizeChatSendDispatchedReplies(params: {
+  requesterContext?: WebchatReplyMediaRequesterContext;
+  abortSignal?: AbortSignal;
   accountId: string | undefined;
   context: GatewayRequestContext;
   deliveredReplies: readonly DeliveredReply[];
@@ -204,13 +205,18 @@ export async function finalizeChatSendDispatchedReplies(params: {
     transcriptMirrorResolution.kind === "owner" || transcriptMirrorResolution.kind === "blocked"
       ? transcriptMirrorResolution.owner
       : undefined;
-  const finalPayloads = await normalizeWebchatReplyMediaPathsForDisplay({
+  const mediaScope = captureWebchatReplyMediaScope({
+    requesterContext: params.requesterContext,
     cfg,
     sessionKey,
     agentId,
-    sessionEntry: loadSessionEntry(sessionKey, sessionLoadOptions).entry,
+    sessionLoadOptions,
     accountId,
-    payloads: rawFinalPayloads,
+    assertCurrent: () => {
+      if (!deliveryAuthorized()) {
+        throw new Error("Chat media delivery is no longer authorized.");
+      }
+    },
   });
   const sourceSession = loadSessionEntry(sessionKey, sessionLoadOptions);
   const requestedTranscriptSession = transcriptMirrorOwner
@@ -258,28 +264,23 @@ export async function finalizeChatSendDispatchedReplies(params: {
       : sourceSession;
   const { storePath: latestStorePath, entry: latestEntry } = resolvedTranscriptSession;
   const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
-  // Transcript mirroring changes persistence ownership, never the file-read origin.
-  const mediaLocalRoots = getWebchatReplyMediaLocalRoots({
-    cfg: sourceSession.cfg,
-    agentId,
-    sessionEntry: sourceSession.entry,
-    storePath: sourceSession.storePath,
-  });
   let managedMediaPrepareFailed = false;
-  const mediaMessage = await buildWebchatAssistantMessageFromReplyPayloads(finalPayloads, {
-    localRoots: mediaLocalRoots,
+  const {
+    payloads: finalPayloads,
+    mediaMessage,
+    assistantContent,
+    persistedAssistantContent,
+  } = await prepareWebchatReplyMediaForDisplay({
+    scope: mediaScope,
+    storePath: sourceSession.storePath,
+    transcriptTarget: { sessionKey: transcriptSessionKey, agentId: transcriptAgentId },
+    payloads: rawFinalPayloads,
+    abortSignal: params.abortSignal,
+    includeSensitiveMedia: false,
+    includeSensitiveDisplay: true,
     onLocalAudioAccessDenied: (err) => {
       context.logGateway.warn(`webchat audio embedding denied local path: ${formatForLog(err)}`);
     },
-  });
-  const { assistantContent, persistedAssistantContent } = await buildAssistantReplyContent({
-    sessionKey: transcriptSessionKey,
-    agentId: transcriptAgentId,
-    payloads: finalPayloads,
-    transcriptMediaMessage: mediaMessage,
-    managedMediaLocalRoots: mediaLocalRoots,
-    includeSensitiveMedia: false,
-    includeSensitiveDisplay: true,
     onManagedMediaPrepareError: (message) => {
       managedMediaPrepareFailed = true;
       context.logGateway.warn(`webchat media embedding skipped attachment: ${message}`);

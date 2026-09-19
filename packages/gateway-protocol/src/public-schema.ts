@@ -4,6 +4,7 @@ export * from "./schema/human-mentions.js";
 export * from "./public-schema-push.js";
 export * from "./public-schema-users.js";
 export * from "./public-schema-plugins.js";
+export * from "./public-schema-environments.js";
 export {
   isCloudWorkerPlacementState,
   ConnectParamsSchema,
@@ -83,34 +84,6 @@ export {
   WORKER_TRANSCRIPT_MAX_CONTENT_PARTS,
   WORKER_TRANSCRIPT_MAX_JSON_DEPTH,
   WORKER_TRANSCRIPT_COMMIT_PROTOCOL_FEATURE,
-  EnvironmentStatusSchema,
-  WorkerEnvironmentStateSchema,
-  WorkerTunnelStatusSchema,
-  WorkerDesktopAppIdSchema,
-  RequiredNodeCommandStateSchema,
-  RequiredNodeCommandSchema,
-  WorkerEnvironmentMetadataSchema,
-  EnvironmentSummarySchema,
-  EnvironmentsCreateParamsSchema,
-  EnvironmentsCreateResultSchema,
-  EnvironmentsPrepareParamsSchema,
-  EnvironmentsPrepareResultSchema,
-  EnvironmentsDestroyParamsSchema,
-  EnvironmentsDestroyResultSchema,
-  EnvironmentsListParamsSchema,
-  EnvironmentsListResultSchema,
-  EnvironmentsStatusParamsSchema,
-  EnvironmentsStatusResultSchema,
-  WorkerDesktopObserveParamsSchema,
-  WorkerDesktopObserveResultSchema,
-  WorkerDesktopLaunchParamsSchema,
-  WorkerDesktopLaunchResultSchema,
-  DesktopSourceSchema,
-  DesktopObserveParamsSchema,
-  DesktopObserveResultSchema,
-  DesktopLaunchParamsSchema,
-  DesktopReleaseParamsSchema,
-  DesktopReleaseResultSchema,
   SystemInfoParamsSchema,
   SystemInfoResultSchema,
   StateVersionSchema,
@@ -699,3 +672,5 @@ export {
   SessionsActivitySummaryEnsureParamsSchema,
   SessionsActivitySummaryEnsureResultSchema,
 } from "./schema/sessions-activity-summary.js";
+
+export * from "./schema/sessions-involvement.js";

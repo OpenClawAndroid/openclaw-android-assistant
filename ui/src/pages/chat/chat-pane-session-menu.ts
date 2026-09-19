@@ -178,6 +178,9 @@ export abstract class ChatPaneSessionMenu extends ChatPaneContext {
           }
           break;
         }
+        case "toggle-involving-me":
+          await operations.setSessionInvolvement(host, session, !row.hiddenFromInvolvingMe, scope);
+          break;
         case "toggle-unread": {
           const currentSession = resolveCurrentSession(true);
           if (currentSession) {

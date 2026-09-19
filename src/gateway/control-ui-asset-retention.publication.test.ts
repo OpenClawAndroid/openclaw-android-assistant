@@ -114,7 +114,10 @@ describe("Control UI retained publication", () => {
           }
         });
         const results = await Promise.allSettled(owners.map((owner) => owner.prepare()));
-        expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+        expect(results).toEqual([
+          { status: "fulfilled", value: undefined },
+          { status: "fulfilled", value: undefined },
+        ]);
         expect(arrivals).toBe(2);
         if (kind === "same") {
           expect(errors).toHaveLength(1);

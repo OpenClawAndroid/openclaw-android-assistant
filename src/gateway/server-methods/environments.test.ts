@@ -7,7 +7,8 @@ import { listDevicePairing } from "../../infra/device-pairing.js";
 import { NODE_RUNNER_UPDATE_REQUIRED_ISSUE } from "../../infra/node-runner-inventory.js";
 import { NODE_DESKTOP_STREAM_COMMAND } from "../../shared/node-desktop-stream.js";
 import { collectNodeCatalogRuntimeState } from "../node-registry-private.js";
-import { environmentsHandlers, summarizeWorkerEnvironment } from "./environments.js";
+import { summarizeWorkerEnvironment } from "../worker-environments/environment-summary.js";
+import { environmentsHandlers } from "./environments.js";
 import {
   callEnvironmentMethod,
   FakeWorkerServiceError,

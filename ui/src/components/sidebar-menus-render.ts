@@ -272,6 +272,7 @@ export function renderSidebarSessionMenuForController(controller: SidebarMenusCo
           pinned: session.pinned,
           pinnable: session.pinnable,
           unread: batchRows ? allUnread : session.unread,
+          hiddenFromInvolvingMe: session.hiddenFromInvolvingMe,
           archived: allArchived,
           archiving: rows.some((row) => context?.sessions.archiveVisibility(row.key) === "pending"),
           category: batchRows ? sharedCategory : (session.category ?? null),
@@ -343,6 +344,12 @@ export function renderSidebarSessionMenuForController(controller: SidebarMenusCo
               break;
             case "toggle-pin":
               void host.sessionOrganizer.patchSession(session, { pinned: !session.pinned });
+              break;
+            case "toggle-involving-me":
+              void host.sessionOrganizer.setSessionInvolvement(
+                session,
+                !session.hiddenFromInvolvingMe,
+              );
               break;
             case "toggle-unread":
               void host.sessionOrganizer.patchSession(session, { unread: !session.unread });

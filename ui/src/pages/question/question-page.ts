@@ -136,7 +136,6 @@ export class QuestionPage extends OpenClawLightDomElement {
       }
       const record = result.question;
       if (
-        record.id !== id ||
         (record.status !== "pending" &&
           record.status !== "answered" &&
           record.status !== "cancelled" &&

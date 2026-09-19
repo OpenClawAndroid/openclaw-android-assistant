@@ -1,5 +1,6 @@
 import type {
   SessionsDeleteResult,
+  SessionsSetInvolvementParams,
   SessionsPatchManyParams,
   SessionsPatchManyResult,
 } from "../../../../packages/gateway-protocol/src/index.js";
@@ -28,6 +29,14 @@ import type {
   SessionRequestClient,
   SessionResetOptions,
 } from "./session-capability.ts";
+
+/** Personal list choices share one RPC contract across all session menus. */
+export async function requestSessionInvolvement(
+  client: SessionRequestClient,
+  params: SessionsSetInvolvementParams,
+): Promise<void> {
+  await client.request("sessions.setInvolvement", params);
+}
 
 /** Gateway rosters omit recency so Chat and Settings agree, and carry the shared
  *  sidebar page size: a roster smaller than the store empties whole categories

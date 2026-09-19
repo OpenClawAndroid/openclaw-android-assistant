@@ -73,6 +73,7 @@ suite.define(() => {
                 : '[data-test-id="cron-new-task"]',
             )
             .click();
+          await page.evaluate(() => document.fonts.ready);
           if (narrow) {
             const footer = page.locator(".cron-editor-actions");
             const originalHeight = await footer.evaluate(
@@ -83,6 +84,22 @@ suite.define(() => {
               .poll(() => footer.evaluate((element) => element.getBoundingClientRect().height))
               .toBeGreaterThan(originalHeight);
           }
+          // Keyboard focus uses the scroll padding published by ResizeObserver.
+          // A taller footer alone does not mean that clearance has been applied.
+          await expect
+            .poll(() =>
+              scroller.evaluate((element) => {
+                const footer = document.querySelector(".cron-editor-actions");
+                if (!footer) {
+                  return false;
+                }
+                const style = getComputedStyle(element);
+                const expected =
+                  footer.getBoundingClientRect().height + Number.parseFloat(style.paddingBlockEnd);
+                return Math.abs(Number.parseFloat(style.scrollPaddingBlockEnd) - expected) < 0.01;
+              }),
+            )
+            .toBe(true);
           await page
             .locator("#cron-payload-text")
             .fill("Summarize the fictional garden inventory.");

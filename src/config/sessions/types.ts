@@ -630,7 +630,16 @@ type SessionEntryCore = SessionRestartRecoveryState &
 export interface SessionEntry extends SessionEntryCore {}
 
 /** Internal durable fields excluded from public/plugin session projections. */
+export type SessionProfileInvolvement = {
+  hidden: boolean;
+  updatedAt: number;
+  /** Original committed source ordering, retained when the person hides the session. */
+  lastMention?: { generation: string; sequence: number; timestamp: number };
+};
+
 export type InternalSessionEntryCore = SessionEntryCore & {
+  /** Personal discovery state, never participation, attribution, or sharing authority. */
+  profileInvolvement?: { key: string; profiles: Record<string, SessionProfileInvolvement> };
   /** Transcript-wide account provenance; native binding replacement must not replace it. */
   cliHistoryBoundary?: import("./cli-history-boundary.js").CliHistoryBoundary;
   /** Explicit world-readable publication, bound to one transcript generation. */

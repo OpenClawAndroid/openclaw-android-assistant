@@ -321,6 +321,8 @@ export type WorkerProvider = {
       profileId?: string;
       /** Cancel this attempt; settle its active commands before rejecting. Cleanup proves release separately. */
       signal?: AbortSignal;
+      /** Modern hosts supply authority; legacy optionality is source compatibility only. */
+      assertCurrent?: () => void;
       executionMode?: WorkerExecutionMode;
       machineClass?: string;
       os?: string;

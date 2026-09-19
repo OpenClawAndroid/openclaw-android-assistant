@@ -239,6 +239,27 @@ function runFixture(
   return { result, logDir };
 }
 
+function configureSignalFixtureLanes(
+  fixture: ReturnType<typeof setupFixture>,
+  names: readonly string[],
+) {
+  const catalog = path.join(fixture.harness, "scripts/lib/docker-e2e-scenarios.mts");
+  const command = `exec ${quote(process.execPath)} "$OPENCLAW_DOCKER_E2E_TRUSTED_HARNESS_DIR/marker.cjs"`;
+  // These outcomes belong to the synthetic group leader, not Bash's optional last-command exec.
+  writeFileSync(
+    catalog,
+    `${readFileSync(catalog, "utf8")}\n` +
+      [
+        `for (const name of ${JSON.stringify(names)}) {`,
+        "  const lane = mainLanes.find((entry) => entry.name === name);",
+        '  if (!lane) throw new Error("unknown signal fixture lane: " + name);',
+        `  lane.command = ${JSON.stringify(command)};`,
+        "}",
+        "",
+      ].join("\n"),
+  );
+}
+
 function startOwnedScheduler(
   fixture: ReturnType<typeof setupFixture>,
   env: NodeJS.ProcessEnv,
@@ -673,6 +694,7 @@ describe("Docker scheduler trusted harness execution", () => {
         mkdtempSync(path.join(root!, prefix)),
       );
       const laneOrder = ["gateway-concurrency", "live-models"];
+      configureSignalFixtureLanes(fixture, laneOrder);
       const firstPidPath = path.join(fixture.root, "first-lane.pid");
       const siblingPidPath = path.join(fixture.root, "sibling-lane.pid");
       const leafPidPath = path.join(fixture.root, "lane-descendant.pid");
@@ -942,6 +964,7 @@ describe("Docker scheduler trusted harness execution", () => {
       );
       const leaderPath = path.join(fixture.root, "stagger-signal-leader.pid");
       const laneOrder = ["gateway-concurrency", "live-models"];
+      configureSignalFixtureLanes(fixture, laneOrder);
       const timer = observeStaggerTimer(fixture);
       writeFileSync(
         path.join(fixture.selectedHarness, "marker.cjs"),

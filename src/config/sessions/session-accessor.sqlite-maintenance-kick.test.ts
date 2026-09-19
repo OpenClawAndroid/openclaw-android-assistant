@@ -14,7 +14,7 @@ import { loadSessionEntry } from "./session-accessor.js";
 import { writeSessionEntry } from "./session-accessor.sqlite-entry-store.js";
 import { importSqliteSessionRowsBatch } from "./session-accessor.sqlite-import.js";
 import { kickSessionEntryMaintenanceAfterWrite } from "./session-accessor.sqlite-maintenance-kick.js";
-import * as maintenance from "./session-accessor.sqlite-maintenance.js";
+import * as reclamation from "./session-accessor.sqlite-reclamation.js";
 import { registerSessionMaintenancePreserveKeysProvider } from "./store-maintenance-preserve.js";
 import {
   resolveMaintenanceConfigFromInput,
@@ -31,6 +31,11 @@ afterEach(() => {
 });
 
 function createStore(pruneAfterMs = 1_000, key = sessionKey) {
+  // Keep the fake clock in this process without replacing admission or commit ownership.
+  const runReclamation = reclamation.runSqliteSessionReclamation;
+  vi.spyOn(reclamation, "runSqliteSessionReclamation").mockImplementation((params) =>
+    runReclamation({ ...params, forceInProcess: true }),
+  );
   const storePath = path.join(tempDirs.make("session-maintenance-kick-"), "agent.sqlite");
   const scope = { agentId: "main", path: storePath };
   const database = openOpenClawAgentDatabase(scope);
@@ -200,7 +205,7 @@ it.each([0, 32 * 24 * 60 * 60 * 1_000])(
       });
     }, scope);
     const release = registerSessionMaintenancePreserveKeysProvider(() => [sessionKey]);
-    const plans = vi.spyOn(maintenance, "applySessionEntryMaintenance");
+    const plans = vi.spyOn(reclamation, "createSessionMaintenancePlanningOperation");
     try {
       kickSessionEntryMaintenanceAfterWrite(request);
       await yieldToEventLoop();
@@ -230,9 +235,9 @@ it.each([0, 32 * 24 * 60 * 60 * 1_000])(
 
 it("retries a transient maintenance failure on its next periodic pass", async () => {
   const { request, storePath } = createStore();
-  vi.spyOn(maintenance, "applySessionEntryMaintenance").mockImplementationOnce(() => {
-    throw new Error("temporary maintenance failure");
-  });
+  vi.mocked(reclamation.runSqliteSessionReclamation).mockRejectedValueOnce(
+    new Error("temporary maintenance failure"),
+  );
   kickSessionEntryMaintenanceAfterWrite(request);
   await yieldToEventLoop();
   expect(loadSessionEntry({ sessionKey, storePath })?.archivedAt).toBeUndefined();

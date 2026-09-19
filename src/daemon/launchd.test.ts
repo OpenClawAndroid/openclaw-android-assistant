@@ -558,8 +558,10 @@ vi.mock("./gateway-service-probe-hosts.js", () => ({
 
 vi.mock("node:fs/promises", async () => {
   const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  const { createLaunchdFileReadMocks } = await import("./launchd-filesystem.test-support.js");
   const wrapped = {
     ...actual,
+    ...createLaunchdFileReadMocks(state),
     access: vi.fn(async (p: string) => {
       const key = p;
       if (
@@ -609,16 +611,6 @@ vi.mock("node:fs/promises", async () => {
         return;
       }
       throw new Error(`ENOENT: no such file or directory, chmod '${key}'`);
-    }),
-    readFile: vi.fn(async (p: string) => {
-      const key = p;
-      const data = state.files.get(key);
-      if (data !== undefined) {
-        return data;
-      }
-      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${key}'`), {
-        code: "ENOENT",
-      });
     }),
     unlink: vi.fn(async (p: string) => {
       state.files.delete(p);
@@ -2096,6 +2088,7 @@ describe("launchd install", () => {
       ],
     });
     state.files.set(plistPath, previous);
+    state.fileModes.set(plistPath, 0o600);
     state.files.set(envFilePath, previousEnv);
     state.files.set(wrapperPath, previousWrapper);
     state.fileModes.set(envFilePath, 0o600);
@@ -2115,6 +2108,7 @@ describe("launchd install", () => {
     ).rejects.toThrow("launchctl bootstrap failed: Operation not permitted");
 
     expect(state.files.get(plistPath)).toBe(previous);
+    expect(state.fileModes.get(plistPath)).toBe(0o600);
     expect(state.files.get(envFilePath)).toBe(previousEnv);
     expect(state.files.get(wrapperPath)).toBe(previousWrapper);
     expect(state.fileModes.get(envFilePath)).toBe(0o600);
@@ -2175,8 +2169,10 @@ describe("launchd install", () => {
   it("restores the previous plist when staged publication loses ownership", async () => {
     const env = createDefaultLaunchdEnv();
     const plistPath = resolveLaunchAgentPlistPath(env);
-    const previous = "<plist><dict><key>Label</key><string>previous</string></dict></plist>";
+    const previous =
+      "<plist><dict><key>Label</key><string>previous</string><key>EnvironmentVariables</key><dict><key>SYNTHETIC_INLINE</key><string>private fixture value</string></dict></dict></plist>";
     state.files.set(plistPath, previous);
+    state.fileModes.set(plistPath, 0o600);
     launchdSystemState.assertNoSystemLaunchDaemonOwnership
       .mockResolvedValueOnce()
       .mockResolvedValueOnce()
@@ -2191,6 +2187,7 @@ describe("launchd install", () => {
     ).rejects.toThrow("system ownership blocked: loaded");
 
     expect(state.files.get(plistPath)).toBe(previous);
+    expect(state.fileModes.get(plistPath)).toBe(0o600);
     expect(state.launchctlCalls).toEqual([]);
   });
 

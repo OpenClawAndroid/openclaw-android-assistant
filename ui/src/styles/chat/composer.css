@@ -1319,7 +1319,10 @@
   transition: background var(--duration-fast) ease;
 }
 
-.slash-menu-item:hover,
+.slash-menu-item[role="option"] {
+  cursor: pointer;
+}
+
 .slash-menu-item--active {
   background: var(--bg-hover);
 }

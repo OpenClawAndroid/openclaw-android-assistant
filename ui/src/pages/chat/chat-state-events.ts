@@ -54,6 +54,7 @@ import {
   observeChatRunModel,
   readChatSessionProjectionScope,
   reduceChatSessionProjection,
+  retireChatSubmissionDisplay,
 } from "./history-merge.ts";
 import { captureOutboxPayloadOwner } from "./outbox-payloads.ts";
 import {
@@ -372,6 +373,12 @@ function handleSessionsChangedEvent(
     state.retireSessionCompanion?.(event.key, event.agentId);
   }
   const resetsSelectedSession = matchesChat && resetsSession;
+  if (matchesChat && (resetsSession || source?.reason === "new")) {
+    const initial = state.chatSubmissions?.readInitial(state.sessionKey, state.client ?? null);
+    if (initial) {
+      retireChatSubmissionDisplay(state, new Set([initial.pendingRunId]));
+    }
+  }
   const changesBranchTopology =
     matchesChat && typeof source?.reason === "string" && BRANCH_TOPOLOGY_REASONS.has(source.reason);
   if (resetsSelectedSession || changesBranchTopology) {

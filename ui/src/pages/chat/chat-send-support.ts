@@ -111,16 +111,7 @@ function preserveDeliveredUserTurn(
       !state.currentSessionId ||
       submission.sessionId === state.currentSessionId
     ) {
-      // Custody may already own this source before its first delivery retention.
-      if (
-        getChatPendingInputs(state)?.page.items.some(
-          (input) => input.runId === submission.pendingRunId,
-        )
-      ) {
-        submission.pending = false;
-        return;
-      }
-      admitChatSubmission(state, submission);
+      admitChatSubmission(state, getChatPendingInputs(state)?.page.items, submission);
     }
     return;
   }
@@ -192,11 +183,12 @@ export function retireDeliveredQueuedUserTurn(
     const current = currentItem();
     if (!current) {
       const remembered = submissions.readDelivered(deliveryKey, owner);
-      if (!remembered) {
-        return "stale";
+      if (remembered) {
+        preserveDeliveredUserTurn(host, remembered);
       }
-      preserveDeliveredUserTurn(host, remembered);
-      return "retired";
+      // Consumption can retire the outbox during hydration. A replacement
+      // attempt still owns the row; an absent row must not swallow chat.final.
+      return readQueuedMessageById(host, stored.id) ? "stale" : "retired";
     }
     if (!sameQueuedDeliveryVersion(current, stored)) {
       return "stale";
@@ -260,7 +252,10 @@ export function retireDeliveredQueuedUserTurn(
       }
     }
     const current = currentItem();
-    if (!current || !sameQueuedDeliveryVersion(current, stored)) {
+    if (!current) {
+      return readQueuedMessageById(host, stored.id) ? "stale" : "retired";
+    }
+    if (!sameQueuedDeliveryVersion(current, stored)) {
       return "stale";
     }
     const reason = result.status === "failed" ? result.reason : "missing";

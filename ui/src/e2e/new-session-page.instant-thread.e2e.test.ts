@@ -287,8 +287,13 @@ suite.define(() => {
       const first = createParams(await gateway.waitForRequest("sessions.create"));
       await expect.poll(() => page.locator("openclaw-chat-page").count()).toBe(1);
       await gateway.setOnline(false);
-      // Private draft restoration waits for an authenticated hello; offline
-      // transport state alone cannot authorize an old identity's draft.
+      await captureUiProof(suite, page, "submitted-prompt-during-reconnect.png");
+      await expect
+        .poll(() => page.locator("openclaw-pending-session-create").textContent())
+        .toContain("resume exactly once");
+      await expect
+        .poll(() => page.locator("openclaw-pending-session-create").textContent())
+        .toContain("Reconnecting");
       await gateway.deferNext("sessions.create");
       await gateway.setOnline(true);
       const second = createParams(await gateway.waitForRequest("sessions.create", { after: 1 }));
@@ -550,7 +555,11 @@ suite.define(() => {
       await expect
         .poll(() => page.locator("openclaw-new-session-page").textContent())
         .toContain("Synthetic committed route failed");
-      await page.getByRole("button", { name: "Start session", exact: true }).click();
+      await captureUiProof(suite, page, "submitted-prompt-after-navigation-failure.png");
+      await expect
+        .poll(() => page.locator(".new-session-page__starting").textContent())
+        .toContain("create this session only once");
+      await page.getByRole("button", { name: "Open session", exact: true }).click();
       await waitForCommittedChatRoute(page);
       expect(await gateway.getRequests("sessions.create")).toHaveLength(1);
       expect(new URL(page.url()).pathname).toBe(controlUiSessionPath(String(params.key)));

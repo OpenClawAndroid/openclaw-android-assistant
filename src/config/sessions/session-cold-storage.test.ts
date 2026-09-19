@@ -13,12 +13,15 @@ import { sessionChanges } from "../../sessions/session-row-changes.js";
 import type { DB } from "../../state/openclaw-agent-db.generated.js";
 import {
   closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync,
+  closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
   getOpenClawAgentDatabaseIfOpen,
   openOpenClawAgentDatabase,
   OPENCLAW_AGENT_SCHEMA_VERSION,
   runOpenClawAgentWriteTransaction,
 } from "../../state/openclaw-agent-db.js";
+import { closeOpenClawStateDatabaseAsync } from "../../state/openclaw-state-db.js";
 import { replaceSessionEntry } from "./session-accessor.js";
 import * as archiveWorkers from "./session-accessor.sqlite-archive.js";
 import { readSessionTranscriptHistoryEvents } from "./session-accessor.sqlite-history.test-support.js";
@@ -58,6 +61,8 @@ afterEach(async () => {
   for (const databasePath of databasePaths.splice(0)) {
     await waitForSessionTranscriptIndexReconcile({ agentId: "main", path: databasePath });
   }
+  await closeOpenClawAgentDatabasesAsync();
+  await closeOpenClawStateDatabaseAsync();
   closeOpenClawAgentDatabasesForTest();
   tempDirs.cleanup();
 });
@@ -254,6 +259,7 @@ describe("cold transcript storage workers", () => {
     expect(fixture.database().prepare("PRAGMA freelist_count").get()).toEqual({
       freelist_count: 0,
     });
+    await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
     closeOpenClawAgentDatabasesForTest();
     const pathname = fixture.scope.storePath;
     await fs.chmod(pathname, 0o400);
@@ -279,6 +285,7 @@ describe("cold transcript storage workers", () => {
 
   it("archives several inactive sessions in one maintenance pass and restores both exactly", async () => {
     const fixture = await createBatchFixture();
+    await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
     const file = path.join(path.dirname(fixture.scope.storePath), "cold-storage.log");
     await fs.writeFile(file, "");
     setLoggerOverride({ level: "info", consoleLevel: "silent", file });
@@ -317,8 +324,10 @@ describe("cold transcript storage workers", () => {
       expect(
         readSessionColdTranscript(fixture.database(), fixture.secondScope.sessionId),
       ).toBeDefined();
+      await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
       closeOpenClawAgentDatabasesForTest();
       await restoreSessionColdTranscript(fixture.scope);
+      await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
       closeOpenClawAgentDatabasesForTest();
       await restoreSessionColdTranscript(fixture.secondScope);
       expect(fixture.snapshot()).toEqual(fixture.original);
@@ -479,6 +488,8 @@ describe("cold transcript storage workers", () => {
     "rolls back every candidate when maintenance %s is revoked at commit",
     async (revocation) => {
       const fixture = await createBatchFixture();
+      await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
+      fixture.database();
       const originalWorker = archiveWorkers.runSqliteTranscriptArchiveWorkerOperation;
       let prepared = false;
       let revoked = false;
@@ -657,6 +668,7 @@ describe("cold transcript storage workers", () => {
         }, fixture.options);
         await fs.unlink(archivePath);
       }
+      await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
       closeOpenClawAgentDatabasesForTest();
       const changes = vi.fn(() =>
         Boolean(readSessionColdTranscript(fixture.database(), historicalId)),

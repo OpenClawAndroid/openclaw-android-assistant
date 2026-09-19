@@ -95,7 +95,7 @@ Snapshot restoration waits for earlier cache writes, and mutations received duri
 restoration fence stale saved rows from publication. Background work then
 reconciles changed files and native metadata. A
 database-only native metadata walk recovers changes made while the Gateway was
-stopped and repeats every 30 seconds, including renames, Git branch and other displayed metadata, and the selected rollout
+stopped. A full safety walk repeats every 15 minutes, including renames, Git branch and other displayed metadata, and the selected rollout
 path after a native revert. Metadata changes and explicit clears are applied even
 when native activity timestamps do not change. Newer Gateway observations fence
 older background pages. These coalesced background walks reuse previews for
@@ -124,15 +124,35 @@ restores the stored metadata. Resume publication uses
 the response's current cwd, which can differ from the thread's persisted cwd.
 For remote app-servers without local filesystem access, the saved snapshot is
 available immediately and a background native walk reconciles changes made while
-the Gateway was stopped or its app-server connection was unavailable. Every
-30 seconds, a database-only walk reconciles remote membership and metadata.
+the Gateway was stopped or its app-server connection was unavailable. The full
+15-minute safety walk reconciles remote membership and metadata.
 Unchanged display rows reuse their bounded previews; only new or changed rows
 need preview projection. Unchanged rows are not rewritten to SQLite.
+
+Native starts, metadata refreshes, renames, archives, deletions, and changed file
+fingerprints coalesce an incremental native check on the next 30-second tick.
+It reads database-only pages in descending recency order and stops after a whole
+page leaves the resident metadata unchanged, or at the 20,000-row retained limit.
+The comparison includes timestamps, selected path, fingerprint, and bounded display
+metadata; exposed timestamp ties keep their existing ordering. An unvisited tail
+is never treated as deleted. With no activity, ticks issue no native requests or
+file scans between safety walks. These checks reuse the existing preview cache
+after JSON decoding; they reduce wire parsing by requesting fewer pages.
+
+Silent changes outside the checked prefix, including timestamp-preserving metadata
+edits and remote deletions or archives, appear at the next successful full safety
+walk. Local file disappearance is checked on the same cycle; native database
+omission alone still cannot delete a local row. Safety cycles start 15 minutes
+apart, subject to timer scheduling, in-flight work, and
+scan/walk duration. Native failures retain pending work for retry under source
+backoff. Successful file scans keep an independent deadline, so native retries
+neither repeat the scan nor postpone its next check.
+Notifications and acknowledged catalog actions continue to update rows immediately.
 
 Native lifecycle notifications update affected threads, and successful catalog
 archives immediately hide their rows. Turn starts and completions coalesce
 single-thread metadata refreshes, so a running turn advances recency before it
-finishes. A 30-second stat-only scan discovers external rollout changes; no
+finishes. A startup scan and the 15-minute stat-only safety scan discover external rollout changes; no
 recursive filesystem watcher retains a directory inventory. The scan streams
 directory entries and retains at most 20,000 file fingerprints while separately
 checking the presence of resident paths. Only changed or
@@ -164,7 +184,7 @@ Each home retains at most 20,000 display rows, 20,000 live-status records,
 managed-thread ceiling; eviction drops the oldest archived rows first, then the
 oldest remaining rows. Row eviction preserves independently bounded live status and
 settings while their supporting native connections remain open. Eviction removes only cached metadata: older sessions remain
-discoverable through native paging/search and readable by ID. Background native walks finish pagination, but rows beyond the
+discoverable through native paging/search and readable by ID. Initial and full safety walks finish pagination, but rows beyond the
 resident limit are discarded before native-response metadata projection or preview
 sanitization. The native page size stays 64, and pagination continues to completion.
 At most 20,000 detached native cursors are remembered during a walk.

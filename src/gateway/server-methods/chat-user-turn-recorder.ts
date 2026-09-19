@@ -206,6 +206,11 @@ export function createGatewayChatUserTurnController(params: {
             }
             mentionInbox.recordCommittedInput({
               sourceId,
+              committedSource: {
+                generation: anchor.generation,
+                sequence: anchor.rawSeq,
+                timestamp: message.timestamp,
+              },
               agentId: anchor.agentId,
               sessionKey: session.sessionKey,
               sessionId: anchor.sessionId,

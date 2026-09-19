@@ -182,11 +182,11 @@ describe("Codex catalog physical status sources", () => {
   );
 
   it("keeps another source active when a DB-only list reports source-local notLoaded", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     const { b, index, inventory, readNative, active } = await fixture();
     active(b, "source-b");
     inventory[0] = thread({ cwd: "/workspace/fresh", status: { type: "notLoaded" } });
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
     await vi.waitFor(async () => {
       expect((await index.list({})).sessions[0]?.cwd).toBe("/workspace/fresh");
     });

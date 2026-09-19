@@ -262,6 +262,7 @@ it.each(cases)(
           codex: {
             enabled: true,
             config: {
+              sessionCatalog: { enabled: false },
               appServer: {
                 args: [
                   "app-server",

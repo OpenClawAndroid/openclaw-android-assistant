@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UI_APPEARANCE_PREFERENCE_KEYS } from "../../../packages/gateway-protocol/src/schema/ui-appearance-preferences.ts";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
+import { createChatPageSessions } from "../pages/chat/chat-page.test-support.ts";
 import { createStorageMock } from "../test-helpers/storage.ts";
 import { ShellGatewayOwner, type ShellGatewayHost } from "./app-shell-gateway.ts";
 import type { ApplicationContext, ApplicationGatewaySnapshot } from "./context.ts";
@@ -42,6 +43,7 @@ function createProfileAppearanceGateway(profileId: string | null) {
       snapshot,
     },
     connectionBootstrap,
+    sessions: createChatPageSessions(),
     runtimeConfig: {
       canPatch: false,
       ensureLoaded: vi.fn(async () => undefined),
@@ -63,6 +65,7 @@ function createProfileAppearanceGateway(profileId: string | null) {
     lastLocalePrefSignature: null,
     outboxStoreImport: { load: vi.fn(async () => undefined) },
     previousGatewayPhase: null,
+    recoverDeletedActiveSession: vi.fn(),
     routeState: {},
     runtimeConfigClient: null,
     runtimeConfigSource: null,

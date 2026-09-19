@@ -24,6 +24,8 @@ You can answer from any supported conversation surface:
   through a short stepper. After resolution, the panel closes and the chat
   keeps the full question alongside your answer in a compact summary. Skipped
   or expired questions keep their wording alongside the outcome.
+  Switching between pending questions preserves both selected choices and typed
+  answers, even when typed text matches an option label.
 - The TUI shows a question prompt in both Gateway and local modes. Use arrow
   keys or number keys to choose an option, **Other…** to type an answer, or
   **Skip**. Multi-select prompts let you toggle choices before confirming;

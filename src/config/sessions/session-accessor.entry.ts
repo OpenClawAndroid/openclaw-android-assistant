@@ -60,6 +60,7 @@ export {
   loadExactSessionEntryCandidatesReadOnlyBatch,
   loadExactSessionEntryReadOnly,
   loadSessionEntry,
+  loadSessionEntryByIdReadOnly,
   loadSessionEntryReadOnly,
   patchSessionEntryCore,
   patchSessionEntryTarget,

@@ -1,7 +1,6 @@
 /* @vitest-environment jsdom */
 /* @vitest-environment-options {"url":"http://chat-pane-retained.test/"} */
 
-import { queryObjects } from "node:v8";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
@@ -77,9 +76,7 @@ describe("chat pane retained presentation lifecycle", () => {
       pane.presented = false;
       pane.presented = true;
       const retainedControl = new WeakRef({ unowned: true });
-      await collectGarbageForTest(() => {
-        queryObjects(ReplyPreviewMessage);
-      });
+      await collectGarbageForTest();
       expect(retainedControl.deref()).toBeUndefined();
       expect(preview!.deref()).toBeDefined();
       pane.requestReplyMessage("source-message");
@@ -91,9 +88,7 @@ describe("chat pane retained presentation lifecycle", () => {
         pane.disconnectedCallback();
       }
       const retiredControl = new WeakRef({ unowned: true });
-      await collectGarbageForTest(() => {
-        queryObjects(ReplyPreviewMessage);
-      });
+      await collectGarbageForTest();
       expect(retiredControl.deref()).toBeUndefined();
       expect(preview!.deref()).toBeUndefined();
       expect(pane.readReplyMessage("source-message")).toBeUndefined();

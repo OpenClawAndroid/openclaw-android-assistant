@@ -52,7 +52,7 @@ suite.define(() => {
     );
   });
 
-  it("reserves one person row while loading and respects reduced motion", async () => {
+  it("reserves three person rows while loading and respects reduced motion", async () => {
     await suite.withPage(
       { viewport: { width: 1440, height: 900 }, colorScheme: "dark", reducedMotion: "reduce" },
       async ({ page }) => {
@@ -75,7 +75,7 @@ suite.define(() => {
         expect(await menu.textContent()).toContain("Mention a person");
         expect(await menu.textContent()).not.toContain("Loading people");
         const skeleton = menu.locator(".mention-menu__loading");
-        expect(await skeleton.count()).toBe(1);
+        expect(await skeleton.count()).toBe(3);
         expect(await menu.getByRole("option").count()).toBe(0);
         expect(
           await skeleton
@@ -85,10 +85,10 @@ suite.define(() => {
         ).toBe("none");
         const loading = await menu.boundingBox();
         await gateway.resolveDeferred("users.mentionable", {
-          users: people.slice(0, 1),
+          users: [...people, { profileId: "hazel", displayName: "Hazel", online: false }],
           truncated: false,
         });
-        await menu.getByRole("option").waitFor();
+        await expect.poll(() => menu.getByRole("option").count()).toBe(3);
         const ready = await menu.boundingBox();
         expect(loading).not.toBeNull();
         expect(ready).not.toBeNull();

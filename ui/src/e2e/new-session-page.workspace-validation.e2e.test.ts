@@ -644,8 +644,11 @@ suite.define(() => {
         } else {
           await gateway.setOnline(false);
           await waitForControlUiGatewayReconnecting(page);
-          // Unknown reconnect identity cannot display the retained private draft.
-          expect(await page.getByText(submittedMessage, { exact: true }).isVisible()).toBe(false);
+          // Transport loss keeps the submitted display while execution waits for reconnection.
+          expect(await page.getByText(submittedMessage, { exact: true }).isVisible()).toBe(true);
+          await expect
+            .poll(() => page.locator(".chat-working-indicator").textContent())
+            .toContain("Reconnecting");
           expect(await page.locator("openclaw-chat-pane").count()).toBe(0);
           await gateway.setOnline(true);
           await waitForControlUiGatewayReady(page);

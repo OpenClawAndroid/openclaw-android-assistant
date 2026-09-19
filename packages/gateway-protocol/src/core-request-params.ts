@@ -3,6 +3,12 @@ import type * as AgentSchema from "./schema/agent.js";
 import type * as BoardSchema from "./schema/board.js";
 import type { CanvasDocumentPreviewParams, CanvasDocumentViewParams } from "./schema/canvas.js";
 import type { CommandsListParams } from "./schema/commands.js";
+import type {
+  EnvironmentsSessionCreateParams,
+  EnvironmentsSessionStatusParams,
+  EnvironmentsSessionDestroyParams,
+  EnvironmentsSessionExecParams,
+} from "./schema/environments.js";
 import type * as HumanMentionsSchema from "./schema/human-mentions.js";
 import type { LogsTailParams } from "./schema/logs-chat.js";
 import type { PortalCloseParams, PortalListParams, PortalOpenParams } from "./schema/portals.js";
@@ -25,6 +31,10 @@ export type GatewayCoreRequestParams = {
   "board.widget.grant": BoardSchema.BoardWidgetGrantParams;
   "board.widget.put": BoardSchema.BoardWidgetPutParams;
   "commands.list": CommandsListParams;
+  "environments.session.create": EnvironmentsSessionCreateParams;
+  "environments.session.status": EnvironmentsSessionStatusParams;
+  "environments.session.destroy": EnvironmentsSessionDestroyParams;
+  "environments.session.exec": EnvironmentsSessionExecParams;
   "conversations.list": AgentSchema.ConversationListParams;
   "conversations.send": AgentSchema.ConversationSendParams;
   "conversations.turn": AgentSchema.ConversationTurnParams;

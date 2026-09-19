@@ -400,6 +400,15 @@ class OpenClawShell
         () => this.performUpdate(),
       )
       .watch(
+        () => this.context?.placementStartup,
+        (startup, notify) => startup.subscribe(notify),
+        () => {
+          if (this.context) {
+            this.recoverDeletedActiveSession(this.context.sessions.state);
+          }
+        },
+      )
+      .watch(
         () => this.context?.runtimeConfig,
         (runtimeConfig, notify) =>
           runtimeConfig.subscribe(() => {

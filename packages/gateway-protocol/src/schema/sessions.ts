@@ -7,11 +7,11 @@ import { HumanMentionsSchema } from "./human-mentions.js";
 import { ChatAttachmentsSchema } from "./logs-chat.js";
 import { PluginJsonValueSchema } from "./plugins.js";
 import { NonEmptyString, SessionLabelString } from "./primitives.js";
-import { SessionsCreateParamsSchema } from "./sessions-create.js";
 import { SessionsRecoverParamsSchema, SessionsRecoverResultSchema } from "./sessions-recover.js";
 import { SessionOwnerSchema } from "./sessions-row.js";
 
-export { SessionsCreateParamsSchema };
+export * from "./sessions-create.js";
+export * from "./sessions-involvement.js";
 export * from "./sessions-activity-summary.js";
 export {
   SessionsStorageParamsSchema,
@@ -842,7 +842,6 @@ export type SessionsBranchesListResult = Static<typeof SessionsBranchesListResul
 export type SessionsBranchesSwitchParams = Static<typeof SessionsBranchesSwitchParamsSchema>;
 export type SessionsBranchesSwitchResult = Static<typeof SessionsBranchesSwitchResultSchema>;
 export type SessionWorktreeInfo = Static<typeof SessionWorktreeInfoSchema>;
-export type SessionsCreateParams = Static<typeof SessionsCreateParamsSchema>;
 export type SessionsCreateResult = Static<typeof SessionsCreateResultSchema>;
 export type SessionsRecoverParams = Static<typeof SessionsRecoverParamsSchema>;
 export type SessionsRecoverResult = Static<typeof SessionsRecoverResultSchema>;

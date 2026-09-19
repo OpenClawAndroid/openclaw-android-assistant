@@ -154,6 +154,39 @@ function expectShimLoader(result: Awaited<ReturnType<typeof runShimFixture>>, lo
 }
 
 describe("script direct-run entrypoints", () => {
+  it.skipIf(process.platform === "win32")(
+    "lets the Vitest implementation finish cleanup beyond the shim force-kill window",
+    async () => {
+      await withShimFixture("scripts/run-vitest.mjs", async (fixture) => {
+        const { checkoutRoot, fixtureRoot, implementationPath, wrapperPath, runNode } = fixture;
+        const ownerPath = path.join(fixtureRoot, "owner.pid");
+        const settledPath = path.join(fixtureRoot, "cleanup-settled");
+        writeTsxFixture(path.join(checkoutRoot, "node_modules"), "checkout");
+        writeFileSync(
+          implementationPath,
+          `import fs from "node:fs";
+const keepAlive = setInterval(() => {}, 1000);
+process.once("SIGTERM", () => {
+  setTimeout(() => {
+    fs.writeFileSync(${JSON.stringify(settledPath)}, "settled");
+    clearInterval(keepAlive);
+    process.exitCode = 143;
+  }, 5500);
+});
+fs.writeFileSync(${JSON.stringify(ownerPath)}, String(process.ppid));
+`,
+        );
+        const completion = runNode([wrapperPath], process.env, fixtureRoot);
+        const owner = await waitForPidFile(ownerPath, 10_000);
+        process.kill(owner, "SIGTERM");
+        const result = await completion;
+        expect(result.status, formatShimResult(result)).toBe(143);
+        expect(readFileSync(settledPath, "utf8")).toBe("settled");
+        expect(isProcessAlive(owner)).toBe(false);
+      });
+    },
+  );
+
   it.each(["wrapper", "preload"])(
     "loads compiled ESM through require from the %s with import-only dependencies",
     async (entrypoint) => {

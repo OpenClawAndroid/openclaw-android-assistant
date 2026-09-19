@@ -478,6 +478,9 @@ suite.define(() => {
         .poll(() => page.locator(".new-session-page__alert-message").textContent())
         .toBe(serverMessage);
       expect(await page.locator(".new-session-page__message").inputValue()).toBe("keep this draft");
+      expect(await page.locator(".new-session-page__scroll").getAttribute("aria-busy")).toBe(
+        "false",
+      );
     } finally {
       await context.close();
     }
@@ -543,9 +546,12 @@ suite.define(() => {
         await expect
           .poll(() => page.locator(".new-session-page__scroll").getAttribute("aria-busy"))
           .toBe("true");
-        expect(await message.inputValue()).toBe("native prompt");
-        expect(await message.isVisible()).toBe(true);
-        expect(await page.locator(".new-session-page__starting").count()).toBe(0);
+        const pending = page.locator(".new-session-page__starting");
+        await pollLocatorText(pending.locator(".chat-group.user")).toContain("native prompt");
+        await pollLocatorText(pending.locator(".chat-working-indicator")).toContain("Starting");
+        expect(await pending.isVisible()).toBe(true);
+        expect(await message.count()).toBe(0);
+        expect(await page.locator(".new-session-page__scroll").getAttribute("inert")).toBeNull();
         expect(await gateway.getRequests("sessions.create")).toHaveLength(0);
         await gateway.resolveDeferred("sessions.catalog.startTerminal");
         await page.waitForURL(`${suite.server.baseUrl}terminal/native-cli`);

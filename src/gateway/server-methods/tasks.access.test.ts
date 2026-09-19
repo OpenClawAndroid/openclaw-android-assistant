@@ -1,6 +1,9 @@
-import { expectDefined } from "@openclaw/normalization-core";
+import { expectDefined, toErrorObject } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { upsertSessionEntryCore } from "../../config/sessions/session-accessor.js";
+import {
+  replaceSessionEntrySync,
+  upsertSessionEntryCore,
+} from "../../config/sessions/session-accessor.js";
 import { setCanonicalSqliteSessionMainKey } from "../../config/sessions/session-canonical-key.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -9,7 +12,7 @@ import {
 import { listOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.test-support.js";
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
-import { deleteTaskRecordById } from "../../tasks/runtime-internal.js";
+import * as taskRuntime from "../../tasks/runtime-internal.js";
 import { reloadTaskRegistryFromStoreAsync } from "../../tasks/task-registry-state.js";
 import { resetTaskRegistryForTests } from "../../tasks/task-runtime.test-helpers.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
@@ -180,9 +183,9 @@ describe("task page access snapshots", () => {
       visibility: grant ? ("draft" as const) : ("shared" as const),
     };
     if (change !== "unpublished creation") {
-      await upsertSessionEntryCore({ agentId: "main", sessionKey: changingKey }, entry);
+      replaceSessionEntrySync({ agentId: "main", sessionKey: changingKey }, entry);
     }
-    await upsertSessionEntryCore(
+    replaceSessionEntrySync(
       { agentId: "main", sessionKey: stableKey },
       { sessionId: "stable-task-access", updatedAt: 1, visibility: "shared" },
     );
@@ -204,36 +207,50 @@ describe("task page access snapshots", () => {
     };
     simulateExpensiveAccessSlices();
     const accessRevision = readGatewayAccessRevision();
-    // Exercise both an already-selected requester and one not yet visited when the scan yields.
-    const mutation = new Promise<void>((resolve, reject) => {
-      setImmediate(() => {
-        void (async () => {
-          if (published) {
-            const { calls, respond } = captureRespond();
-            await expectDefined(
-              sessionSharingHandlers["session.visibility.set"],
-              "session.visibility.set handler",
-            )({
-              params: { sessionKey: changingKey, agentId: "main", visibility: "shared" },
-              client: identifiedClient(["operator.admin"], profileId),
-              context,
-              respond,
-            } as never);
-            expect(calls[0]?.[0]).toBe(true);
-            expect(readGatewayAccessRevision()).toBeGreaterThan(accessRevision);
-          } else {
-            await upsertSessionEntryCore(
+    const selectPage = taskRuntime.listTaskRecordPage;
+    const pageSelections = vi.spyOn(taskRuntime, "listTaskRecordPage");
+    let mutation = Promise.resolve();
+    if (published) {
+      // Hold the real page until the sharing RPC commits, so the handler must
+      // discard the old access revision and select again before responding.
+      pageSelections.mockImplementationOnce(async (params) => {
+        const page = await selectPage(params);
+        const { calls, respond } = captureRespond();
+        await expectDefined(
+          sessionSharingHandlers["session.visibility.set"],
+          "session.visibility.set handler",
+        )({
+          params: { sessionKey: changingKey, agentId: "main", visibility: "shared" },
+          client: identifiedClient(["operator.admin"], profileId),
+          context,
+          respond,
+        } as never);
+        expect(calls[0]?.[0]).toBe(true);
+        expect(readGatewayAccessRevision()).toBeGreaterThan(accessRevision);
+        return page;
+      });
+    } else {
+      // Commit inside the first yielded turn; starting an async write here can
+      // otherwise leave both the later slice and final authorization ahead of it.
+      mutation = new Promise<void>((resolve, reject) => {
+        setImmediate(() => {
+          try {
+            expect(taskSessionAccess.prepareTaskSessionReadFilter).toHaveBeenCalledTimes(1);
+            replaceSessionEntrySync(
               { agentId: "main", sessionKey: changingKey },
               { ...entry, visibility: grant ? "shared" : "draft", updatedAt: 2 },
             );
             expect(readGatewayAccessRevision()).toBe(accessRevision);
             if (registryRestart) {
-              expect(deleteTaskRecordById("access-task-63")).toBe(true);
+              expect(taskRuntime.deleteTaskRecordById("access-task-63")).toBe(true);
             }
+            resolve();
+          } catch (error) {
+            reject(toErrorObject(error, "Task access mutation failed"));
           }
-        })().then(resolve, reject);
+        });
       });
-    });
+    }
     const [{ calls, payload }] = await Promise.all([
       runTaskHandler(
         "tasks.list",
@@ -248,5 +265,8 @@ describe("task page access snapshots", () => {
     expect(payload?.tasks?.map((task) => task.id)).toEqual([
       grant ? `access-task-${changingIndex}` : "access-task-64",
     ]);
+    if (published) {
+      expect(pageSelections).toHaveBeenCalledTimes(2);
+    }
   });
 });

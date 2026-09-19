@@ -107,6 +107,10 @@ its live session subscription, including approval updates.
 
 Once the Gateway confirms that a message is in the transcript, reconnecting retires its temporary browser copy even when the original message is outside the latest history page. Loading older history shows the saved message in its original position without adding a second copy.
 
+Retiring a delivered attachment does not discard the run's completion. If the browser misses
+that completion, a queue recovery read that confirms the same session and run have finished
+clears the stale running indicator and resumes queued input.
+
 Queued attachments use binary Blobs in the browser's IndexedDB; the outbox keeps only delivery
 metadata and payload references in session storage. Attachment bytes stay with the queued input;
 the captured queue metadata owns its destination, even when configured main-session defaults change. All attachments

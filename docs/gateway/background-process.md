@@ -36,6 +36,7 @@ Behavior:
 - If the `process` tool is disallowed, `exec` runs synchronously and ignores `yieldMs`/`background`.
 - Spawned exec commands receive `OPENCLAW_SHELL=exec` for context-aware shell/profile rules.
 - For long-running work that starts now: start it once and rely on automatic completion wake (when enabled) once the command emits output or fails.
+- A failed background command wakes its originating session even when other sessions or automations are busy. If that session is still running, the completion waits until it is free. This also applies when a watcher exits before the work it was watching finishes.
 - If automatic completion wake is unavailable, or you need quiet-success confirmation for a command that exits cleanly with no output, poll with `process`.
 - Background exec does not automatically wake subagent sessions. A subagent must collect its command result with `process poll` before yielding without another completion source. A requested stop also needs its terminal result collected.
 - Don't emulate reminders or delayed follow-ups with `sleep` loops or repeated polling — use cron for future work.

@@ -22,6 +22,7 @@ import {
   bindAssembledAgentToolActionDescriptor,
   copyAgentToolMetadata,
 } from "./agent-tool-metadata.js";
+import { createCodingToolsGatewayCaller } from "./agent-tools.caller.js";
 import { finalizeAgentTools } from "./agent-tools.finalize.js";
 import {
   filterToolsByMessageProvider,
@@ -86,7 +87,6 @@ import {
 } from "./tool-search.js";
 import { AUTOMATIONS_TOOL_NAME } from "./tools/automations-tool-name.js";
 import { replaceWithEffectiveCronCreatorToolAllowlist } from "./tools/cron-tool.js";
-import { wrapToolWithGatewayCallerIdentity } from "./tools/gateway-caller-context.js";
 
 const MEMORY_FLUSH_ALLOWED_TOOL_NAMES = new Set(["read", "write"]);
 
@@ -429,21 +429,13 @@ export function createOpenClawCodingToolsInternal(
   });
   // Plugin-only plans bypass createOpenClawTools, so the capability gate must
   // apply here too or narrow allowlists leak gated tools onto capless surfaces.
-  const toolCallerIdentity =
-    options && executionAgentId && executionSessionKey?.trim()
-      ? {
-          agentId: executionAgentId,
-          sessionKey: executionSessionKey.trim(),
-          ...(options.abortSignal ? { approvalSignals: [options.abortSignal] } : {}),
-          turnSourceChannel: resolveGatewayMessageChannel(
-            options.messageChannel ?? options.messageProvider,
-          ),
-          turnSourceTo:
-            options.currentMessagingTarget ?? options.currentChannelId ?? options.messageTo,
-          turnSourceAccountId: gatewayCaller.accountId,
-          turnSourceThreadId: options.currentThreadTs ?? options.messageThreadId,
-        }
-      : undefined;
+  const wrapGatewayCaller = createCodingToolsGatewayCaller({
+    options,
+    agentId: executionAgentId,
+    sessionKey: executionSessionKey,
+    accountId: gatewayCaller.accountId,
+    capabilityProfile,
+  });
   const pluginToolsOnly = filterToolsByClientCaps(
     includeOpenClawTools || !includePluginTools
       ? []
@@ -823,7 +815,7 @@ export function createOpenClawCodingToolsInternal(
     ...(options?.swarmCollector ? { approvalMode: "deny" as const } : {}),
     abortSignal: options?.abortSignal,
     recordToolPrepStage: options?.recordToolPrepStage,
-  }).map((tool) => wrapToolWithGatewayCallerIdentity(tool, toolCallerIdentity));
+  }).map(wrapGatewayCaller);
 }
 
 /** Build the SDK tool list without exposing core-only auxiliary read scope. */

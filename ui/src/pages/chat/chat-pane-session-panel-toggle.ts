@@ -1,5 +1,6 @@
 import {
   clearSessionPanelToggle,
+  panelToggleSessionKey,
   takeSessionPanelToggle,
   type SessionPanelToggleSlot,
 } from "../../components/session-panel-toggle-buffer.ts";
@@ -7,11 +8,16 @@ import {
   terminalIntentQueue,
   terminalToggleIntent,
 } from "../../components/terminal/terminal-pending-actions.ts";
+import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { resolveChatAgentId } from "./chat-state-route.ts";
-import { closeSlot, openSlot } from "./sidebar-layout.ts";
+import { closeSlot, openSlot, setSidebarDock } from "./sidebar-layout.ts";
 
-type PanelTagName = "openclaw-browser-panel" | "openclaw-desktop-panel" | "openclaw-terminal-panel";
+type PanelTagName =
+  | "openclaw-browser-panel"
+  | "openclaw-desktop-panel"
+  | "openclaw-portals-page"
+  | "openclaw-terminal-panel";
 
 interface ActivePanelOwner {
   renderRoot: ParentNode;
@@ -35,12 +41,39 @@ export class ChatPaneSessionPanelToggleController {
     if (!owner) {
       return false;
     }
+    const requestedSession = panelToggleSessionKey(event);
+    if (requestedSession && !areUiSessionKeysEquivalent(requestedSession, owner.state.sessionKey)) {
+      return false;
+    }
     clearSessionPanelToggle(slot, event);
+    const ownerSessionKey = owner.state.sessionKey;
     const detail = event instanceof CustomEvent ? event.detail : null;
     if (detail?.open === false) {
       this.options.pending.delete(slot);
       this.options.updateSidebarLayout(closeSlot(owner.state.sidebarLayout, slot));
       return true;
+    }
+    let layout = openSlot(owner.state.sidebarLayout, slot);
+    if (detail?.dock === "right" || detail?.dock === "bottom") {
+      layout = setSidebarDock(layout, detail.dock);
+    }
+    const panel = layout.columns
+      .flatMap((column) => column.panels)
+      .find((entry) => entry.slot === slot);
+    if (
+      panel &&
+      slot === "desktop" &&
+      requestedSession &&
+      typeof detail?.environmentId === "string"
+    ) {
+      panel.environmentId = detail.environmentId;
+    }
+    if (panel && slot === "portal" && typeof detail?.portalId === "string") {
+      panel.portalId = detail.portalId;
+      delete panel.environmentId;
+    } else if (panel && slot === "portal" && typeof detail?.environmentId === "string") {
+      panel.environmentId = detail.environmentId;
+      delete panel.portalId;
     }
     if (slot === "terminal") {
       const intent = terminalToggleIntent(event, resolveChatAgentId(owner.state));
@@ -55,41 +88,59 @@ export class ChatPaneSessionPanelToggleController {
           deferUntilHostChange: !embeddedTerminalMounted,
         });
       }
-      this.options.updateSidebarLayout(openSlot(owner.state.sidebarLayout, slot));
+      this.options.updateSidebarLayout(layout);
       return true;
     }
     this.options.pending.set(slot, event);
-    this.options.updateSidebarLayout(openSlot(owner.state.sidebarLayout, slot));
+    this.options.updateSidebarLayout(layout);
     void Promise.all([
       customElements.whenDefined("openclaw-chat-sidebar-region"),
       customElements.whenDefined(tagName),
-    ]).then(async () => {
-      this.options.requestUpdate();
-      await owner.updateComplete;
-      if (this.options.pending.get(slot) !== event) {
-        return;
-      }
-      const region = owner.renderRoot.querySelector<
-        HTMLElementTagNameMap["openclaw-chat-sidebar-region"]
-      >("openclaw-chat-sidebar-region");
-      await region?.updateComplete;
-      region?.deliverPanelEvent(slot, event);
-      this.options.pending.delete(slot);
-      this.options.requestUpdate();
-    });
+    ])
+      .then(async () => {
+        this.options.requestUpdate();
+        await owner.updateComplete;
+        if (
+          this.options.pending.get(slot) !== event ||
+          this.options.current()?.state !== owner.state ||
+          owner.state.sessionKey !== ownerSessionKey
+        ) {
+          return;
+        }
+        const region = owner.renderRoot.querySelector<
+          HTMLElementTagNameMap["openclaw-chat-sidebar-region"]
+        >("openclaw-chat-sidebar-region");
+        await region?.updateComplete;
+        if (
+          this.options.pending.get(slot) !== event ||
+          this.options.current()?.state !== owner.state ||
+          owner.state.sessionKey !== ownerSessionKey
+        ) {
+          return;
+        }
+        region?.deliverPanelEvent(slot, event);
+      })
+      .finally(() => {
+        if (this.options.pending.get(slot) === event) {
+          this.options.pending.delete(slot);
+          this.options.requestUpdate();
+        }
+      });
     return true;
   }
 
   flush(): void {
-    if (!this.options.current()) {
+    const owner = this.options.current();
+    if (!owner) {
       return;
     }
     for (const [slot, tagName] of [
       ["terminal", "openclaw-terminal-panel"],
       ["browser", "openclaw-browser-panel"],
       ["desktop", "openclaw-desktop-panel"],
+      ["portal", "openclaw-portals-page"],
     ] as const) {
-      const event = takeSessionPanelToggle(slot);
+      const event = takeSessionPanelToggle(slot, owner.state.sessionKey);
       if (event) {
         this.handle(slot, tagName, event);
       }

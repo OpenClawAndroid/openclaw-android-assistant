@@ -179,7 +179,7 @@ export function createCodexSessionCatalogControl(params: {
             )
           : undefined);
       let nativeAttempt: ReturnType<CodexCatalogSourceBackoff["begin"]> | undefined;
-      const readNativePage = async <T extends { nextCursor?: string }>(
+      const readNativePage = async <T>(
         query: CodexThreadListParams,
         remainingRows: number,
         project: (
@@ -237,17 +237,9 @@ export function createCodexSessionCatalogControl(params: {
           const page = await project(response, diagnostics);
           foreground?.assertActive();
           outcome = "resolved";
-          if (!foreground && !page.nextCursor) {
-            attempt.resolved();
-            nativeAttempt = undefined;
-          }
           return page;
         } catch (error) {
           observation?.rejected();
-          if (!foreground) {
-            attempt.rejected(error);
-            nativeAttempt = undefined;
-          }
           throw error;
         } finally {
           observation?.close();
@@ -260,6 +252,22 @@ export function createCodexSessionCatalogControl(params: {
         runBackground: (run) => runBackground(run),
         localSessionsRoot: root,
         state: params.openResidentState?.(homeId),
+        runNativeWalk: async (run) => {
+          try {
+            const result = await run();
+            if (nativeAttempt?.allowed) {
+              nativeAttempt.resolved();
+            }
+            return result;
+          } catch (error) {
+            if (nativeAttempt?.allowed) {
+              nativeAttempt.rejected(error);
+            }
+            throw error;
+          } finally {
+            nativeAttempt = undefined;
+          }
+        },
         assertCurrent: () => {
           source?.assertCurrent();
           if (closed || params.getRuntimeConfig() !== config || residentEpoch !== epoch) {

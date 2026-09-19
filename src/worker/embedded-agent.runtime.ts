@@ -40,7 +40,6 @@ import { createWorkerComputerTool } from "./computer-runtime.js";
 import { createWorkerLiveRuntime } from "./embedded-agent-live.runtime.js";
 import {
   createWorkerTranscriptRuntime,
-  toAgentMessage,
   toWorkerInferenceContext,
 } from "./embedded-agent-transcript.runtime.js";
 import type { WorkerBrowserLaunchDescriptor, WorkerLaunchPlan } from "./launch-descriptor.js";
@@ -185,7 +184,7 @@ async function runWorkerEmbeddedTurnWithResources(
 
   const baseSessionManager = SessionManager.inMemory(params.cwd);
   for (const message of params.initialMessages ?? []) {
-    baseSessionManager.appendMessage(toAgentMessage(message));
+    baseSessionManager.appendMessage(structuredClone(message));
   }
 
   const transcriptRuntime = createWorkerTranscriptRuntime(params.transcript);

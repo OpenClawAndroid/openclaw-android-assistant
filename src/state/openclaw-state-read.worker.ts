@@ -4,6 +4,7 @@ import { getFleetCellInDatabase, listFleetCellsInDatabase } from "../fleet/regis
 import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { withStateDatabaseCoordinatorRuntimeDirectory } from "../infra/state-database-coordinator.js";
 import { serveWorkerTasks } from "../infra/worker-task-pool.js";
+import { readConfigMachineStateRowInDatabase } from "./config-machine-state.js";
 import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";
 import { withOpenClawStateReadOnlyLocation } from "./openclaw-state-db-read-connection.js";
 import type {
@@ -33,6 +34,7 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
     typeof coordinatorRuntime.keepAlive === "boolean" &&
     (input.command.type === "admit" ||
       input.command.type === "fleet.list" ||
+      input.command.type === "nodeHost.config" ||
       (input.command.type === "fleet.get" && typeof input.command.tenantId === "string"))
   );
 }
@@ -41,7 +43,7 @@ serveWorkerTasks((input): OpenClawStateReadReply => {
   let sourceAdmitted: true | undefined;
   try {
     if (!isReadRequest(input)) {
-      throw new Error("Fleet registry reader requires a captured state location and read command");
+      throw new Error("Shared-state reader requires a captured state location and read command");
     }
     return runWithSqliteWorkerStateContext(input.context, () =>
       withStateDatabaseCoordinatorRuntimeDirectory(input.context.coordinatorRuntime, () => {
@@ -58,6 +60,14 @@ serveWorkerTasks((input): OpenClawStateReadReply => {
         return withOpenClawStateReadOnlyLocation(
           ({ db }) => {
             sourceAdmitted = true;
+            if (command.type === "nodeHost.config") {
+              return {
+                ok: true,
+                type: command.type,
+                sourceAdmitted,
+                row: readConfigMachineStateRowInDatabase(db, command.type),
+              };
+            }
             return command.type === "fleet.list"
               ? {
                   ok: true,

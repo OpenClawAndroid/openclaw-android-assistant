@@ -2,11 +2,23 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, expect, it, vi } from "vitest";
 import * as catalogLookup from "../agents/model-catalog-lookup.js";
 import {
+  loadSessionEntry,
   recordSessionParticipant,
   replaceSessionEntrySync,
 } from "../config/sessions/session-accessor.js";
+import {
+  readCommittedSessionEntryCache,
+  readSessionEntryCache,
+} from "../config/sessions/session-accessor.sqlite-entry-cache.js";
+import {
+  createLifecycleArtifactReclamationPlan,
+  createSessionMaintenanceFinalizationOperation,
+  runSqliteSessionReclamation,
+} from "../config/sessions/session-accessor.sqlite-reclamation.js";
+import { onSessionIdentityMutation } from "../sessions/session-lifecycle-events.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { createDeferredCore } from "../shared/deferred.js";
+import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { ensureProfileForEmail, setDisplayName } from "../state/user-profiles.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import * as projectionWork from "./session-projection-work.js";
@@ -15,6 +27,96 @@ import { createSessionRowProjection } from "./session-row-projection.js";
 import { listProjectedSessions } from "./session-utils-list.js";
 
 afterEach(() => vi.restoreAllMocks());
+
+it.each(["maintenance-finalize", "lifecycle-artifacts"] as const)(
+  "publishes %s removals before row listeners recreate the key",
+  async (kind) => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const cfg = { agents: { list: [{ id: "main", default: true }] } };
+      const scope = { agentId: "main", sessionKey: "agent:main:publication-reentry" };
+      replaceSessionEntrySync(scope, { sessionId: "removed", updatedAt: Date.now() });
+      const databaseOptions = { agentId: "main", env: state.env };
+      const database = openOpenClawAgentDatabase(databaseOptions);
+      readSessionEntryCache(database, { cache: true });
+      const projection = await createSessionRowProjection({ cfg, modelCatalog: [] });
+      await listProjectedSessions({ projection, opts: {} });
+      const entries = [{ sessionKey: scope.sessionKey, expectedEntry: loadSessionEntry(scope) }];
+      const params = { agentId: "main", databaseOptions, entries, materializedPlans: [] };
+      const plan =
+        kind === "maintenance-finalize"
+          ? createSessionMaintenanceFinalizationOperation(params)
+          : createLifecycleArtifactReclamationPlan(params);
+      const identities: string[] = [];
+      const removalState: Array<{ cachedId?: string; storedId?: string }> = [];
+      const callbackErrors: unknown[] = [];
+      const stopIdentity = onSessionIdentityMutation((event) => {
+        try {
+          if (event.kind === "delete" && event.previous.sessionKeys.includes(scope.sessionKey)) {
+            identities.push(`delete:${event.previous.sessionId}`);
+            removalState.push({
+              cachedId: readCommittedSessionEntryCache(database.db)?.get(scope.sessionKey)
+                ?.sessionId,
+              storedId: loadSessionEntry(scope)?.sessionId,
+            });
+          } else if (
+            event.kind === "create" &&
+            event.current.sessionKeys.includes(scope.sessionKey)
+          ) {
+            identities.push(`create:${event.current.sessionId}`);
+          }
+        } catch (error) {
+          callbackErrors.push(error);
+        }
+      });
+      let recreated = false;
+      const stopRows = sessionChanges.subscribe((change) => {
+        if (
+          recreated ||
+          !("sessionKey" in change) ||
+          change.sessionKey !== scope.sessionKey ||
+          change.storePath !== database.path
+        ) {
+          return;
+        }
+        recreated = true;
+        try {
+          replaceSessionEntrySync(scope, {
+            sessionId: "replacement",
+            updatedAt: Date.now(),
+            label: "Replacement survives publication",
+          });
+        } catch (error) {
+          callbackErrors.push(error);
+        }
+      });
+      const diagnostics = {};
+      try {
+        expect(readCommittedSessionEntryCache(database.db)?.get(scope.sessionKey)?.sessionId).toBe(
+          "removed",
+        );
+        await runSqliteSessionReclamation({ forceInProcess: false, plan, diagnostics });
+        expect(diagnostics).toMatchObject({ workerThreadId: expect.any(Number) });
+        expect(callbackErrors).toEqual([]);
+        expect(identities).toEqual(["delete:removed", "create:replacement"]);
+        expect(removalState).toEqual([{ cachedId: undefined, storedId: undefined }]);
+        expect(loadSessionEntry(scope)?.sessionId).toBe("replacement");
+        const result = await listProjectedSessions({ projection, opts: {} });
+        expect(result.sessions).toEqual([
+          expect.objectContaining({
+            key: scope.sessionKey,
+            sessionId: "replacement",
+            label: "Replacement survives publication",
+          }),
+        ]);
+      } finally {
+        stopRows();
+        stopIdentity();
+        await projection.ensureMaterialized();
+        projection.dispose();
+      }
+    });
+  },
+);
 
 it.each([
   "profiles",

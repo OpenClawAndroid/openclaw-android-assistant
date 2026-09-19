@@ -1,6 +1,7 @@
 import { consume } from "@lit/context";
 import { property, state } from "lit/decorators.js";
 import { applicationContext, type ApplicationContext } from "../../app/context.ts";
+import { readDeletedSessionStartup } from "../../app/deleted-session-startup.ts";
 import { mergeChatPageChrome, mobileNavLayoutMediaQuery } from "../../app/mobile-nav-layout.ts";
 import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { McpAppUnmountGate } from "../../components/mcp-app-unmount.ts";
@@ -119,6 +120,14 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
       .watch(
         () => this.context?.chatSubmissions,
         (submissions, notify) => submissions.subscribeCreate(notify),
+      )
+      .watch(
+        () => this.context?.placementStartup,
+        (startup, notify) => startup.subscribe(notify),
+      )
+      .watch(
+        () => this.context?.gateway,
+        (gateway, notify) => gateway.subscribe(notify),
       );
     installSessionPrefetch(this, this.messageCache, this.snapshotStore, () => this.context);
   }
@@ -699,7 +708,10 @@ export class ChatPage extends OpenClawLightDomElement implements SessionSplitHos
       for (const pane of column.panes) {
         const ownerKey = JSON.stringify([column.id, pane.id]);
         for (const sessionKey of retainedSessions.get(pane.id) ?? []) {
-          if (sessionKey !== undefined) {
+          if (
+            sessionKey !== undefined &&
+            (!this.context || !readDeletedSessionStartup(this.context, sessionKey))
+          ) {
             nextPaneKeys.add(JSON.stringify([ownerKey, sessionKey]));
           }
         }

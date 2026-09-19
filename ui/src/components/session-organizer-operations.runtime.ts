@@ -43,6 +43,8 @@ export {
   updateSessionGroupDefaults,
 } from "./session-organizer-catalog.ts";
 
+export { setSessionInvolvement } from "./session-organizer-batch-mutations.ts";
+
 export async function patchSession(
   host: SessionActionHost,
   session: SessionActionRow,

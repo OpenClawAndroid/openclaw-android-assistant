@@ -6,11 +6,17 @@ export type SidebarSlotId =
   | "desktop"
   | "detail"
   | "discussion"
+  | "portal"
   | "tasks"
   | "terminal"
   | "workspace"
   | `plugin:${string}/${string}`;
-export type SidebarPanel = { id: string; slot: SidebarSlotId };
+export type SidebarPanel = {
+  id: string;
+  slot: SidebarSlotId;
+  environmentId?: string;
+  portalId?: string;
+};
 export type SidebarDock = "bottom" | "left" | "right";
 export type SidebarColumn = {
   id: string;

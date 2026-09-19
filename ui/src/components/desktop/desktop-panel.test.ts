@@ -484,6 +484,7 @@ describe("embedded desktop panel presentation", () => {
     );
     clickPanelButton(panel);
     await waitForFast(() => expect(connect).toHaveBeenCalledTimes(2));
+    expect(panel.renderRoot.querySelectorAll('button[aria-label="Take control"]')).toHaveLength(1);
     clickPanelButton(panel, 'button[aria-label="Take control"]');
     await waitForFast(() => expect(connect).toHaveBeenCalledTimes(3));
     const selectedConnection = connect.mock.calls.at(-1)?.[0];
@@ -505,6 +506,11 @@ describe("embedded desktop panel presentation", () => {
       disconnects: disconnect.mock.calls.length,
       focus: onFocusTargetChange.mock.calls.at(-1)?.[0],
     }).toEqual({ connected: true, connections: 3, disconnects: 2, focus: selectedFocus });
+    expect(panel.renderRoot.textContent).toContain("Agent input is paused");
+    clickPanelButton(panel, 'button[aria-label="Switch to view only"]');
+    await waitForFast(() => expect(connect).toHaveBeenCalledTimes(4));
+    expect(connect.mock.calls.at(-1)?.[0].viewOnly).toBe(true);
+    expect(panel.renderRoot.textContent).not.toContain("Agent input is paused");
   });
 
   it.each(["before", "after"] as const)(

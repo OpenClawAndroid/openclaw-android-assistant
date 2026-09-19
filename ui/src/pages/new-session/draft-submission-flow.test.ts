@@ -123,11 +123,11 @@ describe("DraftSubmissionFlow", () => {
         sessionKey,
         context.gateway.snapshot.client,
       );
-      expect(retained?.message.content).toContainEqual({
+      expect(retained?.message?.content).toContainEqual({
         type: "text",
         text: "@Alex keep the accepted prompt",
       });
-      expect(retained?.message["__openclaw"]).toMatchObject({
+      expect(retained?.message?.["__openclaw"]).toMatchObject({
         humanMentions: [{ profileId: "profile-alex", start: 0, end: 5 }],
       });
       if (next === "reconnect") {
@@ -297,10 +297,10 @@ describe("DraftSubmissionFlow", () => {
       "agent:main:dashboard:background",
       context.gateway.snapshot.client,
     );
-    expect(retained?.message["__openclaw"]).toMatchObject({
+    expect(retained?.message?.["__openclaw"]).toMatchObject({
       humanMentions: [{ profileId: "profile-alex", start: 0, end: 5 }],
     });
-    expect(retained?.message.content).toContainEqual({
+    expect(retained?.message?.content).toContainEqual({
       type: "attachment",
       attachment: {
         url: `data:text/plain;base64,${btoa("background-note")}`,

@@ -52,6 +52,7 @@ function createSessionRecoveryShell(params: {
       basePath: "",
       chatAttachmentHandoff: createChatAttachmentHandoff(),
       chatSubmissions: createChatSubmissions(),
+      placementStartup: { get: () => null },
       agents: {
         state: {
           agentsList: {
@@ -92,6 +93,34 @@ afterEach(() => {
 });
 
 describe("OpenClaw shell deleted-session recovery", () => {
+  it("keeps an interrupted first prompt visible after temporary-session cleanup", () => {
+    const { shell, replace, setSessionKey } = createSessionRecoveryShell({
+      activeSessionKey: deletedKey,
+      sessionKeys: [mainKey],
+      deletedSessionKeys: [deletedKey],
+    });
+    const context = shell.runtime.context;
+    const get = vi.spyOn(context.placementStartup, "get").mockReturnValue({
+      sessionKey: deletedKey,
+      phase: "cancelled",
+      startedAt: 1,
+      initialTurn: {
+        id: "unsent",
+        text: "keep this interrupted task",
+        createdAt: 1,
+        sendState: "failed",
+      },
+      retryable: false,
+    });
+    shell.recoverDeletedActiveSession(context.sessions.state);
+    expect(shell.activeSessionKey).toBe(deletedKey);
+    expect(replace).not.toHaveBeenCalled();
+    expect(setSessionKey).not.toHaveBeenCalled();
+    get.mockReturnValue(null);
+    shell.recoverDeletedActiveSession(context.sessions.state);
+    expect(shell.activeSessionKey).toBe(mainKey);
+    expect(replace).toHaveBeenCalledOnce();
+  });
   it.each(["rejection", "batch interruption", "different-client batch rejection"] as const)(
     "navigates on delete intent and visibly reports %s without replacing newer navigation",
     async (failure) => {

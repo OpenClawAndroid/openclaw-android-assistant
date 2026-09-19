@@ -9,6 +9,7 @@ import type {
 import { icons } from "../../../components/icons.ts";
 import "../../../components/web-awesome.ts";
 import { t } from "../../../i18n/index.ts";
+import { shouldHandleNavigationClick } from "../../../lib/navigation-click.ts";
 import { repoName } from "../../../lib/session-display.ts";
 
 export type TaskSuggestionStartMode = Extract<
@@ -16,10 +17,18 @@ export type TaskSuggestionStartMode = Extract<
   "local" | "worktree" | "session"
 >;
 
+export type TaskSuggestionAcceptance =
+  | { phase: "starting" }
+  | { phase: "started"; sessionKey: string; href: string }
+  | { phase: "failed"; error: string };
+
 export type ChatTaskSuggestionTrayProps = {
   taskSuggestions?: TaskSuggestion[];
   taskSuggestionBusyIds?: ReadonlySet<string>;
   taskSuggestionCopiedIds?: ReadonlySet<string>;
+  taskSuggestionAcceptance?: (taskId: string) => TaskSuggestionAcceptance | undefined;
+  onOpenTaskSuggestion?: (suggestion: TaskSuggestion) => void;
+  canOpenTaskSuggestions?: boolean;
   activeTaskSuggestionId?: string;
   taskSuggestionSwapDirection?: "next" | "previous";
   taskSuggestionSwapGeneration?: number;
@@ -36,6 +45,9 @@ export function renderChatTaskSuggestionTray(props: ChatTaskSuggestionTrayProps)
     suggestions: props.taskSuggestions ?? [],
     busyIds: props.taskSuggestionBusyIds ?? new Set(),
     copiedIds: props.taskSuggestionCopiedIds ?? new Set(),
+    acceptanceFor: props.taskSuggestionAcceptance,
+    onOpen: props.onOpenTaskSuggestion,
+    canOpen: props.canOpenTaskSuggestions === true,
     activeId: props.activeTaskSuggestionId,
     swapDirection: props.taskSuggestionSwapDirection,
     swapGeneration: props.taskSuggestionSwapGeneration ?? 0,
@@ -71,6 +83,9 @@ function renderChatTaskSuggestions(props: {
   onDismiss: (suggestion: TaskSuggestion) => void;
   onCopyPrompt: (suggestion: TaskSuggestion) => void;
   copiedIds: ReadonlySet<string>;
+  acceptanceFor?: (taskId: string) => TaskSuggestionAcceptance | undefined;
+  onOpen?: (suggestion: TaskSuggestion) => void;
+  canOpen: boolean;
   activeId?: string;
   swapDirection?: "next" | "previous";
   swapGeneration: number;
@@ -87,6 +102,7 @@ function renderChatTaskSuggestions(props: {
     <div class="task-suggestions ${multiple ? "task-suggestions--stack" : ""}" aria-live="polite">
       ${props.suggestions.map((suggestion, index) => {
         const busy = props.busyIds.has(suggestion.id);
+        const acceptance = props.acceptanceFor?.(suggestion.id);
         const title = sanitizeTaskSuggestionText(suggestion.title);
         const tldr = sanitizeTaskSuggestionText(suggestion.tldr);
         const cwd = sanitizeTaskSuggestionText(suggestion.cwd);
@@ -155,12 +171,12 @@ function renderChatTaskSuggestions(props: {
                     : nothing
                 }
                 ${
-                  props.canDismiss
+                  props.canDismiss || acceptance?.phase === "started"
                     ? html`
                         <button
                           class="task-suggestion__header-action task-suggestion__dismiss"
                           type="button"
-                          ?disabled=${busy}
+                          ?disabled=${busy || (acceptance?.phase === "started" && !props.canOpen)}
                           aria-label=${t("chat.taskSuggestions.dismiss", { title })}
                           @click=${() => props.onDismiss(suggestion)}
                         >
@@ -174,7 +190,7 @@ function renderChatTaskSuggestions(props: {
             <div class="task-suggestion__body">
               <div class="task-suggestion__title">${title}</div>
               <div class="task-suggestion__summary">${tldr}</div>
-              <details class="task-suggestion__instructions">
+              <details class="task-suggestion__instructions" ?open=${Boolean(acceptance) || busy}>
                 <summary>
                   <span class="task-suggestion__instructions-chevron" aria-hidden="true"
                     >${icons.chevronRight}</span
@@ -200,50 +216,94 @@ function renderChatTaskSuggestions(props: {
                   <pre>${prompt}</pre>
                 </div>
               </details>
+              ${
+                acceptance?.phase === "started"
+                  ? html`<p class="task-suggestion__summary" role="status">
+                      ${t("chat.taskSuggestions.started")}
+                    </p>`
+                  : acceptance?.phase === "failed"
+                    ? html`<div class="callout danger" role="alert">
+                        <span
+                          >${t("chat.taskSuggestions.startUnconfirmed")} ${acceptance.error}</span
+                        >
+                      </div>`
+                    : nothing
+              }
             </div>
             <div class="task-suggestion__actions">
-              <button
-                class="btn task-suggestion__start task-suggestion__start--primary"
-                type="button"
-                ?disabled=${busy || !props.canAccept}
-                title=${props.canAccept ? "" : t("chat.taskSuggestions.adminRequired")}
-                @click=${() => accept("local")}
-              >
-                ${icons.play}
-                ${
-                  busy ? t("chat.taskSuggestions.starting") : t("chat.taskSuggestions.startSession")
-                }
-              </button>
-              <wa-dropdown
-                placement="bottom-end"
-                ?disabled=${busy || !props.canAccept}
-                @wa-select=${(event: CustomEvent<{ item: { value: string } }>) => {
-                  const mode = event.detail.item.value;
-                  if (mode === "local" || mode === "worktree" || mode === "session") {
-                    accept(mode);
-                  }
-                }}
-              >
-                <button
-                  slot="trigger"
-                  class="btn task-suggestion__start task-suggestion__start--options"
-                  type="button"
-                  ?disabled=${busy || !props.canAccept}
-                  aria-label=${t("chat.taskSuggestions.startOptions")}
-                  title=${props.canAccept ? "" : t("chat.taskSuggestions.adminRequired")}
-                >
-                  ${icons.chevronDown}
-                </button>
-                <wa-dropdown-item value="local" ?disabled=${busy || !props.canAccept}>
-                  ${t("chat.taskSuggestions.startSession")}
-                </wa-dropdown-item>
-                <wa-dropdown-item value="worktree" ?disabled=${busy || !props.canAccept}>
-                  ${t("chat.taskSuggestions.startWorktree")}
-                </wa-dropdown-item>
-                <wa-dropdown-item value="session" ?disabled=${busy || !props.canAccept}>
-                  ${t("chat.taskSuggestions.startCurrentSession")}
-                </wa-dropdown-item>
-              </wa-dropdown>
+              ${
+                acceptance?.phase === "started"
+                  ? html`<a
+                      class="btn task-suggestion__start task-suggestion__open"
+                      href=${props.canOpen ? acceptance.href : nothing}
+                      aria-disabled=${props.canOpen ? nothing : "true"}
+                      tabindex=${props.canOpen ? 0 : -1}
+                      @click=${(event: MouseEvent) => {
+                        if (!props.canOpen) {
+                          event.preventDefault();
+                        } else if (props.onOpen && shouldHandleNavigationClick(event)) {
+                          event.preventDefault();
+                          props.onOpen(suggestion);
+                        }
+                      }}
+                      >${t("sessionsView.openSession")}</a
+                    >`
+                  : acceptance?.phase === "failed"
+                    ? html`<button
+                        class="btn task-suggestion__start task-suggestion__retry"
+                        type="button"
+                        ?disabled=${!props.canAccept}
+                        @click=${() => accept("local")}
+                      >
+                        ${t("common.retry")}
+                      </button>`
+                    : html`
+                        <button
+                          class="btn task-suggestion__start task-suggestion__start--primary"
+                          type="button"
+                          ?disabled=${busy || !props.canAccept}
+                          title=${props.canAccept ? "" : t("chat.taskSuggestions.adminRequired")}
+                          @click=${() => accept("local")}
+                        >
+                          ${icons.play}
+                          ${
+                            busy
+                              ? t("chat.taskSuggestions.starting")
+                              : t("chat.taskSuggestions.startSession")
+                          }
+                        </button>
+                        <wa-dropdown
+                          placement="bottom-end"
+                          ?disabled=${busy || !props.canAccept}
+                          @wa-select=${(event: CustomEvent<{ item: { value: string } }>) => {
+                            const mode = event.detail.item.value;
+                            if (mode === "local" || mode === "worktree" || mode === "session") {
+                              accept(mode);
+                            }
+                          }}
+                        >
+                          <button
+                            slot="trigger"
+                            class="btn task-suggestion__start task-suggestion__start--options"
+                            type="button"
+                            ?disabled=${busy || !props.canAccept}
+                            aria-label=${t("chat.taskSuggestions.startOptions")}
+                            title=${props.canAccept ? "" : t("chat.taskSuggestions.adminRequired")}
+                          >
+                            ${icons.chevronDown}
+                          </button>
+                          <wa-dropdown-item value="local" ?disabled=${busy || !props.canAccept}>
+                            ${t("chat.taskSuggestions.startSession")}
+                          </wa-dropdown-item>
+                          <wa-dropdown-item value="worktree" ?disabled=${busy || !props.canAccept}>
+                            ${t("chat.taskSuggestions.startWorktree")}
+                          </wa-dropdown-item>
+                          <wa-dropdown-item value="session" ?disabled=${busy || !props.canAccept}>
+                            ${t("chat.taskSuggestions.startCurrentSession")}
+                          </wa-dropdown-item>
+                        </wa-dropdown>
+                      `
+              }
             </div>
           </article>
         `;

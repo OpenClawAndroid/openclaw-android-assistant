@@ -156,6 +156,16 @@ suite.define(() => {
         true,
       );
       expect(await options.isDisabled()).toBe(true);
+      await gateway.setMethodResponse("taskSuggestions.list", { suggestions: [] });
+      await gateway.emitGatewayEvent("task.suggestion", {
+        action: "resolved",
+        taskId: suggestion.id,
+        resolution: "accepted",
+      });
+      await card.getByText(suggestion.prompt, { exact: true }).waitFor({ state: "visible" });
+      expect(await card.getByRole("button", { name: "Starting…", exact: true }).isDisabled()).toBe(
+        true,
+      );
       await gateway.resolveDeferred("taskSuggestions.accept", {
         taskId: suggestion.id,
         key: mode === "session" ? "main" : "agent:main:dashboard:suggested",
@@ -163,7 +173,9 @@ suite.define(() => {
 
       const acceptRequest = await gateway.waitForRequest("taskSuggestions.accept");
       expect(acceptRequest.params).toEqual({ taskId: "task_123", mode });
-      await card.waitFor({ state: "hidden" });
+      await card.getByRole("status").filter({ hasText: "Task started" }).waitFor();
+      await card.getByRole("link", { name: "Open session", exact: true }).waitFor();
+      expect(await card.getByText(suggestion.prompt, { exact: true }).isVisible()).toBe(true);
       expect(page.url()).toBe(sourceUrl);
       expect(await composer.inputValue()).toBe(draft);
       expect(await gateway.getRequests("taskSuggestions.accept")).toHaveLength(1);

@@ -30,7 +30,10 @@ import {
 import { renderChatWorkingIndicator } from "../chat/components/chat-working-indicator.ts";
 import type { buildLocalUserMessage } from "../chat/user-message-content.ts";
 
-export function renderDraftError(message: string, action?: { label: string; onClick: () => void }) {
+export function renderDraftError(
+  message: string,
+  action?: { label: string; onClick: () => void; disabled?: boolean },
+) {
   return html`
     <div class="callout danger new-session-page__error new-session-page__alert" role="alert">
       <span class="new-session-page__alert-icon" aria-hidden="true">${icons.alertTriangle}</span>
@@ -39,7 +42,12 @@ export function renderDraftError(message: string, action?: { label: string; onCl
       >
       ${
         action
-          ? html`<button class="btn btn--sm" type="button" @click=${action.onClick}>
+          ? html`<button
+              class="btn btn--sm"
+              type="button"
+              ?disabled=${action.disabled}
+              @click=${action.onClick}
+            >
               ${action.label}
             </button>`
           : nothing
@@ -50,9 +58,13 @@ export function renderDraftError(message: string, action?: { label: string; onCl
 
 export function renderNewSessionBody(options: {
   error: string | null;
+  errorAction?: Parameters<typeof renderDraftError>[1];
   pendingMessage: ReturnType<typeof buildLocalUserMessage>;
   userId?: string | null;
   submitting: boolean;
+  statusLabel?: string;
+  completion?: { label: string; onOpen?: () => void; disabled?: boolean };
+  showDraft?: boolean;
   renderDraft: () => TemplateResult;
   onOpenImage: (item: ImageLightboxItem) => void;
 }) {
@@ -66,15 +78,15 @@ export function renderNewSessionBody(options: {
   // Late cleanup can fail while a replacement submission is still pending.
   return html`
     <div class="sr-only" role="status" aria-live="polite">
-      ${pendingMessage ? t("newSession.starting") : nothing}
+      ${pendingMessage ? (options.completion?.label ?? options.statusLabel ?? t("newSession.starting")) : nothing}
     </div>
     <div
       class="new-session-page__scroll ${pendingMessage ? `chat-thread ${avatarPlacement === "footer" ? "chat-thread--direct" : ""}` : ""}"
       ?inert=${draftLocked}
-      aria-busy=${String(draftLocked)}
+      aria-busy=${String(options.submitting)}
       @mousedown=${beginNativeWindowDragFromTopInset}
     >
-      ${options.error ? renderDraftError(options.error) : nothing}
+      ${options.error ? renderDraftError(options.error, options.errorAction) : nothing}
       ${
         pendingMessage && normalized
           ? renderNewSessionSubmission(
@@ -82,9 +94,12 @@ export function renderNewSessionBody(options: {
               normalized,
               avatarPlacement,
               options.onOpenImage,
+              options.statusLabel,
+              options.completion,
             )
           : options.renderDraft()
       }
+      ${pendingMessage && options.showDraft ? options.renderDraft() : nothing}
     </div>
   `;
 }
@@ -94,6 +109,8 @@ function renderNewSessionSubmission(
   normalized: ReturnType<typeof normalizeMessage>,
   avatarPlacement: "footer" | "gutter",
   onOpenImage: (item: ImageLightboxItem) => void,
+  statusLabel = t("newSession.starting"),
+  completion?: { label: string; onOpen?: () => void; disabled?: boolean },
 ) {
   const key = "new-session-submission";
   const senderHue = normalized.sender ? resolveIdentityHue(normalized.sender) : null;
@@ -151,10 +168,28 @@ function renderNewSessionSubmission(
     </div>
     <div class="chat-group assistant chat-group--working">
       <div class="chat-group-messages">
-        ${renderChatWorkingIndicator(
-          { kind: "reading-indicator", key, startedAt: message.timestamp },
-          { startupLabel: t("newSession.starting") },
-        )}
+        ${
+          completion
+            ? html`<div class="callout" role="status">
+                <span class="callout__content">${completion.label}</span>
+                ${
+                  completion.onOpen
+                    ? html`<button
+                        class="btn btn--sm"
+                        type="button"
+                        ?disabled=${completion.disabled}
+                        @click=${completion.onOpen}
+                      >
+                        ${t("sessionsView.openSession")}
+                      </button>`
+                    : nothing
+                }
+              </div>`
+            : renderChatWorkingIndicator(
+                { kind: "reading-indicator", key, startedAt: message.timestamp },
+                { startupLabel: statusLabel },
+              )
+        }
       </div>
     </div>
   </div>`;

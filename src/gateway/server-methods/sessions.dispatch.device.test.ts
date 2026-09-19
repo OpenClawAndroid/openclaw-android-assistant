@@ -37,7 +37,6 @@ import type { WorkerPlacementDispatchService } from "../worker-environments/plac
 import type { WorkerSessionPlacementRecord } from "../worker-environments/placement-store.js";
 import { createWorkerSessionPlacementStore } from "../worker-environments/placement-store.js";
 import { deriveEnvironmentIntent } from "../worker-environments/service-contract.js";
-import * as environmentMethods from "./environments.js";
 import {
   dispatchTestSessionId,
   dispatchTestSessionKey,
@@ -49,6 +48,8 @@ import {
   makeSessionTarget,
 } from "./sessions-dispatch.test-support.js";
 
+// Install session-store fixtures before environment handlers load their session accessors.
+const environmentMethods = await import("./environments.js");
 const dispatchTestMocks = getDispatchTestMocks();
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 

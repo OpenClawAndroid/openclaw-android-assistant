@@ -18,6 +18,7 @@ import {
   runOpenClawAgentWriteTransaction,
 } from "../../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
 import { bumpGatewayAccessRevision } from "../gateway-access-revision.js";
 import { createDirectChatContext } from "../server-chat.agent-events.test-helpers.js";
 import { chatHistoryHandlers } from "./chat-history-handler.js";
@@ -424,6 +425,7 @@ it.each(
         });
       }
     }
+    await cleanupSessionStateForTest({ stateDir: state.stateDir });
     expect(hasOpenClawAgentDatabaseAsyncResources()).toBe(false);
   });
 });

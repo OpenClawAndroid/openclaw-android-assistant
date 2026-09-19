@@ -62,6 +62,7 @@ registerChatMessageMetadataEnglish();
 
 export type ChatThreadState = {
   asyncQuestionDrafts: Map<string, AsyncQuestionDraft>;
+  asyncQuestionRevision: number;
   asyncQuestionScope?: string;
   turnRecapWatch: TurnRecapWatch | null;
   searchOpen: boolean;
@@ -199,6 +200,7 @@ type TranscriptInteractionProps = Pick<
 function createTranscriptState(): ChatThreadState {
   return {
     asyncQuestionDrafts: new Map(),
+    asyncQuestionRevision: 0,
     turnRecapWatch: null,
     searchOpen: false,
     searchQuery: "",

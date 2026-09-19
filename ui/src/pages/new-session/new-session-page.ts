@@ -20,6 +20,7 @@ import { buildAgentMainSessionKey } from "../../lib/sessions/session-key.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { focusChatComposerFromPrintableKeydown } from "../chat/chat-pane-shared.ts";
+import { chatStartupStatusLabel } from "../chat/chat-run-startup.ts";
 import { renderChatImageLightbox } from "../chat/components/chat-image-lightbox.ts";
 import "../../styles/chat/composer.css";
 import "../../styles/chat/composer-surface.css";
@@ -299,6 +300,10 @@ export class NewSessionPage extends OpenClawLightDomElement {
         () => this.context?.sessions,
         (sessions, notify) => sessions.subscribe(notify),
         (sessions) => this.groupRouteRevalidation.synchronize(sessions),
+      )
+      .watch(
+        () => this.context?.placementStartup,
+        (startup, notify) => startup.subscribe(notify),
       )
       .watch(
         () => this.context?.runtimeConfig,
@@ -589,6 +594,8 @@ export class NewSessionPage extends OpenClawLightDomElement {
 
   override render() {
     const pendingMessage = this.submission.pendingMessage;
+    const completed = this.submission.completedSubmission;
+    const startup = completed ? this.context?.placementStartup.get(completed.key) : null;
     const identity = this.context?.gateway.snapshot.selfUser?.identity;
     const incognito = this.submission.visibility === "incognito";
     const panelLoad = this.attachmentPanelLoader.visibleState;
@@ -611,7 +618,23 @@ export class NewSessionPage extends OpenClawLightDomElement {
           pendingMessage,
           userId: identity?.type === "profile" ? identity.id : null,
           submitting: this.submission.submitting,
-          renderDraft: () => this.renderWelcome(),
+          statusLabel:
+            this.context?.gateway.snapshot.phase === "connected"
+              ? undefined
+              : t("connection.reconnecting"),
+          completion: completed
+            ? {
+                label:
+                  completed.error ??
+                  startup?.error ??
+                  chatStartupStatusLabel(null, startup) ??
+                  t("newSession.created"),
+                onOpen: () => void this.submission.openSubmittedSession(),
+                disabled: this.context?.gateway.snapshot.phase !== "connected",
+              }
+            : undefined,
+          showDraft: Boolean(completed),
+          renderDraft: () => (completed ? this.renderDraftBlock() : this.renderWelcome()),
           onOpenImage: this.setImageLightbox,
         })}
         ${renderConnectMachineDialog({

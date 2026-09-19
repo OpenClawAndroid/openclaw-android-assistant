@@ -742,6 +742,46 @@ suite.define(() => {
     await screenshot(page, "13-secret-store-ask-answered.png");
   });
 
+  it("retains a typed answer when navigating between pending questions", async () => {
+    const { gateway, page } = await openQuestionPage();
+    const first = questionRecord("question-a-format", [
+      {
+        questionId: "format",
+        header: "Format",
+        question: "Which format should I use?",
+        options: [{ label: "Compact" }, { label: "Detailed" }],
+        isOther: true,
+      },
+    ]);
+    const second = questionRecord("question-b-audience", [
+      {
+        questionId: "audience",
+        header: "Audience",
+        question: "Who should read it?",
+        options: [{ label: "Engineers" }, { label: "Everyone" }],
+        isOther: true,
+      },
+    ]);
+    await emitRequested(gateway, first);
+    await emitRequested(gateway, second);
+    const panel = page.locator("openclaw-chat-question-panel");
+    await panel.getByRole("textbox", { name: "Your own answer for Format" }).fill("Compact");
+    await panel.getByRole("button", { name: "Next", exact: true }).click();
+    await panel.getByText("Who should read it?", { exact: true }).waitFor();
+    await panel.getByRole("button", { name: "Previous", exact: true }).click();
+    await panel.getByText("Which format should I use?", { exact: true }).waitFor();
+    try {
+      expect(
+        await panel.getByRole("textbox", { name: "Your own answer for Format" }).inputValue(),
+      ).toBe("Compact");
+      expect(await panel.getByRole("radio", { name: /Compact/ }).getAttribute("aria-checked")).toBe(
+        "false",
+      );
+    } finally {
+      await screenshot(page, "14-retained-custom-answer.png");
+    }
+  });
+
   it("keeps multi-select on one step and submits labels as an array", async () => {
     const { gateway, page } = await openQuestionPage();
     const request = questionRecord("question-release-checks", [

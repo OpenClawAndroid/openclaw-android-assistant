@@ -144,6 +144,11 @@ html:is(.openclaw-native-macos, .openclaw-native-desktop) .new-session-page__inc
   text-align: left;
 }
 
+.new-session-page__scroll > .new-session-page__draft {
+  max-width: var(--chat-thread-max-width, 48rem);
+  margin-inline: auto;
+}
+
 .new-session-page__incognito-notice {
   display: flex;
   align-items: center;

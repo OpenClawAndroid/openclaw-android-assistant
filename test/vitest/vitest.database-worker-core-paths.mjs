@@ -145,6 +145,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/fleet/doctor.runtime.test.ts",
   "src/fleet/registry.test.ts",
   "src/fleet/registry-read.test.ts",
+  "src/node-host/config-read.test.ts",
   "src/fleet/service.runtime.test.ts",
   "src/fleet/service-upgrade.runtime.test.ts",
   "src/fleet/service-removal.runtime.test.ts",

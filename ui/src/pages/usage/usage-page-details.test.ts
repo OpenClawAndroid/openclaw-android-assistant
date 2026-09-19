@@ -1,6 +1,5 @@
 /* @vitest-environment jsdom */
 
-import { queryObjects } from "node:v8";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionUsageTimeSeries } from "../../../../src/shared/session-usage-timeseries-types.js";
 import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
@@ -112,9 +111,7 @@ describe("UsagePage detail requests", () => {
     await vi.waitFor(() => expect(download).toHaveBeenCalledOnce());
     expect(download.mock.calls[0]![1]).toContain("exported-context");
     const collectionControl = new WeakRef({ unowned: true });
-    await collectGarbageForTest(() => {
-      queryObjects(ExportReport);
-    });
+    await collectGarbageForTest();
     expect(collectionControl.deref()).toBeUndefined();
     expect(report).toBeDefined();
     expect(report!.deref()).toBeUndefined();
@@ -139,9 +136,7 @@ describe("UsagePage detail requests", () => {
     await page.details.sessionLogs.load("agent:main:detail-lifetime");
     page.details.cancel();
     const collectionControl = new WeakRef({ unowned: true });
-    await collectGarbageForTest(() => {
-      queryObjects(DetailPayload);
-    });
+    await collectGarbageForTest();
     expect(collectionControl.deref()).toBeUndefined();
     expect(payloads).toHaveLength(2);
     expect(payloads.every((payload) => payload.deref() !== undefined)).toBe(true);
@@ -149,9 +144,7 @@ describe("UsagePage detail requests", () => {
     expect(page.details.sessionLogs.data).not.toBeNull();
 
     page.details.clear();
-    await collectGarbageForTest(() => {
-      queryObjects(DetailPayload);
-    });
+    await collectGarbageForTest();
     expect(payloads.every((payload) => payload.deref() === undefined)).toBe(true);
     expect(page.details.timeSeries.data).toBeNull();
     expect(page.details.sessionLogs.data).toBeNull();
@@ -182,9 +175,7 @@ describe("UsagePage detail requests", () => {
     page.requestUpdate();
     await page.updateComplete;
     const collectionControl = new WeakRef({ unowned: true });
-    await collectGarbageForTest(() => {
-      queryObjects(OverviewPayload);
-    });
+    await collectGarbageForTest();
     expect(collectionControl.deref()).toBeUndefined();
     expect(payload!.deref()).toBeUndefined();
     expect(page.isConnected).toBe(true);

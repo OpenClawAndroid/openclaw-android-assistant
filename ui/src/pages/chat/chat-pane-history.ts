@@ -230,11 +230,15 @@ export abstract class ChatPaneHistory extends ChatPaneReplyNavigation {
         );
       }
     }
+    // A shrinking scroll range can move the native offset to its new end.
+    // Only movement away from that edge can imply reader intent without input.
     const hasUpwardIntent =
       !this.loadingOlder &&
+      !this.transcript.isMaintenanceScroll &&
       root !== null &&
       previousScrollTop !== null &&
       root.scrollTop < previousScrollTop &&
+      root.scrollTop < root.scrollHeight - root.clientHeight &&
       root.scrollTop <= CHAT_HISTORY_PREFETCH_EDGE_PX;
     const newHistoryIntent = hasUpwardIntent && this.consumeHistoryIntent();
     // A failed request or exhausted bootstrap stays disarmed until renewed

@@ -342,6 +342,37 @@ The worktree service owns template creation, reuse, invalidation, and cleanup un
 
 The additive table is ensured on first use and does not change the numeric database schema version. Existing worktree and snapshot records retain their meaning; no existing checkout is migrated or moved. Template artifacts are reconstructible, while registered worktree contents and recovery snapshots retain their existing preservation rules.
 
+### Conversation environments
+
+Temporary desktops and app previews attached to a conversation use
+`worker_environment_session_attachments` in the shared state database. The worker
+environment store owns this additive companion table. One row binds an exact
+session ID and lifecycle revision to one environment, with an attachment
+generation, creation and last-use timestamps, and a nullable closed timestamp.
+The environment row continues to own provisioning, provider leases, transport
+identity, credentials, and teardown. Execution placement remains independent.
+
+Allocation intent and attachment reservation commit together before provisioning.
+Concurrent creation and retries reuse the owned allocation. Stop closes the
+relation before waiting for remote cleanup; cleanup failure retains the relation
+and prevents replacement until the old lease is confirmed destroyed. Session
+reset or deletion retires it, and startup checks the canonical session incarnation
+before allowing access. The configured profile's `suspendAfter` expires idle
+attachments; active agent runs and desktop observers keep them active. Provider
+lease lifetime limits continue to apply. Closing a sidebar panel only releases
+its viewer. Terminal attachment rows follow the environment owner's seven-day
+retention through a cascading foreign key.
+
+The table is ensured when the worker environment store opens and does not change
+the numeric schema version or the meaning of existing placement columns. Older
+builds ignore the relation and show these machines as ordinary unassigned
+environments; they do not maintain conversation attachment activity or cleanup.
+Stop attached machines before downgrading when they should not remain running.
+Existing environment destruction and provider lifetime limits remain available.
+Re-upgrading validates retained session identities and retries pending cleanup.
+Database backup and rollback include the companion table with the existing
+shared state database; no external attachment state needs reconstruction.
+
 ### Cloud repository workspaces
 
 Repository-only [cloud sessions](/gateway/cloud-workers#dispatching-a-session) use the first-use `session_repository_workspaces` table in the shared state database. The existing session entry carries only `repositoryWorkspaceId`; the shared row owns the canonical agent/session key, repository URL, requested ref, session branch, setup intent, pinned base commit and manifest, accepted checkpoint pointer, and revision. Session reset preserves this owner; a fork receives a distinct owner.

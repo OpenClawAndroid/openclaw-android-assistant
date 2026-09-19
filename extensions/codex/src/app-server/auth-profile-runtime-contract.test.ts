@@ -3,12 +3,12 @@ import path from "node:path";
 import type { EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams } from "openclaw/plugin-sdk/agent-harness";
 import { AUTH_PROFILE_RUNTIME_CONTRACT } from "openclaw/plugin-sdk/agent-runtime-test-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { seedRunSessionOwnerForTest } from "./run-attempt-session-owners.test-support.js";
 import {
   createAppServerHarness,
   createCodexRuntimePlanFixture,
   createParams as createSharedParams,
   runCodexAppServerAttempt as runSharedCodexAppServerAttempt,
-  seedRunSessionOwnerForTest,
   setupRunAttemptTestHooks,
   tempDir,
   threadStartResult,

@@ -400,10 +400,15 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
               }
               <div class="agent-chat__composer-lede">
                 ${goalComposer.render()}
-                ${renderSelectedHumanMentions(visibleDraft, props.mentions, () => {
-                  commitComposerDraft(props, props.getDraft?.() ?? props.draft, []);
-                  requestUpdate();
-                })}
+                ${renderSelectedHumanMentions(
+                  visibleDraft,
+                  props.mentions,
+                  () => {
+                    commitComposerDraft(props, props.getDraft?.() ?? props.draft, []);
+                    requestUpdate();
+                  },
+                  state.mentionMenu.selectedAvatarUrls,
+                )}
                 ${
                   props.replyTarget
                     ? html`

@@ -23,6 +23,7 @@ import { crabboxState } from "./crabbox-state.test-support.js";
 import { createNodeBootstrapFixture } from "./crabbox-worker-node-enrollment.test-support.js";
 import { operationLeaseId, parseCrabboxProfile } from "./crabbox-worker-profile.js";
 import { createCrabboxWorkerProvider, resolveOpenClawRoot } from "./crabbox-worker-provider.js";
+import { classProfile, mappedCatalog } from "./crabbox-worker-provider.test-support.js";
 import {
   CRABBOX_COMMAND_SETTLEMENT_TIMEOUT_MS,
   CRABBOX_LIFECYCLE_TIMEOUT_MS,
@@ -106,31 +107,6 @@ function commandResult(overrides: Partial<SpawnResult> = {}): SpawnResult {
   };
 }
 
-function classProfile(
-  machineClass: string,
-  primary: Record<string, unknown> = {},
-  selectors: Record<string, unknown> = {},
-) {
-  return {
-    class: machineClass,
-    target: "linux",
-    architecture: "amd64",
-    primary: {
-      type: "native-8vcpu-16gb",
-      architecture: "amd64",
-      vcpu: null,
-      memory: null,
-      ...primary,
-    },
-    fallbacks: [],
-    ...selectors,
-  };
-}
-
-function mappedCatalog(profiles: unknown[]) {
-  return { disposition: "mapped", profiles };
-}
-
 function inspectJson(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     id: LEASE_ID,
@@ -170,6 +146,7 @@ function providerWithRawRunner(
     ...provider,
     provision: (profile, operationId, options) =>
       provider.provision(profile, operationId, {
+        assertCurrent: () => {},
         nodeRuntimeIdentity: {
           nodeBootstrapSha256: createNodeBootstrapFixture().sha256,
           executionMode: options?.executionMode ?? "worker-turn",
@@ -1891,7 +1868,9 @@ describe("Crabbox worker provider", () => {
         });
       });
       await expect(
-        provider.prepareProvision!({ ...PROFILE, provider: backend }, OPERATION_ID),
+        provider.prepareProvision!({ ...PROFILE, provider: backend }, OPERATION_ID, {
+          assertCurrent: () => {},
+        }),
       ).rejects.toMatchObject({
         code: "invalid_profile",
         message: "Crabbox AWS instance profile must be empty for cloud workers",
@@ -1937,7 +1916,9 @@ describe("Crabbox worker provider", () => {
     });
     providers.add(provider);
 
-    await expect(provider.provision(PROFILE, OPERATION_ID)).rejects.toMatchObject({
+    await expect(
+      provider.provision(PROFILE, OPERATION_ID, { assertCurrent: () => {} }),
+    ).rejects.toMatchObject({
       code: "cleanup_complete",
       message: "Crabbox AWS inspect must attest that no instance profile is attached",
     });
@@ -3117,7 +3098,9 @@ describe("Crabbox worker provider", () => {
 
     try {
       await expect(
-        provider.provision({ ...PROFILE, setup: "install-node" }, OPERATION_ID),
+        provider.provision({ ...PROFILE, setup: "install-node" }, OPERATION_ID, {
+          assertCurrent: () => {},
+        }),
       ).rejects.toThrow("exceeded its provider deadline");
     } finally {
       now.mockRestore();

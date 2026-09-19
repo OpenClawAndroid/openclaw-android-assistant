@@ -29,11 +29,13 @@ import {
 } from "../node-command-policy.js";
 import { collectNodeCatalogRuntimeState } from "../node-registry-private.js";
 import { readNodeSessionWithheldCommands, type NodeSession } from "../node-registry.js";
+import { summarizeWorkerEnvironment } from "../worker-environments/environment-summary.js";
 import { resolveWorkerPlacementCapabilities } from "../worker-environments/placement-capabilities.js";
 import type { WorkerEnvironmentServiceRecord } from "../worker-environments/service-contract.js";
-import type { WorkerEnvironmentState } from "../worker-environments/state.js";
 import { formatForLog } from "../ws-log.js";
 import { respondDesktopLaunch, respondDesktopObserve } from "./environments.desktop.js";
+import { environmentsSessionExecHandlers } from "./environments.session-exec.js";
+import { environmentsSessionHandlers } from "./environments.session.js";
 import { respondUnavailableOnThrow } from "./response.js";
 import type { GatewayRequestContext, GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
@@ -47,19 +49,6 @@ const GATEWAY_ENVIRONMENT: EnvironmentSummary = {
   sessionHost: true,
   trust: "persistent",
   capabilities: ["agent.run", "sessions", "tools", "workspace"],
-};
-const WORKER_STATUS: Record<WorkerEnvironmentState, EnvironmentSummary["status"]> = {
-  requested: "starting",
-  provisioning: "starting",
-  bootstrapping: "starting",
-  ready: "available",
-  attached: "available",
-  idle: "available",
-  draining: "stopping",
-  destroying: "stopping",
-  destroyed: "unavailable",
-  failed: "error",
-  orphaned: "error",
 };
 function uniqueSortedStrings(...items: Array<readonly string[] | undefined>): string[] {
   return normalizeSortedUniqueTrimmedStringList(items.flatMap((item) => item ?? []));
@@ -127,41 +116,6 @@ function summarizeNodeEnvironment(
     ...(invocableCommands.length > 0 ? { invocableCommands } : {}),
     ...(requiredNodeCommand ? { requiredNodeCommand } : {}),
     ...(node.issues?.length ? { issues: [...node.issues] } : {}),
-  };
-}
-/** Projects a durable worker row without exposing its SSH credential reference. */
-export function summarizeWorkerEnvironment(
-  record: WorkerEnvironmentServiceRecord,
-  now = Date.now(),
-): EnvironmentSummary {
-  return {
-    id: record.environmentId,
-    type: "worker",
-    status: WORKER_STATUS[record.state],
-    ...(record.sharedHost === null
-      ? {}
-      : { trust: record.sharedHost ? "persistent" : "disposable" }),
-    ...(record.desktopAvailable ? { desktop: true } : {}),
-    ...(record.preparation
-      ? { preparation: { purpose: record.preparation.purpose, key: record.preparation.key } }
-      : {}),
-    worker: {
-      profileId: record.profileId,
-      providerId: record.providerId,
-      ...(record.leaseId ? { leaseId: record.leaseId } : {}),
-      state: record.state,
-      ageMs: Math.max(0, Math.trunc(now - record.createdAtMs)),
-      ...(record.state === "idle" && record.idleSinceAtMs !== null
-        ? { idleMs: Math.max(0, Math.trunc(now - record.idleSinceAtMs)) }
-        : {}),
-      attachedSessionIds: uniqueSortedStrings(record.attachedSessionIds),
-      tunnelStatus: record.tunnelStatus,
-      ...((record.state === "failed" || record.state === "orphaned") && record.error
-        ? { error: record.error }
-        : {}),
-      ...(record.desktopAvailable ? { desktop: true } : {}),
-      ...(record.desktopApps.length > 0 ? { desktopApps: [...record.desktopApps] } : {}),
-    },
   };
 }
 export async function listGatewayEnvironments(
@@ -284,6 +238,8 @@ async function respondWorkerMutation(
 }
 
 export const environmentsHandlers: GatewayRequestHandlers = {
+  ...environmentsSessionHandlers,
+  ...environmentsSessionExecHandlers,
   "environments.list": async ({ params, respond, client, context }) => {
     if (!assertValidParams(params, validateEnvironmentsListParams, "environments.list", respond)) {
       return;

@@ -27,7 +27,6 @@ import { attachManagedOutgoingMediaToMessage } from "../managed-image-attachment
 import { loadSessionEntry } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import {
-  buildAssistantReplyContent,
   combineNonStreamingReplyParts,
   extractAssistantDisplayText,
   hasAssistantDisplayMediaContent,
@@ -36,8 +35,9 @@ import {
 } from "./chat-assistant-content.js";
 import { isBtwReplyPayload, isSourceReplyTranscriptMirrorPayload } from "./chat-broadcast.js";
 import {
-  getWebchatReplyMediaLocalRoots,
-  normalizeWebchatReplyMediaPathsForDisplay,
+  captureWebchatReplyMediaScope,
+  prepareWebchatReplyMediaForDisplay,
+  type WebchatReplyMediaRequesterContext,
 } from "./chat-reply-media.js";
 import { observeChatSendCommentaryMedia } from "./chat-send-commentary-media.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
@@ -52,7 +52,6 @@ import {
   buildTtsSupplementTranscriptMarker,
   stripVisibleTextFromTtsSupplement,
 } from "./chat-tts-markers.js";
-import { buildWebchatAssistantMessageFromReplyPayloads } from "./chat-webchat-media.js";
 import type { GatewayRequestContext } from "./types.js";
 
 type DeliveredChatSendReply = {
@@ -107,6 +106,7 @@ export function buildTranscriptReplyText(payloads: ReplyPayload[]): string {
 /** Build delivery options and capture state for the core-owned webchat dispatcher. */
 export function createChatSendReplyDispatch(params: {
   accountId: string | undefined;
+  requesterContext?: WebchatReplyMediaRequesterContext;
   isAgentRunStarted: () => boolean;
   onCommandBlock?: (text: string) => void;
   isRunCurrent?: () => boolean;
@@ -212,45 +212,46 @@ export function createChatSendReplyDispatch(params: {
     const sessionKey = transcript?.sessionKey ?? session.sessionKey;
     const agentId = transcript?.agentId ?? session.agentId;
     const ttsSupplementMarker = buildTtsSupplementTranscriptMarker(payload);
-    const [transcriptPayload] = await normalizeWebchatReplyMediaPathsForDisplay({
+    const mediaScope = captureWebchatReplyMediaScope({
+      requesterContext: params.requesterContext,
       cfg,
       sessionKey,
       agentId,
-      sessionEntry: loadSessionEntry(sessionKey, { ...sessionLoadOptions, agentId }).entry,
+      sessionLoadOptions: { ...sessionLoadOptions, agentId },
       accountId,
-      payloads: [stripVisibleTextFromTtsSupplement(payload)],
+      assertCurrent: () => {
+        params.abortSignal?.throwIfAborted();
+        if (params.isRunCurrent && !params.isRunCurrent()) {
+          throw new Error("Chat media run is no longer current.");
+        }
+      },
     });
-    if (!transcriptPayload) {
-      return;
-    }
     const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(sessionKey, {
       ...sessionLoadOptions,
       ...(agentId ? { agentId } : {}),
     });
     const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
-    const mediaLocalRoots = getWebchatReplyMediaLocalRoots({
-      cfg,
-      agentId,
-      sessionEntry: latestEntry,
+    const {
+      payloads: [transcriptPayload],
+      mediaMessage,
+      assistantContent,
+      persistedAssistantContent,
+    } = await prepareWebchatReplyMediaForDisplay({
+      scope: mediaScope,
       storePath: latestStorePath,
-    });
-    const mediaMessage = await buildWebchatAssistantMessageFromReplyPayloads([transcriptPayload], {
-      localRoots: mediaLocalRoots,
+      payloads: [stripVisibleTextFromTtsSupplement(payload)],
+      abortSignal: params.abortSignal,
+      includeSensitiveMedia: payload.sensitiveMedia !== true,
       onLocalAudioAccessDenied: (err) => {
         logGateway.warn(`webchat audio embedding denied local path: ${formatForLog(err)}`);
       },
-    });
-    const { assistantContent, persistedAssistantContent } = await buildAssistantReplyContent({
-      sessionKey,
-      agentId,
-      payloads: [transcriptPayload],
-      transcriptMediaMessage: mediaMessage,
-      managedMediaLocalRoots: mediaLocalRoots,
-      includeSensitiveMedia: transcriptPayload.sensitiveMedia !== true,
       onManagedMediaPrepareError: (message) => {
         logGateway.warn(`webchat media embedding skipped attachment: ${message}`);
       },
     });
+    if (!transcriptPayload) {
+      return;
+    }
     const transcriptPayloadMetadata = getReplyPayloadMetadata(transcriptPayload);
     const mediaFailures = transcriptPayloadMetadata?.assistantMediaFailures ?? [];
     const mediaNormalizationFailed = mediaFailures.length > 0;
@@ -497,6 +498,7 @@ export function createChatSendReplyDispatch(params: {
     return await admission.run(async () => {
       preparingTranscript = true;
       const commentaryMedia = observeChatSendCommentaryMedia({
+        requesterContext: params.requesterContext,
         session,
         accountId,
         getRunId: () => agentRunId,

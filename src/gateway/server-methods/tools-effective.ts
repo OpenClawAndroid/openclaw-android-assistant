@@ -624,6 +624,7 @@ function resolveTrustedToolsEffectiveContext(params: {
     capabilityProfile: resolveConversationCapabilityProfile({
       config: context.cfg,
       sessionKey: context.sessionKey,
+      preparedSessionEntry: { sessionKey: canonicalKey, entry: loaded.entry },
       agentId: context.agentId,
       modelProvider: context.modelProvider,
       modelId: context.modelId,

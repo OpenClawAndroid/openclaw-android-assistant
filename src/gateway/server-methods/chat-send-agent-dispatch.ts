@@ -182,6 +182,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
     !activeRunAbort.controller.signal.aborted &&
     context.chatAbortControllers.get(clientRunId) === activeRunAbort.entry;
   const replyDispatch = createChatSendReplyDispatch({
+    requesterContext: ctx,
     accountId,
     prepareAssistantTranscriptMessage: params.prepareAssistantTranscriptMessage,
     isAgentRunStarted: () => agentRunStarted,
@@ -204,6 +205,7 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
     userTurnRecorder,
   });
   const queuedFollowup = createChatSendTurnAdoptionLifecycle({
+    requesterContext: ctx,
     accountId,
     chatQueuedTurns: context.chatQueuedTurns,
     context,
@@ -578,6 +580,8 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
             !context.chatRunState.hasAbortMarker(clientRunId)
           ) {
             await finalizeChatSendDispatchedReplies({
+              requesterContext: ctx,
+              abortSignal: activeRunAbort.controller.signal,
               accountId,
               context,
               deliveredReplies: replyDispatch.deliveredReplies,
@@ -597,6 +601,8 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
             });
           } else if (!context.chatRunState.hasAbortMarker(clientRunId)) {
             finalizedSourceReply = await finalizeChatSendSourceReplies({
+              requesterContext: ctx,
+              abortSignal: activeRunAbort.controller.signal,
               accountId,
               context,
               deliveredReplies: replyDispatch.deliveredReplies,

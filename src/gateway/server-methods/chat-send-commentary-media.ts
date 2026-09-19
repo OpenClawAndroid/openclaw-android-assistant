@@ -16,6 +16,7 @@ import {
   readSessionTranscriptRunId,
 } from "../../sessions/transcript-events.js";
 import { ASSISTANT_DISPLAY_CONTENT_FIELD } from "../../shared/assistant-display-content.js";
+import { withChannelReadAuthority } from "../../shared/channel-read-authority.js";
 import { readAssistantTextBlocksForPhase } from "../../shared/chat-message-content.js";
 import {
   buildManagedMediaFailureBlock,
@@ -27,8 +28,10 @@ import { loadSessionEntry } from "../session-utils.js";
 import { formatForLog } from "../ws-log.js";
 import type { AssistantDisplayContentBlock } from "./chat-assistant-content.js";
 import {
+  captureWebchatReplyMediaScope,
   getWebchatReplyMediaLocalRoots,
   normalizeWebchatReplyMediaPathsForDisplay,
+  type WebchatReplyMediaRequesterContext,
 } from "./chat-reply-media.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
 import { publishAssistantTranscriptRewrite } from "./chat-transcript-persistence.js";
@@ -36,6 +39,7 @@ import type { GatewayRequestContext } from "./types.js";
 
 /** Materialize committed progress attachments within the same admitted webchat run. */
 export function observeChatSendCommentaryMedia(params: {
+  requesterContext?: WebchatReplyMediaRequesterContext;
   session: Pick<PreparedChatSendSession, "agentId" | "cfg" | "sessionKey" | "sessionLoadOptions">;
   accountId: string | undefined;
   getRunId: () => string;
@@ -143,38 +147,43 @@ export function observeChatSendCommentaryMedia(params: {
           const managedMedia = new Map<string, AssistantDisplayContentBlock[]>();
           let attached = false;
           try {
-            const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+            const mediaScope = captureWebchatReplyMediaScope({
+              requesterContext: params.requesterContext,
               cfg: session.cfg,
               sessionKey: scope.sessionKey,
               agentId: scope.agentId,
-              sessionEntry: current.entry,
+              sessionLoadOptions: session.sessionLoadOptions,
               accountId: params.accountId,
-              payloads: mediaUrls.map((url) => ({ mediaUrls: [url] })),
+              assertCurrent,
             });
-            assertCurrent();
-            for (const [index, payload] of payloads.entries()) {
-              const blocks = await createManagedOutgoingMediaBlocks({
-                sessionKey: scope.sessionKey,
-                agentId: scope.agentId,
-                messageId,
-                items: prepareOutgoingMediaFromReplyPayload(payload),
-                localRoots: getWebchatReplyMediaLocalRoots({
-                  cfg: session.cfg,
-                  agentId: scope.agentId,
-                  sessionEntry: current.entry,
-                }),
-                continueOnPrepareError: true,
-                assertCurrent,
-                abortSignal: params.abortSignal,
+            await withChannelReadAuthority(mediaScope.assertCurrent, async () => {
+              const payloads = await normalizeWebchatReplyMediaPathsForDisplay({
+                ...mediaScope,
+                payloads: mediaUrls.map((url) => ({ mediaUrls: [url] })),
               });
-              blocks.push(
-                ...(getReplyPayloadMetadata(payload)?.assistantMediaFailures ?? []).map(
-                  buildManagedMediaFailureBlock,
-                ),
-              );
-              managedMedia.set(mediaUrls[index]!, blocks);
               assertCurrent();
-            }
+              for (const [index, payload] of payloads.entries()) {
+                const blocks = await createManagedOutgoingMediaBlocks({
+                  sessionKey: scope.sessionKey,
+                  agentId: scope.agentId,
+                  messageId,
+                  items: prepareOutgoingMediaFromReplyPayload(payload),
+                  localRoots: getWebchatReplyMediaLocalRoots({
+                    ...mediaScope,
+                  }),
+                  continueOnPrepareError: true,
+                  assertCurrent: mediaScope.assertCurrent,
+                  abortSignal: params.abortSignal,
+                });
+                blocks.push(
+                  ...(getReplyPayloadMetadata(payload)?.assistantMediaFailures ?? []).map(
+                    buildManagedMediaFailureBlock,
+                  ),
+                );
+                managedMedia.set(mediaUrls[index]!, blocks);
+                assertCurrent();
+              }
+            });
             const { waitForSessionTranscriptProjection } =
               await import("../../config/sessions/session-transcript-reconcile.js");
             await waitForSessionTranscriptProjection(scope);

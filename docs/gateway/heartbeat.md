@@ -102,6 +102,7 @@ string. `heartbeat.target` accepts `owner`, `last`, `none`, or a channel ID such
 - When automations are disabled entirely, scheduled heartbeats do not run even if heartbeat cadence remains enabled.
 - Active hours (`heartbeat.activeHours`) are checked in the configured timezone. Outside the window, heartbeats are skipped until the next tick inside the window.
 - Scheduled heartbeats defer while the main queue or automation work is active or queued, while any reply or embedded run for the same agent is active, and while the resolved target session has active or queued work. Immediate and manual wakes bypass the broad same-agent active-run check, but still honor the main, automation, and target-session busy guards. Sibling agents do not pause each other.
+- A targeted background-command completion waits for its own session to become free, including final-delivery recovery, but does not wait for unrelated sessions or automations. A completion coalesced with scheduled heartbeat work retains the scheduled work's busy guards.
 
 ## What the heartbeat prompt is for
 

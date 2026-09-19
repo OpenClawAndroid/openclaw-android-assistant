@@ -12,6 +12,7 @@ import {
   type MentionInboxItem,
   type MentionsListResult,
 } from "../../packages/gateway-protocol/src/index.js";
+import { updateSessionProfileInvolvement } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { isIncognitoSessionKey } from "../routing/session-key.js";
@@ -518,6 +519,33 @@ export function createMentionInbox(params: {
             log.debug("Skipped mention delivery because its committed session changed.");
             return [];
           }
+          const senderProfile = policy.readProfile(input.senderProfileId);
+          const mentionedProfiles = input.recipientProfileIds.flatMap((id) => {
+            const recipient = policy.recipientProfile(
+              id,
+              {
+                agentId: resolved.agentId,
+                sessionKey: resolved.canonicalKey,
+                entry: resolved.entry,
+              },
+              cfg,
+            );
+            return senderProfile && recipient && senderProfile.profileId !== recipient.profileId
+              ? [recipient.profileId]
+              : [];
+          });
+          updateSessionProfileInvolvement(
+            {
+              agentId: resolved.agentId,
+              sessionKey: resolved.storeKey,
+              storePath: resolved.storePath,
+            },
+            {
+              expectedSessionId: input.sessionId,
+              profileIds: mentionedProfiles,
+              change: { kind: "mention", source: input.committedSource },
+            },
+          );
           const sourceKey = createHash("sha256")
             .update(
               JSON.stringify([

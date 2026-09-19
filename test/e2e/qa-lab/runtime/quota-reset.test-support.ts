@@ -19,7 +19,7 @@ import {
   type OpenClawTestInstance,
 } from "../../../helpers/openclaw-test-instance.js";
 import { useAutoCleanupTempDirTracker } from "../../../helpers/temp-dir.js";
-import { quotaPublicDiagnostics } from "./quota-reset-diagnostics.mjs";
+import { quotaPublicDiagnostics, quotaRequestMode } from "./quota-reset-diagnostics.mjs";
 
 export const BACKUP_MODEL = "quota-backup/echo";
 export const BACKUP_MARKER = "QUOTA_BACKUP_OK";
@@ -117,6 +117,10 @@ export async function startQuotaProvider(source: BlockSource, responseText: stri
   const requests: RequestRecord[] = [];
   const upgrades: Array<{ atMs: number; path: string }> = [];
   const responses: Array<{
+    atMs: number;
+    status: number;
+    transport: "http" | "websocket";
+    mode?: string;
     phase: Phase;
     path: string;
     value: unknown;
@@ -310,7 +314,15 @@ export async function startQuotaProvider(source: BlockSource, responseText: stri
         headers: Record<string, string> = {},
         responsePhase = phase,
       ) => {
-        responses.push({ phase: responsePhase, path: requestPath, value, headers });
+        responses.push({
+          atMs: Date.now(),
+          status,
+          transport: "http",
+          phase: responsePhase,
+          path: requestPath,
+          value,
+          headers,
+        });
         response.writeHead(status, { "content-type": "application/json", ...headers });
         response.end(JSON.stringify(value));
       };
@@ -424,7 +436,14 @@ export async function startQuotaProvider(source: BlockSource, responseText: stri
           json(event.status, { error: event.error }, event.headers);
         } else {
           const events = successEvents(recorded, backup ? BACKUP_MARKER : responseText);
-          responses.push({ phase, path: requestPath, value: events });
+          responses.push({
+            atMs: Date.now(),
+            status: 200,
+            transport: "http",
+            phase,
+            path: requestPath,
+            value: events,
+          });
           response.writeHead(200, { "content-type": "text/event-stream" });
           for (const event of events) {
             response.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -451,7 +470,15 @@ export async function startQuotaProvider(source: BlockSource, responseText: stri
         const recorded = recordRequest(request, rawDataToString(raw), "websocket");
         const events = exhausted() || phase === "revoked" ? [failure()] : successEvents(recorded);
         for (const event of events) {
-          responses.push({ phase, path: request.url ?? "", value: event });
+          responses.push({
+            atMs: Date.now(),
+            status: "status" in event && typeof event.status === "number" ? event.status : 200,
+            transport: "websocket",
+            mode: quotaRequestMode(recorded.body),
+            phase,
+            path: request.url ?? "",
+            value: event,
+          });
           websocket.send(JSON.stringify(event));
         }
       });
@@ -828,7 +855,8 @@ export async function createQuotaResetFixture(
         profile,
         requests: provider.requests,
         upgrades: provider.upgrades,
-        refreshes: refreshes.status === "fulfilled" ? refreshes.value : undefined,
+        authEvents: refreshes.status === "fulfilled" ? refreshes.value : undefined,
+        responses: provider.responses,
         nativeLog: nativeLog.status === "fulfilled" ? nativeLog.value : undefined,
       });
     },

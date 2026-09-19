@@ -278,6 +278,7 @@ export function buildSidebarSessionNavigationState(input: {
       outboxAttentionCount: input.outboxAttentionCountForSessionKey(row.key),
       hasComposerDraft: input.hasSessionDraft(row.key),
       unread: row.archived !== true && row.unread === true,
+      hiddenFromInvolvingMe: row.hiddenFromInvolvingMe,
       lastMessagePreview: normalizeOptionalString(row.lastMessagePreview),
       lastReadAt: row.lastReadAt,
       attention: row.archived === true ? SIDEBAR_SESSION_NO_ATTENTION : input.resolveAttention(row),

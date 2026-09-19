@@ -436,7 +436,7 @@ export type ToolCard = {
           originSessionKey?: string;
         };
       }
-    | (BrowserTabTarget & { kind: "browser-tab"; url?: string; title?: string });
+    | (BrowserTabTarget & { kind: "browser-tab"; url: string; title?: string });
 };
 
 export type ToolCardOutcome =

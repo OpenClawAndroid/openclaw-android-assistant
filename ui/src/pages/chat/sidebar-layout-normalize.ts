@@ -28,6 +28,7 @@ function normalizeSlotId(value: unknown): SidebarSlotId | null {
     value === "desktop" ||
     value === "detail" ||
     value === "discussion" ||
+    value === "portal" ||
     value === "tasks" ||
     value === "terminal" ||
     value === "workspace" ||
@@ -96,7 +97,18 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
         mainPanelId ??= panelId;
       }
       usedSlots.add(slot);
-      panels.push({ id: panelId, slot });
+      panels.push({
+        id: panelId,
+        slot,
+        ...((slot === "desktop" ||
+          (slot === "portal" && !normalizeOptionalString(rawPanel.portalId))) &&
+        normalizeOptionalString(rawPanel.environmentId)
+          ? { environmentId: normalizeOptionalString(rawPanel.environmentId) }
+          : {}),
+        ...(slot === "portal" && normalizeOptionalString(rawPanel.portalId)
+          ? { portalId: normalizeOptionalString(rawPanel.portalId) }
+          : {}),
+      });
     }
     activePanelId = columnActivePanelId ?? activePanelId;
     width =

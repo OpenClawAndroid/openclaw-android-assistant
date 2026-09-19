@@ -216,6 +216,134 @@ describe("chat inline commands with human mentions", () => {
 });
 
 describe.each(["chat", "new-session"] as const)("%s human mentions", (kind) => {
+  it("navigates the full list with Home, End, and wrapping arrows before inserting", async () => {
+    const view = composerFixture(kind);
+    view.edit("@");
+    await vi.advanceTimersByTimeAsync(150);
+    for (const [key, selectedIndex] of [
+      ["End", 1],
+      ["ArrowDown", 0],
+      ["ArrowUp", 1],
+      ["Home", 0],
+    ] as const) {
+      expect(view.key(key).defaultPrevented).toBe(true);
+      const options = view.container.querySelectorAll('[role="option"]');
+      const selected = view.container.querySelector('[role="option"][aria-selected="true"]');
+      expect(selected).toBe(options[selectedIndex]);
+      expect(view.container.querySelector("textarea")?.getAttribute("aria-activedescendant")).toBe(
+        selected?.id,
+      );
+    }
+    for (const key of ["Home", "End"]) {
+      for (const modifier of ["shiftKey", "altKey", "ctrlKey", "metaKey"]) {
+        expect(view.key(key, { [modifier]: true }).defaultPrevented).toBe(false);
+        expect(view.container.querySelector('[role="option"][aria-selected="true"]')).toBe(
+          view.container.querySelector('[role="option"]'),
+        );
+      }
+    }
+    view.key("Tab");
+    expect(view.value().mentions).toEqual([{ profileId: "profile-alex-online", start: 0, end: 5 }]);
+    expect(view.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["single edit", "consecutive edits"])(
+    "retains the selected person through %s, reordered results, and cached queries",
+    async (editing) => {
+      const view = composerFixture(kind);
+      const roster: UsersMentionableResult = {
+        users: [
+          { profileId: "anna", displayName: "Anna", online: true },
+          { profileId: "annie", displayName: "Annie", online: false },
+          { profileId: "anne", displayName: "Anne", online: false },
+        ],
+        truncated: false,
+      };
+      view.request.mockResolvedValueOnce(roster);
+      view.edit("@");
+      await vi.advanceTimersByTimeAsync(150);
+      view.key("ArrowDown");
+      let resolve!: (result: UsersMentionableResult) => void;
+      view.request.mockReturnValueOnce(
+        new Promise((done) => {
+          resolve = done;
+        }),
+      );
+      view.edit("@a");
+      if (editing === "consecutive edits") {
+        await vi.advanceTimersByTimeAsync(50);
+        view.edit("@an");
+      }
+      await vi.advanceTimersByTimeAsync(150);
+      expect(view.container.querySelector('[role="option"]')).toBeNull();
+      resolve({ users: [roster.users[2]!, roster.users[0]!, roster.users[1]!], truncated: false });
+      await vi.advanceTimersByTimeAsync(0);
+      const selectedName = () =>
+        view.container.querySelector('[role="option"][aria-selected="true"]')?.textContent;
+      expect(selectedName()).toContain("Annie");
+      view.edit("@");
+      expect(selectedName()).toContain("Annie");
+      expect(view.request).toHaveBeenCalledTimes(2);
+      view.request.mockResolvedValueOnce({ users: [roster.users[2]!], truncated: false });
+      view.edit("@anne");
+      await vi.advanceTimersByTimeAsync(150);
+      expect(selectedName()).toContain("Anne");
+      view.key("Enter");
+      expect(view.value()).toEqual({
+        draft: "@Anne ",
+        mentions: [{ profileId: "anne", start: 0, end: 5 }],
+      });
+      expect(view.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["select", "close", "owner change"])(
+    "retries a failed query without sending and handles %s before its result",
+    async (next) => {
+      const view = composerFixture(kind);
+      view.request.mockRejectedValueOnce(new Error("Directory unavailable"));
+      view.edit("@Al");
+      await vi.advanceTimersByTimeAsync(150);
+      expect(view.key("Enter").defaultPrevented).toBe(true);
+      expect(view.send).not.toHaveBeenCalled();
+      const retry = Array.from(view.container.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === "Retry",
+      );
+      expect(retry).toBeDefined();
+      let resolve!: (result: UsersMentionableResult) => void;
+      view.request.mockReturnValueOnce(
+        new Promise((done) => {
+          resolve = done;
+        }),
+      );
+      retry!.click();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(view.request).toHaveBeenCalledTimes(2);
+      expect(view.request).toHaveBeenLastCalledWith("users.mentionable", {
+        ...(kind === "chat" ? { sessionKey: "agent:main:chat" } : { agentId: "main" }),
+        query: "Al",
+      });
+      if (next === "close") {
+        view.key("Escape");
+      } else if (next === "owner change") {
+        view.replaceOwner();
+      }
+      resolve(people);
+      await vi.advanceTimersByTimeAsync(0);
+      if (next === "select") {
+        expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(2);
+        view.key("Enter");
+        expect(view.value().mentions).toEqual([
+          { profileId: "profile-alex-online", start: 0, end: 5 },
+        ]);
+      } else {
+        expect(view.container.querySelector('[role="listbox"]')).toBeNull();
+        expect(view.value()).toEqual({ draft: "@Al", mentions: [] });
+      }
+      expect(view.send).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps the current typed query selectable during ordinary Gateway event traffic", async () => {
     const view = composerFixture(kind);
     let resolve!: (result: UsersMentionableResult) => void;

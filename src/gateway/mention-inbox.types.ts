@@ -9,6 +9,7 @@ import type { GatewayClient } from "./server-methods/client-types.js";
 
 export type MentionCommittedInput = {
   sourceId: string;
+  committedSource: { generation: string; sequence: number; timestamp: number };
   sessionKey: string;
   agentId?: string;
   sessionId: string;

@@ -188,8 +188,16 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     return skippedHeartbeatStage(preflight.skipReason, startedAt);
   }
 
+  // A command result belongs to its waiting session, not the agent's ambient
+  // monitor. Unrelated work must not starve it; target-session fences still apply.
+  const isSessionExecCompletion =
+    normalizeOptionalString(opts.sessionKey) !== undefined &&
+    preflight?.isExecEventWake === true &&
+    !preflight.authoritativeScheduledTick &&
+    scheduledTasks.length === 0 &&
+    preflight.pendingEventEntries.some((event) => isExecCompletionEvent(event.text));
   const getSize = opts.deps?.getQueueSize ?? getQueueSize;
-  if (getSize(CommandLane.Main) > 0) {
+  if (!isSessionExecCompletion && getSize(CommandLane.Main) > 0) {
     return skippedHeartbeatStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT, startedAt);
   }
 
@@ -215,11 +223,12 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     cronLaneDepth > owningCronLaneTaskIds.size ||
     getSize(CommandLane.CronNested) > 0 ||
     getSize(CommandLane.HookDispatch) > 0;
-  if (cronBusy || cronLaneBusy) {
+  if (!isSessionExecCompletion && (cronBusy || cronLaneBusy)) {
     return skippedHeartbeatStage(HEARTBEAT_SKIP_CRON_IN_PROGRESS, startedAt);
   }
 
-  const shouldHonorActiveReplyRuns = opts.intent !== "immediate" && opts.intent !== "manual";
+  const shouldHonorActiveReplyRuns =
+    !isSessionExecCompletion && opts.intent !== "immediate" && opts.intent !== "manual";
   const listActiveReplyRuns =
     opts.deps?.listActiveReplyRunSessionKeys ?? listActiveReplyRunSessionKeys;
   const listActiveEmbeddedRuns =

@@ -16,7 +16,7 @@ export async function auditLaunchdDefinition(
   timeoutMs?: number,
 ): Promise<void> {
   const sourcePath = resolveLaunchAgentPlistPath(env);
-  const content = await readExistingLaunchAgentPlist(sourcePath);
+  const content = (await readExistingLaunchAgentPlist(sourcePath))?.contents ?? null;
   if (content === null) {
     return;
   }

@@ -61,9 +61,15 @@ export function selectMatchingSessionRows<T extends SessionRowScopeTarget>(
         ? byAgent.get(query.agentId)
         : rows.keys();
   const matches = createSessionRowScopeMatcher(query, scope);
-  return [...(candidates ?? [])]
-    .map((id) => rows.get(id))
-    .filter((row): row is T => row !== undefined && matches(row));
+  const ids = Array.from(candidates ?? []);
+  const selected: T[] = [];
+  for (const id of ids) {
+    const row = rows.get(id);
+    if (row !== undefined && matches(row)) {
+      selected.push(row);
+    }
+  }
+  return selected;
 }
 
 /** Resolve query-specific federation once when the physical topology is published. */
@@ -199,9 +205,12 @@ export function selectSessionRowEntries(
     : parent
       ? [...children].map((id) => rows.get(id))
       : matching(query);
-  const selected = candidates
-    .map((row) => (row && !sessionIdOrKey && dirty.has(records.identity(row)) ? acquire(row) : row))
-    .filter(records.hasEntry)
-    .filter(matches);
+  const acquired =
+    sessionIdOrKey || dirty.size === 0
+      ? candidates
+      : candidates.map((row) => (row && dirty.has(records.identity(row)) ? acquire(row) : row));
+  const selected = acquired.filter(
+    (row): row is records.EntryRow => records.hasEntry(row) && matches(row),
+  );
   return records.sort(selected, query.sortBy);
 }

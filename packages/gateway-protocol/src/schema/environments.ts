@@ -3,6 +3,19 @@ import { Type, type Static } from "typebox";
 import { closedObject } from "./closed-object.js";
 import { NonEmptyString } from "./primitives.js";
 
+export {
+  EnvironmentsSessionCreateParamsSchema,
+  EnvironmentsSessionStatusParamsSchema,
+  EnvironmentsSessionDestroyParamsSchema,
+  type EnvironmentsSessionCreateParams,
+  type EnvironmentsSessionStatusParams,
+  type EnvironmentsSessionDestroyParams,
+} from "./environments-session.js";
+export {
+  EnvironmentsSessionExecParamsSchema,
+  type EnvironmentsSessionExecParams,
+} from "./environments-session-exec.js";
+
 /**
  * Environment inventory protocol schemas.
  *

@@ -93,7 +93,7 @@ describe.each(["started", "rejected"] as const)("%s first-turn publication", (st
           expect(clearDraft).toHaveBeenCalledOnce();
           if (status === "started") {
             expect(
-              context.chatSubmissions.readInitial(key, client)?.message.content,
+              context.chatSubmissions.readInitial(key, client)?.message?.content,
             ).toContainEqual({
               type: "text",
               text: "private incognito first turn",

@@ -159,7 +159,11 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
     const desktopPresented =
       this.presented && this.visuallyPresented && isSidebarSlotVisible(sidebarLayout, "desktop");
     const desktopRefreshOnPresentation = !this.pendingPanelToggleRequests.has("desktop");
-    const desktopSource = resolveChatPaneDesktopTarget(selectedSession);
+    const desktopSource =
+      sidebarLayout.columns
+        .flatMap((column) => column.panels)
+        .find((panel) => panel.slot === "desktop")?.environmentId ??
+      resolveChatPaneDesktopTarget(selectedSession);
     const desktopFocusKey = JSON.stringify([
       state.sessionKey,
       this.connectionGeneration,
@@ -191,6 +195,8 @@ export abstract class ChatPaneLayoutRender extends ChatPaneBrowserAnnotationRend
       desktopRefreshOnPresentation,
       desktopAvailable,
       desktopSource,
+      portalPresented:
+        this.presented && this.visuallyPresented && isSidebarSlotVisible(sidebarLayout, "portal"),
       desktopFocusHref: desktopFocus.href,
       onDesktopFocusTargetChange: (target) => {
         // A retained callback cannot publish a previous presentation's source or control state.

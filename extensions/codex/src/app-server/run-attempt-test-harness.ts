@@ -18,17 +18,7 @@ import { clearInternalHooks, resetGlobalHookRunner } from "openclaw/plugin-sdk/h
 import { clearMemoryPluginState } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import { clearPluginCommands } from "openclaw/plugin-sdk/plugin-runtime";
 import { createAgentHarnessHostCapabilitiesForTest } from "openclaw/plugin-sdk/plugin-test-runtime";
-import {
-  deleteSessionEntry,
-  resolveStorePath,
-  upsertSessionEntry,
-} from "openclaw/plugin-sdk/session-store-runtime";
-import {
-  closeOpenClawAgentDatabasesAsync,
-  closeOpenClawAgentDatabasesForTest,
-  closeOpenClawStateDatabaseAsync,
-  drainSessionDiskBudgetWorkers,
-} from "openclaw/plugin-sdk/sqlite-runtime-testing";
+import { drainSessionDiskBudgetWorkers } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/temp-path";
 import { afterAll, afterEach, beforeEach, expect, vi } from "vitest";
 import { defaultCodexAppInventoryCache } from "./app-inventory-cache.js";
@@ -48,6 +38,10 @@ import { setManagedCodexPluginRoot } from "./managed-binary.js";
 import { nativeHookRelayUnregisterQueue } from "./native-hook-relay-state.js";
 import { defaultCodexPluginMetadataCache } from "./plugin-metadata-cache.js";
 import type { CodexServerNotification } from "./protocol.js";
+import {
+  cleanupRunSessionOwnersForTest,
+  seedRunSessionOwnerForTest,
+} from "./run-attempt-session-owners.test-support.js";
 import { runCodexAppServerAttempt as runCodexAppServerAttemptImpl } from "./run-attempt.js";
 import { sandboxExecServerRegistry } from "./sandbox-exec-server-registry.js";
 import {
@@ -113,7 +107,6 @@ vi.mock("openclaw/plugin-sdk/exec-approvals-runtime", async (importOriginal) => 
 });
 
 export let tempDir: string;
-const seededSessionOwnersForTest: Array<Parameters<typeof deleteSessionEntry>[0]> = [];
 let codexAppServerClientFactoryForTest: CodexAppServerClientFactory | undefined;
 const multiplexedTestClients = new WeakSet<CodexAppServerClient>();
 export const fastWait = { interval: 1, timeout: 5_000 } as const;
@@ -315,17 +308,6 @@ export function createParams(
 
 export function createTestParams(): EmbeddedRunAttemptParams {
   return createParams(path.join(tempDir, "session.jsonl"), path.join(tempDir, "workspace"));
-}
-
-/** Models the core owner required for a reusable stable-key Codex binding. */
-export async function seedRunSessionOwnerForTest(sessionId: string, sessionKey: string) {
-  const scope = {
-    agentId: "main",
-    sessionKey,
-    storePath: resolveStorePath(undefined, { agentId: "main" }),
-  };
-  await upsertSessionEntry({ ...scope, entry: { sessionId, updatedAt: Date.now() } });
-  seededSessionOwnersForTest.push({ ...scope, expectedSessionId: sessionId });
 }
 
 export function createNativeRunParams(
@@ -726,12 +708,15 @@ export function setupRunAttemptTestHooks(): void {
       close();
     }
     await sandboxExecServerRegistry.closeAll();
+    await nativeHookRelayUnregisterQueue.clear();
+    await nativeHookRelayTesting.clearNativeHookRelaysForTests();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    await cleanupRunSessionOwnersForTest();
     resetCodexAppServerClientFactoryForTest();
     setManagedCodexPluginRoot(undefined);
     clearRuntimeAuthProfileStoreSnapshots();
     codexWorkspaceDirCache.clear();
-    await nativeHookRelayUnregisterQueue.clear();
-    await nativeHookRelayTesting.clearNativeHookRelaysForTests();
     clearMemoryPluginState();
     clearPluginCommands();
     resetAgentEventsForTest();
@@ -740,16 +725,7 @@ export function setupRunAttemptTestHooks(): void {
     clearInternalHooks();
     defaultCodexAppInventoryCache.clear();
     defaultCodexPluginMetadataCache.clear();
-    vi.restoreAllMocks();
-    vi.useRealTimers();
     vi.unstubAllEnvs();
-    await sandboxExecServerRegistry.closeAll();
-    for (const owner of seededSessionOwnersForTest.splice(0)) {
-      await deleteSessionEntry(owner);
-    }
-    await closeOpenClawAgentDatabasesAsync();
-    closeOpenClawAgentDatabasesForTest();
-    await closeOpenClawStateDatabaseAsync();
     await fs.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 }

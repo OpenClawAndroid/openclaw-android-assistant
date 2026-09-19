@@ -9,11 +9,15 @@ import type {
 } from "../../packages/gateway-protocol/src/index.js";
 import { listAgentIds } from "../agents/agent-scope-config.js";
 import { resolveAgentIdentity } from "../agents/identity.js";
-import type { SessionEntry } from "../config/sessions.js";
 import {
   sessionCreatorProfileId,
   type SessionActor,
 } from "../config/sessions/session-entry-provenance.js";
+import { mergeSessionProfileInvolvement } from "../config/sessions/session-involvement.js";
+import type {
+  InternalSessionEntry as SessionEntry,
+  SessionProfileInvolvement,
+} from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { looksLikeAvatarPath } from "../shared/avatar-policy.js";
@@ -64,6 +68,21 @@ export function projectSessionParticipant(
     ...(profile?.label ? { label: profile.label } : {}),
     ...(profile?.hasUploadedAvatar ? { avatarUrl: profile.avatarUrl } : {}),
   };
+}
+
+/** Resolve merged profiles without rewriting personal choices in other agent stores. */
+export function projectSessionProfileInvolvement(
+  entry: SessionEntry,
+  profileId: string,
+  profiles: Map<string, SessionActorProfileIdentity | undefined>,
+): SessionProfileInvolvement | undefined {
+  return mergeSessionProfileInvolvement(
+    Object.entries(entry.profileInvolvement?.profiles ?? {}).flatMap(([id, state]) =>
+      projectSessionParticipant({ type: "profile", id }, profiles).identity.id === profileId
+        ? [state]
+        : [],
+    ),
+  );
 }
 
 export function projectSessionActor(

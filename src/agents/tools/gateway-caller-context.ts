@@ -44,6 +44,8 @@ type GatewayToolCallerIdentity = {
   executionIdentityToken?: ExecutionIdentityAdmissionToken;
   /** Synchronous host-owned fence for tool effects and decision receipts. */
   receiptAuthority?: () => boolean | void;
+  /** Captured conversation policy for tools delegated through another tool's transport. */
+  assertToolAllowed?: (toolName: string) => void;
   /** Exact Gateway-owned worker claim; never sourced from model or RPC arguments. */
   workerTurnClaim?: WorkerSessionTurnClaim;
   /** Closure-bound Gateway capability; revalidates both owners at child admission. */
@@ -247,6 +249,20 @@ export async function withGatewayToolCallerIdentity<T>(
     inheritedOwner?.receiptAuthority,
     identity.receiptAuthority,
   );
+  const toolPolicyAssertions = [
+    ...new Set(
+      [inheritedOwner?.assertToolAllowed, identity.assertToolAllowed].filter(
+        (assertion): assertion is (toolName: string) => void => assertion !== undefined,
+      ),
+    ),
+  ];
+  const assertToolAllowed = toolPolicyAssertions.length
+    ? (toolName: string) => {
+        for (const assertion of toolPolicyAssertions) {
+          assertion(toolName);
+        }
+      }
+    : undefined;
   const approvalSignals = [
     ...new Set([...(inheritedOwner?.approvalSignals ?? []), ...(identity.approvalSignals ?? [])]),
   ];
@@ -303,6 +319,7 @@ export async function withGatewayToolCallerIdentity<T>(
       ...(cronAuthorityCheck ? { cronAuthorityCheck } : {}),
       ...(executionIdentityToken ? { executionIdentityToken } : {}),
       ...(receiptAuthority ? { receiptAuthority } : {}),
+      ...(assertToolAllowed ? { assertToolAllowed } : {}),
       ...(approvalSignals.length ? { approvalSignals } : {}),
       ...(workerTurnClaim ? { workerTurnClaim } : {}),
       ...(workerTurnExecutionIdentityCapability ? { workerTurnExecutionIdentityCapability } : {}),

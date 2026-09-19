@@ -14,6 +14,7 @@ import { BROWSER_ANNOTATION_EVENT } from "../../components/browser/browser-annot
 import {
   BROWSER_PANEL_TOGGLE_EVENT,
   DESKTOP_PANEL_TOGGLE_EVENT,
+  PORTAL_PANEL_TOGGLE_EVENT,
   TERMINAL_PANEL_DOCK_BOTTOM_EVENT,
   TERMINAL_PANEL_TOGGLE_EVENT,
 } from "../../components/panel-toggle-contract.ts";
@@ -59,6 +60,7 @@ import {
   subscribeChatPaneSnapshotInvalidation,
   subscribeChatPaneStartup,
 } from "./chat-pane-startup-subscriptions.ts";
+import { getChatPendingInputs } from "./chat-pending-inputs.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import { createPageState } from "./chat-state-page.ts";
 import {
@@ -369,6 +371,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
     // Task tabs can precede main chat in DOM order; viewport reads and commands
     // must resolve through the same transcript owner.
     pageState.chatIsProgrammaticScroll = () => this.transcript.isProgrammaticScroll;
+    pageState.chatIsMaintenanceScroll = () => this.transcript.isMaintenanceScroll;
     pageState.chatScrollElement = () => this.transcript.scrollElement;
     pageState.chatScrollToEnd = (options) => this.transcript.scrollToEnd(options);
     pageState.reviewQueuedMessageEdit = () => this.reviewQueuedMessageEdit(pageState);
@@ -408,7 +411,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
           pageState.lastError = CHAT_COMPOSER_DRAFT_STORAGE_ERROR;
           pageState.chatError = CHAT_COMPOSER_DRAFT_STORAGE_ERROR;
         }
-        admitChatSubmission(pageState);
+        admitChatSubmission(pageState, getChatPendingInputs(pageState)?.page.items);
       }
     }
     chatState.attach(pageState);
@@ -434,6 +437,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       [TERMINAL_PANEL_TOGGLE_EVENT, "terminal", "openclaw-terminal-panel"],
       [BROWSER_PANEL_TOGGLE_EVENT, "browser", "openclaw-browser-panel"],
       [DESKTOP_PANEL_TOGGLE_EVENT, "desktop", "openclaw-desktop-panel"],
+      [PORTAL_PANEL_TOGGLE_EVENT, "portal", "openclaw-portals-page"],
     ] as const;
     const panelToggleCleanups = panelToggleEvents.map(([eventName, slot, tagName]) => {
       const listener = (event: Event) => {
@@ -603,7 +607,10 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
         // would vanish instead of offering a retry, and the accepted prompt would
         // stay hidden until the transcript bootstrap resolved.
         const rejectedTurn = admitInitialTurnHandoff(this.state, nextSessionKey);
-        const acceptedPrompt = admitChatSubmission(this.state);
+        const acceptedPrompt = admitChatSubmission(
+          this.state,
+          getChatPendingInputs(this.state)?.page.items,
+        );
         if (rejectedTurn) {
           this.state.lastError = CHAT_COMPOSER_DRAFT_STORAGE_ERROR;
           this.state.chatError = CHAT_COMPOSER_DRAFT_STORAGE_ERROR;

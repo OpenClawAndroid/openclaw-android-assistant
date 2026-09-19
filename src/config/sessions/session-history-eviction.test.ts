@@ -28,9 +28,11 @@ vi.mock("../../logging/subsystem.js", async () => {
 import { resetAgentRunRegistryForTest } from "../../infra/agent-run-registry.js";
 import * as tmpDirOwner from "../../infra/tmp-openclaw-dir.js";
 import { beginSessionWorkAdmission } from "../../sessions/session-lifecycle-admission.js";
+import * as queue from "../../shared/store-writer-queue.js";
 import { closeCachedOpenClawAgentDatabase } from "../../state/openclaw-agent-db-lifecycle.js";
 import {
   closeOpenClawAgentDatabaseByPath,
+  closeOpenClawAgentDatabaseByPathAsync,
   closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
 } from "../../state/openclaw-agent-db.js";
@@ -51,7 +53,10 @@ import {
   resetSessionEntryLifecycle,
 } from "./session-accessor.js";
 import * as sessionLifecycleState from "./session-accessor.sqlite-lifecycle-state.js";
-import { createSessionHistoryBudgetFixture } from "./session-history-budget.test-support.js";
+import {
+  createSessionHistoryBudgetFixture,
+  joinSessionHistoryBudgetSweeps,
+} from "./session-history-budget.test-support.js";
 import {
   enforceSqliteSessionHistoryDiskBudget,
   inspectSqliteSessionHistoryDiskBudget,
@@ -108,6 +113,7 @@ describe("SQLite historical session disk budget", () => {
     "forces maintenance only after a commit: $operation / $phase",
     async ({ operation, phase, committed }) => {
       const sessionKey = "agent:main:target";
+      const queueSpy = vi.spyOn(queue, "runQueuedStoreWrite");
       for (const name of ["target", "unrelated"]) {
         await createHistoricalTranscript({
           sessionKey: `agent:main:${name}`,
@@ -117,12 +123,9 @@ describe("SQLite historical session disk budget", () => {
           updatedAt: Date.now(),
         });
       }
-      // Drain fixture writes before enabling pressure; only this lifecycle attempt may force it.
-      await enforceSqliteSessionHistoryDiskBudget({
-        storePath,
-        mode: "warn",
-        maintenance: { maxDiskBytes: 1, highWaterBytes: 1 },
-      });
+      // Join setup's full sweep chain before pressure; only this lifecycle attempt may force it.
+      await joinSessionHistoryBudgetSweeps(queueSpy);
+      queueSpy.mockClear();
       const archive = path.join(tempDir, "retained.jsonl.deleted.2026-01-01T00-00-00.000Z");
       fs.writeFileSync(archive, Buffer.alloc(64 * 1024));
       await replaceConfigFile({
@@ -181,7 +184,8 @@ describe("SQLite historical session disk budget", () => {
                 target,
                 buildNextEntry: () => {
                   assertActive();
-                  return { sessionId: "target-next", updatedAt: 3 };
+                  // Keep the replacement live; age retention would protect its history windows.
+                  return { sessionId: "target-next", updatedAt: Date.now() };
                 },
                 afterEntryMutation: () => {
                   expect(checkpoint).not.toHaveBeenCalled();
@@ -203,12 +207,7 @@ describe("SQLite historical session disk budget", () => {
             .prepare("DELETE FROM session_transcript_archives WHERE session_id = ?")
             .run("target-old");
         }
-        // Warn mode shares the real retention queue but performs no reclamation itself.
-        await enforceSqliteSessionHistoryDiskBudget({
-          storePath,
-          mode: "warn",
-          maintenance: { maxDiskBytes: 1, highWaterBytes: 1 },
-        });
+        await joinSessionHistoryBudgetSweeps(queueSpy);
         expect.soft(checkpoint.mock.calls.length > 0).toBe(committed);
         expect.soft(fs.existsSync(archive)).toBe(!committed);
         expect.soft(sessionExists("unrelated-old")).toBe(!committed);
@@ -277,6 +276,7 @@ describe("SQLite historical session disk budget", () => {
         ).toEqual(new Set(["oldest-history"]));
       }
       setSessionUpdatedAt("newer-history", 20);
+      await closeOpenClawAgentDatabaseByPathAsync(database().path);
       settlePhysicalUsage();
       database().db.exec("ANALYZE; PRAGMA analysis_limit = 37;");
       expect(
@@ -665,23 +665,31 @@ describe("SQLite historical session disk budget", () => {
       );
       const reclamation = await import("./session-accessor.sqlite-reclamation.js");
       const reclaim = reclamation.runSqliteSessionReclamation;
-      const dispatch = vi
-        .spyOn(reclamation, "runSqliteSessionReclamation")
-        .mockImplementationOnce(async (params) => {
-          replaceSessionEntrySync(
-            { sessionKey, storePath },
-            {
-              sessionId: "race-live",
-              updatedAt: Date.now(),
-              ...(field === "age-retention" || field === "manual"
-                ? { archivedAt: Date.now(), archiveReason: field }
-                : field === "recent"
-                  ? {}
-                  : { [field]: Date.now() }),
-            },
-          );
-          return await reclaim(params);
-        });
+      const historyRequests: string[] = [];
+      let protectionChanged = false;
+      vi.spyOn(reclamation, "runSqliteSessionReclamation").mockImplementation(async (params) => {
+        // Automatic entry planning shares this transport; inject only at the history attempt.
+        if (params.plan.kind === "history-eviction") {
+          historyRequests.push(params.plan.sessionId);
+          if (params.plan.sessionId === "race-old") {
+            expect(protectionChanged).toBe(false);
+            replaceSessionEntrySync(
+              { sessionKey, storePath },
+              {
+                sessionId: "race-live",
+                updatedAt: Date.now(),
+                ...(field === "age-retention" || field === "manual"
+                  ? { archivedAt: Date.now(), archiveReason: field }
+                  : field === "recent"
+                    ? {}
+                    : { [field]: Date.now() }),
+              },
+            );
+            protectionChanged = true;
+          }
+        }
+        return await reclaim(params);
+      });
       expect(
         await enforceSqliteSessionHistoryDiskBudget({
           storePath,
@@ -693,7 +701,8 @@ describe("SQLite historical session disk budget", () => {
           },
         }),
       ).toMatchObject({ removedEntries: 0 });
-      expect(dispatch).toHaveBeenCalledOnce();
+      expect(historyRequests).toEqual(["race-old"]);
+      expect(protectionChanged).toBe(true);
       expect(
         loadTranscriptEventsSync({ sessionId: "race-old", sessionKey, storePath }),
       ).not.toEqual([]);

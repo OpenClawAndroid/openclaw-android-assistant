@@ -57,6 +57,8 @@ export function makeContextParams(
       questionManager: undefined,
       cancelRunBoundApprovals: undefined,
       forwardPluginApprovalRequest: undefined,
+      forwardExecApprovalRequest: undefined,
+      execApprovalIosPushDelivery: undefined,
       approvalWebPushDelivery: undefined,
       pluginApprovalIosPushDelivery: undefined,
       pluginApprovalManager: undefined,

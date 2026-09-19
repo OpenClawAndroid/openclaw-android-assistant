@@ -19,6 +19,7 @@ import { loadChatHistory } from "./chat-history.ts";
 import { retryableGatewayDelayMs } from "./chat-outbox-retry.ts";
 import { applyChatPendingInputs } from "./chat-pending-inputs.ts";
 import {
+  clearPendingQueueItemsForRun,
   removeDeliveredQueuedChatSendForRun,
   syncVisibleChatQueueProjection,
   updateQueuedMessage,
@@ -32,6 +33,7 @@ import {
   surfaceChatDeliveryFailure,
 } from "./chat-send-support.ts";
 import { formatConnectError } from "./connect-error.ts";
+import { reconcileChatRunFromSessionRow } from "./run-lifecycle.ts";
 
 export function readStoredChatOutbox(
   host: ChatHost,
@@ -139,6 +141,9 @@ export async function readCurrentStoredChatHistory(
   connectionEpoch: number | undefined,
   scheduleRetry: (delayMs: number) => void,
 ): Promise<ChatHistoryResult | "blocked" | "continue"> {
+  const runId = host.chatRunId;
+  const runGeneration = host.chatRunLifecycleGeneration;
+  const sessionId = host.currentSessionId;
   let history: ChatHistoryResult;
   let pendingBefore: number | undefined;
   const request = {
@@ -267,6 +272,22 @@ export async function readCurrentStoredChatHistory(
     isSessionRunActive(history.sessionInfo)
   ) {
     return "blocked";
+  }
+  if (
+    runId &&
+    host.chatRunId === runId &&
+    host.chatRunLifecycleGeneration === runGeneration &&
+    history.sessionInfo.lastRunId === runId &&
+    sessionId &&
+    host.currentSessionId === sessionId &&
+    history.sessionInfo.sessionId === sessionId &&
+    visibleSessionMatches(host, outbox.sessionKey, outbox.agentId)
+  ) {
+    // The queue's authoritative read can recover a missed completion event
+    // without leaving the next input behind a stale local busy flag.
+    if (reconcileChatRunFromSessionRow(host, history.sessionInfo, { publishRunStatus: false })) {
+      clearPendingQueueItemsForRun(host, runId);
+    }
   }
   return history;
 }

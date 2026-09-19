@@ -33,7 +33,6 @@ describe("worker environment service", () => {
       stopAll: vi.fn().mockRejectedValueOnce(shutdownError).mockResolvedValue(undefined),
     } as unknown as WorkerTunnelManager;
     const nodeTunnelManager = {
-      bindWorkspaceBindingResolver: vi.fn(),
       status: () => "stopped" as const,
       start: vi.fn(),
       stop: vi.fn(async () => {}),
@@ -207,7 +206,6 @@ describe("worker environment service", () => {
         stop: vi.fn(async () => {}),
       };
       const nodeTunnelManager = {
-        bindWorkspaceBindingResolver: vi.fn(),
         status: () => "stopped" as const,
         start: vi.fn(async (request) => ({
           ...nodeHandle,
@@ -313,7 +311,6 @@ describe("worker environment service", () => {
       stopAll: vi.fn(async () => {}),
     } as unknown as WorkerTunnelManager;
     const nodeTunnelManager = {
-      bindWorkspaceBindingResolver: vi.fn(),
       status: () => "connecting" as const,
       start: vi.fn(() => {
         signalStarted();

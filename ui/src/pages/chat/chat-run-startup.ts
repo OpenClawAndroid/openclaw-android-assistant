@@ -57,6 +57,8 @@ export function chatStartupStatusLabel(
     return run.phase === "retrying" ? run.message : t(STARTUP_LABEL_KEYS[run.phase]);
   }
   switch (placement?.phase) {
+    case "reconnecting":
+      return t("connection.reconnecting");
     case "pending":
     case "requested":
     case "provisioning":

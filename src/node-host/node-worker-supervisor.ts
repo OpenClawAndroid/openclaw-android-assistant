@@ -138,6 +138,7 @@ class NodeWorkerSupervisor {
       this.starting.size > 0 ||
       this.active.size > 0 ||
       this.stoppingEnvironments.size > 0 ||
+      this.workspace.processes.hasActiveWork() ||
       this.store.nonterminalCount() > 0
     );
   }
@@ -479,6 +480,7 @@ class NodeWorkerSupervisor {
     const key = nodeWorkerEnvironmentKey(expected);
     this.stoppingEnvironments.set(key, (this.stoppingEnvironments.get(key) ?? 0) + 1);
     try {
+      await this.workspace.processes.stopEnvironment(expected);
       const admission = this.admissions.get(key);
       if (admission && nodeWorkerEnvironmentMatches(admission.binding, expected)) {
         admission.abort.abort(new Error("node worker environment stopped"));
@@ -584,6 +586,7 @@ class NodeWorkerSupervisor {
     }
     const operation = (async () => {
       const errors: unknown[] = [];
+      await this.workspace.processes.close().catch((error: unknown) => errors.push(error));
       await this.initializationPromise?.catch((error: unknown) => errors.push(error));
       await Promise.allSettled([...this.admissions.values()].map((admission) => admission.done));
       await Promise.allSettled(this.starting.values());

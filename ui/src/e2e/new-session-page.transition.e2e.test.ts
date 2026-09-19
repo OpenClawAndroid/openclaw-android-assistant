@@ -114,12 +114,19 @@ suite.define(() => {
       });
       await expect.poll(() => new URL(page.url()).pathname).toBe("/new");
       await expect.poll(() => composer.inputValue()).toBe("");
+      await captureProof(page, `background-${label}-running.png`);
+      await expect
+        .poll(() => page.locator(".new-session-page__starting").textContent())
+        .toContain(`run this separately on ${label}`);
+      await expect
+        .poll(() => page.locator(".new-session-page__starting").textContent())
+        .toContain("Session created");
+      await page.getByRole("button", { name: "Open session", exact: true }).waitFor();
       await expect
         .poll(() =>
           page.locator(`.sidebar-recent-session[data-session-key="${sessionKey}"]`).count(),
         )
         .toBe(1);
-      await captureProof(page, `background-${label}-running.png`);
       if (captureProofEnabled) {
         await page.waitForTimeout(600);
       }

@@ -1,7 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { Selectable } from "kysely";
 import type { FleetCellRecord } from "../fleet/registry.types.js";
 import type { SqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import type { AsyncWorkScope } from "../shared/async-work-scope.js";
+import type { ConfigMachineState } from "./openclaw-state-db.generated.js";
 import type { OpenClawStateWorkerContext } from "./openclaw-state-worker-context.types.js";
 import type { OpenClawStateWorkerErrorPayload } from "./openclaw-state-worker-error.js";
 
@@ -19,7 +21,8 @@ export type OpenClawStateReadAuthority = {
 
 export type OpenClawStateReadCommand =
   | { type: "fleet.list" }
-  | { type: "fleet.get"; tenantId: string };
+  | { type: "fleet.get"; tenantId: string }
+  | { type: "nodeHost.config" };
 export type OpenClawStateReadRequest = {
   context: SqliteWorkerStateContext;
   databasePath: string;
@@ -32,6 +35,12 @@ export type OpenClawStateReadReply =
   | { ok: true; type: "admit" }
   | { ok: true; type: "fleet.list"; sourceAdmitted: true; cells: FleetCellRecord[] }
   | { ok: true; type: "fleet.get"; sourceAdmitted: true; cell: FleetCellRecord | undefined }
+  | {
+      ok: true;
+      type: "nodeHost.config";
+      sourceAdmitted: true;
+      row: Pick<Selectable<ConfigMachineState>, "value_json" | "updated_at_ms"> | undefined;
+    }
   | {
       ok: false;
       sourceAdmitted?: true;

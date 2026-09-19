@@ -66,6 +66,7 @@ const enNewSessionSetup = {
     dictate: "Dictate",
     readingAttachment: "Reading attachment",
     start: "Start session",
+    created: "Session created",
     startInTerminal: "Start in terminal",
     nativeTerminalHint:
       "Start the native CLI on the selected machine using its own account and configuration. This does not create an OpenClaw Chat.",

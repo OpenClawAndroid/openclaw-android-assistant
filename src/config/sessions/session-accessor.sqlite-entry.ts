@@ -95,6 +95,7 @@ export {
   loadExactSessionEntryCandidates,
   loadExactSessionEntryCandidatesReadOnlyBatch,
   loadExactSessionEntryReadOnly,
+  loadSessionEntryByIdReadOnly,
 } from "./session-accessor.sqlite-exact-read.js";
 
 // Public entry API. Async preparation precedes BEGIN; commit revalidates repository snapshots.
