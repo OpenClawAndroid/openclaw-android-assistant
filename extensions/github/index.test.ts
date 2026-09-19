@@ -109,6 +109,12 @@ describe("GitHub plugin ownership and RPC migration", () => {
           profileAccess: "independent",
         }),
         expect.objectContaining({
+          name: "github.image",
+          owner: { kind: "plugin", pluginId: "github" },
+          scope: "operator.read",
+          profileAccess: "independent",
+        }),
+        expect.objectContaining({
           name: "github.detail",
           owner: { kind: "plugin", pluginId: "github" },
           scope: "operator.read",
@@ -129,6 +135,7 @@ describe("GitHub plugin ownership and RPC migration", () => {
             linkReader: expect.objectContaining({
               hosts: ["github.com"],
               detailMethod: "github.detail",
+              imageMethod: "github.image",
               previewMethod: "github.preview",
             }),
           }),
@@ -145,6 +152,118 @@ describe("GitHub plugin ownership and RPC migration", () => {
     expect(registry.registry.controlUiDescriptors).toEqual([]);
     expect(registry.registry.gatewayHandlers).toEqual({});
     expect(registry.registry.gatewayMethodDescriptors).toEqual([]);
+  });
+
+  it.each([
+    {},
+    { url: "https://github.com/login" },
+    { url: "https://github-production-user-asset-6210df.s3.amazonaws.com/image.png" },
+    { url: "https://example.com/image.png" },
+    { url: "https://user:password@user-images.githubusercontent.com/image.png" },
+  ])("rejects invalid image params without a request: %j", async (params) => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await request("github.image", params)).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ message: "invalid github.image params" }),
+      undefined,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("loads anonymous attachment redirects without browser CORS headers", async () => {
+    const url = "https://github.com/user-attachments/assets/3c11071f-21b8-4123-b9b2-711dc7ca47fd";
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7WQAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              "https://github-production-user-asset-6210df.s3.amazonaws.com/image.png?signature=fixture",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(png, { headers: { "content-type": "image/png" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const respond = await request("github.image", { url });
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      {
+        url,
+        dataUrl: `data:image/png;base64,${png.toString("base64")}`,
+      },
+      undefined,
+      undefined,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      const headers = new Headers(init?.headers);
+      expect(headers.has("authorization")).toBe(false);
+      expect(headers.has("cookie")).toBe(false);
+      expect(init?.credentials).toBe("omit");
+    }
+  });
+
+  it.each([
+    "https://evil.example/image.png?signature=private",
+    "http://user-images.githubusercontent.com/image.png",
+    "https://user-images.githubusercontent.com:444/image.png",
+    "https://user:password@user-images.githubusercontent.com/image.png",
+    "https://github.com/login",
+    "https://127.0.0.1/image.png",
+  ])("blocks unsafe image redirect %s before fetching it", async (location) => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const respond = await request("github.image", {
+      url: "https://user-images.githubusercontent.com/image.png",
+    });
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        message: "GitHub image is unavailable",
+      }),
+      undefined,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/png"],
+    ["<html>not an image</html>", "image/png"],
+    ["x".repeat(2 * 1024 * 1024 + 1), "image/jpeg"],
+  ])("rejects unsupported or oversized image content", async (body, contentType) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(body, {
+          headers: { "content-type": contentType },
+        }),
+      ),
+    );
+    expect(
+      await request("github.image", {
+        url: "https://user-images.githubusercontent.com/image.png",
+      }),
+    ).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        message: "GitHub image is unavailable",
+      }),
+      undefined,
+    );
   });
 
   it.each([

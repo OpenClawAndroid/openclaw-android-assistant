@@ -132,54 +132,45 @@ export function readUnindexedHistoryControls(
       }
     }
   }
-  const eligible = controls.filter((row) => row.event_seq <= coveredThrough);
-  const active = new Map<
-    number,
-    {
-      active_position: number;
-      message_position: number | null;
-      following_message_position: number | null;
-    }
-  >();
-  for (let offset = 0; offset < eligible.length; offset += 500) {
-    const positions = executeSqliteQuerySync(
-      projection.database.db,
-      getActiveTranscriptKysely(projection.database)
-        .selectFrom("session_transcript_active_events as active")
-        .leftJoin("transcript_event_identities as identity", (join) =>
-          join
-            .onRef("identity.session_id", "=", "active.session_id")
-            .onRef("identity.seq", "=", "active.event_seq"),
-        )
-        .leftJoin("session_transcript_active_events as following", (join) =>
-          join
-            .onRef("following.session_id", "=", "active.session_id")
-            .on((eb) => eb("following.active_position", "=", eb("active.active_position", "+", 1))),
-        )
-        .select([
-          "active.event_seq",
-          "active.active_position",
-          "active.message_position",
-          "following.message_position as following_message_position",
-        ])
-        .where("active.session_id", "=", projection.resolved.sessionId)
-        .where("identity.seq", "is", null)
-        .where(
-          "active.event_seq",
-          "in",
-          eligible.slice(offset, offset + 500).map((row) => row.event_seq),
-        ),
-    ).rows;
-    for (const row of positions) {
-      active.set(row.event_seq, row);
-    }
-  }
-  const rows = eligible
-    .flatMap((row) => {
-      const position = active.get(row.event_seq);
-      return position ? [{ ...row, ...position }] : [];
-    })
-    .toSorted((left, right) => left.active_position - right.active_position);
+  const eligible = new Map(
+    controls.filter((row) => row.event_seq <= coveredThrough).map((row) => [row.event_seq, row]),
+  );
+  const rows =
+    eligible.size === 0
+      ? []
+      : executeSqliteQuerySync(
+          projection.database.db,
+          getActiveTranscriptKysely(projection.database)
+            .selectFrom(
+              /* kysely-allow-raw: drive indexed lookups from the requested set, not a full active-path scan to satisfy ordering. */
+              sql<{ value: number }>`json_each(${JSON.stringify([...eligible.keys()])})`.as(
+                "requested",
+              ),
+            )
+            .crossJoin("session_transcript_active_events as active")
+            .leftJoin("transcript_event_identities as identity", (join) =>
+              join
+                .onRef("identity.session_id", "=", "active.session_id")
+                .onRef("identity.seq", "=", "active.event_seq"),
+            )
+            .leftJoin("session_transcript_active_events as following", (join) =>
+              join
+                .onRef("following.session_id", "=", "active.session_id")
+                .on((eb) =>
+                  eb("following.active_position", "=", eb("active.active_position", "+", 1)),
+                ),
+            )
+            .select([
+              "active.event_seq",
+              "active.active_position",
+              "active.message_position",
+              "following.message_position as following_message_position",
+            ])
+            .where("active.session_id", "=", projection.resolved.sessionId)
+            .whereRef("active.event_seq", "=", "requested.value")
+            .where("identity.seq", "is", null)
+            .orderBy("active.active_position", "asc"),
+        ).rows.map((row) => Object.assign({}, eligible.get(row.event_seq)!, row));
   projection.unindexedHistoryControls = { coveredThrough, rows };
   return rows;
 }
@@ -527,8 +518,7 @@ function selectVisibleMessageRanges(
   const boundedStart = Math.min(Math.max(0, start), visible.total);
   const boundedEnd = Math.min(Math.max(boundedStart, endExclusive), visible.total);
   const keptEnd = Math.min(boundedEnd, visible.kept.length);
-  // Reset tails have holes where tool results were discarded. Batch exact retained
-  // positions below SQLite's binding limit; sparse tails must not become N+1 reads.
+  // Byte-capped tails must reach their early exit without expanding every retained ID in SQLite.
   for (let offset = boundedStart; offset < keptEnd; offset += 500) {
     const positions = visible.kept.slice(offset, Math.min(offset + 500, keptEnd));
     const ordinals = new Map(positions.map((position, index) => [position, offset + index]));
@@ -629,15 +619,6 @@ export function assertVisibleMessageRangeJson(
       parseActiveTranscriptMessageRow(row);
     }
   }
-}
-
-/** Sizes the same logical ranges without fetching or parsing excluded payloads. */
-export function readVisibleMessageMetadata(
-  projection: CurrentTranscriptProjection,
-  start: number,
-  endExclusive: number,
-) {
-  return Array.from(iterateVisibleMessageMetadata(projection, start, endExclusive));
 }
 
 /** Byte-bounded tails can stop sizing at their first excluded predecessor. */

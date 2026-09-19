@@ -34,6 +34,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
+import { racePromiseWithAbortSignal } from "./abort-signal.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
 import { refreshCostUsageCacheForAgent } from "./session-cost-usage-aggregation.js";
 import { readSessionCostUsageRollupRows } from "./session-cost-usage-cache.test-support.js";
@@ -430,9 +431,9 @@ describe("usage archive identity", () => {
 
   for (const encoding of encodings) {
     for (const reason of ["reset", "deleted"] as const) {
-      it.each(["main", "worker"])(
+      it.for(["main", "worker"])(
         `discovers and reads ${encoding} ${reason} archives for %s`,
-        async (agentId) => {
+        async (agentId, { signal }) => {
           const manager = transcript();
           const sessionId = manager.getSessionId();
           const sessionFile = await writeArchive({
@@ -472,14 +473,19 @@ describe("usage archive identity", () => {
           const work = new AsyncWorkScope();
           try {
             expect(
-              await work.track(() => loadSessionCostSummariesFromCache(cacheLookup)),
+              await racePromiseWithAbortSignal(
+                work.track(() => loadSessionCostSummariesFromCache(cacheLookup)),
+                signal,
+              ),
             ).toMatchObject({
               summaries: [null],
               cacheStatus: { status: "refreshing", cachedFiles: 0, pendingFiles: 1 },
             });
-            await work.runWhenIdle(() => {
-              expect(readSessionCostUsageRollupRows(agentId)).toHaveLength(1);
-            });
+            await racePromiseWithAbortSignal(
+              work.runWhenIdle(() => undefined),
+              signal,
+            );
+            expect(readSessionCostUsageRollupRows(agentId)).toHaveLength(1);
           } finally {
             await work.drain();
           }

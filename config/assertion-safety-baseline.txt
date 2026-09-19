@@ -3076,7 +3076,7 @@ src/node-host/invoke-agent-cli-claude-params.ts	4
 src/node-host/invoke-agent-cli-claude.ts	1
 src/node-host/invoke-file-commands.ts	1
 src/node-host/invoke-payload.ts	5
-src/node-host/invoke.ts	4
+src/node-host/invoke.ts	3
 src/node-host/mcp.ts	3
 src/node-host/node-worker-bundle-installer.ts	1
 src/node-host/node-worker-transfer-client.ts	1
@@ -3268,7 +3268,7 @@ src/plugins/runtime/channel-runtime-contexts.ts	1
 src/plugins/runtime/runtime-agent.ts	1
 src/plugins/runtime/runtime-channel.ts	1
 src/plugins/runtime/runtime-llm-isolated.ts	3
-src/plugins/runtime/runtime-llm.runtime.ts	4
+src/plugins/runtime/runtime-llm.runtime.ts	1
 src/plugins/schema-validator.ts	6
 src/plugins/sdk-alias.ts	1
 src/plugins/session-catalog-history-import.ts	1
@@ -3386,7 +3386,7 @@ src/skills/workshop/store-sqlite-event.ts	1
 src/skills/workshop/tool-policy-diagnostic.ts	1
 src/snapshot/git-backup-codec.ts	9
 src/snapshot/git-backup.ts	2
-src/snapshot/local-repository.ts	8
+src/snapshot/local-repository.ts	7
 src/snapshot/manifest.ts	1
 src/state/agent-deletion-journal.ts	15
 src/state/backup-run-records.ts	1
@@ -3395,7 +3395,7 @@ src/state/local-onboarding-state.ts	1
 src/state/openclaw-agent-board-schema.ts	1
 src/state/openclaw-agent-db-permissions.ts	1
 src/state/openclaw-agent-db-registry-listing.ts	3
-src/state/openclaw-agent-db-registry.ts	5
+src/state/openclaw-agent-db-registry.ts	1
 src/state/openclaw-agent-db-schema.ts	2
 src/state/openclaw-agent-db-session-migrations.ts	4
 src/state/openclaw-agent-db-session-provenance.ts	2

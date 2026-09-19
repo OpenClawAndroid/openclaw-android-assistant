@@ -3,8 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { withTestTimeout } from "../../test/helpers/promise.js";
+import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { racePromiseWithAbortSignal } from "../infra/abort-signal.js";
 import * as spawnPs from "../infra/spawn-ps.js";
 import {
   closeOpenClawStateDatabaseForTest,
@@ -25,7 +26,7 @@ import {
   waitForChildExit,
   waitForChildLine,
   waitForIdentityDeath,
-  writeSupervisorOwnerScript,
+  spawnSupervisorOwner,
 } from "./node-worker-supervisor.fixture.test-support.js";
 import { createNodeWorkerSupervisor } from "./node-worker-supervisor.js";
 import {
@@ -130,34 +131,10 @@ function insertLaunch(params: {
   }
 }
 
-function spawnSupervisorOwner(params: {
-  bundleRoot: string;
-  env: NodeJS.ProcessEnv;
-  input: ReturnType<typeof testWorkerLaunchInput>;
-  root: string;
-}): ChildProcess {
-  const inputPath = path.join(params.root, `${params.input.launchId}.json`);
-  fs.writeFileSync(inputPath, JSON.stringify(params.input));
-  const child = spawn(
-    process.execPath,
-    [
-      "--import",
-      "tsx",
-      writeSupervisorOwnerScript(params.root),
-      params.bundleRoot,
-      params.env.OPENCLAW_STATE_DIR!,
-      inputPath,
-    ],
-    { env: { ...process.env, ...params.env }, stdio: ["ignore", "pipe", "pipe"] },
-  );
-  spawned.add(child);
-  return child;
-}
-
 describe("node worker supervisor recovery", () => {
   it
     .runIf(process.platform === "linux" || process.platform === "darwin")
-    .each([
+    .for([
       "close",
       "recover",
       "anchor-lost",
@@ -172,7 +149,7 @@ describe("node worker supervisor recovery", () => {
       "replay-completed",
     ])(
     "%s observes a stopped cleanup anchor with unreadable argv without releasing its slot",
-    async (operation) => {
+    async (operation, { signal: testSignal }) => {
       const { bundleRoot, env, root, workspaceDir } = fixture("node-worker-stopped-recovery-");
       const retainsCompletedTurn = operation.endsWith("-completed");
       const input = testWorkerLaunchInput(
@@ -181,16 +158,23 @@ describe("node worker supervisor recovery", () => {
         retainsCompletedTurn ? "background-start" : operation === "anchor-lost" ? "tree" : "wait",
       );
       const previous = spawnSupervisorOwner({ bundleRoot, env, input, root });
+      spawned.add(previous);
       const receipt = JSON.parse(await waitForChildLine(previous)) as NodeWorkerLaunchReceipt;
       const anchor = receipt.worker!;
       ownedProcessGroups.push(anchor);
       const capacitySnapshots: Array<{ total: number; available: number }> = [];
       const totalCapacity = ["initialize", "environment-stop"].includes(operation) ? 2 : 1;
+      const capacityReleased = createDeferred();
       const replacement = createNodeWorkerSupervisor({
         bundleRoot,
         env,
         capacity: totalCapacity,
-        onCapacityChanged: (capacity) => capacitySnapshots.push(capacity),
+        onCapacityChanged: (capacity) => {
+          capacitySnapshots.push(capacity);
+          if (capacity.available === totalCapacity) {
+            capacityReleased.resolve();
+          }
+        },
       });
       let initialization: Promise<void> | undefined;
       let closing: Promise<void> | undefined;
@@ -429,14 +413,14 @@ describe("node worker supervisor recovery", () => {
           process.kill(anchor.pid, "SIGCONT");
           await initialization;
           await waitForIdentityDeath(anchor);
-          await vi.waitFor(() =>
-            expect(new NodeWorkerLaunchStore({ env }).get(input.launchId)).toMatchObject({
-              state: "interrupted",
-              worker: anchor,
-              workerCleanupMode: "owned-anchor",
-              workerLineageSettled: true,
-            }),
-          );
+          // Initialization bounds its wait; the recovery owner releases capacity after cleanup.
+          await racePromiseWithAbortSignal(capacityReleased.promise, testSignal);
+          expect(new NodeWorkerLaunchStore({ env }).get(input.launchId)).toMatchObject({
+            state: "interrupted",
+            worker: anchor,
+            workerCleanupMode: "owned-anchor",
+            workerLineageSettled: true,
+          });
           expect(inspectOwnedNodeWorkerTree(anchor)).toBe("dead");
           expect(capacitySnapshots.at(-1)).toEqual({ total: 1, available: 1 });
           expect(replacement.hasActiveWork()).toBe(false);
@@ -506,6 +490,7 @@ describe("node worker supervisor recovery", () => {
       const { bundleRoot, env, root, workspaceDir } = fixture("node-worker-lost-lineage-");
       const input = testWorkerLaunchInput(workspaceDir, "lost-lineage", "escaped-tree");
       const owner = spawnSupervisorOwner({ bundleRoot, env, input, root });
+      spawned.add(owner);
       const receipt = JSON.parse(await waitForChildLine(owner)) as NodeWorkerLaunchReceipt;
       const anchor = receipt.worker!;
       ownedProcessGroups.push(anchor);
@@ -810,6 +795,7 @@ describe("node worker supervisor recovery", () => {
     const { bundleRoot, env, root, workspaceDir } = fixture("node-worker-live-replay-");
     const input = testWorkerLaunchInput(workspaceDir, "live-running-launch", "wait");
     const owner = spawnSupervisorOwner({ bundleRoot, env, input, root });
+    spawned.add(owner);
     const owned = JSON.parse(await waitForChildLine(owner)) as NodeWorkerLaunchReceipt;
     if (owned.worker) {
       ownedProcessGroups.push(owned.worker);
@@ -867,6 +853,7 @@ describe("node worker supervisor recovery", () => {
         `\nfs.writeFileSync(${JSON.stringify(workerModePath)}, JSON.stringify({ externalMode: process.env.OPENCLAW_SUPERVISOR_MODE ?? null }));\n`,
       );
       const owner = spawnSupervisorOwner({ bundleRoot, env, input, root });
+      spawned.add(owner);
       const owned = JSON.parse(await waitForChildLine(owner)) as NodeWorkerLaunchReceipt;
       ownedProcessGroups.push(owned.worker!);
       const grandchildPath = path.join(workspaceDir, "grandchild.pid");

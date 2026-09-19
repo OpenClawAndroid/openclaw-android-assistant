@@ -362,6 +362,8 @@ type ChannelCrossContextPresentationFactory = (params: {
 
 type ChannelReplyTransport = {
   replyToId?: string | null;
+  /** Mark a channel-inferred target so outbound delivery can consume first-mode replies. */
+  replyToIdSource?: "implicit";
   threadId?: string | number | null;
 };
 

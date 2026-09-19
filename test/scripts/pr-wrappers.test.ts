@@ -812,7 +812,7 @@ describe("scripts/pr wrappers", () => {
     const fixture = makeMismatchedWrapperRepo({ toolingOnly: true });
     const tooling = join(fixture.root, "tooling");
     const origin = fixture.git(fixture.canonical, ["remote", "get-url", "origin"]).stdout.trim();
-    fixture.git(fixture.root, ["clone", "--quiet", origin, tooling]);
+    fixture.git(fixture.root, ["clone", "--no-local", "--quiet", origin, tooling]);
     writeFileSync(join(tooling, ".git/info/exclude"), "node_modules/\n");
     linkPrWrapperDependencies(tooling);
     const stale = join(fixture.root, "stale-tsx");

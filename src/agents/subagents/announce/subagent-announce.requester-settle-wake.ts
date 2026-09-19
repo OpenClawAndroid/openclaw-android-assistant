@@ -193,20 +193,8 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
   ) {
     return false;
   }
-  const requesterHasUnsettledDescendants = () =>
-    hasDescendantRunAwaitingSettle(
-      requesterSessionKey,
-      currentSettledEntry.runId,
-      requesterAgentId,
-      requesterStorePath,
-    );
-
   const frozenBatchRunIds = currentState.batchRunIds;
   const currentRearmGeneration = currentState.rearmGeneration;
-  const hasUnsettledDescendants = requesterHasUnsettledDescendants();
-  if ((!frozenBatchRunIds || frozenBatchRunIds.length === 0) && hasUnsettledDescendants) {
-    return false;
-  }
   let settledBatch: SubagentRunRecord[];
   if (frozenBatchRunIds && frozenBatchRunIds.length > 0) {
     const runsById = new Map(requesterRuns.map((entry) => [entry.runId, entry]));
@@ -241,6 +229,20 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     );
   }
   if (settledBatch.length === 0) {
+    return false;
+  }
+
+  const batchCreatedAt = Math.min(...settledBatch.map((entry) => entry.createdAt));
+  const requesterHasUnsettledDescendants = () =>
+    hasDescendantRunAwaitingSettle(
+      requesterSessionKey,
+      currentSettledEntry.runId,
+      requesterAgentId,
+      requesterStorePath,
+      batchCreatedAt,
+    );
+  const hasUnsettledDescendants = requesterHasUnsettledDescendants();
+  if ((!frozenBatchRunIds || frozenBatchRunIds.length === 0) && hasUnsettledDescendants) {
     return false;
   }
 

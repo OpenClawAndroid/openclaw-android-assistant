@@ -7,7 +7,9 @@ import {
   listNativeHookRelayBridgeSnapshotsInDatabase,
 } from "../agents/harness/native-hook-relay-store.kernel.js";
 import { executeNativeHookRelayMutation } from "../agents/harness/native-hook-relay-store.worker.js";
+import { listRegistryWorktreesInDatabase } from "../agents/worktrees/registry-read.kernel.js";
 import { listAuditEventsInDatabase } from "../audit/audit-event-read.kernel.js";
+import { executeAuditWriterCommand } from "../audit/audit-event-writer.worker.js";
 import { readClawInstallSchemaVersionRows } from "../claws/provenance-runtime-read.kernel.js";
 import { readSqliteDatabaseBloat } from "../commands/doctor-db-bloat.read.js";
 import { readWorkshopMigrationRecordsInDatabase } from "../commands/doctor-skill-workshop-read.kernel.js";
@@ -34,6 +36,7 @@ import {
 import { readDeferredPluginMigrations } from "../infra/deferred-plugin-migrations.js";
 import { countFailedDeliveryQueueEntriesInDatabase } from "../infra/delivery-queue-sqlite.kernel.js";
 import * as deviceAuth from "../infra/device-auth-store.kernel.js";
+import { executeDeliveryQueueAck } from "../infra/outbound/delivery-queue-ack.worker.js";
 import { executePromotionCommand } from "../infra/promotions-feed.worker.js";
 import {
   readApnsRegistrationFromDatabase,
@@ -124,6 +127,13 @@ export function executeSharedStateCommand(
 ): Operations[keyof Operations]["output"] {
   if (command.type === "audit.events.list") {
     return listAuditEventsInDatabase(open().db, command.input);
+  }
+  if (command.type === "audit.writer.process" || command.type === "audit.writer.prune") {
+    return executeAuditWriterCommand(
+      command,
+      { path: context.databasePath, env: getSqliteWorkerStateContext().environment },
+      open,
+    );
   }
   if (
     command.type === "authProfiles.read" ||
@@ -431,6 +441,9 @@ export function executeSharedStateCommand(
     path: context.databasePath,
     env: getSqliteWorkerStateContext().environment,
   };
+  if (command.type === "deliveryQueue.ack") {
+    return executeDeliveryQueueAck(command.input, writeOptions);
+  }
   if (command.type === "skillUploads.commit") {
     return commitSkillUploadInDatabase(command.input, writeOptions);
   }
@@ -549,6 +562,9 @@ export function executeSharedStateCommand(
   if (command.type === "projects.list") {
     ensureProjectRegistrySchema(writeOptions);
     return listProjectRegistryInDatabase(database.db);
+  }
+  if (command.type === "worktrees.list") {
+    return listRegistryWorktreesInDatabase(database.db);
   }
   if (command.type === "projects.resolve") {
     ensureProjectRegistrySchema(writeOptions);

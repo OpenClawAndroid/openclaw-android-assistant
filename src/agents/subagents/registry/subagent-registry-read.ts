@@ -134,6 +134,7 @@ export function hasDescendantRunAwaitingSettle(
   excludeRunId?: string,
   requesterAgentId?: string,
   requesterStorePath?: string | null,
+  settledBefore?: number,
 ): boolean {
   return hasDescendantRunAwaitingSettleFromRuns(
     getSubagentRunsSnapshotForSessions(subagentRuns, [rootSessionKey]),
@@ -141,6 +142,7 @@ export function hasDescendantRunAwaitingSettle(
     excludeRunId,
     requesterAgentId,
     requesterStorePath,
+    settledBefore,
   );
 }
 

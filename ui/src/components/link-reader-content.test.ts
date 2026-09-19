@@ -43,6 +43,38 @@ function mount(value: ControlUiLinkReaderDocument, link = target) {
 afterEach(() => document.body.replaceChildren());
 
 describe("link reader document content", () => {
+  it("hides HTML comment metadata while preserving visible prose and literal code examples", () => {
+    const body = [
+      "<!-- hidden-block\nmetadata --> <!-- hidden-adjacent -->",
+      "  <!-- hidden-indented -->",
+      "Visible description with <!-- hidden-inline --> text.",
+      "`<!-- inline example -->`",
+      "```html\n<!-- fenced example -->\n```",
+      "    <!-- indented example -->",
+      "&lt;!-- escaped example --&gt;",
+      "<!-- hidden-prefix -->Trailing text<!-- hidden-suffix -->More text",
+      "<!-- hidden-unclosed",
+    ].join("\n\n");
+    const container = mount(
+      detail(body, [
+        {
+          id: "issuecomment-1",
+          url: url + "#issuecomment-1",
+          author: "review-bot",
+          body: "<!-- hidden-ack --> <!-- hidden-status -->\n\nReview requested.",
+        },
+      ]),
+    );
+    expect(container.textContent).not.toContain("hidden-");
+    expect(container.textContent).toContain("Visible description with  text.");
+    expect(container.textContent).toContain("Trailing textMore text");
+    expect(container.querySelector("#issuecomment-1")?.textContent).toContain("Review requested.");
+    expect([...container.querySelectorAll("code")].map((code) => code.textContent?.trim())).toEqual(
+      ["<!-- inline example -->", "<!-- fenced example -->", "<!-- indented example -->"],
+    );
+    expect(container.textContent).toContain("<!-- escaped example -->");
+  });
+
   it("renders Markdown and HTML attachments with anonymous requests, source-relative URLs, and full-size links", () => {
     const container = mount(
       detail(

@@ -46,6 +46,8 @@ export type GatewayServiceControlArgs = {
   preserveAutoStart?: boolean;
   /** Original live caller fence, rechecked at native mutation boundaries. */
   assertCurrent?: () => void;
+  /** Update stop identity only; the native owner must revalidate the live handoff lease. */
+  updateHandoff?: { root: string; runId: string };
   warn?: (message: string) => void;
   onMutation?: (mutation: GatewayLifecycleMutation) => void;
 };

@@ -54,17 +54,25 @@ describe("tsgo core test shards", () => {
       }),
     ).toEqual([]);
     for (const [file, owner] of [
+      ["src/gateway/worker-environments/service.plugin-create.test.ts", "gateway-server"],
+      ["src/gateway/server-methods/environments.test.ts", "gateway-other"],
       ["src/commands/doctor-session-worktree-workspace.test.ts", "commands-doctor"],
       ["src/commands/doctor/repair-sequencing.test.ts", "commands-doctor"],
       ["src/commands/oauth-tls-preflight.doctor.test.ts", "commands-doctor"],
       ["src/commands/onboard-agent.test.ts", "commands"],
       ["src/agents/command/session-store.test.ts", "commands"],
+      ["src/cli/program/build-program.test.ts", "commands"],
+      ["src/cli/program/register.agent.test.ts", "commands"],
       ["src/tui/tui-plugin-approvals.test.ts", "commands"],
       ["src/wizard/setup.test.ts", "commands"],
       ["src/cli/cron-cli.test.ts", "services"],
       ["src/cli/cron-output.process.test.ts", "services"],
       ["src/cli/cron-cli/register.cron-edit.test.ts", "services"],
       ["src/cli/update-cli/update-command-config-fence.test.ts", "config-cli"],
+      ["src/gateway/worker-environments/admission.test.ts", "gateway-server"],
+      ["src/gateway/worker-environments/computer-transport.test.ts", "gateway-server"],
+      ["src/gateway/server-plugin-reload.recovery.test.ts", "gateway-server"],
+      ["src/gateway/server-methods/plugins.decisions.test.ts", "gateway-other"],
     ] as const) {
       expect(
         shards.filter((shard) => shard.roots.includes(file)).map((shard) => shard.name),

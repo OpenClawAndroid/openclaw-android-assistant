@@ -7,19 +7,19 @@ import {
   listSessionEntriesCore,
   replaceSessionEntry,
 } from "../config/sessions/session-accessor.js";
+import { createSessionReaperTimerHarness } from "./service.session-reaper.test-support.js";
 import {
   createNoopLogger,
   createCronStoreHarness,
   withCronServiceStateForTest,
 } from "./service.test-harness.js";
-import { createCronServiceState } from "./service/state.js";
 import { ensureLoaded } from "./service/store.js";
-import { onTimer } from "./service/timer.test-support.js";
 import { resetReaperThrottle } from "./session-reaper.test-support.js";
 import * as cronStoreModule from "./store.js";
 import { loadCronStore, saveCronStore } from "./store.js";
 import type { CronJob } from "./types.js";
 
+const { createState: createCronServiceState, onTimer } = createSessionReaperTimerHarness();
 const noopLogger = createNoopLogger();
 const { makeStorePath } = createCronStoreHarness({
   prefix: "openclaw-cron-reaper-finally-",

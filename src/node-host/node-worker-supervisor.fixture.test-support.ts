@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,9 +12,12 @@ import {
   type NodeWorkerProcessIdentity,
 } from "./node-worker-process-identity.js";
 import { createNodeWorkerSupervisor } from "./node-worker-supervisor.js";
-import { writeNodeWorkerFixture } from "./node-worker-supervisor.test-support.js";
+import {
+  testWorkerLaunchInput,
+  writeNodeWorkerFixture,
+} from "./node-worker-supervisor.test-support.js";
 
-export function writeSupervisorOwnerScript(root: string): string {
+function writeSupervisorOwnerScript(root: string): string {
   const supervisorUrl = pathToFileURL(path.resolve("src/node-host/node-worker-supervisor.ts")).href;
   const scriptPath = path.join(root, "supervisor-owner.mts");
   fs.writeFileSync(
@@ -39,6 +42,29 @@ export function writeSupervisorOwnerScript(root: string): string {
     `,
   );
   return scriptPath;
+}
+
+export function spawnSupervisorOwner(params: {
+  bundleRoot: string;
+  env: NodeJS.ProcessEnv;
+  input: ReturnType<typeof testWorkerLaunchInput>;
+  root: string;
+}): ChildProcess {
+  const inputPath = path.join(params.root, `${params.input.launchId}.json`);
+  fs.writeFileSync(inputPath, JSON.stringify(params.input));
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      writeSupervisorOwnerScript(params.root),
+      params.bundleRoot,
+      params.env.OPENCLAW_STATE_DIR!,
+      inputPath,
+    ],
+    { env: { ...process.env, ...params.env }, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  return child;
 }
 
 export async function waitForIdentityDeath(identity: NodeWorkerProcessIdentity) {

@@ -96,7 +96,11 @@ with its scheduler-owned continuation.
   IDs, and yield generation.
 - **Bounded delivery.** Existing limits remain: three attempts, three ambiguous
   transport replays, and ten stale deferrals. Active descendants do not consume
-  the stale-deferral budget. A private handoff's observation timeout does not
+  the stale-deferral budget. Delivery bookkeeping for executions that ended
+  before the current batch's earliest child was created cannot block its
+  continuation. Active descendants and delivery settlement overlapping that
+  batch still hold the wake; historical failure records remain available.
+  A private handoff's observation timeout does not
   cancel the underlying Gateway turn. When the Gateway reports that turn as
   in flight, settlement observes the same request without spending failure
   attempts or discarding the child results. Gateway admission and execution

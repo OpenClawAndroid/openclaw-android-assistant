@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -17,7 +16,7 @@ import {
   waitForChildExit,
   waitForChildLine,
   waitForIdentityDeath,
-  writeSupervisorOwnerScript,
+  spawnSupervisorOwner,
 } from "./node-worker-supervisor.fixture.test-support.js";
 import {
   TEST_WORKER_ENDPOINT,
@@ -46,20 +45,12 @@ describe("node worker environment stop after failed initialization", () => {
       const native = testWorkerLaunchInput(fixture.workspaceDir, "a-native-owner", "wait");
       native.descriptor.admission.environmentId = "native-environment";
       native.descriptor.admission.sessionId = "native-session";
-      const inputPath = path.join(root, "native-input.json");
-      fs.writeFileSync(inputPath, JSON.stringify(native));
-      const owner = spawn(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          writeSupervisorOwnerScript(root),
-          fixture.bundleRoot,
-          fixture.stateDir,
-          inputPath,
-        ],
-        { env: { ...process.env, ...fixture.env }, stdio: ["ignore", "pipe", "pipe"] },
-      );
+      const owner = spawnSupervisorOwner({
+        bundleRoot: fixture.bundleRoot,
+        env: fixture.env,
+        input: native,
+        root,
+      });
       let anchor: NodeWorkerProcessIdentity | undefined;
       let stopping: Promise<unknown> | undefined;
       let bodyFailure: { error: unknown } | undefined;
