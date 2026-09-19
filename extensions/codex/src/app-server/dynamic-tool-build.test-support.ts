@@ -1,6 +1,7 @@
 import type { EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { vi } from "vitest";
 import { buildDynamicTools } from "./dynamic-tool-build.js";
+import type { createCodexDynamicToolBridge } from "./dynamic-tools.js";
 import { createCodexTestHostCapabilities } from "./host-capability.test-support.js";
 import { createCodexTestModel } from "./test-support.js";
 
@@ -130,4 +131,37 @@ export async function buildDynamicToolsForTest(
     onYieldDetected: () => undefined,
     ...options,
   });
+}
+
+export async function bindProductionCodexHostCapabilities(
+  params: EmbeddedRunAttemptParams,
+  hostCapabilityClosers: Array<() => void>,
+): Promise<void> {
+  const { createAgentHarnessHostCapabilitiesForTest } =
+    await import("openclaw/plugin-sdk/plugin-test-runtime");
+  const { hostCapabilities: _hostCapabilities, ...attempt } = params;
+  const host = await createAgentHarnessHostCapabilitiesForTest({ attempt, pluginId: "codex" });
+  params.hostCapabilities = host.capabilities;
+  hostCapabilityClosers.push(host.close);
+}
+
+export type RuntimeDynamicToolForTest = Parameters<
+  typeof createCodexDynamicToolBridge
+>[0]["tools"][number];
+
+export function createRuntimeDynamicTool(name: string): RuntimeDynamicToolForTest {
+  return {
+    name,
+    label: name,
+    description: `${name} test tool`,
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: true,
+    },
+    execute: vi.fn(async () => ({
+      content: [{ type: "text" as const, text: `${name} done` }],
+      details: {},
+    })),
+  };
 }

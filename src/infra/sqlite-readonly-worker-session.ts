@@ -6,6 +6,8 @@ import { createSqliteAuthTransferReceiver } from "./sqlite-readonly-auth-transfe
 import { retainSnapshotWork } from "./sqlite-readonly-location-cleanup.js";
 import {
   createSqliteReadOnlyWorkerError,
+  isSqliteReadOnlyWorkerResult,
+  isSqliteSnapshotStagingMode,
   readSqliteReadOnlyWorkerValue,
   SQLITE_READONLY_STDERR_TAIL_CHARS,
   SQLITE_READONLY_WORKER_MAX_BUFFER,
@@ -14,10 +16,33 @@ import {
   type SqliteReadOnlyWorkerValue,
 } from "./sqlite-readonly-worker-protocol.js";
 
+export type SqliteReadOnlyWorkerLaunch = {
+  env: NodeJS.ProcessEnv;
+  cwd: string;
+  transport: { kind: "native" } | { kind: "broker"; owner: SpawnBrokerHost };
+};
+
+export function isSameSqliteReadOnlyWorkerLaunch(
+  captured: SqliteReadOnlyWorkerLaunch,
+  requested: SqliteReadOnlyWorkerLaunch,
+): boolean {
+  const keys = Object.keys(requested.env);
+  return (
+    captured.transport.kind === requested.transport.kind &&
+    (captured.transport.kind === "native" ||
+      (requested.transport.kind === "broker" &&
+        captured.transport.owner === requested.transport.owner)) &&
+    requested.cwd === captured.cwd &&
+    keys.length === Object.keys(captured.env).length &&
+    keys.every((key) => requested.env[key] === captured.env[key])
+  );
+}
+
 type SqliteReadOnlyWorkerSession = {
   readonly notStarted: boolean;
   createNativeReplacement: () => SqliteReadOnlyWorkerSession;
-  compatible: (env?: NodeJS.ProcessEnv) => boolean;
+  isRetired: () => boolean;
+  compatible: (launch: SqliteReadOnlyWorkerLaunch) => boolean;
   run: (
     pathname: string,
     options: SqliteReadOnlyWorkerOptions,
@@ -25,29 +50,35 @@ type SqliteReadOnlyWorkerSession = {
   close: () => Promise<void>;
 };
 
-export function createSqliteReadOnlyWorkerSession(host: {
-  spawnBroker?: SpawnBrokerHost;
-  env: NodeJS.ProcessEnv;
-  cwd?: string;
-  currentEnv: () => NodeJS.ProcessEnv;
-  argv: string[];
-  requestArgs: (pathname: string, options: SqliteReadOnlyWorkerOptions) => string[];
-  readBudget: (pathname: string) => { timeoutMs: number; size: string };
-  deadlineOwnedByCaller: () => boolean;
-  timeoutError: (pathname: string, timeoutMs: number, size: string) => Error;
-  closeTimeoutMs: number;
-}): SqliteReadOnlyWorkerSession {
+export function createSqliteReadOnlyWorkerSession(
+  host: SqliteReadOnlyWorkerLaunch & {
+    retainLifetime?: boolean;
+    retainOnOperationError?: boolean;
+    argv: string[];
+    requestArgs: (pathname: string, options: SqliteReadOnlyWorkerOptions) => string[];
+    readBudget: (pathname: string) => { timeoutMs: number; size: string };
+    deadlineOwnedByCaller: () => boolean;
+    timeoutError: (pathname: string, timeoutMs: number, size: string) => Error;
+    closeTimeoutMs: number;
+  },
+): SqliteReadOnlyWorkerSession {
   const env = { ...host.env };
-  const cwd = host.cwd ?? process.cwd();
+  const cwd = host.cwd;
+  const transport: SqliteReadOnlyWorkerLaunch["transport"] =
+    host.transport.kind === "broker"
+      ? { kind: "broker", owner: host.transport.owner }
+      : { kind: "native" };
+  const capturedLaunch = { env, cwd, transport };
   const argv = [...host.argv];
   const spawnOptions: SpawnOptions = {
     env,
     cwd,
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   };
-  const child: ChildProcess = host.spawnBroker
-    ? host.spawnBroker.spawn(process.execPath, argv, spawnOptions)
-    : spawn(process.execPath, argv, spawnOptions);
+  const child: ChildProcess =
+    transport.kind === "broker"
+      ? transport.owner.spawn(process.execPath, argv, spawnOptions)
+      : spawn(process.execPath, argv, spawnOptions);
   let retired = false;
   let sequence = 0;
   let stderr = "";
@@ -69,12 +100,13 @@ export function createSqliteReadOnlyWorkerSession(host: {
     resolveClosed = resolve;
   }).then(() => {
     if (
+      transport.kind === "broker" &&
       child instanceof BrokerChild &&
       !child.notStarted &&
       child.exitCode === null &&
       child.signalCode === null
     ) {
-      return host.spawnBroker?.waitForCleanup();
+      return transport.owner.waitForCleanup();
     }
     return undefined;
   });
@@ -85,7 +117,9 @@ export function createSqliteReadOnlyWorkerSession(host: {
     }
     child.kill("SIGKILL");
   };
-  void retainSnapshotWork(closed, () => retire(new Error("SQLite snapshot owner stopped")));
+  if (host.retainLifetime !== false) {
+    void retainSnapshotWork(closed, () => retire(new Error("SQLite snapshot owner stopped")));
+  }
   child.on("error", (error) => retire(error));
   child.once("close", (code, signal) => {
     retired = true;
@@ -170,28 +204,47 @@ export function createSqliteReadOnlyWorkerSession(host: {
       request.cleanup();
       request.resolve(value);
     } catch (error) {
+      if (
+        pending &&
+        host.retainOnOperationError &&
+        isSqliteSnapshotStagingMode(pending.mode) &&
+        isSqliteReadOnlyWorkerResult(message.result) &&
+        !message.result.ok
+      ) {
+        const request = pending;
+        pending = undefined;
+        request.cleanup();
+        request.reject(error);
+        return;
+      }
       // A failed native close can retain a source lease. Do not reject the
       // request (and let its staging directory disappear) until process close.
       retire(error);
     }
   });
   return {
+    isRetired() {
+      return retired;
+    },
     get notStarted() {
       return child instanceof BrokerChild && child.notStarted;
     },
     createNativeReplacement() {
-      return createSqliteReadOnlyWorkerSession({ ...host, spawnBroker: undefined, env, cwd, argv });
+      return createSqliteReadOnlyWorkerSession({
+        ...host,
+        env,
+        cwd,
+        argv,
+        transport: { kind: "native" },
+      });
     },
-    compatible(currentEnv = host.currentEnv()) {
-      const keys = Object.keys(currentEnv);
-      return (
-        !retired &&
-        process.cwd() === cwd &&
-        keys.length === Object.keys(env).length &&
-        keys.every((key) => currentEnv[key] === env[key])
-      );
+    compatible(launch: SqliteReadOnlyWorkerLaunch) {
+      return !retired && isSameSqliteReadOnlyWorkerLaunch(capturedLaunch, launch);
     },
     run(pathname: string, options: SqliteReadOnlyWorkerOptions) {
+      if (retired) {
+        return Promise.reject(new Error("SQLite read-only worker is closed"));
+      }
       return new Promise<SqliteReadOnlyWorkerValue>((resolve, reject) => {
         const { timeoutMs, size } = host.readBudget(pathname);
         stderr = "";

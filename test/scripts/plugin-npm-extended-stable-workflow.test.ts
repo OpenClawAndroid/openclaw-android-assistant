@@ -24,6 +24,7 @@ const metaManifestPath = "extensions/meta/openclaw.plugin.json";
 const testNodeExecPath = resolveTestNodeExecPath();
 
 type Step = {
+  id?: string;
   env?: Record<string, string>;
   if?: string;
   name?: string;
@@ -171,6 +172,42 @@ function runStableBootstrapAdmission(
 }
 
 describe("plugin npm extended-stable workflow", () => {
+  it("records the resolved candidate and already-published dispositions without producer-local data", () => {
+    const root = mkdtempSync(join(tmpdir(), "npm-publication-plan-"));
+    try {
+      const identity = (packageName: string) => ({
+        packageName,
+        packageDir: `extensions/${packageName}`,
+        version: "2026.9.5",
+      });
+      const all = [identity("new"), identity("existing")];
+      const planStep = step(
+        workflow().jobs?.preview_plugins_npm,
+        "Record resolved npm publication plan",
+      );
+      const result = spawnSync("bash", ["-c", planStep.run ?? "exit 99"], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          RUNNER_TEMP: root,
+          SOURCE_SHA: "a".repeat(40),
+          ALL_PACKAGES: JSON.stringify(
+            all.map((entry) => ({ ...entry, localPath: "/producer/private" })),
+          ),
+          CANDIDATES: JSON.stringify([all[0]]),
+        },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(readFileSync(join(root, "npm-publication-plan.json"), "utf8"))).toEqual({
+        sourceSha: "a".repeat(40),
+        all,
+        candidates: [all[0]],
+        skippedPublished: [all[1]],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it.each([
     ["selected existing-package repair", "", "latest", "full-release-validation", false],
     ["qualified stable publication", "stable", "latest", "full-release-validation", true],
@@ -306,13 +343,35 @@ describe("plugin npm extended-stable workflow", () => {
     expect(step(publish, "Authorize bootstrap release").if).toBe(
       "steps.publication_evidence.outputs.publish_route == 'npm-token-bootstrap'",
     );
-    expect(step(publish, "Verify bootstrap npm dist-tag").if).toBe(
-      "steps.publication_evidence.outputs.publish_route == 'npm-token-bootstrap'",
+    expect(step(publish, "Verify immutable npm registry readback").run).toContain(
+      '--publish-tag "$PUBLISH_TAG"',
     );
     expect(publish?.permissions?.attestations).toBe("read");
     const approval = step(publish, "Download stable npm bootstrap approval");
     expect(approval.with?.name).toContain(
       "${{ inputs.release_publish_run_id }}-${{ inputs.release_publish_run_attempt }}",
+    );
+  });
+  it("defers registry visibility only after a publish with a final parent verifier", () => {
+    const parsed = workflow();
+    const publish = parsed.jobs?.publish_plugins_npm;
+    expect(parsed.on?.workflow_dispatch?.inputs?.defer_registry_verification?.default).toBe(false);
+    expect(step(publish, "Publish with trusted publisher").id).toBe("oidc_publish");
+    expect(step(publish, "Publish approved bootstrap tarball").id).toBe("bootstrap_publish");
+    expect(step(publish, "Verify immutable npm registry readback").env?.DEFER_VISIBILITY).toBe(
+      "${{ inputs.defer_registry_verification && inputs.release_publish_run_id != '' && (steps.oidc_publish.outcome == 'success' || steps.bootstrap_publish.outcome == 'success') }}",
+    );
+    expect(step(publish, "Verify immutable npm registry readback").run).toContain(
+      '--defer-visibility "$DEFER_VISIBILITY"',
+    );
+    const parent = parse(
+      readFileSync(".github/workflows/openclaw-release-publish.yml", "utf8"),
+    ) as Workflow;
+    const dispatch = Object.values(parent.jobs ?? {})
+      .flatMap((job) => job.steps ?? [])
+      .find((candidate) => candidate.run?.includes("npm_args=("));
+    expect(dispatch?.run).toContain(
+      'npm_args+=(-f defer_registry_verification="${PUBLISH_OPENCLAW_NPM}")',
     );
   });
   it("keeps push triggers aligned with npm publication authorities", () => {

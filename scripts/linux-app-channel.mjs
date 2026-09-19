@@ -313,6 +313,9 @@ class GitHub {
         "--disable",
         "--fail",
         "--location",
+        // Revalidate cached redirects and bytes after replacing mutable manifests.
+        "--header",
+        "Cache-Control: no-cache",
         "--silent",
         "--show-error",
         "--proto",

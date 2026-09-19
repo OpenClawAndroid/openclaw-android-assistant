@@ -1,35 +1,18 @@
 // Preserve module setup before modules that consume it.
 // oxfmt-ignore
-import {
-  cleanupPreparedModelRuntimeHarness,
-  getPreparedModelRuntimeMocks,
-  resetPreparedModelRuntimeHarness,
-} from "./prepared-model-runtime.test-harness.js";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usePreparedModelRuntimeHarness } from "./prepared-model-runtime.test-harness.js";
+import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import {
-  createOpenClawTestState,
-  type OpenClawTestState,
-} from "../test-utils/openclaw-test-state.js";
 import {
   getPreparedModelRuntimeSnapshot,
   refreshPreparedModelRuntimeSnapshots,
 } from "./prepared-model-runtime.js";
 import { resolvePreparedModelRuntimeOwnerBySnapshot } from "./prepared-model-runtime.owner.js";
 
-const mocks = getPreparedModelRuntimeMocks();
-let state: OpenClawTestState;
-
-beforeEach(async () => {
-  state = await createOpenClawTestState({ label: "prepared-model-runtime" });
-  await resetPreparedModelRuntimeHarness(state);
-});
-
-afterEach(async ({ task }) => {
-  await cleanupPreparedModelRuntimeHarness(state, task.result?.state === "fail");
-});
+const fixture = usePreparedModelRuntimeHarness({ label: "prepared-model-runtime" });
+const { mocks } = fixture;
 
 describe("native picker acquisition failures", () => {
   async function prepareNativePickerOwner() {
@@ -108,7 +91,7 @@ describe("native picker acquisition failures", () => {
     const owner = getPreparedModelRuntimeSnapshot({
       config,
       agentId: "pro",
-      agentDir: state.agentDir("pro"),
+      agentDir: fixture.state.agentDir("pro"),
     })!;
     await owner.loadFullModelCatalog!({ refresh: true });
     const freshDefault = { ...nativeDefault, name: "Fresh native default" };
@@ -252,7 +235,7 @@ describe("native picker acquisition failures", () => {
     const replacement = getPreparedModelRuntimeSnapshot({
       config,
       agentId: "pro",
-      agentDir: state.agentDir("pro"),
+      agentDir: fixture.state.agentDir("pro"),
     })!;
     expect(replacement.modelCatalog.entries).not.toContainEqual(
       expect.objectContaining(freshDefault),

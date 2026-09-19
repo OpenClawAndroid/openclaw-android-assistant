@@ -374,10 +374,16 @@ describe("PR metadata through REST", () => {
       );
     },
   );
-  it.each(["GH_REPO", "--repo"])(
-    "uses the configured enterprise host for an unqualified %s with GH_HOST unset",
-    (selection) => {
-      const enterpriseHost = "github.enterprise.invalid";
+  it.each(
+    ["GH_REPO", "--repo"].flatMap((selection) =>
+      ["github.enterprise.invalid", "github.enterprise.invalid:8443"].map((enterpriseHost) => ({
+        selection,
+        enterpriseHost,
+      })),
+    ),
+  )(
+    "uses the configured enterprise host $enterpriseHost for unqualified $selection with GH_HOST unset",
+    ({ selection, enterpriseHost }) => {
       const repoURL = `https://${enterpriseHost}/base-owner/base-repo`;
       const explicit = selection === "--repo" ? " --repo base-owner/base-repo" : "";
       const result = readPrMetadata(

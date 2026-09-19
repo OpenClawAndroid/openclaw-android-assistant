@@ -16,6 +16,9 @@ export const SQLITE_SNAPSHOT_CONTROL_FILES = [
 
 type SnapshotDirectory = {
   release?: (retire: boolean) => void;
+  releaseAsync?: () => Promise<void>;
+  retiring?: Promise<void>;
+  retirementStarted?: boolean;
   readers: Set<symbol>;
 };
 const pendingTempDirectoryCleanup = new Map<string, SnapshotDirectory>();
@@ -94,10 +97,22 @@ export function registerSnapshotTempDirectory(
   registerSignalExitFinalizer(cleanupSnapshotOperations);
 }
 
+/** Async readers keep token custody on their staging worker until removal. */
+export function registerAsyncSnapshotTempDirectory(
+  directory: string,
+  release: () => Promise<void>,
+): void {
+  registerSnapshotTempDirectory(directory);
+  snapshotDirectory(directory).releaseAsync = release;
+}
+
 /** Rejection is not retirement: only the reader's successful close releases custody. */
 export function retainSnapshotTempDirectory(directory: string): () => void {
   registerSnapshotTempDirectory(directory);
   const owner = snapshotDirectory(directory);
+  if (owner.retirementStarted) {
+    throw new SqliteSnapshotCleanupError("SQLite snapshot retirement has started");
+  }
   const reader = Symbol("sqlite.snapshot.reader");
   owner.readers.add(reader);
   return () => owner.readers.delete(reader);
@@ -107,6 +122,9 @@ export function retainSnapshotTempDirectory(directory: string): () => void {
 export function releaseSnapshotTempDirectory(directory: string): void {
   const owner = pendingTempDirectoryCleanup.get(directory);
   assertSnapshotReadersRetired(owner);
+  if (owner?.releaseAsync) {
+    throw new SqliteSnapshotCleanupError("SQLite snapshot requires asynchronous cleanup");
+  }
   owner?.release?.(false);
   pendingTempDirectoryCleanup.delete(directory);
 }
@@ -154,13 +172,20 @@ function assertSnapshotReadersRetired(owner: SnapshotDirectory | undefined): voi
   }
 }
 
-function prepareSnapshotRemoval(directory: string): string[] {
+function retireSnapshotTempDirectory(directory: string): void {
   const owner = pendingTempDirectoryCleanup.get(directory);
   assertSnapshotReadersRetired(owner);
+  if (owner?.releaseAsync) {
+    throw new SqliteSnapshotCleanupError("SQLite snapshot requires asynchronous cleanup");
+  }
   owner?.release?.(true);
   if (owner) {
     owner.release = undefined;
   }
+}
+
+function prepareSnapshotRemoval(directory: string): string[] {
+  retireSnapshotTempDirectory(directory);
   if (!fs.existsSync(path.join(directory, SQLITE_SNAPSHOT_CONTROL_FILES[0]))) {
     return [directory];
   }
@@ -198,6 +223,19 @@ export async function removeTempDirectoryAsync(
   onFailure?: (error: unknown) => void,
 ): Promise<boolean> {
   try {
+    const owner = pendingTempDirectoryCleanup.get(tempDir);
+    assertSnapshotReadersRetired(owner);
+    if (owner?.releaseAsync) {
+      owner.retirementStarted = true;
+      await (owner.retiring ??= owner
+        .releaseAsync()
+        .then(() => {
+          owner.releaseAsync = undefined;
+        })
+        .finally(() => {
+          owner.retiring = undefined;
+        }));
+    }
     for (const file of prepareSnapshotRemoval(tempDir)) {
       await retainSnapshotWork(fs.promises.rm(file, tempDirectoryRemovalOptions));
     }

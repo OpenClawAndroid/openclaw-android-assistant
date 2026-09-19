@@ -189,6 +189,19 @@ export function loadExactSessionEntryReadOnly(
   })[0];
 }
 
+/** Probe the selected store without rerouting an incognito-shaped key to ephemeral state. */
+export function loadExactSessionEntryFromStoreReadOnly(
+  scope: SessionEntryReadScope & { storePath: string },
+): ExactSessionEntry | undefined {
+  const options = toDatabaseOptions(resolveSqliteScope({ ...scope, sessionKey: "" }));
+  return loadExactSessionEntryCandidates({
+    readSource: { ...options, path: resolveOpenClawAgentSqlitePath(options) },
+    projection: scope.projection,
+    readOnly: true,
+    sessionKeys: [scope.sessionKey],
+  })[0];
+}
+
 /** Read requested keys through synchronous store/projection groups. */
 export type ExactSessionEntryBatchScope = Omit<SessionEntryReadScope, "sessionKey"> & {
   sessionKeys: readonly string[];

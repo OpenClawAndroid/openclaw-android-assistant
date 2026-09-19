@@ -1715,6 +1715,8 @@ describe("runCopilotAttempt", () => {
   it("tool bridge wiring: injected tools populate session config", async () => {
     const sdk = makeFakeSdk();
     const pool = makeFakePool(sdk);
+    const abortSignal = new AbortController().signal;
+    const sessionKey = "agent:agent-1:session-1";
     const sdkTools: SdkTool[] = [
       {
         description: "Fake SDK tool",
@@ -1725,18 +1727,16 @@ describe("runCopilotAttempt", () => {
     ];
     const createToolBridge = vi.fn(async () => createStubToolBridge(sdkTools));
 
-    await runCopilotAttempt(makeParams(), { createToolBridge, pool });
+    await runCopilotAttempt(makeParams({ abortSignal, sessionKey }), { createToolBridge, pool });
 
-    expect(createToolBridge).toHaveBeenCalledTimes(1);
-    expect(createToolBridge).toHaveBeenCalledWith(
+    expect(createToolBridge).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        abortSignal: undefined,
         agentDir: "C:\\copilot-home",
         agentId: "agent-1",
         modelId: "gpt-4o",
         modelProvider: "github-copilot",
         sessionId: "session-1",
-        sessionKey: "agent:agent-1:session-1",
+        attemptParams: expect.objectContaining({ abortSignal, sessionKey }),
         workspaceDir: "C:\\workspace",
       }),
     );

@@ -253,6 +253,14 @@ The dedicated real-Gateway CI job uses `test/vitest/vitest.ui-e2e-prebuilt.confi
 
 ### Network-isolated local E2E
 
+When Chromium is available, UI E2E setup proves loopback HTTP through the parent
+Node process's normal `fetch` before acquiring Gateway fixtures or the shared UI
+build. A proxy refusal or malformed response fails this environment preflight
+with a sanitized error instead of consuming the Gateway startup budget. Existing
+optional missing-browser skips remain unchanged. If later Gateway readiness
+expires, its error also retains the last completed HTTP failure so a final
+deadline-edge timeout does not hide useful status and error-category evidence.
+
 Gateway-hosted exec can inherit the [secret egress proxy](/gateway/secrets/secret-store-and-egress#secret-egress-proxy). Its plain-HTTP refusal also applies to a test process calling its own loopback fixture. A Gateway can therefore log that it is ready while its parent receives a proxy error from `/readyz`. Building the UI again or increasing the readiness timeout does not repair that transport mismatch.
 
 For trusted, keyless local tests, run the complete invocation in an isolated Linux container instead. Select an already prepared, trusted image by its full image ID or digest; the runner never pulls an image or falls back to the host:

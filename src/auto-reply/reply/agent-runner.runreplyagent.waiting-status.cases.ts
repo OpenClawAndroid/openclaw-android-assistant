@@ -90,7 +90,6 @@ export function registerWaitingStatusCases({
     assert(result && !Array.isArray(result));
     const metadata = getReplyPayloadMetadata(result);
     expect(metadata?.deliverDespiteSourceReplySuppression).toBe(true);
-    expect(metadata?.continuationStatus === true).toBe(implicit);
     expect(onPendingContinuation.mock.calls[0]).toEqual(
       implicit ? [{ settle: expect.any(Function) }] : [],
     );

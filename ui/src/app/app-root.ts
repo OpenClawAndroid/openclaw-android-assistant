@@ -6,7 +6,7 @@ import { state } from "lit/decorators.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { RouteId } from "../app-routes.ts";
 import "../components/gateway-url-confirmation.ts";
-import "../components/github-link-hovercard-registration.ts";
+import "../components/link-reader-hovercard-registration.ts";
 import { renderLazyElementState, renderLazyViewError } from "../components/lazy-view-error.ts";
 import { renderConnectingSplash } from "../components/loading-skeleton.ts";
 import { installTitleTooltips } from "../components/tooltip-title.ts";
@@ -30,6 +30,7 @@ import {
   QUESTION_PAGE_ELEMENT,
   TERMINAL_PANEL_ELEMENT,
 } from "./lazy-custom-element.ts";
+import { availableLinkPreviewReaders } from "./link-reader-routing.ts";
 import { nativeEmbedHost, isNativeWebChromeHost } from "./native-web-chrome.ts";
 import { resolveOnboardingMode } from "./onboarding-mode.ts";
 import { isDesktopPanelAvailable } from "./panel-availability.ts";
@@ -641,8 +642,9 @@ export class OpenClawApp extends OpenClawLightDomElement {
       return this.renderQuestionDocument(runtime);
     }
     return html`
-      <openclaw-github-link-hovercard-provider
-        .client=${gatewaySnapshot.client}
+      <openclaw-link-reader-hovercard-provider
+        .client=${gatewayConnected ? gatewaySnapshot.client : null}
+        .readers=${availableLinkPreviewReaders(gatewaySnapshot)}
         .agentId=${
           context.agentSelection.state.selectedId ?? gatewaySnapshot.assistantAgentId ?? undefined
         }
@@ -657,7 +659,7 @@ export class OpenClawApp extends OpenClawLightDomElement {
             .onboarding=${this.onboarding}
           ></openclaw-app-shell>
         </openclaw-session-progress-hovercard-provider>
-      </openclaw-github-link-hovercard-provider>
+      </openclaw-link-reader-hovercard-provider>
     `;
   }
 }

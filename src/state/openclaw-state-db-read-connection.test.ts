@@ -2,8 +2,11 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const db = { isOpen: true, close: vi.fn<() => void>() };
+  const releaseToken = vi.fn<() => void>();
   return {
     db,
+    releaseToken,
+    acquireToken: vi.fn(() => releaseToken),
     identity: vi.fn<(location: string, expected: string) => void>(),
     openTracked: vi.fn(() => db),
     openPrivate: vi.fn(() => db),
@@ -11,6 +14,9 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("../infra/sqlite-snapshot-staging.js", () => ({
+  acquireSqliteSnapshotReadToken: mocks.acquireToken,
+}));
 vi.mock("../infra/sqlite-worker-identity.js", () => ({
   assertExistingDatabaseIdentity: mocks.identity,
 }));
@@ -31,6 +37,8 @@ const expectedIdentity = "file:1:2";
 
 beforeEach(() => {
   mocks.identity.mockReset();
+  mocks.acquireToken.mockClear();
+  mocks.releaseToken.mockReset();
   mocks.openTracked.mockClear();
   mocks.openPrivate.mockClear();
   mocks.db.isOpen = true;
@@ -108,4 +116,59 @@ it("preserves identity and close failures from a still-open native reader", () =
     expect.objectContaining({ db: mocks.db, path: pathname }),
   );
   expect(mocks.db.isOpen).toBe(true);
+});
+
+it("preserves a native open failure and token cleanup failure while cleaning its snapshot", () => {
+  const primary = new Error("private native database open failed");
+  const tokenFailure = new Error("private reader token close failed");
+  mocks.openPrivate.mockImplementationOnce(() => {
+    throw primary;
+  });
+  mocks.releaseToken.mockImplementationOnce(() => {
+    throw tokenFailure;
+  });
+  const snapshot = {
+    location: "/fixture/snapshot/database.sqlite",
+    cleanup: vi.fn(() => true),
+    cleanupAsync: async () => true,
+  };
+  let failure: unknown;
+  try {
+    openOpenClawStateReadConnection(pathname, snapshot, undefined, "/fixture/snapshot");
+  } catch (error) {
+    failure = error;
+  }
+  expect(mocks.acquireToken).toHaveBeenCalledExactlyOnceWith("/fixture/snapshot");
+  expect(mocks.openPrivate).toHaveBeenCalledOnce();
+  expect(mocks.releaseToken).toHaveBeenCalledOnce();
+  expect(snapshot.cleanup).toHaveBeenCalledOnce();
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect(failure).toMatchObject({ cause: primary, errors: [primary, tokenFailure] });
+  expect(mocks.closeHandle).not.toHaveBeenCalled();
+});
+
+it("reports incomplete snapshot cleanup alongside the native open failure", () => {
+  const primary = new Error("private native database open failed");
+  mocks.openPrivate.mockImplementationOnce(() => {
+    throw primary;
+  });
+  const snapshot = {
+    location: "/fixture/snapshot/database.sqlite",
+    cleanup: vi.fn(() => false),
+    cleanupAsync: async () => true,
+  };
+  let failure: unknown;
+  try {
+    openOpenClawStateReadConnection(pathname, snapshot);
+  } catch (error) {
+    failure = error;
+  }
+  expect(snapshot.cleanup).toHaveBeenCalledOnce();
+  expect(failure).toMatchObject({
+    cause: primary,
+    errors: [
+      primary,
+      expect.objectContaining({ message: "Shared-state snapshot cleanup is incomplete." }),
+    ],
+  });
 });

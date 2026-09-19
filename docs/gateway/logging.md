@@ -37,6 +37,15 @@ With config hot reload enabled, changes to `logging.level`, `logging.file`, and
 long-lived channel loggers. Queued records finish writing to their original file.
 Explicit logger-level overrides, such as Baileys verbosity, remain in effect.
 
+Subsystem file logs omit call-site metadata (`_meta.path`) for `trace`, `debug`,
+`info`, and `warn` records, including `raw()` lines, to avoid capturing and parsing
+a stack on every routine message. `error` and `fatal` records retain it. All levels
+retain call-site metadata while diagnostics are enabled and an internal log-record
+consumer is subscribed, preserving [OTLP code locations](/gateway/opentelemetry/privacy-and-trace-context).
+This follows diagnostic enablement and subscriptions on the next record, including
+for existing subsystem loggers. Log messages, structured fields, and error stacks
+supplied by callers are unchanged.
+
 Talk, realtime voice, and managed-room code paths use the shared file logger for bounded lifecycle records intended for operational debugging and OTLP log export. Transcript text, audio payloads, turn ids, call ids, and provider item ids are never copied into the log record.
 
 Discord realtime voice keeps session lifecycle transitions at `info`; audio chunks

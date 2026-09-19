@@ -555,9 +555,11 @@ export function createCodexSessionCatalogControl(params: {
     async forNode(agentId) {
       const source = await homeResolver.forNode(agentId);
       return {
+        assertCurrent: () => source.assertCurrent(),
         control: forRequest(source.agentId, source),
         sourceHomeId: source.sourceHomeId,
         codexHome: source.codexHome,
+        transport: source.appServer.start.transport,
       };
     },
   };

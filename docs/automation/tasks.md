@@ -141,7 +141,7 @@ stateDiagram-v2
 | Status      | What it means                                                               |
 | ----------- | --------------------------------------------------------------------------- |
 | `queued`    | Created, waiting for the agent to start                                     |
-| `running`   | Agent turn is actively executing                                            |
+| `running`   | Started, with no terminal lifecycle outcome recorded                        |
 | `succeeded` | Completed successfully                                                      |
 | `failed`    | Completed with an error                                                     |
 | `timed_out` | Exceeded the configured timeout                                             |
@@ -149,6 +149,12 @@ stateDiagram-v2
 | `lost`      | The runtime lost authoritative backing state after a 5-minute grace period  |
 
 Transitions happen automatically - agent run lifecycle events (start, end, error) update the task status; you do not manage it manually.
+
+Stored task status and live execution observation are separate. A task can retain
+`running` status while its execution observation is `waiting` or `unknown`.
+`unknown` means current execution cannot be observed; it does not mean the task
+failed or stopped. A retained subagent registration alone does not prove that
+its execution is running.
 
 Execution and result delivery are separate. A subagent task can remain
 `succeeded` while its `deliveryStatus` is `session_queued` or `failed`. The
@@ -189,6 +195,11 @@ When `gateway.publicOrigin` is configured and the Control UI is enabled,
 direct channel notifications include an `Inspect` link to the task's own
 session. Session-queued notifications do not include this link.
 
+Failure, lost-task, and blocked-task notifications show a sanitized diagnostic
+preview of at most 120 characters. Full diagnostics remain in the task record;
+use `openclaw tasks show <lookup>` to inspect them. Successful completion summaries
+are not shortened by this diagnostic preview limit.
+
 Durable subagent completion handoffs retry for up to 30 minutes with capped
 exponential backoff. A queued handoff is not reported as delivered until the
 queue settles. If delivery reaches its deadline or fails permanently, the task
@@ -218,6 +229,12 @@ Change the policy while a task is running:
 ```bash
 openclaw tasks notify <lookup> state_changes
 ```
+
+These policies control task notifications. A Telegram progress card that the
+requester already displayed can continue showing accepted `done_only` children
+after yield without creating another message. `silent` children remain excluded,
+and channel visibility settings still apply. See
+[Progress after yield](/concepts/subagent-yield-handoff#progress-after-yield).
 
 ## CLI reference
 

@@ -311,7 +311,7 @@ openclaw-pending-session-create {
 /* Composer neighbors share one quiet card frame. Status color belongs to the
    item, never to the surface: only the icon, heading and a low-opacity edge
    carry tone while the card keeps the composer's own surface and geometry. */
-:is(.chat-composer-neighbor-card, .session-suggestion, .chat-pr.chat-pr, .chat-prs__more) {
+:is(.chat-composer-neighbor-card, .session-suggestion, .chat-pr.chat-pr) {
   border-radius: calc(16px * var(--openclaw-corner-radius-scale));
   corner-shape: superellipse(1.5);
 }
@@ -611,13 +611,6 @@ openclaw-pending-session-create {
   min-width: 240px;
 }
 
-.chat-inline-approval {
-  flex: 0 0 auto;
-  width: calc(100% - 2 * var(--chat-thread-gutter) - 2 * var(--chat-thread-side-inset));
-  max-width: var(--chat-thread-max-width);
-  margin: 8px auto;
-}
-
 /* Virtual geometry must commit with its rows. A global reduced-motion duration
    otherwise activates the default "all" transition for offsets and height. */
 .chat-virtual-sizer,
@@ -700,12 +693,6 @@ openclaw-pending-session-create {
 
 .chat-history-error--inline {
   border-block-end: 1px solid var(--border);
-}
-
-/* Pagination must remain clickable above the transcript's composer underlap. */
-.chat-pending-inputs {
-  position: relative;
-  z-index: 1;
 }
 
 /* In-flow boundary above the virtualized transcript. The fixed height is a
@@ -1465,27 +1452,6 @@ openclaw-chat-video-player {
   outline: none;
 }
 
-/* Bare composers need this fade to cover transcript underlap. A progress card owns
-   that boundary itself; painting behind it exposes a veil above the card. */
-.chat-main__conversation
-  > .agent-chat__composer-shell:not(:has(> .agent-chat__progress-float))::before,
-.chat-main__conversation
-  > openclaw-plugin-view[data-plugin-composer]
-  .agent-chat__composer-shell:not(:has(> .agent-chat__progress-float))::before {
-  position: absolute;
-  inset: calc(0px - var(--chat-transcript-fade-height, 20px)) 0 auto;
-  height: calc(
-    var(--chat-transcript-fade-height, 20px) + var(--chat-transcript-fade-stack-overlap, 20px)
-  );
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--chat-surface) var(--chat-transcript-fade-height, 20px)
-  );
-  content: "";
-  pointer-events: none;
-}
-
 /* The conversation's top-right gutter, owned by one column so its members
    stack instead of overlapping (the positioned ancestor is
    .chat-main__conversation); content scrolls underneath it. The column is as
@@ -1542,10 +1508,6 @@ openclaw-chat-video-player {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: calc(100% - 36px);
-  max-width: var(--chat-thread-max-width, 48rem);
-  margin-inline: auto;
-  padding: 0 0 8px;
 }
 
 .session-suggestion {
@@ -1861,6 +1823,38 @@ openclaw-chat-video-player {
   background: var(--task-suggestion-prompt-bg);
 }
 
+.task-suggestion__repository {
+  display: grid;
+  gap: 8px;
+}
+
+.task-suggestion__repository label {
+  display: grid;
+  gap: 4px;
+}
+
+.task-suggestion__repository-path {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.task-suggestion__repository-choice {
+  display: grid;
+  justify-content: stretch;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.task-suggestion__repository-choice small {
+  color: var(--muted);
+}
+
 .task-suggestion__actions {
   grid-column: 1 / -1;
   display: flex;
@@ -1926,12 +1920,6 @@ openclaw-chat-video-player {
     animation: none;
     transition-duration: 0ms;
   }
-}
-
-.chat-swarm {
-  width: calc(100% - 36px);
-  max-width: var(--chat-thread-max-width, 48rem);
-  margin: 0 auto;
 }
 
 .chat-swarm__group {
@@ -2104,26 +2092,11 @@ openclaw-chat-video-player {
 }
 
 .chat-prs {
-  /* The transcript intentionally underlaps the composer stack; keep its
-     positioned virtual rows from painting over this interactive surface. */
-  position: relative;
-  z-index: 1;
   display: grid;
   gap: 6px;
-  /* Mirror .agent-chat__composer-shell sizing: the rows belong to the input
-     stack and must not read as a full-pane banner above a narrower composer. */
-  width: calc(100% - 36px);
-  max-width: var(--chat-thread-max-width, 48rem);
-  margin: 0 auto;
 }
 
-/* Separate peer cards still need breathing room; the composer owns its own margin. */
-.chat-prs:has(+ :is(.session-suggestions, .chat-swarm), + openclaw-plugin-contributions > *) {
-  padding-bottom: 8px;
-}
-
-.chat-pr,
-.chat-prs__more {
+.chat-pr {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2254,7 +2227,6 @@ button.chat-pr__diff {
 }
 
 .chat-pr__checks {
-  position: relative;
   color: var(--muted);
 }
 
@@ -2321,12 +2293,11 @@ button.chat-pr__diff {
 }
 
 .chat-pr__checks-menu {
-  position: absolute;
-  z-index: 30;
-  right: 0;
-  bottom: calc(100% + 8px);
   width: 480px;
-  max-width: calc(100vw - 72px);
+  max-width: calc(100vw - 24px);
+  max-height: var(--auto-size-available-height, calc(100dvh - 16px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2335,19 +2306,6 @@ button.chat-pr__diff {
   color: var(--text);
   font-size: 13px;
   font-weight: 500;
-}
-
-.chat-pr__checks-menu::after {
-  position: absolute;
-  right: 25px;
-  bottom: -5px;
-  width: 8px;
-  height: 8px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-  content: "";
-  transform: rotate(45deg);
 }
 
 .chat-pr__checks-menu-header {
@@ -2614,20 +2572,6 @@ openclaw-chat-ci-details {
 }
 
 @media (max-width: 560px) {
-  .chat-pr__checks {
-    position: static;
-  }
-
-  .chat-pr__checks-menu {
-    right: 0;
-    width: min(480px, calc(100vw - 36px));
-    max-width: 100%;
-  }
-
-  .chat-pr__checks-menu::after {
-    right: 52px;
-  }
-
   .chat-ci__job-detail {
     padding-right: 4px;
   }
@@ -2706,32 +2650,6 @@ openclaw-chat-ci-details {
   height: 14px;
 }
 
-.chat-prs__more {
-  background: transparent;
-  color: var(--muted);
-  cursor: var(--cursor-action);
-  font-weight: 600;
-  text-align: start;
-}
-
-.chat-prs__more:hover {
-  color: var(--text);
-}
-
-.chat-prs__more:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.chat-prs__more > span {
-  display: flex;
-}
-
-.chat-prs__more svg {
-  width: 14px;
-  height: 14px;
-}
-
 @media (max-width: 640px) {
   .chat-pr__identity {
     display: none;
@@ -2776,19 +2694,19 @@ openclaw-chat-ci-details {
   }
 }
 
-.agent-chat__composer-overlay
+.agent-chat__composer-notices
   > :is(
     .chat-composer-neighbor-card,
     .agent-chat__composer-errors,
     .agent-chat__talk-status.callout,
-    .agent-chat__composer-underlaps
+    .agent-chat__composer-status
   ) {
   width: 100%;
   max-width: none;
   margin: 0;
 }
 
-.agent-chat__composer-overlay > :is(.compaction-indicator, .agent-chat__composer-run-status) {
+.agent-chat__composer-notices > :is(.compaction-indicator, .agent-chat__composer-run-status) {
   margin: 0;
 }
 
@@ -2956,8 +2874,6 @@ openclaw-chat-ci-details {
   text-overflow: ellipsis;
 }
 
-/* Interrupted floats at the composer owner so terminal feedback never becomes
-   transcript content or changes the message viewport geometry. */
 .agent-chat__run-status--interrupted {
   color: var(--warn);
 }
@@ -2971,16 +2887,6 @@ openclaw-chat-ci-details {
     width: auto;
     max-height: var(--chat-composer-popover-max-height, calc(100dvh - 116px));
     overflow-y: auto;
-  }
-}
-
-@media (max-width: 768px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
-  .chat-main__conversation
-    > .agent-chat__composer-shell:not(:has(> .agent-chat__progress-float))::before,
-  .chat-main__conversation
-    > openclaw-plugin-view[data-plugin-composer]
-    .agent-chat__composer-shell:not(:has(> .agent-chat__progress-float))::before {
-    inset-inline: calc(var(--chat-thread-gutter) - var(--chat-mobile-edge-inset, 4px));
   }
 }
 

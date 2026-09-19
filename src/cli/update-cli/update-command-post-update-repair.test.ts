@@ -24,6 +24,7 @@ import { finishUpdate, type FinishUpdateParams } from "./update-command-post-upd
 import { taskRecovery } from "./update-command-post-update.test-support.js";
 import { repairUpdateService } from "./update-command-repair-service.js";
 import { revalidateManagedGatewayServiceAfterUpdate } from "./update-command-service-maintenance.js";
+import { inspectManagedGatewayServiceBeforeUpdate } from "./update-command-service-plan.js";
 import { verifyUpdatedGateway } from "./update-command-verification.js";
 import { createWindowsTaskAutoStartRecovery } from "./update-command-windows-task.js";
 
@@ -417,8 +418,10 @@ describe("post-activation repair after rollback refusal or failure", () => {
         ] as const) {
           await fs.writeFile(
             path.join(root, "package.json"),
-            JSON.stringify({ type: "module", version }),
+            JSON.stringify({ name: "openclaw", type: "module", version }),
           );
+          await fs.mkdir(path.join(root, "dist"), { recursive: true });
+          await fs.writeFile(path.join(root, "dist", "entry.js"), "// fixture entrypoint\n");
         }
         const worker = "dist/infra/update-candidate-state.worker.js";
         await fs.mkdir(path.dirname(path.join(candidateRoot, worker)), { recursive: true });
@@ -428,14 +431,29 @@ describe("post-activation repair after rollback refusal or failure", () => {
         );
         params.result.root = candidateRoot;
         params.root = previousRoot;
+        const originalService: GatewayServiceState = {
+          installed: true,
+          loadState: { status: "loaded" },
+          running: false,
+          runtime: { status: "stopped", systemd: { managerUid: 2001 } },
+          env: run.env,
+          command: {
+            programArguments: ["node", path.join(previousRoot, "dist", "entry.js"), "gateway"],
+          },
+        };
+        const originalVerdict = await inspectManagedGatewayServiceBeforeUpdate({
+          root: previousRoot,
+          state: originalService,
+        });
+        expect(originalVerdict.kind).toBe("owned");
+        if (originalVerdict.kind !== "owned") {
+          throw new Error("Original service fixture must belong to the previous installation.");
+        }
+        mocks.readService.mockResolvedValue(originalService);
         params.preManagedServiceStop = {
           ...params.preManagedServiceStop!,
-          serviceUpdateVerdict: {
-            kind: "owned",
-            root: candidateRoot,
-            fingerprint: "fixture",
-            refreshDefinition: false,
-          },
+          serviceManagerUid: 2001,
+          serviceUpdateVerdict: { ...originalVerdict, refreshDefinition: false },
         };
         const actual = await vi.importActual<typeof import("./update-command-rollback.js")>(
           "./update-command-rollback.js",
@@ -579,7 +597,6 @@ describe("post-activation repair after rollback refusal or failure", () => {
           signal: expect.any(AbortSignal),
         }),
         "restart",
-        true,
       );
       expect(getUpdateRun(run.runId, { env: run.env })).toMatchObject({
         status:

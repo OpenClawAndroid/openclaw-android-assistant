@@ -4,6 +4,7 @@ import {
   normalizeUniqueStringEntries,
 } from "@openclaw/normalization-core/string-normalization";
 import { sanitizeTerminalText } from "../../packages/terminal-core/src/safe-text.js";
+import { isTranscriptArtifactText } from "../media-understanding/transcription-text.js";
 import type { TranscriptSessionDescriptor, TranscriptUtterance } from "./provider-types.js";
 
 /**
@@ -94,7 +95,9 @@ export function summarizeTranscripts(params: {
   utterances: TranscriptUtterance[];
 }): TranscriptsSummary {
   const title = sanitizeTerminalText(params.session.title ?? "").trim() || "Transcripts";
-  const utterances = params.utterances.map(sanitizeUtterance);
+  const utterances = params.utterances
+    .map(sanitizeUtterance)
+    .filter((utterance) => !isTranscriptArtifactText(utterance.text));
   const overview = firstSentences(utterances, 4) || "No transcript captured yet.";
   return {
     sessionId: params.session.sessionId,

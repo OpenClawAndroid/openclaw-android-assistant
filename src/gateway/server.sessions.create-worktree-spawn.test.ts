@@ -784,9 +784,9 @@ test.each(["archive", "replace", "rebind", "stale-child", "unregister"] as const
   "deferred worktree preparation follows its child owner after %s",
   async (change) => {
     const { entry: parent } = await createManagedProjectParent();
-    const { chatHandlers } = await import("./server-methods/chat.js");
+    const chatSendOwner = await import("./server-methods/chat-send-external-entry.js");
     const initialSend = vi
-      .spyOn(chatHandlers, "chat.send")
+      .spyOn(chatSendOwner, "handleDirectExternalChatSend")
       .mockImplementation(async ({ respond }) => {
         respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "initial turn unavailable"));
       });

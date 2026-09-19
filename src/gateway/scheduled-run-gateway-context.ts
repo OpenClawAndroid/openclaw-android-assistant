@@ -11,6 +11,8 @@ import {
   bindGatewayContextResolver,
   withPluginRuntimeGatewayContextResolver,
 } from "../plugins/runtime/gateway-request-scope.js";
+import { getSpawnBroker, runWithSpawnBroker } from "../process/spawn-broker/context.js";
+import type { SpawnBrokerHost } from "../process/spawn-broker/host.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 
 type ScheduledGatewayContextResolver = () => GatewayRequestContext | undefined;
@@ -45,23 +47,35 @@ export function fenceScheduledGatewayContextResolver(
   return resolveScheduledContext;
 }
 
+/** Capture the service's transport before callbacks enter detached scheduling contexts. */
+export function createScheduledGatewayRunner(
+  resolveGatewayContext?: ScheduledGatewayContextResolver,
+) {
+  const spawnBroker = getSpawnBroker();
+  return <T>(run: () => Promise<T>): Promise<T> =>
+    runWithScheduledGatewayContext({ resolveGatewayContext, spawnBroker, run });
+}
+
 /**
  * Runs scheduler-owned work with a Gateway context.
  *
  * Detached work replaces the request scope and tool caller inherited when it
  * was queued or armed. Caller-owned work must stay outside this boundary.
  */
-export async function runWithScheduledGatewayContext<T>(params: {
+async function runWithScheduledGatewayContext<T>(params: {
   resolveGatewayContext?: ScheduledGatewayContextResolver;
+  spawnBroker?: SpawnBrokerHost;
   run: () => Promise<T>;
 }): Promise<T> {
-  return await withoutGatewayToolCallerIdentity(async () => {
-    const resolveGatewayContext = params.resolveGatewayContext;
-    if (!resolveGatewayContext) {
-      return await params.run();
-    }
-    return await withPluginRuntimeGatewayContextResolver(resolveGatewayContext, params.run, {
-      inheritRequestScope: false,
-    });
-  });
+  return await withoutGatewayToolCallerIdentity(() =>
+    runWithSpawnBroker(params.spawnBroker, async () => {
+      const resolveGatewayContext = params.resolveGatewayContext;
+      if (!resolveGatewayContext) {
+        return await params.run();
+      }
+      return await withPluginRuntimeGatewayContextResolver(resolveGatewayContext, params.run, {
+        inheritRequestScope: false,
+      });
+    }),
+  );
 }

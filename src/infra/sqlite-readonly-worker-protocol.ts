@@ -11,7 +11,20 @@ export type SqliteReadOnlyWorkerMode =
   | "async"
   | "consolidated"
   | "reclaim"
-  | "auth-profile-rows";
+  | "auth-profile-rows"
+  | "staging-create"
+  | "staging-create-legacy"
+  | "staging-reconcile"
+  | "staging-retire";
+export function isSqliteSnapshotStagingMode(mode: unknown): boolean {
+  return (
+    mode === "staging-create" ||
+    mode === "staging-create-legacy" ||
+    mode === "staging-reconcile" ||
+    mode === "staging-retire"
+  );
+}
+
 export type SqliteReadOnlyWorkerResult =
   | { ok: true; location: string }
   | { ok: true; warnings: string[] }
@@ -38,7 +51,7 @@ export type SqliteReadOnlyWorkerOutput = { failure?: string; stderr: string; std
 export type SqliteReadOnlyWorkerValue = string | string[] | SqliteAuthProfileRows;
 export const SQLITE_READONLY_STDERR_TAIL_CHARS = 4_000;
 
-function isSqliteReadOnlyWorkerResult(value: unknown): value is SqliteReadOnlyWorkerResult {
+export function isSqliteReadOnlyWorkerResult(value: unknown): value is SqliteReadOnlyWorkerResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
@@ -114,7 +127,11 @@ export function readSqliteReadOnlyWorkerValue(
     );
   }
   if (
-    (mode === "sync" || mode === "sync-fallback" || mode === "async" || mode === "consolidated") &&
+    (mode === "sync" ||
+      mode === "sync-fallback" ||
+      mode === "async" ||
+      mode === "consolidated" ||
+      isSqliteSnapshotStagingMode(mode)) &&
     "location" in result
   ) {
     return result.location;

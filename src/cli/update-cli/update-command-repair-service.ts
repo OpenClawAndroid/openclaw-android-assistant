@@ -128,7 +128,6 @@ export async function repairUpdateService(params: {
                 assertCurrent,
               },
               "restart",
-              true,
             );
           } catch (error) {
             // A stale restart error is not permission to append diagnostics or

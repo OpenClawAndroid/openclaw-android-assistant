@@ -3693,8 +3693,8 @@ describe("runCodexAppServerSideQuestion", () => {
 
     await expect(runCodexAppServerSideQuestion(sideParams())).rejects.toThrow("tool setup failed");
 
-    expect(client.notifications).toHaveLength(0);
-    expect(client.requests).toHaveLength(0);
+    expect(client.notifications.size).toBe(0);
+    expect(client.requests.size).toBe(0);
   });
 
   it.each(["rejected", "lost ACK"] as const)(

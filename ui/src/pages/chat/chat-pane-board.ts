@@ -41,6 +41,7 @@ import { selectedChatSessionRow } from "./chat-state-route.ts";
 import {
   SIDEBAR_NARROW_BREAKPOINT_PX,
   fitSidebarLayout,
+  initializeBrowserSidebarWidth,
   isSidebarSlotVisible,
   openDashboardPresentation,
   resizeSidebarPanel,
@@ -179,11 +180,30 @@ export abstract class ChatPaneBoard extends ChatPaneHistory {
     if (!state) {
       return;
     }
+    const initialized = this.initializeBrowserSidebarLayout(layout);
     const fitted =
       this.paneWidth >= SIDEBAR_NARROW_BREAKPOINT_PX
-        ? (fitSidebarLayout(layout, this.paneWidth) ?? layout)
-        : layout;
+        ? (fitSidebarLayout(initialized, this.paneWidth) ?? initialized)
+        : initialized;
     state.updateSidebarLayout(fitted, options);
+  }
+
+  protected initializeBrowserSidebarLayout(layout: SidebarLayout): SidebarLayout {
+    if (!layout.columns[0]?.browserWidthPending || !isSidebarSlotVisible(layout, "browser")) {
+      return layout;
+    }
+    const composer = this.querySelector<HTMLElement>(".agent-chat__composer-shell");
+    if (!composer) {
+      return layout;
+    }
+    const inset = Number.parseFloat(
+      getComputedStyle(composer).getPropertyValue("--chat-composer-side-inset"),
+    );
+    return initializeBrowserSidebarWidth(
+      layout,
+      this.querySelector(".sidebar-region")?.getBoundingClientRect().width ?? this.paneWidth,
+      composer.getBoundingClientRect().width + (Number.isFinite(inset) ? inset : 0),
+    );
   }
 
   protected commitSidebarPanelResize(

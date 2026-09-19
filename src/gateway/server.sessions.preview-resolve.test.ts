@@ -114,7 +114,7 @@ test("lists and previews the selected aggregate global owner over WebSocket", as
     const preview = await rpcReq<ControlUiSessionPreview>(ws, "controlUi.sessionPreview", {
       sessionKey: "agent:work:main",
     });
-    expect(preview).toMatchObject({
+    expect(preview, JSON.stringify(preview)).toMatchObject({
       ok: true,
       payload: { status: "ok", agentId: "work", derivedTitle: "Work global conversation" },
     });

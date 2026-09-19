@@ -35,6 +35,7 @@ vi.mock("./openclaw-state-read-worker.js", () => ({
 vi.mock("../infra/sqlite-snapshot-source.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../infra/sqlite-snapshot-source.js")>()),
   prepareSqliteReadOnlyLocation: mock.prepareSource,
+  prepareSqliteReadOnlyLocationAsync: mock.prepareSource,
 }));
 vi.mock("../infra/sqlite-readonly-location-cleanup.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../infra/sqlite-readonly-location-cleanup.js")>()),

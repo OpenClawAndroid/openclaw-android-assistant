@@ -178,6 +178,7 @@ export function createUiBrowserVitestConfig(env = process.env): ViteUserConfig {
         "@awesome.me/webawesome/dist/components/dropdown/dropdown.js",
         "@awesome.me/webawesome/dist/components/dropdown-item/dropdown-item.js",
         "@awesome.me/webawesome/dist/components/popover/popover.js",
+        "@awesome.me/webawesome/dist/components/popup/popup.js",
         "@lit/context",
         "@lit/task",
         "@noble/ed25519",

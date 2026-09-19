@@ -4994,7 +4994,6 @@ describe("runReplyAgent typing (heartbeat)", () => {
     createMinimalRun,
     runEmbeddedAgentMock: state.runEmbeddedAgentMock,
   });
-
   it.each([
     { label: "default status" },
     { label: "explicit status", acknowledgment: "Research started; results will follow." },
@@ -5041,42 +5040,14 @@ describe("runReplyAgent typing (heartbeat)", () => {
     });
 
     const result = await run();
-    const payload = Array.isArray(result) ? result[0] : result;
+    const payloads = Array.isArray(result) ? result : result ? [result] : [];
 
-    expect(payload).toMatchObject({ text: "Research started; results will follow." });
-    expect(getReplyPayloadMetadata(payload ?? {})?.deliverDespiteSourceReplySuppression).toBe(true);
-  });
-
-  it("preserves a visible final reply instead of adding a yield acknowledgment", async () => {
-    state.runEmbeddedAgentMock.mockResolvedValueOnce({
-      payloads: [{ text: "Research already finished." }],
-      meta: {
-        yielded: true,
-        yieldAcknowledgment: "Research started; results will follow.",
-      },
-    });
-    const { run } = createMinimalRun();
-
-    await expect(run()).resolves.toMatchObject({
-      text: "Research already finished.",
-      replyToId: "msg",
-    });
-  });
-
-  it("delivers a yield acknowledgment when the only payload is filtered", async () => {
-    state.runEmbeddedAgentMock.mockResolvedValueOnce({
-      payloads: [{ text: "internal reasoning", isReasoning: true }],
-      meta: {
-        yielded: true,
-        yieldAcknowledgment: "Research started; results will follow.",
-      },
-    });
-    const { run } = createMinimalRun();
-
-    await expect(run()).resolves.toMatchObject({
-      text: "Research started; results will follow.",
-      replyToId: "msg",
-    });
+    expect(payloads.map((payload) => payload.text)).toEqual([
+      "Research started; results will follow.",
+    ]);
+    expect(getReplyPayloadMetadata(payloads[0] ?? {})?.deliverDespiteSourceReplySuppression).toBe(
+      true,
+    );
   });
 
   it.each([

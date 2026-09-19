@@ -52,19 +52,6 @@ const JSON_MODE_SERVICE_STDOUT = new Writable({
   },
 });
 
-export function resolvePreparedGatewayUpdatePolicy(
-  stopState: PreManagedServiceStop | undefined,
-  shouldRestart: boolean,
-) {
-  const verdict = stopState?.serviceUpdateVerdict;
-  // Root ownership permits activation; rewriting also requires definition authority.
-  return {
-    allowGatewayServiceRepair: verdict?.kind === "owned" && verdict.refreshDefinition,
-    allowGatewayActivation:
-      shouldRestart && stopState?.stopped === true && verdict?.kind === "owned",
-  };
-}
-
 function matchesStoppedService(
   before: Pick<PreManagedServiceStop, "serviceEnv" | "serviceUpdateVerdict" | "serviceManagerUid">,
   state: GatewayServiceState,

@@ -3,7 +3,11 @@ import type { ModelRegistry as CoreModelRegistry } from "../../llm/model-registr
 import type { Model } from "../../llm/types.js";
 import type { PluginMetadataSnapshotOwnerMaps } from "../../plugins/plugin-metadata-snapshot.types.js";
 import type { ProviderRuntimeModel } from "../../plugins/provider-runtime-model.types.js";
-import { loadAuthProfileStoreForRuntimeAsync, resolveAuthProfileOrder } from "../auth-profiles.js";
+import {
+  loadAuthProfileStoreForRuntimeAsync,
+  resolveAuthProfileOrder,
+  waitForActiveOAuthRefreshes,
+} from "../auth-profiles.js";
 import { externalCliDiscoveryForProviderAuth } from "../auth-profiles/external-cli-discovery.js";
 import { AuthProfileRuntimeReadStaleError } from "../auth-profiles/runtime-persisted-rows.js";
 import { createSelectedAuthProfileUnavailableError } from "../auth-profiles/selection-error.js";
@@ -196,25 +200,30 @@ export async function resolveDynamicModelAuthProfile(params: {
     }),
   };
   const readStore = () => loadAuthProfileStoreForRuntimeAsync(agentDir, readOptions);
-  const store = await readStore().catch((error: unknown) => {
+  const providers = listOpenAIAuthProfileProvidersForAgentRuntime({
+    provider: params.provider,
+    config: params.cfg,
+  });
+  const store = await readStore().catch(async (error: unknown) => {
     if (!(error instanceof AuthProfileRuntimeReadStaleError)) {
       throw error;
     }
-    // OAuth publication can overlap selection. The rejected reader has joined its cleanup.
+    // A refresh publishes its claim and settlement separately; join that owner before recapturing.
+    await Promise.all(
+      providers.map((provider) => waitForActiveOAuthRefreshes(provider, explicitProfileId)),
+    );
     return readStore();
   });
   const profileId =
     explicitProfileId ??
-    listOpenAIAuthProfileProvidersForAgentRuntime({
-      provider: params.provider,
-      config: params.cfg,
-    }).flatMap((provider) =>
+    providers.flatMap((provider) =>
       resolveAuthProfileOrder({
         cfg: params.cfg,
         store,
         provider,
         preferredProfile: params.preferredProfile,
         forModel: params.modelId,
+        includePendingOAuthRefresh: true,
       }),
     )[0];
   if (!profileId) {

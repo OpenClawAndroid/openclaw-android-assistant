@@ -132,11 +132,6 @@ class ChatPositionRailDirective extends AsyncDirective {
           this.resizeScrollTarget = undefined;
         }
       });
-      // The composer covers this part of the scrollport; it is not visible text.
-      const underlap =
-        Number.parseFloat(
-          getComputedStyle(root).getPropertyValue("--chat-transcript-composer-underlap"),
-        ) || 0;
       // Publish the first visible pixel after an initially zero-area edge touch.
       this.intersectionObserver = new IntersectionObserver(
         (entries, observer) => {
@@ -151,7 +146,7 @@ class ChatPositionRailDirective extends AsyncDirective {
           }
           this.syncVisibleMarks();
         },
-        { root, rootMargin: `0px 0px -${underlap}px 0px`, threshold: [0, Number.EPSILON, 1] },
+        { root, threshold: [0, Number.EPSILON, 1] },
       );
       // Virtualization replaces message nodes without replacing the rail.
       // Streaming descendants keep the same observed bubble targets.

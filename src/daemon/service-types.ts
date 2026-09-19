@@ -2,7 +2,10 @@ import type { DaemonRuntimePinUpdate } from "./runtime-pin-types.js";
 import type { ServiceInspectionReason } from "./service-inspection-error.js";
 import type { GatewayServiceRuntime } from "./service-runtime.js";
 /** Shared daemon service argument, state, and command config contracts. */
-import type { GatewayServiceStagedFiles } from "./service-stage.js";
+import type {
+  GatewayServiceDefinitionTransactionHooks,
+  GatewayServiceStagedFiles,
+} from "./service-stage.js";
 
 /** Environment map passed to service renderers and platform supervisors. */
 export type GatewayServiceEnv = Record<string, string | undefined>;
@@ -24,6 +27,7 @@ export type GatewayServiceInstallArgs = {
   startupFallbackTakeoverRuntime?: GatewayServiceRuntime;
   /** Await durable caller sealing before native load; currently systemd only. */
   beforeLoad?: (staged: GatewayServiceStagedFiles) => Promise<void>;
+  definitionTransaction?: GatewayServiceDefinitionTransactionHooks;
 };
 
 export type GatewayServiceStageArgs = GatewayServiceInstallArgs;

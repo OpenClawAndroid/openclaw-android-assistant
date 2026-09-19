@@ -2,6 +2,7 @@ import { sanitizeTerminalText } from "openclaw/plugin-sdk/text-chunking";
 import {
   projectCodexCatalogNativeResponse,
   projectCodexCatalogNativeThread,
+  type CodexCatalogPreviewCache,
 } from "../session-catalog-native-projection.js";
 import { redactCodexAppServerLinePreview } from "./client-line-preview.js";
 import { CodexAppServerMessageDecoder } from "./client-message-decoder.js";
@@ -39,37 +40,50 @@ export function createCodexCatalogDecoder() {
         "utf8",
       ),
     );
-    const result: CodexCatalogDecodeResult = { pending: decoder.hasPending, failures };
-    if (!isJsonObject(parsed)) {
-      return result;
+    const result = projectCodexCatalogMessage(parsed, input);
+    result.pending = decoder.hasPending;
+    result.failures = failures;
+    return result;
+  };
+}
+
+export function projectCodexCatalogMessage(
+  parsed: unknown,
+  input: Omit<CodexCatalogDecodeInput, "bytes">,
+  cachedPreview?: CodexCatalogPreviewCache,
+): CodexCatalogDecodeResult {
+  const result: CodexCatalogDecodeResult = { pending: false, failures: [] };
+  if (!isJsonObject(parsed)) {
+    return result;
+  }
+  result.message = parsed;
+  if (!isRpcResponse(parsed)) {
+    return result;
+  }
+  const message = parsed;
+  const route = codexCatalogResponseRoute(message.id);
+  if (message.error || !route) {
+    return result;
+  }
+  const remainingRows =
+    input.route === "unresolved"
+      ? input.catalogRows?.has(route.id)
+        ? input.catalogRows.get(route.id)
+        : 0
+      : input.remainingRows;
+  try {
+    if (!isJsonObject(message.result)) {
+      throw new Error("Codex catalog response contains an invalid result");
     }
-    result.message = parsed;
-    if (!isRpcResponse(parsed)) {
-      return result;
-    }
-    const message = parsed;
-    const route = codexCatalogResponseRoute(message.id);
-    if (message.error || !route) {
-      return result;
-    }
-    const remainingRows =
-      input.route === "unresolved"
-        ? input.catalogRows?.has(route.id)
-          ? input.catalogRows.get(route.id)
-          : 0
-        : input.remainingRows;
-    try {
-      if (!isJsonObject(message.result)) {
-        throw new Error("Codex catalog response contains an invalid result");
-      }
-      if (route.kind === "list") {
-        const raw = message.result;
-        message.result = projectCodexCatalogNativeResponse(
-          raw,
-          sanitizeTerminalText,
-          undefined,
-          remainingRows,
-        );
+    if (route.kind === "list") {
+      const raw = message.result;
+      message.result = projectCodexCatalogNativeResponse(
+        raw,
+        sanitizeTerminalText,
+        cachedPreview,
+        remainingRows,
+      );
+      if (!cachedPreview) {
         result.previewStates = Array.isArray(raw.data)
           ? raw.data
               .slice(0, Array.isArray(message.result.data) ? message.result.data.length : 0)
@@ -79,31 +93,31 @@ export function createCodexCatalogDecoder() {
                   : undefined,
               )
           : [];
-      } else {
-        const thread = message.result.thread;
-        const projected = projectCodexCatalogNativeThread(thread, sanitizeTerminalText);
-        // Catalog eligibility also selects the native history pagination protocol.
-        message.result = {
-          thread: {
-            ...projected,
-            ...(isJsonObject(thread) && typeof thread.cwd === "string" ? { cwd: thread.cwd } : {}),
-            ...(isJsonObject(thread) &&
-            (thread.historyMode === "paginated" || thread.historyMode === "legacy")
-              ? { historyMode: thread.historyMode }
-              : {}),
-          },
-        };
       }
-    } catch (error) {
-      delete result.message;
-      result.projectionError = {
-        id: route.id,
-        error:
-          error instanceof Error
-            ? error
-            : new Error("Codex catalog projection failed", { cause: error }),
+    } else {
+      const thread = message.result.thread;
+      const projected = projectCodexCatalogNativeThread(thread, sanitizeTerminalText);
+      // Catalog eligibility also selects the native history pagination protocol.
+      message.result = {
+        thread: {
+          ...projected,
+          ...(isJsonObject(thread) && typeof thread.cwd === "string" ? { cwd: thread.cwd } : {}),
+          ...(isJsonObject(thread) &&
+          (thread.historyMode === "paginated" || thread.historyMode === "legacy")
+            ? { historyMode: thread.historyMode }
+            : {}),
+        },
       };
     }
-    return result;
-  };
+  } catch (error) {
+    delete result.message;
+    result.projectionError = {
+      id: route.id,
+      error:
+        error instanceof Error
+          ? error
+          : new Error("Codex catalog projection failed", { cause: error }),
+    };
+  }
+  return result;
 }

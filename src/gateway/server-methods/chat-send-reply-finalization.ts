@@ -30,6 +30,7 @@ import type { PreparedChatSendSession } from "./chat-send-session.js";
 import type { GatewayInjectedTtsSupplementMarker } from "./chat-transcript-inject.js";
 import { appendAssistantTranscriptMessage } from "./chat-transcript-persistence.js";
 import { buildMediaOnlyTtsSupplementTranscriptMarker } from "./chat-tts-markers.js";
+import type { GatewayChatUserTurnPersist } from "./chat-user-turn-recorder.js";
 import type { GatewayRequestContext } from "./types.js";
 
 type DeliveredReply = {
@@ -140,7 +141,7 @@ export async function finalizeChatSendDispatchedReplies(params: {
   deliveredReplies: readonly DeliveredReply[];
   emitFirstAssistantServerTiming: () => void;
   foldCommandBlocks: boolean;
-  persistUserTurnTranscript: () => Promise<void>;
+  persistUserTurnTranscript: GatewayChatUserTurnPersist;
   session: Pick<
     PreparedChatSendSession,
     "agentId" | "backingSessionId" | "cfg" | "clientRunId" | "sessionKey" | "sessionLoadOptions"
@@ -184,6 +185,17 @@ export async function finalizeChatSendDispatchedReplies(params: {
     return;
   }
 
+  const contextFreeCommand =
+    !params.runtimeOwnsTranscript &&
+    deliveredReplies.length > 0 &&
+    deliveredReplies.every(({ payload }) => {
+      const metadata = getReplyPayloadMetadata(payload);
+      return (
+        metadata?.commandReply === true &&
+        metadata.contextFreeCommand === true &&
+        metadata.assistantTranscriptOwned !== true
+      );
+    });
   const rawFinalPayloads = selectChatSendFinalReplyPayloads({
     deliveredReplies,
     foldCommandBlocks,
@@ -319,7 +331,11 @@ export async function finalizeChatSendDispatchedReplies(params: {
     canAppendAssistantTranscript &&
     (transcriptReply || persistedContentForAppend?.length),
   );
-  await persistUserTurnTranscript();
+  if (contextFreeCommand) {
+    await persistUserTurnTranscript({ contextFreeCommand: true });
+  } else {
+    await persistUserTurnTranscript();
+  }
   if (!deliveryAuthorized()) {
     context.logGateway.warn(
       "webchat settled final reply skipped: session writer changed before transcript append",
@@ -339,6 +355,7 @@ export async function finalizeChatSendDispatchedReplies(params: {
       idempotencyKey: clientRunId,
       stopReason,
       ttsSupplement: ttsSupplementMarker,
+      ...(contextFreeCommand ? { contextFreeCommand: true } : {}),
       cfg,
     });
     if (appended.ok) {

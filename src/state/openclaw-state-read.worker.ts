@@ -1,5 +1,7 @@
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { ExecutionDecisionCursorError } from "../audit/execution-decision-receipts.js";
+import { inspectExecutionIdentityRunInDatabase } from "../audit/execution-identity-context.js";
 import { getFleetCellInDatabase, listFleetCellsInDatabase } from "../fleet/registry.kernel.js";
 import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { withStateDatabaseCoordinatorRuntimeDirectory } from "../infra/state-database-coordinator.js";
@@ -23,6 +25,7 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
     typeof input.location === "string" &&
     typeof input.checkFreshAdmission === "boolean" &&
     (input.expectedIdentity === undefined || typeof input.expectedIdentity === "string") &&
+    (input.snapshotRoot === undefined || typeof input.snapshotRoot === "string") &&
     (input.context.existingSchemaPath === undefined ||
       typeof input.context.existingSchemaPath === "string") &&
     isRecord(environment) &&
@@ -33,6 +36,11 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
     typeof coordinatorRuntime.directory === "string" &&
     typeof coordinatorRuntime.keepAlive === "boolean" &&
     (input.command.type === "admit" ||
+      (input.command.type === "audit.run.inspect" &&
+        isRecord(input.command.input) &&
+        typeof input.command.input.now === "number" &&
+        (typeof input.command.input.runId === "string" ||
+          typeof input.command.input.executionId === "string")) ||
       input.command.type === "fleet.list" ||
       input.command.type === "nodeHost.config" ||
       (input.command.type === "fleet.get" && typeof input.command.tenantId === "string"))
@@ -60,6 +68,29 @@ serveWorkerTasks((input): OpenClawStateReadReply => {
         return withOpenClawStateReadOnlyLocation(
           ({ db }) => {
             sourceAdmitted = true;
+            if (command.type === "audit.run.inspect") {
+              try {
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  result: {
+                    status: "inspected",
+                    inspection: inspectExecutionIdentityRunInDatabase(db, command.input),
+                  },
+                };
+              } catch (error) {
+                if (!(error instanceof ExecutionDecisionCursorError)) {
+                  throw error;
+                }
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  result: { status: "invalid-cursor", message: error.message },
+                };
+              }
+            }
             if (command.type === "nodeHost.config") {
               return {
                 ok: true,
@@ -86,6 +117,7 @@ serveWorkerTasks((input): OpenClawStateReadReply => {
           input.location,
           undefined,
           input.expectedIdentity,
+          input.snapshotRoot,
         );
       }),
     );

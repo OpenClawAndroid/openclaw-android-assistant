@@ -552,6 +552,7 @@ export function isQueuedAnswerBlock(
 }
 
 export function beginDraftQueuedFollowup(turn: Turn): void {
+  turn.progressContinuationAdopted = false;
   for (const lane of [turn.answerLane, turn.reasoningLane]) {
     if (!lane.stream) {
       continue;

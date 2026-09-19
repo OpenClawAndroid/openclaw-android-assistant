@@ -74,6 +74,7 @@ describe("shared-state worker error transport", () => {
   it.each([
     "OPENCLAW_STATE_LEASE_INVALID_INPUT",
     "OPENCLAW_STATE_LEASE_TIMEOUT",
+    "STATE_LEASE_BUSY",
     "OPENCLAW_STATE_LEASE_ABORTED",
     "OPENCLAW_STATE_LEASE_LOST",
     "OPENCLAW_STATE_LEASE_STORAGE_FAILED",

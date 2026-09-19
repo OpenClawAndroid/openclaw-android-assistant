@@ -22,6 +22,7 @@ function normalizeSlotId(value: unknown): SidebarSlotId | null {
     return "dashboard";
   }
   return value === "browser" ||
+    value === "link-reader" ||
     value === "companion" ||
     value === "conversation" ||
     value === "dashboard" ||
@@ -67,6 +68,7 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
   let mainPanelId: string | undefined;
   let activePanelId = "";
   let width = DEFAULT_WIDTH;
+  let browserWidthPending: true | undefined;
   let height = DEFAULT_HEIGHT;
   for (const rawColumn of value.columns) {
     if (
@@ -115,6 +117,7 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
       typeof rawColumn.width === "number" && Number.isFinite(rawColumn.width)
         ? clampWidth(rawColumn.width)
         : width;
+    browserWidthPending = rawColumn.browserWidthPending === true ? true : undefined;
     height =
       typeof rawColumn.height === "number" && Number.isFinite(rawColumn.height)
         ? clampHeight(rawColumn.height)
@@ -151,6 +154,7 @@ export function normalizeSidebarLayout(value: unknown): SidebarLayout {
             activePanelId: activeSidePanel?.id ?? "",
             height,
             width,
+            ...(browserWidthPending ? { browserWidthPending } : {}),
           },
         ]
       : [];

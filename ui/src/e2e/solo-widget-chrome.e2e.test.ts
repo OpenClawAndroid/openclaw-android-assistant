@@ -120,7 +120,17 @@ suite.define(() => {
         const menu = await showHeaderMenu(page);
         await page.keyboard.press("Escape");
         await page.locator(".chat-header-session-menu__trigger").focus();
+        await menu.locator("wa-dropdown").evaluate((dropdown) => {
+          dropdown.addEventListener(
+            "wa-after-show",
+            () => dropdown.setAttribute("data-e2e-after-show", ""),
+            { once: true },
+          );
+        });
         await page.keyboard.press("Enter");
+        await expect
+          .poll(() => menu.locator("wa-dropdown").getAttribute("data-e2e-after-show"))
+          .not.toBeNull();
         const capabilities = menu.getByRole("note", { name: "Active widget capabilities" });
         await capabilities.waitFor({ state: "visible" });
         expect(await capabilities.textContent()).toContain("Tool: health");

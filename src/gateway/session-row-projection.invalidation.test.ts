@@ -1,7 +1,9 @@
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { afterEach, expect, it, vi } from "vitest";
+import * as agentIdentity from "../agents/identity.js";
 import * as catalogLookup from "../agents/model-catalog-lookup.js";
 import {
+  assignSessionOwner,
   loadSessionEntry,
   recordSessionParticipant,
   replaceSessionEntrySync,
@@ -19,7 +21,7 @@ import { onSessionIdentityMutation } from "../sessions/session-lifecycle-events.
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
-import { ensureProfileForEmail, setDisplayName } from "../state/user-profiles.js";
+import { ensureProfileForEmail, linkEmail, setDisplayName } from "../state/user-profiles.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import * as projectionWork from "./session-projection-work.js";
 import * as materialization from "./session-row-projection-materialize.js";
@@ -210,6 +212,7 @@ it("refreshes profile display fields on selected live and archived rows without 
       setDisplayName(owner.id, "Current owner");
       setDisplayName(participant.id, "Current participant");
       const result = await listProjectedSessions({ projection, opts: { archived: "all" } });
+      expect(result.owners?.map((actor) => actor.label)).toEqual(["Current owner"]);
       expect(result.sessions).toHaveLength(2);
       for (const row of result.sessions) {
         expect(row.createdActor?.label).toBe("Current owner");
@@ -222,7 +225,75 @@ it("refreshes profile display fields on selected live and archived rows without 
         }
       }
       expect(reads).not.toHaveBeenCalled();
+      linkEmail("participant@example.com", owner.id);
+      const merged = await listProjectedSessions({
+        projection,
+        opts: {
+          archived: "all",
+          profileRelation: { profileId: participant.id, relationship: "involving" },
+        },
+      });
+      expect(merged.sessions).toHaveLength(2);
+      expect(merged.sessions.every((row) => row.participants === undefined)).toBe(true);
+      expect(reads).not.toHaveBeenCalled();
     } finally {
+      projection.dispose();
+      release();
+    }
+  });
+});
+
+it("reuses row identities across lists until their entry, profile, or config changes", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const cfg = {
+      agents: {
+        entries: { main: { identity: { name: "Original agent" } } },
+      },
+    };
+    const scope = { agentId: "main", sessionKey: "agent:main:identity-cache" };
+    const entry = {
+      sessionId: "identity-cache",
+      updatedAt: 1,
+      createdActor: { type: "agent" as const, id: "main" },
+    };
+    replaceSessionEntrySync(scope, entry);
+    recordSessionParticipant(scope, { identity: { type: "agent", id: "main" } });
+    const release = projectionWork.retainSessionListForegroundWork();
+    const projection = await createSessionRowProjection({ cfg, modelCatalog: [] });
+    const list = () => listProjectedSessions({ projection, opts: {} });
+    try {
+      await list();
+      const identities = vi.spyOn(agentIdentity, "resolveAgentIdentity");
+      for (let index = 0; index < 3; index++) {
+        expect((await list()).sessions[0]?.owner?.actor.label).toBe("Original agent");
+      }
+      expect(identities).not.toHaveBeenCalled();
+
+      sessionChanges.emit({ all: true, scope: "profiles" });
+      await list();
+      expect(identities).toHaveBeenCalledTimes(3);
+      identities.mockClear();
+      await list();
+      expect(identities).not.toHaveBeenCalled();
+
+      cfg.agents.entries.main.identity.name = "Renamed agent";
+      sessionChanges.emit({ all: true, scope: "config" });
+      expect((await list()).owners?.[0]?.label).toBe("Renamed agent");
+      assignSessionOwner(scope, {
+        owner: { type: "agent", id: "missing" },
+        assignedBy: { type: "system", id: "test" },
+      });
+      const unassigned = await list();
+      expect(unassigned.owners).toEqual([]);
+      expect(unassigned.sessions[0]?.owner).toBeUndefined();
+      expect(unassigned.sessions[0]?.participants?.[0]?.label).toBe("Renamed agent");
+      assignSessionOwner(scope, {
+        owner: { type: "agent", id: "main" },
+        assignedBy: { type: "system", id: "test" },
+      });
+      expect((await list()).sessions[0]?.owner?.actor.label).toBe("Renamed agent");
+    } finally {
+      await projection.ensureMaterialized();
       projection.dispose();
       release();
     }

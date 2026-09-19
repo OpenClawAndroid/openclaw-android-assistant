@@ -882,7 +882,7 @@ describe("mutable update execution", () => {
     },
   );
 
-  it("keeps Git candidate selection online and delegates its later activation", async () => {
+  it("keeps Git selection online and reserves service rewrites for finalization", async () => {
     const events: string[] = [];
     mocks.maybeStopService.mockImplementation(async ({ phase }) => {
       if (phase === "prepare") {
@@ -901,14 +901,25 @@ describe("mutable update execution", () => {
         const target = { schemaVersions: { state: 15, agent: 19 } };
         await params.inspectGitTarget(target);
         events.push("git");
+        expect(mocks.serviceStopped).toBe(false);
+        expect(await params.beforeGitMutation(target)).toEqual({
+          allowGatewayServiceRepair: false,
+          allowGatewayActivation: false,
+        });
         return { ...successfulUpdate, mode: "git" };
       },
     );
 
     const execution = await executeMutableUpdate(executionParams("git"));
 
-    expect(events).toEqual(["mutable-prepare", "git"]);
-    expect(mocks.serviceStopped).toBe(false);
+    expect(events).toEqual([
+      "mutable-prepare",
+      "git",
+      "mutable-prepare",
+      "mutable-prepare",
+      "stop",
+    ]);
+    expect(mocks.serviceStopped).toBe(true);
     expect(execution?.result.mode).toBe("git");
     expect(mocks.runPackageUpdate).not.toHaveBeenCalled();
   });

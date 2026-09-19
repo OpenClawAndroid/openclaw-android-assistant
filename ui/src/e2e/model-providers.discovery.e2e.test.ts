@@ -9,6 +9,35 @@ const suite = createControlUiE2eSuite({
 });
 
 suite.define(() => {
+  it("keeps the discovery action label while the setup module loads", async () => {
+    await suite.withPage({ viewport: { width: 390, height: 844 } }, async ({ page }) => {
+      let releaseSetup: (() => void) | undefined;
+      const setupRelease = new Promise<void>((resolve) => {
+        releaseSetup = resolve;
+      });
+      const setupModule = /\/model-setup-page(?:\.ts|-[^/]+\.js)(?:\?|$)/;
+      const setupRequested = page.waitForRequest(setupModule);
+      await page.route(setupModule, async (route) => {
+        await setupRelease;
+        await route.continue();
+      });
+      await installMockGateway(page);
+      try {
+        await page.goto(`${suite.server.baseUrl}settings/model-providers?connect=1`);
+        const discover = page.locator("[data-models-login-discover]");
+        const label = ((await discover.textContent()) ?? "").trim();
+        await discover.click();
+        await setupRequested;
+        await expect
+          .poll(() => page.getByRole("dialog", { name: label, exact: true }).isVisible())
+          .toBe(true);
+      } finally {
+        releaseSetup?.();
+        await page.unrouteAll({ behavior: "wait" });
+      }
+    });
+  });
+
   it.each([
     { kind: "auth", loseAccess: false },
     { kind: "prepare", loseAccess: false },

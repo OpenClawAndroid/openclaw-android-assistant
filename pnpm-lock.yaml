@@ -208,7 +208,7 @@ overrides:
 packageExtensionsChecksum: sha256-zZ8fyodhMTumshonC7kktCqTPsiHL3UAyS9vltFAlMo=
 
 patchedDependencies:
-  '@awesome.me/webawesome@3.12.0': a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1
+  '@awesome.me/webawesome@3.12.0': 7f32036628b3bffd3b78798a736133c820cda3b64ed10871cdccfe91b361e5d8
   '@novnc/novnc@1.7.0': bfde0e1bda172da3525f9f5014d85ad28073325b74f09609084598a65d2f412d
   matrix-js-sdk@42.3.0: 79bea7a0ca1c3c98635b2da6957539ab04386a2fe0ffec5498b5e9abc18b8b97
   vitest@5.0.0: 5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf
@@ -1212,6 +1212,12 @@ importers:
       maxmind:
         specifier: 5.0.7
         version: 5.0.7
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
+  extensions/github:
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2677,7 +2683,7 @@ importers:
     dependencies:
       '@awesome.me/webawesome':
         specifier: 3.12.0
-        version: 3.12.0(patch_hash=a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1)(@floating-ui/utils@0.2.12)(@types/node@26.5.1)(@types/react@19.2.18)
+        version: 3.12.0(patch_hash=7f32036628b3bffd3b78798a736133c820cda3b64ed10871cdccfe91b361e5d8)(@floating-ui/utils@0.2.12)(@types/node@26.5.1)(@types/react@19.2.18)
       '@codemirror/commands':
         specifier: 6.11.0
         version: 6.11.0
@@ -10075,7 +10081,7 @@ snapshots:
       is-potential-custom-element-name: 1.0.1
       lru-cache: 11.5.2
 
-  '@awesome.me/webawesome@3.12.0(patch_hash=a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1)(@floating-ui/utils@0.2.12)(@types/node@26.5.1)(@types/react@19.2.18)':
+  '@awesome.me/webawesome@3.12.0(patch_hash=7f32036628b3bffd3b78798a736133c820cda3b64ed10871cdccfe91b361e5d8)(@floating-ui/utils@0.2.12)(@types/node@26.5.1)(@types/react@19.2.18)':
     dependencies:
       '@ctrl/tinycolor': 4.1.0
       '@floating-ui/dom': 1.8.0

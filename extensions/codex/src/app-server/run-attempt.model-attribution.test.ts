@@ -40,9 +40,7 @@ setupRunAttemptTestHooks();
 describe("registered Codex harness model attribution", () => {
   it.each(["completed", "timed out"] as const)("attributes models (%s)", async (outcome) => {
     // Protocol events own completion; host load must not spend the attempt watchdog.
-    if (outcome === "timed out") {
-      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-    }
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const params = createTestParams();
     // Supervision replaces the helper model; this fixture supplies no host tools.
     params.hostCapabilities = Object.freeze({
@@ -217,6 +215,7 @@ describe("registered Codex harness model attribution", () => {
       data: { phase: "model", provider: "openai", model: "rerouted-model" },
     };
     const run = registered.runAttempt(params);
+    let next: typeof run | undefined;
     try {
       await Promise.race([
         turnStarted.promise,
@@ -294,7 +293,7 @@ describe("registered Codex harness model attribution", () => {
       if (outcome === "completed") {
         nativeModel = "changed-native-model";
         turnStarted = createDeferred<void>();
-        const next = registered.runAttempt({ ...params, runId: "native-second-turn" });
+        next = registered.runAttempt({ ...params, runId: "native-second-turn" });
         await Promise.race([
           turnStarted.promise,
           next.then((earlyResult) => {
@@ -328,12 +327,16 @@ describe("registered Codex harness model attribution", () => {
         expect(requests.filter(({ method }) => method === "thread/inject_items")).toHaveLength(1);
       }
     } finally {
-      vi.useRealTimers();
       abort.abort("test cleanup");
-      await transport.client.closeAndWait();
-      await Promise.allSettled([run]);
-      await registered.dispose?.();
-      vi.useRealTimers();
+      try {
+        // Restoring clocks first discards the pending relay-replacement listener-close timer.
+        await vi.runOnlyPendingTimersAsync();
+      } finally {
+        vi.useRealTimers();
+        await transport.client.closeAndWait();
+        await Promise.allSettled([run, next]);
+        await registered.dispose?.();
+      }
     }
   });
 });

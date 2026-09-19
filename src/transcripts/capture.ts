@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { isTranscriptArtifactText } from "../media-understanding/transcription-text.js";
 import { runPluginCleanup } from "../plugins/plugin-instance-scope.js";
 import { resolveAgentRoute } from "../routing/resolve-route.js";
 import { truncateUtf16Safe } from "../utils.js";
@@ -616,8 +617,9 @@ export async function startTranscripts(params: {
         abortSignal: startupAbort.signal,
         startupWaitMs: params.startupWaitMs,
         onUtterance: async (utterance) => {
-          // Abort, retirement, and id reuse fence this callback before any durable append.
+          // Reject empty speech and fence retired callbacks before any durable append.
           if (
+            isTranscriptArtifactText(utterance.text) ||
             entry.phase === "terminal" ||
             entry.phase === "failed" ||
             entry.cleanupPending ||

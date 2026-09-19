@@ -143,6 +143,15 @@ export function getTaskRegistryObservers(): TaskRegistryObservers | null {
   return configuredTaskRegistryObservers;
 }
 
+/** Subscribe at the publication owner; readers recheck current task authority. */
+export function onTaskRegistryChange(
+  listener: (event?: TaskRegistryObserverEvent) => void,
+): () => void {
+  const listeners = getTaskRegistryProcessState().changeListeners;
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 export function configureTaskRegistryRuntime(params: {
   store?: TaskRegistryStore;
   observers?: TaskRegistryObservers | null;
@@ -176,8 +185,9 @@ export function deliverTaskRegistryObserverEvent(
   ) {
     return;
   }
+  let event: TaskRegistryObserverEvent | undefined;
   try {
-    const event = createEvent();
+    event = createEvent();
     recordPublication(event);
     observers?.onEvent?.(event);
   } catch (error) {
@@ -185,7 +195,7 @@ export function deliverTaskRegistryObserverEvent(
   } finally {
     for (const listener of state.changeListeners) {
       try {
-        listener();
+        listener(event);
       } catch (error) {
         storeLog.warn("Task registry change listener failed", { error });
       }

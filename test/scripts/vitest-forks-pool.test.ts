@@ -36,11 +36,12 @@ const mode = ${JSON.stringify(mode)};
 const schedule = globalThis.setTimeout;
 const cancel = globalThis.clearTimeout;
 const deadlines = new Map();
-let stopDeadlineInvoked = false;
+const diagnosticTimers = new Map();
+let diagnosticsInvoked = false;
 const diagnosticDeadline = { delay: 0, scheduled: 0, fired: 0 };
 const recordDiagnosticDeadline = () => fs.writeFileSync(${JSON.stringify(diagnosticReceipt)}, JSON.stringify(diagnosticDeadline));
 globalThis.setTimeout = (callback, delay, ...args) => {
-  if (stopDeadlineInvoked && delay === 2000) {
+  if (diagnosticsInvoked && delay === 2000) {
     diagnosticDeadline.delay = delay;
     diagnosticDeadline.scheduled++;
     recordDiagnosticDeadline();
@@ -50,13 +51,33 @@ globalThis.setTimeout = (callback, delay, ...args) => {
       callback(...args);
     }, delay);
   }
+  if (delay === 10000) {
+    const timer = schedule(() => { diagnosticTimers.delete(timer); callback(...args); }, delay);
+    diagnosticTimers.set(timer, () => callback(...args));
+    return timer;
+  }
   if (delay !== 60000) return schedule(callback, delay, ...args);
   const invoke = () => callback(...args);
   const timer = schedule(() => { deadlines.delete(timer); invoke(); }, delay);
   deadlines.set(timer, invoke);
   return timer;
 };
-globalThis.clearTimeout = timer => { deadlines.delete(timer); return cancel(timer); };
+globalThis.clearTimeout = timer => { deadlines.delete(timer); diagnosticTimers.delete(timer); return cancel(timer); };
+const finishStop = () => {
+  fs.writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({ liveDeadlines: deadlines.size, delay: 60000 }));
+  if (deadlines.size !== 1) throw new Error("expected one live Vitest stop deadline");
+  const [timer, invoke] = deadlines.entries().next().value;
+  cancel(timer);
+  deadlines.delete(timer);
+  invoke();
+};
+const stderrWrite = process.stderr.write;
+let ownsFork = false;
+process.stderr.write = function(chunk, ...args) {
+  const result = stderrWrite.call(this, chunk, ...args);
+  if (ownsFork && String(chunk).includes("[/vitest-pool-resources]")) setImmediate(finishStop);
+  return result;
+};
 const isFork = arg => typeof arg === "string" && arg.replaceAll("\\\\", "/").endsWith("/vitest/dist/workers/forks.js");
 if (isFork(process.argv[1]) && process.send) {
   const send = process.send;
@@ -84,17 +105,22 @@ if (isFork(process.argv[1]) && process.send) {
 }
 subscribe("child_process", ({ process: child }) => {
   let selected = false;
-  child.once("spawn", () => { selected = child.spawnargs.some(isFork); });
+  let hasDiagnostic = false;
+  child.once("spawn", () => {
+    selected = child.spawnargs.some(isFork);
+    ownsFork ||= selected;
+    hasDiagnostic = child.spawnargs.some(arg => String(arg).endsWith("/vitest.fork-diagnostics.mjs"));
+  });
   child.on("message", message => {
     if (!selected || message?.fixtureTeardownHeld !== true) return;
     setImmediate(() => {
-      fs.writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({ liveDeadlines: deadlines.size, delay: 60000 }));
-      if (deadlines.size !== 1) throw new Error("expected one live Vitest stop deadline");
-      const [timer, invoke] = deadlines.entries().next().value;
-      cancel(timer);
-      deadlines.delete(timer);
-      stopDeadlineInvoked = true;
-      invoke();
+      diagnosticsInvoked = true;
+      for (const [timer, invoke] of diagnosticTimers) {
+        cancel(timer);
+        invoke();
+      }
+      diagnosticTimers.clear();
+      if (!hasDiagnostic) finishStop();
     });
   });
 });
@@ -138,12 +164,12 @@ it("runs on the fork main thread with ready native handles", async () => {
         config,
         `
 import fs from "node:fs";
-import { createExtensionDatabaseWorkersVitestConfig } from ${JSON.stringify(path.join(repoRoot, "test/vitest/vitest.extension-database-workers.config.ts"))};
-const extension = createExtensionDatabaseWorkersVitestConfig({});
+import { createInfraVitestConfig } from ${JSON.stringify(path.join(repoRoot, "test/vitest/vitest.infra.config.ts"))};
+const infra = createInfraVitestConfig({});
 export default {
   root: ${JSON.stringify(root)},
   test: {
-    pool: ${useAdapter ? "extension.test.pool" : '"forks"'},
+    pool: ${useAdapter ? "infra.test.pool" : '"forks"'},
     include: ["*.test.ts"],
     isolate: false,
     maxWorkers: 1,
@@ -233,6 +259,7 @@ export default {
       );
       if (mode === "blocked-after-ack") {
         expect(report).toBe("No complete Node diagnostic report captured within 2000ms.");
+        expect(output).toContain('"operation":"Atomics.wait"');
         expect(JSON.parse(fs.readFileSync(diagnosticReceipt, "utf8"))).toEqual({
           delay: 2_000,
           scheduled: 1,
@@ -240,6 +267,9 @@ export default {
         });
         continue;
       }
+      expect(output).toContain('"resources":');
+      expect(output).toContain('"handles":');
+      expect(output).toContain('"workers":[{"threadId":');
       expect(JSON.parse(report!)).toMatchObject({
         nativeStack: expect.any(Array),
         libuv: expect.arrayContaining([

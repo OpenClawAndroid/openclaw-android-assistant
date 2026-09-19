@@ -24,6 +24,7 @@ import type {
   MessageReceiptSourceResult,
   OutboundReplyFacts,
 } from "../message/types.js";
+import type { ChannelProgressDraftCompositorSnapshot } from "../progress-draft-compositor.types.js";
 import type { ChannelId } from "./channel-id.types.js";
 import type { ConversationReadInvocationOrigin } from "./conversation-read-origin.js";
 import type { ChannelMessageActionName as ChannelMessageActionNameFromList } from "./message-action-names.js";
@@ -723,6 +724,8 @@ export type ChannelMessageActionContext = {
   action: ChannelMessageActionName;
   cfg: OpenClawConfig;
   params: Record<string, unknown>;
+  /** Host-prepared progress display state; never sourced from model-controlled params. */
+  progressSnapshot?: ChannelProgressDraftCompositorSnapshot;
   reply?: OutboundReplyFacts;
   mediaAccess?: OutboundMediaAccess;
   mediaLocalRoots?: readonly string[];

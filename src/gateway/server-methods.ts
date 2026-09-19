@@ -389,7 +389,7 @@ export async function authorizeGatewayRequestPreDispatch(params: {
 
 type GatewayRequestEnvelopeOptions<T> = Pick<
   GatewayRequestOptions,
-  "context" | "isWebchatConnect"
+  "context" | "isWebchatConnect" | "signal" | "hasCurrentClientAuthority"
 > & {
   methodRegistry: GatewayMethodRegistry;
   requestParams?: unknown;
@@ -516,6 +516,8 @@ export async function runWithGatewayRequestEnvelope<T>(
           // Detached turn admission needs the live instance resolver, not a captured request context.
           resolveGatewayContext: options.context.resolveGatewayContext,
           client,
+          signal: options.signal,
+          hasCurrentClientAuthority: options.hasCurrentClientAuthority,
           isWebchatConnect: options.isWebchatConnect,
           // Only an owner-bound in-process stream may retain admitted Full authority.
           ...(client?.internal?.nodeInvokeStream ? getPluginRuntimeGatewayNodeAuthorities() : {}),
@@ -641,6 +643,8 @@ export async function handleGatewayRequest(
     await runWithGatewayRequestEnvelope(req.method, client, invokeHandler, {
       context,
       isWebchatConnect,
+      signal,
+      hasCurrentClientAuthority,
       methodRegistry,
       requestParams: req.params,
       admission: opts.admission,

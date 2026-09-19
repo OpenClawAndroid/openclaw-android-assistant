@@ -551,12 +551,17 @@ describe("media-understanding CLI audio entry", () => {
 
   it.each(
     transcriptFileCases.flatMap((testCase) =>
-      (["empty", "missing"] as const).map((fileState) => Object.assign({ fileState }, testCase)),
+      (["empty", "missing", "artifact"] as const).map((fileState) =>
+        Object.assign({ fileState }, testCase),
+      ),
     ),
   )("treats $fileState $name transcript output as empty", async (testCase) => {
     runExecMock.mockImplementationOnce(async (_command, args: string[]) => {
-      if (testCase.fileState === "empty") {
-        await fs.writeFile(testCase.resolvePath(args), "  \n");
+      if (testCase.fileState !== "missing") {
+        await fs.writeFile(
+          testCase.resolvePath(args),
+          testCase.fileState === "artifact" ? "context:" : "  \n",
+        );
       }
       return { stdout: "Transcribing with Whisper...\n", stderr: "" };
     });

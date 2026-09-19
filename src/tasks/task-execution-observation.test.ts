@@ -92,8 +92,8 @@ it.each(["agent:main:dashboard:stored", "global"])(
   },
 );
 
-it("projects fixed task statuses without observing retained native executions", () => {
-  const statuses = ["queued", "succeeded", "failed", "timed_out", "cancelled", "lost"] as const;
+it("projects terminal task statuses without observing retained native executions", () => {
+  const statuses = ["succeeded", "failed", "timed_out", "cancelled", "lost"] as const;
   const rows = Array.from({ length: 1_000 }, (_, index) => {
     const status = statuses[index % statuses.length]!;
     const record = task(`fixed-${index}`, status);
@@ -125,8 +125,7 @@ it("projects fixed task statuses without observing retained native executions", 
 
   expect(rows.map(({ record }) => getTaskExecutionObservation(record))).toEqual(
     rows.map(({ record, timestamp }) => ({
-      state:
-        record.status === "lost" ? "unknown" : record.status === "queued" ? "queued" : "finished",
+      state: record.status === "lost" ? "unknown" : "finished",
       ...(timestamp !== undefined ? { lastActivityAt: timestamp } : {}),
     })),
   );
@@ -137,6 +136,11 @@ it("projects fixed task statuses without observing retained native executions", 
 it("keeps running task observations current through generation replacement and deletion", () => {
   const record = task("running-task", "running");
   const original = registerRun(record);
+  claimAgentRunContext(
+    original.runId,
+    { sessionKey: original.childSessionKey },
+    { trackOwner: true, ownsContext: true },
+  );
   recordTaskActivityEvent(record, {
     runId: original.runId,
     seq: 1,
@@ -167,6 +171,11 @@ it("keeps running task observations current through generation replacement and d
 
   successor.pauseReason = undefined;
   successor.execution = { status: "running", startedAt: 30 };
+  claimAgentRunContext(
+    successor.runId,
+    { sessionKey: successor.childSessionKey },
+    { trackOwner: true, ownsContext: true },
+  );
   recordTaskActivityEvent(record, {
     runId: successor.runId,
     seq: 1,

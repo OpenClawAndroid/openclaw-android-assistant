@@ -348,7 +348,7 @@ export const CORE_GATEWAY_METHOD_SPECS = [
   ["chat.metadata", "chat", "operator.read", "<=2026.7", { startup: true }],
   ["chat.message.get", "chat", "operator.read", "<=2026.7", { startup: true }],
   ["chat.abort", "chat-abort", "operator.write", "<=2026.7"],
-  ["chat.send", "chat", "operator.write", "<=2026.7", { startup: true }],
+  ["chat.send", "chat-send", "operator.write", "<=2026.7", { startup: true }],
   // Operator terminal: admin-only PTY surface. Appended to the advertised block
   // so existing advertised method indices stay stable for older clients.
   ["terminal.open", "terminal", "operator.admin", "2026.7"],
@@ -696,4 +696,6 @@ export const CORE_GATEWAY_METHOD_SPECS = [
   ],
   ["environments.session.exec", "environments", "operator.admin", "2026.9"],
   ["sessions.setInvolvement", "sessions-mutations", "operator.read", "2026.9"],
+  ["transcripts.summarize", "transcripts", "operator.write", "2026.9"],
+  ["controlUi.linkPreview", "control-ui", "operator.read", "2026.9"],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];

@@ -8,6 +8,7 @@ import { getRuntimeConfig } from "../../../config/config.js";
 import { logWarn } from "../../../logger.js";
 import { getSharedGatewayContextResolver } from "../../../plugins/runtime/gateway-request-scope.js";
 import { isCronSessionKey } from "../../../sessions/session-key-utils.js";
+import { withTaskProgressRequesterContinuation } from "../../../tasks/task-progress-requester.js";
 import {
   type DeliveryContext,
   normalizeDeliveryContext,
@@ -590,46 +591,57 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     }
     let delivery: Awaited<ReturnType<typeof deliverSubagentAnnouncement>>;
     try {
-      delivery = await withRequesterCronAuthority(
+      delivery = await withTaskProgressRequesterContinuation(
         {
-          requesterSessionKey,
-          requesterSessionId,
-          requesterAgentId,
-          batch: settledBatch,
-          rearmGeneration: state.requesterYieldBatch ? state.rearmGeneration : undefined,
+          entries: settledBatch,
           runId: directIdempotencyKey,
+          requesterSessionId: requesterEntry.sessionId,
           isCurrent: isSourceSessionEffectsAllowed,
         },
         () =>
-          deliverSubagentAnnouncement({
-            requesterSessionKey,
-            requesterAgentId,
-            requesterRunTimeoutSeconds:
-              requesterDepth >= 1 && requesterRun
-                ? (requesterRun.runTimeoutSeconds ?? 0)
-                : undefined,
-            triggerMessage: wakeMessage,
-            steerMessage: wakeMessage,
-            requesterSessionOrigin,
-            directOrigin,
-            sourceSessionKey: currentSettledEntry.childSessionKey,
-            sourceTool: "subagent_settle",
-            targetRequesterSessionKey: requesterSessionKey,
-            requesterIsSubagent: requesterDepth >= 1,
-            expectsCompletionMessage: false,
-            requireDirectDelivery: true,
-            ...(parentOnly
-              ? {
-                  completionTarget: "parent",
-                  completionRequesterSessionId: requesterEntry.sessionId,
-                }
-              : {}),
-            ...(!parentOnly && requesterYieldedAfterDelivery ? { requireVisibleReply: true } : {}),
-            directIdempotencyKey,
-            signal: params.signal,
-            resolveGatewayContext,
-            isSourceSessionEffectsAllowed,
-          }),
+          withRequesterCronAuthority(
+            {
+              requesterSessionKey,
+              requesterSessionId,
+              requesterAgentId,
+              batch: settledBatch,
+              rearmGeneration: state.requesterYieldBatch ? state.rearmGeneration : undefined,
+              runId: directIdempotencyKey,
+              isCurrent: isSourceSessionEffectsAllowed,
+            },
+            () =>
+              deliverSubagentAnnouncement({
+                requesterSessionKey,
+                requesterAgentId,
+                requesterRunTimeoutSeconds:
+                  requesterDepth >= 1 && requesterRun
+                    ? (requesterRun.runTimeoutSeconds ?? 0)
+                    : undefined,
+                triggerMessage: wakeMessage,
+                steerMessage: wakeMessage,
+                requesterSessionOrigin,
+                directOrigin,
+                sourceSessionKey: currentSettledEntry.childSessionKey,
+                sourceTool: "subagent_settle",
+                targetRequesterSessionKey: requesterSessionKey,
+                requesterIsSubagent: requesterDepth >= 1,
+                expectsCompletionMessage: false,
+                requireDirectDelivery: true,
+                ...(parentOnly
+                  ? {
+                      completionTarget: "parent",
+                      completionRequesterSessionId: requesterEntry.sessionId,
+                    }
+                  : {}),
+                ...(!parentOnly && requesterYieldedAfterDelivery
+                  ? { requireVisibleReply: true }
+                  : {}),
+                directIdempotencyKey,
+                signal: params.signal,
+                resolveGatewayContext,
+                isSourceSessionEffectsAllowed,
+              }),
+          ),
       );
     } catch (error) {
       if (settleRevokedBatch()) {

@@ -3,6 +3,7 @@ import { html, nothing } from "lit";
 import { keyed } from "lit/directives/keyed.js";
 import { ref } from "lit/directives/ref.js";
 import type {
+  ProjectRecord,
   TaskSuggestion,
   TaskSuggestionsAcceptParams,
 } from "../../../../../packages/gateway-protocol/src/index.js";
@@ -11,6 +12,7 @@ import "../../../components/web-awesome.ts";
 import { t } from "../../../i18n/index.ts";
 import { shouldHandleNavigationClick } from "../../../lib/navigation-click.ts";
 import { repoName } from "../../../lib/session-display.ts";
+import { isAbsolutePath } from "../../new-session/path.ts";
 
 export type TaskSuggestionStartMode = Extract<
   TaskSuggestionsAcceptParams["mode"],
@@ -20,7 +22,11 @@ export type TaskSuggestionStartMode = Extract<
 export type TaskSuggestionAcceptance =
   | { phase: "starting" }
   | { phase: "started"; sessionKey: string; href: string }
-  | { phase: "failed"; error: string };
+  | {
+      phase: "failed";
+      error: string;
+      repository?: { cwd: string; open: boolean; projects: ProjectRecord[] };
+    };
 
 export type ChatTaskSuggestionTrayProps = {
   taskSuggestions?: TaskSuggestion[];
@@ -36,7 +42,15 @@ export type ChatTaskSuggestionTrayProps = {
   onCopyTaskSuggestionPrompt?: (suggestion: TaskSuggestion) => void;
   canAcceptTaskSuggestions?: boolean;
   canDismissTaskSuggestions?: boolean;
-  onAcceptTaskSuggestion?: (suggestion: TaskSuggestion, mode: TaskSuggestionStartMode) => void;
+  onAcceptTaskSuggestion?: (
+    suggestion: TaskSuggestion,
+    mode: TaskSuggestionStartMode,
+    cwd?: string,
+  ) => void;
+  onChangeTaskRepository?: (
+    suggestion: TaskSuggestion,
+    patch: { cwd?: string; open?: boolean },
+  ) => void;
   onDismissTaskSuggestion?: (suggestion: TaskSuggestion) => void;
 };
 
@@ -54,7 +68,8 @@ export function renderChatTaskSuggestionTray(props: ChatTaskSuggestionTrayProps)
     onCopyPrompt: (suggestion) => props.onCopyTaskSuggestionPrompt?.(suggestion),
     canAccept: props.canAcceptTaskSuggestions === true,
     canDismiss: props.canDismissTaskSuggestions === true,
-    onAccept: (suggestion, mode) => props.onAcceptTaskSuggestion?.(suggestion, mode),
+    onAccept: (suggestion, mode, cwd) => props.onAcceptTaskSuggestion?.(suggestion, mode, cwd),
+    onChangeRepository: (suggestion, patch) => props.onChangeTaskRepository?.(suggestion, patch),
     onDismiss: (suggestion) => props.onDismissTaskSuggestion?.(suggestion),
     onNavigate: (taskId, direction) => props.onNavigateTaskSuggestion?.(taskId, direction),
   });
@@ -79,7 +94,8 @@ function renderChatTaskSuggestions(props: {
   busyIds: ReadonlySet<string>;
   canAccept: boolean;
   canDismiss: boolean;
-  onAccept: (suggestion: TaskSuggestion, mode: TaskSuggestionStartMode) => void;
+  onAccept: (suggestion: TaskSuggestion, mode: TaskSuggestionStartMode, cwd?: string) => void;
+  onChangeRepository: (suggestion: TaskSuggestion, patch: { cwd?: string; open?: boolean }) => void;
   onDismiss: (suggestion: TaskSuggestion) => void;
   onCopyPrompt: (suggestion: TaskSuggestion) => void;
   copiedIds: ReadonlySet<string>;
@@ -103,6 +119,7 @@ function renderChatTaskSuggestions(props: {
       ${props.suggestions.map((suggestion, index) => {
         const busy = props.busyIds.has(suggestion.id);
         const acceptance = props.acceptanceFor?.(suggestion.id);
+        const repository = acceptance?.phase === "failed" ? acceptance.repository : undefined;
         const title = sanitizeTaskSuggestionText(suggestion.title);
         const tldr = sanitizeTaskSuggestionText(suggestion.tldr);
         const cwd = sanitizeTaskSuggestionText(suggestion.cwd);
@@ -224,10 +241,54 @@ function renderChatTaskSuggestions(props: {
                   : acceptance?.phase === "failed"
                     ? html`<div class="callout danger" role="alert">
                         <span
-                          >${t("chat.taskSuggestions.startUnconfirmed")} ${acceptance.error}</span
+                          >${repository ? nothing : t("chat.taskSuggestions.startUnconfirmed")}
+                          ${acceptance.error}</span
                         >
                       </div>`
                     : nothing
+              }
+              ${
+                repository?.open
+                  ? html`
+                      <div class="task-suggestion__repository">
+                        <p>${t("chat.taskSuggestions.chooseRepositoryHelp")}</p>
+                        <label>
+                          <span>${t("chat.taskSuggestions.repositoryFolder")}</span>
+                          <input
+                            type="text"
+                            class="task-suggestion__repository-path"
+                            .value=${repository.cwd}
+                            ?disabled=${!props.canAccept}
+                            @input=${(event: Event) => {
+                              // SAFETY: This handler is attached directly to the repository input.
+                              const input = event.currentTarget as HTMLInputElement;
+                              props.onChangeRepository(suggestion, { cwd: input.value });
+                            }}
+                          />
+                        </label>
+                        ${repository.projects.map(
+                          (project) => html`
+                            <button
+                              type="button"
+                              class="btn task-suggestion__repository-choice"
+                              ?disabled=${!props.canAccept}
+                              title=${project.repoRoot ?? ""}
+                              @click=${() => props.onChangeRepository(suggestion, { cwd: project.repoRoot ?? "" })}
+                            >
+                              ${project.displayName}<small>${project.repoRoot}</small>
+                            </button>
+                          `,
+                        )}
+                        <button
+                          type="button"
+                          class="btn"
+                          @click=${() => props.onChangeRepository(suggestion, { open: false })}
+                        >
+                          ${t("common.cancel")}
+                        </button>
+                      </div>
+                    `
+                  : nothing
               }
             </div>
             <div class="task-suggestion__actions">
@@ -252,10 +313,20 @@ function renderChatTaskSuggestions(props: {
                     ? html`<button
                         class="btn task-suggestion__start task-suggestion__retry"
                         type="button"
-                        ?disabled=${!props.canAccept}
-                        @click=${() => accept("local")}
+                        ?disabled=${!props.canAccept || Boolean(repository?.open && !isAbsolutePath(repository.cwd.trim()))}
+                        @click=${() => {
+                          if (repository) {
+                            if (!repository.open) {
+                              props.onChangeRepository(suggestion, { open: true });
+                            } else if (props.canAccept && isAbsolutePath(repository.cwd.trim())) {
+                              props.onAccept(suggestion, "worktree", repository.cwd.trim());
+                            }
+                          } else {
+                            accept("local");
+                          }
+                        }}
                       >
-                        ${t("common.retry")}
+                        ${repository ? t(repository.open ? "chat.taskSuggestions.startWorktree" : "chat.taskSuggestions.chooseRepository") : t("common.retry")}
                       </button>`
                     : html`
                         <button

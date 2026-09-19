@@ -205,7 +205,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: public provider-owned asynchronous embedding batch contract.
       // +1: runtime-neutral WebSocket client/server adapter for bundled and external plugins.
       // +1: approved host-owned workspace access runtime entrypoint.
-      155,
+      // +1: passive docked link-reader contracts.
+      156,
       env,
     ),
     publicExports: readPluginSdkSurfaceBudgetEnv(
@@ -380,7 +381,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +4: shared activity projectors and complete-preamble admission, including the shipped barrel.
       // -1: keep complete-preamble admission off the deprecated compatibility facade.
       // +4: approved workspace access exports; later stack exports belong to their consumers.
-      4489,
+      // +6: passive link-reader descriptor, metadata, document, preview, and request types.
+      4495,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(

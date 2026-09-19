@@ -313,9 +313,8 @@ system Node packages.
   </Step>
 </Steps>
 
-On FreeBSD, use the default npm method (`--install-method npm`). The current
-checkout pins pnpm 12.3.4, which has no FreeBSD executable; some native source
-dependencies also lack FreeBSD support, so `--install-method git` is unsupported.
+On FreeBSD, use the default npm method (`--install-method npm`) with a published
+version or compatible built `.tgz` package. Source/git installation is unsupported.
 If OpenClaw is managed by pkg or Ports, keep using that package owner instead of
 installing over it.
 

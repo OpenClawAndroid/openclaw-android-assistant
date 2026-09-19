@@ -22,9 +22,9 @@ type Activity = Parameters<typeof getSessionMaintenanceActivityAt>[0];
 
 export const SESSION_ENTRY_MAINTENANCE_INTERVAL_MS = 30 * 60 * 1_000;
 
-// Ordinary writes only make entries younger or remove them, so this lower bound
-// survives entry-cache revision churn. Every maintenance caller enforces the
-// recheck deadline, including callers that do not register a maintenance kick.
+// Ordinary updates retain this age lower bound across entry-cache revision churn.
+// New active entries rotate the capture so in-flight count decisions observe them.
+// Maintenance readers enforce the recheck deadline, including paths without a kick.
 const ageFacts = new WeakMap<DatabaseSync, SessionEntryMaintenanceAgeCapture>();
 
 export function stageSessionEntryMaintenanceAgeFact(
@@ -138,8 +138,8 @@ export function advanceSessionEntryMaintenanceAgeFact(
     fact.maintenance,
     previousEntry ? Date.now() : -Infinity,
   );
-  if (at < fact.next.at) {
-    stageSessionEntryMaintenanceAgeFact(db, { ...fact, next: { at } });
+  if (!previousEntry || at < fact.next.at) {
+    stageSessionEntryMaintenanceAgeFact(db, { ...fact, next: { at: Math.min(at, fact.next.at) } });
   }
 }
 

@@ -88,6 +88,7 @@ Control UI capabilities grouped by area, each with the Gateway RPC methods behin
   </Accordion>
   <Accordion title="Usage">
     - Session-derived token and estimated-cost analysis stays separate from provider billing.
+    - Session rows and selected details show saved conversation names, including generated titles. Explicit renames take precedence; unnamed sessions show their keys.
     - The Sessions card counts the rows currently shown: up to 50 in **All**, or matching sessions selected on this Usage page in **Recently viewed**. The total is the loaded session count for the agent scope; the separate selected-session comparison does not increase the shown count.
     - Filter sessions with the provider, model, channel, or tool menus, or type case-insensitive `key:value` terms. Values within one category match as alternatives. Toggling a menu option preserves the other filters and their quoted text.
     - Selecting days narrows token and cost totals to those days within the active session filters. Daily charts and exports retain that session scope. Provider/model/tool queries select matching sessions, including all usage within each matched session; hour filters select sessions active in those hours.
@@ -101,7 +102,7 @@ Control UI capabilities grouped by area, each with the Gateway RPC methods behin
     - **Refresh** also reloads the selected session's timeline, conversation, and system-prompt breakdown.
     - If a selected session is deleted and recreated, its new details replace the old ones and clear the previous timeline interval without clearing your session selection. An unfinished drag on the old timeline cannot change the new interval. Refreshing the same instance retains its selected interval. Context details from a different session instance show an error and can be retried with **Refresh**.
     - The overview loads session summaries first. Full system-prompt breakdowns load when you select a session; the `has:context` filter still works before opening details.
-    - JSON exports keep the displayed usage snapshot and load prompt details for the same session instance. If that session has been replaced, refresh Usage and export again.
+    - Sessions CSV and JSON exports include only selected sessions that match the active filters; with no selection, they include all matching sessions. JSON exports keep the displayed usage snapshot and load prompt details for the same session instance. If that session has been replaced, refresh Usage and export again.
 
   </Accordion>
   <Accordion title="Debug, logs, update">

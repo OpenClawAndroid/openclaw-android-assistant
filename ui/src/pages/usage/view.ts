@@ -429,7 +429,7 @@ export function renderUsage(props: UsageProps) {
                       case "sessions-csv":
                         downloadTextFile(
                           `openclaw-usage-sessions-${exportStamp}.csv`,
-                          buildSessionsCsv(filteredSessions),
+                          buildSessionsCsv(aggregateSessions),
                           "text/csv;charset=utf-8",
                         );
                         break;
@@ -443,7 +443,7 @@ export function renderUsage(props: UsageProps) {
                       case "json":
                         displayActions.onExportJson({
                           totals: displayTotals,
-                          sessions: filteredSessions,
+                          sessions: aggregateSessions,
                           daily: filteredDaily,
                           aggregates: activeAggregates,
                         });
@@ -461,7 +461,7 @@ export function renderUsage(props: UsageProps) {
                   >
                     ${data.exporting ? t("common.loading") : t("usage.export.label")} ▾
                   </button>
-                  <wa-dropdown-item value="sessions-csv" ?disabled=${filteredSessions.length === 0}>
+                  <wa-dropdown-item value="sessions-csv" ?disabled=${displaySessionCount === 0}>
                     ${t("usage.export.sessionsCsv")}
                   </wa-dropdown-item>
                   <wa-dropdown-item value="daily-csv" ?disabled=${filteredDaily.length === 0}>
@@ -472,7 +472,7 @@ export function renderUsage(props: UsageProps) {
                     ?disabled=${
                       data.exporting ||
                       data.loading ||
-                      (filteredSessions.length === 0 && filteredDaily.length === 0)
+                      (displaySessionCount === 0 && filteredDaily.length === 0)
                     }
                   >
                     ${t("usage.export.json")}

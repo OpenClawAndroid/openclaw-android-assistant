@@ -222,6 +222,7 @@ export function readSessionRowInputs(params: {
             }
           : undefined,
       userProfileIdentityById: rowContext.userProfileIdentityById,
+      identityProjection: rowContext.identityProjection,
       configuredAgentIds: params.configuredAgentIds,
       agentId,
       displayName,
@@ -374,13 +375,22 @@ function channelAvatarRevision(reference: string): string {
 
 /** Profile publications invalidate display facts independently of stored session metadata. */
 function projectSessionRowProfiles(input: ReturnType<typeof readSessionRowInputs>["inputs"]) {
-  const { entry, cfg, userProfileIdentityById, configuredAgentIds } = input;
-  const owner = projectSessionOwner(entry, userProfileIdentityById, cfg, configuredAgentIds);
-  const projected = projectSessionParticipants(entry, userProfileIdentityById, cfg);
-  if (owner?.actor.identity) {
-    projected.delete(JSON.stringify(owner.actor.identity));
-  }
-  const participants = projected.size ? [...projected.values()] : undefined;
+  const { entry, cfg, userProfileIdentityById, configuredAgentIds, identityProjection } = input;
+  const owner = (identityProjection?.owner ?? projectSessionOwner)(
+    entry,
+    userProfileIdentityById,
+    cfg,
+    configuredAgentIds,
+  );
+  const projected = (identityProjection?.participants ?? projectSessionParticipants)(
+    entry,
+    userProfileIdentityById,
+    cfg,
+  );
+  const ownerKey = owner?.actor.identity && JSON.stringify(owner.actor.identity);
+  const participants = [...projected].flatMap(([key, participant]) =>
+    key === ownerKey ? [] : [participant],
+  );
   return {
     createdActor: projectSessionActor(
       entry?.createdActor,
@@ -390,9 +400,13 @@ function projectSessionRowProfiles(input: ReturnType<typeof readSessionRowInputs
     ),
     owner,
     // Keep the released v4 summary stable; expanded identities are additive for newer clients.
-    participants: participants?.slice(0, SESSION_PARTICIPANT_LIMIT),
-    expandedParticipants: participants?.slice(0, MAX_SESSION_PARTICIPANTS),
-    participantCount: participants?.length,
+    participants: participants.length
+      ? participants.slice(0, SESSION_PARTICIPANT_LIMIT)
+      : undefined,
+    expandedParticipants: participants.length
+      ? participants.slice(0, MAX_SESSION_PARTICIPANTS)
+      : undefined,
+    participantCount: participants.length || undefined,
     archivedBy: projectSessionActor(entry?.archivedBy, userProfileIdentityById, cfg),
   };
 }

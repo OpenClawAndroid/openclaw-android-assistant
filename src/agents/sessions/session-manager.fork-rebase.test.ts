@@ -187,9 +187,95 @@ describe("SessionManager stale-parent rebase", () => {
     ).toBe("rewritten");
   });
 
-  it.each(["assistant", "nested-tool"] as const)(
-    "rejects a stale prepared %s after a newer user turn",
-    async (kind) => {
+  it("continues a prepared assistant across a visible context-free command pair without replaying it", async () => {
+    const dir = tempDirs.make("openclaw-session-manager-");
+    const target = {
+      agentId: "main",
+      sessionId: "prepared-context-free-command",
+      sessionKey: "agent:main:prepared-context-free-command",
+      storePath: path.join(dir, "sessions.json"),
+    };
+    await upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
+    await appendTranscriptMessage(target, {
+      eventId: "base-user",
+      message: { role: "user", content: "base", timestamp: 1 },
+      now: 1,
+    });
+    const manager = SessionManager.open(target, dir);
+    await appendTranscriptMessage(target, {
+      eventId: "status-user",
+      message: {
+        role: "user",
+        content: "/status",
+        timestamp: 2,
+        excludeFromContext: true,
+        __openclaw: { contextFreeCommand: true },
+      },
+      now: 2,
+    });
+    await appendTranscriptMessage(target, {
+      eventId: "status-assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Worker is running" }],
+        timestamp: 3,
+        excludeFromContext: true,
+        __openclaw: { contextFreeCommand: true },
+      },
+      now: 3,
+    });
+
+    const continuation = preparedTurnMessage("assistant", 4);
+    const continuedId = manager.appendMessage(continuation);
+    const messages = ((await loadTranscriptEvents(target)) as SessionEntry[]).filter(
+      (entry) => entry.type === "message",
+    );
+    expect(messages).toMatchObject([
+      { id: "base-user", message: { role: "user", content: "base" } },
+      { id: "status-user", parentId: "base-user", message: { role: "user", content: "/status" } },
+      {
+        id: "status-assistant",
+        parentId: "status-user",
+        message: { role: "assistant", content: [{ type: "text", text: "Worker is running" }] },
+      },
+      { id: continuedId, parentId: "status-assistant", message: continuation },
+    ]);
+    expect(manager.buildSessionContext().messages).toEqual([
+      { role: "user", content: "base", timestamp: 1 },
+      continuation,
+    ]);
+    expect(SessionManager.open(target, dir).buildSessionContext()).toEqual(
+      manager.buildSessionContext(),
+    );
+  });
+
+  it.each(
+    [
+      { name: "ordinary", metadata: {} },
+      { name: "excluded-only", metadata: { excludeFromContext: true } },
+      { name: "marked-only", metadata: { __openclaw: { contextFreeCommand: true } } },
+      {
+        name: "string-marker",
+        metadata: { excludeFromContext: true, __openclaw: { contextFreeCommand: "true" } },
+      },
+      {
+        name: "numeric-marker",
+        metadata: { excludeFromContext: true, __openclaw: { contextFreeCommand: 1 } },
+      },
+      {
+        name: "string-exclusion",
+        metadata: { excludeFromContext: "true", __openclaw: { contextFreeCommand: true } },
+      },
+      {
+        name: "numeric-exclusion",
+        metadata: { excludeFromContext: 1, __openclaw: { contextFreeCommand: true } },
+      },
+    ].flatMap((scenario) =>
+      (["assistant", "nested-tool"] as const).map((kind) => Object.assign({}, scenario, { kind })),
+    ),
+  )(
+    "rejects a stale prepared $kind after a newer user turn ($name)",
+    async ({ kind, metadata }) => {
       const dir = tempDirs.make("openclaw-session-manager-");
       const target = {
         agentId: "main",
@@ -207,7 +293,7 @@ describe("SessionManager stale-parent rebase", () => {
       await appendTranscriptMessage(target, {
         appendIntent: "active-branch",
         eventId: "new-user",
-        message: { role: "user", content: "new", timestamp: 2 },
+        message: { role: "user", content: "/status", timestamp: 2, ...metadata },
         now: 2,
       });
       const branchBeforeAppend = manager.getBranch();

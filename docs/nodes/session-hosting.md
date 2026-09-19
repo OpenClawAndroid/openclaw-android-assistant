@@ -62,6 +62,12 @@ session-owned managed workspace, dispatches it with the exact
 device placement becomes active. New Session does not bind `execNode` or browse
 the device filesystem.
 
+On POSIX hosts, OpenClaw keeps its managed workspace directories private (`0700`),
+including when the host uses umask `0002`. Existing node-owned workspace ancestry
+is tightened when reopened, so transfers can recover after an update without
+changing the host's umask. Files inside a transferred workspace retain their
+manifest permissions.
+
 The Devices page shows the validated Gateway-owned worker version in the node's
 metadata. If the current artifact is missing or fails validation, Devices shows
 a **worker missing** warning; an explicit new session installs the current bundle.

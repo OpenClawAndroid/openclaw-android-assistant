@@ -48,7 +48,7 @@ export function getTaskExecutionObservation(
       ? "unknown"
       : isTerminalTaskStatus(task.status)
         ? "finished"
-        : task.status === "queued"
+        : task.status === "queued" && task.runtime !== "subagent"
           ? "queued"
           : undefined;
   if (fixedState) {
@@ -101,7 +101,10 @@ export function getTaskExecutionObservation(
     state: currentActivity?.executionState ?? observeCliExecution(task) ?? "unknown",
     ...(currentActivity?.executionWait ? { wait: currentActivity.executionWait } : {}),
   };
-  if (execution.state === "running" && currentActivity?.executionWait) {
+  if (
+    execution.state === "running" &&
+    (currentActivity?.executionState || currentActivity?.executionWait)
+  ) {
     execution.state = currentActivity.executionState ?? "waiting";
     execution.wait = currentActivity.executionWait;
   }

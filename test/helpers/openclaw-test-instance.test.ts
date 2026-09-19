@@ -19,6 +19,7 @@ import { hasErrnoCode } from "../../src/infra/errno.js";
 import { drainFileLockStateForTest, resetFileLockStateForTest } from "../../src/infra/file-lock.js";
 import { resolveMaxOutputBytes } from "../../src/process/exec-output.js";
 import { withEnvAsync } from "../../src/test-utils/env.js";
+import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import {
   createOpenClawTestInstance,
   formatGatewayReadinessDiagnostic,
@@ -792,7 +793,7 @@ describe("openclaw test instance", () => {
     `;
       const allocateContender = async () => {
         const result = await promisify(execFile)(
-          process.execPath,
+          resolveTestNodeExecPath(),
           [
             "--experimental-test-module-mocks",
             "--import",

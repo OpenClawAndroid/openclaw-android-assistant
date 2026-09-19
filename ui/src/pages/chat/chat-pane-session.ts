@@ -175,7 +175,6 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
     this.sessionPullRequestsBranch = undefined;
     this.githubRepo = null;
     this.sessionPullRequestsStatus = "ready";
-    this.sessionPullRequestsExpanded = false;
     this.githubPublication?.detach();
     this.githubPublication = null;
     this.dismissedSessionPullRequestIds = new Set();

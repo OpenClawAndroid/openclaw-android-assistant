@@ -8,7 +8,12 @@ import { settleProgressVisibilityCallbackResult } from "../../channels/progress-
 import { normalizeAgentPlanSteps } from "../../channels/streaming.js";
 import { logVerbose } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import { isCommandReplyForDelivery, readAskUserQuestionId } from "../reply-payload.js";
+import { registerReplyDispatcherSettledTask } from "../dispatch-dispatcher.js";
+import {
+  getReplyPayloadMetadata,
+  isCommandReplyForDelivery,
+  readAskUserQuestionId,
+} from "../reply-payload.js";
 import { buildTerminalAgentRunFailureReplyPayload } from "./agent-runner-failure-reply.js";
 import { takeCommandSessionMetadataChanges } from "./command-session-metadata.js";
 import { runWithDispatchAbortSignal } from "./dispatch-from-config.abort.js";
@@ -114,8 +119,8 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
       await runWithDispatchAbortSignal(
         getDispatchAbortSignal(),
         () =>
-          state.traceReplyPhase("reply.run_reply_resolver", () =>
-            replyResolver(
+          state.traceReplyPhase("reply.run_reply_resolver", async () => {
+            const result = await replyResolver(
               ctx,
               {
                 ...state.getReplyOptions(),
@@ -436,8 +441,22 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
               state.preparedReplyDispatchRuntime && !params.configOverride
                 ? undefined
                 : replyConfig,
-            ),
-          ),
+            );
+            // Register before finalization can fail. Queue admission is not
+            // delivery: adapters may adopt until the dispatcher drains.
+            for (const reply of Array.isArray(result) ? result : result ? [result] : []) {
+              const continuation = getReplyPayloadMetadata(reply)?.progressContinuation;
+              if (continuation) {
+                if (isDispatchOperationAborted()) {
+                  // The resolver may finish after its caller's abort race settled.
+                  continuation.close();
+                } else {
+                  registerReplyDispatcherSettledTask(dispatcher, continuation.close);
+                }
+              }
+            }
+            return result;
+          }),
         trackDispatchLifecycleWork,
       ).then(
         async (result) => {

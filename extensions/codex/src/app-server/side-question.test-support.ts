@@ -6,6 +6,8 @@ import { afterEach, beforeEach, expect, vi } from "vitest";
 import {
   codexTestTurnIds,
   createFakeCodexAppServerClient,
+  threadStartResult as nativeThreadStartResult,
+  turnStartResult as nativeTurnStartResult,
 } from "./codex-app-server.test-fixtures.js";
 import {
   createCodexTestHostCapabilities,
@@ -190,28 +192,9 @@ export function extractRelayIdFromThreadConfig(config: unknown): string {
 }
 
 function threadResult(threadId: string) {
+  const { thread } = nativeThreadStartResult(threadId, "/tmp/workspace");
   return {
-    thread: {
-      id: threadId,
-      sessionId: threadId,
-      forkedFromId: null,
-      preview: "",
-      ephemeral: true,
-      modelProvider: "openai",
-      createdAt: 1,
-      updatedAt: 1,
-      status: { type: "idle" },
-      path: null,
-      cwd: "/tmp/workspace",
-      projectId: null,
-      cliVersion: "0.149.0",
-      source: "unknown",
-      agentNickname: null,
-      agentRole: null,
-      gitInfo: null,
-      name: null,
-      turns: [],
-    },
+    thread: { ...thread, sessionId: threadId, ephemeral: true, cliVersion: "0.149.0" },
     model: "gpt-5.5",
     modelProvider: "openai",
     cwd: "/tmp/workspace",
@@ -222,18 +205,7 @@ function threadResult(threadId: string) {
 }
 
 function turnStartResult(turnId: string) {
-  return {
-    turn: {
-      id: turnId,
-      threadId: "side-thread",
-      status: "inProgress",
-      items: [],
-      error: null,
-      startedAt: null,
-      completedAt: null,
-      durationMs: null,
-    },
-  };
+  return { turn: { ...nativeTurnStartResult(turnId).turn, threadId: "side-thread" } };
 }
 
 function agentDelta(threadId: string, turnId: string, delta: string): CodexServerNotification {
@@ -254,14 +226,9 @@ function turnCompleted(
     params: {
       threadId,
       turn: {
-        id: turnId,
+        ...nativeTurnStartResult(turnId, status).turn,
         threadId,
-        status,
         items: [{ id: "agent-1", type: "agentMessage", text }],
-        error: null,
-        startedAt: null,
-        completedAt: null,
-        durationMs: null,
       },
     },
   };

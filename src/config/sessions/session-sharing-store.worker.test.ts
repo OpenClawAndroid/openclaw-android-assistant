@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { expect, it, vi } from "vitest";
+import { initializeSessionReadContext } from "../../gateway/server-methods/sessions-read-cache.test-support.js";
 import { sessionSharingHandlers } from "../../gateway/server-methods/sessions-sharing.js";
 import {
   identifiedClient,
@@ -131,6 +132,8 @@ it.each(["session.members.list", "session.members.listEvidence"] as const)(
       await upsertSessionEntryCore(scope, { sessionId: "worker-members", updatedAt: 1 });
       addSessionMember(scope, { identityId: "zoe", addedBy: "owner", addedAt: 2 });
       addSessionMember(scope, { identityId: "alice", addedBy: "owner", addedAt: 3 });
+      const requestContext = context(vi.fn());
+      await initializeSessionReadContext(requestContext);
       const database = openOpenClawAgentDatabase({ agentId: "main" });
       const prototype: StatementSync = Object.getPrototypeOf(database.db.prepare("SELECT 1"));
       // Observe native execution, including statements prepared before the request.
@@ -138,7 +141,7 @@ it.each(["session.members.list", "session.members.listEvidence"] as const)(
       const iterate = vi.spyOn(prototype, "iterate");
       try {
         for (let round = 0; round < 2; round++) {
-          const result = await call(method, { sessionKey: scope.sessionKey }, context(vi.fn()));
+          const result = await call(method, { sessionKey: scope.sessionKey }, requestContext);
           expect(result[0]?.[1]).toMatchObject({
             members: [
               { identityId: "alice", addedBy: "owner", addedAt: 3 },
@@ -169,10 +172,12 @@ it("rechecks the current manager after the membership read yields", async () => 
     });
     addSessionMember(scope, { identityId: "guest", addedBy: "owner", addedAt: 2 });
     const client = identifiedClient("owner");
+    const requestContext = context(vi.fn());
+    await initializeSessionReadContext(requestContext);
     const pending = call(
       "session.members.listEvidence",
       { sessionKey: scope.sessionKey },
-      context(vi.fn()),
+      requestContext,
       client,
     );
     client.authenticatedUserProfile = identifiedClient("other").authenticatedUserProfile;

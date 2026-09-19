@@ -23,7 +23,7 @@ import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabaseOptions,
 } from "../../state/openclaw-state-db.js";
-import { validateRequestedSkillSlug } from "./archive-install.js";
+import { validateRequestedSkillSlug } from "./install-paths.js";
 import {
   deleteOwnedSkillUpload,
   deleteSkillUploadState,

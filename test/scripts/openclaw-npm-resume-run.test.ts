@@ -28,6 +28,8 @@ function fixture(
       { conclusion: "success", name: "publish_openclaw_npm" },
     ],
     run: {
+      id: 456,
+      status: "completed",
       conclusion: "success",
       event: "workflow_dispatch",
       head_branch: BRANCH,
@@ -49,11 +51,18 @@ function fixture(
 }
 
 describe("openclaw npm resume run identity", () => {
-  function publicationRun(overrides: Record<string, unknown> = {}, publish = true) {
+  function publicationRun(
+    overrides: Record<string, unknown> = {},
+    publish = true,
+    latest: Record<string, unknown> = {},
+  ) {
     return vi.fn((args: string[]) => {
       const endpoint = args[1];
       if (endpoint === "repos/openclaw/openclaw/actions/runs/456") {
-        return JSON.stringify({ ...fixture().run, run_attempt: 1, ...overrides });
+        return JSON.stringify({ ...fixture().run, ...overrides, ...latest });
+      }
+      if (endpoint === "repos/openclaw/openclaw/actions/runs/456/attempts/1") {
+        return JSON.stringify({ ...fixture().run, ...overrides });
       }
       if (endpoint === "repos/openclaw/openclaw/actions/workflows/openclaw-npm-release.yml") {
         return JSON.stringify({ id: 101 });
@@ -88,6 +97,20 @@ describe("openclaw npm resume run identity", () => {
     });
   });
 
+  it.each(["success", "failure"])(
+    "retains the signed attempt after a later %s rerun",
+    (conclusion) => {
+      const runGh = publicationRun({}, true, { run_attempt: 2, conclusion });
+      expect(recover(publicationEvidence(), runGh)).toMatchObject({ runId: "456", runAttempt: 1 });
+      expect(
+        runGh.mock.calls.some(([args]) =>
+          args.includes("repos/openclaw/openclaw/actions/runs/456"),
+        ),
+      ).toBe(false);
+      expect(runGh.mock.calls.find(([args]) => args[0] === "run")?.[0]).toContain("--attempt");
+    },
+  );
+
   it("accepts repeated receipts only when they identify the same publisher", () => {
     const publication = publicationEvidence();
     publication.document.attestations.push(...publication.document.attestations);
@@ -121,7 +144,9 @@ describe("openclaw npm resume run identity", () => {
 
   it.each([
     ["failed", { conclusion: "failure" }, "untrusted workflow identity"],
-    ["rerun", { run_attempt: 2 }, "SHA and attempt"],
+    ["wrong attempt response", { run_attempt: 2 }, "SHA and attempt"],
+    ["wrong run response", { id: 789 }, "SHA and attempt"],
+    ["unfinished attempt", { status: "in_progress" }, "SHA and attempt"],
     ["changed workflow", { head_sha: "e".repeat(40) }, "SHA and attempt"],
   ])("rejects a %s original publisher", (_name, overrides, message) => {
     expect(() => recover(publicationEvidence(), publicationRun(overrides))).toThrow(message);
@@ -273,7 +298,7 @@ describe("openclaw npm resume run identity", () => {
 
   it("loads the exact run, workflow, signed tag, ancestry, and approval job", () => {
     const responses = new Map<string, unknown>([
-      [`api repos/openclaw/openclaw/actions/runs/456 --method GET`, fixture().run],
+      [`api repos/openclaw/openclaw/actions/runs/456/attempts/1 --method GET`, fixture().run],
       [
         `api repos/openclaw/openclaw/actions/workflows/openclaw-npm-release.yml --method GET`,
         { id: 101 },
@@ -281,7 +306,7 @@ describe("openclaw npm resume run identity", () => {
       [`api repos/openclaw/openclaw/git/ref/tags/${BRANCH} --method GET`, fixture().tagRef],
       [`api repos/openclaw/openclaw/git/tags/${TAG_OBJECT_SHA} --method GET`, fixture().tag],
       [`api repos/openclaw/openclaw/compare/${SHA}...main --method GET`, { status: "identical" }],
-      [`run view 456 --repo openclaw/openclaw --json jobs --jq .jobs`, fixture().jobs],
+      [`run view 456 --repo openclaw/openclaw --attempt 1 --json jobs --jq .jobs`, fixture().jobs],
     ]);
     const runGh = vi.fn((args: string[]) => {
       const response = responses.get(args.join(" "));
@@ -309,13 +334,16 @@ describe("openclaw npm resume run identity", () => {
       tagRef: { object: { sha: SHA, type: "commit" } },
     });
     const responses = new Map<string, unknown>([
-      [`api repos/openclaw/openclaw/actions/runs/456 --method GET`, lightweight.run],
+      [`api repos/openclaw/openclaw/actions/runs/456/attempts/1 --method GET`, lightweight.run],
       [
         `api repos/openclaw/openclaw/actions/workflows/openclaw-npm-release.yml --method GET`,
         { id: 101 },
       ],
       [`api repos/openclaw/openclaw/git/ref/tags/${BRANCH} --method GET`, lightweight.tagRef],
-      [`run view 456 --repo openclaw/openclaw --json jobs --jq .jobs`, lightweight.jobs],
+      [
+        `run view 456 --repo openclaw/openclaw --attempt 1 --json jobs --jq .jobs`,
+        lightweight.jobs,
+      ],
     ]);
     const runGh = vi.fn((args: string[]) => {
       const response = responses.get(args.join(" "));

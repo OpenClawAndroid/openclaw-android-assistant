@@ -2,7 +2,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { createServer as createNetServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HelloOk } from "@openclaw/gateway-protocol";
@@ -31,6 +30,7 @@ import {
   installControlUiE2eUnhandledRejectionRing,
   type ControlUiE2eDiagnosticEvent,
 } from "./control-ui-e2e-diagnostics.ts";
+import { resolveAvailableLoopbackPort } from "./control-ui-e2e-port.ts";
 import { controlUiE2eWaitTimeoutMs } from "./control-ui-e2e-readiness.ts";
 import { createControlUiMockResponses } from "./control-ui-mock-responses.ts";
 import type { NativeControlUiPluginFixture } from "./control-ui-plugin-fixture.ts";
@@ -463,6 +463,7 @@ export type ControlUiMockGatewayScenario = {
     pluginId: string;
     slug?: string;
   }>;
+  controlUiLinkReaders?: unknown[];
   controlUiWidgetKinds?: Array<{
     kind: string;
     label: string;
@@ -988,27 +989,6 @@ export async function startProductionControlUiE2eServer(
   return startBuiltControlUiE2eServer(outDir, bootstrapConfig);
 }
 
-async function resolveAvailableLoopbackPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createNetServer();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (!address || typeof address === "string") {
-        probe.close(() => reject(new Error("Could not reserve a loopback port")));
-        return;
-      }
-      probe.close((err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(address.port);
-      });
-    });
-  });
-}
-
 function resolveServerBaseUrl(server: ViteDevServer | PreviewServer): string {
   const address = server.httpServer?.address();
   if (!address || typeof address === "string") {
@@ -1051,6 +1031,7 @@ function normalizeScenario(
     basePath,
     controlUiTabs: scenario.controlUiTabs ?? [],
     controlUiWidgetKinds: scenario.controlUiWidgetKinds ?? [],
+    controlUiLinkReaders: scenario.controlUiLinkReaders ?? [],
     allowedSessionVisibilities: scenario.allowedSessionVisibilities ?? [
       "shared",
       "read-only",
@@ -2111,6 +2092,7 @@ function installControlUiMockGateway(
             ...(scenario.omitFeatureMethods ? {} : { methods: scenario.featureMethods }),
           },
           controlUiTabs: scenario.controlUiTabs,
+          controlUiLinkReaders: scenario.controlUiLinkReaders ?? [],
           controlUiWidgetKinds: scenario.controlUiWidgetKinds,
           protocol: protocolVersion,
           server: {

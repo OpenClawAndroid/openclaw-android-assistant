@@ -32,6 +32,7 @@ import {
 import { createSessionRowProjectionBackfill } from "./session-row-projection-backfill.js";
 import { createSessionRowProjectionCatalog } from "./session-row-projection-catalog.js";
 import { createSessionRowProjectionContext } from "./session-row-projection-context.js";
+import { createSessionRowCreatorIndex } from "./session-row-projection-identities.js";
 import {
   createSessionRowMaterializationBatch,
   readIncognitoSessionRow,
@@ -61,6 +62,7 @@ export async function createSessionRowProjection(params: {
   const inOwnerContext = AsyncLocalStorage.snapshot();
   let cfg = params.cfg;
   const rows = new Map<string, records.Row>();
+  const creators = createSessionRowCreatorIndex();
   let stores = new Map<
     string,
     { target: SessionStoreTarget; agentId: string; identity: string | symbol; filename: string }
@@ -138,6 +140,7 @@ export async function createSessionRowProjection(params: {
     const row = rows.get(id);
     if (row) {
       markRelated(row);
+      creators.update(row);
       records.index(row, indexes, true);
       rows.delete(id);
     }
@@ -146,6 +149,7 @@ export async function createSessionRowProjection(params: {
   }
   function put(row: records.Row) {
     const previous = rows.get(records.identity(row));
+    creators.update(previous, row);
     if (previous) {
       if (previous.generation !== row.generation) {
         transcriptUpdates.remove(records.identity(row));
@@ -586,6 +590,7 @@ export async function createSessionRowProjection(params: {
       map.clear();
     }
     dirty.clear();
+    creators.dispose();
     archive.clear();
   }
   function selectEntries(query: records.Query = {}) {
@@ -687,6 +692,8 @@ export async function createSessionRowProjection(params: {
     },
     isCurrent,
     selectEntries,
+    listCreatedActors: (): ReturnType<typeof creators.list> =>
+      inOwnerContext(() => creators.list(projection.state.scope({}).paths, matching)),
     snapshot(query: records.Lookup, options: records.SnapshotOptions = {}) {
       const record = describe(query);
       return record

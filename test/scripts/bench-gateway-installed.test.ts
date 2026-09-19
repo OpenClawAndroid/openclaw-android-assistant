@@ -14,6 +14,9 @@ import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const require = createRequire(import.meta.url);
+const wsServerUrl = pathToFileURL(
+  path.join(path.dirname(require.resolve("ws/package.json")), "lib/websocket-server.js"),
+).href;
 const sourceSha = "1".repeat(40);
 const hash = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 
@@ -38,7 +41,7 @@ import { createServer } from "node:http";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fork, spawn } from "node:child_process";
 import path from "node:path";
-import WebSocket from ${JSON.stringify(pathToFileURL(require.resolve("ws")).href)};
+import WebSocketServer from ${JSON.stringify(wsServerUrl)};
 const record = (event) => appendFileSync(${JSON.stringify(events)}, JSON.stringify({ ...event, pid: process.pid }) + "\\n");
 if (process.argv.includes("--descendant")) {
   record({ type: "descendant", listeners: process.listenerCount("message") });
@@ -63,7 +66,7 @@ if (process.argv.includes("--descendant")) {
     res.writeHead(req.method === "HEAD" && ["/healthz", "/readyz"].includes(req.url) ? 200 : 404);
     res.end();
   });
-  const sockets = new WebSocket.WebSocketServer({ server });
+  const sockets = new WebSocketServer({ server });
   sockets.on("connection", (ws) => ws.on("message", (data) => {
     const request = JSON.parse(data.toString());
     record({ type: "request", index, method: request.method });

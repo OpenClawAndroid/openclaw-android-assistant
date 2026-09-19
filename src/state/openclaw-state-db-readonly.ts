@@ -1,16 +1,21 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { statSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import path from "node:path";
 import { isPromiseLike } from "@openclaw/normalization-core/promise-like";
+import { hasErrnoCode } from "../infra/errno.js";
 import { SqliteCoordinatorError, throwSqliteLifecycleErrors } from "../infra/sqlite-coordinator.js";
 import {
   retainSnapshotTempDirectory,
   retainSnapshotWork,
 } from "../infra/sqlite-readonly-location-cleanup.js";
 import { prepareSqliteReadOnlyLocationFromOwnedDatabase } from "../infra/sqlite-readonly-location.js";
-import type { PreparedSqliteReadOnlyLocation } from "../infra/sqlite-readonly-location.types.js";
+import type {
+  AsyncPreparedSqliteReadOnlyLocation,
+  PreparedSqliteReadOnlyLocation,
+} from "../infra/sqlite-readonly-location.types.js";
 import {
   prepareSqliteReadOnlyLocation,
+  prepareSqliteReadOnlyLocationAsync,
   prepareSqliteReadOnlyLocationSync,
 } from "../infra/sqlite-snapshot-source.js";
 import { assertExistingDatabaseIdentity } from "../infra/sqlite-worker-identity.js";
@@ -37,11 +42,14 @@ import type {
 } from "./openclaw-state-db-contract.js";
 import {
   assertStateReadSchema,
-  openOpenClawStateReadConnection,
+  openOpenClawStateReadOnlyLocation,
   withOpenClawStateReadOnlyLocation,
 } from "./openclaw-state-db-read-connection.js";
 import { isExistingOpenClawStateSchema } from "./openclaw-state-db-schema-policy.js";
-import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
+import {
+  existingPathOrUndefined,
+  resolveOpenClawStateSqlitePath,
+} from "./openclaw-state-db.paths.js";
 import {
   assertRetainedReadScopeAdmission,
   bindRetainedReadScope,
@@ -246,18 +254,6 @@ function resolveReadOnlyPath(options: OpenClawStateDatabaseOptions): string {
   return pathname;
 }
 
-function existingPathOrUndefined(pathname: string): string | undefined {
-  try {
-    statSync(pathname);
-    return pathname;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
 function withOpenClawStateDatabaseReadOnlyIfOpen<T>(
   operation: (database: OpenClawStateReadOnlyDatabase) => T,
   pathname: string,
@@ -325,27 +321,6 @@ function withFreshOpenClawStateDatabaseReadOnly<T>(
   return withOpenClawStateReadOnlyLocation(operation, pathname, prepared ?? pathname);
 }
 
-function openOpenClawStateReadOnlyLocation(
-  pathname: string,
-  source: string | PreparedSqliteReadOnlyLocation,
-) {
-  const connection = openOpenClawStateReadConnection(pathname, source);
-  try {
-    assertStateReadSchema(connection.database.db, pathname);
-  } catch (error) {
-    try {
-      connection.close();
-    } catch (cleanupError) {
-      throwSqliteLifecycleErrors(
-        [error, cleanupError],
-        "Shared-state reader admission and cleanup failed.",
-      );
-    }
-    throw error;
-  }
-  return connection;
-}
-
 /** Keep streamed rows on one private reader while callers yield or close the shared writer. */
 export async function* iterateOpenClawStateDatabaseReadOnly<Row, Result>(
   source: OpenClawStateDatabase,
@@ -395,6 +370,32 @@ export function withOpenClawStateDatabaseReadOnly<T>(
     return reused.value;
   }
   return withFreshOpenClawStateDatabaseReadOnly(operation, options, pathname);
+}
+
+/** A missing pathname is not absence while this read owner can serve retained state. */
+export function isOpenClawStateDatabaseDefinitelyAbsent(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  try {
+    const pathname = resolveReadOnlyPath({ env });
+    const snapshot = stateSnapshotReads.getStore();
+    if (
+      synchronousReadSnapshots.current?.has(pathname) ||
+      (snapshot?.active && snapshot.path === pathname) ||
+      openClawStateDatabaseCache.getCachedOpenClawStateDatabase(pathname)?.db.isOpen
+    ) {
+      return false;
+    }
+    try {
+      lstatSync(pathname);
+      return false;
+    } catch (error) {
+      return hasErrnoCode(error, "ENOENT");
+    }
+  } catch {
+    // Unknown availability retains the normal reader's admission and error behavior.
+    return false;
+  }
 }
 
 /** Read existing shared state while preserving non-missing filesystem failures. */
@@ -448,7 +449,7 @@ export function executeExistingOpenClawStateRead(
     const acceptanceErrors: unknown[] = [];
     let borrowed: ReturnType<typeof retainOpenClawStateDatabaseForIndependentRead>;
     let sourcePin: ReturnType<typeof acquireStateDatabaseHandleLease> | undefined;
-    let prepared: PreparedSqliteReadOnlyLocation | undefined;
+    let prepared: AsyncPreparedSqliteReadOnlyLocation | undefined;
     let expectedIdentity: string | undefined;
     let releasePreparedSource: (() => void) | undefined;
     const authority: OpenClawStateReadAuthority = {
@@ -571,7 +572,9 @@ export function executeExistingOpenClawStateRead(
       } else if (!snapshot && (preserveArtifacts || excluded || mutation)) {
         await transport.validateFresh(context, authority);
         authority.assertCurrent();
-        prepared = await prepareSqliteReadOnlyLocation(pathname, {
+        prepared = await (
+          excluded || mutation ? prepareSqliteReadOnlyLocation : prepareSqliteReadOnlyLocationAsync
+        )(pathname, {
           preserveSourceArtifacts: preserveArtifacts,
           signal: authority.signal,
         });
@@ -588,7 +591,13 @@ export function executeExistingOpenClawStateRead(
       }
       authority.assertCurrent();
       const outcome = await transport.read(
-        { context, location, checkFreshAdmission: !borrowed, expectedIdentity },
+        {
+          context,
+          location,
+          checkFreshAdmission: !borrowed,
+          expectedIdentity,
+          snapshotRoot: prepared?.cleanupRoot,
+        },
         authority,
       );
       const sourceAdmitted =

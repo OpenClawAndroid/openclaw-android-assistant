@@ -28,27 +28,32 @@ the optional capability ignore it; the normal minimum-version check still applie
 The native session catalog keeps one resident index per Codex home, shared across
 agents, working-directory filters, searches, and pages. Lists normally filter and page
 bounded display rows in memory. They do not expire or restart native discovery
-on the normal sidebar polling interval. This memory-only boundary is the local
+on the normal sidebar polling interval. The sorted view retains only eligible
+display rows and is invalidated by resident row changes. Complete, unfiltered
+queries reuse it directly; live status and workspace settings still apply per page.
+This memory-only boundary is the local
 resident query. The Gateway also reads session entries from its resident session-row
 projection once ready; mutations can require exact-key refreshes before delivery.
 Native adoption bindings still use their storage owner, and paired-node enumeration
 can use network I/O. Previews remain limited to 500 characters;
 native hydration and catalog pages remain limited to 64 rows each. Native `thread/list` has no bounded metadata projection, so wire JSON can still be
-large. Catalog `thread/list` pages and metadata-only `thread/read` responses used for catalog refreshes are
-parsed and projected in a worker owned by their app-server client. The stdout
-reader transfers bytes and waits for the compact result before delivering later
-responses or notifications. It admits one worker task at a time and pauses the
-transport while that task runs. Recovery also stays in the worker when a malformed
+large. Complete catalog `thread/list` pages and metadata-only `thread/read` responses
+up to 64 KiB are parsed and projected inline, avoiding worker startup for small
+catalog refreshes. Larger responses use a worker owned by their app-server client.
+Both paths apply the same projection. The stdout reader waits for the compact result
+before delivering later responses or notifications. It transfers larger responses
+as bytes, admits one worker task at a time, and pauses the transport while that task runs.
+Incomplete-frame recovery stays in the worker, including when a malformed
 frame hides its routing header until a later line; its decoded ID selects the catalog
 projection and the captured row admission. Native control reads, normal streaming notifications,
 and full-history reads keep their in-process decoder. Control reads preserve complete
 native metadata, including model selection and direct-input capability; transcript
 consumers require complete native raw items.
 Each native list page contains at most 64 rows (less than 6 MiB of serialized
-catalog metadata even at all field limits). The worker applies the existing
+catalog metadata even at all field limits). Both paths apply the existing
 prefix-first preview selector and 500-character display bound. Unchanged
-background rows can reuse resident previews before delivery. Native wire parsing
-and its temporary objects stay in the worker. Metadata reads preserve exact
+background rows can reuse resident previews before delivery. Large native payloads
+and their temporary objects stay in the worker. Metadata reads preserve exact
 working directories and the native history paging mode.
 Ephemeral threads are excluded as soon as native metadata acknowledges them, so
 closing a short-lived helper cannot lose the exclusion while a background refresh is pending.
@@ -139,7 +144,7 @@ For remote app-servers without local filesystem access, the saved snapshot is
 available immediately and a background native walk reconciles changes made while
 the Gateway was stopped or its app-server connection was unavailable. The full
 15-minute safety walk reconciles remote membership and metadata.
-Unchanged display rows reuse their bounded resident previews after worker projection.
+Unchanged display rows reuse their bounded resident previews before delivery.
 Unchanged rows are not rewritten to SQLite.
 
 Native starts, metadata refreshes, renames, archives, deletions, and changed file
@@ -310,6 +315,11 @@ unless you opt into the experimental sandbox exec-server path. The effective
 tool profile must allow all native shell and filesystem capabilities: `coding`
 and `full` do, while `messaging` and `minimal` disable the native surface. Agent
 and provider profile overrides and explicit tool restrictions still apply.
+When sandboxing disables the native surface, allowed shell commands remain available
+through `sandbox_exec`. Denying `process` removes `sandbox_process` and background
+continuation, while `sandbox_exec` runs to completion under the existing timeout,
+sandbox backend, and workspace-access policy.
+
 The sandbox exec-server option does not bypass those tool restrictions. Node-backed
 `remote-exec` on a paired device or cloud worker instead uses its
 placement-owned environment without that experimental flag. A dedicated cloud worker with a completed project preparation keeps the bound workspace and `HOME` paths, so native commands can reuse setup caches. The node exec-server still uses a separate temporary `CODEX_HOME` for each connection. Ending the connection removes that Codex state and preserves the prepared project home.

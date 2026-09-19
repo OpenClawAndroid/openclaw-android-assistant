@@ -33,16 +33,14 @@ import {
   type OpenClawTestState,
 } from "../test-utils/openclaw-test-state.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
-import {
-  readUsageCostRollups,
-  refreshCostUsageCacheForAgent,
-  resolveUsageCostPricingFingerprint,
-} from "./session-cost-usage-aggregation.js";
-import { readSessionCostUsageRollupRows } from "./session-cost-usage-cache.sqlite.js";
+import { refreshCostUsageCacheForAgent } from "./session-cost-usage-aggregation.js";
+import { readSessionCostUsageRollupRows } from "./session-cost-usage-cache.test-support.js";
 import {
   listUsageCountedTranscriptStats,
   resolveUsageCostTranscriptFile,
 } from "./session-cost-usage-collection.js";
+import { resolveUsageCostPricingFingerprint } from "./session-cost-usage-pricing-context.js";
+import { decodeUsageCostRollup } from "./session-cost-usage-rollup-codec.js";
 import {
   discoverAllSessions,
   loadCostUsageSummary,
@@ -615,8 +613,11 @@ describe("usage archive identity", () => {
     const rows = readSessionCostUsageRollupRows("main");
     expect(rows.map((row) => row.key)).toEqual([replacement.filePath]);
     const fingerprint = await resolveUsageCostPricingFingerprint(config, state.agentDir());
-    const rollups = readUsageCostRollups("main", fingerprint);
-    expect(rollups.get(replacement.filePath)?.entry.checkpoint).toMatchObject({
+    const rollup = expectDefined(
+      rows.find((row) => row.key === replacement.filePath),
+      "replacement archive rollup",
+    );
+    expect(decodeUsageCostRollup(rollup.valueJson, fingerprint)?.checkpoint).toMatchObject({
       kind: "jsonl",
       parsedOffset: Buffer.byteLength(serialize(manager)),
       observedSize: Buffer.byteLength(serialize(manager)),

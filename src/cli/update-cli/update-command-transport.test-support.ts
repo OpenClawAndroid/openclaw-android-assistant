@@ -49,7 +49,11 @@ export async function createUpdateCommandTransportFixture(transport: {
         // A probe must not run the install/restart effect double.
         return {
           code: 0,
-          stdout: JSON.stringify({ updateExecutor: "root-spawner-v1", targetRootBinding: true }),
+          stdout: JSON.stringify({
+            updateExecutor: "root-spawner-v1",
+            targetRootBinding: true,
+            definitionBackup: true,
+          }),
           stderr: "",
           signal: null,
           killed: false,

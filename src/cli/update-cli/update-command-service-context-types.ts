@@ -1,6 +1,14 @@
 import type { ServiceInspectionReason } from "../../daemon/service-inspection-error.js";
+import type { GatewayServiceDefinitionBackupReceipt } from "../../daemon/service-stage.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import type { WindowsTaskAutoStartRecovery } from "./update-command-windows-task.js";
+
+/** One native rewrite per finalization; subsequent activation preserves its publication. */
+export type UpdateServiceDefinitionRecovery = {
+  backup?: GatewayServiceDefinitionBackupReceipt;
+  preserved?: boolean;
+  unverified?: boolean;
+};
 
 export type ManagedGatewayUpdateVerdict =
   | { kind: "absent" | "foreign" }

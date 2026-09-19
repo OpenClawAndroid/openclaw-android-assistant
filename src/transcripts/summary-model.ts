@@ -105,11 +105,14 @@ export async function summarizeTranscriptsWithModel(params: {
     if (!models.length || !params.utterances.length) {
       return undefined;
     }
+    const base = summarizeTranscripts(params);
+    if (!base.transcript.length) {
+      return undefined;
+    }
     // Inference reaches the agent tool graph. Load it only for a selected model,
     // inside the deadline, so fallback-only notes do not load the agent runtime.
     const { runIsolatedCompletion, resolveSimpleCompletionSelectionForAgent } =
       await import("./summary-model.runtime.js");
-    const base = summarizeTranscripts(params);
     const prompt = buildSummaryPrompt(params.session, base);
     const seen = new Set<string>();
     for (const modelRef of models) {

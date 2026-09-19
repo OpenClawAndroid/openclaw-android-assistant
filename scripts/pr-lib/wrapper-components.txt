@@ -680,6 +680,7 @@ src/infra/sqlite-schema-sql.ts
 src/infra/sqlite-snapshot-policy.ts
 src/infra/sqlite-snapshot-single-flight.ts
 src/infra/sqlite-snapshot-source.ts
+src/infra/sqlite-snapshot-staging-owner.ts
 src/infra/sqlite-snapshot-staging.ts
 src/infra/sqlite-source-handle.ts
 src/infra/sqlite-strict.ts
@@ -950,6 +951,7 @@ src/plugins/provider-owner-index.ts
 src/plugins/provider-policy-owners.ts
 src/plugins/provider-policy-surface.ts
 src/plugins/provider-public-artifacts.ts
+src/plugins/provider-registry-index.ts
 src/plugins/provider-registry-selection.ts
 src/plugins/provider-registry-shared.ts
 src/plugins/provider-thinking-catalog.ts
@@ -964,6 +966,7 @@ src/plugins/runtime-degraded-state.ts
 src/plugins/runtime-state-key.ts
 src/plugins/runtime-state.ts
 src/plugins/runtime-workspace-state.ts
+src/plugins/runtime/execution-frame.ts
 src/plugins/runtime/gateway-request-scope.ts
 src/plugins/runtime/generation-scope.ts
 src/plugins/runtime/generation-state.ts

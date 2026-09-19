@@ -8,7 +8,7 @@ import { isTruthyEnvValue } from "../infra/env.js";
 import { UPDATE_RUNNER_TIMEOUT_MS } from "../infra/update-run-timeouts.js";
 import { runCommandWithTimeout } from "../process/exec.js";
 import type { DoctorOptions } from "./doctor-prompter.js";
-import { isServiceRepairExternallyManaged } from "./doctor-service-repair-policy.js";
+import { isServiceRepairDeferred } from "./doctor-service-repair-policy.js";
 
 async function resolveComparablePath(target: string): Promise<string> {
   return await fs.realpath(target).catch(() => path.resolve(target));
@@ -55,7 +55,7 @@ export async function maybeOfferUpdateBeforeDoctor(params: {
 
   const git = await detectOpenClawGitCheckout(params.root);
   if (git === "git") {
-    if (isServiceRepairExternallyManaged()) {
+    if (isServiceRepairDeferred()) {
       note(
         "Update through the external supervisor's stop/update/finalize/restart workflow. Continuing Doctor without updating OpenClaw.",
         "Update",

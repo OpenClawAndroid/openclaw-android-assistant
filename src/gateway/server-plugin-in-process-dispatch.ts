@@ -18,6 +18,7 @@ import { ADMIN_SCOPE, WRITE_SCOPE } from "./operator-scopes.js";
 import {
   dispatchGatewayRequestInProcessRaw,
   type GatewayMethodDispatchResponse,
+  throwIfGatewayDispatchAborted,
   unwrapGatewayMethodDispatchResponse,
 } from "./server-in-process-dispatch.js";
 import type { AgentRunRequest } from "./server-methods/agent-request-types.js";
@@ -120,6 +121,7 @@ type DispatchGatewayMethodInProcessOptions = {
   syntheticScopes?: string[];
   timeoutMs?: number;
   signal?: AbortSignal;
+  hasCurrentClientAuthority?: GatewayRequestOptions["hasCurrentClientAuthority"];
   resolveGatewayContext?: GatewayContextResolver;
   sessionMutationCommitGuard?: () => void;
 };
@@ -414,6 +416,7 @@ export async function dispatchGatewayMethodInProcessRaw(
       context: resolved.context,
       expectFinal: options?.expectFinal,
       isWebchatConnect: resolved.isWebchatConnect,
+      hasCurrentClientAuthority: options?.hasCurrentClientAuthority,
       methodRegistry: resolved.context.getGatewayMethodRegistry?.(),
       onAccepted: options?.onAccepted,
       onExecution: options?.onExecution,
@@ -421,6 +424,11 @@ export async function dispatchGatewayMethodInProcessRaw(
       requestIdPrefix: "plugin-subagent",
       sessionMutationCommitGuard: () => {
         resolved.assertContextCurrent();
+        // Nested RPCs keep the original request owner through preparation and final I/O.
+        throwIfGatewayDispatchAborted(method, options?.signal);
+        if (options?.hasCurrentClientAuthority?.() === false) {
+          throw new Error(`Gateway client authority closed before dispatching ${method}.`);
+        }
         options?.sessionMutationCommitGuard?.();
       },
       timeoutMs: options?.timeoutMs,

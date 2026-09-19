@@ -223,7 +223,6 @@ export class CodexAppServerClient {
   private readonly closeMessageReader: () => void;
   private readonly decoder = new CodexAppServerMessageDecoder(logCodexAppServerParseFailure);
   private readonly catalogWorker = new CodexCatalogWorker();
-  private catalogContinuation: CodexCatalogDecodeRoute | undefined;
   private catalogWorkerClosed: Promise<void> | undefined;
   private readonly pending = new Map<number | string, CodexRequestAttempt>();
   private readonly catalogResponses = new WeakMap<
@@ -264,7 +263,7 @@ export class CodexAppServerClient {
       child.stdout,
       (line) => {
         const route =
-          this.catalogContinuation ??
+          this.catalogWorker.continuation ??
           (this.decoder.hasPending ? undefined : readCodexCatalogDecodeRoute(line));
         if (route) {
           return this.decodeCatalogLine(line, route);
@@ -936,7 +935,6 @@ export class CodexAppServerClient {
     if (!decoded || this.closed) {
       return;
     }
-    this.catalogContinuation = decoded.pending ? route : undefined;
     for (const failure of decoded.failures) {
       logCodexAppServerParseFailure(failure.value, failure.error, failure.fragmentCount);
     }
@@ -1012,7 +1010,6 @@ export class CodexAppServerClient {
     this.closeError = error;
     this.closeMessageReader();
     this.decoder.clear();
-    this.catalogContinuation = undefined;
     this.catalogWorkerClosed = this.catalogWorker.close(error);
     void this.catalogWorkerClosed?.catch((closeError: unknown) => {
       embeddedAgentLog.warn("codex catalog worker shutdown failed", { error: closeError });

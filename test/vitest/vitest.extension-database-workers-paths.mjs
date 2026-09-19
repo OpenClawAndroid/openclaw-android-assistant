@@ -6,6 +6,14 @@ export const databaseWorkerExtensionTestRoots = [
 ];
 
 export const databaseWorkerExtensionTestFiles = [
+  "extensions/feishu/src/dedup.test.ts",
+  "extensions/feishu/src/bot.broadcast.test.ts",
+  "extensions/feishu/src/feishu-ingress.test.ts",
+  "extensions/feishu/src/monitor.lifecycle.test.ts",
+  "extensions/matrix/src/matrix/monitor/inbound-dedupe.test.ts",
+  "extensions/nextcloud-talk/src/doctor.test.ts",
+  "extensions/raft/src/gateway.test.ts",
+  "extensions/telegram/src/message-dispatch-dedupe.test.ts",
   "extensions/google-meet/index.create.test.ts",
   "extensions/google-meet/index.test.ts",
   "extensions/teams-meetings/index.test.ts",
@@ -27,6 +35,7 @@ export const databaseWorkerExtensionTestFiles = [
   "extensions/browser/plugin-registration.dashboard-discovery.test.ts",
   "extensions/browser/src/browser-dashboard.test.ts",
   "extensions/buzz/src/buzz-bus.socket.test.ts",
+  "extensions/buzz/src/buzz-bus.lifecycle.test.ts",
   "extensions/buzz/src/gateway.cold-start-recovery.test.ts",
   "extensions/clickclack/src/discussions/service-state-persistence.test.ts",
   "extensions/clickclack/src/sender-authority.test.ts",
@@ -167,6 +176,7 @@ export const databaseWorkerExtensionTestFiles = [
   "extensions/nostr/src/nostr-state-store.test.ts",
   "extensions/onepassword/src/tool-list.test.ts",
   "extensions/qa-lab/src/execution-identity-storage-inspection.test.ts",
+  "extensions/qa-lab/src/live-transports/matrix/scenarios/scenario-runtime-state-files.test.ts",
   "extensions/reef/doctor-contract-api.test.ts",
   "extensions/reef/src/channel.test.ts",
   "extensions/reef/src/flow-receipts.test.ts",

@@ -117,6 +117,7 @@ export async function expectActiveRollbackIdentity(params: {
     });
   }
   const outcome = await rollbackFailedUpdate({
+    definitionRecovery: {},
     result,
     previousRoot,
     configSnapshot,

@@ -31,7 +31,7 @@ import { withOpenClawTestState } from "../../../test-utils/openclaw-test-state.j
 import { mintAgentRuntimeIdentityToken } from "../../agent-runtime-identity-token.js";
 import type { AuthRateLimiter } from "../../auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "../../auth.js";
-import { ControlUiGitHubError } from "../../control-ui-github-api.js";
+import { gitHubPublicApi } from "../../github-public-api.js";
 import type { HealthSummary } from "../../health/types.js";
 import type { GatewayAttributedIngress } from "../../ingress-attribution.js";
 import { getGatewayLocalUserIngress } from "../../local-user-ingress.js";
@@ -1835,12 +1835,12 @@ describe("attachGatewayWsMessageHandler post-connect health refresh", () => {
       retryAfterMs: 1_000,
     },
     {
-      error: new ControlUiGitHubError(429, "private upstream failure"),
+      error: new gitHubPublicApi.ControlUiGitHubError(429, "private upstream failure"),
       message: "GitHub is rate limiting profile verification",
       retryAfterMs: 1_000,
     },
     {
-      error: new ControlUiGitHubError(429, "private upstream failure", {
+      error: new gitHubPublicApi.ControlUiGitHubError(429, "private upstream failure", {
         retryAtMs: 1_800_000_090_000,
       }),
       message: "GitHub is rate limiting profile verification",

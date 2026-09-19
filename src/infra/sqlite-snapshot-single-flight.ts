@@ -7,6 +7,7 @@ import { readDatabasePathIdentitySync } from "./sqlite-worker-identity.js";
 
 type SnapshotFlight = {
   base?: PreparedSqliteReadOnlyLocation;
+  cleanupFailure?: { error: unknown };
   controller: AbortController;
   leases: number;
   promise: Promise<PreparedSqliteReadOnlyLocation>;
@@ -125,7 +126,10 @@ function leaseFlight(
 export async function prepareSingleFlightSqliteSnapshot(
   databasePath: string,
   operation: string,
-  producer: (signal: AbortSignal) => Promise<PreparedSqliteReadOnlyLocation>,
+  producer: (
+    signal: AbortSignal,
+    recordCleanupFailure: (error: unknown) => void,
+  ) => Promise<PreparedSqliteReadOnlyLocation>,
   signal?: AbortSignal,
   lifecycle?: {
     trackProducer?: (producer: Promise<PreparedSqliteReadOnlyLocation>) => void;
@@ -137,7 +141,11 @@ export async function prepareSingleFlightSqliteSnapshot(
   if (!flight) {
     const controller = new AbortController();
     const waitersDrained = createDeferredCore();
-    const produced = Promise.resolve().then(() => producer(controller.signal));
+    const produced = Promise.resolve().then(() =>
+      producer(controller.signal, (error) => {
+        flight!.cleanupFailure ??= { error };
+      }),
+    );
     flight = {
       controller,
       leases: 0,
@@ -173,6 +181,7 @@ export async function prepareSingleFlightSqliteSnapshot(
               throw new Error("SQLite orphan snapshot cleanup did not complete");
             }
           } catch (error) {
+            flight!.cleanupFailure ??= { error };
             // Prepared locations retain failed removals in the existing temp
             // directory registry for signal/exit retry; never drop that owner.
             try {
@@ -196,20 +205,33 @@ export async function prepareSingleFlightSqliteSnapshot(
   }
   lifecycle?.trackProducer?.(flight.settled);
   flight.waiters += 1;
+  let outcome: { value: PreparedSqliteReadOnlyLocation } | { error: unknown };
   try {
     const base = await waitForFlight(flight.promise, signal);
     signal?.throwIfAborted();
-    return leaseFlight(key, flight, base);
-  } finally {
-    flight.waiters -= 1;
-    if (flight.waiters === 0) {
-      flight.finishWaiters();
-    }
-    cleanupUnleasedFlight(key, flight);
-    if (flight.waiters === 0 && flight.leases === 0 && !lifecycle?.trackProducer) {
-      // A standalone last caller is the cleanup owner. Only an explicit
-      // enclosing lifecycle may take custody and let that caller detach.
-      await flight.settled.catch(() => undefined);
+    outcome = { value: leaseFlight(key, flight, base) };
+  } catch (error) {
+    outcome = { error };
+  }
+  flight.waiters -= 1;
+  if (flight.waiters === 0) {
+    flight.finishWaiters();
+  }
+  cleanupUnleasedFlight(key, flight);
+  if (flight.waiters === 0 && flight.leases === 0 && !lifecycle?.trackProducer) {
+    // A standalone last caller is the cleanup owner. Only an explicit
+    // enclosing lifecycle may take custody and let that caller detach.
+    try {
+      await flight.settled;
+    } catch {
+      // Preserve caller cancellation unless cleanup recorded an independent failure.
+      if (flight.cleanupFailure) {
+        throw flight.cleanupFailure.error;
+      }
     }
   }
+  if ("error" in outcome) {
+    throw outcome.error;
+  }
+  return outcome.value;
 }

@@ -4,13 +4,18 @@ import path from "node:path";
 import { extractErrorCode } from "@openclaw/normalization-core/error-coercion";
 import { getChildLogger } from "../logging/logger.js";
 import { openNodeSqliteDatabase, resolveExistingSqliteFileUri } from "./node-sqlite.js";
+import { markSqliteInspectionOperation } from "./sqlite-error-diagnostics.js";
 import {
   createPrivateSqliteTempDirectorySync,
   resolvePrivateSqliteSnapshotStagingRoot,
 } from "./sqlite-private-directory.js";
 import {
   registerSnapshotTempDirectory,
+  registerAsyncSnapshotTempDirectory,
   removeTempDirectory,
+  removeTempDirectoryAsync,
+  retainSnapshotWork,
+  SqliteSnapshotCleanupError,
   SQLITE_SNAPSHOT_CONTROL_FILES,
 } from "./sqlite-readonly-location-cleanup.js";
 
@@ -98,6 +103,11 @@ function snapshotToken(directory: string, mode: "create" | "read" | "reclaim"): 
   }
 }
 
+/** A private reader protects its bytes independently of the staging child. */
+export function acquireSqliteSnapshotReadToken(directory: string): () => void {
+  return snapshotToken(directory, "read");
+}
+
 function inspectSnapshot(
   directory: string,
   tokens: SnapshotToken[] | undefined,
@@ -170,6 +180,25 @@ function inspectSnapshot(
     );
   }
   return { bytes, newest };
+}
+
+/** Reconcile only after the token process closed; active readers still fence reclamation. */
+export function reconcileSqliteSnapshotRetirement(directory: string): void {
+  if (!fs.lstatSync(directory, { throwIfNoEntry: false })) {
+    return;
+  }
+  const tokens: SnapshotToken[] = [];
+  try {
+    // Explicit retirement has confirmed owner exit; nested legacy layouts keep their age clamp.
+    inspectSnapshot(directory, tokens, Number.POSITIVE_INFINITY);
+    for (const token of tokens) {
+      token(true);
+    }
+  } finally {
+    for (const token of tokens) {
+      token();
+    }
+  }
 }
 
 export function* reclaimAbandonedSqliteSnapshots(root: string, report = warn): Generator<void> {
@@ -253,12 +282,90 @@ export function reclaimAbandonedSqliteSnapshotsAsync(
   return pass.done;
 }
 
-export async function allocateSqliteSnapshotStagingDirectory(
+export function sqliteSnapshotStagingError(
+  tempDir: string,
+  cause: unknown,
+  allocation = false,
+): unknown {
+  markSqliteInspectionOperation(cause, "snapshot");
+  for (let depth = 0, error = cause; depth < 8 && error instanceof Error; depth += 1) {
+    const { code, errcode, path: errorPath }: NodeJS.ErrnoException & { errcode?: unknown } = error;
+    // SQLite FULL and IOERR_WRITE/FSYNC/DIR_FSYNC identify destination writes.
+    if (
+      allocation ||
+      ["ENOSPC", "EDQUOT"].includes(code ?? "") ||
+      (typeof errcode === "number" && [13, 778, 1034, 1290].includes(errcode)) ||
+      `${errorPath ?? ""}${path.sep}`.startsWith(`${tempDir}${path.sep}`)
+    ) {
+      const message = `${cause instanceof Error ? cause.message : String(cause)}${typeof errcode === "number" ? ` (SQLite errcode=${errcode})` : ""}; snapshot staging root ${allocation ? tempDir : path.dirname(tempDir)}: free disk space/quota or set XDG_CACHE_HOME to a writable filesystem`;
+      return new Error(message, { cause });
+    }
+    error = error.cause;
+  }
+  return cause;
+}
+
+export async function createSqliteSnapshotStagingDirectory(
+  stagingRoot = resolvePrivateSqliteSnapshotStagingRoot(),
+  allowLegacyWorker = false,
+  signal?: AbortSignal,
+  asynchronousCleanup = false,
+): Promise<string> {
+  signal?.throwIfAborted();
+  try {
+    return await allocateSqliteSnapshotStagingDirectory(
+      stagingRoot,
+      allowLegacyWorker,
+      signal,
+      asynchronousCleanup,
+    );
+  } catch (error) {
+    if (
+      error instanceof SqliteSnapshotCleanupError ||
+      (asynchronousCleanup && error instanceof AggregateError)
+    ) {
+      throw error;
+    }
+    signal?.throwIfAborted();
+    throw sqliteSnapshotStagingError(stagingRoot, error, true);
+  }
+}
+
+async function allocateSqliteSnapshotStagingDirectory(
   root = resolvePrivateSqliteSnapshotStagingRoot(),
   allowLegacyWorker = false,
   signal?: AbortSignal,
+  asynchronousCleanup = false,
 ): Promise<string> {
   signal?.throwIfAborted();
+  if (asynchronousCleanup) {
+    const controller = new AbortController();
+    return retainSnapshotWork(
+      (async () => {
+        const { allocateWorkerOwnedSqliteSnapshotDirectory } =
+          await import("./sqlite-snapshot-staging-owner.js");
+        signal?.throwIfAborted();
+        controller.signal.throwIfAborted();
+        const owned = await allocateWorkerOwnedSqliteSnapshotDirectory(
+          root,
+          allowLegacyWorker,
+          signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+        );
+        registerAsyncSnapshotTempDirectory(owned.directory, owned.retire);
+        if (signal?.aborted || controller.signal.aborted) {
+          if (!(await removeTempDirectoryAsync(owned.directory))) {
+            throw new SqliteSnapshotCleanupError(
+              `SQLite snapshot cleanup failed: ${owned.directory}`,
+            );
+          }
+          signal?.throwIfAborted();
+          controller.signal.throwIfAborted();
+        }
+        return owned.directory;
+      })(),
+      () => controller.abort(new Error("SQLite snapshot allocation stopped")),
+    );
+  }
   return createSqliteSnapshotStagingDirectorySync(root, allowLegacyWorker);
 }
 
@@ -266,6 +373,16 @@ export function createSqliteSnapshotStagingDirectorySync(
   root = resolvePrivateSqliteSnapshotStagingRoot(),
   allowLegacyWorker = false,
 ): string {
+  const owned = createSqliteSnapshotStagingTokenSync(root, allowLegacyWorker);
+  registerSnapshotTempDirectory(owned.directory, owned.release);
+  return owned.directory;
+}
+
+/** Token workers retain native handles; only the calling process owns byte cleanup. */
+export function createSqliteSnapshotStagingTokenSync(
+  root = resolvePrivateSqliteSnapshotStagingRoot(),
+  allowLegacyWorker = false,
+): { directory: string; release: SnapshotToken } {
   // A shared parent token fences admission until the child's own token is held.
   // No mkdir of root: a late orphan must abort if reclamation already won.
   const parentDirectory = stagingParent(root);
@@ -277,8 +394,7 @@ export function createSqliteSnapshotStagingDirectorySync(
       root,
       allowLegacyWorker ? `openclaw-sqlite-readonly-${process.pid}-` : prefix,
     );
-    registerSnapshotTempDirectory(directory, snapshotToken(directory, "create"));
-    return directory;
+    return { directory, release: snapshotToken(directory, "create") };
   } catch (error) {
     if (directory) {
       removeTempDirectory(directory);

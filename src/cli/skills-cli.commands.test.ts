@@ -131,9 +131,6 @@ const mocks = vi.hoisted(() => {
     readTrackedClawHubSkillSlugsMock: vi.fn(),
     readVerifiedClawHubSkillSourceUrlMock: vi.fn(),
     resolveClawHubSkillVerificationTargetMock: vi.fn(),
-    readClawHubSkillsLockfileStatusSyncMock: vi.fn((..._args: unknown[]) => ({ kind: "missing" })),
-    resolveClawHubSkillStatusLinkSyncMock: vi.fn(),
-    resolveLocalSkillCardStatusSyncMock: vi.fn(),
     verifySkillWithClawHubMock: vi.fn(),
     fetchClawHubSkillCardMock: vi.fn(),
     buildWorkspaceSkillStatusMock,
@@ -158,9 +155,6 @@ const {
   readTrackedClawHubSkillSlugsMock,
   readVerifiedClawHubSkillSourceUrlMock,
   resolveClawHubSkillVerificationTargetMock,
-  readClawHubSkillsLockfileStatusSyncMock,
-  resolveClawHubSkillStatusLinkSyncMock,
-  resolveLocalSkillCardStatusSyncMock,
   verifySkillWithClawHubMock,
   fetchClawHubSkillCardMock,
   buildWorkspaceSkillStatusMock,
@@ -290,12 +284,6 @@ vi.mock("../skills/lifecycle/clawhub.js", () => ({
     mocks.readVerifiedClawHubSkillSourceUrlMock(...args),
   resolveClawHubSkillVerificationTarget: (...args: unknown[]) =>
     mocks.resolveClawHubSkillVerificationTargetMock(...args),
-  readClawHubSkillsLockfileStatusSync: (...args: unknown[]) =>
-    mocks.readClawHubSkillsLockfileStatusSyncMock(...args),
-  resolveClawHubSkillStatusLinkSync: (...args: unknown[]) =>
-    mocks.resolveClawHubSkillStatusLinkSyncMock(...args),
-  resolveLocalSkillCardStatusSync: (...args: unknown[]) =>
-    mocks.resolveLocalSkillCardStatusSyncMock(...args),
   verifySkillWithClawHub: (...args: unknown[]) => mocks.verifySkillWithClawHubMock(...args),
 }));
 
@@ -357,9 +345,6 @@ describe("skills cli commands", () => {
     readTrackedClawHubSkillSlugsMock.mockReset();
     readVerifiedClawHubSkillSourceUrlMock.mockReset();
     resolveClawHubSkillVerificationTargetMock.mockReset();
-    readClawHubSkillsLockfileStatusSyncMock.mockReset();
-    resolveClawHubSkillStatusLinkSyncMock.mockReset();
-    resolveLocalSkillCardStatusSyncMock.mockReset();
     verifySkillWithClawHubMock.mockReset();
     fetchClawHubSkillCardMock.mockReset();
     buildWorkspaceSkillStatusMock.mockReset();
@@ -393,9 +378,6 @@ describe("skills cli commands", () => {
     updateSkillsFromClawHubMock.mockResolvedValue([]);
     readTrackedClawHubSkillSlugsMock.mockResolvedValue([]);
     readVerifiedClawHubSkillSourceUrlMock.mockReturnValue(undefined);
-    readClawHubSkillsLockfileStatusSyncMock.mockReturnValue({ kind: "missing" });
-    resolveClawHubSkillStatusLinkSyncMock.mockReturnValue(undefined);
-    resolveLocalSkillCardStatusSyncMock.mockReturnValue(undefined);
     resolveClawHubSkillVerificationTargetMock.mockResolvedValue({
       ok: true,
       slug: "agentreceipt",

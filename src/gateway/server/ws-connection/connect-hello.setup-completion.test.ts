@@ -33,6 +33,7 @@ vi.mock("../../../state/user-profiles.js", () => ({
 }));
 
 vi.mock("../../control-ui-plugin-tabs.js", () => ({
+  listControlUiLinkReaders: vi.fn(() => []),
   listControlUiPluginTabs: vi.fn(() => []),
   listControlUiPluginWidgetKinds: vi.fn(() => []),
 }));

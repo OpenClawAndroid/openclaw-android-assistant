@@ -4,6 +4,10 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { toErrorObject } from "../../infra/errors.js";
 import { resolveExecutablePath } from "../../infra/executable-path.js";
 import { mergePathPrepend } from "../../infra/path-prepend.js";
+import {
+  resolveWindowsExecutablePath,
+  resolveWindowsSpawnProgramCandidate,
+} from "../../plugin-sdk/windows-spawn.js";
 import type {
   CliBackendExecute,
   CliBackendToolPermissionRequest,
@@ -436,9 +440,25 @@ export async function executePluginOwnedProcess(params: {
 }): Promise<RunExit> {
   const run = params.context.params;
   const cwd = params.context.cwd ?? params.context.workspaceDir;
-  const command = resolveExecutablePath(params.executionCommand, { cwd, env: params.env });
+  const executable =
+    process.platform === "win32"
+      ? resolveWindowsExecutablePath(params.executionCommand, params.env, cwd)
+      : params.executionCommand;
+  let command = resolveExecutablePath(executable, { cwd, env: params.env });
   if (!command) {
     throw new Error(`CLI backend executable could not be resolved: ${params.executionCommand}`);
+  }
+  let executionArgs = params.executionArgs;
+  if (process.platform === "win32") {
+    const program = resolveWindowsSpawnProgramCandidate({ command, env: params.env });
+    // npm launchers need the child PATH's Node, not a packaged OpenClaw executable.
+    command =
+      program.resolution === "node-entrypoint"
+        ? resolveWindowsExecutablePath("node", params.env, cwd)
+        : program.command;
+    if (program.leadingArgv.length > 0) {
+      executionArgs = [...program.leadingArgv, ...executionArgs];
+    }
   }
 
   const startedAt = Date.now();
@@ -527,7 +547,7 @@ export async function executePluginOwnedProcess(params: {
     if (params.liveSession) {
       liveSession = createCliLiveSessionCapability({
         context: params.context,
-        argv: [command, ...params.executionArgs],
+        argv: [command, ...executionArgs],
         argv0: params.executionArgv0,
         env: params.env,
         ...params.liveSession,
@@ -544,7 +564,7 @@ export async function executePluginOwnedProcess(params: {
     const execution = params.execute({
       command,
       argv0: params.executionArgv0,
-      args: params.executionArgs,
+      args: executionArgs,
       cwd,
       env: params.env,
       prompt: params.prompt,

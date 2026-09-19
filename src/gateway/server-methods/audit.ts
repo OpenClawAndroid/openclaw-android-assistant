@@ -21,9 +21,9 @@ import type {
 import {
   ExecutionDecisionCursorError,
   isExecutionDecisionCursor,
-  type InternalAuditRunInspectResult,
 } from "../../audit/execution-decision-receipts.js";
 import { inspectExecutionIdentityRun } from "../../audit/execution-identity-context.js";
+import type { InternalAuditRunInspectResult } from "../../audit/execution-identity-inspection.types.js";
 import type { GatewayRequestHandlers } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
@@ -193,7 +193,7 @@ export const auditHandlers: GatewayRequestHandlers = {
       ...(page.nextCursor !== undefined ? { nextCursor: String(page.nextCursor) } : {}),
     });
   },
-  "audit.run.inspect": ({ params, respond }) => {
+  "audit.run.inspect": async ({ params, respond }) => {
     if (!assertValidParams(params, validateAuditRunInspectParams, "audit.run.inspect", respond)) {
       return;
     }
@@ -220,7 +220,7 @@ export const auditHandlers: GatewayRequestHandlers = {
       respond(
         true,
         serializeAuditRunInspectResult(
-          inspectExecutionIdentityRun({
+          await inspectExecutionIdentityRun({
             ...(typeof params.runId === "string"
               ? {
                   runId: params.runId,

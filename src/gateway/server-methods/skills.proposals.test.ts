@@ -44,10 +44,7 @@ vi.mock("../../agents/agent-scope.js", () => ({
 
 vi.mock("../../skills/lifecycle/clawhub.js", () => ({
   installSkillFromClawHub: vi.fn(),
-  readClawHubSkillsLockfileStatusSync: vi.fn(() => ({ kind: "missing" })),
   readLocalSkillCardContentSync: vi.fn(),
-  resolveClawHubSkillStatusLinkSync: vi.fn(),
-  resolveLocalSkillCardStatusSync: vi.fn(),
   searchSkillsFromClawHub: vi.fn(),
   updateSkillsFromClawHub: vi.fn(),
 }));
@@ -86,12 +83,6 @@ vi.mock("../../skills/workshop/service.js", async (importOriginal) => {
     reviseSkillProposal: mocks.reviseSkillProposal,
   };
 });
-
-vi.mock("./chat.js", () => ({
-  chatHandlers: {
-    "chat.send": mocks.chatSend,
-  },
-}));
 
 vi.mock("./chat-send-handler.js", () => ({
   handleChatSend: mocks.chatSend,

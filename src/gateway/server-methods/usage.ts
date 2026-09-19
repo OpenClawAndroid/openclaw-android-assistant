@@ -39,6 +39,7 @@ import {
 import { loadCostUsageSummaryCached, loadSessionsUsageResultCached } from "./usage-result-cache.js";
 import { loadUsageSessionSummaries } from "./usage-session-loading.js";
 import {
+  loadUsageSessionContext,
   resolveSessionUsageTarget,
   selectUsageSessions,
   UsageSessionInvalidRequestError,
@@ -257,6 +258,7 @@ export const usageHandlers: GatewayRequestHandlers = {
             groupingMode,
             startMs,
             endMs,
+            limit,
             visibilityFilter,
           });
 
@@ -271,6 +273,7 @@ export const usageHandlers: GatewayRequestHandlers = {
             includeUntimestamped,
             dayBucket,
           });
+          loadUsageSessionContext(mergedEntries, visibilityFilter);
 
           for (const [entryIndex, merged] of mergedEntries.entries()) {
             const agentId = merged.agentId;
@@ -301,10 +304,8 @@ export const usageHandlers: GatewayRequestHandlers = {
                 modelProvider: merged.storeEntry?.modelProvider,
                 model: merged.storeEntry?.model,
                 usage,
-                hasContextWeight: Boolean(merged.storeEntry?.systemPromptReport),
-                contextWeight: includeContextWeight
-                  ? (merged.storeEntry?.systemPromptReport ?? null)
-                  : undefined,
+                hasContextWeight: Boolean(merged.contextWeight),
+                contextWeight: includeContextWeight ? (merged.contextWeight ?? null) : undefined,
               });
             }
           }

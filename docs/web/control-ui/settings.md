@@ -524,7 +524,7 @@ automatically every three seconds. **Live capture** shows elapsed time; an empty
 active transcript says **Waiting for speech**. Updates show saved speech, so
 provider capture and transcription can add latency. Background reads preserve
 filter drafts, the current transcript page, and loaded history without a loading
-flash. Use **Load more** to continue past the current page. Hidden tabs pause
+flash. The reader automatically loads every page and retains earlier text. Hidden tabs pause
 automatic reads and catch up when visible again. Completed meetings refresh less
 frequently once notes are available; a meeting without notes keeps checking for
 the stored summary after capture stops.
@@ -537,11 +537,12 @@ interim notes and shows when they were generated. Capture continues during
 summary generation, and stopping the meeting saves a fresh final summary.
 
 **Search within this transcript** searches the full stored transcript in bounded
-server pages. **Load more** continues through utterances or matches; only the
-latest five loaded pages stay in the browser's reading window. **Read from
-beginning** returns to the first page. **Summary** renders the stored Markdown
+server pages that load automatically until the complete transcript or all matches
+are visible. **Summary** renders the stored Markdown
 notes with the transcript section kept in the separate **Transcript** tab, and labels model-generated or
-heuristic provenance when available. Opening this tab does not run a summary job.
+heuristic provenance when available. Opening a meeting with speech but no saved
+summary automatically requests generation for operators with write access. A
+generating state remains visible until notes arrive; failures offer a retry.
 Missing summaries and empty transcripts have distinct empty states.
 Saved summaries load independently of speech pages. If a transcript page exceeds
 its transfer limit, you can still read the saved notes and download an export

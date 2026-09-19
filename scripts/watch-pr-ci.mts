@@ -4,6 +4,7 @@ import { parseArgs as parseNodeArgs } from "node:util";
 import { z } from "zod";
 import { isDirectRunUrl } from "./lib/direct-run.mjs";
 import { execGhJson, workflowRunsApiArgs } from "./lib/plain-gh.mjs";
+import { readPrMetadata } from "./pr-lib/github.mjs";
 
 const USAGE =
   "Usage: node scripts/watch-pr-ci.mjs <pr-number> <head-sha> [--repo owner/repo] [--after run-id] [--attach-timeout 900] [--timeout 3600] [--interval 120] [--completion rollup|ci-run]";
@@ -404,13 +405,23 @@ function ghReadOptions(deadline?: number) {
   return { ...GH_READ_OPTIONS, timeout: Math.min(GH_READ_OPTIONS.timeout, remaining) };
 }
 
-const readPr = (pr: number, repo: string, deadline?: number) =>
-  RollupPageSchema.parse(
+function readPr(pr: number, repo: string, completion: string, deadline?: number) {
+  if (completion === "ci-run") {
+    // Repository resolution and metadata share one read budget, including diagnostics.
+    const readDeadline = Date.now() + ghReadOptions(deadline).timeout;
+    return RollupPageSchema.parse(
+      readPrMetadata(pr, repo, ["state", "mergeable", "headRefOid"], () =>
+        ghReadOptions(readDeadline),
+      ),
+    );
+  }
+  return RollupPageSchema.parse(
     execGhJson(
       `pr view ${pr} --repo ${repo} --json state,mergeable,headRefOid`.split(" "),
       ghReadOptions(deadline),
     ),
   );
+}
 export const buildFindRunArgs = (repo: string, sha: string) =>
   workflowRunsApiArgs(repo, sha, "pull_request", 20);
 export const selectRunAfter = (runs: RunListItem[], after?: number) =>
@@ -799,10 +810,10 @@ export async function pollUntilDeadline<T>({
 }
 function retry(phase: string, error: unknown) {
   const message = (error instanceof Error ? error.message : String(error)).replaceAll(/\s+/gu, " ");
-  // Run-scoped proxy credentials cannot recover while this process keeps polling.
+  // Revoked proxy credentials cannot recover while this process keeps polling.
   if (/\bProxy Authentication Required\b/iu.test(message)) {
     throw new Error(
-      `PROXY-AUTH-FAILED phase=${phase} status=407 hint="Restart the watcher in an active run with valid proxy authentication; run-scoped credentials expire when their owning run closes."`,
+      `PROXY-AUTH-FAILED phase=${phase} status=407 hint="Restart the watcher in an active run to obtain a new proxy grant."`,
     );
   }
   console.log(`RETRY phase=${phase} error=${message}`);
@@ -836,7 +847,7 @@ async function main(argv = process.argv.slice(2)) {
     interval: args.interval,
     poll: () => {
       try {
-        const blocked = precheck(readPr(args.pr, args.repo), args.headSha);
+        const blocked = precheck(readPr(args.pr, args.repo, args.completion), args.headSha);
         if (blocked !== null) {
           return { exitCode: blocked };
         }
@@ -887,7 +898,11 @@ async function main(argv = process.argv.slice(2)) {
     poll: () => {
       try {
         if (args.completion === "ci-run") {
-          const blocked = precheck(readPr(args.pr, args.repo, watchDeadline), args.headSha, true);
+          const blocked = precheck(
+            readPr(args.pr, args.repo, "ci-run", watchDeadline),
+            args.headSha,
+            true,
+          );
           if (blocked !== null) {
             return blocked;
           }

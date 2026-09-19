@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { enableNodeSqliteKyselyStatementCache } from "../infra/kysely-sync-cache-state.js";
 import type { OpenClawAgentDatabaseOptions } from "./openclaw-agent-db-contract.js";
 import { isOpenClawAgentDatabasePathCurrent } from "./openclaw-agent-db-identity.js";
 import {
@@ -66,6 +67,7 @@ export class OpenClawAgentDatabaseReadOnlyScope {
         return opened;
       }
       this.database = opened.database;
+      enableNodeSqliteKyselyStatementCache(this.database.db);
     } else if (!hasOpenClawAgentReadOnlySchema(this.database)) {
       this.database.close();
       this.database = undefined;

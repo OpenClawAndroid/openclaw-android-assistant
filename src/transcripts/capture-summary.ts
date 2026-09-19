@@ -1,5 +1,6 @@
 import { resolveDefaultAgentId } from "../agents/agent-scope-config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { isTranscriptArtifactText } from "../media-understanding/transcription-text.js";
 import { runWithGatewayDetachedWorkAdmission } from "../process/gateway-work-admission.js";
 import {
   AsyncWorkScope,
@@ -193,18 +194,38 @@ async function persistSnapshot(
   }
 }
 
+async function readCurrentSnapshot(params: SummaryParams) {
+  params.assertCurrent?.();
+  const snapshot = await params.store.readSummarySnapshot(
+    params.session,
+    params.config.maxUtterances,
+  );
+  params.assertCurrent?.();
+  if (!snapshot) {
+    throw new TranscriptsSummaryChangedError();
+  }
+  return snapshot;
+}
+
 export function persistTranscriptSummary(params: SummaryParams) {
+  return enqueueSummary(params, async (lane, owned) =>
+    persistSnapshot(owned, lane, await readCurrentSnapshot(owned)),
+  );
+}
+
+/** Missing-note requests share the capture lane and never replace saved notes. */
+export function ensureTranscriptSummary(params: SummaryParams) {
   return enqueueSummary(params, async (lane, owned) => {
     owned.assertCurrent?.();
-    const snapshot = await params.store.readSummarySnapshot(
-      params.session,
-      params.config.maxUtterances,
-    );
+    const stored = await params.store.readSummary(params.session);
     owned.assertCurrent?.();
-    if (!snapshot) {
-      throw new TranscriptsSummaryChangedError();
+    if (stored.summary || stored.markdown !== undefined) {
+      return;
     }
-    return await persistSnapshot(owned, lane, snapshot);
+    const snapshot = await readCurrentSnapshot(owned);
+    if (snapshot.utterances.some((utterance) => !isTranscriptArtifactText(utterance.text))) {
+      await persistSnapshot(owned, lane, snapshot);
+    }
   });
 }
 

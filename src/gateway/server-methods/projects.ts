@@ -41,7 +41,7 @@ import { readCurrentUserProfileAliases } from "../../state/user-profile-list.js"
 import {
   CONTROL_UI_GITHUB_CREDENTIAL_UNAVAILABLE_MESSAGE,
   githubApiToken,
-} from "../control-ui-github-api.js";
+} from "../github-public-api.js";
 import { WRITE_SCOPE, authorizeOperatorScopesForRequiredScope } from "../method-scopes.js";
 import { searchRemoteProjects } from "../project-github-search.js";
 import { createSessionListEntryFilter } from "../session-sharing.js";

@@ -86,7 +86,9 @@ with `scripts/update-gateway.sh` from inside that checkout. It is the reference
 for a source-server update: it fails closed on all tracked local changes,
 including build outputs, fast-forwards `main` (or rebases a local server branch
 onto `origin/main`), installs dependencies with a frozen lockfile, builds clean,
-and restarts the gateway only after the build succeeds.
+and stops the gateway before replacing its build output. If the build fails, it
+restores the previous output and restarts that build while still returning the
+build failure.
 
 Like `openclaw update`, the script builds runtime JavaScript, plugin assets, and
 the Control UI without generating TypeScript declarations by default. Set
@@ -103,12 +105,17 @@ the target pin or install a compatible Corepack, then retry.
 
 The same fetched commit is used for fast-forward or rebase. This is a fetched-target
 toolchain preflight, not a complete preflight of a rebased local branch or its
-build, and the script does not roll back later install or build failures. Local
-branch overrides remain in effect: install and build resolve the resulting
+build. The build rollback covers generated output, not Git, installed dependencies,
+or configuration. Local branch overrides remain in effect: install and build resolve the resulting
 checkout's pin, which may differ from the probed target pin. Operators must verify
 those overrides and maintain a recovery path. The same shim directory leads
 nested commands' `PATH`, and child workspace and lockfile roots follow each
-operation's directory. Bootstrap, install, or build failure prevents restart.
+operation's directory. Bootstrap or install failure leaves service lifecycle
+untouched. During the build, the updater owns all generated output roots, including
+package-local `dist` directories. If restoration cannot finish or build writers
+have not stopped, it leaves the service stopped and reports the retained backup
+path. If restart of a successful new build fails, it retains the previous output
+without replacing chunks that a new process may already be using.
 The hosted [installers](/install/installer) also support npm-owned temporary provisioning
 when Corepack is unavailable; this server script deliberately requires Corepack.
 
@@ -131,10 +138,22 @@ building a source checkout.
 ssh you@server 'cd /path/to/openclaw && scripts/update-gateway.sh'
 ```
 
-Override the restart for custom service units, or skip it entirely:
+The default stop command is `openclaw gateway stop --force`, so non-interactive
+SSH updates can stop the service. Override both commands for custom service units:
 
 ```bash
-OPENCLAW_UPDATE_RESTART_CMD='systemctl --user restart openclaw-gateway.service' scripts/update-gateway.sh
+OPENCLAW_UPDATE_STOP_CMD='systemctl --user stop openclaw-gateway.service' \
+OPENCLAW_UPDATE_RESTART_CMD='systemctl --user restart openclaw-gateway.service' \
+  scripts/update-gateway.sh
+```
+
+Custom automatic commands must be provided together and must not be blank.
+An exactly empty restart command keeps the operator-owned manual lifecycle:
+stop the Gateway yourself before invoking the script, then restart it yourself
+after resolving any failure. Do not also set a stop override in this mode.
+The script performs no automatic stop, restart, or build-output rollback:
+
+```bash
 OPENCLAW_UPDATE_RESTART_CMD='' scripts/update-gateway.sh
 ```
 

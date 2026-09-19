@@ -276,11 +276,11 @@ export async function handleCodexSubcommand(
     if (rest.length > 0) {
       return { text: "Usage: /codex stop" };
     }
-    return { text: await stopConversationTurn(deps, ctx, options.pluginConfig) };
+    return { text: await stopConversationTurn(deps, ctx) };
   }
   if (normalized === "steer") {
     return {
-      text: await steerConversationTurn(deps, ctx, options.pluginConfig, rest.join(" ")),
+      text: await steerConversationTurn(deps, ctx, rest.join(" ")),
     };
   }
   if (normalized === "model") {

@@ -10,10 +10,8 @@ import {
   type SessionPublicShare,
   type SessionMember,
   type SessionMemberEvidence,
-  type SessionCreatedActor,
   type SessionSharingEvent,
   type SessionSharingEvidenceEvent,
-  type SessionSharingIdentity,
   type SessionVisibility,
 } from "../../../packages/gateway-protocol/src/index.js";
 import {
@@ -38,6 +36,7 @@ import {
 import { bumpGatewayAccessRevision } from "../gateway-access-revision.js";
 import { getGatewayLocalUserIngress } from "../local-user-ingress.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
+import { getSessionRowProjection } from "../session-row-projection-access.js";
 import {
   allowedSessionVisibilities,
   canManageSessionSharing,
@@ -47,9 +46,9 @@ import {
   resolveSessionSharingTarget,
   resolveSessionVisibility,
 } from "../session-sharing.js";
-import { loadCombinedSessionStoreForGatewayCore } from "../session-utils.js";
 import { gatewayClientSessionCreator } from "./gateway-client-identity.js";
 import { emitSessionsChanged } from "./session-change-event.js";
+import { knownSessionIdentities, type SharingActorFacts } from "./sessions-sharing-identities.js";
 import type { GatewayClient, GatewayRequestContext, GatewayRequestHandlers } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
@@ -69,11 +68,6 @@ function runExclusiveSharingMutation<T>(
 const UNKNOWN_SHARING_ACTOR_STORAGE_REF = "actor-evidence:unknown";
 const UNATTRIBUTED_SHARING_ACTOR_STORAGE_REF = "actor-evidence:unattributed";
 const LEGACY_SYNTHETIC_SHARING_ACTOR_STORAGE_REFS = new Set(["local-operator", "operator.admin"]);
-
-type SharingActorFacts =
-  | { state: "present"; actor: SessionSharingIdentity }
-  | { state: "unknown" }
-  | { state: "absent" };
 
 function actorIdentity(client: GatewayClient | null): SharingActorFacts {
   const principal = gatewayClientSessionCreator(client);
@@ -221,40 +215,6 @@ function requireCurrentManagedTarget(params: {
   return current;
 }
 
-function knownSessionIdentities(params: {
-  cfg: ReturnType<GatewayRequestContext["getRuntimeConfig"]>;
-  actor: SharingActorFacts;
-  profiles: Awaited<ReturnType<typeof listProfiles>>;
-}): SessionSharingIdentity[] {
-  const identities = new Map<string, SessionSharingIdentity>();
-  const remember = (identity: SessionCreatedActor | null) => {
-    if (!identity?.id) {
-      return;
-    }
-    const current = identities.get(identity.id);
-    identities.set(identity.id, {
-      type: identity.type,
-      id: identity.id,
-      ...((identity.label ?? current?.label) ? { label: identity.label ?? current?.label } : {}),
-    });
-  };
-  if (params.actor.state === "present") {
-    remember(params.actor.actor);
-  }
-  const { store } = loadCombinedSessionStoreForGatewayCore(params.cfg, { projection: "list" });
-  for (const entry of Object.values(store)) {
-    remember(entry.createdActor ?? null);
-  }
-  for (const profile of params.profiles) {
-    remember({
-      type: "human",
-      id: profile.id,
-      ...(profile.displayName ? { label: profile.displayName } : {}),
-    });
-  }
-  return [...identities.values()];
-}
-
 function publishSharingChange(params: {
   context: GatewayRequestContext;
   actor: SharingActorFacts;
@@ -305,6 +265,10 @@ function createSessionMembersListHandler(
     if (!managed) {
       return;
     }
+    const projection = getSessionRowProjection(context);
+    if (!projection) {
+      throw new Error("Session projection is unavailable before Gateway startup completes");
+    }
     const profiles = await listProfiles();
     const evidenceMembers = (
       await listSessionMembersInWorker({
@@ -313,6 +277,9 @@ function createSessionMembersListHandler(
         storePath: managed.target.storePath,
       })
     ).map(projectSessionMemberEvidence);
+    do {
+      await projection.ensureMaterialized();
+    } while (projection.needsMaterialization);
     const currentCfg = context.getRuntimeConfig();
     const target = requireCurrentManagedTarget({
       cfg: currentCfg,
@@ -342,7 +309,11 @@ function createSessionMembersListHandler(
       return;
     }
     const projectedMembers = members.filter((member) => member !== null);
-    const identities = knownSessionIdentities({ cfg: currentCfg, actor, profiles });
+    const identities = knownSessionIdentities({
+      creators: projection.listCreatedActors(),
+      actor,
+      profiles,
+    });
     for (const member of projectedMembers) {
       if (!identities.some((identity) => identity.id === member.identityId)) {
         identities.push({ type: "human", id: member.identityId });
@@ -618,12 +589,22 @@ export const sessionSharingHandlers: GatewayRequestHandlers = {
     if (!managed) {
       return;
     }
+    const projection = getSessionRowProjection(context);
+    if (!projection) {
+      throw new Error("Session projection is unavailable before Gateway startup completes");
+    }
     const profiles = await listProfiles();
-    const currentCfg = context.getRuntimeConfig();
-    requireCurrentManagedTarget({ cfg: currentCfg, client, authorized: managed.target });
+    do {
+      await projection.ensureMaterialized();
+    } while (projection.needsMaterialization);
+    requireCurrentManagedTarget({
+      cfg: context.getRuntimeConfig(),
+      client,
+      authorized: managed.target,
+    });
     const actor = actorIdentity(client);
     const known = knownSessionIdentities({
-      cfg: currentCfg,
+      creators: projection.listCreatedActors(),
       actor,
       profiles,
     });

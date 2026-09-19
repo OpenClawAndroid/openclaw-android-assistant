@@ -12,6 +12,7 @@ import type { GatewayTlsRuntime } from "../infra/tls/gateway.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import type { PluginRegistry } from "../plugins/registry.js";
 import type { PluginRuntimeCore } from "../plugins/runtime/types-core.js";
+import { getSpawnBroker, runWithSpawnBroker } from "../process/spawn-broker/context.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
 import type { ControlUiRootState } from "./control-ui.js";
@@ -152,6 +153,7 @@ export async function createGatewayHttpTransport(params: {
     params: Parameters<PluginRuntimeCore["hooks"]["dispatchHookAgentTurn"]>[0],
   ) => ReturnType<PluginRuntimeCore["hooks"]["dispatchHookAgentTurn"]>;
 }> {
+  const spawnBroker = getSpawnBroker();
   if (params.testListener) {
     const address = params.testListener.address();
     if (
@@ -175,13 +177,15 @@ export async function createGatewayHttpTransport(params: {
     | undefined;
   const getHookDispatcher = async () => {
     const { createGatewayHookDispatcher } = await import("./server/hooks.js");
-    return (loadedHookDispatcher ??= createGatewayHookDispatcher({
-      deps: params.deps,
-      logHooks: params.logHooks,
-      ...(params.getGatewayRequestContext
-        ? { resolveGatewayContext: params.getGatewayRequestContext }
-        : {}),
-    }));
+    return (loadedHookDispatcher ??= runWithSpawnBroker(spawnBroker, () =>
+      createGatewayHookDispatcher({
+        deps: params.deps,
+        logHooks: params.logHooks,
+        ...(params.getGatewayRequestContext
+          ? { resolveGatewayContext: params.getGatewayRequestContext }
+          : {}),
+      }),
+    ));
   };
   const handleHooksRequest: HooksRequestHandler = async (req, res) => {
     const hooksConfig = params.hooksConfig();

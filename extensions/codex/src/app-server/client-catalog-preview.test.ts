@@ -188,29 +188,40 @@ describe("Codex catalog preview decoding", () => {
     await expect(ordinary).resolves.toEqual({ data: [thread] });
   });
 
-  it("preserves native empty-preview transitions when reusing compact worker results", async () => {
-    const harness = createHarness();
-    const cases = [
-      { id: "cleared", preview: "", cached: "retained", expected: "" },
-      { id: "whitespace", preview: " \n\t ", cached: "retained", expected: "retained" },
-      { id: "controls", preview: "\u001b[0m", cached: "retained", expected: "retained" },
-      { id: "newly-visible", preview: "visible", cached: "", expected: "visible" },
-      { id: "missing", cached: "retained", expected: "retained" },
-    ];
-    const previews = new Map(cases.map(({ id, cached }) => [id, cached]));
-    const request = harness.client.request(
-      "thread/list",
-      { limit: 64 },
-      { catalogPreview: true, catalogPreviewCache: ({ id }) => previews.get(id) },
-    );
-    harness.send({
-      id: requestId(harness),
-      result: { data: cases.map(({ id, preview }) => ({ id, preview })) },
-    });
-    await expect(request).resolves.toEqual({
-      data: cases.map(({ id, expected }) => ({ id, projectId: null, preview: expected })),
-    });
-  });
+  it.each([0, 64 * 1024])(
+    "preserves native preview cache states with %i bytes of padding",
+    async (padding) => {
+      const harness = createHarness();
+      const cases = [
+        { id: "cleared", preview: "", cached: "retained", expected: "" },
+        { id: "whitespace", preview: " \n\t ", cached: "retained", expected: "retained" },
+        { id: "controls", preview: "\u001b[0m", cached: "retained", expected: "retained" },
+        { id: "newly-visible", preview: "visible", cached: "", expected: "visible" },
+        { id: "missing", cached: "retained", expected: "retained" },
+        { id: "missing-empty", cached: "", expected: "" },
+        { id: "empty", preview: "", cached: "", expected: "" },
+        { id: "cache-miss", preview: "uncached", cached: undefined, expected: "uncached" },
+      ];
+      const previews = new Map(cases.map(({ id, cached }) => [id, cached]));
+      const cache = vi.fn(({ id }: { id: string }) => previews.get(id));
+      const request = harness.client.request(
+        "thread/list",
+        { limit: 64 },
+        { catalogPreview: true, catalogPreviewCache: cache },
+      );
+      harness.send({
+        id: requestId(harness),
+        result: {
+          data: cases.map(({ id, preview }) => ({ id, preview })),
+          unused: "x".repeat(padding),
+        },
+      });
+      await expect(request).resolves.toEqual({
+        data: cases.map(({ id, expected }) => ({ id, projectId: null, preview: expected })),
+      });
+      expect(cache.mock.calls.map(([thread]) => thread.id)).toEqual(cases.map(({ id }) => id));
+    },
+  );
 
   it.each([
     {

@@ -4,6 +4,8 @@ import type { TranslationMap } from "../lib/types.ts";
 import * as agentEn from "./en-agents.ts";
 
 export const en: TranslationMap & {
+  linkReader: TranslationMap;
+  agentTools: TranslationMap;
   board: TranslationMap & { widget: TranslationMap };
   browser: TranslationMap & { errors: TranslationMap };
   chat: TranslationMap & {
@@ -270,7 +272,6 @@ export const en: TranslationMap & {
       invalidSandboxUrl: "MCP App sandbox URL is invalid",
     },
   },
-  githubPreview: {},
   sessionHovercard: {
     ariaLabel: "Session information",
     agentNotepad: "Agent Notepad",
@@ -1967,81 +1968,6 @@ export const en: TranslationMap & {
     openControlUi: "Open Control UI",
   },
   agentTools: {
-    githubVerify: "Verify",
-    githubConnection: "Gateway connection",
-    githubDisconnected: "Disconnected",
-    githubAccessRequired: "Access required",
-    githubReadRequired: "GitHub identity status requires operator.read access.",
-    githubAdminRequired:
-      "Connecting, replacing, or removing a GitHub identity requires operator.admin access.",
-    githubEffectiveAuthor: "Effective Git Author",
-    githubEffectiveCredential: "Effective credential",
-    githubEffectiveAccessExpiry: "Effective access expiry",
-    githubEffectiveRefresh: "Effective refresh token",
-    githubEffectiveScopes: "Effective OAuth scopes",
-    githubNoAccount: "No verified account",
-    githubAuthorUnset: "Not set",
-    githubErrorTitle: "Error",
-    githubStateVerified: "Verified",
-    githubStateUnverified: "Not verified",
-    githubStateRateLimited: "Rate limited",
-    githubStateUnavailable: "No credentials",
-    githubStateConfiguredUnavailable: "Configured, but unavailable",
-    githubAuthorization: "GitHub authorization",
-    githubStarting: "Requesting code…",
-    githubCancelling: "Requesting cancellation…",
-    githubFinishing: "Authorization is already finishing…",
-    githubCancelFailed: "Cancellation could not be confirmed",
-    githubCancelFailedHint:
-      "Authorization is still active. Wait for it to finish or try cancellation again.",
-    githubRetryCancel: "Try cancel again",
-    githubCodeReady: "Code ready",
-    githubWaiting: "Waiting for approval…",
-    githubSlowDown: "GitHub asked us to wait longer…",
-    githubNetworkRetry: "Connection interrupted; retry scheduled",
-    githubAuthorizationHint: "Open GitHub yourself, then enter the one-time code shown here.",
-    githubDeviceCode: "One-time code",
-    githubDeviceCodeHint: "This code authorizes only the selected identity scope.",
-    githubExpires: "Code expires",
-    githubOpen: "Open github.com/login/device",
-    githubCopyCode: "Copy code",
-    githubAuthorizationFailed: "GitHub authorization failed",
-    githubExpired: "The one-time code expired. Connect again to request a new code.",
-    githubDenied: "GitHub authorization was denied. Connect again when you are ready.",
-    githubIncorrectCode: "GitHub rejected this device code. Connect again to request a new code.",
-    githubConnect: "Connect GitHub",
-    githubConnectHint: "Authorize GitHub without pasting a long-lived credential into the browser.",
-    githubPatFallback: "Personal access token",
-    githubPatFallbackHint: "Use a fine-grained PAT only when browser authorization is unsuitable.",
-    githubUsePat: "Use a PAT instead",
-    githubToken: "Fine-grained PAT",
-    githubTokenDesc:
-      "Stored in a private managed GitHub CLI profile; only the setup handoff is removed.",
-    githubTokenToggle: "Toggle token visibility",
-    githubPasteToken: "Paste a fine-grained personal access token first.",
-    githubAuthorName: "Author Name",
-    githubAuthorEmail: "Author Email",
-    githubConfigure: "Save Identity",
-    githubConfiguredHere: "Configured here",
-    githubInheritedHere: "Inherited",
-    githubKindNative: "Native GitHub CLI",
-    githubKindPat: "Managed personal access token",
-    githubKindOAuth: "Managed GitHub authorization",
-    githubRefreshAvailable: "Available",
-    githubRefreshExpired: "Expired — reconnect required",
-    githubRefreshUnavailable: "Unavailable — reconnect required",
-    githubRefreshRefreshing: "Refreshing…",
-    githubRefreshFailed: "Refresh failed — retrying",
-    githubUseSystemNewRuns: "Use system for new runs",
-    githubUseNativeNewRuns: "Use native for new runs",
-    githubUseSystemConfirmTitle: "Use the system GitHub identity for new runs?",
-    githubUseNativeConfirmTitle: "Use the native GitHub identity for new runs?",
-    githubUseSystemConfirmMessage:
-      "New runs for this agent will use the System identity. Active runs keep their current identity until they exit or restart. Revoke the GitHub authorization or PAT separately on GitHub if needed.",
-    githubUseNativeConfirmMessage:
-      "New runs without an agent override will use the native GitHub identity. Active runs keep their current identity until they exit or restart. Revoke the GitHub authorization or PAT separately on GitHub if needed.",
-    githubAgentMutationHint: "Authorization and removal below apply to This Agent for new runs.",
-    githubSystemMutationHint: "Authorization and removal below apply to System for new runs.",
     connectedSource: "Connected: {id}",
     connected: "Connected",
     channelSource: "Channel: {id}",
@@ -3895,6 +3821,10 @@ export const en: TranslationMap & {
       startSession: "Start in a new session",
       startOptions: "Choose where to start the task",
       startWorktree: "Start in a new worktree",
+      chooseRepository: "Choose repository",
+      repositoryFolder: "Repository folder",
+      chooseRepositoryHelp:
+        "Choose a Git repository with a commit. Your task will start in a new worktree; its instructions are preserved.",
       startCurrentSession: "Start in this session",
       copyPrompt: "Copy prompt",
       copyPromptFailed: "Couldn't copy the prompt to the clipboard",
@@ -3935,8 +3865,6 @@ export const en: TranslationMap & {
       checksFailed: "Failed",
       checksRunning: "Running",
       checksSkipped: "Skipped",
-      showMore: "Show {count} more",
-      showLess: "Show less",
       rateLimited:
         "GitHub API rate limit reached. Pull request status may be out of date until the limit resets.",
       unavailable:
@@ -5341,5 +5269,11 @@ export const en: TranslationMap & {
       agentMessageRequiredShort: "Agent message required.",
       nameRequiredShort: "Name required.",
     },
+  },
+
+  linkReader: {
+    loadingPreview: "Loading preview…",
+    title: "Link reader",
+    urlPlaceholder: "Supported link URL",
   },
 };

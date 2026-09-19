@@ -227,10 +227,7 @@ export class PreparedModelRuntimeAuthPublicationOwner {
   async drain(params: {
     owners: Map<string, PreparedModelRuntimeOwner>;
     publish: (
-      entries: Array<{
-        owner: PreparedModelRuntimeOwner;
-        input: PreparedModelRuntimeOwner["input"];
-      }>,
+      owners: PreparedModelRuntimeOwner[],
       includeCredentialProviders: boolean,
     ) => Promise<void>;
     publishOwners: (owners: readonly PreparedModelRuntimeOwner[]) => void;
@@ -251,12 +248,12 @@ export class PreparedModelRuntimeAuthPublicationOwner {
     while (this.#events.length > 0) {
       const components = partitionAuthMutationOwners(this.#events.splice(0));
       for (const componentOwners of components) {
-        const entries = componentOwners.flatMap((owner) =>
-          params.owners.get(ownerKey(owner.input)) === owner ? [{ owner, input: owner.input }] : [],
+        const owners = componentOwners.filter(
+          (owner) => params.owners.get(ownerKey(owner.input)) === owner,
         );
         try {
-          if (entries.length > 0) {
-            await params.publish(entries, this.#transaction?.profileSetChanged === true);
+          if (owners.length > 0) {
+            await params.publish(owners, this.#transaction?.profileSetChanged === true);
           }
           const transaction = this.#transaction;
           if (transaction) {

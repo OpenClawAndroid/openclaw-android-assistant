@@ -242,6 +242,63 @@ it("closes a scoped auth child before rejecting queued reads on shutdown", async
   }
 });
 
+it("captures queued auth launch facts before FIFO admission", async () => {
+  const { source } = createAuthDatabase();
+  const env = { ...process.env, OPENCLAW_FIXTURE: "captured" };
+  const cwd = process.cwd();
+  const changedCwd = tempDirs.make("openclaw-auth-queued-cwd-");
+  const scope = createSqliteReadOnlyWorkerScope();
+  try {
+    const reading = scope.run(() => read(source, "canonical", undefined, env));
+    env.OPENCLAW_FIXTURE = "changed after enqueue";
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(changedCwd);
+    try {
+      await reading;
+    } finally {
+      cwdSpy.mockRestore();
+    }
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const launch = vi.mocked(spawn).mock.calls[0]?.[2];
+    expect.soft(launch?.env?.OPENCLAW_FIXTURE).toBe("captured");
+    expect.soft(launch?.cwd).toBe(cwd);
+  } finally {
+    await scope.close();
+  }
+});
+
+it.skipIf(skipBroker)(
+  "replaces scoped auth transport across broker owners and snapshot sources",
+  async () => {
+    const { source } = createAuthDatabase();
+    const firstBroker = createSpawnBrokerHost();
+    const secondBroker = createSpawnBrokerHost();
+    const scope = createSqliteReadOnlyWorkerScope();
+    try {
+      await Promise.all([firstBroker.ready(), secondBroker.ready()]);
+      const firstSpawn = vi.spyOn(firstBroker, "spawn");
+      const secondSpawn = vi.spyOn(secondBroker, "spawn");
+      vi.mocked(spawn).mockClear();
+      const reading = (broker: typeof firstBroker, sourceKind: "canonical" | "snapshot") =>
+        runWithSpawnBroker(broker, () => scope.run(() => read(source, sourceKind)));
+      const first = await reading(firstBroker, "canonical");
+      expect(await reading(secondBroker, "canonical")).toEqual(first);
+      expect(firstSpawn).toHaveBeenCalledTimes(1);
+      expect(secondSpawn).toHaveBeenCalledTimes(1);
+      expect(firstSpawn.mock.results[0]?.value.exitCode).toBe(0);
+
+      expect(await reading(secondBroker, "snapshot")).toEqual(first);
+      expect(secondSpawn.mock.results[0]?.value.exitCode).toBe(0);
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(await reading(secondBroker, "canonical")).toEqual(first);
+      expect(vi.mocked(spawn).mock.results[0]?.value.exitCode).toBe(0);
+      expect(secondSpawn).toHaveBeenCalledTimes(2);
+    } finally {
+      await scope.close();
+      await Promise.all([firstBroker.close(), secondBroker.close()]);
+    }
+  },
+);
+
 describe.skipIf(skipBroker)("auth SQLite broker lifecycle", () => {
   it("retains one native replacement after confirmed scoped broker nonadmission", async () => {
     const { source } = createAuthDatabase();

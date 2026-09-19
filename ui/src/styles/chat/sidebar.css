@@ -75,10 +75,6 @@
 }
 
 @media (max-width: 560px) {
-  .chat-main__conversation {
-    --chat-transcript-fade-height: 64px;
-  }
-
   .chat-main__conversation::before {
     height: 56px;
     background: linear-gradient(

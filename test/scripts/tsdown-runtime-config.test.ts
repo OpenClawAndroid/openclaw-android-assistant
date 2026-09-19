@@ -226,6 +226,7 @@ describe("tsdown config", () => {
       requireStandaloneRuntimeGraph("state/openclaw-state-read.worker"),
       requireStandaloneRuntimeGraph("agents/harness/native-hook-relay-client.worker"),
       requireStandaloneRuntimeGraph("process/spawn-broker/worker"),
+      requireStandaloneRuntimeGraph("state/openclaw-state-lease-heartbeat.worker"),
     ]);
 
     for (const config of configs) {
@@ -308,6 +309,11 @@ describe("tsdown config", () => {
       label: "spawn broker",
       entry: "process/spawn-broker/worker",
       source: "src/process/spawn-broker/worker.ts",
+    },
+    {
+      label: "state lease heartbeat",
+      entry: "state/openclaw-state-lease-heartbeat.worker",
+      source: "src/state/openclaw-state-lease-heartbeat.worker.ts",
     },
   ])("emits the $label once without sealing its package loaders", ({ entry, source }) => {
     const child = requireStandaloneRuntimeGraph(entry);

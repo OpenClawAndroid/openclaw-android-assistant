@@ -36,6 +36,45 @@ function fixture() {
 }
 
 describe("transcript library SQLite reads", () => {
+  it("skips empty transcription artifacts without losing pagination or rewriting the archive", async () => {
+    const { store } = fixture();
+    const target = session("transcription-artifacts");
+    await store.writeSession(target);
+    const texts = ["context:", "###", "Transcribe the audio.", "Context: ship the fix.", "はい。"];
+    for (const text of texts) {
+      await store.appendUtteranceForSession(target, { text });
+    }
+    let cursor: string | undefined;
+    const visible: string[] = [];
+    do {
+      const page = await getTranscriptLibrary(store, {
+        selector: transcriptSessionSelector(target),
+        includeUtterances: true,
+        limit: 1,
+        cursor,
+      });
+      visible.push(...(page.utterances ?? []).map((utterance) => utterance.text));
+      if (!page.nextCursor) {
+        break;
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(visible).toEqual(texts.slice(3));
+    const exported = await exportTranscriptLibrary(store, {
+      selector: transcriptSessionSelector(target),
+      format: "jsonl",
+    });
+    expect(
+      Buffer.from(exported.data, "base64")
+        .toString("utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).text),
+    ).toEqual(texts.slice(3));
+    expect(
+      (await store.readUtterancesForSession(target)).map((utterance) => utterance.text),
+    ).toEqual(texts);
+  });
   it("orders and filters stored offset dates by instant without rewriting their identities", async () => {
     const { store } = fixture();
     const rows = [

@@ -75,10 +75,10 @@ export async function refreshPreparedModelRuntimeSnapshotsNow(
     owner.catalogInventory = inventories.get(
       ownerKey({ ...input, runtimePluginSelections: undefined }),
     );
-    return { input, owner };
+    return owner;
   });
   await publishPreparedModelRuntimeOwnerBatch({
-    entries: candidates,
+    ownersToPublish: candidates,
     owners,
     agentBuildCompletions,
     buildTimeoutMs: progress ? undefined : context.buildTimeoutMs,

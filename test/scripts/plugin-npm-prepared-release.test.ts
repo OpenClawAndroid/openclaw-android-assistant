@@ -501,7 +501,7 @@ describe("prepared npm registry readback", () => {
     const params = {
       packageName: name,
       version,
-      publishTag: "beta",
+      publishTags: ["beta"],
       route: "npm-oidc",
       tarballPath,
       allowMissing: true,

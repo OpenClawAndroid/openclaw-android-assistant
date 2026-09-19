@@ -1,5 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Selectable } from "kysely";
+import type {
+  ExecutionIdentityInspectionQuery,
+  ExecutionIdentityInspectionOutcome,
+} from "../audit/execution-identity-inspection.types.js";
 import type { FleetCellRecord } from "../fleet/registry.types.js";
 import type { SqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import type { AsyncWorkScope } from "../shared/async-work-scope.js";
@@ -12,6 +16,7 @@ export type OpenClawStateReadLocation = {
   location: string;
   checkFreshAdmission: boolean;
   expectedIdentity?: string;
+  snapshotRoot?: string;
 };
 
 export type OpenClawStateReadAuthority = {
@@ -20,6 +25,7 @@ export type OpenClawStateReadAuthority = {
 };
 
 export type OpenClawStateReadCommand =
+  | { type: "audit.run.inspect"; input: ExecutionIdentityInspectionQuery }
   | { type: "fleet.list" }
   | { type: "fleet.get"; tenantId: string }
   | { type: "nodeHost.config" };
@@ -29,9 +35,16 @@ export type OpenClawStateReadRequest = {
   location: string;
   checkFreshAdmission: boolean;
   expectedIdentity?: string;
+  snapshotRoot?: string;
   command: OpenClawStateReadCommand | { type: "admit" };
 };
 export type OpenClawStateReadReply =
+  | {
+      ok: true;
+      type: "audit.run.inspect";
+      sourceAdmitted: true;
+      result: ExecutionIdentityInspectionOutcome;
+    }
   | { ok: true; type: "admit" }
   | { ok: true; type: "fleet.list"; sourceAdmitted: true; cells: FleetCellRecord[] }
   | { ok: true; type: "fleet.get"; sourceAdmitted: true; cell: FleetCellRecord | undefined }

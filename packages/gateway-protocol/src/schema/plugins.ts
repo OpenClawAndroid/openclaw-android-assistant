@@ -2,9 +2,18 @@
 import type { Static, TSchema } from "typebox";
 import { Type } from "typebox";
 import { closedObject } from "./closed-object.js";
+import {
+  ControlUiLinkReaderMetadataSchema,
+  ControlUiLinkReaderDescriptorSchema,
+} from "./control-ui-link-reader.js";
 import { PluginCredentialDescriptorSchema } from "./plugin-credentials.js";
 import type { PluginDeclaredSurfaceGroup } from "./plugin-declared-surface-groups.js";
 import { NonEmptyString } from "./primitives.js";
+
+export {
+  ControlUiLinkReaderMetadataSchema,
+  ControlUiLinkReaderDescriptorSchema,
+} from "./control-ui-link-reader.js";
 
 /**
  * Plugin control-surface protocol schemas.
@@ -27,7 +36,9 @@ export const PluginControlUiDescriptorSchema = closedObject({
     Type.Literal("settings"),
     Type.Literal("tab"),
     Type.Literal("widget"),
+    Type.Literal("link-reader"),
   ]),
+  linkReader: Type.Optional(ControlUiLinkReaderMetadataSchema),
   label: NonEmptyString,
   description: Type.Optional(Type.String()),
   icon: Type.Optional(Type.String()),
@@ -70,6 +81,7 @@ export const PluginsUiDescriptorsResultSchema = closedObject({
   methods: Type.Optional(Type.Array(NonEmptyString)),
   controlUiTabs: Type.Optional(Type.Array(ControlUiPluginTabSchema)),
   controlUiWidgetKinds: Type.Optional(Type.Array(ControlUiPluginWidgetKindSchema)),
+  controlUiLinkReaders: Type.Optional(Type.Array(ControlUiLinkReaderDescriptorSchema)),
   pluginSurfaceUrls: Type.Optional(Type.Record(NonEmptyString, NonEmptyString)),
 });
 

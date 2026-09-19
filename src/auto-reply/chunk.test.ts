@@ -39,19 +39,6 @@ function expectNormalizedChunkJoin(chunks: string[], text: string) {
   expect(chunks.join(" ").replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
 }
 
-function expectChunkTextCase(params: {
-  text: string;
-  limit: number;
-  assert: (chunks: string[], text: string) => void;
-}) {
-  const chunks = chunkText(params.text, params.limit);
-  params.assert(chunks, params.text);
-}
-
-function expectChunkSpecialCase(run: () => void) {
-  run();
-}
-
 type ChunkCase = {
   name: string;
   text: string;
@@ -63,19 +50,6 @@ function runChunkCases(chunker: (text: string, limit: number) => string[], cases
   it.each(cases)("$name", ({ text, limit, expected }) => {
     expect(chunker(text, limit)).toEqual(expected);
   });
-}
-
-function expectChunkModeCase(params: {
-  chunker: (text: string, limit: number, mode: "length" | "newline") => string[];
-  text: string;
-  limit: number;
-  mode: "length" | "newline";
-  expected: readonly string[];
-  name?: string;
-}) {
-  expect(params.chunker(params.text, params.limit, params.mode), params.name).toEqual(
-    params.expected,
-  );
 }
 
 function expectMarkdownFenceSplitCases(
@@ -230,7 +204,7 @@ describe("chunkText", () => {
       },
     },
   ] as const)("$name", ({ text, limit, assert }) => {
-    expectChunkTextCase({ text, limit, assert });
+    assert(chunkText(text, limit), text);
   });
 
   runChunkCases(chunkText, [
@@ -246,6 +220,12 @@ describe("chunkText", () => {
       text: "ab\u00a0cdef",
       limit: 5,
       expected: ["ab", "cdef"],
+    },
+    {
+      name: "retains the whitespace base of a combining cluster after a cut",
+      text: "ab \u0301cd",
+      limit: 2,
+      expected: ["ab", " \u0301", "cd"],
     },
   ]);
 });
@@ -272,6 +252,13 @@ describe("chunkByParagraph Unicode line/paragraph separators", () => {
       normalized: "paragraph one line\n\nparagraph two starts here",
       limit: 40,
       expected: ["paragraph one line", "paragraph two starts here"],
+    },
+    {
+      name: "retains a prepended whitespace cluster before a paragraph separator",
+      text: "alpha\u0600 \u2029beta",
+      normalized: "alpha\u0600 \n\nbeta",
+      limit: 100,
+      expected: ["alpha\u0600 \n\nbeta"],
     },
   ] as const)("$name", ({ text, normalized, limit, expected }) => {
     const chunks = chunkByParagraph(text, limit);
@@ -498,7 +485,7 @@ describe("chunkMarkdownText", () => {
         ]),
     },
   ] as const)("$name", ({ run }) => {
-    expectChunkSpecialCase(run);
+    run();
   });
 
   runChunkCases(chunkMarkdownText, [
@@ -508,6 +495,18 @@ describe("chunkMarkdownText", () => {
       text: "aa bb\ncc dd\nee ff gg hh",
       limit: 6,
       expected: ["aa bb", "cc dd", "ee ff", "gg hh"],
+    },
+    {
+      name: "retains whitespace with an attached combining mark at a prose cut",
+      text: "abc \u0301def",
+      limit: 4,
+      expected: ["abc", " \u0301de", "f"],
+    },
+    {
+      name: "consumes only one ordinary prose space at a cut",
+      text: "abc  def",
+      limit: 4,
+      expected: ["abc", " def"],
     },
   ]);
 
@@ -601,7 +600,7 @@ describe("chunkMarkdownText", () => {
       },
     },
   ] as const)("$name", ({ run }) => {
-    expectChunkSpecialCase(run);
+    run();
   });
 });
 
@@ -624,6 +623,12 @@ describe("chunkByNewline", () => {
       text: "  Line one  \n  Line two  ",
       limit: 1000,
       expected: ["Line one", "Line two"],
+    },
+    {
+      name: "trims only whole whitespace graphemes from lines",
+      text: " \u0301line\u0600  \n next ",
+      limit: 1000,
+      expected: [" \u0301line\u0600 ", "next"],
     },
     {
       name: "preserves leading blank lines on the first chunk",
@@ -729,7 +734,7 @@ describe("chunkByNewline", () => {
       },
     },
   ] as const)("$name", ({ run }) => {
-    expectChunkSpecialCase(run);
+    run();
   });
 
   it.each(["", "   \n\n   "] as const)("returns empty array for input %j", (text) => {
@@ -782,14 +787,7 @@ describe("chunkTextWithMode", () => {
   ] as const)(
     "applies mode-specific chunking behavior: $name",
     ({ text, mode, expected, name }) => {
-      expectChunkModeCase({
-        chunker: chunkTextWithMode,
-        text,
-        limit: 1000,
-        mode,
-        expected,
-        name,
-      });
+      expect(chunkTextWithMode(text, 1000, mode), name).toEqual(expected);
     },
   );
 });
@@ -815,14 +813,7 @@ describe("chunkMarkdownTextWithMode", () => {
       expected: ["Para one\n\nPara two"],
     },
   ] as const)("applies markdown/newline mode behavior: $name", ({ text, mode, expected, name }) => {
-    expectChunkModeCase({
-      chunker: chunkMarkdownTextWithMode,
-      text,
-      limit: 1000,
-      mode,
-      expected,
-      name,
-    });
+    expect(chunkMarkdownTextWithMode(text, 1000, mode), name).toEqual(expected);
   });
 
   it.each(newlineModeFenceCases)(
@@ -910,4 +901,27 @@ describe("resolveChunkMode", () => {
       expect(resolveChunkMode(cfg as never, provider, accountId)).toBe(expected);
     },
   );
+});
+
+describe("auto-reply grapheme boundaries", () => {
+  it.each([chunkByNewline, chunkMarkdownText])(
+    "keeps clusters whole at the head cut",
+    (chunker) => {
+      expect(chunker("aaaaaaaaaa👨‍👩‍👧‍👦Z", 12)).toEqual(["aaaaaaaaaa", "👨‍👩‍👧‍👦Z"]);
+      expect(chunker("👨‍👩‍👧‍👦", 4)).toEqual(["👨‍", "👩‍", "👧‍", "👦"]);
+    },
+  );
+
+  it("ignores a Markdown soft break inside the leading cluster", () => {
+    expect(chunkMarkdownText("\u0600 \u0301abcd", 4)).toEqual(["\u0600 \u0301a", "bcd"]);
+  });
+
+  it("reserves the leading grapheme before folding pending blank lines", () => {
+    expect(chunkByNewline("head\n\n\n\n\n\n\n👨‍👩‍👧‍👦Z", 12)).toEqual(["head", "\n👨‍👩‍👧‍👦", "Z"]);
+  });
+
+  it("keeps graphemes whole after reserving synthetic fence markers", () => {
+    const chunks = chunkMarkdownText("```txt\naaaaaaaaaaa👨‍👩‍👧‍👦Z\n```", 24);
+    expect(chunks).toEqual(["```txt\naaaaaaaaaaa\n```", "```txt\n👨‍👩‍👧‍👦Z\n```"]);
+  });
 });

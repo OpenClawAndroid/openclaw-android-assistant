@@ -118,8 +118,9 @@ function run(
   stateDir: string,
   args = ["node", "run"],
   extraEnv: NodeJS.ProcessEnv = {},
+  execArgv: readonly string[] = [],
 ) {
-  const child = spawn(process.execPath, [path.join(base, "openclaw.mjs"), ...args], {
+  const child = spawn(process.execPath, [...execArgv, path.join(base, "openclaw.mjs"), ...args], {
     cwd: base,
     env: {
       ...process.env,
@@ -157,7 +158,7 @@ try {
 }
 `;
 
-async function windowsSelectorEnvironment(root: string, current: string, failure?: string) {
+async function windowsSelectorFixture(root: string, current: string, failure?: string) {
   const preload = path.join(root, "windows-selector.mjs");
   await fs.writeFile(
     preload,
@@ -187,9 +188,11 @@ syncBuiltinESMExports();
 `,
   );
   return {
-    NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
-    TEST_CURRENT: current,
-    TEST_RENAME_FAILURE: failure,
+    execArgv: ["--import", pathToFileURL(preload).href],
+    env: {
+      TEST_CURRENT: current,
+      TEST_RENAME_FAILURE: failure,
+    },
   };
 }
 
@@ -434,12 +437,18 @@ if (process.env.TEST_SELECT_ONLY || version === process.env.TEST_VERSION) {
       const old = new Date(Date.now() - 13 * 60 * 60 * 1_000);
       await fs.lutimes(f.current, old, old);
       const previousMtime = (await fs.lstat(f.current)).mtimeMs;
-      const env = await windowsSelectorEnvironment(f.root, f.current, failure);
-      const result = await run(f.base, f.stateDir, ["node", "run"], {
-        ...env,
-        TEST_RUNTIME_ROOT: candidate.prefix,
-        TEST_VERSION: "2026.9.3",
-      }).done;
+      const { env, execArgv } = await windowsSelectorFixture(f.root, f.current, failure);
+      const result = await run(
+        f.base,
+        f.stateDir,
+        ["node", "run"],
+        {
+          ...env,
+          TEST_RUNTIME_ROOT: candidate.prefix,
+          TEST_VERSION: "2026.9.3",
+        },
+        execArgv,
+      ).done;
       expect(result.code, result.stderr).toBe(failure === "crash" ? 91 : 0);
       const backup = `${f.current}.previous`;
       const interrupted = failure === "rollback-fails" || failure === "crash";
@@ -456,11 +465,17 @@ if (process.env.TEST_SELECT_ONLY || version === process.env.TEST_VERSION) {
       if (failure === "rollback-fails") {
         expect(result.stderr).toContain(backup);
       }
-      const restarted = await run(f.base, f.stateDir, ["node", "run"], {
-        ...env,
-        TEST_SELECT_ONLY: "1",
-        TEST_RENAME_FAILURE: undefined,
-      }).done;
+      const restarted = await run(
+        f.base,
+        f.stateDir,
+        ["node", "run"],
+        {
+          ...env,
+          TEST_SELECT_ONLY: "1",
+          TEST_RENAME_FAILURE: undefined,
+        },
+        execArgv,
+      ).done;
       expect(restarted.code, restarted.stderr).toBe(0);
       expect(JSON.parse(restarted.stdout.trim())).toEqual({
         version: failure ? "2026.9.2" : "2026.9.3",
@@ -470,12 +485,18 @@ if (process.env.TEST_SELECT_ONLY || version === process.env.TEST_VERSION) {
           // Crash recovery keeps the existing operator-owned stale-lock policy.
           await fs.unlink(path.join(f.runtimeDirectory, "activation.lock"));
         }
-        const recovered = await run(f.base, f.stateDir, ["node", "run"], {
-          ...env,
-          TEST_RUNTIME_ROOT: candidate.prefix,
-          TEST_VERSION: "2026.9.3",
-          TEST_RENAME_FAILURE: undefined,
-        }).done;
+        const recovered = await run(
+          f.base,
+          f.stateDir,
+          ["node", "run"],
+          {
+            ...env,
+            TEST_RUNTIME_ROOT: candidate.prefix,
+            TEST_VERSION: "2026.9.3",
+            TEST_RENAME_FAILURE: undefined,
+          },
+          execArgv,
+        ).done;
         expect(recovered.code, recovered.stderr).toBe(0);
         expect(await fs.realpath(f.current)).toBe(await fs.realpath(candidate.prefix));
         await expect(fs.access(backup)).rejects.toThrow();
@@ -689,12 +710,17 @@ fs.readFileSync = (filename, ...args) => {
 syncBuiltinESMExports();
 `,
       );
-      const result = await run(f.base, f.stateDir, ["node", "run"], {
-        HOME: inheritedHome,
-        OPENCLAW_STATE_DIR: undefined,
-        OPENCLAW_CONFIG_PATH: oldConfig,
-        NODE_OPTIONS: `--import=${guard}`,
-      }).done;
+      const result = await run(
+        f.base,
+        f.stateDir,
+        ["node", "run"],
+        {
+          HOME: inheritedHome,
+          OPENCLAW_STATE_DIR: undefined,
+          OPENCLAW_CONFIG_PATH: oldConfig,
+        },
+        ["--import", pathToFileURL(guard).href],
+      ).done;
       expect(result.code, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout.trim())).toEqual({
         selected: "managed",

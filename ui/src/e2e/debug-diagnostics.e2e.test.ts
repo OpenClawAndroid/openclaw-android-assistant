@@ -2,7 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
-import { takeControlUiViewportScreenshot } from "../test-helpers/control-ui-e2e-screenshot.ts";
+import {
+  takeControlUiElementScreenshot,
+  takeControlUiViewportScreenshot,
+} from "../test-helpers/control-ui-e2e-screenshot.ts";
 import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
 import { deviceSystemInfo } from "../test-helpers/devices-fixtures.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
@@ -238,6 +241,8 @@ suite.define(() => {
           10,
         );
         expect(Number.isFinite(initialPingMs)).toBe(true);
+        const ping = widget.locator(".gateway-vital--ping");
+        expect(await ping.getAttribute("data-degraded")).toBeNull();
         const nextSystemInfoCount = (await gateway.getRequests("system.info")).length;
         const minimizedCurrentWorkCount = (
           await gateway.getRequests("sessions.list", currentWorkQuery)
@@ -286,6 +291,14 @@ suite.define(() => {
             ),
           )
           .toBeGreaterThanOrEqual(initialPingMs + 200);
+        if (captureUiProof) {
+          await writeFile(
+            path.join(proofDir, "ping-high.png"),
+            await takeControlUiElementScreenshot(page, widget, [ping]),
+          );
+        }
+        expect(await ping.getAttribute("data-degraded")).toBe("");
+        await expect.poll(() => ping.getAttribute("data-degraded")).toBeNull();
         await gateway.waitForRequest("system.info", { after: systemInfoCount + 2 });
         expect(await gateway.getRequests("sessions.list", currentWorkQuery)).toHaveLength(
           minimizedCurrentWorkCount,
@@ -309,6 +322,22 @@ suite.define(() => {
         const cpuTrigger = widget.getByRole("button", { name: "Show Gateway CPU breakdown" });
         const cpuTooltip = widget.locator(".gateway-cpu-tooltip");
         const cpuDetail = cpuTooltip.locator(".gateway-cpu-detail");
+        const transitionCpuDetail = async (
+          eventName: "wa-after-show" | "wa-after-hide",
+          action: () => Promise<void>,
+        ) => {
+          // Visibility includes closing animations; finish each input mode before starting another.
+          await cpuTooltip.evaluate((element, transitionEvent) => {
+            element.removeAttribute("data-test-transition");
+            element.addEventListener(
+              transitionEvent,
+              () => element.setAttribute("data-test-transition", transitionEvent),
+              { once: true },
+            );
+          }, eventName);
+          await action();
+          await expect.poll(() => cpuTooltip.getAttribute("data-test-transition")).toBe(eventName);
+        };
         await expect
           .poll(() => widget.locator(".sparkline-tile__secondary").textContent())
           .toContain("Host 34%");
@@ -341,14 +370,14 @@ suite.define(() => {
             path: path.join(proofDir, "cpu-breakdown-desktop.png"),
           });
         }
-        await page.keyboard.press("Escape");
+        await transitionCpuDetail("wa-after-hide", () => page.keyboard.press("Escape"));
         await expect.poll(() => cpuDetail.isVisible()).toBe(false);
         expect(await widget.isVisible()).toBe(true);
         await cpuTrigger.blur();
         await page.keyboard.press("Tab");
         await cpuTrigger.focus();
         await expect.poll(() => cpuDetail.isVisible()).toBe(true);
-        await page.keyboard.press("Escape");
+        await transitionCpuDetail("wa-after-hide", () => page.keyboard.press("Escape"));
         await page.setViewportSize({ height: 844, width: 390 });
         const mobileWidget = await widget.boundingBox();
         expect(mobileWidget).not.toBeNull();
@@ -364,7 +393,7 @@ suite.define(() => {
             path: path.join(proofDir, "system-busyness-minimized-mobile.png"),
           });
         }
-        await cpuTrigger.tap();
+        await transitionCpuDetail("wa-after-show", () => cpuTrigger.tap());
         await expect.poll(() => cpuDetail.isVisible()).toBe(true);
         const detailBounds = await cpuDetail.boundingBox();
         expect(detailBounds!.x).toBeGreaterThanOrEqual(0);
@@ -377,7 +406,7 @@ suite.define(() => {
             path: path.join(proofDir, "cpu-breakdown-mobile.png"),
           });
         }
-        await cpuTrigger.tap();
+        await transitionCpuDetail("wa-after-hide", () => cpuTrigger.tap());
         await expect.poll(() => cpuDetail.isVisible()).toBe(false);
         await page.setViewportSize({ height: 1000, width: 1280 });
         for (const scenario of [
@@ -433,7 +462,7 @@ suite.define(() => {
               path: path.join(proofDir, `cpu-${scenario.name}.png`),
             });
           }
-          await page.keyboard.press("Escape");
+          await transitionCpuDetail("wa-after-hide", () => page.keyboard.press("Escape"));
         }
         await widget.getByRole("button", { name: "Expand system busyness" }).click();
         await widget.waitFor({ state: "detached" });

@@ -102,6 +102,9 @@ export function* filterSessionEntries(
   const configuredAgentIds = params.configuredAgentIds ?? new Set(listAgentIds(cfg));
   const identities =
     params.userProfileIdentityById ?? new Map<string, SessionActorProfileIdentity | undefined>();
+  const identityProjection = getRowContext().identityProjection;
+  const projectOwner = identityProjection?.owner ?? projectSessionOwner;
+  const projectParticipants = identityProjection?.participants ?? projectSessionParticipants;
   const profileRelation = opts.profileRelation
     ? {
         ...opts.profileRelation,
@@ -128,7 +131,7 @@ export function* filterSessionEntries(
     opts.involvingProfileId && params.restrictProfileReferences ? new Set<string>() : undefined;
   if (allowedProfileIds) {
     for (const [, entry] of visibleEntries) {
-      const owner = projectSessionOwner(entry, identities, cfg, configuredAgentIds)?.actor;
+      const owner = projectOwner(entry, identities, cfg, configuredAgentIds)?.actor;
       for (const person of projectSessionPeople(entry, identities, owner)) {
         allowedProfileIds.add(person.identity.id);
       }
@@ -261,7 +264,7 @@ export function* filterSessionEntries(
     ) {
       continue;
     }
-    const effectiveOwner = projectSessionOwner(entry, identities, cfg, configuredAgentIds)?.actor;
+    const effectiveOwner = projectOwner(entry, identities, cfg, configuredAgentIds)?.actor;
     if (
       profileRelation?.relationship === "owned" &&
       (effectiveOwner?.identity?.type !== "profile" ||
@@ -279,7 +282,7 @@ export function* filterSessionEntries(
         continue;
       }
     }
-    let participants: ReturnType<typeof projectSessionParticipants> | undefined;
+    let participants: ReturnType<typeof projectParticipants> | undefined;
     const matchesInvolvement = (profileId: string, personal: boolean) => {
       const state = projectSessionProfileInvolvement(entry, profileId, identities);
       return (
@@ -287,7 +290,7 @@ export function* filterSessionEntries(
         (Boolean(state?.lastMention || (personal && state?.hidden === false)) ||
           (effectiveOwner?.identity?.type === "profile" &&
             effectiveOwner.identity.id === profileId) ||
-          (participants ??= projectSessionParticipants(entry, identities, cfg)).has(
+          (participants ??= projectParticipants(entry, identities, cfg)).has(
             JSON.stringify({ type: "profile", id: profileId }),
           ))
       );

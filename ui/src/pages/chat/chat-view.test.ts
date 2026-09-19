@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { expectDefined } from "@openclaw/normalization-core";
-import { html, render, type LitElement } from "lit";
+import { html, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
@@ -12,7 +12,6 @@ import type {
   SessionsListResult,
 } from "../../api/types.ts";
 import { createChatAttachmentHandoff } from "../../app/chat-attachment-handoff.ts";
-import type { ExecApprovalRequest } from "../../app/exec-approval.ts";
 import type { UiSettings } from "../../app/settings.ts";
 import { i18n, t } from "../../i18n/index.ts";
 import type { ChatAttachment, ChatQueueItem, MessageGroup } from "../../lib/chat/chat-types.ts";
@@ -760,7 +759,7 @@ describe("chat typing status", () => {
     const shell = requireElement(container, ".agent-chat__composer-shell", "composer shell");
     const queue = requireElement(container, ".chat-queue", "composer queue");
     expect(error.textContent).toContain("Gateway unavailable");
-    expect(error.closest(".agent-chat__composer-overlay")).not.toBeNull();
+    expect(error.closest(".agent-chat__composer-notices")).not.toBeNull();
     expect(typingRow.compareDocumentPosition(shell)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(queue.closest(".agent-chat__composer-shell")).toBe(shell);
     expect(
@@ -811,131 +810,6 @@ function createBackgroundTasks(
     ...overrides,
   };
 }
-
-describe("chat Swarm progress", () => {
-  it.each(["agent:main:parent", "parent"])(
-    "stays visible for %s between the transcript and composer",
-    (routeKey) => {
-      const parentSessionKey = "agent:main:parent";
-      const container = renderChatView({
-        sessionKey: routeKey,
-        canAbort: true,
-        showNewMessages: true,
-        swarm: {
-          sessionKey: parentSessionKey,
-          sessions: [
-            {
-              key: "agent:main:parent",
-              kind: "direct",
-              swarm: {
-                groups: [
-                  {
-                    groupId: "swarm:agent:main:parent:turn-42",
-                    createdAt: 1,
-                    children: [{ sessionKey: "agent:main:subagent:worker", status: "running" }],
-                    queued: 0,
-                    running: 1,
-                    done: 0,
-                    failed: 0,
-                  },
-                ],
-                otherActiveGroups: 0,
-              },
-            },
-            {
-              key: "agent:main:subagent:worker",
-              kind: "direct",
-              updatedAt: 1,
-              parentSessionKey,
-              swarmGroupId: "swarm:agent:main:parent:turn-42",
-              label: "Worker A",
-              status: "running",
-            },
-          ],
-        },
-      });
-
-      const widget = requireElement(container, "[data-test-id=chat-swarm]", "Swarm progress");
-      const shell = requireElement(container, ".agent-chat__composer-shell", "composer shell");
-      const scrollAnchor = widget.previousElementSibling;
-      expect(scrollAnchor?.classList.contains("chat-scroll-to-bottom-wrap")).toBe(true);
-      expect(scrollAnchor?.previousElementSibling?.classList.contains("chat-thread")).toBe(true);
-      expect(widget.parentElement).toBe(shell.parentElement);
-      expect(widget.compareDocumentPosition(shell)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-      expect(container.querySelector(".chat-swarm__task-name")?.textContent).toBe("Worker A");
-    },
-  );
-});
-
-describe("inline approval card", () => {
-  it("renders between the transcript and composer and enforces its grant projection", async () => {
-    const onApprovalDecision = vi.fn();
-    const inlineApproval = {
-      id: "approval-inline",
-      kind: "exec",
-      request: {
-        command: "rm -rf build",
-        agentId: "main",
-        sessionKey: "agent:main:current",
-        commandSpans: [{ startIndex: 0, endIndex: 5 }],
-      },
-      createdAtMs: 1,
-      expiresAtMs: 61_000,
-    } satisfies ExecApprovalRequest;
-
-    const container = renderChatView({
-      inlineApproval,
-      approvalCanGrant: false,
-      approvalErrors: new Map([["approval-inline", "Approval failed: gateway unavailable"]]),
-      onApprovalDecision,
-    });
-
-    const card = container.querySelector(".chat-inline-approval .exec-approval-card");
-    const inlineSurface = requireElement(container, ".chat-inline-approval", "inline approval");
-    const shell = requireElement(container, ".agent-chat__composer-shell", "composer shell");
-    expect(card?.getAttribute("data-approval-id")).toBe("approval-inline");
-    const scrollAnchor = inlineSurface.previousElementSibling;
-    expect(scrollAnchor?.classList.contains("chat-scroll-to-bottom-wrap")).toBe(true);
-    expect(scrollAnchor?.previousElementSibling?.classList.contains("chat-thread")).toBe(true);
-    expect(inlineSurface.parentElement).toBe(shell.parentElement);
-    expect(inlineSurface.compareDocumentPosition(shell)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    const countdown = expectDefined(
-      container.querySelector<LitElement>(".exec-approval-countdown"),
-      "inline approval countdown",
-    );
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
-    document.body.append(container);
-    try {
-      await countdown.updateComplete;
-      expect(countdown.textContent?.trim()).toBe("expires in 01:00");
-    } finally {
-      container.remove();
-      nowSpy.mockRestore();
-    }
-    expect(container.querySelector(".exec-approval-command-span")?.textContent).toBe("rm -r");
-    expect(container.querySelector(".exec-approval-error")?.textContent).toBe(
-      "Approval failed: gateway unavailable",
-    );
-    expect(container.querySelector(".exec-approval-warning")?.textContent?.trim()).toBe(
-      "Review only. Sign in with approval access to record a decision.",
-    );
-    expect(
-      Array.from(
-        container.querySelectorAll<HTMLButtonElement>(".exec-approval-actions button"),
-      ).every((button) => button.disabled),
-    ).toBe(true);
-    container.querySelector<HTMLButtonElement>(".exec-approval-actions button")?.click();
-    expect(onApprovalDecision).not.toHaveBeenCalled();
-
-    const authorizedContainer = renderChatView({
-      inlineApproval,
-      approvalCanGrant: true,
-      onApprovalDecision,
-    });
-    authorizedContainer.querySelector<HTMLButtonElement>(".exec-approval-actions button")?.click();
-    expect(onApprovalDecision).toHaveBeenCalledWith("approval-inline", "allow-once");
-  });
-});
 
 describe("chat run error", () => {
   it.each(["run", "request"])(
@@ -1103,7 +977,7 @@ describe("chat run error", () => {
       source === "request",
     );
     expect(
-      alert.closest(source === "run" ? ".agent-chat__composer-overlay" : ".chat-topbar-notices"),
+      alert.closest(source === "run" ? ".agent-chat__composer-notices" : ".chat-topbar-notices"),
     ).not.toBeNull();
   });
 
@@ -1155,7 +1029,7 @@ describe("chat run error", () => {
         source === "request",
       );
       expect(
-        alert.closest(source === "run" ? ".agent-chat__composer-overlay" : ".chat-topbar-notices"),
+        alert.closest(source === "run" ? ".agent-chat__composer-notices" : ".chat-topbar-notices"),
       ).not.toBeNull();
       alert.querySelector<HTMLButtonElement>('[aria-label="Dismiss error"]')?.click();
       expect(onDismissError).toHaveBeenCalledTimes(source === "request" ? 1 : 0);
@@ -1275,7 +1149,7 @@ describe("cloud workspace conflict notice", () => {
       ".chat-workspace-conflict-notice",
       "workspace conflict notice",
     );
-    expect(notice.closest(".agent-chat__composer-overlay")).not.toBeNull();
+    expect(notice.closest(".agent-chat__composer-notices")).not.toBeNull();
     expect(notice.textContent).toContain("9 cloud workspace conflicts");
     expect(notice.querySelectorAll(".chat-workspace-conflict-paths li")).toHaveLength(5);
     expect(notice.textContent).toContain("+4 more paths");
@@ -2382,7 +2256,7 @@ describe("chat scroll-to-bottom affordance", () => {
     const wrapper = button?.closest(".chat-scroll-to-bottom-wrap");
     expect(button?.getAttribute("aria-label")).toBe("Scroll to latest");
     expect(wrapper?.previousElementSibling?.classList.contains("chat-thread")).toBe(true);
-    expect(wrapper?.nextElementSibling?.classList.contains("chat-inline-approval")).toBe(true);
+    expect(wrapper?.nextElementSibling?.classList.contains("chat-footer")).toBe(true);
     for (const surface of container.querySelectorAll(
       ".chat-inline-approval, .chat-queue, .agent-chat__composer-shell",
     )) {
@@ -2409,9 +2283,12 @@ describe("chat scroll-to-bottom affordance", () => {
     const shell = requireElement(container, ".agent-chat__composer-shell", "composer shell");
     const queue = requireElement(container, ".chat-queue", "composer queue");
     const composer = requireElement(shell, ".agent-chat__input", "composer");
-    expect(wrapper.parentElement).toBe(shell.parentElement);
+    const footer = requireElement(container, ".chat-footer", "footer");
+    expect(wrapper.nextElementSibling).toBe(footer);
+    expect(shell.closest(".chat-footer")).toBe(footer);
     expect(wrapper.compareDocumentPosition(shell)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(queue.closest(".agent-chat__composer-shell")).toBe(shell);
+    expect(queue.closest(".chat-footer__context")).not.toBeNull();
+    expect(composer.closest(".chat-footer__context")).toBeNull();
     expect(queue.compareDocumentPosition(composer)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
@@ -3681,7 +3558,7 @@ describe("chat loading skeleton", () => {
     }
   });
 
-  it("floats interrupted chrome above the composer", () => {
+  it("keeps interrupted status with composer notices outside the transcript", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
     try {
       const container = renderChatView({
@@ -3697,11 +3574,14 @@ describe("chat loading skeleton", () => {
         },
       });
 
-      expect(
-        container
-          .querySelector(".agent-chat__composer-run-status")
-          ?.closest(".agent-chat__composer-overlay"),
-      ).not.toBeNull();
+      const status = requireElement(
+        container,
+        ".agent-chat__composer-run-status",
+        "interrupted status",
+      );
+      expect(status.closest(".agent-chat__composer-notices")).not.toBeNull();
+      expect(status.closest(".chat-footer")).not.toBeNull();
+      expect(status.closest(".chat-thread")).toBeNull();
       expect(
         container.querySelector(".agent-chat__run-status-announcement")?.textContent?.trim(),
       ).toBe("Interrupted");

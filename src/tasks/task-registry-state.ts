@@ -132,12 +132,6 @@ export function emitTaskRegistryObserverEvent(createEvent: () => TaskRegistryObs
   deliverTaskRegistryObserverEvent(createEvent, recordTaskRegistryPublication);
 }
 
-/** Subscribe to the existing publication owner; readers recheck current task authority. */
-export function onTaskRegistryChange(listener: () => void): () => void {
-  taskRegistryProcessState.changeListeners.add(listener);
-  return () => taskRegistryProcessState.changeListeners.delete(listener);
-}
-
 function clearTaskRegistryEphemeralState(): void {
   // Committed restore obligations outlive replacement of their in-memory projection.
   clearTaskFlowSyncRetries("live");

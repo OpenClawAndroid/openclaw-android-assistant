@@ -26,6 +26,11 @@ import { redactToolPayloadText } from "../logging/redact.js";
 import type { ManagedRun } from "../process/supervisor/index.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
 import type { RunExit, SpawnInput, TerminationReason } from "../process/supervisor/types.js";
+import type {
+  SecretEgressProcessGrant,
+  SecretEgressSentinelBinding,
+} from "../secrets/egress-proxy/proxy-server.js";
+import { registerSecretEgressProxyProcess } from "../secrets/egress-proxy/registry.js";
 import { isSubagentSessionKey } from "../sessions/session-key-utils.js";
 /**
  * Bash exec runtime.
@@ -49,22 +54,20 @@ import {
   resolveProcessCleanupMs,
   tail,
 } from "./bash-process-registry.js";
+import { prepareHostExecSpawn } from "./bash-tools.exec-host-spawn.js";
 import {
   appendExecTimeoutRetryGuidance,
   renderExecExitLabel,
   renderExecOutputText,
   renderExecUpdateText,
 } from "./bash-tools.exec-output.js";
-import { wrapPosixCommandWithPathPrepend } from "./bash-tools.exec-path-prepend.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import type { BashSandboxConfig } from "./bash-tools.shared.js";
 import { chunkString, clampWithDefault, readEnvInt } from "./bash-tools.shared.js";
-import { buildGitHubExecLaunchArgv } from "./github-exec-launch.js";
 import { recordAgentCleanupFailure } from "./run-cleanup-timeout.js";
 import type { AgentToolResult } from "./runtime/index.js";
 import { createSessionSlug } from "./session-slug.js";
-import { maybeWrapCommandWithShellSnapshot } from "./shell-snapshot.js";
-import { createStreamingBinaryOutputSanitizer, getShellConfig } from "./shell-utils.js";
+import { createStreamingBinaryOutputSanitizer } from "./shell-utils.js";
 import { registerTrustedToolNoStartError } from "./tool-result-error.js";
 import { withoutGatewayToolCallerIdentity } from "./tools/gateway-caller-context.js";
 export { applyPathPrepend, normalizePathPrepend } from "../infra/path-prepend.js";
@@ -616,6 +619,7 @@ export async function runExecProcess({
   execCommand?: string;
   workdir: string;
   env: Record<string, string>;
+  secretEgressBindings?: readonly SecretEgressSentinelBinding[];
   /** Host-selected managed profile; never inferred from the requested environment. */
   githubProfileDir?: string;
   pathPrepend?: string[];
@@ -752,6 +756,7 @@ export async function runExecProcess({
   let assertSandboxCurrent: (() => void) | undefined;
   let sandboxPrepared = false;
   let sandboxFinalized = false;
+  let secretEgressGrant: SecretEgressProcessGrant | undefined;
   const finalizeSandboxExec = async (params: {
     status: "completed" | "failed";
     exitCode: number | null;
@@ -769,6 +774,7 @@ export async function runExecProcess({
   const finalizeAndSettleSession = async (
     outcome: ExecProcessOutcome,
   ): Promise<ExecProcessOutcome> => {
+    secretEgressGrant?.revoke();
     let finalOutcome = outcome;
     session.finalizing = true;
     onActivity?.(Date.now());
@@ -865,35 +871,7 @@ export async function runExecProcess({
         stdinMode: backendExecSpec.stdinMode,
       };
     }
-    const { shell, args: shellArgs } = getShellConfig();
-
-    // Wrap the command to enforce PATH prepend precedence over shell RC overrides.
-    const commandWithPathPrepend = wrapPosixCommandWithPathPrepend(
-      execCommand,
-      shellRuntimeEnv,
-      opts.pathPrepend,
-    );
-    const commandWithShellSnapshot = await maybeWrapCommandWithShellSnapshot({
-      // A bound execution plan must not load aliases/functions or replace its PATH.
-      enabled: opts.execCommand === undefined,
-      command: commandWithPathPrepend,
-      shell,
-      shellArgs,
-      cwd: opts.workdir,
-      env: shellRuntimeEnv,
-    });
-
-    const shellArgv = [shell, ...shellArgs, commandWithShellSnapshot];
-    const argv = opts.githubProfileDir
-      ? buildGitHubExecLaunchArgv(shellArgv, opts.githubProfileDir)
-      : shellArgv;
-    return {
-      mode: opts.usePty ? ("pty" as const) : ("child" as const),
-      argv,
-      env: shellRuntimeEnv,
-      cwd: opts.workdir,
-      stdinMode: opts.usePty ? ("pipe-open" as const) : ("pipe-closed" as const),
-    };
+    return prepareHostExecSpawn({ ...opts, env: shellRuntimeEnv });
   };
 
   let managedRun: ManagedRun | null = null;
@@ -906,7 +884,7 @@ export async function runExecProcess({
       throw new ExecProcessPreflightError(denied);
     }
   };
-  const spawn = (input: SpawnInput) => {
+  const spawn = async (input: SpawnInput) => {
     const assertSourceCurrent = assertSourceActive;
     const assertRuntimeCurrent = assertSandboxCurrent;
     const assertHostPolicyCurrent = assertPolicyCurrent;
@@ -917,9 +895,23 @@ export async function runExecProcess({
     // Source authority covers construction; approval policy ends at native launch.
     assertCurrent();
     assertHostPolicyCurrent?.();
-    return withoutGatewayToolCallerIdentity(() =>
-      supervisor.spawn({ ...input, assertCurrent, beforeSpawn: assertHostPolicyCurrent }),
-    );
+    const grant = opts.secretEgressBindings
+      ? registerSecretEgressProxyProcess(opts.secretEgressBindings)
+      : undefined;
+    secretEgressGrant = grant;
+    try {
+      return await withoutGatewayToolCallerIdentity(() =>
+        supervisor.spawn({
+          ...input,
+          ...(grant ? { env: { ...input.env, ...grant.env }, onCancel: grant.revoke } : {}),
+          assertCurrent,
+          beforeSpawn: assertHostPolicyCurrent,
+        }),
+      );
+    } catch (error) {
+      grant?.revoke();
+      throw error;
+    }
   };
 
   try {
@@ -928,7 +920,7 @@ export async function runExecProcess({
     usingPty = spawnSpec.mode === "pty";
     const spawnBase = {
       runId: sessionId,
-      ...(opts.sandbox ? { cleanupOwnership: "external" as const } : {}),
+      ...(opts.sandbox ? { cleanupOwnership: "external" as const, exactEnv: true as const } : {}),
       scopeKey: opts.scopeKey,
       cwd: spawnSpec.cwd ?? opts.workdir,
       env: spawnSpec.env,

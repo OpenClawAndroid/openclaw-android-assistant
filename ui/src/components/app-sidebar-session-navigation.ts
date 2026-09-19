@@ -15,15 +15,16 @@ import {
   sessionNavigationTarget,
 } from "../lib/sessions/route-navigation.ts";
 import {
-  isSubagentSessionKey,
   normalizeAgentId,
   resolveUiDefaultAgentId,
   resolveUiSessionRowAgentId,
 } from "../lib/sessions/session-key.ts";
-import { projectSidebarAgentSessionRows } from "./app-sidebar-agent-session-rows.ts";
+import {
+  projectSidebarAgentSessionRows,
+  projectSidebarHomeSession,
+} from "./app-sidebar-agent-session-rows.ts";
 import { AppSidebarBase } from "./app-sidebar-base.ts";
 import { scheduleSidebarChildSessions } from "./app-sidebar-child-session-data.ts";
-import { projectSidebarArchiveVisibility } from "./app-sidebar-session-archive-visibility.ts";
 import { excludeSessionCatalogRows } from "./app-sidebar-session-catalog-state.ts";
 import {
   adoptedCatalogSessionKeys,
@@ -42,7 +43,6 @@ import {
   createSidebarSessionRowsComparator,
   collectKnownSidebarSessionCatalogIds,
   collectKnownSidebarSessionGroups,
-  collectSidebarSessionRowsByKey,
   extendSidebarSessionSelection,
   findSidebarMainSessionRow,
   findProjectedSidebarSession,
@@ -59,7 +59,6 @@ import {
   SidebarSessionProjection,
   type SidebarVisibleSections,
 } from "./app-sidebar-session-projection.ts";
-import { projectSessionTree } from "./app-sidebar-session-tree.ts";
 import {
   loadStoredHiddenSessionCatalogIds,
   loadStoredSidebarSessionSortMode,
@@ -288,9 +287,17 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
         }
       }
     }
-    const mainRow = this.mainSessionRow();
-    if (mainRow?.childSessions?.some((key) => !isSubagentSessionKey(key))) {
-      revalidating.add(mainRow.key);
+    const grouped = this.groupedSessionSource;
+    const homeAgents = grouped
+      ? grouped.agentIds.filter((id) => !grouped.collapsedAgentIds.has(id))
+      : [this.expandedAgentId()];
+    for (const agentId of homeAgents) {
+      const mainRow = this.mainSessionRow(agentId);
+      if (mainRow?.childSessions?.length) {
+        for (const key of this.projectHomeSession(mainRow, agentId).childLoadParentKeys ?? []) {
+          revalidating.add(key);
+        }
+      }
     }
     return revalidating;
   }
@@ -721,29 +728,14 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
   }
 
   projectHomeSession(row: GatewaySessionRow, agentId: string): SidebarRecentSession {
-    const { rows, childSessionRowsByParent } = projectSidebarArchiveVisibility({
-      sessionData: this.sessionData,
-      selectedAgentId: agentId,
-      statusFilter: this.sessionsStatusFilter,
-      deletionState: (key, owner) => this.context?.sessions.deletionState(key, owner),
-      archiveVisibility: (key) => this.context?.sessions.archiveVisibility(key),
-    });
-    const navigation = this.getSessionNavigationState();
-    // Home consumes the same descendant fold without adding a second main row.
-    return projectSessionTree({
-      roots: [row],
-      mainSessionKeys: new Set([row.key, this.selectedAgentMainSessionKey(agentId)]),
-      rowsByKey: collectSidebarSessionRowsByKey({
-        rows,
-        childRowsByParent: childSessionRowsByParent,
-      }),
-      loadingChildKeys: this.sessionData.loadingChildSessionKeys,
+    return projectSidebarHomeSession({
+      host: this,
+      row,
+      agentId,
+      result: this.groupedSessionSource?.result,
+      navigationState: this.getSessionNavigationState(),
       knownSessionAttention: this.attention.knownSessionAttention(),
-      toSidebarSession: (session, isChild) => ({
-        ...navigation.toSidebarSession(session, isChild),
-        ...(!isChild ? { attention: this.resolveHomeSessionAttention(row.key, row) } : {}),
-      }),
-    })[0]!;
+    });
   }
 
   /** Gateway row backing the identity card (unread/running state), if loaded. */
@@ -755,7 +747,8 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
       (normalized === normalizeAgentId(this.sessionData.sessionsAgentId ?? "")
         ? (this.sessionData.sessionsResult?.sessions ?? [])
         : (this.sessionData.sessionResultsByAgent[normalized]?.sessions ?? []));
-    return findSidebarMainSessionRow(rows, mainKey);
+    const lineage = this.sessionData.activeSessionLineageRoot;
+    return findSidebarMainSessionRow(lineage ? [...rows, lineage] : rows, mainKey);
   }
 
   /** Identity-card click: the agent's rolling main session, or Settings offline. */

@@ -1,19 +1,36 @@
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import type { OpenClawStateReadReply } from "./openclaw-state-read.types.js";
 
 type MockPool = {
+  selectLibrary: ReturnType<typeof vi.fn<() => void>>;
   run: ReturnType<typeof vi.fn<() => Promise<OpenClawStateReadReply>>>;
   close: ReturnType<typeof vi.fn<() => Promise<void>>>;
   notify?: (error: unknown) => void | Promise<void>;
 };
-const mock = vi.hoisted((): MockPool => ({ run: vi.fn(), close: vi.fn() }));
+const mock = vi.hoisted((): MockPool => ({
+  run: vi.fn(),
+  close: vi.fn(),
+  selectLibrary: vi.fn<() => void>(),
+}));
+vi.mock("../infra/bun-sqlite-library.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../infra/bun-sqlite-library.js")>();
+  return {
+    ...actual,
+    ensureSqliteLibrarySelected() {
+      const selection = actual.ensureSqliteLibrarySelected();
+      mock.selectLibrary();
+      return selection;
+    },
+  };
+});
 vi.mock("../infra/worker-task-pool.js", () => ({
   WorkerTaskPool: class {
     constructor(options: { onRetirementFailure?: MockPool["notify"] }) {
+      expect(mock.selectLibrary).toHaveBeenCalledOnce();
       mock.notify = options.onRetirementFailure;
     }
     run = mock.run;
@@ -26,6 +43,8 @@ import {
   closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
 } from "./openclaw-state-db.js";
+
+beforeEach(() => mock.selectLibrary.mockClear());
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(async () => {
@@ -89,6 +108,7 @@ it("reads externally created state after an absent read without resetting admiss
   expect(await executeExistingOpenClawStateRead(options, command)).toBeUndefined();
   expect(fs.existsSync(pathname)).toBe(false);
   expect(mock.run).not.toHaveBeenCalled();
+  expect(mock.selectLibrary).not.toHaveBeenCalled();
 
   // Only file identity is real; creation does not publish a native cache handle.
   fs.writeFileSync(pathname, "mock worker source");
@@ -100,4 +120,5 @@ it("reads externally created state after an absent read without resetting admiss
   };
   mock.run.mockResolvedValue(reply);
   expect(await executeExistingOpenClawStateRead(options, command)).toEqual(reply);
+  expect(mock.selectLibrary).toHaveBeenCalledOnce();
 });

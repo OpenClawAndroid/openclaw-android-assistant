@@ -547,12 +547,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       pullRequestsGateway: this.context.gateway,
       pullRequestsBranch: this.sessionPullRequestsBranch,
       pullRequestsStatus: this.sessionPullRequestsStatus,
-      pullRequestsExpanded: this.sessionPullRequestsExpanded,
       onOpenSessionDiff: sessionWorkspace.onOpenDiff,
-      onTogglePullRequests: () => {
-        this.sessionPullRequestsExpanded = !this.sessionPullRequestsExpanded;
-        this.requestUpdate();
-      },
       onDismissPullRequest: this.dismissSessionPullRequest,
       githubPublication: this.githubPublication?.view(),
       onOpenWorkspaceFile: (target) => openSessionWorkspaceFile(state, target),

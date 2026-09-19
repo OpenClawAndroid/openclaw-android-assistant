@@ -16,15 +16,22 @@ import {
 } from "./sqlite-readonly-location.js";
 import {
   SQLITE_READONLY_WORKER_MAX_BUFFER,
+  isSqliteSnapshotStagingMode,
   type SqliteReadOnlyWorkerResult,
 } from "./sqlite-readonly-worker-protocol.js";
-import { reclaimAbandonedSqliteSnapshots } from "./sqlite-snapshot-staging.js";
+import {
+  createSqliteSnapshotStagingTokenSync,
+  reclaimAbandonedSqliteSnapshots,
+  reconcileSqliteSnapshotRetirement,
+} from "./sqlite-snapshot-staging.js";
 import { assertExistingDatabaseIdentity } from "./sqlite-worker-identity.js";
 import { createSqliteWorkerTransferOwner } from "./sqlite-worker-transfer.js";
 import {
   acquireStateDatabaseHandleLease,
   withStateDatabaseCoordinatorRuntimeDirectory,
 } from "./state-database-coordinator.js";
+
+const stagingTokens = new Map<string, (retiring?: boolean) => void>();
 
 // The sync strategy raw-copies without attaching SQLite to the source, so sync
 // callers stay byte-neutral on the live family; the async strategy holds a read
@@ -38,7 +45,8 @@ async function inspect(args: string[]): Promise<SqliteReadOnlyWorkerResult> {
       mode !== "sync-fallback" &&
       mode !== "async" &&
       mode !== "consolidated" &&
-      mode !== "reclaim") ||
+      mode !== "reclaim" &&
+      !isSqliteSnapshotStagingMode(mode)) ||
     !pathname
   ) {
     return {
@@ -47,6 +55,27 @@ async function inspect(args: string[]): Promise<SqliteReadOnlyWorkerResult> {
     };
   }
   try {
+    if (mode === "staging-reconcile") {
+      reconcileSqliteSnapshotRetirement(pathname);
+      return { ok: true, location: pathname };
+    }
+    if (mode === "staging-create" || mode === "staging-create-legacy") {
+      const owned = createSqliteSnapshotStagingTokenSync(
+        pathname,
+        mode === "staging-create-legacy",
+      );
+      stagingTokens.set(owned.directory, owned.release);
+      return { ok: true, location: owned.directory };
+    }
+    if (mode === "staging-retire") {
+      const token = stagingTokens.get(pathname);
+      if (!token) {
+        throw new Error("SQLite snapshot token is not owned by this worker");
+      }
+      token(true);
+      stagingTokens.delete(pathname);
+      return { ok: true, location: pathname };
+    }
     if (mode === "reclaim") {
       const warnings: string[] = [];
       const directories = reclaimAbandonedSqliteSnapshots(pathname, (message, error) => {
@@ -237,20 +266,23 @@ function runSession(): void {
       !Number.isSafeInteger(message.id) ||
       !("args" in message) ||
       !Array.isArray(message.args) ||
-      (message.args[0] !== "sync" && message.args[0] !== "sync-fallback") ||
+      (message.args[0] !== "sync" &&
+        message.args[0] !== "sync-fallback" &&
+        !isSqliteSnapshotStagingMode(message.args[0])) ||
       !message.args.every((arg): arg is string => typeof arg === "string")
     ) {
       process.exit(1);
     }
     busy = true;
     const id = message.id;
+    const staging = isSqliteSnapshotStagingMode(message.args[0]);
     void inspect(message.args).then((inspected) => {
       const result: SqliteReadOnlyWorkerResult =
         Buffer.byteLength(JSON.stringify(inspected)) > SQLITE_READONLY_WORKER_MAX_BUFFER
           ? { ok: false, message: "exceeded its output buffer" }
           : inspected;
       process.send?.({ id, result }, (error) => {
-        if (error || !result.ok) {
+        if (error || (!result.ok && !staging)) {
           // A failed inspection may still own a native handle and admission.
           process.exit(1);
           return;

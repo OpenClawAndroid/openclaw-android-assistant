@@ -145,6 +145,11 @@ Reach the Gateway and paired nodes from plugin code, and the events a long-lived
     arriving before the plugin can consume it. The existing raw `emitChunk`
     and `onInput` helpers remain available to terminal-style commands.
 
+    Interactive commands using `runNodePtyCommand` from `openclaw/plugin-sdk/node-host`
+    can pass an `assertCurrent` callback for prepared source authority. The PTY
+    owner rechecks it and the invocation's abort signal after asynchronous native
+    loading, immediately before spawning.
+
     `openDuplex` is available only to a current, trusted in-process Gateway
     plugin runtime. Plugin CLI runtimes reject it with an actionable error;
     there is no remote polling or local fallback. Every invocation uses the
@@ -166,6 +171,11 @@ Reach the Gateway and paired nodes from plugin code, and the events a long-lived
     successful plugin result does not prove that the node action occurred.
 
     Plugins that expose node-hosted agent tools can set `agentTool.defaultPlatforms` for non-dangerous commands that should be allowlisted by default. Omit it when operators must opt in with `gateway.nodes.commands.allow`. Dangerous node-host commands should register a node-invoke policy with `api.registerNodeInvokePolicy(...)`; the policy runs in the Gateway after command allowlist checks and before the command is forwarded to the node, so direct `node.invoke` calls, node-hosted plugin tools, and higher-level plugin tools share the same enforcement path.
+
+    A node-invoke policy receives the selected node's advertised `commands` and
+    optional `caps`. Use those facts to require supported command behavior, then
+    dispatch through the supplied `invokeNode` callback, which revalidates the
+    current connection and pairing before forwarding the command.
 
     `allow-always` remains one policy decision unless the node-invoke policy explicitly declares `standingApproval: { kind: "placement", scope: "<capability>" }`. That opt-in permits later launches only for a high-risk command on the same current managed placement, node pairing, environment owner, workspace, and semantic capability scope, for at most 30 days and never across Gateway restart. Use a stable, content-free scope for a capability whose approval deliberately covers later argument changes. Do not opt in when the approved target or other request arguments must remain exact.
 

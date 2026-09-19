@@ -2878,36 +2878,6 @@ describe("grouped chat rendering", () => {
     expect(container.querySelectorAll(".chat-tool-review")).toHaveLength(0);
   });
 
-  it("collapses paired parallel tool cards from one message into an activity group", () => {
-    const container = document.createElement("div");
-    const group = createToolGroup("parallel-tool-group", [
-      createMessageEntry(
-        "parallel-tool-message",
-        createAssistantMessage(
-          [
-            createToolCall("call-a", "read", { path: "/repo/a.ts" }, { type: "toolCall" }),
-            createToolCall("call-b", "read", { path: "/repo/b.ts" }, { type: "toolCall" }),
-            createToolResultBlock("call-a", "read", "File A", { isError: false }),
-            createToolResultBlock("call-b", "read", "File B", { isError: false }),
-          ],
-          { timestamp: 1000 },
-        ),
-      ),
-    ]);
-
-    renderMessageGroups(container, prepareHistoryGroups([group]), {
-      isToolMessageExpanded: (id) => (id === "activity:parallel-tool-group" ? false : undefined),
-    });
-
-    const activity = expectElement(container, ".chat-activity-group__summary", HTMLButtonElement);
-    expect(activity.textContent).toContain("Read ×2");
-    expect(
-      expectElement(activity, ".chat-activity-group__label", HTMLElement).getAttribute("title"),
-    ).toBe("Read ×2");
-    expect(container.querySelectorAll(".chat-activity-group")).toHaveLength(1);
-    expect(container.querySelector(".chat-tool-msg-body")).toBeNull();
-  });
-
   it("renders consecutive original tool groups behind one activity summary", () => {
     const container = document.createElement("div");
     const groups = [

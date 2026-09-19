@@ -30,7 +30,47 @@ import { buildControlUiResourcePath } from "./control-ui-contract.js";
 import { normalizeControlUiBasePath } from "./control-ui-shared.js";
 import { resolveCurrentUserProfileDisplay } from "./current-user-profile-display.js";
 import type { SessionEntryPair } from "./session-list-order.js";
-import type { SessionActorProfileIdentity } from "./session-utils-contracts.js";
+import type {
+  SessionActorProfileIdentity,
+  SessionIdentityProjection,
+} from "./session-utils-contracts.js";
+
+/** The row owner invalidates these facts on profile/config publication; entry replacement is exact. */
+export function createSessionIdentityProjection(): SessionIdentityProjection {
+  let owners = new WeakMap<SessionEntry, ReturnType<typeof projectSessionOwner>>();
+  let participants = new WeakMap<SessionEntry, ReadonlyMap<string, SessionParticipant>>();
+  return {
+    invalidate() {
+      owners = new WeakMap();
+      participants = new WeakMap();
+    },
+    owner(this: void, ...args: Parameters<typeof projectSessionOwner>) {
+      const [entry] = args;
+      if (!entry) {
+        return projectSessionOwner(...args);
+      }
+      if (!owners.has(entry)) {
+        owners.set(entry, projectSessionOwner(...args));
+      }
+      return owners.get(entry);
+    },
+    participants(
+      this: void,
+      ...args: Parameters<typeof projectSessionParticipants>
+    ): ReadonlyMap<string, SessionParticipant> {
+      const [entry] = args;
+      if (!entry) {
+        return projectSessionParticipants(...args);
+      }
+      let projected = participants.get(entry);
+      if (!projected) {
+        projected = projectSessionParticipants(...args);
+        participants.set(entry, projected);
+      }
+      return projected;
+    },
+  };
+}
 
 export function projectSessionParticipant(
   identity: SessionParticipantIdentity,

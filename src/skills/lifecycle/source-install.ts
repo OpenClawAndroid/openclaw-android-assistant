@@ -14,8 +14,9 @@ import type { InstallSafetyOverrides } from "../../plugins/install-security-scan
 import { resolveUserPath } from "../../utils.js";
 import { parseSkillFrontmatter } from "../loading/frontmatter.js";
 import { SKILL_SOURCE_ORIGIN_RELATIVE_PATH } from "../loading/skill-entry-metadata-path.js";
-import { installExtractedSkillRoot, validateRequestedSkillSlug } from "./archive-install.js";
+import { installExtractedSkillRoot } from "./archive-install.js";
 import { untrackClawHubSkill } from "./clawhub.js";
+import { validateRequestedSkillSlug } from "./install-paths.js";
 
 type Logger = {
   info?: (message: string) => void;

@@ -217,12 +217,6 @@ function createCheckpointHandler(action: CheckpointAction): GatewayRequestHandle
           preparationError = errorShape(ErrorCodes.INVALID_REQUEST, placementError.message);
           return;
         }
-        clearSessionQueues([
-          key,
-          current.canonicalKey,
-          current.sessionStoreKey,
-          current.entry.sessionId,
-        ]);
         const released = await interruptSessionWorkAdmissions({
           scope: storePath,
           identities: lifecycleIdentities,
@@ -277,6 +271,15 @@ function createCheckpointHandler(action: CheckpointAction): GatewayRequestHandle
           sessionStoreKey: current.sessionStoreKey,
           checkpointId,
         });
+        // Queue retirement is irreversible; failed restores must leave accepted work usable.
+        if (result.status === "created") {
+          clearSessionQueues([
+            key,
+            current.canonicalKey,
+            current.sessionStoreKey,
+            current.entry.sessionId,
+          ]);
+        }
         complete(result, current.canonicalKey);
       },
     });

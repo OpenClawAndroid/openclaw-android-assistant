@@ -1,24 +1,29 @@
 import { spawnSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { setLoggerOverride } from "../logging/logger.js";
 import { testApi } from "../logging/logger.test-support.js";
+import { openOpenClawStateReadConnection } from "../state/openclaw-state-db-read-connection.js";
 import * as nodeSqlite from "./node-sqlite.js";
 import {
   releaseSnapshotTempDirectory,
   removeTempDirectory,
+  removeTempDirectoryAsync,
 } from "./sqlite-readonly-location-cleanup.js";
+import { prepareSqliteReadOnlyLocationSyncInProcess } from "./sqlite-readonly-location.js";
 import {
   createSqliteSnapshotStagingDirectory,
-  prepareSqliteReadOnlyLocationSyncInProcess,
-} from "./sqlite-readonly-location.js";
-import {
   createSqliteSnapshotStagingDirectorySync,
+  createSqliteSnapshotStagingTokenSync,
+  reconcileSqliteSnapshotRetirement,
   reclaimAbandonedSqliteSnapshots,
   reclaimAbandonedSqliteSnapshotsAsync,
 } from "./sqlite-snapshot-staging.js";
+
+vi.mock("node:child_process", { spy: true });
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
   afterEach(async () => {
@@ -40,6 +45,54 @@ beforeAll(async () => {
   // Prepare worker artifacts before measuring the reclamation operation.
   const root = tempDirs.make("sqlite-staging-warm-");
   removeTempDirectory(await createSqliteSnapshotStagingDirectory(root));
+});
+
+it("shares one token process across concurrent and nested async snapshot lifetimes", async () => {
+  const cache = tempDirs.make("sqlite-staging-async-owner-");
+  const started = performance.now();
+  const children = vi.spyOn(childProcess, "spawn");
+  const nativeOpen = vi.spyOn(nodeSqlite, "openNodeSqliteDatabase").mockImplementation(() => {
+    throw new Error("snapshot token opened on the host");
+  });
+  const directories: string[] = [];
+  try {
+    directories.push(
+      ...(await Promise.all(
+        Array.from({ length: 3 }, () =>
+          createSqliteSnapshotStagingDirectory(cache, false, undefined, true),
+        ),
+      )),
+    );
+    await expect(
+      createSqliteSnapshotStagingDirectory(path.join(cache, "missing"), false, undefined, true),
+    ).rejects.toThrow();
+    expect(directories.every((directory) => fs.existsSync(directory))).toBe(true);
+    const nested = await createSqliteSnapshotStagingDirectory(
+      directories[0],
+      false,
+      undefined,
+      true,
+    );
+    directories.push(nested);
+    const sessions = children.mock.calls.filter(
+      ([, args]) => Array.isArray(args) && args.includes("session"),
+    );
+    expect(sessions).toHaveLength(1);
+    console.info("async snapshot token owner", {
+      directories: directories.length,
+      tokenProcesses: sessions.length,
+      elapsedMs: Math.round(performance.now() - started),
+    });
+  } finally {
+    try {
+      for (const directory of directories.toReversed()) {
+        expect(await removeTempDirectoryAsync(directory)).toBe(true);
+      }
+    } finally {
+      nativeOpen.mockRestore();
+    }
+  }
+  expect(fs.readdirSync(cache)).toEqual([]);
 });
 
 function createFixture() {
@@ -87,6 +140,74 @@ function runChild(script: string, signal?: NodeJS.Signals) {
   }
   return result.stdout;
 }
+
+it("reconciles a released fresh token without waiting for idle reclamation", () => {
+  const { cache, source } = createFixture();
+  const owned = createSqliteSnapshotStagingTokenSync(cache);
+  const location = path.join(owned.directory, "database.sqlite");
+  fs.copyFileSync(source, location);
+  owned.release();
+  try {
+    reconcileSqliteSnapshotRetirement(owned.directory);
+    expect(() =>
+      openOpenClawStateReadConnection(source, location, undefined, owned.directory),
+    ).toThrow("parent retired");
+    expect(fs.readFileSync(location)).toEqual(fs.readFileSync(source));
+  } finally {
+    owned.release();
+    removeTempDirectory(owned.directory);
+  }
+});
+
+it("keeps snapshot bytes fenced after creator release until native reader close succeeds", () => {
+  const { cache, source } = createFixture();
+  const directory = createSqliteSnapshotStagingDirectorySync(cache);
+  const location = path.join(directory, "database.sqlite");
+  fs.copyFileSync(source, location);
+  const reader = openOpenClawStateReadConnection(source, location, undefined, directory);
+  const close = vi.spyOn(reader.database.db, "close").mockImplementationOnce(() => {
+    throw new Error("reader close did not finish");
+  });
+  const reclaim = () =>
+    runChild(`
+    import { reclaimAbandonedSqliteSnapshots } from ${JSON.stringify(stagingModule)};
+    for (const ignored of reclaimAbandonedSqliteSnapshots(${JSON.stringify(cache)}, () => {})) {}
+  `);
+  try {
+    releaseSnapshotTempDirectory(directory);
+    ageSnapshotTree(directory);
+    expect(() => reader.close()).toThrow("reader close did not finish");
+    expect(() => reconcileSqliteSnapshotRetirement(directory)).toThrow();
+    reclaim();
+    expect(fs.existsSync(location)).toBe(true);
+    close.mockRestore();
+    expect(reader.close()).toBe(true);
+    reconcileSqliteSnapshotRetirement(directory);
+    ageSnapshotTree(directory);
+    reclaim();
+    expect(fs.existsSync(directory)).toBe(false);
+  } finally {
+    close.mockRestore();
+    reader.close();
+    removeTempDirectory(directory);
+  }
+});
+
+it("refuses a private reader admitted after snapshot retirement", () => {
+  const { cache, source } = createFixture();
+  const owned = createSqliteSnapshotStagingTokenSync(cache);
+  const location = path.join(owned.directory, "database.sqlite");
+  fs.copyFileSync(source, location);
+  try {
+    owned.release(true);
+    expect(() =>
+      openOpenClawStateReadConnection(source, location, undefined, owned.directory),
+    ).toThrow("parent retired");
+  } finally {
+    owned.release();
+    removeTempDirectory(owned.directory);
+  }
+});
 
 it("releases snapshot transactions before deferred native close can block parent retirement", () => {
   const cache = tempDirs.make("sqlite-staging-deferred-close-");

@@ -14646,7 +14646,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       uses: UPLOAD_ARTIFACT_V7,
       with: {
         name: "control-ui-test-timeout-${{ matrix.shard }}-${{ github.run_attempt }}",
-        path: test.env.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR,
+        path: `${test.env.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR}/failure-*/failure.public.json`,
         "if-no-files-found": "ignore",
         "retention-days": 7,
       },
@@ -14748,7 +14748,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
               forwarded.push(args);
               expect(childEnv.OPENCLAW_TEST_PROJECTS_PARALLEL).toBe("1");
               expect(childEnv.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR).toBe(
-                resolveValue(diagnostics.with.path),
+                resolveValue(test.env.OPENCLAW_UI_E2E_DIAGNOSTIC_DIR),
               );
               return 0;
             },

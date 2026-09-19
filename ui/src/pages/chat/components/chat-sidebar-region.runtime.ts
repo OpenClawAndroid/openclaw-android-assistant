@@ -14,6 +14,7 @@ import {
 import { renderPanelTabStrip, type PanelTabStripTab } from "../../../components/panel-tab-strip.ts";
 import {
   BROWSER_PANEL_TOGGLE_EVENT,
+  LINK_READER_PANEL_TOGGLE_EVENT,
   TERMINAL_PANEL_TOGGLE_EVENT,
   type PanelToggleElement,
 } from "../../../components/panel-toggle-contract.ts";
@@ -234,6 +235,14 @@ class ChatSidebarRegion extends OpenClawLightDomElement {
                 }),
               );
             }
+            if (slot === "link-reader" && openSlots.has(slot)) {
+              this.deliverPanelEvent(
+                slot,
+                new CustomEvent(LINK_READER_PANEL_TOGGLE_EVENT, {
+                  detail: { open: true, newTab: true },
+                }),
+              );
+            }
             if (slot === "terminal" && openSlots.has(slot)) {
               this.deliverPanelEvent(
                 slot,
@@ -257,7 +266,10 @@ class ChatSidebarRegion extends OpenClawLightDomElement {
         ${this.panelTypes()
           .filter(
             (type) =>
-              type.slot === "browser" || type.slot === "terminal" || !openSlots.has(type.slot),
+              type.slot === "browser" ||
+              type.slot === "terminal" ||
+              type.slot === "link-reader" ||
+              !openSlots.has(type.slot),
           )
           .map(
             (type) => html`

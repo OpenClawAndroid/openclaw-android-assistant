@@ -1,3 +1,5 @@
+import type { ControlUiLinkReaderDescriptor } from "../../../../src/shared/control-ui-link-reader.js";
+import { resolveLinkReaderTarget } from "../../components/link-reader-target.ts";
 import {
   clearSessionPanelToggle,
   panelToggleSessionKey,
@@ -14,6 +16,7 @@ import { resolveChatAgentId } from "./chat-state-route.ts";
 import { closeSlot, openSlot, setSidebarDock } from "./sidebar-layout.ts";
 
 type PanelTagName =
+  | "openclaw-link-reader-panel"
   | "openclaw-browser-panel"
   | "openclaw-desktop-panel"
   | "openclaw-portals-page"
@@ -22,12 +25,19 @@ type PanelTagName =
 interface ActivePanelOwner {
   renderRoot: ParentNode;
   state: ChatPageHost;
+  linkReaders: readonly ControlUiLinkReaderDescriptor[];
   updateComplete: Promise<unknown>;
 }
 
+export type PendingSessionPanelToggle = {
+  events: Event[];
+  owner: ChatPageHost;
+  sessionKey: string;
+};
+
 interface SessionPanelToggleControllerOptions {
   current: () => ActivePanelOwner | null;
-  pending: Map<SessionPanelToggleSlot, Event>;
+  pending: Map<SessionPanelToggleSlot, PendingSessionPanelToggle>;
   requestUpdate: () => void;
   updateSidebarLayout: (layout: ChatPageHost["sidebarLayout"]) => void;
 }
@@ -45,9 +55,22 @@ export class ChatPaneSessionPanelToggleController {
     if (requestedSession && !areUiSessionKeysEquivalent(requestedSession, owner.state.sessionKey)) {
       return false;
     }
-    clearSessionPanelToggle(slot, event);
-    const ownerSessionKey = owner.state.sessionKey;
     const detail = event instanceof CustomEvent ? event.detail : null;
+    if (
+      slot === "link-reader" &&
+      detail?.open !== false &&
+      (!owner.state.connected ||
+        !owner.state.client ||
+        owner.linkReaders.length === 0 ||
+        (detail?.url !== undefined && !resolveLinkReaderTarget(detail.url, owner.linkReaders)))
+    ) {
+      clearSessionPanelToggle(slot, event);
+      return false;
+    }
+    clearSessionPanelToggle(slot, event);
+    if (slot === "link-reader") {
+      event.preventDefault();
+    }
     if (detail?.open === false) {
       this.options.pending.delete(slot);
       this.options.updateSidebarLayout(closeSlot(owner.state.sidebarLayout, slot));
@@ -91,7 +114,27 @@ export class ChatPaneSessionPanelToggleController {
       this.options.updateSidebarLayout(layout);
       return true;
     }
-    this.options.pending.set(slot, event);
+    const existing = this.options.pending.get(slot);
+    if (
+      slot === "link-reader" &&
+      existing?.owner === owner.state &&
+      existing.sessionKey === owner.state.sessionKey
+    ) {
+      existing.events.push(event);
+      this.options.updateSidebarLayout(layout);
+      return true;
+    }
+    const queue: PendingSessionPanelToggle = {
+      events: [event],
+      owner: owner.state,
+      sessionKey: owner.state.sessionKey,
+    };
+    const sessionKey = owner.state.sessionKey;
+    const isCurrent = () =>
+      this.options.pending.get(slot) === queue &&
+      this.options.current()?.state === owner.state &&
+      owner.state.sessionKey === sessionKey;
+    this.options.pending.set(slot, queue);
     this.options.updateSidebarLayout(layout);
     void Promise.all([
       customElements.whenDefined("openclaw-chat-sidebar-region"),
@@ -100,28 +143,37 @@ export class ChatPaneSessionPanelToggleController {
       .then(async () => {
         this.options.requestUpdate();
         await owner.updateComplete;
-        if (
-          this.options.pending.get(slot) !== event ||
-          this.options.current()?.state !== owner.state ||
-          owner.state.sessionKey !== ownerSessionKey
-        ) {
+        if (!isCurrent()) {
           return;
         }
         const region = owner.renderRoot.querySelector<
           HTMLElementTagNameMap["openclaw-chat-sidebar-region"]
         >("openclaw-chat-sidebar-region");
         await region?.updateComplete;
-        if (
-          this.options.pending.get(slot) !== event ||
-          this.options.current()?.state !== owner.state ||
-          owner.state.sessionKey !== ownerSessionKey
-        ) {
+        if (!isCurrent()) {
           return;
         }
-        region?.deliverPanelEvent(slot, event);
+        for (const pendingEvent of queue.events) {
+          if (!isCurrent()) {
+            return;
+          }
+          const current = this.options.current();
+          const pendingDetail = pendingEvent instanceof CustomEvent ? pendingEvent.detail : null;
+          if (
+            slot === "link-reader" &&
+            (!current?.state.connected ||
+              !current.state.client ||
+              current.linkReaders.length === 0 ||
+              (pendingDetail?.url !== undefined &&
+                !resolveLinkReaderTarget(pendingDetail.url, current.linkReaders)))
+          ) {
+            continue;
+          }
+          region?.deliverPanelEvent(slot, pendingEvent);
+        }
       })
       .finally(() => {
-        if (this.options.pending.get(slot) === event) {
+        if (this.options.pending.get(slot) === queue) {
           this.options.pending.delete(slot);
           this.options.requestUpdate();
         }
@@ -137,11 +189,12 @@ export class ChatPaneSessionPanelToggleController {
     for (const [slot, tagName] of [
       ["terminal", "openclaw-terminal-panel"],
       ["browser", "openclaw-browser-panel"],
+      ["link-reader", "openclaw-link-reader-panel"],
       ["desktop", "openclaw-desktop-panel"],
       ["portal", "openclaw-portals-page"],
     ] as const) {
-      const event = takeSessionPanelToggle(slot, owner.state.sessionKey);
-      if (event) {
+      let event: Event | null;
+      while ((event = takeSessionPanelToggle(slot, owner.state.sessionKey))) {
         this.handle(slot, tagName, event);
       }
     }

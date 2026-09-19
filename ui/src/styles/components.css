@@ -1517,7 +1517,7 @@ openclaw-toast-host[data-toast-placement="shell"]
   stroke-linejoin: round;
 }
 
-openclaw-github-link-hovercard-provider {
+openclaw-link-reader-hovercard-provider {
   display: contents;
 }
 

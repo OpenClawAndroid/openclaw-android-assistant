@@ -435,8 +435,9 @@ export const dispatchTelegramMessage = async (
     (!suppressFailureFallback || turn.agentRunFailed) &&
     !turn.finalAnswerDelivered &&
     (terminalFailure ||
-      deliverySummary.failedNonSilent > 0 ||
-      (deliverySummary.skippedNonSilent > 0 && !turn.suppressSilentReplyFallback));
+      (!turn.progressContinuationAdopted &&
+        (deliverySummary.failedNonSilent > 0 ||
+          (deliverySummary.skippedNonSilent > 0 && !turn.suppressSilentReplyFallback))));
   if (shouldSendFailureFallback) {
     const fallbackText = terminalFailure
       ? "Something went wrong while processing your request. Please try again."
@@ -473,6 +474,7 @@ export const dispatchTelegramMessage = async (
   const hasFinalResponse =
     turn.finalReplyOutcome === "suppressed" ||
     turn.finalAnswerDelivered ||
+    turn.progressContinuationAdopted ||
     sentFallback ||
     turn.suppressSilentReplyFallback ||
     turn.queuedFinal;
@@ -485,6 +487,7 @@ export const dispatchTelegramMessage = async (
   const deliveryFailureWithoutFinalResponse =
     turn.finalReplyOutcome !== "suppressed" &&
     !turn.finalAnswerDelivered &&
+    !turn.progressContinuationAdopted &&
     (deliverySummary.skippedNonSilent > 0 || deliverySummary.failedNonSilent > 0);
   const retryableDispatchFailure =
     turn.dispatchError ??

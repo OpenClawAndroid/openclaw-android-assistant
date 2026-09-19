@@ -417,12 +417,13 @@ describe("model resolution auth row snapshots", () => {
     });
   });
 
-  it("observes same-file writes that do not publish a runtime revision", async () => {
+  it("observes external same-file writes at the fixed identity-probe boundary", async () => {
     await withOpenClawTestState({ label: "model-auth-row-external-write" }, async (state) => {
       await state.writeAuthProfiles(fixtureStore("fixture-original"));
       const read = vi.spyOn(sqliteWorker, "runSqliteReadOnlyWorker");
       const databasePath = resolveAuthProfileDatabasePath(state.agentDir());
       const resolve = modelResolver(state);
+      const clock = vi.spyOn(performance, "now").mockReturnValue(0);
       try {
         expect((await resolve()).model?.name).toBe(`${PROFILE_ID}:api_key`);
         const inode = fs.statSync(databasePath).ino;
@@ -446,6 +447,11 @@ describe("model resolution auth row snapshots", () => {
         expect(getRuntimeAuthProfileStoreMutationRevisionAtDatabasePath(databasePath)).toBe(
           mutationRevision,
         );
+        expect((await resolve()).model?.name).toBe(`${PROFILE_ID}:api_key`);
+        clock.mockReturnValue(99);
+        expect((await resolve()).model?.name).toBe(`${PROFILE_ID}:api_key`);
+        expect(read.mock.calls.filter(([pathname]) => pathname === databasePath)).toHaveLength(1);
+        clock.mockReturnValue(100);
         expect((await resolve()).model?.name).toBe(`${PROFILE_ID}:token`);
         const current = await loadAuthProfileStoreForRuntimeAsync(state.agentDir(), {
           readOnly: true,
@@ -457,6 +463,7 @@ describe("model resolution auth row snapshots", () => {
           .soft(read.mock.calls.filter(([pathname]) => pathname === databasePath))
           .toHaveLength(2);
       } finally {
+        clock.mockRestore();
         read.mockRestore();
       }
     });

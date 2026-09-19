@@ -17,7 +17,7 @@ RPC method families for Talk and TTS, secrets, config, update, and wizard flows,
 - `talk.config` returns the effective Talk config payload; `includeSecrets` requires `operator.talk.secrets` (or `operator.admin`).
 - `talk.session.create` (`operator.talk`) creates a gateway-owned Talk session for `realtime/gateway-relay`, `transcription/gateway-relay`, or `stt-tts/managed-room`. For `stt-tts/managed-room`, non-admin callers that pass `sessionKey` must also pass `spawnedBy` for scoped session-key visibility; unscoped `sessionKey` creation and `brain: "direct-tools"` require `operator.admin`.
 - `talk.session.appendAudio` appends base64 PCM input audio to gateway-owned realtime relay and transcription sessions.
-- `talk.session.cancelOutput` stops assistant audio output, primarily for VAD-gated barge-in in gateway relay sessions. Send the current `talk.event.turnId`; the result is `applied`, `stale`, or `idle`.
+- `talk.session.cancelOutput` stops assistant audio output, primarily for VAD-gated barge-in in gateway relay sessions. Send the `turnId` from the current audio event's `talkEvent`; the result is `applied`, `stale`, or `idle`.
 - `talk.session.submitToolResult` completes a provider tool call emitted by a gateway-owned realtime relay session. The request waits for any asynchronous completion signal exposed by the provider bridge; failed submissions keep the linked run active and do not emit a successful tool-result event. Pass `options: { willContinue: true }` for interim tool output or `options: { suppressResponse: true }` when the provider bridge advertises suppression support and the result should not start another response.
 - `talk.session.steer` sends active-run voice control into a gateway-owned agent-backed Talk session: `{ sessionId, text, mode? }`, where `mode` is `status`, `steer`, `cancel`, or `followup`; omitted mode is classified from the spoken text. It selects only work bound to that logical voice call, not another call sharing the connection and agent session.
 - `talk.session.close` closes a gateway-owned relay, transcription, or managed-room session and emits terminal Talk events.
@@ -35,6 +35,22 @@ RPC method families for Talk and TTS, secrets, config, update, and wizard flows,
 - `tts.setProvider` updates the preferred TTS provider.
 - `tts.convert` runs one-shot text-to-speech conversion.
 - `tts.speak` (`operator.write`) renders non-empty `text` with the configured general TTS provider chain and returns one whole clip inline as `audioBase64`, plus `provider` and optional `outputFormat`, `mimeType`, and `fileExtension` metadata. Unlike `tts.convert`, it does not return a Gateway-local path; unlike `talk.speak`, it does not require a Talk provider. Text above `tts.maxTextLength` returns `INVALID_REQUEST`; synthesis failures return `UNAVAILABLE`.
+
+### Relay output cancellation
+
+For interruptible providers, `applied` confirms that output was cleared locally, not
+that the provider has finished the interrupted response. If confirmation takes more
+than one second, microphone input resumes while the Gateway continues discarding
+that response's audio, assistant transcripts, and tool calls. Only its provider
+boundary or a provider continuity reset releases that output owner. If the response
+remains unfinished for another 30 seconds, the session fails instead of admitting
+stale output.
+
+While an interrupted response still owns output, cancelling a newer input-only turn
+returns `stale`, including when `turnId` is omitted. Once the provider starts the newer
+response, its own turn can be cancelled normally. Intentionally non-interruptible
+providers ignore barge-in and end the session on an explicit output stop.
+`talk.session.close` always ends the session.
 
 ## Secrets, config, update, and wizard
 

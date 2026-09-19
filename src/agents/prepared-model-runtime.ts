@@ -652,14 +652,14 @@ export function refreshPreparedModelRuntimeSnapshots(
 async function drainPendingAuthMutations(commit?: () => void): Promise<void> {
   await authPublication.drain({
     owners,
-    publish: async (entries, includeCredentialProviders) =>
+    publish: async (ownersToPublish, includeCredentialProviders) =>
       await publishPreparedModelRuntimeOwnerBatch({
-        entries,
+        ownersToPublish,
         owners,
         agentBuildCompletions,
         buildTimeoutMs: modelRuntimeBuildTimeoutMs,
         ...(includeCredentialProviders ? { includeCredentialProviders: true } : {}),
-        reusePluginGenerations: true,
+        selectPluginGeneration: (owner) => owner.pluginGeneration,
       }),
     publishOwners: (publishedOwners) => replyDispatchPublication.replace(publishedOwners),
     commit,

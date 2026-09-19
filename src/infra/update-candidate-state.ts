@@ -24,11 +24,11 @@ import {
   retainSnapshotWork,
 } from "./sqlite-readonly-location-cleanup.js";
 import {
-  createSqliteSnapshotStagingDirectory,
   inspectSqliteSchemaHeaderInProcess,
   prepareSqliteReadOnlyLocationInProcess,
   prepareSqliteReadOnlyLocationSyncInProcess,
 } from "./sqlite-readonly-location.js";
+import { createSqliteSnapshotStagingDirectory } from "./sqlite-snapshot-staging.js";
 import { readSqliteUserVersion } from "./sqlite-user-version.js";
 import {
   UPDATE_CANDIDATE_PLUGIN_PLAN_FILENAME,

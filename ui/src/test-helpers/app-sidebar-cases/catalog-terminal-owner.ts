@@ -67,7 +67,14 @@ describe("AppSidebar catalog terminal ownership", () => {
     vi.useFakeTimers();
     try {
       const { sidebar, context } = await mountWithCatalog(
-        catalogList([{ threadId: "thread-1", name: "Resume me", canOpenTerminal: true }]),
+        catalogList([
+          {
+            threadId: "thread-1",
+            name: "Resume me",
+            canOpenTerminal: true,
+            sourceHomeId: "selected-home",
+          },
+        ]),
       );
       sidebar.terminalAvailable = true;
       sidebar.onNavigate = vi.fn();
@@ -95,7 +102,7 @@ describe("AppSidebar catalog terminal ownership", () => {
       expect(selection.state.selectedId).toBe("main");
       expect(sidebar.onNavigate).toHaveBeenCalledWith("terminal", {
         pathname: "/terminal",
-        search: "?catalog=codex&host=gateway%3Alocal&thread=thread-1",
+        search: "?catalog=codex&host=gateway%3Alocal&thread=thread-1&sourceHomeId=selected-home",
         hash: "",
       });
     } finally {

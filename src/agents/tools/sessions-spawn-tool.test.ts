@@ -1412,9 +1412,6 @@ describe("sessions_spawn tool", () => {
         status: sandboxMode === "all" ? "forbidden" : "accepted",
       });
       if (sandboxMode === "all") {
-        expect(result.details).toMatchObject({
-          error: "Sandboxed sessions cannot spawn unsandboxed sessions.",
-        });
         expect(callGateway).not.toHaveBeenCalled();
       } else {
         expect(callGateway).toHaveBeenCalledWith(

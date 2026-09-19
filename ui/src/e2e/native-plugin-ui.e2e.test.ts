@@ -8,6 +8,7 @@ import {
   defaultControlUiFeatureMethods,
   installMockGateway,
 } from "../test-helpers/control-ui-e2e.ts";
+import { requireRecord, requireString } from "./chat-flow.test-support.ts";
 import {
   dockChatSidePanel,
   focusChatSidePanel,
@@ -16,6 +17,7 @@ import {
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 import {
   catalog,
+  expectComposerFooterLayout,
   pluginId,
   pluginModule,
   waitForPendingPluginInitializer,
@@ -599,33 +601,7 @@ suite.define(() => {
           if (replacement === "ui-fixture/failing-composer") {
             await page.getByRole("alert").filter({ hasText: "Fixture composer failed" }).waitFor();
           }
-          for (const width of [1280, 640]) {
-            await page.setViewportSize({ width, height: 900 });
-            const fade = await composer.evaluate((element) => {
-              const thread = element
-                .closest(".chat-main__conversation")
-                ?.querySelector(".chat-thread");
-              if (!thread) {
-                throw new Error("Expected the built-in conversation beside its composer.");
-              }
-              const shellBounds = element.getBoundingClientRect();
-              const threadBounds = thread.getBoundingClientRect();
-              const style = getComputedStyle(element, "::before");
-              return {
-                content: style.content,
-                background: style.backgroundImage,
-                left: shellBounds.left + Number.parseFloat(style.left) - threadBounds.left,
-                right: threadBounds.right - (shellBounds.right - Number.parseFloat(style.right)),
-                scrollbar: (threadBounds.width - thread.clientWidth) / 2,
-              };
-            });
-            const description = `${replacement || "Built-in"} at ${width}px`;
-            expect.soft(fade.content, description).toBe('""');
-            expect.soft(fade.background, description).toContain("linear-gradient");
-            expect.soft(fade.left, description).toBeGreaterThanOrEqual(fade.scrollbar);
-            expect.soft(fade.right, description).toBeGreaterThanOrEqual(fade.scrollbar);
-          }
-          await page.setViewportSize({ width: 1280, height: 900 });
+          await expectComposerFooterLayout(page, composer, replacement || "Built-in");
         }
         await selectView(page, "Composer", "ui-fixture/composer");
         await page
@@ -655,6 +631,19 @@ suite.define(() => {
           sessionKey: "agent:main:main",
         });
         await expect.poll(() => page.getByLabel("Send outcome").textContent()).toBe("accepted");
+        await gateway.emitGatewayEvent("chat", {
+          sessionKey,
+          runId: requireString(requireRecord(sent.params).idempotencyKey, "sent run ID"),
+          state: "error",
+          errorMessage: "The fixture run failed. Please try again.",
+        });
+        const notice = page.locator(".chat-footer__context .chat-error");
+        await notice.waitFor();
+        expect(
+          await notice.evaluate((element) =>
+            Number.parseFloat(getComputedStyle(element).borderTopLeftRadius),
+          ),
+        ).toBeGreaterThan(0);
         await page.screenshot({
           path: path.join(suite.artifactDir, "composer-sent.png"),
           fullPage: true,

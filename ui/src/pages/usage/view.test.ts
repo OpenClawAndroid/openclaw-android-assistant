@@ -255,6 +255,7 @@ it.each([
   );
   const { date, tokens: _tokens, cost: _cost, ...expectedTotals } = selectedDay;
   expect(onExportJson.mock.calls[0]?.[0].totals).toEqual(expectedTotals);
+  expect(onExportJson.mock.calls[0]?.[0].sessions).toEqual([matched]);
   expect(
     onExportJson.mock.calls[0]?.[0].daily.find(
       (day: { date: string }) => day.date === "2026-05-13",

@@ -1,7 +1,11 @@
 import type { Result } from "@openclaw/normalization-core/result";
 // Tracks task process state transitions used to reconcile running work.
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import type { AgentActivityItem } from "../../packages/gateway-protocol/src/schema/logs-chat.js";
 import type { TaskSummary } from "../../packages/gateway-protocol/src/schema/tasks.js";
+import type { SubagentRunRecord } from "../agents/subagents/registry/subagent-registry.types.js";
+import type { GetReplyOptions } from "../auto-reply/get-reply-options.types.js";
+import type { DeliveryContext } from "../utils/delivery-context.types.js";
 import {
   getTaskRelatedSessionIndexKeys,
   cloneTaskRecordForObserver,
@@ -43,6 +47,8 @@ export type TaskActivityOverlayState = {
   approvalObservationOverflow?: true;
   lastActivityAt?: number;
   currentTools: Map<string, { name: string; startedAt: number }>;
+  preparedItems: Map<string, AgentActivityItem>;
+  preparedGeneration?: number;
   assistantText: string;
   thinkingText: string;
   hasAssistantActivity: boolean;
@@ -56,13 +62,44 @@ export type TaskActivityOverlayState = {
   flushTimer?: ReturnType<typeof setTimeout>;
 };
 
+export type TaskProgressItem = {
+  item: AgentActivityItem;
+  source?: { taskId: string; runId: string; generation: number; label: string };
+};
+export type TaskProgressPlan = Pick<
+  Parameters<NonNullable<GetReplyOptions["onPlanUpdate"]>>[0],
+  "steps" | "explanation" | "explanationFormat"
+>;
+
+export type TaskProgressMember = {
+  runId: string;
+  taskRunId: string;
+  generation: number;
+  childSessionKey: string;
+  progressOrigin?: SubagentRunRecord["progressOrigin"];
+};
+
 export type TaskProgressBatch = {
   lifecycleGeneration: string;
-  members: Map<string, { runId: string; generation: number }>;
+  requesterSessionKey: string;
+  requesterAgentId?: string;
+  requesterSessionId?: string;
+  operationId?: string;
+  origin: DeliveryContext;
+  abortController: AbortController;
+  lastPublishedContent?: string;
+  typingStarted?: boolean;
+  members: Map<string, TaskProgressMember>;
+  pendingItems: Map<string, TaskProgressItem>;
+  pendingPlan?: TaskProgressPlan;
+  requesterContinuation?: {
+    runId: string;
+    requesterSessionId: string;
+    isCurrent: () => boolean;
+  };
   revision: number;
   timer?: ReturnType<typeof setTimeout>;
-  publishing?: boolean;
-  overflow: boolean;
+  publication?: Promise<void>;
 };
 
 /** Process-local indexes backing task lookup, owner access, and pending delivery scans. */
@@ -82,7 +119,7 @@ type TaskRegistryProcessState = {
   runOwners: Map<string, TaskRunOwner>;
   // Listener ownership must survive module reloads alongside the task indexes it updates.
   listenerStop?: (() => void) | null;
-  changeListeners: Set<() => void>;
+  changeListeners: Set<(event?: TaskRegistryObserverEvent) => void>;
   projection: {
     epoch: number;
     dirty: boolean;
@@ -127,6 +164,7 @@ export function clearTaskProgressBatches(): void {
   const batches = getTaskRegistryProcessState().taskProgressBatches;
   for (const batch of batches.values()) {
     clearTimeout(batch.timer);
+    batch.abortController.abort();
   }
   batches.clear();
 }

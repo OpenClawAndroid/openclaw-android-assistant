@@ -243,9 +243,9 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
         : offlineText
           ? { text: offlineText, tone: "warn" as const, icon: icons.globeOff }
           : null;
-  const composerUnderlaps =
+  const composerStatus =
     showComposerInput && primaryComposerStatus
-      ? html`<div class="agent-chat__composer-underlaps" data-tone=${primaryComposerStatus.tone}>
+      ? html`<div class="agent-chat__composer-status" data-tone=${primaryComposerStatus.tone}>
           <div
             id=${props.disabledReason ? disabledReasonId : nothing}
             class="agent-chat__composer-status-band"
@@ -334,34 +334,32 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
         })}
       </div>`
     : nothing;
-  const compoundQuestionComposer = Boolean(questionPanelProps && showComposerInput);
   return html`
-    <div
-      class="agent-chat__composer-shell ${
-        compoundQuestionComposer ? "agent-chat__composer-shell--question-composer" : ""
-      }"
-    >
-      <div class="agent-chat__composer-overlay">
-        ${props.anchoredNotices ?? nothing} ${composerAlerts} ${fallbackStatus}
+    <div class="agent-chat__composer-shell">
+      <div class="chat-footer__context">
+        ${props.footerContent ?? nothing}
+        <div class="agent-chat__composer-notices">
+          ${props.notices ?? nothing} ${composerStatus} ${composerAlerts} ${fallbackStatus}
+          ${
+            interruptedStatus === nothing
+              ? nothing
+              : html`<div class="agent-chat__composer-run-status">${interruptedStatus}</div>`
+          }
+        </div>
         ${
-          interruptedStatus === nothing
-            ? nothing
-            : html`<div class="agent-chat__composer-run-status">${interruptedStatus}</div>`
+          questionPanelProps
+            ? html`
+                <div class="agent-chat__question-dock">
+                  <openclaw-chat-question-panel
+                    .props=${questionPanelProps}
+                  ></openclaw-chat-question-panel>
+                </div>
+              `
+            : nothing
         }
+        ${props.disabledBanner?.kind === "above-composer" ? disabledBanner : nothing}
+        ${progressCard} ${queue} ${goalCard}
       </div>
-      ${
-        questionPanelProps
-          ? html`
-              <div class="agent-chat__question-dock">
-                <openclaw-chat-question-panel
-                  .props=${questionPanelProps}
-                ></openclaw-chat-question-panel>
-              </div>
-            `
-          : nothing
-      }
-      ${props.disabledBanner?.kind === "above-composer" ? disabledBanner : nothing} ${progressCard}
-      ${queue} ${goalCard}
       ${
         showComposerInput
           ? html`<div
@@ -614,7 +612,6 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
             ? disabledBanner
             : nothing
       }
-      ${composerUnderlaps}
     </div>
   `;
 }

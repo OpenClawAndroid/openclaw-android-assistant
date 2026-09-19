@@ -330,14 +330,6 @@ async function maybeDeliverTaskTerminalUpdateUnderAdmission(
 ): Promise<TaskRecord | null> {
   let claimed = false;
   try {
-    const candidate = tasks.get(taskId);
-    // Native cancellation may still owe its requester a complete sibling batch.
-    // Resolve its owner lazily, then recheck current rows at each delivery boundary.
-    const readSubagentRun =
-      candidate?.runtime === "subagent" && candidate.status === "cancelled"
-        ? (await import("../agents/subagents/registry/subagent-registry-read.js"))
-            .getLatestSubagentRunByChildSessionKey
-        : undefined;
     const early = withTaskRegistryMutation(
       () => {
         ensureTaskRegistryReady();
@@ -358,6 +350,14 @@ async function maybeDeliverTaskTerminalUpdateUnderAdmission(
     if (!claimed) {
       return early ?? null;
     }
+    const candidate = tasks.get(taskId);
+    // Native cancellation may still owe its requester a complete sibling batch.
+    // Resolve its owner lazily, then recheck current rows at each delivery boundary.
+    const readSubagentRun =
+      candidate?.runtime === "subagent" && candidate.status === "cancelled"
+        ? (await import("../agents/subagents/registry/subagent-registry-read.js"))
+            .getLatestSubagentRunByChildSessionKey
+        : undefined;
     let prepared = withTaskRegistryMutation(
       () => prepareTaskTerminalDelivery(taskId, readSubagentRun),
       () => ({ result: null }),

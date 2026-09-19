@@ -1,5 +1,5 @@
 {
-  "startupJsGzipBytes": 362706,
-  "reason": "Maintainer-approved correction in #149291 for the existing startup bundle: exact base 7b6094ec7b7d and CI merge b524940307fc emitted byte-identical Control UI output at 362706 B with Vite 8.2.2/Pako 3.0.1 on Node 24.21.0. CI run 35173887678 also measured 362706 B. The 512 B growth and 64 B build variance allowances remain unchanged.",
-  "updatedAt": "2026-09-17"
+  "startupJsGzipBytes": 363407,
+  "reason": "Maintainer-approved measured refresh for #152240: the reviewed tooltip repair measured 363407 B startup gzip with Vite 8.3.0/Pako 3.0.1 on Node 26.8.2; a subsequent canonical build measured 363421 B, within the existing 64 B variance allowance. Pristine main 95b8e0335450 measured 363276 B; repaired raw startup JavaScript is 825 B smaller. The 355 KiB committed-baseline cap and existing 512 B growth / 64 B variance allowances are unchanged.",
+  "updatedAt": "2026-09-19"
 }

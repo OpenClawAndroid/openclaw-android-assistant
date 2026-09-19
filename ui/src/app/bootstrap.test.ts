@@ -55,6 +55,51 @@ describe("normalizeLegacyTerminalViewLocation", () => {
 });
 
 describe("bootstrapApplication", () => {
+  it.each([false, true])(
+    "owns native health reporting across startup and stop (early stop: %s)",
+    async (stopEarly) => {
+      const previousUrl = window.location.href;
+      const previousSettings = loadSettings();
+      window.history.replaceState({}, "", "/focus/terminal");
+      const postMessage = vi.fn();
+      vi.stubGlobal("webkit", { messageHandlers: { openclawGateways: { postMessage } } });
+      const changed = vi.fn();
+      window.addEventListener("openclaw:native-gateway-health-changed", changed);
+      const runtime = bootstrapApplication();
+      const startGateway = vi.spyOn(runtime.context.gateway, "start").mockImplementation(() => {
+        expect(Reflect.get(window, "__OPENCLAW_NATIVE_GATEWAY_HEALTH__")).toEqual({
+          gatewayUrl: runtime.context.gateway.connection.gatewayUrl,
+          health: "unknown",
+        });
+      });
+      try {
+        const starting = runtime.start();
+        if (stopEarly) {
+          runtime.stop();
+        }
+        await starting;
+        expect(startGateway).toHaveBeenCalledTimes(stopEarly ? 0 : 1);
+        expect(changed).toHaveBeenCalledTimes(stopEarly ? 0 : 1);
+        // The shared Linux bridge must not receive a Mac-only action.
+        expect(postMessage).not.toHaveBeenCalled();
+        runtime.stop();
+        if (!stopEarly) {
+          expect(Reflect.get(window, "__OPENCLAW_NATIVE_GATEWAY_HEALTH__")).toMatchObject({
+            health: "unknown",
+          });
+        }
+      } finally {
+        runtime.stop();
+        startGateway.mockRestore();
+        window.removeEventListener("openclaw:native-gateway-health-changed", changed);
+        Reflect.deleteProperty(window, "__OPENCLAW_NATIVE_GATEWAY_HEALTH__");
+        vi.unstubAllGlobals();
+        window.history.replaceState({}, "", previousUrl);
+        saveSettings(previousSettings);
+      }
+    },
+  );
+
   it("starts native notifications before Gateway use and preserves synchronous permission requests", async () => {
     const previousUrl = window.location.href;
     const previousSettings = loadSettings();

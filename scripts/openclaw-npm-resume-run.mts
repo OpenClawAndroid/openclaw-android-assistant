@@ -14,7 +14,9 @@ type ResumeRunRecord = Partial<
     | "html_url"
     | "path"
     | "workflow_id"
-    | "run_attempt",
+    | "run_attempt"
+    | "id"
+    | "status",
     unknown
   >
 >;
@@ -313,8 +315,16 @@ export function resolveOpenClawNpmResumeRun({
     );
   }
 
-  const run = resumeRunRecord(api(`actions/runs/${runId}`));
-  if (run.head_sha !== publisher.workflowSha || run.run_attempt !== publisher.runAttempt) {
+  // The signed invocation identifies the publisher, even if a later rerun
+  // changes the run's latest status. Never substitute that mutable projection.
+  const run = resumeRunRecord(api(`actions/runs/${runId}/attempts/${publisher.runAttempt}`));
+  if (
+    run.id !== Number(runId) ||
+    run.status !== "completed" ||
+    run.head_sha !== publisher.workflowSha ||
+    !Number.isSafeInteger(publisher.runAttempt) ||
+    run.run_attempt !== publisher.runAttempt
+  ) {
     fail("OpenClaw npm resume run no longer matches the published workflow SHA and attempt.");
   }
   const canonicalWorkflow = api(`actions/workflows/${WORKFLOW_PATH.split("/").at(-1)}`);
@@ -326,7 +336,19 @@ export function resolveOpenClawNpmResumeRun({
   const comparison = annotatedTag ? api(`compare/${sha}...main`) : {};
   const jobs = resumeJobRecords(
     parseJson(
-      runGh(["run", "view", runId, "--repo", repo, "--json", "jobs", "--jq", ".jobs"]),
+      runGh([
+        "run",
+        "view",
+        runId,
+        "--repo",
+        repo,
+        "--attempt",
+        String(publisher.runAttempt),
+        "--json",
+        "jobs",
+        "--jq",
+        ".jobs",
+      ]),
       "resume run jobs",
     ),
   );
@@ -338,6 +360,7 @@ export function resolveOpenClawNpmResumeRun({
 
   return {
     runId,
+    runAttempt: publisher.runAttempt,
     ...validateOpenClawNpmResumeRun({
       canonicalWorkflowId: isRecord(canonicalWorkflow) ? canonicalWorkflow.id : undefined,
       compareStatus: isRecord(comparison) ? comparison.status : undefined,
@@ -385,8 +408,9 @@ function parseArgs(argv: string[]) {
   };
 }
 
-async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
-  const options = parseArgs(argv);
+export async function verifyOpenClawNpmResumeRun(
+  options: Parameters<typeof resolveOpenClawNpmResumeRun>[0],
+) {
   const result = resolveOpenClawNpmResumeRun(options);
   const { verifyNpmProvenanceAttestation } = await import("./openclaw-npm-postpublish-verify.ts");
   await verifyNpmProvenanceAttestation({
@@ -397,6 +421,11 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
     expectedWorkflowRef: result.workflowRef,
     expectedWorkflowSha: result.workflowSha,
   });
+  return result;
+}
+
+async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const result = await verifyOpenClawNpmResumeRun(parseArgs(argv));
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 

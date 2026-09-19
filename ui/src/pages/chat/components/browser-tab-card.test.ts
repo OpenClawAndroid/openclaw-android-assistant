@@ -32,7 +32,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function gatewayContext(methods = ["browser.request"], scopes = ["operator.admin"]) {
+function gatewayContext(
+  methods = ["browser.request"],
+  scopes = ["operator.admin"],
+  automaticallyFetchFavicons = false,
+) {
   const request = vi.fn().mockResolvedValue({ path: "/tmp/tab.png" });
   const listeners = new Set<() => void>();
   const snapshot = {
@@ -42,6 +46,13 @@ function gatewayContext(methods = ["browser.request"], scopes = ["operator.admin
   } as ApplicationGatewaySnapshot;
   const context = {
     resourceBasePath: "/gateway",
+    config: {
+      current: { automaticallyFetchFavicons },
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
     gateway: {
       snapshot,
       connection: { token: "", password: "" },
@@ -100,6 +111,127 @@ async function card(
 }
 
 describe("browser tab card", () => {
+  it("shows the page favicon and social image even without a live browser tab", async () => {
+    const gateway = gatewayContext([], ["operator.read"], true);
+    gateway.request.mockResolvedValue({
+      title: "Example page",
+      faviconDataUrl: "data:image/png;base64,aWNvbg==",
+      imageDataUrl: "data:image/png;base64,c29jaWFs",
+    });
+    const element = await card(gateway.context, false);
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".icon img")?.getAttribute("src")).toBe(
+        "data:image/png;base64,aWNvbg==",
+      ),
+    );
+    expect(element.shadowRoot?.querySelector(".shot img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,c29jaWFs",
+    );
+    expect(element.shadowRoot?.querySelector(".title")?.textContent).toBe("Example page");
+    expect(gateway.request).toHaveBeenCalledExactlyOnceWith("controlUi.linkPreview", {
+      url: "https://example.com/page",
+    });
+    element.shadowRoot?.querySelector(".icon img")?.dispatchEvent(new Event("error"));
+    element.shadowRoot?.querySelector(".shot img")?.dispatchEvent(new Event("error"));
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector("img")).toBeNull();
+    expect(element.shadowRoot?.querySelector(".icon svg")).not.toBeNull();
+    expect(element.shadowRoot?.querySelector(".url")?.textContent).toBe("https://example.com/page");
+  });
+
+  it("discards late page metadata after navigation or disabling previews", async () => {
+    const gateway = gatewayContext([], ["operator.read"], true);
+    const pending = createDeferred<{ title: string; imageDataUrl: string }>();
+    gateway.request.mockReturnValueOnce(pending.promise).mockResolvedValue({ title: "New page" });
+    const element = await card(gateway.context, false);
+    await vi.waitFor(() => expect(gateway.request).toHaveBeenCalledOnce());
+    element.preview = { ...element.preview!, url: "https://example.com/new" };
+    await element.updateComplete;
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".title")?.textContent).toBe("New page"),
+    );
+    pending.resolve({ title: "Old page", imageDataUrl: "data:image/png;base64,b2xk" });
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(element.shadowRoot?.querySelector("img")).toBeNull();
+    expect(element.shadowRoot?.querySelector(".title")?.textContent).toBe("New page");
+    gateway.context.config.current.automaticallyFetchFavicons = false;
+    gateway.notify();
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector(".title")?.textContent).toBe("example.com");
+    expect(gateway.request).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the live screenshot ahead of the social image while using the favicon", async () => {
+    const gateway = gatewayContext(["browser.request"], ["operator.admin"], true);
+    gateway.request.mockImplementation(async (method: string) =>
+      method === "controlUi.linkPreview"
+        ? {
+            imageDataUrl: "data:image/png;base64,c29jaWFs",
+            faviconDataUrl: "data:image/png;base64,aWNvbg==",
+          }
+        : { path: "/tmp/tab.png" },
+    );
+    const element = await card(gateway.context);
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".shot img")?.getAttribute("src")).toBe(
+        "data:image/png;base64,dGh1bWJuYWls",
+      ),
+    );
+    expect(element.shadowRoot?.querySelector(".icon img")).not.toBeNull();
+    expect(element.shadowRoot?.querySelector(".shot.social")).toBeNull();
+  });
+
+  it("shares metadata across cards only on the same connection", async () => {
+    const first = gatewayContext([], ["operator.read"], true);
+    first.request.mockResolvedValue({ title: "First gateway" });
+    await card(first.context, false);
+    const duplicate = await card(first.context, false);
+    await vi.waitFor(() =>
+      expect(duplicate.shadowRoot?.querySelector(".title")?.textContent).toBe("First gateway"),
+    );
+    expect(first.request).toHaveBeenCalledOnce();
+    const second = gatewayContext([], ["operator.read"], true);
+    second.request.mockResolvedValue({ title: "Second gateway" });
+    duplicate.context = second.context;
+    await duplicate.updateComplete;
+    await vi.waitFor(() =>
+      expect(duplicate.shadowRoot?.querySelector(".title")?.textContent).toBe("Second gateway"),
+    );
+    expect(second.request).toHaveBeenCalledOnce();
+    second.snapshot.phase = "offline";
+    second.notify();
+    await duplicate.updateComplete;
+    expect(duplicate.shadowRoot?.querySelector(".title")?.textContent).toBe("example.com");
+  });
+
+  it("retries a rejected preview when the same client reconnects", async () => {
+    const gateway = gatewayContext([], ["operator.read"], true);
+    const pending = createDeferred<unknown>();
+    gateway.request.mockReturnValueOnce(pending.promise).mockResolvedValue({
+      title: "Recovered preview",
+      imageDataUrl: "data:image/png;base64,c29jaWFs",
+    });
+    const element = await card(gateway.context, false);
+    await vi.waitFor(() => expect(gateway.request).toHaveBeenCalledOnce());
+    gateway.snapshot.phase = "offline";
+    gateway.notify();
+    await element.updateComplete;
+    pending.reject(new Error("gateway closed"));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    gateway.snapshot.phase = "connected";
+    gateway.notify();
+    await element.updateComplete;
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector(".title")?.textContent).toBe("Recovered preview"),
+    );
+    expect(element.shadowRoot?.querySelector(".shot img")).not.toBeNull();
+    expect(gateway.request).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     { methods: [], scopes: ["operator.admin"] },
     { methods: ["browser.request"], scopes: ["operator.read"] },

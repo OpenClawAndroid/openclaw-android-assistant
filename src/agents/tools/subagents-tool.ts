@@ -17,7 +17,7 @@ import {
 } from "../../tasks/task-cancellation-context.js";
 import { getTaskExecutionObservation } from "../../tasks/task-execution-observation.js";
 import { cancelDetachedTaskRunById } from "../../tasks/task-executor.js";
-import { onTaskRegistryChange } from "../../tasks/task-registry-state.js";
+import { onTaskRegistryChange } from "../../tasks/task-registry.store.js";
 import type { TaskRecord, TaskStatus } from "../../tasks/task-registry.types.js";
 import { resolveTaskSessionAgentId } from "../../tasks/task-session-identity.js";
 import { TASK_STATUS_DETAIL_MAX_CHARS, sanitizeTaskStatusText } from "../../tasks/task-status.js";

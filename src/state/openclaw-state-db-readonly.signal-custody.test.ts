@@ -102,6 +102,7 @@ vi.mock("../infra/state-database-coordinator.js", () => ({
 }));
 vi.mock("../infra/sqlite-snapshot-source.js", () => ({
   prepareSqliteReadOnlyLocation: mocks.prepare,
+  prepareSqliteReadOnlyLocationAsync: mocks.prepare,
   prepareSqliteReadOnlyLocationSync: mocks.forbidden,
 }));
 vi.mock("../infra/sqlite-readonly-location.js", () => ({
@@ -112,7 +113,7 @@ vi.mock("../infra/node-sqlite.js", () => ({
   requireNodeSqlite: mocks.forbidden,
 }));
 vi.mock("./openclaw-state-db-read-connection.js", () => ({
-  openOpenClawStateReadConnection: mocks.forbidden,
+  openOpenClawStateReadOnlyLocation: mocks.forbidden,
   withOpenClawStateReadOnlyLocation: mocks.forbidden,
 }));
 vi.mock("./openclaw-state-db-schema-version.js", () => ({

@@ -6,6 +6,7 @@ import {
   computeInlineScriptHashes,
 } from "../../../src/gateway/control-ui-csp.js";
 import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
+import { TEST_LINK_READER } from "../test-helpers/link-reader.ts";
 import {
   activityPolishFixture,
   activityPolishImages,
@@ -273,10 +274,10 @@ suite.define(() => {
           ).toBeLessThanOrEqual(1);
           expect(boxes.every((box) => box.height <= 80 && box.width <= 128)).toBe(true);
           await pr.focus();
-          const card = page.locator(".github-link-hovercard");
+          const card = page.locator(".link-reader-hovercard");
           await expect.poll(() => card.textContent()).toContain(activityPolishPullRequest.title);
-          await gateway.waitForRequest("controlUi.githubPreview");
-          await gateway.rejectDeferred("controlUi.githubPreview", {
+          await gateway.waitForRequest(TEST_LINK_READER.linkReader.previewMethod!);
+          await gateway.rejectDeferred(TEST_LINK_READER.linkReader.previewMethod!, {
             code: "UNAVAILABLE",
             message: "Preview enrichment unavailable",
           });

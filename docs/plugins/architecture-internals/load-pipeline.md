@@ -225,6 +225,14 @@ cache releases failed loads, but Node retains failed native ESM evaluations for
 the process lifetime; restarting an account cannot repair that module graph.
 A successful import is shared across consumers.
 
+Document and web-content extraction select callbacks from the current metadata
+scope on each request. A shared config object does not make two inventories
+interchangeable; the plugin cache still reuses their module exports. Public
+artifact adapters carry an explicit environment through both provider selection
+and module loading, including the selected profile's bundled-discovery policy.
+When selection supplies a manifest owner, artifacts resolve from that owner's
+root and entry, preserving source overlays and retained module instances.
+
 Bundled provider policy lookups retain their resolved surface, including absence,
 in the metadata cache. Repeated model-reference canonicalization reuses that
 surface without resolving artifact candidates again. The memo follows the

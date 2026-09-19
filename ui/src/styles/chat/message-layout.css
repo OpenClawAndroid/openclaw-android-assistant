@@ -17,7 +17,7 @@
     calc((var(--chat-position-rail-viewport-height) - var(--chat-position-rail-height)) / 2),
     calc(
       360px + var(--chat-thread-padding-top) + var(--chat-thread-padding-bottom) -
-        var(--chat-transcript-composer-underlap, 0px) - var(--chat-position-rail-clearance) - 12px
+        var(--chat-position-rail-clearance) - 12px
     )
   );
 
@@ -49,8 +49,7 @@
       0px,
       calc(
         100cqh + var(--chat-thread-padding-top) + var(--chat-thread-padding-bottom) -
-          var(--chat-transcript-composer-underlap, 0px) - var(--chat-position-rail-top) -
-          var(--chat-position-rail-clearance)
+          var(--chat-position-rail-top) - var(--chat-position-rail-clearance)
       )
     )
   );

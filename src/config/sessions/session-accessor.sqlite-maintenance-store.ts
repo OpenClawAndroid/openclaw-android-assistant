@@ -84,6 +84,30 @@ export function emptySessionEntryMaintenancePlan(): SessionEntryMaintenancePlan 
   };
 }
 
+/** Only a current age fact can avoid planning; pressure and force still require a pass. */
+export function canSkipSessionEntryMaintenanceInDatabase(
+  database: OpenClawAgentDatabase,
+  params: Pick<SessionEntryMaintenanceInput, "maintenance" | "forceMaintenance">,
+  entryCount?: number,
+): boolean {
+  if (params.maintenance.mode === "warn") {
+    return true;
+  }
+  if (params.forceMaintenance) {
+    return false;
+  }
+  const ageFact = readSessionEntryMaintenanceAgeFact(database.db, params.maintenance);
+  return (
+    ageFact !== undefined &&
+    Date.now() < ageFact.next.at &&
+    !shouldRunSessionEntryMaintenance({
+      entryCount: entryCount ?? readSessionEntryCount(database, { includeArchived: false }),
+      maxEntries: params.maintenance.maxEntries,
+      force: params.forceMaintenance,
+    })
+  );
+}
+
 /** Planning and archive metadata writes share the caller's admitted transaction. */
 export function applySessionEntryMaintenanceInDatabase(
   database: OpenClawAgentDatabase,
@@ -98,17 +122,8 @@ export function applySessionEntryMaintenanceInDatabase(
   // Key projections and indexed age candidates keep unrelated entry payloads out
   // of automatic maintenance. Exact full entries load only for rows selected to change.
   const entryCount = readSessionEntryCount(database, { includeArchived: false });
-  if (
-    !shouldRunSessionEntryMaintenance({
-      entryCount,
-      maxEntries: maintenance.maxEntries,
-      force: params.forceMaintenance,
-    })
-  ) {
-    const ageFact = readSessionEntryMaintenanceAgeFact(database.db, maintenance);
-    if (ageFact && Date.now() < ageFact.next.at) {
-      return emptySessionEntryMaintenancePlan();
-    }
+  if (canSkipSessionEntryMaintenanceInDatabase(database, params, entryCount)) {
+    return emptySessionEntryMaintenancePlan();
   }
   invalidateSessionEntryMaintenanceAgeFact(database.db);
   const plannedAt = Date.now();

@@ -2,8 +2,10 @@ import { getSubagentRegistryPublicationRevision } from "../agents/subagents/regi
 import { buildSubagentSessionListReadIndex } from "../agents/subagents/registry/subagent-registry-read.js";
 import { buildProjectedAgentRunIndex } from "../infra/agent-run-registry.js";
 import type { SessionRowChange } from "../sessions/session-row-changes.js";
+import { createSessionIdentityProjection } from "./session-identity-projection.js";
 import * as records from "./session-row-projection-record.js";
 import { buildSessionSwarmSummary } from "./session-swarm-summary.js";
+import type { SessionListRowContext } from "./session-utils-contracts.js";
 import type { SessionChildLink } from "./session-utils-core.js";
 import { buildSessionListRowMetadataContext } from "./session-utils-projection.js";
 import { refreshSessionRowProfiles } from "./session-utils-row.js";
@@ -17,7 +19,11 @@ export function createSessionRowProjectionContext() {
   let parentRevision = 0;
   let placementRevision = 0;
   let modelFactsDirty = false;
-  let current = buildSessionListRowMetadataContext({ now: Date.now() });
+  const identityProjection = createSessionIdentityProjection();
+  let current: SessionListRowContext = {
+    ...buildSessionListRowMetadataContext({ now: Date.now() }),
+    identityProjection,
+  };
   const subagentInputs = current.subagentRuns.inputs;
   function prepare(epoch: number) {
     if (preparedEpoch === epoch) {
@@ -30,11 +36,14 @@ export function createSessionRowProjectionContext() {
         ? current.subagentRuns.atTime(now)
         : buildSubagentSessionListReadIndex(now);
     current = modelFactsDirty
-      ? buildSessionListRowMetadataContext({
-          now,
-          subagentRuns,
-          userProfileIdentityById: current.userProfileIdentityById,
-        })
+      ? {
+          ...buildSessionListRowMetadataContext({
+            now,
+            subagentRuns,
+            userProfileIdentityById: current.userProfileIdentityById,
+          }),
+          identityProjection,
+        }
       : {
           ...current,
           subagentRuns,
@@ -64,6 +73,7 @@ export function createSessionRowProjectionContext() {
       switch (change.scope) {
         case "profiles":
           current.userProfileIdentityById.clear();
+          identityProjection.invalidate();
           profileRevision++;
           return true;
         case "subagent-runs":
@@ -80,6 +90,7 @@ export function createSessionRowProjectionContext() {
           return true;
         case "stores":
         case "config":
+          identityProjection.invalidate();
           registryRevision = undefined;
       }
       modelFactsDirty = true;

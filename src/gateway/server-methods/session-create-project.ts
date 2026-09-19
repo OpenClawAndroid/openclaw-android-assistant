@@ -14,8 +14,8 @@ import { materializeProjectClone, refreshProjectClone } from "../../projects/pro
 import { parseProjectGitUrl } from "../../projects/project-git-url.js";
 import { resolveProjectDirectory } from "../../projects/project-registry.js";
 import { getSessionRepositoryWorkspaceStore } from "../../state/session-repository-workspaces.js";
-import { githubApiToken } from "../control-ui-github-api.js";
 import { generateWorktreeSessionTitle } from "../dashboard-session-title.js";
+import { githubApiToken } from "../github-public-api.js";
 import { ADMIN_SCOPE } from "../operator-scopes.js";
 import type {
   PrepareGatewaySessionLifecycle,
