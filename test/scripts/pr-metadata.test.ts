@@ -434,6 +434,10 @@ describe("PR metadata through REST", () => {
       expect(result.stderr).toContain(
         "graphql 0/5000 reset=2027-01-15T08:00:00Z core 4900/5000 reset=2027-01-15T08:05:00Z",
       );
+      expect(result.stderr).toContain(
+        "Supplemental quota probe (remaining/limit; not the failing response)",
+      );
+      expect(result.stderr).not.toContain("Wait until");
       expect(result.stderr).not.toContain("secret-response-must-not-escape");
       expect(result.calls.filter((args) => args.includes("rate_limit"))).toHaveLength(1);
     },
@@ -670,11 +674,15 @@ describe("PR metadata through REST", () => {
       exitCode: 75,
     },
   ] as const)(
-    "reports both quotas for a $resource failure without retrying: $command",
+    "labels supplemental quotas for a $resource failure without retrying: $command",
     ({ command, failureTarget, resource, exitCode }) => {
       const result = readPrMetadata({ failure: "quota", failureTarget }, command);
       expect(result.status).toBe(exitCode);
       expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(
+        "Supplemental quota probe (remaining/limit; not the failing response)",
+      );
+      expect(result.stderr).not.toContain("Wait until");
       expect(result.stderr).toContain(`resource=${resource}`);
       expect(result.stderr).toContain(
         "graphql 0/5000 reset=2027-01-15T08:00:00Z core 4900/5000 reset=2027-01-15T08:05:00Z",
@@ -734,13 +742,14 @@ describe("merge outcome API diagnostics", () => {
 });
 
 describe("PR GitHub helper snapshot trust", () => {
-  it.each(["changed source", "redirected import root"])(
+  it.each(["changed source", "redirected import root", "changed response parser"])(
     "rejects %s before loading snapshot code",
     (kind) => {
       const root = tempDirs.make("openclaw-pr-gh-snapshot-");
       for (const file of [
         "pr-lib/github.sh",
         "pr-lib/github.mjs",
+        "pr-lib/gh-api-preflight.mjs",
         "lib/plain-gh.mjs",
         "lib/direct-run.mjs",
       ]) {
@@ -748,8 +757,12 @@ describe("PR GitHub helper snapshot trust", () => {
         mkdirSync(dirname(target), { recursive: true });
         copyFileSync(join(process.cwd(), "scripts", file), target);
       }
-      const target = join(root, "scripts/pr-lib/github.mjs");
-      if (kind === "changed source") {
+      const target = join(
+        root,
+        "scripts/pr-lib",
+        kind === "changed response parser" ? "gh-api-preflight.mjs" : "github.mjs",
+      );
+      if (kind !== "redirected import root") {
         writeFileSync(target, "throw new Error('unverified source ran');\n");
       } else {
         const outside = join(root, "outside/github.mjs");

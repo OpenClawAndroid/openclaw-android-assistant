@@ -14562,7 +14562,6 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       'elif [[ "$HISTORICAL_TARGET" == "true" ]] && has_package_script "deadcode:ci"',
     );
     expect(checkShard.run).toContain("Target does not provide a supported deadcode check.");
-
     const uiInstall = workflow.jobs["checks-ui"].steps.find(
       (step: { name?: string }) => step.name === "Install Playwright Chromium",
     );
@@ -14579,6 +14578,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(uiInstall.run).toContain('if [[ "${COMPATIBILITY_TARGET:-false}" == "true" ]]');
     expect(uiInstall.run).toContain("pnpm --dir ui exec playwright install chromium");
     expect(uiInstall.run).toContain("node --import tsx scripts/ensure-playwright-chromium.mts");
+    expect(uiInstall.run).toContain(".mts --require-playwright-chromium");
     expect(uiInstall.run).toContain(
       'elif [[ "$FROZEN_TARGET" == "true" && -f scripts/ensure-playwright-chromium.mjs ]]',
     );

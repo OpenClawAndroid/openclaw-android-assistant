@@ -274,6 +274,28 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     modelMaxTokens: effectiveModel.maxTokens,
     userTurnTranscriptRecorder: params.userTurnTranscriptRecorder,
   });
+  if (!params.admittedRunContext) {
+    throw new Error("embedded attempt reached dispatch without an admitted run context");
+  }
+  const admittedRunContext = params.admittedRunContext;
+  const assertActiveRun = resolveAdmittedRunActiveAssertion(
+    admittedRunContext,
+    attemptAbortController.signal,
+  );
+  if (!assertActiveRun) {
+    throw new Error("embedded attempt reached dispatch without an active admitted run");
+  }
+  assertActiveRun();
+  const placementSandbox = runtime.pluginHarnessOwnsTransport
+    ? await resolveSessionPlacementSandbox({
+        agentId: workspaceResolution.agentId,
+        config: params.config,
+        sessionId,
+        sessionKey: resolvedSessionKey,
+        workspaceDir,
+      })
+    : null;
+  assertActiveRun();
   const pluginWorkspace = runtime.pluginHarnessOwnsTransport
     ? await resolveAttemptWorkspaceSandbox({
         ...params,
@@ -282,6 +304,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
         sessionId,
         sessionKey: resolvedSessionKey,
         workspaceDir,
+        placementSandbox,
       })
     : undefined;
   const promptMedia = pluginWorkspace
@@ -306,19 +329,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
           finalize: params.finalizePromptForResolvedTools,
         })
       : undefined;
-  const pluginSandbox = runtime.pluginHarnessOwnsTransport
-    ? ((await resolveSessionPlacementSandbox({
-        agentId: workspaceResolution.agentId,
-        config: params.config,
-        sessionId,
-        sessionKey: resolvedSessionKey,
-        workspaceDir,
-      })) ?? pluginWorkspace?.sandbox)
-    : undefined;
-  if (!params.admittedRunContext) {
-    throw new Error("embedded attempt reached dispatch without an admitted run context");
-  }
-  const admittedRunContext = params.admittedRunContext;
+  const pluginSandbox = placementSandbox ?? pluginWorkspace?.sandbox;
   if (params.permissionMode) {
     // Attempts narrow this shared run-owned policy before recovery can reuse it.
     params.execOverrides ??= {};
@@ -352,14 +363,10 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     readPath: path.posix.join(mount.containerPath, "SKILL.md"),
   }));
   if (pluginSandbox?.enabled && !pluginSandbox.readOnlyResourceMounts?.length && skillsSnapshot) {
-    const assertActiveRun = resolveAdmittedRunActiveAssertion(
-      admittedRunContext,
-      attemptAbortController.signal,
-    );
     const prepared = await prepareEmbeddedSkills({
       assertCurrent: () => {
         attemptAbortController.signal.throwIfAborted();
-        assertActiveRun?.();
+        assertActiveRun();
       },
       applySkillEnvironment: false,
       includeCodeModeSkills: false,

@@ -188,6 +188,7 @@ export async function resolveEmbeddedRunTerminal(input: {
   replayState: EmbeddedRunReplayState;
   activePromptPersisted: boolean;
   activateInternalPrompt: (prompt: string) => void;
+  markOwnedTranscriptRetry: () => void;
   activateCompactionContinuation: (instruction: string) => void;
   clearCompactionContinuation: () => void;
   setSuppressNextUserMessagePersistence: (value: boolean) => void;
@@ -455,6 +456,9 @@ export async function resolveEmbeddedRunTerminal(input: {
     input.activateInternalPrompt(
       `${BEFORE_AGENT_FINALIZE_RETRY_PROMPT_PREFIX}\n\n${beforeFinalizeRevisionReason}`,
     );
+    // Settlement excluded the rejected draft with a leaf control. Wait for its
+    // transcript projection to rebuild before reopening for the hidden pass.
+    input.markOwnedTranscriptRetry();
     log.warn(
       `before_agent_finalize requested one more pass: ` +
         `runId=${runParams.runId} sessionId=${runParams.sessionId} ` +

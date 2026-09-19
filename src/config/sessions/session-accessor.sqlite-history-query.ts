@@ -2,6 +2,7 @@ import { sql } from "kysely";
 import type { TranscriptDisplayPosition } from "../../chat/transcript-display-position.js";
 import { executeSqliteQuerySync } from "../../infra/kysely-sync.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
+import { hasSqlitePostCommitScope } from "../../infra/sqlite-post-commit.js";
 import {
   resolveHistoryAnchorPageRange,
   resolveTranscriptPageEnd,
@@ -396,6 +397,7 @@ export function readRecentSessionTranscriptHistoryEventsFromProjection(
     );
   if (
     !projection.generation ||
+    hasSqlitePostCommitScope(projection.database.db) ||
     projection.database.db.location() === null ||
     options.expectedReadWindow ||
     resolveSessionTranscriptReadFence(projection.resolved)

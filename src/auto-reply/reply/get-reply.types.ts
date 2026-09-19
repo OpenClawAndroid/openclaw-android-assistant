@@ -51,6 +51,8 @@ type InternalReplySessionOptions = {
   /** Current external dashboard turn only; never persisted or inherited by another run. */
   dashboardReadAdmission?: DashboardMessageReadAdmission;
   expectedExistingSessionId?: string;
+  /** Retained predecessor evidence; reply admission must verify its session lineage and store. */
+  expectedActiveReplyOperation?: ReplyOperation;
   /** First dispatch only: admission created this exact pinned session before reply initialization. */
   newlyCreatedSessionId?: string;
   onDeliberateSilentTerminalReply?: () => void;

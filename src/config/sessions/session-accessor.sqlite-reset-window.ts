@@ -8,6 +8,7 @@ import {
   iterateSqliteQuerySync,
 } from "../../infra/kysely-sync.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
+import { hasSqlitePostCommitScope } from "../../infra/sqlite-post-commit.js";
 import {
   iterateUnindexedActiveTranscriptNavigation,
   iterateUnindexedTranscriptNavigation,
@@ -50,6 +51,7 @@ type ResetMessageWindow = {
 };
 
 type ResetMessageWindowCacheEntry = {
+  database: CurrentTranscriptProjection["database"]["db"];
   generation: string | undefined;
   indexedSeq: number;
 } & (
@@ -96,9 +98,10 @@ export function readUnindexedHistoryControls(
       : snapshot.rows.filter((row) => row.event_seq <= coveredThrough);
   }
   const key = `${projection.database.path}\0${projection.resolved.sessionId}\0unindexed-controls`;
-  const cached = resetMessageWindowCache.get(key);
+  const cacheable = !hasSqlitePostCommitScope(projection.database.db);
+  const cached = cacheable ? resetMessageWindowCache.get(key) : undefined;
   const reusable =
-    cached &&
+    cached?.database === projection.database.db &&
     "controls" in cached &&
     cached.generation === projection.generation &&
     cached.indexedSeq <= projection.state.indexedSeq
@@ -116,14 +119,17 @@ export function readUnindexedHistoryControls(
         controls.push(row);
       }
     }
-    if (controls.length <= MAX_CACHED_UNINDEXED_CONTROLS) {
-      cacheResetMessageWindow(key, {
-        generation: projection.generation,
-        indexedSeq: coveredThrough,
-        controls,
-      });
-    } else {
-      resetMessageWindowCache.delete(key);
+    if (cacheable) {
+      if (controls.length <= MAX_CACHED_UNINDEXED_CONTROLS) {
+        cacheResetMessageWindow(key, {
+          database: projection.database.db,
+          generation: projection.generation,
+          indexedSeq: coveredThrough,
+          controls,
+        });
+      } else {
+        resetMessageWindowCache.delete(key);
+      }
     }
   }
   const eligible = controls.filter((row) => row.event_seq <= coveredThrough);
@@ -390,14 +396,14 @@ export function resolveTranscriptBoundaryWindow(
   scope: BoundaryWindowScope = "history",
   beforeRawSeq?: number,
 ): ResetMessageWindow | null {
-  // A current-turn read cannot reuse a window from a later reset or compaction.
-  if (beforeRawSeq !== undefined) {
+  // Current-turn bounds and uncommitted writes need their own window.
+  if (beforeRawSeq !== undefined || hasSqlitePostCommitScope(projection.database.db)) {
     return findLatestResetMessageWindow(projection, scope, beforeRawSeq);
   }
   const key = `${projection.database.path}\0${projection.resolved.sessionId}\0${scope}`;
   const cached = resetMessageWindowCache.get(key);
   const generation = projection.generation;
-  if (cached && "window" in cached) {
+  if (cached?.database === projection.database.db && "window" in cached) {
     if (cached.generation === generation && cached.indexedSeq === projection.state.indexedSeq) {
       return cached.window;
     }
@@ -411,6 +417,7 @@ export function resolveTranscriptBoundaryWindow(
   }
   const window = findLatestResetMessageWindow(projection, scope);
   cacheResetMessageWindow(key, {
+    database: projection.database.db,
     generation,
     indexedSeq: projection.state.indexedSeq,
     window,

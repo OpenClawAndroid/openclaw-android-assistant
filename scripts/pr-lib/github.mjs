@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { isDirectRunUrl } from "../lib/direct-run.mjs";
 import { execGhRead, execPlainGh } from "../lib/plain-gh.mjs";
+import { parseGithubResponse, rateLimitRetryGuidance } from "./gh-api-preflight.mjs";
 
 function githubAccessFailure(error) {
   const limited = (text) =>
@@ -113,28 +114,40 @@ export function execPrGh(args, options = {}, route = "read") {
     if (!reason) {
       throw error;
     }
-    const hostname = quotaHostname(args, inherited);
-    const host = hostname ? ["--hostname", hostname] : [];
-    let resources;
-    try {
-      // Diagnostics share the failed read's budget; they must not extend a watcher deadline.
-      const remaining = deadline === undefined ? undefined : deadline - Date.now();
-      if (remaining !== undefined && remaining <= 0) {
-        throw error;
+    const response = parseGithubResponse(String(error?.stdout ?? ""));
+    let diagnostic;
+    if (response.status) {
+      const { status, resource, remaining, limit, resetUtc, retryAfter } = response;
+      diagnostic = `original response: HTTP ${status}; resource=${resource}; remaining=${remaining ?? "unknown"}; limit=${limit ?? "unknown"}; reset=${resetUtc}${retryAfter === undefined ? "" : `; retry-after=${retryAfter}s`}.`;
+      diagnostic +=
+        reason === "quota"
+          ? ` ${rateLimitRetryGuidance(response)}`
+          : " Check access policy before retrying.";
+    } else {
+      const hostname = quotaHostname(args, inherited);
+      const host = hostname ? ["--hostname", hostname] : [];
+      let resources;
+      try {
+        // Diagnostics share the failed read's budget; they must not extend a watcher deadline.
+        const remaining = deadline === undefined ? undefined : deadline - Date.now();
+        if (remaining !== undefined && remaining <= 0) {
+          throw error;
+        }
+        resources = JSON.parse(
+          run(["api", ...host, "rate_limit"], {
+            ...captured,
+            ...(remaining === undefined ? {} : { timeout: remaining }),
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe", ...notifier],
+          }),
+        ).resources;
+      } catch {
+        // A failed diagnostics probe must not conceal the original resource or retry it.
       }
-      resources = JSON.parse(
-        run(["api", ...host, "rate_limit"], {
-          ...captured,
-          ...(remaining === undefined ? {} : { timeout: remaining }),
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "pipe", ...notifier],
-        }),
-      ).resources;
-    } catch {
-      // A failed diagnostics probe must not conceal the original resource or retry it.
+      diagnostic = `Supplemental quota probe (remaining/limit; not the failing response): ${quotaSummary("graphql", resources?.graphql)} ${quotaSummary("core", resources?.core)}. Check access or throttling before retrying; the original response's quota and reset are unknown.`;
     }
     const failure = new Error(
-      `GitHub API request failed (resource=${resourceFor(args)}); ${quotaSummary("graphql", resources?.graphql)} ${quotaSummary("core", resources?.core)}. Check access or wait for the exhausted resource's reset before retrying.`,
+      `GitHub API request failed (resource=${resourceFor(args)}); ${diagnostic}`,
     );
     failure.code = "OPENCLAW_GH_ACCESS";
     failure.status = reason === "quota" ? 75 : 77;

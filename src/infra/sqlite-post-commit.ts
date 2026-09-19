@@ -11,6 +11,11 @@ const pendingTransactionState = resolveGlobalSingleton(
   () => new WeakMap<DatabaseSync, Array<{ commit: () => void; rollback: () => void }>>(),
 );
 
+/** Snapshots read within this managed transaction can still roll back. */
+export function hasSqlitePostCommitScope(db: DatabaseSync): boolean {
+  return pendingPublications.has(db);
+}
+
 /** Publications are non-throwing observers, never part of a durable transaction's result. */
 export function deferSqlitePostCommitPublication(db: DatabaseSync, publish: () => void): boolean {
   const pending = pendingPublications.get(db);

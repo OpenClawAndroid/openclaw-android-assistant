@@ -83,9 +83,12 @@ with its scheduler-owned continuation.
   requester.
 - **Stable audience.** A nested wake uses internal delivery. A settlement
   continuation targeting a live `sessions_yield`-paused row adopts that row;
-  ordinary inter-session messages do not adopt that row. A parent's
-  `sessions_send` turn to its native child has separate activity tracking and
-  keeps the child's original result or pending yield intact. Explicit plugin follow-ups
+  unrelated inter-session messages do not adopt that row. An ordinary
+  `sessions_send` from the controlling parent to its paused native child resumes
+  the existing task through the same exact-generation admission owner as explicit
+  `mode: "resume"`. Task-owned completion remains the sole result delivery path.
+  An explicit `mode: "followup"` keeps separate activity tracking and leaves the
+  child's original result or pending yield intact. Explicit plugin follow-ups
   naming a new requester continue to create their own delivery obligation.
 - **Deterministic batches.** Frozen run IDs are sorted. Findings use creation
   time, completion time, and child session identity as tie-breakers. Superseded
