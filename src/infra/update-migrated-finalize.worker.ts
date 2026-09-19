@@ -220,7 +220,14 @@ async function runDelegatedDoctor(input: UpdateDoctorInput): Promise<void> {
             process.exitCode = code;
           },
         },
-        { repair: input.repair, nonInteractive: true },
+        {
+          repair: input.repair,
+          nonInteractive: true,
+          ...(input.yes !== undefined ? { yes: input.yes } : {}),
+          ...(input.workspaceSuggestions !== undefined
+            ? { workspaceSuggestions: input.workspaceSuggestions }
+            : {}),
+        },
         { inputHash: input.configInputHash, assertCurrent },
       );
     },
@@ -292,14 +299,18 @@ async function finalizeInput(
   let exitCode = 0;
   let automaticTriage: MigratedUpdateFinalizationResult["automaticTriage"];
   try {
-    result = await finishUpdate({
-      ...input.params,
-      result: { ...input.params.result, runId: run.runId },
-      opts: { ...input.params.opts, run },
-      ...(stopped
-        ? { preManagedServiceStop: { ...stopped, windowsTaskAutoStartRecovery: windowsRecovery } }
-        : {}),
-    });
+    // This worker already loaded the candidate; the local flag conveys no authority.
+    result = await finishUpdate(
+      {
+        ...input.params,
+        result: { ...input.params.result, runId: run.runId },
+        opts: { ...input.params.opts, run },
+        ...(stopped
+          ? { preManagedServiceStop: { ...stopped, windowsTaskAutoStartRecovery: windowsRecovery } }
+          : {}),
+      },
+      { candidateRuntime: true },
+    );
   } catch (error) {
     if (!(error instanceof UpdateCommandFailure)) {
       throw error;

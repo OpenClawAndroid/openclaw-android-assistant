@@ -162,15 +162,9 @@ export class ShellGatewayOwner {
     if (event.event === "users.prefs.changed") {
       const context = this.host.context;
       const profileId = context?.gateway.snapshot.selfUser?.id;
-      const payload = event.payload;
-      if (
-        context &&
-        profileId &&
-        payload &&
-        typeof payload === "object" &&
-        "profileId" in payload &&
-        payload.profileId === profileId
-      ) {
+      // The server routes this invalidation to the current profile and its aliases;
+      // the payload can name the canonical profile while this connection holds an alias.
+      if (context && profileId) {
         if (context.gateway.snapshot.client) {
           invalidateUserPreferences(context.gateway.snapshot.client);
         }

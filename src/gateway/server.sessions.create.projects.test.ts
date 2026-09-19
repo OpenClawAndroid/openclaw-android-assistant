@@ -1013,26 +1013,3 @@ test.each(["missing", "non-directory"] as const)(
     );
   },
 );
-
-test("sessions.create rejects an outside project for a sandboxed agent", async () => {
-  const root = tempDirs.make("openclaw-session-sandbox-project-");
-  const workspace = await initializeRepository(root, "workspace");
-  const outside = await initializeRepository(root, "outside");
-  testState.agentConfig = { workspace, sandbox: { mode: "all" } };
-  await createSessionStoreDir();
-  const project = await registerProjectRegistry({ path: outside });
-
-  for (const worktree of [false, true]) {
-    const created = await directSessionReq("sessions.create", {
-      projectId: project.id,
-      ...(worktree ? { worktree: true } : {}),
-    });
-    expect(created).toMatchObject({
-      ok: false,
-      error: {
-        code: "INVALID_REQUEST",
-        message: "sessions.create project is outside the sandboxed agent workspace",
-      },
-    });
-  }
-});

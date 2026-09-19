@@ -41,6 +41,7 @@ import {
 } from "../test-utils/openclaw-test-state.js";
 import { clearNodeSqliteKyselyCacheForDatabase } from "./kysely-sync-cache-state.js";
 import * as sqliteWorker from "./sqlite-readonly-worker.js";
+import { SQLITE_WORKER_PREPARE_COMMAND } from "./sqlite-worker-contract.js";
 import { runWithSqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
 
 const PROVIDER = "auth-runtime-fixture";
@@ -127,6 +128,9 @@ describe("model resolution auth row snapshots", () => {
         return prepare(sql);
       });
       try {
+        await runWithSqliteWorkerStateContext(context, () =>
+          backend[SQLITE_WORKER_PREPARE_COMMAND]?.("authProfiles.read"),
+        );
         const rows = await runWithSqliteWorkerStateContext(context, () =>
           backend.execute({ type: "authProfiles.read", input: { artifactPreserving: false } }),
         );

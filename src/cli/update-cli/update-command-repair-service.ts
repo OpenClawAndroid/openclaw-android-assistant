@@ -174,12 +174,13 @@ export async function repairUpdateService(params: {
   });
   return repair.status === "repaired" ||
     (repair.status === "unrepaired" &&
-      repair.reason === "gateway-readiness-pending" &&
-      repair.finalValidation.stopReason === "gateway-readiness-pending")
+      (repair.reason === "gateway-readiness-pending" || repair.reason === "still-starting") &&
+      repair.finalValidation.stopReason === repair.reason)
     ? {
         ...result,
         status: "ok",
-        reason: undefined,
+        reason:
+          repair.finalValidation.stopReason === "still-starting" ? "still-starting" : undefined,
         recovery:
           repair.status === "repaired" &&
           result.recovery?.packageRollbackVerified &&

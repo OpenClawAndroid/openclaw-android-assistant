@@ -2052,7 +2052,8 @@
                       "tools/progress-card",
                       "tools/reactions",
                       "tools/screen",
-                      "tools/show-widget"
+                      "tools/show-widget",
+                      "tools/theme"
                     ]
                   },
                   {

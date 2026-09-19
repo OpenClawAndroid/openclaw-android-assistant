@@ -19,6 +19,7 @@ import { discoverAllSessions, loadSessionCostSummary } from "../../infra/session
 import type { AssistantMessage } from "../../llm/types.js";
 import type { SessionsUsageResult } from "../../shared/usage-types.js";
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
+import { ensureProfileForEmail } from "../../state/user-profiles.js";
 import { SYSTEM_AGENT_ID } from "../../system-agent/agent-id.js";
 import {
   createOpenClawTestState,
@@ -132,6 +133,8 @@ it("hydrates context metadata only for emitted usage rows while aggregating ever
       plugins: { enabled: false },
     });
     const config = getRuntimeConfig();
+    const ada = ensureProfileForEmail("ada@example.test");
+    const bob = ensureProfileForEmail("bob@example.test");
     const timestamp = Date.now() - 60_000;
     const fixtures = ["main", "opus"].flatMap((agentId, agentIndex) =>
       Array.from({ length: 8 }, (_, index) => {
@@ -173,6 +176,11 @@ it("hydrates context metadata only for emitted usage rows while aggregating ever
       await upsertSessionEntryCore(scope, {
         sessionId: fixture.sessionId,
         label: fixture.label,
+        createdActor: {
+          type: "human",
+          source: "profile",
+          id: fixture.agentId === "main" ? ada.id : bob.id,
+        },
         updatedAt: fixture.updatedAt,
         skillsSnapshot: { prompt: fixture.promptMarker + "x".repeat(65_536), skills: [] },
         systemPromptReport: fixture.report,
@@ -215,12 +223,17 @@ it("hydrates context metadata only for emitted usage rows while aggregating ever
     const older = expectDefined(fixtures[3], "older main usage row");
     const withoutReport = expectDefined(fixtures[0], "usage row without context report");
     const totalTokens = fixtures.reduce((total, fixture) => total + fixture.tokens, 0);
+    const adaFixtures = fixtures.filter((fixture) => fixture.agentId === "main");
+    const adaNewest = expectDefined(adaFixtures.at(-1), "newest Ada usage row");
+    const adaCreatorKey = JSON.stringify(["profile", ada.id]);
     for (const scenario of [
       { selected: [newest], includeContextWeight: false },
       { selected: [newest], includeContextWeight: true },
       { selected: [older], includeContextWeight: true, key: older.key },
       { selected: [withoutReport], includeContextWeight: true, key: withoutReport.key },
       { selected: [newest, secondNewest], includeContextWeight: false },
+      { selected: [adaNewest], includeContextWeight: false, creatorKey: adaCreatorKey },
+      { selected: [adaNewest], includeContextWeight: true, creatorKey: adaCreatorKey },
     ]) {
       const respond = vi.fn<RespondFn>();
       const reads = ["main", "opus"].map((agentId) =>
@@ -242,6 +255,7 @@ it("hydrates context metadata only for emitted usage rows while aggregating ever
             range: "all",
             limit: scenario.selected.length,
             includeContextWeight: scenario.includeContextWeight,
+            creatorKey: scenario.creatorKey,
           },
           context: createDirectChatContext({ getRuntimeConfig: () => config }),
           req: { type: "req", id: "usage-page-metadata", method: "sessions.usage" },
@@ -278,9 +292,19 @@ it("hydrates context metadata only for emitted usage rows while aggregating ever
           ...(scenario.includeContextWeight ? { contextWeight: fixture.report ?? null } : {}),
         })),
         totals: {
-          totalTokens: scenario.key ? scenario.selected[0]?.tokens : totalTokens,
+          totalTokens: scenario.key
+            ? scenario.selected[0]?.tokens
+            : scenario.creatorKey
+              ? adaFixtures.reduce((total, fixture) => total + fixture.tokens, 0)
+              : totalTokens,
         },
-        aggregates: { sessionCount: scenario.key ? 1 : fixtures.length },
+        aggregates: {
+          sessionCount: scenario.key
+            ? 1
+            : scenario.creatorKey
+              ? adaFixtures.length
+              : fixtures.length,
+        },
       });
       if (!scenario.includeContextWeight) {
         expect(JSON.stringify(payload)).not.toContain('"contextWeight":');

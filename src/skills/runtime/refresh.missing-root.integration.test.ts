@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import chokidar from "chokidar";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFailed, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 
@@ -202,8 +202,15 @@ it("refreshes skills created beneath an initially missing project skills root", 
 });
 
 describe("shared missing skill ancestors", () => {
+  let captureFailure: (() => void) | undefined;
   const roots = useAutoCleanupTempDirTracker((cleanup) =>
-    afterEach(async () => {
+    afterEach(async ({ task }) => {
+      // onTestFailed runs after afterEach. Freeze the failed operation's state
+      // before closing watches or clearing their pending timers.
+      if (task.result?.state === "fail") {
+        captureFailure?.();
+      }
+      captureFailure = undefined;
       const { closeSkillsWatchers } = await import("./refresh.js");
       await closeSkillsWatchers(true);
       vi.restoreAllMocks();
@@ -214,6 +221,46 @@ describe("shared missing skill ancestors", () => {
   it.each(["higher", "intermediate"] as const)(
     "preserves settled root discovery after moving its %s ancestor and retains sibling subscriptions",
     async (ancestor) => {
+      let phase = "create fixture root";
+      let failureSnapshot: string | undefined;
+      const observed: Array<{
+        watcher: ReturnType<typeof chokidar.watch>;
+        ready: boolean;
+        paths: Parameters<typeof chokidar.watch>[0];
+      }> = [];
+      const watcherErrors: unknown[] = [];
+      const pendingTimers = new Map<
+        Parameters<typeof clearTimeout>[0],
+        {
+          settled: Promise<void>;
+          finish: () => void;
+          delayMs: number | undefined;
+          createdAt: number;
+          stack: string | undefined;
+        }
+      >();
+      captureFailure = () => {
+        failureSnapshot = JSON.stringify({
+          ancestor,
+          phase,
+          pendingTimers: Array.from(pendingTimers.values(), ({ delayMs, createdAt, stack }) => ({
+            delayMs,
+            ageMs: Math.round(performance.now() - createdAt),
+            stack,
+          })),
+          watchers: observed.map(({ watcher, ready, paths }) => ({
+            paths,
+            ready,
+            closed: watcher.closed,
+          })),
+          watcherErrors: watcherErrors.map((error) =>
+            error instanceof Error ? error.stack : String(error),
+          ),
+        });
+      };
+      onTestFailed(() => {
+        console.error(`[skills ancestor failure before cleanup] ${failureSnapshot}`);
+      });
       const root = await fs.realpath(roots.make("skills-shared-ancestor-"));
       const source = (name: string) => {
         const sourceRoot = path.join(root, name, "nested", "skills");
@@ -226,16 +273,17 @@ describe("shared missing skill ancestors", () => {
       const first = source("left");
       const second = source("right");
       for (const current of [first, second]) {
+        phase = `create workspace: ${current.workspaceDir}`;
         await fs.mkdir(path.join(current.workspaceDir, "skills"), { recursive: true });
       }
+      phase = "import refresh owner";
       const { ensureSkillsWatcher, registerSkillsChangeListener } = await import("./refresh.js");
+      phase = "import skill loader";
       const { loadWorkspaceSkills } = await import("../loading/workspace-skill-loader.js");
       const originalWatch = chokidar.watch;
-      const observed: Array<{ watcher: ReturnType<typeof chokidar.watch>; ready: boolean }> = [];
-      const watcherErrors: unknown[] = [];
       const watch = vi.spyOn(chokidar, "watch").mockImplementation((...args) => {
         const watcher = originalWatch(...args);
-        const observation = { watcher, ready: false };
+        const observation = { watcher, ready: false, paths: args[0] };
         observed.push(observation);
         // Attach before returning: promotion can create more watchers during ready.
         watcher.once("ready", () => {
@@ -246,10 +294,6 @@ describe("shared missing skill ancestors", () => {
       });
       const originalSetTimeout = globalThis.setTimeout;
       const originalClearTimeout = globalThis.clearTimeout;
-      const pendingTimers = new Map<
-        Parameters<typeof clearTimeout>[0],
-        { settled: Promise<void>; finish: () => void }
-      >();
       vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, delay, ...args) => {
         const { promise: settled, resolve: finish } = createDeferredCore();
         const timer = originalSetTimeout(() => {
@@ -260,7 +304,13 @@ describe("shared missing skill ancestors", () => {
             finish();
           }
         }, delay);
-        pendingTimers.set(timer, { settled, finish });
+        pendingTimers.set(timer, {
+          settled,
+          finish,
+          delayMs: delay,
+          createdAt: performance.now(),
+          stack: new Error("Watcher fixture timer created").stack,
+        });
         return timer;
       });
       vi.spyOn(globalThis, "clearTimeout").mockImplementation((timer) => {
@@ -268,8 +318,9 @@ describe("shared missing skill ancestors", () => {
         pendingTimers.get(timer)?.finish();
         pendingTimers.delete(timer);
       });
-      const settleWatchers = async () => {
+      const settleWatchers = async (stage: string) => {
         for (;;) {
+          phase = `${stage}: wait for watcher readiness`;
           await vi.waitFor(() => {
             expect(watcherErrors).toEqual([]);
             expect(observed.every(({ watcher, ready }) => ready || watcher.closed)).toBe(true);
@@ -277,10 +328,13 @@ describe("shared missing skill ancestors", () => {
           const generationCount = observed.length;
           // Drain actual debounce/stability work, including timers chained by its
           // continuations. Keep native time and watchers; do not sleep past a guess.
+          phase = `${stage}: drain pending timers`;
           await Promise.all(Array.from(pendingTimers.values(), ({ settled }) => settled));
+          phase = `${stage}: wait for immediate continuations`;
           await new Promise<void>((resolve) => {
             setImmediate(resolve);
           });
+          phase = `${stage}: check settled generation`;
           expect(watcherErrors).toEqual([]);
           if (
             pendingTimers.size === 0 &&
@@ -291,10 +345,11 @@ describe("shared missing skill ancestors", () => {
           }
         }
       };
+      phase = "acquire watchers";
       for (const current of [first, second]) {
         ensureSkillsWatcher(current);
       }
-      await settleWatchers();
+      await settleWatchers("initial acquisition");
       expect(
         watch.mock.calls.filter(([watched]) => watched === root.replaceAll("\\", "/")),
       ).toHaveLength(1);
@@ -312,19 +367,25 @@ describe("shared missing skill ancestors", () => {
         }).map((entry) => entry.skill.name);
       const writeSkill = async (current: typeof first, name: string) => {
         const directory = path.join(current.sourceRoot, name);
+        phase = `create skill directory: ${name}`;
         await fs.mkdir(directory, { recursive: true });
+        phase = `write skill: ${name}`;
         await fs.writeFile(
           path.join(directory, "SKILL.md"),
           `---\nname: ${name}\ndescription: Shared ancestor proof\n---\n`,
         );
       };
       try {
+        phase = "prime empty discovery";
         expect(read(first)).toEqual([]);
         expect(read(second)).toEqual([]);
+        phase = "write unrelated file";
         await fs.writeFile(path.join(root, "unrelated.sqlite-wal"), "unrelated");
         await writeSkill(first, "first-proof");
+        phase = "discover first skill";
         await expect.poll(() => read(first), { timeout: 3_000 }).toContain("first-proof");
         expect(changes).not.toContain(second.workspaceDir);
+        phase = "wait for root promotion";
         await vi.waitFor(() => {
           expect(
             watch.mock.calls.some(
@@ -335,7 +396,7 @@ describe("shared missing skill ancestors", () => {
             ),
           ).toBe(true);
         });
-        await settleWatchers();
+        await settleWatchers("promoted root");
         // Prime after promoted root/companion scans and queued refreshes settle:
         // late initial reconciliation must not mask a missed ancestor move.
         expect(read(first)).toContain("first-proof");
@@ -343,31 +404,44 @@ describe("shared missing skill ancestors", () => {
           ancestor === "higher" ? path.join(root, "left") : path.join(root, "left", "nested");
         if (process.platform === "win32") {
           // Windows cannot rename an ancestor with live descendant directory watches.
+          phase = "remove watched ancestor";
           await fs.rm(movedAncestor, { recursive: true });
         } else {
+          phase = "rename watched ancestor";
           await fs.rename(movedAncestor, `${movedAncestor}-away`);
         }
+        phase = "discover removed ancestor";
         await expect.poll(() => read(first), { timeout: 3_000 }).toEqual([]);
         await writeSkill(first, "returned-proof");
+        phase = "discover returned skill";
         await expect.poll(() => read(first), { timeout: 3_000 }).toEqual(["returned-proof"]);
-        await settleWatchers();
+        await settleWatchers("recreated root");
         expect(read(first)).toEqual(["returned-proof"]);
         // Retiring one logical workspace must not retire the shared missing-root observer.
+        phase = "retire first workspace";
         ensureSkillsWatcher({
           workspaceDir: first.workspaceDir,
           config: { skills: { load: { watch: false } } },
         });
         await writeSkill(second, "remaining-proof");
+        phase = "discover sibling skill";
         await expect.poll(() => read(second), { timeout: 3_000 }).toContain("remaining-proof");
         const skillFile = path.join(second.sourceRoot, "remaining-proof", "SKILL.md");
         const renamedSkillFile = path.join(second.sourceRoot, "remaining-proof", "SKILL.saved");
+        phase = "rename sibling skill away";
         await fs.rename(skillFile, renamedSkillFile);
+        phase = "discover renamed sibling skill absence";
         await expect.poll(() => read(second), { timeout: 3_000 }).toEqual([]);
+        phase = "restore sibling skill filename";
         await fs.rename(renamedSkillFile, skillFile);
+        phase = "discover restored sibling skill";
         await expect.poll(() => read(second), { timeout: 3_000 }).toContain("remaining-proof");
+        phase = "remove sibling ancestor";
         await fs.rm(path.join(root, "right"), { recursive: true });
+        phase = "discover removed sibling ancestor";
         await expect.poll(() => read(second), { timeout: 3_000 }).toEqual([]);
         await writeSkill(second, "recreated-proof");
+        phase = "discover recreated sibling skill";
         await expect.poll(() => read(second), { timeout: 3_000 }).toContain("recreated-proof");
       } finally {
         unregister();

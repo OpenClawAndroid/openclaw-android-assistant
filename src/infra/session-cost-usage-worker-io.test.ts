@@ -17,6 +17,7 @@ import {
 import { withEnvAsync } from "../test-utils/env.js";
 import { writeSessionCostUsageRollupInDatabase } from "./session-cost-usage-cache.kernel.js";
 import { readSessionCostUsageRollupRows } from "./session-cost-usage-cache.test-support.js";
+import { prepareUsageCostWorker, runUsageCostWorker } from "./session-cost-usage-worker-runtime.js";
 import {
   discoverAllSessions,
   loadCostUsageSummaryFromCache,
@@ -142,7 +143,51 @@ if (!isMainThread) {
 }
 
 describe("session cost usage worker I/O", () => {
-  it("joins compressed archive materialization before settling inventory cancellation", async () => {
+  it.each(["zstd", "plain"] as const)(
+    "inventories %s archives without reading payloads and materializes only for a summary",
+    async (encoding) => {
+      const root = tempDirs.make("openclaw-usage-worker-metadata-");
+      const sessionsDir = path.join(root, "agents", "main", "sessions");
+      await fs.mkdir(sessionsDir, { recursive: true });
+      const sessionId = `metadata-${encoding}`;
+      const content = transcriptText(sessionId, {
+        type: "message",
+        message: { role: "user", content: "synthetic archived message" },
+      });
+      const encoded =
+        encoding === "plain"
+          ? { suffix: "", bytes: Buffer.from(content) }
+          : encodeSessionArchiveContent(content);
+      const archive = path.join(
+        sessionsDir,
+        `${sessionId}.jsonl.reset.2026-02-05T12-00-00.000Z${encoded.suffix}`,
+      );
+      await fs.writeFile(archive, encoded.bytes);
+      const { mtimeMs } = await fs.stat(archive);
+      const reads = await observeUsageWorkerReads(root, [archive]);
+      await reads.run(async () => {
+        expect(await discoverAllSessions({ agentId: "main" })).toEqual([
+          { sessionId, sessionFile: archive, mtime: mtimeMs },
+        ]);
+        expect(
+          await runUsageCostWorker(
+            prepareUsageCostWorker({ agentId: "main", sessionFiles: [archive] }),
+            { kind: "inventory", sessionFiles: [archive] },
+          ),
+        ).toEqual({
+          kind: "inventory",
+          files: [{ kind: "jsonl", sourcePath: archive, sessionId, mtimeMs }],
+        });
+        expect((await reads.read()).filter((entry) => entry.kind === "transcript")).toEqual([]);
+        expect(
+          await loadSessionCostSummary({ agentId: "main", sessionFile: archive }),
+        ).not.toBeNull();
+        expect((await reads.read()).some((entry) => entry.kind === "transcript")).toBe(true);
+      });
+    },
+  );
+
+  it("joins compressed archive materialization before settling summary cancellation", async () => {
     const root = tempDirs.make("openclaw-usage-worker-native-archive-");
     const sessionsDir = path.join(root, "agents", "main", "sessions");
     await fs.mkdir(sessionsDir, { recursive: true });
@@ -192,12 +237,14 @@ if (!isMainThread) {
         const posts = vi.spyOn(Worker.prototype, "postMessage");
         const terminate = vi.spyOn(Worker.prototype, "terminate");
         const scope = new AsyncWorkScope();
-        const reason = new Error("inventory owner closed");
-        let inventorySettled = false;
+        const reason = new Error("summary owner closed");
+        let summarySettled = false;
         let drainSettled = false;
-        const inventory = scope.track(() => discoverAllSessions({ agentId: "main" }));
-        const outcome = Promise.allSettled([inventory]).then(([result]) => {
-          inventorySettled = true;
+        const summary = scope.track(() =>
+          loadSessionCostSummary({ agentId: "main", sessionFile: archive }),
+        );
+        const outcome = Promise.allSettled([summary]).then(([result]) => {
+          summarySettled = true;
           return result;
         });
         try {
@@ -214,11 +261,11 @@ if (!isMainThread) {
               isRecord(message.input) &&
               message.input.kind === "usage-cost" &&
               isRecord(message.input.operation) &&
-              message.input.operation.kind === "inventory",
+              message.input.operation.kind === "refresh",
           );
           const worker = posts.mock.contexts[dispatch];
           if (!(worker instanceof Worker)) {
-            throw new Error("Expected the usage inventory worker");
+            throw new Error("Expected the usage refresh worker");
           }
           expect(worker.threadId).toBe(Number(await fs.readFile(entered, "utf8")));
           scope.beginClose(reason);
@@ -230,7 +277,7 @@ if (!isMainThread) {
           if (termination >= 0) {
             await terminate.mock.results[termination]?.value;
           }
-          expect(inventorySettled).toBe(false);
+          expect(summarySettled).toBe(false);
           expect(drainSettled).toBe(false);
           expect(worker.threadId).toBeGreaterThan(0);
           expect(termination).toBe(-1);

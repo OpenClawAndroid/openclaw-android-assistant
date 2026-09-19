@@ -5,7 +5,7 @@ import {
   openNodeSqliteDatabase,
   type SqliteWorkerBackend,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
-import type { IMessageReceiptDbOperations } from "./send-receipt-db.js";
+import type { IMessageChatDbOperations } from "./chat-db.js";
 import { normalizeIMessageHandle } from "./targets.js";
 
 type MessagesDatabase = {
@@ -33,11 +33,23 @@ function appleMessageDateLowerBoundMs(sentAfterMs: number | undefined): number |
 export function openExistingSqliteWorkerBackend(
   _input: undefined,
   context: { databasePath: string },
-): SqliteWorkerBackend<IMessageReceiptDbOperations> {
+): SqliteWorkerBackend<IMessageChatDbOperations> {
   const db = openNodeSqliteDatabase(context.databasePath, { readOnly: true });
   return {
     execute(command) {
       const query = getNodeSqliteKysely<MessagesDatabase>(db);
+      if (command.type === "startupWatermark") {
+        const row = executeSqliteQueryTakeFirstSync(
+          db,
+          query
+            .selectFrom("message")
+            .select((eb) => eb.fn.max<number | null>("ROWID").as("maxRowid")),
+        );
+        if (typeof row?.maxRowid === "number" && Number.isFinite(row.maxRowid)) {
+          return row.maxRowid;
+        }
+        return row?.maxRowid === null ? 0 : null;
+      }
       if (command.type === "messageGuid") {
         const row = executeSqliteQueryTakeFirstSync(
           db,

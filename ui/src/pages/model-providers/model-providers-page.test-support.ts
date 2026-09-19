@@ -381,8 +381,8 @@ export async function waitForProviders(
 }
 
 export async function advanceUsageRetries(): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await vi.advanceTimersByTimeAsync(5_000);
+  for (const delay of [5_000, 10_000, 20_000]) {
+    await vi.advanceTimersByTimeAsync(delay);
   }
 }
 

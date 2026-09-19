@@ -17,6 +17,11 @@ export const updateExecutorNativeEntrypoints = {
     sourceWorkerName: "update-command-run",
     distWorkerPath: "cli/update-cli/update-command-run.js",
   },
+  commandTarget: {
+    currentModuleUrl,
+    sourceWorkerName: "update-command-target",
+    distWorkerPath: "cli/update-cli/update-command-target.js",
+  },
   retainedRecovery: {
     currentModuleUrl,
     sourceWorkerName: "../../infra/update-retained-recovery.test-support",

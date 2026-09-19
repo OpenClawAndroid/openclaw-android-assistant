@@ -139,16 +139,18 @@ export const SQLITE_READONLY_CHILD_ARG = ${JSON.stringify(SQLITE_READONLY_CHILD_
   ],
   [
     sourceUrl("./update-cli/update-command-config-snapshot.ts"),
-    scenario === "phase-hang"
-      ? `import { spawnCommand } from ${JSON.stringify(sourceUrl("../process/exec-spawn.ts"))};
+    // Replace snapshot creation only; keep real readers available to Doctor imports.
+    `export * from ${JSON.stringify(`${sourceUrl("./update-cli/update-command-config-snapshot.ts")}?fixture-original`)};\n` +
+      (scenario === "phase-hang"
+        ? `import { spawnCommand } from ${JSON.stringify(sourceUrl("../process/exec-spawn.ts"))};
 export const createUpdateConfigSnapshot = async () => {
   const child = spawnCommand([process.execPath, '-e', ${JSON.stringify(blockedChildSource)}, '--', 'fixture-private-argument'], {stdin:'pipe', stdout:'ignore', stderr:'ignore'});
   console.error('fixture configSnapshot entered');
   await child;
 };`
-      : scenario === "borrowed-phase"
-        ? "export const createUpdateConfigSnapshot = async () => { await new Promise(resolve => setTimeout(resolve, 1_200)); };"
-        : "export const createUpdateConfigSnapshot = async () => {};",
+        : scenario === "borrowed-phase"
+          ? "export const createUpdateConfigSnapshot = async () => { await new Promise(resolve => setTimeout(resolve, 1_200)); };"
+          : "export const createUpdateConfigSnapshot = async () => {};"),
   ],
   [
     sourceUrl("./update-cli/update-command-config.ts"),

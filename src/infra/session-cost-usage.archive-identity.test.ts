@@ -1,7 +1,8 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "../agents/sessions/session-manager.js";
 import {
   encodeSessionArchiveContent,
@@ -148,6 +149,7 @@ describe("usage archive identity", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await state.cleanup();
   });
 
@@ -498,8 +500,15 @@ describe("usage archive identity", () => {
         { agentId: "main", sessionId, sessionKey, storePath },
         { messages: [{ message: assistant(17) }], touchSessionEntry: false },
       );
-      await writeArchive({ state, manager, encoding });
+      const mainArchive = await writeArchive({ state, manager, encoding });
       const workerArchive = await writeArchive({ state, manager, encoding, agentId: "worker" });
+      const readFile = vi.spyOn(fsSync, "readFileSync");
+      try {
+        await listUsageCountedTranscriptStats("main");
+        expect(readFile.mock.calls.filter(([file]) => file === mainArchive)).toEqual([]);
+      } finally {
+        readFile.mockRestore();
+      }
 
       const sessions = await discoverAllSessions({ agentId: "main" });
       expect.soft(sessions).toHaveLength(1);
@@ -643,7 +652,9 @@ describe("usage archive identity", () => {
     await fs.writeFile(sessionFile, "not a zstd frame");
 
     await expect(resolveUsageCostTranscriptFile(sessionFile)).resolves.toBeUndefined();
-    await expect(discoverAllSessions({ agentId: "main" })).rejects.toThrow();
+    expect(await discoverAllSessions({ agentId: "main" })).toMatchObject([
+      { sessionId: manager.getSessionId(), sessionFile },
+    ]);
     await expect(refreshCostUsageCacheForAgent({ agentId: "main", config })).rejects.toThrow();
     expect(readSessionCostUsageRollupRows("main")).toEqual(rows);
   });

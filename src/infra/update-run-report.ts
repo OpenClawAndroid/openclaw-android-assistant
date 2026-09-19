@@ -200,9 +200,11 @@ export function renderUpdateRunReport(
       break;
     case "skipped":
       headline =
-        run.reason === "gateway-readiness-unverified"
-          ? `ℹ️ OpenClaw${after ? ` ${after}` : ""} installed; Gateway readiness unverified; recovery backups retained.`
-          : `ℹ️ OpenClaw update skipped: ${reason}.`;
+        run.reason === "still-starting"
+          ? `ℹ️ OpenClaw${after ? ` ${after}` : ""} installed; Gateway still starting; readiness unverified; recovery backups retained.`
+          : run.reason === "gateway-readiness-unverified"
+            ? `ℹ️ OpenClaw${after ? ` ${after}` : ""} installed; Gateway readiness unverified; recovery backups retained.`
+            : `ℹ️ OpenClaw update skipped: ${reason}.`;
       break;
     case "rolled-back":
       headline = `↩️ OpenClaw update rolled back to ${after ?? running ?? before ?? "the previous version"}: ${reason}.`;

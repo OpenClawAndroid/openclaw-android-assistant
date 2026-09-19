@@ -17,7 +17,7 @@ import {
   writeControlPlaneUpdateRestartSentinel,
   type ControlPlaneUpdateSentinelMetaFile,
 } from "../../infra/update-control-plane-sentinel.js";
-import type { UpdateFailureFact } from "../../infra/update-failure-facts.js";
+import { createUpdateErrorFact, type UpdateFailureFact } from "../../infra/update-failure-facts.js";
 import { FreeBsdPkgOwnershipError } from "../../infra/update-freebsd-pkg-ownership.js";
 import { UpdateRequesterRevokedError } from "../../infra/update-requester-authority.js";
 import { UpdateRunAdmissionBusyError } from "../../infra/update-run-admission.js";
@@ -70,9 +70,10 @@ function createUpdateCommandFailureResult(
   params: Pick<UpdateRunResult, "mode" | "root" | "recovery" | "durationMs"> & {
     failure: { cause: unknown; detail?: string };
     admission?: true;
+    phase?: string;
   },
 ): UpdateRunResult {
-  const { failure, admission, ...result } = params;
+  const { failure, admission, phase, ...result } = params;
   const { cause, detail } = failure;
   const preMutationFailure = cause instanceof UpdatePreMutationError;
   const pkgOwnershipFailure = cause instanceof FreeBsdPkgOwnershipError;
@@ -87,7 +88,8 @@ function createUpdateCommandFailureResult(
           ? "managed-service-preflight"
           : "update-failed";
   const failedStep: UpdateStepResult = {
-    name: preMutationFailure || pkgOwnershipFailure || admissionFailure ? reason : "update",
+    name:
+      preMutationFailure || pkgOwnershipFailure || admissionFailure ? reason : (phase ?? "update"),
     command: "openclaw update",
     cwd: result.root ?? process.cwd(),
     durationMs: result.durationMs,
@@ -96,9 +98,10 @@ function createUpdateCommandFailureResult(
     ...(detail !== undefined ? { stderrTail: detail } : {}),
     ...(preMutationFailure && cause.recoverySteps ? { recoverySteps: cause.recoverySteps } : {}),
     // Recorded diagnostics do not change post-mutation recovery eligibility.
-    ...(preMutationFailure || cause instanceof GatewayServiceUpdateOwnershipError
-      ? { failureFacts: cause.failureFacts }
-      : {}),
+    failureFacts:
+      preMutationFailure || cause instanceof GatewayServiceUpdateOwnershipError
+        ? cause.failureFacts
+        : [createUpdateErrorFact(phase ?? "update", cause)],
   };
   return { ...result, status: "error", reason, failedStep, steps: [failedStep] };
 }
@@ -110,12 +113,25 @@ export async function resolveMutableUpdateFailure(params: {
   mode: UpdateRunResult["mode"];
   root: string;
   originalRecovery: () => Promise<UpdateRunResult["recovery"]>;
+  run?: UpdateCommandOptions["run"];
 }): Promise<{ result: UpdateRunResult; failure: { cause: unknown; detail: string } }> {
   if (hasCommandProcessCleanupError(params.cause)) {
     throw params.cause;
   }
   const failure = { cause: params.cause, detail: formatErrorMessage(params.cause) };
   defaultRuntime.error(failure.detail);
+  let phase: string | undefined;
+  if (params.run) {
+    try {
+      const current = getUpdateRun(params.run.runId, { env: params.run.env });
+      phase =
+        current?.steps.findLast((step) => step.status === "in_progress")?.step ?? current?.phase;
+    } catch {
+      defaultRuntime.error(
+        "Warning: Update history could not be read; retaining the original failure without its recorded phase.",
+      );
+    }
+  }
   return {
     failure,
     result: createUpdateCommandFailureResult({
@@ -127,6 +143,7 @@ export async function resolveMutableUpdateFailure(params: {
           ? await params.originalRecovery()
           : { serviceRestartSafe: false, reason: "runtime-verification-failed" },
       failure,
+      phase,
     }),
   };
 }

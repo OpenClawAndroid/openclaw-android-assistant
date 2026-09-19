@@ -16316,6 +16316,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       {
         configs: ["test/vitest/vitest.unit-fast.config.ts"],
         env: undefined,
+        fallbackMaxWorkers: 2,
         includePatterns: ["src/a.test.ts", "src/b.test.ts"],
         requiresDist: false,
         runner: "ubuntu-24.04",
@@ -16331,9 +16332,10 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       },
     ];
     const projectedGroups = groups.map(
-      ({ configs, env, includePatterns, shard_name, timing_key }) => ({
+      ({ configs, env, fallbackMaxWorkers, includePatterns, shard_name, timing_key }) => ({
         configs,
         env,
+        fallbackMaxWorkers,
         includePatterns,
         shard_name,
         timing_key,
@@ -16638,6 +16640,23 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(resourceStep.run.indexOf('workers="$cores"')).toBeLessThan(
       resourceStep.run.indexOf("OPENCLAW_VITEST_MAX_WORKERS"),
     );
+    expect(resourceStep.env.FROZEN_TARGET).toBe("${{ needs.preflight.outputs.frozen_target }}");
+    expect(resourceStep.env.RUNNER_ENVIRONMENT).toBe("${{ runner.environment }}");
+    expect(resourceStep.run).toContain(
+      '[[ "$RUNNER_ENVIRONMENT" == "self-hosted" && "$FROZEN_TARGET" != "true" && "$SHARD_PLAN_CONCURRENCY" == "1" ]]',
+    );
+    expect(resourceStep.run).toContain("isConstrainedCiCheckHost({");
+    expect(resourceStep.run).toContain(
+      "resolveLocalVitestScheduling(process.env, host).maxWorkers",
+    );
+    expect(nodeTestJob.steps.indexOf(resourceStep)).toBeGreaterThan(
+      nodeTestJob.steps.findIndex((step: WorkflowStep) => step.name === "Build Node test runtime"),
+    );
+    const runStep = nodeTestJob.steps.find(
+      (step: WorkflowStep) => step.name === "Run Node test shard",
+    );
+    expect(runStep.env.FROZEN_TARGET).toBe(resourceStep.env.FROZEN_TARGET);
+    expect(runStep.env.RUNNER_ENVIRONMENT).toBe(resourceStep.env.RUNNER_ENVIRONMENT);
   });
 
   it("uses candidate-owned script interfaces for frozen target CI", () => {

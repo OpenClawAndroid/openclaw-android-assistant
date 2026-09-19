@@ -87,9 +87,14 @@ function preparedHarness(
           resolveWorkspace: async () => ({ kind: "repository", repository: options.repository! }),
         }
       : {}),
-    isCurrentNodePlacement: (proof, requirement) =>
+    isCurrentNodePlacement: (proof, requirement, mode) =>
       nodeCurrent &&
-      transport.isCurrent(proof, requirement.consumesWorkerSlot, requirement.requiredNodeCommands),
+      transport.isCurrent(
+        proof,
+        requirement.consumesWorkerSlot,
+        requirement.requiredNodeCommands,
+        mode === "worker-turn",
+      ),
   });
   const environmentId = reserve ? "prepared-spare" : harness.ready.environmentId;
   const intent: WorkerProviderPreparedIntent = {
@@ -220,6 +225,7 @@ function preparedHarness(
       capacity: { total: 1, available: 1 },
       environmentSession: NODE_WORKER_ENVIRONMENT_SESSION_VERSION,
       preparedWorkspace: NODE_WORKER_PREPARED_WORKSPACE_VERSION,
+      capturedExecPolicy: true,
     },
     commands: ["codex.exec-server.stdio.v1"],
   };

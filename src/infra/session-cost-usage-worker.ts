@@ -23,7 +23,9 @@ import {
   type SessionCostUsageRollupRow,
 } from "./session-cost-usage-cache.kernel.js";
 import {
+  listUsageCountedTranscriptSources,
   listUsageCountedTranscriptStats,
+  resolveUsageCostTranscriptSources,
   resolveUsageCostTranscriptFiles,
   type UsageCostCollectionAccess,
 } from "./session-cost-usage-collection.js";
@@ -160,11 +162,23 @@ export async function executeUsageCostWorker(
     });
   if (operation.kind === "inventory") {
     const files = operation.sessionFiles
-      ? (await resolveUsageCostTranscriptFiles(operation.sessionFiles, access)).filter(
+      ? (await resolveUsageCostTranscriptSources(operation.sessionFiles, access)).filter(
           (file) => file !== undefined,
         )
-      : await inventory(operation.minMtimeMs);
-    return { kind: "inventory", files };
+      : await listUsageCountedTranscriptSources(location.agentId, {
+          ...access,
+          storePath: location.storePath,
+          minMtimeMs: operation.minMtimeMs,
+        });
+    return {
+      kind: "inventory",
+      files: files.map(({ kind, sourcePath, sessionId, mtimeMs }) => ({
+        kind,
+        sourcePath,
+        sessionId,
+        mtimeMs,
+      })),
+    };
   }
 
   // Selected reads resolve canonical keys first; aggregate and refresh reads snapshot before inventory.

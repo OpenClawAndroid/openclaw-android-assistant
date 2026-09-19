@@ -137,7 +137,19 @@ const runPath = "repos/openclaw/openclaw/actions/runs/33155056361";
 const scanned = calls.some((call) => call[1]?.startsWith("repos/openclaw/openclaw/actions/jobs/"));
 const currentGraphql = scanned && fixture.afterAliasScan !== undefined ? fixture.afterAliasScan : fixture.graphql;
 let value;
-if (args[0] === "pr" && args[1] === "view") value = currentGraphql.data.repository.pullRequest;
+if (args[0] === "browse" && args[1] === "--no-browser") {
+  console.log("https://github.com/openclaw/openclaw");
+  process.exit(0);
+}
+else if (args.includes("repos/openclaw/openclaw/pulls/42")) {
+  const pr = currentGraphql.data.repository.pullRequest;
+  value = {
+    state: pr.state === "MERGED" ? "closed" : pr.state.toLowerCase(),
+    merged_at: pr.state === "MERGED" ? "2026-09-19T00:00:00Z" : null,
+    mergeable: pr.mergeable === "MERGEABLE" ? true : pr.mergeable === "CONFLICTING" ? false : null,
+    head: { sha: pr.headRefOid },
+  };
+}
 else if (args[0] === "run" && args[1] === "view") {
   const reads = calls.filter((call) => call[0] === "run" && call[1] === "view").length;
   value = fixture.runViewSnapshots?.[Math.min(reads, fixture.runViewSnapshots.length - 1)] ?? fixture.run;
@@ -593,7 +605,6 @@ if (args[0] === "browse" && args[1] === "--no-browser") {
   process.exit(0);
 }
 else if (args.includes("repos/openclaw/openclaw/pulls/42")) value = { state: "open", mergeable: true, head: { sha: "${sha}" } };
-else if (${completion === "rollup"} && args[0] === "pr" && args[1] === "view") value = { state: "OPEN", mergeable: true, headRefOid: "${sha}" };
 else if (args.includes("repos/openclaw/openclaw/actions/workflows/ci.yml/runs")) value = { workflow_runs: [{ id: 201 }] };
 else if (args[0] === "run" && args[1] === "view") {
   fs.writeFileSync(marker, "");
@@ -1137,7 +1148,6 @@ else if (args.includes("repos/openclaw/openclaw/pulls/42")) {
   if (${slowWatchPr} && calls.some((call) => call.includes("repos/openclaw/openclaw/pulls/42"))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
   value = { state: pr.state.toLowerCase(), mergeable: pr.mergeable, head: { sha: pr.headRefOid } };
 }
-else if (${completion !== "ci-run"} && args[0] === "pr" && args[1] === "view") value = pr;
 else if (args[0] === "run" && args[1] === "view") {
   if (${slowFinalRun} && calls.some((call) => call[0] === "run" && call[1] === "view")) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
   value = runs.find((run) => String(run.id) === args[2]);
@@ -1167,11 +1177,8 @@ console.log(JSON.stringify(value));
         expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(exitCode);
         expect(result.stdout).toContain(`ATTACHED run=${expectedRun}`);
         expect(result.stdout).toContain(output);
-        if (completion === "ci-run") {
-          expect(result.calls.some((call) => call[0] === "pr" || call.includes("graphql"))).toBe(
-            false,
-          );
-        }
+        expect(result.calls.some((call) => call[0] === "pr")).toBe(false);
+        expect(result.calls.some((call) => call.includes("graphql"))).toBe(completion !== "ci-run");
         expect(
           result.calls.filter((call) => call[1] === "repos/openclaw/openclaw/actions/runs/100"),
         ).toHaveLength(olderRunOutsidePage && expectedMetadataReads > 0 ? 1 : 0);

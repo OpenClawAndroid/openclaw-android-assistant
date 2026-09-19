@@ -45,7 +45,7 @@ it.each([
     tokens: 0,
   },
 ])("exports the displayed session scope: $name", async ({ selected, query, expected, tokens }) => {
-  const snapshot = cacheSnapshot("sessions", "fresh");
+  const snapshot = cacheSnapshot("fresh");
   const sessions = ["first", "second", "third"].map((label, index) => {
     const totalTokens = [100, 300, 200][index]!;
     const totals = {
@@ -86,7 +86,7 @@ it.each([
           }
         : result;
     }
-    return method === "usage.cost" ? snapshot.costSummary : { providers: [], points: [], logs: [] };
+    return { providers: [], points: [], logs: [] };
   });
   const download = vi.spyOn(downloads, "downloadTextFile").mockImplementation(() => {});
   const page = await createPage({ request } as unknown as GatewayBrowserClient, true);

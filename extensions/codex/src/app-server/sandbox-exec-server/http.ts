@@ -4,16 +4,15 @@
  */
 import { embeddedAgentLog } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
-import { SANDBOX_COMMAND_MAX_BUFFER_BYTES } from "openclaw/plugin-sdk/sandbox";
+import {
+  prepareSandboxProcessCleanup,
+  SANDBOX_COMMAND_MAX_BUFFER_BYTES,
+} from "openclaw/plugin-sdk/sandbox";
 import { SsrFBlockedError, isBlockedHostnameOrIp } from "openclaw/plugin-sdk/ssrf-runtime";
 import { sliceUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import type { JsonObject, JsonValue } from "../protocol.js";
 import { readHttpHeaders, requireNumber, requireObject, requireString } from "./json-rpc.js";
-import {
-  prepareSandboxChildExec,
-  spawnSandboxChild,
-  type SandboxPipeChildOwner,
-} from "./sandbox-child.js";
+import { spawnSandboxChild, type SandboxPipeChildOwner } from "./sandbox-child.js";
 import type {
   CodexSandboxExecSessionNotifications,
   HttpHeader,
@@ -104,7 +103,7 @@ async function runSandboxHttpRequest(
   try {
     notifications.signal.throwIfAborted();
     const backend = execServer.backend;
-    const remoteExec = prepareSandboxChildExec(backend, {});
+    const remoteExec = prepareSandboxProcessCleanup(backend, {});
     const execSpec = await backend.buildExecSpec({
       command: SANDBOX_HTTP_REQUEST_SCRIPT,
       workdir: execServer.sandbox.containerWorkdir,
@@ -172,11 +171,19 @@ async function runSandboxHttpRequest(
     if (notifications.signal.aborted) {
       abortOnSessionClose();
     } else {
+      owner.assertCurrent();
       child.stdin.end(JSON.stringify(params));
     }
     // Headers can finish the RPC while its body or backend finalization is still running.
     await completion.promise;
     await termination;
+  } catch (error) {
+    lifecycle.failed = true;
+    response.reject(error);
+    await terminate().catch((cleanupError: unknown) => {
+      embeddedAgentLog.warn("codex sandbox http/request cleanup failed", { error: cleanupError });
+    });
+    throw error;
   } finally {
     notifications.signal.removeEventListener("abort", abortOnSessionClose);
   }

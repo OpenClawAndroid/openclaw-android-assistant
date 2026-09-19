@@ -28,6 +28,7 @@ import type { ApplicationOverlays } from "./overlays-types.ts";
 import type { ApplicationPlacementStartup } from "./session-placement-startup.ts";
 import type { UiPreferences } from "./settings.ts";
 import type { SidebarAttentionStore } from "./sidebar-attention-store.ts";
+import type { ThemeCatalogSnapshot } from "./theme-catalog.ts";
 import type { ThemeMode, ThemeName } from "./theme.ts";
 import type { WebPushCapability } from "./web-push.ts";
 
@@ -45,6 +46,8 @@ export type ApplicationThemeServerSelection = {
 };
 
 export type ApplicationTheme = {
+  readonly catalog?: ThemeCatalogSnapshot;
+  retryCatalog?: () => void;
   readonly settings: UiPreferences;
   readonly mode: ThemeMode;
   readonly resolvedMode: "dark" | "light";

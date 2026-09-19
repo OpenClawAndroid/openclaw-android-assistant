@@ -45,6 +45,28 @@ never guesses their owner. Confirmed process-exit settlement uses existing task
 terminal fields and retention rules. Downgrading code does not undo a terminal
 outcome already recorded by restore.
 
+Node worker recovery uses the private `node_worker_launch_cleanup` companion
+table in the existing launch journal. The launch owner adds it on first use and
+records the selected process-group or owned-anchor transport in `cleanup_mode`,
+in the same transaction as the worker identity, before allowing execution. An owned anchor
+can record `lineage_settled = 1` only for its exact current running identity after its root exits
+and its inherited lineage reaches positive EOF. Recovery also verifies that the
+recorded process group has disappeared before releasing capacity. A missing or
+ambiguous lineage result remains unknown; an empty anchor group alone cannot
+prove that descendants in other groups have stopped.
+
+The [node recovery repair](https://github.com/openclaw/openclaw/pull/149158)
+keeps the journal as the sole durable owner. Cleanup records contain no launch
+descriptor or credentials, do not enter public receipts, and share the launch's
+existing 24-hour terminal receipt retention through a cascading foreign key.
+The schema version stays unchanged; older readers ignore the new companion
+table without changing their launch-table contract. Missing cleanup records preserve the
+released `2026.9.4` process-group contract without backfilling guessed identities.
+Untagged intermediate builds that used unmarked anchors must drain their workers
+on that original build before replacement. Active modern workers must also drain
+before downgrade or rollback to an older writer, which cannot interpret anchor
+lineage completion.
+
 Retained ACP imports use the same-version additive-column exception for the bare
 nullable `session_nodes.legacy_acp_migration_json TEXT` column. Legacy session
 import ensures it on first use and records exact source-component provenance;

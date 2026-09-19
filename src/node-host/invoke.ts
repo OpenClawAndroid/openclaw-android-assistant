@@ -33,15 +33,8 @@ import {
   type ExecHostRequest,
   type ExecHostResponse,
 } from "../infra/exec-host.js";
-import {
-  extractShellWrapperCommand,
-  isShellWrapperInvocation,
-} from "../infra/exec-wrapper-resolution.js";
-import {
-  inspectHostExecEnvOverrides,
-  sanitizeHostExecEnv,
-  sanitizeSystemRunEnvOverrides,
-} from "../infra/host-env-security.js";
+import { extractShellWrapperCommand } from "../infra/exec-wrapper-resolution.js";
+import { sanitizeHostExecEnv } from "../infra/host-env-security.js";
 import {
   NODE_AGENT_CLI_CLAUDE_RUN_COMMAND,
   NODE_DEVICE_APPS_COMMAND,
@@ -61,6 +54,7 @@ import { invokeDeviceApps } from "./invoke-device-apps.js";
 import { invokeNodeFileCommand } from "./invoke-file-commands.js";
 import { boundMcpToolResultPayload } from "./invoke-mcp-result.js";
 import { runCommand } from "./invoke-run-command.js";
+import { buildSystemRunPrepareCoverageEnv } from "./invoke-system-run-plan.js";
 import {
   buildSystemRunApprovalPlan,
   handleSystemRunInvoke,
@@ -129,16 +123,6 @@ type SystemRunPrepareParams = {
   strictInlineEval?: unknown;
 };
 
-type SystemRunPrepareEnv =
-  | {
-      ok: true;
-      env: Record<string, string>;
-    }
-  | {
-      ok: false;
-      message: string;
-    };
-
 function resolveNodeSkillCwdParam<T extends { cwd?: unknown }>(params: T, nodeId: string): T {
   if (typeof params.cwd !== "string") {
     return params;
@@ -147,51 +131,6 @@ function resolveNodeSkillCwdParam<T extends { cwd?: unknown }>(params: T, nodeId
   // the same canonical node-local directory instead of trusting a URI at exec time.
   const resolved = resolveNodeHostedSkillDirectory(params.cwd, nodeId);
   return resolved ? { ...params, cwd: resolved } : params;
-}
-
-function buildEnvOverrideRejectionMessage(params: {
-  rejectedOverrideBlockedKeys: string[];
-  rejectedOverrideInvalidKeys: string[];
-}): string {
-  const details: string[] = [];
-  if (params.rejectedOverrideBlockedKeys.length > 0) {
-    details.push(`blocked override keys: ${params.rejectedOverrideBlockedKeys.join(", ")}`);
-  }
-  if (params.rejectedOverrideInvalidKeys.length > 0) {
-    details.push(
-      `invalid non-portable override keys: ${params.rejectedOverrideInvalidKeys.join(", ")}`,
-    );
-  }
-  return `SYSTEM_RUN_DENIED: environment override rejected (${details.join("; ")})`;
-}
-
-function buildSystemRunPrepareCoverageEnv(params: {
-  argv: string[];
-  env?: Record<string, string> | null;
-}): SystemRunPrepareEnv {
-  const diagnostics = inspectHostExecEnvOverrides({
-    overrides: params.env ?? undefined,
-    blockPathOverrides: true,
-  });
-  if (
-    diagnostics.rejectedOverrideBlockedKeys.length > 0 ||
-    diagnostics.rejectedOverrideInvalidKeys.length > 0
-  ) {
-    return {
-      ok: false,
-      message: buildEnvOverrideRejectionMessage(diagnostics),
-    };
-  }
-  const envOverrides = sanitizeSystemRunEnvOverrides({
-    overrides: params.env ?? undefined,
-    shellWrapper: isShellWrapperInvocation(params.argv),
-  });
-  return {
-    ok: true,
-    // Prepared coverage is durable approval evidence, so keep this in parity
-    // with the env passed to `system.run` policy and execution.
-    env: sanitizeEnv(envOverrides),
-  };
 }
 
 async function buildSystemRunAllowAlwaysCoverage(params: {
@@ -830,7 +769,14 @@ async function dispatchInvoke(
         execPolicy.globalExec?.strictInlineEval === true;
       const prepared = buildSystemRunApprovalPlan(params, bindApproval);
       if (!prepared.ok) {
-        await sendErrorResult(client, frame, "INVALID_REQUEST", prepared.message);
+        await sendErrorResult(
+          client,
+          frame,
+          "INVALID_REQUEST",
+          prepared.reason === "unsupported-command-shape"
+            ? `${prepared.message}\nNo approval request was created for this attempt; this is not a user denial. Retry a supported single executable with an absolute path through the normal approval flow. This node approval path cannot bind script/interpreter payloads nested in its shell wrapper.`
+            : prepared.message,
+        );
         return;
       }
       const prepareEnv = buildSystemRunPrepareCoverageEnv({

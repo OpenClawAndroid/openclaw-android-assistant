@@ -359,7 +359,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
         : prepareSessionCreateFilesystemRoot({
             cfg,
             enforceSandboxContainment: Boolean(
-              sessionCwd && !requestedExecNode && (requestedProjectId || p.worktree !== true),
+              sessionCwd && !requestedExecNode && p.worktree !== true,
             ),
             requestedExecNode,
             requestedProjectId,

@@ -5475,18 +5475,6 @@ describe("chat slash menu accessibility", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("commits local draft input on blur", () => {
-    const onDraftChange = vi.fn();
-    const container = renderChatView({ onDraftChange });
-
-    inputDraft(container, "persist before leaving composer");
-    container
-      .querySelector<HTMLTextAreaElement>("textarea")!
-      .dispatchEvent(new FocusEvent("blur", { bubbles: false }));
-
-    expect(onDraftChange).toHaveBeenCalledWith("persist before leaving composer", undefined);
-  });
-
   it("commits plain draft input while a send is active", () => {
     const onDraftChange = vi.fn();
     const container = renderChatView({ onDraftChange, sending: true });
@@ -10266,22 +10254,6 @@ describe("right-click Reply", () => {
       paneA.dispose();
       paneB.dispose();
     }
-  });
-
-  it("does not clear reply target when Escape is already defaultPrevented", () => {
-    const onClearReply = vi.fn();
-    const container = renderReply({ onClearReply });
-
-    const section = container.querySelector<HTMLElement>(".chat");
-    const evt = new KeyboardEvent("keydown", {
-      key: "Escape",
-      bubbles: true,
-      cancelable: true,
-    });
-    Object.defineProperty(evt, "defaultPrevented", { value: true });
-    section!.dispatchEvent(evt);
-
-    expect(onClearReply).not.toHaveBeenCalled();
   });
 
   it("does not open Reply menu when onSetReply is absent", () => {

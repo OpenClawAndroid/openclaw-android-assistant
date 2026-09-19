@@ -585,11 +585,11 @@ describe("update.run restart scheduling", () => {
         step: "restarting",
         status: "failed",
         failureFacts: [
-          {
+          expect.objectContaining({
             check: "restarting",
             code: "Error",
             message: "state database unavailable",
-          },
+          }),
         ],
       }),
     );

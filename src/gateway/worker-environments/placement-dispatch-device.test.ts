@@ -63,7 +63,11 @@ function deviceProof(
     clientId: GATEWAY_CLIENT_IDS.NODE_HOST,
     clientMode: GATEWAY_CLIENT_MODES.NODE,
     protocolFeature: NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE,
-    workerHost: { enabled: true as const, capacity: { total: 2, available } },
+    workerHost: {
+      enabled: true as const,
+      capacity: { total: 2, available },
+      capturedExecPolicy: true,
+    },
     commands,
   };
 }
@@ -190,9 +194,11 @@ describe("device worker placement dispatch", () => {
 
   it("syncs paired-device remote-exec without launching an OpenClaw worker child", async () => {
     const harness = createHarness(database, placementStore);
+    const node = deviceProof(0);
+    delete node.workerHost.capturedExecPolicy;
     bindDeviceWorkerAvailability(harness.environments, async () => ({
       available: true,
-      node: deviceProof(0),
+      node,
     }));
     const nodeEnvironment = {
       ...harness.ready,
@@ -422,6 +428,32 @@ describe("device worker placement dispatch", () => {
     expect(harness.environments.destroy).not.toHaveBeenCalled();
   });
 
+  it.each(["before-sync", "before-activation"] as const)(
+    "rejects missing captured exec policy %s without weakening the launch authority",
+    async (stage) => {
+      const harness = createHarness(database, placementStore);
+      const node = deviceProof();
+      if (stage === "before-sync") {
+        delete node.workerHost.capturedExecPolicy;
+      }
+      bindDeviceWorkerAvailability(harness.environments, async () => ({ available: true, node }));
+      const request = prepareCloudNodeDispatch(harness, "worker-turn");
+
+      await expect(
+        harness.service.dispatch(request, (placement) => {
+          if (stage === "before-activation" && placement.state === "starting") {
+            delete node.workerHost.capturedExecPolicy;
+          }
+        }),
+      ).rejects.toThrow("run openclaw update, then reconnect");
+
+      expect(harness.placements.current()).toMatchObject({ state: "failed" });
+      expect(harness.log.filter((entry) => entry === "sync")).toHaveLength(
+        stage === "before-sync" ? 0 : 1,
+      );
+    },
+  );
+
   it("rejects a cloud node re-paired while its managed workspace is synchronizing", async () => {
     let currentNode = deviceProof(0);
     const harness = createHarness(database, placementStore, {
@@ -648,6 +680,7 @@ describe("device worker placement dispatch", () => {
       environmentService: service,
       deviceId: "device-1",
       requirement,
+      executionMode: requirement === CODEX_DEVICE_REQUIREMENT ? "remote-exec" : "worker-turn",
       config,
       ...("currentNode" in scenario ? { currentNode: scenario.currentNode } : {}),
     });

@@ -20,6 +20,14 @@ export type PluginConfigUiHint = {
   presentation?: ConfigUiPresentation;
 };
 
+/** Static, portable palettes; no plugin JavaScript or native UI activation is required. */
+export type PluginManifestTheme = {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+};
+
 /** Top-level plugin manifest format. */
 export type PluginFormat = "openclaw" | "bundle";
 
@@ -474,6 +482,7 @@ export type PluginManifest = {
   /** Widget data and action capabilities validated against runtime registrations. */
   dashboard?: PluginManifestDashboard;
   controlUi?: PluginManifestControlUi;
+  themes?: PluginManifestTheme[];
   /** Static MCP servers contributed while this plugin is enabled. */
   mcpServers?: Record<string, PluginManifestMcpServer>;
   skills?: string[];

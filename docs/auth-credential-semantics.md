@@ -113,13 +113,17 @@ Usage bookkeeping invalidates later cache reuse while admitted reads can finish
 their snapshots. Credential, selection, ownership, and lifecycle changes still
 invalidate in-flight preparation.
 Model selection retries that stale read once after its readers finish cleanup,
-joining already queued OAuth refreshes for the provider and explicit profile pin
-before recapturing. This keeps one refresh's claim and settlement from invalidating
-both reads. Pending refresh profiles remain candidates for model id/mode selection;
-the OAuth owner still settles the refresh before credentials can be used. Continued
-changes, admission refusals, and cleanup failures remain errors.
-Each join uses the existing refresh timeout. A caller timeout does not retire its
-durable settlement from observation, and a waiting model read cannot cancel it.
+preserving the selected agent and any explicit profile pin. If an in-process OAuth
+refresh invalidated the read, selection first observes that owner's durable
+settlement, including inherited credentials and fenced peers. This wait uses the
+existing refresh timeout and neither reads credentials nor starts another refresh.
+Reconnects release waits for the replaced claim; readers of still-fenced peers
+continue to wait for the owner's cleanup.
+Pending refresh profiles remain candidates for model id/mode selection; the OAuth
+owner still settles the refresh before credentials can be used. A caller timeout
+does not retire its durable settlement from observation, and a waiting model read
+cannot cancel it. Continued changes, admission refusals, and cleanup failures
+remain errors.
 Workers certify committed SQLite visibility before rows enter the cache. Reads
 with unpublished or trailing WAL frames return normally without being retained.
 

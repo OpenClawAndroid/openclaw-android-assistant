@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, createWriteStream } from "node:fs";
-import { runtimeProcessEntrypoints } from "../../infra/runtime-process-entrypoints.js";
+import { setTimeout as delay } from "node:timers/promises";
 import {
-  resolveRuntimeWorkerArgv,
-  resolveRuntimeWorkerUrl,
-} from "../../infra/runtime-worker-url.js";
+  registerSealedRuntimeProcessEntrypoint,
+  resolveRuntimeProcessEntrypointUrl,
+} from "../../infra/runtime-process-url.js";
+import { resolveRuntimeWorkerArgv } from "../../infra/runtime-worker-url.js";
+import { isOwnedProcessGroupGone } from "./service-child-group-ownership.js";
 import type {
   ServiceChildControlMessage,
   ServiceChildRelayMessage,
@@ -12,6 +14,14 @@ import type {
 } from "./service-child-protocol.js";
 
 type StdioEntry = "ignore" | "inherit" | "ipc" | number;
+declare const WORKER_DEPLOY_BUILD: boolean;
+
+if (typeof WORKER_DEPLOY_BUILD === "boolean" && WORKER_DEPLOY_BUILD) {
+  registerSealedRuntimeProcessEntrypoint(
+    "serviceChildGroupAnchor",
+    new URL("./service-child-group-anchor.mjs", import.meta.url),
+  );
+}
 
 function reserveIpcFd(stdio: StdioEntry[]): void {
   let fd = 3;
@@ -31,6 +41,8 @@ function runServiceChildRelay(): void {
   let forcedSequence: number | undefined;
   let signalError: string | undefined;
   let anchorExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+  let parentLineageFds: number[] = [];
+  let parentLineageReleased = false;
 
   const report = (message: ServiceChildRelayMessage) => {
     if (!process.connected) {
@@ -53,13 +65,55 @@ function runServiceChildRelay(): void {
       });
     }
   };
+  const settleAnchorExit = () => {
+    if (!anchorExit || !parentLineageReleased) {
+      return;
+    }
+    if (forcedSequence !== undefined && !parentLost && process.connected) {
+      // Preserve the current host's retirement receipt until it releases this handle.
+      reportRetirement();
+    } else {
+      process.exit(anchorExit.code === 0 || anchorExit.signal === "SIGKILL" ? 0 : 1);
+    }
+  };
+  const releaseParentLineage = async () => {
+    if (parentLineageFds.length > 0) {
+      let reportedFailure = false;
+      for (;;) {
+        try {
+          if (isOwnedProcessGroupGone(anchor!.pid!)) {
+            break;
+          }
+        } catch (error) {
+          if (!reportedFailure) {
+            reportedFailure = true;
+            report({
+              type: "relay-error",
+              generation: generation!,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        await delay(100);
+      }
+      // These writers belong to the enclosing worker. They do not include this
+      // relay's own lineage, and close before waiting for its retirement receipt.
+      for (const fd of parentLineageFds) {
+        closeSync(fd);
+      }
+      parentLineageFds = [];
+    }
+    parentLineageReleased = true;
+    settleAnchorExit();
+  };
   const notifyParentLoss = () => {
     if (parentLost) {
       return;
     }
     parentLost = true;
     if (anchorExit) {
-      process.exit(anchorExit.code === 0 || anchorExit.signal === "SIGKILL" ? 0 : 1);
+      settleAnchorExit();
+      return;
     }
     if (anchor?.connected) {
       anchor.send({ type: "parent-loss", generation });
@@ -110,7 +164,7 @@ function runServiceChildRelay(): void {
       process.exitCode = 1;
       return;
     }
-    const anchorUrl = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.serviceChildGroupAnchor);
+    const anchorUrl = resolveRuntimeProcessEntrypointUrl("serviceChildGroupAnchor");
     const stdio: StdioEntry[] = ["inherit", "inherit", "inherit"];
     while (stdio.length <= start.controlFd) {
       stdio.push("ignore");
@@ -121,6 +175,13 @@ function runServiceChildRelay(): void {
         stdio.push("ignore");
       }
       stdio[start.lineageFd] = start.lineageFd;
+    }
+    parentLineageFds = start.parentLineageFds ?? [];
+    for (const parentFd of parentLineageFds) {
+      while (stdio.length <= parentFd) {
+        stdio.push("ignore");
+      }
+      stdio[parentFd] = parentFd;
     }
     if (start.secretFd !== undefined) {
       while (stdio.length <= start.secretFd) {
@@ -152,6 +213,7 @@ function runServiceChildRelay(): void {
       return;
     }
     anchor.once("spawn", () => {
+      closeSync(start.controlFd!);
       // Only the anchor and command may retain the host's lineage writer.
       if (start.lineageFd !== undefined) {
         closeSync(start.lineageFd);
@@ -186,12 +248,13 @@ function runServiceChildRelay(): void {
     });
     anchor.once("exit", (code, signal) => {
       anchorExit = { code, signal };
-      if (forcedSequence !== undefined && !parentLost && process.connected) {
-        // Keep the reaper alive until the host receives the exit fact and releases its handle.
-        reportRetirement();
-      } else {
-        process.exit(code === 0 || signal === "SIGKILL" ? 0 : 1);
-      }
+      void releaseParentLineage().catch((error: unknown) => {
+        report({
+          type: "relay-error",
+          generation: generation!,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
   });
 }

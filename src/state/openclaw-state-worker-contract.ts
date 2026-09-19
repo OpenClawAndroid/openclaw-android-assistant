@@ -41,6 +41,7 @@ import type {
 } from "../sessions/session-state-events.kernel.js";
 import type { SessionUpstreamLink } from "../sessions/session-upstream-links.kernel.js";
 import type { DeviceAuthEntry } from "../shared/device-auth.js";
+import type { commitSkillUploadInDatabase } from "../skills/lifecycle/upload-store-commit.js";
 import type { SkillProposalEvent, SkillProposalRecord } from "../skills/workshop/types.js";
 import type { TaskRegistryWorkerOperations } from "../tasks/task-registry.worker-contract.js";
 import type { TranscriptReadOperations } from "../transcripts/store-worker-contract.js";
@@ -65,6 +66,10 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   DeliveryQueueWorkerOperations &
   TranscriptReadOperations &
   TaskRegistryWorkerOperations & {
+    "skillUploads.commit": {
+      input: Parameters<typeof commitSkillUploadInDatabase>[0];
+      output: ReturnType<typeof commitSkillUploadInDatabase>;
+    };
     "audit.events.list": {
       input: AuditEventListQuery;
       output: AuditEventListPage;

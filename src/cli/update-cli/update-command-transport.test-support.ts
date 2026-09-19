@@ -6,6 +6,14 @@ import { expect, vi } from "vitest";
 import type { runCommandWithTimeout, runUtf8CommandWithTimeout } from "../../process/exec.js";
 import { createCommandResult as commandResult } from "../../test-utils/npm-spec-install-test-helpers.js";
 
+export function isLegacyUpdateDoctorCommand(argv: readonly string[]) {
+  return (
+    argv[2] === "doctor" &&
+    argv[3] === "--non-interactive" &&
+    (argv.length === 4 || argv[4] === "--fix")
+  );
+}
+
 // Native effects/results remain fixture-owned. Preserve real child admission,
 // PID binding and settlement instead of bypassing the update executor.
 export async function createUpdateCommandTransportFixture(transport: {
@@ -71,12 +79,19 @@ export async function createUpdateCommandTransportFixture(transport: {
 }
 
 export async function createUpdateUtf8CommandTransportFixture(
-  transport: { hostCwd: string; hostEnv: NodeJS.ProcessEnv },
+  transport: Parameters<typeof createUpdateCommandTransportFixture>[0],
   run: typeof runUtf8CommandWithTimeout,
 ): Promise<typeof runUtf8CommandWithTimeout> {
   const { spawnSync: spawnMetadata } =
     await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  const runDoctorFixture = await createUpdateCommandTransportFixture(transport);
   return async (argv, options) => {
+    if (argv.at(-1) === "--doctor" && typeof options !== "number" && options.beforeInput) {
+      // Keep Doctor effects fixture-owned without bypassing live child admission.
+      const result = await runDoctorFixture(argv, options);
+      // The fixture has joined and checked its real child's exit before returning.
+      return { ...result, cleanup: result.cleanup ?? "normal" };
+    }
     if (argv.includes("--eval") && typeof options !== "number" && options.input) {
       const input: unknown = JSON.parse(String(options.input));
       if (isRecord(input) && Array.isArray(input.files)) {

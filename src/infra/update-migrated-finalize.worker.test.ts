@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
   finish: vi.fn(),
   terminal: vi.fn(),
   writeFile: vi.fn(),
+  fence: { assertCurrent: vi.fn() },
 }));
 
 // Exercise the executable's output boundary without update, service, or database effects.
@@ -28,7 +29,10 @@ vi.mock("../cli/update-cli/update-command-executor.js", () => ({
     _root: string,
     run: (fence: { assertCurrent: () => void }) => Promise<unknown>,
   ) => run({ assertCurrent: vi.fn() }),
-  withUpdateCommandExecutor: vi.fn(),
+  withUpdateCommandExecutor: async (
+    _runId: string,
+    run: (executor: { enter: () => Promise<typeof fixture.fence> }) => Promise<unknown>,
+  ) => run({ enter: async () => fixture.fence }),
 }));
 vi.mock("../cli/update-cli/update-command-post-update.js", () => ({
   finishUpdate: fixture.finish,
@@ -174,3 +178,87 @@ it.each(["json", "human", "check"] as const)(
     }
   },
 );
+
+it("binds migrated worker finalization to its local candidate runtime", async () => {
+  const env = Object.fromEntries(
+    ["TMPDIR", "TMP", "TEMP"].flatMap((key) =>
+      process.env[key] === undefined ? [] : [[key, process.env[key]]],
+    ),
+  );
+  const input = {
+    params: {
+      root: "/fixture/candidate",
+      result: {
+        status: "ok",
+        mode: "npm",
+        root: "/fixture/candidate",
+        runId: "candidate-run",
+        steps: [],
+        durationMs: 0,
+      },
+      mutationStarted: true,
+      installKindChanged: false,
+      configSnapshot: {
+        path: "/fixture/openclaw.json",
+        exists: false,
+        raw: null,
+        parsed: {},
+        sourceConfig: {},
+        resolved: {},
+        runtimeConfig: {},
+        config: {},
+        valid: true,
+        issues: [],
+        warnings: [],
+        legacyIssues: [],
+      },
+      requestedChannel: null,
+      storedChannel: "stable",
+      channel: "stable",
+      downgradeRisk: false,
+      shouldRestart: false,
+      opts: { json: true, run: { runId: "candidate-run", env, activationTimeoutMs: 1_000 } },
+      controlPlaneUpdateSentinelMeta: null,
+      preUpdatePluginInstallRecords: {},
+      startedAt: 1,
+      updateStepTimeoutMs: 1_000,
+      rollbackBlockedReason: "state-migrated-no-rollback",
+    },
+    bufferedSteps: [],
+    resultPath: "/fixture/result.json",
+  };
+  const completed = createDeferredCore();
+  fixture.close.mockImplementation(async () => completed.resolve());
+  fixture.finish.mockResolvedValue(input.params.result);
+  fixture.terminal.mockReturnValue({ runId: "candidate-run", status: "succeeded" });
+  process.argv = [process.execPath, "update-migrated-finalize.worker.js"];
+  vi.spyOn(process.stdin, Symbol.asyncIterator).mockImplementation(async function* () {
+    yield JSON.stringify(input);
+    return undefined;
+  });
+
+  await import("./update-migrated-finalize.worker.js");
+  await completed.promise;
+
+  expect(fixture.finish).toHaveBeenCalledExactlyOnceWith(
+    {
+      ...input.params,
+      opts: {
+        ...input.params.opts,
+        run: { ...input.params.opts.run, executorFence: fixture.fence },
+      },
+    },
+    { candidateRuntime: true },
+  );
+  expect(fixture.fence.assertCurrent).toHaveBeenCalled();
+  expect(fixture.writeFile).toHaveBeenCalledExactlyOnceWith(
+    input.resultPath,
+    JSON.stringify({
+      result: input.params.result,
+      exitCode: 0,
+      terminalRunId: "candidate-run",
+      executorDelegation: "pid-start-v1",
+    }),
+    { mode: 0o600 },
+  );
+});

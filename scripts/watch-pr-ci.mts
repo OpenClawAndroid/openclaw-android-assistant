@@ -405,20 +405,12 @@ function ghReadOptions(deadline?: number) {
   return { ...GH_READ_OPTIONS, timeout: Math.min(GH_READ_OPTIONS.timeout, remaining) };
 }
 
-function readPr(pr: number, repo: string, completion: string, deadline?: number) {
-  if (completion === "ci-run") {
-    // Repository resolution and metadata share one read budget, including diagnostics.
-    const readDeadline = Date.now() + ghReadOptions(deadline).timeout;
-    return RollupPageSchema.parse(
-      readPrMetadata(pr, repo, ["state", "mergeable", "headRefOid"], () =>
-        ghReadOptions(readDeadline),
-      ),
-    );
-  }
+function readPr(pr: number, repo: string, deadline?: number) {
+  // Repository resolution and metadata share one read budget, including diagnostics.
+  const readDeadline = Date.now() + ghReadOptions(deadline).timeout;
   return RollupPageSchema.parse(
-    execGhJson(
-      `pr view ${pr} --repo ${repo} --json state,mergeable,headRefOid`.split(" "),
-      ghReadOptions(deadline),
+    readPrMetadata(pr, repo, ["state", "mergeable", "headRefOid"], () =>
+      ghReadOptions(readDeadline),
     ),
   );
 }
@@ -847,7 +839,7 @@ async function main(argv = process.argv.slice(2)) {
     interval: args.interval,
     poll: () => {
       try {
-        const blocked = precheck(readPr(args.pr, args.repo, args.completion), args.headSha);
+        const blocked = precheck(readPr(args.pr, args.repo), args.headSha);
         if (blocked !== null) {
           return { exitCode: blocked };
         }
@@ -898,11 +890,7 @@ async function main(argv = process.argv.slice(2)) {
     poll: () => {
       try {
         if (args.completion === "ci-run") {
-          const blocked = precheck(
-            readPr(args.pr, args.repo, "ci-run", watchDeadline),
-            args.headSha,
-            true,
-          );
+          const blocked = precheck(readPr(args.pr, args.repo, watchDeadline), args.headSha, true);
           if (blocked !== null) {
             return blocked;
           }

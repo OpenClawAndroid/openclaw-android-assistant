@@ -13,6 +13,7 @@ import type { PackageUpdateStepAdvisory } from "./update-doctor-result.js";
 import type { UpdateFailureFact } from "./update-failure-facts.js";
 import type { GlobalInstallManager } from "./update-global.js";
 import type { UpdateRecovery } from "./update-recovery.js";
+import type { UpdateRollbackOutcome } from "./update-run-schema.js";
 import type { UpdateSnapshotCapacity } from "./update-snapshot-capacity.js";
 
 export type UpdateStepAdvisory =
@@ -60,6 +61,7 @@ export type UpdateRunResult = {
   steps: UpdateStepResult[];
   durationMs: number;
   recovery?: UpdateRecovery;
+  rollbackOutcome?: UpdateRollbackOutcome;
   postUpdate?: {
     plugins?: {
       failureFacts?: UpdateFailureFact[];
@@ -120,6 +122,7 @@ export type UpdateStepInfo = {
 type UpdateStepCompletion = UpdateStepInfo & Omit<UpdateStepResult, "cwd">;
 
 export type UpdateStepProgress = {
+  onRollbackOutcome?: (outcome: NonNullable<UpdateRunResult["rollbackOutcome"]>) => void;
   onHeartbeat?: () => void;
   onStepStart?: (step: UpdateStepInfo) => void;
   onStepComplete?: (step: UpdateStepCompletion) => void;

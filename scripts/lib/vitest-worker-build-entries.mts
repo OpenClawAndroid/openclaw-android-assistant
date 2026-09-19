@@ -114,6 +114,8 @@ export const vitestWorkerBuildEntries = {
   "plugins/provider-hook-runtime": "src/plugins/provider-hook-runtime.ts",
   // Real provider preparation uses packaged JavaScript, avoiding per-child source transforms.
   "extensions/anthropic/index": "extensions/anthropic/index.ts",
+  // Candidate finalization runs the real mandatory post-plugin readiness surface.
+  "extensions/memory-core/doctor-health-api": "extensions/memory-core/doctor-health-api.ts",
   "test-support/anthropic-preparation": "test/scripts/anthropic-preparation-probe.ts",
   // Exercise native writes through the existing plugin facade in the private graph.
   "plugin-sdk/file-access-runtime": "src/plugin-sdk/file-access-runtime.ts",

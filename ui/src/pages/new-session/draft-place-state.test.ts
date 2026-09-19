@@ -34,6 +34,8 @@ function createRepositoryFixture(
   );
   const context = {
     gateway: {
+      connection: { gatewayUrl: "ws://gateway.example" },
+      subscribe: () => () => undefined,
       subscribeEvents: () => () => undefined,
       snapshot: {
         phase: "connected",

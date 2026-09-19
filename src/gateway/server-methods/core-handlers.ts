@@ -66,6 +66,7 @@ const CORE_GATEWAY_HANDLER_MODULES = {
   terminal: () => import("./terminal.js").then((module) => module.terminalHandlers),
   transcripts: () => import("./transcripts.js").then((module) => module.transcriptsHandlers),
   "ui-command": () => import("./ui-command.js").then((module) => module.uiCommandHandlers),
+  themes: () => import("./themes.js").then((module) => module.themeHandlers),
   "models-auth-status": () =>
     import("./models-auth-status.js").then((module) => module.modelsAuthStatusHandlers),
   "models-auth-login": () =>

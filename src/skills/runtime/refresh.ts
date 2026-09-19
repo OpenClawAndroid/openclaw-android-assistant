@@ -410,25 +410,30 @@ function createSkillsPathWatcher(
       return;
     }
     const rawPathText = rawPathToString(rawPath);
+    const changedPath = rawPathText
+      ? resolveRawSkillsWatchPath(rawPathText, details)
+      : getRawWatchedPath(details);
+    if (!changedPath) {
+      return;
+    }
+    // Coalesced ancestor replacement can retain the same directory entry and
+    // suppress Chokidar's addDir event, including a symlink replaced by a directory.
+    if (isPathInside(changedPath, target.path) && reconcileRoot(changedPath)) {
+      return;
+    }
     if (!rawPathText) {
-      const watchedPath = getRawWatchedPath(details);
-      if (watchedPath && isPathInside(target.path, watchedPath)) {
+      if (isPathInside(target.path, changedPath)) {
         // Native filename loss can conceal a skill edit; content reconciliation decides.
-        schedule(watchedPath);
+        schedule(changedPath);
       }
       return;
     }
-    const changedPath = resolveRawSkillsWatchPath(rawPathText, details);
-    if (
-      changedPath &&
-      isSkillDiscoveryFileWatchPath(changedPath) &&
-      isPathInside(target.path, changedPath)
-    ) {
+    if (isSkillDiscoveryFileWatchPath(changedPath) && isPathInside(target.path, changedPath)) {
       if (usePolling) {
         return;
       }
       scheduleRawSkillFile(changedPath);
-    } else if (changedPath && pathFilter.isSupportingPath(changedPath)) {
+    } else if (pathFilter.isSupportingPath(changedPath)) {
       schedule(changedPath, "supporting");
     }
   };

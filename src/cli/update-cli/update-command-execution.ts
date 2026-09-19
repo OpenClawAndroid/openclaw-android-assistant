@@ -686,6 +686,7 @@ export async function executeMutableUpdate(
       mode,
       root: params.root,
       originalRecovery,
+      run: params.opts.run,
     }));
   }
 

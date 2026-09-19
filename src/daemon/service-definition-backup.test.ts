@@ -741,8 +741,8 @@ describe("service definition backup receipts", () => {
   it("does not admit a new systemd drop-in after capture", async () => {
     const f = await fixture("linux");
     const dropIn = `${f.sourcePath}.d/operator.conf`;
-    await fs.mkdir(path.dirname(dropIn));
-    await fs.writeFile(dropIn, "[Service]\nNice=7\n");
+    await fs.mkdir(path.dirname(dropIn), { mode: 0o700 });
+    await fs.writeFile(dropIn, "[Service]\nNice=7\n", { mode: 0o600 });
     f.command.definitionPaths!.push(dropIn);
     await expect(f.install()).rejects.toThrow("different managed artifacts");
     expect(await fs.readFile(f.sourcePath)).toEqual(f.original);

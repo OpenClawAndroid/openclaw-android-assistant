@@ -104,7 +104,11 @@ function connectedNode(deviceId: string, available: number) {
     clientId: GATEWAY_CLIENT_IDS.NODE_HOST,
     clientMode: GATEWAY_CLIENT_MODES.NODE,
     protocolFeature: NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE,
-    workerHost: { enabled: true, capacity: { total: Math.max(2, available), available } },
+    workerHost: {
+      enabled: true,
+      capacity: { total: Math.max(2, available), available },
+      capturedExecPolicy: true,
+    },
     commands: ["system.run"],
   } satisfies NodeWorkerSupervisorNodeProof;
 }

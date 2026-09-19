@@ -6,6 +6,7 @@ import { resolveStateDir } from "../../config/paths.js";
 import { captureGatewayServiceDefinitionBackup } from "../../daemon/service-definition-backup.js";
 import { withGatewayServiceOperationLock } from "../../daemon/service-operation-lock.js";
 import { withSystemdDefinitionMutation } from "../../daemon/systemd-definition-mutation.js";
+import * as systemdExec from "../../daemon/systemd-exec.js";
 import * as systemdFiles from "../../daemon/systemd-service-files.js";
 import * as systemdSystem from "../../daemon/systemd-system.js";
 import { buildSystemdUnit } from "../../daemon/systemd-unit.js";
@@ -44,6 +45,7 @@ export function registerPackageRootRollbackTests(
     "changed manager after restore",
     "foreign command after restore",
     "backup restored",
+    "backup restore failed",
     "backup edited",
     "backup invalid",
     "backup unverified",
@@ -297,6 +299,11 @@ export function registerPackageRootRollbackTests(
         termination: "exit",
       };
     });
+    if (scenario === "backup restore failed") {
+      vi.spyOn(systemdExec, "reloadSystemdUserManager").mockRejectedValueOnce(
+        new Error("Retained service definition reload failed"),
+      );
+    }
     const outcome = await rollbackFailedUpdate({
       result: {
         status: "error",
@@ -337,11 +344,27 @@ export function registerPackageRootRollbackTests(
       "sealed definition",
       "foreign command",
     ].includes(scenario);
-    if (backupScenario && scenario !== "backup restored") {
+    if (scenario === "backup restore failed") {
+      expect(outcome.rolledBack).toBe(false);
+      expect(outcome.result).toMatchObject({
+        reason: "service-definition-rollback-unverified",
+        root: previousRoot,
+        recovery: { packageRollbackVerified: true, serviceRestartSafe: false },
+        rollbackOutcome: { status: "failed" },
+      });
+      expect(await fs.readFile(path.join(previousRoot, "package.json"), "utf8")).toContain(VERSION);
+      expect(await fs.readFile(command.sourcePath, "utf8")).toBe(previousDefinition);
+      expect(mocks.running).toBe(false);
+      expect(mocks.child).not.toHaveBeenCalled();
+    } else if (backupScenario && scenario !== "backup restored") {
       expect(outcome.rolledBack).toBe(false);
       expect(await fs.readFile(command.sourcePath!)).toEqual(definitionBeforeRollback);
       expect(mocks.child).not.toHaveBeenCalled();
       expect(outcome.result.reason).toBe("service-definition-rollback-unverified");
+      expect(outcome.result.rollbackOutcome).toEqual({
+        status: "not-attempted",
+        reason: "service-definition-rollback-unverified",
+      });
       if (scenario === "backup edited" || scenario === "backup invalid") {
         const warning =
           scenario === "backup edited"
@@ -411,6 +434,7 @@ export function registerPackageRootRollbackTests(
         root: previousRoot,
         after: { version: VERSION },
         recovery: { packageRollbackVerified: true, service: "healthy" },
+        rollbackOutcome: { status: "succeeded" },
       });
       expect(await fs.readFile(path.join(previousRoot, "package.json"), "utf8")).toContain(VERSION);
       expect(await fs.readFile(path.join(binDir, "openclaw"), "utf8")).toBe("previous launcher\n");

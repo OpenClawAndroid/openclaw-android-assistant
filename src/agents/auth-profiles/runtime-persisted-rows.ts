@@ -9,7 +9,7 @@ type RowsReader = {
 };
 
 export class AuthProfileRuntimeReadStaleError extends Error {
-  constructor() {
+  constructor(readonly waitForSettlement?: () => Promise<void>) {
     super("Auth profile store changed during its runtime read; retry resolution");
     this.name = "AuthProfileRuntimeReadStaleError";
   }
@@ -41,7 +41,11 @@ function readIdentity(databasePath: string): string {
 
 /** A derived rows cache; the runtime snapshot owner supplies publication generations. */
 export function createRuntimeAuthProfileRowsCache(
-  revisionAtPath: (path: string) => { rows: string; selection: string },
+  revisionAtPath: (path: string) => {
+    rows: string;
+    selection: string;
+    ownerLineage?: readonly string[];
+  },
 ) {
   const entries = new Map<
     string,
@@ -55,13 +59,24 @@ export function createRuntimeAuthProfileRowsCache(
         entries.delete(databasePath);
       }
     },
-    prepare(databasePath: string, reader: RowsReader): RowsReader {
+    prepare(
+      databasePath: string,
+      reader: RowsReader,
+      captureSettlement?: (
+        databasePaths: readonly string[],
+        rows: AuthProfileRowRead | undefined,
+      ) => (() => Promise<void>) | undefined,
+    ): RowsReader {
       const revision = revisionAtPath(databasePath);
+      const ownerLineage = [databasePath, ...(revision.ownerLineage ?? [])];
+      let capturedRows: AuthProfileRowRead | undefined;
       const assertCurrent = () => {
         reader.assertCurrent();
         // Bookkeeping evicts reusable rows without revoking an admitted snapshot read.
         if (revisionAtPath(databasePath).selection !== revision.selection) {
-          throw new AuthProfileRuntimeReadStaleError();
+          throw new AuthProfileRuntimeReadStaleError(
+            captureSettlement?.(ownerLineage, capturedRows),
+          );
         }
       };
       return {
@@ -76,16 +91,19 @@ export function createRuntimeAuthProfileRowsCache(
             entry?.revision === revision.rows &&
             checkedAt - entry.checkedAt < IDENTITY_PROBE_INTERVAL_MS
           ) {
+            capturedRows = entry.rows;
             return entry.rows;
           }
           const identity = readIdentity(databasePath);
           if (entry?.identity === identity && entry.revision === revision.rows) {
             entry.checkedAt = checkedAt;
+            capturedRows = entry.rows;
             return entry.rows;
           }
           entries.delete(databasePath);
           // Only completed, certified reads can serve another caller's later snapshot.
           const rows = await reader.read();
+          capturedRows = rows;
           assertCurrent();
           if (
             rows.cacheable &&

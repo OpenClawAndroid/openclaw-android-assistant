@@ -69,6 +69,11 @@ export const TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
       title: "Screen",
       detailKeys: ["action", "sessionKey", "dock"],
     },
+    theme: {
+      emoji: "🎨",
+      title: "Theme",
+      detailKeys: ["action", "id", "mode"],
+    },
     terminal: {
       emoji: "⌨️",
       title: "Terminal",

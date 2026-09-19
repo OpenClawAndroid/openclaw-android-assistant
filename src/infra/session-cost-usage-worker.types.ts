@@ -56,7 +56,10 @@ export type UsageCostWorkerInput = {
 };
 
 export type UsageCostWorkerResult =
-  | { kind: "inventory"; files: UsageCostTranscriptFile[] }
+  | {
+      kind: "inventory";
+      files: Array<Pick<UsageCostTranscriptFile, "kind" | "sourcePath" | "sessionId" | "mtimeMs">>;
+    }
   | { kind: "summary"; summary: CostUsageSummary }
   | {
       kind: "sessions";

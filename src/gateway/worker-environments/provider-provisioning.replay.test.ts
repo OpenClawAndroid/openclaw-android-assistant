@@ -327,7 +327,11 @@ describe("worker environment service provision replay", () => {
         clientId: GATEWAY_CLIENT_IDS.NODE_HOST,
         clientMode: GATEWAY_CLIENT_MODES.NODE,
         protocolFeature: NODE_WORKER_SUPERVISOR_PROTOCOL_FEATURE,
-        workerHost: { enabled: true, capacity: { total: 1, available: 1 } },
+        workerHost: {
+          enabled: true,
+          capacity: { total: 1, available: 1 },
+          capturedExecPolicy: true,
+        },
         commands: [],
       },
     }));

@@ -11,7 +11,8 @@ import {
 import { withSqliteReaderOwner } from "./sqlite-reader-lifecycle.js";
 import {
   SQLITE_WORKER_MAX_RESULT_BYTES,
-  type SqliteWorkerBackend,
+  SQLITE_WORKER_PREPARE_COMMAND,
+  type SqliteWorkerPreparedBackend,
   type SqliteWorkerCommand,
   type SqliteWorkerOperations,
   type SqliteWorkerReply,
@@ -46,7 +47,7 @@ if (!port) {
 }
 // Results use the host port; diagnostics must preserve the caller's structured stdout.
 routeLogsToStderr();
-const actors = new Map<number, SqliteWorkerBackend<SqliteWorkerOperations>>();
+const actors = new Map<number, SqliteWorkerPreparedBackend<SqliteWorkerOperations>>();
 const transfers = createSqliteWorkerTransferOwner();
 let pendingResult: { requestId: number; actor: number; transferId: number } | undefined;
 type StagedInput = {
@@ -248,9 +249,13 @@ async function receive(request: SqliteWorkerRequest): Promise<void> {
         }
       };
       try {
+        // SAFETY: The broker serialized a command from this actor's typed store contract.
+        const typedCommand = command as SqliteWorkerCommand<SqliteWorkerOperations>;
+        const preparation = backend[SQLITE_WORKER_PREPARE_COMMAND]?.(typedCommand.type);
+        if (preparation) {
+          await preparation;
+        }
         try {
-          // SAFETY: The broker serialized a command from this actor's typed store contract.
-          const typedCommand = command as SqliteWorkerCommand<SqliteWorkerOperations>;
           value = runInActorContext(request.actor, () =>
             withSqliteReaderOwner(
               {
@@ -400,12 +405,15 @@ async function receive(request: SqliteWorkerRequest): Promise<void> {
         !isRecord(backend) ||
         typeof backend.execute !== "function" ||
         typeof backend.close !== "function" ||
+        (SQLITE_WORKER_PREPARE_COMMAND in backend &&
+          backend[SQLITE_WORKER_PREPARE_COMMAND] !== undefined &&
+          typeof backend[SQLITE_WORKER_PREPARE_COMMAND] !== "function") ||
         (backend.assertSettled !== undefined && typeof backend.assertSettled !== "function")
       ) {
         throw new Error("SQLite worker module returned an invalid backend");
       }
       // SAFETY: The validated backend and its typed client own the private command contract.
-      actors.set(request.actor, backend as SqliteWorkerBackend<SqliteWorkerOperations>);
+      actors.set(request.actor, backend as SqliteWorkerPreparedBackend<SqliteWorkerOperations>);
       actorPaths.set(request.actor, request.databasePath);
     } else if (request.type === "close") {
       const backend = actors.get(request.actor);

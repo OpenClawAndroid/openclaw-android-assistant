@@ -104,6 +104,7 @@ async function runAdmittedUpdate(
     invocationCwd,
     initialization,
     pkgOwnership: prepared.pkgOwnership,
+    installKind: prepared.installKind,
   });
   const opts = { ...inputOpts, run };
   prepared.controlPlaneUpdateSentinelMeta = {
@@ -405,6 +406,7 @@ async function updateCommandInternal(
   }
   const {
     root,
+    mode,
     updateInstallKind,
     configSnapshot,
     legacyConfigPlan,
@@ -424,16 +426,13 @@ async function updateCommandInternal(
     managedServiceNodeRunner,
   } = target;
   let { packageUpdateNodeRunner } = target;
-  const reportContext = {
-    root,
-    mode: target.mode,
-    installKind: updateInstallKind,
-    opts,
-    controlPlaneUpdateSentinelMeta,
-  };
   const refuseUpdate: typeof target.refuseUpdate = (reason, message, failureFacts, recoverySteps) =>
     reportPreMutationUpdateResult({
-      ...reportContext,
+      root,
+      mode,
+      installKind: updateInstallKind,
+      opts,
+      controlPlaneUpdateSentinelMeta,
       reason,
       message,
       failureFacts,

@@ -408,7 +408,13 @@ export async function maybeRestartService(params: {
       },
     });
     assertCurrent();
-    if (verification.stopReason === "gateway-readiness-pending") {
+    if (verification.stopReason === "still-starting" && activation.result.status !== "error") {
+      activation.result.reason = "still-starting";
+    }
+    if (
+      verification.stopReason === "gateway-readiness-pending" ||
+      verification.stopReason === "still-starting"
+    ) {
       return "readiness-pending" as const;
     }
     if (!verification.ok) {
@@ -478,7 +484,11 @@ export async function maybeRestartService(params: {
             });
             assertCurrent();
             refreshedGatewayHealth =
-              health.healthy || health.waitOutcome === "timeout" ? health : undefined;
+              health.healthy ||
+              health.waitOutcome === "timeout" ||
+              health.waitOutcome === "still-starting"
+                ? health
+                : undefined;
             recordUpdateGatewayHealth(params.opts.run, health, activation.gatewayPort);
           }
         } catch (err) {

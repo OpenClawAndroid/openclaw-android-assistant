@@ -744,6 +744,7 @@ describe("DraftSubmissionFlow", () => {
     const context = {
       basePath: "",
       gateway: {
+        subscribe: () => () => undefined,
         subscribeEvents: () => () => undefined,
         connection: { gatewayUrl: "ws://gateway.example" },
         snapshot: {

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { root as openFsSafeRoot } from "../../infra/fs-safe.js";
 import { hasNodeErrorCode } from "../../infra/path-guards.js";
 import { createStagedInputPathMatcher } from "../../media/staged-inputs.js";
+import { isManagedSandboxSkillsPath } from "../../shared/sandbox-workspace-paths.js";
 import {
   hasPathAncestor,
   manifestNodes,
@@ -22,6 +23,7 @@ async function localWorkspaceDescendantPaths(
   root: string,
   entryPaths: readonly string[],
   isRetainedInput: ReturnType<typeof createStagedInputPathMatcher>,
+  nonDirectoryReplacements: ReadonlySet<string>,
 ): Promise<string[]> {
   const paths: string[] = [];
   const pending = [...entryPaths];
@@ -42,6 +44,14 @@ async function localWorkspaceDescendantPaths(
       pathBytes += Buffer.byteLength(childPath);
       if (pathBytes > MAX_RECONCILIATION_PATH_BYTES) {
         throw new Error("Gateway workspace manifest paths exceed their byte limit");
+      }
+      if (isManagedSandboxSkillsPath(childPath)) {
+        // Runtime projections are excluded edits, not disposable cache children.
+        // Surface their presence as a conflict before replacing an ancestor.
+        if (hasPathAncestor(nonDirectoryReplacements, childPath)) {
+          paths.push(childPath);
+        }
+        continue;
       }
       if (isDerivedWorkspacePath(childPath, await isRetainedInput(childPath))) {
         continue;
@@ -97,6 +107,7 @@ export async function preflightWorkspaceApplyImpl(params: {
     params.root,
     localStructuralRoots,
     isRetainedInput,
+    new Set(structuralRoots.filter((entryPath) => currentNodes.has(entryPath))),
   );
   const paths = [...new Set([...changed, ...localStructuralPaths])].toSorted();
   const applyPaths = new Set<string>();

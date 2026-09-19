@@ -6,6 +6,7 @@
     "computer": {"emoji":"🖱️","title":"Computer","detailKeys":["action","coordinate","text","node","nodeId","screenIndex"]},
     "mobile_ui": {"emoji":"📱","title":"Mobile UI","detailKeys":["action","mobileAction","snapshotId","node","nodeId"]},
     "screen": {"emoji":"🖥️","title":"Screen","detailKeys":["action","sessionKey","dock"]},
+    "theme": {"emoji":"🎨","title":"Theme","detailKeys":["action","id","mode"]},
     "terminal": {"emoji":"⌨️","title":"Terminal","detailKeys":["action","sessionId","command","cwd"]},
     "portal": {"emoji":"🌐","title":"Portal","detailKeys":["action","port","id","title","path"]},
     "process": {"emoji":"🧰","title":"Process","detailKeys":["sessionId"]},

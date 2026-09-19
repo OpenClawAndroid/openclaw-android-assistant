@@ -19,7 +19,9 @@ import {
   recordUpdateRunPhase,
   recordUpdateRunVerification,
 } from "../../infra/update-run-ledger.js";
+import { renderUpdateRunReport } from "../../infra/update-run-report.js";
 import { defaultRuntime } from "../../runtime.js";
+import { classifyUpdateOutcome } from "../../shared/update-outcome.js";
 import { finishUpdate, type FinishUpdateParams } from "./update-command-post-update.js";
 import { taskRecovery } from "./update-command-post-update.test-support.js";
 import { repairUpdateService } from "./update-command-repair-service.js";
@@ -241,9 +243,11 @@ describe("post-activation repair after rollback refusal or failure", () => {
     vi.spyOn(defaultRuntime, "error").mockImplementation(() => undefined);
   });
 
-  it.each([false, true])(
-    "records the bounded readiness outcome and retains only unverified backups (ready=%s)",
-    async (ready) => {
+  it.each(["ok", "readiness-pending", "still-starting"] as const)(
+    "records the bounded readiness outcome and retains only unverified backups (%s)",
+    async (outcome) => {
+      const ready = outcome === "ok";
+      const reason = outcome === "still-starting" ? outcome : "gateway-readiness-unverified";
       const params = fixture();
       const run = params.opts.run!;
       const { transaction, packageRoot } = await createRetainedPackageSwap(
@@ -285,12 +289,16 @@ describe("post-activation repair after rollback refusal or failure", () => {
           termination: "timeout",
           advisory: { kind: "recoverable-maintenance", message: observation },
         });
+        if (outcome === "still-starting") {
+          result.reason = outcome;
+        }
         return "readiness-pending";
       });
 
-      await expect(finishUpdate(params)).resolves.toMatchObject(
-        ready ? { status: "ok" } : { status: "skipped", reason: "gateway-readiness-unverified" },
-      );
+      const result = await finishUpdate(params);
+      expect(result).toMatchObject(ready ? { status: "ok" } : { status: "skipped", reason });
+      expect(classifyUpdateOutcome(result)).toBe(ready ? "succeeded" : "noop");
+      expect(result.recovery).toBeUndefined();
 
       expect(mocks.restart).toHaveBeenCalledOnce();
       expect(mocks.rollback).not.toHaveBeenCalled();
@@ -313,7 +321,7 @@ describe("post-activation repair after rollback refusal or failure", () => {
       const recorded = getUpdateRun(run.runId, { env: run.env });
       expect(recorded).toMatchObject({
         status: ready ? "succeeded" : "skipped",
-        reason: ready ? null : "gateway-readiness-unverified",
+        reason: ready ? null : reason,
         phase: "finished",
         finishedAtMs: expect.any(Number),
         confirmedAtMs: ready ? expect.any(Number) : null,
@@ -324,6 +332,10 @@ describe("post-activation repair after rollback refusal or failure", () => {
         expect(recorded?.steps).toContainEqual(
           expect.objectContaining({ step: "warning:gateway verification", detail: observation }),
         );
+        expect(recorded?.origin.nextAction).not.toContain("Keep the gateway stopped");
+        if (outcome === "still-starting" && recorded) {
+          expect(renderUpdateRunReport(recorded).markdown).toContain("Gateway still starting");
+        }
       }
     },
   );

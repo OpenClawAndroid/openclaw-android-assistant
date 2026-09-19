@@ -144,6 +144,7 @@ export async function rollbackFailedUpdate(params: {
     result: {
       ...result,
       status: "error" as const,
+      rollbackOutcome: result.rollbackOutcome ?? { status: "not-attempted" as const, reason },
       reason:
         result.recovery?.serviceRestartSafe === true && result.recovery.packageRollbackVerified
           ? (params.result.reason ?? reason)
@@ -329,6 +330,10 @@ export async function rollbackFailedUpdate(params: {
           throw new Error("The retained package transaction is unavailable.");
         }
         assertRestorationCurrent();
+        result.rollbackOutcome = {
+          status: "failed",
+          reason: "Previous generation restoration did not complete",
+        };
         // Package cleanup retains this executor after the native lock closes.
         const { activePackageRoot, ...restored } = await packageTransaction.rollback(assertCurrent);
         // Restoration changes the active runtime before any later reporting or
@@ -418,6 +423,10 @@ export async function rollbackFailedUpdate(params: {
     if (restoration.refused) {
       return restoration.refused;
     }
+    result.rollbackOutcome = {
+      status: "succeeded",
+      reason: "Previous package and configuration restored",
+    };
     const { stopped } = restoration;
     // A no-service or --no-restart update owns file restoration only. Preserve
     // its original failure without claiming or changing a Gateway generation.

@@ -3,6 +3,8 @@
 export const cliProcessTestFiles = [
   "src/cli/directory-cli.test.ts",
   "src/cli/update-cli/update-command-candidate-exit.test.ts",
+  "src/cli/update-cli/update-command-candidate-authority.process.test.ts",
+  "src/cli/update-cli/update-command-fresh-doctor-authority.test.ts",
   "src/cli/update-cli/update-command-fresh-preview.test.ts",
   "src/cli/update-cli/update-command-runtime-preview.test.ts",
   "src/cli/update-cli/update-command-plugins.persistence.test.ts",

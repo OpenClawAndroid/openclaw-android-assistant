@@ -158,15 +158,34 @@ and stale save receipts use a negative marker that cannot match a current revisi
 Public save signatures and return values are unchanged. Service mutations with
 commit guards, one-use authority capture, or caller preconditions retain their
 synchronous call-through to the native kernels; their worker admission remains
-separate work. Receipt-coupled transaction hooks, Doctor metadata callbacks, synchronous diagnostic reads, and read-only
-inspection retain their current owners and execution paths.
+separate work. Receipt-coupled transaction hooks, Doctor metadata callbacks, and synchronous diagnostic reads
+retain their current owners and execution paths.
+
+Read-only Cron inspection runs its native open, row decoding, and close in a
+bounded worker task. Ordinary cold reads and artifact-preserving cold reads keep
+all SQLite execution off the caller thread. Artifact preservation uses the
+existing snapshot owner. The parent owns staging before dispatch and waits for
+the source-copy child and reader worker to exit before retiring the staging token
+and removing copied bytes. Missing databases remain absent, legacy layouts
+are not migrated, and Doctor retains its existing schema checks and errors.
+An already-held exclusive source scope still prepares its private copy on the
+host: that native owner cannot delegate its drained source to another isolate.
+The host retains that exclusion and snapshot until the reader worker exits.
+Failed worker retirement or snapshot removal remains registered with the existing
+state lifecycle owner, so canonical cleanup can retry that same resource without
+replaying the read or releasing its pins prematurely.
+This branch retains synchronous snapshot coordination; it is not an entirely
+off-thread path.
 
 iMessage outbound receipt recovery reads the external Messages SQLite database
 through the shared worker broker. Its plugin owns the read-only GUID queries;
 each recovery operation retains its read-only connection through polling and
 joins worker cleanup before the send publishes its receipt. Numeric message IDs and the latest matching sent message keep their existing recovery
-rules, including the five-second polling deadline. This does not migrate
-iMessage's startup watermark or conversation-binding queries.
+rules, including the five-second polling deadline. The same plugin-owned worker
+reads iMessage's local startup watermark and finishes cleanup before the transport
+probe and watch subscription. Empty databases retain the pre-first-row cursor;
+unavailable databases retain the existing fallback. Conversation-binding queries
+remain separate migration work.
 
 iMessage persisted echo reads, writes, and failed-send cleanup use the plugin-state
 worker. Sends await provisional echo persistence before transport and cleanup

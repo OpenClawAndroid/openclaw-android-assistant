@@ -10,6 +10,7 @@ import { nativeHistoryMessageIdentity } from "../../lib/chat/history-message-ide
 import { formatUiError } from "../../lib/format-error.ts";
 import { clampText } from "../../lib/format.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
+import { projectsForGateway } from "../../lib/projects.ts";
 import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
 import {
   summarizeSessionPullRequests,
@@ -61,6 +62,19 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
             this.transcriptReady ||
             getAcceptedChatHistorySession(state)))),
     );
+  }
+
+  protected subscribeSessionRepositoryContext(): void {
+    this.chatState.addCleanup(
+      projectsForGateway(this.context.gateway).subscribe(() => this.requestUpdate()),
+    );
+    const sessionPullRequests = sessionPullRequestsForGateway(this.context.gateway);
+    this.chatState.addCleanup(
+      sessionPullRequests.subscribe(() => {
+        void this.refreshSessionPullRequests();
+      }),
+    );
+    this.chatState.addCleanup(() => sessionPullRequests.unwatch(this));
   }
 
   protected get visibleSessionPullRequests(): ControlUiSessionPullRequest[] {
