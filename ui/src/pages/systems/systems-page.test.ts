@@ -117,6 +117,99 @@ async function mount(controller: SystemsController) {
 }
 
 describe("Systems workspace", () => {
+  it("sorts and filters the machine inventory without replacing the selected machine", async () => {
+    const environments: EnvironmentSummary[] = [
+      host,
+      { ...offline, id: "node:delta", label: "Delta laptop" },
+      // Auxiliary node data says disconnected; the environment inventory owns availability.
+      { ...offline, label: "Zulu laptop", status: "available" },
+      { ...offline, id: "node:alpha", label: "Alpha laptop" },
+      { ...offline, id: "node:beta", label: "Beta laptop", status: "available" },
+      { ...worker, desktop: false },
+      {
+        ...worker,
+        id: "worker-starting",
+        label: "Preparing worker",
+        status: "starting",
+        desktop: false,
+      },
+      {
+        ...worker,
+        id: "worker-offline",
+        label: "Retained worker",
+        status: "unavailable",
+        desktop: false,
+      },
+    ];
+    const { controller, request } = harness(async () => environments);
+    let { page, sidebar } = await mount(controller);
+    const names = (selector = ".systems-machine__name") =>
+      [...sidebar.querySelectorAll(selector)].map((entry) => entry.textContent?.trim());
+    const nodeNames = () => names(".systems-group:first-of-type .systems-machine__name");
+    const counts = () => names(".systems-group__count");
+    const choose = async (value: string) => {
+      const menu = sidebar.querySelector(".systems-filter-menu");
+      const item = menu?.querySelector(`wa-dropdown-item[value="${value}"]`);
+      expect(item).toBeTruthy();
+      menu!.dispatchEvent(new CustomEvent("wa-select", { bubbles: true, detail: { item } }));
+      await sidebar.updateComplete;
+      await page.updateComplete;
+    };
+    const search = async (value: string) => {
+      const input = sidebar.querySelector<HTMLInputElement>('input[type="search"]')!;
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await sidebar.updateComplete;
+    };
+
+    expect(nodeNames()).toEqual(["Beta laptop", "Zulu laptop", "Alpha laptop", "Delta laptop"]);
+    expect(counts()).toEqual(["4", "3"]);
+    const selected = [...sidebar.querySelectorAll<HTMLButtonElement>(".systems-machine")].find(
+      (button) => button.querySelector(".systems-machine__name")?.textContent === "Zulu laptop",
+    );
+    selected!.click();
+    await page.updateComplete;
+
+    await choose("sort:name");
+    expect(nodeNames()).toEqual(["Alpha laptop", "Beta laptop", "Delta laptop", "Zulu laptop"]);
+    await choose("sort:offline-first");
+    expect(nodeNames()).toEqual(["Alpha laptop", "Delta laptop", "Beta laptop", "Zulu laptop"]);
+    await choose("status:offline");
+    expect(names()).toEqual(["Alpha laptop", "Delta laptop", "Retained worker"]);
+    expect(counts()).toEqual(["2", "1"]);
+    expect(page.querySelector(".systems-heading h1")?.textContent).toBe("Zulu laptop");
+    expect(page.querySelector<HTMLSelectElement>(".systems-mobile-picker")?.value).toBe(offline.id);
+
+    await choose("status:online");
+    expect(names()).toEqual(["Test Gateway", "Beta laptop", "Zulu laptop", "Cloud worker"]);
+    await search("  ALPHA  ");
+    expect(names()).toEqual([]);
+    expect(counts()).toEqual([]);
+    expect(sidebar.querySelector(".systems-sidebar__empty")?.textContent).toBe(
+      "No machines match your search or filters.",
+    );
+    await choose("status:all");
+    expect(names()).toEqual(["Alpha laptop"]);
+    await choose("status:offline");
+    expect(names()).toEqual(["Alpha laptop"]);
+    expect(counts()).toEqual(["1"]);
+    expect(controller.selectedId).toBe(offline.id);
+    expect(request.mock.calls.filter(([method]) => method === "environments.list")).toHaveLength(1);
+
+    page.remove();
+    sidebar.remove();
+    ({ page, sidebar } = await mount(controller));
+    await vi.waitFor(() => expect(controller.loading).toBe(false));
+    await sidebar.updateComplete;
+    expect(names()).toEqual(["Alpha laptop"]);
+    expect(page.querySelector(".systems-heading h1")?.textContent).toBe("Zulu laptop");
+    await search("");
+    expect(names()).toEqual(["Alpha laptop", "Delta laptop", "Retained worker"]);
+    await choose("status:all");
+    expect(nodeNames()).toEqual(["Alpha laptop", "Delta laptop", "Beta laptop", "Zulu laptop"]);
+    expect(names()).toContain("Preparing worker");
+  });
+
   it("shares inventory, keeps a single view-only connection through presentation changes, and retains a removed selection", async () => {
     let environments = [host, worker, offline];
     const { controller, request } = harness(async () => environments);

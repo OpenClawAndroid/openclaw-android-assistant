@@ -131,3 +131,21 @@ export function resolveHoverPreviewTarget(
     ? { kind: "page", href: url.href }
     : null;
 }
+
+/** Profile links stay with their source service and never execute authored schemes. */
+export function linkReaderAuthorHref(value: unknown, source: string): string | undefined {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+  try {
+    const url = new URL(value, source);
+    return url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.origin === new URL(source).origin
+      ? url.href
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}

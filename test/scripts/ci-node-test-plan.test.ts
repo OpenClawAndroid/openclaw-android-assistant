@@ -1824,6 +1824,11 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     // The embedded composite expands into per-config groups and stripes its
     // serial base config; whole-config runtime consumers may also be striped.
     const embeddedBaseOwnerFiles = ownerScopedTestFiles(agentVitestProjectOwners.embedded);
+    const supportOwnerFiles = ownerScopedTestFiles(agentVitestProjectOwners.support);
+    const cliProcessOwnerFiles = listMatchedTestFiles(createCliProcessVitestConfig({}));
+    const runtimeConfigOwnerFiles = listMatchedTestFiles(createRuntimeConfigVitestConfig({}));
+    const pluginSdkOwnerFiles = listMatchedTestFiles(createPluginSdkVitestConfig({}));
+    const pluginSdkLightOwnerFiles = listMatchedTestFiles(createPluginSdkLightVitestConfig({}));
     const gatewayMethodsOwnerFiles = [
       ...listMatchedTestFiles(createGatewayMethodsVitestConfig({})),
       ...listMatchedTestFiles(createGatewayMethodsIsolatedVitestConfig({})),
@@ -1902,16 +1907,11 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         if (owner.includePatterns) {
           expect(actual.toSorted(), owner.shardName).toEqual(owner.includePatterns.toSorted());
         } else if (owner.shardName === "agentic-agents-support") {
-          const expected = ownerScopedTestFiles(agentVitestProjectOwners.support);
-          expect(actual.toSorted()).toEqual(expected.toSorted());
+          expect(actual.toSorted()).toEqual(supportOwnerFiles.toSorted());
         } else if (owner.shardName === "agentic-cli-process") {
-          expect(actual.toSorted()).toEqual(
-            listMatchedTestFiles(createCliProcessVitestConfig({})).toSorted(),
-          );
+          expect(actual.toSorted()).toEqual(cliProcessOwnerFiles.toSorted());
         } else if (owner.shardName === "core-runtime-config") {
-          expect(actual.toSorted()).toEqual(
-            listMatchedTestFiles(createRuntimeConfigVitestConfig({})).toSorted(),
-          );
+          expect(actual.toSorted()).toEqual(runtimeConfigOwnerFiles.toSorted());
         } else if (owner.shardName === "agentic-gateway-methods") {
           expect(actual.toSorted()).toEqual(gatewayMethodsOwnerFiles.toSorted());
         } else if (owner.shardName === "agentic-gateway-server-isolated") {
@@ -1933,10 +1933,10 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
           embeddedBaseOwnerFiles,
           gatewayMethodsOwnerFiles,
           gatewayServerIsolatedOwnerFiles,
-          listMatchedTestFiles(createCliProcessVitestConfig({})),
-          listMatchedTestFiles(createPluginSdkVitestConfig({})),
-          listMatchedTestFiles(createPluginSdkLightVitestConfig({})),
-          listMatchedTestFiles(createRuntimeConfigVitestConfig({})),
+          cliProcessOwnerFiles,
+          pluginSdkOwnerFiles,
+          pluginSdkLightOwnerFiles,
+          runtimeConfigOwnerFiles,
         )
         .toSorted((a, b) => a.localeCompare(b)),
     );
@@ -1951,10 +1951,10 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
           embeddedBaseOwnerFiles,
           gatewayMethodsOwnerFiles,
           gatewayServerIsolatedOwnerFiles,
-          listMatchedTestFiles(createCliProcessVitestConfig({})),
-          listMatchedTestFiles(createPluginSdkVitestConfig({})),
-          listMatchedTestFiles(createPluginSdkLightVitestConfig({})),
-          listMatchedTestFiles(createRuntimeConfigVitestConfig({})),
+          cliProcessOwnerFiles,
+          pluginSdkOwnerFiles,
+          pluginSdkLightOwnerFiles,
+          runtimeConfigOwnerFiles,
         )
         .toSorted((a, b) => a.localeCompare(b)),
     );

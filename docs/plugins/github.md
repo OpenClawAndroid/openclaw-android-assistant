@@ -87,7 +87,10 @@ hovercard, and GitHub links open externally.
 - Long text and patches are bounded. Incomplete content is labeled rather than
   presented as a complete conversation or diff.
 - **Refresh** requests the current item again. Rate limits, deleted items, and
-  unavailable services show a retry action and the external source link.
+  unavailable services show their specific explanation in the reader and hovercards,
+  including GitHub's retry delay when available. Cached preview details stay visible
+  with the failure notice. Use the reader's **Retry** action or **Open on GitHub**;
+  the server's API quota is separate from your signed-in browser session.
 
 ## Plugin author integration
 

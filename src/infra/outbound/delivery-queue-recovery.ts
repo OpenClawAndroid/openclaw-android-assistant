@@ -538,17 +538,16 @@ async function runReconciledSentCommitHooks(params: {
   }
 }
 
-function recoveryPlatformAttemptId(
-  entry: QueuedDelivery,
-  claimedAttemptId?: string,
-): string | null | undefined {
+function recoveryPlatformAttemptId(entry: QueuedDelivery, claimedAttemptId?: string) {
   return claimedAttemptId !== undefined
     ? claimedAttemptId
     : typeof entry.platformSendAttemptId === "string"
       ? entry.platformSendAttemptId
-      : typeof entry.completionRetention === "object" || entry.requiresProducerClaim === true
-        ? null
-        : undefined;
+      : entry.recoveryState === "producer_claimed" && typeof entry.producerClaimId === "string"
+        ? entry.producerClaimId
+        : typeof entry.completionRetention === "object" || entry.requiresProducerClaim === true
+          ? null
+          : undefined;
 }
 
 async function resolveCompletedOwnerBeforeRecovery(

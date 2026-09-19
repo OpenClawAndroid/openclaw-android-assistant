@@ -42,6 +42,7 @@ import { readCurrentUserProfileAliases } from "../../state/user-profile-list.js"
 import { readGatewayAccessRevision } from "../gateway-access-revision.js";
 import {
   CONTROL_UI_GITHUB_CREDENTIAL_UNAVAILABLE_MESSAGE,
+  gitHubPublicApi,
   githubApiToken,
 } from "../github-public-api.js";
 import { WRITE_SCOPE, authorizeOperatorScopesForRequiredScope } from "../method-scopes.js";
@@ -624,15 +625,12 @@ export function createProjectsHandlers(service: ProjectWorktreeService): Gateway
       try {
         respond(true, await searchRemoteProjects(params.query), undefined);
       } catch (error) {
-        const credentialUnavailable = isTrustedSecretSurfaceUnavailableError(error);
-        const message = credentialUnavailable
-          ? CONTROL_UI_GITHUB_CREDENTIAL_UNAVAILABLE_MESSAGE
-          : "GitHub project search is unavailable. Retry shortly.";
-        respond(
-          false,
-          undefined,
-          errorShape(ErrorCodes.UNAVAILABLE, message, { retryable: !credentialUnavailable }),
-        );
+        const { message, ...details } =
+          error instanceof gitHubPublicApi.ControlUiGitHubError ||
+          isTrustedSecretSurfaceUnavailableError(error)
+            ? gitHubPublicApi.formatControlUiGitHubPreviewError(error)
+            : { message: "GitHub project search is unavailable. Retry shortly.", retryable: true };
+        respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, message, details));
       }
     },
     "projects.remove": async ({ params, respond, context }) => {

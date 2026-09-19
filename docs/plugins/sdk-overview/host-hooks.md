@@ -469,7 +469,20 @@ optional comments and changed-file patches, totals, and explicit partial or
 truncated flags. Comment IDs and source links, review context labels, and badge
 text come from the plugin rather than service-specific conditions in core.
 `filesExpanded` optionally selects the initial file-diff view. Badge tones are
-`neutral`, `positive`, `negative`, `attention`, and `accent`.
+`neutral`, `positive`, `negative`, `attention`, and `accent`. Metadata entries may
+include `tone: "positive" | "negative"` to emphasize their values with the theme’s
+green/red colors in previews and the reader. Omit `tone` for neutral values; the
+host does not infer it from labels or signed numbers. Use an empty metadata label
+for a compact value-only preview, and return a fuller metadata list in the detail
+document when needed.
+
+`authorUrl` optionally links the primary author to an HTTPS profile on the source
+origin. `coAuthors` carries a bounded list of `{ name, imageUrl? }` entries, with
+`coAuthorCount` for the total when not all names are included. Hovercards show up
+to three available portraits and a `+N` remainder; missing portraits remain in
+that count. Failed images retain initials without dropping an author. Names are
+also available to assistive technology and in the full reader. Author images
+keep the preview’s anonymous-image rules; these are not Gateway user identities.
 
 Return only bounded data appropriate for the caller. Rendered content cannot
 activate embedded app widgets, script, file actions, or code execution. Inline

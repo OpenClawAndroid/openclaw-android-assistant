@@ -2,6 +2,7 @@ import { withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import type { SessionEntryReadSource } from "../config/sessions/session-accessor.types.js";
 import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/session-sqlite-target.js";
 import {
+  createExistingAgentSessionStoreTargetResolver,
   listConfiguredSessionStoreAgentIds,
   resolveSessionStoreCompatibilityAgentId,
 } from "../config/sessions/targets.js";
@@ -42,6 +43,10 @@ export function prepareGatewaySessionStoreReadSources(params: {
         ...listConfiguredSessionStoreAgentIds(params.cfg),
         ...registered.map((entry) => entry.agentId),
       ]);
+      const resolveExistingTargets = createExistingAgentSessionStoreTargetResolver(params.cfg, {
+        env: params.env,
+        registeredDatabases: registered,
+      });
       const sources = new Map<string, readonly SessionEntryReadSource[]>();
       const isSameDatabasePath = createOpenClawAgentDatabasePathMatcher();
       const bindCurrentSource = (source: SessionEntryReadSource): SessionEntryReadSource =>
@@ -55,6 +60,7 @@ export function prepareGatewaySessionStoreReadSources(params: {
             ...params,
             agentId,
             registeredDatabases: registered,
+            resolveExistingTargets,
           });
           const resolved: SessionEntryReadSource[] = [];
           if (readSources) {

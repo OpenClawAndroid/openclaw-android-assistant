@@ -92,7 +92,7 @@ describe("runCliProcessChild", () => {
       const result = await runCliProcessChild({
         nodeArgs: [
           "-e",
-          "process.stdout.write(JSON.stringify({ output: 'out', maglevDisabled: process.execArgv.includes('--no-maglev') })); process.stderr.write('err'); process.exit(3);",
+          "process.stdout.write(JSON.stringify({ output: 'out', maglevDisabled: process.execArgv.includes('--no-maglev'), concurrentSparkplugDisabled: process.execArgv.includes('--no-concurrent-sparkplug') })); process.stderr.write('err'); process.exit(3);",
         ],
         env: {
           ...process.env,
@@ -107,6 +107,7 @@ describe("runCliProcessChild", () => {
         stdout: JSON.stringify({
           output: "out",
           maglevDisabled: !process.versions.bun && !enableMaglev,
+          concurrentSparkplugDisabled: !process.versions.bun && !enableMaglev,
         }),
         stderr: "err",
       });
@@ -211,7 +212,10 @@ describe("runCliProcessChild", () => {
     async ({ block, state }) => {
       let pid: number | undefined;
       const failure = await runCliProcessChild({
-        nodeArgs: ["-e", `process.stdout.write('blocked'); ${block}`],
+        nodeArgs: [
+          "-e",
+          `process.title = 'fixture-private-thread'; process.stdout.write('blocked'); ${block}`,
+        ],
         env: process.env,
         timeoutMs: 500,
         interact: (child) => {
@@ -221,9 +225,11 @@ describe("runCliProcessChild", () => {
       }).catch((error: unknown) => error);
       expect(String(failure)).toMatch(/500ms deadlock guard[\s\S]*no response[\s\S]*blocked/u);
       expect(String(failure)).toContain(`root pid=${pid}`);
+      expect(String(failure)).not.toContain("fixture-private");
       expect(String(failure)).toMatch(new RegExp(`"pid":${pid},"ppid":\\d+,"state":"${state}`));
       if (process.platform === "linux") {
         expect(String(failure)).toContain(`"tid":${pid}`);
+        expect(String(failure)).toContain(`"tid":${pid},"role":"main"`);
         expect(String(failure)).toContain('"stack":');
         expect(String(failure)).toContain('"wchan":');
       }

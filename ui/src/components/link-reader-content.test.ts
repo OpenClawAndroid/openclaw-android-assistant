@@ -256,7 +256,10 @@ describe("link reader document content", () => {
         subtitle: "Team changes",
         badge: { label: "Needs review", tone: "attention" },
         author: "Alex",
-        metadata: [{ label: "Build", value: "Passed" }],
+        authorUrl: "https://forge.example/users/alex",
+        coAuthors: [{ name: "Sam" }, { name: "Noor" }],
+        coAuthorCount: 3,
+        metadata: [{ label: "Build", value: "Passed", tone: "positive" }],
         body: "[Next change](C43)",
         partial: true,
         bodyTruncated: true,
@@ -290,6 +293,13 @@ describe("link reader document content", () => {
     );
     expect(container.querySelector("h1")?.textContent).toBe("Change C42");
     expect(container.textContent).toContain("Build: Passed");
+    expect(container.querySelector(".lr-item-meta a")?.getAttribute("href")).toBe(
+      "https://forge.example/users/alex",
+    );
+    expect(container.querySelector(".lr-coauthors")?.textContent).toBe("Co-authors: Sam, Noor +1");
+    expect(container.querySelector(".lr-item-meta [data-tone=positive]")?.textContent).toBe(
+      "Passed",
+    );
     expect(container.querySelector(".lr-state--attention")?.textContent).toBe("Needs review");
     expect(container.querySelector('a[href="https://forge.example/changes/C43"]')).not.toBeNull();
     expect(

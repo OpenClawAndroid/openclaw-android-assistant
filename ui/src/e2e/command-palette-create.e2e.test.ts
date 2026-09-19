@@ -198,6 +198,203 @@ function captureAfter(page: Page, name: string) {
 }
 
 suite.define(() => {
+  it("preserves manual prompt scrolling when background destination discovery finishes", async () => {
+    await suite.withPage(createControlUiE2eContextOptions(), async ({ page }) => {
+      const gateway = await installMockGateway(page, {
+        ...scenario(),
+        deferredMethods: ["environments.list"],
+      });
+      const { composer, url, palette, input } = await openFromForeground(page);
+      await gateway.waitForRequest("environments.list");
+      const capture = captureAfter(page, "palette-manual-scroll");
+      const prompt = [
+        "FIRST WORDS: Review the complete task before starting.",
+        "Keep the foreground conversation unchanged.",
+        "Read the existing behavior and identify its owner.",
+        "Compare related paths before choosing a repair.",
+        "Keep the fix focused on the reported behavior.",
+        "Add a regression test that fails before the fix.",
+        "Verify the repaired behavior in the browser.",
+        "LAST WORDS: Open a pull request with the evidence.",
+      ].join("\n");
+      await input.fill(prompt);
+      const search = palette.locator(".cmd-palette__search");
+      await expect.poll(() => search.evaluate((element: HTMLElement) => element.inert)).toBe(true);
+      expect(await gateway.getRequests("sessions.search")).toEqual([]);
+      await expect.poll(() => input.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      await input.hover();
+      await page.mouse.wheel(0, -2000);
+      await expect.poll(() => input.evaluate((element) => element.scrollTop)).toBe(0);
+      expect(await input.evaluate((element: HTMLTextAreaElement) => element.selectionEnd)).toBe(
+        prompt.length,
+      );
+      await capture("scrolled-to-first-words");
+
+      // Prompt mode pauses search, but destination discovery still updates the
+      // real draft controller and rerenders its input without an edit.
+      await gateway.resolveDeferred("environments.list");
+      // Let the render's layout frame and ResizeObserver delivery finish.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      await capture("after-background-discovery");
+      expect(await input.evaluate((element) => element.scrollTop)).toBe(0);
+      expect(await input.inputValue()).toBe(prompt);
+      expect(await composer.inputValue()).toBe(foregroundDraft);
+      expect(page.url()).toBe(url);
+      expect(await gateway.getRequests("sessions.create")).toEqual([]);
+
+      await input.pressSequentially(" Continue.");
+      await expect
+        .poll(() =>
+          input.evaluate(
+            (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+          ),
+        )
+        .toBeLessThanOrEqual(1);
+      expect(await input.inputValue()).toBe(prompt + " Continue.");
+    });
+  });
+
+  it.each([
+    { width: 1280, colorScheme: "dark", reducedMotion: "no-preference" },
+    { width: 390, colorScheme: "light", reducedMotion: "reduce" },
+  ] as const)(
+    "collapses prompt searches in place and restores them at $width px",
+    async (options) => {
+      await suite.withPage(
+        {
+          colorScheme: options.colorScheme,
+          reducedMotion: options.reducedMotion,
+          viewport: { width: options.width, height: 900 },
+        },
+        async ({ page }) => {
+          const gateway = await installMockGateway(
+            page,
+            scenario({ "models.list": { models: [], refreshFailed: true } }),
+          );
+          const { palette, input, composer, url } = await openFromForeground(page);
+          await input.fill("appearance");
+          await palette.getByRole("option", { name: /^Appearance audit/ }).waitFor();
+          await palette.getByRole("status").filter({ hasText: "Models unavailable" }).waitFor();
+          const search = palette.locator(".cmd-palette__search");
+          const original = (await palette.locator(".cmd-palette").boundingBox())!;
+          const inputTop = (await input.boundingBox())!.y;
+          const initialHeight = (await search.boundingBox())!.height;
+          const requestCount = (await gateway.getRequests("sessions.search")).length;
+          const prompt = "Help me plan the next steps for this small project this week";
+          const samples = await input.evaluateHandle((element: HTMLTextAreaElement, value) => {
+            const frames: Array<{
+              x: number;
+              y: number;
+              width: number;
+              inputY: number;
+              searchHeight: number;
+            }> = [];
+            const start = performance.now();
+            const sample = () => {
+              const bounds = element.closest(".cmd-palette")!.getBoundingClientRect();
+              frames.push({
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                inputY: element.getBoundingClientRect().y,
+                searchHeight: element
+                  .closest(".cmd-palette")!
+                  .querySelector(".cmd-palette__search")!
+                  .getBoundingClientRect().height,
+              });
+              if (performance.now() - start < 400) {
+                requestAnimationFrame(sample);
+              }
+            };
+            requestAnimationFrame(sample);
+            element.value = value;
+            element.dispatchEvent(new Event("input", { bubbles: true }));
+            return frames;
+          }, prompt);
+          await expect
+            .poll(() => search.evaluate((element: HTMLElement) => element.inert))
+            .toBe(true);
+          await expect.poll(async () => (await search.boundingBox())?.height).toBe(0);
+          await page.waitForTimeout(450);
+          const frames = await samples.jsonValue();
+          await samples.dispose();
+          expect(frames.length).toBeGreaterThan(1);
+          for (const frame of frames) {
+            expect(frame.x).toBeCloseTo(original.x, 1);
+            expect(frame.y).toBeCloseTo(original.y, 1);
+            expect(frame.width).toBeCloseTo(original.width, 1);
+            expect(frame.inputY).toBeCloseTo(inputTop, 1);
+          }
+          if (options.reducedMotion === "no-preference") {
+            expect(
+              frames.some(
+                (frame) => frame.searchHeight > 0 && frame.searchHeight < initialHeight - 1,
+              ),
+            ).toBe(true);
+          } else {
+            expect(
+              await search.evaluate((element) =>
+                Number.parseFloat(getComputedStyle(element).transitionDuration),
+              ),
+            ).toBeLessThanOrEqual(0.00001);
+          }
+          expect(await palette.getByRole("group", { name: "Filter search results" }).count()).toBe(
+            0,
+          );
+          expect(await palette.getByRole("status").count()).toBe(0);
+          expect(await palette.getByRole("option").count()).toBe(0);
+          expect(await input.getAttribute("aria-controls")).toBeNull();
+          expect(await input.getAttribute("aria-activedescendant")).toBeNull();
+          expect(await input.evaluate((element) => document.activeElement === element)).toBe(true);
+          await input.press("ArrowDown");
+          await input.press("Enter");
+          expect(await input.inputValue()).toBe(prompt);
+          expect(page.url()).toBe(url);
+          expect(await composer.inputValue()).toBe(foregroundDraft);
+          expect(await gateway.getRequests("sessions.create")).toEqual([]);
+          expect(await gateway.getRequests("sessions.search")).toHaveLength(requestCount);
+          expect(
+            (await gateway.getRequests("sessions.list")).some(
+              (request) => isRecord(request.params) && request.params.search === prompt,
+            ),
+          ).toBe(false);
+          await input.fill(prompt.slice(0, 55));
+          await page.waitForTimeout(100);
+          expect(await search.evaluate((element: HTMLElement) => element.inert)).toBe(true);
+          expect(await gateway.getRequests("sessions.search")).toHaveLength(requestCount);
+          await input.fill(prompt.slice(0, 50));
+          await expect.poll(() => input.getAttribute("aria-controls")).toBe("cmd-palette-listbox");
+          await expect
+            .poll(async () => (await gateway.getRequests("sessions.search")).length)
+            .toBe(requestCount + 1);
+          expect((await gateway.getRequests("sessions.search")).at(-1)?.params).toMatchObject({
+            query: prompt.slice(0, 50),
+          });
+          await input.fill(prompt.slice(0, 59));
+          expect(await search.evaluate((element: HTMLElement) => element.inert)).toBe(false);
+          await input.fill(prompt);
+          await expect
+            .poll(() => search.evaluate((element: HTMLElement) => element.inert))
+            .toBe(true);
+          await input.fill("");
+          await expect
+            .poll(() => search.evaluate((element: HTMLElement) => element.inert))
+            .toBe(false);
+          await palette.getByRole("option", { name: "New session", exact: true }).waitFor();
+          await input.fill("appearance");
+          await palette.getByRole("option", { name: /^Appearance audit/ }).waitFor();
+          expect(await gateway.getRequests("sessions.search")).toHaveLength(requestCount + 2);
+          expect((await palette.locator(".cmd-palette").boundingBox())!.y).toBe(original.y);
+        },
+      );
+    },
+  );
+
   it.each(["light", "dark"] as const)(
     "remembers only palette settings and restores defaults when unchecked in %s",
     async (mode) => {
@@ -447,12 +644,12 @@ suite.define(() => {
             ],
           });
           await input.fill(prompt);
-          const results = palette.locator(".cmd-palette__results");
-          await expect.poll(() => results.getAttribute("aria-busy")).toBe("false");
-          const empty = palette.getByRole("heading", { name: "No results found", exact: true });
-          await empty.waitFor();
-          expect(await results.getByRole("option").count()).toBe(0);
-          expect(await results.isVisible()).toBe(false);
+          const searchPanel = palette.locator(".cmd-palette__search");
+          await expect
+            .poll(() => searchPanel.evaluate((element: HTMLElement) => element.inert))
+            .toBe(true);
+          await expect.poll(async () => (await searchPanel.boundingBox())?.height).toBe(0);
+          expect(await palette.getByRole("option").count()).toBe(0);
           expect((await input.boundingBox())!.height).toBeGreaterThan(singleLineHeight);
           const lineHeight = await input.evaluate((element) =>
             Number.parseFloat(getComputedStyle(element).lineHeight),
@@ -465,9 +662,13 @@ suite.define(() => {
           await input.pressSequentially(finalLine);
           const submittedPrompt = prompt + "\n" + finalLine;
           expect(await input.inputValue()).toBe(submittedPrompt);
-          await expect.poll(() => results.getAttribute("aria-busy")).toBe("false");
-          await empty.waitFor();
-          await capture("multiline-quiet-no-match");
+          expect(await input.getAttribute("aria-controls")).toBeNull();
+          expect(
+            (await gateway.getRequests("sessions.search")).filter(
+              (request) => isRecord(request.params) && request.params.query === submittedPrompt,
+            ),
+          ).toEqual([]);
+          await capture("multiline-prompt-mode");
 
           const settings = palette.locator("wa-popover.palette-session-settings");
           await changePicker(settings, "wa-after-show", () =>
@@ -587,7 +788,8 @@ suite.define(() => {
           }),
         );
         const { composer, url, palette, input } = await openFromForeground(page);
-        const prompt = "Keep this accepted session recoverable without sending twice.";
+        const prompt =
+          "Keep this accepted session recoverable.\nDo not send the same request twice.";
         await input.fill(prompt);
         const start = palette.getByRole("button", {
           name: "Start new session in background",

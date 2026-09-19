@@ -44,9 +44,14 @@ export type ControlUiLinkReaderPreview = {
     tone: "neutral" | "positive" | "negative" | "attention" | "accent";
   };
   author?: string;
+  /** Optional HTTPS profile link on the source origin. */
+  authorUrl?: string;
+  coAuthors?: Array<{ name: string; imageUrl?: string }>;
+  /** Total including authors omitted from the bounded coAuthors array. */
+  coAuthorCount?: number;
   createdAt?: string;
   updatedAt?: string;
-  metadata?: Array<{ label: string; value: string }>;
+  metadata?: Array<{ label: string; value: string; tone?: "positive" | "negative" }>;
   imageUrl?: string;
 };
 

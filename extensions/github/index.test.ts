@@ -270,6 +270,7 @@ describe("GitHub plugin ownership and RPC migration", () => {
     ["github.detail", { url: "https://example.com/owner/repo/issues/1" }],
     ["github.detail", { url: "https://github.com/owner/repo/pull/1/checks" }],
     ["github.detail", { url: "https://github.com/owner/repo/commit/main" }],
+    ["github.preview", { url: "https://github.com/owner/repo/commit/abcdef0" }],
     ["github.preview", { url: "https://github.com/owner/repo/issues/1", refresh: "true" }],
     ["github.preview", { url: "https://github.com/owner/repo/issues/1", agentId: " " }],
     ["github.preview", { url: "https://github.com/owner/repo/issues/1", agentId: 1 }],
@@ -409,11 +410,11 @@ describe("GitHub plugin ownership and RPC migration", () => {
         expect.objectContaining({
           badge,
           author: "octocat",
-          metadata: expect.arrayContaining([
-            { label: "Additions", value: "+3" },
-            { label: "Deletions", value: "−1" },
-            { label: "Files", value: "2" },
-          ]),
+          authorUrl: "https://github.com/octocat",
+          metadata: [
+            { label: "", value: "+3", tone: "positive" },
+            { label: "", value: "−1", tone: "negative" },
+          ],
         }),
         undefined,
         meta,
@@ -426,6 +427,27 @@ describe("GitHub plugin ownership and RPC migration", () => {
       });
       expect(respond.mock.calls[0]?.[1]).not.toHaveProperty("kind");
       expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([undefined, 0, 7])(
+    "only shows an issue comment count when it is known: %s",
+    async (comments) => {
+      vi.mocked(dispatchGatewayMethod).mockResolvedValueOnce({
+        ok: true,
+        payload: preview({ kind: "issue", comments }),
+      });
+      const respond = await request("github.preview", {
+        url: "https://github.com/octocat/repo/issues/1",
+      });
+      expect(respond).toHaveBeenCalledWith(
+        true,
+        expect.objectContaining({
+          metadata: comments === undefined ? [] : [{ label: "Comments", value: String(comments) }],
+        }),
+        undefined,
+        undefined,
+      );
     },
   );
 
@@ -445,7 +467,8 @@ describe("GitHub plugin ownership and RPC migration", () => {
     expect(respond).toHaveBeenCalledWith(
       true,
       expect.objectContaining({
-        metadata: expect.arrayContaining([{ label: "Co-authors", value: "ada +1" }]),
+        coAuthors: [{ name: "ada", imageUrl: "data:image/png;base64,iVBORw==" }],
+        coAuthorCount: 2,
       }),
       undefined,
       undefined,

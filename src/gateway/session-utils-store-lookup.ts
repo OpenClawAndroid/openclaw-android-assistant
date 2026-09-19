@@ -17,6 +17,7 @@ import type {
   SessionEntryReadSource,
 } from "../config/sessions/session-accessor.types.js";
 import { canonicalSessionKeyMigrationRequiredError } from "../config/sessions/session-canonical-key.js";
+import type { ExistingAgentSessionStoreTargetResolver } from "../config/sessions/targets.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   DEFAULT_AGENT_ID,
@@ -81,6 +82,7 @@ function resolveGatewaySessionStoreCandidates(
   excludeConfiguredFallback = false,
   env: NodeJS.ProcessEnv = process.env,
   registeredDatabases?: readonly { agentId: string; path: string }[],
+  resolveExistingTargets?: ExistingAgentSessionStoreTargetResolver,
 ): GatewaySessionStoreDiscovery {
   const cached = cache?.get(agentId);
   if (cached) {
@@ -91,16 +93,19 @@ function resolveGatewaySessionStoreCandidates(
     agentId,
     storePath: resolveSessionStorePathCore(storeConfig, { agentId, env }),
   };
+  // Cached discovery also serves existing-only deleted-main lookups.
+  const excludeStorePath =
+    !cache && excludeConfiguredFallback && !isPerAgentSessionStoreConfig(storeConfig)
+      ? fallback.storePath
+      : undefined;
   const discovery = {
-    existing: resolveExistingAgentSessionStoreTargetsSync(cfg, agentId, {
-      env,
-      registeredDatabases,
-      // Cached discovery also serves existing-only deleted-main lookups.
-      excludeStorePath:
-        !cache && excludeConfiguredFallback && !isPerAgentSessionStoreConfig(storeConfig)
-          ? fallback.storePath
-          : undefined,
-    }),
+    existing: resolveExistingTargets
+      ? resolveExistingTargets(agentId, excludeStorePath)
+      : resolveExistingAgentSessionStoreTargetsSync(cfg, agentId, {
+          env,
+          registeredDatabases,
+          excludeStorePath,
+        }),
     fallback,
   };
   cache?.set(agentId, discovery);
@@ -119,6 +124,7 @@ export function resolveGatewaySessionStoreLookupCandidates(params: {
   targetDiscoveryCache?: GatewaySessionStoreDiscoveryCache;
   env?: NodeJS.ProcessEnv;
   registeredDatabases?: readonly { agentId: string; path: string }[];
+  resolveExistingTargets?: ExistingAgentSessionStoreTargetResolver;
 }): {
   configured: boolean;
   fallback: SessionStoreTarget;
@@ -154,6 +160,7 @@ export function resolveGatewaySessionStoreLookupCandidates(params: {
     configured,
     params.env,
     params.registeredDatabases,
+    params.resolveExistingTargets,
   );
   return {
     configured,

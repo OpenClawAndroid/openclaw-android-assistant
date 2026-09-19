@@ -13,6 +13,7 @@ import { registerLinkReaderEnglish } from "../i18n/locales/en-link-reader.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { DockLayoutController } from "./dock-layout-controller.ts";
 import { icons } from "./icons.ts";
+import { linkReaderErrorMessage } from "./link-reader-error.ts";
 import { LinkReaderImages } from "./link-reader-images.ts";
 import {
   renderLinkReaderPanelContent,
@@ -539,9 +540,9 @@ class OpenClawLinkReaderPanel extends OpenClawLitElement implements PanelHostedT
         this.setTabView(tab, { status: "ready", detail, images });
         this.requestUpdate();
       }
-    } catch {
+    } catch (error) {
       if (isCurrent()) {
-        tab.view = { status: "error" };
+        tab.view = { status: "error", message: linkReaderErrorMessage(error) };
         this.requestUpdate();
       }
     }

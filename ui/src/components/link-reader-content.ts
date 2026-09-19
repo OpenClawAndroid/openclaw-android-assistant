@@ -5,7 +5,7 @@ import { guard } from "lit/directives/guard.js";
 import type { ControlUiLinkReaderDocument } from "../../../src/shared/control-ui-link-reader.js";
 import { i18n, t } from "../i18n/index.ts";
 import { registerLinkReaderEnglish } from "../i18n/locales/en-link-reader.ts";
-import type { LinkReaderTarget } from "./link-reader-target.ts";
+import { linkReaderAuthorHref, type LinkReaderTarget } from "./link-reader-target.ts";
 import { createMarkdownParser } from "./markdown-parser.ts";
 import { normalizeMarkdownRenderOptions } from "./markdown-render-options.ts";
 import { escapeMarkdownHtml } from "./markdown-text.ts";
@@ -345,6 +345,11 @@ export function renderLinkReaderContent(
   target: LinkReaderTarget,
   loadImage?: LoadImage,
 ) {
+  const authorHref = linkReaderAuthorHref(detail.authorUrl, detail.url);
+  const coAuthors = detail.coAuthors ?? [];
+  const unnamed = Math.max(coAuthors.length, detail.coAuthorCount ?? 0) - coAuthors.length;
+  const coAuthorNames =
+    coAuthors.map((author) => author.name).join(", ") + (unnamed ? " +" + unnamed : "");
   return html`<div class="lr-meta">${detail.subtitle ?? target.reader.label}</div>
     <h1>${detail.title}</h1>
     <div class="lr-meta lr-item-meta">
@@ -357,12 +362,24 @@ export function renderLinkReaderContent(
       }
       ${
         detail.author
-          ? html`<span>${t("linkReader.byAuthor", { author: detail.author })}</span>`
+          ? authorHref
+            ? html`<a
+                href=${authorHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-link-reader-external
+                >${t("linkReader.byAuthor", { author: detail.author })}</a
+              >`
+            : html`<span>${t("linkReader.byAuthor", { author: detail.author })}</span>`
           : nothing
       }
+      ${coAuthorNames.trim() ? html`<span class="lr-coauthors">${t("linkReader.coAuthors", { authors: coAuthorNames.trim() })}</span>` : nothing}
       ${renderDate(detail.createdAt)}
       ${detail.metadata?.map(
-        ({ label, value }) => html`<span>${label ? label + ": " : ""}${value}</span>`,
+        ({ label, value, tone }) =>
+          html`<span
+            >${label ? label + ": " : ""}<span data-tone=${tone ?? nothing}>${value}</span></span
+          >`,
       )}
     </div>
     ${

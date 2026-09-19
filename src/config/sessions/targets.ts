@@ -1,12 +1,8 @@
 // Session store target discovery maps configured and on-disk agent stores to canonical targets.
 import fsSync from "node:fs";
 import path from "node:path";
-import {
-  resolveAgentDir,
-  resolveAgentEntry,
-  resolveConfiguredAgentId,
-} from "../../agents/agent-scope-config.js";
-import { listAgentEntries, listAgentIds, resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentDir, resolveConfiguredAgentId } from "../../agents/agent-scope-config.js";
+import { listAgentIds, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { resolveAgentSessionDirsFromAgentsDirSync } from "../../agents/session-dirs.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
@@ -37,6 +33,10 @@ import {
   type SessionStoreTarget,
 } from "./targets-collision.js";
 import {
+  isConfiguredSessionStoreAgentId,
+  listConfiguredSessionStoreAgentIds,
+} from "./targets-configured-agents.js";
+import {
   createRealAgentsRootResolver,
   dedupeTargetsByStorePath,
   isValidatedRecoveryCandidateSessionsDir,
@@ -45,6 +45,10 @@ import {
   shouldSkipDiscoveredAgentDirName,
 } from "./targets-path-validation.js";
 
+export {
+  isConfiguredSessionStoreAgentId,
+  listConfiguredSessionStoreAgentIds,
+} from "./targets-configured-agents.js";
 export type { SessionStoreTarget } from "./targets-collision.js";
 export { dedupeSessionStoreTargetsBySqliteTarget } from "./targets-collision.js";
 export { resolveSessionStoreCompatibilityAgentId } from "../legacy.default-agent-owner.js";
@@ -56,31 +60,6 @@ export type SessionStoreSelectionOptions = {
   agent?: string;
   allAgents?: boolean;
 };
-
-/** Lists agent ids whose session stores should be considered configured. */
-export function listConfiguredSessionStoreAgentIds(cfg: OpenClawConfig): string[] {
-  const ids = new Set(listAgentIds(cfg).map((agentId) => normalizeAgentId(agentId)));
-  const addAcpAgentId = (agentId: string | undefined) => {
-    const raw = agentId?.trim() ?? "";
-    if (!raw || raw === "*") {
-      return;
-    }
-    const normalized = normalizeAgentId(raw);
-    ids.add(normalized);
-  };
-
-  addAcpAgentId(cfg.acp?.defaultAgent);
-  for (const agentId of cfg.acp?.allowedAgents ?? []) {
-    addAcpAgentId(agentId);
-  }
-  for (const agent of listAgentEntries(cfg)) {
-    if (agent.runtime?.type === "acp") {
-      addAcpAgentId(agent.runtime.acp?.agent ?? agent.id);
-    }
-  }
-
-  return [...ids];
-}
 
 /** Lists configured owners plus persisted owners whose registered DB still matches this store. */
 export function listKnownSessionStoreAgentIds(
@@ -148,15 +127,6 @@ export function listKnownSessionStoreAgentIds(
     }
   }
   return [...ids];
-}
-
-/** Checks whether an agent is configured to own a session store. */
-export function isConfiguredSessionStoreAgentId(cfg: OpenClawConfig, agentId: string): boolean {
-  const normalizedAgentId = normalizeAgentId(agentId);
-  if (resolveAgentEntry(cfg, normalizedAgentId)) {
-    return true;
-  }
-  return listConfiguredSessionStoreAgentIds(cfg).includes(normalizedAgentId);
 }
 
 function resolveSessionStoreDiscoveryState(
@@ -302,6 +272,37 @@ export function resolveAllAgentSessionStoreTargetsSync(
   );
 }
 
+export type ExistingAgentSessionStoreTargetResolver = (
+  agentId: string,
+  excludeStorePath?: string,
+) => SessionStoreTarget[];
+
+/** Reuse configured fixed-store ownership only within one synchronous discovery operation. */
+export function createExistingAgentSessionStoreTargetResolver(
+  cfg: OpenClawConfig,
+  params: {
+    env?: NodeJS.ProcessEnv;
+    registeredDatabases?: readonly { agentId: string; path: string }[];
+  },
+): ExistingAgentSessionStoreTargetResolver {
+  let configuredOwners: Set<string> | undefined;
+  const isConfiguredTarget = (agentId: string) => {
+    configuredOwners ??= new Set(
+      resolveSessionStoreTargets(cfg, { allAgents: true }, params).map((target) =>
+        normalizeAgentId(target.agentId),
+      ),
+    );
+    return configuredOwners.has(agentId);
+  };
+  return (agentId, excludeStorePath) =>
+    resolveExistingAgentSessionStoreTargets(
+      cfg,
+      agentId,
+      { ...params, excludeStorePath },
+      isConfiguredTarget,
+    );
+}
+
 /** Resolves only already-existing stores for one configured, retired, or manual agent. */
 export function resolveExistingAgentSessionStoreTargetsSync(
   cfg: OpenClawConfig,
@@ -312,6 +313,19 @@ export function resolveExistingAgentSessionStoreTargetsSync(
     registeredDatabases?: readonly { agentId: string; path: string }[];
   } = {},
 ): SessionStoreTarget[] {
+  return resolveExistingAgentSessionStoreTargets(cfg, agentId, params);
+}
+
+function resolveExistingAgentSessionStoreTargets(
+  cfg: OpenClawConfig,
+  agentId: string,
+  params: {
+    env?: NodeJS.ProcessEnv;
+    excludeStorePath?: string;
+    registeredDatabases?: readonly { agentId: string; path: string }[];
+  },
+  isConfiguredTarget?: (agentId: string) => boolean,
+): SessionStoreTarget[] {
   const env = params.env ?? process.env;
   const requested = normalizeAgentId(agentId);
   const storeConfig = cfg.session?.store;
@@ -321,27 +335,32 @@ export function resolveExistingAgentSessionStoreTargetsSync(
       agentId: requested,
       storePath: resolveSessionStorePathCore(storeConfig, { agentId: requested, env }),
     };
-    const configuredTargets = listConfiguredSessionStoreAgentIds(cfg).map((configuredAgentId) => ({
-      agentId: configuredAgentId,
-      storePath: resolveSessionStorePathCore(storeConfig, { agentId: configuredAgentId, env }),
-    }));
-    if (!configuredTargets.some((target) => normalizeAgentId(target.agentId) === requested)) {
-      configuredTargets.push(fixedTarget);
-    }
+    const isSelectedTarget = () => {
+      if (isConfiguredTarget && isConfiguredSessionStoreAgentId(cfg, requested)) {
+        return isConfiguredTarget(requested);
+      }
+      const configuredTargets = listConfiguredSessionStoreAgentIds(cfg).map(
+        (configuredAgentId) => ({
+          agentId: configuredAgentId,
+          storePath: resolveSessionStorePathCore(storeConfig, { agentId: configuredAgentId, env }),
+        }),
+      );
+      if (!configuredTargets.some((target) => normalizeAgentId(target.agentId) === requested)) {
+        configuredTargets.push(fixedTarget);
+      }
+      return dedupeSessionStoreTargetsBySqliteTarget(configuredTargets, {
+        defaultAgentId,
+        env,
+        registeredDatabases: params.registeredDatabases,
+      }).some((target) => normalizeAgentId(target.agentId) === requested);
+    };
     const resolvedTarget = resolveSqliteTargetFromSessionStorePath(fixedTarget.storePath, {
       agentId: requested,
       defaultAgentId,
       env,
       registeredDatabases: params.registeredDatabases,
     });
-    if (
-      !resolvedTarget.shared &&
-      !dedupeSessionStoreTargetsBySqliteTarget(configuredTargets, {
-        defaultAgentId,
-        env,
-        registeredDatabases: params.registeredDatabases,
-      }).some((target) => normalizeAgentId(target.agentId) === requested)
-    ) {
+    if (!resolvedTarget.shared && !isSelectedTarget()) {
       return [];
     }
     // Validate ownership even when the caller already has this fixed target.

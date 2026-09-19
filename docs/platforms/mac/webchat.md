@@ -17,7 +17,7 @@ menus, full chat opens, and dashboard launch links. Switching experiences hides
 the previous experience's windows, keeps their loaded drafts, and cancels
 pending window opens. If a window was visible, the same Gateway opens in the
 selected experience. **Settings…** always opens web Dashboard settings;
-**Connection…** and **About OpenClaw** remain native.
+**Connection…** and **About OpenClaw** open the native Connection window; About selects its **About** tab.
 
 Gateway and account changes still refresh hidden Dashboard windows. Saved web
 drafts recover within the same Gateway address and authenticated account; they

@@ -169,7 +169,9 @@ export function resolveVitestNodeArgs(env: NodeJS.ProcessEnv = process.env): str
     return [];
   }
 
-  return ["--no-maglev"];
+  // Concurrent Sparkplug can await main-thread GC while forced exit joins its
+  // compiler worker (nodejs/node#54918). Keep Sparkplug compilation on the main thread.
+  return ["--no-maglev", "--no-concurrent-sparkplug"];
 }
 
 /**

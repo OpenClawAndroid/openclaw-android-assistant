@@ -68,8 +68,11 @@ describe("scripts/run-vitest", () => {
     },
   );
 
-  it("adds --no-maglev to vitest child processes by default", () => {
-    expect(resolveVitestNodeArgs({ PATH: "/usr/bin" })).toEqual(["--no-maglev"]);
+  it("avoids concurrent compiler shutdown waits in test children by default", () => {
+    expect(resolveVitestNodeArgs({ PATH: "/usr/bin" })).toEqual([
+      "--no-maglev",
+      "--no-concurrent-sparkplug",
+    ]);
   });
 
   it("detects pnpm exec node wrappers that can be spawned directly", () => {

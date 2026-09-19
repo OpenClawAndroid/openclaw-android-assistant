@@ -129,7 +129,7 @@ import {
   attachSqliteSessionTarget,
   readTranscriptMessagesByIdentity,
 } from "./sqlite-session.test-helpers.js";
-import { createCodexTestModel } from "./test-support.js";
+import { createCodexTestModel, createCodexTestOAuthProfile } from "./test-support.js";
 import {
   buildDeveloperInstructions,
   buildTurnStartParams,
@@ -6235,12 +6235,7 @@ describe("runCodexAppServerAttempt", () => {
           version: 1,
           profiles: {
             "openai:work": {
-              type: "oauth",
-              provider: "openai",
-              access: "access-token",
-              refresh: "refresh-token",
-              expires: Date.now() + 60_000,
-              accountId: "account-work",
+              ...createCodexTestOAuthProfile("account-work"),
               email: "work@example.test",
             },
           },
@@ -6369,6 +6364,8 @@ describe("runCodexAppServerAttempt", () => {
     const params = createRunParams();
     params.authProfileId = "openai:work";
     params.agentDir = path.join(tempDir, "agent");
+    params.authProfileStore.profiles["openai:work"] =
+      createCodexTestOAuthProfile("synthetic-account");
     const run = runCodexAppServerAttempt(params);
     await waitForMethod("turn/start");
     await new Promise<void>((resolve) => {
@@ -6822,6 +6819,8 @@ describe("runCodexAppServerAttempt", () => {
         },
       },
     } as never;
+    params.authProfileStore.profiles["openai:work"] =
+      createCodexTestOAuthProfile("synthetic-account");
     const run = runCodexAppServerAttempt(params, {
       pluginConfig: { appServer: { mode: "yolo" } },
     });
@@ -7010,12 +7009,7 @@ describe("runCodexAppServerAttempt", () => {
       version: 1,
       profiles: {
         "openai-profile": {
-          type: "oauth",
-          provider: "openai",
-          access: "access-token",
-          refresh: "refresh-token",
-          expires: Date.now() + 60_000,
-          accountId: "account-work",
+          ...createCodexTestOAuthProfile("account-work"),
           email: "work@example.test",
         },
       },
@@ -7232,12 +7226,7 @@ describe("runCodexAppServerAttempt", () => {
       version: 1,
       profiles: {
         "openai-profile": {
-          type: "oauth",
-          provider: "openai",
-          access: "access-token",
-          refresh: "refresh-token",
-          expires: Date.now() + 60_000,
-          accountId: "account-work",
+          ...createCodexTestOAuthProfile("account-work"),
           email: "work@example.test",
         },
       },
@@ -7555,12 +7544,7 @@ describe("runCodexAppServerAttempt", () => {
       version: 1,
       profiles: {
         "openai-profile": {
-          type: "oauth",
-          provider: "openai",
-          access: "access-token",
-          refresh: "refresh-token",
-          expires: Date.now() + 60_000,
-          accountId: "account-work",
+          ...createCodexTestOAuthProfile("account-work"),
           email: "work@example.test",
         },
       },
@@ -7701,6 +7685,8 @@ describe("runCodexAppServerAttempt", () => {
     const params = createParams(sessionFile, workspaceDir);
     delete params.authProfileId;
     params.agentDir = path.join(tempDir, "agent");
+    params.authProfileStore.profiles["openai:bound"] =
+      createCodexTestOAuthProfile("synthetic-account");
     const run = runCodexAppServerAttempt(params);
     await waitForMethod("turn/start");
     await new Promise<void>((resolve) => {

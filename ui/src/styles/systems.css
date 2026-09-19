@@ -331,7 +331,8 @@ openclaw-systems-page {
 .systems-filter input::placeholder {
   color: var(--muted);
 }
-.systems-filter__refresh {
+.systems-filter__refresh,
+.systems-filter__sort {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
@@ -342,17 +343,20 @@ openclaw-systems-page {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
-  opacity: 0;
   transition:
     opacity var(--duration-fast) ease,
     color var(--duration-fast) ease;
+}
+.systems-filter__refresh {
+  opacity: 0;
 }
 .systems-filter:hover .systems-filter__refresh,
 .systems-filter:focus-within .systems-filter__refresh,
 .systems-filter__refresh:focus-visible {
   opacity: 1;
 }
-.systems-filter__refresh:hover {
+.systems-filter__refresh:hover,
+.systems-filter__sort:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
@@ -360,7 +364,8 @@ openclaw-systems-page {
   opacity: 0;
   pointer-events: none;
 }
-.systems-filter__refresh:focus-visible {
+.systems-filter__refresh:focus-visible,
+.systems-filter__sort:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

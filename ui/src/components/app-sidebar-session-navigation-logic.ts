@@ -5,6 +5,7 @@ import type { GatewaySessionRow, SessionsListResult } from "../api/types.ts";
 import { SIDEBAR_NAV_ROUTES } from "../app-navigation.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { listSelectableAgents } from "../lib/agents/display.ts";
+import { resolveSessionChannelPresentation } from "../lib/session-channel.ts";
 import {
   resolveChannelSessionInfo,
   resolveSessionDisplayName,
@@ -245,6 +246,7 @@ export function buildSidebarSessionNavigationState(input: {
       boardFace: row.boardFace,
       channel: channelInfo.channel,
       channelSession: channelInfo.channelSession,
+      channelPresentation: resolveSessionChannelPresentation(row),
       workSession:
         Boolean(row.worktree || row.repository || row.execNode) ||
         context?.sessions.isPreparedWorkSession(row.key) === true,
