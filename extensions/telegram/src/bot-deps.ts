@@ -1,4 +1,3 @@
-// Telegram plugin module implements bot deps behavior.
 import {
   resolveApprovalOverGateway,
   type ApprovalResolveResult,

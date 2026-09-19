@@ -10,7 +10,6 @@ vi.mock("../subagents/spawn/subagent-spawn-deps.js", () => ({
 }));
 vi.mock("../subagents/registry/subagent-registry.js", () => ({
   registerSubagentRun: vi.fn(),
-  getSubagentDeliveryBacklogPressure: () => ({ suspended: 0, blocked: false }),
 }));
 
 it("rejects an unsupported visible model before creating a session or registering a run", async () => {

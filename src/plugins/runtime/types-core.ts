@@ -6,6 +6,7 @@ import type { SessionPluginJsonValue } from "../../config/sessions/types.js";
 import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
 import type { LogLevel } from "../../logging/levels.js";
 import type { MediaUnderstandingRuntime } from "../../media-understanding/runtime-types.js";
+import type { OpenAsyncKeyedStoreOptions } from "../../plugin-state/plugin-state-store.types.js";
 import type { PluginRuntimeTasks } from "./runtime-tasks.types.js";
 
 type TtsRuntimeApi = typeof import("../../tts/runtime-api.js");
@@ -511,7 +512,7 @@ export type PluginRuntimeCore = {
       options: import("../../plugin-state/plugin-blob-store.types.js").OpenBlobStoreOptions,
     ) => import("../../plugin-state/plugin-blob-store.types.js").PluginBlobStore<TMetadata>;
     openKeyedStore: <T>(
-      options: import("../../plugin-state/plugin-state-store.types.js").OpenKeyedStoreOptions,
+      options: OpenAsyncKeyedStoreOptions,
     ) => import("../../plugin-state/plugin-state-store.types.js").PluginStateKeyedStore<T>;
     /**
      * @deprecated Use openKeyedStore and await its operations. The synchronous

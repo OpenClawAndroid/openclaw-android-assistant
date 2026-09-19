@@ -18,7 +18,7 @@ import { EventStatus } from "matrix-js-sdk/lib/models/event-status.js";
 import { SyncApi, SyncState } from "matrix-js-sdk/lib/sync.js";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type {
-  OpenKeyedStoreOptions,
+  OpenAsyncKeyedStoreOptions,
   PluginStateKeyedStore,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
@@ -137,7 +137,7 @@ function holdRecoveryKeyPersistence() {
   const admitted = createDeferred<void>();
   const release = createDeferred<void>();
   const stateRuntime: MatrixSnapshotStateRuntime = {
-    openKeyedStore<T>(options: OpenKeyedStoreOptions): PluginStateKeyedStore<T> {
+    openKeyedStore<T>(options: OpenAsyncKeyedStoreOptions): PluginStateKeyedStore<T> {
       const store = createPluginStateKeyedStoreForTests<T>("matrix", options);
       const compareAndApply = store.compareAndApply;
       if (!compareAndApply) {

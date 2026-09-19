@@ -44,6 +44,7 @@ describe("Control UI retention cancellation", () => {
       let published = false;
       const closed = new Set<string>();
       const pruned = new Set<string>();
+      const pruning = new Map<string, string>();
       const cancel = () => {
         controller.abort();
       };
@@ -126,8 +127,14 @@ describe("Control UI retention cancellation", () => {
           cancel();
         }
       });
-      const renames = vi.spyOn(fs, "rename").mockImplementation(async (...args) => {
+      const renames: string[] = [];
+      vi.spyOn(fs, "rename").mockImplementation(async (...args) => {
         await original.rename(...args);
+        if (stale.includes(String(args[0]))) {
+          pruning.set(path.dirname(String(args[1])), String(args[0]));
+          return;
+        }
+        renames.push(String(args[1]));
         published = true;
         if (boundary === "rename-issued") {
           cancel();
@@ -143,8 +150,8 @@ describe("Control UI retention cancellation", () => {
       });
       vi.spyOn(fs, "rm").mockImplementation(async (...args) => {
         await original.rm(...args);
-        const directory = args[0];
-        if (typeof directory === "string" && stale.includes(directory)) {
+        const directory = pruning.get(String(args[0]));
+        if (directory) {
           pruned.add(directory);
           if (boundary === "prune-issued") {
             cancel();
@@ -171,7 +178,7 @@ describe("Control UI retention cancellation", () => {
       expect(writesAfterAbort).toBe(0);
       expect(published).toBe(["rename-issued", "prune-issued", "projection"].includes(boundary));
       expect(pruned.size).toBe(boundary === "projection" ? 2 : boundary === "prune-issued" ? 1 : 0);
-      expect(renames).toHaveBeenCalledTimes(published ? 1 : 0);
+      expect(renames).toHaveLength(published ? 1 : 0);
       expect(refreshes).toHaveBeenCalledTimes(
         ["prune-issued", "projection"].includes(boundary) ? 1 : 0,
       );

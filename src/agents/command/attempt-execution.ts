@@ -1136,27 +1136,39 @@ export function buildAcpResult(params: {
   };
 }
 
-export function emitAcpLifecycleStart(params: {
-  runId: string;
-  startedAt: number;
-  sessionKey?: string;
-  agentId?: string;
+type AcpRunIdentity = Pick<
+  Parameters<typeof emitAgentEvent>[0],
+  "runId" | "sessionKey" | "agentId"
+>;
+type AcpLifecycleContext = AcpRunIdentity & {
   lifecycleGeneration?: string;
   auditOnly?: boolean;
   completionSource?: "reply-dispatch";
-}) {
-  const emit = params.auditOnly ? emitAgentAuditEvent : emitAgentEvent;
-  emit({
+};
+
+function acpRunIdentity(params: AcpRunIdentity) {
+  return {
     runId: params.runId,
     ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
     ...(params.agentId ? { agentId: params.agentId } : {}),
+  };
+}
+
+function emitAcpLifecycleEvent(params: AcpLifecycleContext, data: Record<string, unknown>) {
+  const emit = params.auditOnly ? emitAgentAuditEvent : emitAgentEvent;
+  emit({
+    ...acpRunIdentity(params),
     ...(params.lifecycleGeneration ? { lifecycleGeneration: params.lifecycleGeneration } : {}),
     stream: "lifecycle",
-    data: {
-      phase: "start",
-      ...(params.completionSource ? { completionSource: params.completionSource } : {}),
-      startedAt: params.startedAt,
-    },
+    data,
+  });
+}
+
+export function emitAcpLifecycleStart(params: AcpLifecycleContext & { startedAt: number }) {
+  emitAcpLifecycleEvent(params, {
+    phase: "start",
+    ...(params.completionSource ? { completionSource: params.completionSource } : {}),
+    startedAt: params.startedAt,
   });
 }
 
@@ -1168,10 +1180,7 @@ const ACP_PROXY_ENV_KEYS = [
   "https_proxy",
   "all_proxy",
 ] as const;
-type ActiveAcpTool = {
-  runId: string;
-  sessionKey?: string;
-  agentId?: string;
+type ActiveAcpTool = AcpRunIdentity & {
   toolCallId: string;
   toolName: string;
   startedAt: number;
@@ -1268,14 +1277,13 @@ export function resolveAcpLifecycleEndFields(
   return {};
 }
 
-function emitAcpToolExecutionEvent(params: {
-  runId: string;
-  toolTracker: AcpToolLifecycleTracker;
-  sessionKey?: string;
-  agentId?: string;
-  abortSignal?: AbortSignal;
-  event: Extract<AcpRuntimeEvent, { type: "tool_call" }>;
-}): void {
+function emitAcpToolExecutionEvent(
+  params: AcpRunIdentity & {
+    toolTracker: AcpToolLifecycleTracker;
+    abortSignal?: AbortSignal;
+    event: Extract<AcpRuntimeEvent, { type: "tool_call" }>;
+  },
+): void {
   const { event } = params;
   const now = Date.now();
   const toolCallId = event.toolCallId?.trim() ? event.toolCallId : undefined;
@@ -1303,9 +1311,7 @@ function emitAcpToolExecutionEvent(params: {
   if (!activeTool && (toolCallId !== undefined || startsUnidentifiedTool)) {
     emitTrustedDiagnosticEvent({
       type: "tool.execution.started",
-      runId: params.runId,
-      ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
-      ...(params.agentId ? { agentId: params.agentId } : {}),
+      ...acpRunIdentity(params),
       ...(toolCallId ? { toolCallId } : {}),
       toolName,
       toolSource: "core",
@@ -1313,9 +1319,7 @@ function emitAcpToolExecutionEvent(params: {
     });
     if (toolCallId) {
       params.toolTracker.active.set(toolCallId, {
-        runId: params.runId,
-        ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
-        ...(params.agentId ? { agentId: params.agentId } : {}),
+        ...acpRunIdentity(params),
         toolCallId,
         toolName,
         startedAt: now,
@@ -1332,29 +1336,20 @@ function emitAcpToolExecutionEvent(params: {
     terminalOutcome === "cancelled" ? "cancelled" : undefined,
   );
   const durationMs = Math.max(0, now - (activeTool?.startedAt ?? now));
+  const terminalFields = {
+    ...acpRunIdentity(params),
+    ...(toolCallId ? { toolCallId } : {}),
+    toolName: activeTool?.toolName ?? toolName,
+    toolSource: "core" as const,
+    toolOwner: "acp",
+    durationMs,
+  };
   emitTrustedDiagnosticEvent(
     terminalOutcome === "completed"
-      ? {
-          type: "tool.execution.completed",
-          runId: params.runId,
-          ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
-          ...(params.agentId ? { agentId: params.agentId } : {}),
-          ...(toolCallId ? { toolCallId } : {}),
-          toolName: activeTool?.toolName ?? toolName,
-          toolSource: "core",
-          toolOwner: "acp",
-          durationMs,
-        }
+      ? { type: "tool.execution.completed", ...terminalFields }
       : {
           type: "tool.execution.error",
-          runId: params.runId,
-          ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
-          ...(params.agentId ? { agentId: params.agentId } : {}),
-          ...(toolCallId ? { toolCallId } : {}),
-          toolName: activeTool?.toolName ?? toolName,
-          toolSource: "core",
-          toolOwner: "acp",
-          durationMs,
+          ...terminalFields,
           errorCategory: terminalReason === "cancelled" ? "aborted" : "acp_tool",
           terminalReason,
         },
@@ -1400,21 +1395,20 @@ function sanitizeAcpDiagnosticText(value: string): string {
 }
 
 function acpRuntimeEventDiagnostics(event: AcpRuntimeEvent): Record<string, unknown> {
-  if (event.type === "status") {
+  if (event.type === "status" || event.type === "tool_call") {
     return {
       eventType: event.type,
       text: sanitizeAcpDiagnosticText(event.text),
       ...(event.tag ? { tag: event.tag } : {}),
-    };
-  }
-  if (event.type === "tool_call") {
-    return {
-      eventType: event.type,
-      text: sanitizeAcpDiagnosticText(event.text),
-      ...(event.tag ? { tag: event.tag } : {}),
-      ...(event.status ? { status: sanitizeAcpDiagnosticText(event.status) } : {}),
-      ...(event.title ? { title: sanitizeAcpDiagnosticText(event.title) } : {}),
-      ...(event.toolCallId ? { toolCallId: sanitizeAcpDiagnosticText(event.toolCallId) } : {}),
+      ...(event.type === "tool_call"
+        ? {
+            ...(event.status ? { status: sanitizeAcpDiagnosticText(event.status) } : {}),
+            ...(event.title ? { title: sanitizeAcpDiagnosticText(event.title) } : {}),
+            ...(event.toolCallId
+              ? { toolCallId: sanitizeAcpDiagnosticText(event.toolCallId) }
+              : {}),
+          }
+        : {}),
     };
   }
   if (event.type === "error") {
@@ -1451,15 +1445,14 @@ export function emitAcpPromptSubmitted(params: { runId: string; sessionKey?: str
   });
 }
 
-export function emitAcpRuntimeEvent(params: {
-  runId: string;
-  toolTracker: AcpToolLifecycleTracker;
-  event: AcpRuntimeEvent;
-  sessionKey?: string;
-  agentId?: string;
-  abortSignal?: AbortSignal;
-  auditOnly?: boolean;
-}) {
+export function emitAcpRuntimeEvent(
+  params: AcpRunIdentity & {
+    toolTracker: AcpToolLifecycleTracker;
+    event: AcpRuntimeEvent;
+    abortSignal?: AbortSignal;
+    auditOnly?: boolean;
+  },
+) {
   if (params.event.type === "tool_call") {
     emitAcpToolExecutionEvent({
       runId: params.runId,
@@ -1485,14 +1478,7 @@ export function emitAcpRuntimeEvent(params: {
 }
 
 function emitAcpTerminalLifecycle(
-  params: {
-    runId: string;
-    sessionKey?: string;
-    agentId?: string;
-    lifecycleGeneration?: string;
-    auditOnly?: boolean;
-    completionSource?: "reply-dispatch";
-  },
+  params: AcpLifecycleContext,
   terminal: Record<string, unknown> & { phase: "end" | "error"; endedAt: number },
 ) {
   const data = {
@@ -1500,15 +1486,7 @@ function emitAcpTerminalLifecycle(
     executionSettled: true,
     ...(params.completionSource ? { completionSource: params.completionSource } : {}),
   };
-  const emit = params.auditOnly ? emitAgentAuditEvent : emitAgentEvent;
-  emit({
-    runId: params.runId,
-    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
-    ...(params.agentId ? { agentId: params.agentId } : {}),
-    ...(params.lifecycleGeneration ? { lifecycleGeneration: params.lifecycleGeneration } : {}),
-    stream: "lifecycle",
-    data,
-  });
+  emitAcpLifecycleEvent(params, data);
   return buildAgentRunTerminalOutcomeFromLifecycleEvent({
     phase: terminal.phase,
     data,
@@ -1516,17 +1494,13 @@ function emitAcpTerminalLifecycle(
   });
 }
 
-export function emitAcpLifecycleEnd(params: {
-  runId: string;
-  toolTracker: AcpToolLifecycleTracker;
-  sessionKey?: string;
-  agentId?: string;
-  lifecycleGeneration?: string;
-  endFields: ReturnType<typeof resolveAcpLifecycleEndFields>;
-  terminalReply?: AgentRunTerminalReplySnapshot;
-  auditOnly?: boolean;
-  completionSource?: "reply-dispatch";
-}) {
+export function emitAcpLifecycleEnd(
+  params: AcpLifecycleContext & {
+    toolTracker: AcpToolLifecycleTracker;
+    endFields: ReturnType<typeof resolveAcpLifecycleEndFields>;
+    terminalReply?: AgentRunTerminalReplySnapshot;
+  },
+) {
   finalizeAcpToolsForRun(
     params.toolTracker,
     params.runId,
@@ -1544,18 +1518,14 @@ export function emitAcpLifecycleEnd(params: {
   });
 }
 
-export function emitAcpLifecycleError(params: {
-  runId: string;
-  toolTracker: AcpToolLifecycleTracker;
-  error: unknown;
-  sessionKey?: string;
-  agentId?: string;
-  lifecycleGeneration?: string;
-  abortSignal?: AbortSignal;
-  terminalOutcome?: "blocked";
-  auditOnly?: boolean;
-  completionSource?: "reply-dispatch";
-}) {
+export function emitAcpLifecycleError(
+  params: AcpLifecycleContext & {
+    toolTracker: AcpToolLifecycleTracker;
+    error: unknown;
+    abortSignal?: AbortSignal;
+    terminalOutcome?: "blocked";
+  },
+) {
   const terminalReason = resolveAcpToolTerminalReason(params.abortSignal, undefined, params.error);
   finalizeAcpToolsForRun(params.toolTracker, params.runId, terminalReason);
   const lifecycleFields =

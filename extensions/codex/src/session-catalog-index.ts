@@ -128,6 +128,7 @@ export class CodexCatalogIndex {
       options.homeId,
       (event, readThread, source) => this.events.handle(event, readThread, source),
       {
+        onEphemeralThread: (id) => this.remove(id),
         onClose: (source) => {
           this.liveStatus.invalidate(source);
           this.liveSettings.invalidate(source);

@@ -24,6 +24,7 @@ import {
   listActiveEmbeddedRunSessionKeys,
 } from "../embedded-agent-runner/active-run-projections.js";
 import { resolveExecDefaults } from "../exec-defaults.js";
+import type { MainSessionRecoveryAdmission } from "./main-session-recovery-admission.js";
 import type { MainSessionRecoveryCapacity } from "./main-session-recovery-capacity.js";
 import {
   getMainSessionRecoveryRetryCount,
@@ -201,7 +202,7 @@ export async function recoverStore(params: {
   handledSessionKeys: Set<string>;
   expectedClaim?: ExpectedRestartRecoveryClaim;
   expectedTarget?: ExpectedRestartRecoveryTarget;
-  sessionWorkAdmissionHandoffId?: string;
+  recoveryAdmission?: MainSessionRecoveryAdmission;
   activeSessionIds?: Iterable<string>;
   activeSessionKeys?: Iterable<string>;
   lifecycleGeneration?: string;
@@ -433,7 +434,7 @@ export async function recoverStore(params: {
           entry,
           observation: recoveryView.observation,
           recoveryAttempt: recoveryView.nextAttempt,
-          sessionWorkAdmissionHandoffId: params.sessionWorkAdmissionHandoffId,
+          recoveryAdmission: params.recoveryAdmission,
           gatewayRuntime: params.gatewayRuntime,
           ...options,
           lifecycleGeneration: params.lifecycleGeneration,

@@ -54,6 +54,7 @@ async function fixture(
   };
   const homeId = await codexCatalogResidentHomeKey({ startOptions });
   const harness = createClientHarness();
+  const nativeReads = vi.spyOn(harness.client, "request");
   const readNative = vi.fn(async (params: CodexThreadListParams) => {
     const offset = Number(params.cursor ?? 0);
     const limit = params.limit ?? 64;
@@ -74,7 +75,7 @@ async function fixture(
   });
   cleanups.push(async () => {
     harness.client.close();
-    await index.close();
+    await Promise.all([index.close(), harness.client.closeAndWait()]);
   });
   await observeCodexCatalogClient(harness.client, { startOptions });
   if (options.initialize !== false) {
@@ -89,8 +90,9 @@ async function fixture(
       params: { threadId: "thread-1", includeTurns: false },
     });
     harness.send({ id: request.id, result: { thread: value } });
+    await nativeReads.mock.results[position]!.value;
   };
-  return { index, harness, startOptions, readNative, complete, reply };
+  return { index, harness, startOptions, nativeReads, readNative, complete, reply };
 }
 
 function notifyNameAndStatus(harness: ReturnType<typeof createClientHarness>): void {
@@ -192,7 +194,7 @@ describe("resident Codex catalog notifications", () => {
     async ({ repeatFirst, expected }) => {
       const first = thread({ id: "first" });
       const second = thread({ id: "second" });
-      const { index, harness, readNative } = await fixture([first, second]);
+      const { index, harness, nativeReads, readNative } = await fixture([first, second]);
       let turn = 0;
       const start = (threadId: string) =>
         harness.send({
@@ -217,6 +219,7 @@ describe("resident Codex catalog notifications", () => {
         id: secondRead.id,
         result: { thread: { ...second, name: "Second read returned first" } },
       });
+      await nativeReads.mock.results[1]!.value;
       await vi.waitFor(() =>
         expect(index.get(second.id)?.page.sessions[0]?.name).toBe("Second read returned first"),
       );
@@ -224,6 +227,7 @@ describe("resident Codex catalog notifications", () => {
         id: firstRead.id,
         result: { thread: { ...first, name: "First read returned last" } },
       });
+      await nativeReads.mock.results[0]!.value;
       await vi.waitFor(() =>
         expect(index.get(first.id)?.page.sessions[0]?.name).toBe("First read returned last"),
       );
@@ -233,6 +237,7 @@ describe("resident Codex catalog notifications", () => {
           id: latestRead.id,
           result: { thread: { ...first, name: "Latest first turn" } },
         });
+        await nativeReads.mock.results[2]!.value;
         await vi.waitFor(() =>
           expect(index.get(first.id)?.page.sessions[0]?.name).toBe("Latest first turn"),
         );

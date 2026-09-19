@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { posix, win32 } from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type {
   WorkerDesktopApp,
@@ -19,9 +19,26 @@ export function normalizeWorkerDesktopEndpoint(
   const passwordFilePath = value.passwordFilePath;
   if (
     passwordFilePath !== undefined &&
-    (typeof passwordFilePath !== "string" || !isAbsolute(passwordFilePath))
+    (typeof passwordFilePath !== "string" ||
+      !(posix.isAbsolute(passwordFilePath) || win32.isAbsolute(passwordFilePath)))
   ) {
     throw new Error("Worker environment desktop password file path must be absolute");
+  }
+  if (value.allowsResize !== undefined && typeof value.allowsResize !== "boolean") {
+    throw new Error("Worker environment desktop allowsResize must be a boolean");
+  }
+  const username = value.username;
+  if (
+    username !== undefined &&
+    (typeof username !== "string" ||
+      !username.trim() ||
+      username.includes("\0") ||
+      Buffer.byteLength(username, "utf8") > 63 ||
+      !passwordFilePath)
+  ) {
+    throw new Error(
+      "Worker environment desktop username requires a bounded account name and password file",
+    );
   }
   if (value.apps !== undefined && !Array.isArray(value.apps)) {
     throw new Error("Worker environment desktop apps must be an array");
@@ -38,7 +55,10 @@ export function normalizeWorkerDesktopEndpoint(
       throw new Error(`Worker environment desktop app id ${app.id} must be unique`);
     }
     seenAppIds.add(app.id);
-    if (typeof app.executablePath !== "string" || !isAbsolute(app.executablePath)) {
+    if (
+      typeof app.executablePath !== "string" ||
+      !(posix.isAbsolute(app.executablePath) || win32.isAbsolute(app.executablePath))
+    ) {
       throw new Error("Worker environment desktop app executable path must be absolute");
     }
     if (app.id === "terminal") {
@@ -72,6 +92,8 @@ export function normalizeWorkerDesktopEndpoint(
     protocol: "rfb",
     port: value.port,
     ...(passwordFilePath === undefined ? {} : { passwordFilePath }),
+    ...(value.allowsResize === undefined ? {} : { allowsResize: value.allowsResize }),
+    ...(username === undefined ? {} : { username }),
     ...(value.apps === undefined ? {} : { apps }),
   };
 }

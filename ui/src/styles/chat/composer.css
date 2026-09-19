@@ -3381,25 +3381,6 @@ html[dir="rtl"] .chat-attachment-loading > span {
     width: 77px;
     height: 77px;
   }
-
-  .agent-chat__welcome .agent-chat__avatar--text {
-    width: 64px;
-    height: 64px;
-    font-size: 22px;
-  }
-}
-
-.agent-chat__avatar--text {
-  width: 80px;
-  height: 80px;
-  border-radius: var(--radius-full);
-  background: var(--secondary);
-  border: 1px solid var(--border);
-  color: var(--text);
-  display: grid;
-  place-items: center;
-  font-size: 28px;
-  font-weight: 700;
 }
 
 /* Recent user chats replace the canned suggestions once any exist. */

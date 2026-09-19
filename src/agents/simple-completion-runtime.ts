@@ -519,27 +519,6 @@ type AcquiredSimpleCompletionModel =
   | (Extract<PreparedSimpleCompletionModel, { model: Model }> & AsyncDisposable)
   | Extract<PreparedSimpleCompletionModel, { error: string }>;
 
-/** Acquire the exact provider/model already selected by a finite internal caller. */
-export async function acquireSimpleCompletionModel(
-  params: Omit<Parameters<typeof prepareSimpleCompletionModel>[0], "preparedModelRuntime">,
-): Promise<AcquiredSimpleCompletionModel> {
-  return await acquirePreparedSimpleCompletionModel(
-    params,
-    [
-      {
-        provider: params.provider,
-        modelId: params.modelId,
-        ...(params.agentRuntimeId ? { runtime: params.agentRuntimeId } : {}),
-      },
-    ],
-    (context) =>
-      prepareSimpleCompletionModelCore(
-        { ...params, agentDir: context.preparedModelRuntime.agentDir },
-        context,
-      ),
-  );
-}
-
 type AcquiredSimpleCompletionModelForAgent =
   | (Extract<PreparedSimpleCompletionModelForAgent, { model: Model }> & AsyncDisposable)
   | Extract<PreparedSimpleCompletionModelForAgent, { error: string }>;

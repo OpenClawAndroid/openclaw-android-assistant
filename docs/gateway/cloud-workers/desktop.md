@@ -4,7 +4,7 @@ title: "Cloud Worker Desktop"
 read_when: "You want to observe or drive a cloud worker's desktop, or you are enabling the desktop lab."
 ---
 
-Enabling the interactive desktop on a Linux Crabbox profile, what Crabbox provisions for it, and how the viewer reaches it without public ingress.
+Enabling the interactive desktop on a Crabbox profile, what Crabbox provisions for each operating system, and how the viewer reaches it without public ingress.
 
 ## Ask the agent to open an app
 
@@ -39,8 +39,8 @@ Remote commands retain the conversation's `exec` and `process` tool policy and
 use normal one-shot execution approval when configured. Executable allowlists
 from the Gateway are not portable to the temporary machine: an allowlist policy
 with approval disabled refuses remote commands rather than bypassing that policy.
-Desktop support is still Linux only; a macOS or Windows application needs a
-supported desktop provider rather than being silently run on Linux.
+Desktop viewers support Linux, macOS, and native Windows. Select a profile
+target matching the application's operating system; WSL2 has no Crabbox desktop.
 
 Follow-ups reuse the conversation's attached machine. Closing the side panel
 hides its view; background apps remain available under the profile's lifetime.
@@ -57,15 +57,15 @@ for the backup, retention, and re-upgrade contract.
 
 ## Desktop (interactive)
 
-Cloud Worker Desktop lets an administrator watch or control a capable worker from the Control UI without exposing its cloud node as an ordinary paired node. Enable the **Cloud Worker Desktop** lab, then set `settings.desktop: true` on a Linux Crabbox profile. Desktop setup is Linux only. Desktop capability is fixed at warm time: changing the setting affects newly provisioned workers, while an existing non-desktop lease must be stopped and reprovisioned.
+Cloud Worker Desktop lets an administrator watch or control a capable worker from the Control UI without exposing its cloud node as an ordinary paired node. Enable the **Cloud Worker Desktop** lab, then set `settings.desktop: true` on a Crabbox profile. Linux, macOS, and native Windows use their own desktop setup, including when selected as a per-session OS override. Crabbox does not provide a desktop for Windows (WSL2); select native Windows for its desktop viewer. Desktop capability is fixed at warm time: changing the setting affects newly provisioned workers, while an existing non-desktop lease must be stopped and reprovisioned.
 
 The bundled Crabbox plugin supports direct AWS and Azure profiles. Coordinator-backed AWS, Azure, and Hetzner profiles are supported when the selected coordinator advertises Desktop and Browser capability. OpenClaw keeps worker execution node-only: `openclaw worker`, workspace transfer, desktop observation, and app launch all use the authenticated outbound node connection. It does not restore SSH execution, a reverse tunnel, or rsync. Direct Hetzner rejects OpenClaw's fixed lease ID, so desktop profiles fail before allocation unless Hetzner uses a capable managed coordinator.
 
-Crabbox provisions XFCE on display `:99`, an authenticated RFB server on `127.0.0.1:5900`, a fresh lease-scoped browser profile with CDP on `127.0.0.1:9222`, and fixed zero-argument Browser and Terminal launchers. The provider also installs an OpenClaw worker wallpaper so the disposable desktop is easy to identify. Setup is idempotent and completes before the cloud desktop becomes available, including on provisioning replay. Ordinary desktop workers finish this setup in the node enrollment command after launching the node. Project image preparation keeps desktop setup before project setup and capture.
+On Linux, Crabbox provisions XFCE on display `:99`, an authenticated RFB server on `127.0.0.1:5900`, a fresh lease-scoped browser profile with CDP on `127.0.0.1:9222`, and fixed zero-argument Browser and Terminal launchers. The provider also installs an OpenClaw worker wallpaper so the disposable desktop is easy to identify. Setup is idempotent and completes before the cloud desktop becomes available, including on provisioning replay. Ordinary desktop workers finish this setup in the node enrollment command after launching the node. Project image preparation keeps desktop setup before project setup and capture.
 
-The enrolled node starts CUA inside that same XFCE session. A vision-capable agent whose tool policy permits `computer` controls this desktop through the session's exact placement; it cannot select another node. This works for both OpenClaw workers and Codex remote execution. See [Desktop and computer control](/gateway/cloud-sessions#desktop-and-computer-control) for tool enablement and manual-control guidance.
+On Linux, the enrolled node starts CUA inside that same XFCE session. A vision-capable agent whose tool policy permits `computer` controls this desktop through the session's exact placement; it cannot select another node. This works for both OpenClaw workers and Codex remote execution. See [Desktop and computer control](/gateway/cloud-sessions#desktop-and-computer-control) for tool enablement and manual-control guidance.
 
-The desktop never gains public ingress. The node reads `/var/lib/crabbox/vnc.password` locally, inspects the loopback RFB security offer, and keeps that same connection for the viewer. It redeems a single-use Gateway broker ticket over the node's already-connected origin. Opening viewers therefore creates no extra unauthenticated probe connections. TLS deployments pin the same Gateway certificate used by the node connection. The Gateway revalidates the durable environment, lease, node, owner epoch, desktop descriptor, connection, and pairing both before dispatch and after attach; drain, replacement, or teardown aborts the stream and any pending app launch. The shared desktop session owner performs RFB preauthentication, view-only input filtering, and single-controller arbitration. Browser protocol negotiation overlaps worker authentication, but authentication success and desktop traffic wait for both sides to finish.
+The desktop never gains public ingress. The node reads the platform-specific password file locally, inspects the loopback RFB security offer, and keeps that same connection for the viewer. It redeems a single-use Gateway broker ticket over the node's already-connected origin. Opening viewers therefore creates no extra unauthenticated probe connections. TLS deployments pin the same Gateway certificate used by the node connection. The Gateway revalidates the durable environment, lease, node, owner epoch, desktop descriptor, connection, and pairing both before dispatch and after attach; drain, replacement, or teardown aborts the stream and any pending app launch. The shared desktop session owner performs RFB preauthentication, view-only input filtering, and single-controller arbitration. Browser protocol negotiation overlaps worker authentication, but authentication success and desktop traffic wait for both sides to finish.
 
 An open chat updates its desktop target when committed session placement events arrive, including worker replacement and teardown, without waiting for a sidebar refresh.
 
@@ -76,6 +76,22 @@ If you close or replace a Desktop panel during setup, it releases the unused obs
 The Gateway sends WebSocket keepalives on desktop observer and node desktop or portal streams while idle, so an unchanged screen or quiet preview does not go silent behind a proxy. Backpressure may delay pong replies without revoking the stream; the owning session and control connection still govern teardown.
 
 When another operator takes control, your viewer reconnects in view-only mode. The notice identifies the new controller by their authenticated profile name, or their authenticated user ID when no profile name is set. Connections without an authenticated user identity show a generic takeover notice.
+
+## Native desktops
+
+macOS uses Crabbox's native Screen Sharing service. The provider reads the account name from the inspected lease and prepares a private password file readable by the enrolled node. The node sends the password through its authenticated outbound connection, and the Gateway performs Apple Remote Desktop account authentication before attaching the viewer. Account credentials never enter the browser.
+
+Native Windows uses Crabbox's authenticated VNC service and its password file at `C:\ProgramData\crabbox\vnc.password`. Native workers skip Linux browser provisioning, XFCE setup, and Linux desktop environment discovery. The viewer supports observation and control; the Linux-specific Browser and Terminal launch buttons are not advertised for native desktops.
+
+Warm-image reuse remains Linux only. Native desktops use cold provisioning even when the shared profile enables warm images. macOS also requires existing EC2 Mac Dedicated Host capacity in the selected provider region.
+
+Before downgrading to a version without native desktop support, stop and release
+all macOS and native Windows worker environments, including primary session
+placements and conversation attachments. Wait for confirmed lease teardown;
+closing the viewer or suspending a worker is not sufficient. Older Gateways can
+reject persisted Windows password paths or discard the macOS account metadata
+needed for authentication. Confirmed teardown clears the desktop descriptor so
+those records can be read by the older version.
 
 ## Desktop size
 

@@ -59,11 +59,11 @@ import {
 } from "./session-accessor.sqlite-transcript-write-guard.js";
 import type {
   SessionTranscriptRuntimeTarget,
+  SessionTranscriptWriteLockAccessorContext,
   SessionTranscriptWriteTransactionContext,
 } from "./session-accessor.types.js";
 import { COMPACTION_RUN_USAGE_CLEAR_PATCH } from "./session-entry-projection.js";
 import { projectCanonicalSessionEntryShape } from "./store-entry-shape.js";
-import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
 import {
   assertOwnedTranscriptWriteCommit,
   SessionTranscriptWriterClaimReboundError,
@@ -87,26 +87,6 @@ export type TranscriptWriteSnapshot<T> = {
 export type TranscriptEventAppendResult =
   | { appended: false }
   | { appended: true; effectiveParentId?: string | null };
-
-type SqliteTranscriptWriteLockContext = {
-  appendMessage: <TMessage>(
-    options: TranscriptMessageAppendOptions<TMessage>,
-  ) => Promise<TranscriptMessageAppendResult<TMessage> | undefined>;
-  appendMessageWithMessageSequence: <TMessage>(
-    options: TranscriptMessageAppendOptions<TMessage>,
-  ) => Promise<{
-    lifecycleRevision?: string;
-    messageSeq?: number;
-    result: TranscriptMessageAppendResult<TMessage> | undefined;
-  }>;
-  readMessageFacts: (params: { idempotencyKeys: readonly string[] }) => Promise<{
-    anchorsByIdempotencyKey: Map<string, TranscriptEntryAnchor>;
-    existingIdempotencyKeys: Set<string>;
-    messagesByIdempotencyKey: Map<string, unknown>;
-  }>;
-  readEvents: () => Promise<TranscriptEvent[]>;
-  replaceEvents: (events: readonly TranscriptEvent[]) => Promise<void>;
-};
 
 type SqliteTranscriptSnapshotState =
   | { kind: "current"; rows: SqliteTranscriptSnapshotRow[] }
@@ -513,7 +493,7 @@ export function appendTranscriptMessageSnapshotSync<TMessage>(
 /** Runs read/append transcript work under one SQLite writer-queue critical section. */
 export async function withTranscriptWriteLock<T>(
   scope: SessionTranscriptWriteScope,
-  run: (context: SqliteTranscriptWriteLockContext) => Promise<T> | T,
+  run: (context: SessionTranscriptWriteLockAccessorContext) => Promise<T> | T,
 ): Promise<T> {
   const fencedScope = withOwnedSessionTranscriptWriterFence(scope);
   const resolved = resolveSqliteTranscriptScope(fencedScope);

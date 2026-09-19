@@ -32,6 +32,7 @@ import {
   type ControlUiE2eDiagnosticEvent,
 } from "./control-ui-e2e-diagnostics.ts";
 import { controlUiE2eWaitTimeoutMs } from "./control-ui-e2e-readiness.ts";
+import { createControlUiMockResponses } from "./control-ui-mock-responses.ts";
 import type { NativeControlUiPluginFixture } from "./control-ui-plugin-fixture.ts";
 import {
   createControlUiSessionFixtures,
@@ -1164,7 +1165,7 @@ export function createControlUiMockGatewayInitScript(
     protocolVersion: PROTOCOL_VERSION,
     scenario: normalizeScenario(scenario),
   };
-  return `${json5BrowserSource}\n;(() => { const __name = (target) => target; (${installControlUiMockGateway.toString()})(${JSON.stringify(input)}, globalThis.JSON5.parse, ${createControlUiSessionFixtures.toString()}, ${createControlUiAttachmentFacts.toString()}); })();`;
+  return `${json5BrowserSource}\n;(() => { const __name = (target) => target; (${installControlUiMockGateway.toString()})(${JSON.stringify(input)}, globalThis.JSON5.parse, ${createControlUiSessionFixtures.toString()}, ${createControlUiAttachmentFacts.toString()}, ${createControlUiMockResponses.toString()}); })();`;
 }
 
 export type ControlUiMockRequestHandler = (request: {
@@ -1215,6 +1216,7 @@ function installControlUiMockGateway(
   parseJson5: (raw: string) => unknown,
   createSessions: typeof createControlUiSessionFixtures,
   createAttachmentFacts: typeof createControlUiAttachmentFacts,
+  createResponses: typeof createControlUiMockResponses,
 ) {
   const NativeWebSocket = window.WebSocket;
   type BrowserFrame = {
@@ -1222,16 +1224,6 @@ function installControlUiMockGateway(
     method?: unknown;
     params?: unknown;
     type?: unknown;
-  };
-  type BrowserMethodResponseCase = {
-    match?: Record<string, unknown>;
-    response?: unknown;
-  };
-  type BrowserMethodResponseCases = {
-    cases?: BrowserMethodResponseCase[];
-  };
-  type BrowserMethodResponseSequence = {
-    sequence?: unknown[];
   };
   type DeferredResponse = {
     id: string;
@@ -1298,7 +1290,6 @@ function installControlUiMockGateway(
   const deferredResponses: DeferredResponse[] = [];
   const requests: MockGatewayRequest[] = [];
   const requestHandlers = new Map<string, ControlUiMockRequestHandler>();
-  const methodResponseSequenceIndexes = new Map<string, number>();
   const pendingApprovals = new Map<string, Map<string, Record<string, unknown>>>();
   let canonicalSessionRows = scenario.sessions;
   let hasCanonicalSessionsOverride = false;
@@ -1354,6 +1345,15 @@ function installControlUiMockGateway(
     sectionOrder: [],
     renames: [],
   };
+  const responseFixtures = createResponses(
+    {
+      methodResponses: scenario.methodResponses,
+      defaultAgentId: scenario.defaultAgentId,
+      sessions,
+      groupRenames: () => groupsState.renames,
+    },
+    isRecord,
+  );
   let online = true;
   try {
     online = window.sessionStorage.getItem(offlineStateKey) !== "1";
@@ -1486,81 +1486,6 @@ function installControlUiMockGateway(
 
   function hasOwn(record: Record<string, unknown>, key: string): boolean {
     return Object.hasOwn(record, key);
-  }
-
-  function valuesEqual(actual: unknown, expected: unknown): boolean {
-    if (Object.is(actual, expected)) {
-      return true;
-    }
-    if ((actual && typeof actual === "object") || (expected && typeof expected === "object")) {
-      try {
-        return JSON.stringify(actual) === JSON.stringify(expected);
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }
-
-  function paramsMatch(params: unknown, match: Record<string, unknown> | undefined): boolean {
-    if (!match) {
-      return true;
-    }
-    const entries = Object.entries(match);
-    if (entries.length === 0) {
-      return true;
-    }
-    if (!isRecord(params)) {
-      return false;
-    }
-    return entries.every(
-      ([key, expected]) => hasOwn(params, key) && valuesEqual(params[key], expected),
-    );
-  }
-
-  function responseCases(value: unknown): BrowserMethodResponseCase[] | null {
-    if (!isRecord(value)) {
-      return null;
-    }
-    const maybeCases = (value as BrowserMethodResponseCases).cases;
-    return Array.isArray(maybeCases) ? maybeCases : null;
-  }
-
-  function responseSequence(value: unknown): unknown[] | null {
-    if (!isRecord(value)) {
-      return null;
-    }
-    const maybeSequence = (value as BrowserMethodResponseSequence).sequence;
-    return Array.isArray(maybeSequence) ? maybeSequence : null;
-  }
-
-  function configuredResponse(
-    method: string,
-    params: unknown,
-  ): { found: boolean; value?: unknown } {
-    if (!hasOwn(scenario.methodResponses, method)) {
-      return { found: false };
-    }
-    const configured = scenario.methodResponses[method];
-    const sequence = responseSequence(configured);
-    if (sequence) {
-      if (sequence.length === 0) {
-        return { found: false };
-      }
-      const index = methodResponseSequenceIndexes.get(method) ?? 0;
-      methodResponseSequenceIndexes.set(method, index + 1);
-      // Keep the final response stable so harmless UI retries remain deterministic.
-      return { found: true, value: sequence[Math.min(index, sequence.length - 1)] };
-    }
-    const cases = responseCases(configured);
-    if (!cases) {
-      return { found: true, value: configured };
-    }
-    const matchingCase = cases.find((candidate) => paramsMatch(params, candidate.match));
-    if (!matchingCase) {
-      return { found: false };
-    }
-    return { found: true, value: matchingCase.response };
   }
 
   function applyScenarioAgentModel(method: string, value: unknown): unknown {
@@ -1718,7 +1643,11 @@ function installControlUiMockGateway(
    * chat.startup payload so both bootstrap paths serve the same conversation. */
   function configuredHistoryTranscript(): Record<string, unknown> {
     const configured = scenario.methodResponses["chat.history"];
-    if (!isRecord(configured) || responseCases(configured) || responseSequence(configured)) {
+    if (
+      !isRecord(configured) ||
+      responseFixtures.cases(configured) ||
+      responseFixtures.sequence(configured)
+    ) {
       return {};
     }
     const transcript: Record<string, unknown> = {};
@@ -1812,6 +1741,14 @@ function installControlUiMockGateway(
   function commitFixtureResponse(method: string, params: unknown, response: unknown): unknown {
     if (isRecord(response) && (response["__mockError"] || response.ok === false)) {
       return response;
+    }
+    if (
+      method === "sessions.search" &&
+      isRecord(params) &&
+      isRecord(params.scope) &&
+      isRecord(response)
+    ) {
+      return responseFixtures.search(params, response);
     }
     if (
       method === "chat.send" &&
@@ -2052,7 +1989,7 @@ function installControlUiMockGateway(
   function buildResponse(method: string, params: unknown): unknown {
     if (configState && baseConfigResponse) {
       if (method === "config.get") {
-        const configured = configuredResponse(method, params);
+        const configured = responseFixtures.select(method, params);
         const configuredConfig = isRecord(configured.value) ? configured.value : baseConfigResponse;
         if (
           typeof configuredConfig.raw === "string" &&
@@ -2121,7 +2058,7 @@ function installControlUiMockGateway(
           };
           persistConfigState();
         }
-        const configured = configuredResponse(method, params);
+        const configured = responseFixtures.select(method, params);
         const configuredAck = isRecord(configured.value) ? configured.value : {};
         // Like the real gateway, return the persisted config and its new hash.
         return {
@@ -2133,7 +2070,7 @@ function installControlUiMockGateway(
         };
       }
     }
-    const configured = configuredResponse(method, params);
+    const configured = responseFixtures.select(method, params);
     if (configured.found) {
       const configuredValue = applyScenarioAgentModel(method, configured.value);
       return method === "sessions.list"
@@ -2683,7 +2620,8 @@ function installControlUiMockGateway(
       return true;
     }
     const index = deferredMethods.findIndex(
-      (candidate) => candidate.method === method && paramsMatch(params, candidate.match),
+      (candidate) =>
+        candidate.method === method && responseFixtures.matches(params, candidate.match),
     );
     if (index < 0) {
       return false;
@@ -2902,7 +2840,8 @@ function installControlUiMockGateway(
     findRequests(method, match) {
       // Capture and deferral must select the same RPC scope; child lists share the roster method.
       return requests.filter(
-        (request) => (!method || request.method === method) && paramsMatch(request.params, match),
+        (request) =>
+          (!method || request.method === method) && responseFixtures.matches(request.params, match),
       );
     },
     rejectDeferred(method, error) {
@@ -2990,7 +2929,7 @@ function installControlUiMockGateway(
     },
     setMethodResponse(method, payload) {
       scenario.methodResponses[method] = payload;
-      methodResponseSequenceIndexes.delete(method);
+      responseFixtures.resetSequence(method);
       methodResponseOverrides[method] = payload;
       try {
         window.sessionStorage.setItem(
@@ -3024,7 +2963,7 @@ function installControlUiMockGateway(
       historyMessagesOverridden = true;
       scenario.historyMessages = Array.isArray(messages) ? messages : [];
       const configuredHistory = scenario.methodResponses["chat.history"];
-      if (isRecord(configuredHistory) && !responseCases(configuredHistory)) {
+      if (isRecord(configuredHistory) && !responseFixtures.cases(configuredHistory)) {
         configuredHistory.messages = scenario.historyMessages;
       }
     },

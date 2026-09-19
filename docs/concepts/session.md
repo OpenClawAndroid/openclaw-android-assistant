@@ -212,6 +212,11 @@ When replaying an interrupted turn, recovery preserves its recorded tool calls
 and results, including nested tool activity, and reuses the original user message.
 A completed reply or a later user message closes that turn to replay.
 
+Messages sent while restart recovery is waiting to start stay pending. Once
+recovery starts, they follow the session's normal message queue policy. You do
+not need to resend a message just because recovery is waiting for capacity.
+Stopping or replacing the session still cancels pending work.
+
 If automatic recovery is exhausted, the transcript remains available. Use
 **Resume in new session** in WebChat, or `/new` or `/reset` in other channels,
 to start a replacement session.

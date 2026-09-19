@@ -121,10 +121,59 @@ type SqliteReadOnlyWorkerScope = {
   pending: Set<Promise<SqliteReadOnlyWorkerValue>>;
   deadlineOwnedByCaller: boolean;
   worker?: ReturnType<typeof createScopedSqliteReadOnlyWorker>;
+  authWorker?: {
+    source: SqliteAuthProfileReadOptions["source"];
+    session: ReturnType<typeof createScopedSqliteReadOnlyWorker>;
+  };
+  authTail: Promise<void>;
 };
 const readOnlyWorkerScope = new AsyncLocalStorage<SqliteReadOnlyWorkerScope>();
 
-/** Reuse only a child process's imports; every inspection reacquires source admission. */
+/** Reuse child imports until the lifecycle owner closes; reads reacquire source admission. */
+export function createSqliteReadOnlyWorkerScope(options?: {
+  signal: AbortSignal;
+  deadlineOwnedByCaller: boolean;
+}) {
+  const scope: SqliteReadOnlyWorkerScope = {
+    active: true,
+    busy: false,
+    controller: new AbortController(),
+    pending: new Set(),
+    deadlineOwnedByCaller: options?.deadlineOwnedByCaller ?? false,
+    authTail: Promise.resolve(),
+  };
+  const abort = () => scope.controller.abort(options?.signal.reason);
+  options?.signal.addEventListener("abort", abort, { once: true });
+  if (options?.signal.aborted) {
+    abort();
+  }
+  let closing: Promise<void> | undefined;
+  return {
+    run<T>(operation: () => T): T {
+      return readOnlyWorkerScope.run(scope, operation);
+    },
+    close(): Promise<void> {
+      closing ??= (async () => {
+        options?.signal.removeEventListener("abort", abort);
+        scope.active = false;
+        scope.controller.abort(new Error("SQLite read-only worker scope closed"));
+        await Promise.allSettled(scope.pending);
+        const closed = await Promise.allSettled([
+          scope.worker?.close(),
+          scope.authWorker?.session.close(),
+        ]);
+        const failures = closed.flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : [],
+        );
+        if (failures.length > 0) {
+          throw new AggregateError(failures, "SQLite read-only worker scope cleanup failed");
+        }
+      })();
+      return closing;
+    },
+  };
+}
+
 export async function withSqliteReadOnlyWorkerScope<T>(
   operation: () => Promise<T>,
   options?: { signal: AbortSignal; deadlineOwnedByCaller: boolean },
@@ -132,26 +181,11 @@ export async function withSqliteReadOnlyWorkerScope<T>(
   if (!options && readOnlyWorkerScope.getStore()?.active) {
     return operation();
   }
-  const scope: SqliteReadOnlyWorkerScope = {
-    active: true,
-    busy: false,
-    controller: new AbortController(),
-    pending: new Set(),
-    deadlineOwnedByCaller: options?.deadlineOwnedByCaller ?? false,
-  };
-  const abort = () => scope.controller.abort(options?.signal.reason);
-  options?.signal.addEventListener("abort", abort, { once: true });
-  if (options?.signal.aborted) {
-    abort();
-  }
+  const scope = createSqliteReadOnlyWorkerScope(options);
   try {
-    return await readOnlyWorkerScope.run(scope, operation);
+    return await scope.run(operation);
   } finally {
-    options?.signal.removeEventListener("abort", abort);
-    scope.active = false;
-    scope.controller.abort(new Error("SQLite read-only worker scope closed"));
-    await Promise.allSettled(scope.pending);
-    await scope.worker?.close();
+    await scope.close();
   }
 }
 
@@ -252,21 +286,31 @@ export function runSqliteReadOnlyWorker(
   if (useScopedWorker) {
     scope.busy = true;
   }
-  const operation = (async () => {
-    if (!useScopedWorker) {
-      return runSqliteReadOnlyWorkerOnce(pathname, scopedOptions);
-    }
-    try {
-      if (!scope.worker?.compatible()) {
-        await scope.worker?.close();
-        scopedOptions.signal.throwIfAborted();
-        scope.worker = createScopedSqliteReadOnlyWorker();
-      }
-      return await scope.worker.run(pathname, scopedOptions);
-    } finally {
-      scope.busy = false;
-    }
-  })();
+  const operation =
+    scopedOptions.mode === "auth-profile-rows"
+      ? scope.authTail.then(() => runSqliteAuthProfileWorker(pathname, scopedOptions, scope))
+      : (async () => {
+          if (!useScopedWorker) {
+            return runSqliteReadOnlyWorkerOnce(pathname, scopedOptions);
+          }
+          try {
+            if (!scope.worker?.compatible()) {
+              await scope.worker?.close();
+              scopedOptions.signal.throwIfAborted();
+              scope.worker = createScopedSqliteReadOnlyWorker();
+            }
+            return await scope.worker.run(pathname, scopedOptions);
+          } finally {
+            scope.busy = false;
+          }
+        })();
+  if (scopedOptions.mode === "auth-profile-rows") {
+    // Source locks are process-owned. Keep auth requests serial even for different databases.
+    scope.authTail = operation.then(
+      () => {},
+      () => {},
+    );
+  }
   scope.pending.add(operation);
   void operation.then(
     () => scope.pending.delete(operation),
@@ -275,52 +319,77 @@ export function runSqliteReadOnlyWorker(
   return operation;
 }
 
+async function runSqliteAuthProfileWorker(
+  pathname: string,
+  options: SqliteAuthProfileReadOptions,
+  scope?: SqliteReadOnlyWorkerScope,
+): Promise<SqliteReadOnlyWorkerValue> {
+  options.signal?.throwIfAborted();
+  if (
+    scope?.authWorker &&
+    (scope.authWorker.source !== options.source ||
+      !scope.authWorker.session.compatible(resolveNodeCompileCacheEnv(options.env)))
+  ) {
+    await scope.authWorker.session.close();
+    scope.authWorker = undefined;
+    options.signal?.throwIfAborted();
+  }
+  let worker =
+    scope?.authWorker?.session ?? createScopedSqliteReadOnlyWorker(options.env, options.source);
+  while (true) {
+    if (scope) {
+      scope.authWorker = { source: options.source, session: worker };
+    }
+    let outcome: { value: SqliteReadOnlyWorkerValue } | { error: unknown };
+    try {
+      const value = await worker.run(pathname, options);
+      options.signal?.throwIfAborted();
+      outcome = { value };
+    } catch (error) {
+      outcome = { error };
+    }
+    let cleanupFailure: { error: unknown } | undefined;
+    if (!scope || "error" in outcome) {
+      try {
+        await worker.close();
+        if (scope) {
+          scope.authWorker = undefined;
+        }
+      } catch (error) {
+        cleanupFailure = { error };
+      }
+    }
+    if (cleanupFailure) {
+      if ("error" in outcome) {
+        throw new AggregateError(
+          [outcome.error, cleanupFailure.error],
+          "Auth read and child cleanup failed",
+          { cause: outcome.error },
+        );
+      }
+      throw cleanupFailure.error;
+    }
+    if ("error" in outcome) {
+      if (worker.notStarted && hasErrnoCode(outcome.error, "ERR_SPAWN_BROKER_UNAVAILABLE")) {
+        options.signal?.throwIfAborted();
+        // A confirmed refusal has no child to replay. Preserve the captured launch context.
+        worker = worker.createNativeReplacement();
+        continue;
+      }
+      throw outcome.error;
+    }
+    options.signal?.throwIfAborted();
+    return outcome.value;
+  }
+}
+
 function runSqliteReadOnlyWorkerOnce(
   pathname: string,
   options: SqliteReadOnlyWorkerOptions,
 ): Promise<SqliteReadOnlyWorkerValue> {
   if (options.mode === "auth-profile-rows") {
-    return (async () => {
-      options.signal?.throwIfAborted();
-      let worker = createScopedSqliteReadOnlyWorker(options.env, options.source);
-      while (true) {
-        let outcome: { value: SqliteReadOnlyWorkerValue } | { error: unknown };
-        try {
-          const value = await worker.run(pathname, options);
-          options.signal?.throwIfAborted();
-          outcome = { value };
-        } catch (error) {
-          outcome = { error };
-        }
-        let cleanupFailure: { error: unknown } | undefined;
-        try {
-          await worker.close();
-        } catch (error) {
-          cleanupFailure = { error };
-        }
-        if (cleanupFailure) {
-          if ("error" in outcome) {
-            throw new AggregateError(
-              [outcome.error, cleanupFailure.error],
-              "Auth read and child cleanup failed",
-              { cause: outcome.error },
-            );
-          }
-          throw cleanupFailure.error;
-        }
-        if ("error" in outcome) {
-          if (worker.notStarted && hasErrnoCode(outcome.error, "ERR_SPAWN_BROKER_UNAVAILABLE")) {
-            options.signal?.throwIfAborted();
-            // A confirmed refusal has no child to replay. Preserve the captured launch context.
-            worker = worker.createNativeReplacement();
-            continue;
-          }
-          throw outcome.error;
-        }
-        options.signal?.throwIfAborted();
-        return outcome.value;
-      }
-    })();
+    // CLI and bounded readers without a lifecycle owner must join their child before returning.
+    return runSqliteAuthProfileWorker(pathname, options);
   }
   return new Promise<SqliteReadOnlyWorkerValue>((resolve, reject) => {
     const { timeoutMs, size } = readSqliteInspectionBudget("read-only snapshot", pathname);

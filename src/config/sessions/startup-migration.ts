@@ -289,14 +289,18 @@ export async function runSessionStartupMigration(params: {
   });
   // Share preflight's two-agent disk budget: overlap admission without multiplying
   // SQLite scans and worker heaps across the whole fleet. Drain active work on failure.
-  const { hasError, firstError } = await runTasksWithConcurrency({
-    tasks,
-    limit: AGENT_DATABASE_PREFLIGHT_CONCURRENCY,
-    errorMode: "stop",
+  const { withSqliteCanonicalValidationWorkerPool } =
+    await import("./session-accessor.sqlite-canonical-worker-pool.js");
+  await withSqliteCanonicalValidationWorkerPool(env, async () => {
+    const { hasError, firstError } = await runTasksWithConcurrency({
+      tasks,
+      limit: AGENT_DATABASE_PREFLIGHT_CONCURRENCY,
+      errorMode: "stop",
+    });
+    if (hasError) {
+      throw firstError;
+    }
   });
-  if (hasError) {
-    throw firstError;
-  }
   params.assertCurrent?.();
   if (pendingWorktreeSessions > 0) {
     params.log.warn(

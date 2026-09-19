@@ -1,4 +1,3 @@
-// Telegram plugin module implements button types behavior.
 import { parseExecApprovalCommandText } from "openclaw/plugin-sdk/approval-reply-runtime";
 import {
   legacyInteractiveReplyToPresentation,

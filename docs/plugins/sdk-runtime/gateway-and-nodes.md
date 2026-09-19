@@ -187,6 +187,14 @@ Reach the Gateway and paired nodes from plugin code, and the events a long-lived
 
 ## Gateway service events
 
+Gateway-hosted services can use `ctx.invokeNode?.()` for their own registered
+node commands. This uses the service's identity, so a read-only document request
+can fetch a remote file without granting its caller `operator.write`.
+Authorize the public operation before using this capability. Node pairing,
+command grants, and plugin path policies still apply. The capability accepts no
+caller-selected scopes and stops accepting work when the service stops or its
+Gateway closes. Ordinary `api.runtime.nodes.invoke` keeps its caller's authority.
+
 Gateway-hosted services also receive `ctx.getCron?.()` for the scheduler operations
 already available to Gateway hooks: `list`, `add`, `update`, `remove`, and
 `removeStaleJobFamily`. Non-Gateway service hosts omit this getter.

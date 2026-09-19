@@ -70,9 +70,11 @@ const respawnSignalForceKillGraceMs = 1_000;
 const respawnSignalHardExitGraceMs = 1_000;
 
 export const runRespawnedChild = (command, args, env) => {
+  const stdioIsTerminal = process.stdin.isTTY || process.stdout.isTTY;
   const child = spawn(command, args, {
     stdio: "inherit",
     env,
+    windowsHide: !stdioIsTerminal,
   });
   const listeners = new Map();
   // Keep signal forwarding and bounded shutdown in sync with src/entry.compile-cache.ts.

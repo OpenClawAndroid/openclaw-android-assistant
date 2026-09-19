@@ -32,7 +32,11 @@ import type {
   DraftSubmissionCallbacks,
   DraftSubmissionSnapshot,
 } from "./draft-submission-contract.ts";
-import { prepareDraftSubmission, prepareDraftSubmissionTurn } from "./draft-submission-input.ts";
+import {
+  captureTerminalSubmissionInput,
+  prepareDraftSubmission,
+  prepareDraftSubmissionTurn,
+} from "./draft-submission-input.ts";
 import { completeInitialSessionTurn } from "./initial-session-turn-handoff.ts";
 import {
   type InstantThreadHandoff,
@@ -388,7 +392,7 @@ export class DraftSubmissionFlow {
     }
     const preparedTitle = this.callbacks.takePreparedTitle?.();
     this.blockedSubmitGate = null;
-    const input = prepareDraftSubmission(context, this, this.place.agentId, startup, background);
+    const input = prepareDraftSubmission(context, this, this.place, startup, background);
     if (!input) {
       return;
     }
@@ -519,6 +523,9 @@ export class DraftSubmissionFlow {
             );
       instant = beginInstant?.();
       const result = await createRequest;
+      if (result && !placementTarget && result.initialRun.status !== "rejected") {
+        await input.consumeWorktreeName?.();
+      }
       if (requestId !== this.submitRequestToken && !placementTarget) {
         // Leaving the view cancels navigation, not a confirmed send. Retire only
         // the captured source draft; the current route may already hold new input.
@@ -583,6 +590,7 @@ export class DraftSubmissionFlow {
           mode: submissionPlacementRecovery.phase === "creating" ? "dispatch" : "recover",
           createdAt: submittedAt,
         });
+        await input.consumeWorktreeName?.();
         const ownsStartedPlacement = () =>
           isSubmissionLifecycleCurrent() && ownsRecovery(recovery.sessionKey);
         if (!ownsStartedPlacement()) {
@@ -657,6 +665,8 @@ export class DraftSubmissionFlow {
     const requestId = ++this.submitRequestToken;
     const submittedDraft = this.draftPersistence.captureSubmission();
     const initialMessage = this.messageValue.trim();
+    const terminalInput = captureTerminalSubmissionInput(this.place, catalogId, initialMessage);
+    const consumeWorktreeName = this.place.captureSubmittedWorktreeName(terminalInput, agentId);
     this.activeSubmission = {
       phase: "creating",
       message: buildLocalUserMessage({ text: initialMessage, createdAt: Date.now() }, "available"),
@@ -668,24 +678,14 @@ export class DraftSubmissionFlow {
     try {
       const result = await startNewSessionInTerminal(
         client,
-        {
-          catalogId,
-          agentId,
-          hostId: this.place.terminalHostId,
-          cwd:
-            this.place.folder.trim() ||
-            (this.place.terminalOnNode ? "" : this.place.workspacePath()),
-          initialMessage,
-          worktree: this.place.worktree,
-          worktreeName: this.place.worktreeName,
-          baseRef: this.place.baseRef,
-        },
+        terminalInput,
         () => requestId === this.submitRequestToken && this.gateway.client === client,
       );
       if (!result || requestId !== this.submitRequestToken || this.gateway.client !== client) {
         return;
       }
       this.startedSession.current = null;
+      await consumeWorktreeName?.();
       await this.clearSubmittedDraft(true, submittedDraft);
       if (requestId !== this.submitRequestToken || this.gateway.client !== client) {
         return;

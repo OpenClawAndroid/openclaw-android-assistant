@@ -5,9 +5,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { serialize } from "node:v8";
 import { INCOGNITO_AGENT_SQLITE_BASENAME } from "../state/openclaw-agent-db.paths.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "../state/openclaw-state-db-contract.js";
-import { acquireWithWait } from "./acquire-with-wait.js";
-import { sleepWithAbort } from "./backoff.js";
-import { runWithSqliteCoordinator } from "./sqlite-coordinator.js";
 import type {
   PreparedSqliteWorkerOpen,
   SqliteWorkerStoreOptions,
@@ -18,8 +15,6 @@ import { readDatabasePathIdentity, type DatabasePathIdentity } from "./sqlite-wo
 import { createSqliteWorkerOperationAdmission } from "./sqlite-worker-operation-admission.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
 import {
-  acquireStateDatabaseCoordinator,
-  StateDatabaseCoordinatorContentionError,
   tryCreateGatewaySchemaFenceDelegate,
   tryCreateStateLifecycleDelegate,
   withStateDatabaseCoordinatorRuntimeDirectory,
@@ -264,8 +259,7 @@ export function prepareSqliteWorkerLifecycle(
   job: Job,
   actor: Actor | undefined,
   assertDispatchable: () => void,
-  signal?: AbortSignal,
-): void | Promise<void> {
+): void {
   const context = job.request.stateContext ?? actor?.stateContext;
   if (!actor || !context) {
     if (job.requireStateLifecycle) {
@@ -298,48 +292,17 @@ export function prepareSqliteWorkerLifecycle(
         actorId: `${actor.id}:${job.request.id}`,
       });
       if (!delegate && job.requireStateLifecycle) {
-        throw new Error("SQLite worker did not retain its required lifecycle custody");
+        job.request.workerStateLifecycle = {
+          deadlineNs:
+            process.hrtime.bigint() + BigInt(OPENCLAW_SQLITE_BUSY_TIMEOUT_MS) * 1_000_000n,
+        };
       }
       if (delegate) {
         job.stateLifecycle = { actor, delegate };
         job.request.stateLifecycle = delegate.port;
       }
     };
-    if (!job.requireStateLifecycle) {
-      prepare();
-      return undefined;
-    }
-    let acquisitionError: unknown;
-    return acquireWithWait({
-      deadlineMs: performance.now() + OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
-      pollIntervalMs: 25,
-      maxPollIntervalMs: 250,
-      sleep: (ms) =>
-        sleepWithAbort(ms, signal).catch((error: unknown) => {
-          signal?.throwIfAborted();
-          throw error;
-        }),
-      shouldRetry: (error) =>
-        error === acquisitionError &&
-        error instanceof StateDatabaseCoordinatorContentionError &&
-        error.family === "state-lifecycle",
-      acquire: () => {
-        acquisitionError = undefined;
-        assertDispatchable();
-        let coordinator: ReturnType<typeof acquireStateDatabaseCoordinator>;
-        try {
-          coordinator = acquireStateDatabaseCoordinator({
-            databasePath: actor.databasePath,
-            busyTimeoutMs: 0,
-          });
-        } catch (error) {
-          acquisitionError = error;
-          throw error;
-        }
-        // Only acquisition retries. Install delegates once, before releasing this real reference.
-        runWithSqliteCoordinator(coordinator, "SQLite worker lifecycle delegation", prepare);
-      },
-    });
+    prepare();
   });
 }
 

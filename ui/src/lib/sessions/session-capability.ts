@@ -78,6 +78,9 @@ export type SessionListOptions = {
   includeGlobal?: boolean;
   includeUnknown?: boolean;
   configuredAgentsOnly?: boolean;
+  excludeSubagents?: boolean;
+  excludeCron?: boolean;
+  excludeSystem?: boolean;
   includeDerivedTitles?: boolean;
   includeLastMessage?: boolean;
   archivedFilter?: SessionArchivedFilter;

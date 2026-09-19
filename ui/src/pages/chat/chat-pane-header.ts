@@ -1,4 +1,3 @@
-import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { html, nothing } from "lit";
 import { buildControlUiResourcePath } from "../../../../src/gateway/control-ui-resource-routes.js";
 import { isIncognitoSessionKey } from "../../../../src/shared/incognito-session-key.js";
@@ -31,7 +30,6 @@ import {
   canDeleteSessionRows,
   isPinnableUiSessionRow,
   resolveUiConfiguredMainKey,
-  resolveUiSessionNavigationParentKey,
 } from "../../lib/sessions/session-key.ts";
 import {
   canCopySessionMarkdown,
@@ -614,24 +612,7 @@ export abstract class ChatPaneHeader extends ChatPaneDiscussion {
       sessionMenuAction:
         row && this.state
           ? html`<openclaw-chat-header-session-menu
-              .session=${{
-                label:
-                  normalizeOptionalString(row.label) ??
-                  normalizeOptionalString(this.paneTitle) ??
-                  row.key,
-                sessionId: row.sessionId ?? null,
-                isChild: Boolean(resolveUiSessionNavigationParentKey(row)),
-                pinned: row.pinned === true,
-                pinnable,
-                unread: row.unread === true,
-                hiddenFromInvolvingMe: row.hiddenFromInvolvingMe,
-                archived: row.archived === true,
-                archiving: this.context.sessions.archiveVisibility(row.key) === "pending",
-                category: normalizeOptionalString(row.category) ?? null,
-                icon: normalizeOptionalString(row.icon) ?? null,
-                color: normalizeOptionalString(row.color) ?? null,
-                categoryClearReturnsToGroups: false,
-              }}
+              .session=${this.headerSessionMenuData(row, pinnable)}
               .worktreePath=${row.execNode || !isNativeLocalGateway() ? null : workspace.root}
               .onboarding=${this.onboarding}
               .preferencesBrowserOnly=${

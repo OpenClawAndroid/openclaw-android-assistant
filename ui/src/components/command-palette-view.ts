@@ -41,7 +41,7 @@ type CommandPaletteProps = {
   catalogSearchPending: boolean;
   sessionSearchFailed: boolean;
   sessionSearchPartial: boolean;
-  sessionSearchIncomplete: boolean;
+  sessionSearchIndexing: boolean;
   archivedTranscriptsExcluded: number;
   onToggle: () => void;
   onQueryChange: (query: string) => void;
@@ -115,7 +115,7 @@ function handleKeydown(
     e.stopPropagation();
     return;
   }
-  // Footer disclosures and filter buttons keep native Enter/arrow-key behavior.
+  // Filter buttons keep native Enter/arrow-key behavior.
   if (e.key !== "Escape" && !(e.target instanceof HTMLInputElement)) {
     return;
   }
@@ -178,8 +178,8 @@ export function renderCommandPalette(props: CommandPaletteProps) {
   const notices = [
     props.sessionSearchFailed
       ? t("palette.searchFailed")
-      : props.sessionSearchIncomplete
-        ? t("palette.searchIncomplete")
+      : props.sessionSearchIndexing
+        ? t("palette.searchIndexing")
         : props.sessionSearchPartial
           ? t("palette.searchPartial")
           : null,
@@ -322,21 +322,7 @@ export function renderCommandPalette(props: CommandPaletteProps) {
           }
         </div>
         ${props.modelSearchError ? html`<div class="cmd-palette__source-error" role="status">${props.modelSearchError}</div>` : nothing}
-        ${
-          notices.length
-            ? html`<details
-                class="cmd-palette__notices"
-                ?open=${props.sessionSearchFailed || items.length === 0}
-              >
-                <summary>
-                  ${icons.info}<span
-                    >${t("palette.searchNotices", { count: String(notices.length) })}</span
-                  >
-                </summary>
-                <div role="status">${notices.map((notice) => html`<p>${notice}</p>`)}</div>
-              </details>`
-            : nothing
-        }
+        ${notices.map((notice) => html`<div class="cmd-palette__source-error" role="status">${notice}</div>`)}
         <div class="cmd-palette__footer">
           <span><kbd>↑↓</kbd> ${t("palette.footer.navigate")}</span>
           <span><kbd>↵</kbd> ${t("palette.footer.select")}</span>

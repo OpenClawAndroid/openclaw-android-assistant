@@ -34,6 +34,7 @@ import {
 import type { FixtureOpenInput, FixtureOperations } from "./sqlite-worker-store.test-support.js";
 import { SQLITE_WORKER_TRANSFER_FRAME_BYTES } from "./sqlite-worker-transfer.js";
 import * as coordinatorOwner from "./state-database-coordinator.js";
+import { getTrackedWorkerCpuSources } from "./worker-cpu.js";
 
 const stores = new Set<SqliteWorkerStore<FixtureOperations>>();
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
@@ -116,6 +117,15 @@ async function openWithGateway(file: string) {
 const nodeIt = process.versions.bun ? it.skip : it;
 
 describe("SQLite worker store", () => {
+  it("registers storage-worker CPU sources until native close", async () => {
+    const initial = getTrackedWorkerCpuSources();
+    const store = await open(databasePath());
+    const opened = getTrackedWorkerCpuSources();
+    expect(opened.workers).toHaveLength(initial.workers.length + 1);
+    await store.close();
+    expect(getTrackedWorkerCpuSources().workers).toEqual(initial.workers);
+    expect(getTrackedWorkerCpuSources().revision).toBeGreaterThan(opened.revision);
+  });
   it.each(["read", "client close", "global close", "abort", "failed frame"] as const)(
     "preserves a complete large result through %s",
     async (action) => {

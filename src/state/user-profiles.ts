@@ -58,8 +58,8 @@ export {
   getUserProfileDisplay,
   readUserProfileAliases,
   hasMultipleSessionSharingIdentities,
-  listProfiles,
 } from "./user-profile-list.js";
+export { listProfiles } from "./user-profile-reads.js";
 
 type UserProfile = Omit<UserProfileListItem, "emails" | "githubIdentity" | "hasAvatar">;
 

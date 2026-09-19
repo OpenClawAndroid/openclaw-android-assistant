@@ -142,6 +142,7 @@ export type SidebarRecentSession = {
   /** ACP-backed harness session; lands in the Coding zone with work sessions. */
   acpSession?: boolean;
   worktreeId?: string;
+  workspaceKind?: "worktree" | "checkout";
   execNode?: string;
   placementState?: SessionPlacementState;
   placementProviderId?: string;

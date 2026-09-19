@@ -46,6 +46,7 @@ export function loadPersistedAuthProfileStoreFromRows(
 const missing: AuthProfileRowRead = {
   store: { status: "missing", reason: "database" },
   state: { status: "missing", reason: "database" },
+  cacheable: false,
 };
 
 function isInspection(value: unknown): value is PersistedAuthProfileStoreInspection {
@@ -124,6 +125,10 @@ export function prepareAgentAuthProfileRowsRead(options: {
     if (identity && inspectDatabasePathIdentitySync(databasePath)?.key !== identity.key) {
       throw new Error("Auth profile database file identity changed during its read");
     }
+    // Cached rows still borrow this read's revocable authority through host composition.
+    if (!closed) {
+      register();
+    }
   };
   const cleanSnapshot = async (snapshot: PreparedSqliteReadOnlyLocation) => {
     if (!(await snapshot.cleanupAsync())) {
@@ -194,11 +199,11 @@ export function prepareAgentAuthProfileRowsRead(options: {
     }
     const operation = (async () => {
       assertCurrent();
-      register();
       if (!identity) {
         return {
           store: { status: "unreadable" },
           state: { status: "unreadable" },
+          cacheable: false,
         } satisfies AuthProfileRowRead;
       }
       if (!identity.key.startsWith("file:")) {
@@ -242,7 +247,10 @@ export function prepareAgentAuthProfileRowsRead(options: {
           if (!isInspection(rows.store) || !isInspection(rows.state)) {
             throw new Error("Auth profile reader returned invalid inspection rows");
           }
-          result = { ok: true, value: { store: rows.store, state: rows.state } };
+          result = {
+            ok: true,
+            value: { store: rows.store, state: rows.state, cacheable: rows.cacheable },
+          };
         } catch (error) {
           result = { ok: false, error };
         }

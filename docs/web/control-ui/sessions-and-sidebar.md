@@ -39,7 +39,20 @@ or runs setup.
 
 For connections with a durable user profile, the Gateway stores each agent's latest folder, worktree, model, and thinking choices. The new-session picker also shows recent projects and folders derived only from sessions created by that profile. These conveniences follow the person across browsers; they do not grant access to a project or path.
 
-On the first identified connection, the Control UI uploads existing browser-local new-session preferences only when the Gateway has no such preferences yet. Later changes write to the Gateway first and then update the browser mirror. Connections without a durable identity continue using browser-local preferences and the loaded session roster for recents.
+A custom worktree **Name** applies to the submitted session. Once its start is
+accepted, New session clears that name while remembering the repository, checkout
+mode, and base branch. Background starts do the same. Failed admission leaves the
+name available to retry; an accepted placement keeps its original session and
+worktree request for recovery, even if workspace preparation later fails. If
+clearing the saved name cannot be confirmed, the UI warns you to check Name
+before starting another worktree; the accepted session continues. Cleanup preserves
+newer checkout choices saved by another draft or browser, and keeps concurrent
+model changes. A restored start whose original base choice cannot be distinguished
+from a later edit also leaves the saved name unchanged and shows that warning.
+If saving a new draft choice cannot be confirmed, a separate warning asks you to
+check the choices before starting; session creation is never retried by preference cleanup.
+
+On the first identified connection, the Control UI uploads existing browser-local new-session preferences only when the Gateway has no such preferences yet. Concurrent first connections preserve choices already saved by another browser, including a cleared worktree name. Later changes write to the Gateway first and then update the browser mirror. Connections without a durable identity continue using browser-local preferences and the loaded session roster for recents.
 
 When a remote project session starts before its repository finishes cloning, chat shows workspace preparation progress. If preparation fails, opening or reloading chat restores the session's failure summary. Correct the reported problem, then send a new message in the same session to retry preparation.
 
@@ -101,6 +114,8 @@ at the top in chip mode. Plugin links shown by default can be reordered but not
 dragged out of Pages to unpin them; optional plugin destinations can still be unpinned.
 
 To inspect Home’s subagents, open **Home**, choose **Show background tasks**, and use the right-hand **Tasks** panel. Expand **Finished** for recent completed runs; selecting a task opens its details and available transcript.
+
+Session rows show **Worktree** for a managed worktree and **Checkout** when the Gateway records a repository without a managed worktree binding. A folder path alone does not establish a Git checkout, so plain or unresolved workspaces have no repository badge. Hover a session to see its project and branch once; a known working directory stays in the tooltip rather than adding another row.
 
 Hover a session with an enabled automation and choose **Automation attached** to open its **Automations** page. A single matching automation opens directly in the editor; multiple matches appear in a session-filtered list. You can inspect settings and history or edit with the usual permissions. **Show all automations** clears the session filter. Cmd/Ctrl-click opens the link in a new browser tab.
 
@@ -185,6 +200,10 @@ your custom name.
 ### Session menu
 
 Root sessions and ordinary Home-linked dashboard sessions can be pinned. Spawned and nested-child sessions reject pin requests, including when they appear as top-level threads. Subagent runs also reject pin requests and remain outside sidebar navigation.
+
+An ordinary conversation's **Actions** menu also offers **Move to group**, even
+when its header links back to Home. That breadcrumb does not make the
+conversation a nested child.
 
 Pinned parents keep their indented child trees and vertical guides in the Pages section. Expanding or collapsing a pinned parent shows or hides its children together.
 

@@ -22,7 +22,6 @@ import {
   TOOL_DESCRIBE_RAW_TOOL_NAME,
   TOOL_SEARCH_CODE_MODE_TOOL_NAME,
   TOOL_SEARCH_RAW_TOOL_NAME,
-  type ToolSearchCatalogRef,
   type ToolSearchCatalogToolExecutor,
 } from "../tool-search.js";
 import { applyAgentToolSurfaceCatalog, resolveAgentToolSurfacePlan } from "../tool-surface-plan.js";
@@ -37,23 +36,9 @@ const TOOL_SEARCH_CONTROL_ALLOWLIST_NAMES = [
 ];
 const CODE_MODE_CONTROL_ALLOWLIST_NAMES = [CODE_MODE_EXEC_TOOL_NAME, CODE_MODE_WAIT_TOOL_NAME];
 
-export type AgentHarnessToolSurfaceRuntime = {
-  codeModeControlsEnabled: boolean;
-  compactTools: (
-    tools: AnyAgentTool[],
-    options?: { hookContext?: HookContext; localModelLeanApplied?: boolean },
-  ) => {
-    tools: AnyAgentTool[];
-    promptToolPolicy: ReturnType<typeof createAgentHarnessPromptToolPolicy<AnyAgentTool>>;
-  };
-  config: OpenClawConfig | undefined;
-  includeToolSearchControls: boolean;
-  runtimeToolAllowlist: string[] | undefined;
-  toolSearchCatalogRef: ToolSearchCatalogRef | undefined;
-  toolSearchControlsEnabled: boolean;
-  cleanup: () => void;
-  toolSearchCatalogExecutor: ToolSearchCatalogToolExecutor | undefined;
-};
+export type AgentHarnessToolSurfaceRuntime = ReturnType<
+  typeof createAgentHarnessToolSurfaceRuntimeCore
+>;
 
 export function createAgentHarnessToolSurfaceRuntimeCore(params: {
   abortSignal?: AbortSignal;
@@ -79,7 +64,7 @@ export function createAgentHarnessToolSurfaceRuntimeCore(params: {
   scheduledToolPolicy?: ScheduledToolPolicyContext;
   sourceReplyDeliveryMode?: string;
   toolsAllow?: readonly string[];
-}): AgentHarnessToolSurfaceRuntime {
+}) {
   const forceDirectMessageTool = messageToolOwnsVisibleReply(params);
   const {
     codeModeControlsEnabled,

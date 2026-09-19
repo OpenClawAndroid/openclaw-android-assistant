@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import type { File as TelegramFile } from "grammy/types";
 import type { TelegramBotInfo } from "./bot-info.js";
 
 export const telegramBotInfoForTest = {
@@ -42,11 +43,29 @@ export function createChannelPostContext(params: {
       ...(params.caption ? { caption: params.caption } : {}),
       ...(params.text ? { text: params.text } : {}),
       ...(params.mediaGroupId ? { media_group_id: params.mediaGroupId } : {}),
-      ...(photoFileId ? { photo: [{ file_id: photoFileId }] } : {}),
+      ...(photoFileId
+        ? {
+            photo: [
+              {
+                file_id: photoFileId,
+                file_unique_id: `unique-${photoFileId}`,
+                width: 1,
+                height: 1,
+              },
+            ],
+          }
+        : {}),
     },
     me: { username: "openclaw_bot" },
     getFile: async () =>
-      params.getFileResult ?? (photoFileId ? { file_path: `photos/${photoFileId}.jpg` } : {}),
+      params.getFileResult ??
+      (photoFileId
+        ? {
+            file_id: photoFileId,
+            file_unique_id: `unique-${photoFileId}`,
+            file_path: `photos/${photoFileId}.jpg`,
+          }
+        : {}),
   };
 }
 
@@ -86,4 +105,80 @@ export async function waitForTelegramMockCalls(
     }
     await delay(25);
   }
+}
+
+export async function queueChannelPostAlbum(
+  handler: (ctx: Record<string, unknown>) => Promise<void>,
+  params: {
+    caption: string;
+    mediaGroupId: string;
+    firstMessageId: number;
+    secondMessageId: number;
+    firstPhotoFileId?: string;
+    secondPhotoFileId?: string;
+    secondGetFileResult?: Record<string, unknown>;
+  },
+) {
+  await Promise.all(
+    [
+      {
+        messageId: params.firstMessageId,
+        caption: params.caption,
+        date: 1736380800,
+        photoFileId: params.firstPhotoFileId ?? "p1",
+      },
+      {
+        messageId: params.secondMessageId,
+        date: 1736380801,
+        photoFileId: params.secondPhotoFileId ?? "p2",
+        getFileResult: params.secondGetFileResult,
+      },
+    ].map((message) =>
+      handler(createChannelPostContext({ ...message, mediaGroupId: params.mediaGroupId })),
+    ),
+  );
+}
+
+export function createTelegramPrivateMediaContext(params: {
+  messageId: number;
+  fileId: string;
+  fileName?: string;
+  update?: { update_id: number };
+  getFile?: () => Promise<TelegramFile>;
+}) {
+  return {
+    ...(params.update ? { update: params.update } : {}),
+    message: {
+      chat: { id: 1234, type: "private", first_name: "u" },
+      message_id: params.messageId,
+      date: 1736380800,
+      ...(params.fileName
+        ? {
+            document: {
+              file_id: params.fileId,
+              file_unique_id: `unique-${params.fileId}`,
+              file_name: params.fileName,
+            },
+          }
+        : {
+            photo: [
+              {
+                file_id: params.fileId,
+                file_unique_id: `unique-${params.fileId}`,
+                width: 1,
+                height: 1,
+              },
+            ],
+          }),
+      from: { id: 55, is_bot: false, first_name: "u" },
+    },
+    me: { username: "openclaw_bot" },
+    getFile:
+      params.getFile ??
+      (async () => ({
+        file_id: params.fileId,
+        file_unique_id: `unique-${params.fileId}`,
+        file_path: `documents/${params.fileId}`,
+      })),
+  };
 }

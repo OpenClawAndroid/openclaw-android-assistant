@@ -11,6 +11,7 @@ import {
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { ModelDefinitionConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { projectSessionsPatchEntry } from "../gateway/sessions-patch.js";
 import {
   onSessionLifecycleEvent,
   type SessionLifecycleEvent,
@@ -350,7 +351,7 @@ describe("applySessionModelSelection", () => {
     );
   });
 
-  it("resets to a cross-provider default and clears incompatible auth plus runtime", async () => {
+  it("resets a cross-provider default with an explicit runtime reset and clears incompatible auth", async () => {
     const sessionEntry = createEntry({
       providerOverride: "openai",
       modelOverride: "gpt-4o",
@@ -371,7 +372,7 @@ describe("applySessionModelSelection", () => {
           provider: "anthropic",
           model: "claude-opus-4-6",
           isDefault: true,
-          runtime: { kind: "unchanged" },
+          runtime: { kind: "clear" },
         },
       }),
     );
@@ -594,24 +595,8 @@ describe("applySessionModelSelection", () => {
       agentRuntime: "openclaw",
     },
     {
-      name: "set idempotently",
-      initial: "openclaw",
-      runtime: { kind: "set", runtime: "openclaw" } as const,
-      expected: "openclaw",
-      runtimeChange: { kind: "set", runtime: "openclaw" },
-      agentRuntime: "openclaw",
-    },
-    {
       name: "clear",
       initial: "openclaw",
-      runtime: { kind: "clear" } as const,
-      expected: undefined,
-      runtimeChange: { kind: "clear" },
-      agentRuntime: "codex",
-    },
-    {
-      name: "clear idempotently",
-      initial: undefined,
       runtime: { kind: "clear" } as const,
       expected: undefined,
       runtimeChange: { kind: "clear" },
@@ -669,6 +654,29 @@ describe("applySessionModelSelection", () => {
     expect(effects.triggerSessionPatchHook).not.toHaveBeenCalled();
     expect(effects.refreshQueuedFollowupSession).not.toHaveBeenCalled();
     expect(effects.enqueueSystemEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects an incompatible Gateway model patch without changing the session", async () => {
+    const sessionEntry = createEntry({
+      providerOverride: "openai",
+      modelOverride: "gpt-4o",
+      agentRuntimeOverride: "codex",
+    });
+    const { cfg, sessionKey } = createParams({ sessionEntry });
+    const initial = structuredClone(sessionEntry);
+    const result = await projectSessionsPatchEntry({
+      cfg,
+      storeKey: sessionKey,
+      existingEntry: sessionEntry,
+      isLabelInUse: () => false,
+      patch: { key: sessionKey, model: "anthropic/claude-opus-4-6" },
+      loadGatewayModelCatalogSnapshot: async () => ({ entries: catalog, routeVariants: catalog }),
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining('Runtime "codex" is not supported') },
+    });
+    expect(sessionEntry).toEqual(initial);
   });
 
   it("rejects locked selection without mutation or side effects", async () => {

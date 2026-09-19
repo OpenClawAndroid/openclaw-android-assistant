@@ -242,6 +242,8 @@ export type LegacyStateMigrationStepReceipt = Omit<LegacyStateMigrationStepPlan,
   recoveredAgentDatabasePaths?: readonly string[];
   rehearsal?: MigrationMessages["rehearsal"];
   refusal?: { code: string; message: string };
+  /** The first refused step that prevented this step from running. */
+  originatingRefusal?: { stepId: string; code: string; message: string };
 };
 
 export type PlannedPluginDoctorAction = {

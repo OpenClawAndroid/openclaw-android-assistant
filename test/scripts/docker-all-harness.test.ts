@@ -1116,11 +1116,8 @@ describe("Docker scheduler trusted harness execution", () => {
       const leaderPath = path.join(fixture.root, "foreground.pid");
       const leafPath = path.join(fixture.root, "leaf.pid");
       const groupPath = path.join(fixture.root, "group.pid");
-      const probePath = path.join(fixture.root, "group-probe.mjs");
-      const childrenPath = path.join(fixture.root, "owned-children.jsonl");
       const unjoined = failure !== "ordinary command failure";
       const priorFailure = failure === "ordinary failure then unjoined cleanup";
-      const owned: Array<{ pid: number; pgid: number }> = [];
       let leafPid: number | undefined;
       const leafScript = [
         "process.on('SIGTERM', () => {});",
@@ -1148,205 +1145,60 @@ describe("Docker scheduler trusted harness execution", () => {
           "}",
         ].join("\n"),
       );
-      // Only the selected scheduler's probe for the captured group is faulted.
-      // TERM/KILL remain real, and the test retains exact ancestry for cleanup.
-      writeFileSync(
-        probePath,
+      const owner = startOwnedScheduler(
+        fixture,
+        {
+          OPENCLAW_DOCKER_ALL_BUILD: "1",
+          OPENCLAW_DOCKER_ALL_LANES: (priorFailure
+            ? [...laneNames, "cli-installer-distribution"]
+            : laneNames
+          ).join(","),
+          OPENCLAW_DOCKER_ALL_START_STAGGER_MS: process.env.OPENCLAW_DOCKER_ALL_START_STAGGER_MS,
+          OPENCLAW_DOCKER_ALL_STATUS_INTERVAL_MS:
+            process.env.OPENCLAW_DOCKER_ALL_STATUS_INTERVAL_MS,
+          OPENCLAW_DOCKER_ALL_LIVE_RETRIES: process.env.OPENCLAW_DOCKER_ALL_LIVE_RETRIES,
+        },
         [
-          "import fs from 'node:fs';",
-          "import cp from 'node:child_process';",
-          "import { syncBuiltinESMExports } from 'node:module';",
-          `if (${JSON.stringify([path.join(fixture.harness, "scripts/test-docker-all.mjs"), path.join(fixture.harness, "scripts/test-docker-all.mts")])}.includes(process.argv[1])) {`,
-          "  const spawn = cp.spawn;",
-          "  cp.spawn = (...args) => {",
-          "    const child = spawn(...args);",
-          `    if (args[2]?.detached && child.pid) fs.appendFileSync(${JSON.stringify(childrenPath)}, JSON.stringify({ owner: process.pid, pid: child.pid }) + '\\n');`,
-          "    return child;",
-          "  };",
-          "  syncBuiltinESMExports();",
-          "}",
-          `if (process.argv[1] === ${JSON.stringify(path.join(fixture.harness, "scripts/test-docker-all.mts"))}) {`,
           "  const kill = process.kill.bind(process);",
           `  process.kill = (pid, signal) => signal === 0 && fs.existsSync(${JSON.stringify(groupPath)}) && pid === -Number(fs.readFileSync(${JSON.stringify(groupPath)}, 'utf8')) ? true : kill(pid, signal);`,
-          "}",
         ].join("\n"),
+        [leaderPath, leafPath],
       );
-      const shim = spawn(
-        process.execPath,
-        [path.join(fixture.harness, "scripts/test-docker-all.mjs")],
-        {
-          cwd: fixture.target,
-          stdio: ["ignore", "pipe", "pipe"],
-          env: {
-            ...process.env,
-            OPENCLAW_DOCKER_ALL_BUILD: "1",
-            OPENCLAW_DOCKER_ALL_PREFLIGHT: "0",
-            OPENCLAW_DOCKER_ALL_TIMINGS: "0",
-            OPENCLAW_DOCKER_ALL_LANES: (priorFailure
-              ? [...laneNames, "cli-installer-distribution"]
-              : laneNames
-            ).join(","),
-            OPENCLAW_DOCKER_ALL_LOG_DIR: path.join(fixture.root, "logs"),
-            OPENCLAW_DOCKER_ALL_PNPM_COMMAND: fixture.pinnedPnpm,
-            OPENCLAW_DOCKER_E2E_REPO_ROOT: fixture.target,
-            OPENCLAW_DOCKER_E2E_TRUSTED_HARNESS_DIR: fixture.selectedHarness,
-            OPENCLAW_DOCKER_E2E_SELECTED_SHA: fixture.selectedSha,
-            OPENCLAW_CURRENT_PACKAGE_TGZ: fixture.tarball,
-            OPENCLAW_CURRENT_PACKAGE_VERSION: "2026.8.1",
-            OPENCLAW_CURRENT_PACKAGE_SHA256: fixture.sha256,
-            OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_DIR: fixture.registry,
-            OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_CANDIDATE_VERSION: "2026.8.1",
-            OPENCLAW_PREPUBLISH_PLUGIN_REGISTRY_MANIFEST_SHA256: fixture.registrySha256,
-            NODE_OPTIONS:
-              `${process.env.NODE_OPTIONS ?? ""} --import ${pathToFileURL(probePath).href}`.trim(),
-          },
-        },
-      );
-      let didClose = false;
-      const closed = new Promise<void>((resolve) => {
-        shim.once("close", () => {
-          didClose = true;
-          resolve();
-        });
-      });
-      const exited = new Promise<void>((resolve) => {
-        shim.once("exit", () => resolve());
-        shim.once("error", () => resolve());
-      });
-      let observationTimedOut = false;
-      const observedClose = waitForChildClose(shim, 25_000).catch((error: unknown) => {
-        observationTimedOut = true;
-        throw error;
-      });
-      void observedClose.catch(() => undefined);
-      const readOwnedChildren = () => {
-        const rows: Array<{ owner: number; pid: number }> = existsSync(childrenPath)
-          ? readFileSync(childrenPath, "utf8")
-              .trim()
-              .split("\n")
-              .filter(Boolean)
-              .map((line) => JSON.parse(line))
-          : [];
-        const owners = new Set([shim.pid]);
-        for (let remaining = rows.length; remaining > 0; remaining -= 1) {
-          for (const row of rows) {
-            if (owners.has(row.owner)) {
-              owners.add(row.pid);
-            }
+      await runQaGatewayFixture(
+        async () => {
+          if (unjoined) {
+            leafPid = await owner.ready(leafPath);
+            writeFileSync(groupPath, String(owner.captureGroup(leafPid)));
+            const leader = await owner.ready(leaderPath);
+            process.kill(leader, "SIGUSR1");
           }
-        }
-        for (const row of rows) {
-          expect(Number.isSafeInteger(row.pid) && row.pid > 1 && row.pid !== process.pid).toBe(
-            true,
+          expect(await owner.result).toEqual({ code: unjoined ? 2 : 1, signal: null });
+          if (leafPid) {
+            expect(isProcessAlive(leafPid)).toBe(false);
+          }
+          const phases = readFileSync(fixture.marker, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line).phase);
+          expect(phases).toEqual(
+            priorFailure
+              ? ["live-build", "bare"]
+              : unjoined
+                ? ["live-build"]
+                : ["live-build", "package-image"],
           );
-          expect(owners.has(row.owner)).toBe(true);
-        }
-        return rows;
-      };
-      const stopGroups = async (pids: number[]) => {
-        for (const pid of new Set(pids)) {
-          try {
-            process.kill(-pid, "SIGKILL");
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
-              throw error;
-            }
+          expect(owner.stderr()).toContain(
+            unjoined ? "Docker lane process group did not stop" : "shared live-test image once",
+          );
+          if (priorFailure) {
+            const first = "shared live-test image once failed with status 3";
+            const second = "Docker lane process group did not stop";
+            expect(owner.stderr()).toContain(first);
+            expect(owner.stderr().indexOf(first)).toBeLessThan(owner.stderr().indexOf(second));
           }
-        }
-        await Promise.all(pids.map((pid) => waitForDead(pid, 5_000)));
-      };
-      let stderr = "";
-      shim.stdout.resume();
-      shim.stderr.on("data", (chunk) => {
-        stderr = `${stderr}${chunk}`.slice(-8192);
-      });
-      try {
-        if (unjoined) {
-          leafPid = await waitForPidFile(leafPath, 5_000).catch((error: unknown) => {
-            throw new Error(
-              `foreground fixture readiness failed (exit=${String(shim.exitCode)}, signal=${String(shim.signalCode)}):\n${stderr}`,
-              { cause: error },
-            );
-          });
-          let pid = leafPid;
-          for (let depth = 0; depth < 8; depth += 1) {
-            const [observed, ppid, pgid] = execFileSync(
-              "ps",
-              ["-o", "pid=,ppid=,pgid=", "-p", String(pid)],
-              { encoding: "utf8" },
-            )
-              .trim()
-              .split(/\s+/u)
-              .map(Number);
-            expect(observed).toBe(pid);
-            // The shim shares the test's group; only its descendants own detached groups.
-            if (pid === shim.pid) {
-              break;
-            }
-            owned.push({ pid, pgid: pgid! });
-            pid = ppid!;
-          }
-          expect(pid).toBe(shim.pid);
-          writeFileSync(groupPath, String(owned[0]!.pgid));
-          const leader = await waitForPidFile(leaderPath, 5_000);
-          process.kill(leader, "SIGUSR1");
-        }
-        expect(await observedClose).toEqual({ code: unjoined ? 2 : 1, signal: null });
-        if (leafPid) {
-          expect(isProcessAlive(leafPid)).toBe(false);
-        }
-        const phases = readFileSync(fixture.marker, "utf8")
-          .trim()
-          .split("\n")
-          .map((line) => JSON.parse(line).phase);
-        expect(phases).toEqual(
-          priorFailure
-            ? ["live-build", "bare"]
-            : unjoined
-              ? ["live-build"]
-              : ["live-build", "package-image"],
-        );
-        expect(stderr).toContain(
-          unjoined ? "Docker lane process group did not stop" : "shared live-test image once",
-        );
-        if (priorFailure) {
-          const first = "shared live-test image once failed with status 3";
-          const second = "Docker lane process group did not stop";
-          expect(stderr).toContain(first);
-          expect(stderr.indexOf(first)).toBeLessThan(stderr.indexOf(second));
-        }
-      } finally {
-        if (!didClose) {
-          if (shim.exitCode === null && shim.signalCode === null) {
-            shim.kill("SIGTERM");
-          }
-          if (!observationTimedOut) {
-            await waitForChildClose(shim).catch(() => undefined);
-          }
-        }
-        if (shim.exitCode === null && shim.signalCode === null) {
-          shim.kill("SIGKILL");
-        }
-        await exited;
-        // Stop scheduler admission before rereading its acquired lane groups.
-        // The timeout observer above never substitutes for the actual close join.
-        await stopGroups(
-          readOwnedChildren()
-            .filter((row) => row.owner === shim.pid)
-            .map((row) => row.pid),
-        );
-        const children = readOwnedChildren();
-        await stopGroups(children.map((row) => row.pid));
-        const receiptPids = [leaderPath, leafPath]
-          .filter(existsSync)
-          .map((file) => Number(readFileSync(file, "utf8")))
-          .filter((pid) => Number.isSafeInteger(pid) && pid > 1);
-        await Promise.all(
-          [...owned.map(({ pid }) => pid), ...receiptPids].map((pid) => waitForDead(pid, 5_000)),
-        );
-        await closed;
-        rmSync(fixture.root, { recursive: true, force: true });
-      }
+        },
+        () => owner.cleanup(),
+      );
     },
     30_000,
   );

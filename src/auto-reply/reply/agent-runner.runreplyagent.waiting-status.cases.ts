@@ -1,6 +1,15 @@
-import { assert, expect, it, vi, type Mock } from "vitest";
+import { randomUUID } from "node:crypto";
+import { assert, expect, it, onTestFinished, vi, type Mock } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { RunEmbeddedAgentInternalParams } from "../../agents/embedded-agent-runner/run/internal-params.js";
+import type { EmbeddedAgentRunResult } from "../../agents/embedded-agent-runner/types.js";
+import { createSubagentRunParams } from "../../agents/subagent-test-fixtures.test-helpers.js";
+import {
+  markRequesterTurnYielded,
+  registerSubagentRun,
+  resetSubagentRegistryForTests,
+} from "../../agents/subagents/registry/subagent-registry.test-helpers.js";
+import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { getReplyPayloadMetadata } from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 import { createBlockReplySource, setBlockReplyDelivery } from "./block-reply-delivery.js";
@@ -14,12 +23,48 @@ type WaitingStatusFixture = {
   runEmbeddedAgentMock: Pick<Mock, "mockImplementationOnce" | "mockResolvedValueOnce">;
 };
 
+export async function mockAcceptedWaitingStatusRun(
+  runner: WaitingStatusFixture["runEmbeddedAgentMock"],
+  result: EmbeddedAgentRunResult,
+): Promise<void> {
+  const testState = await createOpenClawTestState({ label: "reply-waiting-child" });
+  resetSubagentRegistryForTests({ persist: false });
+  onTestFinished(async () => {
+    resetSubagentRegistryForTests({ persist: false });
+    await testState.cleanup();
+  });
+  runner.mockImplementationOnce(async (params: RunEmbeddedAgentInternalParams) => {
+    assert(params.preparedRunAdmission);
+    assert(params.sessionKey);
+    await params.preparedRunAdmission.admit("embedded");
+    const spawn = {
+      runId: randomUUID(),
+      childSessionKey: "agent:main:subagent:waiting-child",
+      expectsCompletionMessage: true,
+    };
+    const requester = {
+      requesterSessionKey: params.sessionKey,
+      requesterAgentId: params.agentId,
+      requesterTurnRunId: params.runId,
+    };
+    registerSubagentRun(createSubagentRunParams({ ...spawn, ...requester, queued: true }));
+    if (result.meta.yielded) {
+      expect(markRequesterTurnYielded(requester)).toBe(1);
+    }
+    return { ...result, acceptedSessionSpawns: [spawn] };
+  });
+}
+
 export function registerWaitingStatusCases({
   createMinimalRun,
   runEmbeddedAgentMock,
 }: WaitingStatusFixture): void {
   it.each([
-    { label: "implicit continuation", meta: { continuationPending: true }, implicit: true },
+    {
+      label: "implicit continuation",
+      meta: { continuationPending: true as const },
+      implicit: true,
+    },
     { label: "yield without acknowledgment", meta: { yielded: true }, implicit: false },
     {
       label: "explicit acknowledgment",
@@ -27,16 +72,9 @@ export function registerWaitingStatusCases({
       implicit: false,
     },
   ])("delivers one waiting status for $label", async ({ meta, implicit }) => {
-    runEmbeddedAgentMock.mockResolvedValueOnce({
+    await mockAcceptedWaitingStatusRun(runEmbeddedAgentMock, {
       payloads: [],
       meta: { durationMs: 0, ...meta },
-      acceptedSessionSpawns: [
-        {
-          runId: "child-run",
-          childSessionKey: "agent:main:subagent:child",
-          expectsCompletionMessage: true,
-        },
-      ],
     });
     const onPendingContinuation = vi.fn();
     const { run } = createMinimalRun({ opts: { onPendingContinuation } });

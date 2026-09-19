@@ -28,10 +28,8 @@ import {
 import {
   diffInstalledPluginIndexInvalidationReasons,
   extractPluginInstallRecordsFromInstalledPluginIndex,
-  getInstalledPluginRecord,
   hasInstalledPluginIndexWorkspaceScopeMismatch,
   hasMissingConfigPathActivationMetadata,
-  isInstalledPluginEnabled,
   loadInstalledPluginIndexWithDiscovery,
   resolveInstalledPluginIndexPolicyHash,
   type InstalledPluginIndex,
@@ -79,10 +77,6 @@ export type LoadPluginRegistryParams = LoadInstalledPluginIndexParams &
     preferPersisted?: boolean;
     allowCurrent?: boolean;
   };
-
-type GetPluginRecordParams = LoadPluginRegistryParams & {
-  pluginId: string;
-};
 
 // Shared with plugin-registry-refresh.ts.
 export function resolveControlPlaneRegistryParams<T extends LoadInstalledPluginIndexParams>(
@@ -594,18 +588,6 @@ export function loadPluginRegistrySnapshot(
   params: LoadPluginRegistryParams = {},
 ): PluginRegistrySnapshot {
   return loadPluginRegistrySnapshotWithMetadata(params).snapshot;
-}
-
-export function getPluginRecord(params: GetPluginRecordParams): PluginRegistryRecord | undefined {
-  return getInstalledPluginRecord(loadPluginRegistrySnapshot(params), params.pluginId);
-}
-
-export function isPluginEnabled(params: GetPluginRecordParams): boolean {
-  return isInstalledPluginEnabled(
-    loadPluginRegistrySnapshot(params),
-    params.pluginId,
-    params.config,
-  );
 }
 
 export async function inspectPluginRegistry(

@@ -30,7 +30,6 @@ vi.mock("../health-state.js", () => ({
 
 vi.mock("../../../state/user-profiles.js", () => ({
   hasMultipleSessionSharingIdentities: vi.fn(() => false),
-  listProfiles: vi.fn(() => []),
 }));
 
 vi.mock("../../control-ui-plugin-tabs.js", () => ({

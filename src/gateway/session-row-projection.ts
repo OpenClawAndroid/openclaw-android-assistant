@@ -81,9 +81,9 @@ export async function createSessionRowProjection(params: {
     modelCatalog: params.modelCatalog,
     getModelCatalog: params.getModelCatalog,
     onInvalidated: () => mark({ all: true, scope: "catalog" }),
-    onRefreshed(adopted) {
-      if (adopted) {
-        // Rows served during renewal used the previous catalog and must be presented again.
+    onRefreshed(changed) {
+      if (changed) {
+        // Rows served during renewal need new materializations only when their model facts changed.
         epoch++;
         metadata.invalidate({ all: true, scope: "catalog" });
         archive.invalidateRows({ all: true, scope: "catalog" }, rows.values());

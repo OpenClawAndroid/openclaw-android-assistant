@@ -116,6 +116,10 @@ export type GatewayReadinessDiagnostic = {
   probes: Array<ReadinessProbe & { startedAtMs: number; deadlineMs: number }>;
   omittedProbes: number;
   lastProbe: ReadinessProbe | null;
+  lastFailedResponse: Pick<
+    ReadinessProbe,
+    "attempt" | "phase" | "elapsedMs" | "status" | "ready" | "error"
+  > | null;
   child: { pid: number | null; exitCode: number | null; signalCode: NodeJS.Signals | null };
   logs: { stdout: string; stderr: string } | null;
 };
@@ -337,6 +341,22 @@ async function reserveGatewayPort(
   }
 }
 
+export function formatGatewayReadinessDiagnostic(
+  diagnostic: Pick<
+    GatewayReadinessDiagnostic,
+    "attempts" | "elapsedMs" | "lastProbe" | "lastFailedResponse" | "child"
+  >,
+): string {
+  const { attempts, elapsedMs, lastProbe, lastFailedResponse, child } = diagnostic;
+  return `[openclaw-test-instance] readiness ${JSON.stringify({
+    attempts,
+    elapsedMs,
+    lastProbe,
+    lastFailedResponse,
+    child,
+  })}`;
+}
+
 async function waitForGatewayReady(
   proc: OpenClawTestProcessReadiness,
   chunksOut: string[],
@@ -352,12 +372,14 @@ async function waitForGatewayReady(
   let outcome: GatewayReadinessDiagnostic["outcome"] = "timeout";
   let attempts = 0;
   let lastProbe: ReadinessProbe | undefined;
+  let lastFailedResponse: GatewayReadinessDiagnostic["lastFailedResponse"] = null;
   const startupError = (message: string, probe = lastProbe) =>
     new Error(
-      `${message}\n[openclaw-test-instance] readiness ${JSON.stringify({
+      `${message}\n${formatGatewayReadinessDiagnostic({
         attempts,
         elapsedMs: Date.now() - startedAt,
         lastProbe: probe ?? null,
+        lastFailedResponse,
         child: { pid: proc.pid ?? null, exitCode: proc.exitCode, signalCode: proc.signalCode },
       })}\n${formatLogs(chunksOut, chunksErr)}`,
     );
@@ -471,6 +493,18 @@ async function waitForGatewayReady(
           probe.error ??= "aborted";
         }
         lastProbe = { ...probe, elapsedMs: Date.now() - attemptStartedAt };
+        // Preserve a completed failure when the budget's final probe stalls. Keep
+        // only scalar categories, never response bodies, headers, or error text.
+        if (
+          lastProbe.status !== undefined &&
+          outcome !== "ready" &&
+          (!lastProbe.error ||
+            lastProbe.error === "invalid-json" ||
+            lastProbe.error === "body-failed")
+        ) {
+          const { attempt, phase, elapsedMs, status, ready, error } = lastProbe;
+          lastFailedResponse = { attempt, phase, elapsedMs, status, ready, error };
+        }
         // The 60-second desktop wait cannot exceed this bound at its existing 10ms cadence.
         if (probes.length < 8192) {
           probes.push({
@@ -504,6 +538,7 @@ async function waitForGatewayReady(
       probes,
       omittedProbes: attempts - probes.length,
       lastProbe: lastProbe ?? null,
+      lastFailedResponse,
       child: { pid: proc.pid ?? null, exitCode: proc.exitCode, signalCode: proc.signalCode },
       logs: outcome === "ready" ? null : { stdout: chunksOut.join(""), stderr: chunksErr.join("") },
     });

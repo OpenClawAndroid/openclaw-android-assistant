@@ -1,4 +1,3 @@
-// Matrix plugin module implements transport behavior.
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { captureChannelReadAuthority } from "openclaw/plugin-sdk/fetch-runtime";
 import { parseMediaContentLength } from "openclaw/plugin-sdk/media-runtime";

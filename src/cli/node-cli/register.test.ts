@@ -248,14 +248,17 @@ describe("registerNodeCli", () => {
     );
   });
 
-  it("derives the node endpoint, TLS pin, and bootstrap credential from --pair", async () => {
+  it.each([
+    ["--pair", true],
+    ["--pair-if-needed", false],
+  ])("derives endpoint and authentication preference from %s", async (flag, preferBootstrap) => {
     const setupCode = encodePairingSetupCode({
       url: "wss://gateway.example:8443/openclaw-gw",
       bootstrapToken: "bootstrap-123",
       tlsFingerprint: `sha256:${PAIR_TLS_FINGERPRINT.toUpperCase()}`,
     });
 
-    await createProgram().parseAsync(["node", "run", "--pair", `oc-pair://${setupCode}`], {
+    await createProgram().parseAsync(["node", "run", flag, `oc-pair://${setupCode}`], {
       from: "user",
     });
 
@@ -276,9 +279,19 @@ describe("registerNodeCli", () => {
           },
         ],
         gatewayBootstrapToken: "bootstrap-123",
-        preferGatewayBootstrapToken: true,
+        preferGatewayBootstrapToken: preferBootstrap,
       }),
     );
+  });
+
+  it("rejects simultaneous forced and resumable pairing", async () => {
+    await expect(
+      createProgram().parseAsync(["node", "run", "--pair", "first", "--pair-if-needed", "second"], {
+        from: "user",
+      }),
+    ).rejects.toMatchObject({ code: "commander.conflictingOption" });
+    expect(daemonMocks.runNodeHost).not.toHaveBeenCalled();
+    expect(daemonMocks.loadNodeHostConfig).not.toHaveBeenCalled();
   });
 
   it("lets explicit gateway flags override --pair values", async () => {

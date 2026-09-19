@@ -120,6 +120,7 @@ const realGatewayFiles = [
   "chat-tts-supplement.real-gateway",
   "chat-widget-sandbox.real-gateway",
   "command-palette-catalog.real-gateway",
+  "command-palette-search.real-gateway",
   "control-ui-auth-transports",
   "cron-duration-save.real-gateway",
   "desktop-resize.real-gateway",
@@ -542,6 +543,13 @@ describe("Control UI E2E resource ownership", () => {
       expect(result.files.filter((entry) => entry.phase === 1)).toEqual([
         {
           file: "ui/src/e2e/chat-tts-supplement.real-gateway.e2e.test.ts",
+          project: "ui-e2e-serial-standalone",
+          phase: 1,
+          workers: 1,
+          fileParallelism: false,
+        },
+        {
+          file: "ui/src/e2e/command-palette-search.real-gateway.e2e.test.ts",
           project: "ui-e2e-serial-standalone",
           phase: 1,
           workers: 1,

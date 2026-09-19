@@ -1,4 +1,3 @@
-// Matrix plugin module implements channel behavior.
 import {
   adaptScopedAccountAccessor,
   createScopedDmSecurityResolver,

@@ -24,7 +24,8 @@ export type MentionInbox = {
   mentionable: (
     client: GatewayClient | null,
     input: UsersMentionableParams,
-  ) => Result<UsersMentionableResult, ErrorShape>;
+    publish: (result: Result<UsersMentionableResult, ErrorShape>) => undefined,
+  ) => Promise<void>;
   validateRecipients: (
     client: GatewayClient | null,
     input: UsersMentionableParams,

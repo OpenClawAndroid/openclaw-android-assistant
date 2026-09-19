@@ -8,6 +8,11 @@ import { t } from "../i18n/index.ts";
 import type { PresenceViewer } from "../lib/presence-users.ts";
 import { GatewayPageController } from "../lit/gateway-page-controller.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
+import {
+  identityAvatarClass,
+  renderIdentityAvatarImage,
+  resolveIdentityAvatarView,
+} from "./identity-avatar-view.ts";
 import { renderPersonIdentityCard } from "./person-activity-card.ts";
 import { personActivityRouting } from "./person-activity-link.ts";
 import { createPortaledHovercard, PortaledHovercardController } from "./portaled-hovercard.ts";
@@ -50,6 +55,12 @@ class PersonReference extends OpenClawLightDomContentsElement {
   }
 
   protected override updated() {
+    // Keep Lit boundary nodes, but exclude template indentation from copied table text.
+    for (const node of this.trigger?.childNodes ?? []) {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent && !node.textContent.trim()) {
+        node.textContent = "";
+      }
+    }
     if (this.portal.card) {
       this.renderCard();
     }
@@ -190,13 +201,28 @@ class PersonReference extends OpenClawLightDomContentsElement {
   }
 
   override render() {
+    // The avatar route follows merged profiles; rendering a mention needs no directory read.
+    const avatar = resolveIdentityAvatarView({
+      id: this.profileId,
+      identity: { type: "profile", id: this.profileId },
+      name: this.label.replace(/^@/u, ""),
+    });
+    const face = html`<span
+      class=${identityAvatarClass("markdown-person-reference__avatar", avatar)}
+      aria-hidden="true"
+      data-initials=${avatar.fallback.initials}
+      >${renderIdentityAvatarImage({
+        view: avatar,
+        fallbackSelector: ".markdown-person-reference__avatar",
+        ariaHidden: true,
+      })}</span
+    >`;
     return html`<button
       type="button"
       class="markdown-person-reference"
       aria-haspopup="dialog"
       aria-expanded="false"
       aria-label=${t("presence.card.ariaLabel", { name: this.label })}
-      .textContent=${this.label}
       @pointerenter=${(event: PointerEvent) => {
         if (event.pointerType === "touch") {
           return;
@@ -211,6 +237,7 @@ class PersonReference extends OpenClawLightDomContentsElement {
       }}
       @pointerleave=${() => this.portal.schedulePointerExit()}
       @pointercancel=${this.close}
+      @contextmenu=${this.close}
       @focus=${() => {
         if (this.portal.restoringFocus) {
           return;
@@ -232,7 +259,9 @@ class PersonReference extends OpenClawLightDomContentsElement {
         this.portal.explicitHold = true;
         this.open();
       }}
-    ></button>`;
+    >
+      ${face}${this.label}
+    </button>`;
   }
 }
 

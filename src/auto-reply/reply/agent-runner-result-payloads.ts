@@ -331,6 +331,12 @@ export async function prepareReplyAgentPayloads(state: {
     opts?.onAgentRunTerminalOutcome?.("failed");
     return returnPreparedFallbackPayload(silentFallbackFailurePayload);
   };
+  const finishEmptyReply = async () => ({
+    kind: "return" as const,
+    value:
+      (await returnSilentFallbackFailureIfNeeded()) ??
+      returnWithQueuedFollowupDrain(buildStrandedRetryMissingDeliveryDiagnostic()),
+  });
   const providerPolicyRetry = runResult.meta?.executionTrace?.providerPolicyRetry;
   const successfulProviderPolicyRetry =
     isInteractive &&
@@ -426,18 +432,7 @@ export async function prepareReplyAgentPayloads(state: {
     !waitingStatusPayload &&
     (!emptyInteractiveReplyPayload || hasSpecificFallbackFailure)
   ) {
-    const silentFallbackFailurePayload = await returnSilentFallbackFailureIfNeeded();
-    if (silentFallbackFailurePayload) {
-      return { kind: "return" as const, value: silentFallbackFailurePayload };
-    }
-    const strandedRetryDiagnostic = buildStrandedRetryMissingDeliveryDiagnostic();
-    if (strandedRetryDiagnostic) {
-      return {
-        kind: "return" as const,
-        value: returnWithQueuedFollowupDrain(strandedRetryDiagnostic),
-      };
-    }
-    return { kind: "return" as const, value: returnWithQueuedFollowupDrain(undefined) };
+    return finishEmptyReply();
   }
 
   const payloadCandidates = (
@@ -524,18 +519,7 @@ export async function prepareReplyAgentPayloads(state: {
     replyPayloads.length === 0 ||
     (!hasVisibleReplyPayload && !canDeliverStandaloneFallbackNotice)
   ) {
-    const silentFallbackFailurePayload = await returnSilentFallbackFailureIfNeeded();
-    if (silentFallbackFailurePayload) {
-      return { kind: "return" as const, value: silentFallbackFailurePayload };
-    }
-    const strandedRetryDiagnostic = buildStrandedRetryMissingDeliveryDiagnostic();
-    if (strandedRetryDiagnostic) {
-      return {
-        kind: "return" as const,
-        value: returnWithQueuedFollowupDrain(strandedRetryDiagnostic),
-      };
-    }
-    return { kind: "return" as const, value: returnWithQueuedFollowupDrain(undefined) };
+    return finishEmptyReply();
   }
 
   const successfulCronAdds = runResult.successfulCronAdds ?? 0;

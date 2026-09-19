@@ -530,6 +530,8 @@ export const startSubagentAnnounceCleanupFlow = (
   const requesterSettleGeneration = entry.requesterSettleWake?.rearmGeneration;
   const requesterTookCompletion = () =>
     entry.requesterTurnYielded === true ||
+    (entry.completionTarget === "parent" &&
+      entry.requesterSettleWake?.requesterYieldBatch === true) ||
     entry.requesterSettleWake?.rearmGeneration !== requesterSettleGeneration;
   let latestDeliveryError = getDeliveryLastError(entry);
   let committedDelivery: SubagentRunRecord["delivery"];

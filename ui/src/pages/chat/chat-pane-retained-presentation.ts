@@ -27,7 +27,7 @@ import { ChatPaneBoard } from "./chat-pane-board.ts";
 import { consumePaneSessionHandoff, type PaneSessionHandoff } from "./chat-pane-shared.ts";
 import { retirePullRequestRefreshes } from "./chat-pull-request-refresh.ts";
 import { stopChatRealtimeTalk } from "./chat-realtime.ts";
-import { retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
+import { resumeStoredChatOutboxes } from "./chat-send-actions.ts";
 import { setChatError } from "./chat-send-queue-state.ts";
 import { refreshCurrentChatSessionList } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -348,7 +348,7 @@ export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
     }
     if (active && this.presented && this.state?.chatQueue.length) {
       void refreshCurrentChatSessionList(this.state).catch(() => undefined);
-      void retryReconnectableQueuedChatSends(this.state);
+      void resumeStoredChatOutboxes(this.state);
     }
     this.querySelector(".chat-transcript-announcement")?.setAttribute(
       "aria-live",

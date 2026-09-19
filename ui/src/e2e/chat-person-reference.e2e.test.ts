@@ -63,11 +63,41 @@ suite.define(() => {
           });
           await page.goto(suite.server.baseUrl + "chat");
           await page.locator(".chat-bubble").filter({ hasText: text }).waitFor();
-          await captureUiProof(suite, page, "person-references", input + "-message.png");
           const reference = page.locator(".markdown-person-reference");
           await reference.waitFor();
           expect(await reference.count()).toBe(1);
           expect(await reference.textContent()).toBe(label);
+          const avatar = reference.locator(".markdown-person-reference__avatar");
+          await expect
+            .poll(() =>
+              avatar
+                .locator("img")
+                .evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0),
+            )
+            .toBe(true);
+          expect(await avatar.getAttribute("aria-hidden")).toBe("true");
+          expect(
+            await reference.evaluate((node) => {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const selection = window.getSelection()!;
+              selection.removeAllRanges();
+              selection.addRange(range);
+              const copiedText = selection.toString();
+              selection.removeAllRanges();
+              return copiedText;
+            }),
+          ).toBe(label);
+          expect(avatarRequests).toContain("/api/users/profile-old/avatar");
+          const avatarSize = await avatar.boundingBox();
+          expect(avatarSize?.width).toBeGreaterThan(0);
+          expect(avatarSize?.width).toBe(avatarSize?.height);
+          expect(avatarSize!.height).toBeLessThanOrEqual(
+            await reference.evaluate((node) =>
+              Number.parseFloat(getComputedStyle(node).lineHeight),
+            ),
+          );
+          await captureUiProof(suite, page, "person-references", input + "-message.png");
           expect(
             await reference
               .locator("xpath=ancestor::*[contains(@class, 'chat-bubble')]")
@@ -120,6 +150,54 @@ suite.define(() => {
     },
   );
 
+  it("preserves table copying and transcript actions on a mention avatar", async () => {
+    await suite.withPage({}, async ({ page }) => {
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(suite.server.baseUrl).origin,
+      });
+      await page.route("**/api/users/**/avatar*", (route) =>
+        route.fulfill({
+          contentType: "image/png",
+          body: readFileSync("ui/public/apple-touch-icon.png"),
+        }),
+      );
+      const table = `| Request | Status |\n| --- | --- |\n| Ask ${label} today | Open |`;
+      const start = table.indexOf(label);
+      await installMockGateway(page, {
+        historyMessages: [
+          {
+            role: "user",
+            content: table,
+            timestamp: 1,
+            __openclaw: {
+              id: "mention-table",
+              humanMentions: [{ profileId: "profile-old", start, end: start + label.length }],
+            },
+          },
+        ],
+        methodResponses: { "users.list": directory },
+      });
+      await page.goto(suite.server.baseUrl + "chat");
+      const reference = page.locator(".markdown-person-reference");
+      const image = reference.locator("img");
+      await expect
+        .poll(() =>
+          image.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0),
+        )
+        .toBe(true);
+      const copied = `Request\tStatus\nAsk ${label} today\tOpen`;
+      await page.getByRole("button", { name: "Copy table", exact: true }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(copied);
+      const avatar = await image.boundingBox();
+      expect(avatar).not.toBeNull();
+      await page.mouse.click(avatar!.x + avatar!.width / 2, avatar!.y + avatar!.height / 2, {
+        button: "right",
+      });
+      await page.getByRole("menuitem", { name: "Copy table", exact: true }).click();
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(copied);
+    });
+  });
+
   it("does not revive a dismissed or disconnected card when an old directory reply arrives", async () => {
     await suite.withPage({}, async ({ page }) => {
       const gateway = await installMockGateway(page, {
@@ -156,12 +234,21 @@ suite.define(() => {
     "keeps missing and cyclic identities unresolved without guessing from labels",
     async (response) => {
       await suite.withPage({}, async ({ page }) => {
+        await page.route("**/api/users/**/avatar*", (route) => route.fulfill({ status: 404 }));
         await installMockGateway(page, {
           historyMessages,
           methodResponses: { "users.list": response },
         });
         await page.goto(suite.server.baseUrl + "chat");
-        await page.locator(".markdown-person-reference").focus();
+        const reference = page.locator(".markdown-person-reference");
+        const avatar = reference.locator(".markdown-person-reference__avatar.is-fallback");
+        await avatar.waitFor();
+        expect(await reference.textContent()).toBe(label);
+        expect(await avatar.evaluate((node) => getComputedStyle(node, "::after").content)).toBe(
+          '"FN"',
+        );
+        expect(await avatar.locator("img").isVisible()).toBe(false);
+        await reference.focus();
         const card = page.locator(".person-activity-hovercard");
         await expect.poll(() => card.textContent()).toContain("Could not load people");
         expect(await card.locator("a").count()).toBe(0);

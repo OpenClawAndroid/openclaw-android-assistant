@@ -11,12 +11,14 @@ import { trimHumanMentions } from "../../lib/chat/human-mentions.ts";
 import { captureChatOutboxAdmission } from "../../lib/chat/outbox-store.ts";
 import { scopedAgentIdForSession, visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { resolveUiConversationIdentity } from "../../lib/sessions/session-key.ts";
+import { generateUUID } from "../../lib/uuid.ts";
 import { composeBrowserAnnotationContext } from "./browser-annotation-context.ts";
 import {
   dispatchChatSlashCommand,
   requireChatSessionAction,
   shouldQueueLocalSlashCommand,
 } from "./chat-commands.ts";
+import { loadChatBranches } from "./chat-history-branches.ts";
 import { isInitialChatHistoryUnavailable } from "./chat-history-state.ts";
 import { loadChatHistory } from "./chat-history.ts";
 import {
@@ -26,19 +28,14 @@ import {
   removeQueuedMessageWithoutReleasing,
   readQueuedMessageById,
 } from "./chat-queue.ts";
-import { isTerminalFailureChatSendAck } from "./chat-send-ack.ts";
-import { sendChatMessageWithGeneratedRunId } from "./chat-send-actions.ts";
+import { isTerminalFailureChatSendAck, type ChatSendAck } from "./chat-send-ack.ts";
 import {
   captureChatCommandComposerRecovery,
   cancelChatDelivery,
   chatSubmitKey,
-  clearOwnedCommandComposerFallback,
   clearSubmittedComposerState,
-  commandComposerFallbackRetainsAttachments,
-  releaseCommandComposerAttachments,
-  restoreFailedCommandComposer,
+  settleChatCommandComposer,
   snapshotChatAttachments,
-  submittedCommandConnectionIsCurrent,
   submittedCommandScopeIsVisible,
   type ChatCommandComposerRecovery,
 } from "./chat-send-composer.ts";
@@ -52,7 +49,11 @@ import {
   setChatError,
   waitForPendingChatSettings,
 } from "./chat-send-queue-state.ts";
-import { resolveDisplayedLeafEntryId } from "./chat-send-request.ts";
+import {
+  isActiveLeafChangedError,
+  requestChatSend,
+  resolveDisplayedLeafEntryId,
+} from "./chat-send-request.ts";
 import {
   chatSendHoldReason,
   formatTerminalChatSendAckError,
@@ -64,6 +65,7 @@ import {
 import { recordChatSendTiming } from "./chat-send-timing.ts";
 import { getPendingChatPickerPatch } from "./chat-session.ts";
 import { withChatSubmitGuard, withChatSubmitHandoff } from "./chat-submit-guard.ts";
+import { formatConnectError } from "./connect-error.ts";
 import {
   recordNonTranscriptInputHistory,
   resetChatInputHistoryNavigation,
@@ -114,32 +116,38 @@ async function sendDetachedCommandMessage(
   opts: {
     attachments?: ChatAttachment[];
     recovery: ChatCommandComposerRecovery;
-    runId?: string;
   },
 ) {
-  const ack = await sendChatMessageWithGeneratedRunId(host, message, opts?.attachments, {
-    canApplyError: () => submittedCommandScopeIsVisible(host, opts.recovery),
-    runId: opts.runId,
-  });
-  const sendAck = ack && !("kind" in ack) ? ack : null;
-  const ok =
-    sendAck?.status === "ok" || sendAck?.status === "started" || sendAck?.status === "in_flight";
-  if (!ok && !restoreFailedCommandComposer(host, opts.recovery)) {
-    releaseCommandComposerAttachments(host, opts.recovery, opts.attachments);
-  }
-  if (
-    isTerminalFailureChatSendAck(sendAck) &&
-    submittedCommandScopeIsVisible(host, opts.recovery)
-  ) {
-    setChatError(host, formatTerminalChatSendAckError(sendAck, "detached"));
-  }
-  if (ok) {
-    if (submittedCommandConnectionIsCurrent(host, opts.recovery)) {
-      clearOwnedCommandComposerFallback(host, opts.recovery);
+  let ack: ChatSendAck | null = null;
+  if (host.client && host.connected && (message.trim() || opts.attachments?.length)) {
+    if (submittedCommandScopeIsVisible(host, opts.recovery)) {
+      setChatError(host, null);
     }
-    if (!commandComposerFallbackRetainsAttachments(host, opts.recovery)) {
-      releaseCommandComposerAttachments(host, opts.recovery, opts.attachments);
+    try {
+      ack = await requestChatSend(host, {
+        message: message.trim(),
+        attachments: opts.attachments,
+        runId: generateUUID(),
+        expectedLeafEntryId: resolveDisplayedLeafEntryId(host),
+      });
+    } catch (err) {
+      if (submittedCommandScopeIsVisible(host, opts.recovery)) {
+        const activeLeafChanged = isActiveLeafChangedError(err);
+        setChatError(
+          host,
+          activeLeafChanged ? t("chat.sendErrors.activeLeafChanged") : formatConnectError(err),
+        );
+        if (activeLeafChanged) {
+          void Promise.all([loadChatHistory(host), loadChatBranches(host)]);
+        }
+      }
     }
+  }
+  const completed =
+    ack?.status === "ok" || ack?.status === "started" || ack?.status === "in_flight";
+  settleChatCommandComposer(host, opts.recovery, completed, opts.attachments);
+  if (isTerminalFailureChatSendAck(ack) && submittedCommandScopeIsVisible(host, opts.recovery)) {
+    setChatError(host, formatTerminalChatSendAckError(ack, "detached"));
   }
 }
 
@@ -470,16 +478,9 @@ export async function handleSendChat(
           }
         }
         if (dispatchResult === "failed" || dispatchResult === "cancelled") {
-          if (!restoreFailedCommandComposer(host, recovery)) {
-            releaseCommandComposerAttachments(host, recovery, recovery.composer?.attachments);
-          }
+          settleChatCommandComposer(host, recovery, false, recovery.composer?.attachments);
         } else if (dispatchResult === "completed") {
-          if (submittedCommandConnectionIsCurrent(host, recovery)) {
-            clearOwnedCommandComposerFallback(host, recovery);
-          }
-          if (!commandComposerFallbackRetainsAttachments(host, recovery)) {
-            releaseCommandComposerAttachments(host, recovery, recovery.composer?.attachments);
-          }
+          settleChatCommandComposer(host, recovery, true, recovery.composer?.attachments);
         }
       };
       if (waitsForPicker) {

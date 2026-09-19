@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
+import type { OpenAsyncKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -172,7 +172,7 @@ describe("matrix credentials storage", () => {
         const openStore = runtime.state.openKeyedStore.bind(runtime.state);
         let revoked = false;
         vi.spyOn(runtime.state, "openKeyedStore").mockImplementation(
-          <T>(options: OpenKeyedStoreOptions) => {
+          <T>(options: OpenAsyncKeyedStoreOptions) => {
             const store = openStore<T>(options);
             if (store.compareAndApply) {
               const compare = store.compareAndApply.bind(store);

@@ -7,6 +7,7 @@ import { sameFileIdentity } from "./fs-safe-advanced.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { applyPrivateModeSync } from "./private-mode.js";
 import { isSqliteLockError } from "./sqlite-error-diagnostics.js";
+import { sqliteWriteAdmissionServicesForLocation } from "./sqlite-transaction.js";
 
 export const SqliteCoordinatorError = resolveGlobalSingleton(
   Symbol.for("openclaw.sqliteCoordinatorError"),
@@ -278,13 +279,31 @@ function tryAcquireSqliteCoordinator(
     // Kysely transaction callbacks cannot own a lock beyond their synchronous commit section.
     // This handle never writes or commits data. Keep the empty database's initial
     // journal in memory so acquiring a lock does not create filesystem artifacts.
-    database.exec(
-      `PRAGMA busy_timeout = ${busyTimeoutMs}; PRAGMA journal_mode = MEMORY; ${
-        mode === "exclusive"
-          ? "BEGIN EXCLUSIVE;"
-          : "BEGIN; SELECT rootpage FROM sqlite_schema LIMIT 1;"
-      }`,
-    );
+    const services =
+      mode === "exclusive" ? sqliteWriteAdmissionServicesForLocation(location) : undefined;
+    const deadline = performance.now() + busyTimeoutMs;
+    for (;;) {
+      const attemptTimeout = services
+        ? Math.min(25, Math.max(0, Math.ceil(deadline - performance.now())))
+        : busyTimeoutMs;
+      try {
+        database.exec(
+          `PRAGMA busy_timeout = ${attemptTimeout}; PRAGMA journal_mode = MEMORY; ${
+            mode === "exclusive"
+              ? "BEGIN EXCLUSIVE;"
+              : "BEGIN; SELECT rootpage FROM sqlite_schema LIMIT 1;"
+          }`,
+        );
+        break;
+      } catch (error) {
+        if (!services || !isSqliteLockError(error) || performance.now() >= deadline) {
+          throw error;
+        }
+        for (const service of services) {
+          service();
+        }
+      }
+    }
     if (poolLocation && before) {
       const current = readCoordinatorIdentity(poolLocation);
       if (matchesCoordinatorIdentity(before, current)) {

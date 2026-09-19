@@ -123,7 +123,7 @@ export async function migrateOpenClawAgentDatabaseForMaintenance(
       while (!step.done) {
         assertOwned();
         try {
-          // The maintenance fence and connection survive until native Worker exit.
+          // The maintenance fence and connection survive until the native integrity reader closes.
           // Revalidate before either resume path can repair indexes or mutate schema.
           await assertSqliteIntegrityInWorker(
             step.value.databaseLabel,

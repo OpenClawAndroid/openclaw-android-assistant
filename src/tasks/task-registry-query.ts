@@ -435,6 +435,36 @@ export function listTasksForFlowId(flowId: string): TaskRecord[] {
   return listTasksFromIndex(tasks, taskIdsByParentFlowId, key);
 }
 
+type TaskFlowTaskState = Pick<TaskRecord, "taskId" | "runtime" | "status" | "error">;
+
+/** Snapshot linked task states in one read without cloning retained task payloads. */
+export function listTaskStatesForFlowIds(
+  flowIds: Iterable<string>,
+): Map<string, TaskFlowTaskState[]> {
+  ensureTaskRegistryReady();
+  const states = new Map<string, TaskFlowTaskState[]>();
+  for (const flowId of flowIds) {
+    const key = flowId.trim();
+    if (!key || states.has(key)) {
+      continue;
+    }
+    const linked: TaskFlowTaskState[] = [];
+    for (const taskId of taskIdsByParentFlowId.get(key) ?? []) {
+      const task = tasks.get(taskId);
+      if (task) {
+        linked.push({
+          taskId: task.taskId,
+          runtime: task.runtime,
+          status: task.status,
+          error: task.error,
+        });
+      }
+    }
+    states.set(key, linked);
+  }
+  return states;
+}
+
 function findLatestTaskForRelatedSessionKey(sessionKey: string): TaskRecord | undefined {
   const task = listTasksForRelatedSessionKey(sessionKey)[0];
   return task ? cloneTaskRecord(task) : undefined;

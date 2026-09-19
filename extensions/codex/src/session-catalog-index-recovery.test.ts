@@ -299,6 +299,7 @@ describe("resident Codex catalog recovery", () => {
         assertCurrent: () => {},
       });
       const harness = createClientHarness();
+      const nativeReads = vi.spyOn(harness.client, "request");
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
       try {
         await index.initialize();
@@ -343,8 +344,8 @@ describe("resident Codex catalog recovery", () => {
             : [],
         );
         harness.send({ id: request.id, result: { thread: original } });
-        // This response carries explicit originator metadata, so its projection
-        // finishes without filesystem work before the next event-loop turn.
+        await nativeReads.mock.results[0]!.value;
+        // Explicit originator metadata lets publication finish without filesystem work.
         await nextTurn();
         const refreshedStatus = {
           ...current,

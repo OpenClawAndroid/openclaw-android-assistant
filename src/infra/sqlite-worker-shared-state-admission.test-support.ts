@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import type { DatabaseSync } from "node:sqlite";
 import { deserialize } from "node:v8";
-import { Worker, type Transferable } from "node:worker_threads";
+import { Worker } from "node:worker_threads";
 import { expect, it, vi } from "vitest";
 import type { NativeHookRelayBridgeRecord } from "../agents/harness/native-hook-relay-bridge-record.js";
 import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db-cache.js";
@@ -11,12 +11,10 @@ import {
   runOpenClawStateWorkerOperation,
 } from "../state/openclaw-state-worker-store.js";
 import * as nodeSqlite from "./node-sqlite.js";
-import type { SqliteWorkerRequest } from "./sqlite-worker-contract.js";
 import { createSqliteWorkerOperationAdmission } from "./sqlite-worker-operation-admission.js";
 import {
   acquireStateDatabaseCoordinator,
   acquireGatewayLifecycleCoordinator,
-  retainHeldStateDatabaseCoordinator,
   resolveStateDatabaseCoordinatorPath,
   withStateDatabaseCoordinatorRuntimeDirectory,
 } from "./state-database-coordinator.js";
@@ -25,7 +23,7 @@ export function registerSharedStateWorkerAdmissionTests(
   createContext: () => OpenClawStateWorkerContext,
 ): void {
   it.each([undefined, false])(
-    "lets host admission share physical lifecycle custody (explicit=%s)",
+    "borrows an already-held parent lifecycle owner for nested native admission (explicit=%s)",
     async (requireStateLifecycle) => {
       const captured = createContext();
       const record: NativeHookRelayBridgeRecord = {
@@ -36,35 +34,42 @@ export function registerSharedStateWorkerAdmissionTests(
         token: "synthetic-test-token",
         expiresAtMs: 20000,
       };
-      let grants = 0;
-      await runOpenClawStateWorkerOperation(
-        captured,
-        (scope) =>
-          scope.execute({ type: "nativeHookRelay.write", input: { record, updatedAtMs: 1 } }),
-        {
-          requireStateLifecycle,
-          createAdmission: () => ({
-            nativeLocations: [captured.admission.databasePath],
-            admission: createSqliteWorkerOperationAdmission((request, grant) => {
-              expect(request.stage).toBe("transaction");
-              // The worker already holds its write transaction and awaits this grant.
-              // An independent native acquisition must borrow the same physical owner.
-              const nested = withStateDatabaseCoordinatorRuntimeDirectory(
-                captured.coordinatorRuntime,
-                () =>
-                  acquireStateDatabaseCoordinator({
-                    databasePath: captured.admission.databasePath,
-                    busyTimeoutMs: 0,
-                  }),
-              );
-              nested.release();
-              captured.admission.assertCurrent();
-              expect(grant()).toBe(true);
-              grants += 1;
-            }),
-          }),
-        },
+      const parent = withStateDatabaseCoordinatorRuntimeDirectory(captured.coordinatorRuntime, () =>
+        acquireStateDatabaseCoordinator({ databasePath: captured.admission.databasePath }),
       );
+      let grants = 0;
+      try {
+        await runOpenClawStateWorkerOperation(
+          captured,
+          (scope) =>
+            scope.execute({ type: "nativeHookRelay.write", input: { record, updatedAtMs: 1 } }),
+          {
+            requireStateLifecycle,
+            createAdmission: () => ({
+              nativeLocations: [captured.admission.databasePath],
+              admission: createSqliteWorkerOperationAdmission((request, grant) => {
+                expect(request.stage).toBe("transaction");
+                // The worker already holds its write transaction and awaits this grant.
+                // An independent native acquisition must borrow the same physical owner.
+                const nested = withStateDatabaseCoordinatorRuntimeDirectory(
+                  captured.coordinatorRuntime,
+                  () =>
+                    acquireStateDatabaseCoordinator({
+                      databasePath: captured.admission.databasePath,
+                      busyTimeoutMs: 0,
+                    }),
+                );
+                nested.release();
+                captured.admission.assertCurrent();
+                expect(grant()).toBe(true);
+                grants += 1;
+              }),
+            }),
+          },
+        );
+      } finally {
+        parent.release();
+      }
       expect(grants).toBe(1);
       expect(
         await executeOpenClawStateWorker(captured, {
@@ -75,44 +80,37 @@ export function registerSharedStateWorkerAdmissionTests(
     },
   );
 
-  it("retains explicitly requested lifecycle custody without a host grant factory", async () => {
+  it("fences explicitly requested worker execution without a host grant factory", async () => {
     const captured = createContext();
-    const messages = vi.spyOn(Worker.prototype, "postMessage");
     await executeOpenClawStateWorker(captured, {
       type: "flows.list",
       input: { ownerKey: "agent:main:main" },
     });
-    const worker = messages.mock.contexts[0];
-    messages.mockRestore();
-    if (!(worker instanceof Worker)) {
-      throw new Error("Expected the shared-state worker");
-    }
-    const postMessage = worker.postMessage.bind(worker);
-    let observed = false;
-    vi.spyOn(worker, "postMessage").mockImplementation(
-      (request: SqliteWorkerRequest, transferList?: readonly Transferable[]) => {
-        if (request.type === "execute") {
-          const held = withStateDatabaseCoordinatorRuntimeDirectory(
-            captured.coordinatorRuntime,
-            () => retainHeldStateDatabaseCoordinator(captured.admission.databasePath),
-          );
-          expect(held).toBeDefined();
-          held?.release();
-          observed = true;
-        }
-        return postMessage(request, transferList);
-      },
-    );
-    await runOpenClawStateWorkerOperation(
+    const foreign = await holdForeignLifecycle(captured);
+    let checks = 0;
+    let completed = false;
+    const result = runOpenClawStateWorkerOperation(
       captured,
-      (scope) =>
-        scope.execute({
-          type: "flows.list",
-          input: { ownerKey: "agent:main:main" },
-        }),
-      { requireStateLifecycle: true },
-    );
-    expect(observed).toBe(true);
+      (scope) => scope.execute({ type: "flows.list", input: { ownerKey: "agent:main:main" } }),
+      {
+        requireStateLifecycle: true,
+        assertCurrent: () => {
+          checks += 1;
+        },
+      },
+    ).then((value) => {
+      completed = true;
+      return value;
+    });
+    try {
+      await vi.waitFor(() => expect(checks).toBeGreaterThan(4));
+      expect(completed).toBe(false);
+      foreign.release();
+      await expect(result).resolves.toEqual([]);
+    } finally {
+      await foreign.close();
+      await result;
+    }
   });
 
   it("waits for a bounded foreign lifecycle owner before an admitted write", async () => {
@@ -225,7 +223,9 @@ export function registerSharedStateWorkerAdmissionTests(
           },
         );
         expect(createAdmission).not.toHaveBeenCalled();
-        expect(posts.mock.calls.filter(([request]) => request.type === "execute")).toHaveLength(0);
+        expect(posts.mock.calls.some(([request]) => request.operationAdmission !== undefined)).toBe(
+          false,
+        );
       } finally {
         posts.mockRestore();
         await foreign.close();
@@ -248,9 +248,13 @@ export function registerSharedStateWorkerAdmissionTests(
     },
   );
 
-  it.each(["after-acquire", "admission-factory", "cleanup-failure"] as const)(
-    "settles a canceled head and its follower at %s before posting",
-    async (timing) => {
+  it.each(
+    (["after-acquire", "admission-factory", "cleanup-failure"] as const).flatMap((timing) =>
+      [false, true].map((parentHeld) => ({ timing, parentHeld })),
+    ),
+  )(
+    "settles a canceled head and its follower at $timing before native execution (parent held: $parentHeld)",
+    async ({ timing, parentHeld }) => {
       const captured = createContext();
       await executeOpenClawStateWorker(captured, {
         type: "flows.list",
@@ -275,6 +279,11 @@ export function registerSharedStateWorkerAdmissionTests(
         gateway.release();
         throw new Error("Expected the native Gateway coordinator");
       }
+      const parent = parentHeld
+        ? withStateDatabaseCoordinatorRuntimeDirectory(captured.coordinatorRuntime, () =>
+            acquireStateDatabaseCoordinator({ databasePath: captured.admission.databasePath }),
+          )
+        : undefined;
       const canceled = new AbortController();
       const stopped = new Error("synthetic cancellation before post");
       let factories = 0;
@@ -340,11 +349,13 @@ export function registerSharedStateWorkerAdmissionTests(
           },
         );
         const writes = posts.mock.calls.filter(([request]) => request.type === "execute");
-        expect(writes).toHaveLength(timing === "cleanup-failure" ? 0 : 1);
+        expect(factories).toBe(
+          timing === "after-acquire" ? 1 : timing === "cleanup-failure" ? 1 : 2,
+        );
         if (timing === "cleanup-failure") {
           return;
         }
-        expect(writes[0]?.[0].gatewaySchemaFence).toBeDefined();
+        expect(writes.some(([request]) => request.gatewaySchemaFence !== undefined)).toBe(true);
         expect(
           await executeOpenClawStateWorker(captured, {
             type: "nativeHookRelay.read",
@@ -359,7 +370,11 @@ export function registerSharedStateWorkerAdmissionTests(
           gateway.release();
         } finally {
           closes.mockRestore();
-          gateway.release();
+          try {
+            gateway.release();
+          } finally {
+            parent?.release();
+          }
         }
       }
     },
@@ -437,7 +452,9 @@ export function registerSharedStateWorkerAdmissionTests(
           type: string;
           input: { record: NativeHookRelayBridgeRecord };
         };
-        return command.type === "nativeHookRelay.write" ? [command.input.record.pid] : [];
+        return command.type === "nativeHookRelay.write" && command.input.record.pid !== 0
+          ? [command.input.record.pid]
+          : [];
       });
       expect(dispatched).toEqual(Array.from({ length: 256 }, (_, index) => index + 1));
       expect(factories).toBe(256);

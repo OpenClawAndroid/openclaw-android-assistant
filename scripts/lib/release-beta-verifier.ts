@@ -2157,7 +2157,11 @@ export async function verifyBetaRelease(
           label: "OpenClaw NPM Release",
           repo: args.repo,
           expectedWorkflowName: "OpenClaw NPM Release",
-          expectedHeadBranch: args.workflowRef,
+          expectedHeadBranch:
+            process.env.OPENCLAW_NPM_EXPECTED_WORKFLOW_REF?.replace(
+              /^refs\/(?:tags|heads)\//u,
+              "",
+            ) ?? args.workflowRef,
           rerunFailed: false,
           observe: (run, count) => diagnostic.observeRun("openclawNpm", run, count),
         }),

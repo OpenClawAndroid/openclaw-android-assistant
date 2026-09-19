@@ -615,7 +615,7 @@ suite.define(() => {
     await context.close();
   });
 
-  it("keeps a message-only turn visible with its first message line", async () => {
+  it("keeps a message-only turn visible with its caption behind disclosure", async () => {
     const context = await suite.browser.newContext({ viewport: { height: 800, width: 1200 } });
     const page = await context.newPage();
     const message = "Hello Molty, first claw-to-claw hello.";
@@ -650,19 +650,16 @@ suite.define(() => {
     });
 
     await page.goto(`${suite.server.baseUrl}chat`);
-    const row = page.locator(".chat-tool-msg-summary", { hasText: message });
+    const row = page.locator(".chat-tool-msg-summary");
     await row.waitFor();
 
-    expect(await page.locator(".chat-work-group").count()).toBe(0);
-    expect(await row.locator(".chat-tool-msg-summary__label").textContent()).toBe("Message");
-    expect(await row.locator(".chat-tool-msg-summary__names").textContent()).toBe(message);
+    expect(await row.count()).toBe(1);
+    expect(await page.getByText(message, { exact: false }).isVisible()).toBe(false);
     await captureToolActivityProof(page, "message-only-turn-visible");
     await row.click();
-    await page.getByText("action:", { exact: true }).waitFor();
-    expect(await page.getByText("send", { exact: true }).count()).toBe(1);
-    expect(await page.getByText("Hidden second line.", { exact: false }).count()).toBeGreaterThan(
-      0,
-    );
+    const diagnostics = page.locator(".chat-tool-msg-body");
+    await diagnostics.getByText("Hidden second line.", { exact: false }).waitFor();
+    expect(await diagnostics.textContent()).toContain(message);
     await context.close();
   });
 

@@ -1,4 +1,3 @@
-// Line plugin module implements channel access token behavior.
 export function resolveLineChannelAccessToken(
   explicit: string | undefined,
   params: { accountId: string; channelAccessToken: string },

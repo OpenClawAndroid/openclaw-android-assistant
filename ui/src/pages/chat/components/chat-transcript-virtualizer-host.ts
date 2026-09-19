@@ -29,6 +29,7 @@ import {
   maxTranscriptScrollOffset,
   measureConnectedTranscriptRows,
   measureTranscriptRow,
+  reconcileInitialTranscriptOffset,
   resolveTranscriptScrollMargin,
   PositionRailGutterController,
   syncScrollMargin,
@@ -283,7 +284,14 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
             isProgrammaticScroll: () => this.isProgrammaticScroll,
             cancelScroll: () => this.cancelScroll(),
             requestUpdate: () => this.host.requestUpdate(),
-            onReaderScroll: (towardEnd) => this.callbacks.onReaderScroll?.(towardEnd),
+            onReaderScroll: (towardEnd) => {
+              this.callbacks.onReaderScroll?.(towardEnd);
+              // Downward input at the physical end may not emit a scroll event.
+              // Remember that edge before late content measurement can move it.
+              if (towardEnd && this.canAutoFollow()) {
+                this.endAnchor.capture(this.scrollElement);
+              }
+            },
           },
           instance,
           callback,
@@ -770,24 +778,13 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     if (!this.implicitEndAnchorPending || !this.connected || !this.contentReady) {
       return;
     }
-    const maxOffset = maxTranscriptScrollOffset(this.scrollElement);
-    const virtualizer = this.virtualizerController.getVirtualizer();
-    const scrollOffset = virtualizer.scrollOffset;
-    if (maxOffset === null || scrollOffset === null) {
-      return;
+    const result = reconcileInitialTranscriptOffset(
+      this.scrollElement,
+      this.virtualizerController.getVirtualizer(),
+    );
+    this.implicitEndAnchorPending = result === "pending";
+    if (result === "corrected") {
+      this.host.requestUpdate();
     }
-    if (scrollOffset >= 0 && scrollOffset <= maxOffset) {
-      this.implicitEndAnchorPending = false;
-      return;
-    }
-    if (maxOffset !== 0) {
-      return;
-    }
-    this.implicitEndAnchorPending = false;
-    // The DOM clamps an underfilled end anchor to zero without a scroll event,
-    // so TanStack cannot reconcile its maximum-integer initial offset itself.
-    virtualizer.scrollOffset = 0;
-    virtualizer.scrollToOffset(0);
-    this.host.requestUpdate();
   }
 }

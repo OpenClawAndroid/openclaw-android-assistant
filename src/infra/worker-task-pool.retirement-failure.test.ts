@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { expectDefined } from "@openclaw/normalization-core/expect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSessionHistoryUnavailableMessage } from "../gateway/session-history-error.js";
@@ -10,6 +11,7 @@ type FakeWorker = EventEmitter & {
   terminate: ReturnType<typeof vi.fn<() => Promise<number>>>;
 };
 const workers = vi.hoisted(() => [] as FakeWorker[]);
+const cleanup = vi.hoisted(() => vi.fn<() => Promise<void>>());
 
 vi.mock("node:worker_threads", async () => {
   const { EventEmitter } = await import("node:events");
@@ -32,6 +34,7 @@ vi.mock("node:worker_threads", async () => {
 });
 vi.mock("node:os", () => ({ availableParallelism: () => 2 }));
 vi.mock("./runtime-worker-url.js", () => ({ resolveRuntimeWorkerThreadExecArgv: () => [] }));
+vi.mock("./temp-artifact-cleanup.js", () => ({ removeTemporaryArtifacts: cleanup }));
 
 const pools: WorkerTaskPool<string, string>[] = [];
 function createPool(validateResult?: (value: string) => void) {
@@ -52,12 +55,189 @@ function taskId(worker: FakeWorker) {
 
 beforeEach(() => {
   workers.splice(0);
+  cleanup.mockReset().mockResolvedValue();
 });
 afterEach(async () => {
   await Promise.all(pools.splice(0).map((pool) => pool.close()));
 });
 
 describe("worker task retirement failures", () => {
+  it.each([false, true])(
+    "joins every retirement retry and its artifacts before rejecting (second retry fails: %s)",
+    async (secondRetryFails) => {
+      const pool = new WorkerTaskPool<string, string>({
+        workerUrl: new URL("data:text/javascript,"),
+        maxWorkers: 2,
+        idleTimeoutMs: 0,
+        prepareWorker: () => ({
+          options: {},
+          temporaryDirectory: `/fixture/worker-${workers.length}`,
+        }),
+      });
+      pools.push(pool);
+      const released = [vi.fn(), vi.fn()];
+      const controllers = [new AbortController(), new AbortController()];
+      const tasks = controllers.map((controller, index) =>
+        pool
+          .run(`input-${index}`, { signal: controller.signal, onInputConsumed: released[index] })
+          .catch((error: unknown) => error),
+      );
+      for (const [index, worker] of workers.entries()) {
+        worker.terminate.mockRejectedValueOnce(new Error("initial exit uncertain"));
+        controllers[index]!.abort(new Error("task canceled"));
+      }
+      await Promise.all(tasks);
+      const firstWorker = expectDefined(workers[0], "first failed worker");
+      const secondWorker = expectDefined(workers[1], "second failed worker");
+      const firstFailure = new Error("first retry failed");
+      const secondFailure = new Error("second retry failed");
+      firstWorker.terminate.mockRejectedValueOnce(firstFailure);
+      const entered = createDeferredCore();
+      const exit = createDeferredCore();
+      const cleanupEntered = createDeferredCore();
+      const cleanupReleased = createDeferredCore();
+      secondWorker.terminate.mockImplementationOnce(async () => {
+        entered.resolve();
+        await exit.promise;
+        if (secondRetryFails) {
+          throw secondFailure;
+        }
+        secondWorker.emit("exit", 0);
+        return 0;
+      });
+      cleanup.mockImplementationOnce(async () => {
+        cleanupEntered.resolve();
+        await cleanupReleased.promise;
+      });
+      let settled = false;
+      const retry = pool
+        .retryFailedRetirements()
+        .catch((error: unknown) => error)
+        .finally(() => {
+          settled = true;
+        });
+      try {
+        await entered.promise;
+        await yieldToEventLoop();
+        expect(settled).toBe(false);
+        expect(released.every((release) => release.mock.calls.length === 0)).toBe(true);
+        expect(pool.getSnapshot().pendingTasks).toBe(2);
+        exit.resolve();
+        if (!secondRetryFails) {
+          await cleanupEntered.promise;
+          await yieldToEventLoop();
+          expect(settled).toBe(false);
+          expect(released[1]).toHaveBeenCalledOnce();
+        }
+        cleanupReleased.resolve();
+        const failure = await retry;
+        if (secondRetryFails) {
+          expect(failure).toBeInstanceOf(AggregateError);
+          expect(failure).toMatchObject({
+            errors: [firstFailure, secondFailure],
+            cause: firstFailure,
+          });
+        } else {
+          expect(failure).toBe(firstFailure);
+          expect(cleanup).toHaveBeenCalledExactlyOnceWith("/fixture/worker-1", "Worker task");
+        }
+        expect(released[0]).not.toHaveBeenCalled();
+        expect(pool.getSnapshot().pendingTasks).toBe(secondRetryFails ? 2 : 1);
+        await pool.retryFailedRetirements();
+        expect(released.every((release) => release.mock.calls.length === 1)).toBe(true);
+        expect(pool.getSnapshot().pendingTasks).toBe(0);
+      } finally {
+        exit.resolve();
+        cleanupReleased.resolve();
+        await retry;
+      }
+    },
+  );
+
+  it("retries failed retirement without terminating or waiting for a healthy sibling", async () => {
+    const pool = new WorkerTaskPool<string, string>({
+      workerUrl: new URL("data:text/javascript,"),
+      maxWorkers: 2,
+      idleTimeoutMs: 0,
+    });
+    pools.push(pool);
+    const controller = new AbortController();
+    const released = vi.fn();
+    const failed = pool.run("failed", {
+      signal: controller.signal,
+      onInputConsumed: released,
+    });
+    const rejected = expect(failed).rejects.toThrow("exit uncertain");
+    let healthySettled = false;
+    const healthy = pool
+      .run("healthy", {})
+      .catch((error: unknown) => error)
+      .finally(() => {
+        healthySettled = true;
+      });
+    const failedWorker = expectDefined(workers[0], "failed worker");
+    const healthyWorker = expectDefined(workers[1], "healthy sibling worker");
+    failedWorker.terminate.mockRejectedValueOnce(new Error("exit uncertain"));
+    controller.abort(new Error("failed task"));
+    await rejected;
+    const entered = createDeferredCore();
+    const exit = createDeferredCore();
+    failedWorker.terminate.mockImplementationOnce(async () => {
+      entered.resolve();
+      await exit.promise;
+      failedWorker.emit("exit", 0);
+      return 0;
+    });
+    const retirement = pool.retryFailedRetirements();
+    try {
+      await entered.promise;
+      expect(released).not.toHaveBeenCalled();
+      expect(healthyWorker.terminate).not.toHaveBeenCalled();
+      expect(pool.getSnapshot().pendingTasks).toBe(2);
+    } finally {
+      exit.resolve();
+      await retirement;
+    }
+    expect(released).toHaveBeenCalledOnce();
+    expect(pool.getSnapshot().pendingTasks).toBe(1);
+    expect(healthySettled).toBe(false);
+    expect(healthyWorker.terminate).not.toHaveBeenCalled();
+    healthyWorker.emit("message", {
+      status: "ok",
+      taskId: taskId(healthyWorker),
+      value: "healthy result",
+    });
+    expect(await healthy).toBe("healthy result");
+    expect(pool.getSnapshot().pendingTasks).toBe(0);
+  });
+
+  it("does not turn a consumption receipt into native exit when later cancellation cannot retire", async () => {
+    const pool = createPool();
+    const released = vi.fn();
+    const controller = new AbortController();
+    const result = pool.run("input", {
+      onInputConsumed: released,
+      onRequest: async () => {
+        throw new Error("Consumption-only task must not request host work");
+      },
+      signal: controller.signal,
+    });
+    const rejected = expect(result).rejects.toThrow("exit uncertain");
+    const worker = expectDefined(workers[0], "task worker");
+    const exited = vi.fn();
+    worker.on("exit", exited);
+    worker.emit("message", { status: "consumed", taskId: taskId(worker), id: 0 });
+    worker.terminate.mockRejectedValueOnce(new Error("exit uncertain"));
+    controller.abort(new Error("canceled after consumption"));
+    await rejected;
+    expect(released).toHaveBeenCalledOnce();
+    expect(exited).not.toHaveBeenCalled();
+    expect(pool.getSnapshot().pendingTasks).toBe(1);
+    await pool.close();
+    expect(exited).toHaveBeenCalledOnce();
+    expect(released).toHaveBeenCalledOnce();
+  });
+
   it.each(["close", "rotate"] as const)(
     "retains both failures and input custody until a later %s joins exit",
     async (join) => {

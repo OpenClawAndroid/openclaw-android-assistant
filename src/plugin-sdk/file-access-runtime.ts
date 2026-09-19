@@ -28,6 +28,7 @@ export {
   resolvePathPrefixSync,
 } from "../infra/fs-safe-advanced.js";
 export { readFileWindowFully } from "../infra/file-read.js";
+export { openRootFile } from "../infra/boundary-file-read.js";
 export {
   ensureDurableDirectory,
   syncDirectory,

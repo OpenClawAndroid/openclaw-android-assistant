@@ -73,51 +73,39 @@ function normalizePreference(value: unknown): NewSessionPreference | null {
   if (!isRecord(value)) {
     return null;
   }
-  const record = value;
-  const workspace = normalizeOptionalString(record.workspace);
-  const folder = normalizeOptionalString(record.folder);
-  const projectId = normalizeOptionalString(record.projectId);
-  const baseRef = normalizeOptionalString(record.baseRef);
-  const worktreeName = normalizeOptionalString(record.worktreeName);
-  const model = normalizeOptionalString(record.model);
-  const agentRuntime = model ? normalizeOptionalString(record.agentRuntime) : undefined;
-  const thinkingLevel = normalizeOptionalString(record.thinkingLevel);
-  const worktree = typeof record.worktree === "boolean" ? record.worktree : undefined;
-  // Preserve the legacy source choice before Git discovery can clear worktree availability.
-  const freshWorkspace =
-    typeof record.freshWorkspace === "boolean"
-      ? record.freshWorkspace
-      : worktree === true
-        ? false
-        : undefined;
-  const where = normalizeWhere(record.where);
-  if (
-    !workspace &&
-    !folder &&
-    !where &&
-    !projectId &&
-    worktree === undefined &&
-    freshWorkspace === undefined &&
-    !baseRef &&
-    !worktreeName &&
-    !model &&
-    !thinkingLevel
-  ) {
-    return null;
+  const preference: NewSessionPreference = {};
+  for (const key of [
+    "workspace",
+    "folder",
+    "projectId",
+    "baseRef",
+    "worktreeName",
+    "model",
+    "thinkingLevel",
+  ] as const) {
+    const normalized = normalizeOptionalString(value[key]);
+    if (normalized) {
+      preference[key] = normalized;
+    }
   }
-  return {
-    ...(workspace ? { workspace } : {}),
-    ...(folder ? { folder } : {}),
-    ...(where ? { where } : {}),
-    ...(projectId ? { projectId } : {}),
-    ...(worktree !== undefined ? { worktree } : {}),
-    ...(freshWorkspace !== undefined ? { freshWorkspace } : {}),
-    ...(baseRef ? { baseRef } : {}),
-    ...(worktreeName ? { worktreeName } : {}),
-    ...(model ? { model } : {}),
-    ...(agentRuntime ? { agentRuntime } : {}),
-    ...(thinkingLevel ? { thinkingLevel } : {}),
-  };
+  const agentRuntime = normalizeOptionalString(value.agentRuntime);
+  if (preference.model && agentRuntime) {
+    preference.agentRuntime = agentRuntime;
+  }
+  if (typeof value.worktree === "boolean") {
+    preference.worktree = value.worktree;
+  }
+  if (typeof value.freshWorkspace === "boolean") {
+    preference.freshWorkspace = value.freshWorkspace;
+  } else if (preference.worktree === true) {
+    // Preserve the legacy source choice before Git discovery clears worktree availability.
+    preference.freshWorkspace = false;
+  }
+  const where = normalizeWhere(value.where);
+  if (where) {
+    preference.where = where;
+  }
+  return Object.keys(preference).length ? preference : null;
 }
 
 function normalizeWhere(value: unknown): NewSessionWhere | undefined {
@@ -201,49 +189,17 @@ export function replaceBrowserPreference(
   gatewayUrl: string,
   agentId: string,
   preference: NewSessionPreference,
-): void {
+): boolean {
   const storage = getSafeLocalStorage();
   const normalizedAgentId = normalizeAgentId(agentId);
-  const normalized = normalizePreference(preference);
   if (!storage || !gatewayUrl || !normalizedAgentId) {
-    return;
+    return false;
   }
   const store = readStore(storage, gatewayUrl);
   const agents = { ...store.agents };
+  const normalized = normalizePreference(preference);
   if (normalized) {
     agents[normalizedAgentId] = normalized;
-  } else {
-    delete agents[normalizedAgentId];
-  }
-  try {
-    storage.setItem(
-      storageKey(gatewayUrl),
-      JSON.stringify({
-        ...store,
-        agents,
-      } satisfies PersistedPreferences),
-    );
-  } catch {
-    // Browser storage can be disabled or full; preferences are best effort.
-  }
-}
-
-export function patchNewSessionPreference(
-  gatewayUrl: string,
-  agentId: string,
-  patch: NewSessionPreference,
-): void {
-  const storage = getSafeLocalStorage();
-  const normalizedAgentId = normalizeAgentId(agentId);
-  if (!storage || !gatewayUrl || !normalizedAgentId) {
-    return;
-  }
-  const store = readStore(storage, gatewayUrl);
-  const current = normalizePreference(store.agents?.[normalizedAgentId]) ?? {};
-  const next = normalizePreference({ ...current, ...patch });
-  const agents = { ...store.agents };
-  if (next) {
-    agents[normalizedAgentId] = next;
   } else {
     // Clearing the final selection removes the preference; it is not an omitted patch.
     delete agents[normalizedAgentId];
@@ -251,12 +207,11 @@ export function patchNewSessionPreference(
   try {
     storage.setItem(
       storageKey(gatewayUrl),
-      JSON.stringify({
-        ...store,
-        agents,
-      } satisfies PersistedPreferences),
+      JSON.stringify({ ...store, agents } satisfies PersistedPreferences),
     );
+    return true;
   } catch {
-    // Browser storage can be disabled or full; preferences are best effort.
+    // Browser storage can be disabled or full; callers can report unconfirmed writes.
+    return false;
   }
 }

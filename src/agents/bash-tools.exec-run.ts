@@ -604,6 +604,7 @@ export function createExecTool(
           beforeSpawn: gatewayApproval?.revalidateBeforeExecution,
           assertCurrent: gatewayApproval?.assertCurrent,
           onSettledBeforeNotify: settlement.settle,
+          onActivity: settlement.activity,
         });
         discardPreparedSandboxWorkdir = null;
       } catch (error) {

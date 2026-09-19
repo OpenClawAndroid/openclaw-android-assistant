@@ -12,7 +12,7 @@ import {
   openOpenClawStateDatabase,
   type OpenClawStateDatabaseOptions,
 } from "./openclaw-state-db.js";
-import { mutateUserPreference, selectUserPreferenceValues } from "./user-preferences.store.js";
+import { deleteUserPreference, selectUserPreferenceValues } from "./user-preferences.store.js";
 import { selectResolvedUserProfileMetadataById, userProfilesDb } from "./user-profiles-internal.js";
 import { ensureUserProfilesSchema, UserProfileOwnerError } from "./user-profiles-schema.js";
 
@@ -212,7 +212,7 @@ export function prepareUserProfileGitHubMerge(
   for (const sourceProfileId of sourceProfileIds) {
     const sourceIdentity = identities.get(sourceProfileId)?.primary;
     if (!sourceIdentity || sourceIdentity.accountId !== survivingAccountId) {
-      mutateUserPreference(db, sourceProfileId, GIT_COAUTHOR_PREFERENCE_KEY);
+      deleteUserPreference(db, sourceProfileId, GIT_COAUTHOR_PREFERENCE_KEY);
     }
   }
   executeSqliteQuerySync(
@@ -308,7 +308,7 @@ export function applyVerifiedGitHubIdentity(params: {
     targetProfileId === currentProfileId &&
     !currentIdentity?.accounts.some((account) => account.accountId === params.identity.accountId)
   ) {
-    mutateUserPreference(db, targetProfileId, GIT_COAUTHOR_PREFERENCE_KEY);
+    deleteUserPreference(db, targetProfileId, GIT_COAUTHOR_PREFERENCE_KEY);
   }
 
   if (currentProfileId !== targetProfileId) {

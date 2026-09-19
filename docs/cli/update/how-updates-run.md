@@ -25,6 +25,10 @@ aligned:
 - `beta` -> prefers npm dist-tag `beta`, falling back to `latest` when beta is
   missing or older than the current stable release.
 
+Fresh clones are validated before publication. If the destination or staging
+folder is replaced during validation, the update stops without changing the
+replacement. Choose an empty `OPENCLAW_GIT_DIR` and retry.
+
 ### Validation and activation
 
 If the resolved registry package version equals the installed version without changing
@@ -718,6 +722,11 @@ Switching a pnpm- or Bun-owned package install to Git with `--channel dev` is
 also rejected before activation. Staged source-checkout exposure currently
 requires an npm-owned package symlink; package-to-package updates remain
 supported through the owning manager.
+
+When an npm package link points to a built Git checkout, rollback verifies that
+same checkout and build before restoring the link and launchers. Local source
+edits are preserved. Replacing the checkout or rebuilding it during the update
+prevents automatic rollback; restoring a link alone does not prove runtime safety.
 
 ### Local packaged overrides
 

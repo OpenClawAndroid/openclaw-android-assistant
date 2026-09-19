@@ -115,10 +115,39 @@ core equivalents: `1` means one CPU core fully occupied over the interval, and
 parallel work can produce values above `1`. It is not a percentage of the host's
 total CPU capacity.
 
-The Control UI's **System busyness** overlay reads the same sampler through
-`status.eventLoop` on both Node and Bun. Its CPU percentage uses `100%` for one
-fully occupied core. CPU and delay show a dash until the first sample completes;
-a persistent dash means the telemetry is unavailable, not zero CPU usage.
+The optional `cpuBreakdown` separates independent native counters:
+
+- `hostUtilization` is the busy fraction of the host CPU time reported by
+  `os.cpus()`, from `0` to `1` across `hostCpuCount` logical CPUs. This includes
+  other processes and is not the Gateway's CPU quota or container allowance.
+- `mainThreadCoreRatio` measures the Gateway main thread with
+  `process.threadCpuUsage()`, not event-loop utilization.
+- `workerCoreRatio` sums `Worker.cpuUsage()` counters for workers owned by the
+  task pools and SQLite broker. It does not include subprocesses, remote workers,
+  or workers created outside those owners.
+- `otherThreadsCoreRatio` is an **estimated residual**: process CPU minus the
+  measured main and tracked worker CPU, clamped at zero. It includes untracked
+  workers and native threads, not a measured worker category.
+
+Thread values use the same core-equivalent unit as `cpuCoreRatio`. Worker reads
+are asynchronous and must complete within 100 ms of each sampling boundary;
+these are not atomic cross-thread measurements. The residual can vary with
+measurement skew. A timed-out request never delays the event-loop sample, and
+at most one native request is outstanding per tracked worker, even across
+monitor resets. Startup, worker creation/exit, host CPU topology changes, counter
+resets, and collection failures require fresh baselines before publishing the
+affected rates. Missing fields mean unavailable, not zero.
+
+The main-thread and host counters are collected independently on Node and Bun.
+Tracked worker CPU and the residual are omitted on Bun: its worker API can
+report zero when native counter collection fails. Unsupported or failed native
+APIs on any platform leave the corresponding field absent.
+
+The Control UI's **CPU** box reads the same sampler through `system.info.eventLoop`.
+Its detail overlay shows host usage separately from the process and thread
+breakdown. Process and thread percentages use `100%` for one fully occupied
+core; host usage uses `100%` for all reported logical CPUs. Values show a dash
+until their first complete measurement, or while unavailable.
 
 Event-loop delay and utilization describe the main thread separately. A `cpu`
 degradation reason reports process CPU pressure with delay co-evidence; it does

@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import type { SqliteWorkerAdmissionCleanup } from "../infra/sqlite-worker-broker.types.js";
@@ -37,13 +38,14 @@ type StoreOperations = OpenClawStateWorkerOperations & OpenClawStateWorkerInspec
 type Store = SqliteWorkerStore<StoreOperations>;
 type DomainScope = Pick<SqliteWorkerStore<OpenClawStateWorkerOperations>, "execute">;
 type OperationOptions = {
-  /** Acquire matching host lifecycle custody for each dispatched command. */
+  /** Acquire matching lifecycle custody for each dispatched command. */
   requireStateLifecycle?: boolean;
   assertCurrent?: (commandType?: PropertyKey) => void;
   createAdmission?: SqliteWorkerAdmissionFactory;
 };
 const log = createSubsystemLogger("state/worker");
-const SHARED_STATE_WORKER_IDLE_RETIRE_MS = 60_000;
+const SHARED_STATE_WORKER_IDLE_INSPECT_MS = 60_000;
+const SHARED_STATE_WORKER_IDLE_RETIRE_MS = 30 * 60_000;
 
 function createSharedStateWorkerOwner() {
   type IdleTimer = ReturnType<typeof setTimeout> & { unref?: () => void };
@@ -55,6 +57,7 @@ function createSharedStateWorkerOwner() {
     bound?: boolean;
     cleanup?: SqliteWorkerAdmissionCleanup;
     activeOperations: number;
+    operationGeneration: number;
     idleTimer?: IdleTimer;
   };
   const stores = new Set<Entry>();
@@ -112,22 +115,69 @@ function createSharedStateWorkerOwner() {
     ) {
       return;
     }
-    const timer: IdleTimer = setTimeout(() => {
-      if (entry.idleTimer !== timer) {
-        return;
-      }
-      entry.idleTimer = undefined;
-      if (entry.activeOperations === 0 && stores.has(entry)) {
-        void retire(entry).catch((error: unknown) => {
+    const store = entry.store;
+    const generation = entry.operationGeneration;
+    const deadline = performance.now() + SHARED_STATE_WORKER_IDLE_RETIRE_MS;
+    const arm = (delay: number, inspect: boolean) => {
+      const isCurrentIdle = () =>
+        entry.idleTimer === timer &&
+        entry.operationGeneration === generation &&
+        entry.activeOperations === 0 &&
+        stores.has(entry);
+      const settle = async () => {
+        if (!isCurrentIdle()) {
+          return;
+        }
+        let healthy = false;
+        if (inspect) {
+          try {
+            // This idle generation owns retirement while foreground callbacks may remain active.
+            healthy =
+              (await runWithCapturedWorkerContext(entry.context, () =>
+                runSqliteWorkerStoreOperation(
+                  store,
+                  (scope) => scope.execute({ type: "database.inspectIdle", input: undefined }),
+                  entry.context,
+                  () => {
+                    entry.context.admission.assertCurrent();
+                    if (!isCurrentIdle()) {
+                      throw new Error("Shared-state worker resumed before idle inspection");
+                    }
+                  },
+                  undefined,
+                  true,
+                ),
+              )) === "healthy" && isSqliteWorkerStoreAvailable(store);
+            entry.context.admission.assertCurrent();
+          } catch {
+            // Unavailable inspection cannot justify retaining a potentially pinned native reader.
+            healthy = false;
+          }
+        }
+        if (!isCurrentIdle()) {
+          return;
+        }
+        entry.idleTimer = undefined;
+        const remaining = deadline - performance.now();
+        if (healthy && remaining > 0) {
+          // Inspection is maintenance, not activity: retain the original real-operation deadline.
+          arm(remaining, false);
+        } else {
+          await retire(entry);
+        }
+      };
+      const timer: IdleTimer = setTimeout(() => {
+        void settle().catch((error: unknown) => {
           log.warn("Idle shared-state worker retirement failed", {
             path: entry.context.admission.databasePath,
             error,
           });
         });
-      }
-    }, SHARED_STATE_WORKER_IDLE_RETIRE_MS);
-    entry.idleTimer = timer;
-    timer.unref?.();
+      }, delay);
+      entry.idleTimer = timer;
+      timer.unref?.();
+    };
+    arm(SHARED_STATE_WORKER_IDLE_INSPECT_MS, true);
   };
   const retainOperation = (store: Store) => {
     const entry = [...stores].find((candidate) => candidate.store === store);
@@ -135,6 +185,7 @@ function createSharedStateWorkerOwner() {
       throw new Error("Shared-state worker operation lost its actor owner");
     }
     clearIdleRetirement(entry);
+    entry.operationGeneration += 1;
     entry.activeOperations += 1;
     let released = false;
     return () => {
@@ -143,6 +194,19 @@ function createSharedStateWorkerOwner() {
       }
       released = true;
       entry.activeOperations -= 1;
+      if (
+        entry.activeOperations === 0 &&
+        stores.has(entry) &&
+        !isSqliteWorkerStoreAvailable(store)
+      ) {
+        void retire(entry).catch((error: unknown) => {
+          log.warn("Shared-state worker retirement failed", {
+            path: entry.context.admission.databasePath,
+            error,
+          });
+        });
+        return;
+      }
       scheduleIdleRetirement(entry);
     };
   };
@@ -178,7 +242,12 @@ function createSharedStateWorkerOwner() {
   return {
     close,
     async retireFailedStore(store: Store): Promise<void> {
-      await Promise.all([...stores.values()].filter((entry) => entry.store === store).map(retire));
+      // An enclosing callback may await this operation; its final release owns retirement.
+      await Promise.all(
+        [...stores.values()]
+          .filter((entry) => entry.store === store && entry.activeOperations <= 1)
+          .map(retire),
+      );
     },
     retainOperation,
     async open(
@@ -224,6 +293,7 @@ function createSharedStateWorkerOwner() {
           context,
           existingOnly,
           activeOperations: 0,
+          operationGeneration: 0,
           opening: openSharedStateSqliteWorkerStore<StoreOperations>(
             {
               moduleUrl: resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sharedStateStore),
@@ -375,7 +445,7 @@ async function runAdmittedOpenClawStateWorkerOperation<T>(
         operation,
         options?.assertCurrent,
         options?.createAdmission,
-        // Host-held lifecycle custody keeps native writers from blocking the worker's grant handler.
+        // Commands with live admission retain lifecycle custody through native settlement.
         options?.requireStateLifecycle === true || options?.createAdmission !== undefined,
       );
     } finally {
@@ -444,8 +514,9 @@ async function runWithOpenClawStateWorkerStore<T>(
   requireStateLifecycle = false,
 ): Promise<T> {
   const { admission } = context;
+  let result: T;
   try {
-    return await runSqliteWorkerStoreOperation<StoreOperations, T>(
+    result = await runSqliteWorkerStoreOperation<StoreOperations, T>(
       store,
       operation,
       context,
@@ -470,6 +541,18 @@ async function runWithOpenClawStateWorkerStore<T>(
     }
     throw error;
   }
+  if (!isSqliteWorkerStoreAvailable(store)) {
+    try {
+      await owner().retireFailedStore(store);
+    } catch (error) {
+      // Keep a completed outcome while canonical cleanup retains the failed entry.
+      log.warn("Completed shared-state operation retirement failed", {
+        path: admission.databasePath,
+        error,
+      });
+    }
+  }
+  return result;
 }
 
 /** Retain the actual lease until every admitted worker transaction has settled. */

@@ -1,13 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { channel as createDiagnosticsChannel } from "node:diagnostics_channel";
 import { availableParallelism } from "node:os";
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { createDeferredCore } from "../shared/deferred.js";
 import { runBestEffortCleanup } from "./non-fatal-cleanup.js";
 import { resolveRuntimeWorkerThreadExecArgv } from "./runtime-worker-url.js";
+import { createCpuTrackedWorker } from "./worker-cpu.js";
 import {
   DEFAULT_WORKER_PENDING_BYTES,
   DEFAULT_WORKER_PENDING_TASKS,
@@ -153,6 +154,25 @@ export class WorkerTaskPool<Input, Output> {
     };
   }
 
+  /** Join failed native retirements without interrupting healthy tasks. */
+  async retryFailedRetirements(): Promise<void> {
+    const outcomes = await Promise.allSettled(
+      [...this.slots].filter((slot) => slot.retirementFailed).map((slot) => this.retire(slot)),
+    );
+    outcomes.push(...(await Promise.allSettled(this.artifactCleanups)));
+    const errors = outcomes.flatMap((outcome) =>
+      outcome.status === "rejected"
+        ? [toErrorObject(outcome.reason, "worker retirement retry failed")]
+        : [],
+    );
+    const firstError = errors[0];
+    if (firstError) {
+      throw errors.length === 1
+        ? firstError
+        : new AggregateError(errors, "Worker retirement retries failed", { cause: firstError });
+    }
+  }
+
   /** Pause dispatch, settle current work and join native exit before restarting the queue. */
   rotate(): Promise<void> {
     if (this.rotation) {
@@ -271,7 +291,7 @@ export class WorkerTaskPool<Input, Output> {
       if (slot.retiring) {
         throw new WorkerTaskError("worker creation closed during preparation", "unavailable");
       }
-      return new Worker(workerUrl, workerOptions);
+      return createCpuTrackedWorker(workerUrl, workerOptions);
     });
     this.workers++;
     this.workersCreated++;

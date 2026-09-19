@@ -133,7 +133,7 @@ export function createPluginArgumentView(bindings: {
     args: unknown[];
     callerData?: unknown[];
   } => {
-    if (callbackIndex === null) {
+    if (callbackIndex === null || args.length === 0) {
       return {
         args: args.map((value) =>
           value && (typeof value === "object" || typeof value === "function")

@@ -42,7 +42,7 @@ import {
   registerAgentRunContext,
   releaseAgentRunContext,
 } from "../infra/agent-run-registry.js";
-import { subscribePluginSessionsChanged } from "../plugins/gateway-events.js";
+import { subscribePluginSessionsChanged } from "../plugins/services.test-support.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { GatewayClientRegistry } from "./server/client-registry.js";
 

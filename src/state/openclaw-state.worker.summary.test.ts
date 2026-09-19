@@ -236,7 +236,6 @@ it.each(["kv", "task"] as const)(
             ...key,
             valueJson: JSON.stringify({ value: 42 }),
             maxEntries: 4,
-            maxPluginEntries: 8,
             overflowPolicy: "reject-new",
           },
         }),

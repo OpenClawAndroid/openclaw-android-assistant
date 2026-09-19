@@ -9,9 +9,9 @@ import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope
 import type { ModelCatalogEntry } from "../agents/model-catalog.js";
 import { loadSessionEntry } from "../config/sessions/session-accessor.js";
 import { clearAgentRunContext, registerAgentRunContext } from "../infra/agent-run-registry.js";
-import { subscribePluginSessionsChanged } from "../plugins/gateway-events.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
+import { subscribePluginSessionsChanged } from "../plugins/services.test-support.js";
 import {
   normalizeSessionDeliveryState,
   projectSessionDeliveryFields,

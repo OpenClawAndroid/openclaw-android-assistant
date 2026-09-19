@@ -360,6 +360,14 @@ export async function spawnSubagentDirect(
       requesterSessionKey: requesterInternalKey,
       agentId: targetAgentId,
     });
+    const recordRequesterParticipation = () =>
+      recordSessionParticipantBestEffort({
+        promptedAt,
+        identity: { type: "agent", id: requesterAgentId },
+        agentId: targetAgentId,
+        sessionKey: childSessionKey,
+        storePath: resolveSessionStorePathCore(cfg.session?.store, { agentId: targetAgentId }),
+      });
     const launchChildRun = async (assertDispatchCurrent?: () => void) =>
       await callNativeSubagentGateway(
         withSubagentGatewayExecutionIdentity(
@@ -442,13 +450,7 @@ export async function spawnSubagentDirect(
         const launch = await launchChildRun(assertActive);
         taskRowOwnership = launch.taskRowOwnership;
         acceptedChildRunId = readGatewayRunId(launch.response) ?? childIdem;
-        recordSessionParticipantBestEffort({
-          promptedAt,
-          identity: { type: "agent", id: requesterAgentId },
-          agentId: targetAgentId,
-          sessionKey: childSessionKey,
-          storePath: resolveSessionStorePathCore(cfg.session?.store, { agentId: targetAgentId }),
-        });
+        recordRequesterParticipation();
         return { runId: acceptedChildRunId };
       },
       async cleanupOnFailure({ phase, state }) {
@@ -598,15 +600,7 @@ export async function spawnSubagentDirect(
             // Queued registration already owns the task row before either dispatch route starts.
             // Out-of-process Gateway tracking finds that exact runId and suppresses its CLI row.
             const gatewayRunId = readGatewayRunId(launch.response) ?? childRunId;
-            recordSessionParticipantBestEffort({
-              promptedAt,
-              identity: { type: "agent", id: requesterAgentId },
-              agentId: targetAgentId,
-              sessionKey: childSessionKey,
-              storePath: resolveSessionStorePathCore(cfg.session?.store, {
-                agentId: targetAgentId,
-              }),
-            });
+            recordRequesterParticipation();
             try {
               const started = gatewayContextResolver
                 ? startQueuedSubagentRun(

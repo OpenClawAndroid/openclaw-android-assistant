@@ -24,7 +24,6 @@ import {
 } from "./chat-queue.ts";
 import type { TerminalFailureChatSendAck } from "./chat-send-ack.ts";
 import type { ChatHost } from "./chat-send-contract.ts";
-import type { ChatState } from "./chat-state-contract.ts";
 import type { ChatQueueAdmissionResult } from "./composer-persistence.ts";
 import {
   admitChatSubmission,
@@ -98,7 +97,7 @@ export function formatTerminalChatSendAckError(
 }
 
 function preserveDeliveredUserTurn(
-  state: ChatState,
+  state: ChatHost,
   submission: RetainedChatSubmission | undefined,
 ): void {
   if (submission?.kind !== "delivered" || !submission.pending) {
@@ -119,7 +118,6 @@ function preserveDeliveredUserTurn(
     const target = { sessionKey, agentId };
     const cached = readChatMessagesFromCache(state.chatMessagesBySession, state, target);
     if (
-      state.chatSubmissions &&
       shouldDisplayChatSubmission(
         submission,
         findChatSubmissionMessage(cached, submission.pendingRunId, true),
@@ -160,10 +158,7 @@ export function retireDeliveredQueuedUserTurn(
       : "retained";
   }
   if (!stored) {
-    const remembered = submissions.readDelivered(deliveryKey, owner);
-    if (remembered) {
-      preserveDeliveredUserTurn(host, remembered);
-    }
+    preserveDeliveredUserTurn(host, submissions.readDelivered(deliveryKey, owner));
     return "retired";
   }
   const connectionEpoch = host.connectionEpoch;
@@ -182,10 +177,7 @@ export function retireDeliveredQueuedUserTurn(
     }
     const current = currentItem();
     if (!current) {
-      const remembered = submissions.readDelivered(deliveryKey, owner);
-      if (remembered) {
-        preserveDeliveredUserTurn(host, remembered);
-      }
+      preserveDeliveredUserTurn(host, submissions.readDelivered(deliveryKey, owner));
       // Consumption can retire the outbox during hydration. A replacement
       // attempt still owns the row; an absent row must not swallow chat.final.
       return readQueuedMessageById(host, stored.id) ? "stale" : "retired";

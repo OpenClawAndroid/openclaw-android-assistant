@@ -1,4 +1,3 @@
-// Slack plugin module implements context behavior.
 import type { App } from "@slack/bolt";
 import { formatAllowlistMatchMeta } from "openclaw/plugin-sdk/allow-from";
 import type { ChannelRuntimeSurface } from "openclaw/plugin-sdk/channel-contract";

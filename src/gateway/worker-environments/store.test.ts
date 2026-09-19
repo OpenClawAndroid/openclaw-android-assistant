@@ -477,7 +477,22 @@ describe("worker environment store", () => {
     expect(store.get("worker-ready")?.state).toBe("ready");
   });
 
-  it("round-trips desktop metadata and clears it with the provider lease", () => {
+  it.each<WorkerDesktopEndpoint>([
+    DESKTOP,
+    {
+      protocol: "rfb",
+      port: 5900,
+      passwordFilePath: "/var/db/crabbox/openclaw-vnc.password",
+      username: "ec2-user",
+      allowsResize: false,
+    },
+    {
+      protocol: "rfb",
+      port: 5900,
+      passwordFilePath: "C:\\ProgramData\\crabbox\\vnc.password",
+      allowsResize: false,
+    },
+  ])("round-trips $passwordFilePath and clears it with the provider lease", (desktop) => {
     createIntent("worker-desktop");
     store.transition({
       environmentId: "worker-desktop",
@@ -488,12 +503,12 @@ describe("worker environment store", () => {
       environmentId: "worker-desktop",
       from: "provisioning",
       to: "bootstrapping",
-      patch: { leaseId: "lease-desktop", sshEndpoint: SSH_ENDPOINT, desktop: DESKTOP },
+      patch: { leaseId: "lease-desktop", sshEndpoint: SSH_ENDPOINT, desktop },
     });
     closeOpenClawStateDatabaseForTest();
     database = openOpenClawStateDatabase({ env: { OPENCLAW_STATE_DIR: root } });
     store = createWorkerEnvironmentStore({ database, now: () => nowMs });
-    expect(store.get("worker-desktop")?.desktop).toEqual(DESKTOP);
+    expect(store.get("worker-desktop")?.desktop).toEqual(desktop);
 
     const requested = store.requestDestroy({
       environmentId: "worker-desktop",

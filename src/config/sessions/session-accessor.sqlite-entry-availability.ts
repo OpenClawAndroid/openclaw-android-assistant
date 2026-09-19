@@ -17,6 +17,7 @@ import {
   toDatabaseOptions,
   type SessionSqliteTargetResolutionCache,
 } from "./session-accessor.sqlite-scope.js";
+import { sessionEntryMetadataJson } from "./session-accessor.sqlite-status.js";
 import { assertCanonicalSqliteSessionKeysCurrent } from "./session-canonical-key.js";
 import type { SessionEntry } from "./types.js";
 
@@ -132,7 +133,8 @@ function readSessionIdentityEvidenceRows(
         database.db,
         db
           .selectFrom("session_nodes")
-          .select(["current_session_id", "entry_json", "entry_valid", "session_key", "updated_at"])
+          .select(["current_session_id", "entry_valid", "session_key", "updated_at"])
+          .select(sessionEntryMetadataJson)
           .where(column, "in", chunk),
       ).rows;
       for (const row of rows) {
@@ -159,6 +161,7 @@ function readSessionIdentityEvidenceRows(
   const decodeRow = prepareSqliteSessionEntryRowDecoder(
     database,
     [...rowsByKey.values()].filter((row) => row.entry_valid === 1),
+    "list",
   );
   for (const row of rowsByKey.values()) {
     const rows = rowsBySessionId.get(row.current_session_id) ?? [];

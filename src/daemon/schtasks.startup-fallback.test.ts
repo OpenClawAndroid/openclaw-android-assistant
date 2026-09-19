@@ -1247,7 +1247,7 @@ describe("Windows startup fallback", () => {
 
       await installGatewayScheduledTask(env, new PassThrough(), "19433");
 
-      expect(processQueries).toBe(5);
+      expect(processQueries).toBe(4);
       await expect(fs.access(startupEntryPath)).rejects.toThrow();
     });
   });

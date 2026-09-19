@@ -22,6 +22,7 @@ import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import * as usageFormat from "../utils/usage-format.js";
 import type { GatewayClient } from "./server-methods/types.js";
 import * as sessionOrder from "./session-list-order.js";
+import { readSessionListSelectionFacts } from "./session-list-target.js";
 import * as projectionWork from "./session-projection-work.js";
 import { createSessionRowProjection, type SessionRowProjection } from "./session-row-projection.js";
 import { createSessionRowProjectionFixture } from "./session-row-projection.test-support.js";
@@ -126,7 +127,10 @@ describe("session list resolver cache", () => {
         filterAndSortSessionEntries({
           cfg,
           entries: Object.entries(store),
-          getTarget: () => undefined,
+          getTarget: (key) => ({
+            agentId: "agent-29",
+            selection: readSessionListSelectionFacts(key, store[key]),
+          }),
           getRowContext: () => buildSessionListRowMetadataContext({ now: 100 }),
           now: 100,
           opts: { ownerId: "agent-29", limit: 10 },
@@ -386,7 +390,10 @@ describe("session list resolver cache", () => {
           filterAndSortSessionEntries({
             cfg: selectionConfig,
             entries: Object.entries(store),
-            getTarget: () => undefined,
+            getTarget: (key) => ({
+              agentId: "owner",
+              selection: readSessionListSelectionFacts(key),
+            }),
             getRowContext: () => buildSessionListRowMetadataContext({ now: 2 }),
             now: 2,
             opts: {},
@@ -396,7 +403,10 @@ describe("session list resolver cache", () => {
           filterAndSortSessionEntries({
             cfg: selectionConfig,
             entries: Object.entries(store),
-            getTarget: () => undefined,
+            getTarget: (key) => ({
+              agentId: "owner",
+              selection: readSessionListSelectionFacts(key),
+            }),
             getRowContext: () => buildSessionListRowMetadataContext({ now: 2 }),
             now: 2,
             opts: {},

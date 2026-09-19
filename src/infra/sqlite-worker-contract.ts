@@ -30,6 +30,8 @@ export type SqliteWorkerRequest = {
   gatewaySchemaFence?: MessagePort;
   maintenanceSchemaFence?: MessagePort;
   stateLifecycle?: MessagePort;
+  workerStateLifecycle?: { deadlineNs: bigint };
+  lifecyclePreparation?: MessagePort;
   operationAdmission?: MessagePort;
 } & (
   | {
@@ -49,6 +51,7 @@ export type SqliteWorkerRequest = {
 
 export type SqliteWorkerReply = {
   id: number;
+  cleanupFailure?: OpenClawStateWorkerErrorPayload;
 } & (
   | { ok: true; value: Uint8Array; transfer?: "start" | "frame"; input?: "next" }
   | {

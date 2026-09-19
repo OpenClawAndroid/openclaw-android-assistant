@@ -9,6 +9,7 @@ import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-re
 import { listOpenIncognitoAgentDatabases } from "../state/openclaw-agent-db.js";
 import { resolveIncognitoOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.paths.js";
 import { readSessionRowFacts } from "./server-methods/session-placement-read-projection.js";
+import { readSessionListSelectionFacts } from "./session-list-target.js";
 import * as records from "./session-row-projection-record.js";
 import type { SessionListRowContext } from "./session-utils-contracts.js";
 import { deriveSessionTitle, type SessionChildLink } from "./session-utils-core.js";
@@ -145,7 +146,13 @@ export function readIncognitoSessionRow(params: {
   }
   const row = records.create({ key, agentId, storeTarget: { agentId, storePath: ephemeralPath } });
   const storedEntry = readSessionRowEntry(row);
-  return storedEntry
-    ? Object.assign(row, { storedEntry, entry: projectGatewaySessionEntry(cfg, storedEntry) })
-    : undefined;
+  if (!storedEntry) {
+    return undefined;
+  }
+  const entry = projectGatewaySessionEntry(cfg, storedEntry);
+  return Object.assign(row, {
+    storedEntry,
+    entry,
+    selection: readSessionListSelectionFacts(key, entry),
+  });
 }

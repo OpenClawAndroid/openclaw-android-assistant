@@ -22,7 +22,11 @@ export function executeUserPreferenceCommand(
   ensureUserProfilesSchema(options);
   if (command.type === "userPreferences.write") {
     const { update } = command.input;
-    if (update.serialized.length === 0 && update.deletionKeys.length === 0) {
+    if (
+      update.serialized.length === 0 &&
+      update.deletionKeys.length === 0 &&
+      update.expected.length === 0
+    ) {
       const profile = selectResolvedUserProfileMetadataById(
         openOpenClawStateDatabase(options).db,
         command.input.profileId,

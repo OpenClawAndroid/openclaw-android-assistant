@@ -115,4 +115,22 @@ describe("worker endpoint normalization", () => {
       } as unknown as WorkerDesktopEndpoint),
     ).toThrow(error);
   });
+  it.each([
+    {
+      passwordFilePath: "/var/db/crabbox/vnc.password",
+      username: "desktop-user",
+      allowsResize: false,
+    },
+    {
+      passwordFilePath: "C:\\ProgramData\\crabbox\\vnc.password",
+      apps: [{ id: "terminal" as const, executablePath: "C:\\Windows\\System32\\cmd.exe" }],
+      allowsResize: false,
+    },
+  ])("accepts native desktop credentials and remote paths: %j", (native) => {
+    expect(normalizeWorkerDesktopEndpoint({ protocol: "rfb", port: 5900, ...native })).toEqual({
+      protocol: "rfb",
+      port: 5900,
+      ...native,
+    });
+  });
 });

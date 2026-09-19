@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import Module from "node:module";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { openRootFileSync } from "../infra/boundary-file-read.js";
 import { sameFileIdentity } from "../infra/fs-safe-advanced.js";
 import { isPathInside } from "../infra/path-guards.js";
@@ -268,13 +268,14 @@ function createPluginModuleLoader(
     }
     let found = false;
     try {
-      const sourceText = fs.readFileSync(target, "utf8");
+      const source = target.startsWith("file:") ? fileURLToPath(target) : target;
+      const sourceText = fs.readFileSync(source, "utf8");
       if (!sourceText.includes("plugin-sdk/")) {
         sourceSdkReferences.set(target, false);
         return false;
       }
-      const resolver = createJiti(target, { fsCache: false, moduleCache: false, tryNative: false });
-      visitPluginSourceReferences(target, sourceText, resolver, (specifier, kind) => {
+      const resolver = createJiti(source, { fsCache: false, moduleCache: false, tryNative: false });
+      visitPluginSourceReferences(source, sourceText, resolver, (specifier, kind) => {
         if (kind === "asset" || !isPluginSdkAliasSpecifier(specifier)) {
           return;
         }

@@ -2,21 +2,21 @@ import { setTimeout as delay } from "node:timers/promises";
 import { coerceErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import {
   WorkerProviderError,
+  type WorkerDesktopEndpoint,
   type WorkerLeaseStatus,
   type WorkerProfile,
   type WorkerProvider,
 } from "openclaw/plugin-sdk/plugin-entry";
 import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
-import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveCrabboxBinary } from "./crabbox-binary.js";
 import { ensureManagedCrabboxBinary } from "./crabbox-managed-binary.js";
-import { crabboxCommandError } from "./crabbox-worker-command-error.js";
 import {
   type CrabboxCommandRunner,
   runCrabboxCommand,
   stopCrabboxLease,
 } from "./crabbox-worker-command.js";
 import {
+  createCrabboxMacDesktopSetup,
   createCrabboxWorkerDesktopEndpoint,
   createCrabboxWorkerDesktopSetup,
 } from "./crabbox-worker-desktop-setup.js";
@@ -29,8 +29,11 @@ import {
   type CrabboxWorkerNodeEnrollment,
 } from "./crabbox-worker-node-enrollment.js";
 import {
+  assertAwsWorkerHasNoInstanceProfile,
+  assertHetznerDesktopHasManagedCoordinator,
+} from "./crabbox-worker-preflight.js";
+import {
   CRABBOX_WORKER_PROVIDER_ID,
-  nonEmptyString,
   assertCrabboxLeaseId,
   operationLeaseId,
   operationSlug,
@@ -62,7 +65,6 @@ import {
   countCrabboxProvisionSetupPhases,
   CRABBOX_COMMAND_SETTLEMENT_TIMEOUT_MS,
   CRABBOX_DESKTOP_WARMUP_TIMEOUT_MS,
-  CRABBOX_LIFECYCLE_TIMEOUT_MS,
   CRABBOX_NODE_ENROLLMENT_TIMEOUT_MS,
   CRABBOX_SETUP_TIMEOUT_MS,
   CRABBOX_STOP_TIMEOUT_MS,
@@ -99,60 +101,6 @@ type CrabboxWorkerProviderDependencies = {
   warn?: (message: string) => void;
   warmImagePolicy?: CrabboxWarmImagePolicy;
 };
-
-async function loadCrabboxConfigShow(params: {
-  binary: string;
-  runCommand: CrabboxCommandRunner;
-  signal?: AbortSignal;
-}): Promise<unknown> {
-  const result = await runCrabboxCommand({
-    action: "config show",
-    args: ["config", "show", "--json"],
-    binary: params.binary,
-    runCommand: params.runCommand,
-    signal: params.signal,
-    timeoutMs: CRABBOX_LIFECYCLE_TIMEOUT_MS,
-  });
-  if (result.termination !== "exit" || result.code !== 0) {
-    throw crabboxCommandError("config show", result);
-  }
-  try {
-    return JSON.parse(result.stdout) as unknown;
-  } catch {
-    throw new Error("Crabbox config show returned invalid JSON");
-  }
-}
-
-async function assertAwsWorkerHasNoInstanceProfile(params: {
-  binary: string;
-  runCommand: CrabboxCommandRunner;
-  signal?: AbortSignal;
-}): Promise<void> {
-  const config = await loadCrabboxConfigShow(params);
-  const instanceProfile =
-    config && typeof config === "object" && !Array.isArray(config)
-      ? (config as { aws?: { instanceProfile?: unknown } }).aws?.instanceProfile
-      : undefined;
-  if (typeof instanceProfile !== "string") {
-    throw new WorkerProviderError("Crabbox config show returned an invalid AWS instance profile");
-  }
-  if (nonEmptyString(instanceProfile)) {
-    throw new WorkerProviderError("Crabbox AWS instance profile must be empty for cloud workers");
-  }
-}
-
-async function assertHetznerDesktopHasManagedCoordinator(params: {
-  binary: string;
-  runCommand: CrabboxCommandRunner;
-  signal?: AbortSignal;
-}): Promise<void> {
-  const config = await loadCrabboxConfigShow(params);
-  const view = isRecord(config) ? config : undefined;
-  if (nonEmptyString(view?.coordinator) && view?.brokerMode === "managed") {
-    return;
-  }
-  throw new Error("Crabbox Hetzner desktop profiles require a managed coordinator");
-}
 
 export function createCrabboxWorkerProvider(
   dependencies: CrabboxWorkerProviderDependencies,
@@ -379,6 +327,14 @@ export function createCrabboxWorkerProvider(
       }
       inspectedParams.inspect = await waitForProvisionReady({ ...inspectedParams, sleep });
       inspectedParams.deadline = setupDeadline;
+      let desktop: WorkerDesktopEndpoint | undefined;
+      try {
+        desktop = parsed.desktop
+          ? createCrabboxWorkerDesktopEndpoint(parsed.target, inspectedParams.inspect.sshUser)
+          : undefined;
+      } catch (error) {
+        return await failProvisionAfterCleanup({ ...inspectedParams, id: leaseId }, error);
+      }
       if (parsed.setup && !(project?.preparation && allocationChoice.kind === "checkpoint")) {
         inspectedParams.inspect = await runProvisionSetupAndWaitReady({
           ...inspectedParams,
@@ -388,9 +344,17 @@ export function createCrabboxWorkerProvider(
           sleep,
         });
       }
-      const desktopSetup = parsed.desktop
-        ? createCrabboxWorkerDesktopSetup(leaseId, wallpaperBase64)
-        : undefined;
+      const desktopSetup =
+        parsed.desktop && parsed.target === "linux"
+          ? createCrabboxWorkerDesktopSetup(leaseId, wallpaperBase64)
+          : undefined;
+      if (parsed.desktop && parsed.target === "macos") {
+        await runProvisionSetup({
+          ...inspectedParams,
+          phase: "desktop setup",
+          setup: createCrabboxMacDesktopSetup(),
+        });
+      }
       if (desktopSetup && project) {
         // Desktop launchers and XFCE configuration leave SSH and lease metadata unchanged.
         await runProvisionSetup({
@@ -587,7 +551,7 @@ export function createCrabboxWorkerProvider(
       return {
         ...allocation,
         node: { deviceId },
-        ...(parsed.desktop ? { desktop: createCrabboxWorkerDesktopEndpoint() } : {}),
+        ...(desktop ? { desktop } : {}),
       };
     };
   };

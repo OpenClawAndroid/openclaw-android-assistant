@@ -1,4 +1,3 @@
-// Matrix plugin module implements actions behavior.
 export {
   sendMatrixMessage,
   editMatrixMessage,

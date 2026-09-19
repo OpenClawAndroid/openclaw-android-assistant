@@ -25,7 +25,10 @@ export function createGateway(
   connected: boolean,
   options: { methods?: string[]; request?: GatewayRequestHandler } = {},
 ): GatewayHarness {
-  const client = createTestGatewayClient(options.request ?? (() => ({ models: [] })));
+  const client = createTestGatewayClient(
+    options.request ??
+      ((method) => (method === "sessions.search" ? { results: [], sessions: [] } : { models: [] })),
+  );
   let snapshot: ApplicationGatewaySnapshot = {
     client,
     phase: connected ? "connected" : "reconnecting",

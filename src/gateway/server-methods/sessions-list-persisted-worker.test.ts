@@ -198,7 +198,6 @@ it("lists off-page controller links and deleted-collector totals while a sibling
                 ...key,
                 valueJson: "true",
                 maxEntries: 4,
-                maxPluginEntries: 4,
                 overflowPolicy: "reject-new",
               },
             }),

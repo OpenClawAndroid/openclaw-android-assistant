@@ -117,6 +117,10 @@ database. Empty files, rollback journals, incomplete WAL sidecars, and
 owner-provided snapshots retain the private snapshot path. Startup readiness also
 performs the full integrity and foreign-key checks described below.
 
+Doctor also shares one private shared-state snapshot across a synchronous
+workspace-alias check. The next check reads fresh state, so committed repairs are
+visible without taking a separate snapshot for every configured workspace.
+
 Memory search and maintenance managers borrow the verified per-agent connection. Acquisition does not reopen or rescan a healthy shared handle. Native and transformed plugin modules share the same process-owned connection lifecycle, query cache, and commit observers. Nested synchronous writes use SQLite savepoints on that connection. A manager retains that exact connection against cache eviction until its work drains, then releases its borrow without closing the database. Explicit quarantine and disposal still revoke it. Full memory rebuilds use separate temporary shadow databases and publish their derived tables in one synchronous transaction. Read-only memory status keeps its separate diagnostic connection and does not create or migrate a missing database.
 
 If nested rollback or savepoint cleanup fails, the transaction owner preserves the original failure, discards staged state and post-commit observers, and closes the connection. Catching that failure cannot resume writes on the abandoned handle. A later operation must acquire a fresh connection through its database owner. Doctor plugin-state imports retain earlier committed batches; an aborted batch cannot commit its prefix. Ordinary row refusals that successfully roll back their savepoint still commit the successful prefix for resumable imports.
@@ -140,11 +144,19 @@ IPC error remains the reported failure even if termination also fails.
 
 Agent database maintenance fences other writers with a 60-second lease in the shared state database. A dedicated worker renews that lease during synchronous integrity scans and migration phases. Maintenance still checks the exact persisted owner before mutations and commit, and stops if the heartbeat fails or ownership expires or changes. Finishing or cancelling maintenance stops renewal before releasing the lease; process death leaves at most the remaining lease duration.
 
-Asynchronous agent-database admission runs the first full-file integrity check in a read-only child process when that check is outside a write transaction. Later ordinary opens reuse remembered verification. Maintenance retains its independent full check. The connection and owning scope remain held until the child closes, including on cancellation or timeout. Schema changes, index repairs, and compaction retain their synchronous phases.
+Asynchronous agent-database admission runs the first full-file integrity check in a read-only child process when that check is outside a write transaction. Later ordinary opens reuse remembered verification. Maintenance retains its independent full check. The connection and owning scope remain held until the native reader closes; cancellation and timeout wait for process exit. Schema changes, index repairs, and compaction retain their synchronous phases.
+
+An agent maintenance lease reuses one integrity-check process across its queued
+checks. Each request opens and closes its own database, reads fresh file identity,
+and rechecks the current maintenance owner. Results and database handles are never
+cached between requests. Failures retire the process before the caller resumes,
+and the lease joins all queued checks and the child before releasing ownership.
+For reused children, worker lifetime timing measures each request through native
+database close; one-shot checks include process exit.
 
 The integrity child allows SQLite to cache up to about 64 MiB of database pages
 while checking indexes and foreign keys. SQLite allocates those pages as needed,
-and the cache ends with the child; retained Gateway connections keep their
+and the cache ends when that database closes; retained Gateway connections keep their
 existing cache settings. Full integrity and foreign-key checks still run.
 
 Explicit session-maintenance finalization uses this asynchronous admission if its writable handle was evicted during archive or deletion preparation. It keeps its place in the session writer queue and rechecks maintenance and deletion authority before committing. Automatic maintenance retires when its original handle closes instead of reopening it.
@@ -176,6 +188,14 @@ slot does not consume it. For example, a 267.5 MiB database without sidecars get
 635 seconds. These concurrency and budget improvements precede the background
 startup recovery described here; installed releases can have shorter budgets
 and different concurrency.
+
+Session startup certification reuses up to two worker threads for databases that
+need fresh canonical proof. Valid receipts retain their existing fast path. Each
+certification task has fresh admission, its own commit gate, and full canonical
+validation. The task closes its database handles and leases and waits
+for the parent's close request to finish before releasing the thread for another
+database. If native cleanup is uncertain, writer admission and cleanup custody
+remain held until execution ends.
 
 During startup, reaching the inspection's foreground deadline records a warning
 and marks that agent **degraded** while the Gateway continues with healthy agents.
@@ -269,11 +289,18 @@ frames than total frames still records a blocked checkpoint. An absent reader li
 means that the blocker is untracked or belongs to another process, not that no
 reader exists.
 
-Shared-state SQLite worker actors retire after 60 seconds without an active
-operation. Retirement closes their native database borrow before a later request
-opens a replacement actor, bounding how long an abandoned worker-local reader can
-pin a WAL snapshot. An actor that returns from an operation with a tracked reader
-still active fails settlement and retires immediately.
+Shared-state SQLite worker actors inspect their already-open WAL connection after
+60 seconds without an active operation. An admitted PASSIVE checkpoint that
+positively inspects a healthy connection keeps the actor until 30 minutes after
+its last real operation; the inspection does not extend that deadline. Another
+connection's reader can prevent a complete checkpoint without making this actor
+unhealthy. A local native reader that refuses the checkpoint, an unavailable
+inspection, or an actor without an inspectable WAL connection retains the
+60-second retirement behavior. Inspection never opens a database for an
+artifact-preserving reader. Retirement closes the native database borrow before
+a later request opens a replacement actor. An actor that returns from an
+operation with a tracked reader still active fails settlement and retires
+immediately.
 
 Observations belong to the open database handle in the Gateway process. They
 reset when that handle is replaced or the Gateway restarts. Status and Doctor

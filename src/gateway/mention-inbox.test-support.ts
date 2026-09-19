@@ -13,7 +13,11 @@ import type { MentionCommittedInput, MentionInbox } from "./mention-inbox.types.
 import { mentionHandlers } from "./server-methods/mentions.js";
 import { sessionMutationHandlers } from "./server-methods/sessions-mutations.js";
 import { identifiedClient } from "./server-methods/sessions-sharing.test-support.js";
-import type { GatewayClient, GatewayRequestContext } from "./server-methods/types.js";
+import type {
+  GatewayClient,
+  GatewayRequestContext,
+  GatewayRequestHandlerOptions,
+} from "./server-methods/types.js";
 import { usersMentionableHandlers } from "./server-methods/users-mentionable.js";
 
 export const SESSION_KEY = "agent:main:dashboard:mention-test";
@@ -79,7 +83,12 @@ async function createFixture(cfg: OpenClawConfig, options: InboxFixtureOptions) 
   const committedSources = new Map<string, MentionCommittedInput["committedSource"]>();
   const inbox = openInbox();
   const context = { mentionInbox: inbox, getRuntimeConfig: () => cfg } as GatewayRequestContext;
-  async function call(method: string, params: Record<string, unknown>, client = bobClient) {
+  async function call(
+    method: string,
+    params: Record<string, unknown>,
+    client: GatewayClient = bobClient,
+    onResponse?: GatewayRequestHandlerOptions["respond"],
+  ) {
     let response: { ok: boolean; payload?: unknown; error?: ErrorShape } | undefined;
     const handler = handlers[method];
     if (!handler) {
@@ -93,6 +102,7 @@ async function createFixture(cfg: OpenClawConfig, options: InboxFixtureOptions) 
       isWebchatConnect: () => true,
       respond: (ok, payload, error) => {
         response = { ok, payload, error };
+        onResponse?.(ok, payload, error);
       },
     });
     if (!response) {

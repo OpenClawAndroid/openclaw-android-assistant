@@ -12,6 +12,7 @@ import {
 } from "./openclaw-state-db.js";
 import { getUserPreferences, setUserPreferences } from "./user-preferences.js";
 import { onUserProfilesChanged, readUserProfileVersion } from "./user-profile-events.js";
+import { listUserProfilesSync } from "./user-profile-list.js";
 import { migrateLegacyTailscaleProfileIdentities } from "./user-profiles-tailscale-migration.js";
 import {
   adoptTailscaleProfileAvatar,
@@ -23,7 +24,6 @@ import {
   getUserProfileListItem,
   getUserProfileRole,
   linkEmail,
-  listProfiles,
   setAvatar,
   setDisplayName,
   setUserProfileRole,
@@ -167,7 +167,7 @@ describe("user profiles", () => {
     expect(second).toEqual(first);
     expect(ensureProfileForEmail("ADA@example.com", options)).toEqual(first);
     expect(readUserProfileVersion()).toBe(profileVersion + 1);
-    expect(listProfiles(options)).toEqual([
+    expect(listUserProfilesSync(options)).toEqual([
       expect.objectContaining({ id: first.id, emails: ["ada@example.com"] }),
     ]);
   });
@@ -188,7 +188,7 @@ describe("user profiles", () => {
     expect(second.id).toBe(first.id);
     expect(second.displayName).toBe("Ada Lovelace");
     expect(readUserProfileVersion()).toBe(profileVersion + 1);
-    expect(listProfiles(options)).toEqual([
+    expect(listUserProfilesSync(options)).toEqual([
       expect.objectContaining({ id: first.id, emails: [], displayName: "Ada Lovelace" }),
     ]);
     expect(
@@ -245,7 +245,7 @@ describe("user profiles", () => {
     const target = ensureProfileForEmail("target@example.com", options);
 
     expect(getUserProfileListItem(target.id, options)).not.toHaveProperty("role");
-    expect(listProfiles(options).every((profile) => !("role" in profile))).toBe(true);
+    expect(listUserProfilesSync(options).every((profile) => !("role" in profile))).toBe(true);
 
     linkEmail("source@example.com", target.id, options);
     const version = readUserProfileVersion();
@@ -256,7 +256,7 @@ describe("user profiles", () => {
     expect(readUserProfileVersion()).toBe(version + 1);
     expect(getUserProfileRole(source.id, options)).toBe("maintainer");
     expect(getUserProfileRole(target.id, options)).toBe("maintainer");
-    expect(listProfiles(options)).toContainEqual(
+    expect(listUserProfilesSync(options)).toContainEqual(
       expect.objectContaining({ id: target.id, role: "maintainer" }),
     );
 
@@ -265,7 +265,7 @@ describe("user profiles", () => {
     expect(cleared).toMatchObject({ id: target.id });
     expect(cleared).not.toHaveProperty("role");
     expect(getUserProfileRole(target.id, options)).toBeNull();
-    expect(listProfiles(options).every((profile) => !("role" in profile))).toBe(true);
+    expect(listUserProfilesSync(options).every((profile) => !("role" in profile))).toBe(true);
   });
 
   it("rejects role access for a missing durable profile", () => {
@@ -426,7 +426,7 @@ describe("user profiles", () => {
       theme: "claw",
       [GIT_COAUTHOR_PREFERENCE_KEY]: true,
     });
-    expect(listProfiles(options)).toEqual([
+    expect(listUserProfilesSync(options)).toEqual([
       expect.objectContaining({ id: accountA.id, mergedInto: null }),
       expect.objectContaining({ id: accountB.id, mergedInto: null }),
     ]);
@@ -444,7 +444,7 @@ describe("user profiles", () => {
     );
 
     expect(second.id).toBe(first.id);
-    expect(listProfiles(options)).toEqual([
+    expect(listUserProfilesSync(options)).toEqual([
       expect.objectContaining({ id: first.id, displayName: "Ada Lovelace", mergedInto: null }),
     ]);
     setDisplayName(first.id, "User Chosen", options);
@@ -698,7 +698,7 @@ describe("user profiles", () => {
     ).toEqual(profile);
     expect(readUserProfileVersion()).toBe(version);
     expect(profile.displayName).toBe("Person Example");
-    expect(listProfiles(options)).toEqual([
+    expect(listUserProfilesSync(options)).toEqual([
       expect.objectContaining({ id: profile.id, emails: ["person@gmail.com"] }),
     ]);
   });
@@ -760,7 +760,7 @@ describe("user profiles", () => {
       updatedAt: 400,
       emails: ["source@example.com", "target@example.com"],
     });
-    expect(listProfiles(options)).toContainEqual(
+    expect(listUserProfilesSync(options)).toContainEqual(
       expect.objectContaining({
         id: source.id,
         updatedAt: 400,
@@ -899,7 +899,7 @@ describe("user profiles", () => {
       { fetchImpl },
     );
     await vi.waitFor(() => expect(resolveFetch).toBeTypeOf("function"));
-    const profileId = listProfiles(options)[0]?.id;
+    const profileId = listUserProfilesSync(options)[0]?.id;
     expect(profileId).toBeTruthy();
     expect(setAvatar(profileId!, new Uint8Array([9, 8, 7]), "image/png", options).ok).toBe(true);
     const version = readUserProfileVersion();
@@ -935,7 +935,7 @@ describe("user profiles", () => {
     expect(database.prepare("SELECT email, profile_id FROM user_profile_emails").all()).toEqual([
       { email: "person@gmail.com", profile_id: email.id },
     ]);
-    expect(listProfiles(options)).toEqual(
+    expect(listUserProfilesSync(options)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: provider.id,
@@ -1004,7 +1004,7 @@ describe("user profiles", () => {
       sha256,
       updatedAt: expect.any(Number),
     });
-    expect(listProfiles(options)).toEqual([
+    expect(listUserProfilesSync(options)).toEqual([
       expect.objectContaining({ id: profile.id, hasAvatar: true }),
     ]);
     expect(getUserProfileDisplay(profile.id, options)).toEqual({

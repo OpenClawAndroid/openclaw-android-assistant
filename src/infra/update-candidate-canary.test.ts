@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
@@ -31,14 +32,20 @@ import { renderUpdateRunReport, updateRunReportInputFromResult } from "./update-
 import { updateRunStepsFromResultStep, updateRunWarningMessages } from "./update-run-step.js";
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn(), snapshot: vi.fn(), signal: vi.fn() }));
-vi.mock("node:child_process", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:child_process")>()),
-  spawn: mocks.spawn,
-}));
-vi.mock("../process/exec.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../process/exec.js")>()),
-  runCommandBuffered: mocks.snapshot,
-}));
+vi.mock("node:child_process", async (importOriginal) =>
+  (await import("./update-candidate-canary-mocks.test-support.js")).mockCanaryChildProcesses(
+    await importOriginal<typeof import("node:child_process")>(),
+    mocks.spawn,
+  ),
+);
+vi.mock("../process/exec.js", async (importOriginal) => {
+  const { mockCanarySnapshotCommands } =
+    await import("./update-candidate-canary-mocks.test-support.js");
+  return mockCanarySnapshotCommands(
+    await importOriginal<typeof import("../process/exec.js")>(),
+    mocks.snapshot,
+  );
+});
 vi.mock("../process/kill-tree.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../process/kill-tree.js")>()),
   signalProcessTree: mocks.signal,
@@ -83,9 +90,8 @@ beforeEach(async () => {
       children.set(child.pid, child);
       childEnv = options.env;
       if (args.includes("gateway")) {
-        void fs.readFile(options.env.OPENCLAW_CONFIG_PATH!, "utf8").then((raw) => {
-          candidateConfig = JSON.parse(raw) as Record<string, unknown>;
-        });
+        const raw = readFileSync(options.env.OPENCLAW_CONFIG_PATH!, "utf8");
+        candidateConfig = JSON.parse(raw) as Record<string, unknown>;
       } else {
         completeCanaryCommand(child, args, () => ({
           pluginInventory,
@@ -852,12 +858,8 @@ describe("update candidate canary", () => {
           if (isRecord(request) && request.mode === "inventory") {
             return snapshot(command, options);
           }
-          return {
-            code: 1,
-            stdout: Buffer.alloc(0),
-            stderr: Buffer.from("snapshot rejected"),
-            termination: "exit",
-          };
+          const result = createCanarySnapshotResult(options.input, databasePath);
+          return { ...result, code: 1, stdout: "", stderr: "snapshot rejected" };
         });
       }
       if (failure === "doctor") {

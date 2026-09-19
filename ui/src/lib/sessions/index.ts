@@ -41,8 +41,6 @@ export {
   compareSessionRowsByUpdatedAt,
   filterSessionRows,
   filterVisibleSessionRows,
-  getVisibleSessionRows,
-  isSystemCreatedSessionRow,
   resolveSessionNavigation,
   sessionMatchesArchivedFilter,
   sessionMatchesVisibleSessionScope,

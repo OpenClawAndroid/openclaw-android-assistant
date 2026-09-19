@@ -203,11 +203,33 @@ Active turns keep their captured delivery settings.
 
   </Accordion>
 
+  <a id="retained-group-history" />
+
+  <Accordion title="Retained group history">
+    Telegram groups and forum topics use a recent automatic context window plus explicit history reads. With `requireMention: true`, permitted unmentioned messages are recorded without starting agent turns. A later addressed turn receives recent context, and the agent can use `message(action="read")` when it needs earlier discussion.
+
+    - `channels.telegram.historyLimit` or `messages.groupChat.historyLimit` caps the automatic window (default 50). `0` disables automatic history injection, not recording or explicit reads.
+    - Automatic context examines a bounded recent slice before applying topic and sender permissions. A busy group can supply fewer than the configured number of messages when other topics or excluded senders dominate that slice. The agent can page farther back with explicit history reads.
+    - History reads stay within the authorized account, chat, and topic. They use Telegram message IDs for references and paging; omitting a topic must not expand a topic-scoped read to the whole group.
+    - Agent reads default to 50 messages per page, up to 100. Use `before` with the returned `oldestMessageId` to read older messages, `after` to read newer messages, or `messageId` for an exact reference. These reads require the agent's authenticated current group/topic; they do not fetch Telegram server history.
+    - `/new` and `/reset` reset automatic session context, not the retained conversation. Explicit history reads can retrieve permitted earlier discussion.
+    - The existing SQLite plugin-state table owns retained group messages. Successfully persisted records survive Gateway restarts and are not evicted by message count. Direct-message cache behavior remains bounded.
+    - On first use, existing group-cache records move atomically into retained storage. Legacy records without history-admission provenance, including embedded reply ancestors, remain available as explicit reply context within the existing depth and visibility limits; they are not treated as a verified conversation archive.
+    - History contains only messages OpenClaw received and was permitted to record. It cannot recover messages evicted before this feature, messages Telegram did not deliver, or messages from before the bot joined. Media references do not guarantee that attachment bytes remain available indefinitely.
+
+    No separate observation setting is needed. Keep Telegram [group visibility](/channels/telegram/setup#privacy-mode-and-group-visibility) enabled so the bot receives ordinary messages. Enabling history does not change explicit `requireMention: false` activation.
+
+    <Warning>
+    Older OpenClaw releases apply different cache and plugin-quota rules. Do not run them against expanded retained history. Downgrading requires a compatible pre-update backup; this feature does not add a database-version fence.
+    </Warning>
+
+  </Accordion>
+
   <Accordion title="Limits and CLI targets">
     - `channels.telegram.textChunkLimit` default 4000; `streaming.chunkMode="newline"` prefers paragraph boundaries (blank lines) before length splitting.
     - `channels.telegram.mediaMaxMb` (default 100) caps inbound and outbound media size.
     - When an inbound attachment cannot be downloaded and the message proceeds to the agent, its body includes a `[media unavailable: ...]` notice. Oversize notices include the effective size limit; partial albums include the failed and total attachment counts. This also applies to admitted channel posts, even when their separate chat warning is suppressed.
-    - group context history uses `channels.telegram.historyLimit` or `messages.groupChat.historyLimit` (default 50); `0` disables.
+    - automatic group context uses `channels.telegram.historyLimit` or `messages.groupChat.historyLimit` (default 50); `0` disables the automatic window, not retained history.
     - reply/quote/forward supplemental context normalizes into one selected conversation context window when the gateway has observed the parent messages; the observed-message cache lives in OpenClaw SQLite plugin state, and `openclaw doctor --fix` imports legacy sidecars. Telegram only includes one shallow `reply_to_message` per update, so chains older than the cache are limited to that payload.
     - Telegram allowlists primarily gate who can trigger the agent, not a full supplemental-context redaction boundary.
     - DM history: `channels.telegram.dmHistoryLimit`, `channels.telegram.dms["<user_id>"].historyLimit`.

@@ -1,4 +1,3 @@
-// Slack plugin module implements dispatch behavior.
 import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
 import {
   dispatchChannelInboundTurn,

@@ -95,7 +95,7 @@ export type ChatPageHost = ChatHost &
     agentsSelectedId: string | null;
     pendingAbort: PendingChatAbort | null;
     pendingSessionMessageReloadSessionKey: string | null;
-    chatSubmitGuards: Map<string, Promise<void>>;
+    chatSubmitGuards: Set<string>;
     chatSendTimingsByRun: Map<string, ChatSendTimingEntry>;
     chatStreamSegments: ChatStreamSegment[];
     toolStreamById: Map<string, ToolStreamEntry>;

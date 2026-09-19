@@ -730,7 +730,7 @@ describe("session accessor readonly listing", () => {
     ]);
   });
 
-  it.each(["identity", "timestamp", "json", "participant", "participant-integer"])(
+  it.each(["identity", "timestamp", "json", "nul", "participant", "participant-integer"])(
     "rejects stale valid %s evidence without relying on a fallback read",
     async (corruption) => {
       const stateDir = autoTempDirs.make("openclaw-session-readonly-stale-valid-evidence-");
@@ -770,7 +770,7 @@ describe("session accessor readonly listing", () => {
               });
         database.db
           .prepare("UPDATE session_nodes SET entry_json = ? WHERE session_key = ?")
-          .run(entryJson, sessionKey);
+          .run(corruption === "nul" ? entryJson + "\0" : entryJson, sessionKey);
       }
       database.db
         .prepare("UPDATE session_nodes SET entry_valid = 1 WHERE session_key = ?")

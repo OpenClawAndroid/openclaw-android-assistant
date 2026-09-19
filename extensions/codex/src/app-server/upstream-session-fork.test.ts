@@ -160,6 +160,7 @@ describe("forkCodexUpstreamSession", () => {
       try {
         await peer.request("model/list", {});
         const close = vi.spyOn(peer, "close");
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
         await controlFactory.forRequest("main").initialize();
         const params = forkParams();
         params.upstream.ref.connectionFingerprint = buildCodexAppServerConnectionFingerprint(
@@ -168,9 +169,6 @@ describe("forkCodexUpstreamSession", () => {
         );
         boundaryMocks.listTurns.mockResolvedValueOnce([codexForkTurn("turn-2", "edit me")]);
         const runtime = createPluginRuntimeMock();
-        if (outcome === "late-response") {
-          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-        }
         const operation = forkCodexUpstreamSession(params, {
           bindingStore: createCodexTestBindingStore(),
           controlFactory,

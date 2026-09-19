@@ -516,6 +516,11 @@ correlation alone.
 
 ## Querying
 
+The Gateway runs `audit.list` and `audit.activity.list` queries on the shared
+state database worker so SQLite work does not block request handling. Filters
+and the retention cutoff are captured when each read starts; sequence cursors,
+result limits, and the existing `operator.read` permission are unchanged.
+
 - CLI: [`openclaw audit`](/cli/audit) with filters for agent, session, run,
   kind, status, direction, channel, time bounds, and cursor paging.
 - Gateway RPC: `audit.activity.list` (requires `operator.read`) returns the

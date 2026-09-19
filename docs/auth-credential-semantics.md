@@ -98,6 +98,23 @@ or model availability changes, including cooldown and blocked-state transitions.
 Usage timestamps, success history, and failure counters remain recorded without
 invalidating chat metadata or broadcasting a change to connected clients.
 
+Repeated model resolution reuses persisted auth rows while the owning database's
+write generation and file identity remain unchanged. Committed auth writes and
+runtime snapshot reloads invalidate those rows; database, WAL, and journal changes
+also invalidate reads from other processes. Scoped overlays, migration refusals,
+and personal-account selection still run on each request. Isolated agent scopes
+and private database snapshots do not share this cache. Gateway cache misses reuse
+a read-only child whose lifetime ends at shutdown; each read reacquires its source
+admission and closes its SQLite handles before returning.
+Usage bookkeeping invalidates later cache reuse while admitted reads can finish
+their snapshots. Credential, selection, ownership, and lifecycle changes still
+invalidate in-flight preparation.
+Model selection retries that stale read once after its readers finish cleanup,
+preserving the selected agent and any explicit profile pin. Continued changes,
+admission refusals, and cleanup failures remain errors.
+Workers certify committed SQLite visibility before rows enter the cache. Reads
+with unpublished or trailing WAL frames return normally without being retained.
+
 Explicit copy flows, such as `openclaw agents add`, use this portability policy:
 
 - `api_key` and `token` profiles are portable unless `copyToAgents: false`.

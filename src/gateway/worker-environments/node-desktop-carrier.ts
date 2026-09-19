@@ -277,6 +277,7 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
           ticket: active.ticket.ticket,
           attachPath: active.ticket.attachPath,
           port: binding.desktop.port,
+          ...(binding.desktop.username ? { username: binding.desktop.username } : {}),
           ...(binding.desktop.passwordFilePath
             ? { passwordFilePath: binding.desktop.passwordFilePath }
             : {}),
@@ -300,8 +301,9 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
       if (!bindingIsCurrent(binding, capturedRuntime, node)) {
         throw new Error("Worker environment node desktop owner changed before attachment");
       }
-      if (attached.auth !== "vnc-password" || !attached.vncPassword) {
-        throw new Error("Worker environment node desktop did not provide VNC authentication");
+      const expectedAuth = binding.desktop.username ? "ard-account" : "vnc-password";
+      if (attached.auth !== expectedAuth || !attached.vncPassword) {
+        throw new Error("Worker environment node desktop did not provide managed authentication");
       }
       const { DESKTOP_OBSERVE_PATH, mintDesktopObserverToken } =
         await import("../desktop/observe-bridge.js");
@@ -327,10 +329,12 @@ export function createWorkerNodeDesktopCarrier(options: WorkerNodeDesktopCarrier
         requester: request.requester,
         attachment,
         onAbandon: () => stopStream(active),
-        preauth: {
-          auth: "vnc-password",
-          credentials: { password: attached.vncPassword },
-        },
+        preauth: binding.desktop.username
+          ? {
+              auth: "ard-account",
+              credentials: { username: binding.desktop.username, password: attached.vncPassword },
+            }
+          : { auth: "vnc-password", credentials: { password: attached.vncPassword } },
         nowMs: issuedAtMs,
       });
       active.unclaimedTimer = setTimeout(

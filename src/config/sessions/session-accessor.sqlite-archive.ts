@@ -88,11 +88,11 @@ function spawnSqliteTranscriptArchiveWorkerOperation<Result>(
     // Cold mutations retain their one-shot cleanup/exit lifetime, never a sweep connection.
     const operation = withSqliteMutationWorkerCoordination(
       params.stateContext,
-      worker,
+      { kind: "dedicated", channel: worker },
       0,
       (coordination) =>
         runSqliteMutationWorkerRequest<Result>({
-          worker,
+          transport: { kind: "dedicated", channel: worker },
           operationId: 0,
           completion: "exit",
           onCommitRequest: params.onCommitRequest,

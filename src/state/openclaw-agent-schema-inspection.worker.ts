@@ -47,7 +47,7 @@ process.on(
       if (snapshot) {
         // The parent retains its prepared copy until this reader closes the native handle.
         readSqliteIntegrityFileIdentity(snapshot.pathname, snapshot.identity);
-        inspection = withSqliteSourceReadDatabase(snapshot.pathname, (database) => {
+        inspection = withSqliteSourceReadDatabase(snapshot.pathname, "snapshot", (database) => {
           readSqliteIntegrityFileIdentity(snapshot.pathname, snapshot.identity);
           return inspect(database);
         });

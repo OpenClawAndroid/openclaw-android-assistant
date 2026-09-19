@@ -49,14 +49,16 @@ export function selectMatchingSessionRows<T extends SessionRowScopeTarget>(
     indexes: { byKey, byStore, byAgent },
     scope,
   } = params;
+  const storePaths =
+    !query.key && query.storePath
+      ? (scope?.physicalPaths(query.storePath, query.agentId) ?? [query.storePath])
+      : undefined;
   const candidates = query.key
     ? byKey.get(`${kind}:${query.key}`)
-    : query.storePath
-      ? new Set(
-          (scope?.physicalPaths(query.storePath, query.agentId) ?? [query.storePath]).flatMap(
-            (storePath) => Array.from(byStore.get(storePath) ?? []),
-          ),
-        )
+    : storePaths
+      ? storePaths.length === 1
+        ? byStore.get(storePaths[0]!)
+        : new Set(storePaths.flatMap((storePath) => Array.from(byStore.get(storePath) ?? [])))
       : query.agentId
         ? byAgent.get(query.agentId)
         : rows.keys();

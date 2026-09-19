@@ -13,6 +13,7 @@ import { requestHeartbeat, setHeartbeatWakeHandler } from "../infra/heartbeat-wa
 import { drainSystemEvents } from "../infra/system-events.js";
 import { resetPluginStateStoreForTests } from "../plugin-state/plugin-state-store.js";
 import { runCommandWithTimeout } from "../process/exec.js";
+import { toSafeImportPath } from "../shared/import-specifier.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { VERSION } from "../version.js";
 import { setCurrentPluginMetadataSnapshot } from "./current-plugin-metadata.test-support.js";
@@ -21,7 +22,6 @@ import {
   registerEmbeddingProvider,
 } from "./embedding-providers.js";
 import { loadInstalledPluginIndexInstallRecordsSync } from "./installed-plugin-index-records.js";
-// Verifies plugin loader runtime registry behavior.
 import { refreshPersistedInstalledPluginIndex } from "./installed-plugin-index-store-write.js";
 import { resolvePluginLoadCacheContext } from "./loader-load-context.js";
 import * as loaderModule from "./loader-module-runtime.js";
@@ -209,7 +209,7 @@ it.each(["cjs", "ts"])(
               loaderStats.sourceTransformForced,
             );
             expect(loadedStats.topSourceTransformTargets).toContainEqual(
-              expect.objectContaining({ target: plugin.file }),
+              expect.objectContaining({ target: toSafeImportPath(plugin.file) }),
             );
           }
           expect(JSON.parse(fs.readFileSync(observed, "utf8"))).toEqual({

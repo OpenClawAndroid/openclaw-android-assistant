@@ -144,8 +144,12 @@ class LockTests(unittest.TestCase):
         for file in (LOCK, RUNNER, PROVIDER, LOCK.with_name('host-tools.sh'), LOCK.with_name('github.sh'), LOCK.with_name('github.mjs')):
             shutil.copyfile(file,self.sources/file.name)
         library = self.sources.parent/'lib';library.mkdir()
-        for name in ('plain-gh.mjs', 'direct-run.mjs'):
+        # Preserve the supervisor's eager script imports without copying an app graph.
+        for name in ('plain-gh.mjs', 'direct-run.mjs', 'managed-child-process.mts',
+                     'vitest-resource-ownership.mts', 'windows-taskkill.mjs'):
             shutil.copyfile(ROOT/'scripts'/'lib'/name,library/name)
+        shutil.copyfile(ROOT/'scripts'/'windows-cmd-helpers.mjs',
+                        self.sources.parent/'windows-cmd-helpers.mjs')
         self.ref = 'refs/openclaw/pr-operation-locks/42'
 
     def git(self, *args, **kwargs):

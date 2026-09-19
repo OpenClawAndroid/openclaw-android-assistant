@@ -68,6 +68,7 @@ import {
   resolveFastModeState,
   runCliAgent,
 } from "./run-execution.runtime.js";
+import type { CronRunExecutionParams } from "./run-execution.types.js";
 import { resolveCronFallbacksOverride } from "./run-fallback-policy.js";
 import {
   setCronSessionAgentHarnessId,
@@ -79,7 +80,6 @@ import type {
   AgentTurnPayload,
   CronCompletedPromptRun,
   CronExecutionResult,
-  CronRunExecutionParams,
   CronRunnerStartedInfo,
 } from "./run.types.js";
 import { isLikelyInterimCronMessage } from "./subagent-followup-hints.js";
@@ -213,13 +213,13 @@ function createCronPromptExecutor(
     }
     const promptWithDeliveryGuidance = appendCronDeliveryInstruction({
       commandBody: prompt,
-      deliveryRequested: params.deliveryRequested === true,
+      deliveryRequested: params.deliveryRequested,
       messageToolEnabled: deliveryMessageToolAvailable,
-      resolvedDeliveryOk: params.resolvedDeliveryOk,
+      resolvedDeliveryOk: params.resolvedDelivery.ok,
       requireExplicitMessageTarget: sourceDelivery.messageTool.requireExplicitTarget,
     });
     const deliveryTargetRuntimeContext = buildCronDeliveryTargetRuntimeContext({
-      resolvedDeliveryOk: params.resolvedDeliveryOk,
+      resolvedDeliveryOk: params.resolvedDelivery.ok,
       messageToolAvailable: deliveryMessageToolAvailable,
       resolvedDelivery: params.resolvedDelivery,
       sourceDelivery,
@@ -559,7 +559,7 @@ function createCronPromptExecutor(
                   diagnosticOwner,
                   sessionEntry: params.cronSession.sessionEntry,
                   contextWindow: params.cronSession.sessionEntry.contextWindow,
-                  cleanupCliLiveSessionOnRunEnd: params.usesDetachedRunSession === true,
+                  cleanupCliLiveSessionOnRunEnd: params.usesDetachedRunSession,
                   sessionFile,
                   storePath: params.cronSession.storePath,
                   persistAssistantTranscript: true,
@@ -649,7 +649,7 @@ function createCronPromptExecutor(
         const result = await runEmbeddedAgent({
           ...buildCommonRunParams(),
           promptCacheKey,
-          cleanupBundleMcpOnRunEnd: params.usesDetachedRunSession === true,
+          cleanupBundleMcpOnRunEnd: params.usesDetachedRunSession,
           allowGatewaySubagentBinding: true,
           messageTo: params.resolvedDelivery.to,
           messageThreadId: params.resolvedDelivery.threadId,
@@ -684,9 +684,7 @@ function createCronPromptExecutor(
           // Cron owns the resolved delivery contract. A valid announce route
           // still needs a final payload; none, webhook, and invalid routes do not.
           terminalReplyExpectation:
-            params.deliveryRequested === true && params.resolvedDeliveryOk
-              ? "required"
-              : "optional",
+            params.deliveryRequested && params.resolvedDelivery.ok ? "required" : "optional",
           disableMessageTool: !sourceDelivery.messageTool.enabled,
           forceMessageTool: sourceDelivery.messageTool.force,
           allowTransientCooldownProbe: runOptions.allowTransientCooldownProbe,

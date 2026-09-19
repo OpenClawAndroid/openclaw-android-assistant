@@ -6,6 +6,11 @@ import { cloneEnvWithPlatformSemantics } from "../../config/config-env-vars.js";
 import { resolveStateDir } from "../../config/paths.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { withSqliteWorkerCleanupFailure } from "../../infra/sqlite-worker-broker-reply.js";
+import { getOpenClawDatabaseMaintenanceScope } from "../../state/openclaw-state-db-async-lifecycle.js";
+import {
+  getActiveOpenClawStateDatabaseReadSnapshot,
+  isArtifactPreservingStateRead,
+} from "../../state/openclaw-state-db-readonly.js";
 import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import { isUserModelAuthProfileId } from "../../state/user-model-account-id.js";
 import { readUserModelAuthProfileAsync } from "../../state/user-model-accounts.js";
@@ -35,6 +40,7 @@ import {
   runtimeStoreInheritsMainState,
   setRuntimeLocalProfileMetadata,
 } from "./runtime-snapshot-owner.js";
+import { runtimeAuthProfileRowsCache } from "./runtime-snapshots.js";
 import { resolveSharedMainAuthAgentDir } from "./shared-main-dir.js";
 import {
   loadPersistedAuthProfileStoreFromRows,
@@ -243,6 +249,11 @@ export function createAuthProfileStoreRuntimeReader({
     const scope = captureScope();
     const env = cloneEnvWithPlatformSemantics(getScopedAuthProfileEnv() ?? process.env);
     env.OPENCLAW_STATE_DIR = resolveStateDir(env);
+    const reusePersistedRows =
+      !scope.isolated &&
+      !isArtifactPreservingStateRead() &&
+      !getOpenClawDatabaseMaintenanceScope() &&
+      !getActiveOpenClawStateDatabaseReadSnapshot({ env });
     const selectedDir = resolveRuntimeAuthProfileAgentDir(agentDir);
     const effectiveAgentDir = selectedDir
       ? path.dirname(resolveAgentAuthPath(selectedDir))
@@ -308,6 +319,10 @@ export function createAuthProfileStoreRuntimeReader({
     const inCapturedScope = <T>(run: () => T): T => scope.run(effectiveAgentDir, env, run);
     const stores = new Map<string, Result<AuthProfileStore, unknown>>();
     const readOwners = new Map<string, AuthProfileReadOwner>();
+    const rowReaders = new Map<
+      string,
+      Pick<ReturnType<typeof prepareAgentAuthProfileRowsRead>, "assertCurrent">
+    >();
     const readOwner = async (
       ownerAgentDir: string | undefined,
       databasePath: string,
@@ -320,8 +335,12 @@ export function createAuthProfileStoreRuntimeReader({
         capturedOptions.deferScopedMigrationRefusals,
       );
       const candidates = resolveLegacyAuthProfileSourceCandidates({ agentDir: ownerAgentDir, env });
-      const rows = await reader.read();
-      reader.assertCurrent();
+      const preparedReader = reusePersistedRows
+        ? runtimeAuthProfileRowsCache.prepare(databasePath, reader)
+        : reader;
+      rowReaders.set(databasePath, preparedReader);
+      const rows = await preparedReader.read();
+      preparedReader.assertCurrent();
       stores.set(databasePath, {
         ok: true,
         value: inCapturedScope(() =>
@@ -377,7 +396,7 @@ export function createAuthProfileStoreRuntimeReader({
       const assertCurrent = () => {
         sharedContext?.admission.assertCurrent();
         for (const databasePath of paths) {
-          agentReads.get(databasePath)?.assertCurrent();
+          rowReaders.get(databasePath)?.assertCurrent();
           const owner = readOwners.get(databasePath);
           // A later owner read can yield after these fixed legacy paths were checked.
           assertAuthProfileMigrationCandidates({

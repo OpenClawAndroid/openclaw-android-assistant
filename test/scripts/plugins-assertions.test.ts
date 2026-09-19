@@ -901,6 +901,52 @@ fs.renameSync = (source, destination) => {
     }
   });
 
+  it("serves scoped candidate tarballs through canonical npm shrinkwrap paths", async () => {
+    const root = autoCleanupTempDirs.make("openclaw-plugin-npm-scoped-tarball-");
+    const portFile = path.join(root, "port");
+    const tarballPath = path.join(root, "openclaw-ai-2026.7.34.tgz");
+    const archive = "scoped candidate package archive";
+    writeFileSync(tarballPath, archive, "utf8");
+
+    const child = spawn(
+      process.execPath,
+      [
+        "scripts/e2e/lib/plugins/npm-registry-server.mjs",
+        portFile,
+        "@openclaw/ai",
+        "2026.7.34",
+        tarballPath,
+      ],
+      { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const stderr = createBoundedChildOutput();
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", stderr.append);
+    const closed = new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+    });
+    try {
+      for (let attempt = 0; attempt < 100 && !existsSync(portFile); attempt += 1) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 10);
+        });
+      }
+      const port = Number(readFileSync(portFile, "utf8"));
+      for (const pathname of [
+        "/@openclaw/ai/-/ai-2026.7.34.tgz",
+        "/@openclaw%2Fai/-/ai-2026.7.34.tgz",
+        "/@openclaw%2Fai/-/openclaw-ai-2026.7.34.tgz",
+      ]) {
+        const response = await requestFixtureRegistry(port, pathname);
+        expect(response.statusCode, `${pathname}: ${stderr.text()}`).toBe(200);
+        expect(response.body).toBe(archive);
+      }
+    } finally {
+      child.kill("SIGKILL");
+      await closed;
+    }
+  });
+
   it("serves drive-qualified tarball dependencies using the request-visible registry origin", async () => {
     const root = autoCleanupTempDirs.make("openclaw-plugin-npm-fixture-package-");
     const packageDir = path.join(root, "package");

@@ -1,8 +1,9 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   deleteSessionEntryLifecycle,
   replaceSessionEntrySync,
 } from "../config/sessions/session-accessor.js";
+import * as sessionKeys from "../sessions/session-key-utils.js";
 import { registerOpenClawAgentDatabase } from "../state/openclaw-agent-db-registry.js";
 import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
@@ -14,6 +15,71 @@ import {
   listProjectedSessions,
   prepareSessionRowSelection,
 } from "./session-utils-list.js";
+
+it("reuses resident key predicates across list requests and refreshes entry classification", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async () => {
+    const cfg = { agents: { entries: { main: {} } } };
+    const keys = [
+      "agent:main:dashboard:visible",
+      "agent:main:cron:job:run:one",
+      "agent:main:subagent:child",
+      "agent:main:matrix:channel:!Room:example.org:thread:$Event",
+      "agent:main:signal:group:OpaqueGroup",
+      "agent:main:sessions",
+    ] as const;
+    for (const sessionKey of keys) {
+      replaceSessionEntrySync(
+        { agentId: "main", sessionKey },
+        { sessionId: sessionKey, updatedAt: 1 },
+      );
+    }
+    const projection = await createSessionRowProjection({ cfg });
+    try {
+      await projection.ensureMaterialized();
+      const opts = { agentId: "main", excludeSubagents: true, archived: "all" as const };
+      const expected = [keys[0], keys[3], keys[4], keys[5]].toSorted();
+      for (let iteration = 0; iteration < 2; iteration++) {
+        const prepared = prepareSessionRowSelection(projection, opts);
+        const cron = vi.spyOn(sessionKeys, "isCronRunSessionKey");
+        const subagent = vi.spyOn(sessionKeys, "isSubagentSessionKey");
+        try {
+          expect(
+            filterAndSortSessionEntries(prepared)
+              .map(([key]) => key)
+              .toSorted(),
+          ).toEqual(expected);
+          expect(cron).not.toHaveBeenCalled();
+          expect(subagent).not.toHaveBeenCalled();
+        } finally {
+          cron.mockRestore();
+          subagent.mockRestore();
+        }
+      }
+      const sessionKey = keys[0];
+      replaceSessionEntrySync(
+        { agentId: "main", sessionKey },
+        {
+          sessionId: sessionKey,
+          updatedAt: 2,
+          spawnedBy: "agent:main:parent",
+          archivedAt: 2,
+        },
+      );
+      const hidden = await listProjectedSessions({ projection, opts });
+      expect(hidden.sessions.map((row) => row.key).toSorted()).toEqual(
+        expected.filter((key) => key !== sessionKey),
+      );
+      replaceSessionEntrySync(
+        { agentId: "main", sessionKey },
+        { sessionId: sessionKey, updatedAt: 3, archivedAt: 2 },
+      );
+      const restored = await listProjectedSessions({ projection, opts });
+      expect(restored.sessions.map((row) => row.key).toSorted()).toEqual(expected);
+    } finally {
+      projection.dispose();
+    }
+  });
+});
 
 it.each([false, true])(
   "preserves sentinel precedence, ties, and resident order before filtering (activeOnly: %s)",
@@ -86,6 +152,13 @@ it.each([false, true])(
           expect.not.arrayContaining(["main-global", "shadow-global", "ops-shadow"]),
         );
         expect(rows.map((row) => row.entry.sessionId)).toEqual(samples.map(([id]) => id));
+        const scoped = filterAndSortSessionEntries({
+          ...prepared,
+          opts: { ...prepared.opts, agentId: "ops" },
+        });
+        expect(scoped.map(([, entry]) => entry.sessionId)).toEqual(
+          activeOnly ? ["main-global", "ops-global", "unknown-winner"] : ["main-global"],
+        );
       } finally {
         projection.dispose();
       }

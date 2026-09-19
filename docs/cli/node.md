@@ -91,6 +91,9 @@ Options:
 - `--pair <code-or-url>`: Read the Gateway endpoint, bootstrap token, TLS mode,
   and optional certificate pin from a setup code or `oc-pair://` URL. Explicit
   gateway flags override values from `--pair`.
+- `--pair-if-needed <code-or-url>`: Use the same endpoint options as `--pair`, but
+  prefer the saved device token when present. A supervisor can restart the same
+  command after pairing. Cannot be combined with `--pair`.
 - `--port <port>`: Gateway WebSocket port (default: `18789`)
 - `--context-path <path>`: Gateway WebSocket context path (e.g. `/openclaw-gw`). Appended to the WebSocket URL.
 - `--tls`: Use TLS for the gateway connection
@@ -116,6 +119,11 @@ Local exec approvals default to `full` with `ask: "off"`; configure them before
 using a setup link if that access is too broad. `node install --pair` is
 intentionally unavailable because a short-lived bearer setup link must not be
 persisted in service arguments.
+
+For a managed foreground process, `--pair-if-needed` reuses native device-token
+storage across restarts; it does not keep a separate enrollment marker. Preserve
+the node state directory. An expired setup code cannot enroll a new state
+directory or replace a revoked device token; provision a fresh code when needed.
 
 `openclaw node run` and `openclaw node install` resolve gateway auth from config/env (no `--token`/`--password` flags on node commands):
 

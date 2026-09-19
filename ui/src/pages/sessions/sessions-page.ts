@@ -208,11 +208,10 @@ class SessionsPage extends OpenClawLightDomElement {
         this.submittedTranscriptSearchQuery,
         context ?? null,
         context?.agentSelection.state.scopeId ?? null,
-        snapshot ? isGatewayMethodAdvertised(snapshot, "sessions.search") === true : false,
       ] as const;
     },
-    task: async ([client, query, context, _agentScope, advertised], { signal }) => {
-      if (!client || !query || !context || !advertised) {
+    task: async ([client, query, context, _agentScope], { signal }) => {
+      if (!client || !query || !context) {
         return initialState;
       }
       const {
@@ -224,12 +223,9 @@ class SessionsPage extends OpenClawLightDomElement {
       } = await searchVisibleSessionTranscripts({
         client,
         query,
-        listSessions: context.sessions.list,
         listOptions: this.sessionListOptions(context, ""),
         // Task retirement must stop later RPCs, not only hide their eventual results.
         isCurrent: () => !signal.aborted,
-        resolveAgentId: (sessionKey) =>
-          parseAgentSessionKey(sessionKey)?.agentId ?? this.sessionAgentId(sessionKey, context),
       });
       return { sessions, results, indexing, truncated, archivedTranscriptsExcluded };
     },
@@ -622,7 +618,7 @@ class SessionsPage extends OpenClawLightDomElement {
       return;
     }
     const scope = this.captureRequestScope();
-    if (!scope || isGatewayMethodAdvertised(scope.gateway.snapshot, "sessions.search") !== true) {
+    if (!scope) {
       return;
     }
     this.transcriptSearchQuery = query;
@@ -1659,8 +1655,7 @@ class SessionsPage extends OpenClawLightDomElement {
             hello: context.gateway.snapshot.hello,
           }),
           searchQuery: this.searchQuery,
-          transcriptSearchAvailable:
-            isGatewayMethodAdvertised(context.gateway.snapshot, "sessions.search") === true,
+          transcriptSearchAvailable: context.gateway.snapshot.phase === "connected",
           transcriptSearchQuery: this.transcriptSearchQuery,
           transcriptSearch: this.transcriptSearchTask.render({
             initial: () => ({ status: "idle" }) as const,

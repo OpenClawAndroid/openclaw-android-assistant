@@ -223,6 +223,7 @@ it("reconciles displayed native metadata and explicit Git clears without activit
   const source = (await factory.homesForAgent("main"))[0]!;
   const control = factory.forRequest("main", source);
   const client = createClientHarness();
+  const nativeRead = vi.spyOn(client.client, "request");
   const requested = createDeferred<void>();
   const release = createDeferred<void>();
   await observeCodexCatalogClient(client.client, {
@@ -280,6 +281,7 @@ it("reconciles displayed native metadata and explicit Git clears without activit
       id: request.id,
       result: { thread: { ...native, gitInfo: { branch: "newer-completion" } } },
     });
+    await nativeRead.mock.results[0]!.value;
     await vi.waitFor(async () => {
       expect((await control.listPage({})).sessions[0]?.gitBranch).toBe("newer-completion");
     });

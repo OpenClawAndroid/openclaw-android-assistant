@@ -507,9 +507,9 @@ it("reprocesses activity-summary policy when config changes during materializati
   });
 });
 
-it.each([false, true])(
+it.each(["static", "array", "unowned-map", "empty-map"] as const)(
   "reprocesses utility policy after a synchronous model publication (catalog reader: %s)",
-  async (withCatalogReader) => {
+  async (catalogReader) => {
     await withOpenClawTestState({ scenario: "minimal" }, async () => {
       const cfg = {
         agents: {
@@ -550,7 +550,16 @@ it.each([false, true])(
         }
         const projection = await createSessionRowProjection({
           cfg,
-          ...(withCatalogReader ? { getModelCatalog: async () => [] } : { modelCatalog: [] }),
+          ...(catalogReader === "static"
+            ? { modelCatalog: [] }
+            : {
+                getModelCatalog: async () =>
+                  catalogReader === "empty-map"
+                    ? new Map()
+                    : catalogReader === "unowned-map"
+                      ? new Map([["main", { entries: [] }]])
+                      : [],
+              }),
         });
         await projection.ensureMaterialized();
         try {

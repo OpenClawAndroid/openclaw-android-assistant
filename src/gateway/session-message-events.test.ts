@@ -304,7 +304,7 @@ describe("session.message websocket events", () => {
       const declaredEvent = await declaredPresence;
       const declaredEntry = findWatchedEntry(declaredEvent);
       expect(declaredEntry?.watchedSessions).toEqual(declaredKeys);
-      const ownerProfile = listProfiles().find((profile) => profile.emails.length === 0);
+      const ownerProfile = (await listProfiles()).find((profile) => profile.emails.length === 0);
       expect(ownerProfile).toBeDefined();
       expect(declaredEntry?.user).toEqual({
         id: ownerProfile!.id,
@@ -1038,7 +1038,6 @@ describe("session.message websocket events", () => {
       };
       const liveEventPromise = waitForSessionMessageEvent(webWs, sessionKey);
       const dispatched = await dispatchCronDelivery({
-        cfg: { session: { store: storePath } },
         cfgWithAgentDefaults: { session: { store: storePath } },
         deps: {},
         job,
@@ -1054,7 +1053,6 @@ describe("session.message websocket events", () => {
         lifecycleRevision: "detached-cron-revision",
         sessionUpdatedAt: 3_000,
         runStartedAt: 3_000,
-        runEndedAt: 3_001,
         timeoutMs: 30_000,
         resolvedDelivery: {
           ok: false,
@@ -1080,11 +1078,6 @@ describe("session.message websocket events", () => {
         outputText: "The detached cron finished without another user message.",
         isAborted: () => false,
         abortReason: () => "aborted",
-        withRunSession: (result) => ({
-          ...result,
-          sessionId: "detached-cron-session",
-          sessionKey: "cron:job-webchat:run:3000",
-        }),
       });
       expect(dispatched).toMatchObject({ delivered: true, deliveryAttempted: true });
 

@@ -29,13 +29,17 @@ export function getUserPreferences(
 export function setUserPreferences(
   profileId: string,
   entries: Record<string, unknown>,
-  options: OpenClawStateDatabaseOptions = {},
+  options: OpenClawStateDatabaseOptions & { expectedEntries?: Record<string, unknown> } = {},
 ): Result<void, UserPreferenceError> {
-  const prepared = prepareUserPreferenceUpdate(entries);
+  const prepared = prepareUserPreferenceUpdate(entries, options.expectedEntries);
   if (!prepared.ok) {
     return prepared;
   }
-  if (prepared.value.serialized.length === 0 && prepared.value.deletionKeys.length === 0) {
+  if (
+    prepared.value.serialized.length === 0 &&
+    prepared.value.deletionKeys.length === 0 &&
+    prepared.value.expected.length === 0
+  ) {
     return ok(undefined);
   }
   ensureUserPreferencesSchema(options);
@@ -60,9 +64,11 @@ export function getCanonicalUserPreferences(
 export async function setCanonicalUserPreferences(
   profileId: string,
   entries: Record<string, unknown>,
-  options: Pick<OpenClawStateDatabaseOptions, "path" | "env"> = {},
+  options: Pick<OpenClawStateDatabaseOptions, "path" | "env"> & {
+    expectedEntries?: Record<string, unknown>;
+  } = {},
 ): Promise<Result<{ profileId: string }, UserPreferenceError> | undefined> {
-  const prepared = prepareUserPreferenceUpdate(entries);
+  const prepared = prepareUserPreferenceUpdate(entries, options.expectedEntries);
   if (!prepared.ok) {
     return prepared;
   }

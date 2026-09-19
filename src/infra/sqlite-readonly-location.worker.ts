@@ -1,9 +1,11 @@
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
-import { coerceErrorMessage } from "@openclaw/normalization-core/error-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { SQLITE_READONLY_CHILD_ARG } from "./runtime-process-entrypoints.js";
-import { formatSqliteErrorCodeSuffix } from "./sqlite-error-diagnostics.js";
+import {
+  formatSqliteErrorCodeSuffix,
+  formatSqliteReadOnlyInspectionFailure,
+} from "./sqlite-error-diagnostics.js";
 import { encodeSqliteAuthTransferFrame } from "./sqlite-readonly-auth-transfer.js";
 import { releaseSnapshotTempDirectory } from "./sqlite-readonly-location-cleanup.js";
 import {
@@ -98,8 +100,7 @@ async function inspect(args: string[]): Promise<SqliteReadOnlyWorkerResult> {
     releaseSnapshotTempDirectory(prepared.cleanupRoot ?? path.dirname(prepared.location));
     return { ok: true, location: prepared.location };
   } catch (error) {
-    const message = `${coerceErrorMessage(error)}${formatSqliteErrorCodeSuffix(error)}`;
-    return { ok: false, message };
+    return { ok: false, message: formatSqliteReadOnlyInspectionFailure(error) };
   }
 }
 
@@ -119,11 +120,7 @@ function runSession(): void {
   };
   const fail = (id: number, error: unknown) => {
     transfers.close();
-    send(
-      id,
-      { ok: false, message: `${coerceErrorMessage(error)}${formatSqliteErrorCodeSuffix(error)}` },
-      true,
-    );
+    send(id, { ok: false, message: formatSqliteReadOnlyInspectionFailure(error) }, true);
   };
   process.once("disconnect", () => {
     if (busy) {
@@ -226,7 +223,7 @@ function runSession(): void {
           { kinds: ["store", "state"] },
         );
         activeTransfer = { requestId: id, transferId: handle.id };
-        send(id, { type: "start", handle });
+        send(id, { type: "start", handle: { ...handle, cacheable: rows.cacheable } });
       })().catch((error: unknown) => fail(id, error));
       return;
     }

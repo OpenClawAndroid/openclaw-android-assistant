@@ -219,10 +219,10 @@ importers:
     dependencies:
       '@agentclientprotocol/sdk':
         specifier: 1.4.0
-        version: 1.4.0(zod@4.5.4)
+        version: 1.4.0(zod@4.6.2)
       '@anthropic-ai/sdk':
         specifier: 0.124.0
-        version: 0.124.0(zod@4.5.4)
+        version: 0.124.0(zod@4.6.2)
       '@clack/core':
         specifier: 1.5.0
         version: 1.5.0
@@ -233,8 +233,8 @@ importers:
         specifier: 0.85.1
         version: 0.85.1
       '@google/genai':
-        specifier: 2.21.0
-        version: 2.21.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(supports-color@10.2.2)
+        specifier: 2.22.0
+        version: 2.22.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))(supports-color@10.2.2)
       '@grammyjs/runner':
         specifier: 2.0.3
         version: 2.0.3(grammy@1.46.0(supports-color@10.2.2))
@@ -248,11 +248,11 @@ importers:
         specifier: 1.2.0-beta.15
         version: 1.2.0-beta.15
       '@mistralai/mistralai':
-        specifier: 2.6.4
-        version: 2.6.4(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.11.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))
+        specifier: 2.7.0
+        version: 2.7.0(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.11.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
-        version: 1.30.0(supports-color@10.2.2)(zod@4.5.4)
+        version: 1.30.0(supports-color@10.2.2)(zod@4.6.2)
       '@mozilla/readability':
         specifier: 0.6.0
         version: 0.6.0
@@ -353,8 +353,8 @@ importers:
         specifier: 1.2.10
         version: 1.2.10(supports-color@10.2.2)
       openai:
-        specifier: 7.12.1
-        version: 7.12.1(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.5.4)
+        specifier: 7.15.0
+        version: 7.15.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.6.2)
       p-limit:
         specifier: 7.3.2
         version: 7.3.2
@@ -389,8 +389,8 @@ importers:
         specifier: 0.25.1
         version: 0.25.1
       tslog:
-        specifier: 5.1.0
-        version: 5.1.0
+        specifier: 5.2.0
+        version: 5.2.0
       typebox:
         specifier: 1.3.30
         version: 1.3.30
@@ -413,8 +413,8 @@ importers:
         specifier: 2.9.0
         version: 2.9.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@a2ui/lit':
         specifier: 0.10.3
@@ -423,8 +423,8 @@ importers:
         specifier: 0.10.7
         version: 0.10.7
       '@copilotkit/aimock':
-        specifier: 1.40.0
-        version: 1.40.0(vitest@5.0.0)
+        specifier: 1.41.0
+        version: 1.41.0(vitest@5.0.0)
       '@lit-labs/signals':
         specifier: 0.3.0
         version: 0.3.0
@@ -480,8 +480,8 @@ importers:
         specifier: 2.1.0
         version: 2.1.0
       '@types/node':
-        specifier: 26.5.0
-        version: 26.5.0
+        specifier: 26.5.1
+        version: 26.5.1
       '@types/semver':
         specifier: 7.8.0
         version: 7.8.0
@@ -597,11 +597,11 @@ importers:
         specifier: 0.3.1
         version: 0.3.1
       vite:
-        specifier: 8.2.2
-        version: 8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
+        specifier: 8.3.0
+        version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
       vitest:
         specifier: 5.0.0
-        version: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+        version: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
     optionalDependencies:
       sqlite-vec:
         specifier: 0.1.9
@@ -616,8 +616,8 @@ importers:
   extensions/a2a:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -629,8 +629,8 @@ importers:
   extensions/acpx:
     dependencies:
       '@agentclientprotocol/claude-agent-acp':
-        specifier: 0.75.1
-        version: 0.75.1(@anthropic-ai/sdk@0.124.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))
+        specifier: 0.76.0
+        version: 0.76.0(@anthropic-ai/sdk@0.124.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))
       '@agentclientprotocol/codex-acp':
         specifier: 1.10.0
         version: 1.10.0
@@ -641,8 +641,8 @@ importers:
         specifier: 1.8.0
         version: 1.8.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -663,11 +663,11 @@ importers:
   extensions/amazon-bedrock:
     dependencies:
       '@aws-sdk/client-bedrock':
-        specifier: 3.1128.0
-        version: 3.1128.0
+        specifier: 3.1130.0
+        version: 3.1130.0
       '@aws-sdk/client-bedrock-runtime':
-        specifier: 3.1128.0
-        version: 3.1128.0
+        specifier: 3.1130.0
+        version: 3.1130.0
       '@aws-sdk/credential-provider-node':
         specifier: 3.972.82
         version: 3.972.82
@@ -689,7 +689,7 @@ importers:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: 0.124.0
-        version: 0.124.0(zod@4.5.4)
+        version: 0.124.0(zod@4.6.2)
       '@aws/bedrock-token-generator':
         specifier: 1.1.0
         version: 1.1.0
@@ -708,7 +708,7 @@ importers:
     dependencies:
       '@anthropic-ai/vertex-sdk':
         specifier: 0.19.7
-        version: 0.19.7(supports-color@10.2.2)(zod@4.5.4)
+        version: 0.19.7(supports-color@10.2.2)(zod@4.6.2)
       google-auth-library:
         specifier: 11.0.2
         version: 11.0.2(supports-color@10.2.2)
@@ -723,8 +723,8 @@ importers:
   extensions/apple-fm:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -774,7 +774,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
-        version: 1.30.0(supports-color@10.2.2)(zod@4.5.4)
+        version: 1.30.0(supports-color@10.2.2)(zod@4.6.2)
       express:
         specifier: 5.2.1
         version: 5.2.1(supports-color@10.2.2)
@@ -788,8 +788,8 @@ importers:
         specifier: 22.0.0
         version: 22.0.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -807,8 +807,8 @@ importers:
         specifier: 2.25.2
         version: 2.25.2(typescript@6.0.3)
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -869,8 +869,8 @@ importers:
         specifier: 8.21.3
         version: 8.21.3
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -903,8 +903,8 @@ importers:
         specifier: 8.21.3
         version: 8.21.3
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -953,8 +953,8 @@ importers:
         specifier: 0.3.3
         version: 0.3.3
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1036,8 +1036,8 @@ importers:
   extensions/diffs:
     dependencies:
       '@pierre/diffs':
-        specifier: 1.4.1
-        version: 1.4.1(@shikijs/themes@4.4.3)
+        specifier: 1.4.2
+        version: 1.4.2(@shikijs/themes@4.4.3)
       '@shikijs/langs':
         specifier: 4.4.3
         version: 4.4.3
@@ -1048,8 +1048,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1088,8 +1088,8 @@ importers:
         specifier: 8.21.3
         version: 8.21.3
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1150,14 +1150,14 @@ importers:
         specifier: 2.0.0
         version: 2.0.0(supports-color@10.2.2)
       micromark-extension-gfm-table:
-        specifier: 2.1.1
-        version: 2.1.1
+        specifier: 2.1.2
+        version: 2.1.2
       typebox:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1188,8 +1188,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1232,8 +1232,8 @@ importers:
   extensions/google:
     dependencies:
       '@google/genai':
-        specifier: 2.21.0
-        version: 2.21.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(supports-color@10.2.2)
+        specifier: 2.22.0
+        version: 2.22.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))(supports-color@10.2.2)
       dotenv:
         specifier: 17.4.2
         version: 17.4.2
@@ -1267,8 +1267,8 @@ importers:
         specifier: 11.0.2
         version: 11.0.2(supports-color@10.2.2)
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1304,8 +1304,8 @@ importers:
   extensions/imap:
     dependencies:
       imapflow:
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.0.2
+        version: 2.0.2
       mailauth:
         specifier: 5.0.3
         version: 5.0.3
@@ -1326,8 +1326,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1345,8 +1345,8 @@ importers:
   extensions/irc:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1373,8 +1373,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1386,8 +1386,8 @@ importers:
   extensions/linux-node:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1469,8 +1469,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1482,8 +1482,8 @@ importers:
   extensions/mattermost:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1520,15 +1520,15 @@ importers:
         specifier: 18.1.0
         version: 18.1.0
       openai:
-        specifier: 7.12.1
-        version: 7.12.1(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.5.4)
+        specifier: 7.15.0
+        version: 7.15.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.6.2)
       typebox:
         specifier: 1.3.30
         version: 1.3.30
     devDependencies:
       '@lancedb/lancedb':
         specifier: 0.38.0
-        version: 0.38.0(@types/node@26.5.0)(apache-arrow@18.1.0)
+        version: 0.38.0(@types/node@26.5.1)(apache-arrow@18.1.0)
       '@openclaw/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
@@ -1567,8 +1567,8 @@ importers:
         specifier: 2.9.0
         version: 2.9.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/memory-core':
         specifier: workspace:*
@@ -1663,8 +1663,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@microsoft/teams.common':
         specifier: 2.0.16
@@ -1685,8 +1685,8 @@ importers:
         specifier: 0.8.0
         version: 0.8.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1695,8 +1695,8 @@ importers:
   extensions/nextcloud-talk:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1711,8 +1711,8 @@ importers:
         specifier: 2.25.2
         version: 2.25.2(typescript@6.0.3)
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1787,8 +1787,8 @@ importers:
         specifier: 8.21.3
         version: 8.21.3
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1821,8 +1821,8 @@ importers:
         specifier: 7.3.2
         version: 7.3.2
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1868,8 +1868,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1881,11 +1881,11 @@ importers:
   extensions/qa-lab:
     dependencies:
       '@copilotkit/aimock':
-        specifier: 1.40.0
-        version: 1.40.0(vitest@5.0.0)
+        specifier: 1.41.0
+        version: 1.41.0(vitest@5.0.0)
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
-        version: 1.30.0(supports-color@10.2.2)(zod@4.5.4)
+        version: 1.30.0(supports-color@10.2.2)(zod@4.6.2)
       '@openclaw/crabline':
         specifier: 0.1.27
         version: 0.1.27
@@ -1902,8 +1902,8 @@ importers:
         specifier: 2.9.0
         version: 2.9.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/crabbox-provider':
         specifier: workspace:*
@@ -1930,8 +1930,8 @@ importers:
         specifier: workspace:*
         version: link:../..
       vite:
-        specifier: 8.2.2
-        version: 8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
+        specifier: 8.3.0
+        version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
 
   extensions/qianfan:
     devDependencies:
@@ -1954,8 +1954,8 @@ importers:
   extensions/raft:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1976,8 +1976,8 @@ importers:
         specifier: 2.4.0
         version: 2.4.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2019,8 +2019,8 @@ importers:
         specifier: 8.21.3
         version: 8.21.3
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2047,8 +2047,8 @@ importers:
         specifier: 7.29.1
         version: 7.29.1
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2060,8 +2060,8 @@ importers:
   extensions/sms:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2076,8 +2076,8 @@ importers:
   extensions/synology-chat:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2102,8 +2102,8 @@ importers:
   extensions/team-reports:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2146,8 +2146,8 @@ importers:
         specifier: 8.10.2
         version: 8.10.2
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2162,11 +2162,11 @@ importers:
   extensions/tlon:
     dependencies:
       '@aws-sdk/client-s3':
-        specifier: 3.1128.0
-        version: 3.1128.0
+        specifier: 3.1130.0
+        version: 3.1130.0
       '@aws-sdk/s3-request-presigner':
-        specifier: 3.1128.0
-        version: 3.1128.0
+        specifier: 3.1130.0
+        version: 3.1130.0
       '@tloncorp/tlon-skill':
         specifier: 0.5.0
         version: 0.5.0
@@ -2174,8 +2174,8 @@ importers:
         specifier: 3.0.0
         version: 3.0.0
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2221,8 +2221,8 @@ importers:
         specifier: 8.1.4
         version: 8.1.4(@twurple/auth@8.1.4)
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2252,8 +2252,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2274,8 +2274,8 @@ importers:
         specifier: 8.21.3
         version: 8.21.3
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2318,8 +2318,8 @@ importers:
   extensions/webhooks:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2359,8 +2359,8 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/gateway-client':
         specifier: workspace:*
@@ -2403,8 +2403,8 @@ importers:
   extensions/zalo:
     dependencies:
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2422,8 +2422,8 @@ importers:
         specifier: 2.1.2
         version: 2.1.2
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2470,16 +2470,16 @@ importers:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: 0.124.0
-        version: 0.124.0(zod@4.5.4)
+        version: 0.124.0(zod@4.6.2)
       '@google/genai':
-        specifier: 2.21.0
-        version: 2.21.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(supports-color@10.2.2)
+        specifier: 2.22.0
+        version: 2.22.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))(supports-color@10.2.2)
       '@mistralai/mistralai':
-        specifier: 2.6.4
-        version: 2.6.4(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.11.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))
+        specifier: 2.7.0
+        version: 2.7.0(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.11.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))
       openai:
-        specifier: 7.12.1
-        version: 7.12.1(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.5.4)
+        specifier: 7.15.0
+        version: 7.15.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.6.2)
       partial-json:
         specifier: 0.1.7
         version: 0.1.7
@@ -2544,8 +2544,8 @@ importers:
         specifier: 2.0.0
         version: 2.0.0(supports-color@10.2.2)
       micromark-extension-gfm-table:
-        specifier: 2.1.1
-        version: 2.1.1
+        specifier: 2.1.2
+        version: 2.1.2
       yaml:
         specifier: 2.9.0
         version: 2.9.0
@@ -2596,8 +2596,8 @@ importers:
         version: 11.17.2
     devDependencies:
       vite:
-        specifier: 8.2.2
-        version: 8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
+        specifier: 8.3.0
+        version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
 
   packages/model-catalog-core:
     dependencies:
@@ -2605,8 +2605,8 @@ importers:
         specifier: workspace:*
         version: link:../normalization-core
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
 
   packages/net-policy:
     dependencies:
@@ -2620,8 +2620,8 @@ importers:
   packages/normalization-core:
     dependencies:
       libphonenumber-js:
-        specifier: 1.13.12
-        version: 1.13.12
+        specifier: 1.13.13
+        version: 1.13.13
       typebox:
         specifier: 1.3.30
         version: 1.3.30
@@ -2677,7 +2677,7 @@ importers:
     dependencies:
       '@awesome.me/webawesome':
         specifier: 3.12.0
-        version: 3.12.0(patch_hash=a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1)(@floating-ui/utils@0.2.12)(@types/node@26.5.0)(@types/react@19.2.18)
+        version: 3.12.0(patch_hash=a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1)(@floating-ui/utils@0.2.12)(@types/node@26.5.1)(@types/react@19.2.18)
       '@codemirror/commands':
         specifier: 6.11.0
         version: 6.11.0
@@ -2710,7 +2710,7 @@ importers:
         version: 2.0.0
       '@modelcontextprotocol/ext-apps':
         specifier: 2.0.0
-        version: 2.0.0(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.0.0)(zod@4.5.4)
+        version: 2.0.0(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.0.0)(zod@4.6.2)
       '@noble/ed25519':
         specifier: 3.2.0
         version: 3.2.0
@@ -2757,11 +2757,11 @@ importers:
         specifier: 4.6.2
         version: 4.6.2
       '@tanstack/lit-virtual':
-        specifier: 3.14.0
-        version: 3.14.0(lit@3.3.3)
+        specifier: 3.14.1
+        version: 3.14.1(lit@3.3.3)
       '@tanstack/virtual-core':
-        specifier: 3.17.9
-        version: 3.17.9
+        specifier: 3.17.10
+        version: 3.17.10
       diff:
         specifier: 9.0.0
         version: 9.0.0
@@ -2796,18 +2796,18 @@ importers:
         specifier: 1.3.1
         version: 1.3.1
       zod:
-        specifier: 4.5.4
-        version: 4.5.4
+        specifier: 4.6.2
+        version: 4.6.2
     devDependencies:
       '@types/markdown-it':
         specifier: 14.2.0
         version: 14.2.0
       '@vitest/browser':
         specifier: 5.0.0
-        version: 5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
+        version: 5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
       '@vitest/browser-playwright':
         specifier: 5.0.0
-        version: 5.0.0(playwright@1.63.0)(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
+        version: 5.0.0(playwright@1.63.0)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
       fake-indexeddb:
         specifier: 6.2.5
         version: 6.2.5
@@ -2827,11 +2827,11 @@ importers:
         specifier: 8.5.28
         version: 8.5.28
       vite:
-        specifier: 8.2.2
-        version: 8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
+        specifier: 8.3.0
+        version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
       vitest:
         specifier: 5.0.0
-        version: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+        version: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
 
 packages:
 
@@ -2846,8 +2846,8 @@ packages:
   '@a2ui/web_core@0.10.7':
     resolution: {integrity: sha512-9czuUjSgsomHYy79lKExwtmMza9iCqaXJx7aw5xOGMLKNPziwux5fj4UnsV41bQkLDeZwNu2LoOwn5c2ceyDsQ==}
 
-  '@agentclientprotocol/claude-agent-acp@0.75.1':
-    resolution: {integrity: sha512-Un6I4BRkhpCFS3I7kr5C/lkAm8Nc3VuGZU2YQ3xIpJAIxV94iWO0Q2CH2QABxMERpONRu4Le6XC9V+5PImQZ2A==}
+  '@agentclientprotocol/claude-agent-acp@0.76.0':
+    resolution: {integrity: sha512-8Xh1ryud5b1fOGLfF+S7dW2hhIZ/h4WopKtD//JRcQWxu7dutZvzN/MhRSDjqRcxqf3UIZRx1K0OhnlY/hMaOg==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -2939,20 +2939,20 @@ packages:
     resolution: {integrity: sha512-cO/vSvlyZqiki1upynxpk9q2N48U2+nflIj40OtCKYOs6ZXa4zXhW6+asXKOfeNw1AnD4nzsSIdZSt/Ti9QONA==}
     engines: {node: '>=14.17.0'}
 
-  '@aws-sdk/checksums@3.1000.29':
-    resolution: {integrity: sha512-Dtu0gr4dnATZAPwEYbpCsG+MpLM7OAliy2gTepEFQwl1vZ6DL3QMH2FveMa3HLvPsOdhJsPRB3KtxVhph9T75A==}
+  '@aws-sdk/checksums@3.1001.0':
+    resolution: {integrity: sha512-6uTniZc87q+B5eXouGTl+7Tmc482rEeCcvxpsvREP8EfF0gvloRZ41UOA9sbSJlyy8TbqIBXb3kKfKarEArUQA==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-bedrock-runtime@3.1128.0':
-    resolution: {integrity: sha512-NAO5vPNhrrog4GuHaHaBruIetrnZZmYG3e4In2u05tgAZeVcHlgfZsaPhrNCOPuTATwGCiHPPPL3GkC6zHJuCA==}
+  '@aws-sdk/client-bedrock-runtime@3.1130.0':
+    resolution: {integrity: sha512-+PInS/B3O4ONObqLVVTZMtRylkOTFtHi6AOFhENYvkEHiQCngcPnmQxN+1eIFkWd4aVeiniqaG0fZgd+JAgqzA==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-bedrock@3.1128.0':
-    resolution: {integrity: sha512-rakouwzgMzduUgu3yZ6LeO/aXOke2ATaQBuEEsM62ksRfXSBF0qnPIqaYcjQ/yrJJdq8BpZmJTzxKqw0723pIA==}
+  '@aws-sdk/client-bedrock@3.1130.0':
+    resolution: {integrity: sha512-cqwEX8MSNW+94QFrBk8dE52ecFz2h0mjg+Gh5LH3UOwAi8Hzuj/v4QzkUvsMp2jegJckwniBJnf85mJIgY9kJg==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-s3@3.1128.0':
-    resolution: {integrity: sha512-tYEB4058LdhTiSS7sCVVSpqSAdjIc1jTaf1dDPoIRJbR/XI5A2ZOuCiV1Aebo/pria/pUJBOT0WjdZVIwaZtDA==}
+  '@aws-sdk/client-s3@3.1130.0':
+    resolution: {integrity: sha512-TUe0hgQi3RtuccmTgpUsRIuPk07ZtJE6s3vpOeWCM8sibLNXPVKweemNEz5gwaRYTor8MAGgjlyVZfKGuu1ZOQ==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.977.9':
@@ -3007,20 +3007,24 @@ packages:
     resolution: {integrity: sha512-dlRzHCgyB8W6hLuDC5pcT5q+ziPt00n4QGgGBE17ucLVU4zMa6lsbuUdQ2Pm75Z5VA8GF+R/+SgrRcaTdIzSIQ==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/middleware-sdk-s3@3.972.75':
-    resolution: {integrity: sha512-wMIsNumRVKaNMKhvU/s9VrdEwE8S6gSzXp4RygFG5BEMnGkkXf8cjh8zf7cKJBpUDpqTWqwbz5isEgp9rH6Lng==}
+  '@aws-sdk/middleware-sdk-s3@3.972.76':
+    resolution: {integrity: sha512-NfnTkVUTBKTBuBgqaapFK9r3YdkKt1b2oRvgLzZq91bwNKh6ZS0S7sEcheguttREaL4iyfs/xQnqD7Z7AsWSsA==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/middleware-websocket@3.972.52':
-    resolution: {integrity: sha512-vsPPM+nMbKJlUCFU+eoGZbdxdxDIAX9LbpjSXaR5Ufpmqgp8TdYQnoExhLu4T3umW/JIIPny1ydbhWidZZYokQ==}
+  '@aws-sdk/middleware-websocket@3.972.53':
+    resolution: {integrity: sha512-bIrDaMENQmYRBHntOiOheqkiw5+fhKW4Lqb+mS1uqF0VwvdWI22fW2HFgWrng66CmYd+4k8ePlpj38sEfTuMLQ==}
     engines: {node: '>= 14.0.0'}
 
   '@aws-sdk/nested-clients@3.997.44':
     resolution: {integrity: sha512-NhEgryjlBF9w38ZXqGymQV28IhkYa1mKhlbYnqIis57AYwWGVYfUPgg/qC2rLRqOUfblxx++irvju10kVTa8Vw==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/s3-request-presigner@3.1128.0':
-    resolution: {integrity: sha512-0wTgUw97lUKx94e4liC53V5z9giwqMaPsFjbXXy8qLC9Q/AaxUySmri+NFkHaOAd908sGsZ6ERMyFO4WMvYxLQ==}
+  '@aws-sdk/nested-clients@3.997.45':
+    resolution: {integrity: sha512-mooq9Q+jLa18VoM7HouczmslZU60iiB0aKc/Ztnq/luIL1ud0z4DnYprLR/ZO1gp331S9tJctM1HZr7u6YKBXQ==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/s3-request-presigner@3.1130.0':
+    resolution: {integrity: sha512-bihXI7csIHxFyjeIeE+EINoYGKdDWcf6oK5gFY9WhzORN3kUW33SVUYQ/xseI9VXvLUJldZR3cszLH6GIyfg7Q==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/signature-v4-multi-region@3.996.46':
@@ -3031,8 +3035,8 @@ packages:
     resolution: {integrity: sha512-ygIivKqh8aHzNkucOCXHyIBgBpLPfrSI0mCqXF+vLBsPTUKqj0VSqAY0GFPe7lQl4HntjOcQ+KSyS7oUV2C54Q==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/token-providers@3.1128.0':
-    resolution: {integrity: sha512-PNEgPb8E9HBjb8nC/sVuX6+Jx4J3/yBnq1HZD6GJcO4xHfpq+zthAzdnge1SOLKkDwR4gjmduQknCHGMrOnKDA==}
+  '@aws-sdk/token-providers@3.1130.0':
+    resolution: {integrity: sha512-JYWQa89/lGNUaw39eP1nfGctusq2fBcUEqjRawHRiU7CUebbwMOQI/BzEM3cLb0kdrVNILFUz5zlBfLwP21EoA==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/types@3.974.5':
@@ -3281,8 +3285,8 @@ packages:
   '@codemirror/view@6.43.11':
     resolution: {integrity: sha512-2+esucbQX6wB2JYi1eDvdCPFTA31BN8oSy6xCmk3G6CloV11yOvEjYk+gH7kLrP0MuHG94E8WDhjs5oMiu3+Wg==}
 
-  '@copilotkit/aimock@1.40.0':
-    resolution: {integrity: sha512-r9l28T83aVfLf+uRouuI4bAjLan4jOWVyY9PVllwfdcOQpIsCvzFG55dFajlUSTbgNN2vk6HY9aKAZ/xiooBxA==}
+  '@copilotkit/aimock@1.41.0':
+    resolution: {integrity: sha512-hduXWDo0vI3ZyidIcb+BP1CsquVOOwqaRPUY3E3tvi4EV6nyndTuw0RNrIa4fPTh56EAozhIQDEmjKULY8MJHQ==}
     engines: {node: '>=20.15.0'}
     hasBin: true
     peerDependencies:
@@ -3643,8 +3647,8 @@ packages:
     resolution: {integrity: sha512-/j6/tGc9HOtcupuYFloOKk0fpScdpy65EVF1LKg2Z2VQOojCGPgBGkhgVGVDaqW7UB6TV2qbQZa9rKJimJ0wWQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
-  '@google/genai@2.21.0':
-    resolution: {integrity: sha512-+PDtco2/Z0ONdzCGekCoCT+O1VJS9xJQNN4XzQpXG/t3El/SWWMkCWlFRO1KmivOHPa4Q0VjUYu1HBKCZ/v33Q==}
+  '@google/genai@2.22.0':
+    resolution: {integrity: sha512-NE90Nl0AP75YZ2tGxXjQQs6Gkunma7a1JmPCx5g5CxvjHXshmuI2aNoPJ1xLrRixjkNxog898oylM+MyNudUQw==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.25.2
@@ -4065,8 +4069,8 @@ packages:
     resolution: {integrity: sha512-tEdVCj76gEdgvxoYkBH3li+mr8Tfe94pp1cSOUMQNwOnsuKYvretKMZfAnt9adJCgGzGH2MYZeDDtgwmOBufGQ==}
     engines: {node: '>=20'}
 
-  '@mistralai/mistralai@2.6.4':
-    resolution: {integrity: sha512-PPt4GyJqs2hEsWrYCJZK5f0ORmT+L2MSm75LVGD7kBLf6ZKsoDpld/FRBQXr8xG6iFCBOFJFYzvGYhUb+UCkbw==}
+  '@mistralai/mistralai@2.7.0':
+    resolution: {integrity: sha512-zCrx6MtNpcz+EL/Nqvg55QubSgmfwJfBmd3d3wSYfJGfnvlNnWcJYlxEW5xQpS3KR6A5qK9KUyRBwMDIWnyVGA==}
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
       '@opentelemetry/exporter-trace-otlp-http': ^0.220.0
@@ -4876,8 +4880,8 @@ packages:
     resolution: {integrity: sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA==}
     engines: {node: '>=20.0.0'}
 
-  '@pierre/diffs@1.4.1':
-    resolution: {integrity: sha512-rzvY9FeeYdGtVcErjNsW6tnrjpMb0DvGtgCFNuMoYT8wufE+gO1ZXAzKAc2VPRBS3Rl5HELEQ38WDlis4qZHkQ==}
+  '@pierre/diffs@1.4.2':
+    resolution: {integrity: sha512-X9njBs6fGN+BIBhJ/otJRcxzNfsU3fd31VNquPiRW5nK051IyjuNS5JuOunqFDmEN3VCS9fm0gauyka/nMdokg==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -5330,13 +5334,13 @@ packages:
   '@swc/helpers@0.5.23':
     resolution: {integrity: sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw==}
 
-  '@tanstack/lit-virtual@3.14.0':
-    resolution: {integrity: sha512-Wr72W0act2kKqiUhNo+B37htTgIGL5J7P+meFtjNiaTNpxZjRUGO2ZMaiMJ5eJRvRl9rcJXo8NG3tD2BUJjnkg==}
+  '@tanstack/lit-virtual@3.14.1':
+    resolution: {integrity: sha512-pMmVHH2ZMINnqZFWvM7TsZ2urAoaWmD45h3MSbJncvz82Hqtd/kQHiS55YJU97Bel4krMYhlJZ2/YEEhgUQP+g==}
     peerDependencies:
       lit: ^3.1.0
 
-  '@tanstack/virtual-core@3.17.9':
-    resolution: {integrity: sha512-M8Bzy7CCMvUjRiuoHVH9mRjyUVczRs8v8RcUEphLFGc445ZP4KQ15Y1sLqhQqJi/HgGJrxfCHnEnIX0x9mVrBg==}
+  '@tanstack/virtual-core@3.17.10':
+    resolution: {integrity: sha512-eMorKWIi2nekElu+8DgSMJR4iR+sTDeh+W8VjKiMH79yUfEDJ3W9aL/96/wwbxNjyV6EfN39HKszSxjd90zAqQ==}
 
   '@thi.ng/bitstream@2.4.55':
     resolution: {integrity: sha512-9Oj7k8SrPZ/T+ke7nivbNnoTm+fnICzz8jbgN/+JdpeohfplVW64rSiTqgbhzq8BakFa3yxeFjxeFlFZ+2gFYg==}
@@ -5641,6 +5645,9 @@ packages:
 
   '@types/node@26.5.0':
     resolution: {integrity: sha512-dVSGpriSoCgz8WnDNTuSSuSv1PC/ALXihO4ulRZt7Md8k9mlbdin3lGOcDE8SnWOgf513ByWlXd7BK4azmyg/A==}
+
+  '@types/node@26.5.1':
+    resolution: {integrity: sha512-CzNm2FezW4VR/LjG6yUdiEgLE/rAQ9Slj5gCu/C2VrdcW7I0ahNZ8DRbHT7zOZ6r3ONgd/bsQIeSaoDGrd1C6g==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -7461,8 +7468,8 @@ packages:
     resolution: {integrity: sha512-brTTsvFRt5C1gGHtPst/281UjPD5t9fBqbgoMPlVWy11ZLTPfu7HxK4ZYqO9H7o/yC9rSTCI85EaQ4OoY12qYw==}
     engines: {node: '>= 4'}
 
-  imapflow@2.0.0:
-    resolution: {integrity: sha512-41/FyMfOCSEdY04XNDqDEoor5sVF1bDFEGM8t36tIYyM7Hi2GFKWedHaaT4CUrwEsjr6CowQS2rALBdpq3Hnyw==}
+  imapflow@2.0.2:
+    resolution: {integrity: sha512-jrWWecWFifN3Feum2MqaTUupNeYSAdPEltKuwGdr8IPdxW72NZXf7ObVUfTWoUH2MPrli0q7SZm9pRt8ob/9XQ==}
     engines: {node: '>=20.0.0'}
 
   immediate@3.0.6:
@@ -7802,8 +7809,8 @@ packages:
     resolution: {integrity: sha512-k7XznZMcDSgIl7uHdiCdIPaPfVLslf3C90jcJIEiC5OLK2Qy+M2CMmeAokDca6bbYRnSCVZ9/sUEOSfDrX60Qw==}
     engines: {node: '>=22'}
 
-  libphonenumber-js@1.13.12:
-    resolution: {integrity: sha512-uLVeV1c9OTk6qkdqnj+mpMD+ZdnZ0szVyWu58HwMmpwkHA1gCEkyjd3veZQXDnuw9KEwSRjcc9B1pS9XKIN1fA==}
+  libphonenumber-js@1.13.13:
+    resolution: {integrity: sha512-hV6SmWnyQ8U1QXhhqbqYBHIStNnscG7A5XbGodgdHhf/8N5PwhYpJA5U/yHDjYwPYTd8uNGXqq416XctuvK2PA==}
 
   libqp@2.1.1:
     resolution: {integrity: sha512-0Wd+GPz1O134cP62YU2GTOPNA7Qgl09XwCqM5zpBv87ERCXdfDtyKXvV7c9U22yWJh44QZqBocFnXN11K96qow==}
@@ -8163,8 +8170,8 @@ packages:
   micromark-core-commonmark@2.0.3:
     resolution: {integrity: sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==}
 
-  micromark-extension-gfm-table@2.1.1:
-    resolution: {integrity: sha512-t2OU/dXXioARrC6yWfJ4hqB7rct14e8f7m0cbI5hUmDyyIlwv5vEtooptH8INkbLzOatzKuVbQmAYcbWoyz6Dg==}
+  micromark-extension-gfm-table@2.1.2:
+    resolution: {integrity: sha512-pRzm4kDTu0MjlmBkxmS9yYhw60nncfcEwu9NNdPFSQEFXS95ZKyIIyTSHu/o3ReBUrLKYEq+7YaXCRn/bPB4MA==}
 
   micromark-extension-mdx-expression@3.0.1:
     resolution: {integrity: sha512-dD/ADLJ1AeMvSAKBwO22zG22N4ybhe7kFIZ3LsDI0GlsNr2A3KYxb0LdC1u5rj4Nw+CHKY0RVdnHX8vj8ejm4Q==}
@@ -8459,8 +8466,8 @@ packages:
     resolution: {integrity: sha512-cPkT6zjEcE4qU5OW/SoDDuXEsdOLrXlAORhzmaguj5xZSPlgKvLhi27sFWhLKj07Y6WKNWxcwIbzm512FzTBNQ==}
     hasBin: true
 
-  openai@7.12.1:
-    resolution: {integrity: sha512-D0d8NevCWPe+cxE5kw/ZaBRh1Od4FfhRmD6FlNeLN1j96Xll5MYEJTbaFF9/F3eQHJANjrSuq2nWBCpVT+TmnQ==}
+  openai@7.15.0:
+    resolution: {integrity: sha512-2DIwesnPSduw68MFx7nAdgvshrgvS8WOan5W8+tgUMlAy/tY+Q41g80Pa+w/v64rHA6rtn+dketa8QvMVxU96w==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@aws-sdk/credential-provider-node': 3.972.82
@@ -9466,9 +9473,9 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
-  tslog@5.1.0:
-    resolution: {integrity: sha512-g77ALovust2HNBX/63ePEJwetIeX0Vi/dlzqBO+ZAg+aERB54KMmaz/khNPxhFpaxKQ6RQj65sK6vIhj1SJgjQ==}
-    engines: {node: '>=20'}
+  tslog@5.2.0:
+    resolution: {integrity: sha512-bD0FpBIFZ1OInp7uzQmEn1SJe6feTkVTCudw/27ILuISbVZtTryXqauxyCWTa1I8ZgTm9OGQ6YrJPKM+6QTeJA==}
+    engines: {node: '>=22'}
     hasBin: true
 
   tsscmp@1.0.6:
@@ -9634,13 +9641,13 @@ packages:
   vfile@6.0.3:
     resolution: {integrity: sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==}
 
-  vite@8.2.2:
-    resolution: {integrity: sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==}
+  vite@8.3.0:
+    resolution: {integrity: sha512-lhZBVvEHefgE+HQZC9O7EBJgCU/nVzFNl7vkS4RE0APtWLP02/8QVIkQtzBxPquh7lq5/78NHipTj7ODQ6XuyQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
       '@types/node': ^20.19.0 || >=22.12.0
-      '@vitejs/devtools': ^0.4.0 || ^0.5.0
+      '@vitejs/devtools': ^0.7.1
       esbuild: ^0.27.0 || ^0.28.0
       jiti: '>=1.21.0'
       less: ^4.0.0
@@ -9972,27 +9979,23 @@ snapshots:
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
 
-  '@agentclientprotocol/claude-agent-acp@0.75.1(@anthropic-ai/sdk@0.124.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))':
+  '@agentclientprotocol/claude-agent-acp@0.76.0(@anthropic-ai/sdk@0.124.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))':
     dependencies:
-      '@agentclientprotocol/sdk': 1.4.0(zod@4.5.4)
-      '@anthropic-ai/claude-agent-sdk': 0.3.257(@anthropic-ai/sdk@0.124.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(zod@4.5.4)
-      zod: 4.5.4
+      '@agentclientprotocol/sdk': 1.4.0(zod@4.6.2)
+      '@anthropic-ai/claude-agent-sdk': 0.3.257(@anthropic-ai/sdk@0.124.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))(zod@4.6.2)
+      zod: 4.6.2
     transitivePeerDependencies:
       - '@anthropic-ai/sdk'
       - '@modelcontextprotocol/sdk'
 
   '@agentclientprotocol/codex-acp@1.10.0':
     dependencies:
-      '@agentclientprotocol/sdk': 1.4.0(zod@4.5.4)
+      '@agentclientprotocol/sdk': 1.4.0(zod@4.6.2)
       '@openai/codex': 0.154.0
       diff: 9.0.0
       open: 11.0.2
       vscode-jsonrpc: 9.0.2
-      zod: 4.5.4
-
-  '@agentclientprotocol/sdk@1.4.0(zod@4.5.4)':
-    dependencies:
-      zod: 4.5.4
+      zod: 4.6.2
 
   '@agentclientprotocol/sdk@1.4.0(zod@4.6.2)':
     dependencies:
@@ -10027,11 +10030,11 @@ snapshots:
   '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.257':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk@0.3.257(@anthropic-ai/sdk@0.124.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(zod@4.5.4)':
+  '@anthropic-ai/claude-agent-sdk@0.3.257(@anthropic-ai/sdk@0.124.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))(zod@4.6.2)':
     dependencies:
-      '@anthropic-ai/sdk': 0.124.0(zod@4.5.4)
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.5.4)
-      zod: 4.5.4
+      '@anthropic-ai/sdk': 0.124.0(zod@4.6.2)
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.2)
+      zod: 4.6.2
     optionalDependencies:
       '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.257
       '@anthropic-ai/claude-agent-sdk-darwin-x64': 0.3.257
@@ -10042,16 +10045,16 @@ snapshots:
       '@anthropic-ai/claude-agent-sdk-win32-arm64': 0.3.257
       '@anthropic-ai/claude-agent-sdk-win32-x64': 0.3.257
 
-  '@anthropic-ai/sdk@0.124.0(zod@4.5.4)':
+  '@anthropic-ai/sdk@0.124.0(zod@4.6.2)':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.1.1
     optionalDependencies:
-      zod: 4.5.4
+      zod: 4.6.2
 
-  '@anthropic-ai/vertex-sdk@0.19.7(supports-color@10.2.2)(zod@4.5.4)':
+  '@anthropic-ai/vertex-sdk@0.19.7(supports-color@10.2.2)(zod@4.6.2)':
     dependencies:
-      '@anthropic-ai/sdk': 0.124.0(zod@4.5.4)
+      '@anthropic-ai/sdk': 0.124.0(zod@4.6.2)
       google-auth-library: 11.0.2(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
@@ -10072,12 +10075,12 @@ snapshots:
       is-potential-custom-element-name: 1.0.1
       lru-cache: 11.5.2
 
-  '@awesome.me/webawesome@3.12.0(patch_hash=a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1)(@floating-ui/utils@0.2.12)(@types/node@26.5.0)(@types/react@19.2.18)':
+  '@awesome.me/webawesome@3.12.0(patch_hash=a366a1422e3d8f0b9699205e969a73294877cbff761550bb360380e3ab9428f1)(@floating-ui/utils@0.2.12)(@types/node@26.5.1)(@types/react@19.2.18)':
     dependencies:
       '@ctrl/tinycolor': 4.1.0
       '@floating-ui/dom': 1.8.0
       '@konnorr/qr-creator': 1.1.0
-      '@lit-labs/ssr': 4.1.0(@types/node@26.5.0)
+      '@lit-labs/ssr': 4.1.0(@types/node@26.5.1)
       '@lit-labs/ssr-client': 1.1.8
       '@lit/context': 1.1.6
       '@lit/react': 1.0.8(@types/react@19.2.18)
@@ -10092,7 +10095,7 @@ snapshots:
       - '@types/node'
       - '@types/react'
 
-  '@aws-sdk/checksums@3.1000.29':
+  '@aws-sdk/checksums@3.1001.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/types': 3.974.5
@@ -10100,14 +10103,14 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-bedrock-runtime@3.1128.0':
+  '@aws-sdk/client-bedrock-runtime@3.1130.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/credential-provider-node': 3.972.82
       '@aws-sdk/eventstream-handler-node': 3.972.34
       '@aws-sdk/middleware-eventstream': 3.972.29
-      '@aws-sdk/middleware-websocket': 3.972.52
-      '@aws-sdk/token-providers': 3.1128.0
+      '@aws-sdk/middleware-websocket': 3.972.53
+      '@aws-sdk/token-providers': 3.1130.0
       '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.33.3
       '@smithy/fetch-http-handler': 5.8.0
@@ -10115,11 +10118,11 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-bedrock@3.1128.0':
+  '@aws-sdk/client-bedrock@3.1130.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/credential-provider-node': 3.972.82
-      '@aws-sdk/token-providers': 3.1128.0
+      '@aws-sdk/token-providers': 3.1130.0
       '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.33.3
       '@smithy/fetch-http-handler': 5.8.0
@@ -10127,12 +10130,12 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-s3@3.1128.0':
+  '@aws-sdk/client-s3@3.1130.0':
     dependencies:
-      '@aws-sdk/checksums': 3.1000.29
+      '@aws-sdk/checksums': 3.1001.0
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/credential-provider-node': 3.972.82
-      '@aws-sdk/middleware-sdk-s3': 3.972.75
+      '@aws-sdk/middleware-sdk-s3': 3.972.76
       '@aws-sdk/signature-v4-multi-region': 3.996.46
       '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.33.3
@@ -10277,7 +10280,7 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/middleware-sdk-s3@3.972.75':
+  '@aws-sdk/middleware-sdk-s3@3.972.76':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/signature-v4-multi-region': 3.996.46
@@ -10286,7 +10289,7 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/middleware-websocket@3.972.52':
+  '@aws-sdk/middleware-websocket@3.972.53':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/types': 3.974.5
@@ -10307,7 +10310,18 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/s3-request-presigner@3.1128.0':
+  '@aws-sdk/nested-clients@3.997.45':
+    dependencies:
+      '@aws-sdk/core': 3.977.9
+      '@aws-sdk/signature-v4-multi-region': 3.996.46
+      '@aws-sdk/types': 3.974.5
+      '@smithy/core': 3.33.3
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.18.0
+      tslib: 2.8.1
+
+  '@aws-sdk/s3-request-presigner@3.1130.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/signature-v4-multi-region': 3.996.46
@@ -10332,10 +10346,10 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/token-providers@3.1128.0':
+  '@aws-sdk/token-providers@3.1130.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
-      '@aws-sdk/nested-clients': 3.997.44
+      '@aws-sdk/nested-clients': 3.997.45
       '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.33.3
       '@smithy/types': 4.18.0
@@ -10802,9 +10816,9 @@ snapshots:
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
 
-  '@copilotkit/aimock@1.40.0(vitest@5.0.0)':
+  '@copilotkit/aimock@1.41.0(vitest@5.0.0)':
     optionalDependencies:
-      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
 
   '@csstools/color-helpers@6.1.1': {}
 
@@ -11087,14 +11101,14 @@ snapshots:
       '@github/copilot-sdk-win32-arm64': 1.0.13
       '@github/copilot-sdk-win32-x64': 1.0.13
 
-  '@google/genai@2.21.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))(supports-color@10.2.2)':
+  '@google/genai@2.22.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2))(supports-color@10.2.2)':
     dependencies:
       google-auth-library: 10.9.1(supports-color@10.2.2)
       p-retry: 4.6.2
       protobufjs: 8.8.0
       ws: 8.21.3
     optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.5.4)
+      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.6.2)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -11272,7 +11286,7 @@ snapshots:
   '@lancedb/lancedb-win32-x64-msvc@0.38.0':
     optional: true
 
-  '@lancedb/lancedb@0.38.0(@types/node@26.5.0)(apache-arrow@18.1.0)':
+  '@lancedb/lancedb@0.38.0(@types/node@26.5.1)(apache-arrow@18.1.0)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       apache-arrow: 18.1.0
@@ -11285,7 +11299,7 @@ snapshots:
       '@lancedb/lancedb-linux-x64-musl': 0.38.0
       '@lancedb/lancedb-win32-arm64-msvc': 0.38.0
       '@lancedb/lancedb-win32-x64-msvc': 0.38.0
-      '@types/node': 26.5.0
+      '@types/node': 26.5.1
       openai: 4.29.2
     transitivePeerDependencies:
       - encoding
@@ -11417,7 +11431,7 @@ snapshots:
 
   '@lit-labs/ssr-dom-shim@1.6.0': {}
 
-  '@lit-labs/ssr@4.1.0(@types/node@26.5.0)':
+  '@lit-labs/ssr@4.1.0(@types/node@26.5.1)':
     dependencies:
       '@lit-labs/ssr-client': 1.1.8
       '@lit-labs/ssr-dom-shim': 1.6.0
@@ -11430,7 +11444,7 @@ snapshots:
       node-fetch: 3.3.2
       parse5: 7.3.0
     optionalDependencies:
-      '@types/node': 26.5.0
+      '@types/node': 26.5.1
 
   '@lit/context@1.1.6':
     dependencies:
@@ -11568,12 +11582,12 @@ snapshots:
       - debug
       - supports-color
 
-  '@mistralai/mistralai@2.6.4(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.11.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))':
+  '@mistralai/mistralai@2.7.0(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.11.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.11.0(@opentelemetry/api@1.9.1))':
     dependencies:
       '@opentelemetry/semantic-conventions': 1.43.0
       ws: 8.21.3
-      zod: 4.5.4
-      zod-to-json-schema: 3.25.2(zod@4.5.4)
+      zod: 4.6.2
+      zod-to-json-schema: 3.25.2(zod@4.6.2)
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/resources': 2.11.0(@opentelemetry/api@1.9.1)
@@ -11590,20 +11604,20 @@ snapshots:
       eventsource-parser: 3.1.1
       jose: 6.2.12
       pkce-challenge: 5.0.1
-      zod: 4.5.4
+      zod: 4.6.2
 
   '@modelcontextprotocol/core@2.0.0':
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.2
 
-  '@modelcontextprotocol/ext-apps@2.0.0(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.0.0)(zod@4.5.4)':
+  '@modelcontextprotocol/ext-apps@2.0.0(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.0.0)(zod@4.6.2)':
     dependencies:
       '@modelcontextprotocol/client': 2.0.0
       '@modelcontextprotocol/core': 2.0.0
       '@standard-schema/spec': 1.1.0
-      zod: 4.5.4
+      zod: 4.6.2
 
-  '@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4)':
+  '@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.6.2)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.7)
       ajv: 8.20.0
@@ -11620,8 +11634,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.5.4
-      zod-to-json-schema: 3.25.2(zod@4.5.4)
+      zod: 4.6.2
+      zod-to-json-schema: 3.25.2(zod@4.6.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -11732,7 +11746,7 @@ snapshots:
       re2js: 2.8.6
       ws: 8.21.3
       yaml: 2.9.0
-      zod: 4.5.4
+      zod: 4.6.2
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -12289,7 +12303,7 @@ snapshots:
       tslib: 2.8.1
       tsyringe: 4.10.0
 
-  '@pierre/diffs@1.4.1(@shikijs/themes@4.4.3)':
+  '@pierre/diffs@1.4.2(@shikijs/themes@4.4.3)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(shiki@4.4.3)
@@ -12706,12 +12720,12 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@tanstack/lit-virtual@3.14.0(lit@3.3.3)':
+  '@tanstack/lit-virtual@3.14.1(lit@3.3.3)':
     dependencies:
-      '@tanstack/virtual-core': 3.17.9
+      '@tanstack/virtual-core': 3.17.10
       lit: 3.3.3
 
-  '@tanstack/virtual-core@3.17.9': {}
+  '@tanstack/virtual-core@3.17.10': {}
 
   '@thi.ng/bitstream@2.4.55':
     dependencies:
@@ -13006,7 +13020,7 @@ snapshots:
 
   '@types/jsdom@30.0.0':
     dependencies:
-      '@types/node': 26.5.0
+      '@types/node': 26.5.1
       '@types/tough-cookie': 4.0.5
       parse5: 8.0.1
       undici-types: 8.10.2
@@ -13075,6 +13089,10 @@ snapshots:
     dependencies:
       undici-types: 8.9.0
 
+  '@types/node@26.5.1':
+    dependencies:
+      undici-types: 8.9.0
+
   '@types/qs@6.15.1': {}
 
   '@types/range-parser@1.2.7': {}
@@ -13110,11 +13128,11 @@ snapshots:
 
   '@types/web-push@3.6.4':
     dependencies:
-      '@types/node': 26.5.0
+      '@types/node': 26.5.1
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 26.5.0
+      '@types/node': 26.5.1
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -13232,30 +13250,30 @@ snapshots:
 
   '@urbit/aura@3.0.0': {}
 
-  '@vitest/browser-playwright@5.0.0(playwright@1.63.0)(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)':
+  '@vitest/browser-playwright@5.0.0(playwright@1.63.0)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)':
     dependencies:
-      '@vitest/browser': 5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
-      '@vitest/mocker': 5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      '@vitest/browser': 5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
+      '@vitest/mocker': 5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
       playwright: 1.63.0
       tinyrainbow: 3.1.1
-      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
     transitivePeerDependencies:
       - bufferutil
       - msw
       - utf-8-validate
       - vite
 
-  '@vitest/browser@5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)':
+  '@vitest/browser@5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)':
     dependencies:
       '@blazediff/core': 1.10.0
-      '@vitest/mocker': 5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      '@vitest/mocker': 5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
       '@vitest/ui': 5.0.0(vitest@5.0.0)
       '@vitest/utils': 5.0.0
       magic-string: 1.2.3
       pngjs: 7.0.0
       sirv: 3.0.2
       tinyrainbow: 3.1.1
-      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
       ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
@@ -13273,9 +13291,9 @@ snapshots:
       obug: 2.2.1
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
     optionalDependencies:
-      '@vitest/browser': 5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
+      '@vitest/browser': 5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
 
   '@vitest/istanbul-lib-coverage@1.0.1': {}
 
@@ -13283,14 +13301,14 @@ snapshots:
     dependencies:
       '@vitest/istanbul-lib-coverage': 1.0.1
 
-  '@vitest/mocker@5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))':
+  '@vitest/mocker@5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.0.0
       estree-walker: 3.0.3
       magic-string: 1.2.3
     optionalDependencies:
-      vite: 8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
+      vite: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
 
   '@vitest/pretty-format@5.0.0':
     dependencies:
@@ -13306,7 +13324,7 @@ snapshots:
       pathe: 2.0.3
       sirv: 3.0.2
       tinyrainbow: 3.1.1
-      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      vitest: 5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
 
   '@vitest/utils@5.0.0':
     dependencies:
@@ -14938,7 +14956,7 @@ snapshots:
 
   ignore@7.0.9: {}
 
-  imapflow@2.0.0:
+  imapflow@2.0.2:
     dependencies:
       '@zone-eu/mailsplit': 5.4.16
       encoding-japanese: 2.3.0
@@ -15277,7 +15295,7 @@ snapshots:
 
   libopus-wasm@0.4.0: {}
 
-  libphonenumber-js@1.13.12: {}
+  libphonenumber-js@1.13.13: {}
 
   libqp@2.1.1: {}
 
@@ -15744,7 +15762,7 @@ snapshots:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
 
-  micromark-extension-gfm-table@2.1.1:
+  micromark-extension-gfm-table@2.1.2:
     dependencies:
       devlop: 1.1.0
       micromark-factory-space: 2.0.1
@@ -16161,14 +16179,14 @@ snapshots:
       - encoding
     optional: true
 
-  openai@7.12.1(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.5.4):
+  openai@7.15.0(@aws-sdk/credential-provider-node@3.972.82)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.3)(undici@8.10.2)(ws@8.21.3)(zod@4.6.2):
     optionalDependencies:
       '@aws-sdk/credential-provider-node': 3.972.82
       '@smithy/hash-node': 4.5.2
       '@smithy/signature-v4': 5.7.3
       undici: 8.10.2
       ws: 8.21.3
-      zod: 4.5.4
+      zod: 4.6.2
 
   opus-decoder@0.7.12:
     dependencies:
@@ -17220,7 +17238,7 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tslog@5.1.0: {}
+  tslog@5.2.0: {}
 
   tsscmp@1.0.6: {}
 
@@ -17384,7 +17402,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0):
+  vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -17392,17 +17410,17 @@ snapshots:
       rolldown: 1.2.7
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.5.0
+      '@types/node': 26.5.1
       esbuild: 0.28.2
       fsevents: 2.3.3
       jiti: 2.7.0
       tsx: 4.23.13
       yaml: 2.9.0
 
-  vitest@5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.0)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)):
+  vitest@5.0.0(patch_hash=5e7c1655044613ad5d71751e82ea0e6448f7bf5a7445b86114f495866c9a3bcf)(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@5.0.0)(@vitest/coverage-v8@5.0.0)(@vitest/ui@5.0.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.0(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
+      '@vitest/mocker': 5.0.0(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
       chai: 6.2.2
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -17413,12 +17431,12 @@ snapshots:
       tinybench: 6.1.4
       tinyexec: 1.3.0
       tinyglobby: 0.2.17
-      vite: 8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
+      vite: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
-      '@types/node': 26.5.0
-      '@vitest/browser-playwright': 5.0.0(playwright@1.63.0)(vite@8.2.2(@types/node@26.5.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
+      '@types/node': 26.5.1
+      '@vitest/browser-playwright': 5.0.0(playwright@1.63.0)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))(vitest@5.0.0)
       '@vitest/coverage-v8': 5.0.0(@vitest/browser@5.0.0)(vitest@5.0.0)
       '@vitest/ui': 5.0.0(vitest@5.0.0)
       jsdom: 30.0.1(@noble/hashes@2.4.0)
@@ -17684,9 +17702,9 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  zod-to-json-schema@3.25.2(zod@4.5.4):
+  zod-to-json-schema@3.25.2(zod@4.6.2):
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.2
 
   zod@3.25.76: {}
 

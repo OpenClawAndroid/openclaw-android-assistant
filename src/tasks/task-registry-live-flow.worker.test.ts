@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { observeDeviceAuthHostSql } from "../infra/device-auth-store.sql.test-support.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { getActiveGatewayRootWorkCount } from "../process/gateway-work-admission.js";
 import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db.js";
@@ -119,6 +120,7 @@ it("retries the live equal-time winner through the worker and canonical close", 
   for (const counter of counters) {
     counter.mockClear();
   }
+  const hostSql = observeDeviceAuthHostSql(state.statePath("state", "openclaw.sqlite"));
   const startedAt = performance.now();
   await vi.advanceTimersByTimeAsync(1_000);
   expect(await published.promise).toMatchObject({
@@ -127,7 +129,12 @@ it("retries the live equal-time winner through the worker and canonical close", 
     status: "succeeded",
   });
   await vi.waitFor(() => expect(getActiveGatewayRootWorkCount()).toBe(0));
+  const beforeCloseSql = hostSql.counts();
+  expect(Object.values(beforeCloseSql).flatMap((counts) => Object.values(counts))).toEqual(
+    Array(28).fill(0),
+  );
   await closeOpenClawStateDatabaseAsync();
+  console.info("Live flow host SQL", { beforeClose: beforeCloseSql, afterClose: hostSql.counts() });
   rememberPreparedSql();
   let unattributedStatements = 0;
   const sql = [
@@ -153,6 +160,7 @@ it("retries the live equal-time winner through the worker and canonical close", 
   });
   expect(unattributedStatements).toBe(0);
   expect(domainSql).toEqual([]);
+  hostSql.restore();
   vi.restoreAllMocks();
   expect(loadTaskFlowRegistryStateFromSqliteReadOnly().flows.get(flow.flowId)).toMatchObject({
     goal: "Live insertion winner",

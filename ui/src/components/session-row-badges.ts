@@ -63,6 +63,7 @@ function renderSessionRowBadge(
 
 export function renderSessionRowBadges(params: {
   isChild?: boolean;
+  workspaceKind?: "worktree" | "checkout";
   incognito?: boolean;
   pullRequest?: SessionCatalogPullRequestSummary;
   hasApproval?: boolean;
@@ -109,6 +110,7 @@ export function renderSessionRowBadges(params: {
       : "";
   if (
     !params.incognito &&
+    !params.workspaceKind &&
     !pullRequestLabel &&
     !params.hasApproval &&
     attentionCount === 0 &&
@@ -150,6 +152,13 @@ export function renderSessionRowBadges(params: {
     : placementLabel;
   const cloudLabel = [cloudPlacementLabel, diskSpaceLabel].filter(Boolean).join(" · ");
   return html`<span class="session-row-badges">
+    ${
+      params.workspaceKind
+        ? html`<span class="session-row-workspace" data-workspace-kind=${params.workspaceKind}
+            >${t(`sessionsView.workspaceKinds.${params.workspaceKind}`)}</span
+          >`
+        : nothing
+    }
     ${
       params.incognito
         ? renderSessionRowBadge(

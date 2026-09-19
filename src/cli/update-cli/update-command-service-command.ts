@@ -12,7 +12,10 @@ import {
   type UpdateCommandChildGrant,
 } from "./update-command-executor.js";
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
-import { resolveUpdatedInstallCommandEnv } from "./update-command-service-env.js";
+import {
+  resolveUpdatedInstallCommandEnv,
+  stripGatewayServiceMarkerEnv,
+} from "./update-command-service-env.js";
 import {
   runGatewayInstallWithLoadBoundary,
   type UpdateServiceLoadBoundary,
@@ -148,13 +151,17 @@ export async function runUpdatedInstallGatewayCommand(
   // Capture one structured child result in both outer output modes.
   args.push("--json");
   const nodeRunner = params.nodeRunner ?? resolveNodeRunner();
-  const commandEnv = resolveUpdatedInstallCommandEnv({
-    processEnv: installing
-      ? (params.serviceInstallEnv ?? params.invocationEnv)
-      : params.invocationEnv,
-    serviceEnv: installing ? undefined : params.serviceEnv,
-    invocationCwd: params.invocationCwd,
-  });
+  // The child manages this service from outside it. Captured Gateway markers
+  // would misclassify recovery as an in-service restart and refuse native activation.
+  const commandEnv = stripGatewayServiceMarkerEnv(
+    resolveUpdatedInstallCommandEnv({
+      processEnv: installing
+        ? (params.serviceInstallEnv ?? params.invocationEnv)
+        : params.invocationEnv,
+      serviceEnv: installing ? undefined : params.serviceEnv,
+      invocationCwd: params.invocationCwd,
+    }),
+  );
   if (executor) {
     commandEnv.OPENCLAW_NO_RESPAWN = "1";
   }

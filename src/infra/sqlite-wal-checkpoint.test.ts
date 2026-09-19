@@ -73,6 +73,7 @@ describe("SQLite WAL checkpoint observations", () => {
         });
 
         expect(maintenance.checkpoint()).toBe(false);
+        expect(maintenance.inspectIdle?.()).toBe("healthy");
         expect(maintenance.health).toMatchObject({
           state: "blocked",
           logFrames: 1,
@@ -105,6 +106,41 @@ describe("SQLite WAL checkpoint observations", () => {
       }
     },
   );
+
+  it("refuses retention after a native row-decoding failure until the reader is returned", () => {
+    const databasePath = path.join(tempDirs.make("openclaw-wal-idle-reader-"), "state.sqlite");
+    const { DatabaseSync } = requireNodeSqlite();
+    const db = new DatabaseSync(databasePath);
+    const maintenance = configureSqliteWalMaintenance(db, { checkpointIntervalMs: 0 });
+    db.exec("CREATE TABLE events (value INTEGER); INSERT INTO events VALUES (9007199254740993)");
+    db.exec("PRAGMA query_only=ON");
+    const reader = db.prepare("SELECT value FROM events").iterate();
+    try {
+      expect(maintenance.inspectIdle?.()).toBe("healthy");
+      expect(() => reader.next()).toThrow(RangeError);
+      expect(db.isTransaction).toBe(false);
+      expect(maintenance.inspectIdle?.()).toBe("retire");
+      reader.return?.();
+      expect(maintenance.inspectIdle?.()).toBe("healthy");
+    } finally {
+      reader.return?.();
+      maintenance.close();
+      db.close();
+    }
+  });
+
+  it("does not report unsupported non-WAL maintenance as healthy", () => {
+    const { DatabaseSync } = requireNodeSqlite();
+    const db = new DatabaseSync(":memory:");
+    const maintenance = configureSqliteWalMaintenance(db, { checkpointIntervalMs: 0 });
+    try {
+      expect(maintenance.checkpoint()).toBe(true);
+      expect(maintenance.inspectIdle).toBeUndefined();
+    } finally {
+      maintenance.close();
+      db.close();
+    }
+  });
 
   it("reports the process-local reader owner blocking a checkpoint", () => {
     const databasePath = path.join(tempDirs.make("openclaw-sqlite-reader-owner-"), "state.sqlite");

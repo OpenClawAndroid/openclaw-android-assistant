@@ -84,6 +84,7 @@ COPY scripts/postinstall-bundled-plugins.mjs scripts/preinstall-package-manager-
 COPY scripts/lib/guard-inventory-utils.mjs ./scripts/lib/guard-inventory-utils.mjs
 COPY scripts/lib/package-dist-imports.mjs ./scripts/lib/package-dist-imports.mjs
 COPY scripts/lib/package-lifecycle-marker.mjs ./scripts/lib/package-lifecycle-marker.mjs
+COPY scripts/lib/fs-safe-prebuild.mjs ./scripts/lib/fs-safe-prebuild.mjs
 COPY scripts/docker/verify-fs-safe-native.mjs ./scripts/docker/verify-fs-safe-native.mjs
 COPY scripts/docker/verify-native-addons.sh ./scripts/docker/verify-native-addons.sh
 

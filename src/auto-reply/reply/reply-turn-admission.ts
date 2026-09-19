@@ -65,6 +65,7 @@ import {
   mergeReplyRunAdmissionSource,
   type ReplyRunAdmissionSource,
 } from "./reply-run-registry.state.js";
+import { waitForRestartRecoveryProgress } from "./reply-turn-recovery-wait.js";
 
 /** Admission result for a reply turn attempting to own the session run slot. */
 type ReplyTurnAdmission =
@@ -217,7 +218,7 @@ export async function admitReplyTurn(
       : getPluginRuntimeGatewayRequestScope()?.resolveGatewayContext;
   let expectedSessionId = params.expectedSessionId;
   const lifecycleGeneration = getAgentEventLifecycleGeneration();
-  let recoveryDispatchAttempted = false;
+  let recoveryDispatchOutcome: "deferred" | "failed" | undefined;
   const waitedRotations = new Map<ReplyRotationSource["databaseIdentity"], ReplyRotationSource>();
   // Barrier snapshots retain their source lane after rekeying; active owners do not.
   const isRotationSourceCurrent = (source: ReplyRotationSource) =>
@@ -264,6 +265,26 @@ export async function admitReplyTurn(
       rejectLifecycleInvalidatedWork({
         kind: params.kind,
         message: `Session store for "${params.sessionKey}" changed while starting work. Retry.`,
+        transientSessionChange: true,
+      });
+    }
+  };
+  const waitForRecovery = async (ownerRelease?: Promise<void>) => {
+    const recoveryRuntime = resolveGatewayContext?.()?.recoveryRuntime;
+    await waitForRestartRecoveryProgress({
+      agentId: params.agentId,
+      sessionKey: params.sessionKey,
+      ownerRelease,
+      signal: params.upstreamAbortSignal,
+    });
+    assertDatabaseOwnerCurrent();
+    if (
+      lifecycleGeneration !== getAgentEventLifecycleGeneration() ||
+      resolveGatewayContext?.()?.recoveryRuntime !== recoveryRuntime
+    ) {
+      rejectLifecycleInvalidatedWork({
+        kind: params.kind,
+        message: `Session "${params.sessionKey}" changed while waiting for recovery. Retry.`,
         transientSessionChange: true,
       });
     }
@@ -436,6 +457,15 @@ export async function admitReplyTurn(
           const gatewayContext = resolveGatewayContext?.();
           const recoveryRuntime = gatewayContext?.recoveryRuntime;
           if (
+            recoveryOwnerRelease &&
+            admittedSessionEntry?.abortedLastRun === true &&
+            params.kind === "visible"
+          ) {
+            admission?.release();
+            await waitForRecovery(recoveryOwnerRelease);
+            continue;
+          }
+          if (
             shouldClaimRecoveryOwner &&
             recoveryOwnerRelease === undefined &&
             admittedSessionEntry?.abortedLastRun === true &&
@@ -448,17 +478,17 @@ export async function admitReplyTurn(
             // new input enters ordinary queue selection; a foreground claim would
             // instead block recovery while this input rejects the old delivery claim.
             admission?.release();
-            if (recoveryDispatchAttempted) {
+            if (recoveryDispatchOutcome) {
               if (params.kind === "queued_followup") {
                 return { status: "skipped", reason: "active-run" };
               }
-              rejectLifecycleInvalidatedWork({
-                kind: params.kind,
-                message: `Session "${params.sessionKey}" is still waiting for restart recovery. Retry when recovery starts.`,
-                transientSessionChange: true,
-              });
+              if (recoveryDispatchOutcome === "failed") {
+                throw new Error(`Restart recovery failed: ${params.sessionKey}. See Gateway logs.`);
+              }
+              await waitForRecovery();
+              recoveryDispatchOutcome = undefined;
+              continue;
             }
-            recoveryDispatchAttempted = true;
             const assertRecoveryOwnerCurrent = () => {
               assertDatabaseOwnerCurrent();
               if (
@@ -476,7 +506,7 @@ export async function admitReplyTurn(
               await import("../../agents/main-session-recovery/main-session-restart-recovery.js");
             assertRecoveryOwnerCurrent();
             params.upstreamAbortSignal?.throwIfAborted();
-            await retryRestartAbortedMainSessionRecovery({
+            const recovery = await retryRestartAbortedMainSessionRecovery({
               agentId: params.agentId,
               cfg: gatewayContext.getRuntimeConfig(),
               expectedSessionId: sessionId,
@@ -487,6 +517,7 @@ export async function admitReplyTurn(
               storePath,
             });
             assertRecoveryOwnerCurrent();
+            recoveryDispatchOutcome = recovery.failed > 0 ? "failed" : "deferred";
             // Recovery may have completed or another owner may have won. Reload
             // the exact session and its live owner instead of using this snapshot.
             continue;

@@ -31,21 +31,6 @@ export function messageToolCall(id: string, message: string, args: Record<string
   };
 }
 
-export function messageToolResult(
-  toolCallId: string,
-  messageId: string,
-  seq?: number,
-  content: Record<string, unknown> = {},
-) {
-  return {
-    role: "toolResult" as const,
-    toolName: "message",
-    toolCallId,
-    content: { ok: true, messageId, ...content },
-    ...(seq === undefined ? {} : { __openclaw: { seq } }),
-  };
-}
-
 export async function readSseEvent(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   state: { buffer: string },

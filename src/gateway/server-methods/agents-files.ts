@@ -469,7 +469,7 @@ export function createAgentFileHandlers(
           }
           // Preserve the native editor's best-effort conflict contract. Shell
           // writers remain independent of this Gateway-owned save queue.
-          await access.bridge.writeFile({ filePath: name, data: params.content, mkdir: false });
+          await access.bridge.writeFile({ filePath: name, data: params.content, mkdir: true });
           assertCurrent();
           return undefined;
         });

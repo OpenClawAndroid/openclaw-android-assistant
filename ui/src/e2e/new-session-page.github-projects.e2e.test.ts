@@ -87,7 +87,7 @@ suite.define(() => {
         await pollLocatorText(checkout.locator(".new-session-page__trigger-label")).toBe(
           "New worktree",
         );
-        const baseRef = checkoutPopover.getByLabel("From");
+        const baseRef = checkoutPopover.getByLabel("From", { exact: true });
         expect(await baseRef.getAttribute("placeholder")).toBe("From");
         expect(await baseRef.inputValue()).toBe("");
         expect(await checkoutPopover.locator("datalist option").count()).toBe(0);

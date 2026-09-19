@@ -74,17 +74,9 @@ const BLOCKED_EXACT_ORIGIN_TRUST_HOSTNAME_LABELS = new Set(["instance-data"]);
 const PLAIN_DECIMAL_NUMBER_RE = /^\d+(?:\.\d+)?$/;
 
 function hasReadableSseData(block: string): boolean {
-  const dataLines = block
+  return block
     .split(/\r\n|\n|\r/)
-    .filter((line) => line === "data" || line.startsWith("data:"))
-    .map((line) => {
-      if (line === "data") {
-        return "";
-      }
-      const value = line.slice("data:".length);
-      return value.startsWith(" ") ? value.slice(1) : value;
-    });
-  return dataLines.length > 0 && dataLines.join("\n").trim().length > 0;
+    .some((line) => line.startsWith("data:") && line.slice("data:".length).trim().length > 0);
 }
 
 function findSseEventBoundary(buffer: string): { index: number; length: number } | undefined {

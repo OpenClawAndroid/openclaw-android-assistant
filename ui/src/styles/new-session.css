@@ -679,6 +679,33 @@ wa-popover.new-session-page__picker-popover
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
+.new-session-page__branch-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.new-session-page__branch-field > input {
+  width: 100%;
+}
+
+.new-session-page__branch-popup::part(popup) {
+  padding: var(--menu-padding);
+  border: 1px solid var(--overlay-border);
+  border-radius: var(--menu-radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--overlay-shadow);
+}
+
+.new-session-page__branch-suggestions {
+  display: grid;
+  gap: 2px;
+}
+
+.new-session-page__branch-suggestions [aria-selected="true"] {
+  background: var(--bg-hover);
+  color: var(--text-strong);
+}
+
 /* Context line inside a picker menu, e.g. which repo syncs to a cloud worker. */
 .new-session-page__menu-note {
   padding: 4px 8px 6px;

@@ -15,7 +15,6 @@ import {
 import { isCronRunTriggerStateRetiredInDatabase } from "../store/run-receipt-trigger-state.js";
 import type { CronJob } from "../types.js";
 import { normalizeCronRunErrorText } from "./execution-errors.js";
-import { failureNotificationDeliveryFromJobState } from "./failure-alerts.js";
 import { locked } from "./locked.js";
 import { waitForRunSettlement } from "./ops-lifecycle.js";
 import {
@@ -52,7 +51,7 @@ import {
   createCronOwnerExecutionIdentityAdmission,
   tryFinishCronTaskRunWithoutHistory,
 } from "./task-runs.js";
-import { recordCronOutcomeForJob } from "./timer-outcome-events.js";
+import { createCronOutcomeEvent, recordCronOutcomeForJob } from "./timer-outcome-events.js";
 import { applyOutcomeToAuthoritativeJob } from "./timer-outcomes.js";
 import { armTimer, authorCronRunCompletion, executeJobCoreWithTimeout } from "./timer.js";
 import { wake } from "./wake.js";
@@ -287,30 +286,8 @@ async function finishPreparedManualRun(
           emitCronRunFinished(
             state,
             {
-              jobId,
-              action: "finished",
-              job: committed.job,
-              status: coreResult.status,
-              completionStatus: coreResult.completionStatus,
-              error: coreResult.error,
-              summary: coreResult.summary,
-              diagnostics: coreResult.diagnostics,
-              delivered: committed.job.state.lastDelivered,
-              deliveryStatus: committed.job.state.lastDeliveryStatus,
-              deliveryError: committed.job.state.lastDeliveryError,
-              deliverySuppressionReason: committed.job.state.deliverySuppressionReason,
-              failureNotificationDelivery: failureNotificationDeliveryFromJobState(committed.job),
-              delivery: coreResult.delivery,
-              sessionId: coreResult.sessionId,
-              sessionKey: coreResult.sessionKey,
+              ...createCronOutcomeEvent(committed.job, outcome),
               runId,
-              runAtMs: startedAt,
-              durationMs: committed.job.state.lastDurationMs,
-              nextRunAtMs: committed.job.state.nextRunAtMs,
-              ...(coreResult.triggerEval?.fired ? { triggerFired: true } : {}),
-              model: coreResult.model,
-              provider: coreResult.provider,
-              usage: coreResult.usage,
             },
             prepared.terminalTracker,
             taskRunId,

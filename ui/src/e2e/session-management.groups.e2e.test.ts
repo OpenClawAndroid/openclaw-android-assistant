@@ -424,8 +424,16 @@ suite.define(() => {
       const transcriptRequests = await gateway.getRequests("sessions.search");
       expect(transcriptRequests).toHaveLength(transcriptRequestsBeforePalette + 2);
       expect(requireRecord(transcriptRequests.at(-1)?.params)).toMatchObject({
-        agentId: "main",
         query: "view-only handshake",
+        limit: 25,
+        scope: {
+          includeGlobal: false,
+          includeUnknown: false,
+          configuredAgentsOnly: true,
+          excludeSubagents: true,
+          excludeCron: true,
+          excludeSystem: true,
+        },
       });
       await captureUiProof(suite, page, "command-palette-session-search.png");
       await paletteOption.click();

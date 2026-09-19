@@ -114,6 +114,13 @@ Worker exit releases execution capacity; `close()` also waits for pending file
 cleanup. Keep persistent data and files borrowed outside the Worker out of this
 directory.
 
+When native termination fails, the pool retains that worker's input custody and
+capacity. `retryFailedRetirements()` retries only those failed retirements and
+joins native exit and pending file cleanup without interrupting healthy tasks or
+waiting for them to finish. It does not replay failed work or close the pool.
+An owner that is shutting down must stop new admissions, drain healthy tasks,
+and finish with `close()`.
+
 `serveWorkerTasks` supplies a third handler argument, `WorkerTaskControl`. Await
 `control.runNativeSection(() => nativeOperation())` around each bounded native
 operation that must finish before its worker can be terminated. The fence also

@@ -9,7 +9,7 @@
   "type": "module",
   "dependencies": {
     "typebox": "1.3.30",
-    "zod": "4.5.4"
+    "zod": "4.6.2"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",

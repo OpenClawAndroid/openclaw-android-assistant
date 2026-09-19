@@ -5,7 +5,6 @@ import {
   normalizeHeartbeatToolResponse,
 } from "../auto-reply/heartbeat-tool-response.js";
 import {
-  emitAgentActivityEvent,
   type AgentCommandOutputEventData,
   projectAgentToolActivity,
   type AgentPatchSummaryEventData,
@@ -73,6 +72,7 @@ import {
   buildToolCallSummary,
   buildToolStartKey,
   emitAgentEventCallbackBestEffort,
+  emitToolActivityEvent,
   emitTrackedItemEvent,
   isExecToolName,
   toolStartData,
@@ -506,13 +506,7 @@ export async function handleToolExecutionEnd(
         ...(execDetails.status === "approval-unavailable" ? { reason: execDetails.reason } : {}),
         message: execDetails.warningText,
       };
-      emitAgentActivityEvent({
-        runId: ctx.params.runId,
-        ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
-        stream: "approval",
-        data: approvalData,
-      });
-      emitAgentEventCallbackBestEffort(ctx, {
+      emitToolActivityEvent(ctx, {
         stream: "approval",
         data: approvalData,
       });
@@ -541,13 +535,7 @@ export async function handleToolExecutionEnd(
           ? { cwd: execDetails.cwd }
           : {}),
       };
-      emitAgentActivityEvent({
-        runId: ctx.params.runId,
-        ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
-        stream: "command_output",
-        data: outputData,
-      });
-      emitAgentEventCallbackBestEffort(ctx, {
+      emitToolActivityEvent(ctx, {
         stream: "command_output",
         data: outputData,
       });
@@ -568,13 +556,7 @@ export async function handleToolExecutionEnd(
             toolCallId,
             message: parsedApprovalResult.body || parsedApprovalResult.raw,
           };
-          emitAgentActivityEvent({
-            runId: ctx.params.runId,
-            ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
-            stream: "approval",
-            data: approvalData,
-          });
-          emitAgentEventCallbackBestEffort(ctx, {
+          emitToolActivityEvent(ctx, {
             stream: "approval",
             data: approvalData,
           });
@@ -599,13 +581,7 @@ export async function handleToolExecutionEnd(
         deleted: patchSummary.deleted,
         summary: summaryText ?? buildPatchSummaryText(patchSummary),
       };
-      emitAgentActivityEvent({
-        runId: ctx.params.runId,
-        ...(ctx.params.sessionKey ? { sessionKey: ctx.params.sessionKey } : {}),
-        stream: "patch",
-        data: patchData,
-      });
-      emitAgentEventCallbackBestEffort(ctx, {
+      emitToolActivityEvent(ctx, {
         stream: "patch",
         data: patchData,
       });

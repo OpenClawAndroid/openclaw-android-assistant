@@ -15,6 +15,7 @@ import { createLocalRemoteShellScriptRunner } from "./sandbox/remote-fs-bridge.t
 import { createSandboxTestContext } from "./sandbox/test-fixtures.js";
 import { registerAgentWorkspaceAccess } from "./workspace-access.js";
 import { resetLegacyWorkspaceStateCheckForTest } from "./workspace-legacy-state.test-support.js";
+import { loadExtraBootstrapFilesWithDiagnostics } from "./workspace.js";
 
 const memoryRuntimeMocks = vi.hoisted(() => ({ classifyWorkspacePaths: vi.fn() }));
 
@@ -43,6 +44,39 @@ describe.runIf(process.platform !== "win32")("remote bootstrap read provenance",
     resetLegacyWorkspaceStateCheckForTest();
     await testState?.cleanup();
     testState = undefined;
+  });
+
+  it("finds bootstrap files in large remote directories just as it does locally", async () => {
+    const workspaceDir = tempDirs.make("bootstrap-large-gateway-");
+    const remoteDir = tempDirs.make("bootstrap-large-harness-");
+    await fs.writeFile(path.join(remoteDir, "AGENTS.md"), "Harness instructions");
+    for (let start = 0; start < 4100; start += 100) {
+      await Promise.all(
+        Array.from({ length: 100 }, (_, offset) =>
+          fs.writeFile(path.join(remoteDir, `${String(start + offset).padStart(4, "0")}.txt`), ""),
+        ),
+      );
+    }
+    const local = await loadExtraBootstrapFilesWithDiagnostics(remoteDir, ["*.md"]);
+    expect(local.files).toMatchObject([{ name: "AGENTS.md", content: "Harness instructions" }]);
+    const bridge = createRemoteShellSandboxFsBridge({
+      sandbox: createSandboxTestContext({
+        overrides: { workspaceDir, agentWorkspaceDir: workspaceDir },
+      }),
+      runtime: {
+        remoteWorkspaceDir: remoteDir,
+        remoteAgentWorkspaceDir: remoteDir,
+        runRemoteShellScript: createLocalRemoteShellScriptRunner(),
+      },
+    });
+    const release = registerAgentWorkspaceAccess(workspaceDir, { bridge });
+    try {
+      const remote = await loadExtraBootstrapFilesWithDiagnostics(workspaceDir, ["*.md"]);
+      expect(remote.diagnostics).toEqual([]);
+      expect(remote.files).toMatchObject([{ name: "AGENTS.md", content: "Harness instructions" }]);
+    } finally {
+      release();
+    }
   });
 
   it("refreshes remote read provenance even when the cached path and bytes are unchanged", async () => {

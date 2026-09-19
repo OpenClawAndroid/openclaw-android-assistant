@@ -104,6 +104,18 @@ afterEach(() => {
 describe("verifyBetaRelease workflow outcomes", () => {
   const version = "2026.5.10-beta.3";
 
+  it("retains the original npm publisher when a recovery parent uses newer tooling", async () => {
+    const originalRef = "release-publish/aaaaaaaaaaaa-123";
+    const fixture = workflowFixture({ headBranch: originalRef }, false);
+    vi.stubEnv("OPENCLAW_NPM_EXPECTED_WORKFLOW_REF", `refs/tags/${originalRef}`);
+
+    await verifyBetaRelease(fixture.args, { rootDir: fixture.rootDir });
+
+    expect(
+      JSON.parse(readFileSync(join(fixture.rootDir, "evidence.json"), "utf8")).workflowRuns,
+    ).toEqual([expect.objectContaining({ id: "44", label: "OpenClaw NPM Release" })]);
+  });
+
   function workflowFixture(
     overrides: Record<string, unknown> = {},
     telegram = true,

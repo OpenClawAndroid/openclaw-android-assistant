@@ -10,7 +10,10 @@ import {
   parseAgentSessionKey,
 } from "../routing/session-key.js";
 import { resolveRequestedSessionAgentId } from "./session-request-agent.js";
-import { sort as sortSessionRows } from "./session-row-projection-record.js";
+import {
+  create as createSessionRow,
+  sort as sortSessionRows,
+} from "./session-row-projection-record.js";
 import { createSessionRowProjection, type SessionRowProjection } from "./session-row-projection.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
 import type { SessionListRowContext } from "./session-utils-contracts.js";
@@ -95,7 +98,7 @@ export function createSessionRowProjectionFixture(params: {
       modelSource: { entry, readSourceEntry: (parentKey) => store[parentKey] },
     });
     rows.set(id(fields), {
-      ...fields,
+      ...createSessionRow(fields, entry),
       entry,
       storedEntry: entry,
       materialized: materializeSessionRow(inputs),

@@ -80,6 +80,13 @@ describe("system.info", () => {
       delayMaxMs: 20,
       utilization: 0.25,
       cpuCoreRatio: 0.3,
+      cpuBreakdown: {
+        mainThreadCoreRatio: 0.1,
+        workerCoreRatio: 0.15,
+        otherThreadsCoreRatio: 0.05,
+        hostUtilization: 0.7,
+        hostCpuCount: 8,
+      },
     };
     const getEventLoopHealth = vi.fn(() => ({ ...eventLoop }));
 
@@ -117,6 +124,7 @@ describe("system.info", () => {
     expect(payload.uptimeMs).toBeGreaterThanOrEqual(0);
     expect(payload.defaultAgentUtilityModel).toEqual({ status: "unavailable" });
     expect(payload.eventLoop?.cpuCoreRatio).toBe(0.3);
+    expect(payload.eventLoop?.cpuBreakdown).toEqual(eventLoop.cpuBreakdown);
     expect(payload.processMemory?.rssBytes).toBeGreaterThan(0);
     expect(payload.processMemory?.heapUsedBytes).toBeGreaterThan(0);
     const refreshed = respond.mock.calls[1]?.[1];
@@ -124,6 +132,7 @@ describe("system.info", () => {
       throw new Error("system.info returned an invalid refreshed payload");
     }
     expect(refreshed.eventLoop?.cpuCoreRatio).toBe(0.6);
+    expect(refreshed.eventLoop?.cpuBreakdown).toEqual(eventLoop.cpuBreakdown);
     expect(getEventLoopHealth).toHaveBeenCalledTimes(2);
     expect(payload).toHaveProperty("disks", [
       { path: "/", totalBytes: 1_024_000, availableBytes: 409_600 },

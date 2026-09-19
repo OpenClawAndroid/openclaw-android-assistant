@@ -682,7 +682,27 @@ export async function preflightOpenClawDatabaseSchemas(options: {
           reason: formatErrorMessage(error),
         });
       } finally {
-        await agentSnapshot?.cleanupAsync();
+        if (agentSnapshot) {
+          let failure: { error: unknown } | undefined;
+          try {
+            if (!(await agentSnapshot.cleanupAsync())) {
+              failure = {
+                error: new Error(
+                  `SQLite read-only worker snapshot cleanup failed: ${agentSnapshot.location}`,
+                ),
+              };
+            }
+          } catch (error) {
+            failure = { error };
+          }
+          if (failure && !startup?.recordInspectionFailure(row, inspection, failure.error)) {
+            inspection.indeterminate.push({
+              kind: "agent",
+              path: agentPath,
+              reason: formatErrorMessage(failure.error),
+            });
+          }
+        }
       }
     },
     result,

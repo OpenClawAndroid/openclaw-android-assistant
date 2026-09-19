@@ -133,7 +133,7 @@ test("maintenance finalization retains FIFO across preliminary admission without
   });
   storage.run.mockImplementation((params) =>
     runSqliteMutationWorkerRequest<SqliteSessionReclamationResult>({
-      worker,
+      transport: { kind: "dedicated", channel: worker },
       operationId: 1,
       completion: "exit",
       onCommitRequest: params.onCommitRequest,

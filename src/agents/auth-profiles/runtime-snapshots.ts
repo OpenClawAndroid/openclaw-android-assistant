@@ -6,6 +6,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { cloneAuthProfileStore } from "./clone.js";
 import {
+  getRuntimeAuthProfileStoreMutationRevisionAtDatabasePath,
   recordRuntimeAuthProfileStorePersistedMutation,
   resolveRuntimeStoreKey,
 } from "./mutation-lineage.js";
@@ -16,6 +17,7 @@ import {
   clearAllRuntimeAuthMaterializations,
   clearRuntimeAuthMaterializationsAtDatabasePath,
 } from "./runtime-materializations.js";
+import { createRuntimeAuthProfileRowsCache } from "./runtime-persisted-rows.js";
 import {
   captureRuntimeAuthProfileLegacyCandidates,
   cloneRuntimeAuthProfileLegacyCandidates,
@@ -60,6 +62,12 @@ let runtimeAuthStoreSnapshotsRevision = 0;
 const runtimeAuthStoreSnapshotRevisions = new Map<string, number>();
 let runtimeAuthStoreMetadataRevision = 0;
 const runtimeAuthStoreMetadataRevisions = new Map<string, number>();
+let runtimeAuthStoreMetadataRevisionFloor = 0;
+
+export const runtimeAuthProfileRowsCache = createRuntimeAuthProfileRowsCache((databasePath) => ({
+  rows: `${getRuntimeAuthProfileStoreSnapshotRevisionAtDatabasePath(databasePath)}:${getRuntimeAuthProfileStoreMutationRevisionAtDatabasePath(databasePath)}`,
+  selection: `${runtimeAuthStoreMetadataRevisions.get(databasePath) ?? runtimeAuthStoreMetadataRevisionFloor}:${getRuntimeAuthProfileStoreMutationRevisionAtDatabasePath(databasePath, "credentials")}`,
+}));
 
 registerFreshSharedAuthStoreHandoff(({ previousSharedDatabasePath, sharedDatabasePath, env }) => {
   let rebound = false;
@@ -112,6 +120,21 @@ function snapshotMetadataState(entry: OwnedRuntimeSnapshot | undefined) {
   );
 }
 
+function advanceRuntimeAuthStoreMetadataRevision(key: string): void {
+  runtimeAuthStoreMetadataRevision += 1;
+  runtimeAuthStoreMetadataRevisions.delete(key);
+  runtimeAuthStoreMetadataRevisions.set(key, runtimeAuthStoreMetadataRevision);
+  // Keep unpublished and deleted owners fenced without retaining them indefinitely.
+  while (runtimeAuthStoreMetadataRevisions.size > 256) {
+    const [oldestKey, revision] = runtimeAuthStoreMetadataRevisions.entries().next().value!;
+    runtimeAuthStoreMetadataRevisions.delete(oldestKey);
+    runtimeAuthStoreMetadataRevisionFloor = Math.max(
+      runtimeAuthStoreMetadataRevisionFloor,
+      revision,
+    );
+  }
+}
+
 function recordMetadataRevision(
   key: string,
   previous: OwnedRuntimeSnapshot | undefined,
@@ -120,12 +143,7 @@ function recordMetadataRevision(
   if (isDeepStrictEqual(snapshotMetadataState(previous), snapshotMetadataState(next))) {
     return false;
   }
-  runtimeAuthStoreMetadataRevision += 1;
-  if (next) {
-    runtimeAuthStoreMetadataRevisions.set(key, runtimeAuthStoreMetadataRevision);
-  } else {
-    runtimeAuthStoreMetadataRevisions.delete(key);
-  }
+  advanceRuntimeAuthStoreMetadataRevision(key);
   return true;
 }
 
@@ -469,12 +487,11 @@ export function clearRuntimeAuthProfileStoreSnapshots(): void {
   if (credentialsChanged) {
     runtimeAuthStoreCredentialsRevision += 1;
   }
-  if (snapshotsChanged) {
-    advanceRuntimeAuthStoreSnapshotsRevision();
-    runtimeAuthStoreMetadataRevision += 1;
-  } else {
-    closeAuthProfileReadPool();
-  }
+  advanceRuntimeAuthStoreSnapshotsRevision();
+  runtimeAuthProfileRowsCache.clear();
+  // Explicit lifecycle clears also fence in-flight reads without a published snapshot.
+  runtimeAuthStoreMetadataRevision += 1;
+  runtimeAuthStoreMetadataRevisionFloor = runtimeAuthStoreMetadataRevision;
   runtimeAuthStoreSnapshots.clear();
   clearAllRuntimeAuthMaterializations();
   runtimeAuthStoreSnapshotRevisions.clear();
@@ -496,8 +513,10 @@ export function clearRuntimeAuthProfileStoreSnapshotAtDatabasePath(
   key: string,
   agentDir?: string,
 ): boolean {
+  runtimeAuthProfileRowsCache.clear(key);
   const store = runtimeAuthStoreSnapshots.get(key)?.store;
   if (!store) {
+    advanceRuntimeAuthStoreMetadataRevision(key);
     return false;
   }
   if (Object.keys(store.profiles).length > 0) {
@@ -648,6 +667,7 @@ export function noteRuntimeAuthProfileStorePersistedMutation(
     credentialsChanged: boolean;
     profileSetChanged?: boolean;
     stateChanged: boolean;
+    selectionChanged?: boolean;
     profileIds: Iterable<string>;
   },
   owner?: AuthProfileStoreOwner,
@@ -659,6 +679,10 @@ export function noteRuntimeAuthProfileStorePersistedMutation(
     runtimeAuthStoreCredentialsRevision += 1;
   }
   const ownerKey = owner?.databasePath ?? resolveRuntimeStoreKey(agentDir);
+  runtimeAuthProfileRowsCache.clear(ownerKey);
+  if (mutation.selectionChanged) {
+    advanceRuntimeAuthStoreMetadataRevision(ownerKey);
+  }
   if (mutation.credentialsChanged || mutation.profileSetChanged) {
     clearRuntimeAuthMaterializationsAtDatabasePath(ownerKey);
   }

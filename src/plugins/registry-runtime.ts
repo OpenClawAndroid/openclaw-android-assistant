@@ -10,6 +10,7 @@ import {
 import {
   createPluginStateKeyedStore,
   createPluginStateSyncKeyedStore,
+  type OpenAsyncKeyedStoreOptions,
   type OpenKeyedStoreOptions,
 } from "../plugin-state/plugin-state-store.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
@@ -241,9 +242,12 @@ export function createPluginRuntimeResolver(state: PluginRegistryState) {
               assertTrustedPluginRuntime("openBlobStore");
               return createPluginBlobStore<TMetadata>(pluginId, options);
             },
-            openKeyedStore: <T>(options: OpenKeyedStoreOptions) => {
+            openKeyedStore: <T>(options: OpenAsyncKeyedStoreOptions) => {
               assertTrustedPluginRuntime("openKeyedStore");
-              return createPluginStateKeyedStore<T>(pluginId, options);
+              if (options.retention === "retained") {
+                assertRuntimeCurrent();
+              }
+              return createPluginStateKeyedStore<T>(pluginId, options, assertRuntimeCurrent);
             },
             openSyncKeyedStore: <T>(options: OpenKeyedStoreOptions) => {
               assertTrustedPluginRuntime("openSyncKeyedStore");

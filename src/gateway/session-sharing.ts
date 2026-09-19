@@ -134,6 +134,7 @@ export {
   isGatewayAdmin,
   isResolvedIncognitoSession,
   isSessionVisibilityAllowed,
+  prepareSessionSharingTargets,
   resolveSessionSharingRole,
   resolveSessionSharingTarget,
   resolveSessionSharingTargets,

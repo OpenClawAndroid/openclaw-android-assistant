@@ -400,6 +400,9 @@ suite.define(() => {
                   buffer: Buffer.from(fileContents),
                 });
                 await pane.locator(".chat-attachment-thumb", { hasText: fileName }).waitFor();
+                await expect
+                  .poll(() => pane.getByRole("button", { name: "Send message" }).isEnabled())
+                  .toBe(true);
               }
             }
             await page.keyboard.down("Enter");

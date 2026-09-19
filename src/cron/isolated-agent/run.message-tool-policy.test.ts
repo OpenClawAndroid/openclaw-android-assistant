@@ -383,7 +383,6 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
           loadThinkingCatalog: async () => [],
           timeoutMs: 60_000,
           suppressExecNotifyOnExit: true,
-          resolvedDeliveryOk: true,
           sourceDelivery: createSourceDeliveryPlan({
             owner: "direct_fallback",
             reason: "cron_announce",
@@ -418,7 +417,7 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
           abortReason: () => "aborted",
           isAborted: () => false,
           ...overrides,
-          resolvedDelivery,
+          resolvedDelivery: { ok: true, ...resolvedDelivery },
         } as never),
     };
   }

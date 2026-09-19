@@ -17,7 +17,7 @@ export type SqliteReadOnlyWorkerResult =
   | { ok: true; warnings: string[] }
   | { ok: false; message: string };
 
-export type SqliteAuthProfileRows = { store: unknown; state: unknown };
+export type SqliteAuthProfileRows = { store: unknown; state: unknown; cacheable: boolean };
 export type SqliteAuthProfileReadOptions = {
   mode: "auth-profile-rows";
   source: "canonical" | "snapshot";

@@ -247,6 +247,12 @@ dependency scripts remain unapproved.
 This avoids npm overlaying a new package onto stale files from the old one. If
 the install command fails, OpenClaw retries once with `--omit=optional`, which
 helps hosts where native optional dependencies cannot compile.
+The packaged lifecycle restores the matching precompiled fs-safe dependency
+when that retry omitted it. It uses the version declared by the installed
+fs-safe package and does not run dependency build scripts. A working native
+binding needs no extra download. Unsupported hosts or failed downloads produce
+a warning and allow installation to finish; explicitly disabling fs-safe native
+support also skips this repair.
 
 For local tarball targets on npm 12, the archive filename and every parent
 directory must be comma-free. See [Installer path requirements](/install/installer).

@@ -8,10 +8,7 @@ import { listSelectableAgents } from "../../lib/agents/display.ts";
 import type { SessionCreateParams } from "../../lib/sessions/create.ts";
 import { normalizeAgentId } from "../../lib/sessions/session-key.ts";
 import * as catalog from "./catalog-target.ts";
-import {
-  projectDevicePlacements,
-  resolveAutomaticDevicePlacementDisabledReason,
-} from "./device-placement.ts";
+import { projectDevicePlacements, resolveSelectedDevicePlacement } from "./device-placement.ts";
 import { DraftCloudMachineState } from "./draft-cloud-machine-state.ts";
 import type { DraftGatewayState } from "./draft-gateway-state.ts";
 import type { DraftPlaceBrowser } from "./draft-place-browser.ts";
@@ -124,6 +121,8 @@ export class DraftPlaceState {
     );
     this.repositoryState = new DraftRepositoryController(
       () => ({
+        agentId: this.agentIdValue,
+        agents: this.agents(),
         remotePlacement: this.remotePlacement,
         selectedProject: this.browser.selectedProject(),
         remoteProject: this.browser.remoteProject,
@@ -135,6 +134,8 @@ export class DraftPlaceState {
       {
         requestUpdate: callbacks.requestUpdate,
         persistPreference: (patch) => this.persistPreference(patch),
+        capturePreferenceConsumption: (owner, expected) =>
+          this.gateway.capturePreferenceConsumption(owner.agentId, owner.workspace, expected),
       },
     );
     this.modelControl = new NewSessionModelControl(
@@ -164,12 +165,7 @@ export class DraftPlaceState {
   }
 
   get remoteRepository(): SessionCreateParams["repository"] {
-    const project = this.browser.remoteProject;
-    if (!this.remotePlacement || !project) {
-      return undefined;
-    }
-    const ref = this.baseRef.trim();
-    return { url: project.cloneUrl, ...(ref ? { ref } : {}) };
+    return this.repositoryState.remoteRepository;
   }
 
   get worktreeName(): string {
@@ -265,22 +261,15 @@ export class DraftPlaceState {
   }
 
   devicePlacementReady(): boolean {
-    return this.autoDeviceValue
-      ? this.devices().some((device) => device.selectable)
-      : !this.deviceIdValue || this.findDevice(this.deviceIdValue)?.selectable === true;
+    return this.devicePlacement().ready;
   }
 
   devicePlacementDisabledReason(): string | undefined {
-    if (this.autoDeviceValue) {
-      return resolveAutomaticDevicePlacementDisabledReason(
-        this.gateway.environments,
-        this.devices(),
-      );
-    }
-    if (!this.deviceIdValue) {
-      return undefined;
-    }
-    return this.findDevice(this.deviceIdValue)?.disabledReason ?? t("newSession.nodeUnavailable");
+    return this.devicePlacement().disabledReason;
+  }
+
+  private devicePlacement() {
+    return resolveSelectedDevicePlacement(this.devices(), this.gateway.environments, this);
   }
 
   isAdmin(): boolean {
@@ -691,6 +680,14 @@ export class DraftPlaceState {
     this.repositoryState.setWorktreeName(worktreeName, this.read().submitting);
   }
 
+  captureSubmittedWorktreeName(
+    params: Parameters<DraftRepositoryController["captureSubmittedName"]>[0],
+    agentId: string,
+    recovered = false,
+  ) {
+    return this.repositoryState.captureSubmittedName(params, { agentId, recovered });
+  }
+
   restorePreferenceSelections() {
     let changed = false;
     const preferredWhere = this.whereSelectedByUser ? null : this.preferredWhereRestore;
@@ -756,7 +753,7 @@ export class DraftPlaceState {
   }
 
   private persistPreference(patch: Parameters<DraftGatewayState["persistPreference"]>[2]) {
-    this.gateway.persistPreference(this.agentIdValue, this.workspacePath(), patch);
+    void this.gateway.persistPreference(this.agentIdValue, this.workspacePath(), patch);
   }
 
   private restoreWorkspaceFolder() {

@@ -17,7 +17,7 @@ import {
 type SqliteReadOnlyWorkerSession = {
   readonly notStarted: boolean;
   createNativeReplacement: () => SqliteReadOnlyWorkerSession;
-  compatible: () => boolean;
+  compatible: (env?: NodeJS.ProcessEnv) => boolean;
   run: (
     pathname: string,
     options: SqliteReadOnlyWorkerOptions,
@@ -182,8 +182,7 @@ export function createSqliteReadOnlyWorkerSession(host: {
     createNativeReplacement() {
       return createSqliteReadOnlyWorkerSession({ ...host, spawnBroker: undefined, env, cwd, argv });
     },
-    compatible() {
-      const currentEnv = host.currentEnv();
+    compatible(currentEnv = host.currentEnv()) {
       const keys = Object.keys(currentEnv);
       return (
         !retired &&

@@ -87,6 +87,17 @@ function markChanged(taskId: string, activity: TaskActivityOverlayState): void {
   scheduleFlush(taskId, activity);
 }
 
+/** Coalesces producer-owned activity without persisting or duplicating its execution state. */
+export function invalidateTaskActivity(taskId: string, at: number): void {
+  const task = tasks.get(taskId);
+  if (!task || isTerminalTaskStatus(task.status)) {
+    return;
+  }
+  const activity = activityFor(task);
+  activity.lastActivityAt = Math.max(activity.lastActivityAt ?? at, at);
+  markChanged(taskId, activity);
+}
+
 function readExecutionWait(value: unknown): TaskActivityOverlayState["executionWait"] {
   const wait = asOptionalObjectRecord(value);
   if (wait?.kind === "approval" || wait?.kind === "user_input" || wait?.kind === "agent_messages") {

@@ -6,6 +6,7 @@ import {
   promoteRequesterCronAuthority,
 } from "../requester-cron-authority.js";
 import { promoteRequesterFinalAttachment } from "../requester-final-attachment.js";
+import { ANNOUNCE_COMPLETION_HARD_EXPIRY_MS } from "./subagent-registry-helpers.js";
 import { markSubagentRunPausedAfterYield } from "./subagent-registry-run-pause.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 import { compareSubagentRunGeneration } from "./subagent-run-generation.js";
@@ -195,6 +196,16 @@ export function settleRequesterTurnAfterSessionSpawns(params: {
       }
       entry.requesterTurnRunId = undefined;
       entry.requesterTurnYielded = undefined;
+      if (
+        entry.completionTarget === "parent" &&
+        typeof entry.execution.endedAt === "number" &&
+        entry.delivery?.status === "pending"
+      ) {
+        // Private delivery becomes eligible only when its spawning turn releases it.
+        entry.delivery.windowStartedAt ??= Date.now();
+        entry.delivery.deadlineAt ??=
+          entry.delivery.windowStartedAt + ANNOUNCE_COMPLETION_HARD_EXPIRY_MS;
+      }
       if (entry.retireAfterRequesterTurn === true) {
         if (entry.requesterSettleWake) {
           entry.requesterSettleWake.retireAfterSettle = true;

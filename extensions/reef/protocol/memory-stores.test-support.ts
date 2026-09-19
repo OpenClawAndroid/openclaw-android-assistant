@@ -1,7 +1,49 @@
+import { randomBytes } from "@noble/hashes/utils.js";
+import { createAuditEntry, type AuditEntry, type AuditStore } from "./audit.js";
 import type { CompletedReplay, MessageBody, ReplayClaim, ReplayStore } from "./envelope.js";
 import type { SignedReceipt } from "./receipts.js";
 
-export type { CompletedReplay, ReplayClaim, ReplayStore } from "./envelope.js";
+export class MemoryAuditStore implements AuditStore {
+  readonly #auditKey: Uint8Array;
+  readonly #rng: (length: number) => Uint8Array;
+  readonly #entries: AuditEntry[] = [];
+  #head = { hash: "", seq: 0 };
+  #tail: Promise<void> = Promise.resolve();
+
+  constructor(auditKey: Uint8Array, rng: (length: number) => Uint8Array = randomBytes) {
+    if (!(auditKey instanceof Uint8Array) || auditKey.length !== 32) {
+      throw new Error("audit key must be 32 bytes");
+    }
+    this.#auditKey = auditKey.slice();
+    this.#rng = rng;
+  }
+
+  async appendEvent(
+    type: string,
+    payload: unknown,
+    ts = Math.floor(Date.now() / 1000),
+  ): Promise<AuditEntry> {
+    return this.#withLock(() => {
+      const entry = createAuditEntry(type, payload, ts, this.#auditKey, this.#head, this.#rng);
+      this.#entries.push(entry);
+      this.#head = { hash: entry.entryHash, seq: entry.event.seq };
+      return structuredClone(entry);
+    });
+  }
+
+  async entries(): Promise<AuditEntry[]> {
+    return this.#withLock(() => structuredClone(this.#entries));
+  }
+
+  #withLock<T>(operation: () => T | Promise<T>): Promise<T> {
+    const result = this.#tail.then(operation);
+    this.#tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+}
 
 interface ReplayRecord {
   envelopeHash: string;

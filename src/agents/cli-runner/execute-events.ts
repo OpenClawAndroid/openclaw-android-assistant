@@ -77,27 +77,15 @@ export function createCliEventHandlers(params: {
     toolSummaryNameSet.add(name);
     toolSummaryNames.push(name);
   };
-  const recordToolStart = (event: CliToolUseStartDelta) => {
-    if (event.args && Object.keys(event.args).length > 0) {
-      toolArgsByCallId.set(event.toolCallId, event.args);
-    }
-    const current = toolSummaryById.get(event.toolCallId);
-    if (!current) {
-      toolSummaryById.set(event.toolCallId, { name: event.name, failed: false });
-    } else if (!current.name && event.name) {
-      current.name = event.name;
-    }
-    rememberToolName(event.name);
-  };
-  const recordToolResult = (event: CliToolResult) => {
+  const recordToolSummary = (event: { toolCallId: string; name: string }, failed: boolean) => {
     const current = toolSummaryById.get(event.toolCallId);
     if (current) {
-      current.failed ||= event.isError;
+      current.failed ||= failed;
       if (!current.name && event.name) {
         current.name = event.name;
       }
     } else {
-      toolSummaryById.set(event.toolCallId, { name: event.name, failed: event.isError });
+      toolSummaryById.set(event.toolCallId, { name: event.name, failed });
     }
     rememberToolName(event.name);
   };
@@ -106,9 +94,12 @@ export function createCliEventHandlers(params: {
     tools: toolSummaryNames.slice(),
     failures: Array.from(toolSummaryById.values()).filter((entry) => entry.failed).length,
   });
-  const emitCliToolUseStart = (event: CliToolUseStartDelta) => {
+  const emitToolUseStart = (event: CliToolUseStartDelta, tracked: boolean) => {
     observedCliActivity = true;
-    recordToolStart(event);
+    if (event.args && Object.keys(event.args).length > 0) {
+      toolArgsByCallId.set(event.toolCallId, event.args);
+    }
+    recordToolSummary(event, false);
     if (!signaledToolExecutionStarted) {
       signaledToolExecutionStarted = true;
       runParams.onExecutionPhase?.({
@@ -118,7 +109,9 @@ export function createCliEventHandlers(params: {
         backend: context.backendResolved.id,
       });
     }
-    params.toolTracking.handleCliToolUseStart(event);
+    if (tracked) {
+      params.toolTracking.handleCliToolUseStart(event);
+    }
     if (emitLiveEvents) {
       emitToolEvent({
         phase: "start",
@@ -128,14 +121,14 @@ export function createCliEventHandlers(params: {
       });
     }
   };
-  const emitCliToolResult = (event: CliToolResult) => {
+  const emitToolResult = (event: CliToolResult, tracked: boolean) => {
     observedCliActivity = true;
-    recordToolResult(event);
-    const executedArgs = params.toolTracking.handleCliToolResult(event);
+    recordToolSummary(event, event.isError);
+    const executedArgs = tracked ? params.toolTracking.handleCliToolResult(event) : undefined;
     if (emitLiveEvents) {
-      const resultContentSource = context.resultContentSourceByToolName?.get(
-        stripOpenClawMcpToolPrefix(event.name),
-      );
+      const resultContentSource = tracked
+        ? context.resultContentSourceByToolName?.get(stripOpenClawMcpToolPrefix(event.name))
+        : undefined;
       const startedArgs = toolArgsByCallId.get(event.toolCallId);
       toolArgsByCallId.delete(event.toolCallId);
       emitToolEvent(
@@ -145,54 +138,19 @@ export function createCliEventHandlers(params: {
           toolCallId: event.toolCallId,
           isError: event.isError,
           result: sanitizeToolResult(event.result),
-          ...(startedArgs ? { args: sanitizeToolArgs(startedArgs) } : {}),
+          ...(tracked && startedArgs ? { args: sanitizeToolArgs(startedArgs) } : {}),
           ...(resultContentSource ? { resultContentSource } : {}),
         },
-        { args: executedArgs },
+        { args: tracked ? executedArgs : startedArgs },
       );
     }
   };
-  // Plugin-parsed events describe native work already performed by the backend.
-  // Render and summarize them without host-tool correlation or delivery evidence.
-  const emitCliDisplayToolUseStart = (event: CliToolUseStartDelta) => {
-    observedCliActivity = true;
-    recordToolStart(event);
-    if (!signaledToolExecutionStarted) {
-      signaledToolExecutionStarted = true;
-      runParams.onExecutionPhase?.({
-        phase: "tool_execution_started",
-        provider: runParams.provider,
-        model: context.modelId,
-        backend: context.backendResolved.id,
-      });
-    }
-    if (emitLiveEvents) {
-      emitToolEvent({
-        phase: "start",
-        name: event.name,
-        toolCallId: event.toolCallId,
-        args: sanitizeToolArgs(event.args),
-      });
-    }
-  };
-  const emitCliDisplayToolResult = (event: CliToolResult) => {
-    observedCliActivity = true;
-    recordToolResult(event);
-    if (emitLiveEvents) {
-      const startedArgs = toolArgsByCallId.get(event.toolCallId);
-      toolArgsByCallId.delete(event.toolCallId);
-      emitToolEvent(
-        {
-          phase: "result",
-          name: event.name,
-          toolCallId: event.toolCallId,
-          isError: event.isError,
-          result: sanitizeToolResult(event.result),
-        },
-        { args: startedArgs },
-      );
-    }
-  };
+  // Display-only native events never enter host-tool correlation or delivery accounting.
+  const emitCliToolUseStart = (event: CliToolUseStartDelta) => emitToolUseStart(event, true);
+  const emitCliToolResult = (event: CliToolResult) => emitToolResult(event, true);
+  const emitCliDisplayToolUseStart = (event: CliToolUseStartDelta) =>
+    emitToolUseStart(event, false);
+  const emitCliDisplayToolResult = (event: CliToolResult) => emitToolResult(event, false);
   const emitParsedToolUseStart = (event: CliToolUseStartDelta) => {
     const startedAt = Date.now();
     activeParsedTools.set(event.toolCallId, {
@@ -256,16 +214,10 @@ export function createCliEventHandlers(params: {
       toolCallId: event.toolCallId,
       durationMs: Math.max(0, now - (activeTool?.startedAt ?? now)),
     };
-    if (trustedOutcome?.outcome === "unknown" && !useEnclosingTerminalReason) {
-      emitTrustedDiagnosticEvent({
-        type: "tool.execution.error",
-        ...diagnosticBase,
-        errorCategory: "cli_tool_ambiguous",
-        errorCode: "tool_outcome_unknown",
-      });
-      return;
-    }
-    if (event.incomplete && activeTool?.kind === "server_tool_use" && !trustedOutcome) {
+    if (
+      (trustedOutcome?.outcome === "unknown" && !useEnclosingTerminalReason) ||
+      (event.incomplete && activeTool?.kind === "server_tool_use" && !trustedOutcome)
+    ) {
       emitTrustedDiagnosticEvent({
         type: "tool.execution.error",
         ...diagnosticBase,

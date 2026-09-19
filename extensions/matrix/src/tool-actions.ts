@@ -1,4 +1,3 @@
-// Matrix plugin module implements tool actions behavior.
 import type { AgentToolResult } from "openclaw/plugin-sdk/agent-core";
 import {
   createActionGate,

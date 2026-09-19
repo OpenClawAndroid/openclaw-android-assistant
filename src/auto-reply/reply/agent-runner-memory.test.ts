@@ -388,6 +388,34 @@ describe("runMemoryFlushIfNeeded", () => {
     });
   }
 
+  function createRequiredPreflightParams(sessionFile: string): PreflightCompactionTestParams {
+    const sessionEntry: SessionEntry = {
+      sessionId: "session",
+      updatedAt: Date.now(),
+      totalTokens: 120,
+      totalTokensFresh: true,
+      totalTokensVersion: 1,
+    };
+    const sessionStore = { "agent:main:telegram:group:redacted": sessionEntry };
+
+    return {
+      cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
+      followupRun: createTestFollowupRun({
+        sessionId: "session",
+        sessionFile,
+        sessionKey: "agent:main:telegram:group:redacted",
+      }),
+      defaultModel: "anthropic/claude-opus-4-6",
+      modelContextTokens: 100,
+      sessionEntry,
+      sessionStore,
+      sessionKey: "agent:main:telegram:group:redacted",
+      storePath: path.join(rootDir, "sessions.json"),
+      isHeartbeat: false,
+      ...createCompactionLifecycle(createReplyOperation()),
+    };
+  }
+
   async function createOversizedByteCompactionFixture() {
     const storePath = path.join(rootDir, "sessions.json");
     const sessionKey = "main";
@@ -1877,46 +1905,17 @@ describe("runMemoryFlushIfNeeded", () => {
         `${JSON.stringify({ message: { role: "user", content: "x".repeat(5_000) } })}\n`,
         "utf8",
       );
-      registerMemoryFlushPlanResolverForTest(() => ({
-        softThresholdTokens: 1,
-        forceFlushTranscriptBytes: 1_000_000_000,
-        reserveTokensFloor: 0,
-        prompt: "Pre-compaction memory flush.\nNO_REPLY",
-        systemPrompt: "Write memory to memory/YYYY-MM-DD.md.",
-        relativePath: "memory/2023-11-14.md",
-      }));
+      registerMemoryFlushPlanResolverForTest(() =>
+        createModifiedMemoryFlushPlan({ softThresholdTokens: 1, reserveTokensFloor: 0 }),
+      );
       compactEmbeddedAgentSessionMock.mockResolvedValueOnce({
         ok: false,
         compacted: false,
         reason,
         failure: { reason: failureReason },
       });
-      const sessionEntry: SessionEntry = {
-        sessionId: "session",
-        updatedAt: Date.now(),
-        totalTokens: 120,
-        totalTokensFresh: true,
-        totalTokensVersion: 1,
-      };
-      const sessionStore = { "agent:main:telegram:group:redacted": sessionEntry };
-
       await expect(
-        runSessionCompactionIfNeeded({
-          cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
-          followupRun: createTestFollowupRun({
-            sessionId: "session",
-            sessionFile,
-            sessionKey: "agent:main:telegram:group:redacted",
-          }),
-          defaultModel: "anthropic/claude-opus-4-6",
-          modelContextTokens: 100,
-          sessionEntry,
-          sessionStore,
-          sessionKey: "agent:main:telegram:group:redacted",
-          storePath: path.join(rootDir, "sessions.json"),
-          isHeartbeat: false,
-          ...createCompactionLifecycle(createReplyOperation()),
-        }),
+        runSessionCompactionIfNeeded(createRequiredPreflightParams(sessionFile)),
       ).rejects.toThrow(`Preflight compaction required but failed: ${reason}`);
 
       expect(compactEmbeddedAgentSessionMock).toHaveBeenCalledTimes(1);
@@ -1931,45 +1930,16 @@ describe("runMemoryFlushIfNeeded", () => {
       `${JSON.stringify({ message: { role: "user", content: "x".repeat(5_000) } })}\n`,
       "utf8",
     );
-    registerMemoryFlushPlanResolverForTest(() => ({
-      softThresholdTokens: 1,
-      forceFlushTranscriptBytes: 1_000_000_000,
-      reserveTokensFloor: 0,
-      prompt: "Pre-compaction memory flush.\nNO_REPLY",
-      systemPrompt: "Write memory to memory/YYYY-MM-DD.md.",
-      relativePath: "memory/2023-11-14.md",
-    }));
+    registerMemoryFlushPlanResolverForTest(() =>
+      createModifiedMemoryFlushPlan({ softThresholdTokens: 1, reserveTokensFloor: 0 }),
+    );
     compactEmbeddedAgentSessionMock.mockResolvedValueOnce({
       ok: false,
       compacted: false,
       reason: "thread not found: <codex-thread-id>",
     });
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
-      totalTokens: 120,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
-    };
-    const sessionStore = { "agent:main:telegram:group:redacted": sessionEntry };
-
     await expect(
-      runSessionCompactionIfNeeded({
-        cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
-        followupRun: createTestFollowupRun({
-          sessionId: "session",
-          sessionFile,
-          sessionKey: "agent:main:telegram:group:redacted",
-        }),
-        defaultModel: "anthropic/claude-opus-4-6",
-        modelContextTokens: 100,
-        sessionEntry,
-        sessionStore,
-        sessionKey: "agent:main:telegram:group:redacted",
-        storePath: path.join(rootDir, "sessions.json"),
-        isHeartbeat: false,
-        ...createCompactionLifecycle(createReplyOperation()),
-      }),
+      runSessionCompactionIfNeeded(createRequiredPreflightParams(sessionFile)),
     ).rejects.toThrow(
       "Preflight compaction required but failed: thread not found: <codex-thread-id>",
     );
@@ -1985,46 +1955,17 @@ describe("runMemoryFlushIfNeeded", () => {
       `${JSON.stringify({ message: { role: "user", content: "x".repeat(5_000) } })}\n`,
       "utf8",
     );
-    registerMemoryFlushPlanResolverForTest(() => ({
-      softThresholdTokens: 1,
-      forceFlushTranscriptBytes: 1_000_000_000,
-      reserveTokensFloor: 0,
-      prompt: "Pre-compaction memory flush.\nNO_REPLY",
-      systemPrompt: "Write memory to memory/YYYY-MM-DD.md.",
-      relativePath: "memory/2023-11-14.md",
-    }));
+    registerMemoryFlushPlanResolverForTest(() =>
+      createModifiedMemoryFlushPlan({ softThresholdTokens: 1, reserveTokensFloor: 0 }),
+    );
     compactEmbeddedAgentSessionMock.mockResolvedValueOnce({
       ok: false,
       compacted: false,
       reason: "auth profile mismatch",
       failure: { reason: "auth_profile_mismatch" },
     });
-    const sessionEntry: SessionEntry = {
-      sessionId: "session",
-      updatedAt: Date.now(),
-      totalTokens: 120,
-      totalTokensFresh: true,
-      totalTokensVersion: 1,
-    };
-    const sessionStore = { "agent:main:telegram:group:redacted": sessionEntry };
-
     await expect(
-      runSessionCompactionIfNeeded({
-        cfg: { agents: { defaults: { compaction: { memoryFlush: {} } } } },
-        followupRun: createTestFollowupRun({
-          sessionId: "session",
-          sessionFile,
-          sessionKey: "agent:main:telegram:group:redacted",
-        }),
-        defaultModel: "anthropic/claude-opus-4-6",
-        modelContextTokens: 100,
-        sessionEntry,
-        sessionStore,
-        sessionKey: "agent:main:telegram:group:redacted",
-        storePath: path.join(rootDir, "sessions.json"),
-        isHeartbeat: false,
-        ...createCompactionLifecycle(createReplyOperation()),
-      }),
+      runSessionCompactionIfNeeded(createRequiredPreflightParams(sessionFile)),
     ).rejects.toThrow("Preflight compaction required but failed: auth profile mismatch");
 
     expect(compactEmbeddedAgentSessionMock).toHaveBeenCalledTimes(1);

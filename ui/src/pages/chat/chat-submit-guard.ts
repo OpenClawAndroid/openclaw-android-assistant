@@ -98,21 +98,14 @@ export async function withChatSubmitGuard<T>(
     submissionActionIds.set(action, actionId);
     guardKey = `${key}\0${actionId}`;
   }
-  const guards = (host.chatSubmitGuards ??= new Map<string, Promise<void>>());
+  const guards = (host.chatSubmitGuards ??= new Set<string>());
   if (guards.has(guardKey)) {
     return undefined;
   }
-  let releaseGuard!: () => void;
-  const guard = new Promise<void>((resolve) => {
-    releaseGuard = resolve;
-  });
-  guards.set(guardKey, guard);
+  guards.add(guardKey);
   try {
     return await run();
   } finally {
-    releaseGuard();
-    if (guards.get(guardKey) === guard) {
-      guards.delete(guardKey);
-    }
+    guards.delete(guardKey);
   }
 }

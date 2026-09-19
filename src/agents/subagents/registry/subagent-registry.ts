@@ -46,7 +46,6 @@ import {
   type RegisterSubagentRunParams,
 } from "./subagent-registry-run-manager.js";
 import { clearSubagentRunsReadCacheForTest } from "./subagent-registry-state.js";
-import { SUBAGENT_SUSPENDED_DELIVERY_HARD_CAP } from "./subagent-registry-suspended-delivery.js";
 import { resolveSubagentTaskForRun } from "./subagent-registry-sweep-kill.js";
 import {
   createSubagentRegistrySweeper,
@@ -72,19 +71,6 @@ const resumeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 let activeGatewayContextResolver: GatewayContextResolver | undefined;
 const SUBAGENT_ANNOUNCE_TIMEOUT_MS = 120_000;
 const GATEWAY_ADMISSION_RETRY_DELAY_MS = 1_000;
-/** Admission pressure for recoverable completion deliveries; rows are never pruned for capacity. */
-export function getSubagentDeliveryBacklogPressure(): {
-  suspended: number;
-  blocked: boolean;
-} {
-  let suspended = 0;
-  for (const entry of subagentRuns.values()) {
-    if (isDeliverySuspended(entry)) {
-      suspended += 1;
-    }
-  }
-  return { suspended, blocked: suspended >= SUBAGENT_SUSPENDED_DELIVERY_HARD_CAP };
-}
 
 // Hot lifecycle callers name every changed or removed row. Zero ids is reserved
 // for explicit full-registry replacement at restore/reset boundaries.

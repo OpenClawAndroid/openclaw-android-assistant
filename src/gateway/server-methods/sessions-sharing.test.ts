@@ -718,7 +718,7 @@ describe("session sharing handlers", () => {
       const sessionKey = "agent:main:profile-member";
       const profile = ensureProfileForEmail("member@example.com");
       setDisplayName(profile.id, "Member");
-      const selectable = listProfiles().find((item) => item.id === profile.id);
+      const selectable = (await listProfiles()).find((item) => item.id === profile.id);
       expect(selectable).toMatchObject({ id: profile.id, displayName: "Member" });
       if (!selectable) {
         throw new Error("expected member profile in picker identities");

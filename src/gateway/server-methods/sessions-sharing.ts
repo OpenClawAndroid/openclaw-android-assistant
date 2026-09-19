@@ -224,6 +224,7 @@ function requireCurrentManagedTarget(params: {
 function knownSessionIdentities(params: {
   cfg: ReturnType<GatewayRequestContext["getRuntimeConfig"]>;
   actor: SharingActorFacts;
+  profiles: Awaited<ReturnType<typeof listProfiles>>;
 }): SessionSharingIdentity[] {
   const identities = new Map<string, SessionSharingIdentity>();
   const remember = (identity: SessionCreatedActor | null) => {
@@ -244,7 +245,7 @@ function knownSessionIdentities(params: {
   for (const entry of Object.values(store)) {
     remember(entry.createdActor ?? null);
   }
-  for (const profile of listProfiles()) {
+  for (const profile of params.profiles) {
     remember({
       type: "human",
       id: profile.id,
@@ -304,6 +305,7 @@ function createSessionMembersListHandler(
     if (!managed) {
       return;
     }
+    const profiles = await listProfiles();
     const evidenceMembers = (
       await listSessionMembersInWorker({
         agentId: managed.target.agentId,
@@ -340,7 +342,7 @@ function createSessionMembersListHandler(
       return;
     }
     const projectedMembers = members.filter((member) => member !== null);
-    const identities = knownSessionIdentities({ cfg: currentCfg, actor });
+    const identities = knownSessionIdentities({ cfg: currentCfg, actor, profiles });
     for (const member of projectedMembers) {
       if (!identities.some((identity) => identity.id === member.identityId)) {
         identities.push({ type: "human", id: member.identityId });
@@ -616,17 +618,25 @@ export const sessionSharingHandlers: GatewayRequestHandlers = {
     if (!managed) {
       return;
     }
+    const profiles = await listProfiles();
+    const currentCfg = context.getRuntimeConfig();
+    requireCurrentManagedTarget({ cfg: currentCfg, client, authorized: managed.target });
     const actor = actorIdentity(client);
     const known = knownSessionIdentities({
-      cfg,
+      cfg: currentCfg,
       actor,
+      profiles,
     });
     if (!known.some((identity) => identity.id === params.identityId)) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unknown identity"));
       return;
     }
     await runExclusiveSharingMutation(managed.target, async () => {
-      const current = requireCurrentManagedTarget({ cfg, client, authorized: managed.target });
+      const current = requireCurrentManagedTarget({
+        cfg: context.getRuntimeConfig(),
+        client,
+        authorized: managed.target,
+      });
       const scope = {
         agentId: current.agentId,
         sessionKey: current.storeKey,

@@ -7671,21 +7671,6 @@ describe("chat model controls", () => {
     },
   );
 
-  it("applies a model selection immediately", () => {
-    const { state } = createOpenAiHeaderState();
-    const onModelSelect = vi.fn(async () => true);
-    const container = renderModelControls(state, { onModelSelect });
-    const modelOption = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(
-        '[data-chat-model-option]:not([data-chat-model-default="true"])',
-      ),
-    ).find((button) => button.getAttribute("aria-selected") === "false");
-    expect(modelOption).toBeInstanceOf(HTMLButtonElement);
-    modelOption?.click();
-
-    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main", null);
-  });
-
   it.each([
     ["session", "Selecting a model changes only this session."],
     ["agent", "Selecting a model updates this agent's default."],
@@ -7719,7 +7704,7 @@ describe("chat model controls", () => {
       expect(onModelSelect).toHaveBeenCalledWith(
         modelOption?.dataset.chatModelOption,
         "main",
-        null,
+        undefined,
       );
     },
   );
@@ -7910,7 +7895,11 @@ describe("chat model controls", () => {
     getThinkingSlider(container)?.dispatchEvent(new Event("change", { bubbles: true }));
 
     expect(onFastModeSelect).not.toHaveBeenCalled();
-    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main", null);
+    expect(onModelSelect).toHaveBeenCalledWith(
+      modelOption?.dataset.chatModelOption,
+      "main",
+      undefined,
+    );
     expect(onThinkingSelect).not.toHaveBeenCalled();
   });
 
@@ -8382,7 +8371,7 @@ describe("chat model controls", () => {
       expect(search?.getAttribute("aria-activedescendant")).toBe(highlighted?.id);
 
       search!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main", null);
+      expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main", undefined);
       expect(details?.open).toBe(false);
 
       onModelSelect.mockClear();
@@ -8391,7 +8380,7 @@ describe("chat model controls", () => {
       expect(onModelSelect).toHaveBeenCalledExactlyOnceWith(
         "anthropic/claude-sonnet-4-6",
         "main",
-        null,
+        undefined,
       );
       expect(details?.open).toBe(false);
       container.remove();
@@ -8459,7 +8448,7 @@ describe("chat model controls", () => {
     expect(onModelSelect).not.toHaveBeenCalled();
 
     details!.dispatchEvent(new KeyboardEvent("keydown", { key: "1", bubbles: true }));
-    expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main", null);
+    expect(onModelSelect).toHaveBeenCalledWith("anthropic/claude-sonnet-4-6", "main", undefined);
     container.remove();
   });
 
@@ -9190,7 +9179,11 @@ describe("chat model controls", () => {
     );
     expect(modelOption).toBeInstanceOf(HTMLButtonElement);
     modelOption?.click();
-    expect(onModelSelect).toHaveBeenCalledWith(modelOption?.dataset.chatModelOption, "main", null);
+    expect(onModelSelect).toHaveBeenCalledWith(
+      modelOption?.dataset.chatModelOption,
+      "main",
+      undefined,
+    );
 
     const slider = getThinkingSlider(container);
     expect(slider).toBeInstanceOf(HTMLInputElement);
@@ -9540,7 +9533,7 @@ describe("chat model controls", () => {
       ?.click();
 
     await waitForFast(() => {
-      expect(onModelSelect).toHaveBeenCalledWith("openai/gpt-5.4", "main", null);
+      expect(onModelSelect).toHaveBeenCalledWith("openai/gpt-5.4", "main", undefined);
     });
     render(renderChatModelControls(props), container);
     expect(

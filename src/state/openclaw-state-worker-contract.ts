@@ -1,5 +1,6 @@
 import type { AuthProfileRowRead, UserModelAuthProfile } from "../agents/auth-profiles/types.js";
 import type { NativeHookRelayStoreWorkerOperations } from "../agents/harness/native-hook-relay-store.worker-contract.js";
+import type { AuditEventListQuery, AuditEventListPage } from "../audit/audit-event-types.js";
 import type { ClawInstallSchemaVersionRow } from "../claws/provenance-runtime-read.kernel.js";
 import type { readSqliteDatabaseBloat } from "../commands/doctor-db-bloat.read.js";
 import type { ConfigHealthPatch } from "../config/io.health-state.kernel.js";
@@ -47,6 +48,7 @@ import type { AgentProvenance } from "./agent-provenance.types.js";
 import type { PreparedBackupRunRecord } from "./backup-run-records.kernel.js";
 import type { OpenClawStateLeaseIdentity } from "./openclaw-state-lease-store.js";
 import type { UserPreferenceWorkerOperations } from "./user-preferences.types.js";
+import type { UserProfileReadWorkerOperations } from "./user-profiles.worker.js";
 
 /** Commands share one physical shared-state actor; bindings belong to commands, not open input. */
 export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
@@ -55,6 +57,7 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   HostedCatalogSnapshotWorkerOperations &
   PluginStateWorkerOperations &
   UserPreferenceWorkerOperations &
+  UserProfileReadWorkerOperations &
   CronStoreWorkerOperations &
   CronStoreSaveWorkerOperations &
   FleetRegistryWriteOperations &
@@ -62,6 +65,10 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   DeliveryQueueWorkerOperations &
   TranscriptReadOperations &
   TaskRegistryWorkerOperations & {
+    "audit.events.list": {
+      input: AuditEventListQuery;
+      output: AuditEventListPage;
+    };
     "deviceAuth.list": { input: { deviceId: string }; output: DeviceAuthEntry[] };
     "deviceAuth.read": {
       input: Parameters<typeof deviceAuth.readDeviceAuthTokenObservationFromDatabase>[1] & {
@@ -188,4 +195,5 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
 /** Internal inspection cannot open canonical state or execute a domain command. */
 export type OpenClawStateWorkerInspectionOperations = {
   "database.generationMatches": { input: { generation: SqliteFileGeneration }; output: boolean };
+  "database.inspectIdle": { input: undefined; output: "healthy" | "retire" };
 };

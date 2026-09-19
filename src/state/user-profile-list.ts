@@ -36,7 +36,7 @@ import {
   hasEnsuredUserProfileRoleSchema,
 } from "./user-profiles-schema.js";
 
-export function listProfiles(options: OpenClawStateDatabaseOptions = {}) {
+export function listUserProfilesSync(options: OpenClawStateDatabaseOptions = {}) {
   ensureUserProfilesSchema(options);
   const database = openOpenClawStateDatabase(options);
   return runSqliteDeferredTransactionSync(
@@ -50,7 +50,11 @@ export function listProfiles(options: OpenClawStateDatabaseOptions = {}) {
           .select([
             ...userProfileDisplaySelection,
             "created_at",
-            ...(hasEnsuredUserProfileRoleSchema(database.db) ? (["role"] as const) : []),
+            // The native role writer can add this column after a worker has opened.
+            ...(hasEnsuredUserProfileRoleSchema(database.db) ||
+            tableHasColumn(database.db, "user_profiles", "role")
+              ? (["role"] as const)
+              : []),
           ])
           .orderBy("created_at", "asc")
           .orderBy("id", "asc"),
@@ -86,6 +90,27 @@ export function listProfiles(options: OpenClawStateDatabaseOptions = {}) {
     },
     { databaseLabel: database.path, operationLabel: "user-profiles.list" },
   );
+}
+
+/** Disclosure scopes need current aliases, never the resident display catalog. */
+export function readCurrentUserProfileAliases(
+  profileId: string,
+  options: OpenClawStateDatabaseOptions = {},
+): ReadonlySet<string> {
+  ensureUserProfilesSchema(options);
+  const database = openOpenClawStateDatabase(options);
+  return runSqliteDeferredTransactionSync(database.db, () => {
+    const canonicalId =
+      selectResolvedUserProfileMetadataById(database.db, profileId)?.id ?? profileId;
+    const aliases = executeSqliteQuerySync(
+      database.db,
+      userProfilesDb(database.db)
+        .selectFrom("user_profiles")
+        .select("id")
+        .where("merged_into", "=", canonicalId),
+    ).rows;
+    return new Set([canonicalId, ...aliases.map((row) => row.id)]);
+  });
 }
 
 /** True when session-sharing policy can distinguish at least two durable people. */

@@ -27,6 +27,40 @@
   outline-offset: 2px;
 }
 
+.markdown-person-reference__avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 1em;
+  height: 1em;
+  margin-inline-end: 0.25em;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+  vertical-align: -0.125em;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.markdown-person-reference__avatar > img {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.markdown-person-reference__avatar:is(.is-pending, .is-fallback) > img {
+  display: none;
+}
+
+/* Decorative initials must not change the selected or copied mention text. */
+.markdown-person-reference__avatar.is-fallback::after {
+  content: attr(data-initials);
+  font-size: 0.6em;
+  line-height: 1;
+}
+
 .person-reference__status {
   padding: 16px;
   color: var(--muted);

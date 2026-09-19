@@ -294,10 +294,11 @@ function renderSidebarSessionIndicators(
         variant="session"
       ></openclaw-viewer-facepile>
       ${team ? originIndicators : nothing} ${team ? persistentIndicator : nothing}
-      ${team && (session.workSession || session.acpSession) && !pullRequest ? html`<span class="session-row-badge" role="img" aria-label=${t("chat.sidebar.coding")} title=${session.subtitle ?? t("chat.sidebar.coding")}>${icons.terminal}</span>` : nothing}
+      ${team && (session.workSession || session.acpSession) && !session.workspaceKind && !pullRequest ? html`<span class="session-row-badge" role="img" aria-label=${t("chat.sidebar.coding")} title=${session.subtitle ?? t("chat.sidebar.coding")}>${icons.terminal}</span>` : nothing}
       ${team && session.hasAutomation ? html`<span class="session-row-badge" role="img" aria-label=${t("tabs.cron")} title=${t("tabs.cron")}>${icons.clock}</span>` : nothing}
       ${renderSessionRowBadges({
         isChild: session.isChild,
+        workspaceKind: session.workspaceKind,
         incognito: session.incognito,
         placementState: session.placementState,
         placementProviderId: session.placementProviderId,

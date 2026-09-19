@@ -576,10 +576,11 @@ describe("tasks gateway handlers", () => {
     expect(payload?.task?.result).toBe(fixture.expected);
   });
 
-  it("keeps bounded prompts lookup-only", async () => {
+  it("keeps complete prompts lookup-only", async () => {
+    const prompt = `Inspect the task prompt ${"x".repeat(5_000)}\n  Keep the final command argument.`;
     const task = createTaskFixture("cli", {
       ...mainSessionTaskScope,
-      task: `Inspect the task prompt ${"x".repeat(5_000)}`,
+      task: prompt,
       status: "running",
       deliveryStatus: "pending",
     });
@@ -588,31 +589,28 @@ describe("tasks gateway handlers", () => {
     expect(listed.payload?.tasks?.[0]?.prompt).toBeUndefined();
 
     const { payload } = await getTaskPayload(task.taskId);
-    expect(payload?.task?.prompt).toHaveLength(4_000);
-    expect(payload?.task?.prompt).toMatch(/^Inspect the task prompt/);
-    expect(payload?.task?.prompt).toMatch(/…$/);
+    expect(payload?.task?.prompt).toBe(prompt);
   });
 
-  it("preserves prompt layout while removing internal runtime context", async () => {
-    const visiblePrompt = [
-      "Review this workflow:",
-      "",
-      "  ```yaml",
-      "  steps:",
-      "    - test",
-      "  ```",
-    ].join("\n");
-    const task = createTaskFixture("cli", {
-      ...mainSessionTaskScope,
-      task: `${visiblePrompt}\n${INTERNAL_RUNTIME_CONTEXT_BEGIN}\nhidden\n${INTERNAL_RUNTIME_CONTEXT_END}`,
-      status: "running",
-      deliveryStatus: "pending",
-    });
+  it.each([
+    ["Review this workflow:", "", "  ```yaml", "  steps:", "    - test", "  ```"].join("\n"),
+    "printf A\n\nprintf A",
+    "printf '<final>literal argument</final>\n'",
+  ])(
+    "preserves task input verbatim while removing internal runtime context %#",
+    async (visiblePrompt) => {
+      const task = createTaskFixture("cli", {
+        ...mainSessionTaskScope,
+        task: `${visiblePrompt}\n${INTERNAL_RUNTIME_CONTEXT_BEGIN}\nhidden\n${INTERNAL_RUNTIME_CONTEXT_END}`,
+        status: "running",
+        deliveryStatus: "pending",
+      });
 
-    const { payload } = await getTaskPayload(task.taskId);
+      const { payload } = await getTaskPayload(task.taskId);
 
-    expect(payload?.task?.prompt).toBe(visiblePrompt);
-  });
+      expect(payload?.task?.prompt).toBe(visiblePrompt);
+    },
+  );
 
   it("sanitizes task text before exposing SDK summaries", async () => {
     const task = createTaskFixture("cli", {

@@ -17120,6 +17120,8 @@ public struct SessionsListParams: Codable, Sendable {
     public let includeglobal: Bool?
     public let includeunknown: Bool?
     public let excludesubagents: Bool?
+    public let excludecron: Bool?
+    public let excludesystem: Bool?
     public let configuredagentsonly: Bool?
     public let includederivedtitles: Bool?
     public let includelastmessage: Bool?
@@ -17153,6 +17155,8 @@ public struct SessionsListParams: Codable, Sendable {
         includeglobal: Bool? = nil,
         includeunknown: Bool? = nil,
         excludesubagents: Bool? = nil,
+        excludecron: Bool? = nil,
+        excludesystem: Bool? = nil,
         configuredagentsonly: Bool? = nil,
         includederivedtitles: Bool? = nil,
         includelastmessage: Bool? = nil,
@@ -17185,6 +17189,8 @@ public struct SessionsListParams: Codable, Sendable {
         self.includeglobal = includeglobal
         self.includeunknown = includeunknown
         self.excludesubagents = excludesubagents
+        self.excludecron = excludecron
+        self.excludesystem = excludesystem
         self.configuredagentsonly = configuredagentsonly
         self.includederivedtitles = includederivedtitles
         self.includelastmessage = includelastmessage
@@ -17219,6 +17225,8 @@ public struct SessionsListParams: Codable, Sendable {
         case includeglobal = "includeGlobal"
         case includeunknown = "includeUnknown"
         case excludesubagents = "excludeSubagents"
+        case excludecron = "excludeCron"
+        case excludesystem = "excludeSystem"
         case configuredagentsonly = "configuredAgentsOnly"
         case includederivedtitles = "includeDerivedTitles"
         case includelastmessage = "includeLastMessage"
@@ -17988,17 +17996,20 @@ public struct SessionsSearchHit: Codable, Sendable {
 public struct SessionsSearchParams: Codable, Sendable {
     public let agentid: String?
     public let sessionkeys: [String]?
+    public let scope: [String: AnyCodable]?
     public let query: String
     public let limit: Int?
 
     public init(
         agentid: String? = nil,
         sessionkeys: [String]? = nil,
+        scope: [String: AnyCodable]? = nil,
         query: String,
         limit: Int? = nil)
     {
         self.agentid = agentid
         self.sessionkeys = sessionkeys
+        self.scope = scope
         self.query = query
         self.limit = limit
     }
@@ -18006,6 +18017,7 @@ public struct SessionsSearchParams: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case agentid = "agentId"
         case sessionkeys = "sessionKeys"
+        case scope
         case query
         case limit
     }
@@ -18013,17 +18025,20 @@ public struct SessionsSearchParams: Codable, Sendable {
 
 public struct SessionsSearchResult: Codable, Sendable {
     public let results: [SessionsSearchHit]
+    public let sessions: [SessionRow]?
     public let indexing: Bool?
     public let archivedtranscriptsexcluded: Int?
     public let truncated: Bool?
 
     public init(
         results: [SessionsSearchHit],
+        sessions: [SessionRow]? = nil,
         indexing: Bool? = nil,
         archivedtranscriptsexcluded: Int? = nil,
         truncated: Bool? = nil)
     {
         self.results = results
+        self.sessions = sessions
         self.indexing = indexing
         self.archivedtranscriptsexcluded = archivedtranscriptsexcluded
         self.truncated = truncated
@@ -18031,6 +18046,7 @@ public struct SessionsSearchResult: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case results
+        case sessions
         case indexing
         case archivedtranscriptsexcluded = "archivedTranscriptsExcluded"
         case truncated

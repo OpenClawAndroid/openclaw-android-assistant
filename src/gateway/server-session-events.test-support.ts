@@ -68,7 +68,7 @@ const {
   createTranscriptUpdateBroadcastHandler: createTranscriptHandler,
 } = await import("./server-session-events.js");
 const { createGatewayBroadcaster } = await import("./server-broadcast.js");
-const { subscribePluginSessionsChanged } = await import("../plugins/gateway-events.js");
+const { subscribePluginSessionsChanged } = await import("../plugins/services.test-support.js");
 
 const projection = {
   get state() {

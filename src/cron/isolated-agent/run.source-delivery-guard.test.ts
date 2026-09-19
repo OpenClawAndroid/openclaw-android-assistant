@@ -46,14 +46,11 @@ function makeJob(
 }
 
 function makeExecutor(overrides: Record<string, unknown>) {
-  const resolvedDelivery = overrides.resolvedDelivery ?? {};
   return {
     runPrompt: async (commandBody: string) =>
       await executeCronRun(
         makeExecuteCronRunParams({
-          resolvedDeliveryOk: true,
           ...overrides,
-          resolvedDelivery,
           commandBody,
         }),
       ),
@@ -296,7 +293,6 @@ describe("executeCronRun sourceDelivery mapping", () => {
     const executor = makeExecutor({
       job: makeJob({ delivery: { mode: "announce", channel: "messagechat", to: "123" } }),
       deliveryRequested: true,
-      resolvedDeliveryOk: false,
       resolvedDelivery: { ok: false, channel: "messagechat", to: "123" },
     });
 
@@ -381,12 +377,11 @@ describe("executeCronRun sourceDelivery mapping", () => {
 
 function makeExecuteCronRunParams(overrides: Record<string, unknown> = {}) {
   const job = (overrides.job ?? makeJob()) as CronJob;
-  const resolvedDelivery = (overrides.resolvedDelivery ?? {}) as {
-    channel?: string;
-    accountId?: string;
-    to?: string;
-    threadId?: string | number;
-    ok?: boolean;
+  const resolvedDelivery = {
+    ok: true,
+    ...(overrides.resolvedDelivery as
+      | Partial<Parameters<typeof resolveCronSourceDeliveryPlan>[0]["resolvedDelivery"]>
+      | undefined),
   };
 
   return {
@@ -422,11 +417,11 @@ function makeExecuteCronRunParams(overrides: Record<string, unknown> = {}) {
     loadThinkingCatalog: async () => [],
     timeoutMs: 60_000,
     suppressExecNotifyOnExit: true,
-    resolvedDelivery,
     sourceDelivery: resolveCronSourceDeliveryPlan({
       deliveryPlan: actualDeliveryPlanModule.resolveCronDeliveryPlan(job),
       resolvedDelivery,
     }),
     ...overrides,
+    resolvedDelivery,
   } as never;
 }

@@ -37,16 +37,18 @@ async function withCatalog(
     setList: (list: SessionCatalogProvider["list"]) => void;
     projection: SessionRowProjection;
   }) => Promise<void>,
-  otherEntryCount = 0,
+  options: { otherEntryCount?: number; agents?: OpenClawConfig["agents"] } = {},
 ) {
   await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
     const cfg: OpenClawConfig = {
-      agents: { list: [{ id: "main", default: true, agentDir: state.agentDir("main") }] },
+      agents: options.agents ?? {
+        list: [{ id: "main", default: true, agentDir: state.agentDir("main") }],
+      },
     };
     await state.writeConfig(cfg);
     setRuntimeConfigSnapshot(cfg);
     replaceSessionEntrySync({ agentId: "main", sessionKey: key }, original);
-    for (let index = 0; index < otherEntryCount; index++) {
+    for (let index = 0; index < (options.otherEntryCount ?? 0); index++) {
       replaceSessionEntrySync(
         { agentId: "main", sessionKey: `agent:main:unrelated-${index}` },
         { sessionId: `unrelated-${index}`, updatedAt: 1 },
@@ -136,52 +138,120 @@ it("reads clean local catalog entries from the resident owner without SQLite", a
 });
 
 it("bounds catalog result delivery to returned adoption keys", async () => {
-  await withCatalog(async ({ list, setList, projection }) => {
-    const selectEntries = projection.selectEntries.bind(projection);
-    let deliveryRowsRead = 0;
-    setList(async ({ sessionEntries }) => {
-      expect(sessionEntries?.entriesForCatalog?.()).toHaveLength(257);
-      vi.spyOn(projection, "selectEntries").mockImplementation((query) => {
-        const rows = selectEntries(query);
-        deliveryRowsRead += rows.length;
-        return rows;
+  await withCatalog(
+    async ({ list, setList, projection }) => {
+      const selectEntries = projection.selectEntries.bind(projection);
+      let deliveryRowsRead = 0;
+      setList(async ({ sessionEntries }) => {
+        expect(sessionEntries?.entriesForCatalog?.()).toHaveLength(257);
+        vi.spyOn(projection, "selectEntries").mockImplementation((query) => {
+          const rows = selectEntries(query);
+          deliveryRowsRead += rows.length;
+          return rows;
+        });
+        return [
+          {
+            hostId: "gateway:fixture",
+            label: "Fixture",
+            kind: "gateway",
+            connected: true,
+            sessions: [
+              {
+                threadId: "native-thread",
+                sessionKey: key,
+                status: "stored",
+                archived: false,
+                canContinue: true,
+                canArchive: false,
+              },
+              {
+                threadId: "blank-key-thread",
+                sessionKey: " ",
+                status: "stored",
+                archived: false,
+                canContinue: true,
+                canArchive: false,
+              },
+            ],
+          },
+        ];
       });
-      return [
-        {
-          hostId: "gateway:fixture",
-          label: "Fixture",
-          kind: "gateway",
-          connected: true,
-          sessions: [
-            {
-              threadId: "native-thread",
-              sessionKey: key,
-              status: "stored",
-              archived: false,
-              canContinue: true,
-              canArchive: false,
-            },
-            {
-              threadId: "blank-key-thread",
-              sessionKey: " ",
-              status: "stored",
-              archived: false,
-              canContinue: true,
-              canArchive: false,
-            },
-          ],
+      const respond = await list();
+      const sessions = respond.mock.calls[0]?.[1]?.catalogs[0]?.hosts[0]?.sessions;
+      expect(sessions).toMatchObject([
+        { sessionKey: key, createdActor: original.createdActor },
+        { threadId: "blank-key-thread" },
+      ]);
+      expect(sessions[1]).not.toHaveProperty("sessionKey");
+      expect(deliveryRowsRead).toBeLessThanOrEqual(1);
+    },
+    { otherEntryCount: 256 },
+  );
+});
+
+it("bounds roster projections while delivering adopted sessions without an implicit owner", async () => {
+  const agentCount = 32;
+  const sessionCount = 40;
+  let rosterEntryProjections = 0;
+  const agents = Object.fromEntries(
+    Array.from({ length: agentCount }, (_, index) => [
+      index === 0 ? "main" : `agent-${index}`,
+      {
+        get identity() {
+          rosterEntryProjections++;
+          return { name: `Agent ${index}` };
         },
-      ];
-    });
-    const respond = await list();
-    const sessions = respond.mock.calls[0]?.[1]?.catalogs[0]?.hosts[0]?.sessions;
-    expect(sessions).toMatchObject([
-      { sessionKey: key, createdActor: original.createdActor },
-      { threadId: "blank-key-thread" },
-    ]);
-    expect(sessions[1]).not.toHaveProperty("sessionKey");
-    expect(deliveryRowsRead).toBeLessThanOrEqual(1);
-  }, 256);
+      },
+    ]),
+  );
+  await withCatalog(
+    async ({ list, setList, projection }) => {
+      const keys = Array.from(
+        { length: sessionCount },
+        (_, index) => `agent:main:adopted-${index}`,
+      );
+      for (const sessionKey of keys) {
+        replaceSessionEntrySync(
+          { agentId: "main", sessionKey },
+          { ...original, sessionId: sessionKey },
+        );
+      }
+      while (projection.needsMaterialization) {
+        await projection.ensureMaterialized();
+      }
+      setList(async ({ sessionEntries }) => {
+        expect(sessionEntries?.entriesForCatalog?.()).toHaveLength(sessionCount + 1);
+        rosterEntryProjections = 0;
+        return [
+          {
+            hostId: "gateway:fixture",
+            label: "Fixture",
+            kind: "gateway",
+            connected: true,
+            sessions: keys.map((sessionKey) => ({
+              threadId: sessionKey,
+              sessionKey,
+              status: "stored",
+              archived: false,
+              canContinue: true,
+              canArchive: false,
+            })),
+          },
+        ];
+      });
+      const respond = await list();
+      const sessions = respond.mock.calls[0]?.[1]?.catalogs[0]?.hosts[0]?.sessions;
+      expect(sessions).toHaveLength(sessionCount);
+      expect(sessions).toMatchObject(
+        keys.map((sessionKey) => ({
+          sessionKey,
+          createdActor: original.createdActor,
+        })),
+      );
+      expect(rosterEntryProjections).toBeLessThanOrEqual(sessionCount * (agentCount + 8));
+    },
+    { agents: { ownership: "explicit", entries: agents } },
+  );
 });
 
 it("does not attach a replacement session identity after provider enumeration yields", async () => {

@@ -7352,7 +7352,7 @@ describe("subagent registry seam flow", () => {
     });
   });
 
-  it("retains suspended final deliveries when backlog exceeds the hard cap", async () => {
+  it("retains a large suspended delivery backlog without discarding results", async () => {
     const now = Date.parse("2026-03-24T12:00:00Z");
     for (let i = 0; i < 51; i += 1) {
       const runId = `run-suspended-pressure-${i}`;
@@ -7386,7 +7386,6 @@ describe("subagent registry seam flow", () => {
     );
     expect(stillSuspended).toHaveLength(51);
     expect(runs.every((run) => run?.delivery?.discardReason === undefined)).toBe(true);
-    expect(mod.getSubagentDeliveryBacklogPressure()).toEqual({ suspended: 51, blocked: true });
   });
 
   it("contains per-row and background sweeper failures", async () => {

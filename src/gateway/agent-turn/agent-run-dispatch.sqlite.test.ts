@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { trackSqliteStatementExecutions } from "../../../test/helpers/sqlite-statement-execution-counter.js";
+import { observeDeviceAuthHostSql } from "../../infra/device-auth-store.sql.test-support.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import {
   markPluginRegistryActive,
@@ -76,6 +77,8 @@ it("creates a durable Gateway task before provider entry and settles its exact u
         },
       );
       const workerMessages = vi.spyOn(Worker.prototype, "postMessage");
+      const hostSql = observeDeviceAuthHostSql(state.statePath("state", "openclaw.sqlite"));
+      let creationSql: ReturnType<typeof hostSql.counts> | undefined;
       const noWrites: HostWrites = { task: 0, delivery: 0, flow: 0 };
       let creation: { taskId: string; writes: HostWrites } | undefined;
       configureTaskRegistryRuntime({
@@ -83,6 +86,7 @@ it("creates a durable Gateway task before provider entry and settles its exact u
           onEvent(event) {
             if (!creation && event.kind === "upserted" && event.task.runId === runId) {
               creation = { taskId: event.task.taskId, writes: { ...tracker.counts } };
+              creationSql = hostSql.counts();
             }
           },
         },
@@ -154,6 +158,9 @@ it("creates a durable Gateway task before provider entry and settles its exact u
           notifyPolicy: "silent",
         });
         expect(creation).toEqual({ taskId: running.taskId, writes: noWrites });
+        expect(Object.values(creationSql ?? {}).flatMap((counts) => Object.values(counts))).toEqual(
+          Array(28).fill(0),
+        );
         expect(running.parentFlowId).toBeUndefined();
         expect(observed.flowCount).toBe(0);
         // Live run-owner binding is still a separate native writer in this initial-creation slice.
@@ -164,8 +171,15 @@ it("creates a durable Gateway task before provider entry and settles its exact u
         expect(getTaskRunOwner(running)).toBeDefined();
         expect(emitFinal).not.toHaveBeenCalled();
         const beforeSettlement = { ...tracker.counts };
+        const beforeSettlementSql = hostSql.counts();
         releaseProvider.resolve();
         await execution;
+        expect(hostSql.counts()).toEqual(beforeSettlementSql);
+        console.info("Gateway task host SQL", {
+          creation: creationSql,
+          beforeSettlement: beforeSettlementSql,
+          afterSettlement: hostSql.counts(),
+        });
 
         const completed = loadTaskRegistryStateFromSqlite();
         expect([...completed.tasks.keys()]).toEqual([running.taskId]);
@@ -199,6 +213,7 @@ it("creates a durable Gateway task before provider entry and settles its exact u
       } finally {
         releaseProvider.resolve();
         await execution;
+        hostSql.restore();
         tracker.restore();
         workerMessages.mockRestore();
         provider.execute.mockReset();

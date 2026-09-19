@@ -314,13 +314,14 @@ suite.define(() => {
       await page.getByRole("button", { name: "Use this folder" }).click();
       await expect.poll(() => trigger.getAttribute("data-cloud-profile")).toBe("aws");
       await checkoutTrigger.click();
-      await expect.poll(() => checkout.getByLabel("From").inputValue()).toBe("main");
-      await checkout.getByLabel("From").fill("release");
-      await expect.poll(() => checkout.getByLabel("From").inputValue()).toBe("release");
+      const baseRef = checkout.getByLabel("From", { exact: true });
+      await expect.poll(() => baseRef.inputValue()).toBe("main");
+      await baseRef.fill("release");
+      await expect.poll(() => baseRef.inputValue()).toBe("release");
       await pollLocatorText(checkoutTrigger.locator(".new-session-page__trigger-label")).toBe(
         "From release",
       );
-      await checkout.getByLabel("From").fill("main");
+      await baseRef.fill("main");
       await pollLocatorText(checkout.locator(".new-session-page__menu-note").last()).toContain(
         "Syncs target-repo to the selected runner",
       );

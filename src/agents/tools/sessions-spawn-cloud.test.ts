@@ -23,7 +23,6 @@ vi.mock("../subagents/spawn/subagent-spawn.js", () => ({
 vi.mock("../subagents/spawn/acp-spawn.js", () => ({ spawnAcpDirect: vi.fn() }));
 vi.mock("../subagents/registry/subagent-registry.js", () => ({
   registerSubagentRun: vi.fn(),
-  getSubagentDeliveryBacklogPressure: () => ({ suspended: 0, blocked: false }),
 }));
 vi.mock("../../plugins/hook-runner-global.js", () => ({
   getGlobalHookRunner: () => ({

@@ -12,6 +12,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
   prepareSqliteQuerySync,
+  sqliteStringSet,
 } from "../infra/kysely-sync.js";
 import { assertSqliteTableIntegrity } from "../infra/sqlite-integrity.js";
 import { coerceRequiredSqliteNumber, normalizeSqliteNumber } from "../infra/sqlite-number.js";
@@ -629,7 +630,7 @@ export function readTaskRegistryMutationSnapshotInDatabase(
       kysely
         .selectFrom("task_delivery_state")
         .select(TASK_DELIVERY_STATE_SELECT_COLUMNS)
-        .where("task_id", "in", selected.select("task_id"))
+        .where("task_id", "in", sqliteStringSet(taskRows.map((row) => row.task_id)))
         .orderBy("task_id", "asc"),
     ).rows;
     return {

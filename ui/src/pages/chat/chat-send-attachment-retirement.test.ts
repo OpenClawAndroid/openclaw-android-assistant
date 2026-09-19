@@ -15,7 +15,7 @@ import {
 } from "./chat-delivery-attachments.test-support.ts";
 import { makeChatHost, makeRequestMock } from "./chat-host.test-support.ts";
 import { subscribeChatOutboxProjection } from "./chat-queue.ts";
-import { retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
+import { resumeStoredChatOutboxes } from "./chat-send-actions.ts";
 import { handleSendChat } from "./chat-send-submit.ts";
 import * as chatSendSupport from "./chat-send-support.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
@@ -268,7 +268,7 @@ describe("chat attachment terminal retirement", () => {
           expect(result.status).toBe("ready");
         }
         consumedRunId = item.sendRunId;
-        await retryReconnectableQueuedChatSends(visible);
+        await resumeStoredChatOutboxes(visible);
         expect(listStoredChatOutboxes(visible)).toStrictEqual([]);
       }
       hydration.resolve();
@@ -315,7 +315,7 @@ describe("chat attachment terminal retirement", () => {
 
       consumedRunId = item.sendRunId;
       history.resolve(consumedHistory());
-      await retryReconnectableQueuedChatSends(visible);
+      await resumeStoredChatOutboxes(visible);
 
       expect(listStoredChatOutboxes(visible)).toStrictEqual([]);
       expect(cleanup).toHaveBeenCalledWith([item.attachmentPayload]);

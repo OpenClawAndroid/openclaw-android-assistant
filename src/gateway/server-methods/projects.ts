@@ -37,7 +37,7 @@ import {
 import { parseAgentSessionKey } from "../../routing/session-key.js";
 import { isTrustedSecretSurfaceUnavailableError } from "../../secrets/runtime-degraded-state.js";
 import { getSessionRepositoryWorkspaceStore } from "../../state/session-repository-workspaces.js";
-import { listProfiles, resolveUserProfileId } from "../../state/user-profiles.js";
+import { readCurrentUserProfileAliases } from "../../state/user-profile-list.js";
 import {
   CONTROL_UI_GITHUB_CREDENTIAL_UNAVAILABLE_MESSAGE,
   githubApiToken,
@@ -459,17 +459,7 @@ export function createProjectsHandlers(service: ProjectWorktreeService): Gateway
       const registryProjects = await listProjectRegistry(context.getRuntimeConfig());
       const projects = registryProjects.map(sanitizeProjectRecord);
       const profileId = client?.authenticatedUserProfile?.profileId;
-      const canonicalProfileId = profileId
-        ? (resolveUserProfileId(profileId) ?? profileId)
-        : undefined;
-      const recentProfileIds = canonicalProfileId
-        ? new Set([
-            canonicalProfileId,
-            ...listProfiles()
-              .filter((profile) => profile.mergedInto === canonicalProfileId)
-              .map((profile) => profile.id),
-          ])
-        : undefined;
+      const recentProfileIds = profileId ? readCurrentUserProfileAliases(profileId) : undefined;
       const recents = recentProfileIds
         ? listProjectRecents(context.getRuntimeConfig(), recentProfileIds, registryProjects)
         : undefined;

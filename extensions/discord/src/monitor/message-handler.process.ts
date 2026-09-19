@@ -1,4 +1,3 @@
-// Discord plugin module implements message handler.process behavior.
 import type { APIAllowedMentions } from "discord-api-types/v10";
 import { resolveAgentConfig, resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
 import {

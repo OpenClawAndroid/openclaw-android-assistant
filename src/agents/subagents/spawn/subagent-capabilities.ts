@@ -308,19 +308,11 @@ export function resolvePersistedSubagentToolPolicyEnvelope(
     agentId?: string;
   },
 ): PersistedSubagentToolPolicyEnvelope | undefined {
-  const normalizedSessionKey = normalizeOptionalString(sessionKey);
-  if (
-    !normalizedSessionKey ||
-    !canInspectStoredSubagentEnvelope(normalizedSessionKey, opts?.store)
-  ) {
+  const stored = resolveStoredSubagentToolPolicy(sessionKey, opts);
+  if (!stored) {
     return undefined;
   }
-  const store = resolveSubagentCapabilityStore(normalizedSessionKey, opts);
-  const entry = resolveSessionCapabilityEntry({
-    sessionKey: normalizedSessionKey,
-    cfg: opts?.cfg,
-    store,
-  });
+  const { sessionKey: normalizedSessionKey, store, entry } = stored;
   const spawnedBy = normalizeOptionalString(entry?.spawnedBy);
   const hasSpawnDepth =
     typeof entry?.spawnDepth === "number" &&
@@ -398,20 +390,16 @@ export function resolveStoredSubagentCapabilities(
   return resolveSubagentCapabilities({ depth, maxSpawnDepth });
 }
 
-/** Resolve inherited tool deny rules stored on a subagent envelope. */
-export function resolveStoredSubagentInheritedToolDenylist(
+function resolveStoredSubagentToolPolicy(
   sessionKey: string | undefined | null,
-  opts?: {
-    cfg?: OpenClawConfig;
-    store?: SessionCapabilityStore;
-  },
-): string[] {
+  opts?: { cfg?: OpenClawConfig; store?: SessionCapabilityStore },
+) {
   const normalizedSessionKey = normalizeOptionalString(sessionKey);
   if (
     !normalizedSessionKey ||
     !canInspectStoredSubagentEnvelope(normalizedSessionKey, opts?.store)
   ) {
-    return [];
+    return undefined;
   }
   const store = resolveSubagentCapabilityStore(normalizedSessionKey, opts);
   const entry = resolveSessionCapabilityEntry({
@@ -419,29 +407,25 @@ export function resolveStoredSubagentInheritedToolDenylist(
     cfg: opts?.cfg,
     store,
   });
-  return normalizeInheritedToolDenylist(entry?.inheritedToolDeny);
+  return { sessionKey: normalizedSessionKey, store, entry };
+}
+
+/** Resolve inherited tool deny rules stored on a subagent envelope. */
+export function resolveStoredSubagentInheritedToolDenylist(
+  sessionKey: string | undefined | null,
+  opts?: { cfg?: OpenClawConfig; store?: SessionCapabilityStore },
+): string[] {
+  return normalizeInheritedToolDenylist(
+    resolveStoredSubagentToolPolicy(sessionKey, opts)?.entry?.inheritedToolDeny,
+  );
 }
 
 /** Resolve inherited tool allow rules stored on a subagent envelope. */
 export function resolveStoredSubagentInheritedToolAllowlist(
   sessionKey: string | undefined | null,
-  opts?: {
-    cfg?: OpenClawConfig;
-    store?: SessionCapabilityStore;
-  },
+  opts?: { cfg?: OpenClawConfig; store?: SessionCapabilityStore },
 ): string[] {
-  const normalizedSessionKey = normalizeOptionalString(sessionKey);
-  if (
-    !normalizedSessionKey ||
-    !canInspectStoredSubagentEnvelope(normalizedSessionKey, opts?.store)
-  ) {
-    return [];
-  }
-  const store = resolveSubagentCapabilityStore(normalizedSessionKey, opts);
-  const entry = resolveSessionCapabilityEntry({
-    sessionKey: normalizedSessionKey,
-    cfg: opts?.cfg,
-    store,
-  });
-  return normalizeInheritedToolAllowlist(entry?.inheritedToolAllow);
+  return normalizeInheritedToolAllowlist(
+    resolveStoredSubagentToolPolicy(sessionKey, opts)?.entry?.inheritedToolAllow,
+  );
 }

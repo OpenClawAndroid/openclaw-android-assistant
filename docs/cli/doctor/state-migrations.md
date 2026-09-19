@@ -13,6 +13,14 @@ describes each migration source and what to do when one stays blocked.
 
 `openclaw doctor --fix` is the only owner for persistent file-to-SQLite migrations. It validates and claims each recognized source, writes and verifies canonical rows, records a migration receipt, then removes the retired source. Runtime code does not perform lazy imports or fallback reads.
 
+When a refused step blocks later work, each blocked execution receipt keeps
+`refusal.code: "blocked-by-prior-refusal"` and includes `originatingRefusal` with
+the first refusal's `stepId`, reason `code`, and human-readable `message`.
+Resolve that originating failure before retrying the blocked steps. These fields
+travel with `stepReceipts`, including Doctor refusal errors; they are separate
+from the persisted import receipts in `migration_runs` and `migration_sources`.
+Older execution receipts may omit `originatingRefusal`.
+
 Doctor imports recognized legacy workspace setup files during preflight, before
 Workshop migration accesses workspace state. An existing canonical SQLite setup record wins,
 including milestones that are absent in SQLite. Doctor does not replay stale

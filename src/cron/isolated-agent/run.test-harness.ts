@@ -719,7 +719,7 @@ function resetRunOutcomeMocks(): void {
       sourceDeliveryOutcome,
       resolvedDelivery,
     }) => ({
-      result: undefined,
+      disposition: undefined,
       delivered: Boolean(
         sourceDeliveryOutcome?.verifiedMessageToolDelivery ||
         (deliveryRequested &&

@@ -42,7 +42,7 @@ function nodeProof(nodeId: string): NodeWorkerSupervisorNodeProof {
 
 function fakeBroker() {
   type AttachedStream = {
-    auth: "vnc-password";
+    auth: "vnc-password" | "ard-account";
     vncPassword: string;
     stream: PassThrough;
   };
@@ -64,14 +64,14 @@ function fakeBroker() {
   } as unknown as NodeDesktopStreamBroker;
   return {
     broker,
-    attachNext() {
+    attachNext(auth: "vnc-password" | "ard-account" = "vnc-password") {
       const attached = attachments.shift();
       if (!attached) {
         throw new Error("expected pending desktop attach");
       }
       const stream = new PassThrough();
       streams.push(stream);
-      attached.resolve({ auth: "vnc-password", vncPassword: "worker-password", stream });
+      attached.resolve({ auth, vncPassword: "worker-password", stream });
       return stream;
     },
     streams,
@@ -317,63 +317,77 @@ describe("worker node desktop carrier", () => {
     }
   });
 
-  it("observes an exact durable node desktop without SSH and preauthenticates it", async () => {
-    const mint = vi.spyOn(observeBridge, "mintDesktopObserverToken");
-    const client = { invalidated: false };
-    const requester = {
-      signal: new AbortController().signal,
-      isCurrent: () => !client.invalidated,
-    };
-    const record = support.seedReadyNodeDesktop("worker-node-desktop-observe");
-    let nowMs = 1_000;
-    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    let current: WorkerEnvironmentRecord | undefined = record;
-    let proofCurrent = true;
-    const proof = nodeProof(record.nodeDeviceId!);
-    const transport = pendingTransport({ proof, isProofCurrent: () => proofCurrent });
-    const streamed = fakeBroker();
-    const registry = createDesktopSessionRegistry({ lingerMs: 1 });
-    const carrier = createWorkerNodeDesktopCarrier({
-      store: { get: () => current },
-      desktopRegistry: registry,
-    });
-    carrier.bindRuntime({ transport: transport.transport, streamBroker: streamed.broker });
+  it.each(["vnc-password", "ard-account"] as const)(
+    "observes an exact durable node desktop with %s preauthentication",
+    async (auth) => {
+      const mint = vi.spyOn(observeBridge, "mintDesktopObserverToken");
+      const client = { invalidated: false };
+      const requester = {
+        signal: new AbortController().signal,
+        isCurrent: () => !client.invalidated,
+      };
+      const record = support.seedReadyNodeDesktop("worker-node-desktop-observe");
+      if (auth === "ard-account") {
+        record.desktop = { ...support.DESKTOP, username: "desktop-user" };
+      }
+      let nowMs = 1_000;
+      vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+      let current: WorkerEnvironmentRecord | undefined = record;
+      let proofCurrent = true;
+      const proof = nodeProof(record.nodeDeviceId!);
+      const transport = pendingTransport({ proof, isProofCurrent: () => proofCurrent });
+      const streamed = fakeBroker();
+      const registry = createDesktopSessionRegistry({ lingerMs: 1 });
+      const carrier = createWorkerNodeDesktopCarrier({
+        store: { get: () => current },
+        desktopRegistry: registry,
+      });
+      carrier.bindRuntime({ transport: transport.transport, streamBroker: streamed.broker });
 
-    const observing = carrier.observe({ record, control: false, requester });
-    await support.waitForFast(() => expect(transport.invoke).toHaveBeenCalledOnce());
-    nowMs = 50_000;
-    streamed.attachNext();
+      const observing = carrier.observe({ record, control: false, requester });
+      await support.waitForFast(() => expect(transport.invoke).toHaveBeenCalledOnce());
+      nowMs = 50_000;
+      streamed.attachNext(auth);
 
-    await expect(observing).resolves.toMatchObject({
-      transport: "rfb",
-      wsPath: expect.stringMatching(/^\/desktop\/observe\?token=[a-f0-9]{48}$/u),
-      expiresAtMs: 110_000,
-      control: false,
-    });
-    expect(await observing).not.toHaveProperty("vncPassword");
-    const mintedRequester = mint.mock.calls[0]?.[0].requester;
-    expect(mintedRequester).toBe(requester);
-    expect(mintedRequester?.isCurrent()).toBe(true);
-    client.invalidated = true;
-    expect(mintedRequester?.isCurrent()).toBe(false);
-    expect(requester.signal.aborted).toBe(false);
-    expect(transport.invoke).toHaveBeenCalledWith(
-      expect.objectContaining({
-        params: {
-          ticket: "a".repeat(48),
-          attachPath: `/node-desktop/attach?ticket=${"a".repeat(48)}`,
-          port: 5900,
-          passwordFilePath: "/var/lib/crabbox/vnc.password",
+      await expect(observing).resolves.toMatchObject({
+        transport: "rfb",
+        wsPath: expect.stringMatching(/^\/desktop\/observe\?token=[a-f0-9]{48}$/u),
+        expiresAtMs: 110_000,
+        control: false,
+      });
+      expect(await observing).not.toHaveProperty("vncPassword");
+      expect(mint.mock.calls[0]?.[0].preauth).toEqual({
+        auth,
+        credentials: {
+          password: "worker-password",
+          ...(auth === "ard-account" ? { username: "desktop-user" } : {}),
         },
-        timeoutMs: 0,
-      }),
-    );
+      });
+      const mintedRequester = mint.mock.calls[0]?.[0].requester;
+      expect(mintedRequester).toBe(requester);
+      expect(mintedRequester?.isCurrent()).toBe(true);
+      client.invalidated = true;
+      expect(mintedRequester?.isCurrent()).toBe(false);
+      expect(requester.signal.aborted).toBe(false);
+      expect(transport.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: {
+            ticket: "a".repeat(48),
+            attachPath: `/node-desktop/attach?ticket=${"a".repeat(48)}`,
+            port: 5900,
+            ...(auth === "ard-account" ? { username: "desktop-user" } : {}),
+            passwordFilePath: "/var/lib/crabbox/vnc.password",
+          },
+          timeoutMs: 0,
+        }),
+      );
 
-    current = undefined;
-    proofCurrent = false;
-    await carrier.stop(record.environmentId, record.ownerEpoch);
-    expect(streamed.streams[0]?.destroyed).toBe(true);
-  });
+      current = undefined;
+      proofCurrent = false;
+      await carrier.stop(record.environmentId, record.ownerEpoch);
+      expect(streamed.streams[0]?.destroyed).toBe(true);
+    },
+  );
 
   it("cancels and joins an admitted app launch before its first microtask", async () => {
     const record = support.seedReadyNodeDesktop("worker-desktop-queued-launch-stop");

@@ -2,6 +2,15 @@ import { expect, it, vi } from "vitest";
 import type { CronServiceState } from "../cron/service/state.js";
 import { tryFinishCronTaskRunWithoutHistory } from "../cron/service/task-runs.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
+import { registerAgentRunCapacityWait } from "../infra/agent-run-capacity-wait.js";
+import {
+  claimAgentRunContext,
+  clearAgentRunContext,
+  getAgentRunLifecycleGeneration,
+  registerAgentRunContext,
+  retainQueuedAgentRunContext,
+  rotateAgentRunRegistryLifecycleGeneration,
+} from "../infra/agent-run-registry.js";
 import type { SubsystemLogger } from "../logging/subsystem.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { getTaskRegistryObservers } from "../tasks/task-registry.store.js";
@@ -35,6 +44,70 @@ export function registerTaskEventSubscriptionTests(
 ) {
   let unsubs: Subscriptions;
   const waitForFast = (callback: () => unknown) => vi.waitFor(callback, { interval: 1 });
+  it.each(["visible", "hidden-lifecycle", "hidden-session"] as const)(
+    "pushes CLI owner and capacity changes without activity for %s runs",
+    async (projection) => {
+      const broadcast = vi.fn<SubscriptionParams["broadcast"]>();
+      const closeTaskSessions = vi.fn(() => 0);
+      unsubs = start({ broadcast, terminalSessions: { closeTaskSessions } });
+      await waitForFast(() => expect(getTaskRegistryObservers()).not.toBeNull());
+      const runId = "run-cli-push";
+      const sessionKey = "agent:main:dashboard:cli-push";
+      const task = createTaskFixture("cli", {
+        ...sessionTaskDefaults,
+        childSessionKey: sessionKey,
+        runId,
+        task: "Show live owner changes",
+      });
+      const expectState = (state: string) => {
+        expect(readTaskUpserts(broadcast)).toHaveLength(1);
+        expect(broadcast).toHaveBeenLastCalledWith(
+          "task",
+          expect.objectContaining({
+            action: "upserted",
+            task: expect.objectContaining({ id: task.taskId, execution: { state } }),
+          }),
+          expect.objectContaining({ sessionKeys: [sessionTaskDefaults.requesterSessionKey] }),
+        );
+        broadcast.mockClear();
+      };
+      expectState("unknown");
+      registerAgentRunContext(runId, { sessionKey, agentId: "main" });
+      expect(broadcast).not.toHaveBeenCalled();
+      const releaseQueuedContext = retainQueuedAgentRunContext(
+        runId,
+        getAgentRunLifecycleGeneration(),
+      );
+      expectState("running");
+      releaseQueuedContext?.("abandoned");
+      expectState("unknown");
+      const context = {
+        sessionKey,
+        agentId: "main",
+        projectSessionActive: projection !== "hidden-session",
+        projectSessionLifecycle: projection !== "hidden-lifecycle",
+      };
+      if (projection === "visible") {
+        registerAgentRunContext(runId, context);
+      } else {
+        claimAgentRunContext(runId, context, { trackOwner: true, ownsContext: true });
+      }
+      expectState("running");
+      const releaseCapacity = registerAgentRunCapacityWait(runId, getAgentRunLifecycleGeneration());
+      expectState("queued");
+      releaseCapacity?.();
+      expectState("running");
+      registerAgentRunContext(runId, context);
+      expect(broadcast).not.toHaveBeenCalled();
+      rotateAgentRunRegistryLifecycleGeneration();
+      expectState("unknown");
+      expect(closeTaskSessions).not.toHaveBeenCalled();
+      await unsubs.taskUnsub();
+      clearAgentRunContext(runId);
+      expect(broadcast).not.toHaveBeenCalled();
+    },
+  );
+
   it("broadcasts bounded public task summaries with ledger statuses", async () => {
     const broadcast = vi.fn<SubscriptionParams["broadcast"]>();
     unsubs = start({ broadcast });

@@ -1,4 +1,3 @@
-// Telegram plugin module implements outbound adapter behavior.
 import {
   resolveOutboundSendDep,
   sanitizeForPlainText,

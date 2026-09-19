@@ -1341,9 +1341,6 @@ async function* walkWorkspaceFiles(
         if (getAgentWorkspaceAccess(workspaceDir) !== access) {
           throw new Error("Workspace access changed while discovering bootstrap files");
         }
-        if (remoteEntries.length > 4096) {
-          throw new Error("Workspace bootstrap directory listing exceeds its entry bound");
-        }
         entries = remoteEntries.map(({ name, isDirectory }) => ({
           name,
           isDirectory,

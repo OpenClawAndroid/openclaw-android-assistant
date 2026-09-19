@@ -78,11 +78,11 @@ function profileError(error: unknown) {
 export const usersHandlers: GatewayRequestHandlers = {
   ...usersAuthConnectHandlers,
   ...usersGitHubHandlers,
-  "users.list": ({ params, respond }) => {
+  "users.list": async ({ params, respond }) => {
     if (!assertValidParams(params, validateUsersListParams, "users.list", respond)) {
       return;
     }
-    respond(true, { profiles: listProfiles() });
+    respond(true, { profiles: await listProfiles() });
   },
   "users.self": async ({ client, params, respond }) => {
     if (!assertValidParams(params, validateUsersSelfParams, "users.self", respond)) {
@@ -152,12 +152,18 @@ export const usersHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      const result = await setCanonicalUserPreferences(profileId, params.entries);
+      const result = await setCanonicalUserPreferences(profileId, params.entries, {
+        expectedEntries: params.expectedEntries,
+      });
       if (!result) {
         respond(false, undefined, authenticatedProfileUnavailableError());
         return;
       }
       if (!result.ok) {
+        if (result.error.code === "conflict") {
+          respond(true, { status: "conflict" }, undefined);
+          return;
+        }
         if (result.error.code === "profile-key-limit") {
           respond(
             false,

@@ -36,7 +36,7 @@ import {
 } from "./chat-pane-state.ts";
 import { markQueuedChatSendsWaitingForReconnect } from "./chat-queue-reconnect.ts";
 import { stopChatRealtimeTalk } from "./chat-realtime.ts";
-import { flushChatQueueForEvent, retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
+import { flushChatQueueForEvent, resumeStoredChatOutboxes } from "./chat-send-actions.ts";
 import { retireChatModelSelectionOwnership } from "./chat-session.ts";
 import {
   refreshChatModelAuthStatus,
@@ -242,7 +242,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     const reconciledLocalCompletion = reconcileChatRunAfterSessionStatePublication(state);
     this.reconcileWaitingApprovalSnapshot();
     if (reconciledLocalCompletion) {
-      void retryReconnectableQueuedChatSends(state);
+      void resumeStoredChatOutboxes(state);
       return;
     }
     if (this.presented) {
@@ -588,7 +588,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     // Hello precedes recovery readiness. Wake parked outboxes on that publication;
     // the shared admission check still holds any recovered initial turn.
     if (resumeOutboxes && !catalogRouteKey) {
-      void retryReconnectableQueuedChatSends(state);
+      void resumeStoredChatOutboxes(state);
     }
     this.reconcileWaitingApprovalSnapshot();
     state.requestUpdate?.();

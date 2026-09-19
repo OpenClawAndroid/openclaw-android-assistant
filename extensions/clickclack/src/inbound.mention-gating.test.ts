@@ -34,7 +34,7 @@ function configureDiscussionStore(runtime: PluginRuntime): void {
   }) as unknown as PluginRuntime["state"]["openSyncKeyedStore"];
   runtime.state.openKeyedStore = <T>(
     options: Parameters<PluginRuntime["state"]["openKeyedStore"]>[0],
-  ) => asyncDiscussionTestStore(runtime.state.openSyncKeyedStore<T>(options));
+  ) => asyncDiscussionTestStore<T>(runtime.state.openSyncKeyedStore, options);
 }
 
 function createRuntime(): PluginRuntime {

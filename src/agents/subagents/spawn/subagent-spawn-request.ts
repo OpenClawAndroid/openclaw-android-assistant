@@ -1,7 +1,5 @@
 import crypto from "node:crypto";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import type { OpenClawConfig } from "../../../config/types.openclaw.js";
-import type { SubagentLifecycleHookRunner } from "../../../plugins/hooks.js";
 import { isValidAgentId, normalizeAgentId } from "../../../routing/session-key.js";
 import { listAgentIds } from "../../agent-scope-config.js";
 import { resolveSessionAgentId } from "../../agent-scope.js";
@@ -29,57 +27,14 @@ import {
 } from "./subagent-spawn.runtime.js";
 import { normalizeSubagentTaskName } from "./subagent-task-name.js";
 
-type ResolvedSubagentSpawnRequest = {
-  request: {
-    taskName?: string;
-    spawnMode: ReturnType<typeof resolveSpawnMode>;
-    cleanup: "delete" | "keep";
-    expectsCompletionMessage: boolean;
-    completionRequesterSessionId?: string;
-  };
-  runtime: {
-    hookRunner: SubagentLifecycleHookRunner | null;
-    cfg: OpenClawConfig;
-    runTimeoutSeconds: number;
-    contextMode: ReturnType<typeof resolveSubagentContextMode>;
-    requesterInternalKey: string;
-    ownership: ReturnType<typeof resolveSubagentSpawnOwnership>;
-    requesterAgentId: string;
-    targetAgentId: string;
-  };
-  swarm: {
-    config: ReturnType<typeof resolveSwarmConfig>;
-    groupId?: string;
-    schedulerGroupKey?: string;
-    launchReplayKey?: string;
-    soleImplicitMember: boolean;
-    reservationPending: boolean;
-  };
-  admission: {
-    resolve: (pendingChildren?: number) => ReturnType<typeof resolveSpawnAdmission>;
-    initial: ReturnType<typeof resolveSpawnAdmission> & { ok: true };
-    reservation?: { release: () => void };
-    childDepth: number;
-    maxSpawnDepth: number;
-  };
-  childIdem: string;
-};
-
-type ResolveSubagentSpawnRequestResult =
-  | { ok: false; result: SpawnSubagentResult }
-  | { ok: true; resolved: ResolvedSubagentSpawnRequest };
-
-function rejectSubagentSpawnRequest(
-  status: "error" | "forbidden",
-  error: string,
-): ResolveSubagentSpawnRequestResult {
-  return { ok: false, result: { status, error } };
+function rejectSubagentSpawnRequest(status: "error" | "forbidden", error: string) {
+  return { ok: false as const, result: { status, error } satisfies SpawnSubagentResult };
 }
 
 export function resolveSubagentSpawnRequest(
   params: SpawnSubagentParams,
   ctx: SpawnSubagentContext,
-): ResolveSubagentSpawnRequestResult {
+) {
   const requestedAgentId = params.agentId?.trim();
   const taskNameResult = normalizeSubagentTaskName(params.taskName);
   if (taskNameResult.error) {
@@ -127,7 +82,7 @@ export function resolveSubagentSpawnRequest(
         'Retry with { mode: "session", thread: true } on a channel that supports threads, or use mode="run" for one-shot work.',
     );
   }
-  const cleanup =
+  const cleanup: "delete" | "keep" =
     spawnMode === "session"
       ? "keep"
       : params.cleanup === "keep" || params.cleanup === "delete"
@@ -337,7 +292,7 @@ export function resolveSubagentSpawnRequest(
     reservationPending = true;
   }
   return {
-    ok: true,
+    ok: true as const,
     resolved: {
       request: {
         taskName,

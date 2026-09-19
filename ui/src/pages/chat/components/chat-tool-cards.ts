@@ -289,8 +289,7 @@ function renderToolRowContent(
     displayDetail: display.detail,
   });
   const displayLabel = formatCollapsedToolSummaryText(summary.label) ?? summary.label;
-  const argumentPreview = toolArgumentPreview(card.args);
-  const displayName = distinctSummaryText(argumentPreview ?? summary.name, displayLabel);
+  const displayName = distinctSummaryText(summary.name, displayLabel);
   return html`
     <span class="chat-tool-msg-summary__label">${displayLabel}</span>
     ${
@@ -376,6 +375,14 @@ function resolveCollapsedToolSummaryParts(params: {
   displayDetail: string | undefined;
 }): { label: string; name?: string } {
   const displayDetail = params.displayDetail?.trim();
+  // Message captions belong to the canonical publication, not the original tool input.
+  if (params.card.name.trim().toLowerCase() === "message") {
+    return { label: params.displayLabel, name: displayDetail || undefined };
+  }
+  const argumentPreview = toolArgumentPreview(params.card.args);
+  if (argumentPreview) {
+    return { label: params.displayLabel, name: argumentPreview };
+  }
   if (displayDetail) {
     return { label: params.displayLabel, name: displayDetail };
   }
@@ -401,7 +408,12 @@ function resolveToolRowText(card: ToolCard, runActive?: boolean): string {
     return `${verb} ${view.target}`;
   }
   const display = resolveToolDisplay({ name: card.name, args: card.args, detailMode: "explain" });
-  return [display.label, toolArgumentPreview(card.args)].filter(Boolean).join(" ");
+  const summary = resolveCollapsedToolSummaryParts({
+    card,
+    displayLabel: display.label,
+    displayDetail: display.detail,
+  });
+  return [summary.label, summary.name].filter(Boolean).join(" ");
 }
 
 function toolReviewLabel(review: ToolApprovalReview): string {

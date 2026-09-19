@@ -19,7 +19,12 @@ import { hasErrnoCode } from "../../src/infra/errno.js";
 import { drainFileLockStateForTest, resetFileLockStateForTest } from "../../src/infra/file-lock.js";
 import { resolveMaxOutputBytes } from "../../src/process/exec-output.js";
 import { withEnvAsync } from "../../src/test-utils/env.js";
-import { createOpenClawTestInstance, testing } from "./openclaw-test-instance.js";
+import {
+  createOpenClawTestInstance,
+  formatGatewayReadinessDiagnostic,
+  type GatewayReadinessDiagnostic,
+  testing,
+} from "./openclaw-test-instance.js";
 import { isProcessAlive, waitForDead, waitForFile } from "./process-wait.js";
 import { createDeferred, withTestTimeout } from "./promise.js";
 import { runQaGatewayFixture } from "./qa-gateway-cleanup.js";
@@ -28,6 +33,18 @@ const MIGRATION_CONVERGENCE_REFUSAL =
   "OpenClaw plugin migration inputs changed during startup convergence;";
 const RESTART_MARKER =
   "[openclaw-test-instance] restarting gateway after migration convergence refusal";
+const CONTROL_REQUEST_SOURCE = `
+import { get as getControl } from "node:http";
+function waitForControl(url) {
+  return new Promise((resolve, reject) => {
+    getControl(url, { agent: false }, (response) => {
+      response.once("error", reject);
+      response.once("end", resolve);
+      response.resume();
+    }).once("error", reject);
+  });
+}
+`;
 const fakeInstances: {
   instance: Awaited<ReturnType<typeof createOpenClawTestInstance>>;
   writerPidPath?: string;
@@ -214,6 +231,7 @@ recordFixtureProcess(process.pid);
 import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+${CONTROL_REQUEST_SOURCE}
 ${processReceipt}
 const tracePath = process.env.OPENCLAW_FAKE_GATEWAY_TRACE;
 const controlUrl = process.env.OPENCLAW_FAKE_GATEWAY_CONTROL;
@@ -223,7 +241,7 @@ function spawnInheritedWriter(stream, output) {
   recordFixtureProcess(delayed.pid);
   writeFileSync(tracePath + ".writer-pid", String(delayed.pid));
 }
-if (controlUrl) await (await fetch(controlUrl + "/launch?pid=" + process.pid + "&parent=" + process.ppid)).text();
+if (controlUrl) await waitForControl(controlUrl + "/launch?pid=" + process.pid + "&parent=" + process.ppid);
 const countPath = tracePath + ".count";
 let attempt = 1;
 try { attempt = Number(readFileSync(countPath, "utf8")) + 1; } catch {}
@@ -299,7 +317,7 @@ if (kind === "resist-after-exit" || kind === "resist-ignored-after-exit") {
   const resistant = spawn(process.execPath, ["-e", 'const fs = require("node:fs");fs.writeFileSync(process.argv[1], String(process.pid));process.on("SIGTERM", () => { fs.appendFileSync(process.argv[2], "SIGTERM"); process.stderr.write("SIGTERM"); });process.send("ready");setInterval(() => {}, 1_000);', tracePath + ".resistant-pid", tracePath + ".signals"], { stdio: ["ignore", "ignore", kind === "resist-after-exit" ? "inherit" : "ignore", "ipc"] });
   await new Promise((resolve) => resistant.once("message", resolve));
   recordFixtureProcess(resistant.pid);
-  await (await fetch(controlUrl + "/wait")).text();
+  await waitForControl(controlUrl + "/wait");
   process.exit(1);
 }
 if (kind === "terminal-drain" || kind === "refusal-drain") {
@@ -313,10 +331,10 @@ if (kind === "near") { process.stderr.write(refusal.slice(0, -1) + " fixture\\n"
 if (kind === "stdout") { process.stdout.write(refusal + " fixture\\n"); process.exit(1); }
 if (kind === "status2") { process.stderr.write(refusal + " fixture\\n"); process.exit(2); }
 if (kind === "signal") { process.stderr.write(refusal + " fixture\\n"); process.kill(process.pid, "SIGTERM"); }
-if (kind === "held-unrelated") await (await fetch(controlUrl + "/wait")).text();
+if (kind === "held-unrelated") await waitForControl(controlUrl + "/wait");
 if (kind === "unrelated" || kind === "held-unrelated") { process.stderr.write("unrelated startup failure\\n"); process.exit(1); }
 const server = createServer(async (req, res) => {
-  if (req.url === "/readyz" && kind === "held-ready") await (await fetch(controlUrl + "/wait")).text();
+  if (req.url === "/readyz" && kind === "held-ready") await waitForControl(controlUrl + "/wait");
   res.writeHead(req.url === "/readyz" ? 200 : 404, { "content-type": "application/json" });
   res.end(JSON.stringify({ ready: req.url === "/readyz" && kind !== "never-ready" }));
 });
@@ -331,8 +349,9 @@ process.on("SIGTERM", () => server.close(() => process.exit(0))); server.listen(
       path.join(cwd, "scripts", "run-node.mjs"),
       `import { appendFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+${CONTROL_REQUEST_SOURCE}
 ${processReceipt}
-await (await fetch(${JSON.stringify(`${control.url}/wait`)})).text();
+await waitForControl(${JSON.stringify(`${control.url}/wait`)});
 writeFileSync("dist/.buildstamp", "");
 writeFileSync("dist/.runtime-postbuildstamp", "");
 `,
@@ -808,33 +827,47 @@ describe("openclaw test instance", () => {
     },
   );
 
-  it("joins concurrent starts until the real readiness response arrives", async () => {
+  it("joins concurrent starts until the real readiness response arrives", async ({ signal }) => {
     const control = await createGatewayControl();
     const { instance } = await createFakeGateway("held-ready", 1_000, 1_500, control);
-    const firstStart = trackOperation(instance.startGateway());
-    await Promise.race([control.reached, firstStart]);
+    // Startup ordering must not depend on native bootstrap consuming the readiness budget.
+    signal.throwIfAborted();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const restoreClock = () => clock.mockRestore();
+    signal.addEventListener("abort", restoreClock, { once: true });
+    let firstStart: Promise<void> | undefined;
+    let secondStart: Promise<void> | undefined;
+    try {
+      firstStart = trackOperation(instance.startGateway());
+      await Promise.race([control.reached, firstStart]);
 
-    let secondSettled = false;
-    let settledBeforeReady: boolean | undefined;
-    const secondStart = trackOperation(
-      instance.startGateway().finally(() => {
-        secondSettled = true;
-      }),
-    );
-    // Observe at a real HTTP boundary before the child's held /readyz can reply.
-    control.observers.beforeRelease = () => {
-      settledBeforeReady = secondSettled;
-    };
-    await control.release();
-    await Promise.all([firstStart, secondStart]);
+      let secondSettled = false;
+      let settledBeforeReady: boolean | undefined;
+      secondStart = trackOperation(
+        instance.startGateway().finally(() => {
+          secondSettled = true;
+        }),
+      );
+      // Observe at a real HTTP boundary before the child's held /readyz can reply.
+      control.observers.beforeRelease = () => {
+        settledBeforeReady = secondSettled;
+      };
+      await control.release();
+      await Promise.all([firstStart, secondStart]);
 
-    expect(settledBeforeReady).toBe(false);
-    expect(control.launches).toHaveLength(1);
-    expect(instance.child?.pid).toBe(
-      (process.platform === "win32" ? control.parents : control.launches)[0],
-    );
-    const response = await fetch(`http://127.0.0.1:${instance.port}/readyz`);
-    expect(await response.json()).toEqual({ ready: true });
+      expect(settledBeforeReady).toBe(false);
+      expect(control.launches).toHaveLength(1);
+      expect(instance.child?.pid).toBe(
+        (process.platform === "win32" ? control.parents : control.launches)[0],
+      );
+      const response = await fetch(`http://127.0.0.1:${instance.port}/readyz`);
+      expect(await response.json()).toEqual({ ready: true });
+    } finally {
+      restoreClock();
+      signal.removeEventListener("abort", restoreClock);
+      control.unblock();
+      await Promise.allSettled([firstStart, secondStart]);
+    }
   });
 
   it("joins shared entrypoint preparation without launching the cancelled owner", async () => {
@@ -1806,8 +1839,9 @@ describe("openclaw test instance", () => {
       const script = `
       import assert from "node:assert/strict";
       import { testing } from ${JSON.stringify(new URL("./openclaw-test-instance.ts", import.meta.url).href)};
+      ${CONTROL_REQUEST_SOURCE}
       process.stderr.write("loaded actual log helper; waiting to start UTF-8 cases\\n");
-      await (await fetch(${JSON.stringify(`${control.url}/wait`)})).text();
+      await waitForControl(${JSON.stringify(`${control.url}/wait`)});
       for (const { chunks, limit, expected } of JSON.parse(process.argv[1])) {
         const log = testing.createBoundedStringLog(limit);
         for (const chunk of chunks) {
@@ -1872,6 +1906,7 @@ describe("openclaw test instance", () => {
       attempts: 0,
       elapsedMs: expect.any(Number),
       lastProbe: null,
+      lastFailedResponse: null,
       child: { pid: 12345, exitCode: null, signalCode: "SIGTERM" },
     });
   });
@@ -1884,9 +1919,26 @@ describe("openclaw test instance", () => {
       )
       .mockResolvedValueOnce(new Response('{"ready":true,"failing":[]}', { status: 200 }));
 
+    const record = vi.fn<(diagnostic: GatewayReadinessDiagnostic) => void>();
     await expect(
-      testing.waitForGatewayReady(createGatewayProcessState(), [], [], 12345, 1_000, fetchImpl),
+      testing.waitForGatewayReady(
+        createGatewayProcessState(),
+        [],
+        [],
+        12345,
+        1_000,
+        fetchImpl,
+        undefined,
+        record,
+      ),
     ).resolves.toBeUndefined();
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "ready",
+        lastProbe: expect.objectContaining({ attempt: 2, status: 200, ready: true }),
+        lastFailedResponse: expect.objectContaining({ attempt: 1, status: 503, ready: false }),
+      }),
+    );
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("http://127.0.0.1:12345/readyz");
@@ -1945,8 +1997,162 @@ describe("openclaw test instance", () => {
         ],
         omittedFailing: 12,
       },
+      lastFailedResponse: {
+        attempt: fetchImpl.mock.calls.length,
+        phase: "complete",
+        elapsedMs: expect.any(Number),
+        status: 503,
+        ready: false,
+      },
       child: { pid: null, exitCode: null, signalCode: null },
     });
+  });
+
+  it.each([
+    { status: 502, body: "proxy refusal", phase: "body", error: "invalid-json" },
+    { status: 503, body: '{"ready":false}', phase: "complete", ready: false },
+    { status: 200, body: '{"ready":false}', phase: "complete", ready: false },
+    { status: 503, body: '{"ready":true}', phase: "complete", ready: true },
+    { status: 200, body: "{}", phase: "complete" },
+  ])("retains the last failed response ($status/$body) before a final timeout", async (failed) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const privateDetail = "synthetic-proxy-credential";
+    const processState = createGatewayProcessState();
+    const fetchImpl = createStalledReadinessFetch("headers")
+      .mockResolvedValueOnce(new Response('{"ready":false}', { status: 429 }))
+      .mockResolvedValueOnce(
+        new Response(failed.body, {
+          status: failed.status,
+          headers: { "x-private": privateDetail },
+        }),
+      )
+      .mockRejectedValueOnce(new Error(privateDetail));
+    const record = vi.fn<(diagnostic: GatewayReadinessDiagnostic) => void>();
+    const completion = testing
+      .waitForGatewayReady(processState, [], [], 12345, 39, fetchImpl, undefined, record)
+      .catch((failure: unknown) => failure);
+    try {
+      await vi.advanceTimersByTimeAsync(39);
+      const failure = await completion;
+      const receipt = readReadinessReceipt(failure);
+      expect(receipt).toMatchObject({
+        attempts: 4,
+        elapsedMs: 39,
+        lastProbe: { attempt: 4, phase: "headers", error: "timeout", elapsedMs: 9 },
+        lastFailedResponse: {
+          attempt: 2,
+          phase: failed.phase,
+          elapsedMs: 0,
+          status: failed.status,
+          ...(failed.ready === undefined ? {} : { ready: failed.ready }),
+          ...(failed.error === undefined ? {} : { error: failed.error }),
+        },
+      });
+      expect(record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: "timeout",
+          lastProbe: receipt.lastProbe,
+          lastFailedResponse: receipt.lastFailedResponse,
+        }),
+      );
+      const diagnostic: GatewayReadinessDiagnostic = record.mock.calls[0]![0];
+      expect(readReadinessReceipt(new Error(formatGatewayReadinessDiagnostic(diagnostic)))).toEqual(
+        receipt,
+      );
+      expect(JSON.stringify(record.mock.calls)).not.toContain(privateDetail);
+      expect((failure as Error).message).not.toContain(privateDetail);
+      expect(processState.listenerCount("exit")).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await vi.runAllTimersAsync();
+      await completion;
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["timeout", "child-exit", "aborted"] as const)(
+    "does not replace a failed response with an expired body on %s",
+    async (outcome) => {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      const processState = createGatewayProcessState();
+      const lateBody = createDeferred<unknown>();
+      const response = new Response(null, { status: 503 });
+      response.json = () => lateBody.promise;
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response("synthetic refusal", { status: 502 }))
+        .mockResolvedValueOnce(response);
+      const abort = new AbortController();
+      const record = vi.fn<(diagnostic: GatewayReadinessDiagnostic) => void>();
+      const completion = testing
+        .waitForGatewayReady(processState, [], [], 12345, 25, fetchImpl, abort.signal, record)
+        .catch((failure: unknown) => failure);
+      try {
+        await vi.advanceTimersByTimeAsync(10);
+        if (outcome === "child-exit") {
+          processState.exitCode = 7;
+          processState.emit("exit", 7, null);
+        } else if (outcome === "aborted") {
+          abort.abort(new Error("synthetic cancellation"));
+        }
+        await vi.advanceTimersByTimeAsync(15);
+        const failure = await completion;
+        const diagnostic = record.mock.calls[0]![0];
+        expect(diagnostic).toMatchObject({
+          outcome,
+          lastProbe: { attempt: 2, phase: "body", status: 503 },
+          lastFailedResponse: { attempt: 1, phase: "body", status: 502, error: "invalid-json" },
+        });
+        if (outcome !== "aborted") {
+          expect(readReadinessReceipt(failure).lastFailedResponse).toEqual(
+            diagnostic.lastFailedResponse,
+          );
+        }
+        const retained = JSON.stringify(diagnostic);
+        lateBody.resolve({ ready: false, failing: ["state-database"] });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(JSON.stringify(diagnostic)).toBe(retained);
+        expect(processState.listenerCount("exit")).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        lateBody.resolve({ ready: false });
+        await vi.runAllTimersAsync();
+        await completion;
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("keeps the formatted receipt below 1024 bytes with maximal sanitized fields", () => {
+    const large = Number.MAX_SAFE_INTEGER;
+    const lastProbe = {
+      attempt: large,
+      phase: "complete" as const,
+      elapsedMs: large,
+      status: 503,
+      ready: false,
+      failing: Array<string>(8).fill("startup-sidecars"),
+      omittedFailing: large,
+    };
+    const receipt = readReadinessReceipt(
+      new Error(
+        formatGatewayReadinessDiagnostic({
+          attempts: large,
+          elapsedMs: large,
+          lastProbe,
+          lastFailedResponse: {
+            attempt: large,
+            phase: "body",
+            elapsedMs: large,
+            status: 502,
+            error: "invalid-json",
+          },
+          child: { pid: large, exitCode: large, signalCode: "SIGVTALRM" },
+        }),
+      ),
+    );
+    expect(receipt.lastProbe.failing).toHaveLength(8);
+    expect(receipt.lastFailedResponse.status).toBe(502);
   });
 
   it.each(["fetch-failed", "invalid-json", "body-failed"] as const)(
@@ -1977,6 +2183,7 @@ describe("openclaw test instance", () => {
           error: category,
           ...(category === "fetch-failed" ? {} : { status: 503 }),
         },
+        lastFailedResponse: category === "fetch-failed" ? null : { status: 503, error: category },
       });
     },
   );
@@ -2082,6 +2289,7 @@ describe("openclaw test instance", () => {
           elapsedMs: expect.any(Number),
           error: "timeout",
         },
+        lastFailedResponse: null,
         child: { pid: 12345, exitCode: 7, signalCode: null },
       });
     } finally {

@@ -170,7 +170,6 @@ extensions/policy/src/doctor/register.models-and-mcp.test-utils.ts
 extensions/policy/src/doctor/register.sandbox-and-tools.test-utils.ts
 extensions/qa-lab/src/cli.runtime.test.ts
 extensions/qa-lab/src/cli.runtime.ts
-extensions/qa-lab/src/cli.ts
 extensions/qa-lab/src/confidence-report.ts
 extensions/qa-lab/src/evidence-gallery.ts
 extensions/qa-lab/src/gateway-child.test.ts
@@ -327,7 +326,6 @@ src/agents/embedded-agent-runner/run.overflow-compaction.harness.ts
 src/agents/embedded-agent-runner/run/attempt-spawn-workspace.test-support.ts
 src/agents/embedded-agent-runner/run/attempt.spawn-workspace.context-engine.test.ts
 src/agents/embedded-agent-runner/run/attempt.test.ts
-src/agents/embedded-agent-runner/run/attempt.tool-call-argument-repair.ts
 src/agents/embedded-agent-runner/runs.ts
 src/agents/embedded-agent-runner/thinking.test.ts
 src/agents/embedded-agent-runner/tool-result-context-guard.test.ts
@@ -699,7 +697,6 @@ src/plugin-sdk/provider-stream-shared.test.ts
 src/plugin-sdk/test-helpers/plugin-runtime-mock.ts
 src/plugin-sdk/test-helpers/provider-discovery-contract.ts
 src/plugin-sdk/test-helpers/provider-runtime-contract.ts
-src/plugin-state/plugin-state-store.sqlite.ts
 src/plugins/capability-provider-runtime.test.ts
 src/plugins/channel-plugin-ids.test.ts
 src/plugins/clawhub.test.ts

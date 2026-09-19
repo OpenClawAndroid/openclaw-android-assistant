@@ -1,4 +1,3 @@
-// Discord plugin module implements channel actions behavior.
 import { createUnionActionGate } from "openclaw/plugin-sdk/channel-actions";
 import type {
   ChannelMessageActionAdapter,

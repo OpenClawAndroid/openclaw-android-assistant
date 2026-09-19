@@ -16,6 +16,7 @@ import { createDeferredCore, type Deferred } from "../../../../src/shared/deferr
 import { resolveOpenClawStateSqlitePath } from "../../../../src/state/openclaw-state-db.paths.js";
 import {
   createOpenClawTestInstance,
+  formatGatewayReadinessDiagnostic,
   type OpenClawTestInstance,
 } from "../../../helpers/openclaw-test-instance.js";
 import { useAutoCleanupTempDirTracker } from "../../../helpers/temp-dir.js";
@@ -721,7 +722,12 @@ export async function createQuotaResetFixture(
     },
   });
   context.onTestFinished(() => gateway.cleanup());
-  context.onTestFailed(() => console.error(gateway.logs()));
+  context.onTestFailed(() => {
+    for (const diagnostic of gateway.readiness) {
+      console.error(formatGatewayReadinessDiagnostic(diagnostic));
+    }
+    console.error(gateway.logs());
+  });
   // Doctor imports without refreshing a credential outside its one-day warning window.
   const expires = expiresDuringBlock ? Date.now() + 2 * 86_400_000 : Date.UTC(2036, 0, 1);
   const access = syntheticAccessToken(expires);

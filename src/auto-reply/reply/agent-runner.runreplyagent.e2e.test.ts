@@ -46,7 +46,10 @@ import { createUserTurnTranscriptRecorder } from "../../sessions/user-turn-trans
 import { normalizeSessionDeliveryState } from "../../utils/delivery-context.shared.js";
 import type { TemplateContext } from "../templating.js";
 import { createReplyAgentRestartRecoveryController } from "./agent-runner-execute.js";
-import { registerWaitingStatusCases } from "./agent-runner.runreplyagent.waiting-status.cases.js";
+import {
+  mockAcceptedWaitingStatusRun,
+  registerWaitingStatusCases,
+} from "./agent-runner.runreplyagent.waiting-status.cases.js";
 import { resolveActiveExplicitSteerSessionKey } from "./explicit-steer-routing.js";
 import type { InternalGetReplyOptions } from "./get-reply.types.js";
 import {
@@ -5007,16 +5010,9 @@ describe("runReplyAgent typing (heartbeat)", () => {
       { text: "⚠️ Bash failed", isError: true },
       { toolErrorWarning: { toolName: "bash" } },
     );
-    state.runEmbeddedAgentMock.mockResolvedValueOnce({
+    await mockAcceptedWaitingStatusRun(state.runEmbeddedAgentMock, {
       payloads: [toolWarning],
-      meta: { yielded: true, yieldAcknowledgment: testCase.acknowledgment },
-      acceptedSessionSpawns: [
-        {
-          runId: "child-run",
-          childSessionKey: "agent:main:subagent:child",
-          expectsCompletionMessage: true,
-        },
-      ],
+      meta: { durationMs: 0, yielded: true, yieldAcknowledgment: testCase.acknowledgment },
     });
     const { run } = createMinimalRun({
       currentInboundEventKind: testCase.roomEvent ? "room_event" : undefined,

@@ -19,7 +19,7 @@ import { removeQueuedMessage } from "./chat-queue.ts";
 import {
   flushChatQueueForEvent,
   moveQueuedChatMessage,
-  retryReconnectableQueuedChatSends,
+  resumeStoredChatOutboxes,
 } from "./chat-send-actions.ts";
 import { handleSendChat } from "./chat-send-submit.ts";
 import {
@@ -383,7 +383,7 @@ describe("chat submission handoff", () => {
           expect(host.request).not.toHaveBeenCalled();
         }
         host.connected = true;
-        await retryReconnectableQueuedChatSends(host);
+        await resumeStoredChatOutboxes(host);
         expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(
           1,
         );

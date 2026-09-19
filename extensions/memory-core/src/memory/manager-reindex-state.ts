@@ -1,4 +1,3 @@
-// Memory Core plugin module implements manager reindex state behavior.
 import {
   hashText,
   MEMORY_CHUNKING_VERSION,

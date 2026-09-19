@@ -10,10 +10,8 @@ import type { SessionSystemPromptReport } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ContextEngine } from "../../context-engine/types.js";
 import type { CronScheduledToolCallerOrigin } from "../../cron/scheduled-tool-policy.js";
-import type { ExecMode } from "../../infra/exec-approvals.js";
 import type { DiagnosticEmbeddedRunOwner } from "../../logging/diagnostic-run-activity.js";
 import type {
-  CliBackendConfig,
   CliBackendExecute,
   CliBackendExecutionMode,
   CliBackendPromptContext,
@@ -49,6 +47,7 @@ import type { PreparedQuestionAnswerAuthority } from "../harness/host-private-ca
 import type { AgentHarnessIsolatedCompletionParamsV2 } from "../harness/types.js";
 import type { RootedExecutionRequest } from "../rooted-run-params.js";
 import type { SilentReplyPromptMode } from "../system-prompt.types.js";
+import type { prepareCliBundleMcpConfig } from "./bundle-mcp.js";
 
 export type NodeClaudePlacement = { nodeId: string; cwd?: string };
 
@@ -144,7 +143,7 @@ export type RunCliAgentParams = {
   bootstrapContextMode?: BootstrapContextMode;
   chatId?: string;
   /** Effective turn-local exec policy resolved before entering the CLI runtime. */
-  execOverrides?: ExecPolicyOverrides & { mode?: ExecMode };
+  execOverrides?: ExecPolicyOverrides;
   /** Effective elevated-exec defaults resolved before entering the CLI runtime. */
   bashElevated?: ExecElevatedDefaults;
   /** Runtime tool allow-list. CLI harnesses need a backend-owned exact translation. */
@@ -191,10 +190,7 @@ export type CliSecretInput = SpawnSecretInput & {
   fingerprint: string;
 };
 
-type CliPreparedBackend = {
-  backend: CliBackendConfig;
-  beforeExecution?: () => Promise<void>;
-  cleanup?: () => Promise<void>;
+type CliPreparedBackend = Awaited<ReturnType<typeof prepareCliBundleMcpConfig>> & {
   /** Exact process cleanup retained across attempt copies and natural registry removal. */
   closeLiveSession?: (
     reason: import("../../plugins/cli-backend.types.js").CliBackendLiveSessionCloseReason,
@@ -215,9 +211,6 @@ type CliPreparedBackend = {
     deactivate: (captureKey: string) => void;
     captureNativeTools?: (tools: unknown) => void;
   };
-  mcpConfigHash?: string;
-  mcpResumeHash?: string;
-  env?: Record<string, string>;
 };
 
 /** Reusable CLI session id, soft content drift, or hard invalidation. */

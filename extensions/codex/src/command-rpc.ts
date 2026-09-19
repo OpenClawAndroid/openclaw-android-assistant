@@ -253,7 +253,7 @@ export async function codexControlRequest(
     sessionId: options.sessionId,
     agentDir: options.agentDir,
     isolated: options.isolated,
-    ...(options.catalogPreview && method === "thread/list"
+    ...(options.catalogPreview
       ? {
           catalogPreview: true as const,
           catalogPreviewCache: options.catalogPreviewCache,

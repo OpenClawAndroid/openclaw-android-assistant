@@ -15,6 +15,7 @@ import {
   listSessions,
   requestContext,
 } from "../gateway/server-methods/sessions-read-cache.test-support.js";
+import { readPreparedGatewayModelCatalog } from "../gateway/server-model-catalog.js";
 import * as projectionWork from "../gateway/session-projection-work.js";
 import { bindSessionRowProjection } from "../gateway/session-row-projection-access.js";
 import {
@@ -31,11 +32,17 @@ import {
   recordRuntimeAuthMaterialization,
   revokeRuntimeAuthMaterializations,
 } from "./auth-profiles/runtime-materializations.js";
+import { saveAuthProfileStore } from "./auth-profiles/store-runtime.js";
+import type { AuthProfileCredential } from "./auth-profiles/types.js";
 import type { ModelCatalogEntry, ModelCatalogSnapshot } from "./model-catalog.types.js";
-import { getPreparedModelRuntimeAuthMaterializations } from "./prepared-model-runtime-auth.js";
+import {
+  getPreparedModelFullCatalogAuth,
+  getPreparedModelRuntimeAuthMaterializations,
+} from "./prepared-model-runtime-auth.js";
 import {
   getPreparedModelRuntimeSnapshot,
   publishPreparedModelRuntimeSnapshot,
+  prepareModelRuntimeSnapshot,
   refreshPreparedModelRuntimeSnapshots,
 } from "./prepared-model-runtime.js";
 import { registerPreparedModelRuntimePublicationListener } from "./prepared-model-runtime.publication-events.js";
@@ -64,7 +71,7 @@ function catalog(entry: ModelCatalogEntry | undefined = model): ModelCatalogSnap
 }
 
 // Real catalog publication, persisted rows, projection, and the registered RPC share one owner.
-async function setup(preparedMap = false) {
+async function setup(preparedMap = false, profile?: AuthProfileCredential) {
   const config: OpenClawConfig = {
     agents: {
       list: [{ id: "default", default: true }],
@@ -74,7 +81,18 @@ async function setup(preparedMap = false) {
   mocks.configuredAgentIds = ["default"];
   mocks.runPreparedModelCatalogWorker.mockImplementation(async () => catalog());
   const input = { config, agentId: "default", agentDir: state.agentDir("default") };
-  let owner = await publishPreparedModelRuntimeSnapshot(input, { catalogMode: "static" });
+  if (profile) {
+    mocks.usePersistedAuthProfiles = true;
+    mocks.loadAgentRuntimePluginRegistryHandle.mockReturnValue(createEmptyPluginRegistry());
+    persistProfile(profile);
+    await refreshPreparedModelRuntimeSnapshots(config, {
+      gatewayLifecycle: true,
+      catalogMode: "static",
+    });
+  }
+  let owner = profile
+    ? await prepareModelRuntimeSnapshot(input)
+    : await publishPreparedModelRuntimeSnapshot(input, { catalogMode: "static" });
   await owner.loadFullModelCatalog!({ refresh: true });
   for (let index = 0; index < rowCount; index++) {
     replaceSessionEntrySync(
@@ -90,7 +108,9 @@ async function setup(preparedMap = false) {
     );
   }
   const context = requestContext(config);
-  const readPrepared = vi.fn(async () => owner.readFullModelCatalog?.() ?? owner.modelCatalog);
+  const readPrepared = vi.fn(() =>
+    readPreparedGatewayModelCatalog({ agentId: "default", getConfig: () => config }),
+  );
   context.readPreparedGatewayModelCatalog = readPrepared;
   const readCatalog = vi.fn(async () =>
     preparedMap
@@ -118,6 +138,10 @@ async function setup(preparedMap = false) {
     list,
     initial,
     refresh: () => owner.loadFullModelCatalog!({ refresh: true }),
+    currentOwner: () => prepareModelRuntimeSnapshot(input),
+    settleCatalog: async () => {
+      await readCatalog.mock.results.at(-1)?.value;
+    },
     replaceOwner: async () => {
       await refreshPreparedModelRuntimeSnapshots(config, {
         gatewayLifecycle: true,
@@ -126,6 +150,29 @@ async function setup(preparedMap = false) {
       owner = getPreparedModelRuntimeSnapshot(input)!;
     },
   };
+}
+
+function persistProfile(profile: AuthProfileCredential) {
+  const store = { version: 1, profiles: { "custom:synthetic": profile } };
+  mocks.preparedAuthStore = store;
+  mocks.authStorage.getAll.mockReturnValue(
+    profile.type === "oauth"
+      ? {
+          custom: {
+            type: "oauth",
+            access: profile.access,
+            refresh: profile.refresh,
+            expires: profile.expires,
+          },
+        }
+      : {
+          custom: {
+            type: "api_key",
+            key: profile.type === "token" ? profile.token! : profile.key!,
+          },
+        },
+  );
+  saveAuthProfileStore(store, state.agentDir("default"));
 }
 
 beforeEach(async () => {
@@ -227,6 +274,85 @@ describe("catalog publication session rows", () => {
     },
   );
 
+  it.each(["oauth", "token"] as const)(
+    "adopts current model facts after persisted %s rotation",
+    async (kind) => {
+      const profile: AuthProfileCredential =
+        kind === "oauth"
+          ? {
+              type: "oauth",
+              provider: "custom",
+              access: "synthetic-access-before",
+              refresh: "synthetic-refresh-before",
+              expires: 1_900_000_000_000,
+              accountId: "synthetic-account",
+              email: "synthetic@example.test",
+            }
+          : { type: "token", provider: "custom", token: "synthetic-token-before" };
+      const { rows, list, currentOwner, readCatalog, initial, settleCatalog } = await setup(
+        true,
+        profile,
+      );
+      const previousOwner = await currentOwner();
+      const acquired = createDeferred();
+      const reply = createDeferred<ModelCatalogSnapshot>();
+      mocks.runPreparedModelCatalogWorker.mockImplementationOnce(async () => {
+        acquired.resolve();
+        return reply.promise;
+      });
+      const rotated: AuthProfileCredential =
+        profile.type === "oauth"
+          ? {
+              ...profile,
+              access: "synthetic-access-after",
+              refresh: "synthetic-refresh-after",
+              expires: profile.expires + 3_600_000,
+            }
+          : { ...profile, token: "synthetic-token-after" };
+      const publication =
+        vi.fn<Parameters<typeof registerPreparedModelRuntimePublicationListener>[0]>();
+      const unsubscribe = registerPreparedModelRuntimePublicationListener(publication);
+      let discovery: Promise<ModelCatalogSnapshot> | undefined;
+      try {
+        persistProfile(rotated);
+        const owner = await currentOwner();
+        expect(owner).not.toBe(previousOwner);
+        expect(() => previousOwner.readFullModelCatalog!()).toThrow();
+        discovery = owner.loadFullModelCatalog!({ changedOnly: true });
+        await acquired.promise;
+        // Settle the existing unavailable/static handoff before the discovery publication.
+        await settleCatalog();
+        await list();
+        const before = rows.materializedCount;
+        const reads = readCatalog.mock.calls.length;
+        reply.resolve(catalog(kind === "token" ? { ...model, contextWindow: 64_000 } : model));
+        const discovered = await discovery;
+        expect(
+          getPreparedModelFullCatalogAuth(discovered)?.authStore.profiles["custom:synthetic"],
+        ).toEqual(rotated);
+        await settleCatalog();
+        const result = await list();
+        expect(rows.dirtyRowCount).toBe(0);
+        expect(readCatalog.mock.calls.length).toBeGreaterThan(reads);
+        expect(publication).toHaveBeenCalledWith({
+          phase: "catalog-published",
+          modelFactsChanged: true,
+        });
+        if (kind === "oauth") {
+          expect(result.sessions).toEqual(initial.sessions);
+          expect(rows.materializedCount).toBe(before);
+        } else {
+          expect(result.sessions.every((row) => row.contextTokens === 64_000)).toBe(true);
+          expect(rows.materializedCount - before).toBe(rowCount);
+        }
+      } finally {
+        reply.resolve(catalog());
+        await discovery;
+        unsubscribe();
+      }
+    },
+  );
+
   it("publishes settled attempt status without rebuilding unchanged resident rows", async () => {
     const { rows, list, refresh, initial, readCatalog } = await setup();
 
@@ -280,7 +406,7 @@ describe("catalog publication session rows", () => {
   });
 
   it("refreshes changed model facts, removal, owner replacement, and config", async () => {
-    const { rows, list, refresh, replaceOwner, config } = await setup();
+    const { rows, list, refresh, replaceOwner, config, settleCatalog } = await setup(true);
     let previousCount = rows.materializedCount;
     const currentModel = { ...model };
     // Each independent metadata change must invalidate, including non-context capabilities.
@@ -292,6 +418,7 @@ describe("catalog publication session rows", () => {
       Object.assign(currentModel, patch);
       mocks.runPreparedModelCatalogWorker.mockResolvedValue(catalog(currentModel));
       await refresh();
+      await settleCatalog();
       const changed = await list();
       expect(changed.sessions).toHaveLength(rowCount);
       expect(changed.sessions.every((row) => row.contextTokens === 64_000)).toBe(true);
@@ -306,14 +433,32 @@ describe("catalog publication session rows", () => {
       previousCount = rows.materializedCount;
     }
 
+    const routed = catalog(currentModel);
+    routed.routeVariants = [{ ...currentModel, contextTokens: 48_000, reasoning: false }];
+    mocks.runPreparedModelCatalogWorker.mockResolvedValue(routed);
+    await refresh();
+    await settleCatalog();
+    const rerouted = await list();
+    expect(rerouted.sessions.every((row) => row.contextTokens === 48_000)).toBe(true);
+    expect(
+      rerouted.sessions.every((row) => row.thinkingLevels!.every((level) => level.id === "off")),
+    ).toBe(true);
+    expect(rows.materializedCount - previousCount).toBe(rowCount);
+
     // An empty successful inventory is a real removal, including its dynamic context limit.
     mocks.runPreparedModelCatalogWorker.mockResolvedValue({ entries: [], routeVariants: [] });
     await refresh();
+    await settleCatalog();
     expect((await list()).sessions.every((row) => row.contextTokens !== 64_000)).toBe(true);
     const removed = rows.materializedCount;
     await replaceOwner();
+    await settleCatalog();
     await list();
     expect(rows.materializedCount - removed).toBeGreaterThanOrEqual(rowCount);
+    mocks.runPreparedModelCatalogWorker.mockResolvedValue(catalog(model));
+    await refresh();
+    await settleCatalog();
+    expect((await list()).sessions.every((row) => row.contextTokens === 32_000)).toBe(true);
     const replaced = rows.materializedCount;
     config.models = {
       providers: {

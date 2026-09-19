@@ -24,13 +24,33 @@ export async function startGatewayServer(
   const startupStartedAt = opts.startupStartedAt ?? Date.now();
   let stopDatabaseAdmission: (() => Promise<void>) | undefined;
   const start = async () => {
+    const { createSqliteReadOnlyWorkerScope } = await import("../infra/sqlite-readonly-worker.js");
+    const readOnlyWorkers = createSqliteReadOnlyWorkerScope();
     const { withAgentDatabaseStartupAdmission } =
       await import("../state/agent-database-startup.js");
-    return withAgentDatabaseStartupAdmission(async (admission) => {
-      stopDatabaseAdmission = () => admission.stop();
-      const mod = await loadServerStart();
-      return mod.startGatewayServerCore(port, { ...opts, startupStartedAt });
-    });
+    try {
+      const server = await readOnlyWorkers.run(() =>
+        withAgentDatabaseStartupAdmission(async (admission) => {
+          stopDatabaseAdmission = () => admission.stop();
+          const mod = await loadServerStart();
+          return mod.startGatewayServerCore(port, { ...opts, startupStartedAt });
+        }),
+      );
+      return {
+        ...server,
+        close: (closeOptions: Parameters<typeof server.close>[0]) =>
+          readOnlyWorkers.run(async () => {
+            try {
+              await server.close(closeOptions);
+            } finally {
+              await readOnlyWorkers.close();
+            }
+          }),
+      };
+    } catch (error) {
+      await readOnlyWorkers.close();
+      throw error;
+    }
   };
   // Transferable stdio sockets are a Node contract; Bun keeps its native transport.
   if (process.platform !== "linux" || process.versions.bun) {

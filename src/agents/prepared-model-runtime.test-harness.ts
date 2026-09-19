@@ -41,6 +41,7 @@ const preparedModelRuntimeMocks = vi.hoisted(() => ({
   },
   preparedAuthStore: undefined as import("./auth-profiles/types.js").AuthProfileStore | undefined,
   credentialsRevision: 0,
+  usePersistedAuthProfiles: false,
   preparedAuthMaterializations:
     [] as import("./auth-profiles/runtime-materializations.js").RuntimeAuthMaterialization[],
   authStorage: {
@@ -340,21 +341,45 @@ vi.mock("./auth-profiles/runtime-materializations.js", async (importOriginal) =>
   },
 }));
 
-vi.mock("./auth-profiles/runtime-snapshots.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./auth-profiles/runtime-snapshots.js")>()),
-  getPreparedRuntimeAuthProfileStoreSnapshotCore: () => preparedModelRuntimeMocks.preparedAuthStore,
-  getRuntimeAuthProfileStoreSnapshot: () => preparedModelRuntimeMocks.preparedAuthStore,
-  getRuntimeAuthProfileStoreSnapshotRevision: () => 0,
-  getRuntimeAuthProfileStoreCredentialsRevision: () =>
-    preparedModelRuntimeMocks.credentialsRevision,
-  registerRuntimeAuthProfileStoreMutationListener: (
-    listener: (event: { agentDir?: string; affectsInheritedStores: boolean }) => void,
-  ) => {
-    preparedModelRuntimeMocks.mutationListener ??= listener;
-    preparedModelRuntimeMocks.mutationListeners.add(listener);
-    return () => preparedModelRuntimeMocks.mutationListeners.delete(listener);
-  },
-}));
+vi.mock("./auth-profiles/runtime-snapshots.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./auth-profiles/runtime-snapshots.js")>();
+  return {
+    ...actual,
+    getPreparedRuntimeAuthProfileStoreSnapshotCore: (
+      ...args: Parameters<typeof actual.getPreparedRuntimeAuthProfileStoreSnapshotCore>
+    ) =>
+      preparedModelRuntimeMocks.usePersistedAuthProfiles
+        ? actual.getPreparedRuntimeAuthProfileStoreSnapshotCore(...args)
+        : preparedModelRuntimeMocks.preparedAuthStore,
+    getRuntimeAuthProfileStoreSnapshotRevision: () =>
+      preparedModelRuntimeMocks.usePersistedAuthProfiles
+        ? actual.getRuntimeAuthProfileStoreSnapshotRevision()
+        : 0,
+    getRuntimeAuthProfileStoreCredentialsRevision: () =>
+      preparedModelRuntimeMocks.usePersistedAuthProfiles
+        ? actual.getRuntimeAuthProfileStoreCredentialsRevision()
+        : preparedModelRuntimeMocks.credentialsRevision,
+    registerRuntimeAuthProfileStoreMutationListener: (
+      listener: (event: {
+        agentDir?: string;
+        affectsInheritedStores: boolean;
+        profileSetChanged?: boolean;
+      }) => void,
+    ) => {
+      preparedModelRuntimeMocks.mutationListener ??= listener;
+      preparedModelRuntimeMocks.mutationListeners.add(listener);
+      const unregister = actual.registerRuntimeAuthProfileStoreMutationListener((event) => {
+        if (preparedModelRuntimeMocks.usePersistedAuthProfiles) {
+          listener(event);
+        }
+      });
+      return () => {
+        preparedModelRuntimeMocks.mutationListeners.delete(listener);
+        unregister();
+      };
+    },
+  };
+});
 
 vi.mock("./auth-profiles/external-cli-sync.js", () => ({
   listExternalCliSyncProviderIds: () => [],
@@ -444,6 +469,7 @@ export async function resetPreparedModelRuntimeHarness(state: OpenClawTestState)
   preparedModelRuntimeMocks.authStorage.getOAuthProviders.mockReset().mockReturnValue([]);
   preparedModelRuntimeMocks.preparedAuthStore = undefined;
   preparedModelRuntimeMocks.credentialsRevision = 0;
+  preparedModelRuntimeMocks.usePersistedAuthProfiles = false;
   preparedModelRuntimeMocks.preparedAuthMaterializations = [];
   preparedModelRuntimeMocks.modelRegistry.fork
     .mockReset()

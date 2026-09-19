@@ -799,9 +799,7 @@
 }
 
 .chat-task-detail__heading .sidebar-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .chat-task-detail__meta {

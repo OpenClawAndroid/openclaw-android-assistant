@@ -1,4 +1,3 @@
-// Matrix plugin module implements media behavior.
 import { parseBuffer, type IFileInfo } from "music-metadata";
 import type { MediaKind } from "openclaw/plugin-sdk/media-runtime";
 import { getMatrixRuntime } from "../../runtime.js";

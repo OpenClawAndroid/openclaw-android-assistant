@@ -1,4 +1,3 @@
-// Imessage plugin module implements send behavior.
 import { constants, accessSync } from "node:fs";
 import { basename } from "node:path";
 import type { ChannelApprovalKind } from "openclaw/plugin-sdk/approval-handler-runtime";

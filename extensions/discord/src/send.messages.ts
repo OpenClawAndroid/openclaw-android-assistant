@@ -1,4 +1,3 @@
-// Discord plugin module implements send.messages behavior.
 import type { APIChannel, APIMessage } from "discord-api-types/v10";
 import { ChannelType } from "discord-api-types/v10";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";

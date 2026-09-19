@@ -34,12 +34,25 @@ projection once ready; mutations can require exact-key refreshes before delivery
 Native adoption bindings still use their storage owner, and paired-node enumeration
 can use network I/O. Previews remain limited to 500 characters;
 native hydration and catalog pages remain limited to 64 rows each. Native `thread/list` has no bounded metadata projection, so wire JSON can still be
-large. Immediately after decoding, catalog responses discard unused native fields
-and detach bounded metadata before the response promise settles. Each native page
-contains at most 64 rows (less than 6 MiB of serialized catalog metadata even at
-all field limits). Unchanged background rows reuse resident previews at this
-boundary without sanitizing them again; new or changed rows retain the prefix-first
-preview selector. Native wire parsing remains a transient allocation cost. Recency, native position within exposed timestamp ties, and thread ID form the
+large. Catalog `thread/list` pages and metadata-only `thread/read` responses used for catalog refreshes are
+parsed and projected in a worker owned by their app-server client. The stdout
+reader transfers bytes and waits for the compact result before delivering later
+responses or notifications. It admits one worker task at a time and pauses the
+transport while that task runs. Recovery also stays in the worker when a malformed
+frame hides its routing header until a later line; its decoded ID selects the catalog
+projection and the captured row admission. Native control reads, normal streaming notifications,
+and full-history reads keep their in-process decoder. Control reads preserve complete
+native metadata, including model selection and direct-input capability; transcript
+consumers require complete native raw items.
+Each native list page contains at most 64 rows (less than 6 MiB of serialized
+catalog metadata even at all field limits). The worker applies the existing
+prefix-first preview selector and 500-character display bound. Unchanged
+background rows can reuse resident previews before delivery. Native wire parsing
+and its temporary objects stay in the worker. Metadata reads preserve exact
+working directories and the native history paging mode.
+Ephemeral threads are excluded as soon as native metadata acknowledges them, so
+closing a short-lived helper cannot lose the exclusion while a background refresh is pending.
+Recency, native position within exposed timestamp ties, and thread ID form the
 stable ordering and opaque continuation key. Initial native positions preserve
 the sub-second order that the protocol rounds to seconds. Unchanged rows keep
 their positions across background refreshes, so existing cursors do not repeat
@@ -126,8 +139,8 @@ For remote app-servers without local filesystem access, the saved snapshot is
 available immediately and a background native walk reconciles changes made while
 the Gateway was stopped or its app-server connection was unavailable. The full
 15-minute safety walk reconciles remote membership and metadata.
-Unchanged display rows reuse their bounded previews; only new or changed rows
-need preview projection. Unchanged rows are not rewritten to SQLite.
+Unchanged display rows reuse their bounded resident previews after worker projection.
+Unchanged rows are not rewritten to SQLite.
 
 Native starts, metadata refreshes, renames, archives, deletions, and changed file
 fingerprints coalesce an incremental native check on the next 30-second tick.

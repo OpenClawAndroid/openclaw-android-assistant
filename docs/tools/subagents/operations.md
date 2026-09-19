@@ -2,7 +2,7 @@
 summary: "The subagent queue lane, restart recovery, stop scope, and the standing limitations"
 title: "Sub-agent concurrency, recovery, and stopping"
 read_when:
-  - You are tuning sub-agent concurrency or hitting the backlog cap
+  - You are tuning sub-agent concurrency or investigating a delivery backlog
   - A Gateway restart interrupted a sub-agent run
   - You need the exact scope of Stop and /stop
 ---
@@ -14,12 +14,15 @@ Sub-agents use a dedicated in-process queue lane:
 - **Lane name:** `subagent`
 - **Concurrency:** `agents.defaults.subagents.maxConcurrent` (default `8`)
 
-Retained blocked completions also protect the gateway from unbounded fan-out.
-OpenClaw warns when the delivery backlog reaches 25 and blocks new subagent
-spawns at 50 until operators retry or dismiss enough retained deliveries. It
-does not prune results to make room. Within a Gateway process, unchanged backlog
-counts do not repeat the warning every sweep. A count change at or above 25, or
-a return to that threshold after recovery, produces a new warning.
+Suspended completion deliveries do not block new work. Native subagents, ACP
+sessions, and visible sessions retain their normal active-run limits and
+authorization checks independently of the delivery backlog. Operators can
+inspect, retry, or dismiss retained deliveries with `openclaw tasks`.
+
+OpenClaw warns when the delivery backlog reaches 25. Within a Gateway process,
+unchanged backlog counts do not repeat the warning every sweep. A count change
+at or above 25, or a return to that threshold after recovery, produces a new
+warning. The backlog size does not discard results or change their retention.
 
 ## Liveness and recovery
 

@@ -7,13 +7,16 @@ import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "./openclaw-state-db.js";
-import { readUserProfileIdentity, retainUserProfileCatalog } from "./user-profile-list.js";
+import {
+  listUserProfilesSync,
+  readUserProfileIdentity,
+  retainUserProfileCatalog,
+} from "./user-profile-list.js";
 import {
   ensureProfileForEmail,
   getUserProfileDisplay,
   getUserProfileListItem,
   getUserProfileRole,
-  listProfiles,
   resolveUserProfileId,
   setUserProfileRole,
 } from "./user-profiles.js";
@@ -63,7 +66,7 @@ describe("user profile role schema", () => {
         id: profile.id,
         hasAvatar: false,
       });
-      expect(listProfiles(options)[0]).not.toHaveProperty("role");
+      expect(listUserProfilesSync(options)[0]).not.toHaveProperty("role");
       expect(tableHasColumn(database, "user_profiles", "role")).toBe(false);
       expect(getUserProfileRole(profile.id, options)).toBeNull();
       expect(database.prepare("PRAGMA user_version").get()?.user_version).toBe(versionBefore);
@@ -108,6 +111,7 @@ describe("user profile role schema", () => {
         expect(tableHasColumn(database, "user_profiles", "role")).toBe(false);
         expect(resolveUserProfileId(profile.id, options)).toBe(profile.id);
         expect(getUserProfileListItem(profile.id, options)).not.toHaveProperty("role");
+        expect(listUserProfilesSync(options)[0]).not.toHaveProperty("role");
       };
       const rollBackRole = () =>
         runOpenClawStateWriteTransaction(() => {

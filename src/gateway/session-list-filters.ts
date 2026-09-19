@@ -1,3 +1,4 @@
+import { expectDefined } from "@openclaw/normalization-core";
 import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
@@ -12,9 +13,12 @@ import {
 } from "../config/sessions/session-entry-provenance.js";
 import { isPinnableSessionEntry } from "../config/sessions/session-pin-policy.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { normalizeAgentId, parseAgentSessionKey } from "../routing/session-key.js";
-import { isCronRunSessionKey, isSubagentSessionKey } from "../sessions/session-key-utils.js";
+import { normalizeAgentId } from "../routing/session-key.js";
 import { sessionActivityTimestamp } from "../shared/session-activity-timestamp.js";
+import {
+  isCronSessionDisplayKey,
+  isSystemCreatedSessionRow,
+} from "../shared/session-list-visibility.js";
 import type { SessionOwnerFacetIdentity } from "../shared/session-types.js";
 import type { SynchronousWork } from "../shared/synchronous-work.js";
 import {
@@ -148,23 +152,26 @@ export function* filterSessionEntries(
   const selectedProfileId = profileReference?.value;
 
   const keepCandidate = ([key, entry]: SessionEntryPair) => {
-    const target = params.getTarget(key);
-    const storeKey = target?.storeKey ?? key;
+    const target = expectDefined(params.getTarget(key), "selection row owner");
+    const { selection } = target;
+    const storeKey = target.storeKey ?? key;
     if (
-      isCronRunSessionKey(key) ||
-      (opts.excludeSubagents === true && (isSubagentSessionKey(key) || entry.spawnedBy)) ||
+      selection.isCronRun ||
+      (opts.excludeCron === true && isCronSessionDisplayKey(key)) ||
+      (opts.excludeSystem === true && isSystemCreatedSessionRow({ ...entry, key })) ||
+      (opts.excludeSubagents === true && selection.isSubagent) ||
       (!includeGlobal && storeKey === "global") ||
       (!includeUnknown && storeKey === "unknown")
     ) {
       return false;
     }
     if (agentId && storeKey !== "global") {
-      const ownerAgentId = target?.storeKey ? target.agentId : parseAgentSessionKey(key)?.agentId;
-      if (!ownerAgentId || normalizeAgentId(ownerAgentId) !== agentId) {
+      const ownerAgentId = target.storeKey ? normalizeAgentId(target.agentId) : selection.agentId;
+      if (ownerAgentId !== agentId) {
         return false;
       }
     }
-    if (isPhantomAgentStoreListEntry(key, entry)) {
+    if (selection.isPhantom) {
       return false;
     }
     if (spawnedBy) {
@@ -350,12 +357,4 @@ export function* filterSessionEntries(
         }
       : {}),
   };
-}
-
-function isPhantomAgentStoreListEntry(key: string, entry: SessionEntry | undefined): boolean {
-  return (
-    entry?.updatedAt == null &&
-    !normalizeOptionalString(entry?.sessionId) &&
-    parseAgentSessionKey(key)?.rest === "sessions"
-  );
 }
