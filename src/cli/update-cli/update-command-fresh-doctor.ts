@@ -37,7 +37,7 @@ import { formatCommandOutput } from "../../process/command-error.js";
 import { isPlainCommandExitFailure, runExec, type RunExecOptions } from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
 import { truncateUtf8Prefix, truncateUtf8Suffix } from "../../utils/utf8-truncate.js";
-import { resolveNodeRunner, type UpdateCommandOptions } from "./shared.js";
+import { parseUpdateTimeoutMs, resolveNodeRunner, type UpdateCommandOptions } from "./shared.js";
 import { readUpdateConfigSnapshot } from "./update-command-config-snapshot.js";
 import {
   assertUpdateDoctorChildSucceeded,
@@ -169,7 +169,9 @@ export async function runUpdateFinalizationDoctorInFreshProcess(params: {
   try {
     const commandOptions: RunExecOptions = {
       cwd: params.root,
-      timeoutMs: params.timeoutMs,
+      // Normal updates also carry a default step allowance. Only operator opts
+      // may impose a Doctor deadline; standalone finalization supplies its own.
+      timeoutMs: params.opts ? parseUpdateTimeoutMs(params.opts.timeout) : params.timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
       logOutput: false,
       onOutputChunk: captureUpdateFinalizationDoctorOutput(params.phase),

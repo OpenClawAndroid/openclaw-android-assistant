@@ -16,7 +16,7 @@ import {
   selectRunAfter,
 } from "../../scripts/watch-pr-ci.mts";
 import { withTempDir } from "../../src/test-utils/temp-dir.js";
-import placeholderFixture from "../fixtures/watch-pr-ci-queued-placeholder.json" with { type: "json" };
+import placeholderFixture from "../fixtures/watch-pr-ci-queued-placeholder.js";
 
 const sha = "a".repeat(40);
 

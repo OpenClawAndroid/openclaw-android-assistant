@@ -3,6 +3,7 @@ import type { AgentWaitParams } from "../../../../packages/gateway-protocol/src/
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { callGateway } from "../../../gateway/call.js";
 import type { GatewayContextResolver } from "../../../gateway/server-methods/types.js";
+import { registerSystemEventStoreOwner } from "../../../infra/system-event-ownership.js";
 import { createSubsystemLogger } from "../../../logging/subsystem.js";
 import {
   bindGatewayContextResolver,
@@ -27,6 +28,7 @@ import {
   type SubagentRegistryDeps,
 } from "./subagent-registry-deps.js";
 import { ANNOUNCE_EXPIRY_MS } from "./subagent-registry-helpers.js";
+import { suspendReplacedStoreNotifications } from "./subagent-registry-lifecycle-cleanup.js";
 import { finalizeSubagentTaskRun } from "./subagent-registry-lifecycle-delivery.js";
 import { SubagentLifecycleController } from "./subagent-registry-lifecycle.js";
 import { createSubagentRegistryListener } from "./subagent-registry-listener.js";
@@ -172,6 +174,9 @@ const {
   settleRequesterTurnAfterSessionSpawns,
   startSubagentAnnounceCleanupFlow,
 } = subagentLifecycleController;
+registerSystemEventStoreOwner(Symbol.for("openclaw.subagentNotifications"), () =>
+  suspendReplacedStoreNotifications(subagentLifecycleController.options),
+);
 
 function scheduleSubagentDeliveryResumeRetry(
   runId: string,
@@ -383,6 +388,7 @@ const subagentRestorer = createSubagentRegistryRestorer({
       bindGatewayContextResolver(entry, lifecycleGatewayContextResolver);
       subagentRuns.commitOwnership(entry);
     }
+    suspendReplacedStoreNotifications(subagentLifecycleController.options);
     return true;
   },
   persist: persistSubagentRuns,

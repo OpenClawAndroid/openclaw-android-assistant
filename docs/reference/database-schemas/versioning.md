@@ -67,6 +67,13 @@ on that original build before replacement. Active modern workers must also drain
 before downgrade or rollback to an older writer, which cannot interpret anchor
 lineage completion.
 
+Notification ownership uses bare nullable `TEXT` columns at the same schema
+version: `session_watch_cursors.watcher_store_path`,
+`subagent_runs.requester_store_path`, and `subagent_runs.controller_store_path`.
+Their writers ensure them idempotently on first use; reads do not install them.
+Older readers ignore the columns. NULL remains unknown, so Gateway notification
+delivery does not assign historical records to a current parent by key alone.
+
 Retained ACP imports use the same-version additive-column exception for the bare
 nullable `session_nodes.legacy_acp_migration_json TEXT` column. Legacy session
 import ensures it on first use and records exact source-component provenance;

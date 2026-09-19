@@ -339,7 +339,7 @@ describe("canonical shared-state worker admission", () => {
     },
   );
 
-  it("opens a fresh actor for a new call after the previous worker exits", async () => {
+  it("opens a fresh actor for the first new call after the previous worker exits", async () => {
     const captured = context();
     const messages = vi.spyOn(Worker.prototype, "postMessage");
     await executeOpenClawStateWorker(captured, {
@@ -357,7 +357,7 @@ describe("canonical shared-state worker admission", () => {
         type: "flows.list",
         input: { ownerKey: "agent:main:main" },
       }),
-    ).rejects.toThrow();
+    ).resolves.toEqual([]);
     expect(
       await executeOpenClawStateWorker(captured, {
         type: "flows.list",

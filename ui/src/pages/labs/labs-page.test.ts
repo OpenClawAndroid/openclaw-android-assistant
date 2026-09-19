@@ -307,7 +307,7 @@ describe("LabsPage", () => {
 
   it("shows default provenance", async () => {
     const inherited = await mountPage({});
-    expect(labRow(inherited.page, "Code Mode").textContent).toContain("Using default: Disabled");
+    expect(labRow(inherited.page, "Code Mode").textContent).not.toContain("Using default:");
     inherited.provider.remove();
 
     const overridden = await mountPage({

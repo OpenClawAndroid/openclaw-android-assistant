@@ -17,6 +17,7 @@ import { applyAuthHeaderOverride, applyLocalNoAuthHeaderOverride } from "../../m
 import { recordAdmittedModelRoutingDecision } from "../../model-routing-decision.js";
 import { captureAgentPluginRuntimeRefresh } from "../../plugin-runtime-refresh.js";
 import { appendProgressCardSystemPrompt } from "../../progress-card-system-prompt.js";
+import { resolveReplyExpectation } from "../../reply-completion.js";
 import { buildAgentRuntimePlan } from "../../runtime-plan/build.js";
 import { resolveSessionPermissionExecMode } from "../../session-permission-exec-mode.js";
 import { resolveSessionPlacementSandbox } from "../../session-placement-admission.js";
@@ -414,6 +415,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     sandboxSessionKey: params.sandboxSessionKey,
     sandboxAgentId: params.sandboxAgentId,
     trigger: params.trigger,
+    terminalReplyExpectation: resolveReplyExpectation(params),
     memoryFlushWritePath: params.memoryFlushWritePath,
     messageChannel: params.messageChannel,
     messageProvider: params.messageProvider,

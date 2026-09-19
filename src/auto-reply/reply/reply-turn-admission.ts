@@ -18,6 +18,7 @@ import {
 } from "../../config/sessions/lifecycle.js";
 import { loadSessionEntryForAdmission } from "../../config/sessions/session-accessor.sqlite-entry.js";
 import type { InternalSessionEntry, SessionEntry } from "../../config/sessions/types.js";
+import type { GatewayRecoveryRuntime } from "../../gateway/server-instance-runtime.types.js";
 import type { GatewayContextResolver } from "../../gateway/server-methods/types.js";
 import { racePromiseWithAbortSignal } from "../../infra/abort-signal.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
@@ -269,6 +270,22 @@ export async function admitReplyTurn(
       });
     }
   };
+  const assertRecoveryOwnerCurrent = (
+    recoveryRuntime: GatewayRecoveryRuntime | undefined,
+    action: "starting" | "waiting for",
+  ) => {
+    assertDatabaseOwnerCurrent();
+    if (
+      lifecycleGeneration !== getAgentEventLifecycleGeneration() ||
+      resolveGatewayContext?.()?.recoveryRuntime !== recoveryRuntime
+    ) {
+      rejectLifecycleInvalidatedWork({
+        kind: params.kind,
+        message: `Session "${params.sessionKey}" changed while ${action} recovery. Retry.`,
+        transientSessionChange: true,
+      });
+    }
+  };
   const waitForRecovery = async (ownerRelease?: Promise<void>) => {
     const recoveryRuntime = resolveGatewayContext?.()?.recoveryRuntime;
     await waitForRestartRecoveryProgress({
@@ -277,17 +294,7 @@ export async function admitReplyTurn(
       ownerRelease,
       signal: params.upstreamAbortSignal,
     });
-    assertDatabaseOwnerCurrent();
-    if (
-      lifecycleGeneration !== getAgentEventLifecycleGeneration() ||
-      resolveGatewayContext?.()?.recoveryRuntime !== recoveryRuntime
-    ) {
-      rejectLifecycleInvalidatedWork({
-        kind: params.kind,
-        message: `Session "${params.sessionKey}" changed while waiting for recovery. Retry.`,
-        transientSessionChange: true,
-      });
-    }
+    assertRecoveryOwnerCurrent(recoveryRuntime, "waiting for");
   };
   // Retries may release a lifecycle lease, but cannot replace the first physical
   // database owner after waiting for an active turn, delivery, or writer.
@@ -458,11 +465,15 @@ export async function admitReplyTurn(
           const recoveryRuntime = gatewayContext?.recoveryRuntime;
           if (
             recoveryOwnerRelease &&
-            admittedSessionEntry?.abortedLastRun === true &&
-            params.kind === "visible"
+            (params.kind !== "visible" || admittedSessionEntry?.abortedLastRun === true)
           ) {
             admission?.release();
-            await waitForRecovery(recoveryOwnerRelease);
+            if (params.kind === "heartbeat") {
+              return { status: "skipped", reason: "active-run" };
+            }
+            await (params.kind === "visible"
+              ? waitForRecovery(recoveryOwnerRelease)
+              : racePromiseWithAbortSignal(recoveryOwnerRelease, params.upstreamAbortSignal));
             continue;
           }
           if (
@@ -489,22 +500,9 @@ export async function admitReplyTurn(
               recoveryDispatchOutcome = undefined;
               continue;
             }
-            const assertRecoveryOwnerCurrent = () => {
-              assertDatabaseOwnerCurrent();
-              if (
-                lifecycleGeneration !== getAgentEventLifecycleGeneration() ||
-                resolveGatewayContext?.()?.recoveryRuntime !== recoveryRuntime
-              ) {
-                rejectLifecycleInvalidatedWork({
-                  kind: params.kind,
-                  message: `Session "${params.sessionKey}" changed while starting recovery. Retry.`,
-                  transientSessionChange: true,
-                });
-              }
-            };
             const { retryRestartAbortedMainSessionRecovery } =
               await import("../../agents/main-session-recovery/main-session-restart-recovery.js");
-            assertRecoveryOwnerCurrent();
+            assertRecoveryOwnerCurrent(recoveryRuntime, "starting");
             params.upstreamAbortSignal?.throwIfAborted();
             const recovery = await retryRestartAbortedMainSessionRecovery({
               agentId: params.agentId,
@@ -516,7 +514,7 @@ export async function admitReplyTurn(
               sessionKey: params.sessionKey,
               storePath,
             });
-            assertRecoveryOwnerCurrent();
+            assertRecoveryOwnerCurrent(recoveryRuntime, "starting");
             recoveryDispatchOutcome = recovery.failed > 0 ? "failed" : "deferred";
             // Recovery may have completed or another owner may have won. Reload
             // the exact session and its live owner instead of using this snapshot.
@@ -536,18 +534,6 @@ export async function admitReplyTurn(
               });
             }
             recoveryOwnerLease = ownerClaim.kind === "claimed" ? ownerClaim.lease : undefined;
-          }
-          if (
-            recoveryOwnerRelease &&
-            (params.kind === "heartbeat" || params.kind === "queued_followup")
-          ) {
-            admission?.release();
-            // A live recovery lease excludes monitors after the durable abort flag clears.
-            if (params.kind === "heartbeat") {
-              return { status: "skipped", reason: "active-run" };
-            }
-            await racePromiseWithAbortSignal(recoveryOwnerRelease, params.upstreamAbortSignal);
-            continue;
           }
           if (interruptedBeforeOperation || isAbortSignalAborted(params.upstreamAbortSignal)) {
             rejectLifecycleInvalidatedWork({

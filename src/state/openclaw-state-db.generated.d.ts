@@ -1271,6 +1271,7 @@ export interface SessionWatchCursors {
   target_session_key: string;
   updated_at: number;
   watcher_session_key: string;
+  watcher_store_path: string | null;
 }
 
 export interface SkillLibraryEntries {
@@ -1416,9 +1417,11 @@ export interface StateLeases {
 export interface SubagentRuns {
   child_session_key: string;
   controller_session_key: string | null;
+  controller_store_path: string | null;
   created_at: number;
   payload_json: Generated<string>;
   requester_session_key: string;
+  requester_store_path: string | null;
   run_id: string;
 }
 

@@ -484,6 +484,10 @@ Scrolling down at the end keeps the final reply above the pull request bar and
 composer as images or other message content finish resizing. Scrolling upward
 keeps your reading position instead.
 
+Task progress cards are enabled by default. Toggle **Show task progress cards** in
+**Settings → Appearance → Chat** to hide or show the composer card in this browser.
+Hiding it does not stop agent work or clear saved progress.
+
 The task progress card above the composer collapses after deliberate upward
 scrolling settles. Returning to the end and progress updates leave it collapsed;
 completion can reopen it only while you are already at the end. Manual choices

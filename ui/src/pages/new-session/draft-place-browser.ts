@@ -32,6 +32,7 @@ type DraftProjectSelection =
 
 type DraftPlaceBrowserCallbacks = {
   requestUpdate: () => void;
+  pickerIdPrefix?: string;
   onProjectMissing: () => void;
   onSelectProject: (projectId: string) => void;
   onApprovedListing: (listing: FsListDirResult) => void;
@@ -463,7 +464,10 @@ export class DraftPlaceBrowser {
 
   onPopoverAfterHide(kind: DraftPickerKind) {
     this.hidingPopovers.delete(kind);
-    this.restorePopoverTrigger(`new-session-${kind}-trigger`, `.new-session-page__${kind}-popover`);
+    this.restorePopoverTrigger(
+      `${this.callbacks.pickerIdPrefix ?? "new-session"}-${kind}-trigger`,
+      `.new-session-page__${kind}-popover`,
+    );
     this.callbacks.requestUpdate();
   }
 

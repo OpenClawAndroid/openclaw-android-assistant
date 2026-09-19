@@ -1,4 +1,6 @@
 import { expect, it, vi } from "vitest";
+import { buildAgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.js";
+import { createAgentCommandLifecycle } from "../agents/command/lifecycle.js";
 import type { CronServiceState } from "../cron/service/state.js";
 import { tryFinishCronTaskRunWithoutHistory } from "../cron/service/task-runs.js";
 import { emitAgentEvent } from "../infra/agent-events.js";
@@ -22,6 +24,7 @@ import {
   recordTaskProgressByRunId,
   reloadTaskRegistryFromStoreAsync,
 } from "../tasks/task-registry.test-support.js";
+import { bindTaskRunOwner } from "../tasks/task-run-owner.js";
 import type { TaskEventPayload } from "./server-methods/task-summary.js";
 import { runTaskHandler } from "./server-methods/tasks.test-helpers.js";
 import type { startGatewayEventSubscriptions } from "./server-runtime-subscriptions.js";
@@ -46,6 +49,78 @@ export function registerTaskEventSubscriptionTests(
 ) {
   let unsubs: Subscriptions;
   const waitForFast = (callback: () => unknown) => vi.waitFor(callback, { interval: 1 });
+  it.each([
+    { status: "succeeded", outcomeStatus: "ok", stopReason: "stop", ledgerStatus: "completed" },
+    { status: "failed", outcomeStatus: "error", stopReason: "error", ledgerStatus: "failed" },
+    { status: "cancelled", outcomeStatus: "timeout", stopReason: "rpc", ledgerStatus: "cancelled" },
+    {
+      status: "timed_out",
+      outcomeStatus: "timeout",
+      stopReason: "timeout",
+      ledgerStatus: "timed_out",
+    },
+  ] as const)(
+    "publishes settled execution without unknown before a $status task is finalized",
+    async ({ status, outcomeStatus, stopReason, ledgerStatus }) => {
+      const broadcast = vi.fn<SubscriptionParams["broadcast"]>();
+      const closeTaskSessions = vi.fn(() => 0);
+      unsubs = start({ broadcast, terminalSessions: { closeTaskSessions } });
+      await waitForFast(() => expect(getTaskRegistryObservers()).not.toBeNull());
+      const runId = `settled-task-${status}`;
+      const task = createTaskFixture("cli", {
+        ...sessionTaskDefaults,
+        runId,
+        task: "Record the finished result",
+      });
+      const release = bindTaskRunOwner(task, async () => ({
+        ok: false,
+        error: "Cancellation was not requested.",
+      }));
+      const lifecycle = createAgentCommandLifecycle({
+        runId,
+        lifecycleGeneration: getAgentRunLifecycleGeneration,
+        startedAt: Date.now(),
+        state: {
+          currentTurnUserMessagePersisted: true,
+          lifecycleFinishing: false,
+          lifecycleEnded: false,
+        },
+      });
+      try {
+        emitAgentEvent({
+          runId,
+          stream: "lifecycle",
+          data: { phase: "start", startedAt: Date.now() },
+        });
+        broadcast.mockClear();
+        const terminal = {
+          metadata: {},
+          outcome: buildAgentRunTerminalOutcome({ status: outcomeStatus, stopReason }),
+        };
+        if (status === "failed") {
+          lifecycle.emitResultError({ payloads: [], meta: { durationMs: 0 } }, false, terminal);
+        } else {
+          lifecycle.emitEnd(terminal);
+        }
+        expect(getTaskById(task.taskId)?.status).toBe("running");
+        expect(closeTaskSessions).not.toHaveBeenCalled();
+        finishTaskFixture({ taskId: task.taskId, status, endedAt: Date.now() });
+        expect(
+          readTaskUpserts(broadcast).map(({ task: summary }) => ({
+            status: summary.status,
+            execution: summary.execution?.state,
+          })),
+        ).toEqual([
+          { status: "running", execution: "finished" },
+          { status: ledgerStatus, execution: "finished" },
+        ]);
+        expect(closeTaskSessions).toHaveBeenCalledExactlyOnceWith(task.taskId);
+      } finally {
+        release();
+      }
+    },
+  );
+
   it.each(["visible", "hidden-lifecycle", "hidden-session"] as const)(
     "pushes CLI owner and capacity changes without activity for %s runs",
     async (projection) => {

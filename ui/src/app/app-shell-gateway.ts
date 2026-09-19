@@ -2,7 +2,6 @@ import type { UiCommandParams } from "@openclaw/gateway-protocol";
 import type { GatewayBrowserClient, GatewayEventFrame } from "../api/gateway.ts";
 import type { GatewayAgentRow } from "../api/types.ts";
 import { isSessionRouteId } from "../app-route-paths.ts";
-import type { RouteId } from "../app-routes.ts";
 import {
   BROWSER_PANEL_TOGGLE_EVENT,
   DESKTOP_PANEL_TOGGLE_EVENT,
@@ -40,7 +39,7 @@ export type OutboxStoreRuntime = Pick<
 >;
 
 export interface ShellGatewayHost {
-  readonly context: ApplicationContext<RouteId> | undefined;
+  readonly context: ApplicationContext | undefined;
   routeState: ShellRouteState;
   activeSessionKey: string;
   desktopNavigationExpanded: boolean;
@@ -375,10 +374,7 @@ export class ShellGatewayOwner {
     }
   }
 
-  private refreshProfileAppearancePrefs(
-    context: ApplicationContext<RouteId>,
-    force = false,
-  ): Promise<void> {
+  private refreshProfileAppearancePrefs(context: ApplicationContext, force = false): Promise<void> {
     const snapshot = context.gateway.snapshot;
     const profileId = snapshot?.selfUser?.id;
     if (!profileId) {

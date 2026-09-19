@@ -58,7 +58,6 @@ import {
   hashConfigRaw,
   hasConfigMeta,
   parseConfigJson5,
-  rejectConfigNonFiniteNumbers,
   resolveGatewayMode,
   restoreAuthoredTildePathsForWrite,
 } from "./io.read-helpers.js";
@@ -102,6 +101,7 @@ import { resolveIncludeRoots } from "./paths.js";
 import { preflightRuntimeSnapshotWrite } from "./runtime-snapshot.js";
 import type { OpenClawConfig } from "./types.js";
 import { validateConfigObjectRawWithPlugins } from "./validation.js";
+import { rejectConfigNonFiniteNumbers } from "./value-tree.js";
 import { captureConfigWriteLockGuard } from "./write-lock.js";
 
 export async function writeConfigFileFromContext(

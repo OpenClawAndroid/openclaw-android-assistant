@@ -171,11 +171,14 @@ const suite = createControlUiE2eSuite({
           controlUi: { enabled: true },
         },
         cron: { enabled: false },
+        // Core search proof must not depend on external plugin catalog refreshes.
+        plugins: { enabled: false },
         agents: {
           ownership: "explicit",
           defaults: {
             workspace: owner.state.workspaceDir,
             model: "fixture/search-model",
+            modelPolicy: { allow: ["fixture/*"] },
             heartbeat: { every: "0m" },
           },
           entries: Object.fromEntries(
@@ -381,8 +384,12 @@ suite.define(() => {
           };
           await page.keyboard.press("ControlOrMeta+K");
           const palette = page.locator(".cmd-palette");
-          const input = palette.getByRole("combobox");
-          const results = palette.getByRole("listbox");
+          const input = palette.getByRole("textbox", {
+            name: "Search or start a task…",
+            exact: true,
+          });
+          const results = palette.locator(".cmd-palette__results");
+          const emptyState = palette.locator(".cmd-palette__no-results");
           await input.waitFor();
           const search = async (query: string, expectedHits: number, filename: string) => {
             const start = rpc.length;
@@ -415,7 +422,7 @@ suite.define(() => {
             });
             // Capture the settled state before assertions too, retaining useful
             // before-fix evidence when run against the original regression.
-            await capture(filename, palette, [input, results]);
+            await capture(filename, palette, [input, expectedHits === 0 ? emptyState : results]);
             expect(searches).toHaveLength(1);
             const response = searches[0]!;
             expect(response.params).toEqual({ query, limit: 25, scope });
@@ -431,7 +438,9 @@ suite.define(() => {
             expect(metadata[0]?.params).toEqual({ ...scope, search: query, limit: 10 });
             expect(metadata[0]?.ok).toBe(true);
             expect(metadata[0]?.sessionKeys).toEqual([]);
-            expect(notices).toEqual([]);
+            expect(notices).toEqual(
+              expectedHits === 0 ? [expect.stringContaining("No results found")] : [],
+            );
             expect(
               await palette
                 .getByText(/Search notices|incomplete|unavailable|indexing older/i)
@@ -466,7 +475,9 @@ suite.define(() => {
           const absent = await search("copperfinch absentconstellation", 0, "05-no-match.png");
           expect(absent.truncated).toBe(false);
           expect(await results.getByRole("option").count()).toBe(0);
-          await results.getByText("No results", { exact: true }).waitFor();
+          await emptyState
+            .getByRole("heading", { name: "No results found", exact: true })
+            .waitFor();
 
           await search("copperfinch observatory", 1, "06-selected-search-result.png");
           await results.getByRole("option").filter({ hasText: targetLabel }).click();

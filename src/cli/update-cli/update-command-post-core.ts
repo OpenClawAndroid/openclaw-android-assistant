@@ -85,6 +85,32 @@ export async function postCoreUpdateParentOwnsCompletion(
   return handoff?.completionOwner === "parent";
 }
 
+/** Restore operator intent only when the private handoff matches this child command. */
+export async function resolvePostCoreUpdateOperatorOptions(params: {
+  opts: UpdateCommandOptions;
+  resultPath: string | undefined;
+}): Promise<UpdateCommandOptions> {
+  if (!params.resultPath || params.opts.timeout === undefined) {
+    return params.opts;
+  }
+  const handoff = await readJsonIfExists<{
+    completionOwner?: unknown;
+    timeout?: { version?: unknown; serialized?: unknown; operator?: unknown };
+  }>(path.join(path.dirname(params.resultPath), "handoff.json"));
+  const timeout = handoff?.timeout;
+  if (
+    handoff?.completionOwner !== "parent" ||
+    timeout?.version !== 1 ||
+    timeout.operator !== null ||
+    timeout.serialized !== params.opts.timeout ||
+    !parseStrictPositiveInteger(params.opts.timeout)
+  ) {
+    // Shipped parents have no provenance. Their received deadline remains explicit-looking.
+    return params.opts;
+  }
+  return { ...params.opts, timeout: undefined };
+}
+
 export async function writePostCoreUpdateFailureFile(
   filePath: string | undefined,
   error: unknown,
@@ -352,8 +378,10 @@ export async function continuePostCoreUpdateInFreshProcess(params: {
   if (params.opts.acceptCapabilities) {
     argv.push("--accept-capabilities");
   }
-  // This child only finalizes plugins; it must retain the owning step allowance.
-  argv.push("--timeout", params.opts.timeout ?? String(Math.ceil(params.timeoutMs / 1000)));
+  // Older targets need the existing allowance. New targets recover operator intent
+  // from the private handoff instead of treating this compatibility value as explicit.
+  const serializedTimeout = params.opts.timeout ?? String(Math.ceil(params.timeoutMs / 1000));
+  argv.push("--timeout", serializedTimeout);
   const resultDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-post-core-"));
   const resultPath = path.join(resultDir, "plugins.json");
   const installRecordsPath = path.join(resultDir, "plugin-install-records.json");
@@ -396,7 +424,14 @@ export async function continuePostCoreUpdateInFreshProcess(params: {
     await writePostCoreSourceConfigFile(sourceConfigPath, params.preUpdateConfig);
     await writeJson(
       path.join(resultDir, "handoff.json"),
-      { completionOwner: "parent" },
+      {
+        completionOwner: "parent",
+        timeout: {
+          version: 1,
+          serialized: serializedTimeout,
+          operator: params.opts.timeout ?? null,
+        },
+      },
       { dirMode: 0o700 },
     );
     const jsonMode = params.opts.json === true;

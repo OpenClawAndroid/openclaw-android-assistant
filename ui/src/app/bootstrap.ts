@@ -89,7 +89,7 @@ import { openUpdateFailureTriage } from "./update-triage.ts";
 import { createWebPushCapability } from "./web-push.ts";
 
 export type ApplicationRuntime = {
-  readonly context: ApplicationContext<RouteId>;
+  readonly context: ApplicationContext;
   readonly router: ApplicationRouter;
   readonly documentMode: ControlUiDocumentMode | null;
   readonly warmBoot: boolean;
@@ -499,7 +499,7 @@ export function bootstrapApplication(): ApplicationRuntime {
   const navigateAndWait = (routeId: RouteId, options?: ApplicationNavigationOptions) =>
     navigateWithMode(routeId, options, "push");
   const plugins = new ControlUiPluginRuntime(() => context);
-  const context: ApplicationContext<RouteId> = {
+  const context: ApplicationContext = {
     basePath,
     resourceBasePath,
     lifecycleAbortSignal: startupLifecycle.signal,

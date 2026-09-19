@@ -24,6 +24,7 @@ import { withAgentQuestionAnswerAuthority } from "../harness/host-private-capabi
 import { runStructuredInput } from "../harness/structured-input-execution.js";
 import { compileStructuredInputQuestions } from "../harness/structured-input.js";
 import { resolveExecToolConfig } from "../lazy-exec-tool.js";
+import { resolveReplyExpectation } from "../reply-completion.js";
 import { recordAgentCleanupFailure } from "../run-cleanup-timeout.js";
 import { resolveToolLoopDetectionConfig } from "../tool-loop-detection-config.js";
 import { normalizeToolPolicyName } from "../tool-policy.js";
@@ -37,7 +38,7 @@ import {
   resolveCliNativeToolApprovalPlan,
 } from "./cli-native-tool-approval.js";
 import { createCliAbortError } from "./execute-node-claude.js";
-import { createCliPluginWatchdog } from "./execute-plugin-watchdog.js";
+import { createCliPluginWatchdog, type CliWatchdogClock } from "./execute-plugin-watchdog.js";
 import { createCliRunCurrentAssertion } from "./execution-target.js";
 import { createCliFailoverError as failover } from "./exit-error.js";
 import * as noOutputPolicy from "./no-output-timeout-policy.js";
@@ -423,6 +424,7 @@ export async function executePluginOwnedProcess(params: {
   forceNewSession?: boolean;
   sessionId?: string;
   noOutputTimeoutMs: number;
+  watchdogClock?: CliWatchdogClock;
   consumeStdout: (chunk: string) => void;
   onOutstandingWorkChange?: (active: boolean) => void;
   activeToolCount?: () => number;
@@ -485,29 +487,32 @@ export async function executePluginOwnedProcess(params: {
     outstanding.approvals = Math.max(0, outstanding.approvals + delta);
     reportOutstandingWork();
   };
-  const watchdog = createCliPluginWatchdog({
-    provider: run.provider,
-    model: params.context.modelId,
-    sessionId: run.sessionId,
-    lane: run.lane,
-    overallTimeoutMs: clampPositiveTimerTimeoutMs(run.timeoutMs),
-    noOutputTimeoutMs: clampPositiveTimerTimeoutMs(params.noOutputTimeoutMs),
-    useResume: params.useResume,
-    getActiveAskUserDeadline: params.getActiveLoopbackAskUserDeadline,
-    activeToolCount: () => Math.max(params.activeToolCount?.() ?? 0, outstanding.approvals),
-    backgroundTaskCount: () => outstanding.background,
-    hasObservedActivity: () => outstanding.observed,
-    hasReplayUnsafeActivity: () => outstanding.replayUnsafe,
-    onNoOutputTimeout: (error) => {
-      termination.reason = "no-output-timeout";
-      params.onNoOutputTimeout?.(error);
-      controller.abort(error);
+  const watchdog = createCliPluginWatchdog(
+    {
+      provider: run.provider,
+      model: params.context.modelId,
+      sessionId: run.sessionId,
+      lane: run.lane,
+      overallTimeoutMs: clampPositiveTimerTimeoutMs(run.timeoutMs),
+      noOutputTimeoutMs: clampPositiveTimerTimeoutMs(params.noOutputTimeoutMs),
+      useResume: params.useResume,
+      getActiveAskUserDeadline: params.getActiveLoopbackAskUserDeadline,
+      activeToolCount: () => Math.max(params.activeToolCount?.() ?? 0, outstanding.approvals),
+      backgroundTaskCount: () => outstanding.background,
+      hasObservedActivity: () => outstanding.observed,
+      hasReplayUnsafeActivity: () => outstanding.replayUnsafe,
+      onNoOutputTimeout: (error) => {
+        termination.reason = "no-output-timeout";
+        params.onNoOutputTimeout?.(error);
+        controller.abort(error);
+      },
+      onOverallTimeout: () => {
+        termination.reason = "overall-timeout";
+        controller.abort(new Error("CLI plugin runtime exceeded its execution timeout."));
+      },
     },
-    onOverallTimeout: () => {
-      termination.reason = "overall-timeout";
-      controller.abort(new Error("CLI plugin runtime exceeded its execution timeout."));
-    },
-  });
+    params.watchdogClock,
+  );
   const stopAskUserDeadlineListener = params.onActiveLoopbackAskUserDeadlineChange?.(() =>
     watchdog.reset(),
   );
@@ -517,6 +522,7 @@ export async function executePluginOwnedProcess(params: {
         kind: "cli" as const,
         runId: run.runId,
         toolAuthorityFingerprint: run.toolAuthorityFingerprint,
+        terminalReplyExpectation: resolveReplyExpectation(run),
         cancel: () => {
           termination.reason = "manual-cancel";
           controller.abort(createCliAbortError());

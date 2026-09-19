@@ -3036,9 +3036,8 @@ src/media-generation/provider-registry.ts	1
 src/media-understanding/attachments.select.ts	1
 src/media-understanding/entry-capabilities.ts	1
 src/media-understanding/image-model-runtime.ts	3
-src/media-understanding/runner.entries.ts	7
+src/media-understanding/runner.entries.ts	6
 src/media-understanding/runner.ts	1
-src/media-understanding/runtime.ts	2
 src/media-understanding/shared.ts	2
 src/media/audio-transcode.ts	1
 src/media/bounded-read-file.ts	2
@@ -3762,7 +3761,7 @@ ui/src/pages/plugin/route.ts	1
 ui/src/pages/portals/portal-reachability.ts	1
 ui/src/pages/profile/identity-section.ts	2
 ui/src/pages/secrets/view.ts	5
-ui/src/pages/sessions/view.ts	13
+ui/src/pages/sessions/view.ts	12
 ui/src/pages/skill-workshop/route.ts	1
 ui/src/pages/skill-workshop/self-learning.ts	1
 ui/src/pages/skill-workshop/view.ts	1

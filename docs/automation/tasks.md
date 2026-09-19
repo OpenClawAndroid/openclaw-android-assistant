@@ -376,6 +376,8 @@ Select a task to open its **Review** panel beside the parent conversation; the *
 
 CLI-backed agent tasks use their live run to show **Running** or **Queued** when activity events are missing. The inspector updates automatically as run ownership and queue status change.
 
+Settled execution stays **Finished** while the task owner records its final outcome. Execution completion does not imply success; the task's final status still distinguishes completion, failure, cancellation, and timeout.
+
 Execution and delivery remain separate in the inspector. **Result ready** with **Queued for parent** means the child finished but its result has not been delivered. **Delivered to parent** confirms that handoff. Failed or dismissed delivery keeps the execution result visible, and cancellation and timeout retain their own labels. Stop controls address the selected active task through its execution owner. Child conversations remain view-only with **Open parent session** navigation.
 
 On iOS, open **Chat actions → Background Tasks**; on Android, open the Chat overflow menu and select **Background tasks**. Both mobile views use Running and Finished grouping and open task details on selection.

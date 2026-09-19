@@ -41,6 +41,7 @@ import {
 import {
   postCoreUpdateParentOwnsCompletion,
   readPostCorePluginInstallRecordsFile,
+  resolvePostCoreUpdateOperatorOptions,
   resolvePostCoreUpdateStartedAtMs,
   writePostCorePluginUpdateResultFile,
   writePostCoreUpdateFailureFile,
@@ -56,7 +57,11 @@ type ResumePostCoreUpdateParams = {
 
 export async function resumePostCoreUpdate(params: ResumePostCoreUpdateParams): Promise<void> {
   try {
-    await resumePostCoreUpdateInternal(params);
+    const opts = await resolvePostCoreUpdateOperatorOptions({
+      opts: params.opts,
+      resultPath: process.env[POST_CORE_UPDATE_RESULT_PATH_ENV],
+    });
+    await resumePostCoreUpdateInternal({ ...params, opts });
   } catch (error) {
     // Publish only after phase cleanup releases its leases. The parent owns
     // recovery and triage; inherited TTY output cannot serve as its error record.

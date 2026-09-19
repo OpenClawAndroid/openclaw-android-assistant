@@ -41,7 +41,7 @@ export type TaskActivityOverlayState = {
   executionRunId?: string;
   executionId?: string;
   executionSourceId?: string;
-  executionState?: "running" | "waiting" | "unknown";
+  executionState?: "running" | "waiting" | "finished" | "unknown";
   executionWait?: NonNullable<TaskSummary["execution"]>["wait"];
   pendingApprovalIds: Set<string>;
   approvalObservationOverflow?: true;

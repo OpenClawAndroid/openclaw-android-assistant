@@ -178,6 +178,27 @@ describe("post-plugin update readiness", () => {
     },
   );
 
+  it.each([
+    { phase: "pre-plugin", timeout: undefined, expected: undefined },
+    { phase: "post-plugin", timeout: undefined, expected: undefined },
+    { phase: "pre-plugin", timeout: "3", expected: 3_000 },
+    { phase: "post-plugin", timeout: "3", expected: 3_000 },
+  ] as const)(
+    "uses the operator deadline for $phase Doctor ($timeout)",
+    async ({ phase, timeout, expected }) => {
+      await runUpdateFinalizationDoctorInFreshProcess({
+        ...updateOptions,
+        phase,
+        opts: { timeout },
+      });
+      expect(mocks.runExec).toHaveBeenCalledExactlyOnceWith(
+        "/usr/bin/node",
+        expect.arrayContaining(["doctor", "--repair"]),
+        expect.objectContaining({ timeoutMs: expected }),
+      );
+    },
+  );
+
   it.each([undefined, 5_000])("propagates the primary Doctor timeout %s", async (timeoutMs) => {
     await runUpdateFinalizationDoctorInFreshProcess({
       ...updateOptions,

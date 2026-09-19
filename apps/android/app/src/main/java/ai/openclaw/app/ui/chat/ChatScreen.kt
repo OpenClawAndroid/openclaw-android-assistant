@@ -60,6 +60,7 @@ import ai.openclaw.app.operatorScopesAllowAdmin
 import ai.openclaw.app.operatorScopesAllowWrite
 import ai.openclaw.app.providerDisplayName
 import ai.openclaw.app.resolveAgentIdFromMainSessionKey
+import ai.openclaw.app.ui.AppModalBottomSheet
 import ai.openclaw.app.ui.FoldAwareDropdownMenu
 import ai.openclaw.app.ui.FoldAwareMenuItem
 import ai.openclaw.app.ui.ProviderSignInDialog
@@ -179,7 +180,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderState
@@ -253,9 +253,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.DateFormat
 import java.time.Instant
-import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
@@ -1766,6 +1764,7 @@ private fun ChatMessageList(
                         live = false,
                         content = visibleContent(item.message).filter { it.toolActivity == null },
                         timestampMs = item.message.timestampMs,
+                        metadata = chatMessageMetadata(item.message),
                         onReplyMessage = onReplyMessage,
                         sessionActionsEnabled = sessionActionsEnabled,
                         onRewindMessage = onRewindMessage,
@@ -2123,6 +2122,7 @@ internal fun ChatBubble(
   sourcePreviewConfig: GatewaySourcePreviewConfig? = null,
   loadSourceFavicon: suspend (GatewaySourcePreviewConfig, String) -> GatewayLoadedImage? = { _, _ -> null },
   senderLabel: String? = null,
+  metadata: List<Pair<String, String>> = emptyList(),
   disclosure: @Composable () -> Unit = {},
 ) {
   val normalizedRole = role.trim().lowercase(Locale.US)
@@ -2285,10 +2285,9 @@ internal fun ChatBubble(
       )
     }
     timestampMs?.let {
-      Text(
-        text = formatChatTimestamp(it),
-        style = ClawTheme.type.caption.copy(fontSize = 11.5.sp, lineHeight = 14.sp, fontWeight = FontWeight.Normal),
-        color = ClawTheme.colors.textSubtle,
+      ChatMessageTimestamp(
+        timestampMs = it,
+        metadata = if (normalizedRole == "assistant" && !live) metadata else emptyList(),
         modifier = Modifier.align(if (isUser) Alignment.End else Alignment.Start),
       )
     }
@@ -3670,7 +3669,7 @@ private fun ChatEffortSheet(
   onDismiss: () -> Unit,
 ) {
   val thinkingOptions = if (thinkingSupported) options else emptyList()
-  ModalBottomSheet(
+  AppModalBottomSheet(
     modifier = Modifier.foldAwareSheet(opening.geometry),
     onDismissRequest = onDismiss,
     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -3730,7 +3729,7 @@ private fun BranchSwitcherSheet(
   onDismiss: () -> Unit,
   onSelect: (String) -> Unit,
 ) {
-  ModalBottomSheet(
+  AppModalBottomSheet(
     modifier = Modifier.foldAwareSheet(opening.geometry),
     onDismissRequest = onDismiss,
     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -3830,7 +3829,7 @@ private fun ChatModelPickerSheet(
   LaunchedEffect(permissionPickerEnabled) {
     if (showPermissionPicker && !permissionPickerEnabled && admit()) showPermissionPicker = false
   }
-  ModalBottomSheet(
+  AppModalBottomSheet(
     modifier = Modifier.foldAwareSheet(opening.geometry),
     onDismissRequest = onDismiss,
     // IME dismissal can remove a partial-height anchor while the selector opens.
@@ -4925,5 +4924,3 @@ internal fun chatThinkingOptionLabel(
     }
   return localizedUppercase(localizedLabel.take(1), languageTag) + localizedLabel.drop(1)
 }
-
-private fun formatChatTimestamp(timestampMs: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(Date(timestampMs))

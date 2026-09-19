@@ -11,7 +11,6 @@ import {
 import {
   cleanupDrafts,
   createDraftState,
-  prepareAnswerLaneForToolProgress,
   waitForDraftEvents,
 } from "./bot-message-dispatch-draft.js";
 import { createProgressState } from "./bot-message-dispatch-progress.js";
@@ -343,11 +342,7 @@ export const dispatchTelegramMessage = async (
     telegramDeps,
   };
   const draftState = createDraftState(turnConfig);
-  const progressState = createProgressState(
-    turnConfig,
-    draftState,
-    async () => await prepareAnswerLaneForToolProgress(turn),
-  );
+  const progressState = createProgressState(turnConfig, draftState, () => turn);
   const deliveryState = createDeliveryState({ ...turnConfig, lanes: draftState.lanes }, () => turn);
   const turn: TelegramDispatchTurn = {
     ...turnConfig,

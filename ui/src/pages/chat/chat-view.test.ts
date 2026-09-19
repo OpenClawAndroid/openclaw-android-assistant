@@ -6084,41 +6084,6 @@ describe("chat attachment picker", () => {
     );
   });
 
-  it("opens a pasted text excerpt in the side panel with the text-field action", async () => {
-    let attachments: ChatAttachment[] = [];
-    let container = renderAttachmentHarness(
-      () => attachments,
-      (next) => {
-        attachments = next;
-      },
-    );
-    const textarea = getComposerTextarea(container);
-    const text = `First words from a long pasted note ${"x".repeat(1100)}`;
-    textarea.dispatchEvent(createPasteEvent(text));
-    const sidebar = createAttachmentSidebarHarness();
-    container = renderChatView({ attachments, onOpenSidebar: sidebar.open });
-    document.body.append(container);
-
-    await waitForFast(() => {
-      expect(container.querySelector(".chat-selection-annotations__chip")?.textContent).toContain(
-        "First words from a long pasted…",
-      );
-    });
-    expect(attachments[0]?.origin).toBe("paste");
-    expect(container.querySelector("openclaw-chat-pasted-text openclaw-tooltip")).toBeNull();
-    requireElement(
-      container,
-      ".chat-selection-annotations__chip",
-      "pasted text chip",
-    ).dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(sidebar.open).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "attachment", plainText: true, mimeType: "text/plain" }),
-    );
-    expect(
-      sidebar.container.querySelector(".chat-attachment-text-action")?.textContent?.trim(),
-    ).toBe("Show in text field");
-  });
-
   it("preserves pasted-text presentation and restore behavior across handoff", async () => {
     let attachments: ChatAttachment[] = [];
     const producer = renderAttachmentHarness(

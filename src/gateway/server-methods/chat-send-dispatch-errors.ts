@@ -23,6 +23,17 @@ import { hasTrackedActiveSessionRun } from "./session-active-runs.js";
 import { emitSessionsChanged } from "./session-change-event.js";
 import type { GatewayRequestContext, RespondFn } from "./types.js";
 
+export function formatReturnedAgentErrors(messages: string[]): string | undefined {
+  const [primary, ...additional] = [...new Set(messages)];
+  if (!primary || additional.length === 0) {
+    return primary;
+  }
+  if (additional.length === 1) {
+    return `${primary}\n\nAdditional error: ${additional[0]}`;
+  }
+  return `${primary}\n\nAdditional errors:\n${additional.map((message) => `- ${message}`).join("\n")}`;
+}
+
 type PendingDispatchLifecycleError = {
   endedAt: number;
   error: string;

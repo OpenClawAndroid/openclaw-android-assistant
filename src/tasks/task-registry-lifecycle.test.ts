@@ -5,11 +5,13 @@ import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createInMemoryTaskRegistryStore } from "../test-utils/task-registry-store.js";
+import { getTaskExecutionObservation } from "./task-execution-observation.js";
 import { getTaskActivitySnapshot } from "./task-registry-activity.js";
 import { runTaskRegistryWorkerMutation } from "./task-registry-state.js";
-import { findTaskByRunId, getTaskById } from "./task-registry.js";
+import { findTaskByRunId, getTaskById, markTaskTerminalById } from "./task-registry.js";
 import { configureTaskRegistryRuntime, getTaskRegistryStore } from "./task-registry.store.js";
 import { createTaskFixture } from "./task-registry.test-support.js";
+import { bindTaskRunOwner } from "./task-run-owner.js";
 import {
   resetTaskFlowRegistryForTests,
   resetTaskRegistryForTests,
@@ -22,6 +24,62 @@ afterEach(() => {
 });
 
 describe("task registry agent events", () => {
+  it.each([
+    { phase: "end", executionSettled: false },
+    { phase: "error", executionSettled: false },
+    { phase: "end", executionSettled: true },
+    { phase: "error", executionSettled: true },
+  ])(
+    "leaves task settlement to its owner after $phase (execution settled: $executionSettled)",
+    async ({ phase, executionSettled }) => {
+      await withOpenClawTestState({ layout: "state-only" }, async () => {
+        const runId = `live-task-${phase}`;
+        const task = createTaskFixture("cli", {
+          runId,
+          childSessionKey: "agent:main:main",
+          task: "Work still unwinding",
+        });
+        const release = bindTaskRunOwner(task, async () => ({
+          ok: false,
+          error: "Cancellation was not requested.",
+        }));
+        const execution = () => getTaskExecutionObservation(task).state;
+        try {
+          emitAgentEvent({
+            runId,
+            sessionKey: "agent:main:main",
+            stream: "lifecycle",
+            data: {
+              phase,
+              status: "cancelled",
+              aborted: true,
+              stopReason: "rpc",
+              endedAt: Date.now(),
+              ...(executionSettled ? { executionSettled } : {}),
+            },
+          });
+          expect(getTaskById(task.taskId)).toMatchObject({ status: "running" });
+          expect(getTaskById(task.taskId)?.endedAt).toBeUndefined();
+          expect(execution()).toBe(executionSettled ? "finished" : "unknown");
+          if (executionSettled) {
+            emitAgentEvent({
+              runId,
+              stream: "lifecycle",
+              data: { phase: "start", startedAt: Date.now() },
+            });
+            expect(execution()).toBe("running");
+            emitAgentEvent({ runId, stream: "execution", data: { state: "unknown" } });
+            expect(execution()).toBe("unknown");
+          }
+          markTaskTerminalById({ taskId: task.taskId, status: "cancelled", endedAt: Date.now() });
+          expect(getTaskById(task.taskId)?.status).toBe("cancelled");
+        } finally {
+          release();
+        }
+      });
+    },
+  );
+
   it("keeps unscoped agent events out of SQLite", async () => {
     await withOpenClawTestState(
       { layout: "state-only", prefix: "openclaw-task-unscoped-events-" },

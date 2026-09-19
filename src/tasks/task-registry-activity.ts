@@ -1,3 +1,4 @@
+import { hasExecutionSettlement } from "@openclaw/normalization-core/agent-run-terminal-outcome";
 import { asOptionalObjectRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { sliceUtf16Safe, truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
@@ -43,7 +44,7 @@ type TaskActivitySnapshot = {
   lastActivity?: string;
   diffStat?: { files: number; added: number; removed: number };
   executionRunId?: string;
-  executionState?: "running" | "waiting" | "unknown";
+  executionState?: TaskActivityOverlayState["executionState"];
   executionWait?: TaskActivityOverlayState["executionWait"];
   lastActivityAt?: number;
   currentTool?: { name: string; startedAt: number };
@@ -292,7 +293,9 @@ export function recordTaskActivityEvent(
   if (event.stream === "lifecycle") {
     const phase = event.data.phase;
     if (phase === "start" || phase === "end" || phase === "error") {
-      activity.executionState = phase === "start" ? "running" : "unknown";
+      // Execution can settle before the task owner records its final outcome.
+      activity.executionState =
+        phase === "start" ? "running" : hasExecutionSettlement(event.data) ? "finished" : "unknown";
       activity.executionWait = undefined;
       activity.pendingApprovalIds.clear();
       activity.approvalObservationOverflow = undefined;

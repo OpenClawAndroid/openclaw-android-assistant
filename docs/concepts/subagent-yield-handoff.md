@@ -105,11 +105,13 @@ with its scheduler-owned continuation.
 
 ## Progress after yield
 
-Yield closes the old execution, not the delegated work. On Telegram, an
-interactive requester can hand its existing progress card to the core task
+Yield closes the old execution, not the delegated work. On Discord and Telegram,
+an interactive requester can hand its existing progress card to the core task
 presenter. The message ID, checklist, commentary, and bounded public display
 state survive the handoff. Channel cleanup stops the old stream without
 deleting the adopted card. The final answer remains a separate delivery.
+Discord requires `streaming.mode: "progress"`; this handoff does not change
+channel streaming defaults.
 
 An adopted card can continue for `done_only` children; `silent` children remain
 excluded. Channel commentary, tool-detail, and quiet-mode settings still apply.

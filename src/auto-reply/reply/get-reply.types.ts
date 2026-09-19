@@ -1,5 +1,6 @@
 import type { QueueMode } from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
 import type { CronCreatorAuthorityCapability } from "../../agents/cron-creator-authority-context.js";
+import type { ReplyDeliveryObserver } from "../../agents/reply-completion.js";
 import type { PrepareAssistantTranscriptMessage } from "../../config/sessions/transcript-assistant-delivery.js";
 import type { SessionEntry, SessionToolOverrides } from "../../config/sessions/types.js";
 // Shared get-reply type contracts for command, directive, and runtime layers.
@@ -53,6 +54,8 @@ type InternalReplySessionOptions = {
   /** First dispatch only: admission created this exact pinned session before reply initialization. */
   newlyCreatedSessionId?: string;
   onDeliberateSilentTerminalReply?: () => void;
+  /** Source-specific final delivery, e.g. a committed answer in the current WebChat history. */
+  resolveReplyDelivery?: ReplyDeliveryObserver;
   /** Retire the run's bundle MCP runtime at settlement. Set by one-shot isolated runs (isolated heartbeats) whose session ID is never reused. */
   cleanupBundleMcpOnRunEnd?: boolean;
   /** Defers the child-completion wake until the visible waiting status is delivered. */

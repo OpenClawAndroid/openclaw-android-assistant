@@ -346,6 +346,7 @@ CREATE TABLE IF NOT EXISTS session_state_heads (
 -- identity is agent-scoped end-to-end.
 CREATE TABLE IF NOT EXISTS session_watch_cursors (
   watcher_session_key TEXT NOT NULL,
+  watcher_store_path TEXT,
   target_session_key TEXT NOT NULL,
   last_seen_sequence INTEGER NOT NULL DEFAULT 0,
   notified_sequence INTEGER NOT NULL DEFAULT 0,
@@ -1633,7 +1634,9 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
   run_id TEXT NOT NULL PRIMARY KEY,
   child_session_key TEXT NOT NULL,
   controller_session_key TEXT,
+  controller_store_path TEXT,
   requester_session_key TEXT NOT NULL,
+  requester_store_path TEXT,
   created_at INTEGER NOT NULL,
   payload_json TEXT NOT NULL DEFAULT '{}'
 ) STRICT;

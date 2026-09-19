@@ -203,7 +203,11 @@ export function renderAppearanceSection(
         : t("configView.appearance.importHint"),
     },
   ];
-  const presentedTheme = themeOptions.find((option) => option.id === props.theme) ?? {
+  const selectedTheme = themeOptions.find((option) => option.id === props.theme);
+  const themeUnavailable =
+    props.themeCatalog?.unavailableId === props.theme ||
+    (props.theme.includes("/") && Boolean(props.themeCatalog?.themes.length) && !selectedTheme);
+  const presentedTheme = selectedTheme ?? {
     id: UI_APPEARANCE_DEFAULTS.theme,
     label: t("configView.themes.claw.label"),
   };
@@ -238,7 +242,7 @@ export function renderAppearanceSection(
     (preset) => preset.hex !== undefined && preset.hex === props.accent,
   );
   const accentSelectionStatus = defaultAccentSelected
-    ? t("configView.appearance.usingInheritedAccent")
+    ? null
     : t("configView.appearance.usingAccent", {
         value: selectedAccentPreset
           ? t(selectedAccentPreset.labelKey)
@@ -257,7 +261,7 @@ export function renderAppearanceSection(
           ${themeProvenance}
         </p>
         ${
-          props.themeCatalog?.unavailableId === props.theme
+          themeUnavailable
             ? html`<p class="settings-section__desc" role="status">
                 ${t("configView.appearance.themeUnavailable", { id: props.theme })}
               </p>`
@@ -505,7 +509,13 @@ export function renderAppearanceSection(
           </div>
         </div>
         <p id="settings-accent-status" class="settings-section__desc settings-accent-status">
-          <span class="settings-accent-status__selection">${accentSelectionStatus}</span>
+          ${
+            accentSelectionStatus
+              ? html`<span class="settings-accent-status__selection"
+                  >${accentSelectionStatus}</span
+                >`
+              : nothing
+          }
           <span class="settings-accent-status__scope">${accentProvenance}</span>
         </p>
       </section>

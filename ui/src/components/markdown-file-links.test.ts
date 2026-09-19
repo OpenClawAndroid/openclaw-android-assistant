@@ -254,6 +254,37 @@ describe("file links", () => {
     expect(link?.hasAttribute("data-file-path")).toBe(false);
   });
 
+  it.each([
+    "portal.example/service.test",
+    "example.com/src/app.ts",
+    "docs.example.dev/guide.md:42",
+    "example.ai/config.json?raw=1",
+    "münich.de/guide.md",
+    "example.xn--p1ai/guide.md",
+  ])("never treats the domain/path reference %s as a workspace file", (reference) => {
+    for (const input of [reference, `\`${reference}\``, `[website](${reference})`]) {
+      const fragment = htmlFragment(toSanitizedMarkdownHtml(input, { fileLinks: true }));
+      expect(fragment.querySelector("a[data-file-path]")).toBeNull();
+      expect(fragment.textContent?.trim()).toBe(input.startsWith("[") ? "website" : reference);
+    }
+  });
+
+  it.each([
+    "./portal.example/service.test",
+    "../example.com/src/app.ts",
+    "~/example.com/guide.md",
+    "/example.com/guide.md",
+    "C:/example.com/guide.md",
+    ".config/workflows/check.yml",
+    "src/components.v2/Button.tsx",
+    "src.v2/app.ts",
+  ])("keeps the local path %s addressable", (path) => {
+    const fragment = htmlFragment(toSanitizedMarkdownHtml(path, { fileLinks: true }));
+    expect(fragment.querySelector<HTMLAnchorElement>("a[data-file-path]")?.dataset.filePath).toBe(
+      path,
+    );
+  });
+
   it("does not link paths inside fenced code blocks", () => {
     const fragment = htmlFragment(
       toSanitizedMarkdownHtml("```ts\nsrc/lib/foo.ts:42\n```", { fileLinks: true }),

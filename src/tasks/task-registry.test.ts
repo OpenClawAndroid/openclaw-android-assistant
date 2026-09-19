@@ -5289,44 +5289,6 @@ describe("task-registry", () => {
     });
   });
 
-  it.each(["end", "error"] as const)(
-    "leaves a live-owned task running until its producer settles after lifecycle %s",
-    async (phase) => {
-      await withTaskRegistryTempDir(async () => {
-        const runId = `live-task-${phase}`;
-        const task = createTaskFixture("cli", {
-          runId,
-          childSessionKey: "agent:main:main",
-          task: "Work still unwinding",
-        });
-        const release = bindTaskRunOwner(task, async () => ({
-          ok: false,
-          error: "Cancellation was not requested.",
-        }));
-        try {
-          emitAgentEvent({
-            runId,
-            sessionKey: "agent:main:main",
-            stream: "lifecycle",
-            data: {
-              phase,
-              status: "cancelled",
-              aborted: true,
-              stopReason: "rpc",
-              endedAt: Date.now(),
-            },
-          });
-          expect(getTaskById(task.taskId)).toMatchObject({ status: "running" });
-          expect(getTaskById(task.taskId)?.endedAt).toBeUndefined();
-          markTaskTerminalById({ taskId: task.taskId, status: "cancelled", endedAt: Date.now() });
-          expect(getTaskById(task.taskId)?.status).toBe("cancelled");
-        } finally {
-          release();
-        }
-      });
-    },
-  );
-
   it.each([
     {
       name: "refuses CLI-tracked cancellation without a live owner",

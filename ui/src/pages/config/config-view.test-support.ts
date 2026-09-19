@@ -84,6 +84,8 @@ export const baseProps = () => ({
   setSessionCatalogHidden: vi.fn(),
   chatMessageMaxWidth: undefined,
   setChatMessageMaxWidth: vi.fn(),
+  chatShowTaskProgress: true,
+  setChatShowTaskProgress: vi.fn(),
   chatCollapseTaskProgress: false,
   setChatCollapseTaskProgress: vi.fn(),
   showAdvancedSettings: false,
